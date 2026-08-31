@@ -4,11 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef RP6502_RIA_W
-#include "ria/net/ntp.h"
-void ntp_task() {}
-int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
-#else
+
 
 #include "ria/net/ntp.h"
 #include "ria/net/wifi.h"
@@ -265,5 +261,3 @@ int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
     oem_snprintf(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
     return -1;
 }
-
-#endif /* RP6502_RIA_W */

@@ -16,7 +16,7 @@
 
 static void init(void)
 {
-#define DRIVER(i, t, iot, r, s, b) i();
+#define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
     /* Last, and not inside vga_init where it used to live: core 1 renders
@@ -33,7 +33,7 @@ static void init(void)
  * there is no file IO here to split them apart. */
 static void task(void)
 {
-#define DRIVER(i, t, iot, r, s, b) t(); iot(); com_task();
+#define DRIVER(i, t, iot, r, s, b, ...) t(); iot(); com_task();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }

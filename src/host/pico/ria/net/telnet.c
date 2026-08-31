@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifdef RP6502_RIA_W
 
 #include "core/sys.h"
 #include "core/ria.h"
@@ -753,5 +752,3 @@ bool telnet_has_pending(uint16_t port)
 {
     return net_has_pending(port);
 }
-
-#endif /* RP6502_RIA_W */

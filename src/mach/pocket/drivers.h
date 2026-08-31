@@ -31,6 +31,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/str/rln.h"
+#include "core/str/str.h"
 #include "core/str/unicode.h"
 #include "core/term/term.h"
 #include "core/aud/aud.h"
@@ -58,6 +59,7 @@
  */
 #define RP6502_MACH_DRIVERS                                                            \
     LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,          \
+    STR_DRIVER,                                   \
     AUD_DRIVER, BEL_DRIVER,                               \
     COM_DRIVER, FS_DRIVER,                                \
     STD_DRIVER, RLN_DRIVER, TERM_DRIVER,          \

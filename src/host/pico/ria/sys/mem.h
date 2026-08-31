@@ -30,6 +30,6 @@ void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define MEM_DRIVER DRIVER(nul_init, nul_task, mem_task, nul_run, nul_stop, mem_break)
+#define MEM_DRIVER DRIVER(nul_init, nul_task, mem_task, nul_run, nul_stop, mem_break, nul_config, nul_config)
 
 #endif /* _RIA_SYS_MEM_H_ */

@@ -19,6 +19,6 @@ void apf_task(void);
 void apf_refresh(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define APF_DRIVER DRIVER(apf_init, apf_task, nul_task, nul_run, nul_stop, nul_break)
+#define APF_DRIVER DRIVER(apf_init, apf_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _FPGA_SW_APF_H_ */

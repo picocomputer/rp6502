@@ -38,7 +38,7 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
 std_rw_result mid_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define MID_DRIVER DRIVER(nul_init, mid_task, nul_task, nul_run, mid_stop, nul_break)
+#define MID_DRIVER DRIVER(nul_init, mid_task, nul_task, nul_run, mid_stop, nul_break, nul_config, nul_config)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. A stream that can be flushed, but not sought. */

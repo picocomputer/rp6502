@@ -50,6 +50,6 @@ void ria_nak(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. Before PIX, which shares pio1, and before the boot reclock, so its
  * pre/post_reclock have a configured state machine to act on. */
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, nul_run, nul_stop, nul_break)
+#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _VGA_SYS_RIA_H_ */

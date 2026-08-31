@@ -26,6 +26,6 @@ int ntp_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* This driver's row in a machine's driver list; see core/driver.h. Sets the clock once the network is up, which it checks for itself each
  * pass rather than being sequenced behind wifi. */
-#define NTP_DRIVER DRIVER(nul_init, ntp_task, nul_task, nul_run, nul_stop, nul_break)
+#define NTP_DRIVER DRIVER(nul_init, ntp_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _RIA_NET_NTP_H_ */

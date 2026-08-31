@@ -6,7 +6,7 @@
 
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "core/cfg.h"
+#include "core/sys/config.h"
 #include "core/cpu.h"
 /* FatFs where there is one: ff.h declares ff_oem2uni and ff_wtoupper itself,
  * in types it picks per platform, and it is the authority wherever a tree has
@@ -34,8 +34,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 /* Two-level so an argument that is itself a macro expands first, which is
  * the whole reason these are here: glibc's __CONCAT expands once. */
-#define STR_XSTR1(x) #x
-#define STR_XSTR(x) STR_XSTR1(x)
 #define STR_CAT1(a, b) a##b
 #define STR_CAT(a, b) STR_CAT1(a, b)
 
@@ -150,7 +148,6 @@ static const uint16_t HOST_IN_FLASH("str_locale_cp") str_locale_cp[] = {
 #undef X
 
 static int str_locale_index;
-static bool str_locale_loaded;
 
 const char *S(int id)
 {
@@ -158,7 +155,7 @@ const char *S(int id)
 }
 
 // Switch the active string table (clamped). Internal; the locale is selected
-// by name through str_set_locale / str_load_locale.
+// by name; str_check_locale is what judges one.
 static void str_select_locale(int index)
 {
     int count = (int)(sizeof str_tabs / sizeof str_tabs[0]);
@@ -182,18 +179,31 @@ static int str_sanitize_locale(const char *name)
     return found_index < 0 ? default_index : found_index;
 }
 
-// Switch the string table and push the locale's default code page to oem
-// (oem only acts on it in auto mode).
-static void str_apply_locale(int index)
+/* The file keeps the canonical spelling, so "en" is stored as "EN". An
+ * unknown name is not sanitized here the way loading once did -- a name
+ * that is not a locale is not a locale. */
+bool str_check_locale(const char *in, char *out)
 {
+    int i = str_sanitize_locale(in);
+    if (strcasecmp(in, str_locale_names[i]))
+        return false;
+    strcpy(out, str_locale_names[i]);
+    return true;
+}
+
+/* Switch the string table and push the locale's default code page to oem
+ * (oem only acts on it in auto mode). */
+void str_apply_locale(const char *name, bool changed)
+{
+    (void)changed;
+    int index = str_sanitize_locale(name);
     str_select_locale(index);
     oem_locale_changed(str_locale_cp[index]);
 }
 
 void HOST_IN_FLASH("str_init") str_init(void)
 {
-    if (!str_locale_loaded)
-        str_apply_locale(str_sanitize_locale(""));
+    str_apply_locale(str_get_locale(), true);
 }
 
 int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
@@ -216,26 +226,14 @@ int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-void str_load_locale(const char *name)
+/* SET's line for this row, now that the row is this driver's. */
+int str_locale_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    str_apply_locale(str_sanitize_locale(name));
-    str_locale_loaded = true;
-}
-
-bool str_set_locale(const char *name)
-{
-    int new_index = str_sanitize_locale(name);
-    if (strcasecmp(name, str_locale_names[new_index]))
-        return false;
-    if (str_locale_index != new_index)
-        str_apply_locale(new_index);
-    cfg_save();
-    return true;
-}
-
-const char *str_get_locale(void)
-{
-    return str_locale_names[str_locale_index];
+    (void)state;
+    (void)width;
+    snprintf(buf, buf_size, STR_SET_LOC_RESPONSE,
+             str_get_locale(), str_get_locale_verbose());
+    return -1;
 }
 
 const char *str_get_locale_verbose(void)

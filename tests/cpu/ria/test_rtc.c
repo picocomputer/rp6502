@@ -11,6 +11,7 @@
  * and that %z reflects the host timezone offset.
  */
 
+#include "core/sys/config.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/sys.h"

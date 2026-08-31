@@ -282,7 +282,7 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
 UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
-    keymap_load_layout("US");
+    keymap_set_layout_list("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -300,7 +300,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 
     /* And a layout that moves a key moves it: on the German layout the
      * key at 0x1C types z, not y. */
-    keymap_load_layout("DE");
+    keymap_set_layout_list("DE");
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
@@ -319,7 +319,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 {
     reset_all();
     oem_set_code_page_run(437);
-    keymap_load_layout("US-INTL");
+    keymap_set_layout_list("US-INTL");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];

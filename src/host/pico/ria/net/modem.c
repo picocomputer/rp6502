@@ -4,40 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef RP6502_RIA_W
-#include "ria/net/modem.h"
-#include <pico/stdlib.h>
-void modem_task(void) {}
-void modem_stop(void) {}
-void __in_flash("modem_init") modem_init(void) {}
-void modem_set_conn(int desc) { (void)desc; }
-bool modem_settings_persistent(void) { return false; }
-bool modem_std_handles(const char *) { return false; }
-int modem_std_open(const char *, uint8_t, api_errno *) { return -1; }
-std_rw_result modem_std_close(int, api_errno *) { return STD_ERROR; }
-std_rw_result modem_std_read(int, char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
-std_rw_result modem_std_write(int, const char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
-bool modem_answer(void) { return false; }
-uint8_t modem_get_ring_count(void) { return 0; }
-bool modem_conns_is_open(int desc)
-{
-    (void)desc;
-    return false;
-}
-uint16_t modem_conns_listen_port(int desc)
-{
-    (void)desc;
-    return 0;
-}
-bool modem_set_listen_port(uint16_t port)
-{
-    (void)port;
-    return false;
-}
-#else
+
 
 #include "ria/net/cmd.h"
 #include "ria/net/modem.h"
+#include "core/sys/config.h"
 #include "ria/net/net.h"
 #include "ria/net/cyw.h"
 #include "ria/net/telnet.h"
@@ -1152,5 +1123,3 @@ std_rw_result modem_std_write(int desc, const char *buf, uint32_t count, uint32_
     *bytes_written = bw;
     return STD_OK;
 }
-
-#endif /* RP6502_RIA_W */

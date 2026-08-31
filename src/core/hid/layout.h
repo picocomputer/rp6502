@@ -58,6 +58,6 @@ uint16_t layout_word(uint32_t index);
 
 /* This driver's row in a machine's driver list; see core/driver.h. layout_init returns
  * whether a database arrived; a driver walk does not ask. */
-#define LAYOUT_DRIVER DRIVER(layout_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define LAYOUT_DRIVER DRIVER(layout_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_HID_LAYOUT_H_ */

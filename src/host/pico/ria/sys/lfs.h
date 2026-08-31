@@ -50,6 +50,6 @@ api_errno lfs_error_to_api_errno(int lfs_err);
 
 /* This driver's row in a machine's driver list; see core/driver.h. Only an init, which is
  * still a bring-up: the volume has to be mounted before anything reads it. */
-#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _RIA_SYS_LFS_H_ */

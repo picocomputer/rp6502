@@ -30,6 +30,6 @@ bool mode0_prog(uint16_t *xregs);
  * vid_init selects a canvas and that calls term_set_height. Its stop defers
  * the display restore to vid_task, so this row does not also have to be
  * first for the sake of being last. */
-#define VID_DRIVER DRIVER(vid_init, nul_task, vid_task, nul_run, vid_stop, nul_break)
+#define VID_DRIVER DRIVER(vid_init, nul_task, vid_task, nul_run, vid_stop, nul_break, nul_config, nul_config)
 
 #endif /* _FPGA_SW_VID_H_ */

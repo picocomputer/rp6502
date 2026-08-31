@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/sys/config.h"
 #include "core/str/oem.h"
 #include "core/sys.h"
 #include "core/str/str.h"

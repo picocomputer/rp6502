@@ -40,7 +40,7 @@ static volatile bool sys_breaking;
  * on the include path, so "drivers.h" above is its own. */
 void sys_init(void)
 {
-#define DRIVER(i, t, iot, r, s, b) i();
+#define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
@@ -53,14 +53,14 @@ void sys_init(void)
  * calls the two back to back. */
 void sys_task(void)
 {
-#define DRIVER(i, t, iot, r, s, b) t();
+#define DRIVER(i, t, iot, r, s, b, ...) t();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
 void sys_io_task(void)
 {
-#define DRIVER(i, t, iot, r, s, b) iot();
+#define DRIVER(i, t, iot, r, s, b, ...) iot();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
@@ -71,14 +71,14 @@ void sys_io_task(void)
  * the loop's. */
 static void sys_on_run(void)
 {
-#define DRIVER(i, t, iot, r, s, b) r();
+#define DRIVER(i, t, iot, r, s, b, ...) r();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
 static void sys_on_stop(void)
 {
-#define DRIVER(i, t, iot, r, s, b) s();
+#define DRIVER(i, t, iot, r, s, b, ...) s();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
@@ -88,7 +88,7 @@ static void sys_on_stop(void)
  * breaks printed. */
 static void sys_on_break(void)
 {
-#define DRIVER(i, t, iot, r, s, b) b();
+#define DRIVER(i, t, iot, r, s, b, ...) b();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }

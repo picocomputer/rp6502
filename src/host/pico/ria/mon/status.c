@@ -61,10 +61,14 @@ void status_mon_status(const char *args)
     mon_add_response_utf8(STATUS_NAME);
     mon_add_response_fn(status_version_response);
     mon_add_response_fn(vga_status_response);
+#ifdef RP6502_RIA_W
     mon_add_response_fn(wifi_status_response);
     mon_add_response_fn(ntp_status_response);
+#endif
     mon_add_response_fn(tim_status_response);
+#ifdef RP6502_RIA_W
     mon_add_response_fn(ble_status_response);
+#endif
     mon_add_response_fn(usb_status_response);
     mon_add_response_fn(msc_status_response);
     mon_add_response_fn(vcp_status_response);

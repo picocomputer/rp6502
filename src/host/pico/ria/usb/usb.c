@@ -411,7 +411,9 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
 void hid_set_leds(uint8_t leds)
 {
     usb_set_hid_leds(leds);
+#ifdef RP6502_RIA_W
     ble_set_hid_leds(leds);
+#endif
 }
 
 bool hid_boot_enumerating(void)

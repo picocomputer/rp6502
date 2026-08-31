@@ -8,6 +8,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
+#include "core/sys/config.h"
 #include "core/rp2350.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
@@ -22,7 +23,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static uint16_t cpu_phi2_khz_run;
-static uint16_t cpu_phi2_khz_set;
 static volatile bool cpu_run_requested;
 /* Microseconds, not an absolute_time_t: cpu_stop writes this from either core
  * and cpu_task reads it on core 0, and a 64-bit store is two on this part. A
@@ -33,7 +33,10 @@ static volatile uint32_t cpu_resb_deadline_us;
 // 6502 to RP2350 clock ratio is 1:32
 static_assert(CPU_PHI2_MAX_KHZ <= SYS_RP2350_KHZ / 32);
 
-static void cpu_change_phi2_khz(uint16_t freq_khz)
+/* The divider this rate lands on, and the rate that divider actually gives.
+ * Pure arithmetic on the request -- no hardware is read -- which is what lets
+ * the check normalize a value without reclocking anything. */
+static uint16_t cpu_quantize(uint16_t freq_khz, uint16_t *div_int, uint8_t *div_frac)
 {
     if (freq_khz < CPU_PHI2_MIN_KHZ)
         freq_khz = CPU_PHI2_MIN_KHZ;
@@ -42,7 +45,23 @@ static void cpu_change_phi2_khz(uint16_t freq_khz)
     float clkdiv = SYS_RP2350_KHZ / 32.f / freq_khz;
     uint16_t clkdiv_int = clkdiv;
     uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);
-    uint16_t new_khz = SYS_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
+    if (div_int)
+        *div_int = clkdiv_int;
+    if (div_frac)
+        *div_frac = clkdiv_frac;
+    return SYS_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
+}
+
+uint16_t cpu_quantize_phi2_khz(uint16_t freq_khz)
+{
+    return cpu_quantize(freq_khz, NULL, NULL);
+}
+
+static void cpu_change_phi2_khz(uint16_t freq_khz)
+{
+    uint16_t clkdiv_int;
+    uint8_t clkdiv_frac;
+    uint16_t new_khz = cpu_quantize(freq_khz, &clkdiv_int, &clkdiv_frac);
     if (cpu_phi2_khz_run == new_khz)
         return;
     cpu_phi2_khz_run = new_khz;
@@ -56,12 +75,7 @@ void __in_flash("cpu_init") cpu_init(void)
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
 
-    // Apply default only if config load did not set one.
-    if (!cpu_phi2_khz_run)
-    {
-        cpu_change_phi2_khz(CPU_PHI2_DEFAULT);
-        cpu_phi2_khz_set = cpu_phi2_khz_run;
-    }
+    cpu_apply_phi2_khz(cpu_get_phi2_khz(), true);
 }
 
 void cpu_task(void)
@@ -78,9 +92,9 @@ void cpu_task(void)
             if ((int32_t)(time_us_32() - cpu_resb_deadline_us) >= 0)
                 gpio_put(CPU_RESB_PIN, true);
         }
-        else if (cpu_phi2_khz_run != cpu_phi2_khz_set)
+        else if (cpu_phi2_khz_run != cpu_get_phi2_khz())
         {
-            cpu_change_phi2_khz(cpu_phi2_khz_set);
+            cpu_change_phi2_khz(cpu_get_phi2_khz());
         }
     }
 }
@@ -128,34 +142,34 @@ uint32_t cpu_get_reset_us(void)
                : RP6502_RESB_US;
 }
 
-void cpu_load_phi2_khz(const char *str)
-{
-    uint16_t phi2_khz;
-    if (str_parse_uint16(&str, &phi2_khz) && phi2_khz)
-    {
-        cpu_change_phi2_khz(phi2_khz);
-        cpu_phi2_khz_set = cpu_phi2_khz_run;
-    }
-}
-
 void cpu_set_phi2_khz_run(uint16_t phi2_khz)
 {
     cpu_change_phi2_khz(phi2_khz);
 }
 
-bool cpu_set_phi2_khz(uint16_t phi2_khz)
+/* What the file keeps is the rate the divider can actually give, so a
+ * config written here reads back as the machine runs. */
+bool cpu_check_phi2_khz(uint16_t *v)
 {
-    if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
+    if (*v < CPU_PHI2_MIN_KHZ || *v > CPU_PHI2_MAX_KHZ)
         return false;
-    cpu_change_phi2_khz(phi2_khz);
-    cpu_phi2_khz_set = cpu_phi2_khz_run;
-    cfg_save();
+    *v = cpu_quantize_phi2_khz(*v);
     return true;
 }
 
-uint16_t cpu_get_phi2_khz(void)
+void cpu_apply_phi2_khz(uint16_t phi2_khz, bool changed)
 {
-    return cpu_phi2_khz_set;
+    (void)changed;
+    cpu_change_phi2_khz(phi2_khz);
+}
+
+/* SET's line for this row. */
+int cpu_phi2_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    snprintf(buf, buf_size, STR_SET_PHI2_RESPONSE, cpu_get_phi2_khz());
+    return -1;
 }
 
 uint16_t cpu_get_phi2_khz_run(void)

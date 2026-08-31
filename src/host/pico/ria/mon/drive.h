@@ -26,6 +26,6 @@ void drive_mon_disk(const char *args);
 bool drive_active(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define DRIVE_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, drive_break)
+#define DRIVE_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, drive_break, nul_config, nul_config)
 
 #endif /* _RIA_MON_DRIVE_H_ */

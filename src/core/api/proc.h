@@ -66,6 +66,6 @@ bool proc_exec_inflight(void);
 // Load a ROM via NFC
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break)
+#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_PROC_H_ */

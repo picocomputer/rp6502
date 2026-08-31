@@ -22,6 +22,6 @@ void cdc_task(void);
 bool cdc_is_ready(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define CDC_DRIVER DRIVER(nul_init, cdc_task, nul_task, nul_run, nul_stop, nul_break)
+#define CDC_DRIVER DRIVER(nul_init, cdc_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _VGA_USB_CDC_H_ */

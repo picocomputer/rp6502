@@ -12,7 +12,9 @@
 #define _CORE_DRIVER_H_
 
 /* A machine lists its drivers once, as RP6502_MACH_DRIVERS in its own
- * drivers.h. A row is DRIVER(init, task, io_task, run, stop, break); a
+ * drivers.h. A row is DRIVER(init, task, io_task, run, stop, break,
+ * config, config); the last two are this driver's persisted settings and
+ * are walked by core/sys/config.c, not by the lifecycle walks here. A
  * driver names its own hooks in its own header, so a hook it has not got is
  * nul_* and costs nothing, and a driver a machine has not got is simply
  * absent from the list. Init and the task pumps walk forward; stop and break
@@ -36,6 +38,14 @@
 #define nul_run()
 #define nul_stop()
 #define nul_break()
+
+/* The config columns. A driver with no setting has nul_config; a setting
+ * with no rule to apply, or every value legal, says so with the other two.
+ * A machine that has not got a driver has not got its settings either --
+ * the row simply never expands. */
+#define nul_config
+#define nul_check(...) true
+#define nul_apply(...)
 
 #define DRIVERS_CAT(a, b) DRIVERS_CAT_(a, b)
 #define DRIVERS_CAT_(a, b) a##b

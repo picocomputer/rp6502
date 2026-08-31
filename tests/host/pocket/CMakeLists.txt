@@ -25,10 +25,15 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
         ${RP6502_SRC}/core/str/unicode.c
+        ${RP6502_SRC}/core/str/str.c
+        ${RP6502_SRC}/core/sys/config.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c
-    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}
-        ${KBDLAY_DIR} ${OEMCP_DIR})
+    # The pocket's own roster: keymap and str keep their settings there, so
+    # the generated accessors come from the machine this bench is standing in for.
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_SRC}/mach/pocket
+        ${KBDLAY_DIR} ${OEMCP_DIR}
+    DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
 add_dependencies(test_apf kbdlay oemcp)
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})

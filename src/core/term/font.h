@@ -27,6 +27,6 @@ void font_set_code_page(uint16_t cp);
 uint16_t font_get_code_page(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define FONT_DRIVER DRIVER(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define FONT_DRIVER DRIVER(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_TERM_FONT_H_ */

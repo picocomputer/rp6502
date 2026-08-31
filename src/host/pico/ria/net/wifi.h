@@ -33,17 +33,23 @@ bool wifi_ready(void);
 bool wifi_connecting(void);
 
 // Configuration setting SSID
-void wifi_load_ssid(const char *str);
-bool wifi_set_ssid(const char *ssid);
-const char *wifi_get_ssid(void);
+void wifi_apply_ssid(const char *ssid, bool changed);
+int wifi_ssid_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting PASS
-void wifi_load_pass(const char *str);
-bool wifi_set_pass(const char *pass);
-const char *wifi_get_pass(void);
+bool wifi_check_pass(const char *in, char *out);
+void wifi_apply_pass(const char *pass, bool changed);
+int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* This driver's row in a machine's driver list; see core/driver.h. Joins and holds the network; retries on its own timer, so it needs no
  * bring-up beyond the radio cyw already brought up. */
-#define WIFI_DRIVER DRIVER(nul_init, wifi_task, nul_task, nul_run, nul_stop, nul_break)
+#define WIFI_CONFIG_SSID CONFIG_STR(W, wifi, ssid, WIFI_SSID_SIZE, "", \
+    nul_check, wifi_apply_ssid, STR_SSID, wifi_ssid_response, \
+    STR_HELP_SET_SSID, wifi_scan_response)
+#define WIFI_CONFIG_PASS CONFIG_STR(K, wifi, pass, WIFI_PASS_SIZE, "", \
+    wifi_check_pass, wifi_apply_pass, STR_PASS, wifi_pass_response, \
+    STR_HELP_SET_PASS, NULL)
+#define WIFI_DRIVER DRIVER(nul_init, wifi_task, nul_task, nul_run, nul_stop, nul_break, \
+    WIFI_CONFIG_SSID, WIFI_CONFIG_PASS)
 
 #endif /* _RIA_NET_WIFI_H_ */

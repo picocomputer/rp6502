@@ -79,7 +79,7 @@ bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define MODEM_DRIVER DRIVER(modem_init, modem_task, nul_task, nul_run, modem_stop, nul_break)
+#define MODEM_DRIVER DRIVER(modem_init, modem_task, nul_task, nul_run, modem_stop, nul_break, nul_config, nul_config)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. A stream: no seek, nothing to flush. */

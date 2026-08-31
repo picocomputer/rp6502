@@ -37,6 +37,6 @@ void mem_tick(uint16_t addr, bool read, uint8_t *data);
 /* This driver's row in a machine's driver list; see core/driver.h. Here rather than in
  * core/mem.h because mem_init is this file's -- a machine whose memory is
  * real hardware has no such call and names its own row. */
-#define MEM_DRIVER DRIVER(mem_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define MEM_DRIVER DRIVER(mem_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_MEM_MEM_H_ */

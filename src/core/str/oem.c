@@ -6,8 +6,8 @@
 
 #include "core/api/dir.h"
 #include "core/str/oem.h"
+#include "core/sys/config.h"
 #include "core/str/str.h"
-#include "core/cfg.h"
 #include "core/vga/vga.h"
 #include "core/str/unicode.h"
 #include "host.h"
@@ -22,14 +22,13 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static uint16_t oem_code_page_set;
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 
 // Resolve the code page to apply: the override if set, else the locale auto.
 static uint16_t oem_resolve(void)
 {
-    return oem_code_page_set ? oem_code_page_set : oem_auto_cp;
+    return oem_get_code_page() ? oem_get_code_page() : oem_auto_cp;
 }
 
 static void oem_request_code_page(uint16_t cp)
@@ -47,12 +46,7 @@ static void oem_request_code_page(uint16_t cp)
 
 void HOST_IN_FLASH("oem_init") oem_init(void)
 {
-    // Nothing loaded from config (no CONFIG.SYS): default to auto.
-    if (!oem_code_page_run)
-    {
-        oem_code_page_set = 0;
-        oem_request_code_page(oem_resolve());
-    }
+    oem_apply_code_page(oem_get_code_page(), true);
     /* The glyph store was rebuilt by font_init just above and has forgotten
      * the page; oem_request_code_page only speaks when the number changes, so
      * it would stay forgotten. On a machine whose font is another chip this is
@@ -71,30 +65,36 @@ void oem_set_code_page_run(uint16_t cp)
     oem_request_code_page(cp);
 }
 
-bool oem_set_code_page(uint16_t cp)
+/* Zero is auto: track whatever the locale's default is. A page is carried
+ * or it is not, and the table says which without applying anything -- the
+ * same test oem_request_code_page makes before it speaks. */
+bool oem_check_code_page(uint16_t *v)
 {
-    if (cp)
-    {
-        // Applying it is the only way to know whether a page is carried.
-        oem_request_code_page(cp);
-        if (cp != oem_code_page_run)
-            return false;
-    }
-    // Zero is auto: track whatever the locale's default is.
-    oem_code_page_set = cp;
-    oem_request_code_page(oem_resolve());
-    cfg_save();
-    return true;
+    return *v == 0 || (*v < 900 && unicode_has_page(*v));
 }
 
-uint16_t oem_get_code_page(void)
+void oem_apply_code_page(uint16_t cp, bool changed)
 {
-    return oem_code_page_set;
+    (void)cp;
+    (void)changed;
+    oem_request_code_page(oem_resolve());
 }
 
 bool oem_is_auto(void)
 {
-    return oem_code_page_set == 0;
+    return oem_get_code_page() == 0;
+}
+
+/* SET's line for this row. Auto reports the page it landed on. */
+int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    if (oem_is_auto())
+        oem_snprintf(buf, buf_size, STR_SET_CODE_PAGE_AUTO_RESPONSE, oem_get_code_page_run());
+    else
+        oem_snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, oem_get_code_page());
+    return -1;
 }
 
 uint16_t oem_get_code_page_run(void)
@@ -105,17 +105,8 @@ uint16_t oem_get_code_page_run(void)
 void oem_locale_changed(uint16_t cp)
 {
     oem_auto_cp = cp;
-    if (oem_code_page_set == 0)
+    if (oem_is_auto())
         oem_request_code_page(oem_resolve());
-}
-
-void oem_load_code_page(const char *str)
-{
-    uint16_t cp;
-    if (!str_parse_uint16(&str, &cp))
-        return;
-    oem_code_page_set = cp; // 0 = auto; legacy non-zero = hard override
-    oem_request_code_page(oem_resolve());
 }
 
 unsigned char oem_from_codepoint(uint32_t cp)

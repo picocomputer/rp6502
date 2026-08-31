@@ -69,6 +69,6 @@ typedef struct
 const std_driver_t *std_drivers(size_t *count);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break)
+#define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_STD_H_ */

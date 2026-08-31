@@ -62,7 +62,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break)
+#define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break, nul_config, nul_config)
 
 
 #endif /* _RIA_MON_ROM_H_ */

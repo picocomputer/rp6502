@@ -16,8 +16,8 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
+#include "core/sys/config.h"
 #include "core/hid/usage.h"
-#include "core/cfg.h"
 #include "host.h"
 #include <stdio.h>
 #include <string.h>
@@ -38,9 +38,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define KEYMAP_KEY_QUEUE_SIZE 16
 
-static bool keymap_layout_loaded;
 static int keymap_layout_index;
-static char keymap_layout_list[KEYMAP_LAYOUT_LIST_SIZE];
 static const char *keymap_layout_pos;
 static host_deadline_t keymap_repeat_timer;
 static uint8_t keymap_repeat_modifier;
@@ -133,7 +131,7 @@ static void keymap_cycle_layout(void)
     while (*p == ' ')
         p++;
     if (!*p)
-        p = keymap_layout_list;
+        p = keymap_get_layout_list();
     if (p == keymap_layout_pos)
         return;
     keymap_layout_pos = p;
@@ -614,35 +612,38 @@ size_t keymap_in_chars(char *buf, size_t length)
     return i;
 }
 
-void keymap_load_layout(const char *str)
+/* Validate and canonicalize in one pass -- unknown name, duplicate or
+ * overflow all refuse -- writing only the caller's buffer. */
+bool keymap_check_layout_list(const char *in, char *out)
 {
-    if (!keymap_build_layout_list(str, keymap_layout_list, sizeof keymap_layout_list))
-        layout_name(keymap_sanitize_layout(""), keymap_layout_list);
-    keymap_layout_pos = keymap_layout_list;
-    keymap_layout_loaded = true;
-    keymap_apply_active();
+    return keymap_build_layout_list(in, out, KEYMAP_LAYOUT_LIST_SIZE);
 }
 
-bool keymap_set_layout(const char *list)
+/* Keep the active layout if it survived the new list, otherwise the first.
+ * The position points into config's storage, which holds these same bytes
+ * by the time this runs. */
+void keymap_apply_layout_list(const char *list, bool changed)
 {
-    char buf[KEYMAP_LAYOUT_LIST_SIZE];
-    if (!keymap_build_layout_list(list, buf, sizeof buf))
-        return false;
-    if (!strcmp(buf, keymap_layout_list))
-        return true;
-    strcpy(keymap_layout_list, buf);
-    // Keep the active layout if it survived, otherwise the first.
-    keymap_layout_pos = keymap_find_token(keymap_layout_list, keymap_layout_name);
+    (void)list;
+    (void)changed;
+    keymap_layout_pos = keymap_find_token(keymap_get_layout_list(), keymap_layout_name);
     if (!keymap_layout_pos)
-        keymap_layout_pos = keymap_layout_list;
+        keymap_layout_pos = keymap_get_layout_list();
     keymap_apply_active();
-    cfg_save();
-    return true;
 }
 
-const char *keymap_get_layout_list(void)
+/* SET's line for this row: the list when there is one, else the layout. */
+int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    return keymap_layout_list;
+    (void)state;
+    (void)width;
+    const char *list = keymap_get_layout_list();
+    if (strchr(list, ' '))
+        snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
+    else
+        snprintf(buf, buf_size, STR_SET_KB_RESPONSE,
+                 keymap_get_layout(), keymap_get_layout_verbose());
+    return -1;
 }
 
 const char *keymap_get_layout(void)
@@ -657,12 +658,16 @@ const char *keymap_get_layout_verbose(void)
 
 void HOST_IN_FLASH("keymap_init") keymap_init(void)
 {
-    if (!keymap_layout_loaded)
+    /* An empty list is not a list. A machine with no stored layout adopts
+     * the build default and keeps it, so the file completes itself once. */
+    if (!keymap_get_layout_list()[0])
     {
-        layout_name(keymap_sanitize_layout(""), keymap_layout_list);
-        keymap_layout_pos = keymap_layout_list;
-        keymap_apply_active();
+        char name[LAYOUT_NAME_MAX];
+        layout_name(keymap_sanitize_layout(""), name);
+        keymap_set_layout_list(name);
     }
+    else
+        keymap_apply_layout_list(keymap_get_layout_list(), true);
 }
 
 /* Once per report, so an Alt code committed while Alt was held is emitted

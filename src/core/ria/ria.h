@@ -86,6 +86,6 @@ bool ria_irq_asserted(void);
  * reversal puts its stop last -- which is where a machine with a real bus
  * needs it, because other stops read ria_active() to tell a program stop
  * from a fast-load transfer. This machine has no transfer and no stop. */
-#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, nul_break)
+#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_RIA_RIA_H_ */

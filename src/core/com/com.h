@@ -44,6 +44,6 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len));
 void com_task(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, nul_stop, nul_break)
+#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_COM_COM_H_ */

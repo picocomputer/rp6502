@@ -35,6 +35,6 @@ bool tim_gmtime(time_t t, struct tm *out);
 size_t tim_strftime(char *dst, size_t max, const char *format, const struct tm *tm);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_TIM_H_ */

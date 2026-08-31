@@ -6,7 +6,7 @@
 
 #include "core/str/oem.h"
 #include "ria/usb/vcp.h"
-#include "core/cfg.h"
+#include "core/sys/config.h"
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include <tusb.h>
@@ -38,8 +38,6 @@ static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 // NFC device tracking: identity hash binds one specific CDC device.
-#define VCP_NFC_HASH_SIZE 128
-static char vcp_nfc_device_hash[VCP_NFC_HASH_SIZE];
 static int vcp_nfc_device_idx = -1;
 
 __in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
@@ -310,7 +308,7 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
 // In the FatFs task tier: hash building blocks on USB string fetches.
 void vcp_task(void)
 {
-    if (!vcp_nfc_device_hash[0] || vcp_nfc_device_idx >= 0)
+    if (!vcp_get_nfc_device_hash()[0] || vcp_nfc_device_idx >= 0)
         return;
     for (uint8_t i = 0; i < CFG_TUH_CDC; i++)
         if (vcp_mounts[i].mounted && !vcp_mounts[i].nfc_checked)
@@ -319,7 +317,7 @@ void vcp_task(void)
             if (!usb_device_id_hash(vcp_mounts[i].daddr, hash, sizeof(hash)))
                 return; // fetch refused, retry next pass
             vcp_mounts[i].nfc_checked = true;
-            if (strcmp(hash, vcp_nfc_device_hash) == 0)
+            if (strcmp(hash, vcp_get_nfc_device_hash()) == 0)
                 vcp_nfc_device_idx = i;
             return; // one device per pass
         }
@@ -354,46 +352,33 @@ void tuh_cdc_umount_cb(uint8_t idx)
     }
 }
 
-void vcp_load_nfc_device_hash(const char *str)
+
+/* The setting is the device's identity hash; the name is only how a person
+ * asks for it. Reading the USB tree to build one is a read, and it can be
+ * refused mid-enumeration -- nfc.c retries. */
+bool vcp_check_nfc_device_hash(const char *in, char *out)
 {
-    size_t len = strlen(str);
-    if (len >= VCP_NFC_HASH_SIZE)
-        return;
-    memcpy(vcp_nfc_device_hash, str, len);
-    vcp_nfc_device_hash[len] = '\0';
+    if (!in[0])
+        return true;
+    if (!vcp_std_handles(in))
+        return false;
+    uint8_t idx = in[3] - '0';
+    if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
+        return false;
+    return usb_device_id_hash(vcp_mounts[idx].daddr, out, VCP_NFC_HASH_SIZE);
+}
+
+/* Drop the binding and let vcp_task find it again by hashing what is
+ * mounted -- the same thing loading the file used to arrange. */
+void vcp_apply_nfc_device_hash(const char *hash, bool changed)
+{
+    (void)hash;
+    (void)changed;
     vcp_nfc_device_idx = -1;
     for (uint8_t i = 0; i < CFG_TUH_CDC; i++)
         vcp_mounts[i].nfc_checked = false;
 }
 
-// Caller persists the change; this only updates the binding.
-bool vcp_set_nfc_device_name(const char *name)
-{
-    if (!name || !name[0])
-    {
-        vcp_nfc_device_hash[0] = '\0';
-        vcp_nfc_device_idx = -1;
-        cfg_save();
-        return true;
-    }
-    if (!vcp_std_handles(name))
-        return false;
-    uint8_t idx = name[3] - '0';
-    if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
-        return false;
-    char hash[VCP_NFC_HASH_SIZE];
-    if (!usb_device_id_hash(vcp_mounts[idx].daddr, hash, sizeof(hash)))
-        return false;
-    strcpy(vcp_nfc_device_hash, hash);
-    vcp_nfc_device_idx = idx;
-    cfg_save();
-    return true;
-}
-
-const char *vcp_get_nfc_device_hash(void)
-{
-    return vcp_nfc_device_hash;
-}
 
 int vcp_nfc_open(void)
 {

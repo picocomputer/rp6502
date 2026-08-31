@@ -7,6 +7,7 @@
 
 #include "chips/chips/w65c02.h"
 #include "core/wdc/cpu.h"
+#include "core/sys/config.h"
 #include "core/dap/dbg.h"
 #include "core/mem.h"
 #include "core/mem/mem.h"
@@ -36,7 +37,6 @@ void *cpu_chip(void) { return &cpu; }
 /* ------------------------------------------------------------------ */
 
 static uint16_t phi2_khz_run;             /* achievable PHI2 after quantization (reported) */
-static uint16_t phi2_khz_cfg;             /* config PHI2 loaded before init (0 = built-in default) */
 static uint32_t cycle_ticks = 256; /* system-clock ticks per 6502 cycle */
 
 /* Mirror ria/sys/cpu.c cpu_change_phi2_khz: the 6502:RP2350 ratio is 1:32, so
@@ -61,14 +61,11 @@ uint16_t cpu_get_phi2_khz_run(void)
     return phi2_khz_run;
 }
 
-/* Config PHI2 — the machine default, loaded before cpu_init (firmware cfg_init
- * parity). Validated here; cpu_init quantizes it into the run clock. */
-bool cpu_set_phi2_khz(uint16_t khz)
+/* Config PHI2 — the machine default, settable before cpu_init, which is what
+ * quantizes it into the run clock. Nothing to apply until then. */
+bool cpu_check_phi2_khz(uint16_t *v)
 {
-    if (khz < CPU_PHI2_MIN_KHZ || khz > CPU_PHI2_MAX_KHZ)
-        return false;
-    phi2_khz_cfg = khz;
-    return true;
+    return *v >= CPU_PHI2_MIN_KHZ && *v <= CPU_PHI2_MAX_KHZ;
 }
 
 /* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
@@ -81,7 +78,7 @@ void cpu_set_halted(bool on) { halted = on; }
 
 void cpu_init(void)
 {
-    cpu_set_phi2_khz_run(phi2_khz_cfg ? phi2_khz_cfg : CPU_PHI2_DEFAULT);
+    cpu_set_phi2_khz_run(cpu_get_phi2_khz());
 }
 
 /* Program start: w65c02_init returns a pin mask with RES asserted; the first ticks

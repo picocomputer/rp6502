@@ -25,6 +25,7 @@
 
 /* Cold boot: the clock, the pins and the core, from nothing. */
 void cpu_init(void);
+bool cpu_check_phi2_khz(uint16_t *v);
 
 /* Program start: reset the 65C02 core (fetch the vector) and unhalt, keeping the
  * clock and PHI2. Must be last in the run fan-out. */
@@ -69,6 +70,11 @@ void cpu_task(void);
 /* This driver's row in a machine's driver list; see core/driver.h. A row lives with the
  * implementation, not the contract: which hooks a machine's CPU has is the
  * implementation's answer, and three of them differ. */
-#define CPU_DRIVER DRIVER(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break)
+/* A software machine quantizes at init, so there is nothing to apply when
+ * the setting moves. */
+#define CPU_CONFIG_PHI2 CONFIG_INT(P, cpu, phi2_khz, uint16_t, CPU_PHI2_DEFAULT, \
+    cpu_check_phi2_khz, nul_apply, STR_PHI2, cpu_phi2_response, STR_HELP_SET_PHI2, NULL)
+#define CPU_DRIVER DRIVER(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break, \
+    CPU_CONFIG_PHI2, nul_config)
 
 #endif /* _CORE_WDC_CPU_H_ */

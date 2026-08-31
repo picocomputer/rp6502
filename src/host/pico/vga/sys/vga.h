@@ -41,6 +41,6 @@ void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
 /* This driver's row in a machine's driver list; see core/driver.h. Programs the console canvas, which asks the terminal its height, so it
  * follows TERM and FONT. */
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, nul_stop, nul_break)
+#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _VGA_SYS_VGA_H_ */

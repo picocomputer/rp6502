@@ -42,6 +42,6 @@ static inline void log_putc(char c) { (void)c; }
 #endif
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define LOG_DRIVER DRIVER(log_init, log_task, nul_task, nul_run, nul_stop, nul_break)
+#define LOG_DRIVER DRIVER(log_init, log_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _FPGA_SW_LOG_H_ */

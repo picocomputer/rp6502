@@ -7,6 +7,7 @@
  * xreg device/channel dispatch, and the CLI parser.
  */
 
+#include "core/sys/config.h"
 #include "core/api/xreg.h"
 #include "core/str/oem.h"
 #include "core/term/font.h"

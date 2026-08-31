@@ -35,12 +35,17 @@ void ble_shutdown(void);
 int ble_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting BLE
-void ble_load_enabled(const char *str);
-bool ble_set_enabled(unsigned ble);
-uint8_t ble_get_enabled(void);
+void ble_init(void);
+bool ble_check_enabled(uint8_t *v);
+void ble_apply_enabled(uint8_t ble, bool changed);
+int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* This driver's row in a machine's driver list; see core/driver.h. The radio's other half. Its shutdown is cyw's to order, not the walk's
  * -- see cyw_reset_radio. */
-#define BLE_DRIVER DRIVER(nul_init, ble_task, nul_task, nul_run, nul_stop, nul_break)
+#define BLE_CONFIG_ENABLED CONFIG_INT(B, ble, enabled, uint8_t, 1, \
+    ble_check_enabled, ble_apply_enabled, STR_BLE, ble_enabled_response, \
+    STR_HELP_SET_BLE, NULL)
+#define BLE_DRIVER DRIVER(ble_init, ble_task, nul_task, nul_run, nul_stop, nul_break, \
+    BLE_CONFIG_ENABLED, nul_config)
 
 #endif /* _RIA_BLE_BLE_H_ */

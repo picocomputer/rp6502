@@ -37,9 +37,9 @@ void oem_set_code_page_run(uint16_t cp);
 uint16_t oem_get_code_page_run(void);
 
 // Configuration setting CP
-void oem_load_code_page(const char *str);
-bool oem_set_code_page(uint16_t cp);
-uint16_t oem_get_code_page(void);
+bool oem_check_code_page(uint16_t *v);
+void oem_apply_code_page(uint16_t cp, bool changed);
+int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width);
 bool oem_is_auto(void);
 
 // Set the locale's default
@@ -78,6 +78,10 @@ __printflike(3, 4) int oem_snprintf(char *dst, size_t dst_size,
 int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define OEM_DRIVER DRIVER(oem_init, nul_task, nul_task, nul_run, oem_stop, nul_break)
+#define OEM_CONFIG_CODE_PAGE CONFIG_INT(S, oem, code_page, uint16_t, 0, \
+    oem_check_code_page, oem_apply_code_page, STR_CP, oem_code_page_response, \
+    STR_HELP_SET_CP, NULL)
+#define OEM_DRIVER DRIVER(oem_init, nul_task, nul_task, nul_run, oem_stop, nul_break, \
+    OEM_CONFIG_CODE_PAGE, nul_config)
 
 #endif /* _CORE_STR_OEM_H_ */

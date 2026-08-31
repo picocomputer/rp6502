@@ -47,6 +47,6 @@ void mon_response_confirm(mon_confirm_fn cb);
 bool mon_command_exists(const char *buf);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break)
+#define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break, nul_config, nul_config)
 
 #endif /* _RIA_MON_MON_H_ */

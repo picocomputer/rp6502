@@ -13,9 +13,9 @@
 
 #include "mmio.h"
 #include "cpu.h"
+#include "core/sys/config.h"
 
 /* The register holds what is running; this holds what to go back to. */
-static uint16_t cpu_phi2_khz_set = CPU_PHI2_DEFAULT;
 
 void cpu_set_phi2_khz_run(uint16_t phi2_khz)
 {
@@ -31,18 +31,17 @@ uint16_t cpu_get_phi2_khz_run(void)
     return (uint16_t)MMIO_PHI2;
 }
 
-bool cpu_set_phi2_khz(uint16_t phi2_khz)
+bool cpu_check_phi2_khz(uint16_t *v)
 {
-    if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
-        return false;
-    cpu_phi2_khz_set = phi2_khz;
-    MMIO_PHI2 = phi2_khz;
-    return true;
+    return *v >= CPU_PHI2_MIN_KHZ && *v <= CPU_PHI2_MAX_KHZ;
 }
 
-uint16_t cpu_get_phi2_khz(void)
+/* The accumulator in phi2_div is exact at every whole kilohertz, so what
+ * was asked for is what runs. */
+void cpu_apply_phi2_khz(uint16_t phi2_khz, bool changed)
 {
-    return cpu_phi2_khz_set;
+    (void)changed;
+    MMIO_PHI2 = phi2_khz;
 }
 
 /* No reset reaches either register, so this is what holds the 6502 and
@@ -50,7 +49,7 @@ uint16_t cpu_get_phi2_khz(void)
 void cpu_init(void)
 {
     CPU_RESB = 0;
-    MMIO_PHI2 = cpu_phi2_khz_set;
+    MMIO_PHI2 = cpu_get_phi2_khz();
 }
 
 /* The 6502 is released against a state the firmware chose, not whatever
@@ -65,7 +64,7 @@ void cpu_run(void)
 void cpu_stop(void)
 {
     CPU_RESB = 0;
-    MMIO_PHI2 = cpu_phi2_khz_set;
+    MMIO_PHI2 = cpu_get_phi2_khz();
 }
 
 bool cpu_active(void)

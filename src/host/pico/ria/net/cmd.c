@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/config.h"
 #include "core/str/oem.h"
 #include "ria/net/cmd.h"
 #include "ria/net/cyw.h"

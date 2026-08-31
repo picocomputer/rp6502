@@ -24,7 +24,7 @@
 #include "core/api/fs.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -74,19 +74,34 @@
  * has one. api_task and nfc_task can arm an exec, and rom_task must not run
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
+/* The radio is a board, not an ifdef. A non-W build does not roster these
+ * and does not compile them either -- see this machine's CMakeLists -- so
+ * their settings, their SET entries and their help are all absent for the
+ * one reason a driver is ever absent. */
+#ifdef RP6502_RIA_W
+#define RIA_TELNET_DRIVERS COM_TELNET_DRIVER,
+#define RIA_RADIO_DRIVERS CYW_DRIVER, WIFI_DRIVER, NTP_DRIVER, BLE_DRIVER,
+#define RIA_MODEM_DRIVERS MODEM_DRIVER,
+#define RIA_MODEM_STD_DRIVERS MODEM_STD_DRIVER,
+#else
+#define RIA_TELNET_DRIVERS
+#define RIA_RADIO_DRIVERS
+#define RIA_MODEM_DRIVERS
+#define RIA_MODEM_STD_DRIVERS
+#endif
+
 #define RP6502_MACH_DRIVERS                                                            \
-    COM_DRIVER, MON_DRIVER,                       \
+    COM_DRIVER, RIA_TELNET_DRIVERS MON_DRIVER,    \
     RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,           \
     LFS_DRIVER, CFG_DRIVER,                               \
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,          \
-    CYW_DRIVER, WIFI_DRIVER, NTP_DRIVER,          \
-    BLE_DRIVER, OEM_DRIVER, LED_DRIVER,           \
+    RIA_RADIO_DRIVERS OEM_DRIVER, LED_DRIVER,     \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,      \
     KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,  \
     TABLET_DRIVER,                                                \
     MEM_DRIVER, RLN_DRIVER, FIL_DRIVER,           \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,           \
-    MODEM_DRIVER, DIR_DRIVER, CLK_DRIVER,         \
+    RIA_MODEM_DRIVERS DIR_DRIVER, CLK_DRIVER,     \
     DRIVE_DRIVER, RAM_DRIVER,                             \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,           \
     USB_DRIVER, CPU_DRIVER
@@ -94,7 +109,7 @@
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS                                                \
-    MODEM_STD_DRIVER, VCP_STD_DRIVER, MID_STD_DRIVER,            \
+    RIA_MODEM_STD_DRIVERS VCP_STD_DRIVER, MID_STD_DRIVER,        \
     ROM_STD_DRIVER, NFC_STD_DRIVER, FS_STD_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

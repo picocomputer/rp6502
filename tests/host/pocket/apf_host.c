@@ -10,7 +10,6 @@
  */
 
 #include "core/str/oem.h"
-#include "core/cfg.h"
 #include "core/hid/hid.h"
 #include "core/sys.h"
 #include "core/vga/vga.h"
@@ -66,9 +65,6 @@ uint64_t host_clock_us(void)
     return 0;
 }
 
-void cfg_save(void)
-{
-}
 
 bool sys_break(void)
 {

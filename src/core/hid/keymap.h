@@ -41,13 +41,17 @@ int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned widt
 
 // Configuration setting KB
 #define KEYMAP_LAYOUT_LIST_SIZE 40
-void keymap_load_layout(const char *str);
-bool keymap_set_layout(const char *list);
-const char *keymap_get_layout_list(void);
+bool keymap_check_layout_list(const char *in, char *out);
+void keymap_apply_layout_list(const char *list, bool changed);
+int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned width);
 const char *keymap_get_layout(void);
 const char *keymap_get_layout_verbose(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define KEYMAP_DRIVER DRIVER(keymap_init, keymap_task, nul_task, nul_run, nul_stop, nul_break)
+#define KEYMAP_CONFIG_LAYOUT_LIST CONFIG_RAW(L, keymap, layout_list, \
+    KEYMAP_LAYOUT_LIST_SIZE, "", keymap_check_layout_list, keymap_apply_layout_list, \
+    STR_KB, keymap_layout_list_response, STR_HELP_SET_KB, keymap_layouts_response)
+#define KEYMAP_DRIVER DRIVER(keymap_init, keymap_task, nul_task, nul_run, nul_stop, nul_break, \
+    KEYMAP_CONFIG_LAYOUT_LIST, nul_config)
 
 #endif /* _CORE_HID_KEYMAP_H_ */

@@ -4,14 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#if !defined(RP6502_RIA_W)
-#include "ria/ble/ble.h"
-void ble_task(void) {}
-int ble_status_response(char *, size_t, int, unsigned) { return -1; }
-void ble_set_hid_leds(uint8_t) {}
-#else
+
 
 #include "ria/ble/ble.h"
+#include "core/sys/config.h"
 #include "core/hid/parse.h"
 #include "core/str/oem.h"
 #include "core/hid/keyboard.h"
@@ -40,7 +36,6 @@ static enum {
     BLE_RUNNING,
     BLE_SHUTTING_DOWN,
 } ble_state;
-static uint8_t ble_enabled = 1;
 static bool ble_pairing;
 static uint8_t ble_count_keyboard;
 static uint8_t ble_count_mouse;
@@ -509,7 +504,7 @@ void ble_task(void)
 {
     if (ble_state != BLE_RUNNING)
     {
-        if (ble_state == BLE_OFF && cyw_get_rf_enable() && ble_enabled)
+        if (ble_state == BLE_OFF && cyw_get_rf_enable() && ble_get_enabled())
         {
             ble_init_stack();
             ble_state = BLE_RUNNING;
@@ -616,7 +611,7 @@ void ble_shutdown(void)
 int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    if (ble_enabled)
+    if (ble_get_enabled())
     {
         if (cyw_get_rf_enable())
             oem_snprintf(buf, buf_size, STR_STATUS_BLE_FULL,
@@ -634,32 +629,37 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-void ble_load_enabled(const char *str)
+/* Pairing and the factory reset are things to do; the file keeps only off
+ * or on. */
+bool ble_check_enabled(uint8_t *v)
 {
-    str_parse_uint8(&str, &ble_enabled);
-    if (ble_enabled > 1)
-        ble_enabled = 0;
-    ble_set_config(ble_enabled);
-}
-
-bool ble_set_enabled(unsigned ble)
-{
-    if (ble > 2 && ble != 86)
+    if (*v > 2 && *v != 86)
         return false;
-    // Dispatch before normalizing so case 86 sees the raw value.
-    ble_set_config(ble);
-    if (ble == 86)
-        ble = 0;
-    if (ble > 1)
-        ble = 1;
-    ble_enabled = ble;
-    cfg_save();
+    *v = (*v == 86 || *v == 0) ? 0 : 1;
     return true;
 }
 
-uint8_t ble_get_enabled(void)
+/* The raw request, so 2 still enters pairing and 86 still forgets. */
+void ble_apply_enabled(uint8_t ble, bool changed)
 {
-    return ble_enabled;
+    (void)changed;
+    ble_set_config(ble);
 }
 
-#endif /* RP6502_RIA_W */
+void ble_init(void)
+{
+    ble_set_config(ble_get_enabled());
+}
+
+/* SET's line for this row. */
+int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    uint8_t en = ble_get_enabled();
+    oem_snprintf(buf, buf_size, STR_SET_BLE_RESPONSE,
+                 en, en ? S(STR_ENABLED) : S(STR_DISABLED),
+                 ble_is_pairing() ? S(STR_BLE_PAIRING) : "",
+                 cyw_get_rf_enable() ? "" : S(STR_BLE_NO_RF));
+    return -1;
+}

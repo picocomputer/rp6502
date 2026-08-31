@@ -577,8 +577,6 @@ void com_task(void)
     else if (break_detect)
         sys_break();
     break_detect = current_break;
-
-    com_telnet_task();
 }
 
 bool com_get_bel(void)

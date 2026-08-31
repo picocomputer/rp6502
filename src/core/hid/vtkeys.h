@@ -57,6 +57,6 @@ void vtkeys_task(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. No stop hook:
  * type-ahead deliberately survives an exec. */
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break)
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_HID_VTKEYS_H_ */

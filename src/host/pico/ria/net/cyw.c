@@ -4,16 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef RP6502_RIA_W
-#include "ria/net/cyw.h"
-#include <pico/stdlib.h>
-void __in_flash("cyw_init") cyw_init(void) {}
-void cyw_task(void) {}
-#else
+
 
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria/net/cyw.h"
+#include "core/sys/config.h"
 #include "ria/net/wifi.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
@@ -106,7 +102,6 @@ static const char *__in_flash("cyw_country_name")
 
 #define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
-static uint8_t cyw_rf_enable = 1;
 static int cyw_country = -1;
 static bool cyw_led_status;
 static bool cyw_led_requested;
@@ -175,57 +170,64 @@ void __in_flash("cyw_init") cyw_init(void)
     cyw43_bluetooth_hci_init();
 }
 
-void cyw_load_rf_enable(const char *str)
+bool cyw_check_rf_enable(uint8_t *v)
 {
-    str_parse_uint8(&str, &cyw_rf_enable);
-    if (cyw_rf_enable > 1)
-        cyw_rf_enable = 0;
+    return *v <= 1;
 }
 
-bool cyw_set_rf_enable(uint8_t rf)
+/* A full radio teardown, so only when it moved. */
+void cyw_apply_rf_enable(uint8_t rf, bool changed)
 {
-    if (rf > 1)
-        return false;
-    if (cyw_rf_enable != rf)
-    {
-        cyw_rf_enable = rf;
+    (void)rf;
+    if (changed)
         cyw_reset_radio();
-    }
-    cfg_save();
+}
+
+/* SET's line for this row. */
+int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    uint8_t en = cyw_get_rf_enable();
+    oem_snprintf(buf, buf_size, STR_SET_RF_RESPONSE, en, en ? S(STR_ON) : S(STR_OFF));
+    return -1;
+}
+
+/* Empty is worldwide; anything else must be a code the radio knows, and is
+ * kept in the table's own spelling. */
+bool cyw_check_rf_country_code(const char *in, char *out)
+{
+    int country = cyw_lookup_country(in);
+    if (!in[0])
+        return true;
+    if (country < 0)
+        return false;
+    strcpy(out, cyw_country_abbr[country]);
     return true;
 }
 
-uint8_t cyw_get_rf_enable(void)
+void cyw_apply_rf_country_code(const char *rfcc, bool changed)
 {
-    return cyw_rf_enable;
-}
-
-void cyw_load_rf_country_code(const char *str)
-{
-    cyw_country = cyw_lookup_country(str);
-}
-
-bool cyw_set_rf_country_code(const char *rfcc)
-{
-    int country = cyw_lookup_country(rfcc);
-    if (*rfcc && country < 0)
-        return false;
-    if (cyw_country != country)
-    {
-        cyw_country = country;
+    (void)rfcc;
+    cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
+    if (changed)
         cyw_reset_radio();
-    }
-    cfg_save();
-    return true;
 }
 
-const char *cyw_get_rf_country_code(void)
+/* SET's line for this row. */
+int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    if (cyw_country < 0)
-        return "";
+    (void)state;
+    (void)width;
+    const char *cc = cyw_get_rf_country_code();
+    if (strlen(cc))
+        oem_snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE, cc, " ",
+                     cyw_get_rf_country_code_verbose());
     else
-        return cyw_country_abbr[cyw_country];
+        oem_snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE, "", "", S(STR_WORLDWIDE));
+    return -1;
 }
+
 
 const char *cyw_get_rf_country_code_verbose(void)
 {
@@ -279,5 +281,3 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
     snprintf(buf, buf_size, "\n");
     return ((unsigned)state + 1 < rows) ? state + 1 : -1;
 }
-
-#endif /* RP6502_RIA_W */

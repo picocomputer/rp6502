@@ -209,6 +209,6 @@ static inline bool api_return_errno(api_errno errnum)
 }
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break)
+#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_API_H_ */

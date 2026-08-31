@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifdef RP6502_RIA_W
 
 #include "ria/net/modem.h"
 #include "ria/net/net.h"
@@ -590,5 +589,3 @@ bool net_has_pending(uint16_t port)
     net_listener_t *nl = net_find_listener(port);
     return nl && nl->pending_pcb != NULL;
 }
-
-#endif /* RP6502_RIA_W */

@@ -26,6 +26,6 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data);
 void *via_chip(void);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define VIA_DRIVER DRIVER(nul_init, nul_task, nul_task, via_run, nul_stop, nul_break)
+#define VIA_DRIVER DRIVER(nul_init, nul_task, nul_task, via_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_WDC_VIA_H_ */

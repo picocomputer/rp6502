@@ -70,6 +70,6 @@ bool ria_handle_error(void);
  * order and nothing more: the transfer that ria_active() reports is closed by
  * ria_task, not by ria_stop, so no other driver's stop depends on where this
  * one sits. */
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, nul_break)
+#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, nul_break, nul_config, nul_config)
 
 #endif /* _RIA_SYS_RIA_H_ */

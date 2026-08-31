@@ -87,6 +87,6 @@ uint32_t fs_rom_staged_len(void);
 const char *fs_strip_drive(const char *path);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break)
+#define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break, nul_config, nul_config)
 
 #endif /* _FPGA_SW_FS_H_ */

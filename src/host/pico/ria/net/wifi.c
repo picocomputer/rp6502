@@ -4,15 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef RP6502_RIA_W
-#include "ria/net/wifi.h"
-void wifi_task() {}
-int wifi_status_response(char *, size_t, int, unsigned) { return -1; }
-int wifi_scan_response(char *, size_t, int, unsigned) { return -1; }
-#else
+
 
 #include "ria/net/cyw.h"
 #include "ria/net/wifi.h"
+#include "core/sys/config.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -39,8 +35,6 @@ static wifi_state_t wifi_state;
 
 static int wifi_retry_count;
 static absolute_time_t wifi_retry_timer;
-static char wifi_ssid[WIFI_SSID_SIZE];
-static char wifi_pass[WIFI_PASS_SIZE];
 
 // Be aggressive 5 times then back off
 #define WIFI_RETRY_INITIAL_RETRIES 5
@@ -81,7 +75,7 @@ void wifi_task(void)
     switch (wifi_state)
     {
     case wifi_state_off:
-        if (!cyw_get_rf_enable() || !wifi_ssid[0])
+        if (!cyw_get_rf_enable() || !wifi_get_ssid()[0])
             break;
         cyw43_arch_enable_sta_mode();
         wifi_state = wifi_state_connect;
@@ -92,7 +86,7 @@ void wifi_task(void)
         if (cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf))
             wifi_retry_connect();
         else if (cyw43_arch_wifi_connect_async(
-                     wifi_ssid, wifi_get_pass(),
+                     wifi_get_ssid(), wifi_get_pass(),
                      strlen(wifi_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
             wifi_retry_connect();
         else
@@ -142,7 +136,7 @@ static const char *wifi_status_message(void)
     case wifi_state_off:
         if (!cyw_get_rf_enable())
             return S(STR_RF_OFF);
-        else if (!wifi_ssid[0])
+        else if (!wifi_get_ssid()[0])
             return S(STR_WIFI_NOT_CONFIGURED);
         else
             return S(STR_WIFI_WAITING);
@@ -393,66 +387,62 @@ bool wifi_connecting(void)
             wifi_retry_count < WIFI_RETRY_INITIAL_RETRIES);
 }
 
-void wifi_load_ssid(const char *str)
+
+/* A different network means the old password is not the password. Clearing
+ * is a nested set, which config coalesces into one write. */
+void wifi_apply_ssid(const char *ssid, bool changed)
 {
-    size_t n = strlen(str);
-    if (n < sizeof(wifi_ssid))
+    (void)ssid;
+    if (changed)
     {
-        memcpy(wifi_ssid, str, n);
-        wifi_ssid[n] = 0;
+        wifi_set_pass("");
+        wifi_shutdown();
     }
 }
 
-bool wifi_set_ssid(const char *ssid)
+/* SET's line for this row, and the password's with it -- setting one is
+ * always news about the other. */
+int wifi_ssid_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    size_t len = strlen(ssid);
-    if (len < sizeof(wifi_ssid))
+    (void)width;
+    const char *ssid = wifi_get_ssid();
+    if (state == 0)
     {
-        if (strcmp(wifi_ssid, ssid))
-        {
-            wifi_pass[0] = 0;
-            strncpy(wifi_ssid, ssid, sizeof(wifi_ssid));
-            wifi_shutdown();
-        }
-        cfg_save();
-        return true;
+#if RP6502_CREATOR
+        oem_snprintf(buf, buf_size, STR_SET_SSID_RESPONSE,
+                     strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+#else
+        oem_snprintf(buf, buf_size, STR_SET_SSID_RESPONSE,
+                     strlen(ssid) ? ssid : S(STR_PARENS_NONE));
+#endif
+        return 1;
     }
-    return false;
+    return wifi_pass_response(buf, buf_size, 0, width);
 }
 
-const char *wifi_get_ssid(void)
+
+
+/* Erasing a credential is always allowed; setting one needs a network to
+ * belong to. */
+bool wifi_check_pass(const char *in, char *out)
 {
-    return wifi_ssid;
+    (void)out;
+    return !in[0] || wifi_get_ssid()[0];
 }
 
-void wifi_load_pass(const char *str)
+void wifi_apply_pass(const char *pass, bool changed)
 {
-    size_t n = strlen(str);
-    if (n < sizeof(wifi_pass))
-    {
-        memcpy(wifi_pass, str, n);
-        wifi_pass[n] = 0;
-    }
+    (void)pass;
+    if (changed)
+        wifi_shutdown();
 }
 
-bool wifi_set_pass(const char *pass)
+int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    if (strlen(wifi_ssid) && strlen(pass) < sizeof(wifi_pass))
-    {
-        if (strcmp(wifi_pass, pass))
-        {
-            strncpy(wifi_pass, pass, sizeof(wifi_pass));
-            wifi_shutdown();
-        }
-        cfg_save();
-        return true;
-    }
-    return false;
+    (void)state;
+    (void)width;
+    const char *pass = wifi_get_pass();
+    oem_snprintf(buf, buf_size, STR_SET_PASS_RESPONSE,
+                 strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    return -1;
 }
-
-const char *wifi_get_pass(void)
-{
-    return wifi_pass;
-}
-
-#endif /* RP6502_RIA_W */

@@ -14,6 +14,7 @@
  * and when it stops, the core is done.
  */
 
+#include "core/sys/config.h"
 #include "input.h"
 
 #include "core/str/oem.h"

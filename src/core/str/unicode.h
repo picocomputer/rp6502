@@ -58,6 +58,6 @@ unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
-#define UNICODE_DRIVER DRIVER(unicode_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define UNICODE_DRIVER DRIVER(unicode_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_STR_UNICODE_H_ */

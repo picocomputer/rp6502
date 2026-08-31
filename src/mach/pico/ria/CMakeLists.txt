@@ -72,6 +72,19 @@ pico_set_binary_type(${RIA_TARGET} copy_to_ram)
 if (RP6502_RIA_W)
     target_compile_definitions(${RIA_TARGET} PRIVATE RP6502_RIA_W=1)
     target_link_libraries(${RIA_TARGET} PRIVATE pico_cyw43_arch_lwip_poll pico_btstack_cyw43)
+    # The radio's drivers, compiled only where there is a radio. Their rows
+    # leave the roster in drivers.h for the same reason.
+    target_sources(${RIA_TARGET} PRIVATE
+        ${RIA_SRC}/ble/ble.c
+        ${RIA_SRC}/ble/tlv.c
+        ${RIA_SRC}/net/cmd.c
+        ${RIA_SRC}/net/cyw.c
+        ${RIA_SRC}/net/modem.c
+        ${RIA_SRC}/net/net.c
+        ${RIA_SRC}/net/ntp.c
+        ${RIA_SRC}/net/telnet.c
+        ${RIA_SRC}/net/wifi.c
+    )
     pico_set_program_name(${RIA_TARGET} "RP6502-RIA-W")
 else()
     pico_set_program_name(${RIA_TARGET} "RP6502-RIA")
@@ -154,8 +167,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/aud/bel_presets.c
     ${RP6502_ROOT}/src/core/aud/opl.c
     ${RP6502_ROOT}/src/core/aud/psg.c
-    ${RIA_SRC}/ble/ble.c
-    ${RIA_SRC}/ble/tlv.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/layout.c
@@ -174,15 +185,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/mon/set.c
     ${RIA_SRC}/mon/status.c
     ${RIA_SRC}/mon/uf2.c
-    ${RIA_SRC}/net/cmd.c
-    ${RIA_SRC}/net/cyw.c
-    ${RIA_SRC}/net/modem.c
-    ${RIA_SRC}/net/net.c
-    ${RIA_SRC}/net/ntp.c
-    ${RIA_SRC}/net/telnet.c
-    ${RIA_SRC}/net/wifi.c
     ${RP6502_ROOT}/src/core/str/rln.c
     ${RP6502_ROOT}/src/core/str/str.c
+    ${RP6502_ROOT}/src/core/sys/config.c
     ${RIA_SRC}/sys/cfg.c
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c
