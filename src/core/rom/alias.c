@@ -13,7 +13,7 @@
 #include "core/api/fs.h"
 #include "core/rom/rom.h"
 #include "core/str/path.h"
-#include "host/os.h"
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -27,9 +27,8 @@
 
 typedef struct
 {
-    bool used;
     char name[ALIAS_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char host[HOST_MAX_PATH];  /* the backing file */
+    char *host;                /* the backing file; owned, and what marks the slot used */
 } alias_t;
 static alias_t aliases[ROM_ALIAS_MAX];
 
@@ -37,7 +36,7 @@ static alias_t aliases[ROM_ALIAS_MAX];
 bool rom_alias_insert(const char *hostpath)
 {
     const char *base = path_basename(hostpath);
-    if (!*base || strlen(base) >= ALIAS_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
+    if (!*base || strlen(base) >= ALIAS_NAME_MAX)
         return false;
     /* Must exist. Asked through the driver, because that is the machine's
      * answer for what a file is. */
@@ -47,11 +46,13 @@ bool rom_alias_insert(const char *hostpath)
         return false;
     fs_std_close(fd, &err);
     for (int i = 0; i < ROM_ALIAS_MAX; i++)
-        if (!aliases[i].used)
+        if (!aliases[i].host)
         {
-            aliases[i].used = true;
+            char *own = strdup(hostpath);
+            if (!own)
+                return false;
             strcpy(aliases[i].name, base);
-            strcpy(aliases[i].host, hostpath);
+            aliases[i].host = own;
             return true;
         }
     return false;
@@ -61,22 +62,18 @@ bool rom_alias_insert(const char *hostpath)
  * firmware's installed-name handling. Everything else -- including a colon
  * name no alias claims -- passes through verbatim: this is a map, not a
  * gate, and whether an unaliased name opens is the store's answer, not the
- * list's. A machine whose store is real needs the pass-through. */
-bool rom_alias_resolve(const char *path, char *out, size_t outsz)
+ * list's. A machine whose store is real needs the pass-through.
+ *
+ * Borrowed, not copied: an install outlives every load that reads it, and a
+ * path that resolves to itself has nowhere better to live than where it
+ * already is. */
+const char *rom_alias_resolve(const char *path)
 {
     if (path[0] == ':')
         for (int i = 0; i < ROM_ALIAS_MAX; i++)
-            if (aliases[i].used && strcasecmp(aliases[i].name, path + 1) == 0)
-            {
-                if (strlen(aliases[i].host) >= outsz)
-                    return false;
-                strcpy(out, aliases[i].host);
-                return true;
-            }
-    if (strlen(path) >= outsz)
-        return false;
-    strcpy(out, path);
-    return true;
+            if (aliases[i].host && strcasecmp(aliases[i].name, path + 1) == 0)
+                return aliases[i].host;
+    return path;
 }
 
 #else /* !ROM_ALIAS_MAX: no aliases; every name is the store's to answer */
@@ -87,12 +84,9 @@ bool rom_alias_insert(const char *hostpath)
     return false;
 }
 
-bool rom_alias_resolve(const char *path, char *out, size_t outsz)
+const char *rom_alias_resolve(const char *path)
 {
-    if (strlen(path) >= outsz)
-        return false;
-    strcpy(out, path);
-    return true;
+    return path;
 }
 
 #endif /* ROM_ALIAS_MAX */

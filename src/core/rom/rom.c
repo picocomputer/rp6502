@@ -12,7 +12,6 @@
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
-#include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
@@ -52,12 +51,7 @@ bool rom_load(const char *path)
     /* The alias map is the loader's alone: an installed ":name" becomes its
      * backing file here, and the seam below never sees a colon on this
      * machine. */
-    char host[HOST_MAX_PATH];
-    if (!rom_alias_resolve(path, host, sizeof(host)))
-    {
-        log_error("cannot resolve ROM '%s'", path);
-        return false;
-    }
+    const char *host = rom_alias_resolve(path);
     rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
     api_errno err;
     rom_pump_t pump;

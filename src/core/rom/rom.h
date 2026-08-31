@@ -58,9 +58,13 @@ void rom_pump_close(rom_pump_t *p);
 
 /* The null drive as a map (alias.c): an installed ":name" aliasing the host
  * file that backs it. Nil unless the host defines ROM_ALIAS_MAX; the seam's
- * fs_rom_open resolves through it. */
+ * fs_rom_open resolves through it.
+ *
+ * insert copies the path it is given. resolve borrows: the answer is the
+ * install's own string, or the path itself where nothing claims it, so a
+ * caller neither sizes a buffer nor frees anything. */
 bool rom_alias_insert(const char *hostpath);
-bool rom_alias_resolve(const char *path, char *out, size_t outsz);
+const char *rom_alias_resolve(const char *path);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
  * (MSC0:/...), or an overlay ROM name; rom_load resolves it. The program

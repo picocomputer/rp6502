@@ -103,17 +103,14 @@ UTEST(drive, rom_resolve_and_load)
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
-    char host[HOST_MAX_PATH];
-    ASSERT_TRUE(rom_alias_resolve(":adventure.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, TEST_FIXTURE);
-    ASSERT_TRUE(rom_alias_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
-    ASSERT_STREQ(host, TEST_FIXTURE);
-    ASSERT_TRUE(rom_alias_resolve(":second.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, second);
+    ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), TEST_FIXTURE);
+    ASSERT_STREQ(rom_alias_resolve(":ADVENTURE.RP6502"), TEST_FIXTURE); /* case-insensitive */
+    ASSERT_STREQ(rom_alias_resolve(":second.rp6502"), second);
     /* An unaliased ":name" passes through -- the map is not a gate; the
-     * store (here: a host with none) answers at the open. */
-    ASSERT_TRUE(rom_alias_resolve(":nope.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, ":nope.rp6502");
+     * store (here: a host with none) answers at the open. It comes back as
+     * the caller's own pointer, which is the whole of "borrowed". */
+    const char *unaliased = ":nope.rp6502";
+    ASSERT_EQ(rom_alias_resolve(unaliased), unaliased);
     ASSERT_FALSE(rom_load(":nope.rp6502"));
 
     /* The boot/exec loader streams the installed file. */
