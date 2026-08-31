@@ -8,9 +8,9 @@
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
 
-# Where the Pocket's own SystemVerilog lives. Set before assets.cmake, which
-# names it in the stage_map gate.
-set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
+# Where the Pocket's own SystemVerilog lives, top level included. Set before
+# assets.cmake, which names it in the stage_map gate.
+set(RP6502_POCKET_CORE ${RP6502_SRC}/mach/pocket/core)
 
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
@@ -95,7 +95,7 @@ find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
 if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
-    set(SW_SRC ${RP6502_SRC}/host/pocket/sw)
+    set(SW_SRC ${RP6502_SRC}/mach/pocket/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a window
     # that moves has to rebuild the image that writes to it; the rest are here
@@ -111,7 +111,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/core/def/*.def
-        ${RP6502_SRC}/host/pocket/*.h
         ${RP6502_SRC}/mach/pocket/*.h
         ${RP6502_SRC}/mach/pico/*.h)
     set(SW_SOURCES
@@ -194,9 +193,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # -flto turns a missing prototype into a miscompile of
             # unrelated code, and this line carried no -W at all.
             -Werror=implicit-function-declaration
-            -I ${RP6502_SRC}/host/pocket
-            -I ${RP6502_SRC}
             -I ${RP6502_SRC}/mach/pocket
+            -I ${RP6502_SRC}
             -I ${RP6502_ASSETS}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             # vendored ffconf.h tests it with #if; the other two roots

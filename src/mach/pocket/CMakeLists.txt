@@ -59,7 +59,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # and letting the vendor's read fail as a Critical Warning every run.
     # Ours, not the template's: vendor/openfpga's copy groups a PLL this
     # core does not instantiate, so its four filters matched nothing.
-    file(COPY ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
+    file(COPY ${RP6502_SRC}/mach/pocket/quartus/core_constraints.sdc
         DESTINATION ${POCKET_DIR}/core)
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
@@ -121,10 +121,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
         "set_global_assignment -name VERILOG_FILE ${APF}/core/pin_ddio_clk.v"
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
-        "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/host/pocket/core_top.sv"
-        "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/host/pocket/pocket_pll.v"
+        "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/mach/pocket/core/core_top.sv"
+        "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/mach/pocket/core/pocket_pll.v"
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
-        "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
+        "set_global_assignment -name SDC_FILE ${RP6502_SRC}/mach/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
         # A shift register the fitter recognises becomes a block. Held
@@ -158,8 +158,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             pocket_dbglog
             pocket_core)
         list(APPEND BS_LINES
-            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_HOST_POCKET}/${src}.sv")
-        list(APPEND BS_POCKET_SOURCES ${RP6502_HOST_POCKET}/${src}.sv)
+            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_POCKET_CORE}/${src}.sv")
+        list(APPEND BS_POCKET_SOURCES ${RP6502_POCKET_CORE}/${src}.sv)
     endforeach()
     string(REPLACE ";" "\n" BS_QSF_TEXT "${BS_LINES}")
     file(GENERATE OUTPUT ${BS_QSF} CONTENT "${BS_QSF_TEXT}\n")
@@ -179,15 +179,15 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # anyone typed anything. What actually decides the QSF's content is the
     # code below, so that is what the fit is held to.
     set(BS_SOURCES ${BS_MACHINE_SOURCES} ${BS_POCKET_SOURCES}
-        ${RP6502_SRC}/host/pocket/core_top.sv
-        ${RP6502_SRC}/host/pocket/pocket_pll.v
+        ${RP6502_SRC}/mach/pocket/core/core_top.sv
+        ${RP6502_SRC}/mach/pocket/core/pocket_pll.v
         ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v
         ${APF}/core/pin_ddio_clk.v
         ${APF}/apf/apf_constraints.sdc
         ${APF}/ap_core.qsf
         ${RP6502_SDC}
-        ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
-        ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
+        ${RP6502_SRC}/mach/pocket/quartus/pocket.sdc
+        ${RP6502_SRC}/mach/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}
         ${RP6502_SRC}/mach/machine.cmake
         ${RP6502_SRC}/mach/quartus.cmake)
@@ -226,13 +226,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # report has to say which pair failed while the fit still
         # exists.
         COMMAND ${QUARTUS_STA} -t
-            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
+            ${RP6502_SRC}/mach/pocket/quartus/sta_paths.tcl
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/core/gen/rv_tcm_gen.py
             ${RP6502_SRC}/core/gen/map_gate.py
-            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
+            ${RP6502_SRC}/mach/pocket/quartus/sta_paths.tcl
         COMMENT "Fitting the Pocket core"
         VERBATIM)
 
@@ -257,12 +257,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_DRC} rp6502
         COMMAND python3 ${RP6502_SRC}/core/gen/drc_gate.py
             ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+            ${RP6502_SRC}/mach/pocket/quartus/drc_baseline.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${POCKET_DIR}/fit.stamp
             ${RP6502_SRC}/core/gen/sta_gate.py ${RP6502_SRC}/core/gen/drc_gate.py
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+            ${RP6502_SRC}/mach/pocket/quartus/drc_baseline.txt
         COMMENT "Signing off the Pocket fit"
         VERBATIM)
     # The fit alone, named: point a measurement at the same fit the

@@ -50,7 +50,7 @@ static void unicode_bin_load(void)
     oemcp_loaded = 1;
 }
 
-/* Little-endian halfwords, which is how src/host/pocket/sw/unicode.c reads them out
+/* Little-endian halfwords, which is how src/mach/pocket/sw/unicode.c reads them out
  * of the staging window a byte at a time. */
 uint16_t unicode_word(uint32_t index)
 {

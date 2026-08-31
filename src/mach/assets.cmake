@@ -178,9 +178,9 @@ add_test(NAME stage_map
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/core/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
-        --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
+        --mmio ${RP6502_SRC}/mach/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
         --engine ${RP6502_SRC}/core/machine/sst_engine.sv
-        --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
-        --top ${RP6502_SRC}/host/pocket/core_top.sv)
+        --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
+        --top ${RP6502_SRC}/mach/pocket/core/core_top.sv)
 set_tests_properties(stage_map PROPERTIES LABELS "gate")

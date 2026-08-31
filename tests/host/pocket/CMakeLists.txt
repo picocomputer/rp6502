@@ -31,22 +31,22 @@ rp6502_add_test(apf
         apf_host.c
     # The pocket's own roster: keymap and str keep their settings there, so
     # the generated accessors come from the machine this bench is standing in for.
-    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_SRC}/mach/pocket
+    INCLUDES ${RP6502_SRC}/mach/pocket ${RP6502_SRC}
         ${KBDLAY_DIR} ${OEMCP_DIR}
     DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
 add_dependencies(test_apf kbdlay oemcp)
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
-    ${RP6502_HOST_POCKET}/pocket_fifo.sv
-    ${RP6502_HOST_POCKET}/pocket_video.sv
-    ${RP6502_HOST_POCKET}/pocket_i2s.sv
-    ${RP6502_HOST_POCKET}/pocket_sdram.sv
-    ${RP6502_HOST_POCKET}/pocket_sram.sv
-    ${RP6502_HOST_POCKET}/pocket_bridge.sv
-    ${RP6502_HOST_POCKET}/pocket_file.sv
-    ${RP6502_HOST_POCKET}/pocket_sst.sv
-    ${RP6502_HOST_POCKET}/pocket_core.sv
+    ${RP6502_POCKET_CORE}/pocket_fifo.sv
+    ${RP6502_POCKET_CORE}/pocket_video.sv
+    ${RP6502_POCKET_CORE}/pocket_i2s.sv
+    ${RP6502_POCKET_CORE}/pocket_sdram.sv
+    ${RP6502_POCKET_CORE}/pocket_sram.sv
+    ${RP6502_POCKET_CORE}/pocket_bridge.sv
+    ${RP6502_POCKET_CORE}/pocket_file.sv
+    ${RP6502_POCKET_CORE}/pocket_sst.sv
+    ${RP6502_POCKET_CORE}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
     ${POCKET_TB}/asram_model.sv
     ${POCKET_TB}/tb_pocket.sv)
@@ -54,50 +54,50 @@ set(POCKET_STACK
 # --- The platform FIFO under hostile clocking ---
 rp6502_add_module_test(fifo
     TOP pocket_fifo
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
     TIMEOUT 120)
 
 # --- The savestate bridge: the handshake and the outbound stream ---
 rp6502_add_module_test(psst
     TOP pocket_sst
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
-        ${RP6502_HOST_POCKET}/pocket_sst.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+        ${RP6502_POCKET_CORE}/pocket_sst.sv
     TIMEOUT 120)
 
 # --- The debug log, playing both the console and the host ---
 rp6502_add_module_test(pdbglog
     TOP pocket_dbglog
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
-        ${RP6502_HOST_POCKET}/pocket_dbglog.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+        ${RP6502_POCKET_CORE}/pocket_dbglog.sv
     TIMEOUT 120)
 
 # --- The scaler-side raster from a replayed beam ---
 rp6502_add_module_test(pvideo
     TOP pocket_video
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
-        ${RP6502_HOST_POCKET}/pocket_video.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+        ${RP6502_POCKET_CORE}/pocket_video.sv
     TIMEOUT 120)
 
 # --- The codec-side I2S from replayed samples ---
 rp6502_add_module_test(pi2s
     TOP pocket_i2s
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
-        ${RP6502_HOST_POCKET}/pocket_i2s.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+        ${RP6502_POCKET_CORE}/pocket_i2s.sv
     TIMEOUT 120)
 
 # --- The staging SDRAM controller against a behavioral chip ---
 rp6502_add_module_test(psdram
     TOP tb_psdram
-    RTL ${RP6502_HOST_POCKET}/pocket_sdram.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_sdram.sv
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_psdram.sv
     TIMEOUT 300)
 
 # --- The bridge chain, played like the host ---
 rp6502_add_module_test(pbridge
     TOP tb_pbridge
-    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
-        ${RP6502_HOST_POCKET}/pocket_sdram.sv
-        ${RP6502_HOST_POCKET}/pocket_bridge.sv
+    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+        ${RP6502_POCKET_CORE}/pocket_sdram.sv
+        ${RP6502_POCKET_CORE}/pocket_bridge.sv
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_pbridge.sv
     TIMEOUT 300)
 

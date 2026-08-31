@@ -7,7 +7,7 @@
  * in, and the ones it offers a program to open. Both are the same kind of
  * fact, so they are the same file.
  *
- * src/host/pocket/sw/main.c walks the machine rows -- forward to bring up
+ * src/mach/pocket/sw/main.c walks the machine rows -- forward to bring up
  * and to pump, backward to tear down. core/api/std.c builds the table from
  * the stdio rows.
  */

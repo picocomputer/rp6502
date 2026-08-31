@@ -13,7 +13,7 @@
 # host where to place things, and any machine that is not a Pico answers
 # the same do-nothing way. The test_apf precedent.
 set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
-    ${RP6502_TEST_TABLES} ${RP6502_SRC}/host/pocket ${RP6502_SRC})
+    ${RP6502_TEST_TABLES} ${RP6502_SRC}/mach/pocket ${RP6502_SRC})
 
 # --- The PSG in RTL, against core/aud/psg.c in lockstep ---
 # The bit-exact audio proof: the vendored DSP over flat shims and the

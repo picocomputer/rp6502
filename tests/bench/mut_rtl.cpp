@@ -35,7 +35,7 @@ static uint32_t mut_fb[640 * 480];
 
 /* The terminal, which on this machine is the firmware's console line. The
  * 6502's own $FFE1 writes reach it too: the firmware drains that register and
- * re-emits the bytes through its own console (host/pocket/sw/com.c's UART_POP
+ * re-emits the bytes through its own console (mach/pocket/sw/com.c's UART_POP
  * loop into com_tx_write), which is what makes this the same stream the
  * emulator's single terminal sink carries. */
 static std::string mut_tap;

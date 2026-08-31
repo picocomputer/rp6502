@@ -16,7 +16,7 @@ real machine.
 The PSG is RTL and agrees with `core/aud/psg.c` sample for sample in lockstep.
 Its ninth voice is the console bell, configured by the soft CPU: the sounds
 are `core/aud/bel_presets.c` and the queue and lifetime are
-`src/host/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
+`src/mach/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
 
 Nothing gates the mix. Every engine and the bell sum, on one sample tick —
 the PSG's divider — and an engine with no program answers zero.
@@ -42,7 +42,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 `src/core` holds the machine, C and SystemVerilog together — see its README for
 how that tree is arranged. The wrapper binding it to one board is
-`src/host/pocket`, and the soft CPU's firmware is `src/host/pocket/sw`. MiSTer
+`src/mach/pocket`, and the soft CPU's firmware is `src/mach/pocket/sw`. MiSTer
 arrives as `src/host/mister`; nothing in the machine changes.
 
 Tests are filed by claim. `tests/cpu` is the machine's, written once and run

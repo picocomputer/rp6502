@@ -10,7 +10,7 @@
  * This is a contract and nothing else. Every machine's drivers.h names the
  * row below, and the host that implements the seven is what changes -- host/posix/fs.c,
  * host/windows/fs.c, mach/itch.io/fs.c, mach/pico/ria/api/fs.c,
- * host/pocket/sw/fs.c. Linking a different one is the whole of the seam.
+ * mach/pocket/sw/fs.c. Linking a different one is the whole of the seam.
  *
  * The directories beside these files are core/api/dir.c's, over a drive each
  * host supplies the same way (core/api/dir.h's drive_* calls).
