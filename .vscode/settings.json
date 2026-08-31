@@ -8,8 +8,8 @@
     },
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
-        "${workspaceFolder}/src/mach/emu",
-        "${workspaceFolder}/src/mach/android",
+        "${workspaceFolder}/src/mach/sokol",
+        "${workspaceFolder}/src/mach/sokol/android",
         "${workspaceFolder}/src/mach/libretro",
         "${workspaceFolder}/src/mach/pocket",
         "${workspaceFolder}/src/mach/itch.io",

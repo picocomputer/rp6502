@@ -1,6 +1,6 @@
 # rp6502-emu Android Port
 
-This subdirectory contains the Android wrapper, build files, and assets to compile and run the `rp6502-emu` emulator natively on Android devices (specially optimized for handheld consoles like the Retroid Pocket 3+).
+This directory is the Android machine's build entry; the APK that wraps it is `../dist/android`. Together they compile and run the `rp6502-emu` emulator natively on Android devices (specially optimized for handheld consoles like the Retroid Pocket 3+).
 
 ---
 
@@ -26,7 +26,7 @@ The native library alone builds without Gradle, which is what gives an editor
 a `compile_commands.json`. Set `ANDROID_HOME` and:
 
 ```bash
-cmake -S src/mach/android -B build/android/cmake -G Ninja
+cmake -S src/mach/sokol/android -B build/android/cmake -G Ninja
 cmake --build build/android/cmake
 ```
 
@@ -35,7 +35,7 @@ Gradle build below.
 
 ### Step 1: Navigate to the Android project folder
 ```bash
-cd src/mach/android
+cd src/mach/sokol/dist/android
 ```
 
 ### Step 2: Compile the APK
@@ -43,13 +43,13 @@ cd src/mach/android
   ```bash
   ./gradlew assembleDebug
   ```
-  Generates: `../../../build/android/gradle/outputs/apk/debug/rp6502-emu-debug.apk`
+  Generates: `../../../../build/android/gradle/outputs/apk/debug/rp6502-emu-debug.apk`
 
 * **Release Build** (fully optimized with `-O3`, runs at full speed):
   ```bash
   ./gradlew assembleRelease
   ```
-  Generates: `../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk`
+  Generates: `../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk`
   *(Note: The release build is configured in `build.gradle` to be signed with your local debug key, making it directly deployable via ADB for development).*
 
 ---
@@ -63,7 +63,7 @@ cd src/mach/android
    ```
 3. Install the optimized Release APK:
    ```bash
-   adb install -r ../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk
+   adb install -r ../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk
    ```
 
 ---

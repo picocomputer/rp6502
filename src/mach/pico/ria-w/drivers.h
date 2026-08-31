@@ -39,6 +39,11 @@
 #include "ria/mon/ram.h"
 #include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
 #include "ria/mon/rom.h"
+#include "ria/ble/ble.h"
+#include "ria/net/cyw.h"
+#include "ria/net/modem.h"
+#include "ria/net/ntp.h"
+#include "ria/net/wifi.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/led.h"
@@ -55,13 +60,14 @@
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
 
-/* The first seven are the machine's bring-up, and the order is the fabric's:
+/* The first eight are the machine's bring-up, and the order is the fabric's:
  * the console before anything prints, the banner before anything can queue an
  * error under it, the bus before the video that talks over it, and the
  * filesystem before the config it holds. The rest is init order and little
- * else -- api before cpu so the registers are released before RESB rises, usb
- * second-to-last because its enumeration window times a keyboard quirk and
- * anything slow scheduled inside it stops the quirk firing, cpu last.
+ * else -- cyw before the three radio users, api before cpu so the registers
+ * are released before RESB rises, usb second-to-last because its enumeration
+ * window times a keyboard quirk and anything slow scheduled inside it stops
+ * the quirk firing, cpu last.
  *
  * The io_task column reads its order off this same list, and one rule is
  * load-bearing there: rom before vcp, nfc and api, with api the last row that
@@ -69,17 +75,18 @@
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
 #define RP6502_MACH_DRIVERS                          \
-    COM_DRIVER, MON_DRIVER,                          \
+    COM_DRIVER, COM_TELNET_DRIVER, MON_DRIVER,       \
     RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,              \
     LFS_DRIVER, CFG_DRIVER,                          \
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,             \
+    CYW_DRIVER, WIFI_DRIVER, NTP_DRIVER, BLE_DRIVER, \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,     \
     TABLET_DRIVER,                                   \
     MEM_DRIVER, RLN_DRIVER, FIL_DRIVER,              \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \
-    DIR_DRIVER, CLK_DRIVER,                          \
+    MODEM_DRIVER, DIR_DRIVER, CLK_DRIVER,            \
     DRIVE_DRIVER, RAM_DRIVER,                        \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
     USB_DRIVER, CPU_DRIVER
@@ -87,7 +94,8 @@
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS                           \
-    VCP_STD_DRIVER, MID_STD_DRIVER,                  \
-    ROM_STD_DRIVER, NFC_STD_DRIVER, FS_STD_DRIVER
+    MODEM_STD_DRIVER, VCP_STD_DRIVER,                \
+    MID_STD_DRIVER, ROM_STD_DRIVER,                  \
+    NFC_STD_DRIVER, FS_STD_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

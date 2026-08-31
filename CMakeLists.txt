@@ -28,11 +28,10 @@ rp6502_submodule(vendor/tinyusb
 rp6502_submodule(vendor/littlefs SENTINEL lfs.c
     WANTS "the firmware's flash filesystem")
 
-# Project subdirectories (under ${RP6502_ROOT}/src/mach/pico).
-set(RP6502_PROJECT_DIRECTORIES
-    ria
-    vga
-)
+# The machines this root builds, under ${RP6502_ROOT}/src/mach/pico. Which
+# RIA is one of them is the board's answer, so it is given below where the
+# board is chosen.
+set(RP6502_PROJECT_DIRECTORIES vga)
 
 # Force wrappers defined by pico_printf and pico_stdlib to be
 # preserved during link-time interprocedural optimizations.
@@ -66,6 +65,19 @@ endif()
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 set(PICO_THREAD_LOCAL_TYPE emutls CACHE INTERNAL "")
+
+# The radio is a board, not a build flag: each RIA is its own machine with its
+# own driver roster and its own parts, and the board says which one this is.
+# If you have thoroughly tested a third-party RP2350 board in the reference
+# design then please submit a pull request.
+if (PICO_BOARD STREQUAL "pico2_w" OR
+    PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
+    list(APPEND RP6502_PROJECT_DIRECTORIES ria-w)
+elseif(PICO_BOARD STREQUAL "pico2")
+    list(APPEND RP6502_PROJECT_DIRECTORIES ria)
+else()
+    message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
+endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 

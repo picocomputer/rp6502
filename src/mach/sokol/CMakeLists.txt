@@ -4,6 +4,10 @@
 # One root for the three because they are one program. What differs is the
 # host directory beside this one, the graphics backend sokol compiles, and
 # what the linker is handed — each in a branch below and nowhere else.
+#
+# android/ is the fourth. It is a root of its own because AGP drives it, but
+# it is the same machine: it takes the drivers.h beside this file, and the
+# APK that wraps it is dist/android.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -53,13 +57,13 @@ if(APPLE)
     include(${RP6502_SRC}/host/macos/macos.cmake)
 endif()
 
-# One optimization unit in Release, as it was when this tree was one file:
 # This machine's drivers.h: what it is made of, the order it comes up in,
 # and what it offers a program to open.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
-# emu_core was made above this line, so it is told, and everything made below
-# inherits the directory variable.
+# One optimization unit in Release, as it was when this tree was one file.
+# emu_core was made above this line, so it is told directly; everything made
+# below inherits the directory variable.
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
@@ -131,7 +135,7 @@ else()
         ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/mach/version.c emu_core)
 
 if(WIN32)
     # RC is not one of project()'s languages, and a language is enabled for a

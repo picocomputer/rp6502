@@ -58,7 +58,7 @@
             "name": "linux-debug",
             "displayName": "Debug",
             "inherits": "linux-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/linux/debug",
+            "binaryDir": "${sourceDir}/../../../build/sokol/linux/debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             },
@@ -68,7 +68,7 @@
             "name": "linux-release",
             "displayName": "Release",
             "inherits": "linux-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/linux/release",
+            "binaryDir": "${sourceDir}/../../../build/sokol/linux/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             },
@@ -78,7 +78,7 @@
             "name": "macos-debug",
             "displayName": "Debug",
             "inherits": "macos-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/macos/debug",
+            "binaryDir": "${sourceDir}/../../../build/sokol/macos/debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             },
@@ -88,7 +88,7 @@
             "name": "macos-release",
             "displayName": "Release",
             "inherits": "macos-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/macos/release",
+            "binaryDir": "${sourceDir}/../../../build/sokol/macos/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             },
@@ -98,7 +98,7 @@
             "name": "windows-debug",
             "displayName": "Debug",
             "inherits": "windows-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/windows/debug",
+            "binaryDir": "${sourceDir}/../../../build/sokol/windows/debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             },
@@ -108,7 +108,7 @@
             "name": "windows-release",
             "displayName": "Release",
             "inherits": "windows-base",
-            "binaryDir": "${sourceDir}/../../../build/emu/windows/release",
+            "binaryDir": "${sourceDir}/../../../build/sokol/windows/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             },

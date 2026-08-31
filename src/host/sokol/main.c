@@ -25,7 +25,7 @@
 #include "host/sokol/cli.h"
 #include "host/sokol/script.h"
 #include "host/sokol/credits.h"
-#include "host/version.h"
+#include "mach/version.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER

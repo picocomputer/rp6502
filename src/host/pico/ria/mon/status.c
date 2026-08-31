@@ -5,7 +5,7 @@
  */
 
 #include "core/api/tim.h"
-#include "host/version.h"
+#include "mach/version.h"
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"

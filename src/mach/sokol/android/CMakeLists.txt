@@ -2,17 +2,23 @@
 #
 # Two ways in. Gradle configures this file through AGP's externalNativeBuild,
 # passing its own toolchain, ABI and platform; that build packages and signs.
-# A standalone `cmake -S src/mach/android -B build/android/cmake` finds the
-# same pinned NDK itself, which is what gives an editor a compile_commands.json
-# and what lets the library be built without Gradle at all.
+# A standalone `cmake -S src/mach/sokol/android -B build/android/cmake` finds
+# the same pinned NDK itself, which is what gives an editor a
+# compile_commands.json and what lets the library be built without Gradle at
+# all.
 #
 # The pins live in gradle.properties, which Gradle reads as project properties
 # and this file reads as text, so the NDK and the API level are written once.
 
 cmake_minimum_required(VERSION 3.21)
 
+# The Gradle project: the APK is what ships, so the wrapper that builds it is
+# under dist/ with every other machine's packaging. Named before project()
+# because the pins below are read out of it.
+cmake_path(SET RP6502_APK NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../dist/android)
+
 # Read the pins before project(): the toolchain has to be chosen first.
-set(RP6502_GRADLE_PROPERTIES ${CMAKE_CURRENT_LIST_DIR}/gradle.properties)
+set(RP6502_GRADLE_PROPERTIES ${RP6502_APK}/gradle.properties)
 function(rp6502_gradle_property key out)
     file(STRINGS ${RP6502_GRADLE_PROPERTIES} _hits REGEX "^${key} *= *")
     list(LENGTH _hits _n)
@@ -39,8 +45,8 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     if(NOT _sdk)
         set(_sdk "$ENV{ANDROID_SDK_ROOT}")
     endif()
-    if(NOT _sdk AND EXISTS ${CMAKE_CURRENT_LIST_DIR}/local.properties)
-        file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/local.properties _line
+    if(NOT _sdk AND EXISTS ${RP6502_APK}/local.properties)
+        file(STRINGS ${RP6502_APK}/local.properties _line
             REGEX "^sdk\\.dir *= *")
         string(REGEX REPLACE "^sdk\\.dir *= *" "" _sdk "${_line}")
         string(REPLACE "\\:" ":" _sdk "${_sdk}")
@@ -71,7 +77,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../../..)
 set(RP6502_SRC ${RP6502_ROOT}/src)
 set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
@@ -91,9 +97,9 @@ target_sources(emu_core PRIVATE
     ${RP6502_SRC}/host/posix/host.c
     ${RP6502_HOST}/host.c)
 
-# This machine's drivers.h: what it is made of, the order it comes up in,
-# and what it offers a program to open.
-target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# The machine this is: Android is a host under mach/sokol, not a machine of
+# its own, so it takes the drivers.h beside it rather than a copy.
+target_include_directories(emu_core PUBLIC ${RP6502_SRC}/mach/sokol)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
@@ -106,20 +112,20 @@ add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} ${RP6502_HO
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/mach/version.c emu_core)
 
 # The APK, for the standalone tree only: under AGP this same file is being
 # read by the Gradle build that would be invoked, and RP6502_GRADLE is how it
 # says so.
 if(NOT RP6502_GRADLE)
-    set(_gradlew ${CMAKE_CURRENT_SOURCE_DIR}/gradlew)
+    set(_gradlew ${RP6502_APK}/gradlew)
     if(CMAKE_HOST_WIN32)
-        set(_gradlew ${CMAKE_CURRENT_SOURCE_DIR}/gradlew.bat)
+        set(_gradlew ${RP6502_APK}/gradlew.bat)
     endif()
     add_custom_target(apk
         COMMAND ${_gradlew} assembleRelease
             -PrpVersion=${RP6502_VERSION_VALUE} -PrpCi=${RP6502_CI_VALUE}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        WORKING_DIRECTORY ${RP6502_APK}
         COMMENT "Building the APK (Gradle compiles this library again, its way)"
         USES_TERMINAL
         VERBATIM)

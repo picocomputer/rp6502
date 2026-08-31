@@ -30,7 +30,7 @@
             "name": "Emulator Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${workspaceFolder}/tests/roms/${input:romPick}"
@@ -59,20 +59,20 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/sokol/windows/debug/rp6502-emu.exe"
             }
         },
         {
             "name": "Emulator Debug (no ROM)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu",
             "args": [
                 "--debug"
             ],
@@ -100,20 +100,20 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/sokol/windows/debug/rp6502-emu.exe"
             }
         },
         {
             "name": "Emulator Debug (path…)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${input:romPath}"
@@ -144,13 +144,13 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/sokol/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/sokol/windows/debug/rp6502-emu.exe"
             }
         },
         {

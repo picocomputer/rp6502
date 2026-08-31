@@ -26,7 +26,7 @@ apply plugin: 'com.android.application'
 // Three separate knobs because they are three separate mechanisms: the
 // project's own output, the NDK's staging, and Gradle's project cache
 // (that last one is in gradle.properties, which is where Gradle reads it).
-def out = "$rootDir/../../../build/android"
+def out = "$rootDir/../../../../build/android"
 layout.buildDirectory = file("$out/gradle")
 
 // What this build is, from CI. Read into locals first: inside defaultConfig,
@@ -57,7 +57,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                // The standard is src/host/android/CMakeLists.txt's to set, except
+                // The standard is the machine CMakeLists.txt's to set, except
                 // the stamp, which only the build that was asked for it knows.
                 // RP6502_GRADLE tells that file this is the Gradle way in, so it
                 // does not offer an apk target that would re-enter this build.
@@ -81,7 +81,9 @@ android {
 
     externalNativeBuild {
         cmake {
-            path "CMakeLists.txt"
+            // The library is the machine's; this directory is only the APK
+            // around it, which is why the two are not the same place.
+            path "../../android/CMakeLists.txt"
             buildStagingDirectory file("$out/cxx")
         }
     }

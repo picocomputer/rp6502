@@ -34,7 +34,7 @@ extern "C"
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "host/sokol/credits.h" /* EMU_CREDITS */
-#include "host/version.h"
+#include "mach/version.h"
 #include "host/sokol/icon.h"    /* icon_desc() - Credits masthead icon */
 
 #include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in wdc/w65c02.c) */

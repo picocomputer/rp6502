@@ -19,7 +19,7 @@
 
 #include "core/str/oem.h"
 #include "core/rand_seed.h"
-#include "host/version.h"
+#include "mach/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/log.h"
 #include "core/api/dir.h"

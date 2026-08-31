@@ -18,7 +18,7 @@
             "name": "release",
             "displayName": "Release",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../../build/android/cmake",
+            "binaryDir": "${sourceDir}/../../../../build/android/cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
