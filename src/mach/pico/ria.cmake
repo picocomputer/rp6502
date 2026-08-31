@@ -6,7 +6,7 @@
 # RIA_TARGET  the executable to build, named by the machine that includes this.
 
 # The firmware's own sources; this file is the parts list, they are the parts.
-set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
+set(RIA_SRC ${RP6502_ROOT}/src/mach/pico/ria)
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in core/str/unicode.c can be read without a
@@ -84,7 +84,7 @@ target_compile_options(${RIA_TARGET} PRIVATE
 set_source_files_properties(${RP6502_ROOT}/src/core/str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
 target_include_directories(${RIA_TARGET} PRIVATE
-    ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
+    ${RP6502_ROOT}/src/mach/pico  # host.h, and the pico's own answers
     ${CMAKE_CURRENT_SOURCE_DIR} # drivers.h, the machine's own
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RIA_SRC}
@@ -105,8 +105,8 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 
 target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
-    ${RP6502_ROOT}/src/host/pico/host.c
-    ${RP6502_ROOT}/src/host/pico/host_ria.c
+    ${RP6502_ROOT}/src/mach/pico/host.c
+    ${RP6502_ROOT}/src/mach/pico/host_ria.c
     ${RP6502_ROOT}/src/core/sys.c
     ${RP6502_ROOT}/src/mach/version.c
     ${RP6502_ROOT}/src/core/api/api.c

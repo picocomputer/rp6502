@@ -10,7 +10,7 @@
  *
  * The questions that do need a filesystem belong to whichever drive would
  * have to answer them: host/posix/dir.c and host/windows/dir.c map into their
- * host's namespace, and host/pico/ria/sys/path.c resolves a CWD through
+ * host's namespace, and mach/pico/ria/sys/path.c resolves a CWD through
  * FatFs.
  */
 

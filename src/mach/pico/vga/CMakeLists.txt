@@ -1,7 +1,7 @@
 # The RP6502-VGA
 
 # The firmware's own sources; this file is the parts list, they are the parts.
-set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
+set(VGA_SRC ${RP6502_ROOT}/src/mach/pico/vga)
 
 add_executable(rp6502-vga)
 target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
@@ -25,9 +25,8 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
-    ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
-    ${CMAKE_CURRENT_LIST_DIR}      # drivers.h, this machine's
-    ${VGA_SRC}
+    ${RP6502_ROOT}/src/mach/pico  # host.h, and the pico's own answers
+    ${VGA_SRC}                    # this machine: drivers.h and its sources
     ${RP6502_ROOT}/src
 )
 
@@ -39,7 +38,7 @@ target_include_directories(rp6502-vga PRIVATE
 
 target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c
-    ${RP6502_ROOT}/src/host/pico/host.c
+    ${RP6502_ROOT}/src/mach/pico/host.c
     ${RP6502_ROOT}/src/core/vga/prog.c
     ${RP6502_ROOT}/src/core/vga/mode.c
     ${RP6502_ROOT}/src/core/vga/mode0.c

@@ -7,7 +7,7 @@ MiSTer planned. Both are Cyclone V, so `src/core` stays platform independent
 and each host gets a thin wrapper in `src/host/`.
 
 The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
-trimmed build of the real `src/host/pico/ria` firmware C for the OS layer —
+trimmed build of the real `src/mach/pico/ria` firmware C for the OS layer —
 syscalls, HID and ROM loading — mirroring the RP2350 + W65C02 split of the
 real machine.
 

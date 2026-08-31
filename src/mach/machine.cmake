@@ -113,8 +113,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/def/*.def
         ${RP6502_SRC}/host/pocket/*.h
         ${RP6502_SRC}/mach/pocket/*.h
-        ${RP6502_SRC}/host/pico/ria/*.h
-        ${RP6502_SRC}/host/pico/vga/*.h)
+        ${RP6502_SRC}/mach/pico/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c

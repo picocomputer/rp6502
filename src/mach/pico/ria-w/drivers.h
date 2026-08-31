@@ -7,7 +7,7 @@
  * in, and the ones it offers a program to open. Both are the same kind of
  * fact, so they are the same file.
  *
- * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
+ * src/mach/pico/ria/main.c walks the machine rows -- forward to bring up and
  * to pump, backward to tear down. core/api/std.c builds the table from the
  * stdio rows. The drive a path reaches is in neither list: core/api/dir.h
  * names those calls and the host that is linked defines them.
@@ -39,11 +39,11 @@
 #include "ria/mon/ram.h"
 #include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
 #include "ria/mon/rom.h"
-#include "ria/ble/ble.h"
-#include "ria/net/cyw.h"
-#include "ria/net/modem.h"
-#include "ria/net/ntp.h"
-#include "ria/net/wifi.h"
+#include "ria-w/ble/ble.h"
+#include "ria-w/net/cyw.h"
+#include "ria-w/net/modem.h"
+#include "ria-w/net/ntp.h"
+#include "ria-w/net/wifi.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/led.h"

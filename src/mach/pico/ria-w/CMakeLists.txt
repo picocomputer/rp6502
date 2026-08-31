@@ -1,8 +1,9 @@
 # The RP6502-RIA-W: the same board with the radio populated.
 #
-# Everything the two boards share is the parts list beside this file. What is
-# here is what having a radio costs: nine more drivers, the two stacks that
-# drive them, and the config header the vendor's driver reads.
+# Everything the two boards share is the parts list one directory up. What is
+# here is what having a radio costs: nine more drivers -- their sources are in
+# this directory, because they are this board's -- and the two stacks that
+# drive them.
 
 set(RIA_TARGET rp6502-ria-w)
 include(${RP6502_ROOT}/src/mach/pico/ria.cmake)
@@ -13,19 +14,19 @@ pico_set_program_name(${RIA_TARGET} "RP6502-RIA-W")
 # display, the LED that is wired to the radio chip rather than a pin.
 target_compile_definitions(${RIA_TARGET} PRIVATE
     RP6502_RIA_W=1
-    CYW43_CONFIG_FILE="${RIA_SRC}/cyw43_config.h"
+    CYW43_CONFIG_FILE="${CMAKE_CURRENT_SOURCE_DIR}/cyw43_config.h"
 )
 
 target_sources(${RIA_TARGET} PRIVATE
-    ${RIA_SRC}/ble/ble.c
-    ${RIA_SRC}/ble/tlv.c
-    ${RIA_SRC}/net/cmd.c
-    ${RIA_SRC}/net/cyw.c
-    ${RIA_SRC}/net/modem.c
-    ${RIA_SRC}/net/net.c
-    ${RIA_SRC}/net/ntp.c
-    ${RIA_SRC}/net/telnet.c
-    ${RIA_SRC}/net/wifi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/ble/ble.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/ble/tlv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/cmd.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/cyw.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/modem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/net.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/ntp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/telnet.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/net/wifi.c
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE

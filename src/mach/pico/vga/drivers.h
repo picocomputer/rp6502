@@ -6,7 +6,7 @@
  * This machine's drivers: the ones it is made of and the order it comes up
  * in. There is no 6502 here -- this firmware is the video half of a
  * Picocomputer, driven over PIX -- so the rows carry init and task and
- * nothing else, and src/host/pico/vga/main.c walks them.
+ * nothing else, and src/mach/pico/vga/main.c walks them.
  *
  * No stdio table either: what a program may open is the RIA's business.
  */

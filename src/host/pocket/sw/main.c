@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The soft CPU's runner, this platform's host/pico/ria/main.c.
+ * The soft CPU's runner, this platform's mach/pico/ria/main.c.
  */
 
 #include "core/api/xreg.h"

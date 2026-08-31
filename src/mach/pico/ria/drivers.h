@@ -7,7 +7,7 @@
  * in, and the ones it offers a program to open. Both are the same kind of
  * fact, so they are the same file.
  *
- * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
+ * src/mach/pico/ria/main.c walks the machine rows -- forward to bring up and
  * to pump, backward to tear down. core/api/std.c builds the table from the
  * stdio rows. The drive a path reaches is in neither list: core/api/dir.h
  * names those calls and the host that is linked defines them.

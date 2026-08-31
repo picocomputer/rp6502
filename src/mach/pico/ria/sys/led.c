@@ -1,0 +1,59 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include "ria/sys/led.h"
+#include "ria-w/net/cyw.h"
+#include <pico/stdlib.h>
+
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_LED)
+#include <stdio.h>
+#define DBG(...) printf(__VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+#define LED_BLINK_TIME_MS 100
+
+static bool led_state;
+static bool led_blinking;
+static absolute_time_t led_blink_timer;
+
+static void led_set(bool on)
+{
+    led_state = on;
+#ifdef PICO_DEFAULT_LED_PIN
+    gpio_put(PICO_DEFAULT_LED_PIN, on);
+#endif
+#ifdef RP6502_RIA_W
+    // LED is connected to cyw43
+    cyw_led_set(on);
+#endif
+}
+
+void __in_flash("led_init") led_init(void)
+{
+#ifdef PICO_DEFAULT_LED_PIN
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+#endif
+    led_set(true);
+}
+
+void led_task(void)
+{
+    if (led_blinking && time_reached(led_blink_timer))
+    {
+        led_set(!led_state);
+        led_blink_timer = make_timeout_time_ms(LED_BLINK_TIME_MS);
+    }
+}
+
+void led_blink(bool enable)
+{
+    if (!enable)
+        led_set(true);
+    led_blinking = enable;
+}

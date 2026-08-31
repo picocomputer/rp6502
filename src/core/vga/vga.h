@@ -47,7 +47,7 @@ void vga_set_code_page(uint16_t cp);
 /* Select a canvas, which discards whatever was programmed on the last one.
  * False for a canvas this machine does not have. A machine whose video device
  * is across a bus does not choose here -- it writes the wire and shadows what
- * it wrote (host/pico/ria/sys/vga.c). */
+ * it wrote (mach/pico/ria/sys/vga.c). */
 bool vga_canvas_select(uint16_t canvas);
 
 /* How this machine forgets a mode program, because the canvas it described is

@@ -11,7 +11,7 @@
  *
  * Device 0 never crosses a bus, so it is compiled into all of them. Device 1
  * is compiled only into a machine that is its own video; one with a real bus
- * sends the message and the far end answers (host/pico/vga/sys/pix.c).
+ * sends the message and the far end answers (mach/pico/vga/sys/pix.c).
  */
 
 #ifndef _CORE_API_XREG_H_
