@@ -130,7 +130,7 @@ rp6502_machine_asset(opl2_lut_rom GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
 
 
 # The resampler's coefficients, as the package the RTL reads. The same
-# script writes the C table in src/core/emu, so there is one design behind both
+# script writes the C table emu.cmake compiles, so there is one design behind both
 # and the lockstep is comparing implementations rather than designs.
 set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
 rp6502_machine_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py

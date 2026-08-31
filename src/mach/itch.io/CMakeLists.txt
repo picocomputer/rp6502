@@ -32,7 +32,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${RP6502_SRC}/host/emsdk)
-include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/mach/emu.cmake)
 # The browser has no <aio.h>, so this host brings its own fs seam and takes
 # only the two files a POSIX host shares.
 target_sources(emu_core PRIVATE

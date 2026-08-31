@@ -39,7 +39,7 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
 set(RP6502_HOST ${RP6502_SRC}/host/libretro)
-include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/mach/emu.cmake)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
     SPARSE include WANTS "the libretro API header")

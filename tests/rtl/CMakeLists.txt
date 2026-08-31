@@ -53,7 +53,7 @@ find_package(verilator CONFIG REQUIRED
 
 # The machine as a list of files, the generated packages, and the soft CPU's
 # firmware.
-include(${RP6502_SRC}/core/machine.cmake)
+include(${RP6502_SRC}/mach/machine.cmake)
 
 # --- The emulator, for the suites that read it directly ---
 # tests/cpu holds direct-C tests of the machine's own code — the filesystem,
@@ -69,7 +69,7 @@ elseif(APPLE)
 else()
     set(RP6502_HOST ${RP6502_SRC}/host/linux)
 endif()
-include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/mach/emu.cmake)
 include(${RP6502_SRC}/host/posix/posix.cmake)
 target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 

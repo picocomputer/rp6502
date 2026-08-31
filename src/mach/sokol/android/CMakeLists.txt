@@ -85,7 +85,7 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${RP6502_SRC}/host/android)
-include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/mach/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
 # that is not Windows. One bionic filesystem answer, not two.

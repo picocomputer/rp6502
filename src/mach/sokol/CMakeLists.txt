@@ -41,7 +41,7 @@ else()
     set(RP6502_HOST ${RP6502_SRC}/host/linux)
 endif()
 
-include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/mach/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/host/windows/windows.cmake)
     # The Win32 seam is host/windows/host.c, shared with the libretro core.

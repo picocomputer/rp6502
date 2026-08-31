@@ -86,7 +86,7 @@ endif()
 # --- The generated 6502 programs ---
 #
 # A .rp6502 is a program, not a package. Nothing verilates one and nothing
-# links one, so unlike the assets in src/core/assets.cmake these need no
+# links one, so unlike the assets in src/mach/assets.cmake these need no
 # configure-time copy; a build rule is enough. They are here because the
 # machine that runs them is not the point of them: a program that writes a
 # file, reads it back and prints what came back makes the same claim on a
