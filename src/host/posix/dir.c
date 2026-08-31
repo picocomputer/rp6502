@@ -34,22 +34,38 @@
 #include <unistd.h>
 #include <utime.h>
 
-#define DIR_UPATH_MAX (3 * 4096) /* worst case: every OEM byte -> 3 UTF-8 bytes */
-#define DIR_NAME_MAX 256         /* an entry's name, not a path */
+#define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
 /* A path arrives spelled the way the 6502 spells it. This drive is one
  * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too. */
-static bool path_to_utf8(const char *path, char *u8 /* [DIR_UPATH_MAX] */, api_errno *err)
+ * is left is the native path -- and then the code page comes off too.
+ *
+ * Allocated to fit rather than capped: path_to_native never grows a path, and
+ * oem_to_utf8 answers how much room it wants, so both lengths are known
+ * instead of guessed. The caller frees. */
+static char *path_to_utf8(const char *path, api_errno *err)
 {
-    char native[HOST_MAX_PATH];
-    if (!path_to_native(path, native, sizeof native) ||
-        oem_to_utf8(native, u8, DIR_UPATH_MAX) >= DIR_UPATH_MAX)
+    size_t nsz = strlen(path) + 1;
+    char *native = malloc(nsz);
+    if (!native)
     {
-        *err = API_EINVAL;
-        return false;
+        *err = API_ENOMEM;
+        return NULL;
     }
-    return true;
+    if (!path_to_native(path, native, nsz))
+    {
+        free(native);
+        *err = API_EINVAL;
+        return NULL;
+    }
+    size_t usz = oem_to_utf8(native, NULL, 0) + 1;
+    char *u8 = malloc(usz);
+    if (u8)
+        oem_to_utf8(native, u8, usz);
+    else
+        *err = API_ENOMEM;
+    free(native);
+    return u8;
 }
 
 /* Whatever the last call set, in the API's words. */
@@ -167,11 +183,13 @@ bool drive_validate(int des, api_errno *err)
 
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
     struct stat st;
-    if (!posix_ok(stat(u8, &st) == 0, err))
+    bool ok = posix_ok(stat(u8, &st) == 0, err);
+    free(u8);
+    if (!ok)
         return false;
     /* stat names a single entry; report its basename, not the whole path. */
     info_from_stat(info, &st, path_basename(path));
@@ -189,13 +207,14 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
         *err = API_EMFILE;
         return false;
     }
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
-    if (!u8[0]) /* a directory of no name is the working directory */
-        u8[0] = '.', u8[1] = 0;
-    void *dp = posix_opendir(u8);
-    if (!posix_ok(dp != NULL, err))
+    /* a directory of no name is the working directory */
+    void *dp = posix_opendir(u8[0] ? u8 : ".");
+    bool ok = posix_ok(dp != NULL, err);
+    free(u8);
+    if (!ok)
         return false;
     dirs[i].used = true;
     dirs[i].dp = dp;
@@ -206,7 +225,7 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
 /* "." and ".." are not entries the 6502 sees. */
 bool drive_readdir(int des, f_stat_t *info, api_errno *err)
 {
-    char u8name[DIR_UPATH_MAX];
+    char u8name[3 * DIR_NAME_MAX]; /* any name whose OEM form fits below */
     struct stat st;
     int r;
     do
@@ -244,35 +263,49 @@ bool drive_rewinddir(int des, api_errno *err)
 
 bool drive_unlink(const char *path, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
-    return posix_ok(remove(u8) == 0, err); /* a file or an empty directory */
+    bool ok = posix_ok(remove(u8) == 0, err);
+    free(u8);
+    return ok; /* a file or an empty directory */
 }
 
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
-    char u8old[DIR_UPATH_MAX], u8new[DIR_UPATH_MAX];
-    if (!path_to_utf8(oldname, u8old, err) || !path_to_utf8(newname, u8new, err))
+    char *u8old = path_to_utf8(oldname, err);
+    if (!u8old)
         return false;
-    return posix_ok(rename(u8old, u8new) == 0, err); /* replaces an existing target */
+    char *u8new = path_to_utf8(newname, err);
+    if (!u8new)
+    {
+        free(u8old);
+        return false;
+    }
+    bool ok = posix_ok(rename(u8old, u8new) == 0, err); /* replaces an existing target */
+    free(u8old), free(u8new);
+    return ok;
 }
 
 bool drive_mkdir(const char *path, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
-    return posix_ok(mkdir(u8, 0777) == 0, err);
+    bool ok = posix_ok(mkdir(u8, 0777) == 0, err);
+    free(u8);
+    return ok;
 }
 
 bool drive_chdir(const char *path, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
     /* chdir validates existence and dir-ness, and sets errno */
-    return posix_ok(chdir(u8) == 0, err);
+    bool ok = posix_ok(chdir(u8) == 0, err);
+    free(u8);
+    return ok;
 }
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
@@ -301,26 +334,30 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     if (!(mask & FS_AM_RDO))
         return true;
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
     struct stat st;
-    if (!posix_ok(stat(u8, &st) == 0, err))
-        return false;
-    mode_t m = st.st_mode & 07777;
-    if (attr & FS_AM_RDO)
-        m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
-    else
-        m |= S_IWUSR;
-    return posix_ok(chmod(u8, m) == 0, err);
+    bool ok = posix_ok(stat(u8, &st) == 0, err);
+    if (ok)
+    {
+        mode_t m = st.st_mode & 07777;
+        if (attr & FS_AM_RDO)
+            m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
+        else
+            m |= S_IWUSR;
+        ok = posix_ok(chmod(u8, m) == 0, err);
+    }
+    free(u8);
+    return ok;
 }
 
 /* Best-effort: set the modification time from the FAT date/time. The creation
  * time the API also carries is not settable on POSIX. */
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path, u8, err))
+    char *u8 = path_to_utf8(path, err);
+    if (!u8)
         return false;
     struct tm tm;
     memset(&tm, 0, sizeof(tm));
@@ -333,23 +370,33 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
     tm.tm_isdst = -1;
     struct utimbuf ub;
     ub.actime = ub.modtime = mktime(&tm);
-    return posix_ok(utime(u8, &ub) == 0, err);
+    bool ok = posix_ok(utime(u8, &ub) == 0, err);
+    free(u8);
+    return ok;
 }
 
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    char u8[DIR_UPATH_MAX], native[HOST_MAX_PATH], cwd[HOST_MAX_PATH];
-    if (!posix_ok(getcwd(u8, sizeof u8) != NULL, err))
+    char *u8 = getcwd(NULL, 0); /* the OS says how long its own answer is */
+    if (!posix_ok(u8 != NULL, err))
         return false;
-    if (oem_from_utf8(u8, native, sizeof native) >= sizeof native ||
-        !path_from_native(native, cwd, sizeof cwd) ||
-        strlen(cwd) >= size) /* did not fit: full-path-or-error */
+    /* oem_from_utf8 contracts and path_from_native prepends at most a
+     * six-byte drive prefix, so one length answers for both steps. */
+    size_t sz = strlen(u8) + 7;
+    char *native = malloc(sz), *cwd = malloc(sz);
+    bool ok = native && cwd;
+    if (ok)
     {
-        *err = API_ENOMEM;
-        return false;
+        oem_from_utf8(u8, native, sz);
+        ok = path_from_native(native, cwd, sz) &&
+             strlen(cwd) < size; /* did not fit: full-path-or-error */
     }
-    strcpy(buf, cwd);
-    return true;
+    if (ok)
+        strcpy(buf, cwd);
+    else
+        *err = API_ENOMEM;
+    free(u8), free(native), free(cwd);
+    return ok;
 }
 
 /* A POSIX filesystem has no FAT volume label. Report an empty one and accept
@@ -373,11 +420,13 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
 {
     /* A drive query names a drive, and no name is the one in use -- the same
      * rule opendir follows, and what f_getfree does with "". */
-    char u8[DIR_UPATH_MAX];
-    if (!path_to_utf8(path[0] ? path : ".", u8, err))
+    char *u8 = path_to_utf8(path[0] ? path : ".", err);
+    if (!u8)
         return false;
     struct statvfs vfs;
-    if (!posix_ok(statvfs(u8, &vfs) == 0, err))
+    bool ok = posix_ok(statvfs(u8, &vfs) == 0, err);
+    free(u8);
+    if (!ok)
         return false;
     uint64_t unit = vfs.f_frsize ? vfs.f_frsize : vfs.f_bsize;
     uint64_t tot = ((uint64_t)vfs.f_blocks * unit) / 512;
