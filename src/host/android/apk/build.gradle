@@ -81,9 +81,9 @@ android {
 
     externalNativeBuild {
         cmake {
-            // The library is the machine's; this directory is only the APK
-            // around it, which is why the two are not the same place.
-            path "../../android/CMakeLists.txt"
+            // The library is the machine's and this is the Android host's;
+            // the APK is where the two meet, which is why it is neither.
+            path "../../../mach/sokol/android/CMakeLists.txt"
             buildStagingDirectory file("$out/cxx")
         }
     }

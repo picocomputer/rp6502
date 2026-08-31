@@ -12,10 +12,12 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-# The Gradle project: the APK is what ships, so the wrapper that builds it is
-# under dist/ with every other machine's packaging. Named before project()
-# because the pins below are read out of it.
-cmake_path(SET RP6502_APK NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../dist/android)
+# The Gradle project. It is the Android host's -- a manifest, a wrapper and
+# an SDK pin are things this OS wants, not things this machine is -- so it
+# lives with that host's C. Named before project() because the pins below are
+# read out of it.
+cmake_path(SET RP6502_APK NORMALIZE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../host/android/apk)
 
 # Read the pins before project(): the toolchain has to be chosen first.
 set(RP6502_GRADLE_PROPERTIES ${RP6502_APK}/gradle.properties)

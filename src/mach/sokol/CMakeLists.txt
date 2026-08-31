@@ -6,8 +6,8 @@
 # what the linker is handed — each in a branch below and nowhere else.
 #
 # android/ is the fourth. It is a root of its own because AGP drives it, but
-# it is the same machine: it takes the drivers.h beside this file, and the
-# APK that wraps it is dist/android.
+# it is the same machine: it takes the drivers.h beside this file. The APK
+# that wraps it is the Android host's, in src/host/android/apk.
 
 cmake_minimum_required(VERSION 3.21)
 
