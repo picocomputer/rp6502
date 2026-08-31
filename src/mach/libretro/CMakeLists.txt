@@ -38,7 +38,7 @@ set(RP6502_INFO_VERSION "${RP6502_VERSION_BARE}")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
-set(RP6502_HOST ${RP6502_SRC}/host/libretro)
+set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/mach/emu.cmake)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
@@ -63,9 +63,8 @@ else()
         ${RP6502_HOST}/host.c)
 endif()
 
-# This machine's drivers.h: what it is made of, the order it comes up in,
-# and what it offers a program to open.
-target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# drivers.h and host.h are both this directory's, and emu.cmake already leads
+# the include path with RP6502_HOST -- which is it.
 
 # Everything that reaches a shared object has to be relocatable, emu_core
 # included — it is a static library only on the way in.

@@ -5,9 +5,9 @@
  *
  */
 
-#ifndef _HOST_LIBRETRO_HOST_H_
-#define _HOST_LIBRETRO_HOST_H_
+#ifndef _MACH_LIBRETRO_HOST_H_
+#define _MACH_LIBRETRO_HOST_H_
 
 #include "host/os.h"
 
-#endif /* _HOST_LIBRETRO_HOST_H_ */
+#endif /* _MACH_LIBRETRO_HOST_H_ */

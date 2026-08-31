@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_LIBRETRO_INPUT_H_
-#define _HOST_LIBRETRO_INPUT_H_
+#ifndef _MACH_LIBRETRO_INPUT_H_
+#define _MACH_LIBRETRO_INPUT_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,4 +32,4 @@ void input_set_port_device(unsigned port, unsigned device);
 /* Forget what this frontend said, for a core being taken down. */
 void input_reset(void);
 
-#endif /* _HOST_LIBRETRO_INPUT_H_ */
+#endif /* _MACH_LIBRETRO_INPUT_H_ */
