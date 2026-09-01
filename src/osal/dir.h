@@ -7,18 +7,13 @@
 #ifndef _OSAL_DIR_H_
 #define _OSAL_DIR_H_
 
-/* The eighteen directory syscalls, over whatever drive a machine has.
+/* What a drive is, under the directory syscalls. FatFs answers with a FRESULT
+ * and a host filesystem by setting errno; neither spelling appears here,
+ * because a backend call reports the way std_driver_t's do -- false, and the
+ * api_errno through the out parameter.
  *
- * What reaches the 6502 is the same on every machine -- the xstack a path
- * arrives on, the FILINFO an entry leaves in, which errno a bad descriptor is
- * -- so it is written here once. What a drive is differs: FatFs answers with a
- * FRESULT, a host filesystem answers by setting errno, and neither of those
- * spellings appears above this seam, because a backend call reports the way
- * std_driver_t's do -- false, and the api_errno through the out parameter.
- *
- * The entry counter telldir and seekdir are about is this layer's. Both drives
- * kept one, both counted the same things, and a drive that skips "." and ".."
- * on its own gets the counting right by saying nothing about it.
+ * What the 6502 asks of these is core/api/dir.h, which is written once for
+ * every machine.
  */
 
 #include "core/api/api.h"
@@ -104,31 +99,5 @@ void oem_fs_code_page(uint16_t cp);
  * the OS's to decide and not a caller's to guess. The caller frees; NULL is a
  * path that does not resolve. */
 char *os_dir_realpath(const char *path);
-
-/* Machine events: a run starts with no directory open. */
-void dir_run(void);
-void dir_stop(void);
-
-bool dir_api_stat(void);
-bool dir_api_opendir(void);
-bool dir_api_readdir(void);
-bool dir_api_closedir(void);
-bool dir_api_telldir(void);
-bool dir_api_seekdir(void);
-bool dir_api_rewinddir(void);
-bool dir_api_unlink(void);
-bool dir_api_rename(void);
-bool dir_api_chmod(void);
-bool dir_api_utime(void);
-bool dir_api_mkdir(void);
-bool dir_api_chdir(void);
-bool dir_api_chdrive(void);
-bool dir_api_getcwd(void);
-bool dir_api_setlabel(void);
-bool dir_api_getlabel(void);
-bool dir_api_getfree(void);
-
-/* This driver's row in a machine's driver list; see core/driver.h. */
-#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, nul_config, nul_config)
 
 #endif /* _OSAL_DIR_H_ */

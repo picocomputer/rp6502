@@ -21,7 +21,7 @@
 #include "core/driver.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "osal/dir.h"
+#include "core/api/dir.h"
 #include "osal/fs.h"
 #include "core/api/proc.h"
 #include "core/sys/exec.h"

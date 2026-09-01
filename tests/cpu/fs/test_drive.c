@@ -11,7 +11,7 @@
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
  */
 
-#include "osal/dir.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "osal/fs.h"

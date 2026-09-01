@@ -15,7 +15,7 @@
 
 #include "fs.h"
 
-#include "osal/dir.h"
+#include "core/api/dir.h"
 
 /* ---- What this drive can answer ------------------------------------------ */
 

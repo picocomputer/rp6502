@@ -13,7 +13,7 @@
 
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "osal/dir.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "osal/fs.h"
