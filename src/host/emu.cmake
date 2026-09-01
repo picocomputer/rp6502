@@ -4,10 +4,10 @@
 # sources, the tables generated from them, and the facts that belong to a
 # compiler rather than a platform.
 #
-# RP6502_OSAL names the directory that answers osal/os.h and osal/fs.h for this
-# build. Under src/osal for the desktops, and the machine's own directory for
-# libretro and the web, which are their own OS layer. It leads the include
-# path, which is also how those two reach their drivers.h.
+# RP6502_OSAL names the directory under src/osal that answers osal/os.h for
+# this build -- linux, macos, windows, android, emscripten. Every root sets it
+# before including this file, and names its own machine directory on the
+# include path itself, for the drivers.h core/sys.c includes by bare name.
 #
 # The OS's own files are the root's to name: src/osal/posix/posix.cmake for
 # the ones that share a POSIX seam, and a line apiece for the rest.
@@ -176,7 +176,6 @@ endif()
 add_dependencies(emu_core rsmp_coef)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${RP6502_OSAL}
     ${RP6502_SRC}
     ${RP6502_VENDOR}
 )

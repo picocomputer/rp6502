@@ -3,21 +3,32 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Android host-OS primitives that differ from the shared osal/posix/os.c: entropy
- * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Bionic
- * provides both (API 28+). Everything else lives in osal/posix/os.c.
+ * Android host-OS primitives that differ from the shared osal/posix/os.c:
+ * entropy and the frame-pacer sleep (clock_nanosleep, absolute). Everything
+ * else lives in osal/posix/os.c.
+ *
+ * /dev/urandom rather than getrandom(2), which bionic gates behind API 28 --
+ * and the libretro core builds against whatever floor its frontend templates
+ * pick. The file is there on every Android; what reads the result is a seed
+ * for core/sys/random.c, not a key.
  */
 
 #include "osal/os.h"
-#include "host/sokol/win/window.h" /* os_sleep_until_ns */
-#include <sys/random.h>
+#include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 
 uint32_t os_random_seed(void)
 {
     uint64_t s;
-    if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s)
-        return (uint32_t)(s ^ (s >> 32));
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0)
+    {
+        ssize_t got = read(fd, &s, sizeof s);
+        close(fd);
+        if (got == (ssize_t)sizeof s && s)
+            return (uint32_t)(s ^ (s >> 32));
+    }
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
     clock_gettime(CLOCK_REALTIME, &real);

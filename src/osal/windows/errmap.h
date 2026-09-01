@@ -13,10 +13,10 @@
  * are too small to be a file and there is nowhere else both fs.c and dir.c
  * already look.
  *
- * Named errmap and not errno because a host directory is on the include path
- * (host/emu.cmake puts it there so host.h can be reached), and a header
- * called errno.h there is the one every C library picks up instead of its
- * own. Renaming it back breaks every translation unit at once.
+ * Named errmap and not errno: this maps one vocabulary onto another, which is
+ * not what a C library's errno.h is, and a header of that name anywhere a
+ * build might put on an include path is the one a translation unit picks up
+ * instead of its own.
  */
 
 #ifndef _OSAL_WINDOWS_ERRMAP_H_

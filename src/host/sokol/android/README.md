@@ -35,7 +35,7 @@ Gradle build below.
 
 ### Step 1: Navigate to the Android project folder
 ```bash
-cd src/osal/android/apk
+cd src/host/sokol/android/apk
 ```
 
 ### Step 2: Compile the APK

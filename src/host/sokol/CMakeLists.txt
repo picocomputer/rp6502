@@ -6,8 +6,8 @@
 # what the linker is handed — each in a branch below and nowhere else.
 #
 # android/ is the fourth. It is a root of its own because AGP drives it, but
-# it is the same machine: it takes the drivers.h beside this file. The APK
-# that wraps it is the Android host's, in src/osal/android/apk.
+# it is the same machine: it takes the drivers.h beside this file, and the APK
+# that wraps it is in android/apk beside that.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -31,14 +31,19 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-# The OS this build is for: the directory that answers osal/os.h beyond what
-# posix.cmake supplies.
+# The OS this build is for, twice over: the directory that answers osal/os.h
+# beyond what posix.cmake supplies, and this machine's own window and gamepad
+# for that OS. Two directories because they are two questions -- what the
+# system answers, and what this program does with it.
 if(WIN32)
     set(RP6502_OSAL ${RP6502_SRC}/osal/windows)
+    set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/windows)
 elseif(APPLE)
     set(RP6502_OSAL ${RP6502_SRC}/osal/macos)
+    set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/macos)
 else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
+    set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/linux)
 endif()
 
 include(${RP6502_SRC}/host/emu.cmake)
@@ -51,10 +56,6 @@ if(WIN32)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
     target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
-endif()
-if(APPLE)
-    # Everything else on this host comes through posix; the bundle does not.
-    include(${RP6502_SRC}/osal/macos/macos.cmake)
 endif()
 
 # This machine's drivers.h: what it is made of, the order it comes up in,
@@ -89,8 +90,8 @@ add_executable(rp6502-emu
     ${RP6502_EMU_APP}
     ${RP6502_SRC}/host/sokol/app/main.c
     ${RP6502_EMU_WINDOW}
-    ${RP6502_OSAL}/window.c
-    ${RP6502_OSAL}/gamepad.c
+    ${RP6502_SOKOL_OS}/window.c
+    ${RP6502_SOKOL_OS}/gamepad.c
     ${RP6502_SRC}/host/sokol/win/gamepad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
@@ -120,8 +121,8 @@ elseif(APPLE)
         ${RP6502_SRC}/host/sokol/win/sokol_impl.c
         ${RP6502_SRC}/host/sokol/win/window_core.c
         ${RP6502_SRC}/host/sokol/win/input.c
-        ${RP6502_OSAL}/window.c
-        ${RP6502_OSAL}/gamepad.c
+        ${RP6502_SOKOL_OS}/window.c
+        ${RP6502_SOKOL_OS}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     # GameController rather than IOKit: Apple's own drivers normalize every
     # modern gamepad, and it asks the user for no permission to do it.
@@ -137,16 +138,26 @@ endif()
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
 
+# The packaging, which names this program rather than the system under it.
 if(WIN32)
-    # RC is not one of project()'s languages, and a language is enabled for a
-    # directory rather than a target, so it is enabled here. The resource is
-    # osal/windows/'s; both rc.exe and windres accept it.
+    # The version metadata Explorer shows in Properties > Details. RC is not
+    # one of project()'s languages and a language is enabled for a directory
+    # rather than a target, so it is enabled here; both rc.exe and windres
+    # accept the file.
     enable_language(RC)
-    rp6502_windows_version_resource(rp6502-emu)
+    configure_file(${RP6502_SOKOL_OS}/version.rc.in version.rc @ONLY)
+    target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 endif()
 
 if(APPLE)
-    rp6502_macos_bundle(rp6502-emu)
+    # An .app is a directory holding the executable and an Info.plist, so the
+    # build makes the thing that ships. Configured here rather than handed to
+    # MACOSX_BUNDLE_INFO_PLIST as a template: that substitutes only CMake's own
+    # MACOSX_BUNDLE_* names, and the version fields are ours.
+    configure_file(${RP6502_SOKOL_OS}/Info.plist.in Info.plist @ONLY)
+    set_target_properties(rp6502-emu PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
 endif()
 
 rp6502_emu_debugger(rp6502-emu)

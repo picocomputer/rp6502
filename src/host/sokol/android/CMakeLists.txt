@@ -12,12 +12,10 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-# The Gradle project. It is the Android host's -- a manifest, a wrapper and
-# an SDK pin are things this OS wants, not things this machine is -- so it
-# lives with that host's C. Named before project() because the pins below are
-# read out of it.
-cmake_path(SET RP6502_APK NORMALIZE
-    ${CMAKE_CURRENT_LIST_DIR}/../../../host/android/apk)
+# The Gradle project. A manifest, a wrapper and an SDK pin name this
+# application rather than the system under it, so it sits beside the machine's
+# own C. Named before project() because the pins below are read out of it.
+set(RP6502_APK ${CMAKE_CURRENT_LIST_DIR}/apk)
 
 # Read the pins before project(): the toolchain has to be chosen first.
 set(RP6502_GRADLE_PROPERTIES ${RP6502_APK}/gradle.properties)
@@ -110,7 +108,8 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
 # window.c, which NativeActivity calls.
-add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} ${RP6502_OSAL}/window.c)
+add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW}
+    ${CMAKE_CURRENT_LIST_DIR}/window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 

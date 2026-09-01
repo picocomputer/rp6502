@@ -12,8 +12,6 @@
 
 #include "osal/os.h"
 #include "core/str/oem.h"
-#include "host/sokol/app/cli.h"    /* os_console_attach */
-#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
