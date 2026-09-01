@@ -204,6 +204,10 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # vendored ffconf.h tests it with #if; the other two roots
             # pass it and this one was relying on undefined-is-zero.
             -DRP6502_EXFAT=0
+            # str.h's row default and str.c's fallback both stringize this;
+            # undefined, the default becomes the macro's own name, too long
+            # for the field and left unterminated.
+            -DRP6502_LOCALE=EN
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}

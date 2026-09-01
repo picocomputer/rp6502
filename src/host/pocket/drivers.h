@@ -56,17 +56,17 @@
  * the reports and keymap_task runs the repeat timer over them. bel takes no
  * init -- the bell is part of the mixer aud brings up and restores.
  */
-#define RP6502_MACH_DRIVERS                                                            \
-    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,          \
-    STR_DRIVER,                                   \
-    AUD_DRIVER, BEL_DRIVER,                               \
-    COM_DRIVER, FS_DRIVER,                                \
-    STD_DRIVER, RLN_DRIVER, TERM_DRIVER,          \
-    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER, \
-    APF_DRIVER, KEYMAP_DRIVER,                            \
-    MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,  \
-    VID_DRIVER, TIM_DRIVER, \
-    DIR_DRIVER, API_DRIVER, SST_DRIVER,           \
+#define RP6502_MACH_DRIVERS                             \
+    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,                \
+    STR_DRIVER,                                         \
+    AUD_DRIVER, BEL_DRIVER,                             \
+    COM_DRIVER, FS_DRIVER,                              \
+    STD_DRIVER, RLN_DRIVER, TERM_DRIVER,                \
+    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
+    APF_DRIVER, KEYMAP_DRIVER,                          \
+    MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
+    VID_DRIVER, TIM_DRIVER,                             \
+    DIR_DRIVER, API_DRIVER, SST_DRIVER,                 \
     CLK_DRIVER, CPU_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
