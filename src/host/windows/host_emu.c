@@ -16,7 +16,9 @@
 #include "mach/sokol/win/window.h" /* host_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 #include <windows.h>
 
 void host_sleep_until_ns(uint64_t target)
@@ -44,11 +46,16 @@ void host_console_attach(void)
 /* The ANSI main()'s argv is in the process ACP, not UTF-8. */
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
-    wchar_t w[4096];
-    if (!MultiByteToWideChar(CP_ACP, 0, arg, -1, w, (int)(sizeof w / sizeof *w)))
+    int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0); /* asks its own size */
+    wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;
+    if (!w || !MultiByteToWideChar(CP_ACP, 0, arg, -1, w, n))
+    {
+        free(w);
         return false;
-    if (wcslen(w) >= dstsz) /* one OEM byte per UTF-16 unit */
-        return false;
-    oem_from_wide((const uint16_t *)w, dst, dstsz);
-    return true;
+    }
+    bool ok = wcslen(w) < dstsz; /* one OEM byte per UTF-16 unit */
+    if (ok)
+        oem_from_wide((const uint16_t *)w, dst, dstsz);
+    free(w);
+    return ok;
 }

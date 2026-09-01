@@ -591,15 +591,20 @@ bool window_core_boot_rom(const char *path)
      * A lossy conversion can never open (0x7F substitutions name no file), so
      * refuse it here, before the machine is touched — otherwise the rom_load
      * failure below would halt the running program over a bad filename. */
-    char oem[4096], back[3 * 4096];
-    if (oem_from_utf8(path, oem, sizeof oem) >= sizeof oem ||
-        oem_to_utf8(oem, back, sizeof back) >= sizeof back)
-    {
-        fprintf(stderr, "rp6502-emu: dropped path too long\n");
+    size_t osz = strlen(path) + 1; /* oem_from_utf8 contracts */
+    char *oem = malloc(osz);
+    if (!oem)
         return false;
-    }
-    if (strcmp(path, back) != 0)
+    oem_from_utf8(path, oem, osz);
+    size_t bsz = oem_to_utf8(oem, NULL, 0) + 1;
+    char *back = malloc(bsz);
+    if (back)
+        oem_to_utf8(oem, back, bsz);
+    bool same = back && strcmp(path, back) == 0;
+    free(back);
+    if (!same)
     {
+        free(oem);
         fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return false;
     }

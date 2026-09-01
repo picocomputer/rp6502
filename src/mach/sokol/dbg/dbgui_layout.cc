@@ -22,29 +22,38 @@ extern "C"
 }
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
-static char g_cfg_override[1024]; /* --ini <file>, or "" for the OS default file */
+static char *g_cfg_override; /* --ini <file>, or null for the OS default file */
 
 void dbgui_set_config_file(const char *path)
 {
-    std::snprintf(g_cfg_override, sizeof g_cfg_override, "%s", path ? path : "");
+    std::free(g_cfg_override);
+    g_cfg_override = (path && *path) ? strdup(path) : nullptr;
 }
 
 /* The config file path (override, else <os-config-dir>/dbgui.ini); its parent
- * directory is created. Returns false if there is nowhere to write it. */
-static bool dbgui_config_path(char *out, size_t cap)
+ * directory is created. Null if there is nowhere to write it. Caller frees. */
+static char *dbgui_config_path(void)
 {
-    if (g_cfg_override[0])
-        std::snprintf(out, cap, "%s", g_cfg_override);
+    char *path;
+    if (g_cfg_override)
+        path = strdup(g_cfg_override);
     else
     {
-        char dir[896];
-        if (!host_config_dir(dir, sizeof dir))
-            return false;
-        std::snprintf(out, cap, "%s/dbgui.ini", dir);
+        char *dir = host_config_dir();
+        if (!dir)
+            return nullptr;
+        static const char tail[] = "/dbgui.ini";
+        path = (char *)std::malloc(std::strlen(dir) + sizeof tail);
+        if (path)
+            std::sprintf(path, "%s%s", dir, tail);
+        std::free(dir);
     }
-    host_ensure_parent_dir(out);
-    return true;
+    if (path)
+        host_ensure_parent_dir(path);
+    return path;
 }
 
 /* Read a file into buf (NUL-terminated, up to cap-1 bytes), or -1 if absent. */
@@ -66,11 +75,12 @@ static long dbgui_read_file(const char *path, char *buf, size_t cap)
 
 void dbgui_layout_load(void)
 {
-    char path[1024];
-    if (!dbgui_config_path(path, sizeof path))
+    char *path = dbgui_config_path();
+    if (!path)
         return;
-    char buf[16384];
+    static char buf[16384]; /* the ini's contents, not a path */
     long n = dbgui_read_file(path, buf, sizeof buf);
+    std::free(path);
     if (n < 0)
         return; /* no file yet: windows keep their compile-time defaults */
     ImGui::LoadIniSettingsFromMemory(buf, (size_t)n);
@@ -78,12 +88,13 @@ void dbgui_layout_load(void)
 
 void dbgui_layout_save(void)
 {
-    char path[1024];
-    if (!dbgui_config_path(path, sizeof path))
+    char *path = dbgui_config_path();
+    if (!path)
         return;
     size_t n = 0;
     const char *ini = ImGui::SaveIniSettingsToMemory(&n);
     FILE *f = std::fopen(path, "wb");
+    std::free(path);
     if (!f)
         return;
     std::fwrite(ini, 1, n, f);

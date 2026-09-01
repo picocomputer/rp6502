@@ -76,28 +76,35 @@ void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
 
 /* ---- config location ---- */
 
-bool host_config_dir(char *buf, size_t sz)
+char *host_config_dir(void)
 {
-    const char *xdg = getenv("XDG_CONFIG_HOME");
-    if (xdg && xdg[0])
-        snprintf(buf, sz, "%s/rp6502-emu", xdg);
-    else
+    const char *base = getenv("XDG_CONFIG_HOME");
+    const char *tail = "/rp6502-emu";
+    if (!base || !base[0])
     {
-        const char *home = getenv("HOME");
-        if (!home || !home[0])
-            return false;
-        snprintf(buf, sz, "%s/.config/rp6502-emu", home);
+        base = getenv("HOME");
+        tail = "/.config/rp6502-emu";
     }
-    return true;
+    if (!base || !base[0])
+        return NULL;
+    /* An environment variable is as long as the environment made it. */
+    char *dir = malloc(strlen(base) + strlen(tail) + 1);
+    if (dir)
+        sprintf(dir, "%s%s", base, tail);
+    return dir;
 }
 
 void host_ensure_parent_dir(const char *filepath)
 {
-    char tmp[1024];
-    snprintf(tmp, sizeof tmp, "%s", filepath);
+    char *tmp = strdup(filepath); /* walked in place, so it is ours */
+    if (!tmp)
+        return;
     char *slash = strrchr(tmp, '/');
     if (!slash || slash == tmp)
+    {
+        free(tmp);
         return;
+    }
     *slash = 0;
     for (char *p = tmp + 1; *p; p++)
         if (*p == '/')
@@ -107,6 +114,7 @@ void host_ensure_parent_dir(const char *filepath)
             *p = '/';
         }
     mkdir(tmp, 0755);
+    free(tmp);
 }
 
 void host_console_attach(void) {}

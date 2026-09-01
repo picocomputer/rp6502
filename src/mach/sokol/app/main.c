@@ -27,6 +27,7 @@
 #include "mach/sokol/app/credits.h"
 #include "mach/version.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER
 #include "core/dap/dap.h"
@@ -69,6 +70,20 @@ static int run_dap(const cli_options *o)
     return window_run(g_fb, o->scale, o->have_scale, o->vsync, false);
 }
 #endif
+
+/* argv in the guest's code page, allocated to fit: host_argv_to_oem only ever
+ * contracts, so the argument's own length is the bound. The caller frees. */
+static char *argv_to_oem(const char *arg)
+{
+    size_t sz = strlen(arg) + 1;
+    char *oem = malloc(sz);
+    if (oem && !host_argv_to_oem(arg, oem, sz))
+    {
+        free(oem);
+        oem = NULL;
+    }
+    return oem;
+}
 
 int main(int argc, char **argv)
 {
@@ -169,8 +184,10 @@ int main(int argc, char **argv)
      * here at the entry; --shot/--ini stay host-domain untouched. */
     for (int i = 0; i < o.n_installs; i++)
     {
-        char oem[4096];
-        if (!host_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_alias_insert(oem))
+        char *oem = argv_to_oem(o.installs[i]);
+        bool ok = oem && rom_alias_insert(oem); /* which takes its own copy */
+        free(oem);
+        if (!ok)
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
@@ -219,28 +236,25 @@ int main(int argc, char **argv)
 #endif
 
     /* No positional ROM but installs given: boot the first installed ROM (:name). */
-    char bootbuf[256];
-    char rom_oem[4096];
-    const char *rom = NULL;
+    char *rom = NULL; /* owned; NULL means none was named */
     if (o.rom)
-    {
-        if (!host_argv_to_oem(o.rom, rom_oem, sizeof rom_oem))
-        {
-            fprintf(stderr, "rp6502-emu: ROM path too long\n");
-            return 1;
-        }
-        rom = rom_oem;
-    }
+        rom = argv_to_oem(o.rom);
     else if (o.n_installs > 0)
     {
-        char inst[4096];
-        if (!host_argv_to_oem(o.installs[0], inst, sizeof inst))
+        char *inst = argv_to_oem(o.installs[0]);
+        if (inst)
         {
-            fprintf(stderr, "rp6502-emu: ROM path too long\n");
-            return 1;
+            const char *base = path_basename(inst);
+            rom = malloc(strlen(base) + 2); /* the ':' and the null */
+            if (rom)
+                sprintf(rom, ":%s", base);
         }
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", path_basename(inst));
-        rom = bootbuf;
+        free(inst);
+    }
+    if ((o.rom || o.n_installs > 0) && !rom)
+    {
+        fprintf(stderr, "rp6502-emu: cannot take the ROM path\n");
+        return 1;
     }
 
     if (!rom)
@@ -261,7 +275,9 @@ int main(int argc, char **argv)
         return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
     }
 
-    if (!exec_boot(rom, o.n_rom_args, o.rom_args, 0))
+    bool booted = exec_boot(rom, o.n_rom_args, o.rom_args, 0);
+    free(rom);
+    if (!booted)
         return 1;
 
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */

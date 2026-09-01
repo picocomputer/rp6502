@@ -79,26 +79,34 @@ void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
 
 /* ---- config location ---- */
 
-bool host_config_dir(char *buf, size_t sz)
+char *host_config_dir(void)
 {
     const char *base = getenv("APPDATA");
     if (!base || !base[0])
-        return false;
-    snprintf(buf, sz, "%s\\rp6502-emu", base);
-    return true;
+        return NULL;
+    /* An environment variable is as long as the environment made it. */
+    static const char tail[] = "\\rp6502-emu";
+    char *dir = malloc(strlen(base) + sizeof tail);
+    if (dir)
+        sprintf(dir, "%s%s", base, tail);
+    return dir;
 }
 
 /* GUI-subsystem processes don't inherit an interactive console's stdio. */
 
 void host_ensure_parent_dir(const char *filepath)
 {
-    char tmp[1024];
-    snprintf(tmp, sizeof tmp, "%s", filepath);
+    char *tmp = strdup(filepath); /* walked in place, so it is ours */
+    if (!tmp)
+        return;
     char *s1 = strrchr(tmp, '/');
     char *s2 = strrchr(tmp, '\\');
     char *slash = (s2 > s1) ? s2 : s1;
     if (!slash || slash == tmp)
+    {
+        free(tmp);
         return;
+    }
     *slash = 0;
     for (char *p = tmp + 1; *p; p++)
         if (*p == '/' || *p == '\\')
@@ -109,4 +117,5 @@ void host_ensure_parent_dir(const char *filepath)
             *p = c;
         }
     _mkdir(tmp);
+    free(tmp);
 }

@@ -149,7 +149,7 @@ FILE *host_fs_fopen_rd(const char *path);
  * -- the machine has no config directory, an application does. This is also
  * where the literal "rp6502-emu" lives. ensure_parent_dir works in host path
  * encoding, not the guest OEM the drive speaks, so it is not the drive. */
-bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+char *host_config_dir(void);                       /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu; allocated, caller frees */
 void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
 
 #endif /* _HOST_OS_H_ */
