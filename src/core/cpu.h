@@ -40,7 +40,7 @@ void cpu_set_phi2_khz_run(uint16_t phi2_khz);
 
 /* No driver row here. This header is the contract three machines answer
  * differently, and a row names hooks -- so each implementation defines its
- * own: core/wdc/cpu.h, mach/pico/ria/sys/cpu.h, mach/pocket/sw/cpu.h.
+ * own: core/wdc/cpu.h, host/pico/ria/sys/cpu.h, host/pocket/sw/cpu.h.
  * Exactly one of those reaches any translation unit. */
 
 #endif /* _CORE_CPU_H_ */

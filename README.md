@@ -87,14 +87,14 @@ settings.
 | Folder | builds | build directory |
 | --- | --- | --- |
 | `rp6502` (the repository root) | the two Pico firmwares | `build/` |
-| `src/mach/sokol` | the emulator on Linux, Windows and macOS, and its test suite | `build/sokol/<os>/{debug,release}` |
-| `src/mach/itch.io` | the itch.io bundle | `build/itch.io` |
-| `src/mach/sokol/android` | the same machine on Android: the native library, and an `apk` target | `build/android/` |
-| `src/mach/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
-| `src/mach/pocket` | the Analogue Pocket card package | `build/pocket` |
+| `src/host/sokol` | the emulator on Linux, Windows and macOS, and its test suite | `build/sokol/<os>/{debug,release}` |
+| `src/host/itch.io` | the itch.io bundle | `build/itch.io` |
+| `src/host/sokol/android` | the same machine on Android: the native library, and an `apk` target | `build/android/` |
+| `src/host/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
+| `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
-Adding MiSTer is a directory beside `src/mach/pocket` and one more line in that
+Adding MiSTer is a directory beside `src/host/pocket` and one more line in that
 list; nothing else changes.
 
 To build firmware, select Folder:rp6502. Select either the Debug or Release
@@ -137,16 +137,16 @@ missing window decorations.
 To build for web, select Folder:itch.io; the Emscripten toolchain installs itself
 the first time and needs no preset argument to find. Pressing F7 builds
 `build/itch.io/bundle`, a ready-to-publish itch.io sample that plays one program
-(`adventure.rp6502` by default) — see `src/mach/itch.io/dist/README.txt` to retarget
+(`adventure.rp6502` by default) — see `src/host/itch.io/dist/README.txt` to retarget
 and deploy it.
 
-`src/mach/itch.io/index.html` is the tester: a menu of every test ROM, run against
+`src/host/itch.io/index.html` is the tester: a menu of every test ROM, run against
 that same bundle. It stays in the source tree, so serve the repository root
 rather than the build. Use the VS Code live preview extension
-`ms-vscode.live-server` and open `src/mach/itch.io/index.html`, or a simple python
+`ms-vscode.live-server` and open `src/host/itch.io/index.html`, or a simple python
 server. Neither page works from a `file://` URL; the browser needs an HTTP
 origin to fetch a ROM or stream the wasm.
-`python3 -m http.server 8000` then http://localhost:8000/src/mach/itch.io/index.html
+`python3 -m http.server 8000` then http://localhost:8000/src/host/itch.io/index.html
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
 into `build/pocket/package`; `pocket-bitstream`, `pocket-fit` and `synth` are
@@ -200,7 +200,7 @@ root that builds the verilated machine.
 So an emulator build runs its host tests and the machine's; the fpga build
 runs its host tests, the machine's, and the RTL's:
 
-    cd src/mach/sokol                  # one root for all three desktops
+    cd src/host/sokol                  # one root for all three desktops
     cmake --preset linux-release     # or macos-release, windows-release
     cmake --build --preset linux-release
     ctest --preset linux-release     # host/emu + cpu, a couple of seconds

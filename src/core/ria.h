@@ -11,8 +11,8 @@
  * Its own header because six translation units want nothing but these three
  * and were reaching them through the machine contract, which drags
  * core/api/std.h and core/api/api.h behind it. The implementation is
- * core/ria/ria.c on a software machine, mach/pico/ria/sys/ria.c on the
- * firmware, and mach/pocket/sw/main.c on a machine whose bus is fabric.
+ * core/ria/ria.c on a software machine, host/pico/ria/sys/ria.c on the
+ * firmware, and host/pocket/sw/main.c on a machine whose bus is fabric.
  */
 
 #ifndef _CORE_RIA_H_

@@ -528,7 +528,7 @@ UTEST(fs, oem_names_roundtrip)
  * later somewhere else.
  *
  * The RIA firmware's console driver did exactly that. It has no test of its
- * own -- nothing compiles mach/pico/ria/sys/com.c -- so this pins the
+ * own -- nothing compiles host/pico/ria/sys/com.c -- so this pins the
  * contract on the copy that is testable, and a second copy that drifts from
  * it has somewhere to be caught. */
 UTEST(fs, a_read_of_nothing_writes_nothing)

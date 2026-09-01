@@ -31,7 +31,7 @@ rp6502_add_test(apf
         apf_host.c
     # The pocket's own roster: keymap and str keep their settings there, so
     # the generated accessors come from the machine this bench is standing in for.
-    INCLUDES ${RP6502_SRC}/mach/pocket ${RP6502_SRC}
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}
         ${KBDLAY_DIR} ${OEMCP_DIR}
     DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
 add_dependencies(test_apf kbdlay oemcp)

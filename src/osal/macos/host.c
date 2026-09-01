@@ -9,7 +9,7 @@
  */
 
 #include "host.h"
-#include "mach/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/win/window.h" /* host_sleep_until_ns */
 #include <errno.h>
 #include <time.h>
 

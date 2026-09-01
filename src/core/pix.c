@@ -11,7 +11,7 @@
  * Two such machines exist and they were answering identically -- the video
  * half is xreg1 on both, and both have one XRAM that the write has
  * already reached -- so there is nothing left below this to be per-machine.
- * A machine with a real bus (mach/pico/ria/sys/pix.c) implements op 0x01
+ * A machine with a real bus (host/pico/ria/sys/pix.c) implements op 0x01
  * itself and links none of this.
  */
 

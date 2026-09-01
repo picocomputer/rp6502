@@ -53,7 +53,7 @@ find_package(verilator CONFIG REQUIRED
 
 # The machine as a list of files, the generated packages, and the soft CPU's
 # firmware.
-include(${RP6502_SRC}/mach/machine.cmake)
+include(${RP6502_SRC}/host/machine.cmake)
 
 # --- The emulator, for the suites that read it directly ---
 # tests/cpu holds direct-C tests of the machine's own code — the filesystem,
@@ -63,20 +63,20 @@ include(${RP6502_SRC}/mach/machine.cmake)
 if(WIN32)
     message(FATAL_ERROR
         "the verilated machine needs a POSIX host; "
-        "the C suites are in src/mach/sokol's tree")
+        "the C suites are in src/host/sokol's tree")
 elseif(APPLE)
     set(RP6502_HOST ${RP6502_SRC}/osal/macos)
 else()
     set(RP6502_HOST ${RP6502_SRC}/osal/linux)
 endif()
-include(${RP6502_SRC}/mach/emu.cmake)
+include(${RP6502_SRC}/host/emu.cmake)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 
 # The bench runs the emulator as the reference model the RTL is compared
 # against, so it is that machine and takes that machine's drivers.h rather
 # than keeping a copy that could drift out from under the comparison.
-target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/mach/sokol)
+target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 

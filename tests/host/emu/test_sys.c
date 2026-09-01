@@ -45,7 +45,7 @@ UTEST(sys, a_run_then_a_commit_brings_the_drivers_up)
     ASSERT_TRUE(the_run_walked());
 }
 
-/* The shortcut mach/pico/ria/sys/ria.c depends on: a stop asked for before
+/* The shortcut host/pico/ria/sys/ria.c depends on: a stop asked for before
  * the machine ever started is not a teardown, because there is nothing up to
  * tear down. Both walks must be skipped, not just the stop. */
 UTEST(sys, a_stop_before_the_start_skips_both_fan_outs)

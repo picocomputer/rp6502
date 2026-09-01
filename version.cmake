@@ -4,7 +4,7 @@
 #     CI 31666918326              an untagged CI build, -DRP6502_CI=<run id>
 #     Aug 12 2026 20:17:46 PDT    a developer's own build
 #
-# The firmware root and every machine root include this; src/mach/pocket writes
+# The firmware root and every machine root include this; src/host/pocket writes
 # the same three forms into core.json, without the "Version " prefix the Pocket
 # UI supplies itself.
 

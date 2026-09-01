@@ -168,7 +168,7 @@ jobs:
           cp build/ria-w/rp6502-ria-w.uf2   "stage/rp6502-${V}-ria-w.uf2"
           cp build/pico2/ria/rp6502-ria.uf2 "stage/rp6502-${V}-ria.uf2"
           cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
-          cp src/mach/pico/dist/README.txt stage/
+          cp src/host/pico/dist/README.txt stage/
           ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
@@ -209,7 +209,7 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/sokol -B build/sokol/linux/release -G Ninja \
+          cmake -S src/host/sokol -B build/sokol/linux/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -225,7 +225,7 @@ jobs:
           set -euxo pipefail
           mkdir stage
           cp build/sokol/linux/release/rp6502-emu stage/
-          cp src/mach/sokol/dist/linux/README.txt stage/
+          cp src/host/sokol/dist/linux/README.txt stage/
           tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
       - uses: actions/upload-artifact@v7
@@ -263,7 +263,7 @@ jobs:
       - name: Configure & build core (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -291,7 +291,7 @@ jobs:
           mkdir -p stage/linux-${{ matrix.arch }}
           cp build/libretro/release/rp6502_libretro.so stage/linux-${{ matrix.arch }}/
           cp build/libretro/release/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -319,7 +319,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/mach/libretro
+          cd src/host/libretro
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -356,7 +356,7 @@ jobs:
           New-Item -ItemType Directory stage/windows-x86_64 -Force | Out-Null
           Copy-Item build/libretro/release/rp6502_libretro.dll stage/windows-x86_64/
           Copy-Item build/libretro/release/rp6502_libretro.info stage/
-          Copy-Item src/mach/libretro/dist/README.txt stage/
+          Copy-Item src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -379,7 +379,7 @@ jobs:
       - name: Configure & build core (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
@@ -403,7 +403,7 @@ jobs:
           mkdir -p stage/macos-arm64
           cp build/libretro/release/rp6502_libretro.dylib stage/macos-arm64/
           cp build/libretro/release/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -465,7 +465,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # libretro-android: the buildbot's other target, built with the runner's own
   # NDK. Not src/osal/android/apk — that root is the APK. This is the same
-  # src/mach/libretro the buildbot's android template points at, driven by the
+  # src/host/libretro the buildbot's android template points at, driven by the
   # NDK's toolchain file. No ctest: the tests would be arm64 Android binaries,
   # so what is checked here is that it builds and exports nothing extra.
   # android-28 is the floor the APK already declares.
@@ -479,7 +479,7 @@ jobs:
       - name: Configure & build core (Release, arm64-v8a)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/android -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
@@ -504,7 +504,7 @@ jobs:
           mkdir -p stage/android-arm64
           cp build/libretro/android/rp6502_libretro.so stage/android-arm64/
           cp build/libretro/android/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -527,7 +527,7 @@ jobs:
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/sokol -B build/sokol/macos/release -G Ninja \
+          cmake -S src/host/sokol -B build/sokol/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
@@ -543,7 +543,7 @@ jobs:
           mkdir stage
           # The build made the bundle; its Info.plist is osal/macos/.
           cp -R build/sokol/macos/release/rp6502-emu.app stage/
-          cp src/mach/sokol/dist/macos/README.txt stage/
+          cp src/host/sokol/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.
           # No --keepParent, so stage/'s contents land at the zip root.
@@ -581,7 +581,7 @@ jobs:
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/mach/itch.io
+          cd src/host/itch.io
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -623,7 +623,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/mach/sokol
+          cd src/host/sokol
           cmake --preset windows-release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -645,7 +645,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
           Copy-Item build/sokol/windows/release/rp6502-emu.exe stage/
-          Copy-Item src/mach/sokol/dist/windows/README.txt stage/
+          Copy-Item src/host/sokol/dist/windows/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
@@ -816,7 +816,7 @@ jobs:
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset release
-        working-directory: src/mach/pocket
+        working-directory: src/host/pocket
 
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly

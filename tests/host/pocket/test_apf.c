@@ -6,7 +6,7 @@
  * The Pocket's synthetic HID descriptors, against the drivers they were
  * written for.
  *
- * src/mach/pocket/sw/apf.c hands the dock's registers to ria/hid as reports,
+ * src/host/pocket/sw/apf.c hands the dock's registers to ria/hid as reports,
  * and what makes that work is four descriptors that say where every
  * bit went. Nothing else checks them. A descriptor that put the d-pad
  * where the buttons go, or the right stick where the left one is, would
@@ -28,7 +28,7 @@
 #include "core/hid/tablet.h"
 #include "core/mem.h"
 
-#include "mach/pocket/sw/apf.c"
+#include "host/pocket/sw/apf.c"
 
 #include "utest.h"
 

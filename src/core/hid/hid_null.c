@@ -9,8 +9,8 @@
  * next thing the window hands us.
  *
  * Beside the transport rather than beside a driver table, which is where the
- * other two machines put them -- mach/pico/ria/usb/usb.c and
- * mach/pocket/sw/hid.c both answer these next to the bus they speak for.
+ * other two machines put them -- host/pico/ria/usb/usb.c and
+ * host/pocket/sw/hid.c both answer these next to the bus they speak for.
  */
 
 #include "core/hid/hid.h"

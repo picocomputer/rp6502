@@ -64,7 +64,7 @@ set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(unicode
     SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c ${OEMCP_C}
         ${RP6502_VENDOR}/fatfs/ffunicode.c
-    INCLUDES ${RP6502_SRC}/mach/pocket ${RP6502_SRC} ${RP6502_VENDOR}
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_VENDOR}
         ${OEMCP_DIR})
 add_dependencies(test_unicode oemcp)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
@@ -79,7 +79,7 @@ set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
 set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(layout
     SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c ${KBDLAY_C}
-    INCLUDES ${RP6502_SRC}/mach/pocket ${RP6502_SRC} ${KBDLAY_DIR})
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${KBDLAY_DIR})
 add_dependencies(test_layout kbdlay)
 
 # --- The same two suites over the ports that stage a binary ---

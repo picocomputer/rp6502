@@ -7,7 +7,7 @@ MiSTer planned. Both are Cyclone V, so `src/core` stays platform independent
 and each host gets a thin wrapper in `src/osal/`.
 
 The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
-trimmed build of the real `src/mach/pico/ria` firmware C for the OS layer —
+trimmed build of the real `src/host/pico/ria` firmware C for the OS layer —
 syscalls, HID and ROM loading — mirroring the RP2350 + W65C02 split of the
 real machine.
 
@@ -16,7 +16,7 @@ real machine.
 The PSG is RTL and agrees with `core/aud/psg.c` sample for sample in lockstep.
 Its ninth voice is the console bell, configured by the soft CPU: the sounds
 are `core/aud/bel_presets.c` and the queue and lifetime are
-`src/mach/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
+`src/host/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
 
 Nothing gates the mix. Every engine and the bell sum, on one sample tick —
 the PSG's divider — and an engine with no program answers zero.
@@ -42,7 +42,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 `src/core` holds the machine, C and SystemVerilog together — see its README for
 how that tree is arranged. The wrapper binding it to one board is
-`src/mach/pocket`, and the soft CPU's firmware is `src/mach/pocket/sw`. MiSTer
+`src/host/pocket`, and the soft CPU's firmware is `src/host/pocket/sw`. MiSTer
 arrives as `src/osal/mister`; nothing in the machine changes.
 
 Tests are filed by claim. `tests/cpu` is the machine's, written once and run
@@ -82,7 +82,7 @@ Two roots include the machine's CMake modules from `src/core`:
 | root | builds in | what it is for |
 | --- | --- | --- |
 | `tests/rtl` | `build/rtl` | the simulation and its whole suite |
-| `src/mach/pocket` | `build/pocket` | the Analogue Pocket core, and `synth` for area and timing |
+| `src/host/pocket` | `build/pocket` | the Analogue Pocket core, and `synth` for area and timing |
 
 A Debug simulation is `-DCMAKE_BUILD_TYPE=Debug` on the first of those, for
 the rare case of stepping a testbench.

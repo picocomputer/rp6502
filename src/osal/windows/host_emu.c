@@ -12,8 +12,8 @@
 
 #include "host.h"
 #include "core/str/oem.h"
-#include "mach/sokol/app/cli.h"    /* host_console_attach */
-#include "mach/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/app/cli.h"    /* host_console_attach */
+#include "host/sokol/win/window.h" /* host_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
