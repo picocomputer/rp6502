@@ -1,8 +1,8 @@
 This is a RP2350 project, not RP2040 as some legacy filenames may suggest.
 
 A machine is everything that comes tgether to make a Picocomputer.
-src/mach brings together the core with the needed hosts.
-src/host connects the core with hosted services.
+src/host brings together the core with the needed services.
+src/osal connects the core with an operating system.
 src/core is the bulk of what makes a Picocomputer.
 
 We do not use the TinyUSB in the Pi Pico SDK.
