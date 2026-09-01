@@ -44,12 +44,21 @@ uint32_t os_random_seed(void)
 
 /* ---- monotonic clock ---- */
 
+/* Integer throughout: a double holds whole nanoseconds exactly only to 2^53,
+ * which is about 104 days of uptime, after which it quantizes. Split the
+ * counter into whole seconds and a remainder so the multiply cannot overflow
+ * -- ticks * 1e9 would at ~18 seconds on a 10 MHz timer. The frequency is
+ * fixed after boot, so it is asked for once. */
 uint64_t os_mono_ns(void)
 {
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
+    static LARGE_INTEGER f;
+    if (!f.QuadPart)
+        QueryPerformanceFrequency(&f);
+    LARGE_INTEGER c;
     QueryPerformanceCounter(&c);
-    return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
+    const uint64_t hz = (uint64_t)f.QuadPart;
+    const uint64_t t = (uint64_t)c.QuadPart;
+    return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
 }
 
 bool os_localtime(time_t t, struct tm *out)

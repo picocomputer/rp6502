@@ -140,6 +140,15 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     return strftime(dst, max, format, tm);
 }
 
+/* The fabric's mtime, which is also what host_clock_us reads. This machine has
+ * one counter and answers both contracts from it. It stops only while the soft
+ * CPU is halted at its debug port -- the savestate window -- where no code runs
+ * to notice, and the engine jams the counter back on restore. */
+uint64_t os_mono_ns(void)
+{
+    return host_clock_us() * 1000;
+}
+
 /* The wall clock the host wrote is this machine's only entropy. With no clock
  * the seed is zero, which is an ordinary seed -- so a bench that wants both
  * machines on one stream can pin the oracle to it. */
