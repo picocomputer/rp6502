@@ -22,8 +22,11 @@
 #include "mach/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
 
 void host_window_resize(int w, int h)
 {
@@ -71,11 +74,18 @@ void host_window_menu_draw(void)
  * window_core_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
 static bool wide_is_oem_lossless(const WCHAR *w)
 {
-    char oem[MAX_PATH];
-    uint16_t back[MAX_PATH];
-    oem_from_wide((const uint16_t *)w, oem, sizeof oem);
-    oem_to_wide(oem, back, MAX_PATH);
-    return wcscmp(w, (const WCHAR *)back) == 0;
+    size_t n = wcslen(w) + 1; /* one OEM byte per unit, and one unit back */
+    char *oem = malloc(n);
+    uint16_t *back = malloc(n * sizeof *back);
+    bool same = false;
+    if (oem && back)
+    {
+        oem_from_wide((const uint16_t *)w, oem, n);
+        oem_to_wide(oem, back, (int)n);
+        same = wcscmp(w, (const WCHAR *)back) == 0;
+    }
+    free(oem), free(back);
+    return same;
 }
 
 void host_window_files_dropped(void)
@@ -84,29 +94,47 @@ void host_window_files_dropped(void)
      * the guest's OEM code page; fall back to the 8.3 short name when the path
      * has characters the active OEM code page can't hold. */
     const char *utf8 = sapp_get_dropped_file_path(0);
-    WCHAR wide[MAX_PATH];
-    if (!MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH))
+    int wn = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0); /* asks its own size */
+    WCHAR *wide = wn > 0 ? malloc((size_t)wn * sizeof *wide) : NULL;
+    if (!wide || !MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wn))
     {
-        fprintf(stderr, "rp6502-emu: dropped path too long\n");
+        free(wide);
+        fprintf(stderr, "rp6502-emu: cannot take the dropped path\n");
         return;
     }
     if (wide_is_oem_lossless(wide))
     {
+        free(wide);
         if (window_core_boot_rom(utf8))
             waiting_for_rom = false;
         return;
     }
-    /* In place is allowed; a short name can be LONGER than the long name,
-     * and a too-small buffer returns the needed size, not 0. */
-    DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
-    char shortu8[MAX_PATH * 3];
-    if (!n || n >= MAX_PATH || !wide_is_oem_lossless(wide) ||
-        !WideCharToMultiByte(CP_UTF8, 0, wide, -1, shortu8, sizeof shortu8, NULL, NULL))
+    /* A short name can be LONGER than the long name, so it is sized on its
+     * own; a too-small buffer returns the needed size, not 0. */
+    DWORD sn = GetShortPathNameW(wide, NULL, 0);
+    WCHAR *shortw = sn ? malloc((size_t)sn * sizeof *shortw) : NULL;
+    DWORD got = shortw ? GetShortPathNameW(wide, shortw, sn) : 0;
+    free(wide);
+    char *shortu8 = NULL;
+    if (got && got < sn && wide_is_oem_lossless(shortw))
+    {
+        int un = WideCharToMultiByte(CP_UTF8, 0, shortw, -1, NULL, 0, NULL, NULL);
+        shortu8 = un > 0 ? malloc((size_t)un) : NULL;
+        if (shortu8 && !WideCharToMultiByte(CP_UTF8, 0, shortw, -1, shortu8, un, NULL, NULL))
+        {
+            free(shortu8);
+            shortu8 = NULL;
+        }
+    }
+    free(shortw);
+    if (!shortu8)
     {
         fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return;
     }
-    if (window_core_boot_rom(shortu8))
+    bool booted = window_core_boot_rom(shortu8);
+    free(shortu8);
+    if (booted)
         waiting_for_rom = false;
 }
 

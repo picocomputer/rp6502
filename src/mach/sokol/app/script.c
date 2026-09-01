@@ -867,7 +867,7 @@ bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "shot"))
     {
-        char path[512];
+        char path[SCRIPT_LINE_MAX]; /* a token cannot outrun its own line */
         if (!script_string(&p, path, sizeof path))
             return script_error("shot wants a quoted path");
         const uint32_t *fb = vga_get_framebuffer();

@@ -23,12 +23,10 @@
 
 #if ROM_ALIAS_MAX
 
-#define ALIAS_NAME_MAX 64
-
 typedef struct
 {
-    char name[ALIAS_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char *host;                /* the backing file; owned, and what marks the slot used */
+    char *name; /* basename, e.g. "adventure.rp6502" (the text after ":") */
+    char *host; /* the backing file, and what marks the slot used */
 } alias_t;
 static alias_t aliases[ROM_ALIAS_MAX];
 
@@ -36,7 +34,7 @@ static alias_t aliases[ROM_ALIAS_MAX];
 bool rom_alias_insert(const char *hostpath)
 {
     const char *base = path_basename(hostpath);
-    if (!*base || strlen(base) >= ALIAS_NAME_MAX)
+    if (!*base)
         return false;
     /* Must exist. Asked through the driver, because that is the machine's
      * answer for what a file is. */
@@ -48,12 +46,15 @@ bool rom_alias_insert(const char *hostpath)
     for (int i = 0; i < ROM_ALIAS_MAX; i++)
         if (!aliases[i].host)
         {
-            char *own = strdup(hostpath);
-            if (!own)
-                return false;
-            strcpy(aliases[i].name, base);
-            aliases[i].host = own;
-            return true;
+            char *name = strdup(base), *host = strdup(hostpath);
+            if (name && host)
+            {
+                aliases[i].name = name;
+                aliases[i].host = host; /* last: it is what marks the slot used */
+                return true;
+            }
+            free(name), free(host);
+            return false;
         }
     return false;
 }
