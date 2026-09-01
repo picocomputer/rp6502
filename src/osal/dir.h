@@ -96,6 +96,15 @@ bool drive_validate(int des, api_errno *err);
 void oem_fs_code_page(uint16_t cp);
 
 
+/* An absolute path, which is what argv[0] needs to survive a chdir. Resolved
+ * against the same cwd drive_getcwd answers for, which is why it is here and
+ * not with the opens. Spelled the way the 6502 spells it, both ways.
+ *
+ * It allocates its answer, because how long a path the OS will hand back is
+ * the OS's to decide and not a caller's to guess. The caller frees; NULL is a
+ * path that does not resolve. */
+char *os_dir_realpath(const char *path);
+
 /* Machine events: a run starts with no directory open. */
 void dir_run(void);
 void dir_stop(void);

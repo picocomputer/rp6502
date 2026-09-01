@@ -54,10 +54,3 @@ api_errno win_error_to_api(DWORD e)
         return API_EIO;
     }
 }
-
-void win_to_slash(char *p)
-{
-    for (; *p; p++)
-        if (*p == '\\')
-            *p = '/';
-}

@@ -13,7 +13,7 @@
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/str/path.h"
-#include "osal/fs.h"
+#include "osal/dir.h"
 #include "osal/os.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,7 +56,7 @@ bool exec_set_argv(const char *rom, int argc, char *const *args)
 {
     /* realpath answers in the 6502's spelling, so an absolute host path comes
      * back as the drive path a program can hand straight back to exec. */
-    char *abs = (!path_has_drive(rom) && rom[0] != ':') ? os_fs_realpath(rom) : NULL;
+    char *abs = (!path_has_drive(rom) && rom[0] != ':') ? os_dir_realpath(rom) : NULL;
     const char *argv0 = abs ? abs : rom;
     /* Length-guard each string: arg_append's uint16 math trusts
      * monitor-capped tokens, but host input is unbounded. */

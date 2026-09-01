@@ -27,6 +27,7 @@
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"
+#include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"
 #include <direct.h>
 #include <errno.h>
@@ -41,84 +42,6 @@
 #include <time.h>
 #include <windows.h>
 
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too.
- *
- * Allocated to fit rather than capped: path_to_native never grows a path and
- * oem_to_wide writes exactly one unit per OEM byte, so the length is known
- * rather than guessed -- and a conversion sized to what it produces cannot
- * truncate, which neither oem_to_wide nor oem_from_wide would report if it
- * did. The caller frees. */
-static wchar_t *path_to_wide(const char *path)
-{
-    size_t nsz = strlen(path) + 1;
-    char *native = malloc(nsz);
-    if (!native)
-        return NULL;
-    if (!path_to_native(path, native, nsz))
-    {
-        free(native);
-        return NULL;
-    }
-    size_t wcount = strlen(native) + 1;
-    wchar_t *w = malloc(wcount * sizeof *w);
-    if (w)
-    {
-        oem_to_wide(native, (uint16_t *)w, (int)wcount);
-        if (!w[0]) /* a path of no name reaches no file here */
-        {
-            free(w);
-            w = NULL;
-        }
-    }
-    free(native);
-    return w;
-}
-
-/* And back: what Win32 answered, slashed and spelled for the 6502. One OEM
- * byte per unit, and path_from_native prepends at most a six-byte drive
- * prefix, so one length answers for both steps. The caller frees. */
-static char *path_from_wide(const wchar_t *w)
-{
-    size_t sz = wcslen(w) + 7;
-    char *native = malloc(sz), *out = malloc(sz);
-    if (native && out)
-    {
-        oem_from_wide((const uint16_t *)w, native, sz);
-        win_to_slash(native);
-        if (!path_from_native(native, out, sz))
-        {
-            free(out);
-            out = NULL;
-        }
-    }
-    else
-    {
-        free(out);
-        out = NULL;
-    }
-    free(native);
-    return out;
-}
-
-
-/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-char *os_fs_realpath(const char *path)
-{
-    wchar_t *wpath = path_to_wide(path);
-    if (!wpath)
-        return NULL;
-    /* Asked for its own length first: zero means failure, otherwise it counts
-     * the terminating null, which is exactly what the second call wants. */
-    DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
-    wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
-    DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
-    /* got >= n means it grew since the sizing call and asked again */
-    char *out = (got && got < n) ? path_from_wide(wfull) : NULL;
-    free(wpath), free(wfull);
-    return out;
-}
 
 /* An overlapped handle has no implicit file pointer, so a descriptor is an
  * index into this table and the offset is ours to track. 16 open files + 16
@@ -161,12 +84,9 @@ bool fs_std_handles(const char *path)
 
 static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
 {
-    wchar_t *w = path_to_wide(path);
+    wchar_t *w = path_to_wide(path, err);
     if (!w)
-    {
-        *err = API_EINVAL;
         return INVALID_HANDLE_VALUE;
-    }
     bool wr = (flags & FS_WR) != 0;
     DWORD access = wr ? ((flags & FS_RD) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_WRITE)
                       : GENERIC_READ;

@@ -66,15 +66,6 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
  * that failed. */
 bool fs_rom_remove(const char *name, api_errno *err);
 
-/* The one filesystem call made outside the driver above: an absolute path,
- * which is what argv[0] needs to survive a chdir. Spelled the way the 6502
- * spells it, both ways.
- *
- * It allocates its answer, because how long a path the OS will hand back is
- * the OS's to decide and not a caller's to guess. The caller frees; NULL is a
- * path that does not resolve. */
-char *os_fs_realpath(const char *path);
-
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. The catch-all: a machine lists it last, after every driver that claims a
  * name of its own. */

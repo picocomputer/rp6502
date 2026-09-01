@@ -11,6 +11,7 @@
 
 #include "osal/fs.h"
 #include "osal/os.h"
+#include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
@@ -27,78 +28,6 @@
 #include <time.h>
 #include <utime.h>
 
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and
- * what is left is the native path -- and then the code page comes off too.
- *
- * Allocated to fit rather than capped: path_to_native never grows a path, and
- * oem_to_utf8 answers how much room it wants. The caller frees. */
-static char *path_to_utf8(const char *path)
-{
-    size_t nsz = strlen(path) + 1;
-    char *native = malloc(nsz);
-    if (!native)
-    {
-        errno = ENOMEM;
-        return NULL;
-    }
-    if (!path_to_native(path, native, nsz)) /* which set errno */
-    {
-        free(native);
-        return NULL;
-    }
-    size_t usz = oem_to_utf8(native, NULL, 0) + 1;
-    char *u8 = malloc(usz);
-    if (u8)
-        oem_to_utf8(native, u8, usz);
-    else
-        errno = ENOMEM;
-    free(native);
-    return u8;
-}
-
-/* And back: what the OS answered, spelled for the 6502. Allocated to fit --
- * oem_from_utf8 contracts and path_from_native prepends at most a six-byte
- * drive prefix, so one length answers for both steps. The caller frees. */
-static char *path_from_utf8(const char *u8)
-{
-    size_t sz = strlen(u8) + 7;
-    char *native = malloc(sz), *out = malloc(sz);
-    if (native && out)
-    {
-        oem_from_utf8(u8, native, sz);
-        if (!path_from_native(native, out, sz))
-        {
-            free(out);
-            out = NULL;
-            errno = ENAMETOOLONG;
-        }
-    }
-    else
-    {
-        free(out);
-        out = NULL;
-        errno = ENOMEM;
-    }
-    free(native);
-    return out;
-}
-
-/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-char *os_fs_realpath(const char *path)
-{
-    char *u8 = path_to_utf8(path);
-    if (!u8)
-        return NULL;
-    char *r = realpath(u8, NULL);
-    free(u8);
-    if (!r)
-        return NULL;
-    char *out = path_from_utf8(r);
-    free(r);
-    return out;
-}
-
 /* ---- The std driver ------------------------------------------------------ */
 
 /* A descriptor is this host's own fd. std.c hands back whatever open returned,
@@ -112,12 +41,9 @@ bool fs_std_handles(const char *path)
 
 static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
 {
-    char *u8 = path_to_utf8(path);
+    char *u8 = path_to_utf8(path, err);
     if (!u8)
-    {
-        *err = errno_to_api(errno);
         return -1;
-    }
     bool rd = flags & FS_RD, wr = flags & FS_WR;
     int o = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
     if (flags & FS_CREAT)

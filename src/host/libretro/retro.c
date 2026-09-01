@@ -542,7 +542,7 @@ bool retro_load_game(const struct retro_game_info *game)
         retro_log("cannot take the ROM path");
         return false;
     }
-    char *abs = os_fs_realpath(given);
+    char *abs = os_dir_realpath(given);
     free(loaded_rom);
     loaded_rom = abs ? abs : given;
     if (abs)

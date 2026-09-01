@@ -26,6 +26,7 @@
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"
+#include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@
 /* A path arrives spelled the way the 6502 spells it. This drive is one
  * directory of a real filesystem, so the drive prefix comes off here and what
  * is left is the native path -- and then the code page comes off too. */
-static wchar_t *path_to_wide(const char *path, api_errno *err)
+wchar_t *path_to_wide(const char *path, api_errno *err)
 {
     size_t nsz = strlen(path) + 1;
     char *native = malloc(nsz);
@@ -56,11 +57,74 @@ static wchar_t *path_to_wide(const char *path, api_errno *err)
     size_t wcount = strlen(native) + 1; /* one unit per OEM byte */
     wchar_t *w = malloc(wcount * sizeof *w);
     if (w)
+    {
         oem_to_wide(native, (uint16_t *)w, (int)wcount);
+        if (!w[0]) /* a path of no name reaches no file here */
+        {
+            free(w);
+            w = NULL;
+            *err = API_ENOENT;
+        }
+    }
     else
         *err = API_ENOMEM;
     free(native);
     return w;
+}
+
+/* And back: what Win32 answered, slashed and spelled for the 6502. One length
+ * answers for both steps -- one OEM byte per unit, and path_from_native
+ * prepends at most a six-byte drive prefix. */
+char *path_from_wide(const wchar_t *w, api_errno *err)
+{
+    size_t sz = wcslen(w) + 7;
+    char *native = malloc(sz), *out = malloc(sz);
+    if (native && out)
+    {
+        oem_from_wide((const uint16_t *)w, native, sz);
+        win_to_slash(native);
+        if (!path_from_native(native, out, sz))
+        {
+            free(out);
+            out = NULL;
+            *err = API_EINVAL; /* a name too long, as win_error_to_api spells it */
+        }
+    }
+    else
+    {
+        free(out);
+        out = NULL;
+        *err = API_ENOMEM;
+    }
+    free(native);
+    return out;
+}
+
+void win_to_slash(char *p)
+{
+    for (; *p; p++)
+        if (*p == '\\')
+            *p = '/';
+}
+
+/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir.
+ * Resolved against the cwd drive_getcwd answers for, which is why it is here.
+ * No error channel: a caller has a path or it has nothing. */
+char *os_dir_realpath(const char *path)
+{
+    api_errno ignored;
+    wchar_t *wpath = path_to_wide(path, &ignored);
+    if (!wpath)
+        return NULL;
+    /* Asked for its own length first: zero means failure, otherwise it counts
+     * the terminating null, which is exactly what the second call wants. */
+    DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
+    wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
+    DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
+    /* got >= n means it grew since the sizing call and asked again */
+    char *out = (got && got < n) ? path_from_wide(wfull, &ignored) : NULL;
+    free(wpath), free(wfull);
+    return out;
 }
 
 /* Whatever Win32 last complained about, in the API's words. */

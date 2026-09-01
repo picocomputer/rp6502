@@ -43,7 +43,7 @@
  * Allocated to fit rather than capped: path_to_native never grows a path, and
  * oem_to_utf8 answers how much room it wants, so both lengths are known
  * instead of guessed. The caller frees. */
-static char *path_to_utf8(const char *path, api_errno *err)
+char *path_to_utf8(const char *path, api_errno *err)
 {
     size_t nsz = strlen(path) + 1;
     char *native = malloc(nsz);
@@ -66,6 +66,51 @@ static char *path_to_utf8(const char *path, api_errno *err)
         *err = API_ENOMEM;
     free(native);
     return u8;
+}
+
+/* And back: what the OS answered, spelled for the 6502. One length answers
+ * for both steps -- oem_from_utf8 contracts and path_from_native prepends at
+ * most a six-byte drive prefix. */
+char *path_from_utf8(const char *u8, api_errno *err)
+{
+    size_t sz = strlen(u8) + 7;
+    char *native = malloc(sz), *out = malloc(sz);
+    if (native && out)
+    {
+        oem_from_utf8(u8, native, sz);
+        if (!path_from_native(native, out, sz))
+        {
+            free(out);
+            out = NULL;
+            *err = API_EINVAL; /* a name too long, as errno_to_api spells it */
+        }
+    }
+    else
+    {
+        free(out);
+        out = NULL;
+        *err = API_ENOMEM;
+    }
+    free(native);
+    return out;
+}
+
+/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir.
+ * Resolved against the cwd drive_getcwd answers for, which is why it is here.
+ * No error channel: a caller has a path or it has nothing. */
+char *os_dir_realpath(const char *path)
+{
+    api_errno ignored;
+    char *u8 = path_to_utf8(path, &ignored);
+    if (!u8)
+        return NULL;
+    char *r = realpath(u8, NULL);
+    free(u8);
+    if (!r)
+        return NULL;
+    char *out = path_from_utf8(r, &ignored);
+    free(r);
+    return out;
 }
 
 /* Whatever the last call set, in the API's words. */
