@@ -22,7 +22,7 @@
 #include "host/host.h"
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
-#include "core/log.h"
+#include "core/com.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
 #include "core/sys/exec.h"
@@ -36,6 +36,7 @@
 
 #include "libretro.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,12 +68,53 @@ static bool hint_shown;
 /* Environment                                                         */
 /* ------------------------------------------------------------------ */
 
-static void retro_log_sink(const char *msg)
+/* One finished line to the frontend, or to stderr when it gave no logger.
+ * A core writing stderr is antisocial but better than a diagnostic nobody
+ * ever sees; the frontend's log is where this is meant to land. */
+static void retro_say(enum retro_log_level level, const char *msg)
 {
     if (log_cb)
-        log_cb(RETRO_LOG_ERROR, "%s\n", msg);
+        log_cb(level, "%s\n", msg);
     else
         fprintf(stderr, "rp6502: %s\n", msg);
+}
+
+/* This core's own diagnostics, which are about the frontend rather than about
+ * the machine: a game that is not one, a pixel format it will not show. */
+__printflike(1, 2) static void retro_log(const char *fmt, ...)
+{
+    char msg[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    retro_say(RETRO_LOG_ERROR, msg);
+}
+
+/* The machine's console, line by line. com_tx_write is where every
+ * terminal-bound byte passes once, so this is the whole of what the machine
+ * says: the terminal a frontend renders is a picture of it, and its log is
+ * the only place the text itself can go. A line too long for the buffer is
+ * split rather than truncated. */
+static void retro_tx_tap(const char *buf, int len)
+{
+    static char line[256];
+    static size_t used;
+    for (int i = 0; i < len; i++)
+    {
+        char c = buf[i];
+        if (c == '\r')
+            continue;
+        if (c == '\n' || used == sizeof line - 1)
+        {
+            line[used] = 0;
+            used = 0;
+            if (line[0])
+                retro_say(RETRO_LOG_INFO, line);
+        }
+        if (c != '\n')
+            line[used++] = c;
+    }
 }
 
 static const struct retro_core_option_v2_definition option_defs[] = {
@@ -276,7 +318,7 @@ void retro_init(void)
     struct retro_log_callback logging;
     if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
         log_cb = logging.log;
-    log_set_sink(retro_log_sink);
+    com_set_tx_tap(retro_tx_tap);
 
     struct retro_keyboard_callback kb = {input_keyboard_event};
     if (environ_cb)
@@ -303,7 +345,7 @@ void retro_deinit(void)
     geom_w = geom_h = 0;
     hint_shown = false;
     input_reset();
-    log_set_sink(NULL);
+    com_set_tx_tap(NULL);
     log_cb = NULL;
 }
 
@@ -480,14 +522,14 @@ bool retro_load_game(const struct retro_game_info *game)
 {
     if (!game || !game->path)
     {
-        log_error("this core plays a .rp6502 program; there is nothing to run");
+        retro_log("this core plays a .rp6502 program; there is nothing to run");
         return false;
     }
 
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
     if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
     {
-        log_error("this frontend cannot show XRGB8888");
+        retro_log("this frontend cannot show XRGB8888");
         return false;
     }
 
@@ -497,7 +539,7 @@ bool retro_load_game(const struct retro_game_info *game)
     char *given = argv_to_oem(game->path);
     if (!given)
     {
-        log_error("cannot take the ROM path");
+        retro_log("cannot take the ROM path");
         return false;
     }
     char *abs = os_fs_realpath(given);
@@ -512,7 +554,7 @@ bool retro_load_game(const struct retro_game_info *game)
     loaded_path = strdup(game->path);
     if (!loaded_rom || !loaded_path)
     {
-        log_error("cannot take the ROM path");
+        retro_log("cannot take the ROM path");
         return false;
     }
     enter_save_directory(loaded_path);

@@ -8,7 +8,7 @@
  * resolves ":name" through is alias.c's.
  */
 
-#include "core/log.h"
+#include "core/com.h"
 #include "osal/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
@@ -57,7 +57,7 @@ bool rom_load(const char *path)
     rom_pump_t pump;
     if (!rom_pump_open(&pump, host, &err))
     {
-        log_error("cannot load ROM '%s'", path);
+        com_printf("cannot load ROM '%s'\n", path);
         return false;
     }
     static uint8_t buf[ROM_RECORD_MAX];
@@ -69,7 +69,7 @@ bool rom_load(const char *path)
             continue;
         if (r == ROM_PUMP_ERROR)
         {
-            log_error("bad ROM record in '%s'", path);
+            com_printf("bad ROM record in '%s'\n", path);
             rom_pump_close(&pump);
             return false;
         }
@@ -77,7 +77,7 @@ bool rom_load(const char *path)
     }
     if (!rom_pump_complete(&pump))
     {
-        log_error("ROM has no reset vector ($FFFC/$FFFD)");
+        com_printf("ROM has no reset vector ($FFFC/$FFFD)\n");
         rom_pump_close(&pump);
         return false;
     }

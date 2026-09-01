@@ -6,7 +6,7 @@
 
 #include "core/sys.h"
 #include "core/sys/exec.h"
-#include "core/log.h"
+#include "core/com.h"
 #include "core/rom/rom.h"
 #include "core/api/proc.h"
 #include "core/api/arg.h"
@@ -38,7 +38,7 @@ void exec_request(const char *rom_path)
     char *own = strdup(rom_path);
     if (!own)
     {
-        log_error("cannot queue ROM '%s'", rom_path);
+        com_printf("cannot queue ROM '%s'\n", rom_path);
         return; /* nothing queued: the current program keeps running */
     }
     free(queued_path);

@@ -36,6 +36,7 @@
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/exec.h"
+#include "core/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
@@ -605,7 +606,7 @@ bool window_core_boot_rom(const char *path)
     if (!same)
     {
         free(oem);
-        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
+        com_printf("dropped path not representable in the OEM code page\n");
         return false;
     }
     /* Screen the file before exec_boot stops the machine, so an accidental
@@ -618,9 +619,8 @@ bool window_core_boot_rom(const char *path)
     api_errno err;
     if (!rom_pump_open(&pump, oem, &err))
     {
-        fprintf(stderr, err == API_ENOEXEC
-                            ? "rp6502-emu: not a .rp6502 file (bad magic)\n"
-                            : "rp6502-emu: cannot read dropped file\n");
+        com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
+                                      : "cannot read dropped file\n");
         free(oem);
         return false;
     }

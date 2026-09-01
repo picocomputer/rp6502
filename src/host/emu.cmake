@@ -73,7 +73,6 @@ add_library(emu_core STATIC
     # firmware -- the host already produced the characters, so there is no
     # layout engine here at all.
     ${RP6502_SRC}/core/hid/vtkeys.c
-    ${RP6502_SRC}/core/log.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
