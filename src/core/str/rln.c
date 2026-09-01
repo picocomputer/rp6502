@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/timer.h"
+#include "host/host.h"
 #include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/str/rln.h"
 #include "core/sys/com.h"
 #include "core/driver.h"
 #include "core/vga/vga.h"
-#include "host/host.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -121,7 +122,7 @@ static uint8_t rln_history_pos;
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
 static rln_read_callback_t rln_callback;
-static host_deadline_t rln_idle_deadline;
+static timer_deadline_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
 static bool rln_enable_history;
@@ -143,11 +144,11 @@ static bool rln_suppress_newline;
 // rln_poke_source is exempt (synchronous; never owes a handshake).
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timed_out;
-static host_deadline_t rln_complete_deferred_deadline;
+static timer_deadline_t rln_complete_deferred_deadline;
 
 // Cross-terminal display state
 static rln_phase_t rln_phase;
-static host_deadline_t rln_handshake_deadline;
+static timer_deadline_t rln_handshake_deadline;
 static uint16_t rln_prompt_col;        // 1-based
 static uint16_t rln_term_width;        // 0 if no CPR
 static uint16_t rln_term_height;       // 0 if no CPR
@@ -289,7 +290,7 @@ static void rln_complete(bool timed_out)
         rln_defer_arm(s);
     rln_complete_deferred = true;
     rln_complete_deferred_timed_out = timed_out;
-    rln_complete_deferred_deadline = host_deadline_ms(RLN_COMPLETE_DEFER_MS);
+    rln_complete_deferred_deadline = timer_in_ms(RLN_COMPLETE_DEFER_MS);
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -1487,7 +1488,7 @@ void rln_read_line(rln_read_callback_t callback)
         rln_sources[s].cpr_seen = sticky_cpr_seen[s];
         rln_sources[s].cpr_expecting = rln_cpr_initial;
     }
-    rln_handshake_deadline = host_deadline_ms(RLN_HANDSHAKE_MS);
+    rln_handshake_deadline = timer_in_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
@@ -1527,7 +1528,7 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
     assert(timeout_ms);
     rln_read_line(callback);
     rln_idle_timeout_ms = timeout_ms;
-    rln_idle_deadline = host_deadline_ms(rln_idle_timeout_ms);
+    rln_idle_deadline = timer_in_ms(rln_idle_timeout_ms);
 }
 
 void rln_read_line_no_history(rln_read_callback_t callback)
@@ -1588,7 +1589,7 @@ void rln_task(void)
         if (c < 0)
             break;
         char ch = (char)c;
-        rln_idle_deadline = host_deadline_ms(rln_idle_timeout_ms);
+        rln_idle_deadline = timer_in_ms(rln_idle_timeout_ms);
         if (this_src != COM_SOURCE_ANY)
             rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
         if (rln_complete_deferred && this_src != COM_SOURCE_ANY)
@@ -1615,7 +1616,7 @@ void rln_task(void)
             rln_enter_edit();
         }
     }
-    if (rln_callback && host_deadline_passed(rln_handshake_deadline))
+    if (rln_callback && timer_passed(rln_handshake_deadline))
     {
         if (rln_phase != rln_phase_edit)
             rln_handshake_fallback();
@@ -1632,10 +1633,10 @@ void rln_task(void)
     if (rln_complete_deferred)
     {
         if (!rln_any_defer_pending() ||
-            host_deadline_passed(rln_complete_deferred_deadline))
+            timer_passed(rln_complete_deferred_deadline))
             rln_complete_now(rln_complete_deferred_timed_out);
     }
-    if (rln_idle_timeout_ms && host_deadline_passed(rln_idle_deadline))
+    if (rln_idle_timeout_ms && timer_passed(rln_idle_deadline))
         rln_complete(true);
 }
 

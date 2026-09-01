@@ -88,11 +88,9 @@ uint32_t host_random_seed(void);
  * have one of their own. */
 uint64_t host_clock_us(void);
 
-/* Deadlines, from the clock above. Inline rather than a translation unit on
- * five build lists for three adds. */
-typedef uint64_t host_deadline_t;
-static inline host_deadline_t host_deadline_us(uint64_t us) { return host_clock_us() + us; }
-static inline host_deadline_t host_deadline_ms(uint64_t ms) { return host_clock_us() + ms * 1000; }
-static inline bool host_deadline_passed(host_deadline_t d) { return host_clock_us() >= d; }
+/* No deadline tools here. Real time is core/sys/timer.h, which is what a
+ * network retry or a key repeat wants; a blink keeps the screen's time,
+ * vga_frame_count(). What is left on this clock does its own arithmetic,
+ * visibly, because there is little of it and it is not the same question. */
 
 #endif /* _HOST_HOST_H_ */

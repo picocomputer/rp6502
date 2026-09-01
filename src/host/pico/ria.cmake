@@ -167,6 +167,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/str.c
     ${RP6502_ROOT}/src/core/sys/config.c
     ${RP6502_ROOT}/src/core/sys/random.c
+    ${RP6502_ROOT}/src/core/sys/timer.c
     ${RIA_SRC}/sys/cfg.c
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c

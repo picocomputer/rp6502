@@ -9,6 +9,8 @@
  * whose OS has already done this work links neither this nor the layout
  * database -- emu.cmake omits them both. */
 
+#include "core/sys/timer.h"
+#include "host/host.h"
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/str/oem.h"
@@ -18,7 +20,6 @@
 #include "core/hid/keymap.h"
 #include "core/sys/config.h"
 #include "core/hid/usage.h"
-#include "host/host.h"
 #include <stdio.h>
 #include <string.h>
 /* The case-insensitive compares a layout name is matched with. Named by
@@ -40,7 +41,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static int keymap_layout_index;
 static const char *keymap_layout_pos;
-static host_deadline_t keymap_repeat_timer;
+static timer_deadline_t keymap_repeat_timer;
 static uint8_t keymap_repeat_modifier;
 static uint8_t keymap_repeat_keycode;
 static char keymap_key_queue[KEYMAP_KEY_QUEUE_SIZE];
@@ -179,7 +180,7 @@ static void keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
      * keymap_task can ask whether it is still held. */
     keymap_repeat_modifier = modifier;
     keymap_repeat_keycode = keycode;
-    keymap_repeat_timer = host_deadline_us(initial_press ? KEYMAP_REPEAT_DELAY : KEYMAP_REPEAT_RATE);
+    keymap_repeat_timer = timer_in_us(initial_press ? KEYMAP_REPEAT_DELAY : KEYMAP_REPEAT_RATE);
     // When not in numlock, and not shifted, remap num pad
     if (keycode >= HID_KEY_KEYPAD_1 &&
         keycode <= HID_KEY_KEYPAD_DECIMAL &&
@@ -518,7 +519,7 @@ static bool keymap_build_layout_list(const char *in, char *out, size_t size)
 
 void keymap_task(void)
 {
-    if (keymap_repeat_keycode && host_deadline_passed(keymap_repeat_timer))
+    if (keymap_repeat_keycode && timer_passed(keymap_repeat_timer))
     {
         if (keyboard_key_down(keymap_repeat_keycode) &&
             keyboard_get_modifier() == keymap_repeat_modifier)

@@ -27,6 +27,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/str/unicode.c
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
+        ${RP6502_SRC}/core/sys/timer.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c
     # The pocket's own roster: keymap and str keep their settings there, so
