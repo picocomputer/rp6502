@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_BEL_H_
-#define _FPGA_SW_BEL_H_
+#ifndef _HOST_POCKET_SW_BEL_H_
+#define _HOST_POCKET_SW_BEL_H_
 
 /* bel_add and the presets are core/aud/bel.h's, so a caller rings the bell
  * the same way on every host. This is the rest of the driver. */
@@ -16,4 +16,4 @@ void bel_task(void);
  * belongs to, and is restored with it. */
 #define BEL_DRIVER DRIVER(nul_init, bel_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
-#endif /* _FPGA_SW_BEL_H_ */
+#endif /* _HOST_POCKET_SW_BEL_H_ */

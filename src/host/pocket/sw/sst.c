@@ -39,7 +39,6 @@
 #include "aud.h"
 #include "com.h"
 #include "font.h"
-#include "log.h"
 #include "main.h"
 #include "mmio.h"
 #include "fs.h"
@@ -55,27 +54,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Everything about a wake this side is not certain of, said once, at
- * the one moment all of it is knowable. The device is the only place
- * these questions can be put -- Analogue documents none of it -- and a
- * hardware pass is expensive, so this asks the whole list in one go
- * rather than one question per bitstream.
- *
- * Once per restore and never in a loop: a running program owns the
- * console and this must not become weather. */
-static void sst_log_restore(uint32_t ctl)
-{
-    uint64_t us = host_clock_us();
-    LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
-           (unsigned)(us >> 32), (unsigned)us);
-    LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
-            (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
-           (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
-    LOG_SAY("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
-           (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,
-           (unsigned)main_boot_slot, (unsigned)main_boot_upd);
-}
-
 bool sst_pending(void)
 {
     return (SST_CTL & SST_BLOB_SEEN) != 0;
@@ -84,27 +62,8 @@ bool sst_pending(void)
 void sst_task(void)
 {
     uint32_t ctl = SST_CTL;
-    /* Every change, not only the restores. A sleep that never reaches
-     * the restore below leaves no other trace this side: the host's own
-     * log stops at the sleep and picks up after it, so whether a blob
-     * was ever put into this machine is a question only the card file
-     * can answer. Silent in an off build, where LOG_SAY is nothing. */
-    static uint32_t ctl_said = ~0u;
-    if (ctl != ctl_said)
-    {
-        ctl_said = ctl;
-        LOG_SAY("sst: ctl=%02x seen=%u restored=%u err=%u under=%u\n",
-                (unsigned)(ctl & 0xFFu), (unsigned)!!(ctl & SST_BLOB_SEEN),
-                (unsigned)!!(ctl & SST_RESTORED),
-                (unsigned)!!(ctl & SST_RESTORE_ERR),
-                (unsigned)!!(ctl & SST_UNDERRUN));
-    }
     if (!(ctl & SST_RESTORED))
         return;
-    /* Before anything downstream can fail, so a log that reaches here
-     * and no further says where. */
-    LOG_SAY("sst: restored\n");
-    sst_log_restore(ctl);
 
     /* Refused, and nothing was written: this is still the session it
      * was, so there is nothing to fix up and every fixup would be
@@ -146,11 +105,6 @@ void sst_task(void)
     /* The host's slot-to-path bindings are a session's, and a wake is a
      * new session. */
     fs_restore();
-    /* Before anything else writes a line: the log's own position came
-     * back with the blob and would splice this session into the middle
-     * of the last one. */
-    log_restore();
-
     /* The staging store is the board's and no blob carries it, and the
      * device has been asked: loading a memory does not restore slot 0
      * and does not re-announce it. So the store holds whatever the
@@ -185,8 +139,6 @@ void sst_task(void)
                 && !strncmp(bound, FS_ASSETS_PATH, sizeof FS_ASSETS_PATH - 1))
                 at += sizeof FS_ASSETS_PATH - 1;
             same = !strcmp(at, want);
-            LOG_SAY("rom: want '%s' bound '%s'%s\n", want, bound,
-                    same ? " same" : "");
         }
         if (!same && (!want || !*want))
             printf("rom: no path to stage\n");
@@ -218,8 +170,6 @@ void sst_task(void)
      * for itself does not survive that, and the host's is the one that
      * is right. */
     tim_init();
-    LOG_SAY("sst: released mtime=%u:%u\n",
-            (unsigned)(host_clock_us() >> 32), (unsigned)host_clock_us());
     fs_log();
 
     /* The host re-announces its slots on a wake and the loop reads a

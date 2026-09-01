@@ -10,7 +10,6 @@
  */
 
 #include "com.h"
-#include "log.h"
 #include "mmio.h"
 
 #include "core/com.h"

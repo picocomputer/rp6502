@@ -17,7 +17,6 @@
 #include "com.h"
 #include "cpu.h"
 #include "font.h"
-#include "log.h"
 #include "main.h"
 #include "mmio.h"
 #include "fs.h"
@@ -172,13 +171,7 @@ int main(void)
      * replace everything a staged ROM would put here. Starting one
      * under it is a cold boot the user watches get rolled back. */
     main_wake_pending = sst_pending();
-    /* Kept, not printed: the moment it is knowable is the moment the
-     * host may be streaming a savestate in, and a console busy then
-     * starves the staging store's write drain against a bridge that
-     * does not wait. The bench stops on exactly that. It is said later,
-     * from the wake log, when nothing is in flight.
-     *
-     * Measured on hardware, this reads zero on every wake -- the host
+    /* Measured on hardware, this reads zero on every wake -- the host
      * writes the blob only after Reset Exit -- so the check here is
      * kept for the case where a blob does precede the boot, and the
      * one that does the work is in the loop below. */
@@ -186,9 +179,6 @@ int main(void)
     main_boot_declined = main_wake_pending;
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
-    LOG_SAY("main: boot wake=%u slot=%08x upd=%u\n",
-            (unsigned)main_boot_wake, (unsigned)main_boot_slot,
-               (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();
     /* Whatever the host has announced up to here is this image. */
@@ -236,14 +226,7 @@ int main(void)
          * still starts. */
         bool wake = sst_pending();
         if (wake && !main_wake_pending)
-        {
-            /* A blob has started arriving. Said once, on the edge: what
-             * follows is either a restore or a refusal, and a log with
-             * this line and neither of those says the engine never
-             * finished. */
-            LOG_SAY("main: blob\n");
             sys_stop();
-        }
         main_wake_pending = wake;
 
         /* Both watchers stand down while a restore is expected:

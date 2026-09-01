@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_AUD_H_
-#define _FPGA_SW_AUD_H_
+#ifndef _HOST_POCKET_SW_AUD_H_
+#define _HOST_POCKET_SW_AUD_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,4 +22,4 @@ void aud_restore(void);
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 
-#endif /* _FPGA_SW_AUD_H_ */
+#endif /* _HOST_POCKET_SW_AUD_H_ */

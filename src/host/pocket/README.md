@@ -710,12 +710,12 @@ register, and for most of this driver's life that was enough: the 6502
 is parked in a single syscall, so its operation is the only one in
 flight and a poll can only find its own answer.
 
-`RP6502_LOG_FILE` puts a second writer in the same main loop and that
-stops being true. A read that retires the log's write copies out of a
-window the write never filled, and the program is handed bytes that
-belong to no file it opened. On the device this reads as a program
-whose file has turned to garbage — the same run that was supposed to be
-diagnosing something else. `fs.c` records who issued the command now,
+Anything else in the same main loop that touches the drive — a restore
+rebinding descriptors under a program, a second worker mid-write — stops
+that being true. A read that retires someone else's write copies out of
+a window the write never filled, and the program is handed bytes that
+belong to no file it opened. On the device this reads as a program whose
+file has turned to garbage. `fs.c` records who issued the command,
 and an answer found by the wrong worker is kept for the right one
 rather than dropped, which is what lets the blocking form wait out a
 record another worker is holding instead of deadlocking against it.

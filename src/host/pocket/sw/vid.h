@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_VID_H_
-#define _FPGA_SW_VID_H_
+#ifndef _HOST_POCKET_SW_VID_H_
+#define _HOST_POCKET_SW_VID_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -32,4 +32,4 @@ bool mode0_prog(uint16_t *xregs);
  * first for the sake of being last. */
 #define VID_DRIVER DRIVER(vid_init, nul_task, vid_task, nul_run, vid_stop, nul_break, nul_config, nul_config)
 
-#endif /* _FPGA_SW_VID_H_ */
+#endif /* _HOST_POCKET_SW_VID_H_ */

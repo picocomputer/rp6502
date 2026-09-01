@@ -736,20 +736,15 @@ UTEST(pfile, every_get_file_is_seen_to_be_answered)
     teardown();
 }
 
-/* A program reading its file while something else uses the drive.
+/* A program reading its own file, start to end, against the ownership
+ * bookkeeping in fs.c.
  *
- * The fabric carries one command and answers it in one register, and
- * for most of this suite the 6502 is the only thing asking — it is
- * parked in a syscall, so its operation is the only one in flight and
- * a poll can only ever find its own answer. RP6502_LOG_FILE puts a
- * second writer in the same main loop and that stops being true: a
- * read that retires the log's write copies out of a window the write
- * never filled, and the program is handed bytes belonging to no file
- * it opened.
+ * The fabric carries one command and answers it in one register. With
+ * the 6502 parked in a syscall its operation is the only one in flight,
+ * so this is the case where a poll can only ever find its own answer —
+ * the control the drive's other tests are read against.
  *
- * The ROM checks its own reads, so this only has to run it and listen.
- * Both builds run it — off, it is the same read path with nothing to
- * collide with, which is the control. */
+ * The ROM checks its own reads, so this only has to run it and listen. */
 UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
 {
     std::vector<uint8_t> rom = read_file(SLEEPFILE_ROM);

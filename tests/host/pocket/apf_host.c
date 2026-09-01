@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * What the HID drivers reach for, on a host that is none of their
- * platforms. The Pocket answers these in rtl/sw/hid.c and the RIA in
+ * platforms. The Pocket answers these in host/pocket/sw/hid.c and the RIA in
  * its own drivers; here they only have to exist and be quiet, because
  * what test_apf.c asks about is where the bits landed.
  */

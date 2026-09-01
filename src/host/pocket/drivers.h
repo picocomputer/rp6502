@@ -40,7 +40,6 @@
 #include "sw/sst.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"
-#include "sw/log.h"
 #include "sw/fs.h"
 #include "sw/vid.h"
 #include "osal/fs.h"
@@ -57,7 +56,7 @@
  * init -- the bell is part of the mixer aud brings up and restores.
  */
 #define RP6502_MACH_DRIVERS                             \
-    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,                \
+    CFG_DRIVER, PROC_DRIVER,                            \
     STR_DRIVER,                                         \
     AUD_DRIVER, BEL_DRIVER,                             \
     COM_DRIVER, FS_DRIVER,                              \

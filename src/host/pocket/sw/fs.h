@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_FS_H_
-#define _FPGA_SW_FS_H_
+#ifndef _HOST_POCKET_SW_FS_H_
+#define _HOST_POCKET_SW_FS_H_
 
 #include "core/api/api.h"
 #include "osal/dir.h"
@@ -89,4 +89,4 @@ const char *fs_strip_drive(const char *path);
 /* This driver's row in a machine's driver list; see core/driver.h. */
 #define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break, nul_config, nul_config)
 
-#endif /* _FPGA_SW_FS_H_ */
+#endif /* _HOST_POCKET_SW_FS_H_ */

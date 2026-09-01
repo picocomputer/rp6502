@@ -30,12 +30,11 @@
  * checks and rebinds.
  */
 
-#include "font.h"
-#include "log.h"
 #include "mmio.h"
 #include "fs.h"
 
 #include "core/str/unicode.h"
+#include "core/term/font.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -247,10 +246,7 @@ void fs_stop(void)
      * skipping the drain there stacks the next command's toggle onto a
      * live one, where the bridge drops it outright and answers the
      * previous command instead. Idle costs one read. */
-    unsigned held = fs_owner;
     fs_wait_free();
-    if (held || fs_grow)
-        LOG_SAY("fs: drain who=%u grow=%u\n", held, (unsigned)fs_grow);
     for (uint32_t w = 0; w < FS_W_MAX; w++)
         fs_mail[w] = false;
     fs_grow = false;
@@ -531,10 +527,6 @@ static void fs_rebind(int d)
                           fs_pool[d].name, 0, 0, FS_SAVES_PATH);
     uint32_t len = 0;
     bool got = fs_slot_len(FS_SLOT_FIRST + (uint32_t)d, &len);
-    LOG_SAY("fs: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
-           (unsigned)d, fs_pool[d].name, (unsigned)kept, (unsigned)rc,
-           (unsigned)fs_pool[d].len, (unsigned)got, (unsigned)len,
-           (unsigned)fs_pool[d].pos, (unsigned)fs_pool[d].writable);
     if (!kept && rc > 1)
         return;
     /* The length is the host's to say for a file this side did not

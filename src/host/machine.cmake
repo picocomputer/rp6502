@@ -119,7 +119,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
-        ${SW_SRC}/log.c ${SW_SRC}/mem.c
+        ${SW_SRC}/mem.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
@@ -164,18 +164,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode5.c
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/term.c)
-    # The firmware's console into a file on the drive, for reading a
-    # restore from the inside when the host's debug log has stopped. Off
-    # by default: an on build holds one of the drive's eight descriptors
-    # for the session, which the conformance suite counts.
-    option(RP6502_LOG_FILE "Soft CPU console to /Saves/.../rp6502.log" OFF)
-    set(SW_LOG_DEFINE "")
-    if(RP6502_LOG_FILE)
-        set(SW_LOG_DEFINE -DRP6502_LOG_FILE)
-    endif()
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-            ${SW_LOG_DEFINE}
             # Prologues and epilogues become calls into libgcc's
             # __riscv_save_N/__riscv_restore_N instead of a run of
             # stores. Kilobytes of text for a few cycles a call, and the

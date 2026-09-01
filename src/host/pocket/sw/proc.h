@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_PROC_H_
-#define _FPGA_SW_PROC_H_
+#ifndef _HOST_POCKET_SW_PROC_H_
+#define _HOST_POCKET_SW_PROC_H_
 
 #include <stdint.h>
 
@@ -26,4 +26,4 @@ const char *proc_staged_path(void);
  * next program, so this is its own. */
 bool proc_exec_take(void);
 
-#endif /* _FPGA_SW_PROC_H_ */
+#endif /* _HOST_POCKET_SW_PROC_H_ */

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_SST_H_
-#define _FPGA_SW_SST_H_
+#ifndef _HOST_POCKET_SW_SST_H_
+#define _HOST_POCKET_SW_SST_H_
 
 #include <stdbool.h>
 
@@ -22,4 +22,4 @@ void sst_task(void);
  * during file IO and runs after api in the io column. */
 #define SST_DRIVER DRIVER(nul_init, nul_task, sst_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
-#endif /* _FPGA_SW_SST_H_ */
+#endif /* _HOST_POCKET_SW_SST_H_ */

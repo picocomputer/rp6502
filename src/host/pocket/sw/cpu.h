@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_CPU_H_
-#define _FPGA_SW_CPU_H_
+#ifndef _HOST_POCKET_SW_CPU_H_
+#define _HOST_POCKET_SW_CPU_H_
 
 #include "core/cpu.h"
 
@@ -25,4 +25,4 @@ void cpu_stop(void);
 #define CPU_DRIVER DRIVER(cpu_init, nul_task, nul_task, cpu_run, cpu_stop, nul_break, \
     CPU_CONFIG_PHI2, nul_config)
 
-#endif /* _FPGA_SW_CPU_H_ */
+#endif /* _HOST_POCKET_SW_CPU_H_ */

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_VGA_H_
-#define _FPGA_SW_VGA_H_
+#ifndef _HOST_POCKET_SW_VGA_H_
+#define _HOST_POCKET_SW_VGA_H_
 
 #include "core/vga/vga.h"
 
@@ -35,4 +35,4 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
  * shadows it did. */
 void vga_restore(void);
 
-#endif /* _FPGA_SW_VGA_H_ */
+#endif /* _HOST_POCKET_SW_VGA_H_ */

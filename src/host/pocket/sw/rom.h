@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_ROM_H_
-#define _FPGA_SW_ROM_H_
+#ifndef _HOST_POCKET_SW_ROM_H_
+#define _HOST_POCKET_SW_ROM_H_
 
 #include <stdbool.h>
 
@@ -18,4 +18,4 @@ bool rom_load(const char *path);
 /* Over a descriptor already held -- the boot's, adopted from the host. */
 bool rom_load_fd(int fd);
 
-#endif /* _FPGA_SW_ROM_H_ */
+#endif /* _HOST_POCKET_SW_ROM_H_ */

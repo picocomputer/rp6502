@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_MAIN_H_
-#define _FPGA_SW_MAIN_H_
+#ifndef _HOST_POCKET_SW_MAIN_H_
+#define _HOST_POCKET_SW_MAIN_H_
 
 /* The restage triggers re-synced after a restore, so a wake's fresh
  * host announcements do not read as a new program. */
@@ -32,4 +32,4 @@ extern uint8_t main_boot_upd;
  * library. cfg_task feeds changes here. */
 void tim_set_tz_minutes(int32_t min);
 
-#endif /* _FPGA_SW_MAIN_H_ */
+#endif /* _HOST_POCKET_SW_MAIN_H_ */
