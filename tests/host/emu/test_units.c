@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Unit tests for the pure-logic corners: CRC-32, the .rp6502 loader, the
- * xreg device/channel dispatch, and the CLI parser.
+ * xreg device/channel dispatch, the CLI parser, and the generator's seam.
  */
 
 #include "core/sys/config.h"
+#include "core/sys/random.h"
+#include "host/host.h"
 #include "core/api/xreg.h"
 #include "core/str/oem.h"
 #include "core/term/font.h"
@@ -438,3 +440,53 @@ UTEST(cli, no_separator_no_rom_args)
 }
 
 UTEST_MAIN();
+
+/* ---- the generator and the seed it asks the machine for ------------------ */
+
+/* The contract says a machine answers the same seed every time, because one
+ * run reads it for the stream, for the memory fill and for what it reports. A
+ * machine that drew fresh entropy per call would fill from one and print
+ * another. */
+UTEST(random, the_machines_seed_does_not_move)
+{
+    uint32_t first = host_random_seed();
+    ASSERT_EQ(first, host_random_seed());
+    ASSERT_EQ(first, host_random_seed());
+}
+
+/* One generator written once, so the same state gives the same stream --
+ * which is the whole of what lets a seeded run be repeated, and what lets an
+ * oracle be pinned across two machines. */
+UTEST(random, the_same_state_gives_the_same_stream)
+{
+    uint32_t a = 0x6502C0DE, b = 0x6502C0DE;
+    for (int i = 0; i < 16; i++)
+        ASSERT_EQ(sys_random_step(&a), sys_random_step(&b));
+    ASSERT_EQ(a, b);
+}
+
+/* Zero used to mean "unseeded" and was mapped to 1. It is an ordinary state
+ * now -- the increment is odd, so the sequence walks away from it -- which
+ * matters because a fixture may legitimately pin a seed of zero. */
+UTEST(random, zero_is_an_ordinary_state)
+{
+    uint32_t z = 0;
+    uint32_t seen[4];
+    for (int i = 0; i < 4; i++)
+        seen[i] = sys_random_step(&z);
+    ASSERT_NE(z, 0u);
+    for (int i = 1; i < 4; i++)
+        ASSERT_NE(seen[i], seen[0]);
+}
+
+/* A stream of one's own leaves the machine's alone: mem.c fills 128 KB from
+ * its own state so a wipe cannot move what a seeded program's rand() sees. */
+UTEST(random, a_private_stream_does_not_touch_the_machines)
+{
+    uint32_t mine = 1;
+    uint32_t before = sys_random();
+    for (int i = 0; i < 1000; i++)
+        sys_random_step(&mine);
+    uint32_t after = sys_random();
+    ASSERT_NE(before, after); /* the machine's stream moved by its own draws only */
+}

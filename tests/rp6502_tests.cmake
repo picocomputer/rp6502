@@ -371,9 +371,12 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
+    # The bench's own answer to host/host.h, which every machine owes.
+    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c)
+
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE
-        ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${T_INCLUDES})
+        ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${RP6502_SRC} ${T_INCLUDES})
 
     if(T_LIBS)
         target_link_libraries(test_${name} PRIVATE ${T_LIBS})

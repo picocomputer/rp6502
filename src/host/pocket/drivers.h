@@ -42,7 +42,6 @@
 #include "sw/cfg.h"
 #include "sw/log.h"
 #include "sw/fs.h"
-#include "sw/rand.h"
 #include "sw/vid.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
@@ -66,7 +65,7 @@
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER, \
     APF_DRIVER, KEYMAP_DRIVER,                            \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,  \
-    VID_DRIVER, TIM_DRIVER, RAND_DRIVER,          \
+    VID_DRIVER, TIM_DRIVER, \
     DIR_DRIVER, API_DRIVER, SST_DRIVER,           \
     CLK_DRIVER, CPU_DRIVER
 

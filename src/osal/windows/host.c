@@ -30,7 +30,7 @@
 
 /* ---- entropy ---- */
 
-uint64_t host_entropy_64(void)
+uint32_t os_random_seed(void)
 {
     LARGE_INTEGER f, c;
     FILETIME ft;
@@ -40,7 +40,7 @@ uint64_t host_entropy_64(void)
     uint64_t s = (uint64_t)c.QuadPart * 6364136223846793005ull +
                  ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) +
                  (uint64_t)(uintptr_t)&f + (uint64_t)f.QuadPart;
-    return s ? s : 1;
+    return (uint32_t)(s ^ (s >> 32));
 }
 
 /* ---- monotonic clock + frame-pacer sleep ---- */

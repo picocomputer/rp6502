@@ -25,6 +25,7 @@
 #include "core/api/tim.h"
 
 #include "host/host.h"
+#include "osal/os.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,4 +138,18 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
                     const struct tm *tm)
 {
     return strftime(dst, max, format, tm);
+}
+
+/* The wall clock the host wrote is this machine's only entropy. With no clock
+ * the seed is zero, which is an ordinary seed -- so a bench that wants both
+ * machines on one stream can pin the oracle to it. */
+uint32_t os_random_seed(void)
+{
+    return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
+}
+
+uint32_t host_random_seed(void)
+{
+    /* Nothing overrides a board: no command line, no fixture. */
+    return os_random_seed();
 }

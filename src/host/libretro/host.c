@@ -19,7 +19,7 @@
 #include <time.h>
 #include <unistd.h>
 
-uint64_t host_entropy_64(void)
+uint32_t os_random_seed(void)
 {
     uint64_t s;
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
@@ -36,5 +36,5 @@ uint64_t host_entropy_64(void)
     s = (uint64_t)mono.tv_nsec * 6364136223846793005ull +
         (uint64_t)real.tv_sec * 1442695040888963407ull +
         (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
-    return s ? s : 1;
+    return (uint32_t)(s ^ (s >> 32));
 }

@@ -5,7 +5,7 @@
  */
 
 #include "core/mem/mem.h"
-#include "core/rand.h"
+#include "core/sys/random.h"
 #include <assert.h>
 #include <stdalign.h>
 #include <string.h>
@@ -31,25 +31,25 @@ static_assert(!(sizeof(xram_mem) % sizeof(uint64_t)));
 
 static bool mem_fill_random = true;
 static uint8_t mem_fill_value;
-static uint64_t mem_fill_seed;
+static uint32_t mem_fill_seed;
 
-void mem_set_fill(bool random, uint8_t value, uint64_t seed)
+void mem_set_fill(bool random, uint8_t value, uint32_t seed)
 {
     mem_fill_random = random;
     mem_fill_value = value;
     mem_fill_seed = seed;
 }
 
-/* The fill gets its own stream instead of drawing from host_rand_64, which is
+/* The fill gets its own stream instead of drawing from sys_random, which is
  * what the 6502's rand() syscall reads: 128KB of draws would move the sequence
  * every seeded program sees, and then changing the fill would be changing two
- * things at once. Same step (core/rand.h), salted off the run's
- * seed by the golden ratio so the two streams start apart. */
-static void mem_fill(uint8_t *dst, size_t len, uint64_t *state)
+ * things at once. Same step (core/sys/random.h), salted off the run's seed by
+ * the golden ratio so the two streams start apart. */
+static void mem_fill(uint8_t *dst, size_t len, uint32_t *state)
 {
-    for (size_t i = 0; i < len; i += sizeof(uint64_t))
+    for (size_t i = 0; i < len; i += sizeof(uint32_t))
     {
-        uint64_t x = rand_step(state);
+        uint32_t x = sys_random_step(state);
         memcpy(dst + i, &x, sizeof x);
     }
 }
@@ -62,7 +62,7 @@ void mem_init(void)
         memset(xram_mem, mem_fill_value, sizeof xram_mem);
         return;
     }
-    uint64_t state = mem_fill_seed ^ 0x9E3779B97F4A7C15ull;
+    uint32_t state = mem_fill_seed ^ 0x9E3779B9u;
     mem_fill(ram, sizeof ram, &state);
     mem_fill(xram_mem, sizeof xram_mem, &state);
 }

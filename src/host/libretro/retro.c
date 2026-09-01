@@ -18,7 +18,8 @@
 #include "input.h"
 
 #include "core/str/oem.h"
-#include "core/rand_seed.h"
+#include "core/sys/random.h"
+#include "host/host.h"
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/log.h"
@@ -148,11 +149,11 @@ static void apply_options(bool started)
      * second telling. */
     v = option_value("rp6502_mem_fill");
     if (v && !strcmp(v, "00"))
-        mem_set_fill(false, 0x00, rand_seed_value());
+        mem_set_fill(false, 0x00, host_random_seed());
     else if (v && !strcmp(v, "ff"))
-        mem_set_fill(false, 0xFF, rand_seed_value());
+        mem_set_fill(false, 0xFF, host_random_seed());
     else
-        mem_set_fill(true, 0, rand_seed_value());
+        mem_set_fill(true, 0, host_random_seed());
 }
 
 /* ------------------------------------------------------------------ */
@@ -380,6 +381,21 @@ static void say_how_to_type(void)
      * in frames rather than milliseconds. */
     struct retro_message msg = {.msg = text, .frames = 6 * VGA_HZ};
     environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
+}
+
+/* The seed for this run, decided once: a frontend offers no --seed, so it is
+ * the OS's, and it is asked for both the stream and the memory fill. */
+static uint32_t run_seed;
+static bool run_seed_taken;
+
+uint32_t host_random_seed(void)
+{
+    if (!run_seed_taken)
+    {
+        run_seed = os_random_seed();
+        run_seed_taken = true;
+    }
+    return run_seed;
 }
 
 /* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever

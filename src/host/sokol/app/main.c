@@ -15,7 +15,8 @@
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/app/png.h"
-#include "core/rand_seed.h"
+#include "core/sys/random.h"
+#include "host/host.h"
 #include "core/rom/rom.h"
 #include "core/str/path.h"
 #include "core/mem/mem.h"
@@ -70,6 +71,24 @@ static int run_dap(const cli_options *o)
     return window_run(g_fb, o->scale, o->have_scale, o->vsync, false);
 }
 #endif
+
+
+/* The seed for this run, decided once. --seed pins it; otherwise the OS is
+ * asked, and the value is reported so an unseeded run can still be repeated.
+ * Asked more than once -- for the stream, for the fill, for the report -- so
+ * it has to answer the same every time. */
+static uint32_t run_seed;
+static bool run_seed_taken;
+
+uint32_t host_random_seed(void)
+{
+    if (!run_seed_taken)
+    {
+        run_seed = os_random_seed();
+        run_seed_taken = true;
+    }
+    return run_seed;
+}
 
 /* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever
  * contracts, so the argument's own length is the bound. The caller frees. */
@@ -170,13 +189,13 @@ int main(int argc, char **argv)
      * program's rand() returns. Set before sys_init because mem_init is the
      * first thing it does. */
     if (o.have_seed)
-        rand_set_seed((uint64_t)o.seed);
-    mem_set_fill(o.fill_random, o.fill_value, rand_seed_value());
+        run_seed = (uint32_t)o.seed, run_seed_taken = true;
+    mem_set_fill(o.fill_random, o.fill_value, host_random_seed());
     /* Say which seed a random fill used, or a run that turns something up is a
      * run nobody can repeat. Host stderr, so nothing a script matches moves. */
     if (o.fill_random && !o.have_seed)
-        fprintf(stderr, "rp6502-emu: memory filled at random; --seed %llu repeats it\n",
-                (unsigned long long)rand_seed_value());
+        fprintf(stderr, "rp6502-emu: memory filled at random; --seed %u repeats it\n",
+                (unsigned)host_random_seed());
     sys_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and

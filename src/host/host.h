@@ -65,6 +65,14 @@
 #define COM_RING_SIZE 256
 #endif
 
+/* The seed for the machine's stream (core/sys/random.h), asked once on first
+ * use. Always a valid value: a fixture's fixed seed, a --seed, or whatever
+ * os_random_seed answers when the machine has nothing better. There is no
+ * sentinel -- a machine that does not care still says what it wants -- and it
+ * must answer the same value every time, because a machine reads it for the
+ * memory fill and for what it reports as well as for the stream. */
+uint32_t host_random_seed(void);
+
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not

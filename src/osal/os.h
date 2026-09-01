@@ -24,14 +24,11 @@
 #include <stdint.h>
 #include <time.h>
 
-/* The stream the 6502's rand() reads. A Pico has a hardware RNG; the emulator
- * and a Pocket run a generator of their own so a run can be reproduced. Not
- * host entropy, which seeds that generator -- see the seed material below. */
-uint64_t host_rand_64(void);
-
-/* Seed material for that generator, from the host RNG or its clocks. Only a
- * machine that runs a generator of its own asks for this. */
-uint64_t host_entropy_64(void);
+/* Entropy, when a machine has nothing better to seed the generator with. A
+ * Pico has a hardware RNG, a desktop has the OS's; a Pocket has only its
+ * clock. This is not the stream -- core/sys/random.h is -- it is what the
+ * machine asks for to seed it, and only when it has no answer of its own. */
+uint32_t os_random_seed(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool os_localtime(time_t t, struct tm *out);

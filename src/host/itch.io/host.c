@@ -12,7 +12,9 @@
 #include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <time.h>
 
-uint64_t host_entropy_64(void)
+/* host_random_seed is not here: this machine links the sokol app's main.c,
+ * which decides the run's seed for every desktop and the page alike. */
+uint32_t os_random_seed(void)
 {
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
@@ -20,7 +22,7 @@ uint64_t host_entropy_64(void)
     uint64_t s = (uint64_t)mono.tv_nsec * 6364136223846793005ull +
                  (uint64_t)real.tv_sec * 1442695040888963407ull +
                  (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
-    return s ? s : 1;
+    return (uint32_t)(s ^ (s >> 32));
 }
 
 void os_sleep_until_ns(uint64_t target)

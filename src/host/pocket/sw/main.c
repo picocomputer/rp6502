@@ -22,7 +22,6 @@
 #include "mmio.h"
 #include "fs.h"
 #include "proc.h"
-#include "rand.h"
 #include "rom.h"
 #include "core/rom/rom.h"
 #include "sst.h"

@@ -15,7 +15,7 @@
 #include "core/com.h"
 #include "core/cpu.h"
 #include "core/driver.h"
-#include "osal/os.h"
+#include "core/sys/random.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -58,7 +58,7 @@ bool attr_api_get(void)
     case ATTR_RLN_LENGTH:
         return api_return_axsreg(rln_get_max_length());
     case ATTR_LRAND:
-        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+        return api_return_axsreg(sys_random() & 0x7FFFFFFF);
     case ATTR_BEL:
         return api_return_axsreg(com_get_bel());
     case ATTR_LAUNCHER:
@@ -183,7 +183,7 @@ bool attr_api_code_page(void)
 // long lrand(void) - get random number
 bool attr_api_lrand(void)
 {
-    return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+    return api_return_axsreg(sys_random() & 0x7FFFFFFF);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping
