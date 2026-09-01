@@ -56,8 +56,8 @@ static retro_log_printf_t log_cb;
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
 
-static char loaded_rom[HOST_MAX_PATH];    /* OEM, absolute, for retro_reset */
-static char loaded_path[HOST_MAX_PATH];   /* as the frontend spelled it */
+static char *loaded_rom;  /* OEM, absolute, for retro_reset; owned */
+static char *loaded_path; /* as the frontend spelled it; owned */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
@@ -297,8 +297,8 @@ void retro_deinit(void)
         sys_commit(); /* no more frames after this to do it in */
     }
     machine_inited = false;
-    loaded_rom[0] = 0;
-    loaded_path[0] = 0;
+    free(loaded_rom), loaded_rom = NULL;
+    free(loaded_path), loaded_path = NULL;
     shutdown_sent = false;
     geom_w = geom_h = 0;
     hint_shown = false;
@@ -383,18 +383,34 @@ static void say_how_to_type(void)
     environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
 }
 
+/* argv in the guest's code page, allocated to fit: host_argv_to_oem only ever
+ * contracts, so the argument's own length is the bound. The caller frees. */
+static char *argv_to_oem(const char *arg)
+{
+    size_t sz = strlen(arg) + 1;
+    char *oem = malloc(sz);
+    if (oem && !host_argv_to_oem(arg, oem, sz))
+    {
+        free(oem);
+        oem = NULL;
+    }
+    return oem;
+}
+
 /* Where the frontend wants a program's saves to go. MSC0: is still the whole
  * host filesystem, as on every other host; this is only where a program
  * starts out. */
 static void enter_save_directory(const char *content_path)
 {
     const char *dir = NULL;
+    char *own = NULL;
     if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir || !*dir)
     {
         /* No save directory: the program's own folder, which is where the SDK
          * puts what it ships beside a ROM. */
-        static char own[HOST_MAX_PATH];
-        snprintf(own, sizeof own, "%s", content_path);
+        own = strdup(content_path);
+        if (!own)
+            return;
         char *slash = strrchr(own, '/');
 #ifdef _WIN32
         char *back = strrchr(own, '\\');
@@ -402,14 +418,20 @@ static void enter_save_directory(const char *content_path)
             slash = back;
 #endif
         if (!slash)
+        {
+            free(own);
             return;
+        }
         *slash = 0;
         dir = own;
     }
-    char oem[HOST_MAX_PATH];
-    api_errno err;
-    if (host_argv_to_oem(dir, oem, sizeof oem))
+    char *oem = argv_to_oem(dir);
+    if (oem)
+    {
+        api_errno err;
         drive_chdir(oem, &err);
+    }
+    free(oem), free(own);
 }
 
 /* Stand a program up: a fresh machine, the image, then run. The first load
@@ -453,18 +475,27 @@ bool retro_load_game(const struct retro_game_info *game)
     /* Absolute before anything moves: the frontend's path is relative to a
      * directory we are about to leave, and retro_reset has to find the same
      * file again from wherever the program has since gone. */
-    char given[HOST_MAX_PATH];
-    if (!host_argv_to_oem(game->path, given, sizeof given))
+    char *given = argv_to_oem(game->path);
+    if (!given)
     {
-        log_error("ROM path too long");
+        log_error("cannot take the ROM path");
         return false;
     }
-    if (!host_fs_realpath(given, loaded_rom, sizeof loaded_rom))
-        snprintf(loaded_rom, sizeof loaded_rom, "%s", given);
+    char *abs = host_fs_realpath(given);
+    free(loaded_rom);
+    loaded_rom = abs ? abs : given;
+    if (abs)
+        free(given);
 
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);
 
-    snprintf(loaded_path, sizeof loaded_path, "%s", game->path);
+    free(loaded_path);
+    loaded_path = strdup(game->path);
+    if (!loaded_rom || !loaded_path)
+    {
+        log_error("cannot take the ROM path");
+        return false;
+    }
     enter_save_directory(loaded_path);
 
     if (!boot(loaded_rom))
@@ -488,8 +519,8 @@ void retro_unload_game(void)
         sys_stop();
         sys_commit(); /* the frontend may never call us again */
     }
-    loaded_rom[0] = 0;
-    loaded_path[0] = 0;
+    free(loaded_rom), loaded_rom = NULL;
+    free(loaded_path), loaded_path = NULL;
 }
 
 /* A reset is the boot a load does, and all of it: the program left the
@@ -497,7 +528,7 @@ void retro_unload_game(void)
  * where it got to. */
 void retro_reset(void)
 {
-    if (!loaded_rom[0])
+    if (!loaded_rom)
         return;
     enter_save_directory(loaded_path);
     boot(loaded_rom);

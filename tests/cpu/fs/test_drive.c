@@ -55,7 +55,7 @@ static bool drive_mkdir_at(const char *path)
 
 static bool fresh(void)
 {
-    char dir[HOST_MAX_PATH];
+    char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
@@ -97,7 +97,7 @@ UTEST(drive, rom_resolve_and_load)
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
-    char second[HOST_MAX_PATH];
+    char second[TEST_PATH_MAX];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
     ASSERT_TRUE(rom_alias_insert(second));
 
@@ -210,7 +210,7 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[HOST_MAX_PATH], expect[HOST_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
@@ -220,7 +220,7 @@ UTEST(drive, mount_transparent_no_chroot)
     int f = ssys_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
-    char hostprobe[512], probenative[HOST_MAX_PATH];
+    char hostprobe[512], probenative[TEST_PATH_MAX];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
     ASSERT_TRUE(path_to_native(hostprobe, probenative, sizeof(probenative)));
     FILE *hp = fopen(probenative, "rb"); /* behind the drive's back */

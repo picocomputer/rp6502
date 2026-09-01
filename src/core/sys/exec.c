@@ -53,12 +53,10 @@ bool exec_pending(void)
 
 bool exec_set_argv(const char *rom, int argc, char *const *args)
 {
-    char abs[HOST_MAX_PATH];
-    const char *argv0 = rom;
     /* realpath answers in the 6502's spelling, so an absolute host path comes
      * back as the drive path a program can hand straight back to exec. */
-    if (!path_has_drive(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
-        argv0 = abs;
+    char *abs = (!path_has_drive(rom) && rom[0] != ':') ? host_fs_realpath(rom) : NULL;
+    const char *argv0 = abs ? abs : rom;
     /* Length-guard each string: arg_append's uint16 math trusts
      * monitor-capped tokens, but host input is unbounded. */
     arg_clear();
@@ -67,7 +65,8 @@ bool exec_set_argv(const char *rom, int argc, char *const *args)
         ok = strlen(args[i]) < XSTACK_SIZE && arg_append(args[i]);
     if (!ok)
         arg_clear(); /* no partial argv; the caller decides severity */
-    proc_run();       /* the new program is now what's running */
+    free(abs);
+    proc_run(); /* the new program is now what's running */
     return ok;
 }
 

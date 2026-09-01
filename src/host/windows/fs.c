@@ -76,36 +76,48 @@ static wchar_t *path_to_wide(const char *path)
     return w;
 }
 
-/* And back: what Win32 answered, slashed and spelled for the 6502. */
-static bool path_from_wide(const wchar_t *w, char *out, size_t outsz)
+/* And back: what Win32 answered, slashed and spelled for the 6502. One OEM
+ * byte per unit, and path_from_native prepends at most a six-byte drive
+ * prefix, so one length answers for both steps. The caller frees. */
+static char *path_from_wide(const wchar_t *w)
 {
-    size_t nsz = wcslen(w) + 1; /* one OEM byte per unit */
-    char *native = malloc(nsz);
-    if (!native)
-        return false;
-    oem_from_wide((const uint16_t *)w, native, nsz);
-    win_to_slash(native);
-    bool ok = path_from_native(native, out, outsz) != 0;
+    size_t sz = wcslen(w) + 7;
+    char *native = malloc(sz), *out = malloc(sz);
+    if (native && out)
+    {
+        oem_from_wide((const uint16_t *)w, native, sz);
+        win_to_slash(native);
+        if (!path_from_native(native, out, sz))
+        {
+            free(out);
+            out = NULL;
+        }
+    }
+    else
+    {
+        free(out);
+        out = NULL;
+    }
     free(native);
-    return ok;
+    return out;
 }
 
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-bool host_fs_realpath(const char *path, char *out, size_t outsz)
+char *host_fs_realpath(const char *path)
 {
     wchar_t *wpath = path_to_wide(path);
     if (!wpath)
-        return false;
+        return NULL;
     /* Asked for its own length first: zero means failure, otherwise it counts
      * the terminating null, which is exactly what the second call wants. */
     DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
     wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
     DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
     /* got >= n means it grew since the sizing call and asked again */
-    bool ok = got && got < n && path_from_wide(wfull, out, outsz);
+    char *out = (got && got < n) ? path_from_wide(wfull) : NULL;
     free(wpath), free(wfull);
-    return ok;
+    return out;
 }
 
 /* An overlapped handle has no implicit file pointer, so a descriptor is an

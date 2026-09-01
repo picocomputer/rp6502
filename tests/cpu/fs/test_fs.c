@@ -58,7 +58,7 @@ static bool drive_mkdir_at(const char *path)
 
 static bool fresh_cwd(void)
 {
-    char dir[HOST_MAX_PATH];
+    char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
@@ -73,7 +73,7 @@ static bool fresh_cwd(void)
 /* Behind the drive's back: does the real filesystem have this file? */
 static bool host_exists(const char *rel)
 {
-    char p[512], native[HOST_MAX_PATH];
+    char p[512], native[TEST_PATH_MAX];
     snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
     if (!path_to_native(p, native, sizeof(native)))
         return false;
@@ -126,7 +126,7 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[HOST_MAX_PATH], expect[HOST_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
@@ -166,7 +166,7 @@ UTEST(fs, no_chroot_clamp)
     dsys_path("sub");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    char cwd[HOST_MAX_PATH], expect[HOST_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "/sub");
@@ -194,7 +194,7 @@ UTEST(fs, no_chroot_clamp)
  * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
 UTEST(fs, path_translation)
 {
-    char host[HOST_MAX_PATH], msc[HOST_MAX_PATH];
+    char host[TEST_PATH_MAX], msc[TEST_PATH_MAX];
 
     ASSERT_TRUE(path_to_native("MSC0:/sub/file", host, sizeof(host)));
     ASSERT_STREQ(host, "/sub/file");
@@ -392,7 +392,7 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300], romnative[HOST_MAX_PATH];
+    char rompath[300], romnative[TEST_PATH_MAX];
     snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
     ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
     FILE *rf = fopen(romnative, "wb");
@@ -441,7 +441,7 @@ UTEST(fs, rom_asset_name_compares_through_the_code_page)
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300], romnative[HOST_MAX_PATH];
+    char rompath[300], romnative[TEST_PATH_MAX];
     snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
     ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
     FILE *rf = fopen(romnative, "wb");

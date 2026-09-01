@@ -57,38 +57,46 @@ static char *path_to_utf8(const char *path)
     return u8;
 }
 
-/* And back: what the OS answered, spelled for the 6502. The caller's buffer
- * is the one bound here, because only the caller knows what it is for. */
-static bool path_from_utf8(const char *u8, char *out, size_t outsz)
+/* And back: what the OS answered, spelled for the 6502. Allocated to fit --
+ * oem_from_utf8 contracts and path_from_native prepends at most a six-byte
+ * drive prefix, so one length answers for both steps. The caller frees. */
+static char *path_from_utf8(const char *u8)
 {
-    size_t nsz = strlen(u8) + 1; /* oem_from_utf8 contracts */
-    char *native = malloc(nsz);
-    if (!native)
+    size_t sz = strlen(u8) + 7;
+    char *native = malloc(sz), *out = malloc(sz);
+    if (native && out)
     {
-        errno = ENOMEM;
-        return false;
+        oem_from_utf8(u8, native, sz);
+        if (!path_from_native(native, out, sz))
+        {
+            free(out);
+            out = NULL;
+            errno = ENAMETOOLONG;
+        }
     }
-    oem_from_utf8(u8, native, nsz);
-    bool ok = path_from_native(native, out, outsz) != 0;
-    if (!ok)
-        errno = ENAMETOOLONG;
+    else
+    {
+        free(out);
+        out = NULL;
+        errno = ENOMEM;
+    }
     free(native);
-    return ok;
+    return out;
 }
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-bool host_fs_realpath(const char *path, char *out, size_t outsz)
+char *host_fs_realpath(const char *path)
 {
     char *u8 = path_to_utf8(path);
     if (!u8)
-        return false;
+        return NULL;
     char *r = realpath(u8, NULL);
     free(u8);
     if (!r)
-        return false;
-    bool ok = path_from_utf8(r, out, outsz);
+        return NULL;
+    char *out = path_from_utf8(r);
     free(r);
-    return ok;
+    return out;
 }
 
 /* The ROM loader's stream: a whole-file read for the record parser, not a

@@ -13,6 +13,7 @@
 #include "core/term/font.h"
 #include "core/str/str.h"
 #include "mach/sokol/app/cli.h"
+#include "tb_hostos.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
@@ -79,7 +80,7 @@ UTEST(rom, loads_a_headerless_image)
  * this one stands in for. */
 UTEST(rom, rejects_a_record_over_the_format_cap)
 {
-    char path[HOST_MAX_PATH];
+    char path[TEST_PATH_MAX];
     snprintf(path, sizeof path, "%s/overcap.rp6502", TEST_SCRATCH);
     FILE *f = fopen(path, "wb");
     ASSERT_TRUE(f != NULL);

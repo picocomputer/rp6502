@@ -18,6 +18,7 @@
 #include "host/os.h"
 #include "core/wdc/cpu.h"
 #include "emu_boot.h"
+#include "tb_hostos.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,14 +67,16 @@ UTEST(exec, reexecs_self_with_arg)
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); realpath answers in the 6502's
      * spelling, which is what round-trips through the exec resolver. */
-    char abs[HOST_MAX_PATH], dir[HOST_MAX_PATH];
-    ASSERT_TRUE(host_fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
+    char *abs = host_fs_realpath(TEST_FIXTURE);
+    ASSERT_TRUE(abs != NULL);
+    char dir[TEST_PATH_MAX];
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
     ASSERT_TRUE(drive_chdir_to(dir));
     exec_set_argv(abs, 0, NULL);
+    free(abs);
 
     com_set_tx_tap(tap);
     run_frames(90); /* first run -> exec -> second run -> exit */
