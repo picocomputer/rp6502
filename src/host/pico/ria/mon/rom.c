@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys.h"
-#include "core/ria.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
 #include "osal/pico/errmap.h"

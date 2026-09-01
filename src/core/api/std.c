@@ -9,9 +9,9 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/mem.h"
-#include "core/pix.h"
+#include "core/sys/pix.h"
 #include "host/host.h"
 #include "drivers.h"
 

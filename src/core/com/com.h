@@ -8,7 +8,7 @@
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
 
-#include "core/com.h"
+#include "core/sys/com.h"
 #include <stddef.h>
 #include <stdint.h>
 

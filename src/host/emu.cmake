@@ -7,7 +7,7 @@
 # RP6502_OSAL names the directory under src/osal that answers osal/os.h for
 # this build -- linux, macos, windows, android, emscripten. Every root sets it
 # before including this file, and names its own machine directory on the
-# include path itself, for the drivers.h core/sys.c includes by bare name.
+# include path itself, for the drivers.h core/sys/sys.c includes by bare name.
 #
 # The OS's own files are the root's to name: src/osal/posix/posix.cmake for
 # the ones that share a POSIX seam, and a line apiece for the rest.
@@ -83,14 +83,14 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/com/tty.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/mem/mem.c
-    ${RP6502_SRC}/core/pix.c
+    ${RP6502_SRC}/core/sys/pix.c
     ${RP6502_SRC}/core/api/xreg0.c
     ${RP6502_SRC}/core/api/xreg1.c
     ${RP6502_SRC}/core/ria/ria.c
     ${RP6502_SRC}/core/vga/vga.c
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/w65c02.c
-    ${RP6502_SRC}/core/sys.c
+    ${RP6502_SRC}/core/sys/sys.c
     ${RP6502_SRC}/core/api/api.c
     ${RP6502_SRC}/core/api/proc.c
     ${RP6502_SRC}/core/api/arg.c

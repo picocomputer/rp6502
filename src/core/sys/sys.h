@@ -12,8 +12,8 @@
  * 6502" from an ask into a doing. Each machine keeps the rest of its own loop
  * in its own main.h. */
 
-#ifndef _CORE_SYS_H_
-#define _CORE_SYS_H_
+#ifndef _CORE_SYS_SYS_H_
+#define _CORE_SYS_SYS_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -74,4 +74,4 @@ bool sys_break(void);
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool sys_break_to_launcher(void);
 
-#endif /* _CORE_SYS_H_ */
+#endif /* _CORE_SYS_SYS_H_ */

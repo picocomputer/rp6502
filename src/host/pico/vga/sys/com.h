@@ -12,7 +12,7 @@
 /* COnsole Manifold
  */
 
-#include "core/com.h"
+#include "core/sys/com.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

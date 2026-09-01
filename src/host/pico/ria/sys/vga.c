@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/ria.h"
+#include "core/sys/ria.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"

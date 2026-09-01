@@ -5,8 +5,8 @@
  */
 
 
-#include "core/sys.h"
-#include "core/ria.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "ria/main.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/telnet.h"

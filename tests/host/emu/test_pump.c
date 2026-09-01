@@ -21,7 +21,7 @@
 
 #include "core/aud/aud_mix.h"
 #include "core/aud/bel.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
 
 #include <stdio.h>

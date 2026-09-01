@@ -12,7 +12,7 @@
 #include "com.h"
 #include "mmio.h"
 
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/hid/keymap.h"
 
 #include <stdint.h>

@@ -16,7 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "core/com.h"
+#include "core/sys/com.h"
 
 #define COM_UART uart1
 #define COM_UART_BAUD_RATE 115200

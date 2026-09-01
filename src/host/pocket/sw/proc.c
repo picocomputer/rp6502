@@ -21,7 +21,7 @@
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -6,7 +6,7 @@
 
 #include "core/term/color.h"
 #include "core/term/term.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
 #include "host/host.h"

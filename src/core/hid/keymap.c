@@ -9,8 +9,8 @@
  * whose OS has already done this work links neither this nor the layout
  * database -- emu.cmake omits them both. */
 
-#include "core/ria.h"
-#include "core/sys.h"
+#include "core/sys/ria.h"
+#include "core/sys/sys.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"

@@ -35,7 +35,7 @@ set(RP6502_OSAL ${RP6502_SRC}/osal/emscripten)
 include(${RP6502_SRC}/host/emu.cmake)
 # emu.cmake leads the include path with RP6502_OSAL, which is an OS directory
 # rather than this one -- so this one is named here, for the drivers.h
-# core/sys.c includes by bare name.
+# core/sys/sys.c includes by bare name.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 # The browser has no <aio.h>, so it takes the POSIX seam's synchronous
 # transport -- the same pair the libretro core takes on every OS that is not

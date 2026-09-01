@@ -9,7 +9,7 @@
 
 #include "core/sys/exec.h"
 #include "core/vga/vga_emu.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "utest.h"
 

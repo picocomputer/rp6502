@@ -9,7 +9,7 @@
  *
  * It lives with the machine rather than in core because which drivers a
  * machine has is the one thing core cannot know. The software machines start
- * from the same list and are free to diverge. core/sys.c walks the
+ * from the same list and are free to diverge. core/sys/sys.c walks the
  * machine rows; core/api/std.c builds the table from the stdio rows. The
  * drive a path reaches is in neither list: osal/dir.h names those calls
  * and the host that is linked defines them.
@@ -47,7 +47,7 @@
 #include "core/wdc/via.h"
 
 /* init and run walk this forward; stop walks it backward; the two task
- * columns are walked forward every pass of core/sys.c's sys_task and
+ * columns are walked forward every pass of core/sys/sys.c's sys_task and
  * sys_io_task, which with sys_commit are this machine's super-loop. There
  * is no break fan-out -- no monitor to break into.
  *

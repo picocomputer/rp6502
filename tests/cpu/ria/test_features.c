@@ -9,8 +9,8 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
-#include "core/sys.h"
-#include "core/ria.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "core/api/arg.h"
 #include "core/sys/exec.h"
 #include "core/api/std.h"

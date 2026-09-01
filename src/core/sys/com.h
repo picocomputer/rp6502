@@ -8,8 +8,8 @@
  * a UART and CDC on the Pico, a ring the emulator fills, the APF bridge on a
  * Pocket -- and keeps its own pins, bring-up and servers. */
 
-#ifndef _CORE_COM_H_
-#define _CORE_COM_H_
+#ifndef _CORE_SYS_COM_H_
+#define _CORE_SYS_COM_H_
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -89,4 +89,4 @@ size_t com_stdin_read(char *buf, size_t count);
  * alongside its own. */
 void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
-#endif /* _CORE_COM_H_ */
+#endif /* _CORE_SYS_COM_H_ */

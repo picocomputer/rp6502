@@ -10,7 +10,7 @@
 /* Pico Information eXchange bus driver.
  */
 
-#include "core/pix.h"
+#include "core/sys/pix.h"
 
 #include <hardware/pio.h>
 #include <stddef.h>

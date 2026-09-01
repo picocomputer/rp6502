@@ -16,7 +16,7 @@
  */
 
 #include "core/api/xreg.h"
-#include "core/pix.h"
+#include "core/sys/pix.h"
 #include "core/driver.h"
 #include "core/api/api.h"
 #include "core/mem.h"

@@ -23,7 +23,7 @@
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/pix.h"
+#include "core/sys/pix.h"
 #include "core/str/rln.h"
 
 /* 0x00 (ZXSTACK) and 0xFF (EXIT) are not here: they are answered where the

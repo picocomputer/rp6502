@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "ria/main.h"
 #include "drivers.h"
 #include "core/api/proc.h"

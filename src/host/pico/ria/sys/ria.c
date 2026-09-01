@@ -5,8 +5,8 @@
  */
 
 #include "core/str/oem.h"
-#include "core/sys.h"
-#include "core/ria.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
 #include "core/api/proc.h"
@@ -161,7 +161,7 @@ void ria_task(void)
      * stop that asks sees the transfer whole, and none sees it half closed.
      *
      * Ahead of the watchdog, because a stop asked for before the machine ever
-     * started skips the fan-out entirely (core/sys.c) -- without this
+     * started skips the fan-out entirely (core/sys/sys.c) -- without this
      * the transfer would never close, and the stale watchdog would fire a
      * timeout at whatever ran next. */
     if (ria_active() && !sys_active())

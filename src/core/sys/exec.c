@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/sys/exec.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/rom/rom.h"
 #include "core/api/proc.h"
 #include "core/api/arg.h"

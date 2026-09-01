@@ -19,7 +19,7 @@
 #ifndef _RIA_SYS_COM_TELNET_H_
 #define _RIA_SYS_COM_TELNET_H_
 
-#include "core/com.h"
+#include "core/sys/com.h"
 
 #include <stdbool.h>
 #include <stddef.h>

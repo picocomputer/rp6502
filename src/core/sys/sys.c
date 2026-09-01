@@ -17,7 +17,7 @@
  * goes down early there because a stop is a stop, not because it must.
  */
 
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/cpu.h"
 #include "drivers.h"
 

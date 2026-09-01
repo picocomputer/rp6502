@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/ria.h"
+#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/str/rln.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/driver.h"
 #include "core/vga/vga.h"
 #include "host/host.h"

@@ -8,7 +8,7 @@
  * resolves ":name" through is alias.c's.
  */
 
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "osal/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"

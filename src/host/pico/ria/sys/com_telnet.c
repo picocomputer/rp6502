@@ -12,7 +12,7 @@
  * the picking, this owns the socket.
  */
 
-#include "core/ria.h"
+#include "core/sys/ria.h"
 #include "ria/sys/com.h"
 #include "core/sys/config.h"
 #include "ria/sys/com_telnet.h"

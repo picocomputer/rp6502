@@ -7,7 +7,7 @@
 
 #include "core/sys/config.h"
 #include "core/str/oem.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "core/sys/exec.h"
 #include "host/sokol/win/window.h"
@@ -21,7 +21,7 @@
 #include "core/str/path.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/app/cli.h"
 #include "host/sokol/app/script.h"

@@ -14,7 +14,7 @@
 #include "core/sys/config.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/str/oem.h"
 #include "core/com/com.h"
 #include "core/mem/mem.h"

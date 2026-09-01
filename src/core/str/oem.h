@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Guarded the way core/com.h and the pico-sdk guard it, so whichever header
+/* Guarded the way core/sys/com.h and the pico-sdk guard it, so whichever header
  * arrives first wins and the other skips. */
 #ifndef __printflike
 #ifdef __GNUC__

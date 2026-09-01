@@ -6,9 +6,9 @@
  */
 
 #include "core/api/xreg.h"
-#include "core/ria.h"
+#include "core/sys/ria.h"
 #include "core/mem/mem.h"
-#include "core/pix.h"
+#include "core/sys/pix.h"
 #include "core/driver.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"

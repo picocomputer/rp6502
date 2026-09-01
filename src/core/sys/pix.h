@@ -7,8 +7,8 @@
 /* Writing XRAM. On a Pico this crosses the PIX bus to the VGA's copy and is a
  * PIO FIFO write; elsewhere there is one XRAM and it lands directly. */
 
-#ifndef _CORE_PIX_H_
-#define _CORE_PIX_H_
+#ifndef _CORE_SYS_PIX_H_
+#define _CORE_SYS_PIX_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -33,4 +33,4 @@ bool pix_ready(void);
 // One XRAM byte, to every copy of XRAM the machine has.
 void pix_send_xram(uint16_t addr, uint8_t data);
 
-#endif /* _CORE_PIX_H_ */
+#endif /* _CORE_SYS_PIX_H_ */

@@ -20,7 +20,7 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "core/mem/mem.h"
 #include "core/com/com.h"

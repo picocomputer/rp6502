@@ -9,7 +9,7 @@
  */
 
 #include "core/dap/dbg.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"

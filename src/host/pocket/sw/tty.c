@@ -9,7 +9,7 @@
  */
 
 #include "core/com/tty.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 
 #include "mmio.h"
 

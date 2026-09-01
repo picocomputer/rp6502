@@ -52,7 +52,7 @@ endif()
 include(${RP6502_SRC}/host/emu.cmake)
 # emu.cmake leads the include path with RP6502_OSAL, which is now an OS
 # directory rather than this one -- so this one is named here, for the
-# drivers.h core/sys.c includes by bare name.
+# drivers.h core/sys/sys.c includes by bare name.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h

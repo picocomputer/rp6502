@@ -20,7 +20,7 @@
  */
 
 #include "core/mem.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
 
 UTEST_MAIN_EMU();

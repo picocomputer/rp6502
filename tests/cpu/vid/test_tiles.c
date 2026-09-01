@@ -12,7 +12,7 @@
 
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkeys.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"

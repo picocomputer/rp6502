@@ -11,7 +11,7 @@
  */
 
 #include "core/sys/exec.h"
-#include "core/sys.h"
+#include "core/sys/sys.h"
 #include "mut.h"
 
 #include "core/com/com.h"

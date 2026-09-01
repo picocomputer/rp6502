@@ -15,8 +15,8 @@
  * firmware, and host/pocket/sw/main.c on a machine whose bus is fabric.
  */
 
-#ifndef _CORE_RIA_H_
-#define _CORE_RIA_H_
+#ifndef _CORE_SYS_RIA_H_
+#define _CORE_SYS_RIA_H_
 
 #include <stdbool.h>
 
@@ -36,4 +36,4 @@ extern "C"
 }
 #endif
 
-#endif /* _CORE_RIA_H_ */
+#endif /* _CORE_SYS_RIA_H_ */
