@@ -9,9 +9,6 @@
 #include "core/str/oem.h"
 #include "core/api/tim.h"
 
-/* Wall-clock offset in seconds. Allows setting time without changing host clock. */
-static int64_t tim_time_offset;
-
 // Cold boot: adopt the host timezone/locale.
 void tim_init(void)
 {
@@ -21,15 +18,18 @@ void tim_init(void)
 
 bool tim_get_time(struct timespec *ts)
 {
-    ts->tv_sec = (time_t)((int64_t)time(NULL) + tim_time_offset);
+    ts->tv_sec = time(NULL);
     ts->tv_nsec = 0;
     return true;
 }
 
+/* The host's clock is the host's. A program that asks to move it is refused
+ * rather than handed an offset this machine would carry and the wall would
+ * not -- two clocks disagreeing is worse than one that will not move. */
 bool tim_set_time(const struct timespec *ts)
 {
-    tim_time_offset = (int64_t)ts->tv_sec - (int64_t)time(NULL);
-    return true;
+    (void)ts;
+    return false;
 }
 
 void tim_get_time_res(struct timespec *ts)

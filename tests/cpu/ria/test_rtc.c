@@ -158,28 +158,30 @@ UTEST(rtc, stop_reverts_run_code_page)
     ASSERT_EQ(oem_get_code_page_run(), resolved);
 }
 
-/* The RTC is machine state, not program state: a guest settime rides through a
- * program restart exactly as the hardware AON timer does. */
-UTEST(rtc, settime_persists_across_restart)
+/* The host's clock is the host's. Only a machine that owns a real time-of-day
+ * clock -- the Pico, with its always-on timer -- may move it; an emulator has
+ * no business rewriting the wall its user is living on, and a machine whose
+ * time was handed to it at boot has nowhere to write one back. Both refuse,
+ * and refusing is EACCES rather than a range complaint. */
+UTEST(rtc, settime_is_refused_on_a_machine_that_does_not_own_the_clock)
 {
+    api_set_errno_opt(2); /* llvm-mos mapping, so API_ERRNO is decodable */
+    const int64_t before = (int64_t)time(NULL);
     const int64_t want = 1735732800; /* 2025-01-01 noon UTC */
-    const int64_t host_before = (int64_t)time(NULL);
     memcpy(&xstack[XSTACK_SIZE - 8], &want, 8);
     xstack_ptr = XSTACK_SIZE - 8;
     clk_api_time_set();
-    ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
+    ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0xFFFF);
+    ASSERT_EQ((int)API_ERRNO, (int)api_platform_errno(API_EACCES));
 
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* sys_stop + sys_run */
-
+    /* And the clock it refused to move is still the host's. */
     xstack_ptr = XSTACK_SIZE;
     clk_api_time_get();
     ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
     int64_t got;
     memcpy(&got, &xstack[xstack_ptr], 8);
-    /* Only the host seconds that actually elapsed may have accrued. Without the
-     * offset surviving, got would be the host clock — decades off. */
-    ASSERT_TRUE(got >= want);
-    ASSERT_TRUE(got <= want + (int64_t)time(NULL) - host_before);
+    ASSERT_TRUE(got >= before);
+    ASSERT_TRUE(got <= (int64_t)time(NULL));
 }
 
 UTEST_STATE();
