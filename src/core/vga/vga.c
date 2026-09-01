@@ -17,6 +17,7 @@
 #include "core/term/term.h"
 #include "core/term/font.h"
 #include "core/wdc/cpu.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
+#include "core/dap/dbg.h"
 #include "core/vga/pixel_format.h"
 #include "host/host.h"
 #include "osal/os.h"
@@ -153,11 +154,21 @@ static uint64_t beam_due_ns(void)
                : beam_n * (1000000000ull / (VGA_HZ * VGA_SCANLINES));
 }
 
+/* "Here is on time." Held apart from vga_set_pace because a resume from a
+ * breakpoint wants exactly this and not a mode change: the wall moved while
+ * the beam did not, and a debt that large would be forgiven rather than
+ * repaid, which is a fast-forward through time the program was not there
+ * for. */
+static void vga_repace(void)
+{
+    if (g_pace != VGA_PACE_NONE)
+        pace_anchor_ns = os_mono_ns() - beam_due_ns();
+}
+
 void vga_set_pace(vga_pace_t pace)
 {
     g_pace = pace;
-    if (pace != VGA_PACE_NONE)
-        pace_anchor_ns = os_mono_ns() - beam_due_ns(); /* here is on time */
+    vga_repace();
 }
 
 static bool beam_due(void)
@@ -182,6 +193,16 @@ void vga_task(void)
          * the bus. Here the VGA is the same binary, so it is the call the
          * message would have become. */
         xreg1(0xF, 0x00, vga_get_display_type());
+    }
+    /* A debugger holding the 6502 holds the whole machine. Left running, the
+     * beam would keep counting frames and firing vsync while a program sat at
+     * a breakpoint, latching $FFF0 bit 7 each time -- so stepping one
+     * instruction would resume into an IRQ storm the program never lived
+     * through. The picture stays as it was; the window presents it again. */
+    if (dbg_is_stopped())
+    {
+        vga_repace();
+        return;
     }
     if (!beam_due())
         return;

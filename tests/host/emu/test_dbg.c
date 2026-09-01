@@ -242,14 +242,21 @@ UTEST(dbg, a_stop_holds_the_cpu_and_not_the_screen)
     dbg_add_breakpoint(entry_pc()); /* stop before anything prints */
     emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
-    /* Held, and the beam still runs: frames keep completing while the 6502
-     * fetches nothing. */
-    const unsigned long held_at = vga_frame_count();
-    emu_frames(1);
-    ASSERT_TRUE(dbg_is_stopped());
-    ASSERT_GT(vga_frame_count(), held_at);
     uint32_t console_blank = frame_crc();
     ASSERT_NE(console_blank, untouched); /* the console scanned out */
+    /* Held means the machine is held, not just the 6502. The beam stops with
+     * it, so no frame completes and no vsync is latched -- otherwise a step
+     * would resume into every IRQ that accrued while you were reading. */
+    const unsigned long held_at = vga_frame_count();
+    for (int i = 0; i < 200000; i++)
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
+    ASSERT_TRUE(dbg_is_stopped());
+    ASSERT_EQ(vga_frame_count(), held_at);
+    ASSERT_EQ(frame_crc(), console_blank); /* the picture is the one it had */
 
     dbg_clear_breakpoints();
     dbg_continue();
