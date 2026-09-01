@@ -21,10 +21,10 @@
 #define HOST_TIME_CRITICAL(name) __time_critical_func(name)
 #define HOST_ISR __isr
 
-/* The SIO interpolators, and the SXGA console's two extra rows. The
- * interpolator header is not pulled in here: only the VGA firmware links
- * hardware_interp, so the one file that walks them includes it itself. */
-#define HOST_INTERP 1
+/* The SXGA console's two extra rows. The SIO interpolators mode4 walks are
+ * not named here: PICO_ON_DEVICE already says which machine has them, and
+ * only the VGA firmware links hardware_interp, so the one file that uses
+ * them includes the header itself. */
 #define HOST_TERM_MAX_HEIGHT 32
 
 /* The launcher chain's path buffer, before the contract's default. */

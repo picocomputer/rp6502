@@ -22,8 +22,8 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-/* Named only where a host said it has them. */
-#if HOST_INTERP
+/* The SIO interpolators: the RP2350's, and nothing else has them. */
+#if PICO_ON_DEVICE
 #include <hardware/interp.h>
 #endif
 
@@ -261,7 +261,7 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
     }
 }
 
-#if !HOST_INTERP
+#if !PICO_ON_DEVICE
 // Software stand-in for the SIO interpolator used by the affine path. The Pico
 // hardware interpolator emits each texel's address and advances the u,v
 // accumulators on every POP; off-device the same arithmetic runs here. Lanes
@@ -308,7 +308,7 @@ static inline void setup_interp_affine(
         mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
         mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
         atrans[5];
-#if HOST_INTERP
+#if PICO_ON_DEVICE
     interp0->accum[0] = x0;
     interp0->accum[1] = y0;
     interp0->base[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
@@ -335,7 +335,7 @@ static inline void setup_interp_pix_coordgen(
     // which generates the u,v coordinate for the *next* read.
     assert(sp->log_size + pixel_shift <= 15);
 
-#if HOST_INTERP
+#if PICO_ON_DEVICE
     interp_config c0 = interp_default_config();
     interp_config_set_add_raw(&c0, true);
     interp_config_set_shift(&c0, 16 - pixel_shift);
@@ -360,7 +360,7 @@ static inline void setup_interp_pix_coordgen(
 
 static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, unsigned mask)
 {
-#if HOST_INTERP
+#if PICO_ON_DEVICE
     uint32_t overflow = (interp0->accum[0] | interp0->accum[1]) & mask;
     uint16_t *src_addr = (uint16_t *)interp0->pop[2];
 #else
