@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Paths cross the seam in the guest's OEM code page. Convert to the host's
- * UTF-8 with oem_to_utf8() (api/oem.h) before every libc call, and returned
- * names/paths back with oem_from_utf8(). Fallible calls set errno and return
- * false so the fs_errno_to_api_errno funnel in core/api/fs.c works unchanged.
+ * UTF-8 with oem_to_utf8() (core/str/oem.h) before every libc call, and
+ * returned names/paths back with oem_from_utf8(). Fallible calls set errno,
+ * which errmap.c turns into the api_errno the contract answers in.
  */
 
 #include "osal/fs.h"
@@ -200,7 +200,7 @@ bool fs_rom_remove(const char *name, api_errno *err)
     return false;
 }
 
-int64_t fs_size_of(int fd)
+static int64_t fs_size_of(int fd)
 {
     struct stat st;
     if (fstat(fd, &st) != 0)

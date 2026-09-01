@@ -8,8 +8,8 @@
  * a filesystem can actually say -- FatFs's answers are this machine's
  * answers, clipped seeks and all.
  *
- * The directories beside these files are api/dir.c's; the block device
- * underneath is usb/msc.c.
+ * The directories beside these files are dir.c's; the block device
+ * underneath is the machine's, host/pico/ria/usb/msc.c.
  */
 
 #include "osal/pico/errmap.h"

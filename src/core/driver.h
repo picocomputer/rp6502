@@ -5,7 +5,7 @@
  */
 
 /* What a driver is. The list of them is the machine's -- RP6502_MACH_DRIVERS
- * in its own drivers.h -- and what to do with that list is core/mach.h; this
+ * in its own drivers.h -- and what to do with that list is core/sys.c; this
  * file is only the shape of a row and the walks over it. */
 
 #ifndef _CORE_DRIVER_H_

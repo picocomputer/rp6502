@@ -36,8 +36,8 @@ static enum state
 static volatile bool sys_breaking;
 
 /* Cold boot: every driver this machine lists, in the order it lists them.
- * One copy for every machine -- each root puts its own mach directory first
- * on the include path, so "drivers.h" above is its own. */
+ * One copy for every machine -- each root puts its own machine directory on
+ * the include path, so "drivers.h" above is its own. */
 void sys_init(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) i();

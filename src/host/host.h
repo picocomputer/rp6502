@@ -80,7 +80,12 @@ uint32_t host_random_seed(void);
  * fetching nothing rather than a stopped clock, and it does not follow the
  * host's wall clock -- an emulator paced against a display deliberately lets
  * the two drift. It is savestate state where a machine has savestates. Wall
- * time is tim_get_time. */
+ * time is tim_get_time.
+ *
+ * A machine answers it, but not always its own directory: for the three
+ * emulated machines the cycle counter in core/wdc/cpu.c is the machine, so
+ * that is where their answer is. Only the two with real hardware under them
+ * have one of their own. */
 uint64_t host_clock_us(void);
 
 /* Deadlines, from the clock above. Inline rather than a translation unit on

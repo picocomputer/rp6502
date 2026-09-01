@@ -52,9 +52,9 @@ For a native x64 emulator build (MSVC + Ninja, no WSL/MSYS2), open an
 **x64 Native Tools Command Prompt for VS**, then:
 
 ```
-cd src\host\win
-cmake --preset debug
-cmake --build --preset debug
+cd src\host\sokol
+cmake --preset windows-debug
+cmake --build --preset windows-debug
 ```
 
 ## MacOs

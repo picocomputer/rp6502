@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives (osal/os.h host_*), shared by linux,
- * macos, web and android; the counterpart of osal/windows/os.c. The two that
- * differ by OS, host_entropy_64 and os_sleep_until_ns, are in each host's
- * own host.c.
+ * The osal/os.h calls every POSIX system answers the same way, shared by
+ * linux, macos, emscripten and android; the counterpart of osal/windows/os.c.
+ * The two that differ by system, os_random_seed and os_sleep_until_ns, are in
+ * each one's own os.c beside this.
  */
 
 #include "osal/os.h"

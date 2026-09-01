@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See dir.h.
+ * See osal/dir.h.
  */
 
 #include "osal/dir.h"
