@@ -45,7 +45,7 @@ uint64_t host_entropy_64(void)
 
 /* ---- monotonic clock + frame-pacer sleep ---- */
 
-uint64_t host_mono_ns(void)
+uint64_t os_mono_ns(void)
 {
     LARGE_INTEGER f, c;
     QueryPerformanceFrequency(&f);
@@ -53,33 +53,33 @@ uint64_t host_mono_ns(void)
     return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
 }
 
-bool host_localtime(time_t t, struct tm *out)
+bool os_localtime(time_t t, struct tm *out)
 {
     return localtime_s(out, &t) == 0;
 }
 
-bool host_gmtime(time_t t, struct tm *out)
+bool os_gmtime(time_t t, struct tm *out)
 {
     return gmtime_s(out, &t) == 0;
 }
 
 /* ---- host-locale strftime ---- */
 
-void host_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
+void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
 
-size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
+size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return strftime(buf, max, fmt, tm);
 }
 
-void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
+void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
     (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
 }
 
 /* ---- config location ---- */
 
-char *host_config_dir(void)
+char *os_config_dir(void)
 {
     const char *base = getenv("APPDATA");
     if (!base || !base[0])
@@ -94,7 +94,7 @@ char *host_config_dir(void)
 
 /* GUI-subsystem processes don't inherit an interactive console's stdio. */
 
-void host_ensure_parent_dir(const char *filepath)
+void os_ensure_parent_dir(const char *filepath)
 {
     char *tmp = strdup(filepath); /* walked in place, so it is ours */
     if (!tmp)

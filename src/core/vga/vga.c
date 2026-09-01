@@ -157,14 +157,14 @@ void vga_set_pace(vga_pace_t pace)
 {
     g_pace = pace;
     if (pace != VGA_PACE_NONE)
-        pace_anchor_ns = host_mono_ns() - beam_due_ns(); /* here is on time */
+        pace_anchor_ns = os_mono_ns() - beam_due_ns(); /* here is on time */
 }
 
 static bool beam_due(void)
 {
     if (g_pace == VGA_PACE_NONE)
         return true;
-    const uint64_t now = host_mono_ns();
+    const uint64_t now = os_mono_ns();
     const uint64_t due = pace_anchor_ns + beam_due_ns();
     if (now < due)
         return false;

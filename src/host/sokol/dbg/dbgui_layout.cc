@@ -18,7 +18,7 @@ extern "C"
 {
 #include "host/sokol/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "host/sokol/dbg/dbgui_layout.h" /* load/save */
-#include "osal/os.h"                /* host_config_dir, host_ensure_parent_dir */
+#include "osal/os.h"                /* os_config_dir, os_ensure_parent_dir */
 }
 
 #include <cstdio>
@@ -42,7 +42,7 @@ static char *dbgui_config_path(void)
         path = strdup(g_cfg_override);
     else
     {
-        char *dir = host_config_dir();
+        char *dir = os_config_dir();
         if (!dir)
             return nullptr;
         static const char tail[] = "/dbgui.ini";
@@ -52,7 +52,7 @@ static char *dbgui_config_path(void)
         std::free(dir);
     }
     if (path)
-        host_ensure_parent_dir(path);
+        os_ensure_parent_dir(path);
     return path;
 }
 

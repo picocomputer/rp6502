@@ -67,7 +67,7 @@ UTEST(exec, reexecs_self_with_arg)
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); realpath answers in the 6502's
      * spelling, which is what round-trips through the exec resolver. */
-    char *abs = host_fs_realpath(TEST_FIXTURE);
+    char *abs = os_fs_realpath(TEST_FIXTURE);
     ASSERT_TRUE(abs != NULL);
     char dir[TEST_PATH_MAX];
     snprintf(dir, sizeof(dir), "%s", abs);

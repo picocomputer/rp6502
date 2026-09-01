@@ -71,13 +71,13 @@ static int run_dap(const cli_options *o)
 }
 #endif
 
-/* argv in the guest's code page, allocated to fit: host_argv_to_oem only ever
+/* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever
  * contracts, so the argument's own length is the bound. The caller frees. */
 static char *argv_to_oem(const char *arg)
 {
     size_t sz = strlen(arg) + 1;
     char *oem = malloc(sz);
-    if (oem && !host_argv_to_oem(arg, oem, sz))
+    if (oem && !os_argv_to_oem(arg, oem, sz))
     {
         free(oem);
         oem = NULL;
@@ -87,7 +87,7 @@ static char *argv_to_oem(const char *arg)
 
 int main(int argc, char **argv)
 {
-    host_console_attach();
+    os_console_attach();
     cli_options o;
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))
@@ -206,7 +206,7 @@ int main(int argc, char **argv)
         }
         for (int i = 0; i < o.n_rom_args; i++)
         {
-            if (!host_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
+            if (!os_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
             {
                 fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
                 return 1;

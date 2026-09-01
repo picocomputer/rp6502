@@ -109,7 +109,7 @@ static char *path_from_utf8(const char *u8)
 }
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-char *host_fs_realpath(const char *path)
+char *os_fs_realpath(const char *path)
 {
     char *u8 = path_to_utf8(path);
     if (!u8)
@@ -123,7 +123,7 @@ char *host_fs_realpath(const char *path)
     return out;
 }
 
-FILE *host_fs_fopen_rd(const char *path)
+FILE *os_fs_fopen_rd(const char *path)
 {
     char *u8 = path_to_utf8(path);
     if (!u8)

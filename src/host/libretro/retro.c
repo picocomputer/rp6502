@@ -32,7 +32,6 @@
 #include "core/sys.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
-#include "osal/os.h"
 
 #include "libretro.h"
 
@@ -383,13 +382,13 @@ static void say_how_to_type(void)
     environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
 }
 
-/* argv in the guest's code page, allocated to fit: host_argv_to_oem only ever
+/* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever
  * contracts, so the argument's own length is the bound. The caller frees. */
 static char *argv_to_oem(const char *arg)
 {
     size_t sz = strlen(arg) + 1;
     char *oem = malloc(sz);
-    if (oem && !host_argv_to_oem(arg, oem, sz))
+    if (oem && !os_argv_to_oem(arg, oem, sz))
     {
         free(oem);
         oem = NULL;
@@ -481,7 +480,7 @@ bool retro_load_game(const struct retro_game_info *game)
         log_error("cannot take the ROM path");
         return false;
     }
-    char *abs = host_fs_realpath(given);
+    char *abs = os_fs_realpath(given);
     free(loaded_rom);
     loaded_rom = abs ? abs : given;
     if (abs)

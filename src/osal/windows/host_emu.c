@@ -12,8 +12,8 @@
 
 #include "osal/os.h"
 #include "core/str/oem.h"
-#include "host/sokol/app/cli.h"    /* host_console_attach */
-#include "host/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/app/cli.h"    /* os_console_attach */
+#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,14 +21,14 @@
 #include <wchar.h>
 #include <windows.h>
 
-void host_sleep_until_ns(uint64_t target)
+void os_sleep_until_ns(uint64_t target)
 {
     (void)target; /* the D3D11 Present already paces the loop */
 }
 
 /* ---- broken-down time ---- */
 
-void host_console_attach(void)
+void os_console_attach(void)
 {
     HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
     HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
@@ -44,7 +44,7 @@ void host_console_attach(void)
 }
 
 /* The ANSI main()'s argv is in the process ACP, not UTF-8. */
-bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
     int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0); /* asks its own size */
     wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;

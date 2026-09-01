@@ -104,7 +104,7 @@ static char *path_from_wide(const wchar_t *w)
 
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
-char *host_fs_realpath(const char *path)
+char *os_fs_realpath(const char *path)
 {
     wchar_t *wpath = path_to_wide(path);
     if (!wpath)
@@ -243,7 +243,7 @@ bool fs_rom_remove(const char *name, api_errno *err)
     return false;
 }
 
-FILE *host_fs_fopen_rd(const char *path)
+FILE *os_fs_fopen_rd(const char *path)
 {
     wchar_t *w = path_to_wide(path);
     if (!w)

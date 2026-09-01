@@ -15,7 +15,7 @@ static int64_t tim_time_offset;
 // Cold boot: adopt the host timezone/locale.
 void tim_init(void)
 {
-    host_locale_reset();
+    os_locale_reset();
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
@@ -40,12 +40,12 @@ void tim_get_time_res(struct timespec *ts)
 
 bool tim_localtime(time_t t, struct tm *out)
 {
-    return host_localtime(t, out);
+    return os_localtime(t, out);
 }
 
 bool tim_gmtime(time_t t, struct tm *out)
 {
-    return host_gmtime(t, out);
+    return os_gmtime(t, out);
 }
 
 /* strftime in the host locale, then UTF-8 -> OEM into dst (max bytes). */
@@ -58,9 +58,9 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
      * %a/%A rather than being recomputed. */
     struct tm zoned = *tm, probe = *tm;
     if (mktime(&probe) != (time_t)-1)
-        host_tm_apply_zone(&zoned, &probe);
+        os_tm_apply_zone(&zoned, &probe);
     char utf8[512];
-    size_t un = host_strftime_local(utf8, sizeof utf8, format, &zoned);
+    size_t un = os_strftime_local(utf8, sizeof utf8, format, &zoned);
     /* On overflow strftime returns 0 and leaves the buffer unspecified; force a
      * terminator so the UTF-8 walk below can't run off the end. */
     utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;

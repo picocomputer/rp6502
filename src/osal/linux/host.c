@@ -9,7 +9,7 @@
  */
 
 #include "osal/os.h"
-#include "host/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <sys/random.h>
 #include <time.h>
 
@@ -27,7 +27,7 @@ uint64_t host_entropy_64(void)
     return s ? s : 1;
 }
 
-void host_sleep_until_ns(uint64_t target)
+void os_sleep_until_ns(uint64_t target)
 {
     struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
                              .tv_nsec = (long)(target % 1000000000ull)};

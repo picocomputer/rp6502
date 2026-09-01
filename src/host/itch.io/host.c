@@ -9,7 +9,7 @@
  */
 
 #include "osal/os.h"
-#include "host/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <time.h>
 
 uint64_t host_entropy_64(void)
@@ -23,7 +23,7 @@ uint64_t host_entropy_64(void)
     return s ? s : 1;
 }
 
-void host_sleep_until_ns(uint64_t target)
+void os_sleep_until_ns(uint64_t target)
 {
     (void)target; /* requestAnimationFrame paces the web loop */
 }

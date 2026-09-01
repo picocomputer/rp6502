@@ -100,7 +100,7 @@ if(WIN32)
     # hid for the raw-HID gamepads; the XInput runtime is LoadLibrary'd because
     # its DLL name varies and the Guide button is only at an ordinal.
     target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
-    # GUI subsystem so no console pops up; keep our main() (host_console_attach
+    # GUI subsystem so no console pops up; keep our main() (os_console_attach
     # reattaches stdio when launched from a terminal).
     if(MSVC)
         target_link_options(rp6502-emu PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)

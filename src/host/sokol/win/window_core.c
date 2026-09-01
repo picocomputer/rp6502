@@ -10,7 +10,8 @@
  * implemented in host/<os>/window.c.
  */
 
-#include "osal/os.h" /* host_mono_ns, host_sleep_until_ns */
+#include "osal/fs.h"
+#include "osal/os.h" /* os_mono_ns, os_sleep_until_ns */
 #include "host/sokol/win/window.h"
 #include "host/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
@@ -43,7 +44,6 @@
 #include "core/wdc/cpu.h"
 #include "core/sys.h"
 #include "core/sys.h"
-#include "osal/os.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>
@@ -421,8 +421,8 @@ void window_core_frame(void)
      * be serviced whatever the machine is doing. */
     double dt = sapp_frame_duration(); /* only the EMU_BENCH_MS block uses it */
     const unsigned long seen = vga_frame_count();
-    const uint64_t deadline_ns = host_mono_ns() + 12000000ull;
-    while (vga_frame_count() == seen && host_mono_ns() < deadline_ns)
+    const uint64_t deadline_ns = os_mono_ns() + 12000000ull;
+    while (vga_frame_count() == seen && os_mono_ns() < deadline_ns)
     {
         sys_task();
         sys_io_task();
@@ -577,7 +577,7 @@ void window_core_frame(void)
      * Emulation speed is not this sleep's business -- vga_task holds the beam
      * against its own absolute anchor. */
     if (!app.vsync)
-        host_sleep_until_ns(host_mono_ns() + (1000000000ull / VGA_HZ));
+        os_sleep_until_ns(os_mono_ns() + (1000000000ull / VGA_HZ));
 }
 
 bool window_core_boot_rom(const char *path)
@@ -612,7 +612,7 @@ bool window_core_boot_rom(const char *path)
      * accidental drop leaves the running program alone. A file this open
      * cannot read would fail the load the same way, after the machine was
      * already stopped -- refused here, it costs the running program nothing. */
-    FILE *f = host_fs_fopen_rd(oem);
+    FILE *f = os_fs_fopen_rd(oem);
     if (!f)
     {
         fprintf(stderr, "rp6502-emu: cannot read dropped file\n");

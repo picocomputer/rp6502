@@ -9,7 +9,7 @@
  */
 
 #include "osal/os.h"
-#include "host/sokol/win/window.h" /* host_sleep_until_ns */
+#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <errno.h>
 #include <time.h>
 
@@ -24,9 +24,9 @@ uint64_t host_entropy_64(void)
     return s ? s : 1;
 }
 
-void host_sleep_until_ns(uint64_t target)
+void os_sleep_until_ns(uint64_t target)
 {
-    uint64_t now = host_mono_ns();
+    uint64_t now = os_mono_ns();
     if (target > now)
     {
         uint64_t delta = target - now;

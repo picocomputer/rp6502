@@ -15,7 +15,7 @@
 #include "osal/os.h"
 #include "core/str/oem.h"
 
-bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
     return oem_from_utf8(arg, dst, dstsz) < dstsz;
 }
