@@ -3,11 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See errno.h.
+ * See errmap.h.
  */
 
-#include "api/errmap.h"
+#include "osal/pico/errmap.h"
 #include "fatfs/ff.h"
+#include <littlefs/lfs.h>
 #include <assert.h>
 
 api_errno fresult_to_api(unsigned fresult)
@@ -46,6 +47,36 @@ api_errno fresult_to_api(unsigned fresult)
         return API_EMFILE;
     default:
         assert(false); // internal error
+        return API_EIO;
+    }
+}
+
+api_errno lfs_error_to_api(int lfs_err)
+{
+    switch (lfs_err)
+    {
+    case LFS_ERR_IO:
+    case LFS_ERR_CORRUPT:
+    case LFS_ERR_NOATTR:
+        return API_EIO;
+    case LFS_ERR_NOENT:
+        return API_ENOENT;
+    case LFS_ERR_EXIST:
+        return API_EEXIST;
+    case LFS_ERR_NOTDIR:
+    case LFS_ERR_ISDIR:
+    case LFS_ERR_NOTEMPTY:
+    case LFS_ERR_INVAL:
+    case LFS_ERR_NAMETOOLONG:
+        return API_EINVAL;
+    case LFS_ERR_BADF:
+        return API_EBADF;
+    case LFS_ERR_FBIG:
+    case LFS_ERR_NOSPC:
+        return API_ENOSPC;
+    case LFS_ERR_NOMEM:
+        return API_ENOMEM;
+    default:
         return API_EIO;
     }
 }

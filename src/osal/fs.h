@@ -8,8 +8,8 @@
  * entry in std.c's driver table.
  *
  * This is a contract and nothing else. Every machine's drivers.h names the
- * row below, and the host that implements the seven is what changes -- osal/posix/fs.c,
- * osal/windows/fs.c, host/itch.io/fs.c, host/pico/ria/api/fs.c,
+ * row below, and the OS that implements the seven is what changes --
+ * osal/posix/fs.c, osal/windows/fs.c, osal/pico/fs.c, host/itch.io/fs.c,
  * host/pocket/sw/fs.c. Linking a different one is the whole of the seam.
  *
  * The directories beside these files are core/api/dir.c's, over a drive each

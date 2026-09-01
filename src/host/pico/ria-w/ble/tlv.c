@@ -6,7 +6,7 @@
 
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include <hal_flash_bank.h>
 #include <hardware/flash.h>
 #include <string.h>

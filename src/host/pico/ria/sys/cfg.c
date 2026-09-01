@@ -18,7 +18,7 @@
 #include "core/sys/config.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
@@ -189,6 +189,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
 
 void __in_flash("cfg_init") cfg_init(void)
 {
+    /* The first thing on this machine to read the volume, so the first that
+     * can say the mount went wrong. */
+    mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);
 }
 

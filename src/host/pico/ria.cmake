@@ -7,6 +7,9 @@
 
 # The firmware's own sources; this file is the parts list, they are the parts.
 set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
+# The directory that answers osal/os.h, osal/fs.h and osal/dir.h for this
+# machine; see src/host/emu.cmake for the same name on the desktops.
+set(RP6502_OSAL ${RP6502_ROOT}/src/osal/pico)
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in core/str/unicode.c can be read without a
@@ -124,9 +127,11 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/xreg0.c
     ${RP6502_ROOT}/src/core/rom/asset.c
     ${RP6502_ROOT}/src/core/rom/pump.c
-    ${RIA_SRC}/api/dir.c
-    ${RIA_SRC}/api/errmap.c
-    ${RIA_SRC}/api/fs.c
+    ${RP6502_OSAL}/dir.c
+    ${RP6502_OSAL}/errmap.c
+    ${RP6502_OSAL}/fs.c
+    ${RP6502_OSAL}/lfs.c
+    ${RP6502_OSAL}/os.c
     ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
@@ -167,7 +172,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/com_telnet.c
     ${RIA_SRC}/sys/cpu.c
     ${RIA_SRC}/sys/led.c
-    ${RIA_SRC}/sys/lfs.c
     ${RIA_SRC}/sys/mem.c
     ${RIA_SRC}/sys/path.c
     ${RIA_SRC}/sys/pix.c

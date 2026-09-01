@@ -5,8 +5,7 @@
  */
 
 #include "core/api/api.h"
-#include "ria/mon/mon.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -25,6 +24,7 @@ static_assert(!(LFS_DISK_BLOCKS % 8));
 #define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
 
 lfs_t lfs_volume;
+int lfs_mount_error;
 static char lfs_read_buffer[FLASH_PAGE_SIZE];
 static char lfs_prog_buffer[FLASH_PAGE_SIZE];
 static char lfs_lookahead_buffer[LFS_LOOKAHEAD_SIZE];
@@ -94,13 +94,10 @@ void __in_flash("lfs_init") lfs_init(void)
     {
         // Maybe first boot. Attempt format.
         err = lfs_format(&lfs_volume, &cfg);
-        mon_add_response_lfs(err);
         if (!err)
-        {
             err = lfs_mount(&lfs_volume, &cfg);
-            mon_add_response_lfs(err);
-        }
     }
+    lfs_mount_error = err;
 }
 
 int lfs_eof(lfs_t *lfs, lfs_file_t *file)
@@ -155,34 +152,4 @@ char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err)
     if (!len && lfs_eof(lfs, file))
         return NULL;
     return str;
-}
-
-api_errno lfs_error_to_api_errno(int lfs_err)
-{
-    switch (lfs_err)
-    {
-    case LFS_ERR_IO:
-    case LFS_ERR_CORRUPT:
-    case LFS_ERR_NOATTR:
-        return API_EIO;
-    case LFS_ERR_NOENT:
-        return API_ENOENT;
-    case LFS_ERR_EXIST:
-        return API_EEXIST;
-    case LFS_ERR_NOTDIR:
-    case LFS_ERR_ISDIR:
-    case LFS_ERR_NOTEMPTY:
-    case LFS_ERR_INVAL:
-    case LFS_ERR_NAMETOOLONG:
-        return API_EINVAL;
-    case LFS_ERR_BADF:
-        return API_EBADF;
-    case LFS_ERR_FBIG:
-    case LFS_ERR_NOSPC:
-        return API_ENOSPC;
-    case LFS_ERR_NOMEM:
-        return API_ENOMEM;
-    default:
-        return API_EIO;
-    }
 }

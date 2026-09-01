@@ -47,7 +47,7 @@
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
 #include "core/aud/aud.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include "ria/sys/cfg.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/mid.h"

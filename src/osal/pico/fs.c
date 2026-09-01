@@ -12,10 +12,10 @@
  * underneath is usb/msc.c.
  */
 
-#include "api/errmap.h"
+#include "osal/pico/errmap.h"
 #include "osal/fs.h"
 #include "fatfs/ff.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include <assert.h>
 #include <stdio.h> /* SEEK_SET/CUR/END */
 #include <string.h>
@@ -61,7 +61,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
                                          &rom_wr_lfs_cfg);
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api_errno(lfsresult);
+            *err = lfs_error_to_api(lfsresult);
             return -1;
         }
         rom_wr_live = true;
@@ -79,7 +79,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
                                          LFS_O_RDONLY, &rom_rd_lfs_cfg);
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api_errno(lfsresult);
+            *err = lfs_error_to_api(lfsresult);
             return -1;
         }
         rom_rd_lfs_live = true;
@@ -101,7 +101,7 @@ bool fs_rom_remove(const char *name, api_errno *err)
     int lfsresult = lfs_remove(&lfs_volume, name);
     if (lfsresult < 0)
     {
-        *err = lfs_error_to_api_errno(lfsresult);
+        *err = lfs_error_to_api(lfsresult);
         return false;
     }
     return true;
@@ -200,7 +200,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
             rom_wr_live = false;
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api_errno(lfsresult);
+            *err = lfs_error_to_api(lfsresult);
             return STD_ERROR;
         }
         return STD_OK;
@@ -230,7 +230,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_r
         if (lfsresult < 0)
         {
             *bytes_read = 0;
-            *err = lfs_error_to_api_errno((int)lfsresult);
+            *err = lfs_error_to_api((int)lfsresult);
             return STD_ERROR;
         }
         *bytes_read = (uint32_t)lfsresult;
@@ -263,7 +263,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
         if (lfsresult < 0)
         {
             *bytes_written = 0;
-            *err = lfs_error_to_api_errno((int)lfsresult);
+            *err = lfs_error_to_api((int)lfsresult);
             return STD_ERROR;
         }
         *bytes_written = (uint32_t)lfsresult;
@@ -304,7 +304,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errn
         lfs_soff_t lfsresult = lfs_file_seek(&lfs_volume, lf, offset, lfs_whence);
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api_errno((int)lfsresult);
+            *err = lfs_error_to_api((int)lfsresult);
             return -1;
         }
         *pos = (int32_t)lfsresult;
@@ -388,7 +388,7 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
         int lfsresult = lfs_file_sync(&lfs_volume, lf);
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api_errno(lfsresult);
+            *err = lfs_error_to_api(lfsresult);
             return STD_ERROR;
         }
         return STD_OK;

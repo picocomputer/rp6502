@@ -8,7 +8,7 @@
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "api/errmap.h"
+#include "osal/pico/errmap.h"
 #include "core/str/oem.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"
@@ -23,7 +23,7 @@
 #include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h" /* the pump: the loader half of this file now reads through the seam */
 #include "ria/sys/pix.h"

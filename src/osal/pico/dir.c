@@ -11,7 +11,7 @@
  * one becomes the other. Every other machine builds the API's directly.
  */
 
-#include "api/errmap.h"
+#include "osal/pico/errmap.h"
 #include "core/api/api.h"
 #include "osal/dir.h"
 #include "fatfs/ff.h"

@@ -15,7 +15,7 @@
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/lfs.h"
+#include "osal/pico/lfs.h"
 #include <pico/time.h>
 #include <stdlib.h>
 
