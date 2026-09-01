@@ -31,19 +31,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-set(RP6502_OSAL ${CMAKE_CURRENT_LIST_DIR})
+set(RP6502_OSAL ${RP6502_SRC}/osal/emscripten)
 include(${RP6502_SRC}/host/emu.cmake)
-# The browser has no <aio.h>, so this host brings its own fs seam and takes
-# only the two files a POSIX host shares.
+# emu.cmake leads the include path with RP6502_OSAL, which is an OS directory
+# rather than this one -- so this one is named here, for the drivers.h
+# core/sys.c includes by bare name.
+target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# The browser has no <aio.h>, so it takes the POSIX seam's synchronous
+# transport -- the same pair the libretro core takes on every OS that is not
+# Windows. Persistence is not fs.c's: the page mounts IDBFS with autoPersist,
+# which syncs on close and on every directory change.
 target_sources(emu_core PRIVATE
     ${RP6502_SRC}/osal/posix/dir.c
-    ${RP6502_SRC}/osal/posix/os.c
     ${RP6502_SRC}/osal/posix/errmap.c
-    ${RP6502_OSAL}/fs.c
+    ${RP6502_SRC}/osal/posix/fs.c
+    ${RP6502_SRC}/osal/posix/fs_sync.c
+    ${RP6502_SRC}/osal/posix/os.c
     ${RP6502_OSAL}/os.c)
-
-# drivers.h and host.h are both this directory's, and emu.cmake already leads
-# the include path with RP6502_OSAL -- which is it.
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
@@ -53,9 +57,9 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
     ${RP6502_SRC}/host/sokol/app/main.c
-    ${RP6502_OSAL}/exports.c
+    ${CMAKE_CURRENT_LIST_DIR}/exports.c
     ${RP6502_EMU_WINDOW}
-    ${RP6502_OSAL}/window.c)
+    ${CMAKE_CURRENT_LIST_DIR}/window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 

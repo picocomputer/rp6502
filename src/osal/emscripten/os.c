@@ -9,7 +9,6 @@
  */
 
 #include "osal/os.h"
-#include "host/sokol/win/window.h" /* os_sleep_until_ns */
 #include <time.h>
 
 /* host_random_seed is not here: this machine links the sokol app's main.c,

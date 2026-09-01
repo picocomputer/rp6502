@@ -337,7 +337,12 @@
             I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
             I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
             I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
-            M.FS.mount(M.IDBFS, {}, '/db');
+            // autoPersist: IDBFS hooks close, unlink, rename, mkdir and rmdir and
+            // queues a syncfs itself, batching a frame's writes into one
+            // transaction and re-running when one lands mid-flight. A plain
+            // fsync() cannot do it -- emscripten only routes fd_sync to syncfs
+            // under ASYNCIFY or PTHREADS, and this build has neither.
+            M.FS.mount(M.IDBFS, {autoPersist: true}, '/db');
             M.addRunDependency('idbfs-load');
             M.FS.syncfs(true, function (err) {
               if (err) console.error('syncfs(true)', err);
