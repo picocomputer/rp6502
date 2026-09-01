@@ -5,15 +5,15 @@
  *
  */
 
-/* What a host may implement for the machine. Every host has a host.h of its
- * own that includes this one, so #include "host/host.h"
-#include "osal/os.h" from anywhere reaches the
- * host this build is for -- the host's directory is first on the include path.
+/* What an operating system answers, and only that. Each build names one
+ * directory under src/osal that implements it -- linux, macos, windows,
+ * android, emscripten, pico -- and linking a different one is the whole of
+ * the seam.
  *
- * What every machine answers: the clock it runs on, the stream its rand()
- * reads, and the host OS calls the machine's own code makes. Files are not
- * here -- a Pico has its own storage and a Pocket has the card, so the
- * filesystem driver is osal/fs.h, which each host implements. */
+ * What a machine says about itself is the other header, src/host/host.h: the
+ * clock it runs on, where its code and data are placed, the seed it hands
+ * the shared generator. Files are neither -- a Pico has its own storage and a
+ * Pocket has the card -- so they are osal/fs.h and osal/dir.h beside this. */
 
 #ifndef _OSAL_OS_H_
 #define _OSAL_OS_H_
@@ -39,8 +39,9 @@ void os_locale_reset(void); /* (re)load the environment locale */
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
 
-/* One command-line argument, host argv encoding -> guest OEM. False if it
- * does not fit. */
+/* One command-line argument, this process's argv encoding -> guest OEM. False
+ * if it does not fit. Only a program with an argv asks: a libretro frontend
+ * hands its paths over as UTF-8 and converts them with core's oem_from_utf8. */
 bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 
 /* ---- what only a host with a window, a console or a config dir answers ---- */

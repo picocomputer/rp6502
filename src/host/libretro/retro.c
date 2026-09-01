@@ -398,13 +398,17 @@ uint32_t host_random_seed(void)
     return run_seed;
 }
 
-/* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever
- * contracts, so the argument's own length is the bound. The caller frees. */
+/* argv in the guest's code page, allocated to fit: the conversion only ever
+ * contracts, so the argument's own length is the bound. The caller frees.
+ *
+ * A frontend hands its paths over as UTF-8, on Windows as anywhere else, so
+ * this is core's conversion and not an OS call. The emulator beside this one
+ * needs os_argv_to_oem because an ANSI main() is given its own code page. */
 static char *argv_to_oem(const char *arg)
 {
     size_t sz = strlen(arg) + 1;
     char *oem = malloc(sz);
-    if (oem && !os_argv_to_oem(arg, oem, sz))
+    if (oem && oem_from_utf8(arg, oem, sz) >= sz)
     {
         free(oem);
         oem = NULL;
