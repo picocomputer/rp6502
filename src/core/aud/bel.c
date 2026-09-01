@@ -6,7 +6,7 @@
 
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
-#include "host.h"
+#include "host/host.h"
 
 #if defined(DEBUG_AUD) || defined(DEBUG_AUD_BEL)
 #include <stdio.h>

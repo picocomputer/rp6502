@@ -18,7 +18,7 @@
 #include "core/hid/keymap.h"
 #include "core/sys/config.h"
 #include "core/hid/usage.h"
-#include "host.h"
+#include "host/host.h"
 #include <stdio.h>
 #include <string.h>
 /* The case-insensitive compares a layout name is matched with. Named by

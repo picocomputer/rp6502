@@ -8,7 +8,7 @@
  * clock_nanosleep/TIMER_ABSTIME). Everything else lives in osal/posix/host.c.
  */
 
-#include "host.h"
+#include "osal/os.h"
 #include "host/sokol/win/window.h" /* host_sleep_until_ns */
 #include <errno.h>
 #include <time.h>

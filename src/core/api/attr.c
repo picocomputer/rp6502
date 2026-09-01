@@ -15,7 +15,7 @@
 #include "core/com.h"
 #include "core/cpu.h"
 #include "core/driver.h"
-#include "host.h"
+#include "osal/os.h"
 #include <stdio.h>
 #include <string.h>
 

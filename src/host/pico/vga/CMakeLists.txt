@@ -21,11 +21,14 @@ set_target_properties(rp6502-vga PROPERTIES
 target_link_options(rp6502-vga PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(rp6502-vga PRIVATE
+    # What this machine says about itself, before anything can take a default.
+    # C and C++ only: the SDK's crt0.S goes to the assembler.
+    "$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-include ${RP6502_ROOT}/src/host/pico/machine.h>"
     -Wall -Wextra -Wsign-compare
 )
 
 target_include_directories(rp6502-vga PRIVATE
-    ${RP6502_ROOT}/src/host/pico  # host.h, and the pico's own answers
+    ${RP6502_ROOT}/src/host/pico  # the pico's own headers
     ${VGA_SRC}                    # this machine: drivers.h and its sources
     ${RP6502_ROOT}/src
 )

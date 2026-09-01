@@ -32,7 +32,7 @@
 #include "core/sys.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
-#include "host.h"
+#include "osal/os.h"
 
 #include "libretro.h"
 

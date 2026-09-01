@@ -10,7 +10,7 @@
  * The RP2350's hardware RNG.
  */
 
-#include "host.h"
+#include "osal/os.h"
 
 #include <pico/rand.h>
 

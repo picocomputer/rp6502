@@ -10,7 +10,7 @@
  */
 
 #include "core/wdc/cpu.h"
-#include "host.h"
+#include "host/host.h"
 #include "emu_boot.h"
 
 static void run_frames(int n)

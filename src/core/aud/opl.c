@@ -9,7 +9,7 @@
 #include "core/aud/opl.h"
 #include "core/mem.h"
 #include <assert.h>
-#include "host.h"
+#include "host/host.h"
 #include <string.h>
 #include <emu8950/emu8950.h>
 

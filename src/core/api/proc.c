@@ -16,7 +16,7 @@
 #include "core/api/proc.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "host.h" /* PROC_PATH_MAX: how long a path this machine can hold */
+#include "host/host.h" /* PROC_PATH_MAX: how long a path this machine can hold */
 
 #include <stdio.h>
 #include <string.h>

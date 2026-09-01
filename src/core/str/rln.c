@@ -10,7 +10,7 @@
 #include "core/com.h"
 #include "core/driver.h"
 #include "core/vga/vga.h"
-#include "host.h"
+#include "host/host.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>

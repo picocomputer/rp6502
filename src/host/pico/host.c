@@ -9,7 +9,9 @@
  * TIMER0's raw 64-bit microsecond counter, free-running since reset.
  */
 
-#include "host.h"
+#include "host/host.h"
+
+#include <pico/time.h> /* time_us_64 */
 
 uint64_t host_clock_us(void)
 {

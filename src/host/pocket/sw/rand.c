@@ -15,7 +15,7 @@
 
 #include "core/rand.h"
 
-#include "host.h"
+#include "osal/os.h"
 
 static uint64_t rand_state = 1;
 

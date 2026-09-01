@@ -9,7 +9,7 @@
  * own host.c.
  */
 
-#include "host.h"
+#include "osal/os.h"
 #include "core/str/oem.h"
 #include <errno.h>
 #include <locale.h>

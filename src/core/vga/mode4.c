@@ -11,7 +11,6 @@
 #include "core/vga/mode4.h"
 #include "core/mem.h"
 #include "core/vga/vga.h"
-#include "host.h"
 #include <assert.h>
 /* The SDK spells these in pico/platform.h; a mode that clips spans needs
  * them wherever it runs. */

@@ -7,7 +7,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/mouse.h"
 #include "core/mem.h"
-#include "host.h"
+#include "host/host.h"
 #include <string.h>
 
 #if defined(DEBUG_HID) || defined(DEBUG_HID_MOUSE)

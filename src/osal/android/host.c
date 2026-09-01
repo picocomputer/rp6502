@@ -8,7 +8,7 @@
  * provides both (API 28+). Everything else lives in osal/posix/host.c.
  */
 
-#include "host.h"
+#include "osal/os.h"
 #include "host/sokol/win/window.h" /* host_sleep_until_ns */
 #include <sys/random.h>
 #include <time.h>

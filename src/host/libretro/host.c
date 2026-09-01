@@ -14,7 +14,7 @@
  * reproducibility PRNG in core/rand_seed.c, not a key.
  */
 
-#include "host.h"
+#include "osal/os.h"
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>

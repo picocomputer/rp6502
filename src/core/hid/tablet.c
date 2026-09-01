@@ -8,7 +8,7 @@
 #include "core/hid/tablet.h"
 #include "core/mem.h"
 #include "core/vga/vga.h"
-#include "host.h"
+#include "host/host.h"
 #include <string.h>
 
 #if defined(DEBUG_HID) || defined(DEBUG_HID_TABLET)

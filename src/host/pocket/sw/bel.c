@@ -15,7 +15,7 @@
 #include "bel.h"
 #include "mmio.h"
 #include "core/aud/bel.h"
-#include "host.h"
+#include "host/host.h"
 
 #define BEL_QUEUE_SIZE 8
 

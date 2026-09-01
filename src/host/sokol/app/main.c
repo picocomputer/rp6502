@@ -11,7 +11,7 @@
 #include "core/str/str.h"
 #include "core/sys/exec.h"
 #include "host/sokol/win/window.h"
-#include "host.h"
+#include "osal/os.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/app/png.h"

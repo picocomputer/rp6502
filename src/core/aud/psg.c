@@ -8,7 +8,7 @@
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
 #include "core/mem.h"
-#include "host.h"
+#include "host/host.h"
 #include <stddef.h>
 #include <string.h>
 

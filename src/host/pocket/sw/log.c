@@ -36,7 +36,7 @@
 #include "core/api/api.h"
 #include "core/api/std.h"
 
-#include "host.h"
+#include "host/host.h"
 
 #include <stdint.h>
 

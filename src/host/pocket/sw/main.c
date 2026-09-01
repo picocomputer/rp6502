@@ -52,7 +52,6 @@
 #include "core/vga/mode5.h"
 #include "core/term/term.h"
 
-#include "host.h"
 
 #include <stdint.h>
 

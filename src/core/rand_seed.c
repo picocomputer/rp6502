@@ -7,7 +7,7 @@
 
 #include "core/rand_seed.h"
 #include "core/rand.h"
-#include "host.h"
+#include "osal/os.h"
 #include <stdbool.h>
 #include <stdint.h>
 

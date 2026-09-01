@@ -10,7 +10,6 @@
 /* Common code shared among all HID and HID-like drivers.
  */
 
-#include "host.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

@@ -15,7 +15,7 @@
 #include "core/rp2350.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
-#include "host.h"
+#include "host/host.h"
 
 static w65c02_t cpu;
 

@@ -50,7 +50,7 @@
 
 #include "core/api/tim.h"
 
-#include "host.h"
+#include "host/host.h"
 
 #include <stdio.h>
 #include <string.h>

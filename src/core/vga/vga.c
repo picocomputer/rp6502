@@ -18,7 +18,8 @@
 #include "core/term/font.h"
 #include "core/wdc/cpu.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
 #include "core/vga/pixel_format.h"
-#include "host.h"
+#include "host/host.h"
+#include "osal/os.h"
 #include <assert.h>
 #include <string.h>
 

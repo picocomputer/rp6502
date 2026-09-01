@@ -5,7 +5,7 @@
  *
  */
 
-#include "host.h"
+#include "osal/os.h"
 #include "core/str/oem.h"
 #include "core/api/tim.h"
 

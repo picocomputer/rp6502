@@ -4,17 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _HOST_PICO_HOST_H_
-#define _HOST_PICO_HOST_H_
+#ifndef _HOST_PICO_MACHINE_H_
+#define _HOST_PICO_MACHINE_H_
 
-/* The SDK. It enters the build here and nowhere else: a core file asks
- * this host for what it needs, rather than reaching for headers only this
- * host has. */
+/* The SDK's own prelude, and it has to be all of it. Narrowing this to the two
+ * headers that spell the attributes below moved 560 bytes of RIA-W: pico.h is
+ * the config every later SDK header reads, and without it hardware/pio.h picks
+ * different functions -- pio_sm_set_pindirs_with_mask became the mask64 one.
+ * Measured, not assumed. */
 #include <pico.h>
 #include <pico/stdlib.h>
 
-/* This machine means all of it. Defined before osal/os.h, which supplies
- * the do-nothing answers every other machine gives. */
+/* This machine means all of them. Said before host/host.h, which supplies the
+ * do-nothing answers every other machine gives. */
 #define HOST_IN_FLASH(group) __in_flash(group)
 #define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
 #define HOST_UNINITIALIZED_RAM(name) __uninitialized_ram(name)
@@ -30,6 +32,6 @@
 /* The launcher chain's path buffer, before the contract's default. */
 #define PROC_PATH_MAX 256
 
-#include "osal/os.h"
+#include "host/host.h"
 
-#endif /* _HOST_PICO_HOST_H_ */
+#endif /* _HOST_PICO_MACHINE_H_ */

@@ -8,7 +8,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
 #include "core/hid/keymap.h"
-#include "host.h"
+#include "host/host.h"
 #include "core/hid/usage.h"
 #include <stdio.h>
 #include <string.h>

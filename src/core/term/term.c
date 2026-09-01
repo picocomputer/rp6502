@@ -9,7 +9,7 @@
 #include "core/com.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
-#include "host.h"
+#include "host/host.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

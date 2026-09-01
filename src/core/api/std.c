@@ -12,7 +12,7 @@
 #include "core/com.h"
 #include "core/mem.h"
 #include "core/pix.h"
-#include "host.h"
+#include "host/host.h"
 #include "drivers.h"
 
 #include <stdio.h>
