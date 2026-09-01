@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux host-OS primitives that differ from the shared osal/posix/os.c: entropy
- * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Everything
- * else a POSIX host needs lives in osal/posix/os.c.
+ * The one thing Linux answers differently from the shared osal/posix/os.c:
+ * entropy, via getrandom. Everything else a POSIX host needs lives there.
  */
 
 #include "osal/os.h"
@@ -24,11 +23,4 @@ uint32_t os_random_seed(void)
         (uint64_t)real.tv_sec * 1442695040888963407ull +
         (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return (uint32_t)(s ^ (s >> 32));
-}
-
-void os_sleep_until_ns(uint64_t target)
-{
-    struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
-                             .tv_nsec = (long)(target % 1000000000ull)};
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
 }

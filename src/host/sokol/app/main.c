@@ -68,7 +68,7 @@ static int run_dap(const cli_options *o)
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
      * auto-closed) — the final screen stays up until the client disconnects. */
-    return window_run(g_fb, o->scale, o->have_scale, o->vsync, false);
+    return window_run(g_fb, o->scale, o->have_scale, false);
 }
 #endif
 
@@ -291,7 +291,7 @@ int main(int argc, char **argv)
         if (o.debug)
             dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
         cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
-        return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
+        return window_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
 
     bool booted = exec_boot(rom, o.n_rom_args, o.rom_args, 0);
@@ -361,5 +361,5 @@ int main(int argc, char **argv)
     }
 
     /* A script has already returned by here, so this is the windowed run. */
-    return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
+    return window_run(g_fb, o.scale, o.have_scale, !o.debug);
 }

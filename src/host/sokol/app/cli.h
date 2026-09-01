@@ -27,7 +27,6 @@ typedef struct
     bool have_frames;
     double scale;
     bool have_scale;
-    bool vsync; /* --no-vsync turns it off (default on) */
     window_scale_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */

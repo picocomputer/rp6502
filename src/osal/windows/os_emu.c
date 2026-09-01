@@ -5,9 +5,8 @@
  *
  * Win32 primitives that are this program's rather than the operating
  * system's. What Windows answers for every host of ours is in
- * osal/windows/os.c; these three differ because the emulator is a program
- * with a window and a console and an ANSI main(), and a libretro core is
- * none of those things.
+ * osal/windows/os.c; these differ because the emulator is a program with a
+ * console and an ANSI main(), and a libretro core is neither.
  */
 
 #include "osal/os.h"
@@ -18,11 +17,6 @@
 #include <string.h>
 #include <wchar.h>
 #include <windows.h>
-
-void os_sleep_until_ns(uint64_t target)
-{
-    (void)target; /* the D3D11 Present already paces the loop */
-}
 
 /* ---- broken-down time ---- */
 

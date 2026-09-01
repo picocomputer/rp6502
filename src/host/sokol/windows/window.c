@@ -143,10 +143,10 @@ void host_window_open_url(const char *url)
     ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
 }
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+int window_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;
-    window_core_prepare(fb, scale, have_scale, vsync, exit_on_halt, &win_w, &win_h);
+    window_core_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
     /* D3D11 leaves the backbuffer at LOGICAL size unless high_dpi is requested,
      * so a DPI-scaled display DWM-stretches (smears) the menu/canvas; ask for a
      * native-resolution backbuffer. */
@@ -158,7 +158,7 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .width = win_w,
         .height = win_h,
         .high_dpi = true,
-        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
+        .swap_interval = 1,
         .window_title = "Picocomputer 6502",
         .enable_dragndrop = true, /* drop a .rp6502 to boot it */
         .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */

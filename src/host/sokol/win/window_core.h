@@ -21,7 +21,7 @@
  * window's initial pixel size (canvas aspect at the requested scale, plus the
  * debugger menu strip). The per-host entry calls this before starting sokol,
  * then builds a sapp_desc around the four window_core_* callbacks below. */
-void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync,
+void window_core_prepare(uint32_t *fb, double scale, bool have_scale,
                          bool exit_on_halt, int *out_w, int *out_h);
 
 /* The four sokol lifecycle callbacks each per-host sapp_desc points at. */

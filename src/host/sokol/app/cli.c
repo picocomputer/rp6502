@@ -23,7 +23,6 @@ void cli_options_init(cli_options *o)
     memset(o, 0, sizeof *o);
     o->frames = 120;
     o->scale = 1.5;
-    o->vsync = true;
     o->scale_filter = WINDOW_FILTER_SHARP;
     o->fill_random = true;
 }
@@ -96,15 +95,12 @@ enum
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
-    OPT_VSYNC, OPT_NO_VSYNC,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
     {"frames",       required_argument, NULL, OPT_FRAMES},
     {"scale",        required_argument, NULL, OPT_SCALE},
-    {"vsync",        no_argument,       NULL, OPT_VSYNC},
-    {"no-vsync",     no_argument,       NULL, OPT_NO_VSYNC},
     {"filter",       required_argument, NULL, OPT_FILTER},
     {"script",       required_argument, NULL, OPT_SCRIPT},
     {"rom",          required_argument, NULL, OPT_ROM},
@@ -130,8 +126,6 @@ void cli_usage(FILE *out, const char *argv0)
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
-            "  --vsync                   sync presentation to the display (default)\n"
-            "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
             "                            always headless: the script is the only clock\n"
@@ -215,8 +209,6 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             o->have_scale = true;
             break;
         }
-        case OPT_VSYNC: o->vsync = true; break;
-        case OPT_NO_VSYNC: o->vsync = false; break;
         case OPT_FILTER:
             if (!strcmp(optarg, "nearest"))
                 o->scale_filter = WINDOW_FILTER_NEAREST;

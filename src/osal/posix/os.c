@@ -5,8 +5,8 @@
  *
  * The osal/os.h calls every POSIX system answers the same way, shared by
  * linux, macos, emscripten and android; the counterpart of osal/windows/os.c.
- * The two that differ by system, os_random_seed and os_sleep_until_ns, are in
- * each one's own os.c beside this.
+ * The one that differs by system, os_random_seed, is in each one's own os.c
+ * beside this.
  */
 
 #include "osal/os.h"

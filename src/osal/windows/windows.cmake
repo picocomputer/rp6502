@@ -8,8 +8,8 @@
 # drive is one file rather than two.
 #
 # What is not here is what differs between hosts rather than between
-# operating systems: the frame-pacer sleep, the console attach, and the
-# argv encoding. Each host answers those in its own os.c.
+# operating systems: the console attach and the argv encoding. Each host
+# answers those in its own os.c.
 #
 # Included after emu.cmake: it adds to emu_core.
 

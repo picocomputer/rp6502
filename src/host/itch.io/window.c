@@ -24,10 +24,10 @@ void host_window_files_dropped(void) {} /* dragndrop not enabled: the page is on
 void host_window_open_url(const char *url) { (void)url; } /* the page has no drop-a-ROM prompt */
 bool window_wait_for_rom(void) { return false; } /* the page always supplies its program */
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+int window_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;
-    window_core_prepare(fb, scale, have_scale, vsync, exit_on_halt, &win_w, &win_h);
+    window_core_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
     sapp_run(&(sapp_desc){
         .init_cb = window_core_init,
         .frame_cb = window_core_frame,
@@ -35,7 +35,7 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .cleanup_cb = window_core_cleanup,
         .width = win_w,
         .height = win_h,
-        .swap_interval = vsync ? 1 : 0,
+        .swap_interval = 1,
         .window_title = "Picocomputer 6502",
         .enable_clipboard = true,
         .clipboard_size = 65536,

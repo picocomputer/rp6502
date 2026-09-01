@@ -3,13 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * macOS host-OS primitives that differ from the shared osal/posix/os.c: entropy (no
- * getrandom) and the frame-pacer sleep (relative nanosleep, since macOS lacks
- * clock_nanosleep/TIMER_ABSTIME). Everything else lives in osal/posix/os.c.
+ * The one thing macOS answers differently from the shared osal/posix/os.c:
+ * entropy, which has no getrandom here. Everything else lives there.
  */
 
 #include "osal/os.h"
-#include <errno.h>
 #include <time.h>
 
 uint32_t os_random_seed(void)
@@ -21,17 +19,4 @@ uint32_t os_random_seed(void)
                  (uint64_t)real.tv_sec * 1442695040888963407ull +
                  (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return (uint32_t)(s ^ (s >> 32));
-}
-
-void os_sleep_until_ns(uint64_t target)
-{
-    uint64_t now = os_mono_ns();
-    if (target > now)
-    {
-        uint64_t delta = target - now;
-        struct timespec req = {.tv_sec = (time_t)(delta / 1000000000ull),
-                               .tv_nsec = (long)(delta % 1000000000ull)};
-        while (nanosleep(&req, &req) != 0 && errno == EINTR)
-            ;
-    }
 }

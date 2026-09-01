@@ -50,10 +50,8 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
  * those things leaves them unimplemented and nothing links against them.
  *
  * Real time, for pacing a machine against the display -- not host_clock_us
- * above, which a window deliberately lets drift when the host falls behind. The
- * sleep is a no-op where the present already paces. */
+ * above, which a window deliberately lets drift when the host falls behind. */
 uint64_t os_mono_ns(void);
-void os_sleep_until_ns(uint64_t target);
 
 /* Reattach stdio to the parent console when launched from one; no-op where it
  * already does. Only Windows needs it, where the emulator is a GUI-subsystem

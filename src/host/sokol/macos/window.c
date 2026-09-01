@@ -66,10 +66,10 @@ void host_window_open_url(const char *url)
         waitpid(pid, NULL, 0);
 }
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+int window_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;
-    window_core_prepare(fb, scale, have_scale, vsync, exit_on_halt, &win_w, &win_h);
+    window_core_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
     sapp_run(&(sapp_desc){
         .init_cb = window_core_init,
         .frame_cb = window_core_frame,
@@ -77,7 +77,7 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .cleanup_cb = window_core_cleanup,
         .width = win_w,
         .height = win_h,
-        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
+        .swap_interval = 1,
         .window_title = "Picocomputer 6502",
         .enable_dragndrop = true, /* drop a .rp6502 to boot it */
         .enable_clipboard = true, /* Cmd+V types into the emulated keyboard */

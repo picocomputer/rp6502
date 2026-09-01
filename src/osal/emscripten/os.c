@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten host-OS primitives that differ from the shared osal/posix/os.c: entropy
- * (no getrandom) and the frame-pacer sleep (a no-op; requestAnimationFrame paces
- * the web loop). Everything else lives in osal/posix/os.c.
+ * The one thing emscripten answers differently from the shared osal/posix/os.c:
+ * entropy, which has no getrandom here. Everything else lives there.
  */
 
 #include "osal/os.h"
@@ -22,9 +21,4 @@ uint32_t os_random_seed(void)
                  (uint64_t)real.tv_sec * 1442695040888963407ull +
                  (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return (uint32_t)(s ^ (s >> 32));
-}
-
-void os_sleep_until_ns(uint64_t target)
-{
-    (void)target; /* requestAnimationFrame paces the web loop */
 }

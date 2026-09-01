@@ -493,7 +493,7 @@ sapp_desc sokol_main(int argc, char* argv[])
     // Seed the core's window/render state (also sets the vga framebuffer to
     // android_fb). Android opens at a fixed 640x480, so the computed size is unused.
     int win_w, win_h;
-    window_core_prepare(android_fb, 1.0, false, true, false, &win_w, &win_h);
+    window_core_prepare(android_fb, 1.0, false, false, &win_w, &win_h);
 
     return (sapp_desc){
         .init_cb = window_core_init,

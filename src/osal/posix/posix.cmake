@@ -1,7 +1,7 @@
 # The POSIX host seam, for the hosts whose OS is one.
 #
 # Linux and macOS share all of these files and differ only in the entropy
-# source and the frame-pacer sleep, which is what each one's own os.c is.
+# source, which is what each one's own os.c is.
 # The web and Android hosts take dir.c, errmap.c and os.c from here
 # directly and bring their own transport — neither has <aio.h> — so they do
 # not include this.

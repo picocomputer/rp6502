@@ -8,9 +8,8 @@
  * every line of it.
  *
  * What is NOT here is what differs between those two rather than between
- * operating systems: the frame-pacer sleep, which only a host that owns its
- * presentation has; the console attach, which only a program with a console
- * wants; and the argv encoding, because an ANSI main() is handed the process
+ * operating systems: the console attach, which only a program with a console
+ * wants, and the argv encoding, because an ANSI main() is handed the process
  * code page while a libretro frontend hands UTF-8. Each host answers those
  * itself.
  *
@@ -43,7 +42,7 @@ uint32_t os_random_seed(void)
     return (uint32_t)(s ^ (s >> 32));
 }
 
-/* ---- monotonic clock + frame-pacer sleep ---- */
+/* ---- monotonic clock ---- */
 
 uint64_t os_mono_ns(void)
 {

@@ -11,7 +11,7 @@
  */
 
 #include "osal/fs.h"
-#include "osal/os.h" /* os_mono_ns, os_sleep_until_ns */
+#include "osal/os.h" /* os_mono_ns */
 #include "host/sokol/win/window.h"
 #include "host/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
@@ -58,7 +58,6 @@ static struct
     double scale;     /* requested window scale (may be fractional) */
     int tex_w, tex_h; /* last seen canvas native size (sfb tracks it lazily) */
     bool exit_on_halt; /* close the window when the program stops */
-    bool vsync;        /* false: pace the loop to 60 Hz in software (sleep_until_ns) */
     sfb_framebuffer sfb;          /* presents fb: upload, prescale, letterboxed blit */
     window_scale_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
@@ -573,12 +572,6 @@ void window_core_frame(void)
 #endif
     sg_end_pass();
     sg_commit();
-
-    /* No-vsync: sokol's loop is uncapped, so pace the PRESENT in software.
-     * Emulation speed is not this sleep's business -- vga_task holds the beam
-     * against its own absolute anchor. */
-    if (!app.vsync)
-        os_sleep_until_ns(os_mono_ns() + (1000000000ull / VGA_HZ));
 }
 
 bool window_core_boot_rom(const char *path)
@@ -1001,7 +994,7 @@ void window_core_cleanup(void)
 
 /* A window presents whole frames, so the beam keeps frame time with the
  * wall. The batch and script paths never call this and so never wait. */
-void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync,
+void window_core_prepare(uint32_t *fb, double scale, bool have_scale,
                          bool exit_on_halt, int *out_w, int *out_h)
 {
     (void)have_scale;
@@ -1013,7 +1006,6 @@ void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync
         scale = 64.0;
     app.fb = fb;
     app.scale = scale;
-    app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
     vga_set_pace(VGA_PACE_FRAME);
