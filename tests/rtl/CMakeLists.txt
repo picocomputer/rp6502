@@ -65,13 +65,13 @@ if(WIN32)
         "the verilated machine needs a POSIX host; "
         "the C suites are in src/host/sokol's tree")
 elseif(APPLE)
-    set(RP6502_HOST ${RP6502_SRC}/osal/macos)
+    set(RP6502_OSAL ${RP6502_SRC}/osal/macos)
 else()
-    set(RP6502_HOST ${RP6502_SRC}/osal/linux)
+    set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
 include(${RP6502_SRC}/host/emu.cmake)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
-target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
+target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 
 # The bench runs the emulator as the reference model the RTL is compared
 # against, so it is that machine and takes that machine's drivers.h rather

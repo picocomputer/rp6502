@@ -1,8 +1,8 @@
 # The POSIX host seam, for the hosts whose OS is one.
 #
 # Linux and macOS share all of these files and differ only in the entropy
-# source and the frame-pacer sleep, which is what each one's own host.c is.
-# The web and Android hosts take dir.c, errmap.c and host.c from here
+# source and the frame-pacer sleep, which is what each one's own os.c is.
+# The web and Android hosts take dir.c, errmap.c and os.c from here
 # directly and bring their own transport — neither has <aio.h> — so they do
 # not include this.
 #
@@ -19,7 +19,7 @@ target_sources(emu_core PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/errmap.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/fs_aio.c
-    ${CMAKE_CURRENT_LIST_DIR}/host.c)
+    ${CMAKE_CURRENT_LIST_DIR}/os.c)
 
 # POSIX AIO. On macOS aio_read is in libc and there is no librt to find; the
 # check is the same either way and answers for the platform it runs on.

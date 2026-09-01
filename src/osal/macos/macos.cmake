@@ -5,7 +5,7 @@
 # MACOSX_BUNDLE is CMake's support for it, so the build makes the thing that
 # ships and the plist is a file in the tree rather than a shell heredoc.
 #
-# The rest of this host is host.c, window.c and gamepad.c, taken through
+# The rest of this host is os.c, window.c and gamepad.c, taken through
 # host/posix like every other Unix. Only this part is Apple's.
 #
 # Included after emu.cmake.

@@ -86,7 +86,7 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-set(RP6502_HOST ${RP6502_SRC}/osal/android)
+set(RP6502_OSAL ${RP6502_SRC}/osal/android)
 include(${RP6502_SRC}/host/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
@@ -96,8 +96,8 @@ target_sources(emu_core PRIVATE
     ${RP6502_SRC}/osal/posix/errmap.c
     ${RP6502_SRC}/osal/posix/fs.c
     ${RP6502_SRC}/osal/posix/fs_sync.c
-    ${RP6502_SRC}/osal/posix/host.c
-    ${RP6502_HOST}/host.c)
+    ${RP6502_SRC}/osal/posix/os.c
+    ${RP6502_OSAL}/os.c)
 
 # The machine this is: Android is a host under host/sokol, not a machine of
 # its own, so it takes the drivers.h beside it rather than a copy.
@@ -110,7 +110,7 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
 # window.c, which NativeActivity calls.
-add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} ${RP6502_HOST}/window.c)
+add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} ${RP6502_OSAL}/window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 

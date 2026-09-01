@@ -38,7 +38,7 @@ set(RP6502_INFO_VERSION "${RP6502_VERSION_BARE}")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
-set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
+set(RP6502_OSAL ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/host/emu.cmake)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
@@ -52,19 +52,19 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 # a buffer inside a library that is going away.
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
-    target_sources(emu_core PRIVATE ${RP6502_HOST}/host_win.c)
+    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os_win.c)
 else()
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/osal/posix/dir.c
     ${RP6502_SRC}/osal/posix/errmap.c
         ${RP6502_SRC}/osal/posix/fs.c
         ${RP6502_SRC}/osal/posix/fs_sync.c
-        ${RP6502_SRC}/osal/posix/host.c
-        ${RP6502_HOST}/host.c)
+        ${RP6502_SRC}/osal/posix/os.c
+        ${RP6502_OSAL}/os.c)
 endif()
 
 # drivers.h and host.h are both this directory's, and emu.cmake already leads
-# the include path with RP6502_HOST -- which is it.
+# the include path with RP6502_OSAL -- which is it.
 
 # Everything that reaches a shared object has to be relocatable, emu_core
 # included — it is a static library only on the way in.
@@ -78,8 +78,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 # frontend loads rp6502_libretro.so, so the target name is the file name and
 # PREFIX is what keeps the "lib" off.
 add_library(rp6502_libretro SHARED
-    ${RP6502_HOST}/retro.c
-    ${RP6502_HOST}/input.c
+    ${RP6502_OSAL}/retro.c
+    ${RP6502_OSAL}/input.c
     ${RP6502_SRC}/host/version.c)
 set_target_properties(rp6502_libretro PROPERTIES PREFIX "")
 target_link_libraries(rp6502_libretro PRIVATE emu_core)
@@ -97,9 +97,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(APPLE)
         # ld64 takes an export list, not a version script.
         target_link_options(rp6502_libretro PRIVATE
-            -Wl,-exported_symbols_list,${RP6502_HOST}/link_apple.exp)
+            -Wl,-exported_symbols_list,${RP6502_OSAL}/link_apple.exp)
         set_target_properties(rp6502_libretro PROPERTIES
-            LINK_DEPENDS ${RP6502_HOST}/link_apple.exp)
+            LINK_DEPENDS ${RP6502_OSAL}/link_apple.exp)
     elseif(WIN32)
         # A PE export table is the dllexports libretro.h already wrote, and
         # their presence is what turns off MinGW ld's export-everything
@@ -110,10 +110,10 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
             -Wl,--no-undefined -static-libgcc)
     else()
         target_link_options(rp6502_libretro PRIVATE
-            -Wl,--version-script=${RP6502_HOST}/link.T
+            -Wl,--version-script=${RP6502_OSAL}/link.T
             -Wl,--no-undefined)
         set_target_properties(rp6502_libretro PROPERTIES
-            LINK_DEPENDS ${RP6502_HOST}/link.T)
+            LINK_DEPENDS ${RP6502_OSAL}/link.T)
     endif()
 endif()
 

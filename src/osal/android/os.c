@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux host-OS primitives that differ from the shared osal/posix/host.c: entropy
- * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Everything
- * else a POSIX host needs lives in osal/posix/host.c.
+ * Android host-OS primitives that differ from the shared osal/posix/os.c: entropy
+ * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Bionic
+ * provides both (API 28+). Everything else lives in osal/posix/os.c.
  */
 
 #include "osal/os.h"

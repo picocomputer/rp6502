@@ -31,26 +31,26 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-# The host this build is for. RP6502_HOST leads emu_core's include path, so
-# `#include "host.h"` anywhere is this directory's.
+# The OS this build is for: the directory that answers osal/os.h beyond what
+# posix.cmake supplies.
 if(WIN32)
-    set(RP6502_HOST ${RP6502_SRC}/osal/windows)
+    set(RP6502_OSAL ${RP6502_SRC}/osal/windows)
 elseif(APPLE)
-    set(RP6502_HOST ${RP6502_SRC}/osal/macos)
+    set(RP6502_OSAL ${RP6502_SRC}/osal/macos)
 else()
-    set(RP6502_HOST ${RP6502_SRC}/osal/linux)
+    set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
 
 include(${RP6502_SRC}/host/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
-    # The Win32 seam is osal/windows/host.c, shared with the libretro core.
+    # The Win32 seam is osal/windows/os.c, shared with the libretro core.
     # This is the emulator's own half: a frame pacer, a console and an ANSI
     # main(), none of which a core has.
-    target_sources(emu_core PRIVATE ${RP6502_HOST}/host_emu.c)
+    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os_emu.c)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
-    target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
+    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 endif()
 if(APPLE)
     # Everything else on this host comes through posix; the bundle does not.
@@ -89,8 +89,8 @@ add_executable(rp6502-emu
     ${RP6502_EMU_APP}
     ${RP6502_SRC}/host/sokol/app/main.c
     ${RP6502_EMU_WINDOW}
-    ${RP6502_HOST}/window.c
-    ${RP6502_HOST}/gamepad.c
+    ${RP6502_OSAL}/window.c
+    ${RP6502_OSAL}/gamepad.c
     ${RP6502_SRC}/host/sokol/win/gamepad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
@@ -120,8 +120,8 @@ elseif(APPLE)
         ${RP6502_SRC}/host/sokol/win/sokol_impl.c
         ${RP6502_SRC}/host/sokol/win/window_core.c
         ${RP6502_SRC}/host/sokol/win/input.c
-        ${RP6502_HOST}/window.c
-        ${RP6502_HOST}/gamepad.c
+        ${RP6502_OSAL}/window.c
+        ${RP6502_OSAL}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     # GameController rather than IOKit: Apple's own drivers normalize every
     # modern gamepad, and it asks the user for no permission to do it.

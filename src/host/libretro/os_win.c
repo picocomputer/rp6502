@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The one Win32 primitive this host answers itself. Everything else Windows
- * has to say is in osal/windows/host.c, shared with the desktop emulator.
+ * has to say is in osal/windows/os.c, shared with the desktop emulator.
  *
  * A libretro frontend hands its paths over as UTF-8, on Windows as anywhere
  * else. The emulator's conversion is from the process code page, which is

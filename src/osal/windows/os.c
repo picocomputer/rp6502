@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * What Windows answers for any host of ours (osal/os.h host_*), the Win32
- * counterpart of osal/posix/host.c. The emulator and the libretro core share
+ * counterpart of osal/posix/os.c. The emulator and the libretro core share
  * every line of it.
  *
  * What is NOT here is what differs between those two rather than between

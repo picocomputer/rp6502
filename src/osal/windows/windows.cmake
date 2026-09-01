@@ -9,7 +9,7 @@
 #
 # What is not here is what differs between hosts rather than between
 # operating systems: the frame-pacer sleep, the console attach, and the
-# argv encoding. Each host answers those in its own host.c.
+# argv encoding. Each host answers those in its own os.c.
 #
 # Included after emu.cmake: it adds to emu_core.
 
@@ -17,7 +17,7 @@ target_sources(emu_core PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/dir.c
     ${CMAKE_CURRENT_LIST_DIR}/errmap.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
-    ${CMAKE_CURRENT_LIST_DIR}/host.c)
+    ${CMAKE_CURRENT_LIST_DIR}/os.c)
 
 # CancelIoEx and SetFileInformationByHandle are Vista. PRIVATE, so a floor
 # set for these files cannot hide newer APIs from the window and pad code

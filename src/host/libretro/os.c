@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The one POSIX primitive this host answers itself: entropy. Everything else
- * a POSIX system has to say is in osal/posix/host.c, and there is no
+ * a POSIX system has to say is in osal/posix/os.c, and there is no
  * frame-pacer sleep here because the frontend paces the core — nothing in
  * this host ever waits.
  *
