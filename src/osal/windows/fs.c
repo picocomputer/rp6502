@@ -243,16 +243,6 @@ bool fs_rom_remove(const char *name, api_errno *err)
     return false;
 }
 
-FILE *os_fs_fopen_rd(const char *path)
-{
-    wchar_t *w = path_to_wide(path);
-    if (!w)
-        return NULL;
-    FILE *f = _wfopen(w, L"rb");
-    free(w);
-    return f;
-}
-
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     int fd = desc;

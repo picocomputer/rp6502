@@ -22,7 +22,6 @@
 #include "core/api/std.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h> /* FILE, for the ROM loader's stream below */
 
 /* The SDK's open flags, as a program passes them. The low two bits mirror
  * FatFs FA_READ/FA_WRITE on purpose, so a FAT machine passes the access mode
@@ -67,18 +66,14 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
  * that failed. */
 bool fs_rom_remove(const char *name, api_errno *err);
 
-/* The two filesystem calls core makes directly rather than through a driver.
- * A path is spelled the way the 6502 spells it, both ways.
+/* The one filesystem call made outside the driver above: an absolute path,
+ * which is what argv[0] needs to survive a chdir. Spelled the way the 6502
+ * spells it, both ways.
  *
- * realpath answers absolutely, which is what argv[0] needs to survive a chdir;
- * fopen_rd hands back a stream for the ROM loader's record parser, which reads
- * a whole file rather than serving a program.
- *
- * realpath allocates its answer, because how long a path the OS will hand back
- * is the OS's to decide and not a caller's to guess. The caller frees; NULL is
- * a path that does not resolve. */
+ * It allocates its answer, because how long a path the OS will hand back is
+ * the OS's to decide and not a caller's to guess. The caller frees; NULL is a
+ * path that does not resolve. */
 char *os_fs_realpath(const char *path);
-FILE *os_fs_fopen_rd(const char *path);
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. The catch-all: a machine lists it last, after every driver that claims a

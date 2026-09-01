@@ -608,30 +608,31 @@ bool window_core_boot_rom(const char *path)
         fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return false;
     }
-    /* Screen out not-a-ROM files before rom_load touches machine state, so an
-     * accidental drop leaves the running program alone. A file this open
-     * cannot read would fail the load the same way, after the machine was
-     * already stopped -- refused here, it costs the running program nothing. */
-    FILE *f = os_fs_fopen_rd(oem);
-    if (!f)
+    /* Screen the file before exec_boot stops the machine, so an accidental
+     * drop leaves the running program alone -- the loader would refuse it
+     * too, but only after the program was already gone. The outgoing program
+     * holds the ROM descriptor for its assets and a drop claims it either
+     * way, so the release comes first; it is what rom_load does anyway. */
+    rom_assets_reset();
+    rom_pump_t pump;
+    api_errno err;
+    if (!rom_pump_open(&pump, oem, &err))
     {
-        fprintf(stderr, "rp6502-emu: cannot read dropped file\n");
+        fprintf(stderr, err == API_ENOEXEC
+                            ? "rp6502-emu: not a .rp6502 file (bad magic)\n"
+                            : "rp6502-emu: cannot read dropped file\n");
+        free(oem);
         return false;
     }
-    char magic[8];
-    size_t got = fread(magic, 1, sizeof magic, f);
-    fclose(f);
-    if (got != sizeof magic || strncasecmp(magic, "#!RP6502", 8) != 0)
-    {
-        fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
-        return false;
-    }
+    rom_pump_close(&pump);
     vtkeys_paste_cancel(); /* the new program must not receive an old paste */
     /* A dropped ROM is a program change (stop + load + run), not a machine reboot:
      * the code page / PHI2 ride through from the previous program, like an exec. */
     /* Committed here rather than left for the next frame: the load below
      * writes the RAM the outgoing program was running out of. */
-    if (!exec_boot(oem, 0, NULL, EXEC_UNCHAIN))
+    bool ok = exec_boot(oem, 0, NULL, EXEC_UNCHAIN);
+    free(oem);
+    if (!ok)
         return false; /* RAM may be part-written; stays stopped */
     sys_commit();
     return true;

@@ -99,18 +99,6 @@ char *os_fs_realpath(const char *path)
     return out;
 }
 
-/* The ROM loader's stream: a whole-file read for the record parser, not a
- * drive operation. Moves to osal/os.h with the rest of the metadata half. */
-FILE *os_fs_fopen_rd(const char *path)
-{
-    char *u8 = path_to_utf8(path);
-    if (!u8)
-        return NULL;
-    FILE *f = fopen(u8, "rb");
-    free(u8);
-    return f;
-}
-
 /* ---- The std driver ------------------------------------------------------ */
 
 /* A descriptor is this host's own fd. std.c hands back whatever open returned,
