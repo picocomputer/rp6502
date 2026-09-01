@@ -205,6 +205,8 @@ static void vga_scanvideo_switch(void)
 // with a scanline-0 fallback if that threshold was never reached. Keyed on the
 // frame number because both cores render concurrently and may complete out of
 // order; the RIA edge-triggers VSYNC, so a second byte would be a phantom frame.
+static unsigned long vga_frames;
+
 static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
 {
     int16_t scanline = scanvideo_scanline_number(scanline_id);
@@ -220,7 +222,17 @@ static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
         // owns it; scanvideo skipped ahead before rendering its threshold line.
         --frame;
     if (__atomic_exchange_n(&vga_vsync_frame_fired, frame, __ATOMIC_ACQ_REL) != frame)
+    {
+        __atomic_fetch_add(&vga_frames, 1, __ATOMIC_RELAXED);
         ria_vsync();
+    }
+}
+
+/* Written by core 1 above, read by core 0's term task. Relaxed: a blink that
+ * reads one frame stale blinks one frame late, which no eye has. */
+unsigned long vga_frame_count(void)
+{
+    return __atomic_load_n(&vga_frames, __ATOMIC_RELAXED);
 }
 
 static void vga_render_scanline(void)

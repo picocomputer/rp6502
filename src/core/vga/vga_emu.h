@@ -29,10 +29,6 @@ void vga_task(void);
 /* The machine clock the beam has reached: what the CPU is owed. */
 uint64_t vga_beam_clk(void);
 
-/* Frames completed. Pumping until this moves is how every host asks for a
- * frame -- a window, a frontend, a script, a screenshot, a test. */
-unsigned long vga_frame_count(void);
-
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
 #define VGA_MAX_WIDTH 640

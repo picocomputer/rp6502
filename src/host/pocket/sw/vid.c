@@ -101,6 +101,13 @@ void vid_task(void)
     vid_publish();
 }
 
+/* The fabric's own count, which is the display's and not this firmware's --
+ * it advances whether or not the task above ran. */
+unsigned long vga_frame_count(void)
+{
+    return VID_FRAME;
+}
+
 /* The row table and the cursor would come back on their own at the
  * next frame, so this is only the window -- and then the view, so the
  * frame in between is not a screenful of row zero. */
