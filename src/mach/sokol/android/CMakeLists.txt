@@ -86,17 +86,17 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-set(RP6502_HOST ${RP6502_SRC}/host/android)
+set(RP6502_HOST ${RP6502_SRC}/osal/android)
 include(${RP6502_SRC}/mach/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
 # that is not Windows. One bionic filesystem answer, not two.
 target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/host/posix/dir.c
-    ${RP6502_SRC}/host/posix/errmap.c
-    ${RP6502_SRC}/host/posix/fs.c
-    ${RP6502_SRC}/host/posix/fs_sync.c
-    ${RP6502_SRC}/host/posix/host.c
+    ${RP6502_SRC}/osal/posix/dir.c
+    ${RP6502_SRC}/osal/posix/errmap.c
+    ${RP6502_SRC}/osal/posix/fs.c
+    ${RP6502_SRC}/osal/posix/fs_sync.c
+    ${RP6502_SRC}/osal/posix/host.c
     ${RP6502_HOST}/host.c)
 
 # The machine this is: Android is a host under mach/sokol, not a machine of

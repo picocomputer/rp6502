@@ -18,7 +18,7 @@ extern "C"
 {
 #include "mach/sokol/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "mach/sokol/dbg/dbgui_layout.h" /* load/save */
-#include "host/os.h"                /* host_config_dir, host_ensure_parent_dir */
+#include "osal/os.h"                /* host_config_dir, host_ensure_parent_dir */
 }
 
 #include <cstdio>

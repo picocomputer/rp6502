@@ -14,11 +14,11 @@
  * own. Renaming it back breaks every translation unit at once.
  */
 
-#ifndef _HOST_POSIX_ERRMAP_H_
-#define _HOST_POSIX_ERRMAP_H_
+#ifndef _OSAL_POSIX_ERRMAP_H_
+#define _OSAL_POSIX_ERRMAP_H_
 
 #include "core/api/api.h"
 
 api_errno errno_to_api(int host_errno);
 
-#endif /* _HOST_POSIX_ERRMAP_H_ */
+#endif /* _OSAL_POSIX_ERRMAP_H_ */

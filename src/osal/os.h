@@ -14,8 +14,8 @@
  * here -- a Pico has its own storage and a Pocket has the card, so the
  * filesystem driver is core/api/fs.h, which each host implements. */
 
-#ifndef _HOST_OS_H_
-#define _HOST_OS_H_
+#ifndef _OSAL_OS_H_
+#define _OSAL_OS_H_
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -152,4 +152,4 @@ FILE *host_fs_fopen_rd(const char *path);
 char *host_config_dir(void);                       /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu; allocated, caller frees */
 void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
 
-#endif /* _HOST_OS_H_ */
+#endif /* _OSAL_OS_H_ */

@@ -464,7 +464,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # libretro-android: the buildbot's other target, built with the runner's own
-  # NDK. Not src/host/android/apk — that root is the APK. This is the same
+  # NDK. Not src/osal/android/apk — that root is the APK. This is the same
   # src/mach/libretro the buildbot's android template points at, driven by the
   # NDK's toolchain file. No ctest: the tests would be arm64 Android binaries,
   # so what is checked here is that it builds and exports nothing extra.
@@ -541,7 +541,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir stage
-          # The build made the bundle; its Info.plist is host/macos/.
+          # The build made the bundle; its Info.plist is osal/macos/.
           cp -R build/sokol/macos/release/rp6502-emu.app stage/
           cp src/mach/sokol/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
@@ -684,7 +684,7 @@ jobs:
           if [ -n "$FWVER" ]; then
             CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
           fi
-          cd src/host/android/apk
+          cd src/osal/android/apk
           ./gradlew assembleRelease \
             -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
 

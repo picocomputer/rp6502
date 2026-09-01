@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Two host helpers only tests call. They were in host/os.h, which is the
+ * Two host helpers only tests call. They were in osal/os.h, which is the
  * machine's contract, and the machine has never wanted a temp directory or an
  * environment variable -- the tests do, to stand up a scratch MSC0: and to pin
  * TZ and LC_ALL before asking the clock what time it is.

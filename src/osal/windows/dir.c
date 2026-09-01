@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's drive, as core/api/dir.h asks for it: the directory syscalls
- * answered over Win32. The counterpart of host/posix/dir.c.
+ * answered over Win32. The counterpart of osal/posix/dir.c.
  *
  * Windows keeps what the 6502 asks for. FILE_ATTRIBUTE_READONLY, _HIDDEN,
  * _SYSTEM, _DIRECTORY and _ARCHIVE are the FAT attribute bits, with the same
@@ -25,8 +25,8 @@
 #include "core/api/dir.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
-#include "host/os.h"
-#include "host/windows/errmap.h"
+#include "osal/os.h"
+#include "osal/windows/errmap.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>

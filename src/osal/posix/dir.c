@@ -20,8 +20,8 @@
 #include "core/api/dir.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
-#include "host/os.h"
-#include "host/posix/errmap.h"
+#include "osal/os.h"
+#include "osal/posix/errmap.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>

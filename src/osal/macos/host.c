@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * macOS host-OS primitives that differ from the shared host/posix/host.c: entropy (no
+ * macOS host-OS primitives that differ from the shared osal/posix/host.c: entropy (no
  * getrandom) and the frame-pacer sleep (relative nanosleep, since macOS lacks
- * clock_nanosleep/TIMER_ABSTIME). Everything else lives in host/posix/host.c.
+ * clock_nanosleep/TIMER_ABSTIME). Everything else lives in osal/posix/host.c.
  */
 
 #include "host.h"

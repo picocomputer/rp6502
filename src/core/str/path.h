@@ -9,7 +9,7 @@
  * nothing gets the same answers as one that does.
  *
  * The questions that do need a filesystem belong to whichever drive would
- * have to answer them: host/posix/dir.c and host/windows/dir.c map into their
+ * have to answer them: osal/posix/dir.c and osal/windows/dir.c map into their
  * host's namespace, and mach/pico/ria/sys/path.c resolves a CWD through
  * FatFs.
  */

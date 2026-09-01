@@ -10,7 +10,7 @@
  */
 
 #include "core/api/fs.h"
-#include "host/posix/errmap.h"
+#include "osal/posix/errmap.h"
 #include <aio.h>
 #include <errno.h>
 #include <string.h>

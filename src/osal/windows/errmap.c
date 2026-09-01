@@ -6,7 +6,7 @@
  * See errno.h.
  */
 
-#include "host/windows/errmap.h"
+#include "osal/windows/errmap.h"
 
 api_errno win_error_to_api(DWORD e)
 {

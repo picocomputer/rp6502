@@ -51,15 +51,15 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 # byte transport — glibc's POSIX AIO would still have helper threads holding
 # a buffer inside a library that is going away.
 if(WIN32)
-    include(${RP6502_SRC}/host/windows/windows.cmake)
+    include(${RP6502_SRC}/osal/windows/windows.cmake)
     target_sources(emu_core PRIVATE ${RP6502_HOST}/host_win.c)
 else()
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/dir.c
-    ${RP6502_SRC}/host/posix/errmap.c
-        ${RP6502_SRC}/host/posix/fs.c
-        ${RP6502_SRC}/host/posix/fs_sync.c
-        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/osal/posix/dir.c
+    ${RP6502_SRC}/osal/posix/errmap.c
+        ${RP6502_SRC}/osal/posix/fs.c
+        ${RP6502_SRC}/osal/posix/fs_sync.c
+        ${RP6502_SRC}/osal/posix/host.c
         ${RP6502_HOST}/host.c)
 endif()
 

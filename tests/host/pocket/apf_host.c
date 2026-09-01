@@ -13,7 +13,7 @@
 #include "core/hid/hid.h"
 #include "core/sys.h"
 #include "core/vga/vga.h"
-#include "host/os.h"
+#include "osal/os.h"
 
 #include <stdint.h>
 

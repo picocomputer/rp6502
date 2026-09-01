@@ -13,7 +13,7 @@
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/str/path.h"
-#include "host/os.h"
+#include "osal/os.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

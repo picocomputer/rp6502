@@ -19,7 +19,7 @@
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/mem/mem.h"
-#include "host/os.h"
+#include "osal/os.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"

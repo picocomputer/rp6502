@@ -19,8 +19,8 @@
  * own. Renaming it back breaks every translation unit at once.
  */
 
-#ifndef _HOST_WINDOWS_ERRMAP_H_
-#define _HOST_WINDOWS_ERRMAP_H_
+#ifndef _OSAL_WINDOWS_ERRMAP_H_
+#define _OSAL_WINDOWS_ERRMAP_H_
 
 #include "core/api/api.h"
 #include <windows.h>
@@ -33,4 +33,4 @@ api_errno win_error_to_api(DWORD e);
 /* The last failure, mapped. */
 static inline api_errno win_last_error_to_api(void) { return win_error_to_api(GetLastError()); }
 
-#endif /* _HOST_WINDOWS_ERRMAP_H_ */
+#endif /* _OSAL_WINDOWS_ERRMAP_H_ */

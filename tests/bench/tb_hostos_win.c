@@ -10,7 +10,7 @@
 #include "tb_hostos.h"
 
 #include "core/str/oem.h"
-#include "host/windows/errmap.h"
+#include "osal/windows/errmap.h"
 #include <direct.h>
 #include <errno.h>
 #include <io.h>

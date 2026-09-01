@@ -6,7 +6,7 @@
 # directory and includes this; that directory leads the include path, so
 # `#include "host.h"` from any file — core, emu or a test — is that host's.
 #
-# The host's own files are the root's to name: src/host/posix/posix.cmake for
+# The host's own files are the root's to name: src/osal/posix/posix.cmake for
 # the two that share a POSIX seam, and a line apiece for the rest.
 #
 # RP6502_EMU_IPO  whether this build asked for link-time optimization, for a
@@ -191,7 +191,7 @@ else()
     # Shims MSVC alone needs, including a <strings.h> it has no system header
     # for. Their own directory: this goes on every consumer's include path, and
     # the host's own headers are not ours to publish.
-    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/windows/msvc)
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/osal/windows/msvc)
     target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.

@@ -65,12 +65,12 @@ if(WIN32)
         "the verilated machine needs a POSIX host; "
         "the C suites are in src/mach/sokol's tree")
 elseif(APPLE)
-    set(RP6502_HOST ${RP6502_SRC}/host/macos)
+    set(RP6502_HOST ${RP6502_SRC}/osal/macos)
 else()
-    set(RP6502_HOST ${RP6502_SRC}/host/linux)
+    set(RP6502_HOST ${RP6502_SRC}/osal/linux)
 endif()
 include(${RP6502_SRC}/mach/emu.cmake)
-include(${RP6502_SRC}/host/posix/posix.cmake)
+include(${RP6502_SRC}/osal/posix/posix.cmake)
 target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 
 # The bench runs the emulator as the reference model the RTL is compared

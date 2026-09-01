@@ -5,7 +5,7 @@
  *
  * Win32 primitives that are this program's rather than the operating
  * system's. What Windows answers for every host of ours is in
- * host/windows/host.c; these three differ because the emulator is a program
+ * osal/windows/host.c; these three differ because the emulator is a program
  * with a window and a console and an ANSI main(), and a libretro core is
  * none of those things.
  */

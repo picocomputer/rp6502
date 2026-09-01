@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (core/api/fs.h). The same POSIX calls as host/posix/fs.c
+ * Emscripten filesystem primitives (core/api/fs.h). The same POSIX calls as osal/posix/fs.c
  * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_std_read/fs_std_write
  * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
  * keep alive. Web is single-threaded with no POSIX aio, so it gets its own driver.
@@ -15,8 +15,8 @@
  */
 
 #include "core/api/fs.h"
-#include "host/os.h"
-#include "host/posix/errmap.h"
+#include "osal/os.h"
+#include "osal/posix/errmap.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include <emscripten.h>

@@ -10,8 +10,8 @@
  */
 
 #include "core/api/fs.h"
-#include "host/os.h"
-#include "host/posix/errmap.h"
+#include "osal/os.h"
+#include "osal/posix/errmap.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include <errno.h>
@@ -100,7 +100,7 @@ char *host_fs_realpath(const char *path)
 }
 
 /* The ROM loader's stream: a whole-file read for the record parser, not a
- * drive operation. Moves to host/os.h with the rest of the metadata half. */
+ * drive operation. Moves to osal/os.h with the rest of the metadata half. */
 FILE *host_fs_fopen_rd(const char *path)
 {
     char *u8 = path_to_utf8(path);

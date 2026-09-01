@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What Windows answers for any host of ours (host/os.h host_*), the Win32
- * counterpart of host/posix/host.c. The emulator and the libretro core share
+ * What Windows answers for any host of ours (osal/os.h host_*), the Win32
+ * counterpart of osal/posix/host.c. The emulator and the libretro core share
  * every line of it.
  *
  * What is NOT here is what differs between those two rather than between
@@ -18,7 +18,7 @@
  * fields and its strftime uses the thread locale directly.
  */
 
-#include "host/os.h"
+#include "osal/os.h"
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>

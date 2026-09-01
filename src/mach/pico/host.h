@@ -13,7 +13,7 @@
 #include <pico.h>
 #include <pico/stdlib.h>
 
-/* This machine means all of it. Defined before host/os.h, which supplies
+/* This machine means all of it. Defined before osal/os.h, which supplies
  * the do-nothing answers every other machine gives. */
 #define HOST_IN_FLASH(group) __in_flash(group)
 #define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
@@ -30,6 +30,6 @@
 /* The launcher chain's path buffer, before the contract's default. */
 #define PROC_PATH_MAX 256
 
-#include "host/os.h"
+#include "osal/os.h"
 
 #endif /* _MACH_PICO_HOST_H_ */

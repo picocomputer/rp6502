@@ -23,7 +23,7 @@
 #include <string.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies
- * one — see src/host/windows. */
+ * one — see src/osal/windows. */
 #include <strings.h>
 
 #if defined(DEBUG_HID) || defined(DEBUG_HID_KEYBOARD)

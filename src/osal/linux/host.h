@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MACH_ITCHIO_HOST_H_
-#define _MACH_ITCHIO_HOST_H_
+#ifndef _OSAL_LINUX_HOST_H_
+#define _OSAL_LINUX_HOST_H_
 
 #include "osal/os.h"
 
-#endif /* _MACH_ITCHIO_HOST_H_ */
+#endif /* _OSAL_LINUX_HOST_H_ */

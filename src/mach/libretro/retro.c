@@ -31,7 +31,7 @@
 #include "core/mem/mem.h"
 #include "core/sys.h"
 #include "core/vga/vga_emu.h"
-#include "host/os.h"
+#include "osal/os.h"
 #include "host.h"
 
 #include "libretro.h"

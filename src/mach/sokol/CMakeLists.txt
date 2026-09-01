@@ -7,7 +7,7 @@
 #
 # android/ is the fourth. It is a root of its own because AGP drives it, but
 # it is the same machine: it takes the drivers.h beside this file. The APK
-# that wraps it is the Android host's, in src/host/android/apk.
+# that wraps it is the Android host's, in src/osal/android/apk.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -34,27 +34,27 @@ include(${RP6502_ROOT}/version.cmake)
 # The host this build is for. RP6502_HOST leads emu_core's include path, so
 # `#include "host.h"` anywhere is this directory's.
 if(WIN32)
-    set(RP6502_HOST ${RP6502_SRC}/host/windows)
+    set(RP6502_HOST ${RP6502_SRC}/osal/windows)
 elseif(APPLE)
-    set(RP6502_HOST ${RP6502_SRC}/host/macos)
+    set(RP6502_HOST ${RP6502_SRC}/osal/macos)
 else()
-    set(RP6502_HOST ${RP6502_SRC}/host/linux)
+    set(RP6502_HOST ${RP6502_SRC}/osal/linux)
 endif()
 
 include(${RP6502_SRC}/mach/emu.cmake)
 if(WIN32)
-    include(${RP6502_SRC}/host/windows/windows.cmake)
-    # The Win32 seam is host/windows/host.c, shared with the libretro core.
+    include(${RP6502_SRC}/osal/windows/windows.cmake)
+    # The Win32 seam is osal/windows/host.c, shared with the libretro core.
     # This is the emulator's own half: a frame pacer, a console and an ANSI
     # main(), none of which a core has.
     target_sources(emu_core PRIVATE ${RP6502_HOST}/host_emu.c)
 else()
-    include(${RP6502_SRC}/host/posix/posix.cmake)
+    include(${RP6502_SRC}/osal/posix/posix.cmake)
     target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 endif()
 if(APPLE)
     # Everything else on this host comes through posix; the bundle does not.
-    include(${RP6502_SRC}/host/macos/macos.cmake)
+    include(${RP6502_SRC}/osal/macos/macos.cmake)
 endif()
 
 # This machine's drivers.h: what it is made of, the order it comes up in,
@@ -140,7 +140,7 @@ rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/mach/version.c emu_core)
 if(WIN32)
     # RC is not one of project()'s languages, and a language is enabled for a
     # directory rather than a target, so it is enabled here. The resource is
-    # host/windows/'s; both rc.exe and windres accept it.
+    # osal/windows/'s; both rc.exe and windres accept it.
     enable_language(RC)
     rp6502_windows_version_resource(rp6502-emu)
 endif()

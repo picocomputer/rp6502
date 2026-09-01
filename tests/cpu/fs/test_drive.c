@@ -16,7 +16,7 @@
 #include "core/rom/rom.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"
-#include "host/os.h"
+#include "osal/os.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
 #include "stdsys.h"

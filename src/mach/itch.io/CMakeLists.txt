@@ -36,9 +36,9 @@ include(${RP6502_SRC}/mach/emu.cmake)
 # The browser has no <aio.h>, so this host brings its own fs seam and takes
 # only the two files a POSIX host shares.
 target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/host/posix/dir.c
-    ${RP6502_SRC}/host/posix/host.c
-    ${RP6502_SRC}/host/posix/errmap.c
+    ${RP6502_SRC}/osal/posix/dir.c
+    ${RP6502_SRC}/osal/posix/host.c
+    ${RP6502_SRC}/osal/posix/errmap.c
     ${RP6502_HOST}/fs.c
     ${RP6502_HOST}/host.c)
 

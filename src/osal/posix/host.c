@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives (host/os.h host_*), shared by linux,
- * macos, web and android; the counterpart of host/windows/host.c. The two that
+ * POSIX-family host-OS primitives (osal/os.h host_*), shared by linux,
+ * macos, web and android; the counterpart of osal/windows/host.c. The two that
  * differ by OS, host_entropy_64 and host_sleep_until_ns, are in each host's
  * own host.c.
  */

@@ -56,7 +56,7 @@ rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
     COMMENT "Generating the OPL2 LUT tables test_oplrom reads")
 
 # --- The verilated machine ---
-# Host wrappers under src/host are not verilated; the simulation
+# Host wrappers under src/osal are not verilated; the simulation
 # models the host bridge in C++ instead, so one harness serves every target.
 # The waivers ride with the simulator rather than with the manifest in
 # machine.cmake, because that is what they are: Verilator's own lint, waived.

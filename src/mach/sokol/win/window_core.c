@@ -10,7 +10,7 @@
  * implemented in host/<os>/window.c.
  */
 
-#include "host/os.h" /* host_mono_ns, host_sleep_until_ns */
+#include "osal/os.h" /* host_mono_ns, host_sleep_until_ns */
 #include "mach/sokol/win/window.h"
 #include "mach/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
@@ -43,7 +43,7 @@
 #include "core/wdc/cpu.h"
 #include "core/sys.h"
 #include "core/sys.h"
-#include "host/os.h"
+#include "osal/os.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>

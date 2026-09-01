@@ -1,6 +1,6 @@
 # The machine through Quartus, for area and timing. No host in it, so no host
 # in the name: this is rtl/ alone with every port a virtual pin, and it exists
-# to be measured rather than programmed. src/host/ owns anything that reaches
+# to be measured rather than programmed. src/osal/ owns anything that reaches
 # a pad.
 #
 # The source list is the verilated one, so the thing measured is the thing

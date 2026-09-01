@@ -4,7 +4,7 @@ This directory verilates the machine and runs the suite that only a simulator
 can answer. It is also where the FPGA work is written down: the Picocomputer
 6502 as an FPGA core, with the Analogue Pocket (openFPGA) the first target and
 MiSTer planned. Both are Cyclone V, so `src/core` stays platform independent
-and each host gets a thin wrapper in `src/host/`.
+and each host gets a thin wrapper in `src/osal/`.
 
 The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
 trimmed build of the real `src/mach/pico/ria` firmware C for the OS layer —
@@ -43,7 +43,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 `src/core` holds the machine, C and SystemVerilog together — see its README for
 how that tree is arranged. The wrapper binding it to one board is
 `src/mach/pocket`, and the soft CPU's firmware is `src/mach/pocket/sw`. MiSTer
-arrives as `src/host/mister`; nothing in the machine changes.
+arrives as `src/osal/mister`; nothing in the machine changes.
 
 Tests are filed by claim. `tests/cpu` is the machine's, written once and run
 against whichever machine a tree builds; `tests/rtl` is what only a simulator
