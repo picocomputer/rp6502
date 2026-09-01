@@ -9,7 +9,7 @@
  * other way, and a machine names the one it wants.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "osal/posix/errmap.h"
 #include <aio.h>
 #include <errno.h>

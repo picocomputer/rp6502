@@ -6,7 +6,7 @@
  * See dir.h.
  */
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 
 #include <string.h>
 

@@ -19,7 +19,7 @@
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
@@ -44,7 +44,7 @@
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/rom/rom.h"
 
 /* aud before com, so the bell hardware is quiet before the byte path that

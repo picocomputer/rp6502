@@ -13,10 +13,10 @@
 
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/str/path.h"
 #include "core/mem/mem.h"
 #include "osal/os.h"

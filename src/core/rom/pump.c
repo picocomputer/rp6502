@@ -10,7 +10,7 @@
  * it. The bytes land wherever the machine's own deposit puts them.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/mem/mem.h"
 #include "core/rom/rom.h"
 #include "core/str/str.h"

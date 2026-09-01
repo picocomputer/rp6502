@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's drive, as core/api/dir.h asks for it -- which is almost
+ * This machine's drive, as osal/dir.h asks for it -- which is almost
  * nothing. There are no directories on an APF data slot: a program opens a
  * name and the host binds a slot to it. Two of the seventeen calls can be
  * answered without a directory at all; the other fifteen say ENOSYS, each in
@@ -15,7 +15,7 @@
 
 #include "fs.h"
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 
 /* ---- What this drive can answer ------------------------------------------ */
 

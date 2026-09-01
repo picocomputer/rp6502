@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/str/oem.h"
 #include "core/sys/config.h"
 #include "core/str/str.h"

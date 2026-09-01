@@ -9,7 +9,7 @@
  * on demand -- no index, no bytes in RAM, any number of assets.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/rom/rom.h"
 #include "core/str/str.h"
 #include "core/str/oem.h"

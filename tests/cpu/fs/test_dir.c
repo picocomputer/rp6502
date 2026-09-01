@@ -14,8 +14,8 @@
  */
 
 #include "core/com/com.h"
-#include "core/api/dir.h"
-#include "core/api/fs.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
 #include "osal/os.h"
 #include "tb_hostos.h"
 #include "core/wdc/cpu.h"

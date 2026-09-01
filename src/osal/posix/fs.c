@@ -9,7 +9,7 @@
  * false so the fs_errno_to_api_errno funnel in core/api/fs.c works unchanged.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "osal/os.h"
 #include "osal/posix/errmap.h"
 #include "core/str/oem.h"

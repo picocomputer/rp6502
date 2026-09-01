@@ -13,11 +13,11 @@
  * host/pocket/sw/fs.c. Linking a different one is the whole of the seam.
  *
  * The directories beside these files are core/api/dir.c's, over a drive each
- * host supplies the same way (core/api/dir.h's drive_* calls).
+ * host supplies the same way (osal/dir.h's drive_* calls).
  */
 
-#ifndef _CORE_API_FS_H_
-#define _CORE_API_FS_H_
+#ifndef _OSAL_FS_H_
+#define _OSAL_FS_H_
 
 #include "core/api/std.h"
 #include <stdbool.h>
@@ -80,4 +80,4 @@ bool fs_rom_remove(const char *name, api_errno *err);
         .lseek = fs_std_lseek,     \
     }
 
-#endif /* _CORE_API_FS_H_ */
+#endif /* _OSAL_FS_H_ */

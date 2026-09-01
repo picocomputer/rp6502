@@ -10,7 +10,7 @@
  * file is a pair of refusals the linker drops.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/rom/rom.h"
 #include "core/str/path.h"
 #include <stdlib.h>

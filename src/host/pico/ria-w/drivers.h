@@ -9,7 +9,7 @@
  *
  * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
  * to pump, backward to tear down. core/api/std.c builds the table from the
- * stdio rows. The drive a path reaches is in neither list: core/api/dir.h
+ * stdio rows. The drive a path reaches is in neither list: osal/dir.h
  * names those calls and the host that is linked defines them.
  */
 
@@ -20,8 +20,8 @@
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "core/api/dir.h"
-#include "core/api/fs.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "ria/api/tim.h"

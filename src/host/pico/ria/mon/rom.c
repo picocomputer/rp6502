@@ -24,7 +24,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/lfs.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/rom/rom.h" /* the pump: the loader half of this file now reads through the seam */
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"

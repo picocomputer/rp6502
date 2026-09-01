@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_DIR_H_
-#define _CORE_API_DIR_H_
+#ifndef _OSAL_DIR_H_
+#define _OSAL_DIR_H_
 
 /* The eighteen directory syscalls, over whatever drive a machine has.
  *
@@ -122,4 +122,4 @@ bool dir_api_getfree(void);
 /* This driver's row in a machine's driver list; see core/driver.h. */
 #define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, nul_config, nul_config)
 
-#endif /* _CORE_API_DIR_H_ */
+#endif /* _OSAL_DIR_H_ */

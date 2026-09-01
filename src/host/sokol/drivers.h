@@ -11,7 +11,7 @@
  * machine has is the one thing core cannot know. The software machines start
  * from the same list and are free to diverge. core/sys.c walks the
  * machine rows; core/api/std.c builds the table from the stdio rows. The
- * drive a path reaches is in neither list: core/api/dir.h names those calls
+ * drive a path reaches is in neither list: osal/dir.h names those calls
  * and the host that is linked defines them.
  */
 
@@ -21,8 +21,8 @@
 #include "core/driver.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "core/api/dir.h"
-#include "core/api/fs.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
 #include "core/api/proc.h"
 #include "core/sys/exec.h"
 #include "core/api/std.h"

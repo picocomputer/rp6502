@@ -14,7 +14,7 @@
  * unmapped. There is nothing to reap here.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "osal/posix/errmap.h"
 #include <errno.h>
 #include <unistd.h>

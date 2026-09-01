@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's drive, as core/api/dir.h asks for it: the directory syscalls
+ * This machine's drive, as osal/dir.h asks for it: the directory syscalls
  * answered over a POSIX filesystem.
  *
  * The 6502 asks in FAT's vocabulary -- attribute bits and a 1980-epoch date,
@@ -17,7 +17,7 @@
  * back with oem_from_utf8().
  */
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"

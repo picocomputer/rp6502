@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Files on the FAT volume, as core/api/fs.h asks for them: a FIL pool, and
+ * Files on the FAT volume, as osal/fs.h asks for them: a FIL pool, and
  * FatFs underneath. One call per slot, because the contract is shaped to what
  * a filesystem can actually say -- FatFs's answers are this machine's
  * answers, clipped seeks and all.
@@ -13,7 +13,7 @@
  */
 
 #include "api/errmap.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "fatfs/ff.h"
 #include "ria/sys/lfs.h"
 #include <assert.h>

@@ -8,8 +8,8 @@
 #define _FPGA_SW_FS_H_
 
 #include "core/api/api.h"
-#include "core/api/dir.h"
-#include "core/api/fs.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
 #include "core/api/std.h"
 
 #include <stdbool.h>
@@ -18,7 +18,7 @@
 
 /* The host's filesystem, over APF data slots.
  *
- * fs.c implements core/api/fs.h's driver -- the catch-all, so it must be last
+ * fs.c implements osal/fs.h's driver -- the catch-all, so it must be last
  * in this machine's table -- over the bridge and the slot pool declared here.
  * dir.c answers what little of a drive a data slot can be.
  *

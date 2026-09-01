@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Files on a Win32 filesystem, as core/api/fs.h asks for them.
+ * Files on a Win32 filesystem, as osal/fs.h asks for them.
  *
  * Overlapped I/O throughout: a handle opened FILE_FLAG_OVERLAPPED has no file
  * pointer of its own, so a descriptor is an index into a table that carries
@@ -23,7 +23,7 @@
  * straight from GetLastError.
  */
 
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"

@@ -9,7 +9,7 @@
  */
 
 #include "core/log.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
 #include "core/mem/mem.h"

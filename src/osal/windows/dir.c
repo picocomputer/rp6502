@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's drive, as core/api/dir.h asks for it: the directory syscalls
+ * This machine's drive, as osal/dir.h asks for it: the directory syscalls
  * answered over Win32. The counterpart of osal/posix/dir.c.
  *
  * Windows keeps what the 6502 asks for. FILE_ATTRIBUTE_READONLY, _HIDDEN,
@@ -22,7 +22,7 @@
  * back with oem_from_wide().
  */
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"

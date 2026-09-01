@@ -15,7 +15,7 @@
 
 #include "core/api/api.h"
 #include "core/mem/mem.h" /* xstack */
-#include "core/api/dir.h" /* f_stat_t */
+#include "osal/dir.h" /* f_stat_t */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

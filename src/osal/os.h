@@ -13,7 +13,7 @@
  * What every machine answers: the clock it runs on, the stream its rand()
  * reads, and the host OS calls the machine's own code makes. Files are not
  * here -- a Pico has its own storage and a Pocket has the card, so the
- * filesystem driver is core/api/fs.h, which each host implements. */
+ * filesystem driver is osal/fs.h, which each host implements. */
 
 #ifndef _OSAL_OS_H_
 #define _OSAL_OS_H_

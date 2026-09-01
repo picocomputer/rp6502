@@ -13,7 +13,7 @@
 
 #include "api/errmap.h"
 #include "core/api/api.h"
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "fatfs/ff.h"
 #include <assert.h>
 #include <string.h>

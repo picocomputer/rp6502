@@ -10,10 +10,10 @@
  * loading a program by its MSC0: path, and the frame-boundary CPU restart.
  */
 
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/sys/exec.h"
 #include "core/com/com.h"
-#include "core/api/fs.h"
+#include "osal/fs.h"
 #include "core/str/path.h"
 #include "osal/os.h"
 #include "core/wdc/cpu.h"

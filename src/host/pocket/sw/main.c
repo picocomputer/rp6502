@@ -32,7 +32,7 @@
 #include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/proc.h"
-#include "core/api/dir.h"
+#include "osal/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/str/unicode.h"

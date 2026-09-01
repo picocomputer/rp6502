@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Files on the APF host, as core/api/fs.h asks for them: the std driver, over
+ * Files on the APF host, as osal/fs.h asks for them: the std driver, over
  * the data-slot bridge and the slot pool it stands on.
  *
  * There is no filesystem down there to speak of. A name is handed to the host
