@@ -82,6 +82,17 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
 enable_testing()
 
+# The generators, held to what they claim. Neither needs a simulator or a
+# fixture: one asks vendor/chips whether the decode still matches what the RTL
+# is built from, the other that a byte reversal is its own inverse.
+add_test(NAME w65c02_gen
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${W65C02_GEN} --report)
+set_tests_properties(w65c02_gen PROPERTIES LABELS "gate")
+add_test(NAME rbf_r
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/core/gen/rbf_r_gen.py --check)
+set_tests_properties(rbf_r PROPERTIES LABELS "gate")
+
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/rp6502_verilate.cmake)
 

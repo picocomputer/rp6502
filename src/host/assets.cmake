@@ -67,20 +67,7 @@ rp6502_submodule(vendor/opl2_fpga
     WANTS "the OPL2 core and its lookup tables")
 
 # --- The generator agrees with the C it generates from ---
-# w65c02's decode tables come from vendor/chips, so an upstream change to
-# the addressing or the cycle sequences has to be modelled here before it can
-# reach the RTL. The generator fails on anything it does not recognise.
 set(W65C02_GEN ${RP6502_SRC}/core/gen/w65c02_rom_gen.py)
-add_test(NAME w65c02_gen
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${W65C02_GEN} --report)
-set_tests_properties(w65c02_gen PROPERTIES LABELS "gate")
-
-# The bitstream byte-reversal for the Pocket's rbf_r, an involution.
-add_test(NAME rbf_r
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/rbf_r_gen.py --check)
-set_tests_properties(rbf_r PROPERTIES LABELS "gate")
-
 set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
 rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
     ARGS --emit ${W65C02_ROM}
@@ -159,28 +146,3 @@ rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.p
     OUTPUTS ${KBDLAY_BIN}
     DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
     COMMENT "Generating the keyboard layouts")
-
-# The menu picks a layout by its position in the manifest and the data
-# slot declares the image's exact size, so both are checked against
-# def/keyboard.def rather than kept in step by hand.
-set(POCKET_CORE_JSON
-    ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
-add_test(NAME kbdlay_json
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/keyboard_layout_gen.py --manifest ${KBDLAY_MANIFEST}
-        --check-interact ${POCKET_CORE_JSON}/interact.json
-        --check-data ${POCKET_CORE_JSON}/data.json)
-set_tests_properties(kbdlay_json PROPERTIES LABELS "gate")
-
-# Where the host writes each slot and where the firmware reads it are
-# the same map kept in two files, and a disagreement is silent.
-add_test(NAME stage_map
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/stage_map_gate.py
-        --data ${POCKET_CORE_JSON}/data.json
-        --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
-        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
-        --engine ${RP6502_SRC}/core/machine/sst_engine.sv
-        --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
-        --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
-set_tests_properties(stage_map PROPERTIES LABELS "gate")

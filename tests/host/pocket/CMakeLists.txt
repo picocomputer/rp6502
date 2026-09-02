@@ -128,3 +128,26 @@ if(RP6502_SOFT_CPU)
         DEPENDS file_rom fstest_rom argv_rom sleepfile_rom
         TIMEOUT 1200)
 endif()
+
+# --- What the board's own JSON says, against what the machine was built from ---
+# The core's menu picks a keyboard layout by its position in the manifest and
+# the data slot declares the image's exact size; and where the host writes each
+# staging slot is the same map the firmware reads back. Both are two files that
+# have to agree, and a disagreement is silent.
+set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
+add_test(NAME kbdlay_json
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/core/gen/keyboard_layout_gen.py --manifest ${KBDLAY_MANIFEST}
+        --check-interact ${POCKET_CORE_JSON}/interact.json
+        --check-data ${POCKET_CORE_JSON}/data.json)
+set_tests_properties(kbdlay_json PROPERTIES LABELS "gate")
+add_test(NAME stage_map
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/core/gen/stage_map_gate.py
+        --data ${POCKET_CORE_JSON}/data.json
+        --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
+        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
+        --engine ${RP6502_SRC}/core/machine/sst_engine.sv
+        --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
+        --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
+set_tests_properties(stage_map PROPERTIES LABELS "gate")
