@@ -4,49 +4,18 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Project definitions for both RIA and VGA.
-# Please change name for hardware forks.
-# Creator flag hides MAC and SSID.
-# RP6502_LOCALE is the build default locale.
-set(RP6502_PROJECT_DEFINITIONS
-    RP6502_NAME="Picocomputer 6502"
-    RP6502_LOCALE=EN
-    RP6502_EXFAT=0
-    RP6502_CREATOR=0
-)
-
-# The shared src/ and vendor/ trees live beside this root CMakeLists (the
-# firmware build). Reference sources and vendored deps via RP6502_ROOT.
+# The firmware build, and the file the Raspberry Pi Pico VS Code extension
+# owns: it reads the versions and the board out of this file by name, and
+# rewrites the marked block below when you switch SDK. What the firmware is
+# made of is in src/host/pico, which this ends by adding.
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
-# The two the firmware reads, asked for here because the SDK is handed
-# PICO_TINYUSB_PATH below and looks inside it during pico_sdk_init().
+# TinyUSB is asked for here because the SDK is handed PICO_TINYUSB_PATH below
+# and looks inside it during pico_sdk_init().
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/tinyusb
     SENTINEL src/portable/raspberrypi/rp2040/rp2040_usb.c
     WANTS "the firmware's USB stack")
-rp6502_submodule(vendor/littlefs SENTINEL lfs.c
-    WANTS "the firmware's flash filesystem")
-
-# The machines this root builds, under ${RP6502_ROOT}/src/host/pico. Which
-# RIA is one of them is the board's answer, so it is given below where the
-# board is chosen.
-set(RP6502_PROJECT_DIRECTORIES vga)
-
-# Force wrappers defined by pico_printf and pico_stdlib to be
-# preserved during link-time interprocedural optimizations.
-set(IPO_PRINTF_LINK_OPTIONS
-    -Wl,-u,__wrap_printf
-    -Wl,-u,__wrap_vprintf
-    -Wl,-u,__wrap_puts
-    -Wl,-u,__wrap_putchar
-    -Wl,-u,__wrap_getchar
-    -Wl,-u,__wrap_sprintf
-    -Wl,-u,__wrap_snprintf
-    -Wl,-u,__wrap_vsnprintf
-)
-
-include(${RP6502_ROOT}/version.cmake)
 
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
 if(WIN32)
@@ -66,19 +35,6 @@ endif()
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 set(PICO_THREAD_LOCAL_TYPE emutls CACHE INTERNAL "")
 
-# The radio is a board, not a build flag: each RIA is its own machine with its
-# own driver roster and its own parts, and the board says which one this is.
-# If you have thoroughly tested a third-party RP2350 board in the reference
-# design then please submit a pull request.
-if (PICO_BOARD STREQUAL "pico2_w" OR
-    PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
-    list(APPEND RP6502_PROJECT_DIRECTORIES ria-w)
-elseif(PICO_BOARD STREQUAL "pico2")
-    list(APPEND RP6502_PROJECT_DIRECTORIES ria)
-else()
-    message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
-endif()
-
 include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 
 set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
@@ -87,6 +43,4 @@ project(RP6502 C CXX ASM)
 
 pico_sdk_init()
 
-foreach(_dir IN LISTS RP6502_PROJECT_DIRECTORIES)
-    add_subdirectory(${RP6502_ROOT}/src/host/pico/${_dir} ${_dir})
-endforeach()
+add_subdirectory(${RP6502_ROOT}/src/host/pico pico)
