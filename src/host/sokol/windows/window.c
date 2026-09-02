@@ -5,7 +5,7 @@
  *
  * Windows window host: the Win32 WM resize seam and the sokol entry (window_run
  * -> sapp_run with high_dpi for a native-resolution D3D11 backbuffer). The
- * render/frame/present pipeline is in host/sokol/win/window_core.c.
+ * render/frame/present pipeline is in host/sokol/app/window_core.c.
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -18,8 +18,8 @@
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "core/str/oem.h"
-#include "host/sokol/win/window.h"
-#include "host/sokol/win/window_core.h"
+#include "host/sokol/app/window.h"
+#include "host/sokol/app/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
 #include <stdbool.h>

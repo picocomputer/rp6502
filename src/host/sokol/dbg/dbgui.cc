@@ -30,13 +30,13 @@ extern "C"
 #include "core/wdc/via.h"
 #include "host/sokol/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "host/sokol/win/window.h"      /* window-scale presets, window_machine_ns */
+#include "host/sokol/app/window.h"      /* window-scale presets, window_machine_ns */
 #include "osal/os.h"
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
-#include "host/sokol/app/credits.h" /* EMU_CREDITS */
+#include "host/sokol/cli/credits.h" /* EMU_CREDITS */
 #include "host/version.h"
-#include "host/sokol/win/icon.h"    /* icon_desc() - Credits masthead icon */
+#include "host/sokol/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
 #include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in wdc/w65c02.c) */
 #include "chips/chips/m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */

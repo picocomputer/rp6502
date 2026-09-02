@@ -49,8 +49,8 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/host/sokol/app/main.c
-    ${CMAKE_CURRENT_LIST_DIR}/exports.c
+    ${RP6502_SRC}/host/sokol/cli/main.c
+    ${CMAKE_CURRENT_LIST_DIR}/webapi.c
     ${RP6502_EMU_WINDOW}
     ${CMAKE_CURRENT_LIST_DIR}/window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)

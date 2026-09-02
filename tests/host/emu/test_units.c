@@ -14,7 +14,7 @@
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
-#include "host/sokol/app/cli.h"
+#include "host/sokol/cli/cli.h"
 #include "tb_hostos.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_WIN_WINDOW_H_
-#define _HOST_SOKOL_WIN_WINDOW_H_
+#ifndef _HOST_SOKOL_APP_WINDOW_H_
+#define _HOST_SOKOL_APP_WINDOW_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -76,4 +76,4 @@ bool window_canvas_from_fb(float px, float py, int *cx, int *cy);
  * letterbox. */
 void window_set_pointer_on_canvas(bool on);
 
-#endif /* _HOST_SOKOL_WIN_WINDOW_H_ */
+#endif /* _HOST_SOKOL_APP_WINDOW_H_ */

@@ -12,8 +12,8 @@
 
 #include "osal/fs.h"
 #include "osal/os.h" /* os_mono_ns */
-#include "host/sokol/win/window.h"
-#include "host/sokol/win/window_core.h"
+#include "host/sokol/app/window.h"
+#include "host/sokol/app/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -27,10 +27,10 @@
 #include "host/sokol/dbg/dbgui.h"
 #include "core/dap/dap.h"
 #endif
-#include "host/sokol/win/icon.h"
-#include "host/sokol/win/input.h"
+#include "host/sokol/app/icon.h"
+#include "host/sokol/app/input.h"
 #ifdef RP6502_PAD_HOST
-#include "host/sokol/win/gamepad_input.h"
+#include "host/sokol/app/gamepad_input.h"
 #endif
 #include "host/version.h"
 #include "core/aud/aud_mix.h"

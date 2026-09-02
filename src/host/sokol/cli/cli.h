@@ -5,13 +5,13 @@
  *
  */
 
-#ifndef _HOST_SOKOL_APP_CLI_H_
-#define _HOST_SOKOL_APP_CLI_H_
+#ifndef _HOST_SOKOL_CLI_CLI_H_
+#define _HOST_SOKOL_CLI_CLI_H_
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "host/sokol/win/window.h" /* window_scale_filter_t */
+#include "host/sokol/app/window.h" /* window_scale_filter_t */
 #include <stdio.h>
 
 /* Every option, as parsed from the command line; defaults pre-filled. */
@@ -63,4 +63,4 @@ void cli_usage(FILE *out, const char *argv0);
 
 /* The path component after the last '/'. */
 
-#endif /* _HOST_SOKOL_APP_CLI_H_ */
+#endif /* _HOST_SOKOL_CLI_CLI_H_ */

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_WIN_ICON_H_
-#define _HOST_SOKOL_WIN_ICON_H_
+#ifndef _HOST_SOKOL_APP_ICON_H_
+#define _HOST_SOKOL_APP_ICON_H_
 
 #include "sokol/sokol_app.h"
 
@@ -24,4 +24,4 @@ const sapp_icon_desc *icon_desc(void);
 }
 #endif
 
-#endif /* _HOST_SOKOL_WIN_ICON_H_ */
+#endif /* _HOST_SOKOL_APP_ICON_H_ */

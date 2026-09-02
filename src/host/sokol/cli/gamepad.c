@@ -7,7 +7,7 @@
  * script, a config file, a host's key bindings.
  */
 
-#include "host/sokol/app/gamepad.h"
+#include "host/sokol/cli/gamepad.h"
 #include <stddef.h>
 #include <strings.h>
 

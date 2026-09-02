@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_APP_SCRIPT_H_
-#define _HOST_SOKOL_APP_SCRIPT_H_
+#ifndef _HOST_SOKOL_CLI_SCRIPT_H_
+#define _HOST_SOKOL_CLI_SCRIPT_H_
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,8 +14,8 @@
 /* Scripted input: a line-oriented command language that plugs in gamepads,
  * moves pointers, types and asserts, so a program reading its input from XRAM
  * can be tested with nothing at the keyboard. This is a host in the same sense
- * as host/itch.io/exports.c and host/sokol/android/window.c — it assembles reports and
- * hands them to the same hid seams a real device would.
+ * as host/itch.io/webapi.c and host/sokol/android/window.c — it assembles
+ * reports and hands them to the same hid seams a real device would.
  *
  * A failed assertion prints the script line and ends the run; script_exit_code is
  * what the process should return.
@@ -55,4 +55,4 @@ bool script_command(const char *line);
 /* 0 when every assertion held. */
 int script_exit_code(void);
 
-#endif /* _HOST_SOKOL_APP_SCRIPT_H_ */
+#endif /* _HOST_SOKOL_CLI_SCRIPT_H_ */

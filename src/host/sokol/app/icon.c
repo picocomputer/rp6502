@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/sokol/win/icon.h"
+#include "host/sokol/app/icon.h"
 
 static const uint32_t icon16[16 * 16] = {
     0x00000000, 0x00000000, 0x03aaaa55, 0x00000000, 0x0a000000, 0x5b322c21, 0xa16b665f, 0xc5817d77,

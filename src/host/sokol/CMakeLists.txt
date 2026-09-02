@@ -85,11 +85,11 @@ endif()
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/host/sokol/app/main.c
+    ${RP6502_SRC}/host/sokol/cli/main.c
     ${RP6502_EMU_WINDOW}
     ${RP6502_SOKOL_OS}/window.c
     ${RP6502_SOKOL_OS}/gamepad.c
-    ${RP6502_SRC}/host/sokol/win/gamepad_input.c)
+    ${RP6502_SRC}/host/sokol/app/gamepad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
 
@@ -115,9 +115,9 @@ elseif(APPLE)
     # sokol on macOS needs Objective-C; compile the impl units as .m and
     # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
     set_source_files_properties(
-        ${RP6502_SRC}/host/sokol/win/sokol_impl.c
-        ${RP6502_SRC}/host/sokol/win/window_core.c
-        ${RP6502_SRC}/host/sokol/win/input.c
+        ${RP6502_SRC}/host/sokol/app/sokol.c
+        ${RP6502_SRC}/host/sokol/app/window_core.c
+        ${RP6502_SRC}/host/sokol/app/input.c
         ${RP6502_SOKOL_OS}/window.c
         ${RP6502_SOKOL_OS}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
