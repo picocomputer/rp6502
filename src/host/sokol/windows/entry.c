@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows window host: the Win32 WM resize seam and the sokol entry (window_run
+ * Windows window host: the Win32 WM resize seam and the sokol entry (entry_run
  * -> sapp_run with high_dpi for a native-resolution D3D11 backbuffer). The
- * render/frame/present pipeline is in host/sokol/app/window_core.c.
+ * render/frame/present pipeline is in host/sokol/app/app.c.
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -18,8 +18,9 @@
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "core/str/oem.h"
-#include "host/sokol/app/window.h"
-#include "host/sokol/app/window_core.h"
+#include "host/sokol/app/gfx.h"
+#include "host/sokol/app/app.h"
+#include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
 #include <stdbool.h>
@@ -50,7 +51,7 @@ void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
  * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
 static bool waiting_for_rom;
 
-bool window_wait_for_rom(void)
+bool entry_wait_for_rom(void)
 {
     waiting_for_rom = true;
     return true;
@@ -59,7 +60,7 @@ bool window_wait_for_rom(void)
 void host_window_init(void)
 {
     if (waiting_for_rom)
-        window_core_prompt_setup();
+        prompt_setup();
 }
 
 bool host_window_menu_active(void) { return waiting_for_rom; }
@@ -67,11 +68,11 @@ bool host_window_menu_active(void) { return waiting_for_rom; }
 void host_window_menu_draw(void)
 {
     if (waiting_for_rom)
-        window_core_draw_prompt("Drop a .rp6502", "ROM file here");
+        prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
 /* True when the wide path survives UTF-16 -> OEM -> UTF-16 unchanged, i.e.
- * window_core_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
+ * app_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
 static bool wide_is_oem_lossless(const WCHAR *w)
 {
     size_t n = wcslen(w) + 1; /* one OEM byte per unit, and one unit back */
@@ -90,7 +91,7 @@ static bool wide_is_oem_lossless(const WCHAR *w)
 
 void host_window_files_dropped(void)
 {
-    /* sokol delivers the path as UTF-8 and window_core_boot_rom converts it to
+    /* sokol delivers the path as UTF-8 and app_boot_rom converts it to
      * the guest's OEM code page; fall back to the 8.3 short name when the path
      * has characters the active OEM code page can't hold. */
     const char *utf8 = sapp_get_dropped_file_path(0);
@@ -105,7 +106,7 @@ void host_window_files_dropped(void)
     if (wide_is_oem_lossless(wide))
     {
         free(wide);
-        if (window_core_boot_rom(utf8))
+        if (app_boot_rom(utf8))
             waiting_for_rom = false;
         return;
     }
@@ -132,7 +133,7 @@ void host_window_files_dropped(void)
         fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return;
     }
-    bool booted = window_core_boot_rom(shortu8);
+    bool booted = app_boot_rom(shortu8);
     free(shortu8);
     if (booted)
         waiting_for_rom = false;
@@ -143,18 +144,18 @@ void host_window_open_url(const char *url)
     ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
 }
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
+int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;
-    window_core_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
+    app_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
     /* D3D11 leaves the backbuffer at LOGICAL size unless high_dpi is requested,
      * so a DPI-scaled display DWM-stretches (smears) the menu/canvas; ask for a
      * native-resolution backbuffer. */
     sapp_run(&(sapp_desc){
-        .init_cb = window_core_init,
-        .frame_cb = window_core_frame,
-        .event_cb = window_core_event,
-        .cleanup_cb = window_core_cleanup,
+        .init_cb = app_init,
+        .frame_cb = app_frame,
+        .event_cb = app_input,
+        .cleanup_cb = app_cleanup,
         .width = win_w,
         .height = win_h,
         .high_dpi = true,
@@ -165,5 +166,5 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .clipboard_size = 65536,
         .logger.func = slog_func,
     });
-    return window_core_exit_code();
+    return app_exit_code();
 }

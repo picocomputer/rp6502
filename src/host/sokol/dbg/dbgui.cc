@@ -30,7 +30,8 @@ extern "C"
 #include "core/wdc/via.h"
 #include "host/sokol/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "host/sokol/app/window.h"      /* window-scale presets, window_machine_ns */
+#include "host/sokol/app/app.h"
+#include "host/sokol/app/gfx.h"      /* window-scale presets, app_machine_ns */
 #include "osal/os.h"
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
@@ -598,12 +599,12 @@ static void dbgui_pace(float *fps, float *ms)
     {
         win_start_ns = now;
         win_frames = vga_frame_count();
-        win_machine_ns = window_machine_ns();
+        win_machine_ns = app_machine_ns();
     }
     else if (now - win_start_ns >= 500000000ull)
     {
         const unsigned long frames = vga_frame_count() - win_frames;
-        const uint64_t machine_ns = window_machine_ns() - win_machine_ns;
+        const uint64_t machine_ns = app_machine_ns() - win_machine_ns;
         last_fps = (float)((double)frames * 1e9 / (double)(now - win_start_ns));
         last_ms = frames ? (float)((double)machine_ns / 1e6 / (double)frames) : 0.0f;
         win_start_ns = now;
@@ -658,13 +659,13 @@ static void dbgui_draw_menu(void)
                  * manual resize; docked panels deliberately don't factor in. The check
                  * marks the preset the window currently matches. */
                 static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
-                double cur = window_get_scale();
+                double cur = gfx_get_scale();
                 for (double s : scales)
                 {
                     char label[5];
                     std::snprintf(label, sizeof label, "%.1fx", s);
                     if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
-                        window_set_scale(s);
+                        gfx_set_scale(s);
                 }
                 ImGui::EndMenu();
             }
@@ -752,7 +753,7 @@ void dbgui_init(void)
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
     sd.no_default_font = true; /* we add the bitmap default ourselves */
-    sd.disable_set_mouse_cursor = true; /* window_core's update_cursor is the sole
+    sd.disable_set_mouse_cursor = true; /* the input layer's update_cursor is the sole
                                          * cursor writer; a second per-frame setter
                                          * double-applies and flickers on X11/WSLg */
     simgui_setup(&sd);
@@ -996,7 +997,7 @@ bool dbgui_wants_mouse(void)
 }
 
 /* The cursor ImGui wants this frame, mapped to a sapp_mouse_cursor (ARROW when it
- * has no preference). simgui's own cursor control is disabled, so window_core's
+ * has no preference). simgui's own cursor control is disabled, so the input layer's
  * update_cursor applies this over a debugger panel — keeping the resize/text/hand
  * cursors without a second per-frame setter fighting the tablet crosshair. */
 int dbgui_mouse_cursor(void)

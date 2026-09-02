@@ -19,7 +19,8 @@
  * as it does plugged into the real machine.
  */
 
-#include "host/sokol/app/gamepad_input.h"
+#include "core/hid/gamepad.h"
+#include "host/sokol/app/entry.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

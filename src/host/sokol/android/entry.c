@@ -7,13 +7,14 @@
  * NativeActivity glue owns the real entry point), the native gamepad/menu input
  * hook, the on-screen ROM-select menu (sdtx overlay + storage scanning + JNI
  * all-files-access permission), and the host_window_* hooks. The render/frame/
- * present pipeline is in host/sokol/app/window_core.c.
+ * present pipeline is in host/sokol/app/app.c.
  */
 
 #include "host/host.h"
 #include "osal/os.h"
-#include "host/sokol/app/window.h"
-#include "host/sokol/app/window_core.h"
+#include "host/sokol/app/gfx.h"
+#include "host/sokol/app/app.h"
+#include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol/sokol_log.h"
@@ -230,7 +231,7 @@ bool rp6502_android_input_hook(const void* native_event)
                         return 1;
                     case AKEYCODE_BUTTON_A:
                         if (g_rom_count > 0 &&
-                            window_core_boot_rom(g_rom_files[g_rom_selected_index]))
+                            app_boot_rom(g_rom_files[g_rom_selected_index]))
                         {
                             // Reset key and button states to prevent stuck inputs after closing the menu
                             g_android_button0 = 0;
@@ -510,13 +511,13 @@ sapp_desc sokol_main(int argc, char* argv[])
     // Seed the core's window/render state (also sets the vga framebuffer to
     // android_fb). Android opens at a fixed 640x480, so the computed size is unused.
     int win_w, win_h;
-    window_core_prepare(android_fb, 1.0, false, false, &win_w, &win_h);
+    app_prepare(android_fb, 1.0, false, false, &win_w, &win_h);
 
     return (sapp_desc){
-        .init_cb = window_core_init,
-        .frame_cb = window_core_frame,
-        .event_cb = window_core_event,
-        .cleanup_cb = window_core_cleanup,
+        .init_cb = app_init,
+        .frame_cb = app_frame,
+        .event_cb = app_input,
+        .cleanup_cb = app_cleanup,
         .android = {
             .native_event_cb = rp6502_android_input_hook,
         },

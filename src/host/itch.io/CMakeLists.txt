@@ -52,7 +52,7 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/cli/main.c
     ${CMAKE_CURRENT_LIST_DIR}/webapi.c
     ${RP6502_EMU_WINDOW}
-    ${CMAKE_CURRENT_LIST_DIR}/window.c)
+    ${CMAKE_CURRENT_LIST_DIR}/entry.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 

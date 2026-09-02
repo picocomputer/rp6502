@@ -7,7 +7,7 @@
 
 #include "host/sokol/app/input.h"
 
-#include "host/sokol/app/window.h"
+#include "host/sokol/app/gfx.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -322,8 +322,8 @@ static bool input_tablet(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_UP:
     case SAPP_EVENTTYPE_MOUSE_MOVE:
     {
-        bool inside = window_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
-        window_set_pointer_on_canvas(inside); /* the tablet owns the cursor only on-canvas */
+        bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
+        input_set_pointer_on_canvas(inside); /* the tablet owns the cursor only on-canvas */
         uint8_t buttons = pointer_buttons(e);
         if (inside)
             tablet_host_pointer(cx, cy, buttons);
@@ -336,7 +336,7 @@ static bool input_tablet(const sapp_event *e)
             {
                 int cw, ch;
                 vga_canvas_size(&cw, &ch);
-                float onscreen_w = (float)cw * window_canvas_scale();
+                float onscreen_w = (float)cw * gfx_canvas_scale();
                 if (onscreen_w > 0.0f)
                 {
                     float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
@@ -352,7 +352,7 @@ static bool input_tablet(const sapp_event *e)
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        window_set_pointer_on_canvas(false); /* hand the cursor back to the system */
+        input_set_pointer_on_canvas(false); /* hand the cursor back to the system */
         tablet_host_clear();                    /* pointer left the window */
         return true;
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
@@ -368,7 +368,7 @@ static bool input_tablet(const sapp_event *e)
         {
             if (ending && e->touches[i].changed)
                 continue; /* the finger lifting this event is no longer a contact */
-            if (!window_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
+            if (!gfx_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
                 continue; /* touch in the letterbox: not a canvas contact */
             pts[n].x = (int16_t)cx;
             pts[n].y = (int16_t)cy;
@@ -426,7 +426,7 @@ void input_event(const sapp_event *e)
         {
             int cw, ch;
             vga_canvas_size(&cw, &ch);
-            float onscreen_w = (float)cw * window_canvas_scale(); /* drawn canvas width, fb px */
+            float onscreen_w = (float)cw * gfx_canvas_scale(); /* drawn canvas width, fb px */
             if (onscreen_w > 0.0f)
             {
                 float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */

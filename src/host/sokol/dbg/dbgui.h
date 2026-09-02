@@ -52,7 +52,7 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 bool dbgui_wants_mouse(void);
 
 /* The cursor ImGui wants this frame as a sapp_mouse_cursor (int to avoid pulling
- * sokol into this header); the sole cursor writer (window_core) applies it over a
+ * sokol into this header); the sole cursor writer (the input layer) applies it over a
  * debugger panel. Only valid while the debugger is active. */
 int dbgui_mouse_cursor(void);
 

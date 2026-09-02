@@ -101,9 +101,9 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
-# window.c, which NativeActivity calls.
+# entry.c, which NativeActivity calls.
 add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW}
-    ${CMAKE_CURRENT_LIST_DIR}/window.c)
+    ${CMAKE_CURRENT_LIST_DIR}/entry.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 

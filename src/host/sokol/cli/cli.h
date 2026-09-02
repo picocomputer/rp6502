@@ -11,7 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "host/sokol/app/window.h" /* window_scale_filter_t */
+#include "host/sokol/app/gfx.h" /* gfx_filter_t */
 #include <stdio.h>
 
 /* Every option, as parsed from the command line; defaults pre-filled. */
@@ -27,7 +27,7 @@ typedef struct
     bool have_frames;
     double scale;
     bool have_scale;
-    window_scale_filter_t scale_filter;
+    gfx_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
     bool mute;

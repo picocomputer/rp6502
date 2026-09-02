@@ -14,7 +14,9 @@
  */
 
 #include "core/api/xreg.h"
-#include "host/sokol/app/gamepad_input.h"
+#include "core/hid/gamepad.h"
+#include "host/sokol/app/entry.h"
+#include "host/sokol/app/gamepad.h"
 #include "core/driver.h"
 #include "core/mem/mem.h"
 

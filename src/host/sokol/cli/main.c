@@ -10,7 +10,8 @@
 #include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "core/sys/exec.h"
-#include "host/sokol/app/window.h"
+#include "host/sokol/app/entry.h"
+#include "host/sokol/app/gfx.h"
 #include "osal/os.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
@@ -42,8 +43,8 @@ static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static void apply_options(const cli_options *o)
 {
     if (o->have_bg)
-        window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
-    window_set_scale_filter(o->scale_filter);
+        gfx_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
+    gfx_set_filter(o->scale_filter);
     if (o->mute)
         aud_set_enabled(false);
 }
@@ -63,11 +64,11 @@ static int run_dap(const cli_options *o)
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
-    dap_start(); /* DAP on stdin/stdout; window_run pumps it each frame */
+    dap_start(); /* DAP on stdin/stdout; entry_run pumps it each frame */
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
      * auto-closed) — the final screen stays up until the client disconnects. */
-    return window_run(g_fb, o->scale, o->have_scale, false);
+    return entry_run(g_fb, o->scale, o->have_scale, false);
 }
 #endif
 
@@ -280,7 +281,7 @@ int main(int argc, char **argv)
         /* No ROM. --screenshot and --script are batch (nothing to shoot, nothing
          * to drive); otherwise a desktop host waits for a drag-and-dropped one.
          * Anything else prints usage. */
-        if (o.screenshot || o.script || !window_wait_for_rom())
+        if (o.screenshot || o.script || !entry_wait_for_rom())
         {
             cli_usage(stderr, argv[0]);
             script_usage(stderr);
@@ -290,7 +291,7 @@ int main(int argc, char **argv)
         if (o.debug)
             dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
         cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
-        return window_run(g_fb, o.scale, o.have_scale, !o.debug);
+        return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
 
     bool booted = exec_boot(rom, o.n_rom_args, o.rom_args, 0);
@@ -352,5 +353,5 @@ int main(int argc, char **argv)
     }
 
     /* A script has already returned by here, so this is the windowed run. */
-    return window_run(g_fb, o.scale, o.have_scale, !o.debug);
+    return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
 }

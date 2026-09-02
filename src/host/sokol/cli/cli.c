@@ -23,7 +23,7 @@ void cli_options_init(cli_options *o)
     memset(o, 0, sizeof *o);
     o->frames = 120;
     o->scale = 1.5;
-    o->scale_filter = WINDOW_FILTER_SHARP;
+    o->scale_filter = GFX_FILTER_SHARP;
     o->fill_random = true;
 }
 
@@ -211,11 +211,11 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         }
         case OPT_FILTER:
             if (!strcmp(optarg, "nearest"))
-                o->scale_filter = WINDOW_FILTER_NEAREST;
+                o->scale_filter = GFX_FILTER_NEAREST;
             else if (!strcmp(optarg, "linear"))
-                o->scale_filter = WINDOW_FILTER_LINEAR;
+                o->scale_filter = GFX_FILTER_LINEAR;
             else if (!strcmp(optarg, "sharp"))
-                o->scale_filter = WINDOW_FILTER_SHARP;
+                o->scale_filter = GFX_FILTER_SHARP;
             else
             {
                 fprintf(stderr, "rp6502-emu: bad --filter '%s' "

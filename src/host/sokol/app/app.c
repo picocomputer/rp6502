@@ -6,14 +6,14 @@
  * The host-neutral window core: the render/frame/present pipeline shared by
  * every windowed host. It carries no platform #ifdefs (only the EMU_WITH_DEBUGGER
  * feature gate). Anything that differs per host — the WM seam,
- * the entry point, the Android overlay — is a host_window_* hook (window_core.h)
+ * the entry point, the Android overlay — is a host_window_* hook (entry.h)
  * implemented in host/<os>/window.c.
  */
 
 #include "osal/fs.h"
 #include "osal/os.h" /* os_mono_ns */
-#include "host/sokol/app/window.h"
-#include "host/sokol/app/window_core.h"
+#include "host/sokol/app/gfx.h"
+#include "host/sokol/app/app.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -27,10 +27,11 @@
 #include "host/sokol/dbg/dbgui.h"
 #include "core/dap/dap.h"
 #endif
+#include "host/sokol/app/entry.h"
 #include "host/sokol/app/icon.h"
 #include "host/sokol/app/input.h"
 #ifdef RP6502_PAD_HOST
-#include "host/sokol/app/gamepad_input.h"
+#include "host/sokol/app/gamepad.h"
 #endif
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
@@ -58,7 +59,7 @@ static struct
     int tex_w, tex_h; /* last seen canvas native size (sfb tracks it lazily) */
     bool exit_on_halt; /* close the window when the program stops */
     sfb_framebuffer sfb;          /* presents fb: upload, prescale, letterboxed blit */
-    window_scale_filter_t filter; /* 0 == NEAREST default */
+    gfx_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
     uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
@@ -72,16 +73,16 @@ static bool paced, ran_frame, held;
 #define FRAME_NS (1000000000ull / VGA_HZ)
 #define PRESENT_WAIT_NS 2000000 /* longer than a present that waits for nothing */
 
-uint64_t window_machine_ns(void) { return machine_ns; }
+uint64_t app_machine_ns(void) { return machine_ns; }
 
-void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
+void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
     app.bg_r = r / 255.0f;
     app.bg_g = g / 255.0f;
     app.bg_b = b / 255.0f;
 }
 
-void window_set_scale_filter(window_scale_filter_t filter) { app.filter = filter; }
+void gfx_set_filter(gfx_filter_t filter) { app.filter = filter; }
 
 /* Sharp-bilinear prescale factor: the largest integer by which the canvas
  * still fits the window (floor per axis, take the smaller for square pixels),
@@ -143,13 +144,13 @@ static int aspect_width(int h, int cw, int ch)
 }
 
 /* Canvas height in framebuffer pixels for a requested --scale (VGA_MAX_HEIGHT
- * rows at scale, rounded); inverse of window_get_scale. */
+ * rows at scale, rounded); inverse of gfx_get_scale. */
 static int scaled_canvas_height(double scale)
 {
     return (int)(VGA_MAX_HEIGHT * scale + 0.5);
 }
 
-void window_set_scale(double scale)
+void gfx_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
@@ -161,7 +162,7 @@ void window_set_scale(double scale)
     host_window_resize(w, h + top_reserved_px());
 }
 
-double window_get_scale(void)
+double gfx_get_scale(void)
 {
     if (!sapp_isvalid())
         return 0.0;
@@ -225,7 +226,7 @@ static slbx_viewport canvas_viewport(void)
 /* On-screen pixels per canvas pixel (the aspect-fit scale). Host mouse motion is
  * divided by this to get canvas-space motion, so pointer speed doesn't change
  * with the window size. */
-float window_canvas_scale(void)
+float gfx_canvas_scale(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
@@ -233,7 +234,7 @@ float window_canvas_scale(void)
     return (float)vp.width / cw;
 }
 
-bool window_canvas_from_fb(float px, float py, int *cx, int *cy)
+bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
@@ -281,7 +282,7 @@ static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
  * mapped tablet shows its cursor before the first motion. */
 static bool pointer_on_canvas = true;
 
-void window_set_pointer_on_canvas(bool on)
+void input_set_pointer_on_canvas(bool on)
 {
     pointer_on_canvas = on;
 }
@@ -366,7 +367,7 @@ static void stream_cb(float *buffer, int num_frames, int num_channels)
     aud_render(buffer, num_frames);
 }
 
-void window_core_init(void)
+void app_init(void)
 {
     sapp_set_icon(icon_desc());
     sg_setup(&(sg_desc){
@@ -410,7 +411,7 @@ void window_core_init(void)
 #endif
 }
 
-void window_core_frame(void)
+void app_frame(void)
 {
     const uint64_t now = os_mono_ns();
     /* The display paces us when the present held the thread; when a frame
@@ -547,7 +548,7 @@ void window_core_frame(void)
      * (the WM ignored the aspect hint, or mid-resize) it letterboxes/pillarboxes
      * against the clear so content never stretches. */
     slbx_viewport vp = canvas_viewport();
-    int f = app.filter == WINDOW_FILTER_SHARP
+    int f = app.filter == GFX_FILTER_SHARP
                 ? sharp_prescale(cw, ch, vp.width, vp.height)
                 : 1;
     /* Lazy: recreates sfb's images only when the canvas or the sharp prescale
@@ -588,7 +589,7 @@ void window_core_frame(void)
     if (ever_uploaded && vp.width > 0 && vp.height > 0 && !host_window_menu_active())
     {
         sg_apply_viewport(vp.x, vp.y, vp.width, vp.height, true);
-        if (app.filter == WINDOW_FILTER_NEAREST)
+        if (app.filter == GFX_FILTER_NEAREST)
             sfb_render_ex(app.sfb, &(sfb_render_desc){.use_nearest_filter = true});
         else
             sfb_render(app.sfb);
@@ -602,7 +603,7 @@ void window_core_frame(void)
     sg_commit();
 }
 
-bool window_core_boot_rom(const char *path)
+bool app_boot_rom(const char *path)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dap_is_active())
@@ -660,7 +661,7 @@ bool window_core_boot_rom(const char *path)
 }
 
 /* One convex filled rounded rect as a center-fan of triangles (sokol_gl, in the
- * current pass, window-pixel coords per the ortho set in window_core_draw_prompt). */
+ * current pass, window-pixel coords per the ortho set in prompt_draw). */
 static void prompt_round_rect(float x, float y, float w, float h, float rad,
                               uint8_t r, uint8_t g, uint8_t b)
 {
@@ -780,7 +781,7 @@ static void prompt_dashed_border(float x, float y, float w, float h, float rad,
 }
 
 /* GPU resources for the prompt masthead icon, created once in
- * window_core_prompt_setup (live for the app lifetime, like sgl/sdtx). */
+ * prompt_setup (live for the app lifetime, like sgl/sdtx). */
 static struct
 {
     sg_image img;
@@ -790,7 +791,7 @@ static struct
 } prompt_icon;
 
 /* Docs link under the prompt bubble, and its on-screen hit box in framebuffer px
- * (set each frame by window_core_draw_prompt) so a click can open it. */
+ * (set each frame by prompt_draw) so a click can open it. */
 static const char PROMPT_DOCS_URL[] = "https://picocomputer.github.io/"; /* opened on click */
 static const char PROMPT_DOCS_TEXT[] = "picocomputer.github.io";         /* shown on screen */
 static struct
@@ -798,7 +799,7 @@ static struct
     float x, y, w, h;
 } prompt_url;
 
-void window_core_prompt_setup(void)
+void prompt_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
         .fonts[0] = sdtx_font_c64(),
@@ -875,7 +876,7 @@ static void prompt_text_line(const char *s, float gh, float x_px, float y_px,
     sdtx_puts(s);
 }
 
-void window_core_draw_prompt(const char *line1, const char *line2)
+void prompt_draw(const char *line1, const char *line2)
 {
     float w = sapp_widthf(), h = sapp_heightf();
     if (w < 1.0f || h < 1.0f)
@@ -965,7 +966,7 @@ static bool prompt_url_hit(float x, float y)
            y >= prompt_url.y && y < prompt_url.y + prompt_url.h;
 }
 
-void window_core_event(const sapp_event *e)
+void app_input(const struct sapp_event *e)
 {
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
@@ -995,16 +996,16 @@ void window_core_event(const sapp_event *e)
     input_event(e);
 }
 
-/* The process exit code after window_run returns. A ROM that halted the app
+/* The process exit code after entry_run returns. A ROM that halted the app
  * outside debug mode (exit_on_halt, i.e. !--debug/--dap) owns the code; a manual
  * window close, or debug mode where the DAP client carries the code instead,
  * stays 0. */
-int window_core_exit_code(void)
+int app_exit_code(void)
 {
     return (app.exit_on_halt && cpu_halted()) ? proc_get_exit_code() : 0;
 }
 
-void window_core_cleanup(void)
+void app_cleanup(void)
 {
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop(); /* the window is going; let go of the host's controllers */
@@ -1022,7 +1023,7 @@ void window_core_cleanup(void)
 
 /* A window presents whole frames, so the beam keeps frame time with the
  * wall. The batch and script paths never call this and so never wait. */
-void window_core_prepare(uint32_t *fb, double scale, bool have_scale,
+void app_prepare(uint32_t *fb, double scale, bool have_scale,
                          bool exit_on_halt, int *out_w, int *out_h)
 {
     (void)have_scale;

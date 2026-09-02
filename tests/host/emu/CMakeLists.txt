@@ -70,7 +70,7 @@ rp6502_add_test(render LIBS emu_core)
 # above that seam is not, and the privacy gate and player numbering are the
 # parts worth being sure of.
 rp6502_add_test(gamepad_input LIBS emu_core
-    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad_input.c)
+    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
 
 # --- The debugger: the engine, the DWARF and cc65 readers, the disassembler ---
 # Their fixtures live here rather than in roms/ because none of them is a

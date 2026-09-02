@@ -8,9 +8,16 @@
 #ifndef _HOST_SOKOL_APP_INPUT_H_
 #define _HOST_SOKOL_APP_INPUT_H_
 
+#include <stdbool.h>
+
 struct sapp_event;
 
 /* Translate one host (sokol) input event into emulated keyboard/mouse input. */
 void input_event(const struct sapp_event *e);
+
+/* Tell the input layer whether the host pointer is over the drawn canvas, so
+ * the tablet's requested cursor applies only there and the system cursor shows
+ * in the letterbox. */
+void input_set_pointer_on_canvas(bool on);
 
 #endif /* _HOST_SOKOL_APP_INPUT_H_ */
