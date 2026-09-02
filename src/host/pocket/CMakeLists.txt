@@ -24,9 +24,10 @@ include(${RP6502_ROOT}/version.cmake)
 # Where this board's own SystemVerilog lives, top level included.
 set(RP6502_POCKET_CORE ${CMAKE_CURRENT_LIST_DIR}/core)
 
-# The machine as a list of files, its generated packages, and the soft CPU's
-# firmware; then the Quartus command line the projects below run.
-include(${RP6502_SRC}/host/machine.cmake)
+# The machine as a list of files and its generated packages, the firmware this
+# board's soft CPU runs, then the Quartus command line the projects below run.
+include(${RP6502_SRC}/core/rtl.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
 include(${RP6502_SRC}/core/quartus.cmake)
 include(${RP6502_SRC}/core/synth.cmake)
 
@@ -192,7 +193,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}
-        ${RP6502_SRC}/host/machine.cmake
+        ${RP6502_SRC}/core/rtl.cmake
+        ${RP6502_SRC}/core/assets.cmake
         ${RP6502_SRC}/core/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change

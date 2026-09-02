@@ -2,8 +2,9 @@
 # functions that hide the simulator.
 #
 # Only what genuinely needs Verilator is here. What to verilate — the machine's
-# source list — and the soft CPU firmware are in src/host/machine.cmake, because
-# a Quartus project needs both and needs no simulator to read them.
+# source list — is in src/core/rtl.cmake and the soft CPU's firmware is in
+# src/host/pocket/sw.cmake, because a Quartus project needs both and needs no
+# simulator to read them.
 
 # --- The generated tables, as C a test can read ---
 # Four of the machine's generators can also write their table as a header,
