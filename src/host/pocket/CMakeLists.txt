@@ -21,6 +21,9 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # version.cmake the firmware and the emulator use.
 include(${RP6502_ROOT}/version.cmake)
 
+# Where this board's own SystemVerilog lives, top level included.
+set(RP6502_POCKET_CORE ${CMAKE_CURRENT_LIST_DIR}/core)
+
 # The machine as a list of files, its generated packages, and the soft CPU's
 # firmware; then the Quartus command line the projects below run.
 include(${RP6502_SRC}/host/machine.cmake)

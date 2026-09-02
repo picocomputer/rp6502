@@ -9,7 +9,7 @@
 # Four of the machine's generators can also write their table as a header,
 # and only tests ever want that form: the fabric reads the .sv package and
 # the firmware computes its own at runtime, so what these prove is that the
-# three agree. They are emitted here rather than in src/host/assets.cmake,
+# three agree. They are emitted here rather than in src/core/assets.cmake,
 # which is for what the machine is built from or staged into — a test fixture
 # named there puts a suite's needs on the bitstream's staleness list.
 set(RP6502_TEST_TABLES ${CMAKE_BINARY_DIR}/test_tables)

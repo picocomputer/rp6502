@@ -1,28 +1,28 @@
-# The generated assets: decode tables, font and palette images, sine and
-# audio lookup ROMs, code pages. All of them come out of src/core/gen, none of them
-# is committed, and several concerns need the same ones — test_font reads the
-# font tables, the verilated machine compiles the palette and sine packages in,
-# and the Pocket's dist tree ships the font image. So they are built once here
+# The generated assets: decode tables, font and palette images, sine and audio
+# lookup ROMs, code pages. All of them come out of src/core/gen, none of them is
+# committed, and more than one concern needs the same ones -- the verilated
+# machine compiles the palette and sine packages in, the soft CPU links the font
+# table, and the Pocket's dist tree ships the image. So they are built once here
 # rather than by whoever asked first.
 #
 # What is here is what the machine is built from or staged into. A .rp6502 is
-# neither: it is a program the machine runs, and the same one runs on all
-# three, so those are made in tests/rp6502_tests.cmake where both trees can
-# reach them. They were here once, and this tree was the only one that could
-# build them.
+# neither: it is a program the machine runs, and the same one runs on every
+# machine, so those are made in tests/rp6502_tests.cmake where every tree can
+# reach them.
 #
-# Included by machine.cmake, which every configuration of this tree includes. The
-# emulator's tree needs none of this.
+# Only the fabric needs these. An emulator build never includes this file.
+
+include_guard(GLOBAL)
 
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 file(MAKE_DIRECTORY ${RP6502_ASSETS})
 
-# rp6502_machine_asset(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
-#                      [DEPENDS <file>...] COMMENT <text>)
+# rp6502_core_asset(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
+#                   [DEPENDS <file>...] COMMENT <text>)
 #
-# Named for what it makes: something the machine is built from or staged into.
+# Named for what it makes: something the core is built from or staged into.
 # rp6502_asset is the SDK's, in tools/rp6502.cmake, and takes an address and a
-# file — a downstream project calls that one, and the two shared a name.
+# file — a downstream project calls that one, and the two would share a name.
 #
 # Generates at configure time AND at build time, which looks redundant and is
 # not: verilate() reads its sources when cmake configures, so a package that
@@ -33,7 +33,7 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # something is missing. Running unconditionally moves every asset's timestamp
 # on every configure, and the IDE configures on every CMakeLists edit — which
 # reads downstream as a changed design and costs a ten minute refit.
-function(rp6502_machine_asset target)
+function(rp6502_core_asset target)
     cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     set(_absent FALSE)
     foreach(_out IN LISTS A_OUTPUTS)
@@ -56,7 +56,7 @@ function(rp6502_machine_asset target)
     add_custom_target(${target} ALL DEPENDS ${A_OUTPUTS})
 endfunction()
 
-# Asked for here and not inside rp6502_machine_asset, which only generates when
+# Asked for here and not inside rp6502_core_asset, which only generates when
 # an output is missing: a warm tree whose submodule went away would otherwise
 # configure clean and fail at the build rule instead.
 include(${RP6502_ROOT}/submodules.cmake)
@@ -69,7 +69,7 @@ rp6502_submodule(vendor/opl2_fpga
 # --- The generator agrees with the C it generates from ---
 set(W65C02_GEN ${RP6502_SRC}/core/gen/w65c02_rom_gen.py)
 set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
-rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
+rp6502_core_asset(w65c02_rom GEN ${W65C02_GEN}
     ARGS --emit ${W65C02_ROM}
     OUTPUTS ${W65C02_ROM}
     COMMENT "Generating the w65c02 decode table")
@@ -78,7 +78,7 @@ rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
 # copies into the store, and an offsets header for it.
 set(VID_FONT_BIN ${RP6502_ASSETS}/fonts.bin)
 set(VID_FONT_ASSET_H ${RP6502_ASSETS}/vid_font_asset.h)
-rp6502_machine_asset(vid_font_rom GEN ${RP6502_SRC}/core/gen/vid_font_gen.py
+rp6502_core_asset(vid_font_rom GEN ${RP6502_SRC}/core/gen/vid_font_gen.py
     ARGS --emit-bin ${VID_FONT_BIN} --emit-asset-h ${VID_FONT_ASSET_H}
     OUTPUTS ${VID_FONT_BIN} ${VID_FONT_ASSET_H}
     DEPENDS ${RP6502_SRC}/core/term/font.c
@@ -86,7 +86,7 @@ rp6502_machine_asset(vid_font_rom GEN ${RP6502_SRC}/core/gen/vid_font_gen.py
 
 # The builtin palettes ride the same way, from core/term/color.c.
 set(VID_PALETTE_PKG ${RP6502_ASSETS}/vid_palette_pkg.sv)
-rp6502_machine_asset(vid_palette_rom GEN ${RP6502_SRC}/core/gen/vid_palette_gen.py
+rp6502_core_asset(vid_palette_rom GEN ${RP6502_SRC}/core/gen/vid_palette_gen.py
     ARGS --emit-sv ${VID_PALETTE_PKG}
     OUTPUTS ${VID_PALETTE_PKG}
     DEPENDS ${RP6502_SRC}/core/term/color.c
@@ -94,7 +94,7 @@ rp6502_machine_asset(vid_palette_rom GEN ${RP6502_SRC}/core/gen/vid_palette_gen.
 
 # The PSG's sine table, from aud_init's runtime formula.
 set(AUD_SINE_PKG ${RP6502_ASSETS}/aud_sine_pkg.sv)
-rp6502_machine_asset(aud_sine_rom GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
+rp6502_core_asset(aud_sine_rom GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
     ARGS --emit-sv ${AUD_SINE_PKG}
     OUTPUTS ${AUD_SINE_PKG}
     COMMENT "Generating the aud sine ROM")
@@ -106,7 +106,7 @@ rp6502_machine_asset(aud_sine_rom GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
 # update changing either table silently.
 set(OPL2_LUT_SRC ${RP6502_VENDOR}/opl2_fpga/fpga/modules/operator/src)
 set(OPL2_LUT_PKG ${RP6502_ASSETS}/opl2_lut_pkg.sv)
-rp6502_machine_asset(opl2_lut_rom GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
+rp6502_core_asset(opl2_lut_rom GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
     ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
         --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv
         --emit-sv ${OPL2_LUT_PKG}
@@ -120,7 +120,7 @@ rp6502_machine_asset(opl2_lut_rom GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
 # script writes the C table emu.cmake compiles, so there is one design behind both
 # and the lockstep is comparing implementations rather than designs.
 set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
-rp6502_machine_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py
+rp6502_core_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py
     ARGS --emit-sv ${RSMP_COEF_PKG}
     OUTPUTS ${RSMP_COEF_PKG}
     COMMENT "Generating the resampler coefficient package")
@@ -129,7 +129,7 @@ rp6502_machine_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py
 # the binary and loads it into the staging store beside the fonts.
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
 set(OEMCP_BIN ${RP6502_ASSETS}/oemcp.bin)
-rp6502_machine_asset(oemcp_bin GEN ${RP6502_SRC}/core/gen/oem_table_gen.py
+rp6502_core_asset(oemcp_bin GEN ${RP6502_SRC}/core/gen/oem_table_gen.py
     ARGS --ffunicode ${OEMCP_SRC} --emit-bin ${OEMCP_BIN}
     OUTPUTS ${OEMCP_BIN}
     DEPENDS ${OEMCP_SRC}
@@ -141,7 +141,7 @@ rp6502_machine_asset(oemcp_bin GEN ${RP6502_SRC}/core/gen/oem_table_gen.py
 set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
 file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
 set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
-rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py
+rp6502_core_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
     OUTPUTS ${KBDLAY_BIN}
     DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}

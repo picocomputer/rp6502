@@ -8,11 +8,7 @@
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
 
-# Where the Pocket's own SystemVerilog lives, top level included. Set before
-# assets.cmake, which names it in the stage_map gate.
-set(RP6502_POCKET_CORE ${RP6502_SRC}/host/pocket/core)
-
-include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
+include(${RP6502_SRC}/core/assets.cmake)
 
 # The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
 # distribution README. Our fixes shadow their originals by being named

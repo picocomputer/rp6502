@@ -51,6 +51,10 @@ include(${RP6502_ROOT}/version.cmake)
 find_package(verilator CONFIG REQUIRED
     HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 
+# Where the Pocket's own SystemVerilog lives; this tree simulates that board
+# as well as the bare machine.
+set(RP6502_POCKET_CORE ${RP6502_SRC}/host/pocket/core)
+
 # The machine as a list of files, the generated packages, and the soft CPU's
 # firmware.
 include(${RP6502_SRC}/host/machine.cmake)
