@@ -384,6 +384,7 @@ void window_core_init(void)
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
+            .buffer_frames = 512, /* the device's own latency: 10.7 ms, not sokol's 43 */
             .stream_cb = stream_cb,
             .logger.func = slog_func,
         });

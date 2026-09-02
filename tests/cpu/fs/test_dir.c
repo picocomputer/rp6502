@@ -72,7 +72,7 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(host_make_tmpdir(d, sizeof(d)));
     write_file(d, "alpha.txt", "hello");             /* 5 bytes */
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
-    char sub[512];
+    char sub[TEST_PATH_MAX];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
     ASSERT_TRUE(drive_mkdir_at(sub));
 

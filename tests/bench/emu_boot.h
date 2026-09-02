@@ -7,6 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
+#include "core/aud/aud_mix.h"
 #include "core/sys/exec.h"
 #include "core/vga/vga_emu.h"
 #include "core/sys/sys.h"
@@ -49,6 +50,17 @@ static inline void emu_frames(int n)
 {
     while (n-- > 0 && vga_run_frame())
         ;
+}
+
+/* Leave the machine's audio lead empty and served: run enough frames to
+ * fill it, then take all of it, so the next render is the frames a case
+ * runs from here and not what came before. */
+static inline void emu_audio_settle(void)
+{
+    static float out[800 * 2];
+    emu_frames(AUD_LEAD_FRAMES + 1);
+    for (int i = 0; i < AUD_LEAD_FRAMES; i++)
+        aud_render(out, 800);
 }
 
 #endif /* _EMU_TESTS_EMU_BOOT_H_ */

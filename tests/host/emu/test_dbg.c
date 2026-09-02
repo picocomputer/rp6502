@@ -38,17 +38,7 @@ static void disarm(void)
     dbg_set_active(false);
 }
 
-/* A frame of audio, rendered as the device's thread would take it. */
 static float g_out[800 * 2];
-
-static bool audible(void)
-{
-    aud_render(g_out, 800);
-    for (int i = 0; i < 800 * 2; i++)
-        if (g_out[i] != 0.0f)
-            return true;
-    return false;
-}
 
 static bool held_at(float l, float r)
 {
@@ -59,10 +49,10 @@ static bool held_at(float l, float r)
 }
 
 /* A debugger pause holds the level: the machine is stopped for someone to
- * read it, the synth does not run, and the device keeps playing what it was
- * given last -- not silence, which is a click at each edge. A sys_stop is the
- * opposite: audio plays right through it, which is how the bell rings between
- * programs. */
+ * read it, the synth does not run, and once the device has taken what the
+ * machine had made it keeps playing the last of it -- not silence, which is
+ * a click at each edge. A sys_stop is the opposite: audio plays right
+ * through it, which is how the bell rings between programs. */
 UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
 {
     ASSERT_TRUE(load());
@@ -70,26 +60,38 @@ UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
     /* Stopped machine, ringing bell: sys_stop does not silence. */
     sys_stop();
     sys_commit();
+    emu_audio_settle();
     bel_add(&bel_teletype);
-    ASSERT_TRUE(audible());
-    const float last_l = g_out[799 * 2], last_r = g_out[799 * 2 + 1];
-    ASSERT_FALSE(held_at(last_l, last_r)); /* a ringing bell moves */
+    emu_frames(1);
+    int n = aud_render(g_out, 800);
+    ASSERT_GT(n, 0);
+    ASSERT_FALSE(held_at(g_out[0], g_out[1])); /* a ringing bell moves */
+    float last_l = g_out[(n - 1) * 2], last_r = g_out[(n - 1) * 2 + 1];
 
-    /* Held in the debugger: every sample is the one the handler wrote last. */
+    /* Held in the debugger: the machine makes nothing, and the last sample
+     * it made is every sample after. */
     dbg_set_active(true);
     dbg_note_stop(entry_pc());
     ASSERT_TRUE(dbg_is_stopped());
-    aud_render(g_out, 800);
+    while ((n = aud_render(g_out, 800)) > 0)
+    {
+        last_l = g_out[(n - 1) * 2];
+        last_r = g_out[(n - 1) * 2 + 1];
+    }
+    ASSERT_TRUE(held_at(last_l, last_r));
+    emu_frames(1);
+    ASSERT_EQ(aud_render(g_out, 800), 0);
     ASSERT_TRUE(held_at(last_l, last_r));
 
     /* Resume and it picks the note back up -- the synth kept its state. */
     dbg_continue();
-    aud_render(g_out, 800);
+    emu_frames(AUD_LEAD_FRAMES);
+    ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_FALSE(held_at(last_l, last_r));
 
     disarm();
-    for (int i = 0; i < 256 && audible(); i++) /* play the bell out */
-        ;
+    emu_frames(60); /* play the bell out */
+    emu_audio_settle();
 }
 
 /* Watchpoint tap: count what the bus hook reports, split by direction, and flag any

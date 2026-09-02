@@ -134,15 +134,17 @@ set(AUD_ROM_PSG ${RP6502_TEST_ROM_DIR}/psg.rp6502)
 set(AUD_ROM_PSG_PRE ${RP6502_TEST_ROM_DIR}/psg_pre.rp6502)
 set(AUD_ROM_OPL ${RP6502_TEST_ROM_DIR}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_TEST_ROM_DIR}/opl_exit.rp6502)
+set(AUD_ROM_OPL_INIT ${RP6502_TEST_ROM_DIR}/opl_init.rp6502)
 set(AUD_ROM_BEL ${RP6502_TEST_ROM_DIR}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_TEST_ROM_DIR}/opl_bel.rp6502)
 rp6502_test_rom(aud_roms GEN ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
     ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
         --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
+        --emit-opl-init ${AUD_ROM_OPL_INIT}
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
     OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
-        ${AUD_ROM_OPL_EXIT}
+        ${AUD_ROM_OPL_EXIT} ${AUD_ROM_OPL_INIT}
         ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")

@@ -10,6 +10,8 @@
  * present pipeline is in host/sokol/win/window_core.c.
  */
 
+#include "host/host.h"
+#include "osal/os.h"
 #include "host/sokol/win/window.h"
 #include "host/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
@@ -398,6 +400,21 @@ bool rp6502_android_input_hook(const void* native_event)
         return 1; // Handled
     }
     return 0; // Not handled
+}
+
+/* The seed for this run, decided once: no --seed here, so it is the OS's,
+ * and it is asked for both the stream and the memory fill. */
+static uint32_t run_seed;
+static bool run_seed_taken;
+
+uint32_t host_random_seed(void)
+{
+    if (!run_seed_taken)
+    {
+        run_seed = os_random_seed();
+        run_seed_taken = true;
+    }
+    return run_seed;
 }
 
 void host_window_resize(int w, int h) { (void)w, (void)h; }

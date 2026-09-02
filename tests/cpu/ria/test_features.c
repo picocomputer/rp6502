@@ -190,17 +190,18 @@ UTEST(features, empty_args_kept)
     ASSERT_STREQ(argv3, "");
 }
 
-/* Pull a frame's worth of audio at a time until a nonzero sample appears or
- * the budget runs out. Returns whether the standing handler was audible. */
-/* A frame of audio, rendered as the device's thread would take it. */
+/* Run a frame and take it as the device would, until the machine makes a
+ * nonzero sample or the budget runs out. Only what the machine made
+ * counts: a short render repeats a level, which is not evidence. */
 static float g_out[800 * 2];
 
-static bool rendered_audio(int renders)
+static bool rendered_audio(int frames)
 {
-    for (int p = 0; p < renders; p++)
+    for (int p = 0; p < frames; p++)
     {
-        aud_render(g_out, 800);
-        for (int i = 0; i < 800 * 2; i++)
+        emu_frames(1);
+        const int n = aud_render(g_out, 800);
+        for (int i = 0; i < n * 2; i++)
             if (g_out[i] != 0.0f)
                 return true;
     }
@@ -212,7 +213,10 @@ static bool rendered_audio(int renders)
  * teletype bell, and the enable flag gates that ring end to end. */
 UTEST(features, teletype_bell)
 {
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    /* No program: the writes below are dispatched from here, and a running
+     * program's own syscall would be in flight between them. */
+    sys_stop();
+    sys_commit();
 
     ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
@@ -245,9 +249,9 @@ UTEST(features, audio_disable)
 
     aud_set_enabled(true); /* restore the default for any later test */
     /* Play out the bell we rang: audio is a continuous stream (a reset never
-     * silences it), so drain it here instead of bleeding into a later test. */
-    for (int p = 0; p < 128; p++)
-        aud_render(g_out, 800);
+     * silences it), so let it end here instead of bleeding into a later test. */
+    emu_frames(60);
+    emu_audio_settle();
 }
 
 UTEST_MAIN_EMU()
