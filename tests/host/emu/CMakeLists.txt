@@ -10,7 +10,7 @@
 # The exception: how many frames a script spends is the one thing a script
 # cannot check about itself, so that one is a C test around script.c.
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
-    SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/gamepad.c
+    SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c ${RP6502_SRC}/host/sokol/cli/png.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.

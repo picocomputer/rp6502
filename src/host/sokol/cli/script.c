@@ -12,7 +12,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
-#include "host/sokol/cli/gamepad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
@@ -305,6 +305,47 @@ static bool script_canvas_crc(uint32_t *out)
     vga_canvas_size(&w, &h);
     *out = mem_crc32(0, fb, (size_t)w * h * 4);
     return true;
+}
+
+/* The button names a script writes, and the buttons core/hid knows. Only a
+ * script needs the names -- a device sends bits. */
+static const struct
+{
+    const char *name;
+    gamepad_button_t button;
+} gamepad_names[] = {
+    {"up", GAMEPAD_BTN_DPAD_UP},
+    {"down", GAMEPAD_BTN_DPAD_DOWN},
+    {"left", GAMEPAD_BTN_DPAD_LEFT},
+    {"right", GAMEPAD_BTN_DPAD_RIGHT},
+    {"a", GAMEPAD_BTN_A},
+    {"b", GAMEPAD_BTN_B},
+    {"c", GAMEPAD_BTN_C},
+    {"x", GAMEPAD_BTN_X},
+    {"y", GAMEPAD_BTN_Y},
+    {"z", GAMEPAD_BTN_Z},
+    {"l1", GAMEPAD_BTN_L1},
+    {"r1", GAMEPAD_BTN_R1},
+    {"l2", GAMEPAD_BTN_L2},
+    {"r2", GAMEPAD_BTN_R2},
+    {"select", GAMEPAD_BTN_SELECT},
+    {"start", GAMEPAD_BTN_START},
+    {"home", GAMEPAD_BTN_HOME},
+    {"l3", GAMEPAD_BTN_L3},
+    {"r3", GAMEPAD_BTN_R3},
+};
+
+static bool gamepad_button_from_name(const char *name, gamepad_button_t *button)
+{
+    if (!name)
+        return false;
+    for (size_t i = 0; i < sizeof gamepad_names / sizeof gamepad_names[0]; i++)
+        if (!strcasecmp(name, gamepad_names[i].name))
+        {
+            *button = gamepad_names[i].button;
+            return true;
+        }
+    return false;
 }
 
 static bool script_cmd_gamepad(char *p)
