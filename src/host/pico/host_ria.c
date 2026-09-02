@@ -13,5 +13,5 @@
 uint32_t host_random_seed(void)
 {
     /* Nothing overrides a board: no command line, no fixture. */
-    return os_random_seed();
+    return os_random_entropy();
 }

@@ -198,7 +198,7 @@ uint32_t host_random_seed(void)
 {
     if (!run_seed_taken)
     {
-        run_seed = os_random_seed();
+        run_seed = os_random_entropy();
         run_seed_taken = true;
     }
     return run_seed;

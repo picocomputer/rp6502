@@ -5,16 +5,6 @@
  *
  */
 
-/* What an operating system answers, and only that. Each build names one
- * directory under src/osal that implements it -- linux, macos, windows,
- * android, emscripten, pico -- and linking a different one is the whole of
- * the seam.
- *
- * What a machine says about itself is the other header, src/host/host.h: the
- * clock it runs on, where its code and data are placed, the seed it hands
- * the shared generator. Files are neither -- a Pico has its own storage and a
- * Pocket has the card -- so they are osal/fs.h and osal/dir.h beside this. */
-
 #ifndef _OSAL_OS_H_
 #define _OSAL_OS_H_
 
@@ -24,11 +14,8 @@
 #include <stdint.h>
 #include <time.h>
 
-/* Entropy, when a machine has nothing better to seed the generator with. A
- * Pico has a hardware RNG, a desktop has the OS's; a Pocket has only its
- * clock. This is not the stream -- core/sys/random.h is -- it is what the
- * machine asks for to seed it, and only when it has no answer of its own. */
-uint32_t os_random_seed(void);
+/* Entropy, always, different everry call. */
+uint32_t os_random_entropy(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool os_localtime(time_t t, struct tm *out);

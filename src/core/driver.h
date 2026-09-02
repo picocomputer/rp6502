@@ -4,34 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* What a driver is. The list of them is the machine's -- RP6502_MACH_DRIVERS
- * in its own drivers.h -- and what to do with that list is core/sys/sys.c; this
- * file is only the shape of a row and the walks over it. */
-
 #ifndef _CORE_DRIVER_H_
 #define _CORE_DRIVER_H_
-
-/* A machine lists its drivers once, as RP6502_MACH_DRIVERS in its own
- * drivers.h. A row is DRIVER(init, task, io_task, run, stop, break,
- * config, config); the last two are this driver's persisted settings and
- * are walked by core/sys/config.c, not by the lifecycle walks here. A
- * driver names its own hooks in its own header, so a hook it has not got is
- * nul_* and costs nothing, and a driver a machine has not got is simply
- * absent from the list. Init and the task pumps walk forward; stop and break
- * walk backward, because a teardown reverses a bring-up.
- *
- * The two task columns carry the file IO contract: the task column must be
- * safe to call during blocking file IO -- it is what a host's blocking loops
- * re-enter while a transfer completes -- and a task that may itself perform
- * file IO goes in io_task, which is never re-entered.
- *
- * A walk picks one column out of every row: define DRIVER to the column you
- * want, expand the list, undefine it. That is the whole mechanism, and it is
- * spelled out at each walk rather than hidden behind a macro because the
- * preprocessor cannot define DRIVER from inside one.
- *
- * The arity boilerplate below is the price of reversing a list in the
- * preprocessor. 48 rows is the ceiling; add more by extending the runs. */
 
 #define nul_init()
 #define nul_task()
@@ -39,10 +13,6 @@
 #define nul_stop()
 #define nul_break()
 
-/* The config columns. A driver with no setting has nul_config; a setting
- * with no rule to apply, or every value legal, says so with the other two.
- * A machine that has not got a driver has not got its settings either --
- * the row simply never expands. */
 #define nul_config
 #define nul_check(...) true
 #define nul_apply(...)

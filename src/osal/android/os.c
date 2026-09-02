@@ -10,7 +10,7 @@
 #include <time.h>
 #include <unistd.h>
 
-uint32_t os_random_seed(void)
+uint32_t os_random_entropy(void)
 {
     uint64_t s;
     /* Not getrandom(2): bionic gates it behind API 28. */

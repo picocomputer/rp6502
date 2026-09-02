@@ -25,7 +25,7 @@ uint64_t os_mono_ns(void)
 
 /* The RP2350's hardware RNG, spent once for the seed rather than on every
  * draw; the shared generator does the rest. */
-uint32_t os_random_seed(void)
+uint32_t os_random_entropy(void)
 {
     uint64_t s = get_rand_64();
     return (uint32_t)(s ^ (s >> 32));
