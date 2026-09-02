@@ -14,6 +14,7 @@ include_guard(GLOBAL)
 # Captured here: inside a function body CMAKE_CURRENT_LIST_DIR is the caller's
 # file, not this one.
 set(RP6502_CORE_DIR ${CMAKE_CURRENT_LIST_DIR})
+cmake_path(SET RP6502_VENDOR_DIR NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../vendor)
 
 # rp6502_gen_rsmp_coef(<target>) -> RSMP_COEF_H, RSMP_COEF_DIR
 #
@@ -32,4 +33,25 @@ function(rp6502_gen_rsmp_coef target)
     add_custom_target(${target} DEPENDS ${out})
     set(RSMP_COEF_H ${out} PARENT_SCOPE)
     set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+endfunction()
+
+# rp6502_gen_oemcp(<target>) -> OEMCP_C, OEMCP_H, OEMCP_DIR
+#
+# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c so the logic
+# in core/str/unicode.c can be read without a preprocessor.
+function(rp6502_gen_oemcp target)
+    set(gen ${RP6502_CORE_DIR}/gen/oem_table_gen.py)
+    set(ff ${RP6502_VENDOR_DIR}/fatfs/ffunicode.c)
+    set(c ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
+    set(h ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
+    add_custom_command(OUTPUT ${c} ${h}
+        COMMAND ${CMAKE_COMMAND} -E env python3 ${gen}
+            --ffunicode ${ff} --emit-c ${c} --emit-h ${h}
+        DEPENDS ${gen} ${ff}
+        COMMENT "Generating the OEM code page tables"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${c} ${h})
+    set(OEMCP_C ${c} PARENT_SCOPE)
+    set(OEMCP_H ${h} PARENT_SCOPE)
+    set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()

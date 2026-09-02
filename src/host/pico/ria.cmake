@@ -11,19 +11,8 @@ set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
 # machine; see src/host/emu.cmake for the same name on the desktops.
 set(RP6502_OSAL ${RP6502_ROOT}/src/osal/pico)
 
-# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
-# generator so the logic in core/str/unicode.c can be read without a
-# preprocessor. See src/core/gen/oem_table_gen.py.
-set(OEMCP_GEN ${RP6502_ROOT}/src/core/gen/oem_table_gen.py)
-set(OEMCP_SRC ${RP6502_ROOT}/vendor/fatfs/ffunicode.c)
-set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
-set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
-add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${OEMCP_GEN}
-        --ffunicode ${OEMCP_SRC} --emit-c ${OEMCP_C} --emit-h ${OEMCP_H}
-    DEPENDS ${OEMCP_GEN} ${OEMCP_SRC}
-    COMMENT "Generating the OEM code page tables"
-    VERBATIM)
+include(${RP6502_ROOT}/src/core/gen.cmake)
+rp6502_gen_oemcp(oemcp)
 
 # The keyboard layouts, out of def/keyboard_*.def and into one image hid/layout.c
 # reads a word at a time. See src/core/gen/keyboard_layout_gen.py.
