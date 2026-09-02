@@ -110,10 +110,10 @@ static void run_until(uint64_t deadline)
     bool via_irq;
     bool ria_irq;
     bus_hoist(&addr, &data, &read, &via_irq, &ria_irq);
-    const phi2_div_t div = phi2_div();
+    const phi2_div_t divider = phi2_div();
     /* A rate change between calls can leave a phase the new rate never
      * reaches; it owes at most one tick, so drop it rather than drain it. */
-    uint32_t phase = bus_phase < div.khz ? bus_phase : 0;
+    uint32_t phase = bus_phase < divider.khz ? bus_phase : 0;
     if (!dbg_is_active())
     {
         /* Two loops rather than a per-cycle test, per vic20_exec: at ~8M
@@ -122,11 +122,11 @@ static void run_until(uint64_t deadline)
         while (clk < deadline && resb_running())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            clk += div.whole;
-            phase += div.frac;
-            if (phase >= div.khz)
+            clk += divider.whole;
+            phase += divider.frac;
+            if (phase >= divider.khz)
             {
-                phase -= div.khz;
+                phase -= divider.khz;
                 clk++;
             }
         }
@@ -136,11 +136,11 @@ static void run_until(uint64_t deadline)
         while (clk < deadline && resb_running() && !dbg_is_stopped())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            clk += div.whole;
-            phase += div.frac;
-            if (phase >= div.khz)
+            clk += divider.whole;
+            phase += divider.frac;
+            if (phase >= divider.khz)
             {
-                phase -= div.khz;
+                phase -= divider.khz;
                 clk++;
             }
             if (cpu_dbg_cycle_cb)

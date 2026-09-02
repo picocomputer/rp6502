@@ -11,7 +11,7 @@
 /* Ticks per millisecond, against a rate in cycles per millisecond. */
 #define PHI2_TICKS_PER_MS (SYS_TICKS_PER_US * 1000u)
 
-static phi2_div_t div = {
+static phi2_div_t divider = {
     PHI2_TICKS_PER_MS / PHI2_DEFAULT_KHZ,
     PHI2_TICKS_PER_MS % PHI2_DEFAULT_KHZ,
     PHI2_DEFAULT_KHZ,
@@ -23,19 +23,19 @@ void phi2_set_khz_run(uint16_t khz)
         khz = PHI2_MIN_KHZ;
     if (khz > PHI2_MAX_KHZ)
         khz = PHI2_MAX_KHZ;
-    div.whole = PHI2_TICKS_PER_MS / khz;
-    div.frac = PHI2_TICKS_PER_MS % khz;
-    div.khz = khz;
+    divider.whole = PHI2_TICKS_PER_MS / khz;
+    divider.frac = PHI2_TICKS_PER_MS % khz;
+    divider.khz = khz;
 }
 
 uint16_t phi2_get_khz_run(void)
 {
-    return (uint16_t)div.khz;
+    return (uint16_t)divider.khz;
 }
 
 phi2_div_t phi2_div(void)
 {
-    return div;
+    return divider;
 }
 
 void phi2_init(void)
