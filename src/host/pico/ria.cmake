@@ -13,20 +13,7 @@ set(RP6502_OSAL ${RP6502_ROOT}/src/osal/pico)
 
 include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
-
-# The keyboard layouts, out of def/keyboard_*.def and into one image hid/layout.c
-# reads a word at a time. See src/core/gen/keyboard_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_ROOT}/src/core/gen/keyboard_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/keyboard.def)
-file(GLOB KBDLAY_DEFS ${RP6502_ROOT}/src/core/def/keyboard_*.def)
-set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
-set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
-add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
-        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
-    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
-    COMMENT "Generating the keyboard layouts"
-    VERBATIM)
+rp6502_gen_kbdlay(kbdlay)
 
 # core/hid/keyboard.c reads core/hid/usage.h, the specification's numbers, on
 # every machine. This one also has USB, whose drivers speak TinyUSB's

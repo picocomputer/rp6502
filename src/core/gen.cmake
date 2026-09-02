@@ -55,3 +55,29 @@ function(rp6502_gen_oemcp target)
     set(OEMCP_H ${h} PARENT_SCOPE)
     set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
+
+# The keyboard layouts, out of core/def/keyboard_*.def. The manifest names the
+# layouts and their order, so a menu that picks one by position and an image
+# that declares its own size are both held to it -- it is set here rather than
+# by each caller, so there is one answer to which file that is.
+set(KBDLAY_MANIFEST ${RP6502_CORE_DIR}/def/keyboard.def)
+file(GLOB KBDLAY_DEFS ${RP6502_CORE_DIR}/def/keyboard_*.def)
+
+# rp6502_gen_kbdlay(<target>) -> KBDLAY_C, KBDLAY_H, KBDLAY_DIR
+#
+# The layouts as one image core/hid/layout.c reads a word at a time.
+function(rp6502_gen_kbdlay target)
+    set(gen ${RP6502_CORE_DIR}/gen/keyboard_layout_gen.py)
+    set(c ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
+    set(h ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
+    add_custom_command(OUTPUT ${c} ${h}
+        COMMAND ${CMAKE_COMMAND} -E env python3 ${gen}
+            --manifest ${KBDLAY_MANIFEST} --emit-c ${c} --emit-h ${h}
+        DEPENDS ${gen} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+        COMMENT "Generating the keyboard layouts"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${c} ${h})
+    set(KBDLAY_C ${c} PARENT_SCOPE)
+    set(KBDLAY_H ${h} PARENT_SCOPE)
+    set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+endfunction()

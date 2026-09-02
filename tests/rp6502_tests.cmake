@@ -33,26 +33,12 @@ endif()
 
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
-# The keyboard layouts as a C table. The def files are the source, the
-# generator makes one image, and hid/layout.c reads it a word at a time. No
-# machine here compiles it: the RIA firmware generates its own copy in its
-# own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
-# already translated. Only the layout suites want it, to check the image against
-# the defs it came from, so it is built here rather than in a machine's
-# tree that would never name it. See src/core/gen/keyboard_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
-set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
-set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
-set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
-        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
-    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
-    COMMENT "Generating the keyboard layouts"
-    VERBATIM)
-add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
+# The keyboard layouts as a C table. No machine in a desktop tree compiles
+# them -- the RIA firmware builds its own copy, the Pocket stages the .bin, and
+# the emulator's keyboard arrives already translated. Only the layout suites
+# want this form, to hold the image against the defs it came from.
+include(${RP6502_SRC}/core/gen.cmake)
+rp6502_gen_kbdlay(kbdlay)
 
 # The video-mode corpus is generated, not committed. Every byte of it comes
 # out of vidmodes.py, so a committed copy is only a second copy that can

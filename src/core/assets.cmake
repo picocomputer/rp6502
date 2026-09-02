@@ -14,6 +14,9 @@
 
 include_guard(GLOBAL)
 
+# The manifest and the defs the keyboard image is built from are gen.cmake's.
+include(${CMAKE_CURRENT_LIST_DIR}/gen.cmake)
+
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 file(MAKE_DIRECTORY ${RP6502_ASSETS})
 
@@ -138,8 +141,6 @@ rp6502_core_asset(oemcp_bin GEN ${RP6502_SRC}/core/gen/oem_table_gen.py
 # The keyboard layouts, for the same reason: twenty kilobytes of table
 # as a compiler lays it out, eight as the generator does, and no room
 # for either in a 96 KB tightly coupled memory.
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
 set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
 rp6502_core_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
