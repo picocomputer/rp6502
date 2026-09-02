@@ -804,7 +804,7 @@ binaries, which the build supplies:
   without the other while the arrows and the hotkeys go on working.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
-  `src/core/gen/pocket_image_gen.py`. Analogue documents one format
+  `src/host/pocket/gen/image_gen.py`. Analogue documents one format
   for both, under "Image Format" in its packaging-a-core page: sixteen
   bits a pixel, monochrome, brightness in the upper eight, the raster
   stored rotated a quarter turn counter-clockwise, no header and no
@@ -818,7 +818,7 @@ binaries, which the build supplies:
 
 `core_top` takes two parameters. `TCM_INIT_FILE` names the soft CPU's
 firmware image, four byte-lane files from
-`src/core/gen/rv_tcm_gen.py`; the build supplies it and a bitstream
+`src/host/pocket/gen/rv_tcm_gen.py`; the build supplies it and a bitstream
 without it comes up fetching zeros, which looks exactly like a dead
 video path and is not one. `CORE_TEST_PATTERN` replaces the picture with
 colour bars while leaving the machine built and still talking on both

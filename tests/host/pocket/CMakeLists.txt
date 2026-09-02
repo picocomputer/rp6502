@@ -143,7 +143,7 @@ add_test(NAME kbdlay_json
 set_tests_properties(kbdlay_json PROPERTIES LABELS "gate;host.pocket")
 add_test(NAME stage_map
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/stage_map_gate.py
+        ${RP6502_SRC}/host/pocket/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
