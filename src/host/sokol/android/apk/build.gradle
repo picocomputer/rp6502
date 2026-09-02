@@ -26,7 +26,7 @@ apply plugin: 'com.android.application'
 // Three separate knobs because they are three separate mechanisms: the
 // project's own output, the NDK's staging, and Gradle's project cache
 // (that last one is in gradle.properties, which is where Gradle reads it).
-def out = "$rootDir/../../../../build/android"
+def out = "$rootDir/../../../../../build/android"
 layout.buildDirectory = file("$out/gradle")
 
 // What this build is, from CI. Read into locals first: inside defaultConfig,

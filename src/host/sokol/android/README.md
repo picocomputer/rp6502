@@ -43,13 +43,13 @@ cd src/host/sokol/android/apk
   ```bash
   ./gradlew assembleDebug
   ```
-  Generates: `../../../../build/android/gradle/outputs/apk/debug/rp6502-emu-debug.apk`
+  Generates: `../../../../../build/android/gradle/outputs/apk/debug/rp6502-emu-debug.apk`
 
 * **Release Build** (fully optimized with `-O3`, runs at full speed):
   ```bash
   ./gradlew assembleRelease
   ```
-  Generates: `../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk`
+  Generates: `../../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk`
   *(Note: The release build is configured in `build.gradle` to be signed with your local debug key, making it directly deployable via ADB for development).*
 
 ---
@@ -63,7 +63,7 @@ cd src/host/sokol/android/apk
    ```
 3. Install the optimized Release APK:
    ```bash
-   adb install -r ../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk
+   adb install -r ../../../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk
    ```
 
 ---
