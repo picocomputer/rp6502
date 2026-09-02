@@ -22,7 +22,7 @@
  * exact, and the 6502 is a clock-enable design that cannot tell.
  */
 
-module phi2_div #(
+module phi2 #(
     /* The clock being counted, in kHz. Every rate up to it is exact. */
     parameter int SYS_KHZ = 50400
 ) (
@@ -30,7 +30,7 @@ module phi2_div #(
 
     input logic [15:0] phi2_khz,
 
-    output logic phi2_div_en
+    output logic phi2_en
 );
 
     localparam int ACC_W = $clog2(SYS_KHZ) + 1;
@@ -40,15 +40,15 @@ module phi2_div #(
 
     initial begin
         acc = '0;
-        phi2_div_en = 1'b0;
+        phi2_en = 1'b0;
     end
     always_ff @(posedge clk) begin
         if (next >= ACC_W'(SYS_KHZ)) begin
             acc <= next - ACC_W'(SYS_KHZ);
-            phi2_div_en <= 1'b1;
+            phi2_en <= 1'b1;
         end else begin
             acc <= next;
-            phi2_div_en <= 1'b0;
+            phi2_en <= 1'b0;
         end
     end
 

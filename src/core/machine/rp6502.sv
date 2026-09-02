@@ -167,10 +167,10 @@ module rp6502
      * deadlocked. */
     always_comb phi2_en = phi2_raw_en && !ram_hold;
     always_comb rp6502_phi2_en = phi2_en;
-    phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
+    phi2 #(.SYS_KHZ(SYS_KHZ)) phi2 (
         .clk(clk_mach),
         .phi2_khz(phi2_khz),
-        .phi2_div_en(phi2_raw_en)
+        .phi2_en(phi2_raw_en)
     );
 
     logic [15:0] cpu_addr, cpu_next_addr;

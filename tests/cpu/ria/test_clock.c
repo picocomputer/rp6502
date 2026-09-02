@@ -67,7 +67,7 @@ UTEST(clock, phi2_get_set_clamp)
     phi2_set_khz_run(20000);
     ASSERT_EQ(phi2_get_khz_run(), 8000);
 
-    /* Every whole kilohertz in range is exact here, as in phi2_div.sv. The
+    /* Every whole kilohertz in range is exact here, as in phi2.sv. The
      * board's PIO divider cannot do this and lands nearby instead. */
     for (uint16_t khz = PHI2_MIN_KHZ; khz <= PHI2_MAX_KHZ; khz++)
     {

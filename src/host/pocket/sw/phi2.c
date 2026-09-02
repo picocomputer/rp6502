@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * PHI2, which on this machine is one register. The accumulator in
- * phi2_div is exact at every whole kilohertz, so what was asked for is
+ * the fabric accumulator is exact at every whole kilohertz, so what was asked for is
  * what runs and the run value is read back rather than shadowed.
  *
  * No configuration store behind the setting, and nothing off-machine
@@ -34,7 +34,7 @@ bool phi2_check_khz(uint16_t *v)
     return *v >= PHI2_MIN_KHZ && *v <= PHI2_MAX_KHZ;
 }
 
-/* The accumulator in phi2_div is exact at every whole kilohertz, so what
+/* The accumulator in the fabric accumulator is exact at every whole kilohertz, so what
  * was asked for is what runs. */
 void phi2_apply_khz(uint16_t phi2_khz, bool changed)
 {

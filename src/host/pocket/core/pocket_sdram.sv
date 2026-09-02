@@ -17,7 +17,7 @@
  * to data and eleven before the next op could start. That was fine
  * while nothing here was in a hurry — the header used to say bandwidth
  * was beneath consideration — and it stops being fine the moment the
- * 6502's RAM lives here. At 8 MHz phi2_div emits pulses six clocks
+ * 6502's RAM lives here. At 8 MHz phi2 emits pulses six clocks
  * apart at their tightest, and an activate does not fit in six clocks
  * while a column access does.
  *

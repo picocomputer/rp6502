@@ -14,11 +14,11 @@
  * fitter, which is the whole reason a multicycle path is allowed there.
  */
 
-#include "Vphi2_div.h"
+#include "Vphi2.h"
 
 #include "utest.h"
 
-static Vphi2_div *dut;
+static Vphi2 *dut;
 
 static const int SYS_KHZ = 50400;
 
@@ -39,7 +39,7 @@ static result run_khz(int khz, int sys_clocks)
      * Each rate therefore starts from power-on, which is the only state
      * the hardware ever establishes for it. */
     delete dut;
-    dut = new Vphi2_div;
+    dut = new Vphi2;
     dut->phi2_khz = khz;
     dut->clk = 0;
     dut->eval();
@@ -54,7 +54,7 @@ static result run_khz(int khz, int sys_clocks)
         dut->clk = 1;
         dut->eval();
         gap++;
-        if (dut->phi2_div_en)
+        if (dut->phi2_en)
         {
             if (prev)
                 r.ever_consecutive = true;
@@ -64,7 +64,7 @@ static result run_khz(int khz, int sys_clocks)
             r.pulses++;
             gap = 0;
         }
-        prev = dut->phi2_div_en;
+        prev = dut->phi2_en;
     }
     return r;
 }
@@ -108,7 +108,7 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    dut = new Vphi2_div;
+    dut = new Vphi2;
     int rc = utest_main(argc, argv);
     delete dut;
     return rc;
