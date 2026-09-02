@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Android window host: the sokol entry (sokol_main returns a sapp_desc — sokol's
- * NativeActivity glue owns the real entry point), the native gamepad/menu input
- * hook, the on-screen ROM-select menu (sdtx overlay + storage scanning + JNI
- * all-files-access permission), and the host_window_* hooks. The render/frame/
- * present pipeline is in host/sokol/app/app.c.
+ * This platform's entry: sokol_main returns a sapp_desc, because sokol's
+ * NativeActivity glue owns the real entry point and there is no main() here —
+ * so this file also does what cli/main.c does for everyone else. Then the
+ * hooks, and the AInputEvent decoder, which is this platform's gamepad driver
+ * and offers each event to the ROM browser in menu.c first.
  */
 
 #include "host/host.h"
@@ -15,6 +15,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
+#include "host/sokol/android/menu.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol/sokol_log.h"
@@ -40,12 +41,6 @@
 
 #define MAX_ROMS 64
 #define ROM_NAME_MAX 128
-static char g_rom_files[MAX_ROMS][ROM_NAME_MAX];
-static int g_rom_count = 0;
-static int g_rom_selected_index = 0;
-static bool g_android_menu_active = false;
-static float g_last_menu_y = 0.0f;
-static char g_rom_dir[256] = "";
 
 /* Android gamepad button/axis state tracking. */
 static uint8_t g_android_button0 = 0;
@@ -58,152 +53,6 @@ static int g_android_ry = 0;
 static int g_android_lt = 0;
 static int g_android_rt = 0;
 
-static void android_request_storage_permission(void)
-{
-    ANativeActivity* activity = (ANativeActivity*)sapp_android_get_native_activity();
-    if (!activity) return;
-
-    JavaVM* jvm = activity->vm;
-    JNIEnv* env = NULL;
-    (*jvm)->GetEnv(jvm, (void**)&env, JNI_VERSION_1_6);
-    if (!env)
-    {
-        (*jvm)->AttachCurrentThread(jvm, &env, NULL);
-    }
-    if (!env) return;
-
-    jclass intent_class = (*env)->FindClass(env, "android/content/Intent");
-    jclass uri_class = (*env)->FindClass(env, "android/net/Uri");
-
-    jstring action_str = (*env)->NewStringUTF(env, "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION");
-    jstring uri_str = (*env)->NewStringUTF(env, "package:com.picocomputer.rp6502");
-
-    jmethodID uri_parse = (*env)->GetStaticMethodID(env, uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-    jobject uri_obj = (*env)->CallStaticObjectMethod(env, uri_class, uri_parse, uri_str);
-
-    jmethodID intent_init = (*env)->GetMethodID(env, intent_class, "<init>", "(Ljava/lang/String;)V");
-    jobject intent_obj = (*env)->NewObject(env, intent_class, intent_init, action_str);
-
-    jmethodID set_data_method = (*env)->GetMethodID(env, intent_class, "setData", "(Landroid/net/Uri;)Landroid/content/Intent;");
-    (*env)->CallObjectMethod(env, intent_obj, set_data_method, uri_obj);
-
-    jclass activity_class = (*env)->GetObjectClass(env, activity->clazz);
-    jmethodID start_activity_method = (*env)->GetMethodID(env, activity_class, "startActivity", "(Landroid/content/Intent;)V");
-    (*env)->CallVoidMethod(env, activity->clazz, start_activity_method, intent_obj);
-}
-
-static void detect_rom_directory(void)
-{
-    // 1. Try physical SD Card first: scan /storage/
-    DIR* dir = opendir("/storage");
-    if (dir)
-    {
-        struct dirent* de;
-        while ((de = readdir(dir)) != NULL)
-        {
-            if (strcmp(de->d_name, ".") == 0 ||
-                strcmp(de->d_name, "..") == 0 ||
-                strcmp(de->d_name, "self") == 0 ||
-                strcmp(de->d_name, "emulated") == 0)
-            {
-                continue;
-            }
-
-            // Try /storage/ID/Download/rp6502
-            char path[512];
-            snprintf(path, sizeof(path), "/storage/%s/Download/rp6502", de->d_name);
-            DIR* d = opendir(path);
-            if (d)
-            {
-                closedir(d);
-                strncpy(g_rom_dir, path, sizeof(g_rom_dir) - 1);
-                g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-                closedir(dir);
-                return;
-            }
-
-            // Try /storage/ID/rp6502
-            snprintf(path, sizeof(path), "/storage/%s/rp6502", de->d_name);
-            d = opendir(path);
-            if (d)
-            {
-                closedir(d);
-                strncpy(g_rom_dir, path, sizeof(g_rom_dir) - 1);
-                g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-                closedir(dir);
-                return;
-            }
-        }
-        closedir(dir);
-    }
-
-    // 2. Try internal storage Download/rp6502 next
-    DIR* d = opendir("/sdcard/Download/rp6502");
-    if (d)
-    {
-        closedir(d);
-        strcpy(g_rom_dir, "/sdcard/Download/rp6502");
-        return;
-    }
-
-    // 3. Try to create internal storage Download/rp6502
-    if (mkdir("/sdcard/Download/rp6502", 0777) == 0 || errno == EEXIST)
-    {
-        d = opendir("/sdcard/Download/rp6502");
-        if (d)
-        {
-            closedir(d);
-            strcpy(g_rom_dir, "/sdcard/Download/rp6502");
-            return;
-        }
-    }
-
-    // 4. Fallback to app internal data path
-    const void* native_act = sapp_android_get_native_activity();
-    if (native_act)
-    {
-        ANativeActivity* activity = (ANativeActivity*)native_act;
-        if (activity->internalDataPath)
-        {
-            strncpy(g_rom_dir, activity->internalDataPath, sizeof(g_rom_dir) - 1);
-            g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-            return;
-        }
-        else if (activity->externalDataPath)
-        {
-            strncpy(g_rom_dir, activity->externalDataPath, sizeof(g_rom_dir) - 1);
-            g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-            return;
-        }
-    }
-
-    // Absolute fallback
-    strcpy(g_rom_dir, ".");
-}
-
-static void android_scan_roms(void)
-{
-    detect_rom_directory();
-    chdir(g_rom_dir);
-
-    g_rom_count = 0;
-    DIR* d = opendir(".");
-    if (!d) return;
-    struct dirent* de;
-    while ((de = readdir(d)) != NULL)
-    {
-        size_t len = strlen(de->d_name);
-        if (de->d_name[0] != '.' && len > 7 && strcasecmp(de->d_name + len - 7, ".rp6502") == 0)
-        {
-            strncpy(g_rom_files[g_rom_count], de->d_name, ROM_NAME_MAX - 1);
-            g_rom_files[g_rom_count][ROM_NAME_MAX - 1] = '\0';
-            g_rom_count++;
-            if (g_rom_count >= MAX_ROMS) break;
-        }
-    }
-    closedir(d);
-}
-
 bool rp6502_android_input_hook(const void* native_event)
 {
     const AInputEvent* event = (const AInputEvent*)native_event;
@@ -214,51 +63,8 @@ bool rp6502_android_input_hook(const void* native_event)
         int32_t action = AKeyEvent_getAction(event);
         bool down = (action == AKEY_EVENT_ACTION_DOWN);
 
-        // Handle menu navigation if menu is active
-        if (g_android_menu_active)
-        {
-            if (down)
-            {
-                switch (key_code)
-                {
-                    case AKEYCODE_DPAD_UP:
-                        g_rom_selected_index--;
-                        if (g_rom_selected_index < 0) g_rom_selected_index = g_rom_count - 1;
-                        return 1;
-                    case AKEYCODE_DPAD_DOWN:
-                        g_rom_selected_index++;
-                        if (g_rom_selected_index >= g_rom_count) g_rom_selected_index = 0;
-                        return 1;
-                    case AKEYCODE_BUTTON_A:
-                        if (g_rom_count > 0 &&
-                            app_boot_rom(g_rom_files[g_rom_selected_index]))
-                        {
-                            // Reset key and button states to prevent stuck inputs after closing the menu
-                            g_android_button0 = 0;
-                            g_android_button1 = 0;
-                            g_android_dpad = 0;
-                            g_android_lx = 0;
-                            g_android_ly = 0;
-                            g_android_rx = 0;
-                            g_android_ry = 0;
-                            g_android_lt = 0;
-                            g_android_rt = 0;
-                            gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, true);
-                            g_android_menu_active = false;
-                        }
-                        return 1;
-                    case AKEYCODE_BUTTON_SELECT:
-                    case AKEYCODE_BUTTON_START:
-                    case AKEYCODE_BUTTON_MODE:
-                        // Request permission page and refresh the list
-                        android_request_storage_permission();
-                        android_scan_roms();
-                        return 1;
-                }
-            }
-            // Block all other keys from propagating when menu is active
+        if (menu_key(key_code, down))
             return 1;
-        }
 
         switch (key_code)
         {
@@ -293,8 +99,7 @@ bool rp6502_android_input_hook(const void* native_event)
                 // Toggle ROM select menu when SELECT + START are both pressed
                 if (down && (g_android_button1 & 0x08))
                 {
-                    g_android_menu_active = true;
-                    android_scan_roms();
+                    menu_open();
                 }
                 break;
             case AKEYCODE_BUTTON_START:
@@ -302,16 +107,14 @@ bool rp6502_android_input_hook(const void* native_event)
                 // Toggle ROM select menu when SELECT + START are both pressed
                 if (down && (g_android_button1 & 0x04))
                 {
-                    g_android_menu_active = true;
-                    android_scan_roms();
+                    menu_open();
                 }
                 break;
             case AKEYCODE_BUTTON_MODE: // Home button
                 if (down) g_android_button1 |= 0x10; else g_android_button1 &= ~0x10;
                 if (down)
                 {
-                    g_android_menu_active = true;
-                    android_scan_roms();
+                    menu_open();
                 }
                 break;
             case AKEYCODE_BUTTON_THUMBL:
@@ -344,28 +147,11 @@ bool rp6502_android_input_hook(const void* native_event)
     }
     else if (type == AINPUT_EVENT_TYPE_MOTION)
     {
-        // Handle menu navigation if menu is active
-        if (g_android_menu_active)
+        if (menu_active())
         {
-            float hat_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0);
-            float stick_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0);
-
-            float input_y = 0.0f;
-            if (hat_y < -0.5f || stick_y < -0.5f) input_y = -1.0f;
-            else if (hat_y > 0.5f || stick_y > 0.5f) input_y = 1.0f;
-
-            if (input_y == -1.0f && g_last_menu_y != -1.0f)
-            {
-                g_rom_selected_index--;
-                if (g_rom_selected_index < 0) g_rom_selected_index = g_rom_count - 1;
-            }
-            else if (input_y == 1.0f && g_last_menu_y != 1.0f)
-            {
-                g_rom_selected_index++;
-                if (g_rom_selected_index >= g_rom_count) g_rom_selected_index = 0;
-            }
-            g_last_menu_y = input_y;
-            return 1; // Consume event
+            menu_stick(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0),
+                       AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0));
+            return 1;
         }
 
         // Read Hat/D-pad axes
@@ -423,59 +209,10 @@ void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 void host_window_files_dropped(void) {} /* sokol has no Android drag-n-drop */
 void host_window_open_url(const char *url) { (void)url; } /* no desktop drop-a-ROM prompt */
 
-void host_window_init(void)
-{
-    sdtx_setup(&(sdtx_desc_t){
-        .fonts[0] = sdtx_font_c64(),
-        .logger.func = slog_func,
-    });
-}
+void host_window_init(void) { menu_setup(); }
 
-bool host_window_menu_active(void) { return g_android_menu_active; }
-
-void host_window_menu_draw(void)
-{
-    if (g_android_menu_active)
-    {
-        sdtx_canvas(320.0f, 240.0f);
-        sdtx_origin(2.0f, 2.0f);
-        sdtx_color3b(255, 255, 0); // Yellow
-        sdtx_puts("PICOCOMPUTER 6502 - ROM SELECT\n");
-        sdtx_puts("==============================\n\n");
-
-        if (g_rom_count == 0)
-        {
-            sdtx_color3b(255, 100, 100); // Red
-            sdtx_puts("No ROM files (.rp6502) found.\n\n");
-            sdtx_color3b(200, 200, 200);
-            sdtx_puts("Please copy ROMs to folder:\n");
-            sdtx_printf("%s/\n\n", g_rom_dir);
-            sdtx_color3b(255, 255, 0); // Yellow
-            sdtx_puts("Press SELECT/START/HOME to request\n");
-            sdtx_puts("SD Card folder access permission");
-        }
-        else
-        {
-            sdtx_color3b(200, 200, 200);
-            for (int i = 0; i < g_rom_count; i++)
-            {
-                if (i == g_rom_selected_index)
-                {
-                    sdtx_color3b(100, 255, 100); // Green selection cursor
-                    sdtx_printf("> %s\n", g_rom_files[i]);
-                    sdtx_color3b(200, 200, 200);
-                }
-                else
-                {
-                    sdtx_printf("  %s\n", g_rom_files[i]);
-                }
-            }
-            sdtx_puts("\n\nUse DPAD Up/Down to navigate\n");
-            sdtx_puts("Press A to Boot Selected ROM");
-        }
-    }
-    sdtx_draw();
-}
+bool host_window_menu_active(void) { return menu_active(); }
+void host_window_menu_draw(void) { menu_draw(); }
 
 // Global framebuffer for Android
 static uint32_t android_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
@@ -484,8 +221,7 @@ sapp_desc sokol_main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
 
-    detect_rom_directory();
-    chdir(g_rom_dir);
+    menu_chdir(); /* the folder the list is read from is also the guest's cwd */
 
     // Initialize the drivers once; the machine is started per-program (sys_run).
     sys_init();
@@ -493,14 +229,12 @@ sapp_desc sokol_main(int argc, char* argv[])
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
     if (exec_boot("boot.rp6502", 0, NULL, 0))
     {
-        g_android_menu_active = false;
         sys_commit();
     }
     else
     {
-        g_android_menu_active = true;
         cpu_set_halted(true); // no program yet — hold until the menu boots one
-        android_scan_roms();
+        menu_open();
     }
 
     /* Connect gamepad player 0. Sticks unconditionally: the motion handler
