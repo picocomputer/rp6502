@@ -296,7 +296,13 @@ int main(int argc, char **argv)
     bool booted = exec_boot(rom, o.n_rom_args, o.rom_args, 0);
     free(rom);
     if (!booted)
+    {
+        /* rom_load said why on the machine's console, which nobody is looking
+         * at: no window opens on this path. */
+        fprintf(stderr, "rp6502-emu: cannot load ROM '%s'\n",
+                o.rom ? o.rom : o.installs[0]); /* what was asked for, in host encoding */
         return 1;
+    }
 
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
