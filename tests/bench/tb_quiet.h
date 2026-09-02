@@ -65,7 +65,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
         if (!frame_edge)
             continue;
         frames++;
-        bool stopped = dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag != 0
+        bool stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0
             || !dut->rootp->rp6502__DOT__resb;
         /* Two frames, not one. A firmware that is still working through
          * a boot is silent while it does it, and one quiet frame edge

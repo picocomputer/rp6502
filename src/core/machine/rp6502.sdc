@@ -47,15 +47,15 @@ if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
 
 derive_clock_uncertainty
 
-set_multicycle_path -setup -from [get_registers {*w65c02*}] 4
-set_multicycle_path -hold  -from [get_registers {*w65c02*}] 3
-set_multicycle_path -setup -to [get_registers {*w65c02*}] 4
-set_multicycle_path -hold  -to [get_registers {*w65c02*}] 3
+set_multicycle_path -setup -from [get_registers {*cpu:*}] 4
+set_multicycle_path -hold  -from [get_registers {*cpu:*}] 3
+set_multicycle_path -setup -to [get_registers {*cpu:*}] 4
+set_multicycle_path -hold  -to [get_registers {*cpu:*}] 3
 
-set_multicycle_path -setup -from [get_registers {*via*}] 4
-set_multicycle_path -hold  -from [get_registers {*via*}] 3
-set_multicycle_path -setup -to [get_registers {*via*}] 4
-set_multicycle_path -hold  -to [get_registers {*via*}] 3
+set_multicycle_path -setup -from [get_registers {*via:*}] 4
+set_multicycle_path -hold  -from [get_registers {*via:*}] 3
+set_multicycle_path -setup -to [get_registers {*via:*}] 4
+set_multicycle_path -hold  -to [get_registers {*via:*}] 3
 
 # The rules above are one-ended, and the path arriving at the 6502 from
 # the SRAM does not get six clocks to settle. Left to the -to rule above
@@ -71,9 +71,9 @@ set_multicycle_path -hold  -to [get_registers {*via*}] 3
 # address cone its second clock is exactly what makes 2 the right
 # number, and the constraint did not follow the design.
 set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*w65c02*}] 2
+    -to [get_registers {*cpu:*}] 2
 set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*w65c02*}] 1
+    -to [get_registers {*cpu:*}] 1
 
 # ria_regs advances on phi2_en exactly as w65c02 and via do, and it
 # feeds the 6502's data bus. Left unnamed, the path from it through the

@@ -20,9 +20,9 @@ function(rp6502_add_cpu_test name)
     cmake_parse_arguments(P "" "" "SOURCES;DEFS" ${ARGN})
     if(COMMAND rp6502_add_module_test)
         rp6502_add_module_test(${name}
-            TOP w65c02
-            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/w65c02.sv
-            SOURCES ${P_SOURCES} cpu_dut_rtl.cpp w65c02_dut.cpp
+            TOP cpu
+            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/cpu.sv
+            SOURCES ${P_SOURCES} cpu_dut_rtl.cpp rtl_dut.cpp
             INCLUDES ${CPU_INCLUDES}
             DEFS ${P_DEFS}
             DEPENDS w65c02_rom

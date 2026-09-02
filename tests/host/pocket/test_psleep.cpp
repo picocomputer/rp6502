@@ -845,7 +845,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         if ((i % 4000000L) == 3999999L)
             fprintf(stderr, "after save t=%ldM pc=%04x resb=%d eng=%d "
                             "con=%zu rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                     (int)MEM(engine__DOT__state), g_console.size(),
                     g_rv.size());
     }
@@ -904,13 +904,13 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         step();
         if ((i % 2000000L) == 1999999L)
             fprintf(stderr, "t=%ldM pc=%04x resb=%d con=%zu rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc),
                     (int)MEM(resb), g_console.size(), g_rv.size());
     }
     if (g_console.find(DONE) == std::string::npos)
         fprintf(stderr,
                 "6502 pc %04x resb=%d running=%d engine=%d console=[%s] rv=[%s]\n",
-                (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                 (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
                 g_console.c_str(), g_rv.c_str());
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
@@ -1213,7 +1213,7 @@ UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
         if ((i % 4000000L) == 3999999L)
             fprintf(stderr, "refused t=%ldM pc=%04x resb=%d eng=%d con=%zu "
                             "clken=%d rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                     (int)MEM(engine__DOT__state), g_console.size(),
                     (int)dut->rootp->tb_pocket__DOT__mach_clk_en, g_rv.size());
     }

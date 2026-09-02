@@ -23,8 +23,8 @@
  * takes it at the wrong instruction or not at all.
  */
 
-#include "Vw65c02.h"
-#include "Vw65c02___024root.h"
+#include "Vcpu.h"
+#include "Vcpu___024root.h"
 
 #include "utest.h"
 
@@ -33,7 +33,7 @@
 
 #define ST_WORDS 5
 
-static Vw65c02 *dut;
+static Vcpu *dut;
 static uint8_t mem[0x10000];
 static uint8_t mem_at_freeze[0x10000];
 
@@ -60,7 +60,7 @@ static void make_dut(void)
         dut->final();
         delete dut;
     }
-    dut = new Vw65c02;
+    dut = new Vcpu;
     dut->clk = 0;
     dut->en = 1;
     dut->irq_i = 0;
@@ -85,12 +85,12 @@ static void make_dut(void)
 static Cycle step(void)
 {
     Cycle c;
-    c.addr = dut->w65c02_addr;
-    c.we = dut->w65c02_we;
-    c.sync = dut->rootp->w65c02__DOT__w65c02_sync;
+    c.addr = dut->cpu_addr;
+    c.we = dut->cpu_we;
+    c.sync = dut->rootp->cpu__DOT__cpu_sync;
     if (c.we)
     {
-        c.data = dut->w65c02_data;
+        c.data = dut->cpu_data;
         mem[c.addr] = c.data;
     }
     else
@@ -116,7 +116,7 @@ static void capture(uint32_t *st)
     {
         dut->st_idx = i;
         dut->eval();
-        st[i] = dut->w65c02_st_rdata;
+        st[i] = dut->cpu_st_rdata;
     }
     dut->st_idx = 0;
     dut->eval();
@@ -194,9 +194,9 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
         }
         if (i >= freeze_at
             && (land == LAND_STALLED
-                    ? (dut->w65c02_stp || dut->rootp->w65c02__DOT__wait_flag)
-                    : (dut->rootp->w65c02__DOT__w65c02_sync || dut->w65c02_stp
-                       || dut->rootp->w65c02__DOT__wait_flag)))
+                    ? (dut->cpu_stp || dut->rootp->cpu__DOT__wait_flag)
+                    : (dut->rootp->cpu__DOT__cpu_sync || dut->cpu_stp
+                       || dut->rootp->cpu__DOT__wait_flag)))
             break;
         t.push_back(step());
     }
@@ -204,8 +204,8 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
      * somewhere other than where it meant to would otherwise pass while
      * testing nothing. */
     *landed = i < cycles
-        && (land != LAND_STALLED || dut->w65c02_stp
-            || dut->rootp->w65c02__DOT__wait_flag);
+        && (land != LAND_STALLED || dut->cpu_stp
+            || dut->rootp->cpu__DOT__wait_flag);
 
     uint32_t st[ST_WORDS];
     capture(st);
@@ -372,7 +372,7 @@ UTEST(freeze, a_stopped_core_is_restored_stopped)
     std::vector<Cycle> got = frozen(&landed, 60, 6, 30, -1, LAND_STALLED);
     ASSERT_TRUE(landed);
     compare(utest_result, ref, got, 0);
-    ASSERT_TRUE((int)dut->w65c02_stp);
+    ASSERT_TRUE((int)dut->cpu_stp);
 }
 
 UTEST_MAIN()

@@ -62,7 +62,7 @@ static std::string run(uint64_t max_clocks)
         tb_clock(dut);
         if (dut->rp6502_tx_valid)
             out.push_back((char)dut->rp6502_tx_data);
-        if (dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag)
+        if (dut->rootp->rp6502__DOT__cpu__DOT__stop_flag)
             break;
     }
     return out;
@@ -89,7 +89,7 @@ UTEST(hello, prints_through_the_uart)
     machine_reset();
     load(0x0200, prog, sizeof prog, 0x0200);
     std::string out = run(100000);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->rp6502__DOT__cpu__DOT__stop_flag);
     ASSERT_STREQ(out.c_str(), "HELLO, WORLD!\r\n");
 }
 
@@ -120,11 +120,11 @@ UTEST(hello, echoes_through_the_latch)
         }
         if (dut->rp6502_tx_valid)
             out.push_back((char)dut->rp6502_tx_data);
-        if (dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag)
+        if (dut->rootp->rp6502__DOT__cpu__DOT__stop_flag)
             break;
     }
     ASSERT_TRUE(taken);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->rp6502__DOT__cpu__DOT__stop_flag);
     ASSERT_STREQ(out.c_str(), "Q");
 }
 
@@ -160,7 +160,7 @@ UTEST(hello, ready_never_claims_more_than_it_can_do)
     machine_reset();
     load(0x0200, prog, sizeof prog, 0x0200);
     std::string out = run(100000);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->rp6502__DOT__cpu__DOT__stop_flag);
 
     uint8_t flags = dut->rootp->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[0];
     if (flags & 0x80)

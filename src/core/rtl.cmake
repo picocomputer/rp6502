@@ -46,7 +46,7 @@ set(RP6502_RTL_SOURCES
     ${OPL2_SOURCES}
     ${W65C02_ROM}
     ${RP6502_SRC}/core/machine/rp6502_pkg.sv
-    ${RP6502_SRC}/core/wdc/w65c02.sv
+    ${RP6502_SRC}/core/wdc/cpu.sv
     ${RP6502_SRC}/core/wdc/via.sv
     ${RP6502_SRC}/core/mem/sram64k.sv
     ${RP6502_SRC}/core/mem/xram64k.sv

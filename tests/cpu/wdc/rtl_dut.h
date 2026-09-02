@@ -7,15 +7,15 @@
  * tests. Owns the single model instance.
  */
 
-#ifndef _TESTS_WDC_W65C02_DUT_H_
-#define _TESTS_WDC_W65C02_DUT_H_
+#ifndef _TESTS_WDC_RTL_DUT_H_
+#define _TESTS_WDC_RTL_DUT_H_
 
 #include "dut.h"
 
-extern const dut_t w65c02_dut;
+extern const dut_t rtl_dut;
 
 /* Construct the model and run the power-on reset. Once per process. */
-void w65c02_dut_init(int argc, const char *const argv[]);
-void w65c02_dut_free(void);
+void rtl_dut_init(int argc, const char *const argv[]);
+void rtl_dut_free(void);
 
-#endif /* _TESTS_WDC_W65C02_DUT_H_ */
+#endif /* _TESTS_WDC_RTL_DUT_H_ */
