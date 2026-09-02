@@ -19,8 +19,7 @@
 #include "core/wdc/cpu.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
 #include "core/dap/dbg.h"
 #include "core/vga/pixel_format.h"
-#include "host/host.h"
-#include "osal/os.h"
+#include "core/sys/sys.h"
 #include <assert.h>
 #include <string.h>
 
@@ -132,55 +131,20 @@ uint64_t vga_beam_clk(void)
 
 unsigned long vga_frame_count(void) { return frame_n; }
 
-/* What the beam waits for. Both modes release one line at a time -- the CPU
- * zips in between either way -- and differ only in what the wall clock is
- * held against: a whole frame for a host presenting a framebuffer, a single
- * line for a host consuming scanlines. Unpaced is the default, and is what a
- * script, a screenshot batch, a test and a frontend-paced core all want: the
- * machine advances exactly as fast as it is pumped, which is the whole of
- * their determinism. */
-static vga_pace_t g_pace;
-static uint64_t pace_anchor_ns;
-
-/* How far behind the wall the machine may fall before the debt is forgiven.
- * A host that slept owes nothing: catching that up would fast-forward the
- * program through time it was never there for. */
-#define VGA_PACE_SLACK_NS 100000000ull
-
-static uint64_t beam_due_ns(void)
+/* Run the machine until video says one frame went by. False when a
+ * debugger holds it -- a held machine never will, and a caller must not
+ * wait for it. */
+bool vga_run_frame(void)
 {
-    return g_pace == VGA_PACE_FRAME
-               ? (beam_n / VGA_SCANLINES) * (1000000000ull / VGA_HZ)
-               : beam_n * (1000000000ull / (VGA_HZ * VGA_SCANLINES));
-}
-
-/* "Here is on time." Held apart from vga_set_pace because a resume from a
- * breakpoint wants exactly this and not a mode change: the wall moved while
- * the beam did not, and a debt that large would be forgiven rather than
- * repaid, which is a fast-forward through time the program was not there
- * for. */
-static void vga_repace(void)
-{
-    if (g_pace != VGA_PACE_NONE)
-        pace_anchor_ns = os_mono_ns() - beam_due_ns();
-}
-
-void vga_set_pace(vga_pace_t pace)
-{
-    g_pace = pace;
-    vga_repace();
-}
-
-static bool beam_due(void)
-{
-    if (g_pace == VGA_PACE_NONE)
-        return true;
-    const uint64_t now = os_mono_ns();
-    const uint64_t due = pace_anchor_ns + beam_due_ns();
-    if (now < due)
-        return false;
-    if (now - due > VGA_PACE_SLACK_NS)
-        pace_anchor_ns += now - due - VGA_PACE_SLACK_NS;
+    const unsigned long want = frame_n + 1;
+    while (frame_n != want)
+    {
+        if (dbg_is_stopped())
+            return false;
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
     return true;
 }
 
@@ -200,11 +164,6 @@ void vga_task(void)
      * instruction would resume into an IRQ storm the program never lived
      * through. The picture stays as it was; the window presents it again. */
     if (dbg_is_stopped())
-    {
-        vga_repace();
-        return;
-    }
-    if (!beam_due())
         return;
     /* Draw the line from the machine state as it stands now, before the
      * cycles that belong to it have run -- the CPU catches up to the beam

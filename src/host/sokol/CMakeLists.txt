@@ -49,9 +49,6 @@ endif()
 include(${RP6502_SRC}/host/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
-    # The Win32 seam is osal/windows/os.c, shared with the libretro core.
-    # This is the emulator's own half: a frame pacer, a console and an ANSI
-    # main(), none of which a core has.
     target_sources(emu_core PRIVATE ${RP6502_OSAL}/os_emu.c)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)

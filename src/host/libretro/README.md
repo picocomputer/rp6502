@@ -14,16 +14,16 @@ The seams it needs were already there:
 
 | | |
 | --- | --- |
-| a frame | `sys_run_frame`, which is exactly what `retro_run` is asked for |
+| a frame | `vga_run_frame`, which is exactly what `retro_run` is asked for |
 | a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
-| sound | `aud_pump`, which converts to the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
+| sound | `aud_render`, which fills a buffer at the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
 | devices | the `keyboard_` / `gamepad_` / `mouse_` / `tablet_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `proc_set_argv`, `main_run` |
 
 Two things are converted on the way out. The machine paints RGBA8 and
 libretro asked for XRGB8888, so red and blue trade places — an exchange
 that is its own inverse, which is why `tests/cpu/vid` answers here with
-the same CRCs it answers everywhere. And what `aud_pump` hands over is
+the same CRCs it answers everywhere. And what `aud_render` fills is
 floats, which become the int16 pairs the batch callback takes.
 
 There is no monitor on this host, and no debugger or scripting. A

@@ -3,18 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What Windows answers for any host of ours (osal/os.h host_*), the Win32
- * counterpart of osal/posix/os.c. The emulator and the libretro core share
- * every line of it.
- *
- * What is NOT here is what differs between those two rather than between
- * operating systems: the console attach, which only a program with a console
- * wants, and the argv encoding, because an ANSI main() is handed the process
- * code page while a libretro frontend hands UTF-8. Each host answers those
- * itself.
- *
- * Several are documented no-ops because MSVC's struct tm has no timezone
- * fields and its strftime uses the thread locale directly.
  */
 
 #include "osal/os.h"
@@ -27,7 +15,10 @@
 #include <time.h>
 #include <windows.h>
 
-/* ---- entropy ---- */
+/* The flag is the same on every SDK; only the newer ones spell it. */
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 
 uint32_t os_random_seed(void)
 {
@@ -41,8 +32,6 @@ uint32_t os_random_seed(void)
                  (uint64_t)(uintptr_t)&f + (uint64_t)f.QuadPart;
     return (uint32_t)(s ^ (s >> 32));
 }
-
-/* ---- monotonic clock ---- */
 
 /* Integer throughout: a double holds whole nanoseconds exactly only to 2^53,
  * which is about 104 days of uptime, after which it quantizes. Split the
@@ -61,6 +50,31 @@ uint64_t os_mono_ns(void)
     return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
 }
 
+/* A high-resolution waitable timer wakes on time; Sleep rounds to the
+ * scheduler's tick. Windows before 1803 refuses the flag, and there the
+ * wake is late by up to a tick, which the caller's debt absorbs. */
+void os_sleep_ns(uint64_t ns)
+{
+    static HANDLE timer;
+    static bool no_timer;
+    if (!timer && !no_timer)
+    {
+        timer = CreateWaitableTimerExW(NULL, NULL,
+                                       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                       TIMER_ALL_ACCESS);
+        no_timer = !timer;
+    }
+    if (no_timer)
+    {
+        Sleep((DWORD)(ns / 1000000ull));
+        return;
+    }
+    LARGE_INTEGER due;
+    due.QuadPart = -(LONGLONG)(ns / 100ull); /* relative, 100 ns units */
+    SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+    WaitForSingleObject(timer, INFINITE);
+}
+
 bool os_localtime(time_t t, struct tm *out)
 {
     return localtime_s(out, &t) == 0;
@@ -70,8 +84,6 @@ bool os_gmtime(time_t t, struct tm *out)
 {
     return gmtime_s(out, &t) == 0;
 }
-
-/* ---- host-locale strftime ---- */
 
 void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
 
@@ -84,8 +96,6 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
     (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
 }
-
-/* ---- config location ---- */
 
 char *os_config_dir(void)
 {

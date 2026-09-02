@@ -44,7 +44,6 @@
 #include "core/rom/rom.h"
 #include "core/wdc/cpu.h"
 #include "core/sys/sys.h"
-#include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>
@@ -65,9 +64,15 @@ static struct
     uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
 } app;
 
-/* Max emulated frames the pacer will run in one callback before dropping the
- * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
- * sub-60 display: 6 supports presents down to ~10 Hz, caps catch-up to ~100 ms. */
+/* Wall time owed to the machine, repaid in whole frames at the top of each
+ * callback. When the present holds the thread the display paces us; when it
+ * returns at once nothing does, and the callback sleeps to the next frame. */
+static uint64_t entered_ns, returned_ns, debt_ns, machine_ns;
+static bool paced, ran_frame, held;
+#define FRAME_NS (1000000000ull / VGA_HZ)
+#define PRESENT_WAIT_NS 2000000 /* longer than a present that waits for nothing */
+
+uint64_t window_machine_ns(void) { return machine_ns; }
 
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -354,6 +359,13 @@ static void update_title(void)
     }
 }
 
+/* The device's own thread, with the buffer it is about to play. */
+static void stream_cb(float *buffer, int num_frames, int num_channels)
+{
+    (void)num_channels;
+    aud_render(buffer, num_frames);
+}
+
 void window_core_init(void)
 {
     sapp_set_icon(icon_desc());
@@ -372,6 +384,7 @@ void window_core_init(void)
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
+            .stream_cb = stream_cb,
             .logger.func = slog_func,
         });
         aud_set_native_rate((uint32_t)saudio_sample_rate());
@@ -398,6 +411,18 @@ void window_core_init(void)
 
 void window_core_frame(void)
 {
+    const uint64_t now = os_mono_ns();
+    /* The display paces us when the present held the thread; when a frame
+     * ate the whole period (past 240 Hz it does), the callback before knew. */
+    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && ran_frame);
+    uint64_t dt = entered_ns ? now - entered_ns : FRAME_NS;
+    entered_ns = now;
+    /* A 59.94 or 60 Hz display is one frame per callback, not a beat. */
+    if (paced && dt > FRAME_NS - FRAME_NS / 10 && dt < FRAME_NS + FRAME_NS / 10)
+        dt = FRAME_NS;
+    if (dt > 3 * FRAME_NS) /* a stall is forgiven, not replayed */
+        dt = 3 * FRAME_NS;
+    debt_ns += dt;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
     {
@@ -413,27 +438,29 @@ void window_core_frame(void)
     gamepad_input_task();
 #endif
 
-    /* Video leads on the wall clock -- the beam holds at each frame boundary
-     * until real time is owed it -- and the CPU follows it through the pump.
-     * A host that slept has its debt forgiven inside vga_task rather than
-     * fast-forwarded here. This loop's own bound is presentation: stop when a
-     * frame is ready, or when we have spent long enough that the window must
-     * be serviced whatever the machine is doing. */
-    double dt = sapp_frame_duration(); /* only the EMU_BENCH_MS block uses it */
-    const unsigned long seen = vga_frame_count();
-    const uint64_t deadline_ns = os_mono_ns() + 12000000ull;
-    while (vga_frame_count() == seen && os_mono_ns() < deadline_ns)
+    /* A held machine is paced by nothing, and the present's rate is more
+     * than the workbench needs. */
+    if ((!paced || held) && debt_ns < FRAME_NS)
     {
-        sys_task();
-        sys_io_task();
-        sys_commit();
+        os_sleep_ns(FRAME_NS - debt_ns);
+        const uint64_t woke = os_mono_ns();
+        debt_ns += woke - entered_ns;
+        entered_ns = woke;
     }
-    const bool fresh = vga_frame_count() != seen;
-
-    /* Ask the device how much room it has and hand it exactly that; --mute
-     * opens no device, so nothing is asked for and nothing is generated. */
-    if (saudio_isvalid())
-        aud_pump(saudio_sample_rate(), saudio_push, saudio_expect());
+    ran_frame = held = false;
+    const uint64_t t0 = os_mono_ns();
+    while (debt_ns >= FRAME_NS)
+    {
+        if (!vga_run_frame()) /* held by a debugger: owed nothing on resume */
+        {
+            debt_ns = 0;
+            held = true;
+            break;
+        }
+        debt_ns -= FRAME_NS;
+        ran_frame = true;
+    }
+    machine_ns += os_mono_ns() - t0;
 
     /* Reflect the run state in the title so the user knows the run is done (exec
      * un-halts within a frame, so this only trips on a real exit), and close the
@@ -451,22 +478,19 @@ void window_core_frame(void)
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
      * be ~60 Hz regardless of the host display) and quit. */
-    static double bench_limit = -2.0, bench_total;
-    if (bench_limit < -1.0)
+    static uint64_t bench_limit_ns = UINT64_MAX, bench_start_ns;
+    if (bench_limit_ns == UINT64_MAX)
     {
         const char *e = getenv("EMU_BENCH_MS");
-        bench_limit = e ? atof(e) / 1000.0 : -1.0;
+        bench_limit_ns = e ? (uint64_t)(atof(e) * 1000000.0) : 0;
+        bench_start_ns = now;
     }
-    if (bench_limit > 0.0)
+    if (bench_limit_ns && now - bench_start_ns >= bench_limit_ns)
     {
-        bench_total += dt;
-        if (bench_total >= bench_limit)
-        {
-            fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    vga_frame_count(), bench_total,
-                    (double)vga_frame_count() / bench_total);
-            sapp_request_quit();
-        }
+        const double secs = (double)(now - bench_start_ns) / 1e9;
+        fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
+                vga_frame_count(), secs, (double)vga_frame_count() / secs);
+        sapp_request_quit();
     }
 
     int cw, ch;
@@ -506,7 +530,7 @@ void window_core_frame(void)
     {
         /* dpi_scale 1.0: render the overlay at native resolution so the 13px
          * bitmap font lands 1:1 (crisp) instead of being magnified/blurred. */
-        dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), 1.0f);
+        dbgui_new_frame(sapp_width(), sapp_height(), (double)dt / 1e9, 1.0f);
         dbgui_draw();
     }
 #endif
@@ -538,9 +562,12 @@ void window_core_frame(void)
     /* Upload the new frame from the window's framebuffer, but only when one was
      * produced this callback; a duplicate present (no new frame, e.g. a display
      * faster than 60 Hz) re-blits sfb's existing texture below without
-     * re-uploading. A recreating resize must repopulate regardless. */
+     * re-uploading. A recreating resize must repopulate regardless. Stamped
+     * before the upload: on Mesa DRI3 the wait for the display is the next
+     * GL write, not the swap. */
     static bool ever_uploaded;
-    if (fresh || recreated)
+    returned_ns = os_mono_ns();
+    if (ran_frame || recreated)
     {
         sfb_update(app.sfb, &(sfb_update_desc){
             .pixels = {.ptr = app.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
@@ -1008,7 +1035,6 @@ void window_core_prepare(uint32_t *fb, double scale, bool have_scale,
     app.scale = scale;
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
-    vga_set_pace(VGA_PACE_FRAME);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
      * canvas opens wider. The WM may restore a previous size instead; that's fine

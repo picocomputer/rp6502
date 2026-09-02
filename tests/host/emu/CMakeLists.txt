@@ -3,7 +3,7 @@
 #
 # What belongs here is a claim about this host's program rather than about the
 # RP6502 — the DAP and DWARF readers, the desktop gamepad policy above the
-# per-OS seam, the rate pump between the machine's clock and an audio device,
+# per-OS seam, the render that fills an audio device's buffer,
 # and the binary driven from outside. The scripts that pair with a subsystem
 # live with that subsystem in tests/cpu; what is left is about the program.
 
@@ -62,8 +62,8 @@ endif()
 # No fixture: the claims are about the fan-outs, not about a program.
 rp6502_add_test(sys LIBS emu_core)
 
-# --- aud_pump: the seam between the machine's rate and the host's ---
-rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
+# --- aud_render: the device's buffer, filled from the registers ---
+rp6502_add_test(render LIBS emu_core)
 
 # --- The desktop gamepad policy, against a host that does as it is told ---
 # Reading a controller is per-OS code no runner has hardware for. Everything

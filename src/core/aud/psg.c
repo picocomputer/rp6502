@@ -9,6 +9,7 @@
 #include "core/aud/psg.h"
 #include "core/mem.h"
 #include "host/host.h"
+#include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -286,6 +287,7 @@ static void
     uint8_t max_work = 32;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
+        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
         uint8_t tail = ++xram_queue_tail;
         uint8_t loc = xram_queue[tail][0];
         uint8_t val = xram_queue[tail][1];

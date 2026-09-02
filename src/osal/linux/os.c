@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The one thing Linux answers differently from the shared osal/posix/os.c:
- * entropy, via getrandom. Everything else a POSIX host needs lives there.
  */
 
 #include "osal/os.h"

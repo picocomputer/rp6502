@@ -29,6 +29,11 @@ void vga_task(void);
 /* The machine clock the beam has reached: what the CPU is owed. */
 uint64_t vga_beam_clk(void);
 
+/* Run the machine until video says one frame went by. False when a
+ * debugger holds it -- a held machine never will, and a caller must not
+ * wait for it. */
+bool vga_run_frame(void);
+
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
 #define VGA_MAX_WIDTH 640
@@ -47,22 +52,8 @@ uint32_t *vga_get_framebuffer(void);
 
 /* The rest of what a machine's video answers -- the canvas, the scanline
  * program, the code page -- is core/vga/vga.h, which every machine shares.
- * This file is only what the emulator additionally has: a framebuffer. */
-
-/* What the beam waits for. Both modes release one scanline at a time, so the
- * CPU zips in between either way; they differ only in what real time is held
- * against. A host presenting a framebuffer keeps whole frames on time; a host
- * consuming scanlines keeps each line on time. Unpaced -- the default -- never
- * waits, which is what a script, a screenshot batch, a test and a
- * frontend-paced core all want. */
-typedef enum
-{
-    VGA_PACE_NONE,
-    VGA_PACE_FRAME,
-    VGA_PACE_SCANLINE,
-} vga_pace_t;
-
-void vga_set_pace(vga_pace_t pace);
+ * This file is only what the emulator additionally has: a framebuffer, and
+ * the beam as the clock the whole machine follows. */
 
 /* This driver's row in a machine's driver list; see core/driver.h. Video leads: its
  * task runs before the CPU's, which follows the beam. */

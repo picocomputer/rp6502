@@ -10,7 +10,6 @@
 #include "core/sys/exec.h"
 #include "core/vga/vga_emu.h"
 #include "core/sys/sys.h"
-#include "core/dap/dbg.h"
 #include "core/rom/rom.h"
 #include "utest.h"
 
@@ -43,19 +42,13 @@ static inline bool emu_restart(const char *rom)
     return true;
 }
 
-/* Run n whole frames, the way every host does: pump the machine until video
- * says the frames went by -- or until a debugger holds it, which stops the
- * beam along with everything else. A caller that meant to advance a held
- * machine has to let go of it first; without this a breakpoint is a hang. */
+/* Run n whole frames, the way every host does -- or fewer, when a debugger
+ * holds the machine. A caller that meant to advance a held machine has to
+ * let go of it first. */
 static inline void emu_frames(int n)
 {
-    const unsigned long want = vga_frame_count() + (unsigned long)n;
-    while (vga_frame_count() < want && !dbg_is_stopped())
-    {
-        sys_task();
-        sys_io_task();
-        sys_commit();
-    }
+    while (n-- > 0 && vga_run_frame())
+        ;
 }
 
 #endif /* _EMU_TESTS_EMU_BOOT_H_ */

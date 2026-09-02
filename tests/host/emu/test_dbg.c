@@ -38,29 +38,32 @@ static void disarm(void)
     dbg_set_active(false);
 }
 
-/* Pull a frame of audio and report whether any of it was audible. */
-static bool g_heard;
-
-static int hearing_push(const float *frames, int num_frames)
-{
-    for (int i = 0; i < num_frames * 2; i++)
-        if (frames[i] != 0.0f)
-            g_heard = true;
-    return num_frames;
-}
+/* A frame of audio, rendered as the device's thread would take it. */
+static float g_out[800 * 2];
 
 static bool audible(void)
 {
-    g_heard = false;
-    aud_pump(aud_native_rate(), hearing_push, 800);
-    return g_heard;
+    aud_render(g_out, 800);
+    for (int i = 0; i < 800 * 2; i++)
+        if (g_out[i] != 0.0f)
+            return true;
+    return false;
 }
 
-/* A debugger pause is the one hold that silences. The machine is stopped for
- * someone to read, and a note sustaining under the cursor for as long as that
- * takes is only annoying. A sys_stop is the opposite: audio plays right
- * through it, which is how the bell rings between programs. */
-UTEST(dbg, a_pause_silences_but_a_mach_stop_does_not)
+static bool held_at(float l, float r)
+{
+    for (int i = 0; i < 800; i++)
+        if (g_out[i * 2] != l || g_out[i * 2 + 1] != r)
+            return false;
+    return true;
+}
+
+/* A debugger pause holds the level: the machine is stopped for someone to
+ * read it, the synth does not run, and the device keeps playing what it was
+ * given last -- not silence, which is a click at each edge. A sys_stop is the
+ * opposite: audio plays right through it, which is how the bell rings between
+ * programs. */
+UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
 {
     ASSERT_TRUE(load());
 
@@ -69,16 +72,20 @@ UTEST(dbg, a_pause_silences_but_a_mach_stop_does_not)
     sys_commit();
     bel_add(&bel_teletype);
     ASSERT_TRUE(audible());
+    const float last_l = g_out[799 * 2], last_r = g_out[799 * 2 + 1];
+    ASSERT_FALSE(held_at(last_l, last_r)); /* a ringing bell moves */
 
-    /* Hold it in the debugger and the same bell goes quiet. */
+    /* Held in the debugger: every sample is the one the handler wrote last. */
     dbg_set_active(true);
     dbg_note_stop(entry_pc());
     ASSERT_TRUE(dbg_is_stopped());
-    ASSERT_FALSE(audible());
+    aud_render(g_out, 800);
+    ASSERT_TRUE(held_at(last_l, last_r));
 
     /* Resume and it picks the note back up -- the synth kept its state. */
     dbg_continue();
-    ASSERT_TRUE(audible());
+    aud_render(g_out, 800);
+    ASSERT_FALSE(held_at(last_l, last_r));
 
     disarm();
     for (int i = 0; i < 256 && audible(); i++) /* play the bell out */

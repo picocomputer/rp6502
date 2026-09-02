@@ -30,7 +30,6 @@
 #include "core/sys/sys.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
-#include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
 
@@ -41,11 +40,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The rate this core declares in av_info, and the rate aud_pump converts to.
- * Most of the machine's voices are generated at it already and pass through
- * untouched; the OPL2 is not, because a YM3812 runs at 49716 Hz. */
+/* The rate this core declares in av_info, which is the machine's native
+ * rate: most of its voices are generated at it and the OPL2 is resampled
+ * to it, because a YM3812 runs at 49716 Hz. */
 #define RETRO_AUD_RATE 48000
-#define RETRO_AUD_FRAMES_MAX (RETRO_AUD_RATE / VGA_HZ + 64)
+#define RETRO_AUD_FRAMES (RETRO_AUD_RATE / VGA_HZ)
 
 static retro_environment_t environ_cb;
 static retro_video_refresh_t video_cb;
@@ -55,7 +54,8 @@ static retro_input_state_t input_state_cb;
 static retro_log_printf_t log_cb;
 
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
+static float audio_out[RETRO_AUD_FRAMES * 2];
+static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
 
 static char *loaded_rom;  /* OEM, absolute, for retro_reset; owned */
 static char *loaded_path; /* as the frontend spelled it; owned */
@@ -612,40 +612,16 @@ static void swizzle(uint32_t *px, size_t n)
     }
 }
 
-static int audio_frames_sent;
-
-/* aud_pump's sink: the machine's floats as the int16 pairs libretro takes.
- * It arrives already at the rate this core declared, which is the whole
- * reason to go through aud_pump — a YM3812 runs at 49716 Hz or it is not
- * one, and resampling it is the machine's business rather than ours. */
-static int push_frames(const float *frames, int n)
-{
-    int done = 0;
-    while (done < n)
-    {
-        int chunk = n - done;
-        if (chunk > RETRO_AUD_FRAMES_MAX)
-            chunk = RETRO_AUD_FRAMES_MAX;
-        for (int i = 0; i < chunk * 2; i++)
-        {
-            float s = frames[done * 2 + i];
-            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
-            audio_buf[i] = (int16_t)(s * 32767.0f);
-        }
-        audio_batch_cb(audio_buf, (size_t)chunk);
-        done += chunk;
-    }
-    audio_frames_sent += n;
-    return n;
-}
-
 /* One frame's worth per call, which is what a frontend syncing on sound
- * waits for. A silent machine generates silence rather than nothing: the
- * standing BEL is always the installed device. */
+ * waits for, as the int16 pairs libretro takes. A silent machine generates
+ * silence rather than nothing: the standing BEL is always the installed
+ * device. */
 static void push_audio(void)
 {
-    audio_frames_sent = 0;
-    aud_pump(RETRO_AUD_RATE, push_frames, RETRO_AUD_RATE / VGA_HZ);
+    aud_render(audio_out, RETRO_AUD_FRAMES);
+    for (int i = 0; i < RETRO_AUD_FRAMES * 2; i++)
+        audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
+    audio_batch_cb(audio_buf, RETRO_AUD_FRAMES);
 }
 
 void retro_run(void)
@@ -667,13 +643,7 @@ void retro_run(void)
     input_poll(input_state_cb);
 
     /* The frontend paces us: one frame per call, as fast as this can run it. */
-    const unsigned long want = vga_frame_count() + 1;
-    while (vga_frame_count() < want)
-    {
-        sys_task();
-        sys_io_task();
-        sys_commit();
-    }
+    vga_run_frame();
 
     int w, h;
     vga_canvas_size(&w, &h);

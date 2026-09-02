@@ -21,7 +21,6 @@
 #include "core/str/path.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
-#include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/app/cli.h"
 #include "host/sokol/app/script.h"
@@ -326,15 +325,7 @@ int main(int argc, char **argv)
         {
             script_task(); /* returns owing exactly one frame, or done */
             if (script_running())
-            {
-                const unsigned long want = vga_frame_count() + 1;
-                while (vga_frame_count() < want)
-                {
-                    sys_task();
-                    sys_io_task();
-                    sys_commit();
-                }
-            }
+                vga_run_frame();
         }
         if (script_exit_code() || !o.screenshot)
             return script_exit_code(); /* a passing script may still want the shot */
@@ -342,15 +333,9 @@ int main(int argc, char **argv)
 
     if (o.screenshot)
     {
-        const unsigned long want =
-            vga_frame_count() + (unsigned long)(o.frames < 1 ? 1 : o.frames);
-        while (vga_frame_count() < want)
-        {
-            sys_task(); /* the last frame lands in g_fb, registered above */
-            sys_io_task();
-            sys_commit();
-        }
         const int frames = o.frames < 1 ? 1 : o.frames;
+        for (int i = 0; i < frames; i++)
+            vga_run_frame(); /* the last frame lands in g_fb, registered above */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.screenshot, cw, ch, g_fb))

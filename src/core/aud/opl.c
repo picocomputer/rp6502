@@ -8,8 +8,9 @@
 #include "core/aud/bel.h"
 #include "core/aud/opl.h"
 #include "core/mem.h"
-#include <assert.h>
 #include "host/host.h"
+#include <assert.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -55,6 +56,7 @@ static void
     uint8_t max_work = 8;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
+        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
         uint8_t tail = ++xram_queue_tail;
         OPL_writeReg(opl_emu8950,
                      xram_queue[tail][0],

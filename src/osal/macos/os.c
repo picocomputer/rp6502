@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The one thing macOS answers differently from the shared osal/posix/os.c:
- * entropy, which has no getrandom here. Everything else lives there.
  */
 
 #include "osal/os.h"

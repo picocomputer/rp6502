@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The osal/os.h calls every POSIX system answers the same way, shared by
- * linux, macos, emscripten and android; the counterpart of osal/windows/os.c.
- * The one that differs by system, os_random_seed, is in each one's own os.c
- * beside this.
  */
 
 #include "osal/os.h"
@@ -20,8 +16,6 @@
 #include <time.h>
 #include <unistd.h>
 
-/* ---- monotonic clock ---- */
-
 uint64_t os_mono_ns(void)
 {
     struct timespec ts;
@@ -29,7 +23,14 @@ uint64_t os_mono_ns(void)
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
 
-/* ---- broken-down time ---- */
+void os_sleep_ns(uint64_t ns)
+{
+    struct timespec ts = {
+        .tv_sec = (time_t)(ns / 1000000000ull),
+        .tv_nsec = (long)(ns % 1000000000ull),
+    };
+    nanosleep(&ts, NULL);
+}
 
 bool os_localtime(time_t t, struct tm *out)
 {
@@ -40,8 +41,6 @@ bool os_gmtime(time_t t, struct tm *out)
 {
     return gmtime_r(&t, out) != NULL;
 }
-
-/* ---- host-locale strftime ---- */
 
 #if defined(__APPLE__)
 size_t strftime_l(char *restrict, size_t, const char *restrict,
@@ -73,8 +72,6 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
     (void)tm, (void)probe;
 #endif
 }
-
-/* ---- config location ---- */
 
 char *os_config_dir(void)
 {

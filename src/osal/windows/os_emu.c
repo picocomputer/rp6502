@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Win32 primitives that are this program's rather than the operating
- * system's. What Windows answers for every host of ours is in
- * osal/windows/os.c; these differ because the emulator is a program with a
- * console and an ANSI main(), and a libretro core is neither.
  */
 
 #include "osal/os.h"
@@ -17,8 +13,6 @@
 #include <string.h>
 #include <wchar.h>
 #include <windows.h>
-
-/* ---- broken-down time ---- */
 
 void os_console_attach(void)
 {

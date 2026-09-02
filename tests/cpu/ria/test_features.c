@@ -192,22 +192,19 @@ UTEST(features, empty_args_kept)
 
 /* Pull a frame's worth of audio at a time until a nonzero sample appears or
  * the budget runs out. Returns whether the standing handler was audible. */
-static bool g_heard;
+/* A frame of audio, rendered as the device's thread would take it. */
+static float g_out[800 * 2];
 
-static int listening_push(const float *frames, int num_frames)
+static bool rendered_audio(int renders)
 {
-    for (int i = 0; i < num_frames * 2; i++)
-        if (frames[i] != 0.0f)
-            g_heard = true;
-    return num_frames;
-}
-
-static bool pumped_audio(int pulls)
-{
-    g_heard = false;
-    for (int p = 0; p < pulls && !g_heard; p++)
-        aud_pump(aud_native_rate(), listening_push, 800);
-    return g_heard;
+    for (int p = 0; p < renders; p++)
+    {
+        aud_render(g_out, 800);
+        for (int i = 0; i < 800 * 2; i++)
+            if (g_out[i] != 0.0f)
+                return true;
+    }
+    return false;
 }
 
 /* Bell: the BEL is the standing audio device (firmware), present at boot and
@@ -223,12 +220,12 @@ UTEST(features, teletype_bell)
     /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
     com_set_bel(false);
     ASSERT_EQ(ssys_write(1, "\a", 1), 1); /* fd 1 = stdout */
-    ASSERT_FALSE(pumped_audio(16));
+    ASSERT_FALSE(rendered_audio(16));
 
     /* Enabled: the same BEL byte now rings the bell -> audible samples. */
     com_set_bel(true);
     ASSERT_EQ(ssys_write(1, "\a", 1), 1);
-    ASSERT_TRUE(pumped_audio(16));
+    ASSERT_TRUE(rendered_audio(16));
 }
 
 /* --mute (aud_set_enabled(false)): no rate is reported and the synth
@@ -242,16 +239,15 @@ UTEST(features, audio_disable)
     ASSERT_FALSE(aud_enabled());
     ASSERT_EQ(aud_rate(), 0);
 
-    /* Ringing a bell and pulling must produce nothing (no per-sample work).
-     * aud_rate() is 0 while muted, which is what stops the pump dead. */
+    /* A rung bell renders as silence: the handler never runs. */
     bel_add(&bel_teletype);
-    ASSERT_FALSE(pumped_audio(8));
+    ASSERT_FALSE(rendered_audio(8));
 
     aud_set_enabled(true); /* restore the default for any later test */
     /* Play out the bell we rang: audio is a continuous stream (a reset never
      * silences it), so drain it here instead of bleeding into a later test. */
     for (int p = 0; p < 128; p++)
-        aud_pump(aud_native_rate(), listening_push, 800);
+        aud_render(g_out, 800);
 }
 
 UTEST_MAIN_EMU()

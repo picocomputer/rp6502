@@ -59,6 +59,9 @@ void window_set_scale(double scale);
 /* The window's current scale by the same formula; 0 when there is no window. */
 double window_get_scale(void);
 
+/* Wall time the machine has spent running frames, in total. */
+uint64_t window_machine_ns(void);
+
 /* On-screen pixels per canvas pixel (the aspect-fit blit scale). The input layer
  * divides host mouse motion by this so pointer speed is window-size independent. */
 float window_canvas_scale(void);

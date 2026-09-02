@@ -6,13 +6,10 @@
  */
 
 #include "core/aud/aud_mix.h"
-#include "core/mem/mem.h"
 #include "core/aud/rsmp.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
 #include "core/dap/dbg.h"
-#define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
-#include <math.h>
 #include <string.h>
 
 /* The active device's sample handler + rate, installed by aud_setup. */
@@ -22,7 +19,7 @@ static uint32_t aud_irq_rate;
 /* What the machine generates at. The default is what we ask the host for;
  * aud_set_native_rate replaces it with what the host actually gave, so the
  * voices whose rate is ours to choose are generated at the device's rate
- * and aud_pump has nothing to do for them. */
+ * and aud_render has nothing to convert for them. */
 #define AUD_NATIVE_RATE 48000
 static uint32_t g_native_rate = AUD_NATIVE_RATE;
 
@@ -32,7 +29,7 @@ void aud_init(void)
 {
     aud_sine_init();
     psg_setup(aud_native_rate());
-    aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
+    aud_stop(); /* the standing BEL device, as the firmware's aud_init */
 }
 
 void aud_set_native_rate(uint32_t rate)
@@ -41,24 +38,19 @@ void aud_set_native_rate(uint32_t rate)
         return;
     g_native_rate = rate;
     /* The PSG's envelope tables and phase divisor come out of the rate, and
-     * the standing bell is registered with it, so both have to be rebuilt.
-     * aud_stop does the bell and drains the ring. */
+     * the standing bell is registered with it, so both have to be rebuilt. */
     psg_setup(rate);
     aud_stop();
 }
 
 void aud_setup(void (*irq_fn)(void), uint32_t rate)
 {
-    aud_irq_fn = irq_fn;
     aud_irq_rate = rate;
+    aud_irq_fn = irq_fn;
 }
 
-/* ------------------------------------------------------------------ */
-/* Stereo output capture: the seam the audio drivers write through.    */
-/* ------------------------------------------------------------------ */
-
 /* The last stereo level the active handler wrote, signed with silence at
- * zero; aud_task reads it back each sample and scales it to the float the
+ * zero; aud_render reads it back each sample and scales it to the float the
  * host wants. Nothing here knows the RP2350's PWM depth any more. */
 static int16_t g_out_l, g_out_r;
 
@@ -70,41 +62,11 @@ void aud_out(int16_t left, int16_t right)
 
 void aud_clear_irq(void) {}
 
-/* ------------------------------------------------------------------ */
-/* Native-rate stereo ring                                             */
-/* ------------------------------------------------------------------ */
-
-/* Transit between the generator and the converter, not a store: a pull
- * generates what it is about to take, so this sits near empty. */
-#define AUD_RING_FRAMES 4096
-static float g_ring[AUD_RING_FRAMES * 2];
-static unsigned g_head, g_tail; /* frame indices, mod AUD_RING_FRAMES */
-
-/* Rolling mono downmix of everything pushed to the ring, for waveform display;
- * the reader plots the buffer directly against the write position. */
+/* Rolling mono downmix of everything rendered, for waveform display; the
+ * reader plots the buffer directly against the write position. */
 #define AUD_VIZ_SAMPLES 4096
 static float g_viz[AUD_VIZ_SAMPLES];
 static int g_viz_pos;
-
-/* The most one pull may generate. A device that opens its whole buffer at
- * once asks for more than a machine should synthesize in one go; the next
- * pull takes the rest. Below AUD_RING_FRAMES, so the ring cannot overrun. */
-#define AUD_PULL_MAX 2048
-
-static unsigned ring_count(void)
-{
-    return (g_head - g_tail) % AUD_RING_FRAMES;
-}
-
-static void ring_push(float l, float r)
-{
-    unsigned next = (g_head + 1) % AUD_RING_FRAMES;
-    g_ring[g_head * 2 + 0] = l;
-    g_ring[g_head * 2 + 1] = r;
-    g_head = next;
-    g_viz[g_viz_pos] = (l + r) * 0.5f;
-    g_viz_pos = (g_viz_pos + 1) % AUD_VIZ_SAMPLES;
-}
 
 /* --mute: when off, the synth never runs (no per-sample CPU work) and the
  * app opens no OS audio device. A session setting, not machine state, so resets
@@ -114,37 +76,6 @@ static bool g_enabled = true;
 void aud_set_enabled(bool on) { g_enabled = on; }
 bool aud_enabled(void) { return g_enabled; }
 
-/* Run the active device -- PSG, OPL, or the standing BEL, always installed
- * like the firmware -- until the ring holds what this pull is about to take.
- * The demand is the audio system's, which is the only clock a synth needs.
- *
- * Except under the debugger, which is the one hold that silences. A stopped
- * program is stopped for someone to read it, and a note left sustaining under
- * the cursor for as long as that takes is not information. Silence rather
- * than nothing: the device still wants its frames, and starving it trades a
- * held note for a clicking one. The synth keeps its state and picks the note
- * back up on resume. A sys_stop is not this -- audio plays through it,
- * which is how the bell rings between programs. */
-static void ring_fill(unsigned frames)
-{
-    void (*handler)(void) = aud_irq_fn;
-    if (!g_enabled || !handler)
-        return;
-    if (frames > AUD_PULL_MAX)
-        frames = AUD_PULL_MAX;
-    const bool paused = dbg_is_stopped();
-    while (ring_count() < frames)
-    {
-        if (paused)
-            ring_push(0.0f, 0.0f);
-        else
-        {
-            handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
-            ring_push(g_out_l / 32768.0f, g_out_r / 32768.0f);
-        }
-    }
-}
-
 int aud_rate(void)
 {
     if (!g_enabled)
@@ -152,27 +83,15 @@ int aud_rate(void)
     return aud_irq_fn ? (int)aud_irq_rate : 0;
 }
 
-int aud_read(float *dst, int max_frames)
-{
-    int got = 0;
-    while (got < max_frames && g_tail != g_head)
-    {
-        dst[got * 2 + 0] = g_ring[g_tail * 2 + 0];
-        dst[got * 2 + 1] = g_ring[g_tail * 2 + 1];
-        g_tail = (g_tail + 1) % AUD_RING_FRAMES;
-        got++;
-    }
-    return got;
-}
-
-/* One resampler per channel, carried across frames so the phase is
- * continuous. Only the OPL2 ever reaches these: everything else is generated
- * at aud_native_rate(), which is the device's own rate. */
+/* One resampler per channel, carried across calls so the phase is
+ * continuous, and what the last call's final push yielded past its buffer.
+ * Only the OPL2 ever reaches these: everything else is generated at
+ * aud_native_rate(), which is the device's own rate. The history belongs to
+ * the handler that made it. */
 static rsmp_t g_rs_l, g_rs_r;
-
-/* The ring is float only because that is what the host wants; every value in
- * it is an exact int16 over 32768, so this round trip loses nothing. */
-static inline int32_t to_i(float f) { return (int32_t)lrintf(f * 32768.0f); }
+static int32_t g_carry_l[8], g_carry_r[8];
+static int g_carry_n, g_carry_at;
+static void (*g_rs_fn)(void);
 
 static inline float to_f(int32_t v)
 {
@@ -185,72 +104,64 @@ static inline float to_f(int32_t v)
     return (float)v / 32768.0f;
 }
 
-/* saudio_push returns how many frames it took. A full device FIFO means the
- * machine is ahead of the converter, and the remainder is dropped rather than
- * waited on — blocking here would trade a click for a stall, and the ring
- * upstream already drops its oldest for the same reason. */
-static void push_all(const float *f, int n,
-                     int (*push)(const float *frames, int num_frames))
+static inline void put(float *dst, int i, float l, float r)
 {
-    int done = 0;
-    while (done < n)
-    {
-        const int got = push(f + done * 2, n - done);
-        if (got <= 0)
-            break;
-        done += got;
-    }
+    dst[i * 2 + 0] = l;
+    dst[i * 2 + 1] = r;
+    g_viz[g_viz_pos] = (l + r) * 0.5f;
+    g_viz_pos = (g_viz_pos + 1) % AUD_VIZ_SAMPLES;
 }
 
-void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames),
-              int want_frames)
+/* Under the debugger the handler does not run and the level stands: a
+ * stopped program is stopped for someone to read it, and a note sustaining
+ * under the cursor is not information, while a drop to zero is a click at
+ * both ends. A sys_stop is not this -- audio plays through it, which is how
+ * the bell rings between programs. */
+void aud_render(float *dst, int samples)
 {
-    const int in_rate = aud_rate();
-    if (in_rate <= 0 || out_rate <= 0 || want_frames <= 0)
+    void (*handler)(void) = aud_irq_fn;
+    const uint32_t in_rate = aud_irq_rate;
+    const uint32_t out_rate = g_native_rate;
+    if (!g_enabled || !handler)
+    {
+        memset(dst, 0, (size_t)samples * 2 * sizeof *dst);
         return;
-
-    /* What the pull is worth in the machine's own samples. The resampler
-     * consumes at the rate ratio, so a 49716 Hz voice owes more of them. */
-    int need = (int)(((int64_t)want_frames * in_rate + out_rate - 1) / out_rate);
-    if (need > AUD_PULL_MAX)
-        need = AUD_PULL_MAX;
-    ring_fill((unsigned)need);
-
-    static float in[4096 * 2];
-    static float out[4096 * 2];
-
+    }
+    const bool held = dbg_is_stopped();
     /* The usual case, and not merely an optimisation: a resampler run at
      * unity still rounds, and a voice generated at the device's own rate has
      * nothing to gain from being filtered. */
     if (in_rate == out_rate)
     {
-        const int navail = aud_read(in, need);
-        if (navail > 0)
-            push_all(in, navail, push);
+        for (int i = 0; i < samples; i++)
+        {
+            if (!held)
+                handler();
+            put(dst, i, g_out_l / 32768.0f, g_out_r / 32768.0f);
+        }
         return;
     }
-
-    const uint64_t step = rsmp_step((uint32_t)in_rate, (uint32_t)out_rate);
-    const int navail = aud_read(in, need);
-    int oc = 0;
-    for (int i = 0; i < navail; i++)
+    if (handler != g_rs_fn)
     {
-        int32_t bl[8], br[8];
-        const int n = rsmp_push(&g_rs_l, to_i(in[i * 2 + 0]), step, bl, 8);
-        rsmp_push(&g_rs_r, to_i(in[i * 2 + 1]), step, br, 8);
-        for (int k = 0; k < n; k++)
-        {
-            out[oc * 2 + 0] = to_f(bl[k]);
-            out[oc * 2 + 1] = to_f(br[k]);
-            if (++oc == 4096)
-            {
-                push_all(out, oc, push);
-                oc = 0;
-            }
-        }
+        rsmp_reset(&g_rs_l);
+        rsmp_reset(&g_rs_r);
+        g_carry_n = g_carry_at = 0;
+        g_rs_fn = handler;
     }
-    if (oc > 0)
-        push_all(out, oc, push);
+    const uint64_t step = rsmp_step(in_rate, out_rate);
+    int i = 0;
+    while (i < samples)
+    {
+        for (; g_carry_at < g_carry_n && i < samples; g_carry_at++, i++)
+            put(dst, i, to_f(g_carry_l[g_carry_at]), to_f(g_carry_r[g_carry_at]));
+        if (i == samples)
+            break;
+        if (!held)
+            handler();
+        g_carry_n = rsmp_push(&g_rs_l, g_out_l, step, g_carry_l, 8);
+        rsmp_push(&g_rs_r, g_out_r, step, g_carry_r, 8);
+        g_carry_at = 0;
+    }
 }
 
 const float *aud_viz_buffer(int *num_samples)
@@ -263,18 +174,7 @@ int aud_viz_pos(void) { return g_viz_pos; }
 
 void aud_stop(void)
 {
-    bel_setup(); /* fall back to the standing BEL device (firmware aud_stop) */
-    /* Drain the emu's host PCM output ring so a stopped program's stale samples
-     * don't bleed into the next. The BEL device keeps its state — a rung bell
-     * rings through (CLAUDE.md); only this host-side ring is cleared. */
-    g_head = g_tail = 0;
-    xram_queue_head = xram_queue_tail = 0;
-    xram_queue_page = 0;
-    g_out_l = g_out_r = 0;
+    bel_setup();
     memset(g_viz, 0, sizeof g_viz);
     g_viz_pos = 0;
-    /* The resampler's phase and history outlived a program stop and put a
-     * discontinuity at the start of the next one. */
-    rsmp_reset(&g_rs_l);
-    rsmp_reset(&g_rs_r);
 }

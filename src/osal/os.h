@@ -53,6 +53,10 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
  * above, which a window deliberately lets drift when the host falls behind. */
 uint64_t os_mono_ns(void);
 
+/* Wait this long without running. A host that nothing else paces waits here
+ * for the machine's next frame. */
+void os_sleep_ns(uint64_t ns);
+
 /* Reattach stdio to the parent console when launched from one; no-op where it
  * already does. Only Windows needs it, where the emulator is a GUI-subsystem
  * .exe and --help would otherwise vanish. */

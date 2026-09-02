@@ -30,7 +30,8 @@ extern "C"
 #include "core/wdc/via.h"
 #include "host/sokol/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "host/sokol/win/window.h"      /* window-scale presets */
+#include "host/sokol/win/window.h"      /* window-scale presets, window_machine_ns */
+#include "osal/os.h"
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "host/sokol/app/credits.h" /* EMU_CREDITS */
@@ -584,31 +585,33 @@ static void dbgui_register_settings_handlers(void)
     ui_ini_register(&g_ini);
 }
 
-/* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
- * host can't run the machine in real time. Measured from vga_frame_count() over
- * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
- * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
- * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
-static float dbgui_vga_fps(void)
+/* The two numbers on the menu bar, measured over half-second windows of wall
+ * time: how many frames the machine ran a second, and what one cost. Held at
+ * a breakpoint, both read zero. */
+static void dbgui_pace(float *fps, float *ms)
 {
-    static double win_time;
-    static unsigned long win_base;
-    static bool primed;
-    static float fps;
-    if (!primed)
+    static uint64_t win_start_ns, win_machine_ns;
+    static unsigned long win_frames;
+    static float last_fps, last_ms;
+    const uint64_t now = os_mono_ns();
+    if (!win_start_ns)
     {
-        primed = true;
-        win_base = vga_frame_count();
+        win_start_ns = now;
+        win_frames = vga_frame_count();
+        win_machine_ns = window_machine_ns();
     }
-    win_time += ImGui::GetIO().DeltaTime;
-    if (win_time >= 0.5) /* refresh the reading twice a second */
+    else if (now - win_start_ns >= 500000000ull)
     {
-        unsigned long now = vga_frame_count();
-        fps = (float)((double)(now - win_base) / win_time);
-        win_base = now;
-        win_time = 0.0;
+        const unsigned long frames = vga_frame_count() - win_frames;
+        const uint64_t machine_ns = window_machine_ns() - win_machine_ns;
+        last_fps = (float)((double)frames * 1e9 / (double)(now - win_start_ns));
+        last_ms = frames ? (float)((double)machine_ns / 1e6 / (double)frames) : 0.0f;
+        win_start_ns = now;
+        win_frames += frames;
+        win_machine_ns += machine_ns;
     }
-    return fps;
+    *fps = last_fps;
+    *ms = last_ms;
 }
 
 /* The menu bar: each item toggles a window's open flag, so a window closed with
@@ -698,13 +701,11 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
-        /* Host frame time + emulated VGA rate, right-aligned (e.g. "2.1 ms  59.9 FPS")
-         * and held a few pixels off the window edge. The ms is ImGui's rolling host
-         * frame average; the FPS is the emulation keeping pace at ~60. */
-        float host_rate = ImGui::GetIO().Framerate;
+        /* Right-aligned, held a few pixels off the window edge: "1.4 ms  60.0 FPS". */
+        float fps, ms;
+        dbgui_pace(&fps, &ms);
         char stats[24];
-        std::snprintf(stats, sizeof stats, "%.1f ms  %.1f FPS",
-                      host_rate > 0.0f ? 1000.0f / host_rate : 0.0f, dbgui_vga_fps());
+        std::snprintf(stats, sizeof stats, "%.1f ms  %.1f FPS", ms, fps);
         float pad = ImGui::GetStyle().ItemSpacing.x + ImGui::GetFontSize() * 0.5f;
         ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(stats).x - pad);
         ImGui::TextUnformatted(stats);
