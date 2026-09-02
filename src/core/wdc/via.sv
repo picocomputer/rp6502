@@ -19,7 +19,7 @@
  * the clock edge with everything else.
  */
 
-module w65c22 (
+module via (
     input logic clk,
     input logic rst_n,
     input logic en,
@@ -29,8 +29,8 @@ module w65c22 (
     input logic [3:0] rs,
     input logic [7:0] data_i,
 
-    output logic [7:0] w65c22_data,
-    output logic w65c22_irq,
+    output logic [7:0] via_data,
+    output logic via_irq,
 
     /* All of it, as seven words, for a savestate. Not the architectural
      * registers — those are readable already and would come back a
@@ -41,7 +41,7 @@ module w65c22 (
      *
      * A write lands directly in the flops, sound only while en is low. */
     input logic [2:0] st_idx,
-    output logic [31:0] w65c22_st_rdata,
+    output logic [31:0] via_st_rdata,
     /* The whole of it at once: a restore lands with the clock already
      * back, so a jam spread over seven edges would let the machine run
      * through the six it was not being written on. */
@@ -94,14 +94,14 @@ module w65c22 (
 
     always_comb begin
         case (st_idx)
-            3'd0: w65c22_st_rdata = {ddr_b, ddr_a, outr_b, outr_a};
-            3'd1: w65c22_st_rdata = {pcr, acr, pins_b, pins_a};
-            3'd2: w65c22_st_rdata = {t1_counter, t1_latch};
-            3'd3: w65c22_st_rdata = {t2_counter, t2_latch};
-            3'd4: w65c22_st_rdata = {t1_pip, t2_pip};
-            3'd5: w65c22_st_rdata = {8'd0, ifr, ier, 6'd0, t2_tbit, t1_tbit};
-            3'd6: w65c22_st_rdata = {16'd0, int_pip};
-            default: w65c22_st_rdata = 32'd0;
+            3'd0: via_st_rdata = {ddr_b, ddr_a, outr_b, outr_a};
+            3'd1: via_st_rdata = {pcr, acr, pins_b, pins_a};
+            3'd2: via_st_rdata = {t1_counter, t1_latch};
+            3'd3: via_st_rdata = {t2_counter, t2_latch};
+            3'd4: via_st_rdata = {t1_pip, t2_pip};
+            3'd5: via_st_rdata = {8'd0, ifr, ier, 6'd0, t2_tbit, t1_tbit};
+            3'd6: via_st_rdata = {16'd0, int_pip};
+            default: via_st_rdata = 32'd0;
         endcase
     end
 
@@ -110,27 +110,27 @@ module w65c22 (
     // ------------------------------------------------------------------
 
     always_comb begin
-        w65c22_data = 8'h00;
+        via_data = 8'h00;
         if (cs && !we) begin
             case (rs)
                 // With port latching on, reads return the input latch, which
                 // never captures anything on unwired ports.
-                REG_RB: w65c22_data = acr[1] ? 8'h00 : pins_b;
-                REG_RA, REG_RA_NOH: w65c22_data = acr[0] ? 8'h00 : pins_a;
-                REG_DDRB: w65c22_data = ddr_b;
-                REG_DDRA: w65c22_data = ddr_a;
-                REG_T1CL: w65c22_data = t1_counter[7:0];
-                REG_T1CH: w65c22_data = t1_counter[15:8];
-                REG_T1LL: w65c22_data = t1_latch[7:0];
-                REG_T1LH: w65c22_data = t1_latch[15:8];
-                REG_T2CL: w65c22_data = t2_counter[7:0];
-                REG_T2CH: w65c22_data = t2_counter[15:8];
-                REG_SR: w65c22_data = 8'h00;
-                REG_ACR: w65c22_data = acr;
-                REG_PCR: w65c22_data = pcr;
-                REG_IFR: w65c22_data = ifr;
-                REG_IER: w65c22_data = ier | 8'h80;
-                default: w65c22_data = 8'h00;
+                REG_RB: via_data = acr[1] ? 8'h00 : pins_b;
+                REG_RA, REG_RA_NOH: via_data = acr[0] ? 8'h00 : pins_a;
+                REG_DDRB: via_data = ddr_b;
+                REG_DDRA: via_data = ddr_a;
+                REG_T1CL: via_data = t1_counter[7:0];
+                REG_T1CH: via_data = t1_counter[15:8];
+                REG_T1LL: via_data = t1_latch[7:0];
+                REG_T1LH: via_data = t1_latch[15:8];
+                REG_T2CL: via_data = t2_counter[7:0];
+                REG_T2CH: via_data = t2_counter[15:8];
+                REG_SR: via_data = 8'h00;
+                REG_ACR: via_data = acr;
+                REG_PCR: via_data = pcr;
+                REG_IFR: via_data = ifr;
+                REG_IER: via_data = ier | 8'h80;
+                default: via_data = 8'h00;
             endcase
         end
     end
@@ -325,7 +325,7 @@ module w65c22 (
             ifr <= 8'h00;
             ier <= 8'h00;
             int_pip <= 16'h0000;
-            w65c22_irq <= 1'b0;
+            via_irq <= 1'b0;
         end else if (st_jam) begin
             {ddr_b, ddr_a, outr_b, outr_a} <= st_jam_data[0];
             {pcr, acr, pins_b, pins_a} <= st_jam_data[1];
@@ -344,7 +344,7 @@ module w65c22 (
              * restored VIA whose pin disagreed with its own IFR would
              * hand the 6502 an interrupt it had already taken, or drop
              * one it had not. */
-            w65c22_irq <= st_jam_data[5][23];
+            via_irq <= st_jam_data[5][23];
             int_pip <= st_jam_data[6][15:0];
         end else if (en) begin
             outr_a <= n_outr_a;
@@ -366,7 +366,7 @@ module w65c22 (
             ifr <= n_ifr;
             ier <= n_ier;
             int_pip <= n_int_pip;
-            w65c22_irq <= n_ifr[IRQ_ANY];
+            via_irq <= n_ifr[IRQ_ANY];
         end
     end
 

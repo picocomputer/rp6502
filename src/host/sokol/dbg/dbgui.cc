@@ -22,7 +22,7 @@ extern "C"
 {
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/wdc/w65c02.h"
+#include "core/wdc/cpu.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
 #include "core/mem/mem.h"

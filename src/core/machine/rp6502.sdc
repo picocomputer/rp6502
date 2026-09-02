@@ -52,10 +52,10 @@ set_multicycle_path -hold  -from [get_registers {*w65c02*}] 3
 set_multicycle_path -setup -to [get_registers {*w65c02*}] 4
 set_multicycle_path -hold  -to [get_registers {*w65c02*}] 3
 
-set_multicycle_path -setup -from [get_registers {*w65c22*}] 4
-set_multicycle_path -hold  -from [get_registers {*w65c22*}] 3
-set_multicycle_path -setup -to [get_registers {*w65c22*}] 4
-set_multicycle_path -hold  -to [get_registers {*w65c22*}] 3
+set_multicycle_path -setup -from [get_registers {*via*}] 4
+set_multicycle_path -hold  -from [get_registers {*via*}] 3
+set_multicycle_path -setup -to [get_registers {*via*}] 4
+set_multicycle_path -hold  -to [get_registers {*via*}] 3
 
 # The rules above are one-ended, and the path arriving at the 6502 from
 # the SRAM does not get six clocks to settle. Left to the -to rule above
@@ -75,7 +75,7 @@ set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
 set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
     -to [get_registers {*w65c02*}] 1
 
-# ria_regs advances on phi2_en exactly as w65c02 and w65c22 do, and it
+# ria_regs advances on phi2_en exactly as w65c02 and via do, and it
 # feeds the 6502's data bus. Left unnamed, the path from it through the
 # address cone into the SRAM's launch register was analysed against one
 # clock and missed by 4.3 ns — for a path whose both ends move six

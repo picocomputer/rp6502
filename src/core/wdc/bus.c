@@ -12,7 +12,7 @@
 #include "core/wdc/phi2_div.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/via.h"
-#include "core/wdc/w65c02.h"
+#include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include "host/host.h"
 

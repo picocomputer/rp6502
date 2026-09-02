@@ -8,7 +8,7 @@
 
 #define CHIPS_IMPL
 #include "chips/chips/w65c02.h"
-#include "core/wdc/w65c02.h"
+#include "core/wdc/cpu.h"
 
 static w65c02_t cpu;
 

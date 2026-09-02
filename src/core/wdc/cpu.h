@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 6502 as software, beside the same part as fabric in w65c02.sv.
+ * The 6502 as software, beside the same part as fabric in cpu.sv.
  *
  * These keep the cpu_ prefix: the vendored model owns w65c02_, and this is
  * the board's side of it. (via.h has the room to say via_ because the model
  * beneath it is m6522_.)
  */
 
-#ifndef _CORE_WDC_W65C02_H_
-#define _CORE_WDC_W65C02_H_
+#ifndef _CORE_WDC_CPU_H_
+#define _CORE_WDC_CPU_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -43,4 +43,4 @@ void *cpu_chip(void); /* w65c02_t* */
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
-#endif /* _CORE_WDC_W65C02_H_ */
+#endif /* _CORE_WDC_CPU_H_ */

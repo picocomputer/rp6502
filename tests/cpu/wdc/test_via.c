@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The 6522, on whichever machine this tree built — chips/chips/m6522.h in the
- * emulator, w65c22.sv verilated in the fabric. Both answer via_dut.h, which is
+ * emulator, via.sv verilated in the fabric. Both answer via_dut.h, which is
  * the register interface the machine drives them through, so both answer this.
  *
  * Two kinds of evidence, because a recording alone says only that something
@@ -22,7 +22,7 @@
  * Regenerating the traces accepts whatever changed, which is the point: it is
  * a commit, and the diff is the notification. Run
  *
- *     test_w65c22 --emit > tests/cpu/wdc/w65c22_golden.txt
+ *     test_via --emit > tests/cpu/wdc/via_golden.txt
  *
  * and read what moved before committing it. Run it from the tree whose VIA
  * you mean to record; the numbers are the machine's, and the other machine
@@ -31,7 +31,7 @@
 
 #include "via_dut.h"
 
-#include "w65c22_scen.h"
+#include "via_scen.h"
 #include "utest.h"
 
 #include <stdio.h>
@@ -40,7 +40,7 @@
 /* One op, for the directed cases. */
 static uint8_t rd(uint8_t rs)
 {
-    w65c22_op_t op = {W65C22_OP_READ, rs, 0, 0};
+    via_op_t op = {VIA_OP_READ, rs, 0, 0};
     uint8_t data;
     bool irq;
     via_step(&op, &data, &irq);
@@ -49,7 +49,7 @@ static uint8_t rd(uint8_t rs)
 
 static void wr(uint8_t rs, uint8_t data)
 {
-    w65c22_op_t op = {W65C22_OP_WRITE, rs, data, 0};
+    via_op_t op = {VIA_OP_WRITE, rs, data, 0};
     uint8_t d;
     bool irq;
     via_step(&op, &d, &irq);
@@ -57,7 +57,7 @@ static void wr(uint8_t rs, uint8_t data)
 
 static bool idle_until_irq(int limit)
 {
-    w65c22_op_t op = {W65C22_OP_IDLE, 0, 0, 0};
+    via_op_t op = {VIA_OP_IDLE, 0, 0, 0};
     uint8_t data;
     bool irq = false;
     for (int i = 0; i < limit; i++)
@@ -81,8 +81,8 @@ static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 }
 
 /* Every cycle contributes its read data and its IRQ level, which is exactly
- * what test_w65c22 compares against the RTL. */
-static uint32_t trace_script(const w65c22_op_t *ops, size_t n_ops, uint64_t *cycles)
+ * what test_via compares against the RTL. */
+static uint32_t trace_script(const via_op_t *ops, size_t n_ops, uint64_t *cycles)
 {
     via_reset();
     uint32_t crc = 0xFFFFFFFFu;
@@ -93,7 +93,7 @@ static uint32_t trace_script(const w65c22_op_t *ops, size_t n_ops, uint64_t *cyc
             uint8_t data;
             bool irq;
             via_step(&ops[i], &data, &irq);
-            crc = crc32_up(crc, ops[i].kind == W65C22_OP_READ ? data : 0);
+            crc = crc32_up(crc, ops[i].kind == VIA_OP_READ ? data : 0);
             crc = crc32_up(crc, irq ? 1 : 0);
             n++;
         }
@@ -105,18 +105,18 @@ static uint32_t trace_fuzz(uint64_t *cycles)
 {
     via_reset();
     uint32_t crc = 0xFFFFFFFFu;
-    uint16_t lfsr = W65C22_FUZZ_SEED;
-    for (int i = 0; i < W65C22_FUZZ_CYCLES; i++)
+    uint16_t lfsr = VIA_FUZZ_SEED;
+    for (int i = 0; i < VIA_FUZZ_CYCLES; i++)
     {
-        w65c22_op_t op;
-        w65c22_fuzz_next(&lfsr, &op);
+        via_op_t op;
+        via_fuzz_next(&lfsr, &op);
         uint8_t data;
         bool irq;
         via_step(&op, &data, &irq);
-        crc = crc32_up(crc, op.kind == W65C22_OP_READ ? data : 0);
+        crc = crc32_up(crc, op.kind == VIA_OP_READ ? data : 0);
         crc = crc32_up(crc, irq ? 1 : 0);
     }
-    *cycles = W65C22_FUZZ_CYCLES;
+    *cycles = VIA_FUZZ_CYCLES;
     return crc ^ 0xFFFFFFFFu;
 }
 
@@ -132,7 +132,7 @@ static int n_golden;
 
 static bool golden_load(void)
 {
-    FILE *f = fopen(W65C22_GOLDEN, "r");
+    FILE *f = fopen(VIA_GOLDEN, "r");
     if (!f)
         return false;
     char line[128];
@@ -173,13 +173,13 @@ static bool golden_check(const char *name, uint32_t crc, uint64_t cycles,
             }
             return true;
         }
-    snprintf(detail, cap, "%s is not in %s", name, W65C22_GOLDEN);
+    snprintf(detail, cap, "%s is not in %s", name, VIA_GOLDEN);
     return false;
 }
 
 /* --- The documented behaviour, asserted rather than recorded --- */
 
-UTEST(w65c22, t1_oneshot_interrupts_once)
+UTEST(via, t1_oneshot_interrupts_once)
 {
     via_reset();
     wr(0xE, 0xC0); /* IER: enable T1 */
@@ -193,7 +193,7 @@ UTEST(w65c22, t1_oneshot_interrupts_once)
     ASSERT_FALSE(idle_until_irq(64));
 }
 
-UTEST(w65c22, t1_continuous_reloads)
+UTEST(via, t1_continuous_reloads)
 {
     via_reset();
     wr(0xB, 0x40); /* ACR: continuous */
@@ -206,7 +206,7 @@ UTEST(w65c22, t1_continuous_reloads)
     ASSERT_TRUE(idle_until_irq(64));
 }
 
-UTEST(w65c22, t2_oneshot_does_not_reload)
+UTEST(via, t2_oneshot_does_not_reload)
 {
     via_reset();
     wr(0xE, 0xA0); /* IER: enable T2 */
@@ -219,7 +219,7 @@ UTEST(w65c22, t2_oneshot_does_not_reload)
     ASSERT_FALSE(idle_until_irq(64));
 }
 
-UTEST(w65c22, ier_masks_the_irq_line_not_the_flag)
+UTEST(via, ier_masks_the_irq_line_not_the_flag)
 {
     via_reset();
     wr(0xE, 0x40); /* IER: bit 7 clear, so this DISABLES T1 */
@@ -231,7 +231,7 @@ UTEST(w65c22, ier_masks_the_irq_line_not_the_flag)
     ASSERT_TRUE((rd(0xD) & 0x80) == 0); /* no master */
 }
 
-UTEST(w65c22, ifr_is_write_to_clear)
+UTEST(via, ifr_is_write_to_clear)
 {
     via_reset();
     wr(0x4, 4);
@@ -243,7 +243,7 @@ UTEST(w65c22, ifr_is_write_to_clear)
     ASSERT_TRUE((rd(0xD) & 0x40) == 0);
 }
 
-UTEST(w65c22, ier_readback_sets_bit7)
+UTEST(via, ier_readback_sets_bit7)
 {
     via_reset();
     wr(0xE, 0xE0);                      /* set T1 + T2 */
@@ -254,7 +254,7 @@ UTEST(w65c22, ier_readback_sets_bit7)
     ASSERT_TRUE((rd(0xE) & 0x20) != 0);
 }
 
-UTEST(w65c22, t1_toggles_pb7)
+UTEST(via, t1_toggles_pb7)
 {
     via_reset();
     wr(0x2, 0x80); /* DDRB: PB7 output */
@@ -263,7 +263,7 @@ UTEST(w65c22, t1_toggles_pb7)
     wr(0x5, 0);
     /* Sample ORB across several reloads; PB7 must not sit still. */
     uint8_t seen = 0;
-    w65c22_op_t idle = {W65C22_OP_IDLE, 0, 0, 0};
+    via_op_t idle = {VIA_OP_IDLE, 0, 0, 0};
     for (int i = 0; i < 64; i++)
     {
         uint8_t data;
@@ -276,12 +276,12 @@ UTEST(w65c22, t1_toggles_pb7)
 
 /* --- Everything else, against the recording --- */
 
-#define W65C22_TRACE(name)                                                     \
-    UTEST(w65c22, trace_##name)                                          \
+#define VIA_TRACE(name)                                                     \
+    UTEST(via, trace_##name)                                          \
     {                                                                          \
         char detail[160] = "";                                                 \
         uint64_t cycles;                                                       \
-        uint32_t crc = trace_script(w65c22_scen_##name, w65c22_scen_##name##_n,\
+        uint32_t crc = trace_script(via_scen_##name, via_scen_##name##_n,\
                                     &cycles);                                  \
         ASSERT_TRUE(golden_load());                                            \
         bool ok = golden_check(#name, crc, cycles, detail, sizeof detail);     \
@@ -290,9 +290,9 @@ UTEST(w65c22, t1_toggles_pb7)
         ASSERT_TRUE(ok);                                                       \
     }
 
-W65C22_SCRIPTS(W65C22_TRACE)
+VIA_SCRIPTS(VIA_TRACE)
 
-UTEST(w65c22, trace_fuzz)
+UTEST(via, trace_fuzz)
 {
     char detail[160] = "";
     uint64_t cycles;
@@ -313,15 +313,15 @@ int main(int argc, const char *const argv[])
     {
         uint64_t cycles;
         printf("# The 6522 traces, per scenario: name crc32 cycles.\n"
-               "# Regenerate with test_w65c22 --emit and read the diff.\n");
-#define W65C22_EMIT(name)                                                      \
+               "# Regenerate with test_via --emit and read the diff.\n");
+#define VIA_EMIT(name)                                                      \
     {                                                                          \
-        uint32_t crc = trace_script(w65c22_scen_##name, w65c22_scen_##name##_n,\
+        uint32_t crc = trace_script(via_scen_##name, via_scen_##name##_n,\
                                     &cycles);                                  \
         printf("%s %08X %llu\n", #name, crc, (unsigned long long)cycles);      \
     }
-        W65C22_SCRIPTS(W65C22_EMIT)
-#undef W65C22_EMIT
+        VIA_SCRIPTS(VIA_EMIT)
+#undef VIA_EMIT
         uint32_t crc = trace_fuzz(&cycles);
         printf("fuzz %08X %llu\n", crc, (unsigned long long)cycles);
         via_dut_free();

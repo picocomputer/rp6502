@@ -1,5 +1,5 @@
 # chips/chips/m6522.h traces, per scenario: name crc32 cycles.
-# Regenerate with test_w65c22 --emit and read the diff.
+# Regenerate with test_via --emit and read the diff.
 t1_oneshot 2301C6F3 88
 t1_continuous 38A30D1E 68
 t1_pb7 86E66A11 24

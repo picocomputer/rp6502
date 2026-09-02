@@ -32,14 +32,14 @@ void via_reset(void)
     m6522_init(&via);
 }
 
-void via_step(const w65c22_op_t *op, uint8_t *data, bool *irq)
+void via_step(const via_op_t *op, uint8_t *data, bool *irq)
 {
     uint64_t pins = 0;
-    if (op->kind != W65C22_OP_IDLE)
+    if (op->kind != VIA_OP_IDLE)
     {
         pins |= op->rs & M6522_RS_PINS;
         pins |= M6522_CS1;
-        if (op->kind == W65C22_OP_READ)
+        if (op->kind == VIA_OP_READ)
             pins |= M6522_RW;
         else
             M6522_SET_DATA(pins, op->data);

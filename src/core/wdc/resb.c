@@ -12,7 +12,7 @@
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/via.h"
-#include "core/wdc/w65c02.h"
+#include "core/wdc/cpu.h"
 
 /* Held is a clock veto here, not a pin: with this set the bus takes no cycles
  * at all, so the VIA's timers and the RIA's registers freeze along with the

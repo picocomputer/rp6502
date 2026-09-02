@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The VIA scenarios, written once and replayed by test_w65c22 against
+ * The VIA scenarios, written once and replayed by test_via against
  * whichever VIA the tree built, with a recorded trace as the reference.
  * They were two suites asking the same question of two implementations;
  * one set of scenarios and one recording is what keeps that one question.
@@ -12,8 +12,8 @@
  * leaves them.
  */
 
-#ifndef _TESTS_WDC_W65C22_SCEN_H_
-#define _TESTS_WDC_W65C22_SCEN_H_
+#ifndef _TESTS_WDC_VIA_SCEN_H_
+#define _TESTS_WDC_VIA_SCEN_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,22 +25,22 @@ extern "C"
 
     typedef enum
     {
-        W65C22_OP_IDLE,
-        W65C22_OP_READ,
-        W65C22_OP_WRITE,
-    } w65c22_op_kind_t;
+        VIA_OP_IDLE,
+        VIA_OP_READ,
+        VIA_OP_WRITE,
+    } via_op_kind_t;
 
     typedef struct
     {
-        w65c22_op_kind_t kind;
+        via_op_kind_t kind;
         uint8_t rs;
         uint8_t data;
         uint16_t repeat; /* extra cycles of the same op; idle mostly */
-    } w65c22_op_t;
+    } via_op_t;
 
 /* Every directed script, so both suites register the same case names and a
  * new one is added in a single place. */
-#define W65C22_SCRIPTS(X) \
+#define VIA_SCRIPTS(X) \
     X(t1_oneshot)         \
     X(t1_continuous)      \
     X(t1_pb7)             \
@@ -49,22 +49,22 @@ extern "C"
     X(ifr_ier)            \
     X(readback_all)
 
-#define W65C22_SCEN_DECL(name)                      \
-    extern const w65c22_op_t w65c22_scen_##name[];  \
-    extern const size_t w65c22_scen_##name##_n;
-    W65C22_SCRIPTS(W65C22_SCEN_DECL)
-#undef W65C22_SCEN_DECL
+#define VIA_SCEN_DECL(name)                      \
+    extern const via_op_t via_scen_##name[];  \
+    extern const size_t via_scen_##name##_n;
+    VIA_SCRIPTS(VIA_SCEN_DECL)
+#undef VIA_SCEN_DECL
 
 /* The fuzz: register traffic with idle gaps, from a fixed seed so both
  * suites drive the identical sequence. */
-#define W65C22_FUZZ_SEED 0xBEEF
-#define W65C22_FUZZ_CYCLES 30000
+#define VIA_FUZZ_SEED 0xBEEF
+#define VIA_FUZZ_CYCLES 30000
 
     /* Advances lfsr and writes the next op. */
-    void w65c22_fuzz_next(uint16_t *lfsr, w65c22_op_t *out);
+    void via_fuzz_next(uint16_t *lfsr, via_op_t *out);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _TESTS_WDC_W65C22_SCEN_H_ */
+#endif /* _TESTS_WDC_VIA_SCEN_H_ */

@@ -46,7 +46,7 @@
  * anything, then the 6502, the VIA, and the soft CPU's registers. */
 #define ST_MACH 0u
 #define ST_W65C02 4u
-#define ST_W65C22 9u
+#define ST_VIA 9u
 #define ST_RV 16u
 #define B_SRAM (B_REGS + W_REGS)
 #define B_XRAM (B_SRAM + W_SRAM)
@@ -400,13 +400,13 @@ UTEST(sst, the_flops_are_in_there_too)
               w);
 
     /* The VIA's timers, which nothing else can read at all. */
-    ASSERT_TRUE(blob_word(B_STATE + ST_W65C22 + 2, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_latch
-                  | ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_counter << 16),
+    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 2, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t1_latch
+                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_counter << 16),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + ST_W65C22 + 4, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c22__DOT__t2_pip
-                  | ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_pip << 16),
+    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 4, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t2_pip
+                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_pip << 16),
               w);
 }
 
@@ -516,7 +516,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     stage_word(B_STATE + ST_W65C02 + 0, 0x11223344u);
     stage_word(B_STATE + ST_W65C02 + 1, 0xA5B50010u);
     stage_word(B_STATE + ST_W65C02 + 4, 0x00100001u);
-    stage_word(B_STATE + ST_W65C22 + 2, 0xBEEF1234u);
+    stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
     for (uint32_t i = 4; i < 8; i++)
         stage_word(B_SRAM + i, 0xCBCBCBCBu);
     stage_seal();
@@ -603,7 +603,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__w65c02__DOT__y);
     ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__w65c02__DOT__s);
     ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__w65c02__DOT__p);
-    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__w65c22__DOT__t1_latch);
+    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
 
     /* The machine's own flops have no other way out, so the proof they
      * landed is the next blob carrying them. */
