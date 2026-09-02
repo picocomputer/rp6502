@@ -364,12 +364,7 @@ module rp6502
         .dbg_data0_wen(rp6502_sst_dbg_data0_wen)
     );
 
-    logic sel_via, sel_ria, sel_open;
-    always_comb begin
-        sel_via = cpu_addr[15:4] == 12'hFFD;
-        sel_ria = cpu_addr[15:5] == 11'b1111_1111_111;
-        sel_open = cpu_addr[15:8] == 8'hFF && !sel_via && !sel_ria;
-    end
+    logic sel_via, sel_ria;
 
     /* Every write lands in the shadow, whatever else it hits. */
     logic [7:0] sram_rdata;
@@ -743,26 +738,19 @@ module rp6502
         .api_ack(bus_stb && bus_we && bus_sel_ctl && bus_addr[2])
     );
 
-    /* The bus keeps its last value across the unmapped window. */
-    logic [7:0] bus_hold;
-    always_comb begin
-        if (sel_ria)
-            cpu_din = ria_data;
-        else if (sel_via)
-            cpu_din = via_data;
-        else if (sel_open)
-            cpu_din = bus_hold;
-        else
-            cpu_din = sram_rdata;
-    end
-
-    /* Open bus carries whatever the bus last held, and on a write the 6502 is
-     * what drives it. Gating this on reads would return the last byte read
-     * instead, which the C emulation does not do and silicon does not either. */
-    initial bus_hold = 8'h00;
-    always_ff @(posedge clk_mach)
-        if (phi2_en)
-            bus_hold <= cpu_we ? cpu_dout : cpu_din;
+    bus bus (
+        .clk(clk_mach),
+        .en(phi2_en),
+        .addr(cpu_addr),
+        .we(cpu_we),
+        .dout(cpu_dout),
+        .ria_data(ria_data),
+        .via_data(via_data),
+        .sram_rdata(sram_rdata),
+        .bus_din(cpu_din),
+        .bus_sel_via(sel_via),
+        .bus_sel_ria(sel_ria)
+    );
 
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;
