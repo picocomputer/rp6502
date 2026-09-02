@@ -22,7 +22,11 @@ void prompt_setup(void);
  * with host_window_menu_active() being true, which suppresses the canvas. */
 void prompt_draw(const char *line1, const char *line2);
 
-/* True when a framebuffer-pixel point is over the documentation link. */
+/* True when a framebuffer-pixel point is over the documentation link, which is
+ * a real box only while the prompt is the active overlay. */
 bool prompt_url_hit(float x, float y);
+
+/* Open that link in the user's browser. */
+void prompt_url_open(void);
 
 #endif /* _HOST_SOKOL_APP_PROMPT_H_ */

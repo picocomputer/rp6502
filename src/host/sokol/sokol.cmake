@@ -30,7 +30,9 @@ set(RP6502_EMU_APP
 set(RP6502_EMU_WINDOW
     ${CMAKE_CURRENT_LIST_DIR}/app/sokol.c
     ${CMAKE_CURRENT_LIST_DIR}/app/icon.c
-    ${CMAKE_CURRENT_LIST_DIR}/app/app.c)
+    ${CMAKE_CURRENT_LIST_DIR}/app/app.c
+    ${CMAKE_CURRENT_LIST_DIR}/app/prompt.c
+    ${CMAKE_CURRENT_LIST_DIR}/app/gfx.c)
 
 set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/app/sokol.c
     PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)

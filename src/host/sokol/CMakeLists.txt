@@ -117,6 +117,8 @@ elseif(APPLE)
     set_source_files_properties(
         ${RP6502_SRC}/host/sokol/app/sokol.c
         ${RP6502_SRC}/host/sokol/app/app.c
+        ${RP6502_SRC}/host/sokol/app/prompt.c
+        ${RP6502_SRC}/host/sokol/app/gfx.c
         ${RP6502_SRC}/host/sokol/app/input.c
         ${RP6502_SOKOL_OS}/entry.c
         ${RP6502_SOKOL_OS}/gamepad.c

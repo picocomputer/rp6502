@@ -14,6 +14,10 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
+#ifdef EMU_WITH_DEBUGGER
+#include "host/sokol/dbg/dbgui.h"
+#include "core/dap/dbg.h"
+#endif
 #include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>
@@ -443,5 +447,71 @@ void input_event(const sapp_event *e)
         break;
     default:
         break;
+    }
+}
+
+/* Map the ROM's tablet control byte to a sokol system cursor. */
+static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
+{
+    switch (shape)
+    {
+    case TABLET_CURSOR_ARROW: return SAPP_MOUSECURSOR_ARROW;
+    case TABLET_CURSOR_CROSSHAIR: return SAPP_MOUSECURSOR_CROSSHAIR;
+    case TABLET_CURSOR_IBEAM: return SAPP_MOUSECURSOR_IBEAM;
+    case TABLET_CURSOR_HAND: return SAPP_MOUSECURSOR_POINTING_HAND;
+    case TABLET_CURSOR_RESIZE_EW: return SAPP_MOUSECURSOR_RESIZE_EW;
+    case TABLET_CURSOR_RESIZE_NS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    default: return SAPP_MOUSECURSOR_DEFAULT;
+    }
+}
+
+/* Whether the host pointer is over the drawn canvas, set by the input layer. The
+ * tablet only owns the host cursor while true; in the letterbox (or a debugger
+ * panel, handled below) the system cursor shows. Defaults true so a freshly
+ * mapped tablet shows its cursor before the first motion. */
+static bool pointer_on_canvas = true;
+
+void input_set_pointer_on_canvas(bool on)
+{
+    pointer_on_canvas = on;
+}
+
+/* Apply the tablet ROM's requested host cursor (control byte): TABLET_CURSOR_OFF
+ * hides it (the ROM draws its own), otherwise show that shape. This is the sole
+ * cursor writer (simgui's own control is disabled), run every frame so a ROM
+ * cursor change or a debugger panel-hover change is reflected promptly. Over a
+ * debugger panel ImGui owns the shape, applied via dbgui_mouse_cursor. */
+void input_update_cursor(void)
+{
+    static bool had_tablet;
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active() && dbgui_wants_mouse())
+    {
+        /* Over a debugger panel ImGui owns the shape; apply it (simgui no longer
+         * does) and keep the pointer visible over any TABLET_CURSOR_OFF hide. */
+        sapp_set_mouse_cursor((sapp_mouse_cursor)dbgui_mouse_cursor());
+        sapp_show_mouse(true);
+        return;
+    }
+#endif
+    if (tablet_is_mapped() && pointer_on_canvas)
+    {
+        had_tablet = true;
+        int shape = tablet_control();
+        if (shape >= TABLET_CURSOR_COUNT)
+            shape = TABLET_CURSOR_OFF;
+        if (shape == TABLET_CURSOR_OFF)
+            sapp_show_mouse(false);
+        else
+        {
+            sapp_set_mouse_cursor(tablet_cursor_to_sokol(shape));
+            sapp_show_mouse(true);
+        }
+    }
+    else if (had_tablet)
+    {
+        had_tablet = false;
+        sapp_set_mouse_cursor(SAPP_MOUSECURSOR_DEFAULT);
+        sapp_show_mouse(true);
     }
 }

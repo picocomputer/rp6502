@@ -20,4 +20,9 @@ void input_event(const struct sapp_event *e);
  * in the letterbox. */
 void input_set_pointer_on_canvas(bool on);
 
+/* Apply the tablet ROM's requested host cursor, or the debugger's over a panel.
+ * The sole cursor writer -- simgui's own control is disabled -- run once per
+ * frame so a ROM's change or a panel hover is reflected promptly. */
+void input_update_cursor(void);
+
 #endif /* _HOST_SOKOL_APP_INPUT_H_ */

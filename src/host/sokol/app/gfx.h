@@ -55,4 +55,36 @@ float gfx_canvas_scale(void);
  * the drawn canvas (false = in the letterbox / outside, coords set to 0,0). */
 bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy);
 
+/* ---- the frame, in the order the application calls it ---- */
+
+/* Seed the canvas from the launch options and report the window's initial pixel
+ * size: the canvas aspect at the requested scale, plus the debugger's menu
+ * strip, or the size the last debug session was left at. */
+void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h);
+
+/* The framebuffer object and the first canvas size. From the sokol init
+ * callback, after sg_setup. */
+void gfx_setup(void);
+
+/* The canvas the machine renders can change size mid-run when a program picks a
+ * new mode: notice that, keep the WM's aspect hint honest, and re-fit a window
+ * the user has not resized off-aspect. */
+void gfx_canvas_changed(void);
+
+/* Size the canvas to the window and take the frame the machine just rendered,
+ * if it rendered one -- a duplicate present re-blits what is already uploaded. */
+void gfx_upload(bool new_frame);
+
+/* The swapchain pass, cleared to the letterbox color. */
+void gfx_begin_pass(void);
+
+/* Blit the canvas into it, letterboxed. Overlays draw after this, in the same
+ * pass, and are the application's. */
+void gfx_blit(void);
+
+/* End the pass and commit the frame. */
+void gfx_end_pass(void);
+
+void gfx_shutdown(void);
+
 #endif /* _HOST_SOKOL_APP_GFX_H_ */
