@@ -7,7 +7,7 @@
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/sys/config.h"
-#include "core/cpu.h"
+#include "core/wdc/phi2.h"
 /* FatFs where there is one: ff.h declares ff_oem2uni and ff_wtoupper itself,
  * in types it picks per platform, and it is the authority wherever a tree has
  * it. core/str/unicode.h declares them for a tree that does not -- the
@@ -37,8 +37,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define STR_CAT1(a, b) a##b
 #define STR_CAT(a, b) STR_CAT1(a, b)
 
-static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-#define STR_PHI2_MIN_MAX STR_XSTR(CPU_PHI2_MIN_KHZ) "-" STR_XSTR(CPU_PHI2_MAX_KHZ)
+static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
+#define STR_PHI2_MIN_MAX STR_XSTR(PHI2_MIN_KHZ) "-" STR_XSTR(PHI2_MAX_KHZ)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \

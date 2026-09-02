@@ -21,7 +21,8 @@
 #include "core/rom/rom.h"
 #include "core/str/path.h"
 #include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/phi2.h"
+#include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
@@ -51,13 +52,12 @@ static void apply_options(const cli_options *o)
 
 #ifdef EMU_WITH_DEBUGGER
 /* DAP mode (--dap): the program is delivered by the VS Code launch request, not
- * the command line. Boot the machine held (CPU stopped, no program) and serve
- * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
- * (with the debugger overlay) so the program is visible while VS Code drives. */
+ * the command line. sys_init left the machine held and no program has started
+ * it, so this only serves DAP on stdio; the launch handler loads + runs the ROM
+ * via exec_request. The window still opens (with the debugger overlay) so the
+ * program is visible while VS Code drives. */
 static int run_dap(const cli_options *o)
 {
-    cpu_set_halted(true); /* the machine is initialized; hold it (no program yet)
-                           * until the DAP launch loads + runs one via exec_request */
     dbg_set_active(true);
 
     apply_options(o);
@@ -84,7 +84,7 @@ uint32_t host_random_seed(void)
 {
     if (!run_seed_taken)
     {
-        run_seed = os_random_seed();
+        run_seed = os_random_entropy();
         run_seed_taken = true;
     }
     return run_seed;
@@ -169,10 +169,10 @@ int main(int argc, char **argv)
      * sys_init; the machine is started (sys_run) after the ROM loads. */
     if (o.phi2_khz > 0)
     {
-        if (o.phi2_khz > UINT16_MAX || !cpu_set_phi2_khz((uint16_t)o.phi2_khz))
+        if (o.phi2_khz > UINT16_MAX || !phi2_set_khz((uint16_t)o.phi2_khz))
         {
             fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
-                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
+                    o.phi2_khz, PHI2_MIN_KHZ, PHI2_MAX_KHZ);
             return 1;
         }
     }
@@ -290,7 +290,7 @@ int main(int argc, char **argv)
         apply_options(&o);
         if (o.debug)
             dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
-        cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
+        /* Still held from sys_init, until a dropped .rp6502 boots one. */
         return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
 
@@ -348,7 +348,7 @@ int main(int argc, char **argv)
         if (!png_write(o.screenshot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.screenshot, frames, cpu_halted() ? "halted" : "running", proc_get_exit_code());
+               o.screenshot, frames, resb_running() ? "running" : "halted", proc_get_exit_code());
         return 0;
     }
 

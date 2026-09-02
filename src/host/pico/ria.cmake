@@ -143,7 +143,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/cfg.c
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c
-    ${RIA_SRC}/sys/cpu.c
+    ${RIA_SRC}/sys/phi2.c
+    ${RIA_SRC}/sys/resb.c
     ${RIA_SRC}/sys/led.c
     ${RIA_SRC}/sys/mem.c
     ${RIA_SRC}/sys/path.c

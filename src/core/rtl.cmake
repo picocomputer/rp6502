@@ -45,7 +45,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/wdc/w65c22.sv
     ${RP6502_SRC}/core/mem/sram64k.sv
     ${RP6502_SRC}/core/mem/xram64k.sv
-    ${RP6502_SRC}/core/ria/phi2_div.sv
+    ${RP6502_SRC}/core/wdc/phi2_div.sv
     ${RP6502_SRC}/core/ria/ria_regs.sv
     ${RP6502_SRC}/core/rv/rv_soc.sv
     ${RP6502_SRC}/core/vga/vid_timing.sv

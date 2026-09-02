@@ -16,7 +16,7 @@
 #include "osal/fs.h"
 #include "core/str/path.h"
 #include "osal/os.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include "tb_hostos.h"
 #include <stdlib.h>
@@ -82,7 +82,7 @@ UTEST(exec, reexecs_self_with_arg)
     run_frames(90); /* first run -> exec -> second run -> exit */
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted());
+    ASSERT_FALSE(resb_running());
     ASSERT_EQ(proc_get_exit_code(), 0);
     /* First run reached the exec, second run received the extra arg and won. */
     ASSERT_TRUE(strstr(cap, "Executing self with arg: Foo") != NULL);
@@ -106,7 +106,7 @@ UTEST(exec, boot_args_reach_program)
     run_frames(90);
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted());
+    ASSERT_FALSE(resb_running());
     ASSERT_EQ(proc_get_exit_code(), 0);
     ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "Success") != NULL);

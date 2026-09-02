@@ -13,7 +13,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkeys.h"
 #include "core/sys/sys.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
 #include "core/term/color.h"
@@ -61,7 +61,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
     }
     ASSERT_GT(n_fg, (size_t)0);   /* tile foreground pixels drew */
     ASSERT_GT(n_bg, (size_t)0);   /* on a background */
-    ASSERT_FALSE(cpu_halted()); /* still scrolling */
+    ASSERT_TRUE(resb_running()); /* still scrolling */
 }
 
 /* The program runs two scroll loops (8x8 then 16x16 tiles); each polls the
@@ -72,21 +72,21 @@ UTEST(mode2, keyboard_presses_exit)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run_frames(20);
-    ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
+    ASSERT_TRUE(resb_running()); /* scrolling, no key down */
 
     /* First scroll -> exit -> reprogram to 16x16 tiles, scroll again. */
     keyboard_hid_set(0x2C, true); /* press space */
     run_frames(5);
     keyboard_hid_set(0x2C, false); /* release */
     run_frames(10);
-    ASSERT_FALSE(cpu_halted()); /* now in the second scroll loop */
+    ASSERT_TRUE(resb_running()); /* now in the second scroll loop */
 
     /* Second scroll -> exit -> program prints and exits. */
     keyboard_hid_set(0x2C, true);
     run_frames(5);
     keyboard_hid_set(0x2C, false);
     run_frames(10);
-    ASSERT_TRUE(cpu_halted());
+    ASSERT_FALSE(resb_running());
 }
 
 /* A program stop resets the VGA to the console canvas (firmware vga_stop ->

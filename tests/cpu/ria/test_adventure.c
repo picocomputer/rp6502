@@ -15,7 +15,7 @@
 
 #include "core/hid/vtkeys.h"
 #include "core/com/com.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -55,7 +55,7 @@ UTEST(adventure, intro_banner)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Colossal Cave Adventure") != NULL);
     ASSERT_TRUE(strstr(cap, "Would you like instructions?") != NULL);
-    ASSERT_FALSE(cpu_halted()); /* blocked on the first stdin read */
+    ASSERT_TRUE(resb_running()); /* blocked on the first stdin read */
 }
 
 /* Answering the first prompt requires a full stdin line read through rln; the
@@ -67,7 +67,7 @@ UTEST(adventure, opening_room)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "standing at the end of a road") != NULL);
     ASSERT_TRUE(strstr(cap, "small brick") != NULL);
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 /* A second command proves the parser (which scans the asset vocabulary files)
@@ -78,7 +78,7 @@ UTEST(adventure, parses_a_command)
     run_frames(200);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "I see no lamp here") != NULL);
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 UTEST_MAIN_EMU()

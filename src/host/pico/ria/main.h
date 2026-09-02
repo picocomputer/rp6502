@@ -22,9 +22,4 @@
  * this pattern so it's worth reading main.c in its entirety.
  */
 
-/* Special events dispatched from main.c
- */
-
-void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
-
 #endif /* _RIA_MAIN_H_ */

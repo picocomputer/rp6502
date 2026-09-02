@@ -16,19 +16,6 @@
 // The boost that rate is tested at, which only the board that sets it needs.
 #define SYS_RP2350_VREG VREG_VOLTAGE_1_15
 
-/**************************************/
-/* All device drivers register below. */
-/**************************************/
-
-// Triggered once after init then after every PHI2 change.
-void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
-{
-    cpu_reclock();
-    ria_reclock(clkdiv_int, clkdiv_frac);
-    pix_reclock(clkdiv_int, clkdiv_frac);
-}
-
-
 /*****************************/
 /* This is the OS scheduler. */
 /*****************************/

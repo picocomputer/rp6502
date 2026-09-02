@@ -17,7 +17,7 @@
 #include "ria/sys/cfg.h"
 #include "core/sys/config.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/vga.h"

@@ -63,7 +63,8 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #define CHIPS_ASSERT(c) assert(c)
 #endif
 #include "core/mem/mem.h"      /* ram, xstack_ptr */
-#include "core/wdc/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
+#include "core/wdc/phi2.h"
+#include "core/wdc/resb.h"      /* phi2_get_khz_run (Status) */
 #include "core/str/oem.h"      /* oem_get_code_page_run (Status) */
 
 /* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
@@ -130,9 +131,9 @@ void ui_ria_draw(ui_ria_t *win)
         /* Pins: the bus as the RIA last saw it (ria_chip()->PINS) — ria_tick sets
          * CS from its own decode and IRQ from ria_irq_asserted. RES is not a RIA
          * input; overlay it while the machine holds the 6502 in reset (between a
-         * stop and the next run — cpu_halted(), not the debugger's mid-run pause). */
+         * stop and the next run — resb_running(), not the debugger's mid-run pause). */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
-        if (cpu_halted())
+        if (!resb_running())
             p |= RIA_PIN_RES;
         ImGui::BeginChild("##ria_pins", ImVec2(176, 0), ImGuiChildFlags_Borders);
         ui_chip_draw(&win->chip, p);
@@ -148,7 +149,7 @@ void ui_ria_draw(ui_ria_t *win)
         {
             ImGui::Text("XSTACK SP:    $%03X", (unsigned)xstack_ptr);
             ImGui::Text("CODE PAGE:    %u", (unsigned)oem_get_code_page_run());
-            ImGui::Text("PHI2:         %u kHz", (unsigned)cpu_get_phi2_khz_run());
+            ImGui::Text("PHI2:         %u kHz", (unsigned)phi2_get_khz_run());
         }
 
         if (ImGui::CollapsingHeader("Registers", ImGuiTreeNodeFlags_DefaultOpen))

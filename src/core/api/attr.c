@@ -13,7 +13,7 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/sys/com.h"
-#include "core/cpu.h"
+#include "core/wdc/phi2.h"
 #include "core/driver.h"
 #include "core/sys/random.h"
 #include <stdio.h>
@@ -52,7 +52,7 @@ bool attr_api_get(void)
     case ATTR_ERRNO_OPT:
         return api_return_axsreg(api_get_errno_opt());
     case ATTR_PHI2_KHZ:
-        return api_return_axsreg(cpu_get_phi2_khz_run());
+        return api_return_axsreg(phi2_get_khz_run());
     case ATTR_CODE_PAGE:
         return api_return_axsreg(oem_get_code_page_run());
     case ATTR_RLN_LENGTH:
@@ -105,7 +105,7 @@ bool attr_api_set(void)
     case ATTR_PHI2_KHZ:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
-        cpu_set_phi2_khz_run((uint16_t)value);
+        phi2_set_khz_run((uint16_t)value);
         break;
     case ATTR_CODE_PAGE:
         if (value > UINT16_MAX)
@@ -165,10 +165,10 @@ bool attr_api_set(void)
  * Still dispatched from main.c; also reachable via the unified attribute API.
  */
 
-// int phi2(void) - set/get CPU clock
+// int phi2(void)
 bool attr_api_phi2(void)
 {
-    return api_return_ax(cpu_get_phi2_khz_run());
+    return api_return_ax(phi2_get_khz_run());
 }
 
 // int codepage(unsigned cp) - set/get OEM code page

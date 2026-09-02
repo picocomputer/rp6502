@@ -14,7 +14,6 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/cpu.h"
 #include "core/rp2350.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>

@@ -40,7 +40,8 @@
 #include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
 #include "ria/mon/rom.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
+#include "ria/sys/resb.h"
 #include "ria/sys/led.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
@@ -59,9 +60,10 @@
  * the console before anything prints, the banner before anything can queue an
  * error under it, the bus before the video that talks over it, and the
  * filesystem before the config it holds. The rest is init order and little
- * else -- api before cpu so the registers are released before RESB rises, usb
- * second-to-last because its enumeration window times a keyboard quirk and
- * anything slow scheduled inside it stops the quirk firing, cpu last.
+ * else -- usb second-to-last because its enumeration window times a keyboard
+ * quirk and anything slow scheduled inside it stops the quirk firing, and phi2
+ * after it because a reclock is exactly that kind of slow. phi2 must also come
+ * after ria and pix, whose inits create the state machines it reprograms.
  *
  * The io_task column reads its order off this same list, and one rule is
  * load-bearing there: rom before vcp, nfc and api, with api the last row that
@@ -82,7 +84,7 @@
     DIR_DRIVER, CLK_DRIVER,                          \
     DRIVE_DRIVER, RAM_DRIVER,                        \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
-    USB_DRIVER, CPU_DRIVER
+    USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */

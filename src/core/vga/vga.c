@@ -16,7 +16,7 @@
 #include "core/vga/mode0.h"
 #include "core/term/term.h"
 #include "core/term/font.h"
-#include "core/wdc/cpu.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
+#include "core/wdc/bus.h"
 #include "core/dap/dbg.h"
 #include "core/vga/pixel_format.h"
 #include "core/sys/sys.h"

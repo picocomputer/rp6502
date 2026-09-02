@@ -756,10 +756,13 @@ module rp6502
             cpu_din = sram_rdata;
     end
 
+    /* Open bus carries whatever the bus last held, and on a write the 6502 is
+     * what drives it. Gating this on reads would return the last byte read
+     * instead, which the C emulation does not do and silicon does not either. */
     initial bus_hold = 8'h00;
     always_ff @(posedge clk_mach)
-        if (phi2_en && !cpu_we)
-            bus_hold <= cpu_din;
+        if (phi2_en)
+            bus_hold <= cpu_we ? cpu_dout : cpu_din;
 
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;

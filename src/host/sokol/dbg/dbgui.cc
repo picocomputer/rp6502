@@ -22,7 +22,9 @@ extern "C"
 {
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/w65c02.h"
+#include "core/wdc/phi2.h"
+#include "core/wdc/resb.h"
 #include "core/mem/mem.h"
 #include "core/str/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "core/sys/exec.h" /* proc_get_exit_code (exit-code display) */
@@ -273,7 +275,7 @@ static void draw_control(void)
     if (ImGui::Begin("Debug Control", &g_control_open))
     {
         const bool stopped = dbg_is_stopped();
-        if (cpu_halted())
+        if (!resb_running())
             ImGui::Text("exited (code %d)", proc_get_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
@@ -291,7 +293,7 @@ static void draw_control(void)
             if (ImGui::Button("Step Over"))
                 dbg_step(DBG_STEP_LINE_OVER);
         }
-        else if (!cpu_halted() && ImGui::Button("Pause"))
+        else if (resb_running() && ImGui::Button("Pause"))
             dbg_request_pause();
 
         ImGui::Separator();
@@ -791,7 +793,7 @@ void dbgui_init(void)
     w65c02_t *cpu = (w65c02_t *)cpu_chip();
     m6522_t *via = (m6522_t *)via_chip();
 
-    uint32_t freq = (uint32_t)cpu_get_phi2_khz_run() * 1000u;
+    uint32_t freq = (uint32_t)phi2_get_khz_run() * 1000u;
     if (freq == 0)
         freq = 8000000u;
 

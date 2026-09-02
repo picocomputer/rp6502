@@ -15,7 +15,6 @@
 #include "bel.h"
 #include "cfg.h"
 #include "com.h"
-#include "cpu.h"
 #include "font.h"
 #include "main.h"
 #include "mmio.h"

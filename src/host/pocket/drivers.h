@@ -36,7 +36,8 @@
 #include "core/term/term.h"
 #include "core/aud/aud.h"
 #include "sw/apf.h"
-#include "sw/cpu.h"
+#include "core/wdc/resb.h"
+#include "sw/phi2.h"
 #include "sw/sst.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"
@@ -49,7 +50,7 @@
  * can ring it is armed. fs before std, so reversal puts fs_stop after
  * std_stop -- std's closes are what park a read. unicode and layout before
  * keymap, which asks them what layouts exist. vid after term, whose height
- * its canvas sets. cpu last, because its run is RESB going back up.
+ * its canvas sets.
  *
  * apf before keymap is the task column's rule, not init's: apf_task delivers
  * the reports and keymap_task runs the repeat timer over them. bel takes no
@@ -66,7 +67,7 @@
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \
     DIR_DRIVER, API_DRIVER, SST_DRIVER,                 \
-    CLK_DRIVER, CPU_DRIVER
+    CLK_DRIVER, PHI2_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */

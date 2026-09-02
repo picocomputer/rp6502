@@ -7,7 +7,7 @@
 
 #include "core/sys/exec.h"
 #include "core/com/com.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/w65c02.h"
 #include "core/mem/mem.h"
 #include "core/driver.h"
 #include "core/api/api.h"

@@ -18,7 +18,7 @@
 #include "osal/fs.h"
 #include "osal/os.h"
 #include "tb_hostos.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,11 +81,11 @@ UTEST(dir, lists_directory)
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
-    for (int i = 0; i < 600 && !cpu_halted(); i++)
+    for (int i = 0; i < 600 && resb_running(); i++)
         emu_frames(1);
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted()); /* the program ran to completion */
+    ASSERT_FALSE(resb_running()); /* the program ran to completion */
 
     /* The cwd (PATH line) and all three entries are listed. The cwd shows as the
      * native MSC0:<host path>. */

@@ -11,9 +11,9 @@
 
 static m6522_t via;
 
-/* Program start: reset the VIA. The VIA shares the 6502 RESB, so this runs just
- * before cpu_run in the run fan-out. */
-void via_run(void)
+/* RESB, which this part shares with the 6502. m6522_init is behind CHIPS_IMPL,
+ * so the line cannot reach it from outside this file. */
+void via_reset(void)
 {
     m6522_init(&via);
 }

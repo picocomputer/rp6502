@@ -20,6 +20,13 @@
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)  /* D0-D7 */
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10) /* A0-A4 */
 
+/* Two of the 6502's control pins, here because this is what drives them: the
+ * write state machine side-sets PHI2, and the RIA's own interrupt sources are
+ * the only thing this firmware puts on IRQB (the 6522 drives its own, wired-
+ * OR on the board). */
+#define CPU_PHI2_PIN 21
+#define CPU_IRQB_PIN 22
+
 #define RIA_CS_RWB_PIO pio0
 #define RIA_CS_RWB_SM 0
 #define RIA_WRITE_PIO pio0

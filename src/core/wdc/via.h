@@ -15,8 +15,8 @@
 #define VIA_MMAP_LO 0xFFD0
 #define VIA_MMAP_HI 0xFFDF
 
-/* Program start: reset the VIA (it shares the 6502 RESB). */
-void via_run(void);
+/* Reset, from resb_assert: this part shares the 6502's RESB. */
+void via_reset(void);
 
 /* One PHI2 tick: counts the timers always, and services the register access when
  * the address is in the VIA's window. data is in/out. Returns the VIA's IRQ. */
@@ -24,8 +24,5 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data);
 
 /* The live chip instance (m6522_t*), for the debugger UI + DAP register access. */
 void *via_chip(void);
-
-/* This driver's row in a machine's driver list; see core/driver.h. */
-#define VIA_DRIVER DRIVER(nul_init, nul_task, nul_task, via_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_WDC_VIA_H_ */

@@ -8,7 +8,7 @@
 #include "core/api/ops.h"
 #include "core/driver.h"
 #include "core/api/api.h"
-#include "core/cpu.h"
+#include "core/wdc/resb.h"
 
 #if defined(DEBUG_API) || defined(DEBUG_API_API)
 #include <stdio.h>
@@ -87,7 +87,7 @@ static uint8_t api_active_op;
 void api_task(void)
 {
     // Latch called op in case 6502 app misbehaves
-    if (cpu_active() && !ria_active() &&
+    if (resb_running() && !ria_active() &&
         !api_active_op && API_BUSY)
     {
         uint8_t op = API_OP;

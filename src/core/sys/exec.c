@@ -11,7 +11,7 @@
 #include "core/api/proc.h"
 #include "core/api/arg.h"
 #include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "core/str/path.h"
 #include "osal/dir.h"
 #include "osal/os.h"
@@ -44,7 +44,7 @@ void exec_request(const char *rom_path)
     free(queued_path);
     queued_path = own;
     queued = true;
-    cpu_set_halted(true); /* stop the current program; the tick loop exits */
+    resb_assert(); /* stop the current program; the tick loop exits */
 }
 
 bool exec_pending(void)

@@ -43,19 +43,18 @@
 #include "core/term/font.h"
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
-#include "core/wdc/cpu.h"
-#include "core/wdc/via.h"
+#include "core/wdc/bus.h"
+#include "core/wdc/phi2_div.h"
 
 /* init and run walk this forward; stop walks it backward; the two task
  * columns are walked forward every pass of core/sys/sys.c's sys_task and
  * sys_io_task, which with sys_commit are this machine's super-loop. There
  * is no break fan-out -- no monitor to break into.
  *
- * Video leads and the CPU follows, so VGA sits before CPU: the beam advances
- * a scanline and cpu_task runs the 6502 up to it. TERM stays after API in the
+ * Video leads and the bus follows, so VGA sits before BUS: the beam advances
+ * a scanline and bus_task runs the 6502 up to it. TERM stays after API in the
  * io column (its lazy clears drain a row per call) and before VGA in the list
- * (vga_init programs the console canvas, which asks term its height). VIA
- * before CPU: they share RESB. */
+ * (vga_init programs the console canvas, which asks term its height). */
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, MEM_DRIVER, EXEC_DRIVER,        \
     PROC_DRIVER, STR_DRIVER,                                 \
@@ -65,7 +64,7 @@
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
     OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
     AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
-    CLK_DRIVER, VIA_DRIVER, CPU_DRIVER
+    CLK_DRIVER, PHI2_DRIVER, BUS_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */

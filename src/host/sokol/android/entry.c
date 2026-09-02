@@ -24,7 +24,6 @@
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "core/sys/exec.h"
-#include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -233,8 +232,8 @@ sapp_desc sokol_main(int argc, char* argv[])
     }
     else
     {
-        cpu_set_halted(true); // no program yet — hold until the menu boots one
-        menu_open();
+        menu_open(); // still held from sys_init, until the menu boots one
+
     }
 
     /* Connect gamepad player 0. Sticks unconditionally: the motion handler

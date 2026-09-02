@@ -14,7 +14,7 @@
 
 #include "core/hid/mouse.h"
 #include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "emu_boot.h"
@@ -53,7 +53,7 @@ UTEST(paint, via_irq_moves_pointer)
     run(20);
     ASSERT_NE(frame_crc(), still);
 
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 UTEST_MAIN_EMU()

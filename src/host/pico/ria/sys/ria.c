@@ -13,9 +13,10 @@
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
+#include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria.pio.h"
 #include <pico/stdio.h>
@@ -99,7 +100,7 @@ void ria_run(void)
     action_result = RIA_ACTION_RESULT_NONE;
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
-    action_watchdog_timer = make_timeout_time_us(cpu_get_reset_us() +
+    action_watchdog_timer = make_timeout_time_us(resb_get_reset_us() +
                                                  RIA_WATCHDOG_MS * 1000);
     switch (action_state)
     {
@@ -219,7 +220,7 @@ bool ria_handle_error(void)
 
 void ria_read_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -241,7 +242,7 @@ void ria_read_buf(uint16_t addr)
 
 void ria_verify_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -261,7 +262,7 @@ void ria_verify_buf(uint16_t addr)
 
 void ria_write_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;

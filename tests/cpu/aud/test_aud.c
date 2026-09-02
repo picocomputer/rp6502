@@ -18,7 +18,7 @@
  */
 
 #include "core/aud/aud_mix.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 
 static int g_pos;
@@ -146,7 +146,7 @@ UTEST(aud, a_program_exit_goes_quiet)
     for (int i = 0; i < 20; i++)
     {
         run_frame();
-        if (cpu_halted())
+        if (!resb_running())
         {
             stopped = i;
             break;

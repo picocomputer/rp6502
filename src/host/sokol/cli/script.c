@@ -15,7 +15,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
 #include <stdarg.h>
@@ -977,7 +977,7 @@ static bool script_settle(void)
             return false;
         return script_error("timed out typing; the program is not reading its input");
     case SCRIPT_EXIT:
-        if (cpu_halted())
+        if (!resb_running())
         {
             int code = proc_get_exit_code();
             if (code != script_exit_want)

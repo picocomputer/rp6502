@@ -9,7 +9,7 @@
  * independent of PHI2 — exactly what makes timed tests repeatable.
  */
 
-#include "core/wdc/cpu.h"
+#include "core/wdc/phi2.h"
 #include "host/host.h"
 #include "emu_boot.h"
 
@@ -41,7 +41,7 @@ UTEST(clock, run_time_is_exact_and_reproducible)
 UTEST(clock, time_is_phi2_independent)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    cpu_set_phi2_khz_run(2000);
+    phi2_set_khz_run(2000);
     uint64_t t0 = host_clock_us();
     run_frames(60);
     ASSERT_EQ(host_clock_us() - t0, 1000000ull);
@@ -50,26 +50,30 @@ UTEST(clock, time_is_phi2_independent)
 UTEST(clock, phi2_get_set_clamp)
 {
     /* Exact divisors (clkdiv 1/2/4/8/80) report back unchanged. */
-    cpu_set_phi2_khz_run(8000);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 8000);
-    cpu_set_phi2_khz_run(4000);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 4000);
-    cpu_set_phi2_khz_run(2000);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 2000);
-    cpu_set_phi2_khz_run(1000);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 1000);
-    cpu_set_phi2_khz_run(100);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 100);
+    phi2_set_khz_run(8000);
+    ASSERT_EQ(phi2_get_khz_run(), 8000);
+    phi2_set_khz_run(4000);
+    ASSERT_EQ(phi2_get_khz_run(), 4000);
+    phi2_set_khz_run(2000);
+    ASSERT_EQ(phi2_get_khz_run(), 2000);
+    phi2_set_khz_run(1000);
+    ASSERT_EQ(phi2_get_khz_run(), 1000);
+    phi2_set_khz_run(100);
+    ASSERT_EQ(phi2_get_khz_run(), 100);
 
     /* Out of range clamps to [100, 8000]. */
-    cpu_set_phi2_khz_run(50);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 100);
-    cpu_set_phi2_khz_run(20000);
-    ASSERT_EQ(cpu_get_phi2_khz_run(), 8000);
+    phi2_set_khz_run(50);
+    ASSERT_EQ(phi2_get_khz_run(), 100);
+    phi2_set_khz_run(20000);
+    ASSERT_EQ(phi2_get_khz_run(), 8000);
 
-    /* An unrepresentable rate quantizes to a nearby achievable one. */
-    cpu_set_phi2_khz_run(3000);
-    ASSERT_TRUE(cpu_get_phi2_khz_run() >= 2950 && cpu_get_phi2_khz_run() <= 3050);
+    /* Every whole kilohertz in range is exact here, as in phi2_div.sv. The
+     * board's PIO divider cannot do this and lands nearby instead. */
+    for (uint16_t khz = PHI2_MIN_KHZ; khz <= PHI2_MAX_KHZ; khz++)
+    {
+        phi2_set_khz_run(khz);
+        ASSERT_EQ(phi2_get_khz_run(), khz);
+    }
 }
 
 UTEST_MAIN_EMU()

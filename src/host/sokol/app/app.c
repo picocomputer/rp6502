@@ -46,7 +46,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
@@ -77,7 +77,7 @@ static void update_title(void)
 {
     int v;
     const char *t;
-    if (cpu_halted())
+    if (!resb_running())
     {
         v = 1;
         t = "Picocomputer 6502 (stopped)";
@@ -207,7 +207,7 @@ void app_frame(void)
     update_title();
     /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the
      * CPU with no program yet, so a halt there isn't a program exit — don't quit. */
-    if (cpu_halted() && app.exit_on_halt && !host_window_menu_active())
+    if (!resb_running() && app.exit_on_halt && !host_window_menu_active())
         sapp_request_quit();
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
@@ -353,7 +353,7 @@ void app_input(const struct sapp_event *e)
  * stays 0. */
 int app_exit_code(void)
 {
-    return (app.exit_on_halt && cpu_halted()) ? proc_get_exit_code() : 0;
+    return (app.exit_on_halt && !resb_running()) ? proc_get_exit_code() : 0;
 }
 
 void app_cleanup(void)

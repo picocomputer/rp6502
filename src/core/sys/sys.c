@@ -13,12 +13,16 @@
  * 6502 left running would keep asking for what is being torn down. That is a
  * concurrency fact of the machines whose CPU runs beside the fan-out -- the
  * Pico's second core, the Pocket's fabric. On a software machine the 6502
- * only ever runs inside cpu_task, so there is no race for RESB to win; it
+ * only ever runs inside the bus task, so there is no race for RESB to win; it
  * goes down early there because a stop is a stop, not because it must.
+ *
+ * So this file is where the line lives (core/wdc/resb.h): down before the
+ * driver walk, down again in every ask, up once the run fan-out has finished.
+ * No driver row could be all three.
  */
 
 #include "core/sys/sys.h"
-#include "core/cpu.h"
+#include "core/wdc/resb.h"
 #include "drivers.h"
 
 static enum state
@@ -40,6 +44,10 @@ static volatile bool sys_breaking;
  * the include path, so "drivers.h" above is its own. */
 void sys_init(void)
 {
+    /* Before the walk, not after: on a machine where the RIA generates PHI2,
+     * that state machine starts inside it, and a 6502 must not be clocked
+     * with its reset still floating. */
+    resb_init();
 #define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
@@ -106,7 +114,7 @@ void sys_run(void)
 
 void sys_stop(void)
 {
-    cpu_stop(); /* RESB down now; the rest of the fan-out can wait */
+    resb_assert(); /* the rest of the fan-out can wait; this cannot */
     if (sys_state == starting)
         sys_state = stopped; /* never started; nothing to tear down */
     else if (sys_state != stopped)
@@ -159,6 +167,11 @@ void sys_commit(void)
          * Assigning after would discard it. */
         sys_state = running;
         sys_on_run();
+        /* Only if the walk did not stop us. The ask lowers RESB from anywhere,
+         * including from inside a run hook, and nothing downstream would raise
+         * it again -- the stop fan-out does not touch the line. */
+        if (sys_state == running)
+            resb_release();
     }
     if (sys_state == stopping)
     {

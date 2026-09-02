@@ -8,6 +8,14 @@
 
 set(CPU_WDC ${RP6502_TESTS_DIR}/cpu/wdc)
 
+# --- Every whole kilohertz, exactly ---
+# The clock the rest of this directory runs on. tests/cpu/ria/test_clock.c
+# makes the same claim of the C accumulator.
+rp6502_add_module_test(phi2
+    TOP phi2_div
+    RTL ${RP6502_SRC}/core/wdc/phi2_div.sv
+    TIMEOUT 120)
+
 # Interrupts, reset, RDY, WAI and STP: the C emulation and the RTL in
 # lockstep under scripted pins — coverage the vectors cannot express.
 # Its scenarios are the ones cpu/wdc holds, so it wants no corpus and is

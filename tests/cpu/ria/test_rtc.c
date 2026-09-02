@@ -18,7 +18,7 @@
 #include "core/str/oem.h"
 #include "core/com/com.h"
 #include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"
 #include <stdlib.h>
@@ -78,7 +78,7 @@ UTEST(rtc, prints_fixed_timestamps)
     run_frames(120);
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted()); /* program runs to completion */
+    ASSERT_FALSE(resb_running()); /* program runs to completion */
     ASSERT_TRUE(strstr(cap, "Jan") != NULL);
     ASSERT_TRUE(strstr(cap, "Jul") != NULL);
     ASSERT_TRUE(strstr(cap, "12:00:00 2025") != NULL);

@@ -24,7 +24,7 @@
 #include "core/sys/config.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include <stdio.h>
@@ -155,7 +155,7 @@ void set_mon_set(const char *args)
     /* The listing, in the order a person reads it. SSID prints the password's
      * line and the port prints the key's, because setting one is always news
      * about the other. */
-    mon_add_response_fn(cpu_phi2_response);
+    mon_add_response_fn(phi2_response);
     mon_add_response_fn(set_boot_response);
     mon_add_response_fn(tim_time_zone_response);
     mon_add_response_fn(str_locale_response);

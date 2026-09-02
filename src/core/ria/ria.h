@@ -44,7 +44,7 @@ void ria_trigger_vsync(void);
 
 /* The RIA's pins. It wires only CS, RW, D0-D7 and the low five address lines that
  * select its register window, so it has its own compact layout rather than borrowing
- * the CPU's. RES is not a RIA input; the debug overlay lights it from cpu_halted(). */
+ * the CPU's. RES is not a RIA input; the debug overlay lights it from resb_running(). */
 #define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
 #define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
 #define RIA_PIN_RW (1ULL << 16)

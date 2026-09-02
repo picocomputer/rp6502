@@ -28,7 +28,8 @@
 #include "core/sys/exec.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/phi2.h"
+#include "core/wdc/resb.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
@@ -171,11 +172,11 @@ static void apply_options(bool started)
 {
     const char *v = option_value("rp6502_phi2");
     long khz = v ? strtol(v, NULL, 10) : 0;
-    if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
+    if (khz >= PHI2_MIN_KHZ && khz <= PHI2_MAX_KHZ)
     {
-        cpu_set_phi2_khz((uint16_t)khz);
+        phi2_set_khz((uint16_t)khz);
         if (started)
-            cpu_set_phi2_khz_run((uint16_t)khz);
+            phi2_set_khz_run((uint16_t)khz);
     }
 
     v = option_value("rp6502_code_page");
@@ -631,8 +632,8 @@ void retro_run(void)
     {
         const char *v = option_value("rp6502_phi2");
         long khz = v ? strtol(v, NULL, 10) : 0;
-        if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
-            cpu_set_phi2_khz_run((uint16_t)khz);
+        if (khz >= PHI2_MIN_KHZ && khz <= PHI2_MAX_KHZ)
+            phi2_set_khz_run((uint16_t)khz);
         v = option_value("rp6502_code_page");
         long cp = v ? strtol(v, NULL, 10) : 0;
         if (cp > 0 && cp <= UINT16_MAX)
@@ -673,7 +674,7 @@ void retro_run(void)
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */
-    if (cpu_halted() && !shutdown_sent)
+    if (!resb_running() && !shutdown_sent)
     {
         shutdown_sent = true;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);

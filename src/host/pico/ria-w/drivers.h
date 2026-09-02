@@ -45,7 +45,8 @@
 #include "ria-w/net/ntp.h"
 #include "ria-w/net/wifi.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
+#include "ria/sys/resb.h"
 #include "ria/sys/led.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
@@ -89,7 +90,7 @@
     MODEM_DRIVER, DIR_DRIVER, CLK_DRIVER,            \
     DRIVE_DRIVER, RAM_DRIVER,                        \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
-    USB_DRIVER, CPU_DRIVER
+    USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
