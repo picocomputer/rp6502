@@ -33,9 +33,9 @@ include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_OSAL ${RP6502_SRC}/osal/emscripten)
 include(${RP6502_SRC}/core/emu.cmake)
-# This machine's own directory, for the drivers.h core/sys/sys.c includes by
-# bare name. emu.cmake puts src/ on the path and nothing more specific.
-target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# The machine this is: the web build is the sokol machine in a browser, so it
+# takes the drivers.h beside that one rather than a copy that could drift.
+target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 # The browser has no <aio.h>, so it takes the POSIX seam's synchronous
 # transport -- the same pair the libretro core takes on every OS that is not
 # Windows. Persistence is not fs.c's: the page mounts IDBFS with autoPersist,
