@@ -85,7 +85,7 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_OSAL ${RP6502_SRC}/osal/android)
-include(${RP6502_SRC}/host/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
 # that is not Windows. One bionic filesystem answer, not two.
@@ -101,8 +101,6 @@ target_sources(emu_core PRIVATE
 # its own, so it takes the drivers.h beside it rather than a copy.
 target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 
-set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 

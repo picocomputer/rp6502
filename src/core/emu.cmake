@@ -1,19 +1,17 @@
-# emu_core: the machine as a library, for every host that runs it.
+# emu_core: the machine as a library, for every host that runs it in software.
 #
-# What is here is what does not depend on which OS this is — the shared
+# What is here is what does not depend on which OS this is — the core's own
 # sources, the tables generated from them, and the facts that belong to a
 # compiler rather than a platform.
 #
-# RP6502_OSAL names the directory under src/osal that answers osal/os.h for
-# this build -- linux, macos, windows, android, emscripten. Every root sets it
-# before including this file, and names its own machine directory on the
-# include path itself, for the drivers.h core/sys/sys.c includes by bare name.
+# A root names two things this file does not: the directory under src/osal that
+# answers osal/os.h, through that seam's own cmake or a line of its own; and its
+# own machine directory on emu_core's include path, for the drivers.h
+# core/sys/sys.c includes by bare name.
 #
-# The OS's own files are the root's to name: src/osal/posix/posix.cmake for
-# the ones that share a POSIX seam, and a line apiece for the rest.
-#
-# RP6502_EMU_IPO  whether this build asked for link-time optimization, for a
-#                 root to hand to emu_core and to everything it makes after.
+# RP6502_EMU_IPO  whether this build asked for link-time optimization, so a root
+#                 can hand it to everything it makes after emu_core. This file
+#                 has already given it to emu_core and to the caller's scope.
 
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
@@ -159,17 +157,14 @@ target_compile_definitions(emu_core PUBLIC
     RP6502_EXFAT=0
     RP6502_LOCALE=EN
     PICO_PROGRAM_NAME="RP6502-EMU")
-# MSVC has no separate libm
+# MSVC has no separate libm; what it does need instead is in
+# src/osal/windows/windows.cmake, which is that seam's.
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
-else()
-    # Shims MSVC alone needs, including a <strings.h> it has no system header
-    # for. Their own directory: this goes on every consumer's include path, and
-    # the host's own headers are not ours to publish.
-    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/osal/windows/msvc)
-    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
-    # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
-    # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
-    target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
-    target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
 endif()
+
+# The link-time optimization this build asked for, given to emu_core and to the
+# scope that included this file -- every root wants both and all of them are
+# building the same library.
+set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

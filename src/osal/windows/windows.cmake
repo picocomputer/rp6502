@@ -23,3 +23,16 @@ target_sources(emu_core PRIVATE
 # set for these files cannot hide newer APIs from the window and pad code
 # that compiles into the emulator beside them.
 target_compile_definitions(emu_core PRIVATE _WIN32_WINNT=0x0601)
+
+# What MSVC alone needs to compile the core beside this seam: shims including a
+# <strings.h> it has no system header for, in their own directory because it
+# goes on every consumer's include path and the host's own headers are not ours
+# to publish. MinGW takes none of it.
+if(MSVC)
+    target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR}/msvc)
+    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
+    # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
+    # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
+    target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
+    target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()

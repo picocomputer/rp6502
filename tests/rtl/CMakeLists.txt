@@ -74,7 +74,7 @@ elseif(APPLE)
 else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
-include(${RP6502_SRC}/host/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 
@@ -82,8 +82,6 @@ target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 # against, so it is that machine and takes that machine's drivers.h rather
 # than keeping a copy that could drift out from under the comparison.
 target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
-set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
 enable_testing()
 

@@ -46,7 +46,7 @@ else()
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/linux)
 endif()
 
-include(${RP6502_SRC}/host/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
     target_sources(emu_core PRIVATE ${RP6502_OSAL}/os_emu.c)
@@ -62,8 +62,6 @@ target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 # One optimization unit in Release, as it was when this tree was one file.
 # emu_core was made above this line, so it is told directly; everything made
 # below inherits the directory variable.
-set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 

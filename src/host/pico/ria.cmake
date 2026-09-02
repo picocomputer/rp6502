@@ -8,7 +8,7 @@
 # The firmware's own sources; this file is the parts list, they are the parts.
 set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
 # The directory that answers osal/os.h, osal/fs.h and osal/dir.h for this
-# machine; see src/host/emu.cmake for the same name on the desktops.
+# machine; the desktops name theirs the same way.
 set(RP6502_OSAL ${RP6502_ROOT}/src/osal/pico)
 
 include(${RP6502_ROOT}/src/core/gen.cmake)

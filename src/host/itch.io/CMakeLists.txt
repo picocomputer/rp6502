@@ -32,10 +32,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_OSAL ${RP6502_SRC}/osal/emscripten)
-include(${RP6502_SRC}/host/emu.cmake)
-# emu.cmake leads the include path with RP6502_OSAL, which is an OS directory
-# rather than this one -- so this one is named here, for the drivers.h
-# core/sys/sys.c includes by bare name.
+include(${RP6502_SRC}/core/emu.cmake)
+# This machine's own directory, for the drivers.h core/sys/sys.c includes by
+# bare name. emu.cmake puts src/ on the path and nothing more specific.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 # The browser has no <aio.h>, so it takes the POSIX seam's synchronous
 # transport -- the same pair the libretro core takes on every OS that is not
@@ -49,8 +48,6 @@ target_sources(emu_core PRIVATE
     ${RP6502_SRC}/osal/posix/os.c
     ${RP6502_OSAL}/os.c)
 
-set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
