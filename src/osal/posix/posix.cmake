@@ -1,38 +1,44 @@
-# The POSIX host seam, for the hosts whose OS is one.
+# The POSIX seam, for the machines whose OS is one.
 #
-# Linux and macOS share all of these files and differ only in the entropy
-# source, which is what each one's own os.c is.
-# The web and Android hosts take dir.c, errmap.c and os.c from here
-# directly and bring their own transport — neither has <aio.h> — so they do
-# not include this.
+# rp6502_osal_posix(<target> TRANSPORT aio|sync)
 #
-# fs.c is the file driver minus its read/write/close, which are a file of
-# their own because there is more than one right answer: fs_aio.c for a host
-# that owns its process, fs_sync.c for one that is a guest in someone else's.
-# This include takes the asynchronous one; a root that wants the other names
-# these files itself.
+# fs.c is the file driver minus its read/write/close, which are a file of their
+# own because there is more than one right answer: fs_aio.c for a machine that
+# owns its process, fs_sync.c for one that is a guest in someone else's — the
+# libretro core, the browser and Android, none of which has a usable <aio.h>.
 #
-# Included after emu.cmake: it adds to emu_core.
+# What is not here is the entropy source: that differs between machines rather
+# than between operating systems, so each names its own osal/<os>/os.c.
 
-target_sources(emu_core PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/dir.c
-    ${CMAKE_CURRENT_LIST_DIR}/errmap.c
-    ${CMAKE_CURRENT_LIST_DIR}/fs.c
-    ${CMAKE_CURRENT_LIST_DIR}/fs_aio.c
-    ${CMAKE_CURRENT_LIST_DIR}/os.c)
+include_guard(GLOBAL)
 
-# POSIX AIO. On macOS aio_read is in libc and there is no librt to find; the
-# check is the same either way and answers for the platform it runs on.
-include(CheckSymbolExists)
-find_library(RT_LIBRARY rt)
-if(RT_LIBRARY)
-    target_link_libraries(emu_core PUBLIC ${RT_LIBRARY})
-    set(CMAKE_REQUIRED_LIBRARIES ${RT_LIBRARY})
-endif()
-set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
-check_symbol_exists(aio_read "aio.h" EMU_POSIX_AIO)
-unset(CMAKE_REQUIRED_DEFINITIONS)
-unset(CMAKE_REQUIRED_LIBRARIES)
-if(NOT EMU_POSIX_AIO)
-    message(FATAL_ERROR "POSIX AIO (aio_read/<aio.h>) is required on this platform")
-endif()
+set(RP6502_OSAL_POSIX ${CMAKE_CURRENT_LIST_DIR})
+
+function(rp6502_osal_posix target)
+    cmake_parse_arguments(P "" "TRANSPORT" "" ${ARGN})
+    if(NOT P_TRANSPORT MATCHES "^(aio|sync)$")
+        message(FATAL_ERROR "rp6502_osal_posix(${target}): TRANSPORT is aio or sync")
+    endif()
+    target_sources(${target} PRIVATE
+        ${RP6502_OSAL_POSIX}/dir.c
+        ${RP6502_OSAL_POSIX}/errmap.c
+        ${RP6502_OSAL_POSIX}/fs.c
+        ${RP6502_OSAL_POSIX}/fs_${P_TRANSPORT}.c
+        ${RP6502_OSAL_POSIX}/os.c)
+    if(NOT P_TRANSPORT STREQUAL "aio")
+        return()
+    endif()
+    # POSIX AIO. On macOS aio_read is in libc and there is no librt to find; the
+    # check is the same either way and answers for the platform it runs on.
+    include(CheckSymbolExists)
+    find_library(RT_LIBRARY rt)
+    if(RT_LIBRARY)
+        target_link_libraries(${target} PUBLIC ${RT_LIBRARY})
+        set(CMAKE_REQUIRED_LIBRARIES ${RT_LIBRARY})
+    endif()
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+    check_symbol_exists(aio_read "aio.h" EMU_POSIX_AIO)
+    if(NOT EMU_POSIX_AIO)
+        message(FATAL_ERROR "POSIX AIO (aio_read/<aio.h>) is required on this platform")
+    endif()
+endfunction()

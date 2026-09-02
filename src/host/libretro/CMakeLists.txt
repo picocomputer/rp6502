@@ -60,19 +60,16 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 
 # The host OS seam. Windows takes the Win32 one whole: overlapped I/O is the
 # kernel's own, so there is nothing left running inside a library a frontend
-# unloads. Everyone else takes the POSIX seam without posix.cmake, for its
-# byte transport — glibc's POSIX AIO would still have helper threads holding
-# a buffer inside a library that is going away.
+# unloads. Everyone else takes the POSIX seam's byte transport — glibc's POSIX
+# AIO would still have helper threads holding a buffer inside a library that is
+# going away.
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
+    rp6502_osal_windows(emu_core)
 else()
-    target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/osal/posix/dir.c
-        ${RP6502_SRC}/osal/posix/errmap.c
-        ${RP6502_SRC}/osal/posix/fs.c
-        ${RP6502_SRC}/osal/posix/fs_sync.c
-        ${RP6502_SRC}/osal/posix/os.c
-        ${RP6502_OSAL}/os.c)
+    include(${RP6502_SRC}/osal/posix/posix.cmake)
+    rp6502_osal_posix(emu_core TRANSPORT sync)
+    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 endif()
 
 # Everything that reaches a shared object has to be relocatable, emu_core

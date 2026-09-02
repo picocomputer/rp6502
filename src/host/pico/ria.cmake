@@ -7,9 +7,9 @@
 
 # The firmware's own sources; this file is the parts list, they are the parts.
 set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
-# The directory that answers osal/os.h, osal/fs.h and osal/dir.h for this
-# machine; the desktops name theirs the same way.
-set(RP6502_OSAL ${RP6502_ROOT}/src/osal/pico)
+# The seam that answers osal/os.h, osal/fs.h and osal/dir.h for this machine:
+# its own firmware, over littlefs on the RIA's flash.
+include(${RP6502_ROOT}/src/osal/pico/pico.cmake)
 
 include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
@@ -35,6 +35,7 @@ add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})
 
 add_executable(${RIA_TARGET})
 add_dependencies(${RIA_TARGET} hid_usage)
+rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} copy_to_ram)
@@ -103,11 +104,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/xreg0.c
     ${RP6502_ROOT}/src/core/rom/asset.c
     ${RP6502_ROOT}/src/core/rom/pump.c
-    ${RP6502_OSAL}/dir.c
-    ${RP6502_OSAL}/errmap.c
-    ${RP6502_OSAL}/fs.c
-    ${RP6502_OSAL}/lfs.c
-    ${RP6502_OSAL}/os.c
     ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c

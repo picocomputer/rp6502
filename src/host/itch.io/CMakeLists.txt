@@ -40,13 +40,9 @@ target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 # transport -- the same pair the libretro core takes on every OS that is not
 # Windows. Persistence is not fs.c's: the page mounts IDBFS with autoPersist,
 # which syncs on close and on every directory change.
-target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/osal/posix/dir.c
-    ${RP6502_SRC}/osal/posix/errmap.c
-    ${RP6502_SRC}/osal/posix/fs.c
-    ${RP6502_SRC}/osal/posix/fs_sync.c
-    ${RP6502_SRC}/osal/posix/os.c
-    ${RP6502_OSAL}/os.c)
+include(${RP6502_SRC}/osal/posix/posix.cmake)
+rp6502_osal_posix(emu_core TRANSPORT sync)
+target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)

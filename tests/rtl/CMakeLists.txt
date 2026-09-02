@@ -76,6 +76,7 @@ else()
 endif()
 include(${RP6502_SRC}/core/emu.cmake)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
+rp6502_osal_posix(emu_core TRANSPORT aio)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 
 # The bench runs the emulator as the reference model the RTL is compared
