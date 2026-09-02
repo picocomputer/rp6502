@@ -27,7 +27,7 @@ add_dependencies(test_asm asm_ref)
 add_test(NAME asm_opcodes
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_TESTS_DIR}/gen/rp6502_asm.py --check)
-set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;ria")
+set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;cpu.ria")
 
 # The container, against the tool that defines it. Every generated ROM is
 # packaged by tools/rp6502.py now, so what it writes and what it reads have
@@ -38,7 +38,7 @@ add_test(NAME rom_tool
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(rom_tool PROPERTIES LABELS "gate;ria")
+set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
 
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
 rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)

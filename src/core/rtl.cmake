@@ -5,6 +5,11 @@
 # project. Guarding it behind verilator_FOUND would mean no bitstream without
 # Verilator installed, which CI's bitstream runner does not have.
 
+# Guarded like assets.cmake and gen.cmake. Without it a second include
+# re-prepends tests/bench's lint waivers, which rp6502_verilate.cmake puts at
+# the front of this list and which are only applied when read first.
+include_guard(GLOBAL)
+
 # rp6502_submodule: three of the modules in this list are vendored, and a
 # vendored tree is fetched rather than committed.
 include(${RP6502_ROOT}/submodules.cmake)

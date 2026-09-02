@@ -108,7 +108,7 @@ add_test(NAME vidmodes_corpus
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.c
         --suite ${RP6502_TESTS_DIR}/rtl/vid/test_vidregs.cpp)
-set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;vid")
+set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;cpu.vid")
 
 if(COMMAND rp6502_add_machine_test)
     # The frame counter and the vsync interrupt against the raster.
