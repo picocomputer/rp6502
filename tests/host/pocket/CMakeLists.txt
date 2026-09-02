@@ -151,3 +151,29 @@ add_test(NAME stage_map
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
+
+# Quartus does not fail on a constraint that matches nothing -- it prints
+# "Ignored" and fits without it, so a renamed module drops whatever the
+# constraint was protecting and the report still says timing closed.
+# rp6502.sdc's own comment records this having happened. The bitstream job
+# cannot catch it; this can, and needs no Quartus.
+# RP6502_SDC belongs to quartus.cmake, which this tree does not include, so
+# the paths are named here. The two files also filter on the board's top and
+# on vendored names -- Analogue's synch_3, the OPL2's reset_sync, Hazard3's
+# bus_active_dph_ -- so those trees are in the haystack too.
+set(SDC_GATE_RTL)
+foreach(src ${RP6502_RTL_SOURCES})
+    list(APPEND SDC_GATE_RTL --rtl ${src})
+endforeach()
+list(APPEND SDC_GATE_RTL
+    --rtl-dir ${RP6502_POCKET_CORE}
+    --rtl-dir ${RP6502_VENDOR}/hazard3/hdl
+    --rtl-dir ${RP6502_VENDOR}/opl2_fpga/fpga
+    --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
+add_test(NAME sdc_filters
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
+        --sdc ${RP6502_SRC}/core/machine/rp6502.sdc
+        --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
+        ${SDC_GATE_RTL})
+set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")
