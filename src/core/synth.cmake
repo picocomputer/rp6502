@@ -36,7 +36,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # virtual pin, which hits its ten-thousand message cap and buries
         # everything that means something.
         "set_global_assignment -name MESSAGE_DISABLE 15720")
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND SYNTH_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")

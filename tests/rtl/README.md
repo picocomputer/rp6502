@@ -92,9 +92,9 @@ else.** No Verilator, no host test suite. That was not true for a while:
 the Quartus projects were built from a source list defined inside a
 `verilator_FOUND` guard, so a machine without a simulator had no bitstream
 target at all — including the CI runner whose whole job is fitting one. The
-list moved to `machine.cmake`, which both roots include, and it is
-still the list the simulation verilates, so the thing measured is still the
-thing tested.
+list is `src/core/rtl.cmake`, which both roots include, and it is still the
+list the simulation verilates, so the thing measured is still the thing
+tested.
 
 The simulation, for its part, requires Verilator rather than warning and
 carrying on: a tree that exists to run the RTL has nothing to offer without

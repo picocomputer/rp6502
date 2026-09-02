@@ -2,12 +2,12 @@
 # end of it, and the SD card tree that carries it.
 #
 # Everything here needs Quartus, the APF submodule and the soft CPU firmware.
-# None of it needs Verilator: the source list comes from machine.cmake, which
+# None of it needs Verilator: the source list comes from core/rtl.cmake, which
 # is a list either way. MiSTer gets a directory beside this one.
 #
 # NONE, because nothing here runs a compiler for this machine. The only
-# compiler in the graph is the RISC-V one machine.cmake finds for the soft
-# CPU's firmware, and it is invoked by a custom command.
+# compiler in the graph is the RISC-V one sw.cmake beside this file finds for
+# the soft CPU's firmware, and it is invoked by a custom command.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -142,7 +142,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # actually short of one of them, and this one is short of
         # neither.
         "set_global_assignment -name OPTIMIZATION_MODE \"BALANCED\"")
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")

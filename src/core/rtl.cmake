@@ -36,7 +36,7 @@ foreach(dir top_level channels operator timers host_if misc clks)
     list(APPEND OPL2_SOURCES ${_opl_dir_src})
 endforeach()
 
-set(RP6502_MACHINE_SOURCES
+set(RP6502_RTL_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
     ${W65C02_ROM}
@@ -79,7 +79,7 @@ set(RP6502_MACHINE_SOURCES
 # submodules of its own and this tree reads none of them.
 rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
     WANTS "the soft CPU")
-set(RP6502_MACHINE_VERILATOR_ARGS
+set(RP6502_RTL_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl
     -y ${RP6502_VENDOR}/hazard3/hdl/arith
     -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm

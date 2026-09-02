@@ -60,13 +60,13 @@ rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
 # Host wrappers under src/osal are not verilated; the simulation
 # models the host bridge in C++ instead, so one harness serves every target.
 # The waivers ride with the simulator rather than with the manifest in
-# machine.cmake, because that is what they are: Verilator's own lint, waived.
+# core/rtl.cmake, because that is what they are: Verilator's own lint, waived.
 # Quartus never sees them — its lists are filtered by extension — and a
 # tree built without a simulator has no business naming a file in tests/.
 #
 # They lead, because a waiver read after the file it waives is not applied.
 list(PREPEND OPL2_SOURCES ${RP6502_BENCH}/opl2.vlt)
-list(PREPEND RP6502_MACHINE_SOURCES
+list(PREPEND RP6502_RTL_SOURCES
     ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/opl2.vlt)
 
 # rp6502_model(<out> TOP <module> PREFIX <V...> RTL <file>... [TRACE]
@@ -219,7 +219,7 @@ function(rp6502_add_machine_test name)
     endif()
 
     # The model's dependencies are the generators of the packages in
-    # RP6502_MACHINE_SOURCES, and only those. sw_bin and the fonts are files a
+    # RP6502_RTL_SOURCES, and only those. sw_bin and the fonts are files a
     # test opens at run time, and the machine is shared now — holding its
     # elaboration behind a RISC-V compile would put the firmware on the
     # critical path of the whole suite.
@@ -230,9 +230,9 @@ function(rp6502_add_machine_test name)
     rp6502_model(_model
         TOP ${M_TOP}
         PREFIX ${M_PREFIX}
-        RTL ${RP6502_MACHINE_SOURCES} ${M_RTL}
+        RTL ${RP6502_RTL_SOURCES} ${M_RTL}
         ${_trace}
-        ARGS ${RP6502_MACHINE_VERILATOR_ARGS}
+        ARGS ${RP6502_RTL_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
         DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
     target_link_libraries(test_${name} PRIVATE ${_model})
