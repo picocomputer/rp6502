@@ -9,6 +9,7 @@
  * independent of PHI2 — exactly what makes timed tests repeatable.
  */
 
+#include "core/wdc/bus.h"
 #include "core/wdc/phi2.h"
 #include "host/host.h"
 #include "emu_boot.h"
@@ -73,6 +74,26 @@ UTEST(clock, phi2_get_set_clamp)
     {
         phi2_set_khz_run(khz);
         ASSERT_EQ(phi2_get_khz_run(), khz);
+    }
+}
+
+/* How many cycles a frame is worth, which no other test looks at and which
+ * the machine cannot be asked from outside. Three frames is 1575 scanlines
+ * and a scanline is 2*khz/63 cycles, so three frames is exactly 50*khz at
+ * every rate -- an integer whatever the accumulator is doing underneath.
+ *
+ * 100 and 733 are the interesting ones: 8000 divides the tick count evenly
+ * and would pass even if the fraction were dropped on the floor. */
+UTEST(clock, cycles_per_frame_is_exact)
+{
+    static const uint16_t rates[] = {100, 733, 8000};
+    for (unsigned i = 0; i < sizeof rates / sizeof *rates; i++)
+    {
+        ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+        phi2_set_khz_run(rates[i]);
+        uint64_t c0 = bus_cycles();
+        run_frames(3);
+        ASSERT_EQ(bus_cycles() - c0, 50ull * rates[i]);
     }
 }
 

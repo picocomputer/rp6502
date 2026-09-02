@@ -12,12 +12,20 @@
 #define _CORE_WDC_BUS_H_
 
 #include "core/rp2350.h" /* SYS_RP2350_KHZ */
+#include <stdint.h>
 
 /* The system clock is counted oversampled so that a PHI2 period is a whole
  * number of ticks at rates whose divider is not: 2048 ticks per microsecond,
  * 2048000 per millisecond, against a rate in cycles per millisecond. */
 #define SYS_OVERSAMPLE 8
 #define SYS_TICKS_PER_US (SYS_RP2350_KHZ * SYS_OVERSAMPLE / 1000) /* 2048 */
+
+/* 6502 cycles this machine has run, ever. The clock above is the beam's and
+ * runs whether or not the CPU does, so it cannot answer this: a machine held
+ * in reset still ages. Nothing in the machine reads it -- it is here so a test
+ * can say how many cycles a frame was worth, which is otherwise unobservable
+ * from outside. */
+uint64_t bus_cycles(void);
 
 /* Reset, from resb_assert: the parked bus is what the next cycle drives, and
  * a finished program's last access must not carry into a fresh one. The clock

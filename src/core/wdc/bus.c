@@ -23,6 +23,9 @@
  * which is what makes a timed test repeat. */
 static uint64_t bus_clk;
 
+/* Cycles run, for the test that pins how many a frame is worth. */
+static uint64_t bus_cycle_count;
+
 /* The divider's phase, carried cycle to cycle so every whole kilohertz is
  * exact. Parked here with the clock it advances. */
 static uint32_t bus_phase;
@@ -39,6 +42,8 @@ static bool bus_via_irq;
 static bool bus_ria_irq;
 
 uint64_t host_clock_us(void) { return bus_clk / SYS_TICKS_PER_US; }
+
+uint64_t bus_cycles(void) { return bus_cycle_count; }
 
 void bus_reset(void)
 {
@@ -122,6 +127,7 @@ static void run_until(uint64_t deadline)
         while (clk < deadline && resb_running())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
+            ++bus_cycle_count;
             clk += divider.whole;
             phase += divider.frac;
             if (phase >= divider.khz)
@@ -136,6 +142,7 @@ static void run_until(uint64_t deadline)
         while (clk < deadline && resb_running() && !dbg_is_stopped())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
+            ++bus_cycle_count;
             clk += divider.whole;
             phase += divider.frac;
             if (phase >= divider.khz)
