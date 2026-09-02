@@ -227,12 +227,12 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
         return false;
     }
     struct win_dir *d = &dirs[i];
-    wchar_t *base = path_to_wide(path, err);
+    /* a directory of no name is the working directory */
+    wchar_t *base = path_to_wide(path_strip_drive(path)[0] ? path : ".", err);
     if (!base)
         return false;
-    const wchar_t *b = base[0] ? base : L"."; /* no name is the working directory */
-    size_t n = wcslen(b);
-    while (n > 0 && (b[n - 1] == L'\\' || b[n - 1] == L'/'))
+    size_t n = wcslen(base);
+    while (n > 0 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
         n--;
     wchar_t *pattern = malloc((n + 3) * sizeof *pattern); /* + \\ * and the null */
     if (!pattern)
@@ -241,7 +241,7 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
         *err = API_ENOMEM;
         return false;
     }
-    memcpy(pattern, b, n * sizeof(wchar_t));
+    memcpy(pattern, base, n * sizeof(wchar_t));
     pattern[n++] = L'\\';
     pattern[n++] = L'*';
     pattern[n] = 0;

@@ -83,7 +83,7 @@ android {
         cmake {
             // The library is the machine's and this is the Android host's;
             // the APK is where the two meet, which is why it is neither.
-            path "../../../host/sokol/android/CMakeLists.txt"
+            path "../CMakeLists.txt"
             buildStagingDirectory file("$out/cxx")
         }
     }
