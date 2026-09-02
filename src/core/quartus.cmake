@@ -1,7 +1,7 @@
-# The Quartus command line, found once. Every project this tree builds runs the
-# same five executables, and rp6502.sdc is the machine's own constraints, which
-# is why it sits with the machine. What a board adds to them is that board's --
-# see host/pocket/quartus for the Pocket's.
+# The Quartus command line, found once. Every project built from this machine
+# runs the same executables, and rp6502.sdc beside this file is the machine's
+# own constraints. What a board adds to them is that board's -- see
+# src/host/pocket/quartus for the Pocket's.
 #
 # A tree with no Quartus still configures; it just registers no synthesis.
 
@@ -12,4 +12,4 @@ find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartu
 find_program(QUARTUS_DRC quartus_drc HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 find_program(QUARTUS_CDB quartus_cdb HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 
-set(RP6502_SDC ${RP6502_SRC}/core/machine/rp6502.sdc)
+set(RP6502_SDC ${CMAKE_CURRENT_LIST_DIR}/machine/rp6502.sdc)

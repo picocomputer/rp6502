@@ -1,7 +1,7 @@
-# The machine through Quartus, for area and timing. No host in it, so no host
-# in the name: this is rtl/ alone with every port a virtual pin, and it exists
-# to be measured rather than programmed. src/osal/ owns anything that reaches
-# a pad.
+# The machine through Quartus, for area and timing. No host in it and no board:
+# this is src/core alone with every port a virtual pin, and it exists to be
+# measured rather than programmed. Pads belong to whichever machine has them --
+# the Pocket's are in src/host/pocket/core.
 #
 # The source list is the verilated one, so the thing measured is the thing
 # tested, and the generated packages come from this build rather than a copy
@@ -55,7 +55,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
         WORKING_DIRECTORY ${SYNTH_DIR}
-        DEPENDS w65c02_rom vid_font_rom vid_palette_rom aud_sine_rom
+        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg
         COMMENT "Synthesizing the machine for the Pocket's Cyclone V"
         VERBATIM)
 endif()

@@ -24,8 +24,8 @@ include(${RP6502_ROOT}/version.cmake)
 # The machine as a list of files, its generated packages, and the soft CPU's
 # firmware; then the Quartus command line the projects below run.
 include(${RP6502_SRC}/host/machine.cmake)
-include(${RP6502_SRC}/host/quartus.cmake)
-include(${RP6502_SRC}/host/synth.cmake)
+include(${RP6502_SRC}/core/quartus.cmake)
+include(${RP6502_SRC}/core/synth.cmake)
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
@@ -190,7 +190,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}
         ${RP6502_SRC}/host/machine.cmake
-        ${RP6502_SRC}/host/quartus.cmake)
+        ${RP6502_SRC}/core/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and
