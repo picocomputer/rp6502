@@ -4,12 +4,26 @@
 the machines that run in software, once in SystemVerilog for the machine that
 runs as fabric — and the two are meant to be recognisable as the same thing.
 
-This file is the convention that makes them so.
+    wdc/     the 6502 and the 6522, and the bus and clock they run on
+    vga/     the canvas and the scanline program; mode/ is the six video
+             modes, scan/ the fabric's per-scanline pipeline
+    aud/     the three sound engines and the mixer they feed
+    ria/     the RIA's register window onto the 6502's bus
+    riscv/   the soft CPU that runs the machine's firmware in fabric
+    mem/     the 6502's RAM and the extended RAM
+    gen/     the scripts that generate core's tables and packages
+
+What is **not** here is the wiring. The file that says *these parts, in this
+order, make a machine* is per-machine by nature: in C it is a host's
+`drivers.h`, walked by `core/sys/sys.c`; in SystemVerilog it is
+`src/host/pocket/core/wiring.sv`. A part is shared; an arrangement of parts
+is a board's answer.
 
 ## Naming
 
 **A file is named for the thing it is.** The directory supplies the rest, so a
-file never repeats its directory: `vga/mode0.sv`, not `vga/mode0.sv`.
+file never repeats its directory: `vga/mode/mode0.sv`, not
+`vga/vid_mode0.sv`.
 
 **The same thing has the same name in both languages.** `wdc/cpu.c` and
 `wdc/cpu.sv` are the same part. Where only one language has it, the name still
@@ -25,8 +39,9 @@ Two exceptions, both because a name has to survive without its directory:
 - **SystemVerilog module and package names are one global namespace**, shared
   with everything under `vendor/`, which already claims `timer`, `operator`,
   `channels` and `i2s`. A module cannot lean on its directory the way a filename
-  can, so where the plain word is taken it carries a qualifier — `soc_bus`, not
-  `bus`, when `wdc/bus.sv` already exists.
+  can, so where the plain word is taken it carries a qualifier: `vga/scan/`
+  holds both module `timing` and package `timing_pkg`, and only one of them
+  could have the bare word.
 - **Generated artifacts land flat.** Everything `gen/` emits arrives in one
   assets directory, where `rom_pkg.sv` and `coef_pkg.sv` beside each other say
   nothing. Generated files keep a qualifier; only the source tree drops one.
