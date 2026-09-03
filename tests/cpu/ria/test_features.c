@@ -14,7 +14,7 @@
 #include "core/api/arg.h"
 #include "core/sys/exec.h"
 #include "core/api/std.h"
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/mem/mem.h"
 #include "core/aud/bel.h"
 #include "core/hid/vtkeys.h"
@@ -218,7 +218,7 @@ UTEST(features, teletype_bell)
     sys_stop();
     sys_commit();
 
-    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* standing BEL device */
+    ASSERT_TRUE(aud_enabled());
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
 
     /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
@@ -232,16 +232,15 @@ UTEST(features, teletype_bell)
     ASSERT_TRUE(rendered_audio(16));
 }
 
-/* --mute (aud_set_enabled(false)): no rate is reported and the synth
- * generates no samples at all — not even for a rung bell. */
+/* --mute (aud_set_enabled(false)): the synth generates no samples at all —
+ * not even for a rung bell. */
 UTEST(features, audio_disable)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* enabled by default */
+    ASSERT_TRUE(aud_enabled()); /* enabled by default */
 
     aud_set_enabled(false);
     ASSERT_FALSE(aud_enabled());
-    ASSERT_EQ(aud_rate(), 0);
 
     /* A rung bell renders as silence: the handler never runs. */
     bel_add(&bel_teletype);
@@ -251,7 +250,6 @@ UTEST(features, audio_disable)
     /* Play out the bell we rang: audio is a continuous stream (a reset never
      * silences it), so let it end here instead of bleeding into a later test. */
     emu_frames(60);
-    emu_audio_settle();
 }
 
 UTEST_MAIN_EMU()

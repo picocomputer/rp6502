@@ -8,16 +8,16 @@
  * and the machine makes a noise. The programs are the ones test_aud.cpp
  * boots on the fabric, so what sounds there and what sounds here cannot
  * drift apart. Nothing here checks a waveform; what these check is every
- * link between a 6502 store and a sample the machine made -- and that it
- * makes them as the program runs, because a real program writes more in
- * one burst than the queue between them holds.
+ * link between a 6502 store and a sample the machine made -- and that a
+ * real program's opening burst, more writes in a few scanlines than the
+ * queue holds, all reaches the chip before the sink asks.
  *
- * The measurement is the machine's own tap of everything it made, taken a
- * frame at a time, so a frame's number is what the machine did in that
- * frame and not what a device happened to ask for.
+ * The measurement is the mixer's own tap of what it rendered: a sink frame
+ * pulled after each machine frame, so a frame's number is what the machine
+ * had made by the end of it.
  */
 
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/wdc/resb.h"
 #include "emu_boot.h"
 
@@ -26,9 +26,11 @@ static float g_peak;
 
 static void run_frame(void)
 {
+    static float out[800 * 2];
     int len;
     const float *viz = aud_viz_buffer(&len);
     emu_frames(1);
+    aud_render(out, 800);
     const int pos = aud_viz_pos();
     g_peak = 0;
     for (int i = g_pos; i != pos; i = (i + 1) % len)
@@ -59,6 +61,14 @@ static int frames_to_sound(int limit)
             return i;
     }
     return -1;
+}
+
+/* Let a sound run its course. A frame of the machine makes no sound on its
+ * own; the sink has to keep asking. */
+static void play_out(int frames)
+{
+    while (frames-- > 0)
+        run_frame();
 }
 
 /* One PSG channel at full volume, centred, is 16127 of 32767; a peak above
@@ -122,7 +132,7 @@ UTEST(aud, the_bell_rings_with_no_program)
     const int at = frames_to_sound(4);
     ASSERT_NE(at, -1);
     ASSERT_GT(g_peak, BELL);
-    emu_frames(60); /* a bell rings through a program change; let it end */
+    play_out(60); /* a bell rings through a program change; let it end */
 }
 
 /* Nothing gates the mix: an OPL program holds an engine and the bell
@@ -133,7 +143,7 @@ UTEST(aud, the_bell_rings_over_the_opl)
     const int at = frames_to_sound(4);
     ASSERT_NE(at, -1);
     ASSERT_GT(g_peak, BELL);
-    emu_frames(60);
+    play_out(60);
 }
 
 /* Exiting a program parks the engine: the stop hands the standing bell

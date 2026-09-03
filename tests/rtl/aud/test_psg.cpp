@@ -193,8 +193,7 @@ static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
 UTEST(psg, lockstep_bit_exact)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
-    bel_setup();
+    bel_init();
 
     /* The machine as aud_init leaves it: pointer parked, and the walk
      * still running so the output stage keeps its sample tick. The bell
@@ -441,7 +440,6 @@ static void one_loud_channel(uint16_t base)
 UTEST(psg, gate_applies_on_the_clock_it_lands)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
@@ -462,7 +460,6 @@ UTEST(psg, gate_applies_on_the_clock_it_lands)
 UTEST(psg, no_write_is_dropped)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
@@ -488,7 +485,6 @@ UTEST(psg, no_write_is_dropped)
 UTEST(psg, a_write_reaches_the_step_it_lands_on)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     for (int ch = 1; ch < 8; ch++)
@@ -515,7 +511,6 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
 UTEST(psg, an_imported_block_carries_no_gate)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     for (int ch = 0; ch < 8; ch++)

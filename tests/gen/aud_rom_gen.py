@@ -128,9 +128,12 @@ def opl_prog():
 
 
 def opl_exit_prog():
-    """The OPL note, a moment of it, then a clean program exit. test_aud
-    holds the machine to silence afterwards — the coverage the stopped-
-    program bug never had, on the platform where the engines free-run."""
+    """The OPL note, held longer than a frame, then a clean program exit.
+    test_aud holds the machine to silence afterwards — the coverage the
+    stopped-program bug never had, on the platform where the engines
+    free-run. Longer than a frame because the emulator's sink pulls once a
+    frame and a note that starts and ends between two pulls is never
+    heard; the fabric hears it either way."""
     p = Prog()
     page = 0xF000
     p.xreg(0, 1, 1, page)
@@ -140,7 +143,7 @@ def opl_exit_prog():
         (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
     ):
         p.poke(page + reg, val)
-    p.delay(64)
+    p.delay(128)
     p.exit()
     return p
 

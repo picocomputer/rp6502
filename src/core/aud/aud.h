@@ -7,13 +7,26 @@
 #ifndef _CORE_AUD_AUD_H_
 #define _CORE_AUD_AUD_H_
 
-/* This audio manager allows for multiple audio
- * devices and ensures only one is active at any time.
+/* The audio system, which every machine with the C engines has one of:
+ * core/aud/aud.c mixes for a host's sink, host/pico/ria/aud/aud.c for a PWM.
+ * Each registers one device at a time and adds the bell to whatever it is.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+/* The rate the soft machine makes samples at, and the only one: a YM3812's,
+ * 3579552 / 72, which the PSG and the bell adopted so that nothing has to be
+ * converted before the mix. A constant, so every divisor and envelope step
+ * derived from it folds. The Pico's PWM runs at it; the emulator resamples
+ * from it to whatever the sink wants. Overridden by exactly one build, the
+ * PSG lockstep, whose fabric model is elaborated at 48 kHz.
+ */
+
+#ifndef AUD_NATIVE_RATE
+#define AUD_NATIVE_RATE 49716
+#endif
 
 /* Main events
  */
@@ -21,39 +34,16 @@
 void aud_init(void);
 void aud_stop(void);
 
-/* Setup an audio system, tears down any previous setup.
+/* The device to mix, or none. A mixer calls it once per sample for a stereo
+ * pair at AUD_NATIVE_RATE. psg_xreg and opl_xreg register themselves here and
+ * aud_stop unregisters; the bell is not a device, every mixer adds it.
  */
 
-void aud_setup(void (*irq_fn)(void), uint32_t rate);
-
-/* Per-sample stereo output level and IRQ acknowledge, called from each audio
- * driver's sample handler. This is the seam where the machine stops being
- * portable and a host's converter begins, so it is the ONLY place allowed to
- * narrow: a driver hands over a signed sample at full scale and the platform
- * decides what its hardware can carry. The firmware scales to its PWM, the
- * Pocket's fabric takes all sixteen bits to the I2S, and the emulator makes
- * a float of it.
- *
- * Signed, not centered, because a center is already a depth: the old
- * uint16_t carrying 0..1023 forced every driver to know AUD_PWM_BITS, and
- * the RP2350's ten bits then travelled to hosts with far better converters.
- */
-
-void aud_out(int16_t left, int16_t right);
-void aud_clear_irq(void);
-
-/* The rate this host wants generated, for the drivers that get to choose.
- * The RP2350's PWM will carry any rate; the Pocket's fabric is fixed at
- * 48 kHz; the emulator answers with whatever the sound card returned. The
- * OPL2 is the exception and ignores this — a YM3812 runs at 49716 Hz or it
- * is not a YM3812 — which is the whole reason a resampler exists.
- */
-
-uint32_t aud_native_rate(void);
+void aud_setup(void (*sample)(int16_t *left, int16_t *right));
 
 /* Full scale of the shared sample path. Sixteen bits because that is what
  * the Pocket's I2S wants and what the OPL2 already produces; the RP2350's
- * PWM is the narrow one and it narrows in its own aud_out.
+ * PWM is the narrow one and it narrows in its own mixer.
  */
 
 #define AUD_SAMPLE_MAX 32767
@@ -62,21 +52,33 @@ uint32_t aud_native_rate(void);
 /* Audio sample depth and center of the RP2350's PWM. Its wrap is 1023,
  * which puts the carrier at 250 kHz; widening walks that down toward the
  * audio band, so ten bits is this chip's answer and nobody else's. Only
- * src/core/aud/aud.c may use these.
+ * host/pico/ria/aud/aud.c may use these.
  */
 
 #define AUD_PWM_BITS 10
 #define AUD_PWM_CENTER (1u << (AUD_PWM_BITS - 1))
 
-/* Sine table for waveform generation, shared by all audio drivers. Sixteen
- * bits: at eight it put a -49.9 dB floor under every sine the PSG and the
- * bell can make, which no amount of width downstream could lift.
- */
+/* ---- what only the soft mixer, core/aud/aud.c, answers ---- */
 
-extern int16_t aud_sine_table[256];
+/* --mute: disable audio entirely — the synth never runs and the window app
+ * opens no OS audio device. Default enabled. */
+void aud_set_enabled(bool on);
+bool aud_enabled(void);
 
-/* Build it. Every machine calls this from its own aud_init. */
-void aud_sine_init(void);
+/* What the host's converter actually runs at, once the audio backend has
+ * been opened and answered. One store: the resampler's step comes out of it
+ * on the next render, so it can change at any time. */
+void aud_set_sink_rate(uint32_t rate);
+
+/* Fill the sink's buffer: exactly this many frames at the sink's rate, on
+ * the sink's thread. Returns how many the machine made -- all of them, or 0
+ * while a debugger holds it, when every frame repeats the level as it stands
+ * rather than dropping to silence, which is a click. Silence when muted. */
+int aud_render(float *dst, int samples);
+
+/* Rolling mono downmix of what was rendered, for waveform display. */
+const float *aud_viz_buffer(int *num_samples);
+int aud_viz_pos(void); /* current write position in that buffer */
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, nul_config, nul_config)

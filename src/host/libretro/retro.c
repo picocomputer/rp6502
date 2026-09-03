@@ -21,7 +21,7 @@
 #include "core/sys/random.h"
 #include "host/host.h"
 #include "core/sys/version.h"
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/sys/com.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -41,9 +41,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The rate this core declares in av_info, which is the machine's native
- * rate: most of its voices are generated at it and the OPL2 is resampled
- * to it, because a YM3812 runs at 49716 Hz. */
+/* The rate this core declares in av_info. The machine makes every voice at
+ * a YM3812's 49716 Hz and resamples to this, which is also the mixer's
+ * default sink rate, so this core never has to say so. */
 #define RETRO_AUD_RATE 48000
 #define RETRO_AUD_FRAMES (RETRO_AUD_RATE / VGA_HZ)
 

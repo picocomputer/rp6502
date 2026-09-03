@@ -32,7 +32,7 @@ extern "C"
 #include "vid_font_tables.h"
 #include "vid_palette_tables.h"
 
-#include "core/aud/aud.h"
+#include "core/aud/sine.h"
 
 
 /* The store is addressed the way font.c lays its tables out, so the
@@ -61,10 +61,10 @@ UTEST(font, generated_palettes_match_color_c)
         ASSERT_EQ(VID_COLOR_256[i], color_256[i]);
 }
 
-UTEST(font, generated_sine_matches_aud_init)
+UTEST(font, generated_sine_matches_sine_init)
 {
     for (int i = 0; i < 256; i++)
-        ASSERT_EQ(AUD_SINE_TABLE[i], aud_sine_table[i]);
+        ASSERT_EQ(AUD_SINE_TABLE[i], sine_table[i]);
 }
 
 UTEST_STATE();

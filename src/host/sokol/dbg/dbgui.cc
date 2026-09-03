@@ -20,7 +20,7 @@
 
 extern "C"
 {
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/dap/dbg.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/phi2.h"

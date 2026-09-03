@@ -32,7 +32,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/exec.c
     ${RP6502_SRC}/core/api/tim.c
-    ${RP6502_SRC}/core/aud/aud_mix.c
+    ${RP6502_SRC}/core/aud/aud.c
     ${RP6502_SRC}/core/aud/rsmp.c
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c
@@ -78,7 +78,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/unicode.c
     ${OEMCP_C}
     ${RP6502_SRC}/core/api/std.c
-    ${RP6502_SRC}/core/aud/aud.c
+    ${RP6502_SRC}/core/aud/sine.c
     ${RP6502_SRC}/core/aud/bel.c
     ${RP6502_SRC}/core/aud/bel_presets.c
     ${RP6502_SRC}/core/aud/opl.c

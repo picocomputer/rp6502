@@ -27,7 +27,7 @@
 #include "core/sys/exec.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"

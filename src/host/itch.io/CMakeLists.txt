@@ -61,6 +61,7 @@ target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 # classic heap so every API handoff works everywhere.
 target_link_options(rp6502-emu PRIVATE
     "-sUSE_WEBGL2=1"
+    "-sENVIRONMENT=web"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sGROWABLE_ARRAYBUFFERS=0"
     "-sSTACK_SIZE=512KB"

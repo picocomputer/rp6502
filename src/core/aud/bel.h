@@ -8,7 +8,7 @@
 #define _CORE_AUD_BEL_H_
 
 /* Bell/alert audio device - single channel mono synth.
- * Always available, other drivers mix in samples.
+ * Always available: every mixer adds it to whatever else is sounding.
  */
 
 #include <stddef.h>
@@ -32,12 +32,11 @@ typedef struct
     uint16_t end_ms;
 } ria_bel_t;
 
-// Install self.
-void bel_setup(void);
+/* Seed the generator. Once, from a machine's aud_init. */
+void bel_init(void);
 
-// Generate one mono sample at the given sample rate.
-// Called from IRQ context (BEL, PSG, or OPL handler).
-int16_t bel_sample(uint32_t rate);
+/* One mono sample at AUD_NATIVE_RATE; zero while nothing is rung. */
+int16_t bel_sample(void);
 
 // Queue a sound to play.
 void bel_add(const ria_bel_t *sound);

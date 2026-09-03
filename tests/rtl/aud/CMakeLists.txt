@@ -25,9 +25,11 @@ rp6502_add_module_test(psg
         ${RP6502_SRC}/core/aud/psg.c ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/aud/bel_presets.c
     INCLUDES ${AUD_SHIM_INCLUDES}
+    # The C and the model at one rate, which is the Pocket's and not the
+    # soft machine's own; the tick is shortened only so the simulation runs
+    # faster.
+    DEFS AUD_NATIVE_RATE=48000
     DEPENDS aud_sine_rom aud_sine_tables
-    # RATE is the arithmetic and must match PSG_SHIM_RATE; the tick is
-    # shortened only so the simulation runs faster.
     ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
     TIMEOUT 300)
 

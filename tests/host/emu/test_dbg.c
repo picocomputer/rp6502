@@ -14,7 +14,7 @@
 #include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/hid/vtkeys.h"
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/aud/bel.h"
 #include "emu_boot.h"
 #include <string.h>
@@ -60,7 +60,6 @@ UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
     /* Stopped machine, ringing bell: sys_stop does not silence. */
     sys_stop();
     sys_commit();
-    emu_audio_settle();
     bel_add(&bel_teletype);
     emu_frames(1);
     int n = aud_render(g_out, 800);
@@ -85,13 +84,11 @@ UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
 
     /* Resume and it picks the note back up -- the synth kept its state. */
     dbg_continue();
-    emu_frames(AUD_LEAD_FRAMES);
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_FALSE(held_at(last_l, last_r));
 
     disarm();
     emu_frames(60); /* play the bell out */
-    emu_audio_settle();
 }
 
 /* Watchpoint tap: count what the bus hook reports, split by direction, and flag any

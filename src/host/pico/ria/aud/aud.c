@@ -6,9 +6,8 @@
 
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
-#include "core/aud/psg.h"
+#include "core/aud/sine.h"
 #include "ria/sys/rp2350.h"
-#include <math.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
@@ -30,17 +29,53 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
-static irq_handler_t aud_irq_fn;
-static uint32_t aud_irq_rate;
+/* The device to mix, or none. */
+static void (*aud_dev)(int16_t *left, int16_t *right);
 
-/* What this chip generates at. The PWM's wrap divides 256 MHz, so 48000
- * lands within 0.006% (a wrap of 5332 realises 48,003 Hz) and the carrier is
- * a separate slice at 250 kHz that does not move with it. At 24000 a square
- * wave aliased everything above 12 kHz straight back into the band, with
- * nothing band-limiting it. */
-#define AUD_NATIVE_RATE 48000
+/* The pair the last interrupt mixed, already narrowed to the PWM's ten
+ * bits, for the next interrupt to write before it computes anything.
+ * Centre to begin with, which is where aud_init parks the pins. */
+static uint16_t aud_level_l = AUD_PWM_CENTER;
+static uint16_t aud_level_r = AUD_PWM_CENTER;
 
-uint32_t aud_native_rate(void) { return AUD_NATIVE_RATE; }
+/* One sample per PWM wrap. The write comes first, so it lands at a fixed
+ * offset from the interrupt whatever the generators cost after it; what it
+ * writes is the pair the previous interrupt made. Then the mix: the device
+ * if one is registered, the bell regardless, clamped, and narrowed --
+ * sixteen bits to ten, and rounded, not floored, because a floor here is a
+ * systematic half-LSB downward bias on every sample, which is DC, not
+ * noise. This is the only narrowing on the path. */
+static void __isr __time_critical_func(aud_irq)(void)
+{
+    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, aud_level_l);
+    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, aud_level_r);
+    pwm_clear_irq(AUD_IRQ_SLICE);
+
+    int16_t l = 0, r = 0;
+    if (aud_dev)
+        aud_dev(&l, &r);
+    const int32_t bel = bel_sample();
+    int32_t sl = l + bel;
+    int32_t sr = r + bel;
+    if (sl < AUD_SAMPLE_MIN)
+        sl = AUD_SAMPLE_MIN;
+    if (sl > AUD_SAMPLE_MAX)
+        sl = AUD_SAMPLE_MAX;
+    if (sr < AUD_SAMPLE_MIN)
+        sr = AUD_SAMPLE_MIN;
+    if (sr > AUD_SAMPLE_MAX)
+        sr = AUD_SAMPLE_MAX;
+
+    const int shift = 16 - AUD_PWM_BITS;
+    int nl = (sl + (1 << (shift - 1))) >> shift;
+    int nr = (sr + (1 << (shift - 1))) >> shift;
+    if (nl > (int)AUD_PWM_CENTER - 1)
+        nl = AUD_PWM_CENTER - 1;
+    if (nr > (int)AUD_PWM_CENTER - 1)
+        nr = AUD_PWM_CENTER - 1;
+    aud_level_l = (uint16_t)(nl + AUD_PWM_CENTER);
+    aud_level_r = (uint16_t)(nr + AUD_PWM_CENTER);
+}
 
 void __in_flash("aud_init") aud_init(void)
 {
@@ -62,58 +97,26 @@ void __in_flash("aud_init") aud_init(void)
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
 
-    aud_sine_init();
+    sine_init();
+    bel_init();
 
+    /* One interrupt at AUD_NATIVE_RATE, installed once. The wrap divides
+     * the part's clock -- 5149 realises 49718 Hz, 0.005% over -- and the
+     * carrier is a separate slice at 250 kHz that does not move with it. */
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
-    psg_setup(aud_native_rate());
-    bel_setup();
+    pwm_clear_irq(AUD_IRQ_SLICE);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);
+    pwm_set_wrap(AUD_IRQ_SLICE, (SYS_RP2350_KHZ * 1000u) / AUD_NATIVE_RATE - 1);
+    pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
+    irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
 void aud_stop(void)
 {
-    bel_setup();
+    aud_dev = NULL;
 }
 
-void aud_setup(void (*irq_fn)(void), uint32_t rate)
+void aud_setup(void (*sample)(int16_t *left, int16_t *right))
 {
-    /* The rate is part of the identity. Comparing only the handler made
-     * re-registering the same device at a new rate a silent no-op, which is
-     * exactly what a host that hands back a different sample rate needs to
-     * be able to do. */
-    if (aud_irq_fn != irq_fn || aud_irq_rate != rate)
-    {
-        aud_irq_rate = rate;
-        irq_set_enabled(PWM_IRQ_WRAP_0, false);
-        pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
-        if (aud_irq_fn != NULL)
-            irq_remove_handler(PWM_IRQ_WRAP_0, aud_irq_fn);
-        aud_irq_fn = irq_fn;
-        pwm_clear_irq(AUD_IRQ_SLICE);
-        irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
-        pwm_set_wrap(AUD_IRQ_SLICE, (SYS_RP2350_KHZ * 1000u) / rate - 1);
-        pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
-        irq_set_enabled(PWM_IRQ_WRAP_0, true);
-    }
-}
-
-/* The narrowing, and the only one on the path. A driver hands over a signed
- * sample at full scale; this chip's PWM wraps at 1023, so sixteen bits
- * become ten. Rounded, not floored — a floor here is a systematic half-LSB
- * downward bias on every sample, which is DC, not noise. */
-void __time_critical_func(aud_out)(int16_t left, int16_t right)
-{
-    const int shift = 16 - AUD_PWM_BITS;
-    int l = (left + (1 << (shift - 1))) >> shift;
-    int r = (right + (1 << (shift - 1))) >> shift;
-    if (l > (int)AUD_PWM_CENTER - 1)
-        l = AUD_PWM_CENTER - 1;
-    if (r > (int)AUD_PWM_CENTER - 1)
-        r = AUD_PWM_CENTER - 1;
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, l + AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, r + AUD_PWM_CENTER);
-}
-
-void __time_critical_func(aud_clear_irq)(void)
-{
-    pwm_clear_irq(AUD_IRQ_SLICE);
+    aud_dev = sample;
 }

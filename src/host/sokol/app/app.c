@@ -37,7 +37,7 @@
 #include "host/sokol/app/gamepad.h"
 #endif
 #include "core/sys/version.h"
-#include "core/aud/aud_mix.h"
+#include "core/aud/aud.h"
 #include "core/dap/dbg.h"
 #include "core/sys/exec.h"
 #include "core/sys/com.h"
@@ -104,7 +104,9 @@ static void update_title(void)
     }
 }
 
-/* The device's own thread, with the buffer it is about to play. */
+/* The buffer the device is about to play. On WASAPI, ALSA and AAudio this
+ * is the device's own thread; on WebAudio it is the browser's main thread,
+ * called from onaudioprocess between frames. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
 {
     (void)num_channels;
@@ -120,12 +122,10 @@ void app_init(void)
     });
     if (aud_enabled()) /* --mute opens no OS audio device */
     {
-        /* Ask for the rate the machine already generates at. Sokol writes
-         * back what it actually got, and telling the machine means the PSG
-         * and the bell are generated at it — so on a device that gives us
-         * 48000, which is most of them, nothing is resampled at all and
-         * only the OPL2 ever reaches a filter. Left unasked, this defaulted
-         * to 44100 and every voice went through one. */
+        /* Ask for 48000, which most devices give and which keeps the
+         * resampler's ratio near one. Sokol writes back what it actually
+         * got, and the machine resamples from its own rate to that,
+         * whatever it is. */
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
@@ -133,7 +133,7 @@ void app_init(void)
             .stream_cb = stream_cb,
             .logger.func = slog_func,
         });
-        aud_set_native_rate((uint32_t)saudio_sample_rate());
+        aud_set_sink_rate((uint32_t)saudio_sample_rate());
     }
     gfx_setup();
     host_window_init(); /* Android stands up its text overlay; no-op elsewhere */

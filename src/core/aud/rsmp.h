@@ -10,12 +10,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Arbitrary-ratio resampling, for the one voice whose rate is not ours to
- * choose. The OPL2 runs at 49716 Hz because that is what a YM3812 does —
- * 3579552 divided by exactly 72 — and every sink wants something else: the
- * Pocket's I2S wants 48000, and a PC sound card wants whatever it wants.
- * Everything else this machine makes a noise with is generated at the rate
- * the sink asked for and needs none of this.
+/* Arbitrary-ratio resampling, between the rate a machine makes samples at
+ * and the rate its sink takes them. The OPL2 runs at 49716 Hz because that
+ * is what a YM3812 does — 3579552 divided by exactly 72 — and the soft
+ * machine adopted that rate for every voice, so on the emulator all of them
+ * come through here. Every sink wants something else: the Pocket's I2S wants
+ * 48000, and a PC sound card wants whatever it wants.
  *
  * A polyphase windowed sinc: 128 rows of 24 taps, row p realising a delay
  * of p/128 of an input sample, with a linear interpolation between adjacent

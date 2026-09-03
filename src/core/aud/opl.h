@@ -14,8 +14,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Main events
- */
+/* One mono sample at AUD_NATIVE_RATE, which is a YM3812's own rate. */
+int16_t opl_sample(void);
 
 bool opl_xreg(uint16_t word);
 
