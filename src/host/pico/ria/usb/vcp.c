@@ -355,13 +355,21 @@ void tuh_cdc_umount_cb(uint8_t idx)
 
 /* The setting is the device's identity hash; the name is only how a person
  * asks for it. Reading the USB tree to build one is a read, and it can be
- * refused mid-enumeration -- nfc.c retries. */
+ * refused mid-enumeration -- nfc.c retries.
+ *
+ * Two callers, and they hand over different things. nfc.c names a port and
+ * wants the hash of whatever is plugged into it. The config file hands back
+ * the hash it stored, and a check that rejects its own rendering loses the
+ * setting on every boot: no hash, so vcp_task never matches, so the reader
+ * never binds and no port is marked NFC. A port name is the only input that
+ * needs converting, and nothing else can look like one -- a hash opens
+ * "%04X:" and neither V nor P is a hex digit. */
 bool vcp_check_nfc_device_hash(const char *in, char *out)
 {
     if (!in[0])
         return true;
     if (!vcp_std_handles(in))
-        return false;
+        return true; /* already a hash; out holds the caller's copy of it */
     uint8_t idx = in[3] - '0';
     if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
         return false;
