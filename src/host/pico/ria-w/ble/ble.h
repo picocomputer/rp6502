@@ -40,7 +40,7 @@ bool ble_check_enabled(uint8_t *v);
 void ble_apply_enabled(uint8_t ble, bool changed);
 int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* This driver's row in a machine's driver list; see core/driver.h. The radio's other half. Its shutdown is cyw's to order, not the walk's
+/* This driver's row in a machine's driver list; see core/sys/driver.h. The radio's other half. Its shutdown is cyw's to order, not the walk's
  * -- see cyw_reset_radio. */
 #define BLE_CONFIG_ENABLED CONFIG_INT(B, ble, enabled, uint8_t, 1, \
     ble_check_enabled, ble_apply_enabled, STR_BLE, ble_enabled_response, \

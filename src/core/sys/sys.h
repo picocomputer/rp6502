@@ -7,7 +7,7 @@
 /* What a machine is, to core: a list of drivers and a run state.
  *
  * The list is the machine's own -- RP6502_MACH_DRIVERS in its drivers.h -- and
- * what a row of it looks like is core/driver.h. This file is what a machine
+ * what a row of it looks like is core/sys/driver.h. This file is what a machine
  * does with the list: bring it up, pump it, and the latch that turns "stop the
  * 6502" from an ask into a doing. Each machine keeps the rest of its own loop
  * in its own main.h. */
@@ -19,7 +19,7 @@
 #include <stddef.h>
 
 /* The row shape and the walks this file's fan-outs are built out of. */
-#include "core/driver.h"
+#include "core/sys/driver.h"
 
 
 /* Cold boot: this machine's drivers, walked forward. Every machine answers

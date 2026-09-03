@@ -86,7 +86,7 @@ uint32_t fs_rom_staged_len(void);
  * prefix unchanged, and this one refuses it. */
 const char *fs_strip_drive(const char *path);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break, nul_config, nul_config)
 
 #endif /* _HOST_POCKET_SW_FS_H_ */

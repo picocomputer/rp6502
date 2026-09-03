@@ -46,7 +46,7 @@ void mon_response_confirm(mon_confirm_fn cb);
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break, nul_config, nul_config)
 
 #endif /* _RIA_MON_MON_H_ */

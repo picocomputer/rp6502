@@ -11,7 +11,7 @@
  */
 
 #include "core/vga/mode/mode0.h"
-#include "core/vga/modes.h"
+#include "core/vga/mode/mode.h"
 #include "core/vga/vga.h"
 #include "core/term/font.h"
 #include "core/term/term.h"

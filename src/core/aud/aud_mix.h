@@ -53,7 +53,7 @@ int aud_render(float *dst, int samples);
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void); /* current write position in that buffer */
 
-/* This driver's row in a machine's driver list; see core/driver.h. Over
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Over
  * core/aud/aud.h's, which is the Pico's: this machine makes its samples in
  * a task. */
 #undef AUD_DRIVER

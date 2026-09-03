@@ -51,7 +51,7 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/vga/mode/mode4.c
     ${RP6502_ROOT}/src/core/vga/mode/mode5.c
     ${VGA_SRC}/scanvideo/scanvideo.c
-    ${RP6502_ROOT}/src/host/version.c
+    ${RP6502_ROOT}/src/core/sys/version.c
     ${VGA_SRC}/sys/com.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
@@ -68,7 +68,7 @@ target_sources(rp6502-vga PRIVATE
 )
 
 rp6502_use_version_header(rp6502-vga
-    ${RP6502_ROOT}/src/host/version.c
+    ${RP6502_ROOT}/src/core/sys/version.c
 )
 
 target_link_libraries(rp6502-vga PRIVATE

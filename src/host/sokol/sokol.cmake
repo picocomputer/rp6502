@@ -23,7 +23,7 @@ set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/app/input.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/png.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/script.c
-    ${RP6502_SRC}/host/version.c)
+    ${RP6502_SRC}/core/sys/version.c)
 
 # The shared render core. A platform's own entry.c stands on it.
 set(RP6502_EMU_WINDOW

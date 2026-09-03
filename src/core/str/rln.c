@@ -10,7 +10,7 @@
 #include "core/api/api.h"
 #include "core/str/rln.h"
 #include "core/sys/com.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/vga/vga.h"
 #include <stdio.h>
 #include <string.h>

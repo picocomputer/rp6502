@@ -57,7 +57,7 @@ uint32_t *vga_get_framebuffer(void);
  * This file is only what the emulator additionally has: a framebuffer, and
  * the beam as the clock the whole machine follows. */
 
-/* This driver's row in a machine's driver list; see core/driver.h. Video leads: its
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Video leads: its
  * task runs before the CPU's, which follows the beam. */
 #define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, nul_config, nul_config)
 

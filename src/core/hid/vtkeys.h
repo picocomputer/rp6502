@@ -16,7 +16,7 @@
 #ifndef _CORE_HID_VTKEYS_H_
 #define _CORE_HID_VTKEYS_H_
 
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -55,7 +55,7 @@ bool vtkeys_paste_busy(void);
  * the headless batch and a script all pace a paste identically. */
 void vtkeys_task(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. No stop hook:
+/* This driver's row in a machine's driver list; see core/sys/driver.h. No stop hook:
  * type-ahead deliberately survives an exec. */
 #define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 

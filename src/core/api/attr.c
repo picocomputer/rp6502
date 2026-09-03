@@ -14,7 +14,7 @@
 #include "core/str/rln.h"
 #include "core/sys/com.h"
 #include "core/wdc/phi2.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/sys/random.h"
 #include <stdio.h>
 #include <string.h>

@@ -77,7 +77,7 @@ __printflike(3, 4) int oem_snprintf(char *dst, size_t dst_size,
                                     const char *utf8_fmt, ...);
 int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define OEM_CONFIG_CODE_PAGE CONFIG_INT(S, oem, code_page, uint16_t, 0, \
     oem_check_code_page, oem_apply_code_page, STR_CP, oem_code_page_response, \
     STR_HELP_SET_CP, NULL)

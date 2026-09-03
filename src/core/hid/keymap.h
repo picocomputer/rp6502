@@ -47,7 +47,7 @@ int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned 
 const char *keymap_get_layout(void);
 const char *keymap_get_layout_verbose(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define KEYMAP_CONFIG_LAYOUT_LIST CONFIG_RAW(L, keymap, layout_list, \
     KEYMAP_LAYOUT_LIST_SIZE, "", keymap_check_layout_list, keymap_apply_layout_list, \
     STR_KB, keymap_layout_list_response, STR_HELP_SET_KB, keymap_layouts_response)

@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/version.h"
+#include "core/sys/version.h"
 #include "rp6502_version.h"
 
 const char *version_string(void)

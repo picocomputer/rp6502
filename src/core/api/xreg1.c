@@ -12,7 +12,7 @@
  * (host/pico/vga/sys/pix.c) and lists core/api/xreg0.c alone.
  */
 
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/term/term.h"
 #include "core/vga/vga.h"
 

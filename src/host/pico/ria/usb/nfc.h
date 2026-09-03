@@ -42,7 +42,7 @@ std_rw_result nfc_std_close(int desc, api_errno *err);
 std_rw_result nfc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
-/* This driver's row in a machine's driver list; see core/driver.h. Can arm an exec, so it runs after ROM and before API in the io column. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Can arm an exec, so it runs after ROM and before API in the io column. */
 #define NFC_CONFIG_ENABLED CONFIG_INT(N, nfc, enabled, uint8_t, 0, \
     nfc_check_enabled, nfc_apply_enabled, STR_NFC, nfc_enabled_response, \
     STR_HELP_SET_NFC, NULL)

@@ -18,7 +18,7 @@
 #ifndef _HOST_DRIVERS_H_
 #define _HOST_DRIVERS_H_
 
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"

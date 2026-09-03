@@ -36,7 +36,7 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-#include "core/driver.h"
+#include "core/sys/driver.h"
 
 /* Main events
  */
@@ -73,7 +73,7 @@ void ria_verify_buf(uint16_t addr);
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. Its position is init
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Its position is init
  * order and nothing more: the transfer that ria_active() reports is closed by
  * ria_task, not by ria_stop, so no other driver's stop depends on where this
  * one sits. */

@@ -36,7 +36,7 @@
 #ifdef RP6502_PAD_HOST
 #include "host/sokol/app/gamepad.h"
 #endif
-#include "host/version.h"
+#include "core/sys/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/exec.h"

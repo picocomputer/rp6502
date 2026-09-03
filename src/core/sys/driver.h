@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_DRIVER_H_
-#define _CORE_DRIVER_H_
+#ifndef _CORE_SYS_DRIVER_H_
+#define _CORE_SYS_DRIVER_H_
 
 #define nul_init()
 #define nul_task()
@@ -124,4 +124,4 @@
 #define DRIVERS_FORWARD(...) DRIVERS_CAT(DRIVERS_FWD_, DRIVERS_COUNT(__VA_ARGS__))(__VA_ARGS__)
 #define DRIVERS_REVERSE(...) DRIVERS_CAT(DRIVERS_REV_, DRIVERS_COUNT(__VA_ARGS__))(__VA_ARGS__)
 
-#endif /* _CORE_DRIVER_H_ */
+#endif /* _CORE_SYS_DRIVER_H_ */

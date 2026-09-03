@@ -53,7 +53,7 @@ void proc_exit(int16_t exit_code);
 void exec_init(void); /* clear any pending exec (cold boot) */
 void exec_task(void); /* perform a queued exec */
 
-/* This driver's row in a machine's driver list; see core/driver.h. The queue's
+/* This driver's row in a machine's driver list; see core/sys/driver.h. The queue's
  * columns, beside core/api/proc.h's row for the chain: an exec is performed
  * in the io column because loading a ROM reads a file. */
 #define EXEC_DRIVER DRIVER(exec_init, nul_task, exec_task, nul_run, nul_stop, nul_break, nul_config, nul_config)

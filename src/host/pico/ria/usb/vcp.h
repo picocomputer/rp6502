@@ -50,7 +50,7 @@ int vcp_nfc_open(void);
 bool vcp_check_nfc_device_hash(const char *in, char *out);
 void vcp_apply_nfc_device_hash(const char *hash, bool changed);
 
-/* This driver's row in a machine's driver list; see core/driver.h. Building a device hash blocks on USB string fetches, which pump the task
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Building a device hash blocks on USB string fetches, which pump the task
  * column -- so this belongs in the column that is never re-entered. Before
  * NFC, which opens the device index this sets. */
 /* The file keeps it, but no one may set it from SET: the machine manages

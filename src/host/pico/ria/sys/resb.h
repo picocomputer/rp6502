@@ -23,7 +23,7 @@ void resb_reclock(void);
  * is the one part of this that is a driver row. */
 void resb_task(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. The line
+/* This driver's row in a machine's driver list; see core/sys/driver.h. The line
  * itself is core/sys/sys.c's -- only the hold timer is a row. */
 #define RESB_DRIVER DRIVER(nul_init, resb_task, nul_task, nul_run, nul_stop, nul_break, \
     nul_config, nul_config)

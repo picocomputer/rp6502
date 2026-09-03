@@ -108,7 +108,7 @@ add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW}
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
 # The APK, for the standalone tree only: under AGP this same file is being
 # read by the Gradle build that would be invoked, and RP6502_GRADLE is how it

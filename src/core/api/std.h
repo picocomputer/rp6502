@@ -68,7 +68,7 @@ typedef struct
  * accessor is declared beside the struct it hands back. */
 const std_driver_t *std_drivers(size_t *count);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_STD_H_ */

@@ -135,7 +135,7 @@ else()
         ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
 # The packaging, which names this program rather than the system under it.
 if(WIN32)

@@ -22,7 +22,7 @@
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
 #include "core/str/rln.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "ria-w/net/wifi.h"
 #include <pico/stdlib.h>
 #include <stdio.h>

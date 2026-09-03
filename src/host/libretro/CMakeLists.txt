@@ -84,7 +84,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(rp6502_libretro SHARED
     ${CMAKE_CURRENT_LIST_DIR}/retro.c
     ${CMAKE_CURRENT_LIST_DIR}/input.c
-    ${RP6502_SRC}/host/version.c)
+    ${RP6502_SRC}/core/sys/version.c)
 set_target_properties(rp6502_libretro PROPERTIES PREFIX "")
 target_link_libraries(rp6502_libretro PRIVATE emu_core)
 target_include_directories(rp6502_libretro PRIVATE ${RP6502_LIBRETRO_INCLUDE})
@@ -121,7 +121,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/host/version.c emu_core)
+rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/core/sys/version.c emu_core)
 
 # The suite needs python3 and the generated ROM corpus, which a buildbot
 # building a core to ship has no use for. Every other root builds its tests

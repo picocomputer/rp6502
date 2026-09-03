@@ -6,7 +6,7 @@
 
 #include "core/sys/ria.h"
 #include "core/api/ops.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/wdc/resb.h"
 

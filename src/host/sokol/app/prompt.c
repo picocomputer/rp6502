@@ -17,7 +17,7 @@
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
 #include "sokol/sokol_log.h"
-#include "host/version.h"
+#include "core/sys/version.h"
 #include <math.h>
 #include <string.h>
 

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_VGA_MODES_H_
-#define _CORE_VGA_MODES_H_
+#ifndef _CORE_VGA_MODE_H_
+#define _CORE_VGA_MODE_H_
 
 // Shared helpers for 1bpp/2bpp scanline renderers
 
@@ -615,4 +615,4 @@ modes_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, 
     }
 }
 
-#endif /* _CORE_VGA_MODES_H_ */
+#endif /* _CORE_VGA_MODE_H_ */

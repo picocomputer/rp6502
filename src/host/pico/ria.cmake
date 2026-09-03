@@ -93,7 +93,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/sys/sys.c
-    ${RP6502_ROOT}/src/host/version.c
+    ${RP6502_ROOT}/src/core/sys/version.c
     ${RP6502_ROOT}/src/core/api/api.c
     ${RP6502_ROOT}/src/core/api/proc.c
     ${RP6502_ROOT}/src/core/api/arg.c
@@ -160,7 +160,7 @@ target_sources(${RIA_TARGET} PRIVATE
 )
 
 rp6502_use_version_header(${RIA_TARGET}
-    ${RP6502_ROOT}/src/host/version.c
+    ${RP6502_ROOT}/src/core/sys/version.c
 )
 
 target_sources(${RIA_TARGET} PRIVATE

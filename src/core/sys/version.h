@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_VERSION_H_
-#define _HOST_VERSION_H_
+#ifndef _CORE_SYS_VERSION_H_
+#define _CORE_SYS_VERSION_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -23,4 +23,4 @@ extern "C"
 }
 #endif
 
-#endif /* _HOST_VERSION_H_ */
+#endif /* _CORE_SYS_VERSION_H_ */

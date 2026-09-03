@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/sys/sys.h"
 
 /* This manages the main loop for the operating system.

@@ -10,7 +10,7 @@
 /* Writing this board's own flash, which is how it is updated: the RIA streams
  * a sector into xram over PIX, then asks for it to be committed. */
 
-#include "core/driver.h"
+#include "core/sys/driver.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,7 +22,7 @@ bool flash_request(uint16_t sector_index);
 /* Deferred, because the write blocks for tens of milliseconds. */
 void flash_task(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define FLASH_DRIVER DRIVER(nul_init, flash_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _VGA_SYS_FLASH_H_ */

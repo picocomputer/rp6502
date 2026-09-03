@@ -9,7 +9,7 @@
 #include "core/sys/ria.h"
 #include "core/mem/mem.h"
 #include "core/sys/pix.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"

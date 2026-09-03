@@ -20,7 +20,7 @@
 #include "core/str/oem.h"
 #include "core/sys/random.h"
 #include "host/host.h"
-#include "host/version.h"
+#include "core/sys/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/sys/com.h"
 #include "osal/dir.h"

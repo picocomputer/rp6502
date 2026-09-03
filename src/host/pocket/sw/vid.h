@@ -26,7 +26,7 @@ uint32_t vid_prog_word_get(void);
 bool mode0_prog(uint16_t *xregs);
 
 
-/* This driver's row in a machine's driver list; see core/driver.h. After TERM, because
+/* This driver's row in a machine's driver list; see core/sys/driver.h. After TERM, because
  * vid_init selects a canvas and that calls term_set_height. Its stop defers
  * the display restore to vid_task, so this row does not also have to be
  * first for the sake of being last. */

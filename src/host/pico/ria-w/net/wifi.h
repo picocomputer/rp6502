@@ -41,7 +41,7 @@ bool wifi_check_pass(const char *in, char *out);
 void wifi_apply_pass(const char *pass, bool changed);
 int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* This driver's row in a machine's driver list; see core/driver.h. Joins and holds the network; retries on its own timer, so it needs no
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Joins and holds the network; retries on its own timer, so it needs no
  * bring-up beyond the radio cyw already brought up. */
 #define WIFI_CONFIG_SSID CONFIG_STR(W, wifi, ssid, WIFI_SSID_SIZE, "", \
     nul_check, wifi_apply_ssid, STR_SSID, wifi_ssid_response, \

@@ -29,7 +29,7 @@ void bus_reset(void);
  * construction: vga_task advances at most one scanline per pass. */
 void bus_task(void);
 
-/* This driver's row in a machine's driver list; see core/driver.h. After VGA,
+/* This driver's row in a machine's driver list; see core/sys/driver.h. After VGA,
  * whose beam is the deadline this runs up to. */
 #define BUS_DRIVER DRIVER(nul_init, bus_task, nul_task, nul_run, nul_stop, nul_break, \
     nul_config, nul_config)

@@ -17,7 +17,7 @@
 #include "core/hid/gamepad.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gamepad.h"
-#include "core/driver.h"
+#include "core/sys/driver.h"
 #include "core/mem/mem.h"
 
 #include "utest.h"

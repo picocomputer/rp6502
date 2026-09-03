@@ -27,7 +27,7 @@
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/credits.h"
-#include "host/version.h"
+#include "core/sys/version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

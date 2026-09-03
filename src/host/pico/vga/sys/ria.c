@@ -6,7 +6,7 @@
 
 #include "vga.pio.h"
 #include "vga/sys/com.h"
-#include "host/version.h"
+#include "core/sys/version.h"
 #include "vga/sys/ria.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
