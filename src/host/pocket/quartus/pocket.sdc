@@ -193,7 +193,7 @@ set_false_path -hold \
 
 # The lottery drew the write data. A CI fit missed by two picoseconds
 # from hazard3's bus_active_dph_s into the scanline table's port-A data
-# register, through vid_mode0's write-data mux -- the same seam, the
+# register, through mode0's write-data mux -- the same seam, the
 # same class, a register this file had not named because it is the
 # vendor's rather than rv_soc's.
 #

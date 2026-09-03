@@ -14,7 +14,7 @@
  * before the tail sees them; the tail's own palette machinery idles.
  */
 
-module vid_mode1 (
+module mode1 (
     input logic clk,
 
     input logic start,
@@ -24,35 +24,35 @@ module vid_mode1 (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    output logic vid_mode1_a_req,
-    output logic [13:0] vid_mode1_a_addr,
+    output logic mode1_a_req,
+    output logic [13:0] mode1_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    output logic vid_mode1_f_req,
-    output logic [13:0] vid_mode1_f_addr,
+    output logic mode1_f_req,
+    output logic [13:0] mode1_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
 
     /* The plane's palette, still this front's: cells resolve their
      * colors here, and a cell wants its foreground and background at
      * once, so both read ports are its. */
-    output logic vid_mode1_pal_ld,
-    output logic [7:0] vid_mode1_pal_w,
-    output logic [8:0] vid_mode1_pal_words,
-    output logic [7:0] vid_mode1_pal_idx_a,
-    output logic [7:0] vid_mode1_pal_idx_b,
-    output logic vid_mode1_pal_xram,
-    output logic vid_mode1_pal_one_bpp,
+    output logic mode1_pal_ld,
+    output logic [7:0] mode1_pal_w,
+    output logic [8:0] mode1_pal_words,
+    output logic [7:0] mode1_pal_idx_a,
+    output logic [7:0] mode1_pal_idx_b,
+    output logic mode1_pal_xram,
+    output logic mode1_pal_one_bpp,
     input logic [15:0] pal_qa,
     input logic [15:0] pal_qb,
 
-    output logic vid_mode1_tl_start,
-    output logic vid_mode1_seg_valid,
-    output logic [7:0] vid_mode1_seg_ibits,
-    output logic [15:0] vid_mode1_seg_fg,
-    output logic [15:0] vid_mode1_seg_bg,
-    output logic [9:0] vid_mode1_seg_px,
+    output logic mode1_tl_start,
+    output logic mode1_seg_valid,
+    output logic [7:0] mode1_seg_ibits,
+    output logic [15:0] mode1_seg_fg,
+    output logic [15:0] mode1_seg_bg,
+    output logic [9:0] mode1_seg_px,
     input logic seg_take
 );
 
@@ -110,7 +110,7 @@ module vid_mode1 (
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* The store is the plane's, in vid_palram; this front reloads every
+    /* The store is the plane's, in palram; this front reloads every
      * entry it will index before it serves a cell. */
     logic pal_xram;
     logic [8:0] pal_n;
@@ -158,13 +158,13 @@ module vid_mode1 (
     always_comb pal_ld = !abort_i && !start && state == S1_PAL
         && pal_xram && pal_bpp != 4'd0 && gnt_d;
     always_comb begin
-        vid_mode1_pal_ld = pal_ld;
-        vid_mode1_pal_w = pal_w;
-        vid_mode1_pal_words = pal_words;
-        vid_mode1_pal_idx_a = fg_idx;
-        vid_mode1_pal_idx_b = bg_idx;
-        vid_mode1_pal_xram = pal_xram;
-        vid_mode1_pal_one_bpp = pal_bpp == 4'd1;
+        mode1_pal_ld = pal_ld;
+        mode1_pal_w = pal_w;
+        mode1_pal_words = pal_words;
+        mode1_pal_idx_a = fg_idx;
+        mode1_pal_idx_b = bg_idx;
+        mode1_pal_xram = pal_xram;
+        mode1_pal_one_bpp = pal_bpp == 4'd1;
     end
 
     logic [15:0] pal_fg, pal_bg;
@@ -184,10 +184,10 @@ module vid_mode1 (
      * soft CPU owns. Both arrive through F_FONT, so the built-in path
      * is the one the XRAM fixtures already exercise. */
     logic [7:0] font_gather;
-    always_comb vid_mode1_f_addr = fh16
+    always_comb mode1_f_addr = fh16
         ? {2'b00, scanrow, g_glyph}
         : {2'b01, 1'b0, scanrow[2:0], g_glyph};
-    always_comb vid_mode1_f_req = state == S1_SEG && fstate == F_FONT
+    always_comb mode1_f_req = state == S1_SEG && fstate == F_FONT
         && !font_xram && fw_i == 2'd0;
 
     /* One channel or the other; font_xram holds for the whole line, so
@@ -207,21 +207,21 @@ module vid_mode1 (
     always_comb win_w = $signed({{2{width_px[15]}}, width_px});
 
     always_comb begin
-        vid_mode1_a_req = 1'b0;
-        vid_mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
+        mode1_a_req = 1'b0;
+        mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
         case (state)
             S1_PAL: begin
-                vid_mode1_a_req = pal_xram && pal_bpp != 4'd0
+                mode1_a_req = pal_xram && pal_bpp != 4'd0
                     && pal_n < pal_fetch;
-                vid_mode1_a_addr = cf_palette[15:2] + {5'd0, pal_n};
+                mode1_a_addr = cf_palette[15:2] + {5'd0, pal_n};
             end
             S1_SEG: begin
                 if (fstate == F_W) begin
-                    vid_mode1_a_req = fw_i < fw_n;
-                    vid_mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
+                    mode1_a_req = fw_i < fw_n;
+                    mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
                 end else if (fstate == F_FONT) begin
-                    vid_mode1_a_req = fw_i == 2'd0;
-                    vid_mode1_a_addr = font_line_addr[15:2];
+                    mode1_a_req = fw_i == 2'd0;
+                    mode1_a_addr = font_line_addr[15:2];
                 end
             end
             default: ;
@@ -242,30 +242,30 @@ module vid_mode1 (
     logic [3:0] cell_px;
     always_comb cell_px = 4'd8 - {1'b0, col[2:0]};
     always_comb begin
-        vid_mode1_seg_valid = 1'b0;
-        vid_mode1_seg_ibits = 8'd0;
-        vid_mode1_seg_fg = 16'd0;
-        vid_mode1_seg_bg = 16'd0;
-        vid_mode1_seg_px = px_rem;
+        mode1_seg_valid = 1'b0;
+        mode1_seg_ibits = 8'd0;
+        mode1_seg_fg = 16'd0;
+        mode1_seg_bg = 16'd0;
+        mode1_seg_px = px_rem;
         if (state == S1_SEG && px_rem != 10'd0) begin
             if (blank || 18'(col) >= win_w && col >= 0) begin
-                vid_mode1_seg_valid = 1'b1;
+                mode1_seg_valid = 1'b1;
             end else if (col < 0) begin
-                vid_mode1_seg_valid = 1'b1;
+                mode1_seg_valid = 1'b1;
                 if (pad_left < {7'd0, px_rem})
-                    vid_mode1_seg_px = pad_left[9:0];
+                    mode1_seg_px = pad_left[9:0];
             end else if (nxt_v) begin
                 /* This cell, bounded by the cell, the window and the
                  * line, whichever ends first. */
-                vid_mode1_seg_valid = 1'b1;
-                vid_mode1_seg_ibits = 8'(nxt_bits << col[2:0]);
-                vid_mode1_seg_fg = nxt_fg;
-                vid_mode1_seg_bg = nxt_bg;
-                vid_mode1_seg_px = {6'd0, cell_px};
+                mode1_seg_valid = 1'b1;
+                mode1_seg_ibits = 8'(nxt_bits << col[2:0]);
+                mode1_seg_fg = nxt_fg;
+                mode1_seg_bg = nxt_bg;
+                mode1_seg_px = {6'd0, cell_px};
                 if (px_rem < {6'd0, cell_px})
-                    vid_mode1_seg_px = px_rem;
-                if (run_w < {8'd0, vid_mode1_seg_px})
-                    vid_mode1_seg_px = run_w[9:0];
+                    mode1_seg_px = px_rem;
+                if (run_w < {8'd0, mode1_seg_px})
+                    mode1_seg_px = run_w[9:0];
             end
         end
     end
@@ -298,16 +298,16 @@ module vid_mode1 (
         nxt_fg = '0;
         nxt_bg = '0;
         font_gather = '0;
-        vid_mode1_tl_start = 1'b0;
+        mode1_tl_start = 1'b0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
         f_gnt_d <= f_gnt;
-        vid_mode1_tl_start <= 1'b0;
+        mode1_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state != S1_IDLE && state != S1_SEG)
-                $fatal(1, "vid_mode1 underrun");
+                $fatal(1, "mode1 underrun");
 `endif
             state <= S1_IDLE;
             fstate <= F_IDLE;
@@ -357,7 +357,7 @@ module vid_mode1 (
                     row_base <= {1'b0, cf_data} + row_off[16:0];
                     if (overrun)
                         blank <= 1'b1;
-                    vid_mode1_tl_start <= 1'b1;
+                    mode1_tl_start <= 1'b1;
                     px_rem <= cw;
                     if (blank || overrun)
                         state <= S1_SEG;
@@ -447,24 +447,24 @@ module vid_mode1 (
                     endcase
 
                     if (seg_take) begin
-                        px_rem <= px_rem - vid_mode1_seg_px;
-                        if (px_rem == vid_mode1_seg_px)
+                        px_rem <= px_rem - mode1_seg_px;
+                        if (px_rem == mode1_seg_px)
                             state <= S1_IDLE;
                         if (!blank && col < 0)
                             col <= col
-                                + $signed({7'd0, vid_mode1_seg_px});
+                                + $signed({7'd0, mode1_seg_px});
                         else if (!blank && 18'(col) < win_w) begin
                             nxt_v <= 1'b0;
                             if (cf_x_wrap
                                 && 18'(col) + 18'({8'd0,
-                                                   vid_mode1_seg_px})
+                                                   mode1_seg_px})
                                     == win_w) begin
                                 col <= '0;
                                 fetch_col <= '0;
                                 fstate <= F_IDLE;
                             end else
                                 col <= col + $signed(
-                                    {7'd0, vid_mode1_seg_px});
+                                    {7'd0, mode1_seg_px});
                         end
                     end
                 end
@@ -492,8 +492,8 @@ module vid_mode1 (
     always_comb font_line_byte = font_line_addr[1:0];
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_mode1;
-    always_comb unused_vid_mode1 = ^{cfgw, attr[15:4], sizeof_row,
+    logic unused_mode1;
+    always_comb unused_mode1 = ^{cfgw, attr[15:4], sizeof_row,
                                      row_off[19:17], gather,
                                      win_w[17], cell_addr[16],
                                      cell_addr[1:0],

@@ -18,7 +18,7 @@
  * without a bubble while the front stays a segment ahead.
  */
 
-module vid_pixtail
+module pixtail
     import vid_palette_pkg::*;
 (
     input logic clk,
@@ -42,27 +42,27 @@ module vid_pixtail
     input logic [15:0] seg_fg,     /* immediate: bit set */
     input logic [15:0] seg_bg,     /* immediate: bit clear */
     input logic [9:0] seg_px,
-    output logic vid_pixtail_seg_take,
+    output logic pixtail_seg_take,
 
-    output logic vid_pixtail_a_req,
-    output logic [13:0] vid_pixtail_a_addr,
+    output logic pixtail_a_req,
+    output logic [13:0] pixtail_a_addr,
     input logic a_gnt,
     input logic a_rdy,             /* the grant's word is on a_rdata */
     input logic [31:0] a_rdata,
 
-    output logic vid_pixtail_pal_ld,
-    output logic [7:0] vid_pixtail_pal_w,
-    output logic [8:0] vid_pixtail_pal_words,
-    output logic [7:0] vid_pixtail_pal_idx,
-    output logic vid_pixtail_pal_xram,
-    output logic vid_pixtail_pal_one_bpp,
+    output logic pixtail_pal_ld,
+    output logic [7:0] pixtail_pal_w,
+    output logic [8:0] pixtail_pal_words,
+    output logic [7:0] pixtail_pal_idx,
+    output logic pixtail_pal_xram,
+    output logic pixtail_pal_one_bpp,
     input logic [15:0] pal_q,
 
-    output logic vid_pixtail_px_we,
-    output logic [9:0] vid_pixtail_px_addr,
-    output logic [15:0] vid_pixtail_px_data,
+    output logic pixtail_px_we,
+    output logic [9:0] pixtail_px_addr,
+    output logic [15:0] pixtail_px_data,
 
-    output logic vid_pixtail_done
+    output logic pixtail_done
 );
 
     typedef enum logic [1:0] {
@@ -97,7 +97,7 @@ module vid_pixtail
      * finishes with the deck empty lands in the deck while the promote
      * copies the deck's old emptiness over it — taken, never emitted,
      * and the line comes up short. */
-    always_comb vid_pixtail_seg_take = state == T_RUN && seg_valid
+    always_comb pixtail_seg_take = state == T_RUN && seg_valid
         && (!cur_v || !deck_v) && !cur_done;
 
     /* Fetch state follows the segment the FETCHER is in, which may be
@@ -162,13 +162,13 @@ module vid_pixtail
     always_comb imm_on = cur.ibits[3'd7 - imm_bit];
 
     always_comb begin
-        vid_pixtail_pal_ld = !abort_i && !start && state == T_PAL
+        pixtail_pal_ld = !abort_i && !start && state == T_PAL
             && !pal_skip && gnt_q;
-        vid_pixtail_pal_w = pal_w;
-        vid_pixtail_pal_words = pal_words;
-        vid_pixtail_pal_idx = pix_idx;
-        vid_pixtail_pal_xram = pal_xram;
-        vid_pixtail_pal_one_bpp = bpp_log == 3'd0;
+        pixtail_pal_w = pal_w;
+        pixtail_pal_words = pal_words;
+        pixtail_pal_idx = pix_idx;
+        pixtail_pal_xram = pal_xram;
+        pixtail_pal_one_bpp = bpp_log == 3'd0;
     end
 
     logic [9:0] px;
@@ -187,26 +187,26 @@ module vid_pixtail
             || 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log} == 6'd32);
 
     always_comb begin
-        vid_pixtail_px_we = emit_now;
-        vid_pixtail_px_addr = px;
-        vid_pixtail_px_data = 16'h0000;
+        pixtail_px_we = emit_now;
+        pixtail_px_addr = px;
+        pixtail_px_data = 16'h0000;
         if (emit_imm)
-            vid_pixtail_px_data = imm_on ? cur.fg : cur.bg;
+            pixtail_px_data = imm_on ? cur.fg : cur.bg;
         else if (emit_xram)
-            vid_pixtail_px_data = bpp_log == 3'd4 ? pix16 : pal_q;
+            pixtail_px_data = bpp_log == 3'd4 ? pix16 : pal_q;
     end
 
     /* The address is combinational, so back-to-back grants take the live
      * counter and never re-read a word. */
     always_comb begin
-        vid_pixtail_a_req = 1'b0;
-        vid_pixtail_a_addr = fetch_word;
+        pixtail_a_req = 1'b0;
+        pixtail_a_addr = fetch_word;
         case (state)
             T_PAL: begin
-                vid_pixtail_a_req = !pal_skip && pal_n < pal_fetch;
-                vid_pixtail_a_addr = pal_ptr[15:2] + {5'd0, pal_n};
+                pixtail_a_req = !pal_skip && pal_n < pal_fetch;
+                pixtail_a_addr = pal_ptr[15:2] + {5'd0, pal_n};
             end
-            T_RUN: vid_pixtail_a_req = fetch_px_left != 10'd0
+            T_RUN: pixtail_a_req = fetch_px_left != 10'd0
                 && 3'(fifo_v) + 3'(inflight) < 3'd2;
             default: ;
         endcase
@@ -233,7 +233,7 @@ module vid_pixtail
         imm_bit = '0;
         px = '0;
         cur_left = '0;
-        vid_pixtail_done = 1'b0;
+        pixtail_done = 1'b0;
         for (int i = 0; i < 2; i++) begin
             fifo[i] = '0;
             fifo_bit0[i] = '0;
@@ -244,11 +244,11 @@ module vid_pixtail
     end
     always_ff @(posedge clk) begin
         gnt_q <= a_gnt;
-        vid_pixtail_done <= 1'b0;
+        pixtail_done <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state != T_IDLE)
-                $fatal(1, "vid_pixtail underrun");
+                $fatal(1, "pixtail underrun");
 `endif
             state <= T_IDLE;
         end else if (start) begin
@@ -282,7 +282,7 @@ module vid_pixtail
                     end
                 end
                 T_RUN: begin
-                    if (vid_pixtail_seg_take) begin
+                    if (pixtail_seg_take) begin
                         if (!cur_v) begin
                             cur.imm <= seg_imm;
                             cur.bits <= seg_bits;
@@ -418,7 +418,7 @@ module vid_pixtail
                             state <= T_IDLE;
                             cur_v <= 1'b0;
                             deck_v <= 1'b0;
-                            vid_pixtail_done <= 1'b1;
+                            pixtail_done <= 1'b1;
                         end
                     end
                 end
@@ -433,8 +433,8 @@ module vid_pixtail
     always_comb word_shift = word_last;
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_pixtail;
-    always_comb unused_vid_pixtail = ^{a_rdy, cur.bits, cur.px,
+    logic unused_pixtail;
+    always_comb unused_pixtail = ^{a_rdy, cur.bits, cur.px,
                                        pal_ptr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 

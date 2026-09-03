@@ -639,7 +639,7 @@ module rp6502
     end
 
     logic api_pending;
-    logic bus_ctl_api, bus_vid_prog;
+    logic bus_ctl_api, bus_prog;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
     // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid,
@@ -648,7 +648,7 @@ module rp6502
     initial begin
         bus_rsel = 3'd0;
         bus_ctl_api = 1'b0;
-        bus_vid_prog = 1'b0;
+        bus_prog = 1'b0;
         stage_addr_q = '0;
     end
     always_ff @(posedge clk_mach) begin
@@ -660,7 +660,7 @@ module rp6502
                 : (bus_sel_xram ? 3'd5
                 : (bus_sel_host ? 3'd6 : 3'd0)))));
             bus_ctl_api <= bus_addr[2];
-            bus_vid_prog <= bus_addr[17];
+            bus_prog <= bus_addr[17];
             stage_addr_q <= bus_addr[27:0];
             /* Captured at the strobe: ring reads advance their pointer
              * there, so the answer must not be re-derived afterward. */
@@ -695,7 +695,7 @@ module rp6502
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
             : (bus_rsel == 3'd4
-               ? (bus_vid_prog ? vid_prog_b_rdata : vid_b_rdata)
+               ? (bus_prog ? prog_b_rdata : vid_b_rdata)
                : (bus_rsel == 3'd6 ? host_rdata : {4{bus_rbyte}}));
     end
 
@@ -763,18 +763,18 @@ module rp6502
     logic vid_vsync_pulse;
     logic prog_vsync_pulse;
     logic vid_px_first, vid_px_last;
-    vid_timing vid_timing (
+    timing timing (
         .clk(clk_mach),
-        .vid_timing_h(vid_h),
-        .vid_timing_v(vid_v),
-        .vid_timing_px_first(vid_px_first),
-        .vid_timing_px_last(vid_px_last),
-        .vid_timing_de(vid_de_full),
-        .vid_timing_hsync(vid_hsync),
-        .vid_timing_vsync(vid_vsync),
-        .vid_timing_line_start(vid_line_start),
-        .vid_timing_frame_start(vid_frame_start),
-        .vid_timing_vsync_pulse(vid_vsync_pulse)
+        .timing_h(vid_h),
+        .timing_v(vid_v),
+        .timing_px_first(vid_px_first),
+        .timing_px_last(vid_px_last),
+        .timing_de(vid_de_full),
+        .timing_hsync(vid_hsync),
+        .timing_vsync(vid_vsync),
+        .timing_line_start(vid_line_start),
+        .timing_frame_start(vid_frame_start),
+        .timing_vsync_pulse(vid_vsync_pulse)
     );
     always_comb rp6502_scanline = vid_v;
 
@@ -810,10 +810,10 @@ module rp6502
             f_rotor <= f_sel + 1'd1;
 
     logic [7:0] font_bits;
-    vid_font vid_font (
+    font font (
         .clk(clk_mach),
         .addr(mf_addr[f_sel]),
-        .vid_font_bits(font_bits),
+        .font_bits(font_bits),
         .w_stb(bus_stb && bus_we && bus_sel_vid && bus_addr[18]),
         .w_addr(bus_addr[13:0]),
         .w_data(bus_wdata)
@@ -933,7 +933,7 @@ module rp6502
         .xram64k_b_rdata(xram_b_rdata)
     );
 
-    logic [31:0] vid_prog_b_rdata;
+    logic [31:0] prog_b_rdata;
     logic [2:0] vid_canvas;
     always_comb rp6502_vid_canvas = vid_canvas;
     logic [9:0] vid_cw, vid_ch;
@@ -943,39 +943,39 @@ module rp6502
     logic [31:0] pm_entry;
     logic [15:0] pm_config;
 
-    vid_prog vid_prog (
+    prog prog (
         .clk(clk_mach),
         .clk_mem(clk_sys),
         .frame_start(vid_frame_start),
         .v(vid_v),
         .px_first(vid_px_first),
-        .vid_prog_vsync_pulse(prog_vsync_pulse),
+        .prog_vsync_pulse(prog_vsync_pulse),
         .h(vid_h),
-        .vid_prog_canvas(vid_canvas),
-        .vid_prog_cw(vid_cw),
-        .vid_prog_ch(vid_ch),
+        .prog_canvas(vid_canvas),
+        .prog_cw(vid_cw),
+        .prog_ch(vid_ch),
         .p_line(sched_p_line),
         .p_plane(sched_p_plane),
-        .vid_prog_p_entry(pm_entry),
-        .vid_prog_p_config(pm_config),
+        .prog_p_entry(pm_entry),
+        .prog_p_config(pm_config),
         .s_idx(sp_s_idx),
-        .vid_prog_s_data(sp_s_data),
+        .prog_s_data(sp_s_data),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr[10:0]),
         .sst_word(eng_xprog_word),
         .sst_we(eng_xprog_we),
         .sst_wdata(eng_mem_wdata),
-        .vid_prog_sst_rdata(eng_xprog_rdata),
+        .prog_sst_rdata(eng_xprog_rdata),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[15:0]),
         .b_wdata(bus_wdata),
-        .vid_prog_b_rdata(vid_prog_b_rdata)
+        .prog_b_rdata(prog_b_rdata)
     );
 
     logic [15:0] mode0_pix;
-    vid_mode0 vid_mode0 (
+    mode0 mode0 (
         .clk(clk_mach),
         .clk_mem(clk_sys),
         .frame_start(vid_frame_start),
@@ -984,23 +984,23 @@ module rp6502
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .cw(vid_cw),
-        .vid_mode0_pix(mode0_pix),
-        .vid_mode0_f_req(mf_req[1]),
-        .vid_mode0_f_addr(mf_addr[1]),
+        .mode0_pix(mode0_pix),
+        .mode0_f_req(mf_req[1]),
+        .mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_cell_we),
         .sst_wdata(eng_mem_wdata),
-        .vid_mode0_sst_rdata(eng_cell_rdata),
+        .mode0_sst_rdata(eng_cell_rdata),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && !bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[16:0]),
         .b_wstrb(bus_wstrb),
         .b_wdata(bus_wdata),
-        .vid_mode0_b_rdata(vid_b_rdata)
+        .mode0_b_rdata(vid_b_rdata)
     );
 
     logic [15:0] m_pix[3];
@@ -1018,7 +1018,7 @@ module rp6502
     logic [2:0] m_px_we;
     logic [2:0] m_done;
     logic [2:0] sched_term;
-    vid_sched vid_sched (
+    sched sched (
         .clk(clk_mach),
         .rst_n(rst_n),
         .v(vid_v),
@@ -1026,21 +1026,21 @@ module rp6502
         .line_start(vid_line_start),
         .cw(vid_cw),
         .ch(vid_ch),
-        .vid_sched_p_line(sched_p_line),
-        .vid_sched_p_plane(sched_p_plane),
+        .sched_p_line(sched_p_line),
+        .sched_p_plane(sched_p_plane),
         .p_entry(pm_entry),
         .p_config(pm_config),
-        .vid_sched_e_start(fl_start),
-        .vid_sched_e_mode(fl_mode),
-        .vid_sched_e_attr(fl_attr),
-        .vid_sched_e_config(fl_config),
+        .sched_e_start(fl_start),
+        .sched_e_mode(fl_mode),
+        .sched_e_attr(fl_attr),
+        .sched_e_config(fl_config),
         .e_done(fl_done),
         .e_px_we(fl_px_we),
-        .vid_sched_px_we(m_px_we),
-        .vid_sched_done(m_done),
-        .vid_sched_term(sched_term)
+        .sched_px_we(m_px_we),
+        .sched_done(m_done),
+        .sched_term(sched_term)
     );
-    vid_fill vid_fill (
+    fill fill (
         .clk(clk_mach),
         .line_start(vid_line_start),
         .start(fl_start),
@@ -1049,23 +1049,23 @@ module rp6502
         .config_ptr_i(fl_config),
         .t_row(sched_p_line),
         .cw(vid_cw),
-        .vid_fill_a_req(ma_req[0]),
-        .vid_fill_a_addr(ma_addr[0]),
+        .fill_a_req(ma_req[0]),
+        .fill_a_addr(ma_addr[0]),
         .a_gnt(a_any && a_sel == 1'd0),
         .a_rdata(xram_a_rdata),
-        .vid_fill_f_req(mf_req[0]),
-        .vid_fill_f_addr(mf_addr[0]),
+        .fill_f_req(mf_req[0]),
+        .fill_f_addr(mf_addr[0]),
         .f_gnt(f_any && f_sel == 1'd0),
         .f_data(font_bits),
-        .vid_fill_px_we(fl_px_we),
-        .vid_fill_px_addr(fl_px_addr),
-        .vid_fill_px_data(fl_px_data),
-        .vid_fill_done(fl_done)
+        .fill_px_we(fl_px_we),
+        .fill_px_addr(fl_px_addr),
+        .fill_px_data(fl_px_data),
+        .fill_done(fl_done)
     );
     genvar gi;
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_mode
-            vid_mode vid_mode (
+            linebuf linebuf (
                 .clk(clk_mach),
                 .h(vid_h),
                 .px_last(vid_px_last),
@@ -1074,13 +1074,13 @@ module rp6502
                 .px_addr(fl_px_addr),
                 .px_data(fl_px_data),
                 .done_i(m_done[gi]),
-                .vid_mode_pix(m_pix[gi])
+                .linebuf_pix(m_pix[gi])
             );
         end
     endgenerate
 
     /* verilator lint_off PINCONNECTEMPTY */
-    vid_sprite vid_sprite (
+    sprite sprite (
         .clk(clk_mach),
         .v(vid_v),
         .h(vid_h),
@@ -1088,12 +1088,12 @@ module rp6502
         .line_start(vid_line_start),
         .cw(vid_cw),
         .ch(vid_ch),
-        .vid_sprite_s_idx(sp_s_idx),
+        .sprite_s_idx(sp_s_idx),
         .s_data(sp_s_data),
-        .vid_sprite_pix(sp_pix),
-        .vid_sprite_overrun(),
-        .vid_sprite_a_req(ma_req[1]),
-        .vid_sprite_a_addr(ma_addr[1]),
+        .sprite_pix(sp_pix),
+        .sprite_overrun(),
+        .sprite_a_req(ma_req[1]),
+        .sprite_a_addr(ma_addr[1]),
         .a_gnt(a_any && a_sel == 1'd1),
         .a_rdata(xram_a_rdata)
     );
@@ -1190,7 +1190,7 @@ module rp6502
     always_comb
         for (int i = 0; i < 3; i++)
             c_pix[i] = sched_term[i] ? mode0_pix : m_pix[i];
-    vid_compose vid_compose (
+    compose compose (
         .clk(clk_mach),
         .de(vid_de),
         .p0_pix(c_pix[0]),
@@ -1199,8 +1199,8 @@ module rp6502
         .s1_pix(sp_pix[1]),
         .p2_pix(c_pix[2]),
         .s2_pix(sp_pix[2]),
-        .vid_compose_pix(rp6502_vid_pixel),
-        .vid_compose_de(rp6502_vid_de)
+        .compose_pix(rp6502_vid_pixel),
+        .compose_de(rp6502_vid_de)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */

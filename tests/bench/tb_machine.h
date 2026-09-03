@@ -176,7 +176,7 @@ static void tb_frame_start(Dut *dut, Each each)
  * The walk to the top comes first, and the frame it spends is not
  * waste. tb_run returns on the clock that starts a frame, so a capture
  * that began there would take the frame immediately after the run — and
- * vid_prog latches the canvas at scanline 524, one line before the
+ * prog latches the canvas at scanline 524, one line before the
  * beam's frame, so a program whose last xreg landed after that point
  * renders its old canvas for one more frame. The picture a stopped
  * program leaves is the frame after that one. mode3_2bppr is the

@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * vid_pixtail against a golden model, pixel for pixel, before any mode
+ * pixtail against a golden model, pixel for pixel, before any mode
  * front is allowed to stand on it. The tail is where every pixel-exact
  * detail of the fill modes will live — the slicer in every depth and
  * both bit orders, the palette snapshot, the segment handovers — so it
@@ -14,7 +14,7 @@
  * equivalence; what this proves is the tail itself.
  */
 
-#include "Vvid_pixtail.h"
+#include "Vpixtail.h"
 #include "verilated.h"
 
 #include "utest.h"
@@ -26,7 +26,7 @@
 
 UTEST_STATE();
 
-static Vvid_pixtail *dut;
+static Vpixtail *dut;
 
 /* Deterministic jitter for the grant line. */
 static uint32_t g_rng = 0x12345678;
@@ -57,7 +57,7 @@ struct seg
     int px;
 };
 
-/* vid_palram's answer, from the snapshot the tail is expected to have
+/* palram's answer, from the snapshot the tail is expected to have
  * loaded: entry i lives at halfword (ptr >> 1) + i. */
 static uint16_t pal_entry(uint16_t ptr, bool pal_xram, int bpp_log,
                           uint8_t idx)
@@ -187,10 +187,10 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         /* Grant with jitter: never two answers outstanding, sometimes
          * back to back, sometimes a dry spell. */
         bool gnt_now = false;
-        if (dut->vid_pixtail_a_req && gap == 0)
+        if (dut->pixtail_a_req && gap == 0)
         {
             gnt_now = true;
-            gnt_addr = dut->vid_pixtail_a_addr;
+            gnt_addr = dut->pixtail_a_addr;
             gap = rnd() % 4;
         }
         else if (gap > 0)
@@ -203,16 +203,16 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         {
             if (gnt_now)
                 fprintf(stderr, "t%ld GNT %04X\n", t,
-                        dut->vid_pixtail_a_addr);
-            if (dut->vid_pixtail_seg_take)
+                        dut->pixtail_a_addr);
+            if (dut->pixtail_seg_take)
                 fprintf(stderr, "t%ld TAKE seg%zu\n", t, si);
         }
 
         /* Palram model: capture the load, answer the lookup. */
-        if (dut->vid_pixtail_pal_ld)
+        if (dut->pixtail_pal_ld)
         {
-            uint16_t w = dut->vid_pixtail_pal_w;
-            uint16_t words = dut->vid_pixtail_pal_words;
+            uint16_t w = dut->pixtail_pal_w;
+            uint16_t words = dut->pixtail_pal_words;
             bool half = (pal_ptr & 2) != 0;
             uint32_t rd = dut->a_rdata;
             bool we_e = !half || w != words;
@@ -227,7 +227,7 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
             c->pal_loads++;
         }
         {
-            uint8_t idx = dut->vid_pixtail_pal_idx;
+            uint8_t idx = dut->pixtail_pal_idx;
             uint16_t q;
             if (pal_xram)
                 q = palram[idx];
@@ -239,7 +239,7 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         }
         dut->eval();
 
-        if (dut->vid_pixtail_seg_take && si < segs.size())
+        if (dut->pixtail_seg_take && si < segs.size())
         {
             si++;
             feed_hold = g_feed_delay;
@@ -247,21 +247,21 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         else if (feed_hold > 0)
             feed_hold--;
 
-        if (dut->vid_pixtail_px_we)
+        if (dut->pixtail_px_we)
         {
             if (getenv("PIXTAIL_TRACE") && t < 400)
                 fprintf(stderr, "t%ld PX %d = %04X\n", t,
-                        (int)dut->vid_pixtail_px_addr,
-                        (int)dut->vid_pixtail_px_data);
-            int at = dut->vid_pixtail_px_addr;
+                        (int)dut->pixtail_px_addr,
+                        (int)dut->pixtail_px_data);
+            int at = dut->pixtail_px_addr;
             if (at < 640 && !c->wrote[at])
             {
                 c->wrote[at] = true;
-                c->data[at] = dut->vid_pixtail_px_data;
+                c->data[at] = dut->pixtail_px_data;
                 c->n++;
             }
         }
-        if (dut->vid_pixtail_done)
+        if (dut->pixtail_done)
             c->done = true;
 
         dut->clk = 1; dut->eval();
@@ -279,7 +279,7 @@ static void fresh()
         dut->final();
         delete dut;
     }
-    dut = new Vvid_pixtail;
+    dut = new Vpixtail;
     dut->clk = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
@@ -472,7 +472,7 @@ UTEST(pixtail, mixed_and_narrow_and_reused)
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vvid_pixtail;
+    dut = new Vpixtail;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

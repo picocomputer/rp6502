@@ -31,7 +31,7 @@
  * a canvas is. The scaler owns presentation.
  */
 
-module vid_prog (
+module prog (
     input logic clk,
     /* The table runs on the clock that does not stop. */
     input logic clk_mem,
@@ -39,20 +39,20 @@ module vid_prog (
 
     input logic [9:0] v,
     input logic px_first,
-    output logic vid_prog_vsync_pulse,
+    output logic prog_vsync_pulse,
     input logic [9:0] h,
 
-    output logic [2:0] vid_prog_canvas,
-    output logic [9:0] vid_prog_cw,
-    output logic [9:0] vid_prog_ch,
+    output logic [2:0] prog_canvas,
+    output logic [9:0] prog_cw,
+    output logic [9:0] prog_ch,
 
     input logic [8:0] p_line,
     input logic [1:0] p_plane,
-    output logic [31:0] vid_prog_p_entry,
-    output logic [15:0] vid_prog_p_config,
+    output logic [31:0] prog_p_entry,
+    output logic [15:0] prog_p_config,
 
     input logic [12:0] s_idx,
-    output logic [31:0] vid_prog_s_data,
+    output logic [31:0] prog_s_data,
 
     /* The savestate serializer holds the machine, and the render's read
      * ports with it: the render is stopped, so both of them are going
@@ -62,7 +62,7 @@ module vid_prog (
     input logic [1:0] sst_word,
     input logic sst_we,
     input logic [31:0] sst_wdata,
-    output logic [31:0] vid_prog_sst_rdata,
+    output logic [31:0] prog_sst_rdata,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
@@ -71,7 +71,7 @@ module vid_prog (
     input logic b_we,
     input logic [15:0] b_addr,
     input logic [31:0] b_wdata,
-    output logic [31:0] vid_prog_b_rdata
+    output logic [31:0] prog_b_rdata
 );
 
     /* Indexed by {line, plane}; the word within the pair picks the
@@ -152,17 +152,17 @@ module vid_prog (
     logic [31:0] b_tbl;
     always_comb begin
         case (b_word_q)
-            2'd0: b_tbl = vid_prog_p_entry;
-            2'd1: b_tbl = {16'd0, vid_prog_p_config};
+            2'd0: b_tbl = prog_p_entry;
+            2'd1: b_tbl = {16'd0, prog_p_config};
             2'd2: b_tbl = {s_e_q[19], 12'd0, s_e_q[18:0]};
             default: b_tbl = s_c_q;
         endcase
-        vid_prog_b_rdata = b_tbl_q ? b_tbl : b_reg_q;
+        prog_b_rdata = b_tbl_q ? b_tbl : b_reg_q;
         case (sst_word)
-            2'd0: vid_prog_sst_rdata = vid_prog_p_entry;
-            2'd1: vid_prog_sst_rdata = {16'd0, vid_prog_p_config};
-            2'd2: vid_prog_sst_rdata = {s_e_q[19], 12'd0, s_e_q[18:0]};
-            default: vid_prog_sst_rdata = s_c_q;
+            2'd0: prog_sst_rdata = prog_p_entry;
+            2'd1: prog_sst_rdata = {16'd0, prog_p_config};
+            2'd2: prog_sst_rdata = {s_e_q[19], 12'd0, s_e_q[18:0]};
+            default: prog_sst_rdata = s_c_q;
         endcase
     end
 
@@ -170,7 +170,7 @@ module vid_prog (
         canvas_shadow = 3'd0;
         vsync_shadow = 10'd480;
         vsync_q = 10'd480;
-        vid_prog_canvas = 3'd0;
+        prog_canvas = 3'd0;
     end
     always_ff @(posedge clk) begin
         if (b_stb && b_we && b_addr[15] && !b_addr[3]) begin
@@ -184,37 +184,37 @@ module vid_prog (
          * row 0 sees the same canvas as every other row. The vsync
          * line paces the beam and latches at the beam's boundary. */
         if (h == 10'd0 && px_first && v == 10'd524)
-            vid_prog_canvas <= canvas_shadow;
+            prog_canvas <= canvas_shadow;
         if (frame_start)
             vsync_q <= vsync_shadow;
     end
 
 
     always_comb begin
-        vid_prog_cw = (vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2)
+        prog_cw = (prog_canvas == 3'd1 || prog_canvas == 3'd2)
             ? 10'd320 : 10'd640;
-        vid_prog_ch = vid_prog_canvas == 3'd1 ? 10'd240
-            : vid_prog_canvas == 3'd2 ? 10'd180
-            : vid_prog_canvas == 3'd4 ? 10'd360 : 10'd480;
-        vid_prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
+        prog_ch = prog_canvas == 3'd1 ? 10'd240
+            : prog_canvas == 3'd2 ? 10'd180
+            : prog_canvas == 3'd4 ? 10'd360 : 10'd480;
+        prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
     end
 
     /* The sprite stage only ever asks for words 2 and 3 — its index
      * carries a hard 1 in the word's high bit — so its two arrays
      * answer together and the low bit picks between them. */
     always_ff @(posedge clk_mem) begin
-        vid_prog_p_entry <= fill_e[p_a];
-        vid_prog_p_config <= fill_c[p_a];
+        prog_p_entry <= fill_e[p_a];
+        prog_p_config <= fill_c[p_a];
         s_e_q <= spr_e[s_a];
         s_c_q <= spr_c[s_a];
         s_half_q <= s_idx[0];
     end
-    always_comb vid_prog_s_data =
+    always_comb prog_s_data =
         s_half_q ? s_c_q : {s_e_q[19], 12'd0, s_e_q[18:0]};
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_prog;
-    always_comb unused_vid_prog = ^{b_addr[1:0], b_wdata[31:16], s_idx[1]};
+    logic unused_prog;
+    always_comb unused_prog = ^{b_addr[1:0], b_wdata[31:16], s_idx[1]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -13,7 +13,7 @@
  * survives extraction.
  */
 
-module vid_mode (
+module linebuf (
     input logic clk,
 
     input logic [9:0] h,
@@ -25,7 +25,7 @@ module vid_mode (
     input logic [15:0] px_data,
     input logic done_i,
 
-    output logic [15:0] vid_mode_pix
+    output logic [15:0] linebuf_pix
 );
 
     (* ramstyle = "no_rw_check" *)
@@ -91,7 +91,7 @@ module vid_mode (
             q1 <= b1[rd_addr];
             q_sel <= rd_bank;
         end
-    always_comb vid_mode_pix = q_sel ? q1 : q0;
+    always_comb linebuf_pix = q_sel ? q1 : q0;
 
     initial begin
         wr_bank = 1'b0;

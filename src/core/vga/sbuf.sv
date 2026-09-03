@@ -14,7 +14,7 @@
  * rides free: seventeen wide is the same block count as sixteen.
  */
 
-module vid_sbuf (
+module sbuf (
     input logic clk,
 
     input logic wr_bank,
@@ -29,7 +29,7 @@ module vid_sbuf (
     input logic rd_en,
     input logic [9:0] rd_addr,
     input logic rd_bank,
-    output logic [16:0] vid_sbuf_pix
+    output logic [16:0] sbuf_pix
 );
 
     (* ramstyle = "no_rw_check" *)
@@ -80,6 +80,6 @@ module vid_sbuf (
             q1 <= b1[rd_addr];
             q_sel <= rd_bank;
         end
-    always_comb vid_sbuf_pix = q_sel ? q1 : q0;
+    always_comb sbuf_pix = q_sel ? q1 : q0;
 
 endmodule

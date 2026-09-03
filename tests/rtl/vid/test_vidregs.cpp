@@ -52,7 +52,7 @@ static bool boot(const char *name, size_t px)
 UTEST(vidregs, console_return_restores_vsync_line)
 {
     ASSERT_TRUE(boot("mode0_return", 640 * 480));
-    ASSERT_EQ(dut->rootp->rp6502__DOT__vid_prog__DOT__vsync_shadow, 480);
+    ASSERT_EQ(dut->rootp->rp6502__DOT__prog__DOT__vsync_shadow, 480);
 }
 
 /* sprite_overrun is built on canvas 1 — 320x240, vidmodes.py. The picture is
@@ -61,7 +61,7 @@ UTEST(vidregs, console_return_restores_vsync_line)
 UTEST(vidregs, sprite_overrun_counts_lost_races)
 {
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
-    ASSERT_GT(dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun, 0);
+    ASSERT_GT(dut->rootp->rp6502__DOT__sprite__DOT__sprite_overrun, 0);
     ASSERT_EQ(bench_crc32(fb, 320 * 240 * sizeof(uint32_t)), 0xA34E970Cu);
 }
 

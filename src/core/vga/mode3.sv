@@ -12,7 +12,7 @@
  * is one padding segment.
  */
 
-module vid_mode3 (
+module mode3 (
     input logic clk,
 
     /* One line of work: start when the config view is valid; abort_i is
@@ -24,15 +24,15 @@ module vid_mode3 (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    output logic vid_mode3_tl_start,
-    output logic [15:0] vid_mode3_pal_ptr,
-    output logic vid_mode3_pal_xram,
-    output logic [2:0] vid_mode3_bpp,
-    output logic vid_mode3_reversed,
-    output logic vid_mode3_seg_valid,
-    output logic vid_mode3_seg_imm,
-    output logic [22:0] vid_mode3_seg_bits,
-    output logic [9:0] vid_mode3_seg_px,
+    output logic mode3_tl_start,
+    output logic [15:0] mode3_pal_ptr,
+    output logic mode3_pal_xram,
+    output logic [2:0] mode3_bpp,
+    output logic mode3_reversed,
+    output logic mode3_seg_valid,
+    output logic mode3_seg_imm,
+    output logic [22:0] mode3_seg_bits,
+    output logic [9:0] mode3_seg_px,
     input logic seg_take
 );
 
@@ -90,19 +90,19 @@ module vid_mode3 (
     logic [16:0] run_w;
     always_comb run_w = 17'(width_s - col);
     always_comb begin
-        vid_mode3_seg_valid = state == S3_SEG && px_rem != 10'd0;
-        vid_mode3_seg_imm = 1'b1;
-        vid_mode3_seg_bits = 23'd0;
-        vid_mode3_seg_px = px_rem;
+        mode3_seg_valid = state == S3_SEG && px_rem != 10'd0;
+        mode3_seg_imm = 1'b1;
+        mode3_seg_bits = 23'd0;
+        mode3_seg_px = px_rem;
         if (!blank && col < 0) begin
             if (pad_left < {7'd0, px_rem})
-                vid_mode3_seg_px = pad_left[9:0];
+                mode3_seg_px = pad_left[9:0];
         end else if (!blank && col < width_s) begin
-            vid_mode3_seg_imm = 1'b0;
-            vid_mode3_seg_bits = ({6'd0, row_base} << 3)
+            mode3_seg_imm = 1'b0;
+            mode3_seg_bits = ({6'd0, row_base} << 3)
                 + (23'(col[15:0]) << bpp_log);
             if (run_w < {7'd0, px_rem})
-                vid_mode3_seg_px = run_w[9:0];
+                mode3_seg_px = run_w[9:0];
         end
         /* else: blank, or right padding — the rest of the line. */
     end
@@ -116,18 +116,18 @@ module vid_mode3 (
         col = '0;
         px_rem = '0;
         blank = 1'b0;
-        vid_mode3_tl_start = 1'b0;
-        vid_mode3_pal_ptr = '0;
-        vid_mode3_pal_xram = 1'b0;
-        vid_mode3_bpp = '0;
-        vid_mode3_reversed = 1'b0;
+        mode3_tl_start = 1'b0;
+        mode3_pal_ptr = '0;
+        mode3_pal_xram = 1'b0;
+        mode3_bpp = '0;
+        mode3_reversed = 1'b0;
     end
     always_ff @(posedge clk) begin
-        vid_mode3_tl_start <= 1'b0;
+        mode3_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state == S3_WRAP || state == S3_ADDR)
-                $fatal(1, "vid_mode3 underrun");
+                $fatal(1, "mode3 underrun");
 `endif
             state <= S3_IDLE;
         end else if (start) begin
@@ -180,8 +180,8 @@ module vid_mode3 (
                      * The pal_xram test folds the blank decision in
                      * combinationally, since blank may land on this
                      * same edge. */
-                    vid_mode3_pal_ptr <= cf_palette;
-                    vid_mode3_pal_xram <= !blank
+                    mode3_pal_ptr <= cf_palette;
+                    mode3_pal_xram <= !blank
                         && !(35'(cf_height[14:0]) * 35'(sizeof_row)
                              > 35'(17'h10000) - 35'({1'b0, cf_data})
                              || (bpp_log == 3'd4
@@ -191,23 +191,23 @@ module vid_mode3 (
                         && {1'b0, cf_palette}
                             <= 17'h10000
                                 - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                    vid_mode3_bpp <= bpp_log;
-                    vid_mode3_reversed <= reversed;
-                    vid_mode3_tl_start <= 1'b1;
+                    mode3_bpp <= bpp_log;
+                    mode3_reversed <= reversed;
+                    mode3_tl_start <= 1'b1;
                     px_rem <= cw;
                     state <= S3_SEG;
                 end
                 S3_SEG: begin
                     if (seg_take) begin
-                        px_rem <= px_rem - vid_mode3_seg_px;
+                        px_rem <= px_rem - mode3_seg_px;
                         if (!blank && col < 0)
                             col <= col + $signed({7'd0,
-                                                  vid_mode3_seg_px});
+                                                  mode3_seg_px});
                         else if (!blank && col < width_s)
                             col <= cf_x_wrap ? 17'sd0
                                 : col + $signed({7'd0,
-                                                 vid_mode3_seg_px});
-                        if (px_rem == vid_mode3_seg_px)
+                                                 mode3_seg_px});
+                        if (px_rem == mode3_seg_px)
                             state <= S3_IDLE;
                     end
                 end
@@ -217,8 +217,8 @@ module vid_mode3 (
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_mode3;
-    always_comb unused_vid_mode3 = ^{row_off[19:17], sizeof_row, cfgw,
+    logic unused_mode3;
+    always_comb unused_mode3 = ^{row_off[19:17], sizeof_row, cfgw,
                                      attr[15:4], pad_left[16:10],
                                      run_w[16:10]};
     /* verilator lint_on UNUSEDSIGNAL */

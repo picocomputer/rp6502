@@ -128,7 +128,7 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     };
     machine_reset();
     auto *r = dut->rootp;
-    r->rp6502__DOT__vid_prog__DOT__vsync_shadow = 240;
+    r->rp6502__DOT__prog__DOT__vsync_shadow = 240;
     for (size_t i = 0; i < 0x10000; i++)
         r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)

@@ -349,10 +349,10 @@ UTEST(sst, the_scanline_program_comes_back)
     auto *r = dut->rootp;
     for (uint32_t e = 0; e < 4; e++)
     {
-        r->rp6502__DOT__vid_prog__DOT__fill_e[e] = 0x8001C000u + e;
-        r->rp6502__DOT__vid_prog__DOT__fill_c[e] = (uint16_t)(0x4400u + e);
-        r->rp6502__DOT__vid_prog__DOT__spr_e[e] = 0x80000u + e;
-        r->rp6502__DOT__vid_prog__DOT__spr_c[e] = 0x77000000u + e;
+        r->rp6502__DOT__prog__DOT__fill_e[e] = 0x8001C000u + e;
+        r->rp6502__DOT__prog__DOT__fill_c[e] = (uint16_t)(0x4400u + e);
+        r->rp6502__DOT__prog__DOT__spr_e[e] = 0x80000u + e;
+        r->rp6502__DOT__prog__DOT__spr_c[e] = 0x77000000u + e;
     }
     ASSERT_TRUE(begin_save());
 
@@ -530,10 +530,10 @@ UTEST(sst, a_load_puts_the_blob_back)
         r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
         r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
         r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
-        r->rp6502__DOT__vid_mode0__DOT__cell0[i] = 0xEE;
-        r->rp6502__DOT__vid_mode0__DOT__cell1[i] = 0xEE;
-        r->rp6502__DOT__vid_mode0__DOT__cell2[i] = 0xEE;
-        r->rp6502__DOT__vid_mode0__DOT__cell3[i] = 0xEE;
+        r->rp6502__DOT__mode0__DOT__cell0[i] = 0xEE;
+        r->rp6502__DOT__mode0__DOT__cell1[i] = 0xEE;
+        r->rp6502__DOT__mode0__DOT__cell2[i] = 0xEE;
+        r->rp6502__DOT__mode0__DOT__cell3[i] = 0xEE;
     }
     for (uint32_t i = 0; i < 32; i++)
         r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0xEE;
@@ -568,22 +568,22 @@ UTEST(sst, a_load_puts_the_blob_back)
     for (uint32_t i = 0; i < 8; i++)
     {
         /* The cells answer as a word, so the lanes go back as they came. */
-        ASSERT_EQ(i, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell0[i]);
-        ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell1[i]);
-        ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell2[i]);
-        ASSERT_EQ(0xCEu, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell3[i]);
+        ASSERT_EQ(i, (uint32_t)r->rp6502__DOT__mode0__DOT__cell0[i]);
+        ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__mode0__DOT__cell1[i]);
+        ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__mode0__DOT__cell2[i]);
+        ASSERT_EQ(0xCEu, (uint32_t)r->rp6502__DOT__mode0__DOT__cell3[i]);
     }
 
     for (uint32_t e = 0; e < 4; e++)
     {
         ASSERT_EQ(0x80012000u + e,
-                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__fill_e[e]);
+                  (uint32_t)r->rp6502__DOT__prog__DOT__fill_e[e]);
         ASSERT_EQ(0x3300u + e,
-                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__fill_c[e]);
+                  (uint32_t)r->rp6502__DOT__prog__DOT__fill_c[e]);
         ASSERT_EQ(0x80000u | (0x1000u + e),
-                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__spr_e[e]);
+                  (uint32_t)r->rp6502__DOT__prog__DOT__spr_e[e]);
         ASSERT_EQ(0x66000000u + e,
-                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__spr_c[e]);
+                  (uint32_t)r->rp6502__DOT__prog__DOT__spr_c[e]);
     }
 
     /* Before the release, the flops still hold the old world: the jam

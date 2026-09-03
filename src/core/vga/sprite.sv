@@ -5,13 +5,13 @@
  *
  * The sprite stage: three slots, one per plane, each with a ping-pong
  * line buffer of its own. Nothing here waits on a fill and nothing
- * clears — the buffers erase themselves behind the beam (vid_sbuf), so
+ * clears — the buffers erase themselves behind the beam (sbuf), so
  * a slot's stream is its alpha-set pixels over transparent zeros and
  * the walk starts the moment the slots are decoded. Plane order is
  * paint order only inside a slot; across slots the compose stacks them.
  */
 
-module vid_sprite (
+module sprite (
     input logic clk,
 
     input logic [9:0] v,
@@ -22,17 +22,17 @@ module vid_sprite (
     input logic [9:0] cw,
     input logic [9:0] ch,
 
-    output logic [12:0] vid_sprite_s_idx,
+    output logic [12:0] sprite_s_idx,
     input logic [31:0] s_data,
 
-    output logic [16:0] vid_sprite_pix[3],
+    output logic [16:0] sprite_pix[3],
 
     /* A line whose sprites missed the beam shows its partial paint, the
      * way hardware racing a beam does. */
-    output logic [15:0] vid_sprite_overrun /*verilator public_flat_rd*/,
+    output logic [15:0] sprite_overrun /*verilator public_flat_rd*/,
 
-    output logic vid_sprite_a_req,
-    output logic [13:0] vid_sprite_a_addr,
+    output logic sprite_a_req,
+    output logic [13:0] sprite_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata
 );
@@ -54,7 +54,7 @@ module vid_sprite (
     logic [31:0] slot_cfg[3];
     logic [2:0] s_n, s_cap;
     logic s_cap_v;
-    always_comb vid_sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
+    always_comb sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
 
     logic [1:0] p;       /* the plane being walked */
 
@@ -82,7 +82,7 @@ module vid_sprite (
     always_ff @(posedge clk)
         pc_rdy <= pc_gnt;
     /* verilator lint_off PINCONNECTEMPTY */
-    vid_palcache vid_palcache (
+    palcache palcache (
         .clk(clk),
         .lookup(pal_lookup),
         .xram(pal_xram),
@@ -91,11 +91,11 @@ module vid_sprite (
         .idx_a(pal_idx),
         .idx_b(8'd0),
         .need_b(1'b0),
-        .vid_palcache_qa(pal_q),
-        .vid_palcache_qb(),
-        .vid_palcache_hit(pal_hit),
-        .vid_palcache_req(pc_req),
-        .vid_palcache_addr(pc_addr),
+        .palcache_qa(pal_q),
+        .palcache_qb(),
+        .palcache_hit(pal_hit),
+        .palcache_req(pc_req),
+        .palcache_addr(pc_addr),
         .fill_gnt(pc_gnt),
         .fill_rdy(pc_rdy),
         .a_rdata(a_rdata),
@@ -103,7 +103,7 @@ module vid_sprite (
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    vid_mode5 vid_mode5 (
+    mode5 mode5 (
         .clk(clk),
         .start(m5_start),
         .abort_i(line_start),
@@ -112,21 +112,21 @@ module vid_sprite (
         .length(slot_cfg[p][31:16]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode5_a_req(m5_a_req),
-        .vid_mode5_a_addr(m5_a_addr),
+        .mode5_a_req(m5_a_req),
+        .mode5_a_addr(m5_a_addr),
         .a_gnt(a_gnt && !pc_req),
         .a_rdata(a_rdata),
-        .vid_mode5_px_we(m5_px_we),
-        .vid_mode5_px_addr(m5_px_addr),
-        .vid_mode5_px_data(m5_px_data),
-        .vid_mode5_pal_lookup(pal_lookup),
-        .vid_mode5_pal_xram(pal_xram),
-        .vid_mode5_pal_one_bpp(pal_one_bpp),
-        .vid_mode5_pal_base(pal_base),
-        .vid_mode5_pal_idx(pal_idx),
+        .mode5_px_we(m5_px_we),
+        .mode5_px_addr(m5_px_addr),
+        .mode5_px_data(m5_px_data),
+        .mode5_pal_lookup(pal_lookup),
+        .mode5_pal_xram(pal_xram),
+        .mode5_pal_one_bpp(pal_one_bpp),
+        .mode5_pal_base(pal_base),
+        .mode5_pal_idx(pal_idx),
         .pal_hit(pal_hit),
         .pal_q(pal_q),
-        .vid_mode5_done(m5_done)
+        .mode5_done(m5_done)
     );
     logic m4_start;
     logic m4_a_req;
@@ -135,7 +135,7 @@ module vid_sprite (
     logic [9:0] m4_px_addr;
     logic [15:0] m4_px_data;
     logic m4_done;
-    vid_mode4 vid_mode4 (
+    mode4 mode4 (
         .clk(clk),
         .start(m4_start),
         .abort_i(line_start),
@@ -144,14 +144,14 @@ module vid_sprite (
         .length(slot_cfg[p][31:16]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode4_a_req(m4_a_req),
-        .vid_mode4_a_addr(m4_a_addr),
+        .mode4_a_req(m4_a_req),
+        .mode4_a_addr(m4_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
-        .vid_mode4_px_we(m4_px_we),
-        .vid_mode4_px_addr(m4_px_addr),
-        .vid_mode4_px_data(m4_px_data),
-        .vid_mode4_done(m4_done)
+        .mode4_px_we(m4_px_we),
+        .mode4_px_addr(m4_px_addr),
+        .mode4_px_data(m4_px_data),
+        .mode4_done(m4_done)
     );
 
     logic sp_is4;
@@ -169,9 +169,9 @@ module vid_sprite (
      * grant while the cache is asking is the cache's, and mode 5's
      * grant says so. */
     always_comb begin
-        vid_sprite_a_req = state == SP_RUN
+        sprite_a_req = state == SP_RUN
             && (run4 ? m4_a_req : (pc_req || m5_a_req));
-        vid_sprite_a_addr = run4 ? m4_a_addr
+        sprite_a_addr = run4 ? m4_a_addr
             : pc_req ? pc_addr : m5_a_addr;
         pc_gnt = a_gnt && pc_req && state == SP_RUN && !run4;
     end
@@ -213,7 +213,7 @@ module vid_sprite (
     genvar gi;
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_sbuf
-            vid_sbuf vid_sbuf (
+            sbuf sbuf (
                 .clk(clk),
                 .wr_bank(wr_bank),
                 .a_we(eng_we && p == 2'(gi)),
@@ -224,7 +224,7 @@ module vid_sprite (
                 .rd_en(px_last),
                 .rd_addr(sb_rd[9:0]),
                 .rd_bank(sb_rd[10]),
-                .vid_sbuf_pix(vid_sprite_pix[gi])
+                .sbuf_pix(sprite_pix[gi])
             );
         end
     endgenerate
@@ -256,7 +256,7 @@ module vid_sprite (
         run4 = 1'b0;
         wr_bank = 1'b0;
         flip_next = 1'b0;
-        vid_sprite_overrun = '0;
+        sprite_overrun = '0;
     end
     always_ff @(posedge clk) begin
         m4_start <= 1'b0;
@@ -264,7 +264,7 @@ module vid_sprite (
         if (h == 10'd799 && state != SP_IDLE) begin
             /* The lost race: count it once and drop the line; the
              * engines die at the next line_start. */
-            vid_sprite_overrun <= vid_sprite_overrun
+            sprite_overrun <= sprite_overrun
                 + 16'd1;
             state <= SP_IDLE;
         end else if (line_start) begin
@@ -323,8 +323,8 @@ module vid_sprite (
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_sprite;
-    always_comb unused_vid_sprite = ^{t[9], slot_entry[0][30:19],
+    logic unused_sprite;
+    always_comb unused_sprite = ^{t[9], slot_entry[0][30:19],
                                       slot_entry[1][30:19],
                                       slot_entry[2][30:19]};
     /* verilator lint_on UNUSEDSIGNAL */

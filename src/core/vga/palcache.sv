@@ -27,7 +27,7 @@
  * snoop is what makes the cache this small.
  */
 
-module vid_palcache
+module palcache
     import vid_palette_pkg::*;
 (
     input logic clk,
@@ -42,12 +42,12 @@ module vid_palcache
     input logic [7:0] idx_a,
     input logic [7:0] idx_b,
     input logic need_b,
-    output logic [15:0] vid_palcache_qa,
-    output logic [15:0] vid_palcache_qb,
-    output logic vid_palcache_hit,
+    output logic [15:0] palcache_qa,
+    output logic [15:0] palcache_qb,
+    output logic palcache_hit,
 
-    output logic vid_palcache_req,
-    output logic [13:0] vid_palcache_addr,
+    output logic palcache_req,
+    output logic [13:0] palcache_addr,
     input logic fill_gnt,
     input logic fill_rdy,
     input logic [31:0] a_rdata,
@@ -88,17 +88,17 @@ module vid_palcache
 
     always_comb begin
         if (xram) begin
-            vid_palcache_qa = ha_a[0] ? word_a[31:16] : word_a[15:0];
-            vid_palcache_qb = ha_b[0] ? word_b[31:16] : word_b[15:0];
+            palcache_qa = ha_a[0] ? word_a[31:16] : word_a[15:0];
+            palcache_qb = ha_b[0] ? word_b[31:16] : word_b[15:0];
         end else if (one_bpp) begin
-            vid_palcache_qa = VID_COLOR_2[idx_a[0]];
-            vid_palcache_qb = VID_COLOR_2[idx_b[0]];
+            palcache_qa = VID_COLOR_2[idx_a[0]];
+            palcache_qb = VID_COLOR_2[idx_b[0]];
         end else begin
-            vid_palcache_qa = VID_COLOR_256[idx_a];
-            vid_palcache_qb = VID_COLOR_256[idx_b];
+            palcache_qa = VID_COLOR_256[idx_a];
+            palcache_qb = VID_COLOR_256[idx_b];
         end
     end
-    always_comb vid_palcache_hit = !xram
+    always_comb palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
 
     /* A register stands between the tag compare and the channel: the
@@ -113,8 +113,8 @@ module vid_palcache
     always_comb miss_now = lookup && xram && !filling && !pending
         && (!hit_a || (need_b && !hit_b));
     always_comb begin
-        vid_palcache_req = pending;
-        vid_palcache_addr = pend_wa;
+        palcache_req = pending;
+        palcache_addr = pend_wa;
     end
 
     initial begin
@@ -167,8 +167,8 @@ module vid_palcache
     /* base[0] is validated clear before it arrives, and the halfword
      * sums cannot carry into bit 15 of a 64 KB space. */
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_palcache;
-    always_comb unused_vid_palcache = ^{base[0], ha_a[15], ha_b[15]};
+    logic unused_palcache;
+    always_comb unused_palcache = ^{base[0], ha_a[15], ha_b[15]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

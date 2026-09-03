@@ -40,9 +40,9 @@ static uint32_t mut_fb[640 * 480];
  * emulator's single terminal sink carries. */
 static std::string mut_tap;
 
-#define FILL_STATE dut->rootp->rp6502__DOT__vid_fill__DOT__state
-#define SCHED_STATE dut->rootp->rp6502__DOT__vid_sched__DOT__state
-#define SCHED_PENDING dut->rootp->rp6502__DOT__vid_sched__DOT__plane_pending
+#define FILL_STATE dut->rootp->rp6502__DOT__fill__DOT__state
+#define SCHED_STATE dut->rootp->rp6502__DOT__sched__DOT__state
+#define SCHED_PENDING dut->rootp->rp6502__DOT__sched__DOT__plane_pending
 
 /* A scanline is 800 pixels at two clocks; the deadline is the last of
  * them, not the end of the line. */
@@ -66,7 +66,7 @@ struct budget_t
     long grants_at_worst;
     long grants_planes;    /* to requester 0, the one fill engine */
     long grants_sprite;    /* to requester 1, the sprite stage */
-    /* The terminal renders every line whatever the canvas — vid_mode0
+    /* The terminal renders every line whatever the canvas — mode0
      * raises run at every line_start — and its cost is concurrent, not
      * added. It still has to fit the line on its own. */
     long worst_term;
@@ -82,7 +82,7 @@ struct budget_t
 static bool render_idle()
 {
     return SCHED_STATE == 0 && FILL_STATE == 0
-           && dut->rootp->rp6502__DOT__vid_sprite__DOT__state == 0;
+           && dut->rootp->rp6502__DOT__sprite__DOT__state == 0;
 }
 
 /* One frame, watching every line. A line's cost is the clock at which
@@ -128,10 +128,10 @@ static void measure_frame(budget_t *b)
             if (SCHED_PENDING & 1) pdone[0] = clocks;
             if (SCHED_PENDING & 2) pdone[1] = clocks;
             if (SCHED_PENDING & 4) pdone[2] = clocks;
-            if (dut->rootp->rp6502__DOT__vid_sprite__DOT__state != 0)
+            if (dut->rootp->rp6502__DOT__sprite__DOT__state != 0)
                 sprite_until = clocks;
-            spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 3]++;
-            if (dut->rootp->rp6502__DOT__vid_mode0__DOT__run)
+            spst[dut->rootp->rp6502__DOT__sprite__DOT__state & 3]++;
+            if (dut->rootp->rp6502__DOT__mode0__DOT__run)
                 term_until = clocks;
             if (dut->rootp->rp6502__DOT__a_any)
             {
@@ -281,7 +281,7 @@ mut_budget_t mut_measure(const char *name)
     /* Over means the sprite stage was seen to lose the race, not merely that
      * the clocks ran long. */
     if (b.worst >= LINE_DEADLINE &&
-        dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun > 0)
+        dut->rootp->rp6502__DOT__sprite__DOT__sprite_overrun > 0)
         return MUT_BUDGET_OVER;
     return b.worst < LINE_DEADLINE ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
 }

@@ -437,7 +437,7 @@ UTEST(pocket, canvas3_640x480)
      * way every other picture in the suite is checked. What that face has
      * to be is tests/rtl/vid's, against the font.c the asset comes from;
      * this is the trip. */
-    auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__vid_font__DOT__f16;
+    auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__font__DOT__f16;
     static uint32_t face[1024];
     for (size_t i = 0; i < 1024; i++)
         face[i] = f16[i];

@@ -9,7 +9,7 @@ This file is the convention that makes them so.
 ## Naming
 
 **A file is named for the thing it is.** The directory supplies the rest, so a
-file never repeats its directory: `vga/mode0.sv`, not `vga/vid_mode0.sv`.
+file never repeats its directory: `vga/mode0.sv`, not `vga/mode0.sv`.
 
 **The same thing has the same name in both languages.** `wdc/cpu.c` and
 `wdc/cpu.sv` are the same part. Where only one language has it, the name still

@@ -41,7 +41,7 @@ static void capture_frame(uint32_t *fb)
 {
     auto ck = [] {
         if (pinned_blink >= 0)
-            dut->rootp->rp6502__DOT__vid_mode0__DOT__blink_shadow =
+            dut->rootp->rp6502__DOT__mode0__DOT__blink_shadow =
                 (uint8_t)pinned_blink;
         tb_clock(dut);
     };
@@ -68,11 +68,11 @@ UTEST(blink, off_phase_blanks_the_glyph)
      * the session left: {fg from a real cell, ATTR_BLINK, 'B'} over the same
      * background. */
     auto *r = dut->rootp;
-    uint32_t base = r->rp6502__DOT__vid_mode0__DOT__row_shadow[25];
+    uint32_t base = r->rp6502__DOT__mode0__DOT__row_shadow[25];
     uint32_t seed = term_cell(
-        r, r->rp6502__DOT__vid_mode0__DOT__row_shadow[0] >> 2);
+        r, r->rp6502__DOT__mode0__DOT__row_shadow[0] >> 2);
     uint32_t bgw = term_cell(
-        r, (r->rp6502__DOT__vid_mode0__DOT__row_shadow[0] >> 2) + 1);
+        r, (r->rp6502__DOT__mode0__DOT__row_shadow[0] >> 2) + 1);
     term_cell_set(r, base >> 2, (seed & 0xFFFF0000u) | 0x0200u | 'B');
     term_cell_set(r, (base >> 2) + 1, bgw);
 

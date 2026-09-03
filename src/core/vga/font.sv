@@ -27,11 +27,11 @@
  * across the faces, which is logic rather than memory.
  */
 
-module vid_font (
+module font (
     input logic clk,
 
     input logic [13:0] addr,
-    output logic [7:0] vid_font_bits,
+    output logic [7:0] font_bits,
 
     /* The soft CPU's window, a whole word per write: byte lanes are
      * what stops a dual-port RAM being inferred at all, and the
@@ -105,12 +105,12 @@ module vid_font (
             2'd3: word_q = q_dec;
             default: word_q = q16;
         endcase
-        vid_font_bits = word_q[{byte_q, 3'b000}+:8];
+        font_bits = word_q[{byte_q, 3'b000}+:8];
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_font;
-    always_comb unused_vid_font = ^{w_addr[1:0], w_addr_q[1:0]};  /* the lanes carry it */
+    logic unused_font;
+    always_comb unused_font = ^{w_addr[1:0], w_addr_q[1:0]};  /* the lanes carry it */
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

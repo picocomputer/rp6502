@@ -10,7 +10,7 @@
  * continuous.
  */
 
-module vid_mode4 (
+module mode4 (
     input logic clk,
 
     input logic start,
@@ -21,16 +21,16 @@ module vid_mode4 (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    output logic vid_mode4_a_req,
-    output logic [13:0] vid_mode4_a_addr,
+    output logic mode4_a_req,
+    output logic [13:0] mode4_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    output logic vid_mode4_px_we,
-    output logic [9:0] vid_mode4_px_addr,
-    output logic [15:0] vid_mode4_px_data,
+    output logic mode4_px_we,
+    output logic [9:0] mode4_px_addr,
+    output logic [15:0] mode4_px_data,
 
-    output logic vid_mode4_done
+    output logic mode4_done
 );
 
     /* attr 1 is the affine walk over twenty-byte descriptors. */
@@ -228,16 +228,16 @@ module vid_mode4 (
         && !pre_v && !pre_pend;
 
     always_comb begin
-        vid_mode4_a_req = 1'b0;
-        vid_mode4_a_addr = daddr[15:2] + {11'd0, fw_i};
+        mode4_a_req = 1'b0;
+        mode4_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
             /* One word in flight: the half held back has to shift before the
              * next word's low half arrives, and dropping the request for the
              * grant's own clock is what spaces them. */
-            M4_DESC: vid_mode4_a_req = fw_i < fw_n && !gnt_d;
+            M4_DESC: mode4_a_req = fw_i < fw_n && !gnt_d;
             M4_META: begin
-                vid_mode4_a_req = fw_i == 3'd0;
-                vid_mode4_a_addr = meta_addr[15:2];
+                mode4_a_req = fw_i == 3'd0;
+                mode4_a_addr = meta_addr[15:2];
             end
             M4_PIX: begin
                 /* A prefetch of this word may still be in flight, and a
@@ -248,17 +248,17 @@ module vid_mode4 (
                     && !((pre_v || pre_pend)
                          && pre_word == cur_byte_addr[15:2]))
                 begin
-                    vid_mode4_a_req = fw_i == 3'd0;
-                    vid_mode4_a_addr = tex_byte_addr[15:2];
+                    mode4_a_req = fw_i == 3'd0;
+                    mode4_a_addr = tex_byte_addr[15:2];
                 end else if (pre_want) begin
-                    vid_mode4_a_req = 1'b1;
-                    vid_mode4_a_addr = pre_next;
+                    mode4_a_req = 1'b1;
+                    mode4_a_addr = pre_next;
                 end
             end
             M4_APOP: begin
                 if (!af_over && !dhit) begin
-                    vid_mode4_a_req = fw_i == 3'd0;
-                    vid_mode4_a_addr = af_byte_addr[15:2];
+                    mode4_a_req = fw_i == 3'd0;
+                    mode4_a_addr = af_byte_addr[15:2];
                 end
             end
             default: ;
@@ -266,14 +266,14 @@ module vid_mode4 (
     end
 
     always_comb begin
-        vid_mode4_px_we = 1'b0;
-        vid_mode4_px_addr = dst;
-        vid_mode4_px_data = texel;
+        mode4_px_we = 1'b0;
+        mode4_px_addr = dst;
+        mode4_px_data = texel;
         if (state == M4_PIX && hit_any && px_i < span_end)
-            vid_mode4_px_we = meta_cont || texel[5];
+            mode4_px_we = meta_cont || texel[5];
         else if (state == M4_APOP && !af_over && dhit
                  && af_left != 17'd0)
-            vid_mode4_px_we = texel[5];
+            mode4_px_we = texel[5];
     end
 
     task automatic next_sprite();
@@ -281,7 +281,7 @@ module vid_mode4 (
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
-            vid_mode4_done <= 1'b1;
+            mode4_done <= 1'b1;
             state <= M4_IDLE;
         end else begin
             idx <= idx + 16'd1;
@@ -334,11 +334,11 @@ module vid_mode4 (
         af_u = '0;
         af_v = '0;
         af_left = '0;
-        vid_mode4_done = 1'b0;
+        mode4_done = 1'b0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
-        vid_mode4_done <= 1'b0;
+        mode4_done <= 1'b0;
         if (abort_i) begin
             /* A lost race: the scaffold counted it; drop the line. */
             state <= M4_IDLE;
@@ -348,7 +348,7 @@ module vid_mode4 (
             pre_v <= 1'b0;
             pre_pend <= 1'b0;
             if (length == 16'd0) begin
-                vid_mode4_done <= 1'b1;
+                mode4_done <= 1'b1;
                 state <= M4_IDLE;
             end else
                 state <= M4_NEXT;
@@ -512,8 +512,8 @@ module vid_mode4 (
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_mode4;
-    always_comb unused_vid_mode4 = ^{gather, daddr[16], daddr[1:0],
+    logic unused_mode4;
+    always_comb unused_mode4 = ^{gather, daddr[16], daddr[1:0],
                                      meta_addr[16], meta_addr[1:0],
                                      tex_byte_addr[17:16],
                                      tex_byte_addr[0], size_x0[17],

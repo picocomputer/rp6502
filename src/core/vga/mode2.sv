@@ -15,7 +15,7 @@
  * byte hides under the current tile's pixels.
  */
 
-module vid_mode2 (
+module mode2 (
     input logic clk,
 
     input logic start,
@@ -27,19 +27,19 @@ module vid_mode2 (
 
     /* The map-byte channel, muxed ahead of the tail's by the wrapper;
      * a_gnt here is only this front's own grants. */
-    output logic vid_mode2_a_req,
-    output logic [13:0] vid_mode2_a_addr,
+    output logic mode2_a_req,
+    output logic [13:0] mode2_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    output logic vid_mode2_tl_start,
-    output logic [15:0] vid_mode2_pal_ptr,
-    output logic vid_mode2_pal_xram,
-    output logic [2:0] vid_mode2_bpp,
-    output logic vid_mode2_seg_valid,
-    output logic vid_mode2_seg_imm,
-    output logic [22:0] vid_mode2_seg_bits,
-    output logic [9:0] vid_mode2_seg_px,
+    output logic mode2_tl_start,
+    output logic [15:0] mode2_pal_ptr,
+    output logic mode2_pal_xram,
+    output logic [2:0] mode2_bpp,
+    output logic mode2_seg_valid,
+    output logic mode2_seg_imm,
+    output logic [22:0] mode2_seg_bits,
+    output logic [9:0] mode2_seg_px,
     input logic seg_take
 );
 
@@ -146,8 +146,8 @@ module vid_mode2 (
     logic [16:0] map_addr;
     always_comb map_addr = row_base + {2'd0, tile};
     always_comb begin
-        vid_mode2_a_req = state == S2_SEG && mstate == M_REQ;
-        vid_mode2_a_addr = map_addr[15:2];
+        mode2_a_req = state == S2_SEG && mstate == M_REQ;
+        mode2_a_addr = map_addr[15:2];
     end
 
     logic [17:0] tile_row_addr;
@@ -162,29 +162,29 @@ module vid_mode2 (
     logic [4:0] tile_px;
     always_comb tile_px = eff_w - {1'b0, tcol};
     always_comb begin
-        vid_mode2_seg_valid = 1'b0;
-        vid_mode2_seg_imm = 1'b1;
-        vid_mode2_seg_bits = 23'd0;
-        vid_mode2_seg_px = px_rem;
+        mode2_seg_valid = 1'b0;
+        mode2_seg_imm = 1'b1;
+        mode2_seg_bits = 23'd0;
+        mode2_seg_px = px_rem;
         if (state == S2_SEG && px_rem != 10'd0) begin
             if (blank || col >= win_w_s) begin
-                vid_mode2_seg_valid = 1'b1;
+                mode2_seg_valid = 1'b1;
             end else if (col < 0) begin
-                vid_mode2_seg_valid = 1'b1;
+                mode2_seg_valid = 1'b1;
                 if (pad_left < {11'd0, px_rem})
-                    vid_mode2_seg_px = pad_left[9:0];
+                    mode2_seg_px = pad_left[9:0];
             end else if (mstate == M_HAVE) begin
                 /* This tile's slice, bounded by the tile, the window
                  * and the line, whichever ends first. */
-                vid_mode2_seg_valid = 1'b1;
-                vid_mode2_seg_imm = 1'b0;
-                vid_mode2_seg_bits = {4'd0, tile_row_addr[15:0], 3'b000}
+                mode2_seg_valid = 1'b1;
+                mode2_seg_imm = 1'b0;
+                mode2_seg_bits = {4'd0, tile_row_addr[15:0], 3'b000}
                     + (23'({19'd0, tcol}) << bpp_log);
-                vid_mode2_seg_px = {5'd0, tile_px};
+                mode2_seg_px = {5'd0, tile_px};
                 if ({11'd0, px_rem} < {16'd0, tile_px})
-                    vid_mode2_seg_px = px_rem;
-                if (run_w < {11'd0, vid_mode2_seg_px})
-                    vid_mode2_seg_px = run_w[9:0];
+                    mode2_seg_px = px_rem;
+                if (run_w < {11'd0, mode2_seg_px})
+                    mode2_seg_px = run_w[9:0];
             end
         end
     end
@@ -209,18 +209,18 @@ module vid_mode2 (
         div_i = '0;
         div_den = '0;
         gnt_d = 1'b0;
-        vid_mode2_tl_start = 1'b0;
-        vid_mode2_pal_ptr = '0;
-        vid_mode2_pal_xram = 1'b0;
-        vid_mode2_bpp = '0;
+        mode2_tl_start = 1'b0;
+        mode2_pal_ptr = '0;
+        mode2_pal_xram = 1'b0;
+        mode2_bpp = '0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
-        vid_mode2_tl_start <= 1'b0;
+        mode2_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state != S2_IDLE && state != S2_SEG)
-                $fatal(1, "vid_mode2 underrun");
+                $fatal(1, "mode2 underrun");
 `endif
             state <= S2_IDLE;
             mstate <= M_IDLE;
@@ -280,14 +280,14 @@ module vid_mode2 (
                         + 17'(17'(q_row) * 17'({2'd0, cf_width[14:0]}));
                     if (overrun)
                         blank <= 1'b1;
-                    vid_mode2_pal_ptr <= cf_palette;
-                    vid_mode2_pal_xram <= !blank && !overrun
+                    mode2_pal_ptr <= cf_palette;
+                    mode2_pal_xram <= !blank && !overrun
                         && !cf_palette[0]
                         && {1'b0, cf_palette}
                             <= 17'h10000
                                 - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                    vid_mode2_bpp <= {1'b0, bpp_log};
-                    vid_mode2_tl_start <= 1'b1;
+                    mode2_bpp <= {1'b0, bpp_log};
+                    mode2_tl_start <= 1'b1;
                     px_rem <= cw;
                     mstate <= M_IDLE;
                     if (blank || overrun || col < 21'sd1) begin
@@ -331,24 +331,24 @@ module vid_mode2 (
                     endcase
 
                     if (seg_take) begin
-                        px_rem <= px_rem - vid_mode2_seg_px;
-                        if (px_rem == vid_mode2_seg_px)
+                        px_rem <= px_rem - mode2_seg_px;
+                        if (px_rem == mode2_seg_px)
                             state <= S2_IDLE;
                         if (!blank && col < 0)
                             col <= col
-                                + $signed({11'd0, vid_mode2_seg_px});
+                                + $signed({11'd0, mode2_seg_px});
                         else if (!blank && col < win_w_s) begin
                             mstate <= M_IDLE;
                             tcol <= '0;
                             if (cf_x_wrap
                                 && col + $signed(
-                                    {11'd0, vid_mode2_seg_px})
+                                    {11'd0, mode2_seg_px})
                                     == win_w_s) begin
                                 col <= '0;
                                 tile <= '0;
                             end else begin
                                 col <= col + $signed(
-                                    {11'd0, vid_mode2_seg_px});
+                                    {11'd0, mode2_seg_px});
                                 tile <= tile + 15'd1;
                             end
                         end
@@ -360,8 +360,8 @@ module vid_mode2 (
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_mode2;
-    always_comb unused_vid_mode2 = ^{cfgw, attr[15:12], attr[2],
+    logic unused_mode2;
+    always_comb unused_mode2 = ^{cfgw, attr[15:12], attr[2],
                                      row[20:19], col[20:19], div_q,
                                      div_rem[5:4], map_addr[16],
                                      tile_row_addr[17:16]};

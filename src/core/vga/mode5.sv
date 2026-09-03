@@ -10,7 +10,7 @@
  * a color writes only where its alpha bit is set.
  */
 
-module vid_mode5
+module mode5
     import vid_palette_pkg::*;
 (
     input logic clk,
@@ -23,27 +23,27 @@ module vid_mode5
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    output logic vid_mode5_a_req,
-    output logic [13:0] vid_mode5_a_addr,
+    output logic mode5_a_req,
+    output logic [13:0] mode5_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
     /* On a miss the cache fills through this engine's own channel while
      * the pixel stalls. The two never request together: a palette lookup
      * only exists while the index word is already in hand. */
-    output logic vid_mode5_pal_lookup,
-    output logic vid_mode5_pal_xram,
-    output logic vid_mode5_pal_one_bpp,
-    output logic [15:0] vid_mode5_pal_base,
-    output logic [7:0] vid_mode5_pal_idx,
+    output logic mode5_pal_lookup,
+    output logic mode5_pal_xram,
+    output logic mode5_pal_one_bpp,
+    output logic [15:0] mode5_pal_base,
+    output logic [7:0] mode5_pal_idx,
     input logic pal_hit,
     input logic [15:0] pal_q,
 
-    output logic vid_mode5_px_we,
-    output logic [9:0] vid_mode5_px_addr,
-    output logic [15:0] vid_mode5_px_data,
+    output logic mode5_px_we,
+    output logic [9:0] mode5_px_addr,
+    output logic [15:0] mode5_px_data,
 
-    output logic vid_mode5_done
+    output logic mode5_done
 );
 
     /* attr[5:3] the square's size, attr[1:0] the depth; the prog
@@ -147,11 +147,11 @@ module vid_mode5
     /* The cache resolves XRAM and builtin palettes alike into a
      * finished color; this engine only names the question. */
     always_comb begin
-        vid_mode5_pal_lookup = state == M5_PIX && dhit && pal_xram;
-        vid_mode5_pal_xram = pal_xram;
-        vid_mode5_pal_one_bpp = bpp_log == 2'd0;
-        vid_mode5_pal_base = d_pptr;
-        vid_mode5_pal_idx = pix_idx;
+        mode5_pal_lookup = state == M5_PIX && dhit && pal_xram;
+        mode5_pal_xram = pal_xram;
+        mode5_pal_one_bpp = bpp_log == 2'd0;
+        mode5_pal_base = d_pptr;
+        mode5_pal_idx = pix_idx;
     end
     logic [15:0] pal_color;
     always_comb pal_color = pal_q;
@@ -169,24 +169,24 @@ module vid_mode5
         && !pre_v && !pre_pend;
 
     always_comb begin
-        vid_mode5_a_req = 1'b0;
-        vid_mode5_a_addr = daddr[15:2] + {11'd0, fw_i};
+        mode5_a_req = 1'b0;
+        mode5_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
             /* One word in flight: the half held back has to shift before the
              * next word's low half arrives, and dropping the request for the
              * grant's own clock is what spaces them. */
-            M5_DESC: vid_mode5_a_req = fw_i < fw_n && !gnt_d;
+            M5_DESC: mode5_a_req = fw_i < fw_n && !gnt_d;
             M5_PIX: begin
                 /* A prefetch of this word may still be in flight; a
                  * duplicate miss fetch would land on a clock the promote
                  * path already covers, leaving fw_i raised and the
                  * request line silent. */
                 if (!dhit && !pre_v && !pre_pend) begin
-                    vid_mode5_a_req = fw_i == 3'd0;
-                    vid_mode5_a_addr = pix_byte_addr[15:2];
+                    mode5_a_req = fw_i == 3'd0;
+                    mode5_a_addr = pix_byte_addr[15:2];
                 end else if (pre_want) begin
-                    vid_mode5_a_req = 1'b1;
-                    vid_mode5_a_addr = pre_next;
+                    mode5_a_req = 1'b1;
+                    mode5_a_addr = pre_next;
                 end
             end
             default: ;
@@ -197,11 +197,11 @@ module vid_mode5
      * the cache has answered — a miss stalls the pixel, not the walk's
      * correctness. Builtin palettes always hit. */
     always_comb begin
-        vid_mode5_px_we = 1'b0;
-        vid_mode5_px_addr = dst;
-        vid_mode5_px_data = pal_color;
+        mode5_px_we = 1'b0;
+        mode5_px_addr = dst;
+        mode5_px_data = pal_color;
         if (state == M5_PIX && dhit && pal_hit)
-            vid_mode5_px_we = pal_color[5];
+            mode5_px_we = pal_color[5];
     end
 
     task automatic next_sprite();
@@ -209,7 +209,7 @@ module vid_mode5
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
-            vid_mode5_done <= 1'b1;
+            mode5_done <= 1'b1;
             state <= M5_IDLE;
         end else begin
             idx <= idx + 16'd1;
@@ -254,11 +254,11 @@ module vid_mode5
         size = '0;
         bytes_per_row = '0;
         data_size = '0;
-        vid_mode5_done = 1'b0;
+        mode5_done = 1'b0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
-        vid_mode5_done <= 1'b0;
+        mode5_done <= 1'b0;
         if (abort_i) begin
             /* A lost race: the scaffold counted it; drop the line. */
             state <= M5_IDLE;
@@ -273,7 +273,7 @@ module vid_mode5
             data_size <= 17'(17'({7'd0, size_w})
                              * 17'({7'd0, bytes_per_row_w}));
             if (length == 16'd0) begin
-                vid_mode5_done <= 1'b1;
+                mode5_done <= 1'b1;
                 state <= M5_IDLE;
             end else
                 state <= M5_NEXT;
@@ -366,8 +366,8 @@ module vid_mode5
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_mode5;
-    always_comb unused_vid_mode5 = ^{attr[15:6], attr[2], gather,
+    logic unused_mode5;
+    always_comb unused_mode5 = ^{attr[15:6], attr[2], gather,
                                      daddr[16], daddr[1:0], tex_y[15:9],
                                      pix_byte_addr[16],
                                      idx[15:13]};

@@ -775,7 +775,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     /* The terminal's raster window, which is fabric no blob carries and
      * which only vid_restore() can put back. Nonzero because the boot
      * programmed the console into it. */
-    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
+    uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
     ASSERT_NE(0u, prog_pre);
     /* Marks in the memories the program itself will not touch, so that
      * every window the engine reads through is checked and not only the
@@ -786,10 +786,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         MEM(xram__DOT__mem1)[i] = (uint8_t)(0xB0 + i);
         MEM(xram__DOT__mem2)[i] = (uint8_t)(0xC0 + i);
         MEM(xram__DOT__mem3)[i] = (uint8_t)(0xD0 + i);
-        MEM(vid_mode0__DOT__cell0)[i] = (uint8_t)(0x10 + i);
-        MEM(vid_mode0__DOT__cell1)[i] = (uint8_t)(0x20 + i);
-        MEM(vid_prog__DOT__fill_e)[i] = 0x80005000u + i;
-        MEM(vid_prog__DOT__spr_c)[i] = 0x99000000u + i;
+        MEM(mode0__DOT__cell0)[i] = (uint8_t)(0x10 + i);
+        MEM(mode0__DOT__cell1)[i] = (uint8_t)(0x20 + i);
+        MEM(prog__DOT__fill_e)[i] = 0x80005000u + i;
+        MEM(prog__DOT__spr_c)[i] = 0x99000000u + i;
     }
 
     std::vector<uint8_t> blob;
@@ -885,10 +885,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         ASSERT_EQ(0xB0u + i, (uint32_t)MEM(xram__DOT__mem1)[i]);
         ASSERT_EQ(0xC0u + i, (uint32_t)MEM(xram__DOT__mem2)[i]);
         ASSERT_EQ(0xD0u + i, (uint32_t)MEM(xram__DOT__mem3)[i]);
-        ASSERT_EQ(0x10u + i, (uint32_t)MEM(vid_mode0__DOT__cell0)[i]);
-        ASSERT_EQ(0x20u + i, (uint32_t)MEM(vid_mode0__DOT__cell1)[i]);
-        ASSERT_EQ(0x80005000u + i, (uint32_t)MEM(vid_prog__DOT__fill_e)[i]);
-        ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(vid_prog__DOT__spr_c)[i]);
+        ASSERT_EQ(0x10u + i, (uint32_t)MEM(mode0__DOT__cell0)[i]);
+        ASSERT_EQ(0x20u + i, (uint32_t)MEM(mode0__DOT__cell1)[i]);
+        ASSERT_EQ(0x80005000u + i, (uint32_t)MEM(prog__DOT__fill_e)[i]);
+        ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(prog__DOT__spr_c)[i]);
     }
 
     /* The whole claim, in one line of console. The 6502 program was
@@ -922,7 +922,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     /* The window the terminal draws in is back. Nothing in the blob
      * carries it and nothing in the fabric remembers it, so this is
      * the firmware having replayed its own shadow. */
-    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
     teardown();
 }
 
@@ -1116,7 +1116,7 @@ UTEST(psleep, the_raster_registers_come_back)
      * programmed its scanlines: the save point is only where the 6502
      * is let go, and the two happen in that order. */
     for (long i = 0; i < 8000000L
-                     && !(uint32_t)MEM(vid_prog__DOT__canvas_shadow);
+                     && !(uint32_t)MEM(prog__DOT__canvas_shadow);
          i++)
         step();
     for (long i = 0; i < 2000000L; i++)
@@ -1124,9 +1124,9 @@ UTEST(psleep, the_raster_registers_come_back)
 
     /* 320x240 and a window inside it, neither of which a fresh boot
      * would choose. */
-    uint32_t canvas_pre = (uint32_t)MEM(vid_prog__DOT__canvas_shadow);
-    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
-    uint32_t vsync_pre = (uint32_t)MEM(vid_prog__DOT__vsync_shadow);
+    uint32_t canvas_pre = (uint32_t)MEM(prog__DOT__canvas_shadow);
+    uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
+    uint32_t vsync_pre = (uint32_t)MEM(prog__DOT__vsync_shadow);
     /* 320x240 with 240 programmed lines: a fresh boot chooses console
      * and 480, so all three readings below can tell the two apart. */
     ASSERT_EQ(1u, canvas_pre);
@@ -1151,8 +1151,8 @@ UTEST(psleep, the_raster_registers_come_back)
     ASSERT_GT(other.size(), 0u);
     boot(other);
     step_to_save_point();
-    ASSERT_EQ(0u, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
-    ASSERT_EQ(480u, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
+    ASSERT_EQ(0u, (uint32_t)MEM(prog__DOT__canvas_shadow));
+    ASSERT_EQ(480u, (uint32_t)MEM(prog__DOT__vsync_shadow));
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
@@ -1179,9 +1179,9 @@ UTEST(psleep, the_raster_registers_come_back)
     ASSERT_GE(mtime_post, mtime_pre);
     ASSERT_LT(mtime_post, mtime_pre + 20000u);
 
-    ASSERT_EQ(canvas_pre, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
-    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
-    ASSERT_EQ(vsync_pre, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
+    ASSERT_EQ(canvas_pre, (uint32_t)MEM(prog__DOT__canvas_shadow));
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
+    ASSERT_EQ(vsync_pre, (uint32_t)MEM(prog__DOT__vsync_shadow));
     teardown();
 }
 

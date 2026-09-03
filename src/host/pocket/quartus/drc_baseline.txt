@@ -167,7 +167,7 @@ D101 717
 #       what this whole entry is about.
 #
 #       The gate has asked for 23. Do not take it: a fit reported 23 and
-#       the next reported 24 with only vid_mode's config fetch changed
+#       the next reported 24 with only linebuf's config fetch changed
 #       between them, and that touches none of these structures — all 24
 #       are named above and every one is in the platform layer. The count
 #       is packing-sensitive, so one observation is not a new floor.

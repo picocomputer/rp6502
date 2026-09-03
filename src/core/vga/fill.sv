@@ -5,7 +5,7 @@
  *
  * The fill engine, one for all three planes: the mode 1/2/3 subengines,
  * the shared pixel tail, and the palette snapshot, dispatched a plane at
- * a time by vid_sched. Serial fills are safe by the palette's own
+ * a time by sched. Serial fills are safe by the palette's own
  * contract — a mode that reads the palette always reloads it first —
  * and by the line buffers living outside: this engine only ever writes
  * the plane it was dispatched to. The subengine owns the XRAM channel
@@ -16,7 +16,7 @@
  * line, black under the base plane's rule, transparent above.
  */
 
-module vid_fill (
+module fill (
     input logic clk,
     input logic line_start,
 
@@ -29,21 +29,21 @@ module vid_fill (
     input logic [9:0] cw,
 
     /* gnt means the address was taken; the word arrives next clock. */
-    output logic vid_fill_a_req,
-    output logic [13:0] vid_fill_a_addr,
+    output logic fill_a_req,
+    output logic [13:0] fill_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    output logic vid_fill_f_req,
-    output logic [13:0] vid_fill_f_addr,
+    output logic fill_f_req,
+    output logic [13:0] fill_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
 
-    output logic vid_fill_px_we,
-    output logic [9:0] vid_fill_px_addr,
-    output logic [15:0] vid_fill_px_data,
+    output logic fill_px_we,
+    output logic [9:0] fill_px_addr,
+    output logic [15:0] fill_px_data,
 
-    output logic vid_fill_done
+    output logic fill_done
 );
 
     typedef enum logic [1:0] {
@@ -136,7 +136,7 @@ module vid_fill (
             pal_one_bpp = tl_pal_one_bpp;
         end
     end
-    vid_palram vid_palram (
+    palram palram (
         .clk(clk),
         .ld(pal_ld),
         .w(pal_w),
@@ -147,11 +147,11 @@ module vid_fill (
         .one_bpp(pal_one_bpp),
         .idx_a(pal_idx_a),
         .idx_b(m1_pal_idx_b),
-        .vid_palram_qa(pal_qa),
-        .vid_palram_qb(pal_qb)
+        .palram_qa(pal_qa),
+        .palram_qb(pal_qb)
     );
 
-    vid_mode1 vid_mode1 (
+    mode1 mode1 (
         .clk(clk),
         .start(m1_start),
         .abort_i(line_start),
@@ -159,32 +159,32 @@ module vid_fill (
         .cfgw(cfgw[127:0]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode1_a_req(m1_a_req),
-        .vid_mode1_a_addr(m1_a_addr),
+        .mode1_a_req(m1_a_req),
+        .mode1_a_addr(m1_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
-        .vid_mode1_f_req(vid_fill_f_req),
-        .vid_mode1_f_addr(vid_fill_f_addr),
+        .mode1_f_req(fill_f_req),
+        .mode1_f_addr(fill_f_addr),
         .f_gnt(f_gnt),
         .f_data(f_data),
-        .vid_mode1_pal_ld(m1_pal_ld),
-        .vid_mode1_pal_w(m1_pal_w),
-        .vid_mode1_pal_words(m1_pal_words),
-        .vid_mode1_pal_idx_a(m1_pal_idx_a),
-        .vid_mode1_pal_idx_b(m1_pal_idx_b),
-        .vid_mode1_pal_xram(m1_pal_xram),
-        .vid_mode1_pal_one_bpp(m1_pal_one_bpp),
+        .mode1_pal_ld(m1_pal_ld),
+        .mode1_pal_w(m1_pal_w),
+        .mode1_pal_words(m1_pal_words),
+        .mode1_pal_idx_a(m1_pal_idx_a),
+        .mode1_pal_idx_b(m1_pal_idx_b),
+        .mode1_pal_xram(m1_pal_xram),
+        .mode1_pal_one_bpp(m1_pal_one_bpp),
         .pal_qa(pal_qa),
         .pal_qb(pal_qb),
-        .vid_mode1_tl_start(m1_tl_start),
-        .vid_mode1_seg_valid(m1_seg_valid),
-        .vid_mode1_seg_ibits(m1_seg_ibits),
-        .vid_mode1_seg_fg(m1_seg_fg),
-        .vid_mode1_seg_bg(m1_seg_bg),
-        .vid_mode1_seg_px(m1_seg_px),
+        .mode1_tl_start(m1_tl_start),
+        .mode1_seg_valid(m1_seg_valid),
+        .mode1_seg_ibits(m1_seg_ibits),
+        .mode1_seg_fg(m1_seg_fg),
+        .mode1_seg_bg(m1_seg_bg),
+        .mode1_seg_px(m1_seg_px),
         .seg_take(tl_take)
     );
-    vid_mode2 vid_mode2 (
+    mode2 mode2 (
         .clk(clk),
         .start(m2_start),
         .abort_i(line_start),
@@ -192,21 +192,21 @@ module vid_fill (
         .cfgw(cfgw[127:0]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode2_a_req(m2_a_req),
-        .vid_mode2_a_addr(m2_a_addr),
+        .mode2_a_req(m2_a_req),
+        .mode2_a_addr(m2_a_addr),
         .a_gnt(a_gnt && m2_a_req),
         .a_rdata(a_rdata),
-        .vid_mode2_tl_start(m2_tl_start),
-        .vid_mode2_pal_ptr(m2_pal_ptr),
-        .vid_mode2_pal_xram(m2_pal_xram),
-        .vid_mode2_bpp(m2_bpp),
-        .vid_mode2_seg_valid(m2_seg_valid),
-        .vid_mode2_seg_imm(m2_seg_imm),
-        .vid_mode2_seg_bits(m2_seg_bits),
-        .vid_mode2_seg_px(m2_seg_px),
+        .mode2_tl_start(m2_tl_start),
+        .mode2_pal_ptr(m2_pal_ptr),
+        .mode2_pal_xram(m2_pal_xram),
+        .mode2_bpp(m2_bpp),
+        .mode2_seg_valid(m2_seg_valid),
+        .mode2_seg_imm(m2_seg_imm),
+        .mode2_seg_bits(m2_seg_bits),
+        .mode2_seg_px(m2_seg_px),
         .seg_take(tl_take)
     );
-    vid_mode3 vid_mode3 (
+    mode3 mode3 (
         .clk(clk),
         .start(m3_start),
         .abort_i(line_start),
@@ -214,15 +214,15 @@ module vid_fill (
         .cfgw(cfgw[111:0]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode3_tl_start(m3_tl_start),
-        .vid_mode3_pal_ptr(m3_pal_ptr),
-        .vid_mode3_pal_xram(m3_pal_xram),
-        .vid_mode3_bpp(m3_bpp),
-        .vid_mode3_reversed(m3_reversed),
-        .vid_mode3_seg_valid(m3_seg_valid),
-        .vid_mode3_seg_imm(m3_seg_imm),
-        .vid_mode3_seg_bits(m3_seg_bits),
-        .vid_mode3_seg_px(m3_seg_px),
+        .mode3_tl_start(m3_tl_start),
+        .mode3_pal_ptr(m3_pal_ptr),
+        .mode3_pal_xram(m3_pal_xram),
+        .mode3_bpp(m3_bpp),
+        .mode3_reversed(m3_reversed),
+        .mode3_seg_valid(m3_seg_valid),
+        .mode3_seg_imm(m3_seg_imm),
+        .mode3_seg_bits(m3_seg_bits),
+        .mode3_seg_px(m3_seg_px),
         .seg_take(tl_take)
     );
 
@@ -282,7 +282,7 @@ module vid_fill (
             tf_seg_px = m3_seg_px;
         end
     end
-    vid_pixtail vid_pixtail (
+    pixtail pixtail (
         .clk(clk),
         .start(tf_start),
         .abort_i(line_start),
@@ -298,23 +298,23 @@ module vid_fill (
         .seg_fg(tf_seg_fg),
         .seg_bg(tf_seg_bg),
         .seg_px(tf_seg_px),
-        .vid_pixtail_seg_take(tl_take),
-        .vid_pixtail_a_req(tl_a_req),
-        .vid_pixtail_a_addr(tl_a_addr),
+        .pixtail_seg_take(tl_take),
+        .pixtail_a_req(tl_a_req),
+        .pixtail_a_addr(tl_a_addr),
         .a_gnt(a_gnt && mode_q != 3'd1 && !m2_a_req),
         .a_rdy(1'b0),
         .a_rdata(a_rdata),
-        .vid_pixtail_pal_ld(tl_pal_ld),
-        .vid_pixtail_pal_w(tl_pal_w),
-        .vid_pixtail_pal_words(tl_pal_words),
-        .vid_pixtail_pal_idx(tl_pal_idx),
-        .vid_pixtail_pal_xram(tl_pal_xram),
-        .vid_pixtail_pal_one_bpp(tl_pal_one_bpp),
+        .pixtail_pal_ld(tl_pal_ld),
+        .pixtail_pal_w(tl_pal_w),
+        .pixtail_pal_words(tl_pal_words),
+        .pixtail_pal_idx(tl_pal_idx),
+        .pixtail_pal_xram(tl_pal_xram),
+        .pixtail_pal_one_bpp(tl_pal_one_bpp),
         .pal_q(pal_qa),
-        .vid_pixtail_px_we(tl_px_we),
-        .vid_pixtail_px_addr(tl_px_addr),
-        .vid_pixtail_px_data(tl_px_data),
-        .vid_pixtail_done(tl_done)
+        .pixtail_px_we(tl_px_we),
+        .pixtail_px_addr(tl_px_addr),
+        .pixtail_px_data(tl_px_data),
+        .pixtail_done(tl_done)
     );
 
     logic sub_a_req;
@@ -352,19 +352,19 @@ module vid_fill (
         if (state == F_CFG) begin
             /* One word in flight: the half held back has to shift before
              * the next word's low half arrives. */
-            vid_fill_a_req = cfg_i < cfg_n && !gnt_d;
-            vid_fill_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
+            fill_a_req = cfg_i < cfg_n && !gnt_d;
+            fill_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin
-            vid_fill_a_req = state == F_MODE && sub_a_req;
-            vid_fill_a_addr = sub_a_addr;
+            fill_a_req = state == F_MODE && sub_a_req;
+            fill_a_addr = sub_a_addr;
         end
     end
 
     always_comb begin
-        vid_fill_px_we = state == F_MODE && sub_px_we;
-        vid_fill_px_addr = sub_px_addr;
-        vid_fill_px_data = sub_px_data;
-        vid_fill_done = state == F_MODE && sub_done;
+        fill_px_we = state == F_MODE && sub_px_we;
+        fill_px_addr = sub_px_addr;
+        fill_px_data = sub_px_data;
+        fill_done = state == F_MODE && sub_done;
     end
 
     initial begin
@@ -434,8 +434,8 @@ module vid_fill (
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_fill;
-    always_comb unused_vid_fill = ^{config_ptr[1:0]};
+    logic unused_fill;
+    always_comb unused_fill = ^{config_ptr[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
