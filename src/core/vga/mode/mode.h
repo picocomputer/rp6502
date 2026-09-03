@@ -14,7 +14,7 @@
 #include <stdbool.h>
 
 static inline __attribute__((always_inline)) void
-modes_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+mode_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits >> 4)
     {
@@ -217,7 +217,7 @@ modes_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 }
 
 static inline __attribute__((always_inline)) void
-modes_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+mode_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits & 0xF)
     {
@@ -420,7 +420,7 @@ modes_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_head_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+mode_emit_head_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
 {
     bits >>= 8 - start - count;
     switch (count)
@@ -452,7 +452,7 @@ modes_emit_head_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_tail_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+mode_emit_tail_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
 {
     bits >>= 8 - fill_cols;
     switch (fill_cols)
@@ -481,7 +481,7 @@ modes_emit_tail_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+mode_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
 {
     bits <<= 8 - start - count;
     switch (count)
@@ -513,7 +513,7 @@ modes_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+mode_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
 {
     bits <<= 8 - fill_cols;
     switch (fill_cols)
@@ -542,7 +542,7 @@ modes_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_head_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+mode_emit_head_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
 {
     bits >>= 2 * (4 - start - count);
     switch (count)
@@ -562,7 +562,7 @@ modes_emit_head_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_tail_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+mode_emit_tail_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
 {
     bits >>= 2 * (4 - fill_cols);
     switch (fill_cols)
@@ -579,7 +579,7 @@ modes_emit_tail_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+mode_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
 {
     bits <<= 2 * (4 - start - count);
     switch (count)
@@ -599,7 +599,7 @@ modes_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, 
 }
 
 static inline __attribute__((always_inline)) void
-modes_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+mode_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
 {
     bits <<= 2 * (4 - fill_cols);
     switch (fill_cols)

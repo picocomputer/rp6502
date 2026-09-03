@@ -169,17 +169,17 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, glyph, colors, start, part);
+        mode_emit_head_1bpp(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, colors[0], colors[1]);
+            mode_render_1bpp(rgb, glyph, colors[0], colors[1]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
-        modes_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
+        mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
 }
@@ -231,19 +231,19 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, glyph, colors, start, part);
+        mode_emit_head_1bpp(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, pal[data->bg_fg_index >> 4], pal[data->bg_fg_index & 0xF]);
+            mode_render_1bpp(rgb, glyph, pal[data->bg_fg_index >> 4], pal[data->bg_fg_index & 0xF]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
         colors[0] = pal[data->bg_fg_index >> 4];
         colors[1] = pal[data->bg_fg_index & 0xF];
-        modes_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
+        mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
 }
@@ -295,19 +295,19 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, glyph, colors, start, part);
+        mode_emit_head_1bpp(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, pal[data->fg_bg_index & 0xF], pal[data->fg_bg_index >> 4]);
+            mode_render_1bpp(rgb, glyph, pal[data->fg_bg_index & 0xF], pal[data->fg_bg_index >> 4]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
         colors[0] = pal[data->fg_bg_index & 0xF];
         colors[1] = pal[data->fg_bg_index >> 4];
-        modes_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
+        mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
 }
@@ -359,19 +359,19 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, glyph, colors, start, part);
+        mode_emit_head_1bpp(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, pal[data->bg_index], pal[data->fg_index]);
+            mode_render_1bpp(rgb, glyph, pal[data->bg_index], pal[data->fg_index]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
         colors[0] = pal[data->bg_index];
         colors[1] = pal[data->fg_index];
-        modes_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
+        mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
 }
@@ -417,19 +417,19 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, glyph, colors, start, part);
+        mode_emit_head_1bpp(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
+            mode_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
         colors[0] = data->bg_color;
         colors[1] = data->fg_color;
-        modes_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
+        mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
 }

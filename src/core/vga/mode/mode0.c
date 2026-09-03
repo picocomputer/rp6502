@@ -74,7 +74,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
                     fg = cell->ul_color;
             }
         }
-        modes_render_1bpp(rgb, bits, bg, fg);
+        mode_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
     }
     // Cursor overlay: at most one cell per scanline. Patches the rendered
@@ -103,7 +103,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
         case 3:
         case 4: // underline: solid strip at scanrow 7 only
             if (scanrow == 7)
-                modes_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+                mode_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
             break;
         case 5:
         case 6: // bar: 1px at left edge on 8x8
@@ -118,7 +118,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
                 cbits = font_line_dec[(cp->font_code - 0x5F) & 31];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            mode_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
             break;
         }
         }
@@ -175,7 +175,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
                     fg = cell->ul_color;
             }
         }
-        modes_render_1bpp(rgb, bits, bg, fg);
+        mode_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
     }
     // Cursor overlay: at most one cell per scanline. Underline strip is the
@@ -204,7 +204,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
         case 3:
         case 4: // underline: solid strip at scanrows 14-15
             if (scanrow == 14 || scanrow == 15)
-                modes_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+                mode_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
             break;
         case 5:
         case 6: // bar: 2px at left edge on 8x16
@@ -222,7 +222,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
                 cbits = italic_line[cp->font_code];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            mode_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
             break;
         }
         }

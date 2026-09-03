@@ -144,13 +144,13 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 part = fill_cols;
             fill_cols -= part;
             col += part;
-            modes_emit_head_1bpp(&rgb, bits, pal, start, part);
+            mode_emit_head_1bpp(&rgb, bits, pal, start, part);
             if (++index == tile_size / 8)
                 tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
             bits = xram[tile_mem + index];
             while (fill_cols > 7)
             {
-                modes_render_1bpp(rgb, bits, pal[0], pal[1]);
+                mode_render_1bpp(rgb, bits, pal[0], pal[1]);
                 rgb += 8;
                 fill_cols -= 8;
                 col += 8;
@@ -159,7 +159,7 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 bits = xram[tile_mem + index];
             }
             col += fill_cols;
-            modes_emit_tail_1bpp(&rgb, bits, pal, fill_cols);
+            mode_emit_tail_1bpp(&rgb, bits, pal, fill_cols);
         }
     }
     else if (bpp == 2)
@@ -176,7 +176,7 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 part = fill_cols;
             fill_cols -= part;
             col += part;
-            modes_emit_head_2bpp(&rgb, bits, pal, start, part);
+            mode_emit_head_2bpp(&rgb, bits, pal, start, part);
             if (++index == tile_size / 4)
                 tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
             bits = xram[tile_mem + index];
@@ -193,7 +193,7 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 bits = xram[tile_mem + index];
             }
             col += fill_cols;
-            modes_emit_tail_2bpp(&rgb, bits, pal, fill_cols);
+            mode_emit_tail_2bpp(&rgb, bits, pal, fill_cols);
         }
     }
     else if (bpp == 4)

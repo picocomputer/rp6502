@@ -118,15 +118,15 @@ mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp(&rgb, *data++, pal, start, part);
+        mode_emit_head_1bpp(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, *data++, pal[0], pal[1]);
+            mode_render_1bpp(rgb, *data++, pal[0], pal[1]);
             rgb += 8;
             fill_cols -= 8;
         }
-        modes_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
+        mode_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -155,15 +155,15 @@ mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
+        mode_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modes_render_1bpp_reverse(rgb, *data++, pal[0], pal[1]);
+            mode_render_1bpp_reverse(rgb, *data++, pal[0], pal[1]);
             rgb += 8;
             fill_cols -= 8;
         }
-        modes_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
+        mode_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -192,7 +192,7 @@ mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_2bpp(&rgb, *data++, pal, start, part);
+        mode_emit_head_2bpp(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -202,7 +202,7 @@ mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
             *rgb++ = pal[*data++ & 0x03];
             fill_cols -= 4;
         }
-        modes_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
+        mode_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -231,7 +231,7 @@ mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        modes_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
+        mode_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -241,7 +241,7 @@ mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
             *rgb++ = pal[(*data++ & 0xC0) >> 6];
             fill_cols -= 4;
         }
-        modes_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
+        mode_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
