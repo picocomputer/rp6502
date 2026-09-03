@@ -16,7 +16,8 @@
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
-#include "core/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 
 #include "aud_sine_tables.h"
 

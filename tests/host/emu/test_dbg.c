@@ -10,7 +10,8 @@
 
 #include "core/dap/dbg.h"
 #include "core/sys/sys.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "host/host.h"
 #include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/hid/vtkeys.h"
@@ -22,7 +23,7 @@
 /* The first instruction the CPU fetches after reset = the RESET vector target. */
 static uint16_t entry_pc(void)
 {
-    return (uint16_t)(ram[0xFFFC] | (ram[0xFFFD] << 8));
+    return (uint16_t)(sram[0xFFFC] | (sram[0xFFFD] << 8));
 }
 
 static bool load(void)
@@ -100,14 +101,14 @@ static void wp_tap(uint16_t addr, uint8_t val, bool is_write)
     (void)val;
     if (is_write)
         wp_writes++;
-    else if (++wp_reads, addr > MEM_MMAP_HI)
+    else if (++wp_reads, addr > SRAM_MMAP_HI)
         wp_reads_above_ram++;
 }
 
 /* Watchpoints (data breakpoints) are DAP-only, so nothing else covers the bus hook.
  * It reports every write, but only the reads the SRAM actually drove: the reset
  * vector at $FFFC and the API trampoline at $FFF0 are the RIA answering, so a frame
- * that fetches both must still report no read above MEM_MMAP_HI. */
+ * that fetches both must still report no read above SRAM_MMAP_HI. */
 UTEST(dbg, watchpoints_see_only_sram_reads)
 {
     ASSERT_TRUE(load());
@@ -230,7 +231,7 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return mem_crc32(0, fb, (size_t)cw * ch * 4);
+    return host_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 /* A stop holds the 6502 and nothing else. The beam keeps sweeping, so a

@@ -91,7 +91,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
-    ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/sys/sys.c
     ${RP6502_ROOT}/src/core/sys/version.c
     ${RP6502_ROOT}/src/core/api/api.c
@@ -140,6 +139,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/sys/config.c
     ${RP6502_ROOT}/src/core/sys/random.c
     ${RP6502_ROOT}/src/core/sys/timer.c
+    ${RP6502_ROOT}/src/core/sys/xram.c
+    ${RP6502_ROOT}/src/core/ria/regs.c
     ${RIA_SRC}/sys/cfg.c
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c
@@ -147,7 +148,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/rp2350.c
     ${RIA_SRC}/sys/resb.c
     ${RIA_SRC}/sys/led.c
-    ${RIA_SRC}/sys/mem.c
+    ${RIA_SRC}/sys/mbuf.c
     ${RIA_SRC}/sys/path.c
     ${RIA_SRC}/sys/pix.c
     ${RIA_SRC}/sys/ria.c

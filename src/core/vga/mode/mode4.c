@@ -9,7 +9,7 @@
 // is based on the sprite system used for the RISCBoy games console.
 
 #include "core/vga/mode/mode4.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include <assert.h>
 /* The SDK spells these in pico/platform.h; a mode that clips spans needs

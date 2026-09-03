@@ -22,7 +22,8 @@
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/com/com.h"
 #include "utest.h"
 #include <stdio.h>
@@ -31,19 +32,19 @@
 UTEST(crc32, known_vectors)
 {
     /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
-    ASSERT_EQ(mem_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
-    ASSERT_EQ(mem_crc32(0, "", 0), (uint32_t)0x00000000u);
+    ASSERT_EQ(host_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
+    ASSERT_EQ(host_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
 UTEST(rom, loads)
 {
-    memset(ram, 0, 0x10000);
+    memset(sram, 0, 0x10000);
     ASSERT_TRUE(rom_load(TEST_FIXTURE));
     /* the loader places code at the $0200 entry and points the reset vector
      * there ($FFFC/$FFFD -> $0200). */
-    ASSERT_EQ(ram[0xFFFC], 0x00);
-    ASSERT_EQ(ram[0xFFFD], 0x02);
-    ASSERT_NE(ram[0x0200], 0x00);
+    ASSERT_EQ(sram[0xFFFC], 0x00);
+    ASSERT_EQ(sram[0xFFFD], 0x02);
+    ASSERT_NE(sram[0x0200], 0x00);
 }
 
 UTEST(rom, rejects_missing_file)
@@ -69,12 +70,12 @@ UTEST(rom, loads_a_headerless_image)
     ASSERT_EQ(fwrite(image, 1, sizeof image - 1, f), sizeof image - 1);
     fclose(f);
 
-    memset(ram, 0, 0x10000);
+    memset(sram, 0, 0x10000);
     ASSERT_TRUE(rom_load(path));
-    ASSERT_EQ(ram[0x0300], 0xA9);
-    ASSERT_EQ(ram[0x0302], 0xDB);
-    ASSERT_EQ(ram[0xFFFC], 0x00);
-    ASSERT_EQ(ram[0xFFFD], 0x03);
+    ASSERT_EQ(sram[0x0300], 0xA9);
+    ASSERT_EQ(sram[0x0302], 0xDB);
+    ASSERT_EQ(sram[0xFFFC], 0x00);
+    ASSERT_EQ(sram[0xFFFD], 0x03);
 }
 
 /* The format caps a record at 1024 bytes (the packer never writes more), and
@@ -89,11 +90,11 @@ UTEST(rom, rejects_a_record_over_the_format_cap)
     static uint8_t big[1025];
     fputs("#!RP6502\n", f);
     fprintf(f, "$00300 $%X $%X\n", (unsigned)sizeof big,
-            (unsigned)mem_crc32(0, big, sizeof big));
+            (unsigned)host_crc32(0, big, sizeof big));
     fwrite(big, 1, sizeof big, f);
     /* a reset vector so only the cap can be the refusal */
     uint8_t vec[2] = {0x00, 0x03};
-    fprintf(f, "$FFFC $2 $%X\n", (unsigned)mem_crc32(0, vec, 2));
+    fprintf(f, "$FFFC $2 $%X\n", (unsigned)host_crc32(0, vec, 2));
     fwrite(vec, 1, 2, f);
     fclose(f);
     ASSERT_FALSE(rom_load(path));
@@ -479,8 +480,9 @@ UTEST(random, zero_is_an_ordinary_state)
         ASSERT_NE(seen[i], seen[0]);
 }
 
-/* A stream of one's own leaves the machine's alone: mem.c fills 128 KB from
- * its own state so a wipe cannot move what a seeded program's rand() sees. */
+/* A stream of one's own leaves the machine's alone: the fills draw 64 KB each
+ * from their own state so a wipe cannot move what a seeded program's rand()
+ * sees. */
 UTEST(random, a_private_stream_does_not_touch_the_machines)
 {
     uint32_t mine = 1;

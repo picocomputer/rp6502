@@ -26,7 +26,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 /* keymap_set_layout_list is generated from keymap.h's config row; the
  * declaration comes with the roster, not with the driver header. */
 #include "core/sys/config.h"

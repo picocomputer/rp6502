@@ -10,7 +10,8 @@
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
-#include "ria/sys/mem.h"
+#include "core/ria/regs.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>
@@ -294,7 +295,7 @@ static void fil_upload_rx_mbuf(bool timeout)
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
-    else if (mem_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
+    else if (host_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
     {
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_CRC));
@@ -356,7 +357,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mem_read_mbuf(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
+        mbuf_read(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));

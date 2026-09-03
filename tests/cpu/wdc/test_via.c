@@ -32,6 +32,7 @@
 #include "via_dut.h"
 
 #include "via_scen.h"
+#include "host/host.h"
 #include "utest.h"
 
 #include <stdio.h>
@@ -69,15 +70,12 @@ static bool idle_until_irq(int limit)
     return false;
 }
 
-/* CRC-32, so a trace is a number small enough to commit and read. Byte at a
- * time rather than the bench's whole-buffer form, because a trace is produced
- * a cycle at a time and never exists as a buffer. */
+/* CRC-32, so a trace is a number small enough to commit and read. A byte at
+ * a time, because a trace is produced a cycle at a time and never exists as a
+ * buffer. */
 static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 {
-    crc ^= byte;
-    for (int i = 0; i < 8; i++)
-        crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1)));
-    return crc;
+    return host_crc32(crc, &byte, 1);
 }
 
 /* Every cycle contributes its read data and its IRQ level, which is exactly
@@ -85,7 +83,7 @@ static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 static uint32_t trace_script(const via_op_t *ops, size_t n_ops, uint64_t *cycles)
 {
     via_reset();
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0;
     uint64_t n = 0;
     for (size_t i = 0; i < n_ops; i++)
         for (uint16_t r = 0; r <= ops[i].repeat; r++)
@@ -98,13 +96,13 @@ static uint32_t trace_script(const via_op_t *ops, size_t n_ops, uint64_t *cycles
             n++;
         }
     *cycles = n;
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 static uint32_t trace_fuzz(uint64_t *cycles)
 {
     via_reset();
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0;
     uint16_t lfsr = VIA_FUZZ_SEED;
     for (int i = 0; i < VIA_FUZZ_CYCLES; i++)
     {
@@ -117,7 +115,7 @@ static uint32_t trace_fuzz(uint64_t *cycles)
         crc = crc32_up(crc, irq ? 1 : 0);
     }
     *cycles = VIA_FUZZ_CYCLES;
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 /* The committed traces, read once. */

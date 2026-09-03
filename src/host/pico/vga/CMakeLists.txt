@@ -9,6 +9,7 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
     # _ftoa/_etoa unconditionally otherwise.
     PICO_PRINTF_SUPPORT_FLOAT=0
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
+    XRAM_ALIGN=0x10000
 )
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
@@ -31,6 +32,7 @@ target_include_directories(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/host/pico  # the pico's own headers
     ${VGA_SRC}                    # this machine: drivers.h and its sources
     ${RP6502_ROOT}/src
+    ${RP6502_ROOT}/vendor         # host.c names littlefs's CRC; unlinked here
 )
 
 # Core 1 renders continuously and never reads HOST_IN_FLASH data -- the glyph
@@ -55,7 +57,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/sys/com.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
-    ${VGA_SRC}/sys/mem.c
+    ${RP6502_ROOT}/src/core/sys/xram.c
     ${VGA_SRC}/sys/pix.c
     ${VGA_SRC}/sys/ria.c
     ${VGA_SRC}/sys/vga.c

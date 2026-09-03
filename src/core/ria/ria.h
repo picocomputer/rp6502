@@ -34,8 +34,8 @@ void ria_trigger_vsync(void);
  * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL
  * and USB-HID devices, the clock — are NOT part of this interface; an OP write
  * ($FFEF) hands off to them from ria.c's dispatch. The register file (regs[]) and the
- * XSTACK are dual-ported shared backing rather than state held here, because the
- * RIA's own firmware addresses them directly through REGS(). */
+ * XSTACK are dual-ported shared backing (core/ria/regs.h) rather than state held
+ * here, because the RIA's own firmware addresses them directly through REGS(). */
 
 /* 6502 memory map: 32 registers, the last six being the vectors (ria.rst).
  * A5-A15 are decoded off-chip into CS. */

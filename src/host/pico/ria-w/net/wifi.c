@@ -13,7 +13,7 @@
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/mbuf.h"
 #include <pico/cyw43_arch.h>
 
 #if defined(DEBUG_NET) || defined(DEBUG_NET_WIFI)

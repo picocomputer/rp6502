@@ -359,8 +359,8 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    # The bench's own answer to host/host.h, which every machine owes.
-    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c)
+    # The bench's own answers to host/host.h, which every machine owes.
+    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_SRC}/core/sys/crc32.c)
 
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE

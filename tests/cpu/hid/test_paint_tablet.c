@@ -13,7 +13,7 @@
 
 #include "core/hid/tablet.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
+#include "host/host.h"
 #include "core/vga/vga_emu.h"
 #include "emu_boot.h"
 
@@ -23,7 +23,7 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return mem_crc32(0, fb, (size_t)cw * ch * 4);
+    return host_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 static void run(int n)

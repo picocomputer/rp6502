@@ -19,7 +19,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "osal/pico/lfs.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"

@@ -30,7 +30,7 @@ extern "C"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
 #include "core/dap/dap.h"
 #include "core/dap/dwarf_line.h"
 #include "core/dap/dwarf_info.h"
@@ -165,7 +165,7 @@ void rebuild_bp_meta()
 
 /* Read a byte of 6502 memory — the callback the variable resolvers use to fetch
  * the live frame base (soft / C stack pointer). Only called while stopped. */
-uint8_t dap_readmem(uint16_t a) { return ram[a]; }
+uint8_t dap_readmem(uint16_t a) { return sram[a]; }
 
 bool src_addr_to_line(uint16_t addr, const char **file, int *line)
 {
@@ -404,7 +404,7 @@ struct DasmCtx
 uint8_t dasm_in(void *u)
 {
     DasmCtx *c = (DasmCtx *)u;
-    uint8_t b = ram[c->pc++];
+    uint8_t b = sram[c->pc++];
     char h[4];
     snprintf(h, sizeof h, "%02X ", b);
     c->bytes += h;
@@ -487,9 +487,9 @@ FrameCtx frame_ctx(int64_t frameId)
 bool stack_return_target(uint16_t pushed, uint16_t *target_out)
 {
     uint16_t jsr = (uint16_t)(pushed - 2);
-    if (ram[jsr] != 0x20)
+    if (sram[jsr] != 0x20)
         return false;
-    uint16_t target = (uint16_t)(ram[(uint16_t)(jsr + 1)] | (ram[(uint16_t)(jsr + 2)] << 8));
+    uint16_t target = (uint16_t)(sram[(uint16_t)(jsr + 1)] | (sram[(uint16_t)(jsr + 2)] << 8));
     const char *fn = src_addr_to_func(target);
     uint16_t entry;
     if (!fn || !src_func_addr(fn, &entry) || entry != target)
@@ -516,7 +516,7 @@ void unwind_stack()
         for (int skip = 0; skip <= UNWIND_SCAN_MAX; skip++)
         {
             uint8_t lo_s = (uint8_t)(sp + 1 + skip), hi_s = (uint8_t)(sp + 2 + skip);
-            uint16_t pushed = (uint16_t)(ram[0x100 + lo_s] | (ram[0x100 + hi_s] << 8));
+            uint16_t pushed = (uint16_t)(sram[0x100 + lo_s] | (sram[0x100 + hi_s] << 8));
             if (!stack_return_target(pushed, nullptr))
                 continue;
             g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
@@ -596,7 +596,7 @@ uint64_t mem_le(uint16_t addr, int n)
 {
     uint64_t v = 0;
     for (int i = 0; i < n && i < 8; i++)
-        v |= (uint64_t)ram[(uint16_t)(addr + i)] << (8 * i);
+        v |= (uint64_t)sram[(uint16_t)(addr + i)] << (8 * i);
     return v;
 }
 
@@ -631,7 +631,7 @@ std::string str_repr(uint16_t addr, int max)
     std::string s = "\"";
     for (int i = 0; i < max; i++)
     {
-        uint8_t c = ram[(uint16_t)(addr + i)];
+        uint8_t c = sram[(uint16_t)(addr + i)];
         if (!c) break;
         if (c == '"' || c == '\\') { s += '\\'; s += (char)c; }
         else if (c >= 0x20 && c < 0x7f) s += (char)c;
@@ -827,7 +827,7 @@ std::vector<dap::Variable> expand_node(VarNode n)
  * A small C-ish evaluator shared by EvaluateRequest (watch/hover/repl),
  * SetVariable/SetExpression (target + RHS), and breakpoint conditions. Reuses the
  * DWARF/cc65 symbol resolvers, the dtype_t graph, and make_var() for formatting.
- * Reads ram[] + the source map, so reader-thread callers hold g_src_mtx; the
+ * Reads sram[] + the source map, so reader-thread callers hold g_src_mtx; the
  * main-thread condition filter is the sole writer and needs no lock. cc65 has no
  * type graph, so member/typed-index there report an honest error. */
 
@@ -875,7 +875,7 @@ void store_scalar(uint16_t addr, int sz, int64_t value)
 {
     if (sz <= 0 || sz > 8) sz = 2;
     for (int i = 0; i < sz; i++)
-        ram[(uint16_t)(addr + i)] = (uint8_t)((uint64_t)value >> (8 * i));
+        sram[(uint16_t)(addr + i)] = (uint8_t)((uint64_t)value >> (8 * i));
 }
 
 bool resolve_ident(const std::string &name, const FrameCtx &fc, EvalResult &r)
@@ -1869,7 +1869,7 @@ extern "C" void dap_start(void)
         for (long i = 0; i < count; i++)
         {
             long a = base + i;
-            buf.push_back((a >= 0 && a <= 0xFFFF) ? ram[a] : 0);
+            buf.push_back((a >= 0 && a <= 0xFFFF) ? sram[a] : 0);
         }
         r.address = hex16((uint16_t)(base & 0xFFFF));
         if (!buf.empty())
@@ -1957,7 +1957,7 @@ extern "C" void dap_start(void)
 
     /* Expression evaluation (watch/hover/repl). Read-only; runs on the reader
      * thread under g_src_mtx like VariablesRequest — the CPU is idle while
-     * stopped, so ram[]/registers are stable. */
+     * stopped, so sram[]/registers are stable. */
     g_session->registerHandler(
         [](const dap::EvaluateRequest &req) -> dap::ResponseOrError<dap::EvaluateResponse> {
             std::lock_guard<std::mutex> lk(g_src_mtx);
@@ -1988,7 +1988,7 @@ extern "C" void dap_start(void)
             return r;
         });
 
-    /* SetVariable / SetExpression / WriteMemory: writes to ram[]/registers. Safe
+    /* SetVariable / SetExpression / WriteMemory: writes to sram[]/registers. Safe
      * on the reader thread while stopped (CPU idle, no concurrent writer) — the
      * same invariant the reads rely on; take g_src_mtx for the resolvers. */
     g_session->registerHandler(
@@ -2079,7 +2079,7 @@ extern "C" void dap_start(void)
         {
             long a = base + (long)i;
             if (a < 0 || a > 0xFFFF) break;
-            ram[a] = bytes[i];
+            sram[a] = bytes[i];
             written++;
         }
         r.bytesWritten = written;

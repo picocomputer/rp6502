@@ -16,6 +16,7 @@
 #ifndef _CORE_SYS_RANDOM_H_
 #define _CORE_SYS_RANDOM_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* The machine's stream, the one the 6502 reads. Seeded on first use by asking
@@ -24,8 +25,11 @@
 uint32_t sys_random(void);
 
 /* A stream of one's own, for something that must not disturb the above. The
- * state is the caller's; core/mem/mem.c keeps one so a 128 KB wipe cannot move
- * what a seeded program sees. */
+ * state is the caller's; the memory fills each keep one so a 64 KB wipe cannot
+ * move what a seeded program sees. */
 uint32_t sys_random_step(uint32_t *state);
+
+/* len bytes of that stream, a word at a time; len is a multiple of four. */
+void sys_random_fill(void *dst, size_t len, uint32_t *state);
 
 #endif /* _CORE_SYS_RANDOM_H_ */

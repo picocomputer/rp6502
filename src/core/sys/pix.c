@@ -19,7 +19,8 @@
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
-#include "core/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include <string.h>
 
 static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);

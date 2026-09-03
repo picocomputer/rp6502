@@ -14,18 +14,18 @@
  * using because the soft CPU is stopped too.
  */
 
-module sram64k (
+module sram (
     input logic clk,
 
     input logic [15:0] a_addr,
     input logic [7:0] a_wdata,
     input logic a_we,
-    output logic [7:0] a_rdata,
+    output logic [7:0] sram_a_rdata,
 
     input logic [15:0] b_addr,
     input logic [7:0] b_wdata,
     input logic b_we,
-    output logic [7:0] b_rdata,
+    output logic [7:0] sram_b_rdata,
 
     input logic sst_own,
     input logic [15:0] sst_addr,
@@ -46,7 +46,7 @@ module sram64k (
     always_ff @(posedge clk) begin
         if (a_we && !sst_own)
             mem[a_addr] <= a_wdata;
-        a_rdata <= mem[a_addr];
+        sram_a_rdata <= mem[a_addr];
     end
 
     logic [15:0] b_a;
@@ -60,7 +60,7 @@ module sram64k (
     always_ff @(posedge clk) begin
         if (b_w)
             mem[b_a] <= b_d;
-        b_rdata <= mem[b_a];
+        sram_b_rdata <= mem[b_a];
     end
 
 endmodule

@@ -10,7 +10,8 @@
 #include "ria/mon/ram.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/mem.h"
+#include "core/sys/xram.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include <stdio.h>
@@ -342,7 +343,7 @@ static void ram_rx_mbuf(bool timeout)
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         return;
     }
-    if (mem_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
+    if (host_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return;
@@ -391,7 +392,7 @@ void ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mem_read_mbuf(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        mbuf_read(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }

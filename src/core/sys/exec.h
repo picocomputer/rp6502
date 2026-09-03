@@ -6,7 +6,7 @@
  * How this machine starts a program, which is the half of core/api/proc.h
  * every machine answers differently: the RIA streams a ROM to the 6502 over
  * its bus across many passes, the Pocket stages an image through the APF
- * bridge, and this one loads straight into ram[] because it owns the RAM.
+ * bridge, and this one loads straight into sram[] because it owns the RAM.
  *
  * Everything that starts a program here comes through exec_boot -- a dropped
  * file, a frontend's load, the command line, a test, and an exec the running
@@ -31,7 +31,7 @@
  *
  * Ends at the ask, not the doing: a caller inside a driver walk lets the
  * pass commit, and a host outside one calls sys_commit itself. */
-#define EXEC_REFILL 0x01  /* mem_init first: a fresh machine, not a program change */
+#define EXEC_REFILL 0x01  /* the fills first: a fresh machine, not a program change */
 #define EXEC_UNCHAIN 0x02 /* break any launcher chain; a chosen program is not a child */
 bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags);
 

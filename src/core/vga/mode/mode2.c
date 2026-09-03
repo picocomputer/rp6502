@@ -7,7 +7,7 @@
 #include "core/vga/mode/mode2.h"
 #include "core/vga/mode/mode.h"
 #include "core/vga/vga.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/vga/pixel_format.h"
 #include "core/term/color.h"
 #include <string.h>

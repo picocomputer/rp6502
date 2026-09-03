@@ -15,7 +15,8 @@
 #include "mut.h"
 
 #include "core/com/com.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "emu_boot.h"
 
@@ -38,7 +39,8 @@ void mut_init(int argc, const char *const argv[])
      * A suite written to both has to be given one answer, and it is the one
      * that can be reproduced: an expectation written down against a random
      * fill would be a different number every run. */
-    mem_set_fill(false, 0, 0);
+    sram_set_fill(false, 0, 0);
+    xram_set_fill(false, 0, 0);
     sys_init();
 }
 
@@ -73,8 +75,8 @@ bool mut_boot(const char *rom)
 {
     /* A boot is a fresh machine, which is emu_restart plus the refill: the
      * other machine gets one by construction and a suite written to both has
-     * to be able to say what XRAM held before its program ran. mem_init is
-     * the first of the drivers, so the loader's bytes still land on top. */
+     * to be able to say what XRAM held before its program ran. The fills come
+     * before the loader in the drivers, so its bytes still land on top. */
     if (!exec_boot(rom, 0, NULL, EXEC_REFILL))
         return false;
     sys_commit();

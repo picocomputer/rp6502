@@ -22,6 +22,7 @@
 
 #include "chips_dut.h"
 #include "lockstep_scen.h"
+#include "host/host.h"
 #include "utest.h"
 
 #include <stdio.h>
@@ -32,10 +33,7 @@ static uint8_t mem[0x10000];
 
 static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 {
-    crc ^= byte;
-    for (int i = 0; i < 8; i++)
-        crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1)));
-    return crc;
+    return host_crc32(crc, &byte, 1);
 }
 
 /* One implementation over lockstep.c's memory rule: what the CPU drives, the
@@ -49,7 +47,7 @@ static uint32_t trace(const lockstep_scen_t *scen)
     chips_dut.pins(false, false, false, false);
     chips_dut.reset();
 
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0;
     size_t ev = 0;
     for (uint64_t c = 0; c < scen->cycles; c++)
     {
@@ -71,7 +69,7 @@ static uint32_t trace(const lockstep_scen_t *scen)
         crc = crc32_up(crc, data);
         crc = crc32_up(crc, (uint8_t)((read ? 1 : 0) | (sync ? 2 : 0)));
     }
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 static uint32_t trace_fuzz(void)

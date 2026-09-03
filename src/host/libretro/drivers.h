@@ -34,7 +34,8 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/ria/ria.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
@@ -56,7 +57,7 @@
  * io column (its lazy clears drain a row per call) and before VGA in the list
  * (vga_init programs the console canvas, which asks term its height). */
 #define RP6502_MACH_DRIVERS                                                  \
-    RIA_DRIVER, MEM_DRIVER, EXEC_DRIVER,        \
+    RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER, EXEC_DRIVER,        \
     PROC_DRIVER, STR_DRIVER,                                 \
     COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
     API_DRIVER, TERM_DRIVER,                                 \

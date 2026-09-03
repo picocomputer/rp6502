@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "vga/sys/flash.h"
 #include "vga/sys/ria.h"
 #include <hardware/flash.h>

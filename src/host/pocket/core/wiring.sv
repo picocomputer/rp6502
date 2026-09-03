@@ -403,7 +403,7 @@ module wiring
                 sram_b_rdata = ram_b_rdata;
             end
         end else begin : g_ram_bram
-            sram64k sram (
+            sram sram (
                 .clk(clk_sys),
                 .sst_own(eng_arr_own),
                 .sst_addr(eng_sram_addr),
@@ -412,11 +412,11 @@ module wiring
                 .a_addr(cpu_addr),
                 .a_wdata(cpu_dout),
                 .a_we(cpu_we && phi2_en),
-                .a_rdata(sram_rdata),
+                .sram_a_rdata(sram_rdata),
                 .b_addr(soc_addr[15:0]),
                 .b_wdata(soc_wbyte),
                 .b_we(soc_stb && soc_we && soc_sel_sram),
-                .b_rdata(sram_b_rdata)
+                .sram_b_rdata(sram_b_rdata)
             );
             always_comb begin
                 wiring_ram_a_addr = '0;
@@ -922,18 +922,18 @@ module wiring
         qs_addr <= xw_addr;
         qs_val <= xw_wdata;
     end
-    xram64k xram (
+    xram xram (
         .clk(clk_sys),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_xram_we),
         .sst_wdata(eng_mem_wdata),
         .a_addr(ma_addr[a_sel]),
-        .xram64k_a_rdata(xram_a_rdata),
+        .xram_a_rdata(xram_a_rdata),
         .b_addr(xw_addr),
         .b_wdata(xw_wdata),
         .b_we(xw_we),
-        .xram64k_b_rdata(xram_b_rdata)
+        .xram_b_rdata(xram_b_rdata)
     );
 
     logic [31:0] prog_b_rdata;

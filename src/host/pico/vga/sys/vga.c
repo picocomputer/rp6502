@@ -8,7 +8,7 @@
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
 #include "core/vga/prog.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/term/term.h"
 #include "vga/scanvideo/scanvideo.h"
 #include <pico/stdlib.h>

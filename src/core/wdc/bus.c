@@ -6,8 +6,7 @@
 
 #include "core/wdc/bus.h"
 #include "core/dap/dbg.h"
-#include "core/mem.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
 #include "core/ria/ria.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
@@ -92,7 +91,7 @@ static inline void bus_tick(uint16_t *addr, uint8_t *data, bool *read,
     cpu_tick(addr, read, data, *via_irq || *ria_irq);
     *via_irq = via_tick(*addr, *read, data);
     *ria_irq = ria_tick(*addr, *read, data);
-    mem_tick(*addr, *read, data);
+    sram_tick(*addr, *read, data);
 }
 
 /* Run the cycles the scanlines since last time were worth. A machine held in
@@ -143,10 +142,10 @@ static void run_until(uint64_t lines)
             ++ran;
             if (cpu_dbg_cycle_cb)
                 cpu_dbg_cycle_cb(cpu_dbg_pins());
-            /* Data breakpoints. Only the accesses mem_tick serviced count, so
+            /* Data breakpoints. Only the accesses sram_tick serviced count, so
              * reads a device drove are excluded -- watchpoints cover the SRAM,
              * not registers. */
-            if (dbg_watch_armed && (!read || addr <= MEM_MMAP_HI))
+            if (dbg_watch_armed && (!read || addr <= SRAM_MMAP_HI))
                 dbg_watch_access(addr, data, !read);
             /* Stop before the fetched instruction's effect runs. The loop
              * ends; the beam goes on without it. */

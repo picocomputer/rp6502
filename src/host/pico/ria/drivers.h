@@ -44,7 +44,7 @@
 #include "ria/sys/phi2.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/led.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
@@ -82,7 +82,7 @@
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,     \
     TABLET_DRIVER,                                   \
-    MEM_DRIVER, RLN_DRIVER, FIL_DRIVER,              \
+    MBUF_DRIVER, RLN_DRIVER, FIL_DRIVER,              \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \
     DIR_DRIVER, CLK_DRIVER,                          \
     DRIVE_DRIVER, RAM_DRIVER,                        \

@@ -19,7 +19,7 @@
  * asked for.
  */
 
-#include "core/mem.h"
+#include "core/ria/regs.h"
 #include "core/sys/sys.h"
 #include "emu_boot.h"
 

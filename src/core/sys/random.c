@@ -8,6 +8,7 @@
 #include "host/host.h"
 
 #include <stdbool.h>
+#include <string.h>
 
 /* noinline on purpose. Left to itself, link-time optimization folds this into
  * sys_random, then folds that into the syscall dispatcher, and the finalizer's
@@ -28,6 +29,16 @@ __attribute__((noinline)) uint32_t sys_random_step(uint32_t *state)
     x *= 0x846ca68bu;
     x ^= x >> 16;
     return x;
+}
+
+void sys_random_fill(void *dst, size_t len, uint32_t *state)
+{
+    uint8_t *d = dst;
+    for (size_t i = 0; i < len; i += sizeof(uint32_t))
+    {
+        uint32_t x = sys_random_step(state);
+        memcpy(d + i, &x, sizeof x);
+    }
 }
 
 static uint32_t sys_random_state;

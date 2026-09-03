@@ -57,7 +57,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/wdc/bus.c
     ${RP6502_SRC}/core/wdc/phi2.c
     ${RP6502_SRC}/core/wdc/resb.c
-    ${RP6502_SRC}/core/mem/mem.c
+    ${RP6502_SRC}/core/wdc/sram.c
+    ${RP6502_SRC}/core/sys/xram.c
+    ${RP6502_SRC}/core/ria/regs.c
     ${RP6502_SRC}/core/sys/pix.c
     ${RP6502_SRC}/core/api/xreg0.c
     ${RP6502_SRC}/core/api/xreg1.c
@@ -111,8 +113,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         ${RP6502_SRC}/core/vga/mode/mode5.c
         PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
     )
-    # ram/xram (core/mem/mem.c) are 64 KB tentative definitions; -fno-common keeps them in
-    # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing their
+    # sram (core/wdc/sram.c) is a 64 KB tentative definition; -fno-common keeps it in
+    # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing its
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)
     # Clang rejects these outright, so GCC has to as well or the difference

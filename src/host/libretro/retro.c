@@ -30,7 +30,8 @@
 #include "core/sys/sys.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
 
@@ -188,15 +189,20 @@ static void apply_options(bool started)
             oem_set_code_page_run((uint16_t)cp);
     }
 
-    /* Read by mem_init, which every boot calls, so this one needs no
-     * second telling. */
+    /* Read by the fills, which every boot runs, so this one needs no second
+     * telling. */
     v = option_value("rp6502_mem_fill");
+    bool fill_random = true;
+    uint8_t fill_value = 0x00;
     if (v && !strcmp(v, "00"))
-        mem_set_fill(false, 0x00, host_random_seed());
+        fill_random = false;
     else if (v && !strcmp(v, "ff"))
-        mem_set_fill(false, 0xFF, host_random_seed());
-    else
-        mem_set_fill(true, 0, host_random_seed());
+    {
+        fill_random = false;
+        fill_value = 0xFF;
+    }
+    sram_set_fill(fill_random, fill_value, host_random_seed());
+    xram_set_fill(fill_random, fill_value, host_random_seed());
 }
 
 /* ------------------------------------------------------------------ */
@@ -689,7 +695,7 @@ void *retro_get_memory_data(unsigned id)
 {
     switch (id)
     {
-    case RETRO_MEMORY_SYSTEM_RAM: return ram;
+    case RETRO_MEMORY_SYSTEM_RAM: return sram;
     /* xram is volatile because the machine's own readers race the bus with
      * it; a frontend reading it between frames does not. */
     case RETRO_MEMORY_VIDEO_RAM: return (void *)xram;

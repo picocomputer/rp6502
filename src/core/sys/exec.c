@@ -10,7 +10,9 @@
 #include "core/rom/rom.h"
 #include "core/api/proc.h"
 #include "core/api/arg.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/wdc/resb.h"
 #include "core/str/path.h"
 #include "osal/dir.h"
@@ -79,7 +81,10 @@ bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags)
      * a chain -- and a start that was asked for by name is not that child. */
     queued = false;
     if (flags & EXEC_REFILL)
-        mem_init();
+    {
+        sram_init();
+        xram_init();
+    }
     if (!rom_load(rom)) /* rom_load says why; a caller adding to it says it twice */
         return false;
     if (argc >= 0)

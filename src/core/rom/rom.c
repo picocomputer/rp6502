@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The software machines' loader: pump the records into ram[]/xram[]. The
+ * The software machines' loader: pump the records into sram[]/xram[]. The
  * pump is pump.c's, shared by every machine; the null drive the seam
  * resolves ":name" through is alias.c's.
  */
@@ -12,7 +12,9 @@
 #include "osal/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/str/str.h"
 #include <errno.h>
 #include <stdio.h>
@@ -20,13 +22,13 @@
 #include <strings.h>
 
 /* ------------------------------------------------------------------ */
-/* This machine's loader: pump the records into ram[]/xram[]           */
+/* This machine's loader: pump the records into sram[]/xram[]          */
 /* ------------------------------------------------------------------ */
 
 /* Deposit one record's bytes. A load never writes the RIA register window:
  * $FF00-$FFF9 is skipped (the firmware's ria_write_buf does the same over
  * the bus), and the $FFFA-$FFFF vectors land in the register cells too --
- * a load bypasses the bus, so ram[] keeps the shadow every reader uses and
+ * a load bypasses the bus, so sram[] keeps the shadow every reader uses and
  * regs[] gets the copy the RIA would have taken. */
 static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
 {
@@ -40,7 +42,7 @@ static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
     {
         uint32_t a = rec->addr + i;
         if (a < 0xFF00 || a >= 0xFFFA)
-            ram[a] = buf[i];
+            sram[a] = buf[i];
         if (a >= 0xFFFA && a <= 0xFFFF)
             regs[a & 0x1F] = buf[i];
     }

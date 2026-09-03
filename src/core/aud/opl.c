@@ -6,7 +6,8 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
-#include "core/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include "host/host.h"
 #include <assert.h>
 #include <string.h>

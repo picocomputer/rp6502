@@ -25,7 +25,9 @@ extern "C"
 #include "core/wdc/cpu.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/str/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "core/sys/exec.h" /* proc_get_exit_code (exit-code display) */
 #include "core/vga/vga_emu.h"
@@ -212,12 +214,12 @@ static void tex_destroy(ui_texture_t h)
  * ack, RW auto-increment) that a debugger view must never trigger. */
 static uint8_t mem_peek(uint16_t addr)
 {
-    return ram[addr];
+    return sram[addr];
 }
 
 static void mem_poke(uint16_t addr, uint8_t data)
 {
-    ram[addr] = data;
+    sram[addr] = data;
 }
 
 /* ui_dbg memory read callback (the disassembler + heatmap). */

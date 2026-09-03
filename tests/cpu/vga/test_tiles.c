@@ -14,7 +14,6 @@
 #include "core/hid/vtkeys.h"
 #include "core/sys/sys.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
 #include "core/term/color.h"
 #include "emu_boot.h"

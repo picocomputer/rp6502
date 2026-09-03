@@ -10,7 +10,7 @@
 #include "core/aud/bel.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
-#include "ria/sys/mem.h"
+#include "core/ria/regs.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria-w/net/telnet.h"
@@ -153,7 +153,7 @@ static size_t com_uart_read(char *buf, size_t length)
     size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
     // Always pump the hw FIFO into the software ring so callers that
     // bypass com_task (e.g. vga_connect's blocking loop running only
-    // mem_task) still see fresh bytes. Idempotent.
+    // mbuf_task) still see fresh bytes. Idempotent.
     com_uart_drain_rx();
     while (count < length && com_uart_rx_head != com_uart_rx_tail)
     {

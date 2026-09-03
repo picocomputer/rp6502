@@ -28,7 +28,7 @@
  */
 
 #include "corpus.h"
-#include "crc32.h"
+#include "host/host.h"
 #include "mut.h"
 #include "utest.h"
 
@@ -54,7 +54,7 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
     memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
     ASSERT_EQ(memcmp(settled, mut_frame(w, h), px * sizeof(uint32_t)), 0);
 
-    uint32_t got = bench_crc32(settled, px * sizeof(uint32_t));
+    uint32_t got = host_crc32(0, settled, px * sizeof(uint32_t));
     if (getenv("RP6502_BLESS_CRC"))
         printf("    0x%08X,  /* %s */\n", got, name);
     else if (got != expect)

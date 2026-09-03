@@ -8,7 +8,7 @@
  * it lives in the render domain, and the mixed pacing is why the array is
  * 32 bits wide. Port B is the system side's byte lane: the RW engine and
  * the soft CPU behind their arbiter. Reads are synchronous, one clock
- * behind the address, the sram64k discipline.
+ * behind the address, the sram discipline.
  *
  * The clock is the ungated one. When the machine is stopped its clock
  * is taken away, but the array is not part of the machine's logic --
@@ -18,16 +18,16 @@
  * is going nowhere, rather than asking a block RAM for a third.
  */
 
-module xram64k (
+module xram (
     input logic clk,
 
     input logic [13:0] a_addr,
-    output logic [31:0] xram64k_a_rdata,
+    output logic [31:0] xram_a_rdata,
 
     input logic [15:0] b_addr,
     input logic [7:0] b_wdata,
     input logic b_we,
-    output logic [7:0] xram64k_b_rdata,
+    output logic [7:0] xram_b_rdata,
 
     /* The serializer, which owns both ports while it has the machine:
      * a word out of the render's side and a word in through the byte
@@ -53,7 +53,7 @@ module xram64k (
     logic [13:0] a_a;
     always_comb a_a = sst_own ? sst_addr : a_addr;
     always_ff @(posedge clk) begin
-        xram64k_a_rdata <= {mem3[a_a], mem2[a_a], mem1[a_a], mem0[a_a]};
+        xram_a_rdata <= {mem3[a_a], mem2[a_a], mem1[a_a], mem0[a_a]};
     end
 
     logic [13:0] b_word;
@@ -78,6 +78,6 @@ module xram64k (
         b_q <= {mem3[b_word], mem2[b_word], mem1[b_word], mem0[b_word]};
         b_lane <= b_sel;
     end
-    always_comb xram64k_b_rdata = b_q[8*b_lane+:8];
+    always_comb xram_b_rdata = b_q[8*b_lane+:8];
 
 endmodule

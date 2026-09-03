@@ -22,7 +22,7 @@
  * there and the two will never agree.
  */
 
-#include "crc32.h"
+#include "host/host.h"
 #include "mut.h"
 #include "tb_rom.h"
 #include "utest.h"
@@ -83,7 +83,7 @@ UTEST(banner, ansi_banner_frame_640x480)
     memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
     ASSERT_EQ(memcmp(settled, mut_frame(w, h), px * sizeof(uint32_t)), 0);
 
-    uint32_t got = bench_crc32(settled, px * sizeof(uint32_t));
+    uint32_t got = host_crc32(0, settled, px * sizeof(uint32_t));
     if (getenv("RP6502_BLESS_CRC"))
         fprintf(stderr, "banner frame 0x%08X\n", got);
     else

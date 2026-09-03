@@ -13,7 +13,7 @@
 
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
-#include "core/mem/mem.h"
+#include "core/sys/xram.h"
 #include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include <string.h>

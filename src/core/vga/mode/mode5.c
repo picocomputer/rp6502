@@ -5,7 +5,7 @@
  */
 
 #include "core/vga/mode/mode5.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "core/term/color.h"
 

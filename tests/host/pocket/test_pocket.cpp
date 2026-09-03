@@ -29,7 +29,7 @@
 #include "Vtb_pocket___024root.h"
 
 #include "corpus.h"
-#include "crc32.h"
+#include "host/host.h"
 
 #include "tb_asm.h"
 #include "tb_rom.h"
@@ -351,7 +351,7 @@ static void run_and_check(int *utest_result, const char *name,
                                     : (oh == 240 ? 2 : 3);
     ASSERT_EQ(slot, want_slot);
 
-    uint32_t crc = bench_crc32(fb, got * sizeof(uint32_t));
+    uint32_t crc = host_crc32(0, fb, got * sizeof(uint32_t));
     if (getenv("RP6502_BLESS_CRC"))
         fprintf(stderr, "    %-12s 0x%08X\n", name, crc);
     else if (crc != expect)
@@ -441,7 +441,7 @@ UTEST(pocket, canvas3_640x480)
     static uint32_t face[1024];
     for (size_t i = 0; i < 1024; i++)
         face[i] = f16[i];
-    uint32_t fcrc = bench_crc32(face, sizeof face);
+    uint32_t fcrc = host_crc32(0, face, sizeof face);
     if (getenv("RP6502_BLESS_CRC"))
         fprintf(stderr, "    %-12s 0x%08X\n", "font16 store", fcrc);
     else

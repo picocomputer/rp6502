@@ -14,7 +14,7 @@
 #define _EMU_TESTS_DIRSYS_H_
 
 #include "core/api/api.h"
-#include "core/mem/mem.h" /* xstack */
+#include "core/ria/regs.h" /* xstack */
 #include "core/api/dir.h" /* the dir_api_* under test, and the f_stat_t they push */
 #include <stdint.h>
 #include <stdio.h>

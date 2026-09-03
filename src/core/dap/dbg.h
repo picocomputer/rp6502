@@ -70,7 +70,7 @@ void dbg_set_break_filter(bool (*cb)(uint16_t pc));
 extern int dbg_watch_armed;
 void dbg_note_data_stop(uint16_t data_addr);
 uint16_t dbg_data_stop_addr(void);
-/* The DAP layer registers the watch scanner; the bus hook (sys/mem.c) invokes it only
+/* The DAP layer registers the watch scanner; the bus hook (core/wdc/bus.c) invokes it only
  * when dbg_watch_armed != 0. is_write distinguishes a store from a load. */
 void dbg_set_watch_cb(void (*cb)(uint16_t addr, uint8_t val, bool is_write));
 void dbg_watch_access(uint16_t addr, uint8_t val, bool is_write);

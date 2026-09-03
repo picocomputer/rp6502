@@ -6,7 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/mouse.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "host/host.h"
 #include <string.h>
 

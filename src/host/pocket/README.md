@@ -31,7 +31,7 @@ lower."*
 **The SRAM holds the 6502's 64 KB**, and it was tied off dead in
 `core_top.sv` for most of this port's life while block memory did that
 job. Block memory is what this design runs out of first: the fit sat at
-275 of 308 M10K with `sram64k`, `xram64k` and the firmware's TCM taking
+275 of 308 M10K with `sram`, `xram` and the firmware's TCM taking
 64 blocks each. Moving the 6502 off-chip freed exactly the 64 that
 doubling the TCM to 96 KB cost — 243 of 308 now, and the firmware went
 from 5,048 bytes of stack and heap to 39,584.

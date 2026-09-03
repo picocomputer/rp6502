@@ -13,7 +13,6 @@
 #include "host/hcd.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/mem.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "fatfs/ff.h"

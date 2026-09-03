@@ -7,7 +7,7 @@
 
 #include "core/api/xreg.h"
 #include "core/sys/ria.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
 #include "core/ria/ria.h"

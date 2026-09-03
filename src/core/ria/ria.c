@@ -8,7 +8,8 @@
 #include "core/sys/exec.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/ria/ria.h"
@@ -17,7 +18,8 @@
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
  * exactly as via.c wraps its m6522_t (`static m6522_t via;`). The memory-mapped
  * register file (regs[]) and the XSTACK are its dual-ported storage and stay
- * global; ria holds the bus pins + the non-memory-mapped internal latches. */
+ * global (core/ria/regs.h); ria holds the bus pins + the non-memory-mapped
+ * internal latches. */
 static ria_t ria;
 
 /* ------------------------------------------------------------------ */

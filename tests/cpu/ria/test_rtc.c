@@ -17,7 +17,7 @@
 #include "core/sys/sys.h"
 #include "core/str/oem.h"
 #include "core/com/com.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
 #include "core/wdc/resb.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"

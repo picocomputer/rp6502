@@ -20,7 +20,8 @@
 #include "host/host.h"
 #include "core/rom/rom.h"
 #include "core/str/path.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
@@ -186,11 +187,12 @@ int main(int argc, char **argv)
     }
     /* One seed for the run, reaching both the memory fill and the RNG the ROM
      * reads, from streams far enough apart that the fill cannot move what the
-     * program's rand() returns. Set before sys_init because mem_init is the
+     * program's rand() returns. Set before sys_init because the fills are the
      * first thing it does. */
     if (o.have_seed)
         run_seed = (uint32_t)o.seed, run_seed_taken = true;
-    mem_set_fill(o.fill_random, o.fill_value, host_random_seed());
+    sram_set_fill(o.fill_random, o.fill_value, host_random_seed());
+    xram_set_fill(o.fill_random, o.fill_value, host_random_seed());
     /* Say which seed a random fill used, or a run that turns something up is a
      * run nobody can repeat. Host stderr, so nothing a script matches moves. */
     if (o.fill_random && !o.have_seed)

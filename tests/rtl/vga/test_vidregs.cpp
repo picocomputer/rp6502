@@ -21,7 +21,7 @@
 #include "Vwiring.h"
 #include "Vwiring___024root.h"
 
-#include "crc32.h"
+#include "host/host.h"
 #include "tb_machine.h"
 #include "tb_rom.h"
 #include "utest.h"
@@ -62,7 +62,7 @@ UTEST(vidregs, sprite_overrun_counts_lost_races)
 {
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
     ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
-    ASSERT_EQ(bench_crc32(fb, 320 * 240 * sizeof(uint32_t)), 0xA34E970Cu);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xA34E970Cu);
 }
 
 UTEST_STATE();

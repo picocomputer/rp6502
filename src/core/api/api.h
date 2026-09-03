@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include "core/mem.h"
+#include "core/ria/regs.h"
 
 /* Main events
  */

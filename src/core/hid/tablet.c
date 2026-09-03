@@ -6,7 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/tablet.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "host/host.h"
 #include <string.h>

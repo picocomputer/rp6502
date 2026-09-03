@@ -16,7 +16,9 @@
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
 #include "core/wdc/resb.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
+#include "host/host.h"
 #include "core/vga/vga_emu.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -269,7 +271,7 @@ static bool script_address(char **p, uint8_t **base, long *addr)
     char *word = script_word(p);
     if (!word)
         return false;
-    *base = ram;
+    *base = sram;
     if (!strncasecmp(word, "xram:", 5))
         *base = (uint8_t *)xram, word += 5;
     else if (!strncasecmp(word, "ram:", 4))
@@ -303,7 +305,7 @@ static bool script_canvas_crc(uint32_t *out)
         return false;
     int w, h;
     vga_canvas_size(&w, &h);
-    *out = mem_crc32(0, fb, (size_t)w * h * 4);
+    *out = host_crc32(0, fb, (size_t)w * h * 4);
     return true;
 }
 
@@ -823,7 +825,7 @@ bool script_command(const char *line)
         return true;
     }
 
-    /* Writes land in ram[]/xram[] only. The VIA and the RIA answer the bus, not
+    /* Writes land in sram[]/xram[] only. The VIA and the RIA answer the bus, not
      * memory, so a poke changes what the program reads and triggers nothing. */
     if (!strcasecmp(cmd, "poke"))
     {

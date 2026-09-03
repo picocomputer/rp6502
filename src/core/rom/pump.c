@@ -11,7 +11,7 @@
  */
 
 #include "osal/fs.h"
-#include "core/mem/mem.h"
+#include "host/host.h"
 #include "core/rom/rom.h"
 #include "core/str/str.h"
 #include <stdio.h>
@@ -181,7 +181,7 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         return ROM_PUMP_ERROR;
     }
     p->pos += rec->len;
-    if (mem_crc32(0, buf, rec->len) != rec->crc)
+    if (host_crc32(0, buf, rec->len) != rec->crc)
     {
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;

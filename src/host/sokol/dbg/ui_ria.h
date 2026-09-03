@@ -62,7 +62,8 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "core/mem/mem.h"      /* ram, xstack_ptr */
+#include "core/ria/regs.h"     /* xstack_ptr */
+#include "core/wdc/sram.h"     /* sram */
 #include "core/wdc/phi2.h"
 #include "core/wdc/resb.h"      /* phi2_get_khz_run (Status) */
 #include "core/str/oem.h"      /* oem_get_code_page_run (Status) */
@@ -159,7 +160,7 @@ void ui_ria_draw(ui_ria_t *win)
              * bytes the CPU fetches. Rows match the VIA panel's
              * "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
             auto peek = [](uint16_t a) -> uint8_t {
-                return (a >= RIA_MMAP_LO) ? regs[a & 0x1F] : ram[a];
+                return (a >= RIA_MMAP_LO) ? regs[a & 0x1F] : sram[a];
             };
             for (auto &r : _ui_ria_regs)
             {

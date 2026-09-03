@@ -84,6 +84,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(rp6502_libretro SHARED
     ${CMAKE_CURRENT_LIST_DIR}/retro.c
     ${CMAKE_CURRENT_LIST_DIR}/input.c
+    ${RP6502_SRC}/core/sys/crc32.c
     ${RP6502_SRC}/core/sys/version.c)
 set_target_properties(rp6502_libretro PROPERTIES PREFIX "")
 target_link_libraries(rp6502_libretro PRIVATE emu_core)
