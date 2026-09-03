@@ -14,6 +14,7 @@
 #ifndef _CORE_WDC_PHI2_H_
 #define _CORE_WDC_PHI2_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define PHI2_MIN_KHZ 100
@@ -26,5 +27,19 @@
  * configured value is the generated phi2_get_khz/phi2_set_khz pair. */
 uint16_t phi2_get_khz_run(void);
 void phi2_set_khz_run(uint16_t phi2_khz);
+
+/* Every machine brings up its own clock and answers the same configuration
+ * row, so the row lives here rather than three times over. phi2_response is
+ * only defined where a monitor asks for it; everywhere else the column falls
+ * in the tail CONFIG_INT discards. */
+void phi2_init(void);
+bool phi2_check_khz(uint16_t *v);
+void phi2_apply_khz(uint16_t phi2_khz, bool changed);
+
+/* This driver's row in a machine's driver list; see core/driver.h. */
+#define PHI2_CONFIG_KHZ CONFIG_INT(P, phi2, khz, uint16_t, PHI2_DEFAULT_KHZ, \
+    phi2_check_khz, phi2_apply_khz, STR_PHI2, phi2_response, STR_HELP_SET_PHI2, NULL)
+#define PHI2_DRIVER DRIVER(phi2_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    PHI2_CONFIG_KHZ, nul_config)
 
 #endif /* _CORE_WDC_PHI2_H_ */

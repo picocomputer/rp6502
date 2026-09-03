@@ -38,7 +38,7 @@ static uint16_t quantize(uint16_t freq_khz, uint16_t *div_int, uint8_t *div_frac
     return SYS_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
 }
 
-uint16_t phi2_quantize_khz(uint16_t freq_khz)
+static uint16_t phi2_quantize_khz(uint16_t freq_khz)
 {
     return quantize(freq_khz, NULL, NULL);
 }

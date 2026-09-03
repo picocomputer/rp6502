@@ -16,25 +16,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void phi2_init(void);
-
-/* The rate this divider can actually land on, nearest the one asked for.
- * Pure arithmetic -- no hardware is read -- which is what lets the config
- * check normalize a value without reclocking anything. */
-uint16_t phi2_quantize_khz(uint16_t freq_khz);
-
-/* The configuration row's columns. */
-bool phi2_check_khz(uint16_t *v);
-void phi2_apply_khz(uint16_t phi2_khz, bool changed);
+/* The row and the rest of the contract are core/wdc/phi2.h's, which every
+ * machine shares. This is the one column only a machine with a monitor
+ * defines: SET's reply line. The row must still come up after RIA and PIX,
+ * whose inits create the state machines a reclock reprograms. */
 int phi2_response(char *buf, size_t buf_size, int state, unsigned width);
-
-/* This driver's row in a machine's driver list; see core/driver.h. It must
- * come up after RIA and PIX, whose inits create the state machines a reclock
- * reprograms. */
-#define PHI2_CONFIG_KHZ CONFIG_INT(P, phi2, khz, uint16_t, PHI2_DEFAULT_KHZ, \
-    phi2_check_khz, phi2_apply_khz, STR_PHI2, phi2_response, \
-    STR_HELP_SET_PHI2, NULL)
-#define PHI2_DRIVER DRIVER(phi2_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    PHI2_CONFIG_KHZ, nul_config)
 
 #endif /* _RIA_SYS_PHI2_H_ */

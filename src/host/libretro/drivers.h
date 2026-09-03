@@ -44,7 +44,7 @@
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
-#include "core/wdc/phi2_div.h"
+#include "core/wdc/phi2.h"
 
 /* init and run walk this forward; stop walks it backward; the two task
  * columns are walked forward every pass of core/sys/sys.c's sys_task and

@@ -102,32 +102,32 @@ static void vga_render_scanline(int y);
  * On real hardware the two run at once; here they zip, one line at a time.
  */
 
-/* Absolute scanline, never reset. The deadline below is computed from it
- * every time rather than accumulated, so integer division introduces no
- * drift. */
+/* Absolute scanline, never reset. Everything below is computed from it every
+ * time rather than accumulated, so integer division introduces no drift. */
 static uint64_t beam_n;
 static unsigned long frame_n;
 static bool vsynced;
 
-/* When scanline n is due on the machine's clock:
- *   n * (ticks per second) / (frames * scanlines) = n * 4096000/63.
- * Written reduced, because the unreduced numerator overflows a uint64 in
- * three days where this form lasts four and a half years -- and asserted
- * against the constants it came from, because host_clock_us divides the same
- * clock and the two silently disagreeing is the bug this prevents. */
-#define BEAM_NUM 4096000ull
-#define BEAM_DEN 63ull
-static_assert(BEAM_NUM * ((uint64_t)VGA_HZ * VGA_SCANLINES) ==
-                  BEAM_DEN * ((uint64_t)SYS_TICKS_PER_US * 1000000ull),
-              "the beam and host_clock_us must divide the same clock");
+/* The machine's clock is the beam, so this is host.h's contract: one
+ * scanline is 1000000/(VGA_HZ*VGA_SCANLINES) microseconds, reduced to
+ * 2000/63. Asserted against the constants it came from, because the two
+ * silently disagreeing is the bug this prevents. Reduced also for range --
+ * the unreduced form would overflow a uint64 in about nine days. */
+#define BEAM_US_NUM 2000ull
+#define BEAM_US_DEN 63ull
+static_assert(BEAM_US_NUM * ((uint64_t)VGA_HZ * VGA_SCANLINES) ==
+                  BEAM_US_DEN * 1000000ull,
+              "a scanline must be 2000/63 microseconds");
 
-uint64_t vga_beam_clk(void)
+uint64_t host_clock_us(void)
 {
     /* Exact every 63 lines, so a second of frames is exactly a second. Do NOT
      * "fix" the inexact ratio with a per-line remainder: that double-corrects
      * and creates the drift it looks like it removes. */
-    return beam_n * BEAM_NUM / BEAM_DEN;
+    return beam_n * BEAM_US_NUM / BEAM_US_DEN;
 }
+
+uint64_t vga_beam_lines(void) { return beam_n; }
 
 unsigned long vga_frame_count(void) { return frame_n; }
 

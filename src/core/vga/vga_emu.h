@@ -22,12 +22,14 @@ void vga_stop(void);
 
 /* Advance the beam at most one scanline: render it, fire vsync where the
  * program's last line falls, count the frame at the wrap. The 6502 follows,
- * catching up to vga_beam_clk() -- on hardware the two run at once, here
+ * catching up to vga_beam_lines() -- on hardware the two run at once, here
  * they zip. */
 void vga_task(void);
 
-/* The machine clock the beam has reached: what the CPU is owed. */
-uint64_t vga_beam_clk(void);
+/* Scanlines the beam has done, ever. The bus turns the ones it has not
+ * answered for yet into a cycle budget; host_clock_us turns the whole count
+ * into microseconds. */
+uint64_t vga_beam_lines(void);
 
 /* Run the machine until video says one frame went by. False when a
  * debugger holds it -- a held machine never will, and a caller must not

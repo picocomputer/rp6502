@@ -12,7 +12,7 @@
  */
 
 #include "mmio.h"
-#include "phi2.h"
+#include "core/wdc/phi2.h"
 #include "core/sys/config.h"
 
 void phi2_set_khz_run(uint16_t phi2_khz)

@@ -37,7 +37,7 @@
 #include "core/aud/aud.h"
 #include "sw/apf.h"
 #include "core/wdc/resb.h"
-#include "sw/phi2.h"
+#include "core/wdc/phi2.h"
 #include "sw/sst.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"
