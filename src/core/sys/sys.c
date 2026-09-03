@@ -44,9 +44,6 @@ static volatile bool sys_breaking;
  * the include path, so "drivers.h" above is its own. */
 void sys_init(void)
 {
-    /* Before the walk, not after: on a machine where the RIA generates PHI2,
-     * that state machine starts inside it, and a 6502 must not be clocked
-     * with its reset still floating. */
     resb_init();
 #define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
