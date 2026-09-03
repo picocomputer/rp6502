@@ -10,7 +10,7 @@
  * 25.2 MHz and unpacked from RGB888 — must be settled and match the
  * CRC written down beside each case, across every canvas geometry the
  * mapping owns. What the machine paints into that frame is checked in
- * tests/cpu/vid against these same ROMs, on both machines; what is
+ * tests/cpu/vga against these same ROMs, on both machines; what is
  * left here is the trip out through the scaler. The reload case
  * runs the host's mid-session order — Reset Enter, a new slot,
  * completion, Exit — with a button held through the whole load: the
@@ -435,7 +435,7 @@ UTEST(pocket, canvas3_640x480)
      * built from the asset's pieces rather than copied out of one of them,
      * so what is checked is the face — against the number below, the same
      * way every other picture in the suite is checked. What that face has
-     * to be is tests/rtl/vid's, against the font.c the asset comes from;
+     * to be is tests/rtl/vga's, against the font.c the asset comes from;
      * this is the trip. */
     auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__font__DOT__f16;
     static uint32_t face[1024];

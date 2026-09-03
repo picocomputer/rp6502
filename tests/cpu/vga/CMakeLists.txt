@@ -101,14 +101,14 @@ endif()
 # writes, and the case names are not the file names — they name what they
 # prove — so the lists stay written by hand and this says whether they are all
 # there. Two suites, because one fixture's picture is a fabric claim and is
-# asserted where that machine is: see tests/rtl/vid.
+# asserted where that machine is: see tests/rtl/vga.
 add_test(NAME vidmodes_corpus
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_TESTS_DIR}/gen/vidmodes_gate.py
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.c
-        --suite ${RP6502_TESTS_DIR}/rtl/vid/test_vidregs.cpp)
-set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;cpu.vid")
+        --suite ${RP6502_TESTS_DIR}/rtl/vga/test_vidregs.cpp)
+set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;cpu.vga")
 
 if(COMMAND rp6502_add_machine_test)
     # The frame counter and the vsync interrupt against the raster.

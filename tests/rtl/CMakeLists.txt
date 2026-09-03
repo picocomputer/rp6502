@@ -107,7 +107,7 @@ add_subdirectory(${RP6502_ROOT}/tests/cpu cpu)
 
 # What only a simulator can answer, and the board this tree fits.
 add_subdirectory(aud)
-add_subdirectory(vid)
+add_subdirectory(vga)
 add_subdirectory(ria)
 add_subdirectory(rv)
 add_subdirectory(wdc)

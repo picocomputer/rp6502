@@ -12,7 +12,7 @@
  * this holds the fabric's phase register still by hand and asks what the
  * beam paints, which is a question only a machine with that register has.
  *
- * It boots the scripted session from tests/cpu/vid because it wants what that
+ * It boots the scripted session from tests/cpu/vga because it wants what that
  * script scrolled into place: a real cell to take a foreground from, a
  * background word, and a row the printer has already left alone. The picture
  * that session settles to is checked over there, on both machines.

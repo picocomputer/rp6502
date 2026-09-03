@@ -5,7 +5,7 @@
  *
  * Two registers inside the video path that nothing outside it can read.
  *
- * mode0_return's picture is checked in tests/cpu/vid on both machines; what
+ * mode0_return's picture is checked in tests/cpu/vga on both machines; what
  * is left over is the scanline the vsync shadow went back to when the mode-0
  * slot returned the console, which no frame can show — a picture that is
  * right for the wrong reason looks exactly like one that is right.

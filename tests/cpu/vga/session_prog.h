@@ -5,8 +5,8 @@
  *
  * The scripted terminal session, as an image, written once.
  *
- * Two suites boot it. tests/cpu/vid holds the picture it leaves to a CRC on
- * whichever machine that tree built; tests/rtl/vid borrows the state it
+ * Two suites boot it. tests/cpu/vga holds the picture it leaves to a CRC on
+ * whichever machine that tree built; tests/rtl/vga borrows the state it
  * scrolled into place to make a claim about the fabric's blink phase, which
  * only that machine has. Written here so the two cannot come to be booting
  * different programs.

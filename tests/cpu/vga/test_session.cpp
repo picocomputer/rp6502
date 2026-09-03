@@ -14,7 +14,7 @@
  *
  * The blink phase is not here. It runs off wall clock on one machine and off
  * mtime on the other, so it is not a thing the two can be asked together;
- * tests/rtl/vid makes that claim against the machine that has a phase
+ * tests/rtl/vga makes that claim against the machine that has a phase
  * register to hold still.
  */
 

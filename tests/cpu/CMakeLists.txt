@@ -14,7 +14,7 @@
 # told which it is.
 
 add_subdirectory(wdc)
-add_subdirectory(vid)
+add_subdirectory(vga)
 add_subdirectory(mem)
 add_subdirectory(ria)
 add_subdirectory(aud)

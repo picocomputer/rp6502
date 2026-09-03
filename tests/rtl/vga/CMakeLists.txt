@@ -2,7 +2,7 @@
 # below any mode, the store nothing reads back, and two registers inside the
 # path that no frame can show.
 #
-# What the modes render is a machine claim and lives in tests/cpu/vid.
+# What the modes render is a machine claim and lives in tests/cpu/vga.
 
 # The 640x480@60 raster at the two-clock render tick. The only test that
 # reads waveforms, so the only one built with tracing.
@@ -29,7 +29,7 @@ rp6502_add_test(font
 add_dependencies(test_font vid_font_tables vid_palette_tables aud_sine_tables)
 
 # Two registers inside the video path. Both ride corpus ROMs whose pictures
-# tests/cpu/vid already checks on both machines; what is left over is what
+# tests/cpu/vga already checks on both machines; what is left over is what
 # only this one has.
 rp6502_add_machine_test(vidregs FIRMWARE
     SOURCES test_vidregs.cpp
@@ -45,9 +45,9 @@ rp6502_add_machine_test(fontstore FIRMWARE
 target_link_libraries(test_fontstore PRIVATE emu_core)
 
 # The cell blink, held still by hand. It boots the scripted session from
-# tests/cpu/vid for the state that script leaves behind; the picture itself is
+# tests/cpu/vga for the state that script leaves behind; the picture itself is
 # checked there, on both machines.
 rp6502_add_machine_test(blink FIRMWARE
     SOURCES test_blink.cpp
-    INCLUDES ${RP6502_TESTS_DIR}/cpu/vid
+    INCLUDES ${RP6502_TESTS_DIR}/cpu/vga
     TIMEOUT 900)

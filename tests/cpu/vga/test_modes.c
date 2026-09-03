@@ -327,7 +327,7 @@ UTEST(mode0, forty_column_320x180)
 }
 
 /* The console canvas coming back after a mode-0 slot returns to it. The
- * fabric's own vsync shadow is checked in tests/rtl/vid, which is the only
+ * fabric's own vsync shadow is checked in tests/rtl/vga, which is the only
  * machine that has one. */
 UTEST(mode0, console_return_restores_vsync_line)
 {

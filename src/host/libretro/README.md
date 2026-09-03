@@ -22,7 +22,7 @@ The seams it needs were already there:
 
 Two things are converted on the way out. The machine paints RGBA8 and
 libretro asked for XRGB8888, so red and blue trade places — an exchange
-that is its own inverse, which is why `tests/cpu/vid` answers here with
+that is its own inverse, which is why `tests/cpu/vga` answers here with
 the same CRCs it answers everywhere. And what `aud_render` fills is
 floats, which become the int16 pairs the batch callback takes.
 
