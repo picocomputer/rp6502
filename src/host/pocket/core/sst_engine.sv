@@ -28,8 +28,9 @@
  * a time, before the clock goes, because its clock never does.
  */
 
-module sst_engine
-(
+module sst_engine #(
+    parameter int TCM_WORDS = 24576
+) (
     input logic clk_sys,
     input logic rst_n,
 
@@ -188,7 +189,10 @@ module sst_engine
     /* The scanline program: two thousand entries of four words, which
      * the render reads and nothing else could until now. */
     localparam int W_XPROG = 8192;
-    localparam int W_TCM = 24576;
+    /* The soft CPU's memory, from the machine that instantiates it. A host
+     * file cannot reach core's tcm_pkg, and a second copy of the number is
+     * how a savestate silently stops matching the machine it came from. */
+    localparam int W_TCM = TCM_WORDS;
     localparam int W_END = 4;
 
     localparam int B_HDR = 0;

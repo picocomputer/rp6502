@@ -18,8 +18,8 @@
  * that session settles to is checked over there, on both machines.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "session_prog.h"
 #include "tb_machine.h"
@@ -31,7 +31,7 @@
 #include <cstring>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* The firmware keeps advancing its own phase, so a phase under test has to be
  * held down for the whole frame rather than merely written before it. */
@@ -41,20 +41,20 @@ static void capture_frame(uint32_t *fb)
 {
     auto ck = [] {
         if (pinned_blink >= 0)
-            dut->rootp->rp6502__DOT__mode0__DOT__blink_shadow =
+            dut->rootp->wiring__DOT__mode0__DOT__blink_shadow =
                 (uint8_t)pinned_blink;
         tb_clock(dut);
     };
-    while (dut->rp6502_scanline != 524)
+    while (dut->wiring_scanline != 524)
         ck();
-    while (dut->rp6502_scanline != 0)
+    while (dut->wiring_scanline != 0)
         ck();
     size_t at = 0;
     while (at < 640 * 480)
     {
         ck();
-        if (dut->rp6502_vid_de)
-            fb[at++] = tb_rgba8(dut->rp6502_vid_pixel);
+        if (dut->wiring_vid_de)
+            fb[at++] = tb_rgba8(dut->wiring_vid_pixel);
     }
 }
 
@@ -68,11 +68,11 @@ UTEST(blink, off_phase_blanks_the_glyph)
      * the session left: {fg from a real cell, ATTR_BLINK, 'B'} over the same
      * background. */
     auto *r = dut->rootp;
-    uint32_t base = r->rp6502__DOT__mode0__DOT__row_shadow[25];
+    uint32_t base = r->wiring__DOT__mode0__DOT__row_shadow[25];
     uint32_t seed = term_cell(
-        r, r->rp6502__DOT__mode0__DOT__row_shadow[0] >> 2);
+        r, r->wiring__DOT__mode0__DOT__row_shadow[0] >> 2);
     uint32_t bgw = term_cell(
-        r, (r->rp6502__DOT__mode0__DOT__row_shadow[0] >> 2) + 1);
+        r, (r->wiring__DOT__mode0__DOT__row_shadow[0] >> 2) + 1);
     term_cell_set(r, base >> 2, (seed & 0xFFFF0000u) | 0x0200u | 'B');
     term_cell_set(r, (base >> 2) + 1, bgw);
 
@@ -101,7 +101,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

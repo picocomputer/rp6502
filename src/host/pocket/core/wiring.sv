@@ -10,8 +10,9 @@
  * value the bus carried.
  */
 
-module rp6502
+module wiring
     import timing_pkg::*;
+    import tcm_pkg::*;
 #(
     /* Empty in simulation, which loads the arrays through the bench. */
     parameter TCM_INIT_FILE = "",
@@ -38,22 +39,22 @@ module rp6502
     input logic rst_n,
 
     /* Console: TX bytes out of $FFE1, RX bytes offered toward $FFE2. */
-    output logic [7:0] rp6502_tx_data,
-    output logic rp6502_tx_valid,
+    output logic [7:0] wiring_tx_data,
+    output logic wiring_tx_valid,
     input logic rx_valid,
     input logic [7:0] rx_data,
-    output logic rp6502_rx_taken,
+    output logic wiring_rx_taken,
 
-    output logic [7:0] rp6502_rv_tx_data,
-    output logic rp6502_rv_tx_valid,
-    output logic rp6502_rv_halted,
-    output logic [31:0] rp6502_rv_exit_code,
+    output logic [7:0] wiring_rv_tx_data,
+    output logic wiring_rv_tx_valid,
+    output logic wiring_rv_halted,
+    output logic [31:0] wiring_rv_exit_code,
 
     /* The address holds from the pending request. A combinational
      * platform answers before the next system clock; a slow one holds
      * stage_stall until its byte stands on stage_rdata. */
-    output logic [27:0] rp6502_stage_addr,
-    output logic rp6502_stage_pend,
+    output logic [27:0] wiring_stage_addr,
+    output logic wiring_stage_pend,
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
@@ -63,48 +64,48 @@ module rp6502
     /* Raised while a savestate wants the machine stopped. Whoever owns
      * the clocks cuts them when this and the boundary are both true,
      * and puts them back when it drops. */
-    output logic rp6502_sst_stop_req,
+    output logic wiring_sst_stop_req,
     /* The soft CPU's own memory, which is not on the machine's bus. */
     input logic sst_tcm_sel,
     input logic [14:0] sst_tcm_addr,
     input logic sst_tcm_we,
     input logic [31:0] sst_tcm_wdata,
-    output logic [31:0] rp6502_sst_tcm_rdata,
+    output logic [31:0] wiring_sst_tcm_rdata,
 
     /* A savestate, asked for and read back a word at a time. Holding
      * sst_save stops the machine and keeps it stopped; the blob stands
      * still underneath the reader until it is let go. */
     input logic sst_save,
     input logic sst_load,
-    output logic rp6502_sst_load_done,
-    output logic rp6502_sst_load_err,
-    output logic rp6502_sst_ready,
+    output logic wiring_sst_load_done,
+    output logic wiring_sst_load_err,
+    output logic wiring_sst_ready,
     input logic [17:0] sst_rd_idx,
     input logic sst_rd_t,
-    output logic [31:0] rp6502_sst_rdata,
-    output logic rp6502_sst_rvalid,
+    output logic [31:0] wiring_sst_rdata,
+    output logic wiring_sst_rvalid,
     /* The soft CPU's own halt, and the port its registers come out
      * through. It resumes at the instruction it stopped in front of;
      * nothing here restarts it. */
     input logic sst_dbg_halt,
     input logic sst_dbg_halt_on_reset,
     input logic sst_dbg_resume,
-    output logic rp6502_sst_dbg_halted,
+    output logic wiring_sst_dbg_halted,
     input logic [31:0] sst_dbg_data0,
-    output logic [31:0] rp6502_sst_dbg_data0,
-    output logic rp6502_sst_dbg_data0_wen,
+    output logic [31:0] wiring_sst_dbg_data0,
+    output logic wiring_sst_dbg_data0_wen,
     input logic [31:0] sst_dbg_instr,
     input logic sst_dbg_instr_vld,
-    output logic rp6502_sst_dbg_instr_rdy,
-    output logic rp6502_sst_dbg_ebreak,
-    output logic rp6502_sst_dbg_fault,
+    output logic wiring_sst_dbg_instr_rdy,
+    output logic wiring_sst_dbg_ebreak,
+    output logic wiring_sst_dbg_fault,
 
     /* A word-wide port onto whatever the board has that the machine does
      * not. One-clock strobe, answer the clock after. */
-    output logic [27:0] rp6502_host_addr,
-    output logic rp6502_host_stb,
-    output logic rp6502_host_we,
-    output logic [31:0] rp6502_host_wdata,
+    output logic [27:0] wiring_host_addr,
+    output logic wiring_host_stb,
+    output logic wiring_host_we,
+    output logic [31:0] wiring_host_wdata,
     input logic [31:0] host_rdata,
 
     input logic slot_set,
@@ -117,39 +118,39 @@ module rp6502
     input logic [3:0][31:0] cont_key,
     input logic [3:0][31:0] cont_joy,
     input logic [3:0][15:0] cont_trig,
-    output logic rp6502_key_pending,
+    output logic wiring_key_pending,
 
     /* The canvas names the scaler's mode; de already is the canvas. */
-    output logic [15:0] rp6502_vid_pixel,
-    output logic rp6502_vid_de,
-    output logic [2:0] rp6502_vid_canvas,
+    output logic [15:0] wiring_vid_pixel,
+    output logic wiring_vid_de,
+    output logic [2:0] wiring_vid_canvas,
 
-    output logic signed [15:0] rp6502_aud_l,
-    output logic signed [15:0] rp6502_aud_r,
-    output logic rp6502_aud_valid,
+    output logic signed [15:0] wiring_aud_l,
+    output logic signed [15:0] wiring_aud_r,
+    output logic wiring_aud_valid,
 
-    output logic [SCANLINE_W-1:0] rp6502_scanline,
-    output logic rp6502_vid_frame,
+    output logic [SCANLINE_W-1:0] wiring_scanline,
+    output logic wiring_vid_frame,
 
     /* Port A is the machine's own and answers within the PHI2 period;
      * port B is the soft CPU's window and can be told to wait. */
-    output logic [15:0] rp6502_ram_a_addr,
-    output logic [7:0] rp6502_ram_a_wdata,
-    output logic rp6502_ram_a_we,
+    output logic [15:0] wiring_ram_a_addr,
+    output logic [7:0] wiring_ram_a_wdata,
+    output logic wiring_ram_a_we,
     input logic [7:0] ram_a_rdata,
-    output logic [15:0] rp6502_ram_b_addr,
-    output logic [7:0] rp6502_ram_b_wdata,
-    output logic rp6502_ram_b_we,
-    output logic rp6502_ram_b_stb,
+    output logic [15:0] wiring_ram_b_addr,
+    output logic [7:0] wiring_ram_b_wdata,
+    output logic wiring_ram_b_we,
+    output logic wiring_ram_b_stb,
     /* One port-A fetch for the jammed address, at the restore's end. */
-    output logic rp6502_ram_refill,
+    output logic wiring_ram_refill,
     input logic [7:0] ram_b_rdata,
     input logic ram_b_stall,
     input logic ram_hold,
     /* The gated pulse: a cycle the hold suppressed is a cycle the 6502
      * did not take, and must not be fetched for. */
-    output logic rp6502_phi2_en,
-    output logic rp6502_cpu_run
+    output logic wiring_phi2_en,
+    output logic wiring_cpu_run
 );
 
     /* The soft CPU measures time against its own clock, not this one. */
@@ -166,7 +167,7 @@ module rp6502
      * exists so a firmware that did would be slow rather than
      * deadlocked. */
     always_comb phi2_en = phi2_raw_en && !ram_hold;
-    always_comb rp6502_phi2_en = phi2_en;
+    always_comb wiring_phi2_en = phi2_en;
     phi2 #(.SYS_KHZ(SYS_KHZ)) phi2 (
         .clk(clk_mach),
         .phi2_khz(phi2_khz),
@@ -188,7 +189,7 @@ module rp6502
      * clock then returns over a core already in reset. */
     logic resb_eff;
     always_comb resb_eff = resb && !eng_hold_res;
-    always_comb rp6502_cpu_run = resb_eff;
+    always_comb wiring_cpu_run = resb_eff;
     logic cpu_stp;
     /* Read a word at a time and written all at once. The read needs no
      * clock -- a flop's output is simply there -- and the write needs
@@ -255,8 +256,8 @@ module rp6502
     );
 
     logic eng_freeze;
-    always_comb rp6502_sst_stop_req = eng_freeze;
-    always_comb rp6502_ram_refill = eng_st_jam;
+    always_comb wiring_sst_stop_req = eng_freeze;
+    always_comb wiring_ram_refill = eng_st_jam;
 
     /* The serializer owns the soft CPU's debug port and its memory for
      * as long as it is doing anything -- which starts before the clock
@@ -298,23 +299,23 @@ module rp6502
     logic [31:0] eng_dbg_instr, eng_dbg_data0;
     logic eng_dbg_resume;
 
-    sst_engine engine (
+    sst_engine #(.TCM_WORDS(TCM_WORDS)) engine (
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sst_save(sst_save),
         .sst_load(sst_load),
-        .sst_engine_load_done(rp6502_sst_load_done),
-        .sst_engine_load_err(rp6502_sst_load_err),
+        .sst_engine_load_done(wiring_sst_load_done),
+        .sst_engine_load_err(wiring_sst_load_err),
         .sst_engine_busy(eng_own),
         .sst_engine_freeze(eng_freeze),
         .running(mach_running),
         .sst_engine_dbg_halt(eng_dbg_halt),
-        .dbg_halted(rp6502_sst_dbg_halted),
-        .sst_engine_ready(rp6502_sst_ready),
+        .dbg_halted(wiring_sst_dbg_halted),
+        .sst_engine_ready(wiring_sst_ready),
         .rd_idx(sst_rd_idx),
         .rd_t(sst_rd_t),
-        .sst_engine_rdata(rp6502_sst_rdata),
-        .sst_engine_rvalid(rp6502_sst_rvalid),
+        .sst_engine_rdata(wiring_sst_rdata),
+        .sst_engine_rvalid(wiring_sst_rvalid),
         .sst_engine_stage_pend(eng_stage_pend),
         .sst_engine_stage_addr(eng_stage_addr),
         .stage_stall(stage_stall),
@@ -344,7 +345,7 @@ module rp6502
         .sst_engine_tcm_addr(eng_tcm_addr),
         .sst_engine_tcm_we(eng_tcm_we),
         .sst_engine_tcm_wdata(eng_tcm_wdata),
-        .tcm_rdata(rp6502_sst_tcm_rdata),
+        .tcm_rdata(wiring_sst_tcm_rdata),
         .sst_engine_st_sel(eng_st_sel),
         .sst_engine_st_idx(eng_st_idx),
         .st_rdata(st_rdata),
@@ -358,10 +359,10 @@ module rp6502
         .sst_engine_dbg_resume(eng_dbg_resume),
         .sst_engine_dbg_instr(eng_dbg_instr),
         .sst_engine_dbg_instr_vld(eng_dbg_vld),
-        .dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
-        .dbg_ebreak(rp6502_sst_dbg_ebreak),
-        .dbg_data0(rp6502_sst_dbg_data0),
-        .dbg_data0_wen(rp6502_sst_dbg_data0_wen)
+        .dbg_instr_rdy(wiring_sst_dbg_instr_rdy),
+        .dbg_ebreak(wiring_sst_dbg_ebreak),
+        .dbg_data0(wiring_sst_dbg_data0),
+        .dbg_data0_wen(wiring_sst_dbg_data0_wen)
     );
 
     logic sel_via, sel_ria;
@@ -384,17 +385,17 @@ module rp6502
                  * jam is writing on this very edge: reading it here
                  * fetches the address the core had BEFORE the restore,
                  * which after a reconfigure is zero. */
-                rp6502_ram_a_addr = eng_st_jam ? eng_jam_cpu[4][31:16]
+                wiring_ram_a_addr = eng_st_jam ? eng_jam_cpu[4][31:16]
                     : cpu_next_addr;
-                rp6502_ram_a_wdata = cpu_next_data;
-                rp6502_ram_a_we = cpu_next_we && !eng_st_jam;
-                rp6502_ram_b_addr = eng_sram_sel
+                wiring_ram_a_wdata = cpu_next_data;
+                wiring_ram_a_we = cpu_next_we && !eng_st_jam;
+                wiring_ram_b_addr = eng_sram_sel
                     ? eng_sram_addr : soc_addr[15:0];
-                rp6502_ram_b_wdata = eng_sram_sel
+                wiring_ram_b_wdata = eng_sram_sel
                     ? eng_sram_wdata : soc_wbyte;
-                rp6502_ram_b_we = eng_sram_sel ? eng_sram_we
+                wiring_ram_b_we = eng_sram_sel ? eng_sram_we
                     : (soc_we && !eng_arr_own);
-                rp6502_ram_b_stb = eng_sram_sel
+                wiring_ram_b_stb = eng_sram_sel
                     || (soc_pend && soc_sel_sram && !eng_arr_own);
                 sram_rdata = ram_a_rdata;
                 sram_b_rdata = ram_b_rdata;
@@ -416,13 +417,13 @@ module rp6502
                 .b_rdata(sram_b_rdata)
             );
             always_comb begin
-                rp6502_ram_a_addr = '0;
-                rp6502_ram_a_wdata = '0;
-                rp6502_ram_a_we = 1'b0;
-                rp6502_ram_b_addr = '0;
-                rp6502_ram_b_wdata = '0;
-                rp6502_ram_b_we = 1'b0;
-                rp6502_ram_b_stb = 1'b0;
+                wiring_ram_a_addr = '0;
+                wiring_ram_a_wdata = '0;
+                wiring_ram_a_we = 1'b0;
+                wiring_ram_b_addr = '0;
+                wiring_ram_b_wdata = '0;
+                wiring_ram_b_we = 1'b0;
+                wiring_ram_b_stb = 1'b0;
             end
             /* verilator lint_off UNUSEDSIGNAL */
             logic unused_ram;
@@ -488,7 +489,7 @@ module rp6502
     /* Rising edge: rv_tx_valid_raw is a clean flop from the soft CPU's
      * clock with no term from this one, so a later sample only narrows
      * the pulse to a half period. */
-    always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
+    always_comb wiring_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
 
     /* Two masters, and only ever one at a time. The soft CPU's accesses
      * arrive on its own slower clock and are narrowed to one system
@@ -548,15 +549,15 @@ module rp6502
         .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
         .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),
-        .soc_dbg_halted(rp6502_sst_dbg_halted),
+        .soc_dbg_halted(wiring_sst_dbg_halted),
         .sst_dbg_data0(eng_own ? eng_dbg_data0 : sst_dbg_data0),
-        .soc_dbg_data0(rp6502_sst_dbg_data0),
-        .soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
+        .soc_dbg_data0(wiring_sst_dbg_data0),
+        .soc_dbg_data0_wen(wiring_sst_dbg_data0_wen),
         .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
         .sst_dbg_instr_vld(eng_own ? eng_dbg_vld : sst_dbg_instr_vld),
-        .soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
-        .soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
-        .soc_dbg_fault(rp6502_sst_dbg_fault),
+        .soc_dbg_instr_rdy(wiring_sst_dbg_instr_rdy),
+        .soc_dbg_ebreak(wiring_sst_dbg_ebreak),
+        .soc_dbg_fault(wiring_sst_dbg_fault),
         .sst_phi2_we(eng_st_jam),
         .sst_phi2_wdata(eng_jam_mach[1][15:0]),
         .soc_mtime(mtime),
@@ -566,11 +567,11 @@ module rp6502
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
         .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
-        .soc_tcm_rdata(rp6502_sst_tcm_rdata),
-        .soc_tx_data(rp6502_rv_tx_data),
+        .soc_tcm_rdata(wiring_sst_tcm_rdata),
+        .soc_tx_data(wiring_rv_tx_data),
         .soc_tx_valid(rv_tx_valid_raw),
-        .soc_halted(rp6502_rv_halted),
-        .soc_exit_code(rp6502_rv_exit_code),
+        .soc_halted(wiring_rv_halted),
+        .soc_exit_code(wiring_rv_exit_code),
         .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
         .upd_n(upd_n),
@@ -579,7 +580,7 @@ module rp6502
         .cont_joy(cont_joy),
         .cont_trig(cont_trig),
         .key_code(key_code),
-        .soc_key_pending(rp6502_key_pending),
+        .soc_key_pending(wiring_key_pending),
         .bus_rdy(soc_rdy),
         .bus_taken(soc_taken),
         .soc_bus_pend(rv_bus_pend),
@@ -620,10 +621,10 @@ module rp6502
     end
 
     always_comb begin
-        rp6502_host_addr = soc_addr[27:0];
-        rp6502_host_stb = soc_stb && soc_sel_host;
-        rp6502_host_we = soc_we;
-        rp6502_host_wdata = soc_wdata;
+        wiring_host_addr = soc_addr[27:0];
+        wiring_host_stb = soc_stb && soc_sel_host;
+        wiring_host_we = soc_we;
+        wiring_host_wdata = soc_wdata;
     end
 
     /* Shown early for a slow platform; the strobe-captured register
@@ -633,8 +634,8 @@ module rp6502
         /* The serializer reads the store directly; it is the board's
          * memory, not the machine's, and it keeps its clock when the
          * machine loses one. */
-        rp6502_stage_pend = eng_stage_pend || (soc_pend && soc_sel_stage);
-        rp6502_stage_addr = eng_stage_pend ? eng_stage_addr
+        wiring_stage_pend = eng_stage_pend || (soc_pend && soc_sel_stage);
+        wiring_stage_addr = eng_stage_pend ? eng_stage_addr
             : ((soc_pend && soc_sel_stage) ? soc_addr[27:0] : stage_addr_q);
     end
 
@@ -709,11 +710,11 @@ module rp6502
         .rs(cpu_addr[4:0]),
         .data_i(cpu_dout),
         .regs_data(ria_data),
-        .regs_tx_data(rp6502_tx_data),
-        .regs_tx_valid(rp6502_tx_valid),
+        .regs_tx_data(wiring_tx_data),
+        .regs_tx_valid(wiring_tx_valid),
         .rx_valid(rx_valid),
         .rx_data(rx_data),
-        .regs_rx_taken(rp6502_rx_taken),
+        .regs_rx_taken(wiring_rx_taken),
         .vsync_pulse(prog_vsync_pulse),
         .regs_irq(ria_irq),
         .regs_xr_busy(xr_busy),
@@ -759,7 +760,7 @@ module rp6502
     logic vid_hsync /*verilator public_flat_rd*/;
     logic vid_vsync /*verilator public_flat_rd*/;
     logic vid_line_start, vid_frame_start;
-    always_comb rp6502_vid_frame = vid_frame_start;
+    always_comb wiring_vid_frame = vid_frame_start;
     logic vid_vsync_pulse;
     logic prog_vsync_pulse;
     logic vid_px_first, vid_px_last;
@@ -776,7 +777,7 @@ module rp6502
         .timing_frame_start(vid_frame_start),
         .timing_vsync_pulse(vid_vsync_pulse)
     );
-    always_comb rp6502_scanline = vid_v;
+    always_comb wiring_scanline = vid_v;
 
     /* Port B is the RW engine's while busy; its background refresh
      * yields to a waiting soft CPU, but a real 6502 access does not.
@@ -935,7 +936,7 @@ module rp6502
 
     logic [31:0] prog_b_rdata;
     logic [2:0] vid_canvas;
-    always_comb rp6502_vid_canvas = vid_canvas;
+    always_comb wiring_vid_canvas = vid_canvas;
     logic [9:0] vid_cw, vid_ch;
 
     logic [8:0] sched_p_line;
@@ -1173,11 +1174,11 @@ module rp6502
     always_comb begin
         eng_l = 17'(opl_rs) + 17'(psg_l);
         eng_r = 17'(opl_rs) + 17'(psg_r);
-        rp6502_aud_l = eng_l < -17'sd32768 ? -16'sd32768
+        wiring_aud_l = eng_l < -17'sd32768 ? -16'sd32768
             : eng_l > 17'sd32767 ? 16'sd32767 : 16'(eng_l);
-        rp6502_aud_r = eng_r < -17'sd32768 ? -16'sd32768
+        wiring_aud_r = eng_r < -17'sd32768 ? -16'sd32768
             : eng_r > 17'sd32767 ? 16'sd32767 : 16'(eng_r);
-        rp6502_aud_valid = psg_tick;
+        wiring_aud_valid = psg_tick;
     end
 
     /* de IS the canvas: its rows on the first canvas_h lines, its own
@@ -1199,8 +1200,8 @@ module rp6502
         .s1_pix(sp_pix[1]),
         .p2_pix(c_pix[2]),
         .s2_pix(sp_pix[2]),
-        .compose_pix(rp6502_vid_pixel),
-        .compose_de(rp6502_vid_de)
+        .compose_pix(wiring_vid_pixel),
+        .compose_de(wiring_vid_de)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */

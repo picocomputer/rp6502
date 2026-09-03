@@ -18,8 +18,8 @@
  * region map would land.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
@@ -63,7 +63,7 @@
 #define SST_VER 3u
 #define SST_END_MAGIC 0x52365345u
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* The staging store lives outside the machine, so the bench is it: a
  * byte answered the moment it is asked for, which is the fastest a
@@ -72,9 +72,9 @@ static std::vector<uint8_t> g_stage;
 
 static void clk(void)
 {
-    if (dut->rp6502_stage_pend)
+    if (dut->wiring_stage_pend)
     {
-        uint32_t a = dut->rp6502_stage_addr;
+        uint32_t a = dut->wiring_stage_addr;
         dut->stage_rdata = a < g_stage.size() ? g_stage[a] : 0;
     }
     dut->stage_stall = 0;
@@ -122,19 +122,19 @@ static void stage_seal(void)
 static uint32_t tcm_word(uint32_t w)
 {
     auto *r = dut->rootp;
-    return (uint32_t)r->rp6502__DOT__soc__DOT__tcm0[w]
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm1[w] << 8)
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm2[w] << 16)
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm3[w] << 24);
+    return (uint32_t)r->wiring__DOT__soc__DOT__tcm0[w]
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm1[w] << 8)
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm2[w] << 16)
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm3[w] << 24);
 }
 
 static void tcm_put(uint32_t w, uint32_t v)
 {
     auto *r = dut->rootp;
-    r->rp6502__DOT__soc__DOT__tcm0[w] = v & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm0[w] = v & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
 }
 
 /* XRAM is four byte lanes indexed by the low two address bits. Its
@@ -146,10 +146,10 @@ static void tcm_put(uint32_t w, uint32_t v)
 static uint32_t xram_word(uint32_t w)
 {
     auto *r = dut->rootp;
-    return ((uint32_t)r->rp6502__DOT__xram__DOT__mem3[w] << 24)
-           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem2[w] << 16)
-           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem1[w] << 8)
-           | (uint32_t)r->rp6502__DOT__xram__DOT__mem0[w];
+    return ((uint32_t)r->wiring__DOT__xram__DOT__mem3[w] << 24)
+           | ((uint32_t)r->wiring__DOT__xram__DOT__mem2[w] << 16)
+           | ((uint32_t)r->wiring__DOT__xram__DOT__mem1[w] << 8)
+           | (uint32_t)r->wiring__DOT__xram__DOT__mem0[w];
 }
 
 /* The counter from the resume test, which gives the machine something
@@ -166,7 +166,7 @@ static void power_on(void)
         dut->final();
         delete dut;
     }
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
@@ -203,7 +203,7 @@ static bool begin_save(void)
     for (long i = 0; i < 20000000L; i++)
     {
         clk();
-        if (dut->rp6502_sst_ready)
+        if (dut->wiring_sst_ready)
             return true;
     }
     return false;
@@ -218,14 +218,14 @@ static bool blob_word(uint32_t idx, uint32_t *out)
     dut->eval();
     /* The answer to the last index is still standing while the engine
      * notices this one, so wait for it to go away first. */
-    for (int i = 0; i < 20000 && dut->rp6502_sst_rvalid; i++)
+    for (int i = 0; i < 20000 && dut->wiring_sst_rvalid; i++)
         clk();
     for (int i = 0; i < 20000; i++)
     {
         clk();
-        if (dut->rp6502_sst_rvalid)
+        if (dut->wiring_sst_rvalid)
         {
-            *out = dut->rp6502_sst_rdata;
+            *out = dut->wiring_sst_rdata;
             return true;
         }
     }
@@ -237,19 +237,19 @@ UTEST(sst, it_stops_the_machine_before_it_says_ready)
     power_on();
     for (int i = 0; i < 2000; i++)
         clk();
-    ASSERT_FALSE((int)dut->rp6502_sst_ready);
+    ASSERT_FALSE((int)dut->wiring_sst_ready);
 
     ASSERT_TRUE(begin_save());
     /* Both halves are stopped, or the blob would move underneath it. */
-    ASSERT_TRUE((int)dut->rp6502_sst_stop_req);
-    ASSERT_TRUE((int)dut->rp6502_sst_dbg_halted);
+    ASSERT_TRUE((int)dut->wiring_sst_stop_req);
+    ASSERT_TRUE((int)dut->wiring_sst_dbg_halted);
 
     /* And they stay stopped while the blob is being read. */
     uint32_t before = tcm_word(255);
     for (int i = 0; i < 5000; i++)
         clk();
     ASSERT_EQ(before, tcm_word(255));
-    ASSERT_TRUE((int)dut->rp6502_sst_ready);
+    ASSERT_TRUE((int)dut->wiring_sst_ready);
 }
 
 UTEST(sst, the_header_and_trailer_frame_the_blob)
@@ -318,10 +318,10 @@ UTEST(sst, xram_comes_back_word_for_word)
     auto *r = dut->rootp;
     for (uint32_t i = 0; i < 8; i++)
     {
-        r->rp6502__DOT__xram__DOT__mem0[i] = (uint8_t)(0x10 + i);
-        r->rp6502__DOT__xram__DOT__mem1[i] = (uint8_t)(0x20 + i);
-        r->rp6502__DOT__xram__DOT__mem2[i] = (uint8_t)(0x30 + i);
-        r->rp6502__DOT__xram__DOT__mem3[i] = (uint8_t)(0x40 + i);
+        r->wiring__DOT__xram__DOT__mem0[i] = (uint8_t)(0x10 + i);
+        r->wiring__DOT__xram__DOT__mem1[i] = (uint8_t)(0x20 + i);
+        r->wiring__DOT__xram__DOT__mem2[i] = (uint8_t)(0x30 + i);
+        r->wiring__DOT__xram__DOT__mem3[i] = (uint8_t)(0x40 + i);
     }
     ASSERT_TRUE(begin_save());
 
@@ -349,10 +349,10 @@ UTEST(sst, the_scanline_program_comes_back)
     auto *r = dut->rootp;
     for (uint32_t e = 0; e < 4; e++)
     {
-        r->rp6502__DOT__prog__DOT__fill_e[e] = 0x8001C000u + e;
-        r->rp6502__DOT__prog__DOT__fill_c[e] = (uint16_t)(0x4400u + e);
-        r->rp6502__DOT__prog__DOT__spr_e[e] = 0x80000u + e;
-        r->rp6502__DOT__prog__DOT__spr_c[e] = 0x77000000u + e;
+        r->wiring__DOT__prog__DOT__fill_e[e] = 0x8001C000u + e;
+        r->wiring__DOT__prog__DOT__fill_c[e] = (uint16_t)(0x4400u + e);
+        r->wiring__DOT__prog__DOT__spr_e[e] = 0x80000u + e;
+        r->wiring__DOT__prog__DOT__spr_c[e] = 0x77000000u + e;
     }
     ASSERT_TRUE(begin_save());
 
@@ -384,29 +384,29 @@ UTEST(sst, the_flops_are_in_there_too)
     auto *r = dut->rootp;
     uint32_t w = 0;
     ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 0, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__a
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__x << 8)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__y << 16)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__s << 24),
+    ASSERT_EQ((uint32_t)r->wiring__DOT__cpu__DOT__a
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__x << 8)
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__y << 16)
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__s << 24),
               w);
     ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 1, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__pc
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__p << 16)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__ir << 24),
+    ASSERT_EQ((uint32_t)r->wiring__DOT__cpu__DOT__pc
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__p << 16)
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__ir << 24),
               w);
     ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 3, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__nmi_pip
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__irq_pip << 16),
+    ASSERT_EQ((uint32_t)r->wiring__DOT__cpu__DOT__nmi_pip
+                  | ((uint32_t)r->wiring__DOT__cpu__DOT__irq_pip << 16),
               w);
 
     /* The VIA's timers, which nothing else can read at all. */
     ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 2, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t1_latch
-                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_counter << 16),
+    ASSERT_EQ((uint32_t)r->wiring__DOT__via__DOT__t1_latch
+                  | ((uint32_t)r->wiring__DOT__via__DOT__t1_counter << 16),
               w);
     ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 4, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t2_pip
-                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_pip << 16),
+    ASSERT_EQ((uint32_t)r->wiring__DOT__via__DOT__t2_pip
+                  | ((uint32_t)r->wiring__DOT__via__DOT__t1_pip << 16),
               w);
 }
 
@@ -461,8 +461,8 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
     dut->eval();
     for (int i = 0; i < 200; i++)
         clk();
-    ASSERT_FALSE((int)dut->rp6502_sst_ready);
-    ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
+    ASSERT_FALSE((int)dut->wiring_sst_ready);
+    ASSERT_FALSE((int)dut->wiring_sst_stop_req);
 
     for (int i = 0; i < 8000; i++)
         clk();
@@ -526,24 +526,24 @@ UTEST(sst, a_load_puts_the_blob_back)
     auto *r = dut->rootp;
     for (uint32_t i = 0; i < 8; i++)
     {
-        r->rp6502__DOT__xram__DOT__mem0[i] = 0xEE;
-        r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
-        r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
-        r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
-        r->rp6502__DOT__mode0__DOT__cell0[i] = 0xEE;
-        r->rp6502__DOT__mode0__DOT__cell1[i] = 0xEE;
-        r->rp6502__DOT__mode0__DOT__cell2[i] = 0xEE;
-        r->rp6502__DOT__mode0__DOT__cell3[i] = 0xEE;
+        r->wiring__DOT__xram__DOT__mem0[i] = 0xEE;
+        r->wiring__DOT__xram__DOT__mem1[i] = 0xEE;
+        r->wiring__DOT__xram__DOT__mem2[i] = 0xEE;
+        r->wiring__DOT__xram__DOT__mem3[i] = 0xEE;
+        r->wiring__DOT__mode0__DOT__cell0[i] = 0xEE;
+        r->wiring__DOT__mode0__DOT__cell1[i] = 0xEE;
+        r->wiring__DOT__mode0__DOT__cell2[i] = 0xEE;
+        r->wiring__DOT__mode0__DOT__cell3[i] = 0xEE;
     }
     for (uint32_t i = 0; i < 32; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0xEE;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0xEE;
 
     dut->sst_load = 1;
     dut->eval();
     long guard = 0;
-    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+    while (!dut->wiring_sst_load_done && guard++ < 40000000L)
         clk();
-    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+    ASSERT_TRUE((int)dut->wiring_sst_load_done);
 
     for (uint32_t i = 0; i < 8; i++)
     {
@@ -554,56 +554,56 @@ UTEST(sst, a_load_puts_the_blob_back)
     {
         /* The byte window takes the lowest address from the top of the
          * word, which is the order the store hands it back in. */
-        ASSERT_EQ(0x5Au, r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4]);
+        ASSERT_EQ(0x5Au, r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4]);
         ASSERT_EQ(0x5Au,
-                  r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 1]);
+                  r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 1]);
         ASSERT_EQ(0x00u,
-                  r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 2]);
+                  r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 2]);
         ASSERT_EQ(i, (uint32_t)r
-                         ->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 3]);
+                         ->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 3]);
     }
     for (uint32_t i = 16; i < 32; i++)
         ASSERT_EQ(0xCBu,
-                  (uint32_t)r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i]);
+                  (uint32_t)r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i]);
     for (uint32_t i = 0; i < 8; i++)
     {
         /* The cells answer as a word, so the lanes go back as they came. */
-        ASSERT_EQ(i, (uint32_t)r->rp6502__DOT__mode0__DOT__cell0[i]);
-        ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__mode0__DOT__cell1[i]);
-        ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__mode0__DOT__cell2[i]);
-        ASSERT_EQ(0xCEu, (uint32_t)r->rp6502__DOT__mode0__DOT__cell3[i]);
+        ASSERT_EQ(i, (uint32_t)r->wiring__DOT__mode0__DOT__cell0[i]);
+        ASSERT_EQ(0x00u, (uint32_t)r->wiring__DOT__mode0__DOT__cell1[i]);
+        ASSERT_EQ(0x11u, (uint32_t)r->wiring__DOT__mode0__DOT__cell2[i]);
+        ASSERT_EQ(0xCEu, (uint32_t)r->wiring__DOT__mode0__DOT__cell3[i]);
     }
 
     for (uint32_t e = 0; e < 4; e++)
     {
         ASSERT_EQ(0x80012000u + e,
-                  (uint32_t)r->rp6502__DOT__prog__DOT__fill_e[e]);
+                  (uint32_t)r->wiring__DOT__prog__DOT__fill_e[e]);
         ASSERT_EQ(0x3300u + e,
-                  (uint32_t)r->rp6502__DOT__prog__DOT__fill_c[e]);
+                  (uint32_t)r->wiring__DOT__prog__DOT__fill_c[e]);
         ASSERT_EQ(0x80000u | (0x1000u + e),
-                  (uint32_t)r->rp6502__DOT__prog__DOT__spr_e[e]);
+                  (uint32_t)r->wiring__DOT__prog__DOT__spr_e[e]);
         ASSERT_EQ(0x66000000u + e,
-                  (uint32_t)r->rp6502__DOT__prog__DOT__spr_c[e]);
+                  (uint32_t)r->wiring__DOT__prog__DOT__spr_c[e]);
     }
 
     /* Before the release, the flops still hold the old world: the jam
      * is the release's consequence, because the 6502's async reset
      * dominates any jam attempted while it is still held. */
-    ASSERT_NE(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
+    ASSERT_NE(0x44u, (uint32_t)r->wiring__DOT__cpu__DOT__a);
 
     dut->sst_load = 0;
     dut->eval();
     for (int i = 0; i < 200; i++)
         clk();
-    ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
+    ASSERT_FALSE((int)dut->wiring_sst_stop_req);
 
     /* The flops, jammed on the release with the resets let go first. */
-    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
-    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__cpu__DOT__x);
-    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__cpu__DOT__y);
-    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__cpu__DOT__s);
-    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__cpu__DOT__p);
-    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
+    ASSERT_EQ(0x44u, (uint32_t)r->wiring__DOT__cpu__DOT__a);
+    ASSERT_EQ(0x33u, (uint32_t)r->wiring__DOT__cpu__DOT__x);
+    ASSERT_EQ(0x22u, (uint32_t)r->wiring__DOT__cpu__DOT__y);
+    ASSERT_EQ(0x11u, (uint32_t)r->wiring__DOT__cpu__DOT__s);
+    ASSERT_EQ(0xB5u, (uint32_t)r->wiring__DOT__cpu__DOT__p);
+    ASSERT_EQ(0x1234u, (uint32_t)r->wiring__DOT__via__DOT__t1_latch);
 
     /* The machine's own flops have no other way out, so the proof they
      * landed is the next blob carrying them. */
@@ -655,9 +655,9 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
     dut->sst_load = 1;
     dut->eval();
     long guard = 0;
-    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+    while (!dut->wiring_sst_load_done && guard++ < 40000000L)
         clk();
-    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+    ASSERT_TRUE((int)dut->wiring_sst_load_done);
 
     dut->sst_load = 0;
     dut->eval();
@@ -691,7 +691,7 @@ static void load_and_wait(void)
     dut->sst_load = 1;
     dut->eval();
     long guard = 0;
-    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+    while (!dut->wiring_sst_load_done && guard++ < 40000000L)
         clk();
 }
 
@@ -719,16 +719,16 @@ UTEST(sst, a_blob_that_does_not_add_up_is_refused)
 
         for (uint32_t i = 0; i < 8; i++)
         {
-            r->rp6502__DOT__xram__DOT__mem0[i] = 0xEE;
-            r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
-            r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
-            r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
+            r->wiring__DOT__xram__DOT__mem0[i] = 0xEE;
+            r->wiring__DOT__xram__DOT__mem1[i] = 0xEE;
+            r->wiring__DOT__xram__DOT__mem2[i] = 0xEE;
+            r->wiring__DOT__xram__DOT__mem3[i] = 0xEE;
         }
         uint32_t held = tcm_word(256);
 
         load_and_wait();
-        ASSERT_TRUE((int)dut->rp6502_sst_load_done);
-        ASSERT_TRUE((int)dut->rp6502_sst_load_err);
+        ASSERT_TRUE((int)dut->wiring_sst_load_done);
+        ASSERT_TRUE((int)dut->wiring_sst_load_err);
 
         /* Nothing written. */
         for (uint32_t i = 0; i < 8; i++)
@@ -799,9 +799,9 @@ UTEST(sst, the_console_queue_survives)
     dut->sst_load = 1;
     dut->eval();
     long guard = 0;
-    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+    while (!dut->wiring_sst_load_done && guard++ < 40000000L)
         clk();
-    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+    ASSERT_TRUE((int)dut->wiring_sst_load_done);
     dut->sst_load = 0;
     dut->eval();
     for (int i = 0; i < 200; i++)

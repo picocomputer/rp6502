@@ -19,8 +19,8 @@
  * checked here and nowhere else.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 extern "C"
 {
@@ -42,7 +42,7 @@ extern "C" {
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* A program that asks for one code page and stops: the two API
  * registers, the operation, the trampoline, and the answer to the
@@ -99,14 +99,14 @@ UTEST(fontstore, boot_image_matches_font_init)
     font_init();
     auto *r = dut->rootp;
     for (size_t i = 0; i < 4096; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f16, i), font16[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
     for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f8, i), font8[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
     for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__ital, i),
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__ital, i),
                   italic16[i]);
     for (size_t i = 0; i < 512; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__dec, i),
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__dec, i),
                   font_dec_16[i]);
 }
 
@@ -124,9 +124,9 @@ static void one_page(int *utest_result, uint16_t cp)
     font_set_code_page(cp);
     auto *r = dut->rootp;
     for (size_t i = 0; i < 4096; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f16, i), font16[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
     for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f8, i), font8[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 
 UTEST(fontstore, code_page_720) { one_page(utest_result, 720); }
@@ -149,9 +149,9 @@ UTEST(fontstore, unknown_code_page_keeps_the_one_in_force)
     font_init();
     auto *r = dut->rootp;
     for (size_t i = 0; i < 4096; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f16, i), font16[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
     for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f8, i), font8[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 
 /* The bug this all came from: a program that asks the attribute API what
@@ -183,9 +183,9 @@ UTEST(fontstore, attribute_set_takes_a_page_and_ignores_the_rest)
     font_set_code_page(850);
     auto *r = dut->rootp;
     for (size_t i = 0; i < 4096; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f16, i), font16[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
     for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->rp6502__DOT__font__DOT__f8, i), font8[i]);
+        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 
 UTEST_STATE();
@@ -193,7 +193,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     sys_init(); /* font_init, which lays the reference tables out */
-    dut = new Vrp6502;
+    dut = new Vwiring;
     int rc = utest_main(argc, argv);
     delete dut;
     return rc;

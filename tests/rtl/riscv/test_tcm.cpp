@@ -15,15 +15,15 @@
  * for encoding, and it will appear again the moment anyone touches the C.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdint>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 static bool rv_phase;
 
 /* One call is one clk_sys period. clk_rv is half of it, rising with it. */
@@ -31,19 +31,19 @@ static bool rv_phase;
 static void tcm_poke(uint32_t byte_addr, uint32_t word)
 {
     uint32_t w = byte_addr >> 2;
-    dut->rootp->rp6502__DOT__soc__DOT__tcm0[w] = word & 0xff;
-    dut->rootp->rp6502__DOT__soc__DOT__tcm1[w] = (word >> 8) & 0xff;
-    dut->rootp->rp6502__DOT__soc__DOT__tcm2[w] = (word >> 16) & 0xff;
-    dut->rootp->rp6502__DOT__soc__DOT__tcm3[w] = (word >> 24) & 0xff;
+    dut->rootp->wiring__DOT__soc__DOT__tcm0[w] = word & 0xff;
+    dut->rootp->wiring__DOT__soc__DOT__tcm1[w] = (word >> 8) & 0xff;
+    dut->rootp->wiring__DOT__soc__DOT__tcm2[w] = (word >> 16) & 0xff;
+    dut->rootp->wiring__DOT__soc__DOT__tcm3[w] = (word >> 24) & 0xff;
 }
 
 static uint32_t tcm_peek(uint32_t byte_addr)
 {
     uint32_t w = byte_addr >> 2;
-    return (uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm0[w]
-           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm1[w] << 8)
-           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm2[w] << 16)
-           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm3[w] << 24);
+    return (uint32_t)dut->rootp->wiring__DOT__soc__DOT__tcm0[w]
+           | ((uint32_t)dut->rootp->wiring__DOT__soc__DOT__tcm1[w] << 8)
+           | ((uint32_t)dut->rootp->wiring__DOT__soc__DOT__tcm2[w] << 16)
+           | ((uint32_t)dut->rootp->wiring__DOT__soc__DOT__tcm3[w] << 24);
 }
 
 static void run_program(const uint32_t *prog, unsigned words)
@@ -102,7 +102,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;

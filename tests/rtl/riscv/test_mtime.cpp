@@ -15,22 +15,22 @@
  * which clock the accumulator happens to be counting.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdint>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 static bool rv_phase;
 
 /* One call is one clk_sys period. clk_rv is half of it, rising with it. */
 
 static uint64_t mtime()
 {
-    return dut->rootp->rp6502__DOT__soc__DOT__mtime_us;
+    return dut->rootp->wiring__DOT__soc__DOT__mtime_us;
 }
 
 UTEST(mtime, counts_real_microseconds)
@@ -79,7 +79,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;

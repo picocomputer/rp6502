@@ -6,14 +6,14 @@
 
 #include "tb_core.h"
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
 #include <cstdlib>
 
-static Vrp6502 *tb_core_dut;
+static Vwiring *tb_core_dut;
 static VerilatedFstC *tb_core_trace;
 static uint64_t tb_core_time;
 
@@ -49,7 +49,7 @@ void tb_core_args(int argc, const char *const argv[])
 
 void tb_core_init()
 {
-    tb_core_dut = new Vrp6502;
+    tb_core_dut = new Vwiring;
     tb_core_time = 0;
 
     if (const char *path = getenv("RP6502_RTL_TRACE"))
@@ -101,25 +101,25 @@ void tb_core_clocks(int count)
 
 uint16_t tb_core_scanline()
 {
-    return tb_core_dut->rp6502_scanline;
+    return tb_core_dut->wiring_scanline;
 }
 
 uint16_t tb_core_h()
 {
-    return tb_core_dut->rootp->rp6502__DOT__vid_h;
+    return tb_core_dut->rootp->wiring__DOT__vid_h;
 }
 
 bool tb_core_hsync()
 {
-    return tb_core_dut->rootp->rp6502__DOT__vid_hsync;
+    return tb_core_dut->rootp->wiring__DOT__vid_hsync;
 }
 
 bool tb_core_vsync()
 {
-    return tb_core_dut->rootp->rp6502__DOT__vid_vsync;
+    return tb_core_dut->rootp->wiring__DOT__vid_vsync;
 }
 
 bool tb_core_de()
 {
-    return tb_core_dut->rootp->rp6502__DOT__vid_de;
+    return tb_core_dut->rootp->wiring__DOT__vid_de;
 }

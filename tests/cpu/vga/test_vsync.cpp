@@ -10,8 +10,8 @@
  * the interrupt delivers the fifth.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* RESB is the OS's line and takes no reset, so a case that wants the
  * machine held starts a new one. */
@@ -31,7 +31,7 @@ static void machine_reset()
         dut->final();
         delete dut;
     }
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
@@ -39,7 +39,7 @@ static void machine_reset()
     tb_clock(dut);
     tb_clock(dut);
     dut->rst_n = 1;
-    dut->rootp->rp6502__DOT__resb = 1;
+    dut->rootp->wiring__DOT__resb = 1;
 }
 
 UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
@@ -72,29 +72,29 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
     machine_reset();
     auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
-    r->rp6502__DOT__ria__DOT__regs[0x1C] = 0x00;
-    r->rp6502__DOT__ria__DOT__regs[0x1D] = 0x02;
-    r->rp6502__DOT__ria__DOT__regs[0x1E] = 0x20;
-    r->rp6502__DOT__ria__DOT__regs[0x1F] = 0x02;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
+    r->wiring__DOT__ria__DOT__regs[0x1C] = 0x00;
+    r->wiring__DOT__ria__DOT__regs[0x1D] = 0x02;
+    r->wiring__DOT__ria__DOT__regs[0x1E] = 0x20;
+    r->wiring__DOT__ria__DOT__regs[0x1F] = 0x02;
 
     std::string out;
     std::vector<uint64_t> at;
     for (uint64_t i = 0; i < 16000000; i++)
     {
         tb_clock(dut);
-        if (dut->rp6502_tx_valid)
+        if (dut->wiring_tx_valid)
         {
-            out.push_back((char)dut->rp6502_tx_data);
+            out.push_back((char)dut->wiring_tx_data);
             at.push_back(i);
         }
-        if (r->rp6502__DOT__cpu__DOT__stop_flag)
+        if (r->wiring__DOT__cpu__DOT__stop_flag)
             break;
     }
 
-    ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
+    ASSERT_TRUE(r->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_EQ(out.size(), (size_t)6);
     /* Four polled frames: consecutive counter values... */
     for (int i = 1; i < 4; i++)
@@ -128,24 +128,24 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     };
     machine_reset();
     auto *r = dut->rootp;
-    r->rp6502__DOT__prog__DOT__vsync_shadow = 240;
+    r->wiring__DOT__prog__DOT__vsync_shadow = 240;
     for (size_t i = 0; i < 0x10000; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
-    r->rp6502__DOT__ria__DOT__regs[0x1C] = 0x00;
-    r->rp6502__DOT__ria__DOT__regs[0x1D] = 0x02;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
+    r->wiring__DOT__ria__DOT__regs[0x1C] = 0x00;
+    r->wiring__DOT__ria__DOT__regs[0x1D] = 0x02;
 
     std::vector<uint64_t> at;
     for (uint64_t i = 0; i < 16000000; i++)
     {
         tb_clock(dut);
-        if (dut->rp6502_tx_valid)
+        if (dut->wiring_tx_valid)
             at.push_back(i);
-        if (r->rp6502__DOT__cpu__DOT__stop_flag)
+        if (r->wiring__DOT__cpu__DOT__stop_flag)
             break;
     }
-    ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
+    ASSERT_TRUE(r->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_EQ(at.size(), (size_t)4);
     /* The first interval spans the move: the shadow can only reach the
      * scanout at a frame boundary, so the frame it lands in is short by
@@ -164,7 +164,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     /* Verilator seeds its edge detectors from the first eval, so a model
      * first evaluated with a clock already high never sees that edge.
      * clk_rv rises once in the two cycles reset is held, and losing it

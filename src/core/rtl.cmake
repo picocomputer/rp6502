@@ -78,9 +78,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
     ${RP6502_SRC}/core/vga/mode/mode0.sv
-    ${RP6502_SRC}/core/vga/scan/compose.sv
-    ${RP6502_SRC}/core/machine/sst_engine.sv
-    ${RP6502_SRC}/core/machine/rp6502.sv)
+    ${RP6502_SRC}/core/vga/scan/compose.sv)
 # Verilator elaborates while cmake configures, so an unresolved module here
 # is a configure error, not a build one. Nothing recursive: Hazard3 has six
 # submodules of its own and this tree reads none of them.

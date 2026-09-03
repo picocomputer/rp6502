@@ -58,6 +58,7 @@ def main() -> int:
     ap.add_argument("--mmio", required=True)
     ap.add_argument("--bench")
     ap.add_argument("--engine")
+    ap.add_argument("--tcm", help="package holding widths the engine names")
     ap.add_argument("--sst")
     ap.add_argument("--top")
     a = ap.parse_args()
@@ -156,7 +157,15 @@ def main() -> int:
     words = None
     if a.engine:
         src = Path(a.engine).read_text(encoding="utf-8")
-        parts = dict(re.findall(r"localparam int (W_\w+) = (\d+);", src))
+        parts = dict(re.findall(r"localparam int (W_\w+) = (\w+);", src))
+        # A width may name a parameter rather than a literal, so that the
+        # number lives in one place. Resolve those from the package that
+        # holds them; an unresolved name is left alone and reported below.
+        if a.tcm:
+            pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
+                                  Path(a.tcm).read_text(encoding="utf-8")))
+            parts = {k: pkg.get(v, v) for k, v in parts.items()}
+        parts = {k: v for k, v in parts.items() if v.isdigit()}
         order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
                  "W_CELLS", "W_XPROG", "W_TCM", "W_END"]
         missing = [k for k in order if k not in parts]

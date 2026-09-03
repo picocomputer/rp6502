@@ -53,9 +53,9 @@ public:
     /* One call per clk_sys edge, before eval. */
     template <class DUT> void tick(DUT *dut)
     {
-        if (dut->rp6502_host_stb && dut->rp6502_host_we)
-            write(dut->rp6502_host_addr & 0x0FFFFFFFu, dut->rp6502_host_wdata);
-        dut->host_rdata = read(dut->rp6502_host_addr & 0x0FFFFFFFu);
+        if (dut->wiring_host_stb && dut->wiring_host_we)
+            write(dut->wiring_host_addr & 0x0FFFFFFFu, dut->wiring_host_wdata);
+        dut->host_rdata = read(dut->wiring_host_addr & 0x0FFFFFFFu);
     }
 
 private:

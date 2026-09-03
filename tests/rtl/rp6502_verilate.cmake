@@ -66,7 +66,7 @@ rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
 #
 # They lead, because a waiver read after the file it waives is not applied.
 list(PREPEND OPL2_SOURCES ${RP6502_BENCH}/opl2.vlt)
-list(PREPEND RP6502_RTL_SOURCES
+list(PREPEND RP6502_MACHINE_SOURCES
     ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/opl2.vlt)
 
 # rp6502_model(<out> TOP <module> PREFIX <V...> RTL <file>... [TRACE]
@@ -180,7 +180,7 @@ function(rp6502_add_machine_test name)
         set(M_SOURCES test_${name}.cpp)
     endif()
     if(NOT M_TOP)
-        set(M_TOP rp6502)
+        set(M_TOP wiring)
     endif()
     if(NOT M_PREFIX)
         set(M_PREFIX V${M_TOP})
@@ -219,7 +219,7 @@ function(rp6502_add_machine_test name)
     endif()
 
     # The model's dependencies are the generators of the packages in
-    # RP6502_RTL_SOURCES, and only those. sw_bin and the fonts are files a
+    # RP6502_MACHINE_SOURCES, and only those. sw_bin and the fonts are files a
     # test opens at run time, and the machine is shared now — holding its
     # elaboration behind a RISC-V compile would put the firmware on the
     # critical path of the whole suite.
@@ -230,7 +230,7 @@ function(rp6502_add_machine_test name)
     rp6502_model(_model
         TOP ${M_TOP}
         PREFIX ${M_PREFIX}
-        RTL ${RP6502_RTL_SOURCES} ${M_RTL}
+        RTL ${RP6502_MACHINE_SOURCES} ${M_RTL}
         ${_trace}
         ARGS ${RP6502_RTL_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl

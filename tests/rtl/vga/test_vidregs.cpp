@@ -18,8 +18,8 @@
  * asserted here rather than in the shared suite.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "crc32.h"
 #include "tb_machine.h"
@@ -30,7 +30,7 @@
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 static uint32_t fb[640 * 480];
 
@@ -52,7 +52,7 @@ static bool boot(const char *name, size_t px)
 UTEST(vidregs, console_return_restores_vsync_line)
 {
     ASSERT_TRUE(boot("mode0_return", 640 * 480));
-    ASSERT_EQ(dut->rootp->rp6502__DOT__prog__DOT__vsync_shadow, 480);
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 480);
 }
 
 /* sprite_overrun is built on canvas 1 — 320x240, vidmodes.py. The picture is
@@ -61,7 +61,7 @@ UTEST(vidregs, console_return_restores_vsync_line)
 UTEST(vidregs, sprite_overrun_counts_lost_races)
 {
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
-    ASSERT_GT(dut->rootp->rp6502__DOT__sprite__DOT__sprite_overrun, 0);
+    ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
     ASSERT_EQ(bench_crc32(fb, 320 * 240 * sizeof(uint32_t)), 0xA34E970Cu);
 }
 
@@ -70,7 +70,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

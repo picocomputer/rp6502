@@ -20,8 +20,8 @@
  * done, with no repetition and no gap.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
@@ -51,7 +51,7 @@ static uint32_t i_csr_write(uint32_t csr, int n)
     return (csr << 20) | 0x00001073u | ((uint32_t)n << 15);
 }
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 static uint32_t g_data0;
 
 /* data0's write enable can stand for several clocks while the
@@ -60,26 +60,26 @@ static uint32_t g_data0;
 static void clk(void)
 {
     tb_clock(dut);
-    if (dut->rp6502_sst_dbg_data0_wen)
-        g_data0 = dut->rp6502_sst_dbg_data0;
+    if (dut->wiring_sst_dbg_data0_wen)
+        g_data0 = dut->wiring_sst_dbg_data0;
 }
 
 static uint32_t tcm_word(uint32_t w)
 {
     auto *r = dut->rootp;
-    return (uint32_t)r->rp6502__DOT__soc__DOT__tcm0[w]
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm1[w] << 8)
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm2[w] << 16)
-           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm3[w] << 24);
+    return (uint32_t)r->wiring__DOT__soc__DOT__tcm0[w]
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm1[w] << 8)
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm2[w] << 16)
+           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm3[w] << 24);
 }
 
 static void tcm_put(uint32_t w, uint32_t v)
 {
     auto *r = dut->rootp;
-    r->rp6502__DOT__soc__DOT__tcm0[w] = v & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
-    r->rp6502__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm0[w] = v & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
+    r->wiring__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
 }
 
 static void power_on(const std::vector<uint32_t> &prog)
@@ -89,7 +89,7 @@ static void power_on(const std::vector<uint32_t> &prog)
         dut->final();
         delete dut;
     }
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
@@ -114,7 +114,7 @@ static bool halt(void)
     for (int i = 0; i < 4000; i++)
     {
         clk();
-        if (dut->rp6502_sst_dbg_halted)
+        if (dut->wiring_sst_dbg_halted)
             return true;
     }
     return false;
@@ -130,13 +130,13 @@ static bool inject(uint32_t instr)
     dut->sst_dbg_instr_vld = 1;
     dut->eval();
     int i = 0;
-    for (; i < 800 && !dut->rp6502_sst_dbg_instr_rdy; i++)
+    for (; i < 800 && !dut->wiring_sst_dbg_instr_rdy; i++)
         clk();
     bool taken = false;
     for (; i < 800 && !taken; i++)
     {
         clk();
-        if (!dut->rp6502_sst_dbg_instr_rdy)
+        if (!dut->wiring_sst_dbg_instr_rdy)
             taken = true;
     }
     dut->sst_dbg_instr_vld = 0;
@@ -152,7 +152,7 @@ static bool settle(void)
         return false;
     for (int i = 0; i < 400; i++)
     {
-        if (dut->rp6502_sst_dbg_ebreak)
+        if (dut->wiring_sst_dbg_ebreak)
             return true;
         clk();
     }
@@ -311,7 +311,7 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
         dut->final();
         delete dut;
     }
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->sst_dbg_halt = 0;
@@ -335,7 +335,7 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
     dut->rst_n = 1;
     for (int i = 0; i < 64; i++)
         tb_clock(dut);
-    ASSERT_TRUE((int)dut->rp6502_sst_dbg_halted);
+    ASSERT_TRUE((int)dut->wiring_sst_dbg_halted);
     /* Held from the first cycle, so nothing of the reset image ran. */
     ASSERT_EQ(before.size(), record().size());
 

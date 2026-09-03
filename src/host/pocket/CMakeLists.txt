@@ -22,14 +22,13 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 include(${RP6502_ROOT}/version.cmake)
 
 # Where this board's own SystemVerilog lives, top level included.
-set(RP6502_POCKET_CORE ${CMAKE_CURRENT_LIST_DIR}/core)
 
 # The machine as a list of files and its generated packages, the firmware this
 # board's soft CPU runs, then the Quartus command line the projects below run.
-include(${RP6502_SRC}/core/rtl.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
-include(${RP6502_SRC}/core/quartus.cmake)
-include(${RP6502_SRC}/core/synth.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
@@ -142,7 +141,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # actually short of one of them, and this one is short of
         # neither.
         "set_global_assignment -name OPTIMIZATION_MODE \"BALANCED\"")
-    foreach(src ${RP6502_RTL_SOURCES})
+    foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
@@ -195,7 +194,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${CMAKE_CURRENT_LIST_FILE}
         ${RP6502_SRC}/core/rtl.cmake
         ${RP6502_SRC}/core/assets.cmake
-        ${RP6502_SRC}/core/quartus.cmake)
+        ${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and

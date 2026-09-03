@@ -53,11 +53,10 @@ find_package(verilator CONFIG REQUIRED
 
 # Where the Pocket's own SystemVerilog lives; this tree simulates that board
 # as well as the bare machine.
-set(RP6502_POCKET_CORE ${RP6502_SRC}/host/pocket/core)
 
 # The machine as a list of files and the generated packages, then the firmware
 # the Pocket's soft CPU boots -- the suites below run the real one.
-include(${RP6502_SRC}/core/rtl.cmake)
+include(${RP6502_SRC}/host/pocket/machine.cmake)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
 # --- The emulator, for the suites that read it directly ---

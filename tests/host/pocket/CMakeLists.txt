@@ -147,7 +147,8 @@ add_test(NAME stage_map
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
-        --engine ${RP6502_SRC}/core/machine/sst_engine.sv
+        --engine ${RP6502_POCKET_CORE}/sst_engine.sv
+        --tcm ${RP6502_SRC}/core/riscv/tcm_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
@@ -162,7 +163,7 @@ set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 # on vendored names -- Analogue's synch_3, the OPL2's reset_sync, Hazard3's
 # bus_active_dph_ -- so those trees are in the haystack too.
 set(SDC_GATE_RTL)
-foreach(src ${RP6502_RTL_SOURCES})
+foreach(src ${RP6502_MACHINE_SOURCES})
     list(APPEND SDC_GATE_RTL --rtl ${src})
 endforeach()
 list(APPEND SDC_GATE_RTL
@@ -173,7 +174,7 @@ list(APPEND SDC_GATE_RTL
 add_test(NAME sdc_filters
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
-        --sdc ${RP6502_SRC}/core/machine/rp6502.sdc
+        --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
         --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
         ${SDC_GATE_RTL})
 set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")

@@ -13,7 +13,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(SYNTH_LINES
         "set_global_assignment -name FAMILY \"Cyclone V\""
         "set_global_assignment -name DEVICE 5CEBA4F23C8"
-        "set_global_assignment -name TOP_LEVEL_ENTITY rp6502"
+        "set_global_assignment -name TOP_LEVEL_ENTITY wiring"
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
         "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
@@ -36,7 +36,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # virtual pin, which hits its ten-thousand message cap and buries
         # everything that means something.
         "set_global_assignment -name MESSAGE_DISABLE 15720")
-    foreach(src ${RP6502_RTL_SOURCES})
+    foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND SYNTH_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
