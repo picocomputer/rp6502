@@ -34,7 +34,7 @@
 #include "core/str/str.h"
 #include "core/str/unicode.h"
 #include "core/term/term.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "sw/apf.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"

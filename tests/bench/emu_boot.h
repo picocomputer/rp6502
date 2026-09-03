@@ -7,7 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/sys/exec.h"
 #include "core/vga/vga_emu.h"
 #include "core/sys/sys.h"

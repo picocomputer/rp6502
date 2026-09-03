@@ -17,7 +17,7 @@
  * had made by the end of it.
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/wdc/resb.h"
 #include "emu_boot.h"
 

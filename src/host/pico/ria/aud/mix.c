@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
 #include "ria/sys/rp2350.h"
@@ -12,7 +12,7 @@
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
 
-#if defined(DEBUG_AUD) || defined(DEBUG_AUD_AUD)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_MIX)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

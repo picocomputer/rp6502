@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_AUD_AUD_H_
-#define _CORE_AUD_AUD_H_
+#ifndef _CORE_AUD_MIX_H_
+#define _CORE_AUD_MIX_H_
 
-/* The audio system, which every machine with the C engines has one of:
- * core/aud/aud.c mixes for a host's sink, host/pico/ria/aud/aud.c for a PWM.
- * Each registers one device at a time and adds the bell to whatever it is.
+/* The mixer's contract, which every machine with the C engines answers one
+ * of: core/aud/mix.c mixes for a host's sink, host/pico/ria/aud/mix.c for a
+ * PWM. Each registers one device at a time and adds the bell to whatever it
+ * is.
  */
 
 #include <stddef.h>
@@ -52,13 +53,13 @@ void aud_setup(void (*sample)(int16_t *left, int16_t *right));
 /* Audio sample depth and center of the RP2350's PWM. Its wrap is 1023,
  * which puts the carrier at 250 kHz; widening walks that down toward the
  * audio band, so ten bits is this chip's answer and nobody else's. Only
- * host/pico/ria/aud/aud.c may use these.
+ * host/pico/ria/aud/mix.c may use these.
  */
 
 #define AUD_PWM_BITS 10
 #define AUD_PWM_CENTER (1u << (AUD_PWM_BITS - 1))
 
-/* ---- what only the soft mixer, core/aud/aud.c, answers ---- */
+/* ---- what only the soft mixer, core/aud/mix.c, answers ---- */
 
 /* --mute: disable audio entirely — the synth never runs and the window app
  * opens no OS audio device. Default enabled. */
@@ -83,4 +84,4 @@ int aud_viz_pos(void); /* current write position in that buffer */
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, nul_config, nul_config)
 
-#endif /* _CORE_AUD_AUD_H_ */
+#endif /* _CORE_AUD_MIX_H_ */

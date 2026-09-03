@@ -14,7 +14,7 @@
 #include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/hid/vtkeys.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "emu_boot.h"
 #include <string.h>

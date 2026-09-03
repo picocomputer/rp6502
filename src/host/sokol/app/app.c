@@ -37,7 +37,7 @@
 #include "host/sokol/app/gamepad.h"
 #endif
 #include "core/sys/version.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/exec.h"
 #include "core/sys/com.h"

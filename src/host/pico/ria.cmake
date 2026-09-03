@@ -111,7 +111,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${OEMCP_C}
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c
-    ${RIA_SRC}/aud/aud.c
+    ${RIA_SRC}/aud/mix.c
     ${RP6502_ROOT}/src/core/aud/sine.c
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/aud/bel_presets.c

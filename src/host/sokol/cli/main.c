@@ -13,7 +13,7 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "osal/os.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/cli/png.h"
 #include "core/sys/random.h"

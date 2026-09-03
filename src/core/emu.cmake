@@ -32,7 +32,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/exec.c
     ${RP6502_SRC}/core/api/tim.c
-    ${RP6502_SRC}/core/aud/aud.c
+    ${RP6502_SRC}/core/aud/mix.c
     ${RP6502_SRC}/core/aud/rsmp.c
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c

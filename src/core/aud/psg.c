@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
 #include "core/mem.h"

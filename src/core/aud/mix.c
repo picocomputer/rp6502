@@ -9,7 +9,7 @@
  * keeps time: the sink's clock is the only one.
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/aud/rsmp.h"
 #include "core/aud/sine.h"

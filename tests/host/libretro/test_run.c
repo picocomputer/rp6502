@@ -15,7 +15,7 @@
  * about the wrong canvas is not evidence.
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "corpus.h"
 #include "retro_fe.h"
 #include "utest.h"

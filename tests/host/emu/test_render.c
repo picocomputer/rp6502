@@ -10,7 +10,7 @@
  * made, and in what order.
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "emu_boot.h"
 

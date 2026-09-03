@@ -14,7 +14,7 @@
 #include "core/api/arg.h"
 #include "core/sys/exec.h"
 #include "core/api/std.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/mem/mem.h"
 #include "core/aud/bel.h"
 #include "core/hid/vtkeys.h"

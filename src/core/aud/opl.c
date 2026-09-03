@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/mem.h"
 #include "host/host.h"

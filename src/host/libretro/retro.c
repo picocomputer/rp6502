@@ -21,7 +21,7 @@
 #include "core/sys/random.h"
 #include "host/host.h"
 #include "core/sys/version.h"
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/sys/com.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
