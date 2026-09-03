@@ -12,7 +12,7 @@
  */
 
 module soc
-    import rp6502_pkg::*;
+    import tcm_pkg::*;
 #(
     parameter int MTIME_ADD = 1,
     parameter int MTIME_WRAP = 1,
@@ -93,7 +93,7 @@ module soc
     input logic sst_mtime_we,
     input logic [63:0] sst_mtime_wdata,
     input logic sst_tcm_sel,
-    input logic [RP6502_TCM_AW-1:0] sst_tcm_addr,
+    input logic [TCM_AW-1:0] sst_tcm_addr,
     input logic sst_tcm_we,
     input logic [31:0] sst_tcm_wdata,
     output logic [31:0] soc_tcm_rdata,
@@ -195,7 +195,7 @@ module soc
     logic dph_mmio /*verilator public_flat_rd*/;
     logic dph_ext /*verilator public_flat_rd*/;
     logic dph_waited /*verilator public_flat_rd*/;
-    logic [RP6502_TCM_AW-1:0] dph_word;  // TCM word; strb carries the lanes
+    logic [TCM_AW-1:0] dph_word;  // TCM word; strb carries the lanes
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [6:0] mmio_reg;
@@ -215,13 +215,13 @@ module soc
      * RAM from being inferred at all, and a megabit of code memory
      * built from flip-flops does not fit in any device made. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm0[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm0[TCM_WORDS] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm1[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm1[TCM_WORDS] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm2[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm2[TCM_WORDS] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm3[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm3[TCM_WORDS] /*verilator public_flat_rw*/;
 
     generate
         if (TCM_INIT_FILE != "") begin : tcm_init
@@ -235,8 +235,8 @@ module soc
     endgenerate
 
     logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
-    logic [RP6502_TCM_AW-1:0] word_addr;
-    always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[RP6502_TCM_AW+1:2];
+    logic [TCM_AW-1:0] word_addr;
+    always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[TCM_AW+1:2];
     always_comb soc_tcm_rdata = tcm_rdata;
 
     /* A store's data phase overlaps the next load's address phase, so a
@@ -253,7 +253,7 @@ module soc
     /* One port, two possible owners, and only ever one at a time: the
      * engine asks while the core is halted and issuing nothing. */
     logic tcm_wen;
-    logic [RP6502_TCM_AW-1:0] tcm_wword;
+    logic [TCM_AW-1:0] tcm_wword;
     logic [3:0] tcm_wstrb;
     logic [31:0] tcm_wdata;
     always_comb begin
@@ -280,7 +280,7 @@ module soc
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
             dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
-            dph_word <= haddr[RP6502_TCM_AW+1:2];
+            dph_word <= haddr[TCM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[6:0];

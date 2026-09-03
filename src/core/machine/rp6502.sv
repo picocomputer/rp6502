@@ -11,7 +11,7 @@
  */
 
 module rp6502
-    import rp6502_pkg::*;
+    import timing_pkg::*;
 #(
     /* Empty in simulation, which loads the arrays through the bench. */
     parameter TCM_INIT_FILE = "",
@@ -128,7 +128,7 @@ module rp6502
     output logic signed [15:0] rp6502_aud_r,
     output logic rp6502_aud_valid,
 
-    output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline,
+    output logic [SCANLINE_W-1:0] rp6502_scanline,
     output logic rp6502_vid_frame,
 
     /* Port A is the machine's own and answers within the PHI2 period;

@@ -45,7 +45,8 @@ set(RP6502_RTL_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
     ${W65C02_ROM}
-    ${RP6502_SRC}/core/machine/rp6502_pkg.sv
+    ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
+    ${RP6502_SRC}/core/riscv/tcm_pkg.sv
     ${RP6502_SRC}/core/wdc/cpu.sv
     ${RP6502_SRC}/core/wdc/bus.sv
     ${RP6502_SRC}/core/wdc/via.sv

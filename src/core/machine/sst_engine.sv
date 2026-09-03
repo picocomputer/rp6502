@@ -29,7 +29,6 @@
  */
 
 module sst_engine
-    import rp6502_pkg::*;
 (
     input logic clk_sys,
     input logic rst_n,

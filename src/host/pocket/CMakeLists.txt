@@ -46,8 +46,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         WANTS "the Pocket bitstream" OPTIONAL RESULT RP6502_HAVE_APF)
     # The array the firmware is loaded into is sized in the RTL, so read
     # the size from there rather than keeping a second copy in step.
-    file(STRINGS ${RP6502_SRC}/core/machine/rp6502_pkg.sv TCM_WORDS_LINE
-        REGEX "localparam int RP6502_TCM_WORDS")
+    file(STRINGS ${RP6502_SRC}/core/riscv/tcm_pkg.sv TCM_WORDS_LINE
+        REGEX "localparam int TCM_WORDS")
     # The name has digits in it, so match the value and not the first
     # number on the line.
     string(REGEX MATCH "= *([0-9]+)" _tcm_m "${TCM_WORDS_LINE}")

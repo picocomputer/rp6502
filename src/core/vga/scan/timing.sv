@@ -17,7 +17,7 @@
  */
 
 module timing
-    import rp6502_pkg::*;
+    import timing_pkg::*;
 (
     input logic clk,
 
@@ -43,9 +43,9 @@ module timing
     always_ff @(posedge clk) begin
         tick <= tick + 1'd1;
         if (tick == 1'd1) begin
-            if (timing_h == 10'(RP6502_H_TOTAL - 1)) begin
+            if (timing_h == 10'(H_TOTAL - 1)) begin
                 timing_h <= '0;
-                if (timing_v == 10'(RP6502_V_TOTAL - 1))
+                if (timing_v == 10'(V_TOTAL - 1))
                     timing_v <= '0;
                 else
                     timing_v <= timing_v + 10'd1;
@@ -58,17 +58,17 @@ module timing
     always_comb begin
         timing_px_first = tick == 1'd0;
         timing_px_last = tick == 1'd1;
-        timing_de = timing_h < 10'(RP6502_H_ACTIVE)
-            && timing_v < 10'(RP6502_V_ACTIVE) && tick == 1'd1;
-        timing_hsync = !(timing_h >= 10'(RP6502_H_ACTIVE + RP6502_H_FP)
-            && timing_h < 10'(RP6502_H_ACTIVE + RP6502_H_FP + RP6502_H_SYNC));
-        timing_vsync = !(timing_v >= 10'(RP6502_V_ACTIVE + RP6502_V_FP)
-            && timing_v < 10'(RP6502_V_ACTIVE + RP6502_V_FP + RP6502_V_SYNC));
+        timing_de = timing_h < 10'(H_ACTIVE)
+            && timing_v < 10'(V_ACTIVE) && tick == 1'd1;
+        timing_hsync = !(timing_h >= 10'(H_ACTIVE + H_FP)
+            && timing_h < 10'(H_ACTIVE + H_FP + H_SYNC));
+        timing_vsync = !(timing_v >= 10'(V_ACTIVE + V_FP)
+            && timing_v < 10'(V_ACTIVE + V_FP + V_SYNC));
         timing_line_start = timing_h == 10'd0 && tick == 1'd0;
         timing_frame_start = timing_h == 10'd0
             && timing_v == 10'd0 && tick == 1'd0;
         timing_vsync_pulse = timing_h == 10'd0
-            && timing_v == 10'(RP6502_V_ACTIVE) && tick == 1'd0;
+            && timing_v == 10'(V_ACTIVE) && tick == 1'd0;
     end
 
 endmodule
