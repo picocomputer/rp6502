@@ -5,7 +5,6 @@
  */
 
 #include "core/sys/sys.h"
-#include "ria/main.h"
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"

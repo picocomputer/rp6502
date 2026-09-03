@@ -19,7 +19,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/led.h"
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include <stdio.h>
 #include <pico/time.h>
 #include <btstack.h>

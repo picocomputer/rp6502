@@ -7,7 +7,7 @@
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
-#include "core/rp2350.h"
+#include "ria/sys/rp2350.h"
 #include <math.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>

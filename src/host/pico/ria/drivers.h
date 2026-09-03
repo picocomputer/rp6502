@@ -39,6 +39,7 @@
 #include "ria/mon/ram.h"
 #include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
 #include "ria/mon/rom.h"
+#include "ria/sys/rp2350.h"
 #include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "ria/sys/resb.h"
@@ -56,8 +57,9 @@
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
 
-/* The first seven are the machine's bring-up, and the order is the fabric's:
- * the console before anything prints, the banner before anything can queue an
+/* The first eight are the machine's bring-up, and the order is the fabric's:
+ * the part's clock before anything divided from it is set up, the console
+ * before anything prints, the banner before anything can queue an
  * error under it, the bus before the video that talks over it, and the
  * filesystem before the config it holds. The rest is init order and little
  * else -- usb second-to-last because its enumeration window times a keyboard
@@ -71,6 +73,7 @@
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
 #define RP6502_MACH_DRIVERS                          \
+    RP2350_DRIVER,                                   \
     COM_DRIVER, MON_DRIVER,                          \
     RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,              \
     LFS_DRIVER, CFG_DRIVER,                          \

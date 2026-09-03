@@ -5,16 +5,8 @@
  */
 
 #include "core/sys/sys.h"
-#include "ria/main.h"
 #include "drivers.h"
 #include "core/api/proc.h"
-#include "core/rp2350.h"
-#include <hardware/clocks.h>
-#include <hardware/vreg.h>
-#include <pico/stdlib.h>
-
-// The boost that rate is tested at, which only the board that sets it needs.
-#define SYS_RP2350_VREG VREG_VOLTAGE_1_15
 
 /*****************************/
 /* This is the OS scheduler. */
@@ -37,13 +29,12 @@ bool sys_break_to_launcher(void)
     return true;
 }
 
+/* Everything is a device driver, and this is where they are notified of init,
+ * task, run, stop and break. The walk comes from this machine's drivers.h; the
+ * two task columns are pumped separately, because only one of them is safe to
+ * call during blocking file IO. */
 int main(void)
 {
-    /* Ahead of the drivers rather than first among them: everything derived
-     * from this clock -- the UART's baud, the PIO dividers, the radio's band --
-     * is set up by a driver, so it cannot itself be one. */
-    vreg_set_voltage(SYS_RP2350_VREG);
-    set_sys_clock_khz(SYS_RP2350_KHZ, true);
     sys_init();
     while (true)
     {

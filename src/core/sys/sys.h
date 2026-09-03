@@ -10,7 +10,7 @@
  * what a row of it looks like is core/sys/driver.h. This file is what a machine
  * does with the list: bring it up, pump it, and the latch that turns "stop the
  * 6502" from an ask into a doing. Each machine keeps the rest of its own loop
- * in its own main.h. */
+ * in its own main.c. */
 
 #ifndef _CORE_SYS_SYS_H_
 #define _CORE_SYS_SYS_H_

@@ -5,7 +5,7 @@
  */
 
 #include "core/api/xreg.h"
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "ria/sys/pix.h"

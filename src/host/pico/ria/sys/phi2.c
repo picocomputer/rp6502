@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/rp2350.h"
+#include "ria/sys/rp2350.h"
 #include "core/str/str.h"
 #include "core/sys/config.h"
 #include "ria/sys/cfg.h"

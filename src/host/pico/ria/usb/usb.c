@@ -12,7 +12,7 @@
 #include "core/hid/tablet.h"
 #include "core/hid/gamepad.h"
 #include "host/hcd.h"
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/usb/msc.h"

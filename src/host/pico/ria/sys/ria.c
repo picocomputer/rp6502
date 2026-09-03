@@ -7,7 +7,6 @@
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
-#include "ria/main.h"
 #include "core/api/api.h"
 #include "core/api/proc.h"
 #include "ria/mon/mon.h"
