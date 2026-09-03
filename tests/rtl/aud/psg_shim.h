@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-/* The rate aud_psg.sv's arithmetic is elaborated for. test_psg hands the
+/* The rate psg.sv's arithmetic is elaborated for. test_psg hands the
  * same number to psg_setup and to the model's RATE parameter, because a
  * lockstep between two engines built for different rates compares nothing —
  * and psg_setup divides by it, so leaving it unset is a division by zero

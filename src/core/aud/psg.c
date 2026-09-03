@@ -310,7 +310,7 @@ bool psg_xreg(uint16_t word)
 {
     /* Taking control and giving it up both reset the engine, the way a
      * reset line would, so a program never inherits the last one's
-     * envelopes. The fabric has always done this — aud_psg resets on any
+     * envelopes. The fabric has always done this — psg resets on any
      * write to its pointer register, 0xFFFF included — and this is the
      * software catching up.
      *

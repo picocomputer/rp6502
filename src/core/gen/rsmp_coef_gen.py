@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # The OPL resampler's polyphase coefficients, for src/core/aud/rsmp.c and for
-# src/rtl/aud/aud_rsmp.sv, which has to reproduce that C sample for
+# src/core/aud/rsmp.sv, which has to reproduce that C sample for
 # sample. Standard library only, so this can run in the build rather than
 # committing three thousand numbers that a reader cannot check by eye.
 #

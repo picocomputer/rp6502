@@ -17,14 +17,14 @@
  * leave the centre. So energy away from 512 is the measurement.
  */
 
-#include "Vaud_opl.h"
+#include "Vopl.h"
 
 #include "utest.h"
 
 #include <cstdint>
 #include <cstdlib>
 
-static Vaud_opl *dut;
+static Vopl *dut;
 
 static void tick()
 {
@@ -47,7 +47,7 @@ static void fresh()
         dut->final();
         delete dut;
     }
-    dut = new Vaud_opl;
+    dut = new Vopl;
     dut->clk = 0;
     dut->xaddr_we = 0;
     dut->q_we = 0;
@@ -105,9 +105,9 @@ static uint64_t energy(int samples)
     for (long i = 0; seen < samples && i < 40000000L; i++)
     {
         tick();
-        if (dut->aud_opl_valid)
+        if (dut->opl_valid)
         {
-            uint64_t d = (uint64_t)std::abs((int)(int16_t)dut->aud_opl_out);
+            uint64_t d = (uint64_t)std::abs((int)(int16_t)dut->opl_out);
             sum += d;
             if (d > last_peak)
                 last_peak = d;
@@ -139,7 +139,7 @@ UTEST(opl, silent_until_the_pointer_is_programmed)
     /* Writes land in XRAM whether or not the device is pointed at that
      * page; only the pointer decides whether the engine hears them. */
     note_on(0x12);
-    ASSERT_FALSE(dut->aud_opl_enabled);
+    ASSERT_FALSE(dut->opl_enabled);
     ASSERT_EQ(energy(64), (uint64_t)0);
 }
 
@@ -147,7 +147,7 @@ UTEST(opl, a_note_makes_sound)
 {
     fresh();
     set_page(0x1200);
-    ASSERT_TRUE(dut->aud_opl_enabled);
+    ASSERT_TRUE(dut->opl_enabled);
     note_on(0x12);
     /* Past the attack, then measure. The level is the point: this engine
      * and core/aud/opl.c are the same chip twice and have to be the same
@@ -186,7 +186,7 @@ UTEST(opl, ffff_puts_it_away)
     ASSERT_GT(energy(256), (uint64_t)256);
 
     set_page(0xFFFF);
-    ASSERT_FALSE(dut->aud_opl_enabled);
+    ASSERT_FALSE(dut->opl_enabled);
     /* The engine keeps running; what stops is the machine listening,
      * which rp6502.sv decides from this bit. */
 }

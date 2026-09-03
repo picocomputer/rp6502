@@ -23,7 +23,7 @@
  * because a windowed sinc is even in its argument.
  */
 
-module aud_rsmp
+module rsmp
     import rsmp_coef_pkg::*;
 #(
     /* The two clock divisors, not two frequencies: 1014 and 1050 off the
@@ -40,8 +40,8 @@ module aud_rsmp
 
     input logic step,
 
-    output logic signed [15:0] aud_rsmp_out,
-    output logic aud_rsmp_valid
+    output logic signed [15:0] rsmp_out,
+    output logic rsmp_valid
 );
 
     /* Q32, and above 1.0 whenever the source outruns the sink — which is
@@ -166,11 +166,11 @@ module aud_rsmp
         scaled_q = '0;
         mac_en = 1'b0;
         mac_pass = 1'b0;
-        aud_rsmp_out = '0;
-        aud_rsmp_valid = 1'b0;
+        rsmp_out = '0;
+        rsmp_valid = 1'b0;
     end
     always_ff @(posedge clk) begin
-        aud_rsmp_valid <= 1'b0;
+        rsmp_valid <= 1'b0;
 
         if (mac_en) begin
             if (mac_pass)
@@ -232,9 +232,9 @@ module aud_rsmp
             end
 
             R_EMIT: begin
-                aud_rsmp_out <= rounded < -42'sd32768 ? -16'sd32768
+                rsmp_out <= rounded < -42'sd32768 ? -16'sd32768
                     : rounded > 42'sd32767 ? 16'sd32767 : 16'(rounded);
-                aud_rsmp_valid <= 1'b1;
+                rsmp_valid <= 1'b1;
                 /* Consume the whole inputs and keep the fraction: at
                  * this ratio one most times and two the rest. */
                 if (phase_next >= TWO) begin

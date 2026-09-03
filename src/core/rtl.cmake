@@ -56,10 +56,10 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/rv/rv_soc.sv
     ${RP6502_SRC}/core/vga/scan/timing.sv
     ${AUD_SINE_PKG}
-    ${RP6502_SRC}/core/aud/aud_psg.sv
-    ${RP6502_SRC}/core/aud/aud_opl.sv
+    ${RP6502_SRC}/core/aud/psg.sv
+    ${RP6502_SRC}/core/aud/opl.sv
     ${RSMP_COEF_PKG}
-    ${RP6502_SRC}/core/aud/aud_rsmp.sv
+    ${RP6502_SRC}/core/aud/rsmp.sv
     ${VID_PALETTE_PKG}
     ${RP6502_SRC}/core/vga/scan/font.sv
     ${RP6502_SRC}/core/vga/scan/palram.sv

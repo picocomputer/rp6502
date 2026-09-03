@@ -8,7 +8,7 @@
 # worth.
 #
 # R101  Combinational logic used as a reset, unsynchronised.
-#       aud_opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
+#       opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
 #       reset of the vendored OPL's own afifo. It is a counter compared
 #       against zero, held for 255 clocks at a time, and the core it
 #       resets is the vendor's. The machine's own reset is one flop now

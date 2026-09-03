@@ -154,8 +154,8 @@ set_clock_uncertainty -add -hold 0.080 \
 # so skew can only choose which edge each endpoint releases on, never
 # hand any of them a pulse.
 set_false_path -hold \
-    -from [get_registers {*|aud_opl:*|reset_sync:*|r2}] \
-    -to [get_registers {*|aud_opl:*|afifo:*}]
+    -from [get_registers {*|opl:*|reset_sync:*|r2}] \
+    -to [get_registers {*|opl:*|afifo:*}]
 
 # The data-phase payload, cut at the protocol rather than an endpoint
 # at a time. In rv_soc, dph_addr and dph_strb are written under

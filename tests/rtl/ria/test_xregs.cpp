@@ -39,7 +39,7 @@ UTEST(xregs, the_program_reaches_the_devices)
         /* The bell is a voice of the PSG now and the soft CPU rings it by
          * writing the voice's gate, so a strike is that bit going up. */
         const bool bg =
-            (dut->rootp->rp6502__DOT__aud_psg__DOT__bel_hi >> 16) & 1;
+            (dut->rootp->rp6502__DOT__psg__DOT__bel_hi >> 16) & 1;
         if (!bel_gate_prev && bg)
             strikes++;
         bel_gate_prev = bg;
@@ -50,9 +50,9 @@ UTEST(xregs, the_program_reaches_the_devices)
 
     /* The PSG took 0x8000 and the OPL took 0xF000 after it. Setting up
      * either engine resets the other, so the PSG's pointer is parked. */
-    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0xFFFF);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__aud_opl__DOT__enabled);
-    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_opl__DOT__page, 0xF0);
+    ASSERT_EQ(dut->rootp->rp6502__DOT__psg__DOT__xaddr, 0xFFFF);
+    ASSERT_TRUE(dut->rootp->rp6502__DOT__opl__DOT__enabled);
+    ASSERT_EQ(dut->rootp->rp6502__DOT__opl__DOT__page, 0xF0);
 
     /* Canvas 1, mode 3 entries across [0, 240) on plane 0 with the config
      * pointer, nothing at 240. */

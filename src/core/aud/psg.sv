@@ -19,10 +19,10 @@
  * table indexed by a register is a mux, and these were the largest
  * logic in the module before they were a read.
  *
- * aud_psg_tick is the sample divider, not the end of a walk.
+ * psg_tick is the sample divider, not the end of a walk.
  */
 
-module aud_psg
+module psg
     import aud_sine_pkg::*;
 #(
     /* The arithmetic's rate. Separate from the tick, which only says how
@@ -61,11 +61,11 @@ module aud_psg
     input logic [31:0] bel_wdata,
 
     /* Signed at full scale; the platform narrows. */
-    output logic signed [15:0] aud_psg_l,
-    output logic signed [15:0] aud_psg_r,
-    output logic aud_psg_valid,
+    output logic signed [15:0] psg_l,
+    output logic signed [15:0] psg_r,
+    output logic psg_valid,
 
-    output logic aud_psg_tick
+    output logic psg_tick
 );
 
     /* The C's entries are all N << 16 with N no wider than nine bits, so
@@ -310,9 +310,9 @@ module aud_psg
     /* The constant above is 48 kHz's; a rate that moves without it
      * detunes the engine silently. */
     initial if (PHASE_DIV != 32'd144000)
-        $fatal(1, "aud_psg: RATE moved and the phase magic did not");
+        $fatal(1, "psg: RATE moved and the phase magic did not");
     initial if (64'(PHASE_MAGIC) * 64'd1125 != (64'd1 << 51) + 64'd127)
-        $fatal(1, "aud_psg: phase magic is not (2^51 + 127) / 1125");
+        $fatal(1, "psg: phase magic is not (2^51 + 127) / 1125");
 
     (* multstyle = "dsp" *)
     logic [56:0] inc_prod;
@@ -492,14 +492,14 @@ module aud_psg
         w_inc = '0;
         sine_q = '0;
         env_q = '0;
-        aud_psg_l = '0;
-        aud_psg_r = '0;
-        aud_psg_valid = 1'b0;
-        aud_psg_tick = 1'b0;
+        psg_l = '0;
+        psg_r = '0;
+        psg_valid = 1'b0;
+        psg_tick = 1'b0;
     end
     always_ff @(posedge clk) begin
-        aud_psg_valid <= 1'b0;
-        aud_psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
+        psg_valid <= 1'b0;
+        psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
 
         if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
             tickctr <= '0;
@@ -508,7 +508,7 @@ module aud_psg
 
         /* A walk that outlasts its tick drops the sample silently. */
         if (tickctr == 13'd0 && state != P_IDLE)
-            $fatal(1, "aud_psg walk overrun");
+            $fatal(1, "psg walk overrun");
 
         case (state)
             P_IDLE: begin
@@ -548,8 +548,8 @@ module aud_psg
                 mix_i <= mix_i == 2'd2 ? 2'd0 : mix_i + 2'd1;
             end
             P_OUT: begin
-                aud_psg_l <= clamped(21'(mix_l >>> 7));
-                aud_psg_r <= clamped(21'(mix_r >>> 7));
+                psg_l <= clamped(21'(mix_l >>> 7));
+                psg_r <= clamped(21'(mix_r >>> 7));
                 ch <= '0;
                 state <= P_LOAD;
             end
@@ -576,7 +576,7 @@ module aud_psg
                 ch <= ch + 4'd1;
                 if (ch == 4'd8) begin
                     clr <= 1'b0;
-                    aud_psg_valid <= 1'b1;
+                    psg_valid <= 1'b1;
                     state <= P_IDLE;
                 end else
                     state <= P_LOAD;
@@ -625,8 +625,8 @@ module aud_psg
     endfunction
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], bel_wdata[31:24],
+    logic unused_psg;
+    always_comb unused_psg = ^{cf[63:56], bel_wdata[31:24],
                                    inc_prod[PHASE_SHIFT-1:0],
                                    sine_q[ROM_W-1:16], env_q[ROM_W-1:ENV_W]};
     /* verilator lint_on UNUSEDSIGNAL */

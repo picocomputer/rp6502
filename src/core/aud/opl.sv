@@ -16,7 +16,7 @@
  * the sequencer is never the narrow part.
  */
 
-module aud_opl #(
+module opl #(
     /* DAC_OUTPUT_WIDTH is 24, but that is the container and not the
      * range: dac_prep parks a saturated 16-bit channel sum at
      * DAC_LEFT_SHIFT = 5, so core_sample is channel <<< 5 and its real
@@ -42,16 +42,16 @@ module aud_opl #(
     input logic [7:0] q_val,
 
     /* A YM3812 is mono. */
-    output logic signed [15:0] aud_opl_out,
-    output logic aud_opl_valid,
+    output logic signed [15:0] opl_out,
+    output logic opl_valid,
     /* Programming either pointer picks the engine, so the choice lives
      * with the pointer rather than a register of its own. */
-    output logic aud_opl_enabled
+    output logic opl_enabled
 );
 
     logic [7:0] page /*verilator public_flat_rd*/;
     logic enabled /*verilator public_flat_rd*/;
-    always_comb aud_opl_enabled = enabled;
+    always_comb opl_enabled = enabled;
     initial begin
         page = 8'd0;
         enabled = 1'b0;
@@ -153,18 +153,18 @@ module aud_opl #(
     always_comb mixed = enabled ? (25'(core_sample) >>> SAMPLE_SHIFT) : 25'sd0;
 
     initial begin
-        aud_opl_out = '0;
-        aud_opl_valid = 1'b0;
+        opl_out = '0;
+        opl_valid = 1'b0;
     end
     always_ff @(posedge clk) begin
-        aud_opl_valid <= core_valid;
+        opl_valid <= core_valid;
         if (core_valid) begin
             if (mixed < -25'sd32768)
-                aud_opl_out <= -16'sd32768;
+                opl_out <= -16'sd32768;
             else if (mixed > 25'sd32767)
-                aud_opl_out <= 16'sd32767;
+                opl_out <= 16'sd32767;
             else
-                aud_opl_out <= 16'(mixed);
+                opl_out <= 16'(mixed);
         end
     end
 

@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * aud_rsmp against rsmp.c, sample for sample.
+ * rsmp against rsmp.c, sample for sample.
  *
  * test_rsmp measures whether the filter is any good; this measures whether
  * the two implementations of it agree. Two different questions, and only
@@ -17,7 +17,7 @@
  * enough that a one-sample slip has somewhere to show.
  */
 
-#include "Vaud_rsmp.h"
+#include "Vrsmp.h"
 #include "verilated.h"
 
 extern "C"
@@ -34,13 +34,13 @@ UTEST_MAIN();
 
 /* The clock divisors, not the frequencies. rsmp_step just divides one by
  * the other in Q32, and 1050/1014 is the Pocket's ratio exactly where
- * 49704/48000 is only nearly — which is what aud_rsmp is parameterised on,
+ * 49704/48000 is only nearly — which is what rsmp is parameterised on,
  * so it is what this has to drive the C with. */
 #define POCKET_IN 1050
 #define POCKET_OUT 1014
 #define POCKET_IN_HZ 49704
 
-static Vaud_rsmp *dut;
+static Vrsmp *dut;
 
 static void tick()
 {
@@ -57,7 +57,7 @@ static void fresh()
         dut->final();
         delete dut;
     }
-    dut = new Vaud_rsmp;
+    dut = new Vrsmp;
     dut->clk = 0;
     dut->in_valid = 0;
     dut->in_sample = 0;
@@ -68,7 +68,7 @@ static void fresh()
 
 /* The C is not clamped — it answers at full width and lets the platform's
  * sink decide. The fabric IS the sink here, so the comparison clamps the C
- * the way aud_rsmp does rather than pretending neither of them narrows. */
+ * the way rsmp does rather than pretending neither of them narrows. */
 static int16_t clamp16(int32_t v)
 {
     if (v < -32768)
@@ -125,8 +125,8 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
         }
         if (do_step)
             next_step += POCKET_IN;
-        if (dut->aud_rsmp_valid)
-            rbuf.push_back((int16_t)dut->aud_rsmp_out);
+        if (dut->rsmp_valid)
+            rbuf.push_back((int16_t)dut->rsmp_out);
     }
 
     /* The pull side trails the push side by whatever is still in the history

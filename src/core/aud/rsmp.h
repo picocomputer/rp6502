@@ -32,8 +32,8 @@
  * for the design and tests/cpu/aud/test_rsmp.c for the measurement — that file
  * is the ruler, and the ruler was wrong twice before the filter was.
  *
- * Integer throughout, and that is deliberate: aud_rsmp.sv is held to this
- * file sample-for-sample the way aud_psg is held to psg.c, which only works
+ * Integer throughout, and that is deliberate: rsmp.sv is held to this
+ * file sample-for-sample the way psg is held to psg.c, which only works
  * if there is nothing to round differently.
  *
  * It lives here rather than beside the voices in ria/aud because the RP2350

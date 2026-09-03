@@ -1108,7 +1108,7 @@ module rp6502
 
     logic signed [15:0] psg_l, psg_r;
     /* verilator lint_off PINCONNECTEMPTY */
-    aud_psg aud_psg (
+    psg psg (
         .clk(clk_mach),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
@@ -1121,19 +1121,19 @@ module rp6502
         .bel_lo_we(aud_we && bus_addr[5:2] == 4'h4),
         .bel_hi_we(aud_we && bus_addr[5:2] == 4'h5),
         .bel_wdata(bus_wdata),
-        .aud_psg_l(psg_l),
-        .aud_psg_r(psg_r),
+        .psg_l(psg_l),
+        .psg_r(psg_r),
         /* The machine runs off the tick below, which is the divider and
          * not the walk. */
-        .aud_psg_valid(),
-        .aud_psg_tick(psg_tick)
+        .psg_valid(),
+        .psg_tick(psg_tick)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
     logic signed [15:0] opl_l;
     logic opl_valid;
     /* verilator lint_off PINCONNECTEMPTY */
-    aud_opl aud_opl (
+    opl opl (
         .clk(clk_mach),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
         .xaddr_wdata(bus_wdata[15:0]),
@@ -1144,9 +1144,9 @@ module rp6502
         .q_we(qs_we),
         .q_addr(qs_addr),
         .q_val(qs_val),
-        .aud_opl_out(opl_l),
-        .aud_opl_valid(opl_valid),
-        .aud_opl_enabled()
+        .opl_out(opl_l),
+        .opl_valid(opl_valid),
+        .opl_enabled()
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
@@ -1155,14 +1155,14 @@ module rp6502
      * instance, because a YM3812 is mono. */
     logic signed [15:0] opl_rs;
     /* verilator lint_off PINCONNECTEMPTY */
-    aud_rsmp aud_rsmp (
+    rsmp rsmp (
         .clk(clk_mach),
         .in_sample(opl_l),
         .in_valid(opl_valid),
         .step(psg_tick),
-        .aud_rsmp_out(opl_rs),
+        .rsmp_out(opl_rs),
         /* Pulled, so its answer is ready when the tick comes round. */
-        .aud_rsmp_valid()
+        .rsmp_valid()
     );
     /* verilator lint_on PINCONNECTEMPTY */
 

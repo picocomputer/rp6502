@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The console bell. The fabric holds the voice, a ninth channel of
- * aud_psg; this side decides what it plays and when.
+ * psg; this side decides what it plays and when.
  *
  * The split is where the clocks are. A voice steps 48000 times a second,
  * which this processor cannot do — no interrupts, and it can sit inside
