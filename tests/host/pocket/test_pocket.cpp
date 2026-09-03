@@ -158,10 +158,10 @@ static bool load_firmware(const char *path)
 {
     auto *r = dut->rootp;
     return tb_load_tcm(
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3, path);
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3, path);
 }
 
 /* The run is over when the 6502 has run, stopped, and a frame has

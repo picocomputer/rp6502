@@ -506,10 +506,10 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
         tick();
 
     auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3,
+    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
                 SW_BIN);
 
     dut->rst_n = 1;
@@ -1136,7 +1136,7 @@ UTEST(psleep, the_raster_registers_come_back)
     /* The microsecond counter, which is in the blob for the same reason
      * the canvas is out of it: the firmware's every deadline is an
      * absolute reading of this, held in the TCM the blob does carry. */
-    uint64_t mtime_pre = (uint64_t)MEM(rv__DOT__mtime_us);
+    uint64_t mtime_pre = (uint64_t)MEM(soc__DOT__mtime_us);
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
@@ -1175,7 +1175,7 @@ UTEST(psleep, the_raster_registers_come_back)
      * power-on and the load. Left to restart out of the bitstream it
      * would be the latter, and every deadline the blob brought would
      * sit that far in the future of a machine that meant them now. */
-    uint64_t mtime_post = (uint64_t)MEM(rv__DOT__mtime_us);
+    uint64_t mtime_post = (uint64_t)MEM(soc__DOT__mtime_us);
     ASSERT_GE(mtime_post, mtime_pre);
     ASSERT_LT(mtime_post, mtime_pre + 20000u);
 

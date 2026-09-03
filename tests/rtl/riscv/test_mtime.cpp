@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The soft CPU's microsecond clock, which has now been wrong twice in
- * two different ways and both times reached hardware. Left at rv_soc's
+ * two different ways and both times reached hardware. Left at soc's
  * default 1/1 it ran fifty times fast; divided from clk_sys after the
  * counter moved to clk_rv it ran twice slow. Neither showed up in any
  * test, because nothing else in this suite waits on a real second — the
@@ -30,7 +30,7 @@ static bool rv_phase;
 
 static uint64_t mtime()
 {
-    return dut->rootp->rp6502__DOT__rv__DOT__mtime_us;
+    return dut->rootp->rp6502__DOT__soc__DOT__mtime_us;
 }
 
 UTEST(mtime, counts_real_microseconds)

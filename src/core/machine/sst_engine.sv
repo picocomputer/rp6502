@@ -221,7 +221,7 @@ module sst_engine
      * the console's outgoing byte and reading it takes it off the
      * queue. A savestate that read it would eat a character every time
      * one was made, so it is not read and not written. The queue itself
-     * is carried -- ria_regs answers for it at words 20 to 24, which
+     * is carried -- regs answers for it at words 20 to 24, which
      * disturb nothing. */
     localparam int REGS_HOLE = 16;
 

@@ -86,7 +86,7 @@ set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
 # The same length, crossing on into the soft CPU. This leg is
 # synchronous — 50.4 into 25.2, rising together — but the bus still
 # stands still when it is sampled: the bridge writes it on the settle
-# toggle and fires slot_set four machine clocks later, and rv_soc
+# toggle and fires slot_set four machine clocks later, and soc
 # captures only under that enable. The min-delay-0 idiom does nothing
 # here because the same-edge hold relationship is already zero; what is
 # void is the hold check itself, which guards a same-edge change the
@@ -108,7 +108,7 @@ set_false_path -hold \
 # picoseconds, so say exactly that: sixty picoseconds of added hold
 # uncertainty, three times the worst observed miss, in both directions.
 #
-# Raising it does not scale. A later fit missed by 124 ps on rv_soc's
+# Raising it does not scale. A later fit missed by 124 ps on soc's
 # dph_addr into the staging read port; 190 ps of uncertainty moved that
 # to 73 and took setup from 1.129 to 0.906, because the demand rises
 # faster than the fitter can pay it. That path wanted an exception, not
@@ -158,7 +158,7 @@ set_false_path -hold \
     -to [get_registers {*|opl:*|afifo:*}]
 
 # The data-phase payload, cut at the protocol rather than an endpoint
-# at a time. In rv_soc, dph_addr and dph_strb are written under
+# at a time. In soc, dph_addr and dph_strb are written under
 # "if (hready)" and nowhere else; hready = !(dph_active && dph_ext &&
 # !dph_waited) and bus_pend is that same expression un-negated, off the
 # same three registers — so hready is exactly !pend. Every machine-side
@@ -177,7 +177,7 @@ set_false_path -hold \
 #
 # This began as one endpoint and the fit lottery walked the family a
 # pair at a time: dph_addr into stage_addr_q, then into pocket_sdram's
-# op_addr seven picoseconds short, then dph_strb into ria_regs' write
+# op_addr seven picoseconds short, then dph_strb into regs' write
 # enables and dph_addr into the font store's strobe, twenty-six short —
 # each of them physically holding by ninety-odd picoseconds and going
 # negative only under the uncertainty stacked on the crossing above.
@@ -185,17 +185,17 @@ set_false_path -hold \
 # clock and the lottery is out of tickets. Setup stays, and matters:
 # the payload must still cross before the strobe does.
 set_false_path -hold \
-    -from [get_registers {*rv_soc*|dph_addr[*]}] \
+    -from [get_registers {*soc*|dph_addr[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 set_false_path -hold \
-    -from [get_registers {*rv_soc*|dph_strb[*]}] \
+    -from [get_registers {*soc*|dph_strb[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
 # The lottery drew the write data. A CI fit missed by two picoseconds
 # from hazard3's bus_active_dph_s into the scanline table's port-A data
 # register, through mode0's write-data mux -- the same seam, the
 # same class, a register this file had not named because it is the
-# vendor's rather than rv_soc's.
+# vendor's rather than soc's.
 #
 # It is the same interlock and the vendor's source says so outright.
 # hazard3_cpu_1port.v:239-247 writes all three bus_active_dph_* under

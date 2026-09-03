@@ -75,13 +75,13 @@ set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
 set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
     -to [get_registers {*cpu:*}] 1
 
-# ria_regs advances on phi2_en exactly as w65c02 and via do, and it
+# regs advances on phi2_en exactly as w65c02 and via do, and it
 # feeds the 6502's data bus. Left unnamed, the path from it through the
 # address cone into the SRAM's launch register was analysed against one
 # clock and missed by 4.3 ns — for a path whose both ends move six
 # clocks apart.
-set_multicycle_path -setup -from [get_registers {*ria_regs*}] 4
-set_multicycle_path -hold  -from [get_registers {*ria_regs*}] 3
+set_multicycle_path -setup -from [get_registers {*regs*}] 4
+set_multicycle_path -hold  -from [get_registers {*regs*}] 3
 
 # The SRAM's launch registers are the other end of that cycle. This grant
 # is the 6502's alone; port B shares the registers and is walked back to
@@ -158,13 +158,13 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
 # leaves enough stable time for tAA — true of a read and worthless for a
 # write, which is why the port is four clocks again now that these two
 # rules say the real thing.
-set_multicycle_path -setup -from [get_registers {*rv_soc*}] \
+set_multicycle_path -setup -from [get_registers {*soc*}] \
     -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*rv_soc*}] \
+set_multicycle_path -hold  -from [get_registers {*soc*}] \
     -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 0
-set_multicycle_path -setup -from [get_registers {*rv_soc*}] \
+set_multicycle_path -setup -from [get_registers {*soc*}] \
     -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*rv_soc*}] \
+set_multicycle_path -hold  -from [get_registers {*soc*}] \
     -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 0
 
 # The board's SRAM, AS6C2016-55BIN. It has no clock, so there is no

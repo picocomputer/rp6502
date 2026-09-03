@@ -487,10 +487,10 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
         tick();
 
     auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3,
+    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
                 SW_BIN);
 
     dut->rst_n = 1;

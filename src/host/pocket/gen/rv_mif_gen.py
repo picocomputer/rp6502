@@ -41,7 +41,7 @@ def lane_mif(db, lane, words):
     belongs to another design — and the newest wins whatever is left.
     """
     hits = []
-    for path in sorted(db.glob(f"*.ram{lane}_rv_soc_*.hdl.mif")):
+    for path in sorted(db.glob(f"*.ram{lane}_soc_*.hdl.mif")):
         head = header(path)
         if head and "WIDTH=8;" in head and f"DEPTH={words};" in head:
             hits.append((path, head))

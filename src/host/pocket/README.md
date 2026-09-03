@@ -862,7 +862,7 @@ The firmware is cheap because it is not logic. It is the initial contents
 of four M10K arrays, so a new image places nothing, routes nothing and
 moves no timing arc, and the fit already on disk is still the fit that
 comes out. Quartus keeps a MIF of each array under `db/`, generated from
-`rv_soc`'s `$readmemh` while mapping, and those are what
+`soc`'s `$readmemh` while mapping, and those are what
 `quartus_cdb --update_mif` reads back rather than the lane files they came
 from. `rv_mif_gen.py` rewrites the four, `--update_mif` takes them into the
 database, and the assembler makes a programming file out of the placement

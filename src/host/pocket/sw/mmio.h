@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The soft CPU's windows on the machine, as mapped in rp6502.sv and
- * rv_soc.sv. Byte windows by design; the register cells are true words.
+ * soc.sv. Byte windows by design; the register cells are true words.
  */
 
 #ifndef _HOST_POCKET_SW_MMIO_H_

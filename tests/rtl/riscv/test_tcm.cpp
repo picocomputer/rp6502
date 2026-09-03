@@ -31,19 +31,19 @@ static bool rv_phase;
 static void tcm_poke(uint32_t byte_addr, uint32_t word)
 {
     uint32_t w = byte_addr >> 2;
-    dut->rootp->rp6502__DOT__rv__DOT__tcm0[w] = word & 0xff;
-    dut->rootp->rp6502__DOT__rv__DOT__tcm1[w] = (word >> 8) & 0xff;
-    dut->rootp->rp6502__DOT__rv__DOT__tcm2[w] = (word >> 16) & 0xff;
-    dut->rootp->rp6502__DOT__rv__DOT__tcm3[w] = (word >> 24) & 0xff;
+    dut->rootp->rp6502__DOT__soc__DOT__tcm0[w] = word & 0xff;
+    dut->rootp->rp6502__DOT__soc__DOT__tcm1[w] = (word >> 8) & 0xff;
+    dut->rootp->rp6502__DOT__soc__DOT__tcm2[w] = (word >> 16) & 0xff;
+    dut->rootp->rp6502__DOT__soc__DOT__tcm3[w] = (word >> 24) & 0xff;
 }
 
 static uint32_t tcm_peek(uint32_t byte_addr)
 {
     uint32_t w = byte_addr >> 2;
-    return (uint32_t)dut->rootp->rp6502__DOT__rv__DOT__tcm0[w]
-           | ((uint32_t)dut->rootp->rp6502__DOT__rv__DOT__tcm1[w] << 8)
-           | ((uint32_t)dut->rootp->rp6502__DOT__rv__DOT__tcm2[w] << 16)
-           | ((uint32_t)dut->rootp->rp6502__DOT__rv__DOT__tcm3[w] << 24);
+    return (uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm0[w]
+           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm1[w] << 8)
+           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm2[w] << 16)
+           | ((uint32_t)dut->rootp->rp6502__DOT__soc__DOT__tcm3[w] << 24);
 }
 
 static void run_program(const uint32_t *prog, unsigned words)

@@ -45,7 +45,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
     int quiet_frames = 0;
     /* An image waiting in the staging window; the firmware clears the
      * length when it is done with it, run or refused. */
-    bool had_image = dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len != 0;
+    bool had_image = dut->rootp->rp6502__DOT__soc__DOT__mmio_slot_len != 0;
     bool pending = had_image;
     uint16_t prev = dut->rp6502_scanline;
     while (frames < frame_limit && budget-- > 0)
@@ -57,7 +57,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
             moved = true;
         if (dut->rootp->rp6502__DOT__resb)
             ran = true;
-        if (pending && !dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len)
+        if (pending && !dut->rootp->rp6502__DOT__soc__DOT__mmio_slot_len)
             pending = false;
         uint16_t sl = dut->rp6502_scanline;
         bool frame_edge = sl == 0 && prev != 0;

@@ -71,7 +71,7 @@ static void run_staged(int *utest_result, bool slot_by_port,
         dut->slot_set = 0;
     }
     else
-        dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len =
+        dut->rootp->rp6502__DOT__soc__DOT__mmio_slot_len =
             (uint32_t)rom.size();
 
     std::string rv_out, cpu_out;

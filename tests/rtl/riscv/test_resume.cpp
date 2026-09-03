@@ -67,19 +67,19 @@ static void clk(void)
 static uint32_t tcm_word(uint32_t w)
 {
     auto *r = dut->rootp;
-    return (uint32_t)r->rp6502__DOT__rv__DOT__tcm0[w]
-           | ((uint32_t)r->rp6502__DOT__rv__DOT__tcm1[w] << 8)
-           | ((uint32_t)r->rp6502__DOT__rv__DOT__tcm2[w] << 16)
-           | ((uint32_t)r->rp6502__DOT__rv__DOT__tcm3[w] << 24);
+    return (uint32_t)r->rp6502__DOT__soc__DOT__tcm0[w]
+           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm1[w] << 8)
+           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm2[w] << 16)
+           | ((uint32_t)r->rp6502__DOT__soc__DOT__tcm3[w] << 24);
 }
 
 static void tcm_put(uint32_t w, uint32_t v)
 {
     auto *r = dut->rootp;
-    r->rp6502__DOT__rv__DOT__tcm0[w] = v & 0xFF;
-    r->rp6502__DOT__rv__DOT__tcm1[w] = (v >> 8) & 0xFF;
-    r->rp6502__DOT__rv__DOT__tcm2[w] = (v >> 16) & 0xFF;
-    r->rp6502__DOT__rv__DOT__tcm3[w] = (v >> 24) & 0xFF;
+    r->rp6502__DOT__soc__DOT__tcm0[w] = v & 0xFF;
+    r->rp6502__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
+    r->rp6502__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
+    r->rp6502__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
 }
 
 static void power_on(const std::vector<uint32_t> &prog)

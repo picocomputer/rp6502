@@ -18,7 +18,7 @@
  * op lands, so the 6502 can JSR into the trampoline immediately.
  */
 
-module ria_regs (
+module regs (
     input logic clk,
     /* The register file, the stack and the console queue run on the
      * clock that does not stop, so the savestate serializer reaches
@@ -34,24 +34,24 @@ module ria_regs (
     input logic [4:0] rs,
     input logic [7:0] data_i,
 
-    output logic [7:0] ria_regs_data,
+    output logic [7:0] regs_data,
 
-    output logic [7:0] ria_regs_tx_data,
-    output logic ria_regs_tx_valid,
+    output logic [7:0] regs_tx_data,
+    output logic regs_tx_valid,
 
     input logic rx_valid,
     input logic [7:0] rx_data,
-    output logic ria_regs_rx_taken,
+    output logic regs_rx_taken,
 
     input logic vsync_pulse,
-    output logic ria_regs_irq,
+    output logic regs_irq,
 
     /* The engine owns port B while busy; the background refresh yields
      * to the soft CPU. */
-    output logic ria_regs_xr_busy,
-    output logic ria_regs_xr_we,
-    output logic [15:0] ria_regs_xr_addr,
-    output logic [7:0] ria_regs_xr_wdata,
+    output logic regs_xr_busy,
+    output logic regs_xr_we,
+    output logic [15:0] regs_xr_addr,
+    output logic [7:0] regs_xr_wdata,
     input logic [7:0] xr_rdata,
     input logic xr_cpu_want,
 
@@ -81,9 +81,9 @@ module ria_regs (
      * handshake, the stack guard and the stack pointer. */
     input logic sst_jam,
     input logic [31:0] sst_jam_data[12],
-    output logic [31:0] ria_regs_b_rdata,
+    output logic [31:0] regs_b_rdata,
 
-    output logic ria_regs_api_pending,
+    output logic regs_api_pending,
     input logic api_ack
 );
 
@@ -106,7 +106,7 @@ module ria_regs (
         if (vsync_pulse)
             pend_next = pend_next | 8'h80;
     end
-    always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
+    always_comb regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
     /* Flops, not an MLAB. The savestate reads the whole queue at once
      * and writes the whole queue back, which is five more ports than a
@@ -152,16 +152,16 @@ module ria_regs (
         xr_issue_f0 = !xr_wr_pend && (xr_fill_pend0 || (xr_bg_go && !xr_bg_alt));
         xr_issue_f1 = !xr_wr_pend && !xr_fill_pend0
             && (xr_fill_pend1 || (xr_bg_go && xr_bg_alt));
-        ria_regs_xr_busy = xr_wr_pend || xr_fill_pend0 || xr_fill_pend1
+        regs_xr_busy = xr_wr_pend || xr_fill_pend0 || xr_fill_pend1
             || xr_bg_go;
-        ria_regs_xr_we = xr_wr_pend;
-        ria_regs_xr_wdata = xr_wr_byte;
+        regs_xr_we = xr_wr_pend;
+        regs_xr_wdata = xr_wr_byte;
         if (xr_wr_pend)
-            ria_regs_xr_addr = xr_wr_addr;
+            regs_xr_addr = xr_wr_addr;
         else if (xr_issue_f0)
-            ria_regs_xr_addr = {regs[5'h07], regs[5'h06]};
+            regs_xr_addr = {regs[5'h07], regs[5'h06]};
         else
-            ria_regs_xr_addr = {regs[5'h0B], regs[5'h0A]};
+            regs_xr_addr = {regs[5'h0B], regs[5'h0A]};
     end
 
     /* LUT RAM is one write port and one asynchronous read port, so the
@@ -211,13 +211,13 @@ module ria_regs (
     end
 
     always_comb begin
-        ria_regs_data = regs[rs];
+        regs_data = regs[rs];
         if (cs && !we) begin
             case (rs)
-                5'h00: ria_regs_data = (regs[0] & ~TX_READY)
+                5'h00: regs_data = (regs[0] & ~TX_READY)
                     | (txf_count < 5'd16 ? TX_READY : 8'h00)
                     | (pull ? RX_READY : 8'h00);
-                5'h02: ria_regs_data = regs[2];
+                5'h02: regs_data = regs[2];
                 default: ;
             endcase
         end
@@ -315,39 +315,39 @@ module ria_regs (
 
     always_comb begin
         case (w_word)
-            8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            8'd16: regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
             /* The console queue, whole, for the one reader that must
              * not disturb it. */
-            8'(TXQ_PTR): ria_regs_b_rdata = {19'd0, txf_count, txf_r, txf_w};
-            8'(TXQ_W0 + 0): ria_regs_b_rdata =
+            8'(TXQ_PTR): regs_b_rdata = {19'd0, txf_count, txf_r, txf_w};
+            8'(TXQ_W0 + 0): regs_b_rdata =
                 {txf[3], txf[2], txf[1], txf[0]};
-            8'(TXQ_W0 + 1): ria_regs_b_rdata =
+            8'(TXQ_W0 + 1): regs_b_rdata =
                 {txf[7], txf[6], txf[5], txf[4]};
-            8'(TXQ_W0 + 2): ria_regs_b_rdata =
+            8'(TXQ_W0 + 2): regs_b_rdata =
                 {txf[11], txf[10], txf[9], txf[8]};
-            8'(TXQ_W0 + 3): ria_regs_b_rdata =
+            8'(TXQ_W0 + 3): regs_b_rdata =
                 {txf[15], txf[14], txf[13], txf[12]};
             /* The interrupt enable has no other way out: the 6502
              * writes $FFF0 and nothing reads it back, and the pending
              * cell in regs is a mirror rewritten every clock. A
              * savestate needs both, so they share a word. */
-            8'd17: ria_regs_b_rdata = {16'd0, irq_pending, irq_enabled};
+            8'd17: regs_b_rdata = {16'd0, irq_pending, irq_enabled};
             /* Bit 2 is here for the savestate and nothing else: a
              * state taken mid-API-call has to carry the pending flag,
              * or the restored 6502 spins in its trampoline waiting on
              * a call the soft CPU was never told about. */
-            8'd18: ria_regs_b_rdata = {16'd0, os_rx_data, 5'd0,
-                                       ria_regs_api_pending, rx_req,
+            8'd18: regs_b_rdata = {16'd0, os_rx_data, 5'd0,
+                                       regs_api_pending, rx_req,
                                        !os_rx_valid};
-            8'd200: ria_regs_b_rdata = {22'd0, xsp};
+            8'd200: regs_b_rdata = {22'd0, xsp};
             default: begin
                 if (xs_win)
-                    ria_regs_b_rdata = xs_word[7] ? xs_guard : {
+                    regs_b_rdata = xs_word[7] ? xs_guard : {
                         xs3[xs_word[6:0]], xs2[xs_word[6:0]],
                         xs1[xs_word[6:0]], xs0[xs_word[6:0]]
                     };
                 else
-                    ria_regs_b_rdata = {
+                    regs_b_rdata = {
                         regs[{w_word[2:0], 2'd3}], regs[{w_word[2:0], 2'd2}],
                         regs[{w_word[2:0], 2'd1}], regs[{w_word[2:0], 2'd0}]
                     };
@@ -361,10 +361,10 @@ module ria_regs (
     initial begin
         for (int i = 0; i < 32; i++)
             regs[i] = 8'h00;
-        ria_regs_tx_data = 8'h00;
-        ria_regs_tx_valid = 1'b0;
-        ria_regs_rx_taken = 1'b0;
-        ria_regs_api_pending = 1'b0;
+        regs_tx_data = 8'h00;
+        regs_tx_valid = 1'b0;
+        regs_rx_taken = 1'b0;
+        regs_api_pending = 1'b0;
         irq_pending = 8'h00;
         irq_enabled = 8'h00;
     end
@@ -381,18 +381,18 @@ module ria_regs (
      * chance worth having. */
     always_ff @(posedge clk) begin
         if (en) begin
-            ria_regs_tx_valid <= 1'b0;
-            ria_regs_rx_taken <= pull;
+            regs_tx_valid <= 1'b0;
+            regs_rx_taken <= pull;
             if (api_ack)
-                ria_regs_api_pending <= 1'b0;
+                regs_api_pending <= 1'b0;
             if (cs) begin
                 if (we) begin
                     case (rs)
                         5'h01: begin
                             /* A write while full drops; TX_READY told
                              * the program not to. */
-                            ria_regs_tx_data <= data_i;
-                            ria_regs_tx_valid <= 1'b1;
+                            regs_tx_data <= data_i;
+                            regs_tx_valid <= 1'b1;
                         end
                         5'h04: begin
                             /* The byte goes to XRAM, never the cell; the
@@ -416,7 +416,7 @@ module ria_regs (
                             regs[5'h0F] <= data_i;
                             regs[5'h11] <= 8'h80;
                             regs[5'h12] <= 8'hFE;
-                            ria_regs_api_pending <= 1'b1;
+                            regs_api_pending <= 1'b1;
                         end
                         5'h10: ;  /* enable/ack handled above the case */
                         default: regs[rs] <= data_i;
@@ -454,10 +454,10 @@ module ria_regs (
                 end
             end
         end else begin
-            ria_regs_tx_valid <= 1'b0;
-            ria_regs_rx_taken <= 1'b0;
+            regs_tx_valid <= 1'b0;
+            regs_rx_taken <= 1'b0;
             if (api_ack)
-                ria_regs_api_pending <= 1'b0;
+                regs_api_pending <= 1'b0;
         end
         /* The frame counter and the $FFF0 block land every
          * clock: pending resolves through pend_next, its
@@ -473,7 +473,7 @@ module ria_regs (
             if (sst_jam) begin
                 irq_enabled <= sst_jam_data[8][7:0];
                 irq_pending <= sst_jam_data[8][15:8];
-                ria_regs_api_pending <= sst_jam_data[9][2];
+                regs_api_pending <= sst_jam_data[9][2];
             end else if (w_we && w_word == 8'd17) begin
                 if (w_strb[0])
                     irq_enabled <= w_data[7:0];

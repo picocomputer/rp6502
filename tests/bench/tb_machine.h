@@ -65,10 +65,10 @@ template <typename Dut>
 static bool tb_firmware(Dut *dut, const char *path)
 {
     auto *r = dut->rootp;
-    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
-                       r->rp6502__DOT__rv__DOT__tcm1,
-                       r->rp6502__DOT__rv__DOT__tcm2,
-                       r->rp6502__DOT__rv__DOT__tcm3, path);
+    return tb_load_tcm(r->rp6502__DOT__soc__DOT__tcm0,
+                       r->rp6502__DOT__soc__DOT__tcm1,
+                       r->rp6502__DOT__soc__DOT__tcm2,
+                       r->rp6502__DOT__soc__DOT__tcm3, path);
 }
 
 template <typename Dut> static void tb_reset(Dut *dut)
@@ -125,7 +125,7 @@ static bool tb_boot_each(Dut *dut, const std::vector<uint8_t> &rom,
     if (!tb_firmware(dut, SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->rp6502__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
     return tb_run(dut, rom, console, each);
 }
 

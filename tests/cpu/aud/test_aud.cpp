@@ -88,7 +88,7 @@ static bool load_rom(const char *path)
     if (!tb_firmware(dut, SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->rp6502__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
     g_valids = g_energy = 0;
     g_peak = 0;
     return true;
@@ -198,7 +198,7 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
 
     long rv_bytes = 0;
     long frames = 0;
-    uint64_t mtime0 = dut->rootp->rp6502__DOT__rv__DOT__mtime_us;
+    uint64_t mtime0 = dut->rootp->rp6502__DOT__soc__DOT__mtime_us;
     g_energy = 0;
     g_peak = 0;
     g_valids = 0;
@@ -223,7 +223,7 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
     /* The raster kept its cadence. */
     ASSERT_EQ(frames, (long)3);
     /* The soft CPU kept time, which it cannot do if it stopped. */
-    ASSERT_GT(dut->rootp->rp6502__DOT__rv__DOT__mtime_us, mtime0);
+    ASSERT_GT(dut->rootp->rp6502__DOT__soc__DOT__mtime_us, mtime0);
     /* And the note is still sounding. */
     ASSERT_GT(g_valids, (long)0);
     ASSERT_GT(g_peak, 32);

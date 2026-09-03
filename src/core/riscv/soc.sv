@@ -11,7 +11,7 @@
  * single-cycle devices one strobe per access.
  */
 
-module rv_soc
+module soc
     import rp6502_pkg::*;
 #(
     parameter int MTIME_ADD = 1,
@@ -32,12 +32,12 @@ module rv_soc
     input logic [3:0][31:0] cont_key,
     input logic [3:0][31:0] cont_joy,
     input logic [3:0][15:0] cont_trig,
-    output logic rv_soc_key_pending,
+    output logic soc_key_pending,
 
-    output logic [7:0] rv_soc_tx_data,
-    output logic rv_soc_tx_valid,
+    output logic [7:0] soc_tx_data,
+    output logic soc_tx_valid,
 
-    output logic [15:0] rv_soc_phi2_khz,
+    output logic [15:0] soc_phi2_khz,
 
     /* Held still with the rest of the machine. Hazard3 hardwires
      * dcsr.stoptime, which is the core saying it expects its timebase
@@ -55,7 +55,7 @@ module rv_soc
      * still the host's to answer.
      *
      * The soft CPU's own memory is reached the same way. It is not on
-     * the machine's bus -- rv_soc decodes it here rather than sending
+     * the machine's bus -- soc decodes it here rather than sending
      * it out -- so a savestate walks it through this port, which steals
      * the array's one port while the core is halted and not using it. */
 
@@ -71,15 +71,15 @@ module rv_soc
     input logic sst_dbg_halt,
     input logic sst_dbg_halt_on_reset,
     input logic sst_dbg_resume,
-    output logic rv_soc_dbg_halted,
+    output logic soc_dbg_halted,
     input logic [31:0] sst_dbg_data0,
-    output logic [31:0] rv_soc_dbg_data0,
-    output logic rv_soc_dbg_data0_wen,
+    output logic [31:0] soc_dbg_data0,
+    output logic soc_dbg_data0_wen,
     input logic [31:0] sst_dbg_instr,
     input logic sst_dbg_instr_vld,
-    output logic rv_soc_dbg_instr_rdy,
-    output logic rv_soc_dbg_ebreak,
-    output logic rv_soc_dbg_fault,
+    output logic soc_dbg_instr_rdy,
+    output logic soc_dbg_ebreak,
+    output logic soc_dbg_fault,
 
     input logic sst_phi2_we,
     input logic [15:0] sst_phi2_wdata,
@@ -89,17 +89,17 @@ module rv_soc
      * -- long enough that this half-rate clock cannot miss it, and
      * early enough that the firmware's first reading is already the
      * restored one. */
-    output logic [63:0] rv_soc_mtime,
+    output logic [63:0] soc_mtime,
     input logic sst_mtime_we,
     input logic [63:0] sst_mtime_wdata,
     input logic sst_tcm_sel,
     input logic [RP6502_TCM_AW-1:0] sst_tcm_addr,
     input logic sst_tcm_we,
     input logic [31:0] sst_tcm_wdata,
-    output logic [31:0] rv_soc_tcm_rdata,
+    output logic [31:0] soc_tcm_rdata,
 
-    output logic rv_soc_halted,
-    output logic [31:0] rv_soc_exit_code,
+    output logic soc_halted,
+    output logic [31:0] soc_exit_code,
 
     input logic bus_rdy,
     /* Told, not worked out again from bus_rdy: that term moves on the
@@ -107,12 +107,12 @@ module rv_soc
      * here differs from the first and the access happens twice or not
      * at all. */
     input logic bus_taken,
-    output logic rv_soc_bus_pend,
-    output logic rv_soc_bus_stb,
-    output logic rv_soc_bus_we,
-    output logic [31:0] rv_soc_bus_addr,
-    output logic [31:0] rv_soc_bus_wdata,
-    output logic [3:0] rv_soc_bus_wstrb,
+    output logic soc_bus_pend,
+    output logic soc_bus_stb,
+    output logic soc_bus_we,
+    output logic [31:0] soc_bus_addr,
+    output logic [31:0] soc_bus_wdata,
+    output logic [3:0] soc_bus_wstrb,
     input logic [31:0] bus_rdata
 );
 
@@ -164,16 +164,16 @@ module rv_soc
         .dbg_req_halt(sst_dbg_halt),
         .dbg_req_halt_on_reset(sst_dbg_halt_on_reset),
         .dbg_req_resume(sst_dbg_resume),
-        .dbg_halted(rv_soc_dbg_halted),
+        .dbg_halted(soc_dbg_halted),
         .dbg_running(),
         .dbg_data0_rdata(sst_dbg_data0),
-        .dbg_data0_wdata(rv_soc_dbg_data0),
-        .dbg_data0_wen(rv_soc_dbg_data0_wen),
+        .dbg_data0_wdata(soc_dbg_data0),
+        .dbg_data0_wen(soc_dbg_data0_wen),
         .dbg_instr_data(sst_dbg_instr),
         .dbg_instr_data_vld(sst_dbg_instr_vld),
-        .dbg_instr_data_rdy(rv_soc_dbg_instr_rdy),
-        .dbg_instr_caught_exception(rv_soc_dbg_fault),
-        .dbg_instr_caught_ebreak(rv_soc_dbg_ebreak),
+        .dbg_instr_data_rdy(soc_dbg_instr_rdy),
+        .dbg_instr_caught_exception(soc_dbg_fault),
+        .dbg_instr_caught_ebreak(soc_dbg_ebreak),
         .dbg_sbus_addr(32'h0),
         .dbg_sbus_write(1'b0),
         .dbg_sbus_size(2'h0),
@@ -237,7 +237,7 @@ module rv_soc
     logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
     logic [RP6502_TCM_AW-1:0] word_addr;
     always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[RP6502_TCM_AW+1:2];
-    always_comb rv_soc_tcm_rdata = tcm_rdata;
+    always_comb soc_tcm_rdata = tcm_rdata;
 
     /* A store's data phase overlaps the next load's address phase, so a
      * load of the word just stored samples the array on the same edge
@@ -292,16 +292,16 @@ module rv_soc
 
     /* pend has no rdy term; its own block keeps the scheduler from seeing
      * a loop through the arbiter. */
-    always_comb rv_soc_bus_pend = dph_active && dph_ext && !dph_waited;
+    always_comb soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
-        rv_soc_bus_stb = rv_soc_bus_pend && bus_rdy;
+        soc_bus_stb = soc_bus_pend && bus_rdy;
         /* The data phase's alone. Qualified with the strobe it carried
          * bus_rdy, answering live where the strobe answers from the
          * falling edge, and a write that lands as a read is gone. */
-        rv_soc_bus_we = dph_write;
-        rv_soc_bus_addr = dph_addr;
-        rv_soc_bus_wdata = hwdata;
-        rv_soc_bus_wstrb = dph_strb;
+        soc_bus_we = dph_write;
+        soc_bus_addr = dph_addr;
+        soc_bus_wdata = hwdata;
+        soc_bus_wstrb = dph_strb;
     end
 
     /* The decode matters: an external-window write must not also land
@@ -327,7 +327,7 @@ module rv_soc
     logic mmio_kbd_valid /*verilator public_flat_rw*/;
     logic [8:0] mmio_key_data /*verilator public_flat_rw*/;
     logic mmio_key_valid /*verilator public_flat_rw*/;
-    always_comb rv_soc_key_pending = mmio_key_valid;
+    always_comb soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
@@ -340,9 +340,9 @@ module rv_soc
      * exactly the span of a savestate: the core's clock never stops,
      * so the counter has to be told. dcsr.stoptime is hardwired 1 --
      * the core already expects time to stand still while it does. */
-    always_comb rv_soc_mtime = mtime_us;
+    always_comb soc_mtime = mtime_us;
     always_ff @(posedge clk) begin
-        if (!rv_soc_dbg_halted) begin
+        if (!soc_dbg_halted) begin
             if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
             begin
                 mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
@@ -367,7 +367,7 @@ module rv_soc
         else if (dph_mmio)
             case (mmio_reg)
                 7'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
-                7'h0C: hrdata = {16'd0, rv_soc_phi2_khz};
+                7'h0C: hrdata = {16'd0, soc_phi2_khz};
                 7'h10: hrdata = mtime_us[31:0];
                 7'h14: hrdata = mtime_us[63:32];
                 7'h18: hrdata = mmio_slot_len;
@@ -402,10 +402,10 @@ module rv_soc
     end
 
     initial begin
-        rv_soc_tx_data = 8'h00;
-        rv_soc_tx_valid = 1'b0;
-        rv_soc_halted = 1'b0;
-        rv_soc_exit_code = 32'h0;
+        soc_tx_data = 8'h00;
+        soc_tx_valid = 1'b0;
+        soc_halted = 1'b0;
+        soc_exit_code = 32'h0;
         mmio_kbd_valid = 1'b0;
         mmio_kbd_data = 8'h00;
         mmio_key_valid = 1'b0;
@@ -413,10 +413,10 @@ module rv_soc
         mmio_slot_len = 32'h0;
         /* The machine runs at its fastest until told otherwise, so a
          * firmware that never sets it still gets the default. */
-        rv_soc_phi2_khz = 16'd8000;
+        soc_phi2_khz = 16'd8000;
     end
     always_ff @(posedge clk) begin
-            rv_soc_tx_valid <= 1'b0;
+            soc_tx_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h08)
                 mmio_kbd_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h1C)
@@ -430,21 +430,21 @@ module rv_soc
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
                     7'h00: begin
-                        rv_soc_tx_data <= hwdata[7:0];
-                        rv_soc_tx_valid <= 1'b1;
+                        soc_tx_data <= hwdata[7:0];
+                        soc_tx_valid <= 1'b1;
                     end
                     7'h04: begin
-                        rv_soc_halted <= 1'b1;
-                        rv_soc_exit_code <= hwdata;
+                        soc_halted <= 1'b1;
+                        soc_exit_code <= hwdata;
                     end
-                    7'h0C: rv_soc_phi2_khz <= hwdata[15:0];
+                    7'h0C: soc_phi2_khz <= hwdata[15:0];
                     7'h18: mmio_slot_len <= hwdata;
                     default: ;
                 endcase
             end
             /* After the register block, so a restore is not undone by
              * whatever the halted core's last data phase was. */
-            if (sst_phi2_we) rv_soc_phi2_khz <= sst_phi2_wdata;
+            if (sst_phi2_we) soc_phi2_khz <= sst_phi2_wdata;
     end
 
 endmodule

@@ -157,9 +157,9 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    always_comb bus_rdy = !(bus_sel_xram && xr_busy)
-        && !(bus_sel_stage && stage_stall)
-        && !(bus_sel_sram && ram_b_stall);
+    always_comb soc_rdy = !(soc_sel_xram && xr_busy)
+        && !(soc_sel_stage && stage_stall)
+        && !(soc_sel_sram && ram_b_stall);
 
     /* The soft CPU's window onto the 6502's RAM shares a port with the
      * 6502 when the RAM is off-chip. Nothing asks for this today; it
@@ -389,13 +389,13 @@ module rp6502
                 rp6502_ram_a_wdata = cpu_next_data;
                 rp6502_ram_a_we = cpu_next_we && !eng_st_jam;
                 rp6502_ram_b_addr = eng_sram_sel
-                    ? eng_sram_addr : bus_addr[15:0];
+                    ? eng_sram_addr : soc_addr[15:0];
                 rp6502_ram_b_wdata = eng_sram_sel
-                    ? eng_sram_wdata : bus_wbyte;
+                    ? eng_sram_wdata : soc_wbyte;
                 rp6502_ram_b_we = eng_sram_sel ? eng_sram_we
-                    : (bus_we && !eng_arr_own);
+                    : (soc_we && !eng_arr_own);
                 rp6502_ram_b_stb = eng_sram_sel
-                    || (bus_pend && bus_sel_sram && !eng_arr_own);
+                    || (soc_pend && soc_sel_sram && !eng_arr_own);
                 sram_rdata = ram_a_rdata;
                 sram_b_rdata = ram_b_rdata;
             end
@@ -410,9 +410,9 @@ module rp6502
                 .a_wdata(cpu_dout),
                 .a_we(cpu_we && phi2_en),
                 .a_rdata(sram_rdata),
-                .b_addr(bus_addr[15:0]),
-                .b_wdata(bus_wbyte),
-                .b_we(bus_stb && bus_we && bus_sel_sram),
+                .b_addr(soc_addr[15:0]),
+                .b_wdata(soc_wbyte),
+                .b_we(soc_stb && soc_we && soc_sel_sram),
                 .b_rdata(sram_b_rdata)
             );
             always_comb begin
@@ -452,15 +452,15 @@ module rp6502
     );
 
     /* The soft CPU's clock is half this one. Fixed here rather than in
-     * rv_soc, which does not know it is clocked slowly: the strobe and
+     * soc, which does not know it is clocked slowly: the strobe and
      * the console valid narrow to one machine clock, while slot_set and
      * key_set hold for two so an edge always sees them. */
-    logic bus_stb_raw, bus_stb_n, bus_stb_q;
+    logic soc_stb_raw, soc_stb_n, soc_stb_q;
     logic rv_tx_valid_raw, rv_tx_valid_q;
     logic slot_set_q, key_set_q;
 
     /* The two clocks rise together, so a rising-edge sample of
-     * bus_stb_raw compares it against a copy that caught the new value an
+     * soc_stb_raw compares it against a copy that caught the new value an
      * edge early: it reads 1 && !1, the pulse never fires, and the access
      * disappears silently. Which accesses go depends on skew between two
      * global networks, so it differs every fit and never in simulation.
@@ -469,18 +469,18 @@ module rp6502
      * Neither half takes a reset: asynchronous clear is a control signal
      * a LAB shares, and giving the two halves different control frees the
      * fitter to separate them. */
-    initial bus_stb_n = 1'b0;
+    initial soc_stb_n = 1'b0;
     always_ff @(negedge clk_sys) begin
-        bus_stb_n <= bus_stb_raw;
+        soc_stb_n <= soc_stb_raw;
     end
     initial begin
-        bus_stb_q = 1'b0;
+        soc_stb_q = 1'b0;
         rv_tx_valid_q = 1'b0;
         slot_set_q = 1'b0;
         key_set_q = 1'b0;
     end
     always_ff @(posedge clk_mach) begin
-        bus_stb_q <= bus_stb_n;
+        soc_stb_q <= soc_stb_n;
         rv_tx_valid_q <= rv_tx_valid_raw;
         slot_set_q <= slot_set;
         key_set_q <= key_set;
@@ -496,7 +496,7 @@ module rp6502
      * clock and needs none of that, so the mux is after the narrowing
      * rather than in front of it. The engine only ever holds the bus
      * while the soft CPU is halted and issuing nothing. */
-    logic bus_stb, bus_we, bus_pend;
+    logic soc_stb, soc_we, soc_pend;
     logic rv_bus_pend, rv_bus_we;
     logic [31:0] rv_bus_addr, rv_bus_wdata;
     logic [3:0] rv_bus_wstrb;
@@ -505,72 +505,72 @@ module rp6502
      * machine logic has no clock while a savestate is being made. It
      * reaches every array by a port of its own instead. */
     always_comb begin
-        bus_pend = rv_bus_pend;
-        bus_stb = bus_stb_n && !bus_stb_q;
-        bus_we = rv_bus_we;
-        bus_addr = rv_bus_addr;
-        bus_wdata = rv_bus_wdata;
-        bus_wstrb = rv_bus_wstrb;
+        soc_pend = rv_bus_pend;
+        soc_stb = soc_stb_n && !soc_stb_q;
+        soc_we = rv_bus_we;
+        soc_addr = rv_bus_addr;
+        soc_wdata = rv_bus_wdata;
+        soc_wstrb = rv_bus_wstrb;
     end
 
     /* Held until the request it answers goes away, because the other
      * clock looks only every second one. */
-    logic bus_taken;
-    initial bus_taken = 1'b0;
+    logic soc_taken;
+    initial soc_taken = 1'b0;
     always_ff @(posedge clk_mach) begin
-        if (!bus_pend)
-            bus_taken <= 1'b0;
+        if (!soc_pend)
+            soc_taken <= 1'b0;
         /* An XRAM access is taken on the clock it owns port B, which is
          * not always the clock it was strobed on. Everything else is
          * taken at the strobe as before. */
-        else if (bus_sel_xram ? xram_go : bus_stb)
-            bus_taken <= 1'b1;
+        else if (soc_sel_xram ? xram_go : soc_stb)
+            soc_taken <= 1'b1;
     end
-    logic [31:0] bus_addr, bus_wdata;
-    logic [3:0] bus_wstrb;
-    logic [31:0] bus_rdata;
-    logic bus_rdy;
+    logic [31:0] soc_addr, soc_wdata;
+    logic [3:0] soc_wstrb;
+    logic [31:0] soc_rdata;
+    logic soc_rdy;
 
     /* RV_KHZ, not SYS_KHZ: mtime_acc is clocked by clk_rv, and a
      * microsecond is 25.2 of those. Ten per clock wrapping at a
      * hundredth of the rate keeps the fraction exact. */
-    rv_soc #(
+    soc #(
         .MTIME_ADD(10),
         .MTIME_WRAP(RV_KHZ / 100),
         .TCM_INIT_FILE(TCM_INIT_FILE)
-    ) rv (
+    ) soc (
         .clk(clk_rv),
         .rst_n(rst_n),
-        .rv_soc_phi2_khz(phi2_khz),
+        .soc_phi2_khz(phi2_khz),
         /* Time stops with the machine. A savestate is meant to be
          * invisible to the firmware, and a firmware that woke to find
          * its deadlines already past would notice at once. */
         .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
         .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),
-        .rv_soc_dbg_halted(rp6502_sst_dbg_halted),
+        .soc_dbg_halted(rp6502_sst_dbg_halted),
         .sst_dbg_data0(eng_own ? eng_dbg_data0 : sst_dbg_data0),
-        .rv_soc_dbg_data0(rp6502_sst_dbg_data0),
-        .rv_soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
+        .soc_dbg_data0(rp6502_sst_dbg_data0),
+        .soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
         .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
         .sst_dbg_instr_vld(eng_own ? eng_dbg_vld : sst_dbg_instr_vld),
-        .rv_soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
-        .rv_soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
-        .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
+        .soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
+        .soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
+        .soc_dbg_fault(rp6502_sst_dbg_fault),
         .sst_phi2_we(eng_st_jam),
         .sst_phi2_wdata(eng_jam_mach[1][15:0]),
-        .rv_soc_mtime(mtime),
+        .soc_mtime(mtime),
         .sst_mtime_we(eng_mtime_jam),
         .sst_mtime_wdata({eng_jam_mach[3], eng_jam_mach[2]}),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
         .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
-        .rv_soc_tcm_rdata(rp6502_sst_tcm_rdata),
-        .rv_soc_tx_data(rp6502_rv_tx_data),
-        .rv_soc_tx_valid(rv_tx_valid_raw),
-        .rv_soc_halted(rp6502_rv_halted),
-        .rv_soc_exit_code(rp6502_rv_exit_code),
+        .soc_tcm_rdata(rp6502_sst_tcm_rdata),
+        .soc_tx_data(rp6502_rv_tx_data),
+        .soc_tx_valid(rv_tx_valid_raw),
+        .soc_halted(rp6502_rv_halted),
+        .soc_exit_code(rp6502_rv_exit_code),
         .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
         .upd_n(upd_n),
@@ -579,51 +579,51 @@ module rp6502
         .cont_joy(cont_joy),
         .cont_trig(cont_trig),
         .key_code(key_code),
-        .rv_soc_key_pending(rp6502_key_pending),
-        .bus_rdy(bus_rdy),
-        .bus_taken(bus_taken),
-        .rv_soc_bus_pend(rv_bus_pend),
-        .rv_soc_bus_stb(bus_stb_raw),
-        .rv_soc_bus_we(rv_bus_we),
-        .rv_soc_bus_addr(rv_bus_addr),
-        .rv_soc_bus_wdata(rv_bus_wdata),
-        .rv_soc_bus_wstrb(rv_bus_wstrb),
-        .bus_rdata(bus_rdata)
+        .soc_key_pending(rp6502_key_pending),
+        .bus_rdy(soc_rdy),
+        .bus_taken(soc_taken),
+        .soc_bus_pend(rv_bus_pend),
+        .soc_bus_stb(soc_stb_raw),
+        .soc_bus_we(rv_bus_we),
+        .soc_bus_addr(rv_bus_addr),
+        .soc_bus_wdata(rv_bus_wdata),
+        .soc_bus_wstrb(rv_bus_wstrb),
+        .bus_rdata(soc_rdata)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;
-    always_comb unused_bus = ^{bus_addr[27:16]};
+    always_comb unused_bus = ^{soc_addr[27:16]};
     /* verilator lint_on UNUSEDSIGNAL */
-    logic [7:0] bus_wbyte;
+    logic [7:0] soc_wbyte;
     always_comb begin
-        bus_wbyte = bus_wdata[7:0];
-        if (bus_wstrb[1])
-            bus_wbyte = bus_wdata[15:8];
-        if (bus_wstrb[2])
-            bus_wbyte = bus_wdata[23:16];
-        if (bus_wstrb[3])
-            bus_wbyte = bus_wdata[31:24];
+        soc_wbyte = soc_wdata[7:0];
+        if (soc_wstrb[1])
+            soc_wbyte = soc_wdata[15:8];
+        if (soc_wstrb[2])
+            soc_wbyte = soc_wdata[23:16];
+        if (soc_wstrb[3])
+            soc_wbyte = soc_wdata[31:24];
     end
 
-    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage,
-        bus_sel_vid, bus_sel_xram, bus_sel_aud, bus_sel_host;
+    logic soc_sel_sram, soc_sel_regs, soc_sel_ctl, soc_sel_stage,
+        soc_sel_vid, soc_sel_xram, soc_sel_aud, soc_sel_host;
     always_comb begin
-        bus_sel_sram = bus_addr[31:28] == 4'h1;
-        bus_sel_xram = bus_addr[31:28] == 4'h3;
-        bus_sel_regs = bus_addr[31:28] == 4'h2;
-        bus_sel_ctl = bus_addr[31:28] == 4'h4;
-        bus_sel_stage = bus_addr[31:28] == 4'h6;
-        bus_sel_vid = bus_addr[31:28] == 4'h5;
-        bus_sel_aud = bus_addr[31:28] == 4'h7;
-        bus_sel_host = bus_addr[31:28] == 4'h8;
+        soc_sel_sram = soc_addr[31:28] == 4'h1;
+        soc_sel_xram = soc_addr[31:28] == 4'h3;
+        soc_sel_regs = soc_addr[31:28] == 4'h2;
+        soc_sel_ctl = soc_addr[31:28] == 4'h4;
+        soc_sel_stage = soc_addr[31:28] == 4'h6;
+        soc_sel_vid = soc_addr[31:28] == 4'h5;
+        soc_sel_aud = soc_addr[31:28] == 4'h7;
+        soc_sel_host = soc_addr[31:28] == 4'h8;
     end
 
     always_comb begin
-        rp6502_host_addr = bus_addr[27:0];
-        rp6502_host_stb = bus_stb && bus_sel_host;
-        rp6502_host_we = bus_we;
-        rp6502_host_wdata = bus_wdata;
+        rp6502_host_addr = soc_addr[27:0];
+        rp6502_host_stb = soc_stb && soc_sel_host;
+        rp6502_host_we = soc_we;
+        rp6502_host_wdata = soc_wdata;
     end
 
     /* Shown early for a slow platform; the strobe-captured register
@@ -633,35 +633,35 @@ module rp6502
         /* The serializer reads the store directly; it is the board's
          * memory, not the machine's, and it keeps its clock when the
          * machine loses one. */
-        rp6502_stage_pend = eng_stage_pend || (bus_pend && bus_sel_stage);
+        rp6502_stage_pend = eng_stage_pend || (soc_pend && soc_sel_stage);
         rp6502_stage_addr = eng_stage_pend ? eng_stage_addr
-            : ((bus_pend && bus_sel_stage) ? bus_addr[27:0] : stage_addr_q);
+            : ((soc_pend && soc_sel_stage) ? soc_addr[27:0] : stage_addr_q);
     end
 
     logic api_pending;
-    logic bus_ctl_api, bus_prog;
+    logic soc_ctl_api, soc_prog;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
     // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid,
     // 5 xram, 6 the platform's own.
-    logic [2:0] bus_rsel;
+    logic [2:0] soc_rsel;
     initial begin
-        bus_rsel = 3'd0;
-        bus_ctl_api = 1'b0;
-        bus_prog = 1'b0;
+        soc_rsel = 3'd0;
+        soc_ctl_api = 1'b0;
+        soc_prog = 1'b0;
         stage_addr_q = '0;
     end
     always_ff @(posedge clk_mach) begin
-        if (bus_stb) begin
-            bus_rsel <= bus_sel_regs ? 3'd1
-                : (bus_sel_ctl ? 3'd2
-                : (bus_sel_stage ? 3'd3
-                : (bus_sel_vid ? 3'd4
-                : (bus_sel_xram ? 3'd5
-                : (bus_sel_host ? 3'd6 : 3'd0)))));
-            bus_ctl_api <= bus_addr[2];
-            bus_prog <= bus_addr[17];
-            stage_addr_q <= bus_addr[27:0];
+        if (soc_stb) begin
+            soc_rsel <= soc_sel_regs ? 3'd1
+                : (soc_sel_ctl ? 3'd2
+                : (soc_sel_stage ? 3'd3
+                : (soc_sel_vid ? 3'd4
+                : (soc_sel_xram ? 3'd5
+                : (soc_sel_host ? 3'd6 : 3'd0)))));
+            soc_ctl_api <= soc_addr[2];
+            soc_prog <= soc_addr[17];
+            stage_addr_q <= soc_addr[27:0];
             /* Captured at the strobe: ring reads advance their pointer
              * there, so the answer must not be re-derived afterward. */
             regs_b_q <= regs_b_rdata;
@@ -679,28 +679,28 @@ module rp6502
     initial resb = 1'b0;
     always_ff @(posedge clk_mach)
         if (eng_st_jam) resb <= eng_jam_mach[0][0];
-        else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
-            resb <= bus_wbyte[0];
+        else if (soc_stb && soc_we && soc_sel_ctl && !soc_addr[2])
+            resb <= soc_wbyte[0];
 
     /* The byte-wide windows put their byte on every lane, so the master's
      * own extract picks the addressed one. */
-    logic [7:0] bus_rbyte;
+    logic [7:0] soc_rbyte;
     always_comb begin
-        case (bus_rsel)
-            3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
+        case (soc_rsel)
+            3'd2: soc_rbyte = soc_ctl_api ? {7'b0, api_pending}
                 : {6'b0, cpu_stp, resb_eff};
-            3'd3: bus_rbyte = stage_rdata;
-            3'd5: bus_rbyte = xram_b_hold;
-            default: bus_rbyte = sram_b_rdata;
+            3'd3: soc_rbyte = stage_rdata;
+            3'd5: soc_rbyte = xram_b_hold;
+            default: soc_rbyte = sram_b_rdata;
         endcase
-        bus_rdata = bus_rsel == 3'd1 ? regs_b_q
-            : (bus_rsel == 3'd4
-               ? (bus_prog ? prog_b_rdata : vid_b_rdata)
-               : (bus_rsel == 3'd6 ? host_rdata : {4{bus_rbyte}}));
+        soc_rdata = soc_rsel == 3'd1 ? regs_b_q
+            : (soc_rsel == 3'd4
+               ? (soc_prog ? prog_b_rdata : vid_b_rdata)
+               : (soc_rsel == 3'd6 ? host_rdata : {4{soc_rbyte}}));
     end
 
     logic [7:0] ria_data;
-    ria_regs ria (
+    regs ria (
         .clk(clk_mach),
         .clk_mem(clk_sys),
         .en(phi2_en),
@@ -708,34 +708,34 @@ module rp6502
         .we(cpu_we),
         .rs(cpu_addr[4:0]),
         .data_i(cpu_dout),
-        .ria_regs_data(ria_data),
-        .ria_regs_tx_data(rp6502_tx_data),
-        .ria_regs_tx_valid(rp6502_tx_valid),
+        .regs_data(ria_data),
+        .regs_tx_data(rp6502_tx_data),
+        .regs_tx_valid(rp6502_tx_valid),
         .rx_valid(rx_valid),
         .rx_data(rx_data),
-        .ria_regs_rx_taken(rp6502_rx_taken),
+        .regs_rx_taken(rp6502_rx_taken),
         .vsync_pulse(prog_vsync_pulse),
-        .ria_regs_irq(ria_irq),
-        .ria_regs_xr_busy(xr_busy),
-        .ria_regs_xr_we(xr_we),
-        .ria_regs_xr_addr(xr_addr),
-        .ria_regs_xr_wdata(xr_wdata),
+        .regs_irq(ria_irq),
+        .regs_xr_busy(xr_busy),
+        .regs_xr_we(xr_we),
+        .regs_xr_addr(xr_addr),
+        .regs_xr_wdata(xr_wdata),
         .xr_rdata(xram_b_rdata),
-        .xr_cpu_want(bus_pend && bus_sel_xram),
+        .xr_cpu_want(soc_pend && soc_sel_xram),
         .sst_jam(eng_st_jam),
         .sst_jam_data(eng_jam_ria),
         .sst_own(eng_arr_own),
         .sst_word(eng_regs_word),
         .sst_we(eng_regs_we),
         .sst_wdata(eng_regs_wdata),
-        .b_we(bus_stb && bus_we && bus_sel_regs),
-        .b_re(bus_stb && !bus_we && bus_sel_regs),
-        .b_word(bus_addr[9:2]),
-        .b_wstrb(bus_wstrb),
-        .b_wdata(bus_wdata),
-        .ria_regs_b_rdata(regs_b_rdata),
-        .ria_regs_api_pending(api_pending),
-        .api_ack(bus_stb && bus_we && bus_sel_ctl && bus_addr[2])
+        .b_we(soc_stb && soc_we && soc_sel_regs),
+        .b_re(soc_stb && !soc_we && soc_sel_regs),
+        .b_word(soc_addr[9:2]),
+        .b_wstrb(soc_wstrb),
+        .b_wdata(soc_wdata),
+        .regs_b_rdata(regs_b_rdata),
+        .regs_api_pending(api_pending),
+        .api_ack(soc_stb && soc_we && soc_sel_ctl && soc_addr[2])
     );
 
     bus bus (
@@ -814,9 +814,9 @@ module rp6502
         .clk(clk_mach),
         .addr(mf_addr[f_sel]),
         .font_bits(font_bits),
-        .w_stb(bus_stb && bus_we && bus_sel_vid && bus_addr[18]),
-        .w_addr(bus_addr[13:0]),
-        .w_data(bus_wdata)
+        .w_stb(soc_stb && soc_we && soc_sel_vid && soc_addr[18]),
+        .w_addr(soc_addr[13:0]),
+        .w_data(soc_wdata)
     );
 
     /* The two renderers. Mod two, so the wrap is free. */
@@ -841,29 +841,29 @@ module rp6502
         if (a_any)
             a_rotor <= a_sel + 1'd1;
 
-    /* bus_rdy holds the soft CPU's strobe off while the engine has port
+    /* soc_rdy holds the soft CPU's strobe off while the engine has port
      * B, but the strobe is two flops behind the readiness it was granted
      * on -- the narrowing above -- so the engine can still take the port
      * on the clock the strobe lands, and under a program working RW0 it
-     * usually does. bus_rdy alone therefore decides nothing: the access
+     * usually does. soc_rdy alone therefore decides nothing: the access
      * would be reported complete either way, with the write dropped and
      * the read answering from whatever address the engine was at.
      *
      * So it waits for the port instead of assuming it. One bit is
-     * enough, because the master issues nothing else until bus_taken. */
+     * enough, because the master issues nothing else until soc_taken. */
     logic xram_owed;
     initial xram_owed = 1'b0;
     always_ff @(posedge clk_mach) begin
-        if (!bus_pend)
+        if (!soc_pend)
             xram_owed <= 1'b0;
-        else if (bus_stb && bus_sel_xram && xr_busy)
+        else if (soc_stb && soc_sel_xram && xr_busy)
             xram_owed <= 1'b1;
         else if (xram_owed && !xr_busy)
             xram_owed <= 1'b0;
     end
     logic xram_go;
     always_comb xram_go = !xr_busy
-        && ((bus_stb && bus_sel_xram) || xram_owed);
+        && ((soc_stb && soc_sel_xram) || xram_owed);
 
     /* Port B's write, named because the PSG watches it. The RW engine's
      * is the 6502's, and only the 6502's strikes a gate. */
@@ -878,9 +878,9 @@ module rp6502
          * clock returns and would land one stale byte in freshly
          * restored XRAM. It is old-session work; it is discarded. */
         xw_we = xr_busy ? (xr_we && !eng_arr_own && !eng_hold_res)
-                        : (xram_go && bus_we && !eng_arr_own);
-        xw_addr = xr_busy ? xr_addr : bus_addr[15:0];
-        xw_wdata = xr_busy ? xr_wdata : bus_wbyte;
+                        : (xram_go && soc_we && !eng_arr_own);
+        xw_addr = xr_busy ? xr_addr : soc_addr[15:0];
+        xw_wdata = xr_busy ? xr_wdata : soc_wbyte;
     end
 
     /* The array answers a clock behind its address and the engine may
@@ -895,7 +895,7 @@ module rp6502
         xram_b_hold = '0;
     end
     always_ff @(posedge clk_mach) begin
-        xram_cap <= xram_go && !bus_we;
+        xram_cap <= xram_go && !soc_we;
         if (xram_cap)
             xram_b_hold <= xram_b_rdata;
     end
@@ -966,11 +966,11 @@ module rp6502
         .sst_we(eng_xprog_we),
         .sst_wdata(eng_mem_wdata),
         .prog_sst_rdata(eng_xprog_rdata),
-        .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
-               && bus_addr[17]),
-        .b_we(bus_we),
-        .b_addr(bus_addr[15:0]),
-        .b_wdata(bus_wdata),
+        .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
+               && soc_addr[17]),
+        .b_we(soc_we),
+        .b_addr(soc_addr[15:0]),
+        .b_wdata(soc_wdata),
         .prog_b_rdata(prog_b_rdata)
     );
 
@@ -994,12 +994,12 @@ module rp6502
         .sst_we(eng_cell_we),
         .sst_wdata(eng_mem_wdata),
         .mode0_sst_rdata(eng_cell_rdata),
-        .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
-               && !bus_addr[17]),
-        .b_we(bus_we),
-        .b_addr(bus_addr[16:0]),
-        .b_wstrb(bus_wstrb),
-        .b_wdata(bus_wdata),
+        .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
+               && !soc_addr[17]),
+        .b_we(soc_we),
+        .b_addr(soc_addr[16:0]),
+        .b_wstrb(soc_wstrb),
+        .b_wdata(soc_wdata),
         .mode0_b_rdata(vid_b_rdata)
     );
 
@@ -1102,7 +1102,7 @@ module rp6502
     /* Four bits of offset rather than two, so the bell's descriptor has
      * somewhere to live beside the two pointers. */
     logic aud_we;
-    always_comb aud_we = bus_stb && bus_we && bus_sel_aud;
+    always_comb aud_we = soc_stb && soc_we && soc_sel_aud;
 
     logic psg_tick;
 
@@ -1110,17 +1110,17 @@ module rp6502
     /* verilator lint_off PINCONNECTEMPTY */
     psg psg (
         .clk(clk_mach),
-        .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
-        .xaddr_wdata(bus_wdata[15:0]),
-        .gate_any_we(aud_we && bus_addr[5:2] == 4'h1),
-        .gate_any_wdata(bus_wdata[0]),
+        .xaddr_we(aud_we && soc_addr[5:2] == 4'h0),
+        .xaddr_wdata(soc_wdata[15:0]),
+        .gate_any_we(aud_we && soc_addr[5:2] == 4'h1),
+        .gate_any_wdata(soc_wdata[0]),
         .q_we(qs_we),
         .q_host(qs_host),
         .q_addr(qs_addr),
         .q_val(qs_val),
-        .bel_lo_we(aud_we && bus_addr[5:2] == 4'h4),
-        .bel_hi_we(aud_we && bus_addr[5:2] == 4'h5),
-        .bel_wdata(bus_wdata),
+        .bel_lo_we(aud_we && soc_addr[5:2] == 4'h4),
+        .bel_hi_we(aud_we && soc_addr[5:2] == 4'h5),
+        .bel_wdata(soc_wdata),
         .psg_l(psg_l),
         .psg_r(psg_r),
         /* The machine runs off the tick below, which is the divider and
@@ -1135,8 +1135,8 @@ module rp6502
     /* verilator lint_off PINCONNECTEMPTY */
     opl opl (
         .clk(clk_mach),
-        .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
-        .xaddr_wdata(bus_wdata[15:0]),
+        .xaddr_we(aud_we && soc_addr[5:2] == 4'h2),
+        .xaddr_wdata(soc_wdata[15:0]),
         /* The same mux the PSG watches, not the 6502's engine alone: a
          * restore puts the register page back in XRAM and the firmware
          * writes it over itself so the engine hears it, and those
