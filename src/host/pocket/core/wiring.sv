@@ -11,8 +11,10 @@
  */
 
 module wiring
-    import timing_pkg::*;
-    import tcm_pkg::*;
+    /* One import statement, not two: Quartus takes only a single
+     * package_import_declaration in a module header, where Verilator takes
+     * a list of them. */
+    import timing_pkg::*, tcm_pkg::*;
 #(
     /* Empty in simulation, which loads the arrays through the bench. */
     parameter TCM_INIT_FILE = "",

@@ -158,23 +158,30 @@ set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 # constraint was protecting and the report still says timing closed.
 # rp6502.sdc's own comment records this having happened. The bitstream job
 # cannot catch it; this can, and needs no Quartus.
-# RP6502_SDC belongs to quartus.cmake, which this tree does not include, so
-# the paths are named here. The two files also filter on the board's top and
-# on vendored names -- Analogue's synch_3, the OPL2's reset_sync, Hazard3's
-# bus_active_dph_ -- so those trees are in the haystack too.
-set(SDC_GATE_RTL)
-foreach(src ${RP6502_MACHINE_SOURCES})
-    list(APPEND SDC_GATE_RTL --rtl ${src})
-endforeach()
-list(APPEND SDC_GATE_RTL
-    --rtl-dir ${RP6502_POCKET_CORE}
-    --rtl-dir ${RP6502_VENDOR}/hazard3/hdl
-    --rtl-dir ${RP6502_VENDOR}/opl2_fpga/fpga
-    --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
-add_test(NAME sdc_filters
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
-        --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
-        --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
-        ${SDC_GATE_RTL})
-set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")
+#
+# It does need every tree the two files name, and one of them is Analogue's:
+# pocket.sdc constrains a signal inside their synch_3, so without their
+# template the gate cannot tell a dead filter from an absent one. That
+# submodule is fetched by the bitstream root and not by this one.
+rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
+    WANTS "the timing constraint gate" OPTIONAL RESULT RP6502_HAVE_APF_RTL)
+if(RP6502_HAVE_APF_RTL)
+    set(SDC_GATE_RTL)
+    foreach(src ${RP6502_MACHINE_SOURCES})
+        list(APPEND SDC_GATE_RTL --rtl ${src})
+    endforeach()
+    list(APPEND SDC_GATE_RTL
+        --rtl-dir ${RP6502_POCKET_CORE}
+        --rtl-dir ${RP6502_VENDOR}/hazard3/hdl
+        --rtl-dir ${RP6502_VENDOR}/opl2_fpga/fpga
+        --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
+    add_test(NAME sdc_filters
+        COMMAND ${CMAKE_COMMAND} -E env python3
+            ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
+            --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
+            --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
+            ${SDC_GATE_RTL})
+    set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")
+else()
+    message(WARNING "openfpga template absent -- timing constraint gate skipped.")
+endif()
