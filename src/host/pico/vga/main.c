@@ -6,12 +6,12 @@
 
 #include "vga/main.h"
 #include "drivers.h"
-#include "core/vga/mode0.h"
-#include "core/vga/mode1.h"
-#include "core/vga/mode2.h"
-#include "core/vga/mode3.h"
-#include "core/vga/mode4.h"
-#include "core/vga/mode5.h"
+#include "core/vga/mode/mode0.h"
+#include "core/vga/mode/mode1.h"
+#include "core/vga/mode/mode2.h"
+#include "core/vga/mode/mode3.h"
+#include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode5.h"
 #include <pico/stdlib.h>
 
 static void init(void)

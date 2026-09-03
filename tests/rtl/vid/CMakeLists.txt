@@ -14,7 +14,7 @@ rp6502_add_machine_test(raster TRACE
 # immediate and mixed segments, under a jittered grant line.
 rp6502_add_module_test(pixtail
     TOP pixtail
-    RTL ${VID_PALETTE_PKG} ${RP6502_SRC}/core/vga/pixtail.sv
+    RTL ${VID_PALETTE_PKG} ${RP6502_SRC}/core/vga/scan/pixtail.sv
     INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES}
     DEPENDS vid_palette_rom vid_palette_tables
     TIMEOUT 120)

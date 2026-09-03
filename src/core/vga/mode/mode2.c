@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/vga/mode2.h"
+#include "core/vga/mode/mode2.h"
 #include "core/vga/modes.h"
 #include "core/vga/vga.h"
 #include "core/mem.h"

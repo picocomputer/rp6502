@@ -13,7 +13,7 @@
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
-#include "core/vga/mode0.h"
+#include "core/vga/mode/mode0.h"
 #include "core/term/term.h"
 #include "core/term/font.h"
 #include "core/wdc/bus.h"

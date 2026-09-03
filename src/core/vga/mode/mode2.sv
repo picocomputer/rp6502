@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 2, the tile map of core/vga/mode2.c: rows mapped with true
+ * Mode 2, the tile map of core/vga/mode/mode2.c: rows mapped with true
  * wraparound, the oracle's rejects, the restoring divider that trimmed
  * geometry needs, and one map byte fetched per tile. Each tile's
  * on-screen slice goes to the shared pixel tail as one xram segment — a

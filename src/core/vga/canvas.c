@@ -17,7 +17,7 @@
  */
 
 #include "core/vga/vga.h"
-#include "core/vga/mode0.h"
+#include "core/vga/mode/mode0.h"
 
 static vga_canvas_t canvas_code = vga_canvas_console;
 static int16_t canvas_w = 640, canvas_h = 480;

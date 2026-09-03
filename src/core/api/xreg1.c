@@ -6,7 +6,7 @@
  * Device 1 of the XREG space, the video device, on a machine that is its own.
  *
  * Only a machine that renders its own video may list this file: it reaches
- * core/vga/canvas.c, core/vga/mode.c and core/term/term.c, and a machine
+ * core/vga/canvas.c, core/vga/mode/mode.c and core/term/term.c, and a machine
  * linking none of those cannot resolve it. A machine whose video device is a
  * real chip across four wires answers device 1 at the far end instead
  * (host/pico/vga/sys/pix.c) and lists core/api/xreg0.c alone.

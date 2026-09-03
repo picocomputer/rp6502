@@ -54,30 +54,30 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/wdc/phi2.sv
     ${RP6502_SRC}/core/ria/ria_regs.sv
     ${RP6502_SRC}/core/rv/rv_soc.sv
-    ${RP6502_SRC}/core/vga/timing.sv
+    ${RP6502_SRC}/core/vga/scan/timing.sv
     ${AUD_SINE_PKG}
     ${RP6502_SRC}/core/aud/aud_psg.sv
     ${RP6502_SRC}/core/aud/aud_opl.sv
     ${RSMP_COEF_PKG}
     ${RP6502_SRC}/core/aud/aud_rsmp.sv
     ${VID_PALETTE_PKG}
-    ${RP6502_SRC}/core/vga/font.sv
-    ${RP6502_SRC}/core/vga/palram.sv
-    ${RP6502_SRC}/core/vga/pixtail.sv
-    ${RP6502_SRC}/core/vga/sched.sv
-    ${RP6502_SRC}/core/vga/fill.sv
-    ${RP6502_SRC}/core/vga/linebuf.sv
-    ${RP6502_SRC}/core/vga/mode1.sv
-    ${RP6502_SRC}/core/vga/mode2.sv
-    ${RP6502_SRC}/core/vga/mode3.sv
-    ${RP6502_SRC}/core/vga/mode4.sv
-    ${RP6502_SRC}/core/vga/mode5.sv
-    ${RP6502_SRC}/core/vga/palcache.sv
-    ${RP6502_SRC}/core/vga/sbuf.sv
-    ${RP6502_SRC}/core/vga/sprite.sv
+    ${RP6502_SRC}/core/vga/scan/font.sv
+    ${RP6502_SRC}/core/vga/scan/palram.sv
+    ${RP6502_SRC}/core/vga/scan/pixtail.sv
+    ${RP6502_SRC}/core/vga/scan/sched.sv
+    ${RP6502_SRC}/core/vga/scan/fill.sv
+    ${RP6502_SRC}/core/vga/scan/linebuf.sv
+    ${RP6502_SRC}/core/vga/mode/mode1.sv
+    ${RP6502_SRC}/core/vga/mode/mode2.sv
+    ${RP6502_SRC}/core/vga/mode/mode3.sv
+    ${RP6502_SRC}/core/vga/mode/mode4.sv
+    ${RP6502_SRC}/core/vga/mode/mode5.sv
+    ${RP6502_SRC}/core/vga/scan/palcache.sv
+    ${RP6502_SRC}/core/vga/scan/sbuf.sv
+    ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
-    ${RP6502_SRC}/core/vga/mode0.sv
-    ${RP6502_SRC}/core/vga/compose.sv
+    ${RP6502_SRC}/core/vga/mode/mode0.sv
+    ${RP6502_SRC}/core/vga/scan/compose.sv
     ${RP6502_SRC}/core/machine/sst_engine.sv
     ${RP6502_SRC}/core/machine/rp6502.sv)
 # Verilator elaborates while cmake configures, so an unresolved module here

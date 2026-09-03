@@ -24,7 +24,7 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
  * are swept wherever they survive, contiguous or not. */
 /* fill_fn is the renderer itself on a machine that renders in software.
  * Here the fabric does, told which mode by vga_mode_begin before the call,
- * so it is ignored -- but it stays in the signature because core/vga/mode0.c
+ * so it is ignored -- but it stays in the signature because core/vga/mode/mode0.c
  * passes it and term.c drags the five-parameter declaration into this same
  * link through core/vga/vga.h. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,

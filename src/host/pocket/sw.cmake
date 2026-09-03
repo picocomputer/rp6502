@@ -73,12 +73,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/vga/canvas.c
-        ${RP6502_SRC}/core/vga/mode.c
-        ${RP6502_SRC}/core/vga/mode1.c
-        ${RP6502_SRC}/core/vga/mode2.c
-        ${RP6502_SRC}/core/vga/mode3.c
-        ${RP6502_SRC}/core/vga/mode4.c
-        ${RP6502_SRC}/core/vga/mode5.c
+        ${RP6502_SRC}/core/vga/mode/mode.c
+        ${RP6502_SRC}/core/vga/mode/mode1.c
+        ${RP6502_SRC}/core/vga/mode/mode2.c
+        ${RP6502_SRC}/core/vga/mode/mode3.c
+        ${RP6502_SRC}/core/vga/mode/mode4.c
+        ${RP6502_SRC}/core/vga/mode/mode5.c
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/term.c)
     add_custom_command(OUTPUT ${SW_BIN}
