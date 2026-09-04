@@ -227,6 +227,40 @@ UTEST(fs, answers_in_the_host_s_spelling)
      * portable claim is the relative one, and drive_write_read_seek makes it. */
 }
 
+/* A name the running code page cannot spell is refused rather than reported
+ * with substitutions in it: two such files would otherwise arrive under one
+ * name, and a name handed back could open neither. */
+UTEST(fs, a_name_the_code_page_cannot_spell_is_refused)
+{
+    ASSERT_TRUE(fresh_cwd());
+
+    /* U+65E5 U+672C in UTF-8: nothing in an 8-bit OEM page spells it. */
+    static const char kanji[] = "\xE6\x97\xA5\xE6\x9C\xAC.txt";
+    char probe[512];
+    snprintf(probe, sizeof(probe), "%s/%s", g_dir, kanji);
+    FILE *f = fopen(probe, "wb");
+    if (!f)
+        return; /* a host that will not store the name has nothing to report */
+    fclose(f);
+
+    /* Listing the directory reaches it and refuses, rather than answering
+     * with a name that is not the file's. */
+    dsys_path("");
+    dir_api_opendir();
+    int des = dsys_ax();
+    ASSERT_TRUE(des >= 0);
+    bool refused = false;
+    for (int i = 0; i < 8 && !refused; i++)
+    {
+        dsys_des(des);
+        dir_api_readdir();
+        refused = dsys_ax() != 0;
+    }
+    ASSERT_TRUE(refused);
+    dsys_des(des);
+    dir_api_closedir();
+}
+
 /* The drive answers to its own name and to no name; anything else is a missing
  * device. A real chdrive moves the process, so this puts it back. */
 UTEST(fs, chdrive_takes_this_machine_s_drive)

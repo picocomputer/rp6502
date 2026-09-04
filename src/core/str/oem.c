@@ -202,24 +202,25 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
  * for text a person reads and wrong for a name a program opens: two files can
  * arrive under one name, and a name handed back can reach a third. So a
  * filename asks first. */
+/* 0x7F is what the conversions put where a character had no spelling, and it
+ * is not a character a name may contain either -- FatFs rejects it outright --
+ * so a result of 0x7F means "no spelling" whichever way it got there. */
+#define OEM_NO_SPELLING 0x7F
+
 bool oem_maps_utf8(const char *u8)
 {
     const char *p = u8;
     while (*p)
-    {
-        const char *was = p;
-        if (!oem_from_utf8_next(&p))
+        if (oem_from_utf8_next(&p) == OEM_NO_SPELLING)
             return false;
-        if (p == was)
-            return false;
-    }
     return true;
 }
 
 bool oem_maps_wide(const uint16_t *w)
 {
     for (; *w; w++)
-        if (*w >= 0x80 && !ff_uni2oem(*w, oem_code_page_run))
+        if (*w == OEM_NO_SPELLING ||
+            (*w >= 0x80 && !ff_uni2oem(*w, oem_code_page_run)))
             return false;
     return true;
 }
