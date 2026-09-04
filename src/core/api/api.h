@@ -62,6 +62,12 @@ uint16_t api_platform_errno(api_errno num);
 /* RIA fastcall registers
  */
 
+/* The longest path any op takes. FatFs is built for 255 (FF_LFN_BUF) and the
+ * boards hold a path in a buffer that size, so a longer one has nowhere to go
+ * on the machine this API was written for; the hosts used to take whatever
+ * fit on the xstack, which was the only place they differed. */
+#define API_PATH_MAX 255
+
 #define API_OP REGS(0xFFEF)
 #define API_ERRNO REGSW(0xFFED)
 #define API_STACK REGS(0xFFEC)

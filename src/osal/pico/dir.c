@@ -153,9 +153,22 @@ bool drive_unlink(const char *path, api_errno *err)
     return fat_ok(f_unlink((const TCHAR *)path), err);
 }
 
+/* A rename onto a name already in use replaces it, which is what rename(2) and
+ * MoveFileEx do and therefore what a program written on any other machine
+ * expects. FatFs refuses instead, so the target is removed first and the
+ * rename asked again -- and that is not atomic, because FAT has no way to make
+ * it so. Whatever refused the removal is what the caller hears about: a
+ * directory with something in it, or a read-only file. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
-    return fat_ok(f_rename((const TCHAR *)oldname, (const TCHAR *)newname), err);
+    FRESULT fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    if (fr == FR_EXIST)
+    {
+        fr = f_unlink((const TCHAR *)newname);
+        if (fr == FR_OK)
+            fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    }
+    return fat_ok(fr, err);
 }
 
 bool drive_mkdir(const char *path, api_errno *err)

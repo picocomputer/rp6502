@@ -197,6 +197,41 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     return oem_from_wide_n(w, len, dst, dstsz);
 }
 
+/* Whether a conversion would be the same string and not a near one. The
+ * conversions substitute -- 0x7F coming in, U+FFFD going out -- which is right
+ * for text a person reads and wrong for a name a program opens: two files can
+ * arrive under one name, and a name handed back can reach a third. So a
+ * filename asks first. */
+bool oem_maps_utf8(const char *u8)
+{
+    const char *p = u8;
+    while (*p)
+    {
+        const char *was = p;
+        if (!oem_from_utf8_next(&p))
+            return false;
+        if (p == was)
+            return false;
+    }
+    return true;
+}
+
+bool oem_maps_wide(const uint16_t *w)
+{
+    for (; *w; w++)
+        if (*w >= 0x80 && !ff_uni2oem(*w, oem_code_page_run))
+            return false;
+    return true;
+}
+
+bool oem_maps_oem(const char *s)
+{
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+        if (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run))
+            return false;
+    return true;
+}
+
 int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va)
 {
     vsnprintf(dst, dst_size, utf8_fmt, va);

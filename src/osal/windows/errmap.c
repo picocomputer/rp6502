@@ -16,11 +16,13 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_PATH_NOT_FOUND:
     case ERROR_INVALID_NAME:
     case ERROR_NO_MORE_FILES:
+    case ERROR_DIRECTORY: /* a path through a file: FR_NO_PATH on FatFs */
         return API_ENOENT;
     case ERROR_ACCESS_DENIED:
     case ERROR_SHARING_VIOLATION:
     case ERROR_LOCK_VIOLATION:
     case ERROR_WRITE_PROTECT:
+    case ERROR_DIR_NOT_EMPTY: /* FR_DENIED on FatFs */
         return API_EACCES;
     case ERROR_ALREADY_EXISTS:
     case ERROR_FILE_EXISTS:
@@ -28,8 +30,6 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
         return API_ENOMEM;
-    case ERROR_DIRECTORY:
-    case ERROR_DIR_NOT_EMPTY:
     case ERROR_FILENAME_EXCED_RANGE:
     case ERROR_INVALID_PARAMETER:
     case ERROR_NEGATIVE_SEEK:

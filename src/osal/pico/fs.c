@@ -284,6 +284,15 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
         *err = fresult_to_api(fresult);
         return STD_ERROR;
     }
+    /* FatFs has no disk-full result: it stops when no cluster can be had and
+     * reports what it managed, so a full volume is a write of nothing that
+     * says it succeeded, and a program writing until it is done never is.
+     * Nothing out of something asked for is the host's ENOSPC. */
+    if (count && !bw)
+    {
+        *err = API_ENOSPC;
+        return STD_ERROR;
+    }
     return STD_OK;
 }
 

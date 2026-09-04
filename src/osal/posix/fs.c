@@ -55,6 +55,16 @@ static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
     if (fd < 0)
         *err = errno_to_api(errno); /* before the free, which may clobber it */
     free(u8);
+    /* POSIX lets O_RDONLY on a directory through, and Windows and FatFs both
+     * refuse it. A descriptor whose every read fails is the worse answer, so
+     * the refusal happens here rather than at the first read. */
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode))
+    {
+        close(fd);
+        *err = API_EACCES; /* FR_DENIED, as the other machines spell it */
+        return -1;
+    }
     return fd;
 }
 

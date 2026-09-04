@@ -39,9 +39,11 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
     char *abs = (rom[0] == ':') ? NULL : os_dir_realpath(rom);
     const char *argv0 = abs ? abs : rom;
     /* Length-guard each string: arg_append's uint16 math trusts
-     * monitor-capped tokens, but host input is unbounded. */
+     * monitor-capped tokens, but host input is unbounded. argv[0] is a path,
+     * so it is held to what a path may be rather than to what the xstack
+     * happens to hold. */
     arg_clear();
-    bool ok = strlen(argv0) < XSTACK_SIZE && arg_append(argv0);
+    bool ok = strlen(argv0) <= API_PATH_MAX && arg_append(argv0);
     for (int i = 0; ok && i < argc; i++)
         ok = strlen(args[i]) < XSTACK_SIZE && arg_append(args[i]);
     if (!ok)

@@ -14,17 +14,21 @@ api_errno errno_to_api(int host_errno)
     switch (host_errno)
     {
     case ENOENT:
+    /* FatFs spells a path that runs through a file FR_NO_PATH, which is
+     * this, and api_errno has no ENOTDIR to spell it any other way. */
+    case ENOTDIR:
         return API_ENOENT;
     case EACCES:
     case EPERM:
     case EROFS:
+    /* Both of these are FR_DENIED on FatFs: a directory opened as a file,
+     * and a directory removed with something still in it. */
+    case EISDIR:
+    case ENOTEMPTY:
         return API_EACCES;
     case EEXIST:
         return API_EEXIST;
     case EINVAL:
-    case EISDIR:
-    case ENOTDIR:
-    case ENOTEMPTY:
     case ENAMETOOLONG:
         return API_EINVAL;
     case ENOSPC:

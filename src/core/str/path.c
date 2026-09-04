@@ -12,7 +12,7 @@ const char *path_basename(const char *path)
 {
     const char *base = path;
     for (const char *p = path; *p; p++)
-        if (path_is_sep(*p))
+        if (*p == '/')
             base = p + 1;
     return base;
 }

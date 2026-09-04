@@ -59,7 +59,7 @@
 static struct
 {
     bool used;
-    bool writable;
+    uint8_t flags; /* what it was opened as: reads and writes both ask */
     /* A restore leaves the drive's own idea of a descriptor intact and
      * the host's binding for it gone. Rebinding all eight there costs
      * eight round trips for files the session may never touch again, so
@@ -527,7 +527,7 @@ static void fs_rebind(int d)
      * the size the blob remembers. A writable descriptor keeps its
      * own, because it is what resized the file and the host's table
      * is only as fresh as the last open. */
-    if (got && !fs_pool[d].writable)
+    if (got && !(fs_pool[d].flags & FS_WR))
         fs_pool[d].len = len;
     if (fs_pool[d].pos > fs_pool[d].len)
         fs_pool[d].pos = fs_pool[d].len;
@@ -688,6 +688,14 @@ bool fs_std_handles(const char *path)
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     path = fs_strip_drive(path);
+    /* The null drive is the API's own namespace, and there is nothing here to
+     * defer to: without this the card would be asked to open, and with
+     * FS_CREAT to make, a file called ":name". */
+    if (path[0] == ':')
+    {
+        *err = API_ENODEV;
+        return -1;
+    }
     if (!*path || strlen(path) >= FS_NAME_MAX - FS_SAVES_LEN)
     {
         *err = API_EINVAL;
@@ -723,7 +731,9 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     /* The probe above found the file, so a failure here is the host's and
      * final; the retry below has nothing to offer. */
-    bool empty = !exists || (flags & FS_TRUNC);
+    /* Truncation is a write. Without the access-mode term a read-only open
+     * with FS_TRUNC set emptied the file and then refused every write to it. */
+    bool empty = !exists || ((flags & FS_TRUNC) && (flags & FS_WR));
     if (empty && exists && !fs_open_slot(slot, path, FS_DS_RESIZE, 0))
     {
         *err = API_EIO;
@@ -746,7 +756,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     fs_pool[d].used = true;
-    fs_pool[d].writable = (flags & FS_WR) != 0;
+    fs_pool[d].flags = flags;
     /* A fresh binding, so nothing is owed and the window holds nothing
      * of this file. */
     fs_pool[d].stale = false;
@@ -795,7 +805,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
      * restore is still in flight: a descriptor with nothing to flush is
      * released from this side alone. Taken before the guard because a
      * close that costs no round trip should not wait for one. */
-    if (!fs_pool[desc].writable || fs_flush_state == FS_FLUSH_NEVER)
+    if (!(fs_pool[desc].flags & FS_WR) || fs_flush_state == FS_FLUSH_NEVER)
     {
         fs_pool[desc].used = false;
         fs_pool[desc].cache_len = 0;
@@ -867,6 +877,11 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
     if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if (!(fs_pool[desc].flags & FS_RD))
+    {
+        *err = API_EACCES; /* as fs_std_write answers the other way round */
         return STD_ERROR;
     }
     if (fs_adrift())
@@ -976,7 +991,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (fs_adrift())
         return STD_PENDING;
     fs_rebind(desc);
-    if (!fs_pool[desc].writable)
+    if (!(fs_pool[desc].flags & FS_WR))
     {
         *err = API_EACCES;
         return STD_ERROR;
@@ -1001,7 +1016,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
                                    FS_SAVES_PATH)
                 != FS_RC_STARTED)
             {
-                *err = API_ENOSPC;
+                *err = API_EIO; /* the host never said anything about space */
                 return STD_ERROR;
             }
             fs_grow = true;
@@ -1011,7 +1026,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         fs_grow = false;
         if (rc > 1)
         {
-            *err = API_ENOSPC;
+            *err = API_EIO; /* the host never said anything about space */
             return STD_ERROR;
         }
         fs_pool[desc].len = pos + want;

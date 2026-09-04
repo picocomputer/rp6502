@@ -20,7 +20,6 @@
 
 #include "osal/dir.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include "osal/os.h"
 #include "osal/posix/errmap.h"
 #include <dirent.h>
@@ -32,8 +31,8 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <time.h>
+#include <fcntl.h>
 #include <unistd.h>
-#include <utime.h>
 
 #define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
@@ -60,7 +59,17 @@ char *path_to_utf8(const char *path, api_errno *err)
      * after the strip, which is what makes the second spelling fail too. */
     if (native[0] == ':')
     {
-        *err = API_EINVAL;
+        *err = API_ENODEV; /* FR_INVALID_DRIVE, as the Pico spells it */
+        return NULL;
+    }
+    /* A byte the code page cannot spell would be substituted, and a
+     * substituted name is a different name. FatFs refuses it; so does this.
+     * The length goes with it: API_PATH_MAX is what the machine this API was
+     * written for holds, and taking more here was the only way the hosts
+     * differed. */
+    if (strlen(native) > API_PATH_MAX || !oem_maps_oem(native))
+    {
+        *err = API_EINVAL; /* FR_INVALID_NAME, as the Pico spells it */
         return NULL;
     }
     size_t usz = oem_to_utf8(native, NULL, 0) + 1;
@@ -130,7 +139,9 @@ static bool posix_ok(bool ok, api_errno *err)
 #define FS_AM_ARC 0x20
 
 /* Pack a host time into the FatFs 16-bit date/time the 6502 expects (local
- * time, FAT epoch 1980). Times before 1980 clamp to the epoch. */
+ * time, FAT epoch 1980). The field holds 1980 to 2107 and nothing else, so
+ * both ends clamp: a year past the top would otherwise carry out of the seven
+ * bits and come back as a date in the 1980s, which reads as true. */
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
@@ -142,6 +153,12 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
         *ftime = 0;
         return;
     }
+    if (year > 2107)
+    {
+        *fdate = (127 << 9) | (12 << 5) | 31; /* 2107-12-31 */
+        *ftime = (23 << 11) | (59 << 5) | 29;
+        return;
+    }
     *fdate = (uint16_t)(((year - 1980) << 9) | ((tm.tm_mon + 1) << 5) | tm.tm_mday);
     *ftime = (uint16_t)((tm.tm_hour << 11) | (tm.tm_min << 5) | (tm.tm_sec / 2));
 }
@@ -149,11 +166,50 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 /* There are no FAT bits on a POSIX filesystem, so they are read off what is
  * there: a directory, archive on anything else, read-only when the owner
  * cannot write, hidden by the leading-dot convention. */
-static void info_from_stat(f_stat_t *info, const struct stat *st, const char *name)
+/* The creation time, where the filesystem keeps one. st_ctime is the inode
+ * change time and is not a creation time in any sense a program could use, so
+ * this asks for the real thing and answers with nothing when there is none --
+ * which the API already spells as a zero date.
+ *
+ * Two platforms, two ways of asking, and neither is in struct stat on the
+ * other: BSD and macOS put it there as st_birthtime, and Linux has it only
+ * through statx, which wants the directory and name rather than the stat that
+ * was already done. So this takes both and uses whichever its host has. */
+static bool stat_birthtime(int dirfd, const char *name, const struct stat *st,
+                           time_t *out)
+{
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+    defined(__OpenBSD__)
+    (void)dirfd, (void)name;
+    *out = st->st_birthtime;
+    return true;
+#elif defined(__linux__) && defined(STATX_BTIME)
+    (void)st;
+    struct statx stx;
+    /* Older kernels and some filesystems have no birth time; statx says so by
+     * leaving the bit out of stx_mask rather than by failing. */
+    if (statx(dirfd, name, AT_SYMLINK_NOFOLLOW * 0, STATX_BTIME, &stx) != 0 ||
+        !(stx.stx_mask & STATX_BTIME))
+        return false;
+    *out = (time_t)stx.stx_btime.tv_sec;
+    return true;
+#else
+    (void)dirfd, (void)name, (void)st, (void)out;
+    return false;
+#endif
+}
+
+static void info_from_stat(f_stat_t *info, const struct stat *st, const char *name,
+                           int dirfd, const char *at)
 {
     snprintf(info->fname, sizeof(info->fname), "%s", name);
     info->altname[0] = 0; /* no 8.3 short name here */
-    info->fsize = (uint64_t)st->st_size > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)st->st_size;
+    /* A directory's size is 0 on FAT and on Win32; a POSIX host's own number
+     * for one is how big the directory file is, which is not the same thing
+     * and not what a program reading this field is asking. */
+    info->fsize = S_ISDIR(st->st_mode)              ? 0
+                  : (uint64_t)st->st_size > 0xFFFFFFFF ? 0xFFFFFFFF
+                                                    : (uint32_t)st->st_size;
     uint8_t a = S_ISDIR(st->st_mode) ? FS_AM_DIR : FS_AM_ARC;
     if (!(st->st_mode & S_IWUSR))
         a |= FS_AM_RDO;
@@ -161,19 +217,26 @@ static void info_from_stat(f_stat_t *info, const struct stat *st, const char *na
         a |= FS_AM_HID;
     info->fattrib = a;
     fat_pack_time(st->st_mtime, &info->fdate, &info->ftime);
-    fat_pack_time(st->st_ctime, &info->crdate, &info->crtime); /* no birth time */
+    time_t birth;
+    if (stat_birthtime(dirfd, at, st, &birth))
+        fat_pack_time(birth, &info->crdate, &info->crtime);
+    else
+        info->crdate = info->crtime = 0;
 }
 
 /* ---- The walk, in POSIX's own terms -------------------------------------- */
 
-/* An entry that cannot be stat'd is still an entry, so st is synthesized from
- * what the directory itself said -- the type, and nothing else true. */
 static void *posix_opendir(const char *u8path)
 {
     return opendir(u8path);
 }
 
-static int posix_readdir(void *d, char *u8name, size_t namesz, struct stat *st)
+/* An entry whose metadata cannot be read is a failure, not an entry: every
+ * field the 6502 reads would otherwise be made up here -- a size of zero, a
+ * writable file, the FAT epoch -- and none of it distinguishable from an
+ * entry that really is those things. */
+static int posix_readdir(void *d, char *u8name, size_t namesz, struct stat *st,
+                         int *dirfd_out)
 {
     DIR *dp = (DIR *)d;
     errno = 0;
@@ -181,11 +244,9 @@ static int posix_readdir(void *d, char *u8name, size_t namesz, struct stat *st)
     if (!de)
         return errno ? -1 : 0; /* errno set -> a real error, else end-of-directory */
     snprintf(u8name, namesz, "%s", de->d_name);
-    if (fstatat(dirfd(dp), de->d_name, st, 0) != 0)
-    {
-        memset(st, 0, sizeof(*st));
-        st->st_mode = (de->d_type == DT_DIR) ? (S_IFDIR | 0755) : (S_IFREG | 0644);
-    }
+    *dirfd_out = dirfd(dp);
+    if (fstatat(*dirfd_out, de->d_name, st, 0) != 0)
+        return -1;
     return 1;
 }
 
@@ -232,12 +293,24 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
         return false;
     struct stat st;
     bool ok = posix_ok(stat(u8, &st) == 0, err);
+    if (ok)
+    {
+        /* stat names a single entry, and the name it reports is the one the
+         * host resolved -- taken off the native path, not off the caller's
+         * text, which still carries whatever drive name it was written with
+         * and would answer "" for anything ending in a separator. That empty
+         * name is what readdir uses to say end-of-directory. */
+        size_t n = strlen(u8);
+        while (n > 1 && u8[n - 1] == '/')
+            u8[--n] = 0;
+        const char *slash = strrchr(u8, '/');
+        const char *base = slash && slash[1] ? slash + 1 : (slash ? slash : u8);
+        char name[DIR_NAME_MAX];
+        oem_from_utf8(base, name, sizeof name);
+        info_from_stat(info, &st, name, AT_FDCWD, u8);
+    }
     free(u8);
-    if (!ok)
-        return false;
-    /* stat names a single entry; report its basename, not the whole path. */
-    info_from_stat(info, &st, path_basename(path));
-    return true;
+    return ok;
 }
 
 bool drive_opendir(const char *path, int *des, api_errno *err)
@@ -271,10 +344,10 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
 {
     char u8name[3 * DIR_NAME_MAX]; /* any name whose OEM form fits below */
     struct stat st;
-    int r;
+    int r, fd;
     do
     {
-        r = posix_readdir(dirs[des].dp, u8name, sizeof u8name, &st);
+        r = posix_readdir(dirs[des].dp, u8name, sizeof u8name, &st, &fd);
         if (!posix_ok(r >= 0, err))
             return false;
         if (r == 0)
@@ -283,9 +356,17 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
             return true;
         }
     } while (strcmp(u8name, ".") == 0 || strcmp(u8name, "..") == 0);
+    /* A name the code page cannot spell has no name here, and reporting a
+     * substituted one would let two entries arrive under one name and let a
+     * program hand back a name that opens neither. */
+    if (!oem_maps_utf8(u8name))
+    {
+        *err = API_EINVAL; /* FR_INVALID_NAME, as the Pico spells it */
+        return false;
+    }
     char name[DIR_NAME_MAX];
     oem_from_utf8(u8name, name, sizeof name); /* truncation caps, like snprintf */
-    info_from_stat(info, &st, name);
+    info_from_stat(info, &st, name, fd, u8name);
     return true;
 }
 
@@ -365,20 +446,19 @@ bool drive_chdrive(const char *drive, api_errno *err)
     return false;
 }
 
-/* Best-effort: only the read-only bit maps to a POSIX filesystem (write
- * permission). Hidden/system/archive have no equivalent and are silently
- * dropped -- including the path, which is not worth resolving to change
- * nothing. */
+/* Only the read-only bit maps to a POSIX filesystem (write permission).
+ * Hidden/system/archive have no equivalent and are dropped -- but the path is
+ * resolved either way, because a chmod of something that is not there is an
+ * error on every other machine and answering otherwise would make the mask
+ * decide whether a missing file exists. */
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
-    if (!(mask & FS_AM_RDO))
-        return true;
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
     struct stat st;
     bool ok = posix_ok(stat(u8, &st) == 0, err);
-    if (ok)
+    if (ok && (mask & FS_AM_RDO))
     {
         mode_t m = st.st_mode & 07777;
         if (attr & FS_AM_RDO)
@@ -391,25 +471,38 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
     return ok;
 }
 
-/* Best-effort: set the modification time from the FAT date/time. The creation
- * time the API also carries is not settable on POSIX. */
+/* Set the modification time from the FAT date/time. A date of 0 is invalid
+ * and leaves the stamp alone, which is what the API promises and what f_utime
+ * does -- and it is why this is utimensat rather than utime: UTIME_OMIT says
+ * exactly that, and it also stops the access time being rewritten by a call
+ * that was never about it. The creation time the API also carries is not
+ * settable on POSIX; a machine that can set it does. */
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
+    struct timespec ts[2];
+    ts[0].tv_sec = ts[1].tv_sec = 0;
+    ts[0].tv_nsec = UTIME_OMIT; /* access time: never this call's business */
+    ts[1].tv_nsec = UTIME_OMIT;
+    if (info->fdate)
+    {
+        struct tm tm;
+        memset(&tm, 0, sizeof(tm));
+        tm.tm_year = ((info->fdate >> 9) & 0x7F) + 1980 - 1900;
+        tm.tm_mon = ((info->fdate >> 5) & 0x0F) - 1;
+        tm.tm_mday = info->fdate & 0x1F;
+        tm.tm_hour = (info->ftime >> 11) & 0x1F;
+        tm.tm_min = (info->ftime >> 5) & 0x3F;
+        tm.tm_sec = (info->ftime & 0x1F) * 2;
+        tm.tm_isdst = -1;
+        ts[1].tv_sec = mktime(&tm);
+        ts[1].tv_nsec = 0;
+    }
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    struct tm tm;
-    memset(&tm, 0, sizeof(tm));
-    tm.tm_year = ((info->fdate >> 9) & 0x7F) + 1980 - 1900;
-    tm.tm_mon = ((info->fdate >> 5) & 0x0F) - 1;
-    tm.tm_mday = info->fdate & 0x1F;
-    tm.tm_hour = (info->ftime >> 11) & 0x1F;
-    tm.tm_min = (info->ftime >> 5) & 0x3F;
-    tm.tm_sec = (info->ftime & 0x1F) * 2;
-    tm.tm_isdst = -1;
-    struct utimbuf ub;
-    ub.actime = ub.modtime = mktime(&tm);
-    bool ok = posix_ok(utime(u8, &ub) == 0, err);
+    /* Still resolved and still reported on, even when both stamps are left
+     * alone: the API answers for the path, not only for the stamps. */
+    bool ok = posix_ok(utimensat(AT_FDCWD, u8, ts, 0) == 0, err);
     free(u8);
     return ok;
 }
@@ -429,9 +522,14 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     return ok;
 }
 
-/* A POSIX filesystem has no FAT volume label. Report an empty one and accept
- * (ignore) a set, so label-aware programs run rather than erroring -- these
- * are answers, not missing calls, which is why neither slot is left NULL. */
+/* A POSIX filesystem has no volume label. An empty one is the true answer and
+ * FatFs's own word for unlabeled, so getlabel says that; there is no portable
+ * name to say instead -- struct statfs carries an id and no name, and reaching
+ * the real thing means walking the mount table to a device and asking a
+ * library about it.
+ *
+ * Setting one is a different matter: there is nothing to set, and reporting
+ * success for that is the kind of answer this drive no longer gives. */
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)path, (void)size, (void)err;
@@ -441,8 +539,9 @@ bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 
 bool drive_setlabel(const char *path, api_errno *err)
 {
-    (void)path, (void)err;
-    return true;
+    (void)path;
+    *err = API_ENOSYS;
+    return false;
 }
 
 bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,

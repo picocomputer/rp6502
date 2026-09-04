@@ -220,12 +220,11 @@ UTEST(fs, answers_in_the_host_s_spelling)
     ASSERT_STREQ(abs, probe);
     free(abs);
 
-    /* And the drive's own name is a spelling of the same file. */
-    char named[TEST_PATH_MAX + 32];
-    snprintf(named, sizeof(named), "%s%s", host_drive(), probe);
-    int fd = ssys_open(named, O_RD);
-    ASSERT_TRUE(fd >= 0);
-    ssys_close(fd);
+    /* The drive's own name in front of an absolute path is not asserted here,
+     * and cannot be: it is a spelling of the same file only on a machine whose
+     * paths carry no device of their own. Where they do, the path already
+     * names its drive and a second one in front of it is nonsense. The
+     * portable claim is the relative one, and drive_write_read_seek makes it. */
 }
 
 /* The drive answers to its own name and to no name; anything else is a missing
