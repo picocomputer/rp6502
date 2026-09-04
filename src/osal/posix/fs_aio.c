@@ -18,7 +18,8 @@
 
 /* The single in-flight transfer. fd < 0 means idle; only one exists at a time because
  * the guest syscall dispatcher is single-op (the same read/write is re-dispatched until
- * it completes). */
+ * it completes). A reader from outside that dispatch -- the dropped-file screen, which
+ * runs with a program still going -- is refused, not served this transfer. */
 static struct
 {
     struct aiocb cb;
@@ -28,6 +29,13 @@ static struct
 static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
     *got = 0;
+    if (g_xfer.fd >= 0 && g_xfer.fd != fd)
+    {
+        /* The slot holds someone else's transfer. Reaping it here would hand
+         * this caller that one's byte count and leave its buffer unwritten. */
+        errno = EBUSY;
+        return STD_ERROR;
+    }
     if (g_xfer.fd < 0)
     {
         off_t off = lseek(fd, 0, SEEK_CUR); /* aio positions explicitly; snapshot here */

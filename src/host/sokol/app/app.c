@@ -290,13 +290,16 @@ bool app_boot_rom(const char *path)
     }
     /* Screen the file before proc_boot stops the machine, so an accidental
      * drop leaves the running program alone -- the loader would refuse it
-     * too, but only after the program was already gone. The outgoing program
-     * holds the ROM descriptor for its assets and a drop claims it either
-     * way, so the release comes first; it is what rom_load does anyway. */
-    rom_assets_reset();
+     * too, but only after the program was already gone. Through an ordinary
+     * descriptor, not fs_rom_open: that one is the outgoing program's, held
+     * for its assets, and taking it would leave a refused drop with a program
+     * still running and nothing to read its assets out of. rom_load claims it
+     * a moment later anyway. */
+    uint8_t buf[ROM_RECORD_MAX];
     rom_pump_t pump;
     api_errno err;
-    if (!rom_pump_open(&pump, oem, &err))
+    int fd = fs_std_open(oem, FS_RD, &err);
+    if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
     {
         com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
                                       : "cannot read dropped file\n");

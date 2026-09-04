@@ -57,12 +57,12 @@ bool rom_load(const char *path)
     rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
     api_errno err;
     rom_pump_t pump;
-    if (!rom_pump_open(&pump, host, &err))
+    static uint8_t buf[ROM_RECORD_MAX];
+    if (!rom_pump_open(&pump, host, buf, &err))
     {
         com_printf("cannot load ROM '%s'\n", path);
         return false;
     }
-    static uint8_t buf[ROM_RECORD_MAX];
     rom_record_t rec;
     rom_pump_result r;
     while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)

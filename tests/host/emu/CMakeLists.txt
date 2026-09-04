@@ -62,6 +62,12 @@ endif()
 # No fixture: the claims are about the fan-outs, not about a program.
 rp6502_add_test(sys LIBS emu_core)
 
+# --- Which way each of the roster's walks goes ---
+# No machine linked, on purpose: the roster beside the test is the only
+# drivers.h on the path, and sys.c is compiled in because the stop and break
+# fan-outs are static.
+rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
+
 # --- aud_render: the device's buffer, filled from the registers ---
 rp6502_add_test(render LIBS emu_core)
 

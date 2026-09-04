@@ -9,6 +9,7 @@
 #include "core/aud/sine.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
+#include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -261,6 +262,7 @@ void psg_sample(int16_t *left, int16_t *right)
     uint8_t max_work = 32;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
+        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
         uint8_t tail = ++xram_queue_tail;
         uint8_t loc = xram_queue[tail][0];
         uint8_t val = xram_queue[tail][1];

@@ -50,8 +50,8 @@ typedef enum
     ROM_PUMP_ERROR,  /* *err says; the image is not loadable */
 } rom_pump_result;
 
-bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
-bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err); /* a descriptor the machine already holds */
+bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err);
+bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err); /* a descriptor the machine already holds */
 rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec, api_errno *err);
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);

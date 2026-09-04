@@ -30,6 +30,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/core/def/*.def
         ${CMAKE_CURRENT_LIST_DIR}/*.h)
+    # The seams this image is built against: what an OS answers and what a
+    # host owes. Not recursive, because the answers below them belong to other
+    # machines and this one compiles its own.
+    file(GLOB SW_SEAMS CONFIGURE_DEPENDS
+        ${RP6502_SRC}/osal/*.h
+        ${RP6502_SRC}/host/*.h)
+    list(APPEND SW_HEADERS ${SW_SEAMS})
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c

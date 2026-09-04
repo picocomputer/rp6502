@@ -66,7 +66,9 @@ static struct win_file *win_fil(int fd)
 }
 
 /* The single in-flight transfer (guest dispatcher is single-op, so only one exists at a
- * time). fd < 0 = idle; g_xfer_event is its manual-reset completion event. */
+ * time). fd < 0 = idle; g_xfer_event is its manual-reset completion event. A reader from
+ * outside that dispatch -- the dropped-file screen, which runs with a program still
+ * going -- is refused, not served this transfer. */
 static struct
 {
     OVERLAPPED ov;
@@ -184,9 +186,9 @@ std_rw_result fs_std_close(int desc, api_errno *err)
     if (!ok)
     {
         *err = win_last_error_to_api();
-        return -1;
+        return STD_ERROR;
     }
-    return 0;
+    return STD_OK;
 }
 
 static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write,
@@ -197,6 +199,13 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
     if (!f)
     {
         *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if (g_xfer.fd >= 0 && g_xfer.fd != fd)
+    {
+        /* The slot holds someone else's transfer. Reaping it here would hand
+         * this caller that one's byte count and leave its buffer unwritten. */
+        *err = API_EBUSY;
         return STD_ERROR;
     }
     if (g_xfer.fd < 0)

@@ -9,6 +9,7 @@
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include <assert.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -45,6 +46,7 @@ int16_t opl_sample(void)
     uint8_t max_work = 8;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
+        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
         uint8_t tail = ++xram_queue_tail;
         OPL_writeReg(opl_emu8950,
                      xram_queue[tail][0],

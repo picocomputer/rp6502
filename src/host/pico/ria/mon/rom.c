@@ -34,6 +34,10 @@
 #include <ctype.h>
 #include <string.h>
 
+/* mbuf is the record buffer this file lends the pump, and the pump reads
+ * ROM_RECORD_MAX into it without being told how big it is. */
+_Static_assert(MBUF_SIZE >= ROM_RECORD_MAX, "mbuf is the RIA's record buffer");
+
 #if defined(DEBUG_MON) || defined(DEBUG_MON_ROM)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
@@ -182,7 +186,7 @@ void rom_mon_install(const char *args)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, tok, &err))
+    if (!rom_pump_open(&rom_pump, tok, mbuf, &err))
     {
         mon_add_response_errno(err);
         return;
@@ -311,7 +315,7 @@ void rom_exec(void)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, path, &err))
+    if (!rom_pump_open(&rom_pump, path, mbuf, &err))
     {
         mon_add_response_errno(err);
         return;
@@ -522,7 +526,7 @@ static bool rom_help_open(const char *path)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, path, &err))
+    if (!rom_pump_open(&rom_pump, path, mbuf, &err))
     {
         mon_add_response_errno(err);
         return false;

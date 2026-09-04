@@ -105,22 +105,24 @@ static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
     return (long)i;
 }
 
-bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
+bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err)
 {
     int fd = fs_rom_open(path, FS_RD, err);
     if (fd < 0)
         return false;
-    return rom_pump_open_fd(p, fd, err);
+    return rom_pump_open_fd(p, fd, buf, err);
 }
 
 /* From a descriptor the machine already holds -- the Pocket boots from an
- * image its host staged before anything ran, so the open was the host's. */
-bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
+ * image its host staged before anything ran, so the open was the host's.
+ * The header lines borrow the caller's record buffer, as rom_pump_next's do,
+ * and for the same reason: nothing parsed out of them outlives this call. */
+bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
 {
     memset(p, 0, sizeof *p);
     p->fd = fd;
-    char line[ROM_RECORD_MAX];
-    if (pump_gets(p, line, sizeof line, err) < 0 ||
+    char *line = (char *)buf;
+    if (pump_gets(p, line, ROM_RECORD_MAX, err) < 0 ||
         strncasecmp(line, "#!RP6502", 8) != 0)
     {
         rom_pump_close(p);
@@ -132,7 +134,7 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
      * an asset with no name, so a walker skips it like any other entry.
      * Classic format runs records to EOF and carries no assets. */
     uint32_t after_shebang = p->pos;
-    long n = pump_gets(p, line, sizeof line, err);
+    long n = pump_gets(p, line, ROM_RECORD_MAX, err);
     if (n >= 2 && line[0] == '#' && line[1] == '>')
     {
         const char *scan = line + 2;

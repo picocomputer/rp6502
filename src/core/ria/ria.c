@@ -13,6 +13,7 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/ria/ria.h"
+#include <stdatomic.h>
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
@@ -133,6 +134,9 @@ static void rw_write(int which, uint8_t data)
         {
             xram_queue[next][0] = (uint8_t)addr;
             xram_queue[next][1] = data;
+            /* The drain is the audio device's own thread: the entry has to
+             * be visible before the head that publishes it. */
+            atomic_thread_fence(memory_order_release);
             xram_queue_head = next;
         }
     }

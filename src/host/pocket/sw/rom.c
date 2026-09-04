@@ -37,9 +37,9 @@ bool rom_load_fd(int fd)
 {
     api_errno err;
     rom_pump_t pump;
-    if (!rom_pump_open_fd(&pump, fd, &err))
-        return false;
     static uint8_t buf[ROM_RECORD_MAX];
+    if (!rom_pump_open_fd(&pump, fd, buf, &err))
+        return false;
     rom_record_t rec;
     rom_pump_result r;
     while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
