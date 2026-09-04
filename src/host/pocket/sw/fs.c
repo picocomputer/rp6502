@@ -1130,12 +1130,33 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                    : whence == SEEK_CUR ? (int32_t)fs_pool[desc].pos
                    : whence == SEEK_END ? (int32_t)fs_pool[desc].len
                                         : -1;
-    if (from < 0 || from + off < 0)
+    if (from < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    fs_pool[desc].pos = (uint32_t)(from + off);
-    *pos = from + off;
+    /* Widened before it is judged: from + off in int32 arithmetic wraps, and a
+     * target past 2GB-1 has to be refused rather than landing somewhere the
+     * signed result cannot report. */
+    int64_t target = (int64_t)from + off;
+    if (target < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (target > 0x7FFFFFFF)
+    {
+        *err = API_ERANGE;
+        return -1;
+    }
+    /* Past the end of a file this cannot write is the end of it, which is what
+     * every other backend answers. Extending a writable one is not done here:
+     * it would take the resize open and its pending state machine, and until
+     * it does, a seek past the end of a writable file stops at the end too
+     * rather than reporting a position no read or write would agree with. */
+    if (target > (int64_t)fs_pool[desc].len)
+        target = (int64_t)fs_pool[desc].len;
+    fs_pool[desc].pos = (uint32_t)target;
+    *pos = (int32_t)target;
     return 0;
 }
