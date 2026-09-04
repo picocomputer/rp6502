@@ -56,3 +56,8 @@ api_errno errno_to_api(int host_errno)
         return API_EIO;
     }
 }
+
+api_errno errno_to_api_rw(int host_errno)
+{
+    return host_errno == EBADF ? API_EACCES : errno_to_api(host_errno);
+}

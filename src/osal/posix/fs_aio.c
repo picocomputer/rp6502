@@ -72,7 +72,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
 {
     std_rw_result r = xfer_step(desc, buf, count, got, false);
     if (r == STD_ERROR)
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
     return r;
 }
 
@@ -80,7 +80,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
 {
     std_rw_result r = xfer_step(desc, (void *)buf, count, put, true);
     if (r == STD_ERROR)
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
     return r;
 }
 
