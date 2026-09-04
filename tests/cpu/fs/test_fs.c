@@ -402,10 +402,14 @@ UTEST(fs, dir_enumeration)
     ASSERT_GT(totalb, 0u);
     ASSERT_TRUE(freeb <= totalb);
 
-    /* no host volume label: an empty string (length 1 = just the terminator). */
+    /* The volume label is whatever the host says: empty on a filesystem that
+     * has none, and the real one where the host keeps one, in at most the
+     * eleven characters FAT's field holds. Either way the call answers. */
     dsys_path("");
     dir_api_getlabel();
-    ASSERT_EQ(dsys_ax(), 1);
+    int16_t label_len = dsys_ax();
+    ASSERT_GE(label_len, 1);
+    ASSERT_LE(label_len, 12);
 
     /* chmod toggles the read-only bit (the one FAT attribute with a host
      * equivalent), visible back through stat. */
