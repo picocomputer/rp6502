@@ -11,7 +11,7 @@
  */
 
 #include "osal/dir.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/com/com.h"
 #include "osal/fs.h"
 #include "core/str/path.h"
@@ -75,7 +75,7 @@ UTEST(exec, reexecs_self_with_arg)
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
     ASSERT_TRUE(drive_chdir_to(dir));
-    exec_set_argv(abs, 0, NULL);
+    proc_set_argv(abs, 0, NULL);
     free(abs);
 
     com_set_tx_tap(tap);
@@ -96,11 +96,11 @@ UTEST(exec, boot_args_reach_program)
     cap[0] = 0;
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
-    /* Boot args (the CLI's `exec.rp6502 -- Foo`): exec_set_argv resolves the raw
+    /* Boot args (the CLI's `exec.rp6502 -- Foo`): proc_set_argv resolves the raw
      * host path to MSC0: form itself. argc==2 at startup, so the program prints
      * its argv and wins on the first run, without the re-exec. */
     char *args[] = {"Foo"};
-    ASSERT_TRUE(exec_set_argv(TEST_FIXTURE, 1, args));
+    ASSERT_TRUE(proc_set_argv(TEST_FIXTURE, 1, args));
 
     com_set_tx_tap(tap);
     run_frames(90);

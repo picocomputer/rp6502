@@ -10,7 +10,7 @@
 #include "core/str/str.h"
 #include "core/vga/vga.h"
 #include "core/str/unicode.h"
-#include "host/host.h"
+#include "machine.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>

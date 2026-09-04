@@ -7,6 +7,7 @@
 
 
 #include "ria-w/ble/ble.h"
+#include "machine.h"
 #include "core/sys/config.h"
 #include "core/hid/parse.h"
 #include "core/str/oem.h"

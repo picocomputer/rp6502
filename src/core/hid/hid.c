@@ -10,7 +10,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "host/host.h"
+#include "machine.h"
 
 #if defined(DEBUG_HID) || defined(DEBUG_HID_HID)
 #include <stdio.h>

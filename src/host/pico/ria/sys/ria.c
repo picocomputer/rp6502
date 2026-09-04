@@ -441,8 +441,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         // Captured before the stop, while A and X still hold
                         // what the program exited with, for a launcher to read
                         // back through ATTR_EXIT_CODE.
-                        proc_set_exit_code((int16_t)API_AX);
-                        sys_stop();
+                        proc_exit((int16_t)API_AX);
                     }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack

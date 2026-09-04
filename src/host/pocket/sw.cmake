@@ -101,10 +101,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # -flto turns a missing prototype into a miscompile of
             # unrelated code, and this line carried no -W at all.
             -Werror=implicit-function-declaration
-            # What this machine says about itself, before anything defaults.
-            # Plain integers, so -D says it: a forced header would also reach
-            # crt0.S on this one gcc line, and the assembler cannot read one.
-            -DPROC_PATH_MAX=128 -DCOM_RING_SIZE=128 -DHID_MAX_SLOTS=4
             -I ${CMAKE_CURRENT_LIST_DIR}
             -I ${RP6502_SRC}
             -I ${RP6502_ASSETS}

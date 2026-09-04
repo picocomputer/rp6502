@@ -24,7 +24,7 @@
 #include "core/api/dir.h"
 #include "osal/fs.h"
 #include "core/api/proc.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/mix.h"
@@ -57,7 +57,7 @@
  * io column (its lazy clears drain a row per call) and before VGA in the list
  * (vga_init programs the console canvas, which asks term its height). */
 #define RP6502_MACH_DRIVERS                                                  \
-    RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER, EXEC_DRIVER,        \
+    RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER,                                 \
     COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
     API_DRIVER, TERM_DRIVER,                                 \

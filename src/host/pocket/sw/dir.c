@@ -17,6 +17,29 @@
 
 #include "core/api/dir.h"
 
+#include <string.h>
+
+/* The two paths proc holds. Short of the host's 256-byte field because this
+ * is static RAM; an empty first byte is a free slot. */
+static char paths[2][128];
+
+char *os_dir_path_hold(const char *path)
+{
+    size_t len = strlen(path);
+    for (size_t i = 0; i < 2; i++)
+        if (!paths[i][0] && len < sizeof paths[i])
+        {
+            memcpy(paths[i], path, len + 1);
+            return paths[i];
+        }
+    return NULL;
+}
+
+void os_dir_path_drop(char *path)
+{
+    path[0] = '\0';
+}
+
 /* ---- What this drive can answer ------------------------------------------ */
 
 /* Synthetic: the host cannot be asked. Spelled from the drive so

@@ -5,7 +5,7 @@
  */
 
 #include "core/ria/regs.h"
-#include "host/host.h"
+#include "machine.h"
 #include <stdalign.h>
 
 alignas(0x20) volatile uint8_t HOST_UNINITIALIZED_RAM(regs)[0x20];

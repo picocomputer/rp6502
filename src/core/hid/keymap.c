@@ -10,7 +10,7 @@
  * database -- emu.cmake omits them both. */
 
 #include "core/sys/timer.h"
-#include "host/host.h"
+#include "machine.h"
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/str/oem.h"

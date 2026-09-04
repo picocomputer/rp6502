@@ -8,7 +8,7 @@
 #define _EMU_TESTS_EMU_BOOT_H_
 
 #include "core/aud/mix.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/vga/vga_emu.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
@@ -37,7 +37,7 @@
  * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
-    if (!exec_boot(rom, 0, NULL, 0))
+    if (!proc_boot(rom, 0, NULL, 0))
         return false;
     sys_commit();
     return true;

@@ -6,7 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "core/api/proc.h"
+#include "ria/api/proc.h"
 #include "core/aud/bel.h"
 #include "core/sys/sys.h"
 #include "ria/mon/mon.h"
@@ -25,24 +25,17 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Records argv[0] of the currently running process.
-
-// Records the launcher that will re-run when program ends.
-
-
 /* This machine loads through a task-driven state machine; both of these are
  * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
  * program first -- the relaunch is running inside a stop already. */
-void proc_exec_start(const char *path)
+void proc_exec_start(void)
 {
-    (void)path;
     sys_stop();
     rom_exec();
 }
 
-void proc_exec_relaunch(const char *path)
+void proc_exec_relaunch(void)
 {
-    (void)path;
     rom_exec();
 }
 
@@ -52,14 +45,6 @@ bool proc_exec_inflight(void)
 {
     return rom_active();
 }
-
-
-
-
-
-
-
-
 
 void proc_nfc(const uint8_t *tag_data, size_t len)
 {

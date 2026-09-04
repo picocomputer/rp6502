@@ -13,7 +13,7 @@
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
-#include "host/host.h"
+#include "machine.h"
 #include "drivers.h"
 
 #include <stdio.h>

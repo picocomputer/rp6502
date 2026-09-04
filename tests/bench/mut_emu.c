@@ -10,7 +10,7 @@
  * time from there.
  */
 
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/sys/sys.h"
 #include "mut.h"
 
@@ -77,7 +77,7 @@ bool mut_boot(const char *rom)
      * other machine gets one by construction and a suite written to both has
      * to be able to say what XRAM held before its program ran. The fills come
      * before the loader in the drivers, so its bytes still land on top. */
-    if (!exec_boot(rom, 0, NULL, EXEC_REFILL))
+    if (!proc_boot(rom, 0, NULL, PROC_REFILL))
         return false;
     sys_commit();
     vga_set_framebuffer(mut_fb);

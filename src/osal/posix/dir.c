@@ -113,6 +113,16 @@ char *os_dir_realpath(const char *path)
     return out;
 }
 
+char *os_dir_path_hold(const char *path)
+{
+    return strdup(path);
+}
+
+void os_dir_path_drop(char *path)
+{
+    free(path);
+}
+
 /* Whatever the last call set, in the API's words. */
 static bool posix_ok(bool ok, api_errno *err)
 {

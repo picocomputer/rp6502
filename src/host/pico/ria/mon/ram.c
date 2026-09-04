@@ -12,6 +12,7 @@
 #include "core/str/str.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
+#include "host/host.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include <stdio.h>

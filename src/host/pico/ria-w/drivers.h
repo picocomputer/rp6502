@@ -22,7 +22,7 @@
 #include "core/api/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
-#include "core/api/proc.h"
+#include "ria/api/proc.h"
 #include "core/api/std.h"
 #include "ria/api/tim.h"
 #include "core/hid/gamepad.h"

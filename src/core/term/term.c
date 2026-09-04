@@ -9,7 +9,7 @@
 #include "core/sys/com.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
-#include "host/host.h"
+#include "machine.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,10 +37,8 @@
 //    pays only a 1-byte load and a predicted-not-taken branch.
 
 #define TERM_STD_HEIGHT 30
-/* The tallest terminal any view can ask for -- 512 scanlines over a
- * 16-line font on the one machine that has them. See HOST_TERM_MAX_HEIGHT
- * in osal/os.h for what it costs everyone else. */
-#define TERM_MAX_HEIGHT HOST_TERM_MAX_HEIGHT
+/* TERM_MAX_HEIGHT, the tallest terminal any view can ask for, is the
+ * machine's: 32 where the 512-line SXGA console exists, 30 everywhere else. */
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16

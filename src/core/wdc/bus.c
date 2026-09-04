@@ -13,7 +13,6 @@
 #include "core/wdc/via.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
-#include "host/host.h"
 
 /* Scanlines this has already answered for. The beam is the machine's clock
  * and runs whether or not the CPU does, so the only question here is how many

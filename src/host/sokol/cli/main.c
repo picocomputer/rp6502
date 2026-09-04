@@ -9,7 +9,7 @@
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/str/str.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "osal/os.h"
@@ -55,7 +55,7 @@ static void apply_options(const cli_options *o)
 /* DAP mode (--dap): the program is delivered by the VS Code launch request, not
  * the command line. sys_init left the machine held and no program has started
  * it, so this only serves DAP on stdio; the launch handler loads + runs the ROM
- * via exec_request. The window still opens (with the debugger overlay) so the
+ * via proc_exec_request. The window still opens (with the debugger overlay) so the
  * program is visible while VS Code drives. */
 static int run_dap(const cli_options *o)
 {
@@ -296,7 +296,7 @@ int main(int argc, char **argv)
         return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
 
-    bool booted = exec_boot(rom, o.n_rom_args, o.rom_args, 0);
+    bool booted = proc_boot(rom, o.n_rom_args, o.rom_args, 0);
     free(rom);
     if (!booted)
     {
@@ -322,7 +322,7 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
-    sys_commit(); /* exec_boot asked; this starts it */
+    sys_commit(); /* proc_boot asked; this starts it */
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its

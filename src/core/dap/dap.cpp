@@ -25,7 +25,7 @@
 extern "C"
 {
 #include "core/str/oem.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
@@ -275,7 +275,7 @@ bool g_stop_on_entry = false;
 bool g_stop_on_exit = true; /* present program exit as a stop, not a terminate */
 bool g_terminated = false;
 bool g_term_sent = false; /* a TerminatedEvent has gone out; don't repeat it at teardown */
-bool g_launch_requested = false; /* a launch reached exec_request; used to detect a load that never started */
+bool g_launch_requested = false; /* a launch reached proc_exec_request; used to detect a load that never started */
 unsigned g_stop_gen = 0;         /* bumped on each client-visible stop */
 unsigned g_varnodes_gen = ~0u;   /* the g_stop_gen g_varnodes were built for */
 std::vector<std::string> g_default_args; /* ROM argv[1..] for launch requests that carry none */
@@ -1522,18 +1522,18 @@ extern "C" void dap_start(void)
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
-                if (!exec_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
+                if (!proc_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
                 {
                     /* Args over the 512-byte argv buffer. The response already
                      * went out, so run anyway — but with argv[0] intact (the
                      * re-exec invariant) and the failure in the Debug Console. */
-                    exec_set_argv(prog_oem.c_str(), 0, NULL);
+                    proc_set_argv(prog_oem.c_str(), 0, NULL);
                     dap::OutputEvent ev;
                     ev.category = "console";
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                exec_request(prog_oem.c_str());
+                proc_exec_request();
             }
             g_launch_requested = true; /* dap_pump can now detect a load that never started */
         });
@@ -2230,10 +2230,10 @@ extern "C" void dap_pump(void)
      * frame commit (CPU left halted, entry stop unconsumed) or an empty program was
      * launched. Without this the session hangs — both the entry-resolve branch above
      * and the exit branch below wait on g_reached_entry / g_launch_done. Resolve the
-     * launch so the exit branch announces/terminates. exec_pending() excludes the
-     * window between exec_request() and its commit. */
+     * launch so the exit branch announces/terminates. proc_exec_inflight() excludes the
+     * window between proc_exec_request() and its commit. */
     if (!g_launch_done && g_launch_requested && g_configured.load() &&
-        !g_reached_entry && !exec_pending() && !resb_running() && !dbg_is_stopped())
+        !g_reached_entry && !proc_exec_inflight() && !resb_running() && !dbg_is_stopped())
     {
         g_launch_done = true;
         if (g_session)

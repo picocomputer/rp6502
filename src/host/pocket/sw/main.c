@@ -200,8 +200,7 @@ int main(void)
             else if (API_OP == 0xFF)
             {
                 /* Captured before api_return_ax clobbers A/X. */
-                proc_set_exit_code((int16_t)API_AX);
-                sys_stop();
+                proc_exit((int16_t)API_AX);
                 api_return_ax(0);
             }
         }

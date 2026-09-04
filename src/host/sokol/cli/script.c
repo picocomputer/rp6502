@@ -7,7 +7,7 @@
 
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
-#include "core/sys/exec.h"
+#include "core/api/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"

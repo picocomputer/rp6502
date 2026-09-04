@@ -9,7 +9,6 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
     # _ftoa/_etoa unconditionally otherwise.
     PICO_PRINTF_SUPPORT_FLOAT=0
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
-    XRAM_ALIGN=0x10000
 )
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
@@ -22,9 +21,6 @@ set_target_properties(rp6502-vga PROPERTIES
 target_link_options(rp6502-vga PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(rp6502-vga PRIVATE
-    # What this machine says about itself, before anything can take a default.
-    # C and C++ only: the SDK's crt0.S goes to the assembler.
-    "$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-include ${RP6502_ROOT}/src/host/pico/machine.h>"
     -Wall -Wextra -Wsign-compare
 )
 

@@ -12,7 +12,7 @@
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
 #include "core/api/arg.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/api/std.h"
 #include "core/aud/mix.h"
 #include "core/ria/regs.h"
@@ -83,14 +83,14 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
-    exec_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
     ASSERT_FALSE(proc_has_launcher());
     proc_set_launcher(true);
     ASSERT_TRUE(proc_has_launcher());
     ASSERT_TRUE(proc_is_launcher());
 
     /* It execs a game (the reload calls proc_run): the game is not the launcher. */
-    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
@@ -100,8 +100,8 @@ UTEST(features, launcher_chain)
     sys_commit();
     ASSERT_EQ(proc_get_exit_code(), 7);
     ASSERT_TRUE(proc_has_launcher());
-    ASSERT_TRUE(exec_pending()); /* the shell's re-run, queued once */
-    exec_init();                 /* standing in for the exec_task that loads it */
+    ASSERT_TRUE(proc_exec_inflight()); /* the shell's re-run, queued once */
+    proc_exec_init();                 /* standing in for the proc_exec_task that loads it */
 
     /* proc_run picks up the argv the chain left, so the shell is running
      * again and is the launcher. */
@@ -114,7 +114,7 @@ UTEST(features, launcher_chain)
     proc_exit(0);
     sys_commit();
     ASSERT_FALSE(proc_has_launcher());
-    ASSERT_FALSE(exec_pending());
+    ASSERT_FALSE(proc_exec_inflight());
 }
 
 /* An installed ROM's ":name" spelling survives the launcher chain verbatim:
@@ -126,23 +126,23 @@ UTEST(features, an_installed_name_round_trips_the_chain)
     ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" */
 
     /* The launcher runs from the null drive and registers. */
-    exec_set_argv(":adventure.rp6502", 0, NULL);
+    proc_set_argv(":adventure.rp6502", 0, NULL);
     proc_set_launcher(true);
     ASSERT_TRUE(proc_is_launcher());
 
     /* A child by filesystem path; the launcher's spelling is what replays. */
-    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
     proc_exit(0);
     sys_commit();
-    ASSERT_TRUE(exec_pending());
+    ASSERT_TRUE(proc_exec_inflight());
     /* The re-run boots the ":name" itself -- the whole path through resolve,
      * the seam and the loader, not just the string. */
-    ASSERT_TRUE(exec_boot(":adventure.rp6502", 0, NULL, 0));
+    ASSERT_TRUE(proc_boot(":adventure.rp6502", 0, NULL, 0));
     sys_commit();
     ASSERT_STREQ(arg_index(0), ":adventure.rp6502");
 }
 
-/* An exec is not an exit. exec_boot stops the machine on its way in, and that
+/* An exec is not an exit. proc_boot stops the machine on its way in, and that
  * stop runs the same walk a program's exit does -- so the chain must be able
  * to tell "this program is going away because it asked to be replaced" from
  * "this program ended, put the launcher back". Get it wrong and the launcher
@@ -151,19 +151,20 @@ UTEST(features, an_exec_is_not_the_child_exiting)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* running, which the stop needs */
 
-    exec_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
     proc_set_launcher(true);
-    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
-    exec_request("MSC0:/other.rp6502"); /* op 0x09, machine still running */
-    ASSERT_TRUE(exec_pending());
+    proc_set_argv("MSC0:/other.rp6502", 0, NULL);
+    proc_exec_request(); /* op 0x09, machine still running */
+    ASSERT_TRUE(proc_exec_inflight());
 
     /* Performing it leaves nothing queued behind. The image cannot load here,
      * which is fine: the queue is cleared before the load either way. */
-    exec_task();
-    ASSERT_FALSE(exec_pending());
+    proc_exec_task();
+    ASSERT_FALSE(proc_exec_inflight());
 }
 
 /* Empty args are protocol elements: the seeded argv keeps them, so the
@@ -174,7 +175,7 @@ UTEST(features, empty_args_kept)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
-    ASSERT_TRUE(exec_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_TRUE(proc_set_argv("MSC0:/a.rp6502", 3, args));
     ASSERT_FALSE(proc_api_argv()); /* false = op complete, not still working */
 
     const uint8_t *blob = &xstack[xstack_ptr];

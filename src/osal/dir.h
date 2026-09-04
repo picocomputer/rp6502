@@ -59,4 +59,11 @@ void oem_fs_code_page(uint16_t cp);
 
 char *os_dir_realpath(const char *path);
 
+/* A copy of a path this machine keeps until os_dir_path_drop. A host with a
+ * heap copies; a board answers from static buffers sized for its filesystem,
+ * NULL for a path that would not fit. proc holds two at most: what is running
+ * and what to return to. */
+char *os_dir_path_hold(const char *path);
+void os_dir_path_drop(char *path);
+
 #endif /* _OSAL_DIR_H_ */

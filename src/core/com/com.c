@@ -18,7 +18,6 @@
 #include "core/com/tty.h"
 #include "core/aud/bel.h"
 #include "core/sys/driver.h"
-#include "host/host.h" /* COM_RING_SIZE */
 
 #include <stdio.h>
 #include <string.h>

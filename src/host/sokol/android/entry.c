@@ -23,7 +23,7 @@
 #include "core/hid/gamepad.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -226,7 +226,7 @@ sapp_desc sokol_main(int argc, char* argv[])
     sys_init();
 
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
-    if (exec_boot("boot.rp6502", 0, NULL, 0))
+    if (proc_boot("boot.rp6502", 0, NULL, 0))
     {
         sys_commit();
     }

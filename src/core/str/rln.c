@@ -5,7 +5,7 @@
  */
 
 #include "core/sys/timer.h"
-#include "host/host.h"
+#include "machine.h"
 #include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/str/rln.h"

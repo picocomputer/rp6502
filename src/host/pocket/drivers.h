@@ -38,6 +38,7 @@
 #include "sw/apf.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"
+#include "sw/proc.h"
 #include "sw/sst.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"

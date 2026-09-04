@@ -60,9 +60,4 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         .write = nfc_std_write,     \
     }
 
-/* Boot the ROM an NFC tag names. Defined beside this machine's other proc
- * answers in ria/api/proc.c; declared here because a tag is the only thing
- * that asks for it. */
-void proc_nfc(const uint8_t *data, size_t len);
-
 #endif /* _RIA_USB_NFC_H_ */

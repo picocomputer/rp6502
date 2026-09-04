@@ -25,7 +25,7 @@
 #include "core/sys/com.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
 #include "core/wdc/phi2.h"
@@ -508,15 +508,15 @@ static void enter_save_directory(const char *content_path)
 static bool boot(const char *rom_oem)
 {
     apply_options(machine_inited);
-    unsigned flags = EXEC_UNCHAIN;
+    unsigned flags = PROC_UNCHAIN;
     if (machine_inited)
-        flags |= EXEC_REFILL; /* every load after the first is a fresh machine */
+        flags |= PROC_REFILL; /* every load after the first is a fresh machine */
     else
     {
         sys_init();
         machine_inited = true;
     }
-    if (!exec_boot(rom_oem, 0, NULL, flags))
+    if (!proc_boot(rom_oem, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
     sys_commit();

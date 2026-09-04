@@ -165,9 +165,9 @@ void vtkeys_task(void)
 {
     if (!vtkeys_paste_buf)
         return;
-    /* Stay under the ring's headroom so live typing still fits during a long
+    /* Leave a quarter of the ring so live typing still fits during a long
      * paste; a full ring drops bytes, which would corrupt the paste. */
-    while (vtkeys_paste_pos < vtkeys_paste_len && com_keyboard_free() > 64)
+    while (vtkeys_paste_pos < vtkeys_paste_len && com_keyboard_free() > COM_RING_SIZE / 4)
     {
         char c = vtkeys_paste_buf[vtkeys_paste_pos];
         if (c == '\r' || c == '\n')

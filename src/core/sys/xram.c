@@ -6,7 +6,7 @@
 
 #include "core/sys/xram.h"
 #include "core/sys/random.h"
-#include "host/host.h"
+#include "machine.h"
 #include <stdalign.h>
 #include <string.h>
 

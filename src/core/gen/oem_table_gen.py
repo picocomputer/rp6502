@@ -119,7 +119,7 @@ def emit_c(path, words):
     # this file at all -- its copy lives in the staging store.
     out = [HEADER,
            '\n#include "oemcp.h"\n#include "core/str/unicode.h"\n'
-           '\n#include "host/host.h"\n\n',
+           '\n#include "machine.h"\n\n',
            'static const HOST_IN_FLASH("oemcp") uint16_t'
            " oemcp_data[OEMCP_WORDS] = {\n"]
     for i in range(0, len(words), 12):

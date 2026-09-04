@@ -12,6 +12,7 @@
 #include "sys/path.h"
 #include "core/ria/regs.h"
 #include "ria/sys/mbuf.h"
+#include "host/host.h"
 #include "ria/sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>

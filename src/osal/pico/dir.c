@@ -32,6 +32,27 @@ static_assert(FF_SFN_BUF == F_ALTNAME_MAX);
 
 static DIR dirs[DIR_MAX_OPEN];
 
+/* The two paths proc holds, at the length a FatFs path can be. An empty
+ * first byte is a free slot. */
+static char paths[2][FF_LFN_BUF + 1];
+
+char *os_dir_path_hold(const char *path)
+{
+    size_t len = strlen(path);
+    for (size_t i = 0; i < 2; i++)
+        if (!paths[i][0] && len < sizeof paths[i])
+        {
+            memcpy(paths[i], path, len + 1);
+            return paths[i];
+        }
+    return NULL;
+}
+
+void os_dir_path_drop(char *path)
+{
+    path[0] = '\0';
+}
+
 /* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
 
 /* FatFs reports through a FRESULT, so every one of these is the same shape:

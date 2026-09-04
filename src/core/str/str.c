@@ -22,7 +22,7 @@
 #include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
-#include "host/host.h"
+#include "machine.h"
 #include <assert.h>
 
 #if defined(DEBUG_STR) || defined(DEBUG_STR_STR)

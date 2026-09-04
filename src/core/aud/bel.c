@@ -7,7 +7,6 @@
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
-#include "host/host.h"
 
 #if defined(DEBUG_AUD) || defined(DEBUG_AUD_BEL)
 #include <stdio.h>

@@ -24,13 +24,11 @@
 #include "core/sys/sys.h"
 
 #include <stdio.h>
-#include <string.h>
 
 /* Short of the host's 256-byte field because this is static RAM. */
 #define PROC_ARGV0_MAX 128
 
 static char proc_argv0[PROC_ARGV0_MAX];
-static char proc_exec_path[PROC_ARGV0_MAX];
 static bool proc_exec_pending;
 
 /* Once per staged image, not once per run: asking is a blocking bridge
@@ -55,25 +53,20 @@ const char *proc_staged_path(void)
     return proc_running()[0] ? proc_running() : proc_argv0;
 }
 
-
-
-
-
-
 /* An exec the program asked for wins; otherwise it returns to the
- * launcher. The launcher's own exit ends the chain. */
-/* Both stage the image; op 0x09 also stops the machine, because the
- * program that asked is already gone and the staging store is the console's
- * competitor for the bridge. The relaunch is inside a stop already. */
-void proc_exec_start(const char *path)
+ * launcher. The launcher's own exit ends the chain. Both leave the image to
+ * proc_exec_take, which reads argv[0]; op 0x09 also stops the machine,
+ * because the program that asked is already gone and the staging store is
+ * the console's competitor for the bridge. The relaunch is inside a stop
+ * already. */
+void proc_exec_start(void)
 {
-    proc_exec_relaunch(path);
+    proc_exec_relaunch();
     sys_stop();
 }
 
-void proc_exec_relaunch(const char *path)
+void proc_exec_relaunch(void)
 {
-    memcpy(proc_exec_path, path, strlen(path) + 1);
     proc_exec_pending = true;
 }
 
@@ -84,16 +77,15 @@ bool proc_exec_inflight(void)
     return proc_exec_pending;
 }
 
-
-
 bool proc_exec_take(void)
 {
     if (!proc_exec_pending)
         return false;
     proc_exec_pending = false;
-    if (!rom_load(proc_exec_path))
+    const char *path = arg_index(0);
+    if (!rom_load(path))
     {
-        printf("exec: no %s\n", proc_exec_path);
+        printf("exec: no %s\n", path);
         return false;
     }
     return true;

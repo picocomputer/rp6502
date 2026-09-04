@@ -54,11 +54,6 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
-    # What this machine says about itself, before anything can take a default.
-    # Forced rather than found on a path: it has to reach every unit or none,
-    # or a symbol lands in RAM that belongs in flash. C and C++ only -- the
-    # SDK's crt0.S goes to the assembler, which cannot read a C header.
-    "$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-include ${RP6502_ROOT}/src/host/pico/machine.h>"
     -Wall -Wextra -Wsign-compare
     $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>
     $<$<COMPILE_LANGUAGE:C>:-Woverride-init>

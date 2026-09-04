@@ -39,7 +39,7 @@
 #include "core/sys/version.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
-#include "core/sys/exec.h"
+#include "core/sys/proc.h"
 #include "core/sys/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
@@ -288,7 +288,7 @@ bool app_boot_rom(const char *path)
         com_printf("dropped path not representable in the OEM code page\n");
         return false;
     }
-    /* Screen the file before exec_boot stops the machine, so an accidental
+    /* Screen the file before proc_boot stops the machine, so an accidental
      * drop leaves the running program alone -- the loader would refuse it
      * too, but only after the program was already gone. The outgoing program
      * holds the ROM descriptor for its assets and a drop claims it either
@@ -309,7 +309,7 @@ bool app_boot_rom(const char *path)
      * the code page / PHI2 ride through from the previous program, like an exec. */
     /* Committed here rather than left for the next frame: the load below
      * writes the RAM the outgoing program was running out of. */
-    bool ok = exec_boot(oem, 0, NULL, EXEC_UNCHAIN);
+    bool ok = proc_boot(oem, 0, NULL, PROC_UNCHAIN);
     free(oem);
     if (!ok)
         return false; /* RAM may be part-written; stays stopped */

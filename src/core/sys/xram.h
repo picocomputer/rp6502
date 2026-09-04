@@ -16,12 +16,6 @@
 
 extern volatile uint8_t *const xram;
 
-/* The VGA folds the 6502's sixteen-bit wrap into the pointer, so its copy
- * sits on a 64 KB boundary; nothing else cares. */
-#ifndef XRAM_ALIGN
-#define XRAM_ALIGN 4
-#endif
-
 /* What xram holds before anything writes it, on the software machine. The
  * firmwares declare it uninitialized, so random is the default and a program
  * reading a byte it never wrote fails here instead of only on a Pico. Config,

@@ -18,6 +18,7 @@
  * pulls from keymap_in_chars instead, which is why the keymap keeps a queue. */
 void com_keyboard_push(const char *s, size_t n);
 void com_keyboard_push_byte(uint8_t b);
+#define COM_RING_SIZE 64 /* each ring; a power of two */
 size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */
 
 /* Cold-boot flush: clear both input rings and reset BEL (machine power-up). */

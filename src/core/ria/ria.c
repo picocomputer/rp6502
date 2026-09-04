@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/exec.h"
+#include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/ria/regs.h"

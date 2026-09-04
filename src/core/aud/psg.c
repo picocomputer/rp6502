@@ -9,7 +9,6 @@
 #include "core/aud/sine.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
-#include "host/host.h"
 #include <stddef.h>
 #include <string.h>
 
