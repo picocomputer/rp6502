@@ -81,11 +81,11 @@ static int run_dap(const cli_options *o)
 static uint32_t run_seed;
 static bool run_seed_taken;
 
-uint32_t host_random_seed(void)
+uint32_t host_seed(void)
 {
     if (!run_seed_taken)
     {
-        run_seed = os_random_entropy();
+        run_seed = os_random();
         run_seed_taken = true;
     }
     return run_seed;
@@ -191,13 +191,13 @@ int main(int argc, char **argv)
      * first thing it does. */
     if (o.have_seed)
         run_seed = (uint32_t)o.seed, run_seed_taken = true;
-    sram_set_fill(o.fill_random, o.fill_value, host_random_seed());
-    xram_set_fill(o.fill_random, o.fill_value, host_random_seed());
+    sram_set_fill(o.fill_random, o.fill_value, host_seed());
+    xram_set_fill(o.fill_random, o.fill_value, host_seed());
     /* Say which seed a random fill used, or a run that turns something up is a
      * run nobody can repeat. Host stderr, so nothing a script matches moves. */
     if (o.fill_random && !o.have_seed)
         fprintf(stderr, "rp6502-emu: memory filled at random; --seed %u repeats it\n",
-                (unsigned)host_random_seed());
+                (unsigned)host_seed());
     sys_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and

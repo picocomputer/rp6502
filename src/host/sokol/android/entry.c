@@ -193,11 +193,11 @@ bool rp6502_android_input_hook(const void* native_event)
 static uint32_t run_seed;
 static bool run_seed_taken;
 
-uint32_t host_random_seed(void)
+uint32_t host_seed(void)
 {
     if (!run_seed_taken)
     {
-        run_seed = os_random_entropy();
+        run_seed = os_random();
         run_seed_taken = true;
     }
     return run_seed;

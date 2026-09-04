@@ -45,13 +45,8 @@ extern "C"
 {
 #endif
 
-    /* This random seed is constant for the entire run. */
-    uint32_t host_random_seed(void);
+    uint32_t host_seed(void);
     uint64_t host_clock_us(void);
-
-    /* CRC-32/ISO-HDLC (zlib): host_crc32(0, buf, len) is the one-shot value;
-     * chain by feeding a prior result back as crc. A host that links one
-     * already answers with it; the rest compile core/sys/crc32.c. */
     uint32_t host_crc32(uint32_t crc, const void *buf, size_t len);
 
 #ifdef __cplusplus

@@ -20,7 +20,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-uint32_t os_random_entropy(void)
+uint32_t os_random(void)
 {
     LARGE_INTEGER f, c;
     FILETIME ft;

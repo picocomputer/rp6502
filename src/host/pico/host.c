@@ -20,10 +20,19 @@ uint64_t host_clock_us(void)
     return time_us_64();
 }
 
-uint32_t host_random_seed(void)
+/* Nothing overrides a board -- no command line, no fixture -- so the seed is
+ * the RNG's, drawn once and held. */
+static uint32_t seed;
+static bool seed_taken;
+
+uint32_t host_seed(void)
 {
-    /* Nothing overrides a board: no command line, no fixture. */
-    return os_random_entropy();
+    if (!seed_taken)
+    {
+        seed = os_random();
+        seed_taken = true;
+    }
+    return seed;
 }
 
 uint32_t host_crc32(uint32_t crc, const void *buf, size_t len)

@@ -450,9 +450,9 @@ UTEST_MAIN();
  * another. */
 UTEST(random, the_machines_seed_does_not_move)
 {
-    uint32_t first = host_random_seed();
-    ASSERT_EQ(first, host_random_seed());
-    ASSERT_EQ(first, host_random_seed());
+    uint32_t first = host_seed();
+    ASSERT_EQ(first, host_seed());
+    ASSERT_EQ(first, host_seed());
 }
 
 /* One generator written once, so the same state gives the same stream --

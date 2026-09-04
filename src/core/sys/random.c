@@ -48,7 +48,7 @@ uint32_t sys_random(void)
 {
     if (!sys_random_seeded)
     {
-        sys_random_state = host_random_seed();
+        sys_random_state = host_seed();
         sys_random_seeded = true;
     }
     return sys_random_step(&sys_random_state);

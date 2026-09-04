@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 /* The machine's stream, the one the 6502 reads. Seeded on first use by asking
- * the machine (host_random_seed), which is where a fixture or a --seed gets
+ * the machine (host_seed), which is where a fixture or a --seed gets
  * its say. */
 uint32_t sys_random(void);
 

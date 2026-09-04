@@ -201,8 +201,8 @@ static void apply_options(bool started)
         fill_random = false;
         fill_value = 0xFF;
     }
-    sram_set_fill(fill_random, fill_value, host_random_seed());
-    xram_set_fill(fill_random, fill_value, host_random_seed());
+    sram_set_fill(fill_random, fill_value, host_seed());
+    xram_set_fill(fill_random, fill_value, host_seed());
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,11 +437,11 @@ static void say_how_to_type(void)
 static uint32_t run_seed;
 static bool run_seed_taken;
 
-uint32_t host_random_seed(void)
+uint32_t host_seed(void)
 {
     if (!run_seed_taken)
     {
-        run_seed = os_random_entropy();
+        run_seed = os_random();
         run_seed_taken = true;
     }
     return run_seed;

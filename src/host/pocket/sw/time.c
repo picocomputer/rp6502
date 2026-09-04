@@ -141,13 +141,23 @@ uint64_t os_mono_ns(void)
 /* The wall clock the host wrote is this machine's only entropy. With no clock
  * the seed is zero, which is an ordinary seed -- so a bench that wants both
  * machines on one stream can pin the oracle to it. */
-uint32_t os_random_entropy(void)
+uint32_t os_random(void)
 {
     return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
 }
 
-uint32_t host_random_seed(void)
+/* Nothing overrides a board -- no command line, no fixture -- so the seed is
+ * the clock's, read once and held: the host can set the clock later, and a
+ * seed that moved with it would fill from one and print another. */
+static uint32_t seed;
+static bool seed_taken;
+
+uint32_t host_seed(void)
 {
-    /* Nothing overrides a board: no command line, no fixture. */
-    return os_random_entropy();
+    if (!seed_taken)
+    {
+        seed = os_random();
+        seed_taken = true;
+    }
+    return seed;
 }

@@ -9,7 +9,7 @@
 #include <sys/random.h>
 #include <time.h>
 
-uint32_t os_random_entropy(void)
+uint32_t os_random(void)
 {
     uint64_t s;
     if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s)

@@ -8,7 +8,7 @@
 #include "osal/os.h"
 #include <time.h>
 
-uint32_t os_random_entropy(void)
+uint32_t os_random(void)
 {
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);

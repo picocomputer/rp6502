@@ -14,8 +14,9 @@
 #include <stdint.h>
 #include <time.h>
 
-/* Entropy, always, different everry call. */
-uint32_t os_random_entropy(void);
+/* Fresh entropy, different every call. The seed a run repeats under is
+ * host_seed's, which draws from here once. */
+uint32_t os_random(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool os_localtime(time_t t, struct tm *out);
