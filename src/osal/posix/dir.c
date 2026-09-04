@@ -166,6 +166,23 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 /* There are no FAT bits on a POSIX filesystem, so they are read off what is
  * there: a directory, archive on anything else, read-only when the owner
  * cannot write, hidden by the leading-dot convention. */
+/* Whether this libc declares statx(). The kernel's own headers define
+ * STATX_BTIME wherever they are new enough, which is not the same question --
+ * bionic has the constant from API 28 and the function only from 30, and a
+ * build against the lower one fails on the call rather than falling back. */
+#if defined(__linux__) && defined(STATX_BTIME)
+#if defined(__ANDROID__)
+#define OSAL_HAVE_STATX (__ANDROID_API__ >= 30)
+#elif defined(__GLIBC__)
+#define OSAL_HAVE_STATX \
+    (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28))
+#else
+#define OSAL_HAVE_STATX 0
+#endif
+#else
+#define OSAL_HAVE_STATX 0
+#endif
+
 /* The creation time, where the filesystem keeps one. st_ctime is the inode
  * change time and is not a creation time in any sense a program could use, so
  * this asks for the real thing and answers with nothing when there is none --
@@ -183,12 +200,12 @@ static bool stat_birthtime(int dirfd, const char *name, const struct stat *st,
     (void)dirfd, (void)name;
     *out = st->st_birthtime;
     return true;
-#elif defined(__linux__) && defined(STATX_BTIME)
+#elif OSAL_HAVE_STATX
     (void)st;
     struct statx stx;
     /* Older kernels and some filesystems have no birth time; statx says so by
      * leaving the bit out of stx_mask rather than by failing. */
-    if (statx(dirfd, name, AT_SYMLINK_NOFOLLOW * 0, STATX_BTIME, &stx) != 0 ||
+    if (statx(dirfd, name, 0, STATX_BTIME, &stx) != 0 ||
         !(stx.stx_mask & STATX_BTIME))
         return false;
     *out = (time_t)stx.stx_btime.tv_sec;
