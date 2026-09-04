@@ -164,8 +164,14 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
     FRESULT fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
     if (fr == FR_EXIST)
     {
-        fr = f_unlink((const TCHAR *)newname);
-        if (fr == FR_OK)
+        /* Only a file is cleared out of the way. rename(2) refuses to put a
+         * file where a directory is, and this is not the call that gets to
+         * remove one -- so a directory keeps FatFs's own refusal. */
+        FILINFO fno;
+        fr = f_stat((const TCHAR *)newname, &fno);
+        if (fr == FR_OK && (fno.fattrib & AM_DIR))
+            fr = FR_EXIST;
+        else if (fr == FR_OK && (fr = f_unlink((const TCHAR *)newname)) == FR_OK)
             fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
     }
     return fat_ok(fr, err);

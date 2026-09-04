@@ -277,6 +277,9 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     if (!got)
         return false;
     memset(&fd, 0, sizeof fd);
+    /* Something has to be reported, and it must not be the empty name readdir
+     * uses for end-of-directory. A root is what got here, so it says so. */
+    fd.cFileName[0] = L'/';
     fd.dwFileAttributes = fad.dwFileAttributes;
     fd.ftLastWriteTime = fad.ftLastWriteTime;
     fd.ftCreationTime = fad.ftCreationTime;

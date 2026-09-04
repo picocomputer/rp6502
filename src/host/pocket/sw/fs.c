@@ -879,7 +879,10 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (!(fs_pool[desc].flags & FS_RD))
+    /* Write-only means write-only, the way every other backend has it. An
+     * open that asked for neither is a read, which is what open(2) and
+     * CreateFile make of it too, so only an explicit FS_WR alone refuses. */
+    if ((fs_pool[desc].flags & (FS_RD | FS_WR)) == FS_WR)
     {
         *err = API_EACCES; /* as fs_std_write answers the other way round */
         return STD_ERROR;
