@@ -17,9 +17,9 @@
 #include "main.h"
 #include "mmio.h"
 
-#include "core/cfg.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
+#include "core/sys/config.h"
 #include "core/hid/layout.h"
 
 #include <string.h>
@@ -39,7 +39,7 @@ static void cfg_apply_layout(int32_t kb)
         return;
     layout_name((int)kb - 1, name);
     if (name[0])
-        keymap_load_layout(name);
+        keymap_set_layout_list(name);
 }
 
 void cfg_task(void)
@@ -59,10 +59,4 @@ void cfg_task(void)
         cfg_kb = kb;
         cfg_apply_layout(kb);
     }
-}
-
-/* The menu owns these settings and writes them itself, so a save from this
- * side has nowhere to go. core/str/str.c calls it. */
-void cfg_save(void)
-{
 }

@@ -1,0 +1,282 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+
+
+#include "ria-w/ble/ble.h"
+#include "ria/mon/mon.h"
+#include "ria-w/net/cyw.h"
+#include "core/sys/config.h"
+#include "ria-w/net/wifi.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/rp2350.h"
+#include <pico/cyw43_arch.h>
+#include <pico/cyw43_driver.h>
+
+#if defined(DEBUG_NET) || defined(DEBUG_NET_CYW)
+#include <stdio.h>
+#define DBG(...) printf(__VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+// These are from cyw43_arch.h
+#define CYW_CC_X                  \
+    X(AU, "AU", "Australia")      \
+    X(AT, "AT", "Austria")        \
+    X(BE, "BE", "Belgium")        \
+    X(BR, "BR", "Brazil")         \
+    X(CA, "CA", "Canada")         \
+    X(CL, "CL", "Chile")          \
+    X(CN, "CN", "China")          \
+    X(CO, "CO", "Colombia")       \
+    X(CZ, "CZ", "Czech Republic") \
+    X(DK, "DK", "Denmark")        \
+    X(EE, "EE", "Estonia")        \
+    X(FI, "FI", "Finland")        \
+    X(FR, "FR", "France")         \
+    X(DE, "DE", "Germany")        \
+    X(GR, "GR", "Greece")         \
+    X(HK, "HK", "Hong Kong")      \
+    X(HU, "HU", "Hungary")        \
+    X(IS, "IS", "Iceland")        \
+    X(IN, "IN", "India")          \
+    X(IL, "IL", "Israel")         \
+    X(IT, "IT", "Italy")          \
+    X(JP, "JP", "Japan")          \
+    X(KE, "KE", "Kenya")          \
+    X(LV, "LV", "Latvia")         \
+    X(LI, "LI", "Liechtenstein")  \
+    X(LT, "LT", "Lithuania")      \
+    X(LU, "LU", "Luxembourg")     \
+    X(MY, "MY", "Malaysia")       \
+    X(MT, "MT", "Malta")          \
+    X(MX, "MX", "Mexico")         \
+    X(NL, "NL", "Netherlands")    \
+    X(NZ, "NZ", "New Zealand")    \
+    X(NG, "NG", "Nigeria")        \
+    X(NO, "NO", "Norway")         \
+    X(PE, "PE", "Peru")           \
+    X(PH, "PH", "Philippines")    \
+    X(PL, "PL", "Poland")         \
+    X(PT, "PT", "Portugal")       \
+    X(SG, "SG", "Singapore")      \
+    X(SK, "SK", "Slovakia")       \
+    X(SI, "SI", "Slovenia")       \
+    X(ZA, "ZA", "South Africa")   \
+    X(KR, "KR", "South Korea")    \
+    X(ES, "ES", "Spain")          \
+    X(SE, "SE", "Sweden")         \
+    X(CH, "CH", "Switzerland")    \
+    X(TW, "TW", "Taiwan")         \
+    X(TH, "TH", "Thailand")       \
+    X(TR, "TR", "Turkey")         \
+    X(GB, "GB", "United Kingdom") \
+    X(US, "US", "United States")
+
+#define X(suffix, abbr, name)                         \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_NAME_##suffix[] = name;
+CYW_CC_X
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_ABBR_##suffix,
+static const char *__in_flash("cyw_country_abbr")
+    cyw_country_abbr[] = {CYW_CC_X};
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_NAME_##suffix,
+static const char *__in_flash("cyw_country_name")
+    cyw_country_name[] = {CYW_CC_X};
+#undef X
+
+#define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
+
+static int cyw_country = -1;
+static bool cyw_led_status;
+static bool cyw_led_requested;
+
+static int cyw_lookup_country(const char *cc)
+{
+    for (size_t i = 0; i < CYW_COUNTRY_COUNT; i++)
+    {
+        if (!strcasecmp(cc, cyw_country_abbr[i]))
+            return i;
+    }
+    return -1;
+}
+
+static void cyw_reset_radio(void)
+{
+    // ble_shutdown calls sys_task which can restart wifi early
+    ble_shutdown(); // must be first
+    wifi_shutdown(); // must be second
+    cyw43_arch_deinit();
+    cyw_init();
+}
+
+void cyw_task(void)
+{
+    if (cyw_led_requested != cyw_led_status)
+    {
+        cyw_led_status = cyw_led_requested;
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+    }
+    cyw43_arch_poll();
+}
+
+void cyw_led_set(bool on)
+{
+    cyw_led_requested = on;
+}
+
+void __in_flash("cyw_init") cyw_init(void)
+{
+    // CYW43439 datasheet says 50MHz for SPI.
+    // The Raspberry Pi SDK only provides for a 2,0 divider,
+    // which is 75MHz for a non-overclocked 150MHz system clock.
+    // It easily runs 85MHz+ so we push it to 66MHz.
+    if (SYS_RP2350_KHZ > 198000)
+        cyw43_set_pio_clkdiv_int_frac8(4, 0);
+    else if (SYS_RP2350_KHZ > 132000)
+        cyw43_set_pio_clkdiv_int_frac8(3, 0);
+    else
+        cyw43_set_pio_clkdiv_int_frac8(2, 0);
+
+    uint32_t country = CYW43_COUNTRY_WORLDWIDE;
+    if (cyw_country >= 0)
+        country = CYW43_COUNTRY(
+            cyw_country_abbr[cyw_country][0],
+            cyw_country_abbr[cyw_country][1],
+            0);
+    if (cyw43_arch_init_with_country(country))
+        mon_add_response_utf8(S(STR_ERR_CYW_FAILED_TO_INIT));
+    else
+    {
+        cyw_led_status = cyw_led_requested;
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+    }
+    // Upload the bluetooth firmware now so it doesn't lazy load.
+    cyw43_bluetooth_hci_init();
+}
+
+bool cyw_check_rf_enable(uint8_t *v)
+{
+    return *v <= 1;
+}
+
+/* A full radio teardown, so only when it moved. */
+void cyw_apply_rf_enable(uint8_t rf, bool changed)
+{
+    (void)rf;
+    if (changed)
+        cyw_reset_radio();
+}
+
+/* SET's line for this row. */
+int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    uint8_t en = cyw_get_rf_enable();
+    oem_snprintf(buf, buf_size, STR_SET_RF_RESPONSE, en, en ? S(STR_ON) : S(STR_OFF));
+    return -1;
+}
+
+/* Empty is worldwide; anything else must be a code the radio knows, and is
+ * kept in the table's own spelling. */
+bool cyw_check_rf_country_code(const char *in, char *out)
+{
+    int country = cyw_lookup_country(in);
+    if (!in[0])
+        return true;
+    if (country < 0)
+        return false;
+    strcpy(out, cyw_country_abbr[country]);
+    return true;
+}
+
+void cyw_apply_rf_country_code(const char *rfcc, bool changed)
+{
+    (void)rfcc;
+    cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
+    if (changed)
+        cyw_reset_radio();
+}
+
+/* SET's line for this row. */
+int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    const char *cc = cyw_get_rf_country_code();
+    if (strlen(cc))
+        oem_snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE, cc, " ",
+                     cyw_get_rf_country_code_verbose());
+    else
+        oem_snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE, "", "", S(STR_WORLDWIDE));
+    return -1;
+}
+
+
+const char *cyw_get_rf_country_code_verbose(void)
+{
+    if (cyw_country < 0)
+        return "";
+    else
+        return cyw_country_name[cyw_country];
+}
+
+int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    if (state < 0)
+        return state;
+    size_t name_max = 0;
+    for (unsigned i = 0; i < CYW_COUNTRY_COUNT; i++)
+    {
+        size_t len = strlen(cyw_country_name[i]);
+        if (len > name_max)
+            name_max = len;
+    }
+    size_t cell = 2 + 3 + name_max;
+    unsigned w = width;
+    if (w > buf_size - 2)
+        w = buf_size - 2;
+    unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;
+    if (cols < 1)
+        cols = 1;
+    unsigned rows = (CYW_COUNTRY_COUNT + cols - 1) / cols;
+    if ((unsigned)state >= rows)
+        return -1;
+    unsigned spread = (w - cols * cell) / (cols + 1);
+    int n = snprintf(buf, buf_size, "%*s", (int)spread, "");
+    if (n > 0 && (size_t)n < buf_size)
+    {
+        buf += n;
+        buf_size -= n;
+    }
+    unsigned el = state;
+    for (unsigned i = 0; i < cols && el < CYW_COUNTRY_COUNT; i++)
+    {
+        n = snprintf(buf, buf_size, "%2s - %-*s%*s",
+                     cyw_country_abbr[el], (int)name_max, cyw_country_name[el],
+                     (int)spread, "");
+        if (n > 0 && (size_t)n < buf_size)
+        {
+            buf += n;
+            buf_size -= n;
+        }
+        el += rows;
+    }
+    snprintf(buf, buf_size, "\n");
+    return ((unsigned)state + 1 < rows) ? state + 1 : -1;
+}

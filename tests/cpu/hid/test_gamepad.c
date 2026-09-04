@@ -13,8 +13,8 @@
 
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
-#include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "core/sys/xram.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -36,8 +36,7 @@ static void cap_reset(void)
 
 static void run(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
 }
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
@@ -113,7 +112,7 @@ UTEST(gamepad, connected_gamepad_renders)
     run(20);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Select") != NULL); /* P0 now prints its button row */
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 /* An unplugged controller is gated out: input on a gamepad whose connected bit is
@@ -134,7 +133,7 @@ UTEST(gamepad, disconnected_gamepad_ignored)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL);
     ASSERT_TRUE(strstr(cap, "Select") == NULL); /* the press was ignored */
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 UTEST_MAIN_EMU()

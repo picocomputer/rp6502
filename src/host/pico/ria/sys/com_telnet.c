@@ -12,21 +12,23 @@
  * the picking, this owns the socket.
  */
 
+#include "core/sys/ria.h"
 #include "ria/sys/com.h"
+#include "core/sys/config.h"
 #include "ria/sys/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/vga.h"
-#include "ria/net/telnet.h"
-#include "ria/net/cyw.h"
+#include "ria-w/net/telnet.h"
+#include "ria-w/net/cyw.h"
 #include "core/str/str.h"
 #include "core/str/rln.h"
-#include "core/main.h"
-#include "ria/net/wifi.h"
+#include "core/sys/driver.h"
+#include "ria-w/net/wifi.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -50,9 +52,6 @@ void com_telnet_clear_rx(void) {}
 
 #else
 
-#define COM_TELNET_KEY_SIZE 33
-static uint16_t com_telnet_port = 23;
-static char com_telnet_key[COM_TELNET_KEY_SIZE];
 
 typedef enum
 {
@@ -106,7 +105,7 @@ void com_telnet_tx_write(char ch)
 
 size_t com_telnet_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, COM_SOURCE_TEL);
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
     while (count < length && com_telnet_rx_head != com_telnet_rx_tail)
     {
         com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;
@@ -139,7 +138,7 @@ static void com_telnet_drain_tx(void)
         len = com_telnet_tx_head - start + 1;
     else
         len = COM_TELNET_TX_BUF_SIZE - start;
-    uint16_t sent = telnet_tx(SYS_TELNET_DESC, &com_telnet_tx_buf[start], len);
+    uint16_t sent = telnet_tx(NET_TELNET_DESC, &com_telnet_tx_buf[start], len);
     com_telnet_tx_tail = (com_telnet_tx_tail + sent) % COM_TELNET_TX_BUF_SIZE;
 }
 
@@ -161,31 +160,31 @@ static void com_telnet_handle_auth(uint8_t ch)
         if (com_telnet_auth_len > 0)
         {
             com_telnet_auth_len--;
-            telnet_tx(SYS_TELNET_DESC, "\b \b", 3);
+            telnet_tx(NET_TELNET_DESC, "\b \b", 3);
         }
     }
     else if (ch == '\r' || ch == '\n')
     {
         com_telnet_auth_buf[com_telnet_auth_len] = 0;
-        if (strcmp(com_telnet_auth_buf, com_telnet_key) == 0)
+        if (strcmp(com_telnet_auth_buf, com_telnet_get_key()) == 0)
         {
-            telnet_tx(SYS_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
+            telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
             vga_set_tel_console_active(true);
             DBG("NET TEL console authenticated\n");
         }
         else
         {
-            telnet_tx(SYS_TELNET_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
+            telnet_tx(NET_TELNET_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
             DBG("NET TEL console auth failed\n");
             com_telnet_state = COM_TELNET_STATE_LISTENING;
-            telnet_close(SYS_TELNET_DESC);
+            telnet_close(NET_TELNET_DESC);
         }
     }
     else if (ch >= 32 && ch < 127 && com_telnet_auth_len < COM_TELNET_KEY_SIZE - 1)
     {
         com_telnet_auth_buf[com_telnet_auth_len++] = ch;
-        telnet_tx(SYS_TELNET_DESC, "*", 1);
+        telnet_tx(NET_TELNET_DESC, "*", 1);
     }
 }
 
@@ -214,7 +213,7 @@ static void com_telnet_drain_rx(void)
     }
 
     char decoded[COM_TELNET_RX_BUF_SIZE];
-    uint16_t decoded_len = telnet_rx(SYS_TELNET_DESC, decoded, limit);
+    uint16_t decoded_len = telnet_rx(NET_TELNET_DESC, decoded, limit);
 
     for (uint16_t i = 0; i < decoded_len; i++)
     {
@@ -241,18 +240,18 @@ static void com_telnet_drain_rx(void)
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
         uint16_t nw, nh;
-        if (telnet_get_naws(SYS_TELNET_DESC, &nw, &nh))
+        if (telnet_get_naws(NET_TELNET_DESC, &nw, &nh))
             rln_set_naws_size(nw, nh);
     }
 }
 
 static bool com_telnet_should_listen(void)
 {
-    return com_telnet_port > 0 && com_telnet_key[0] != 0 && wifi_ready();
+    return com_telnet_get_port() > 0 && com_telnet_get_key()[0] != 0 && wifi_ready();
 }
 
 // Unified teardown for both full shutdown (target=IDLE, closes the
-// listen socket and the session pcb via SYS_TELNET_DESC) and peer-driven
+// listen socket and the session pcb via NET_TELNET_DESC) and peer-driven
 // disconnect (target=LISTENING, keeps the listener armed; the session
 // pcb close is done by the caller with its own desc). Both targets
 // clear the rings and assign the new state.
@@ -261,7 +260,7 @@ static void com_telnet_teardown(com_telnet_state_t target)
     bool was_session = (com_telnet_state == COM_TELNET_STATE_AUTH || com_telnet_state == COM_TELNET_STATE_CONNECTED);
     bool was_connected = (com_telnet_state == COM_TELNET_STATE_CONNECTED);
     if (was_session && target == COM_TELNET_STATE_IDLE)
-        telnet_close(SYS_TELNET_DESC);
+        telnet_close(NET_TELNET_DESC);
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
         vga_set_tel_console_active(false);
@@ -296,10 +295,10 @@ static bool com_telnet_on_accept(uint16_t port)
     if (com_telnet_state != COM_TELNET_STATE_LISTENING)
         return false;
 
-    if (!telnet_accept_server(SYS_TELNET_DESC, port, com_telnet_on_disconnect))
+    if (!telnet_accept_server(NET_TELNET_DESC, port, com_telnet_on_disconnect))
         return false;
 
-    telnet_tx(SYS_TELNET_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
+    telnet_tx(NET_TELNET_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
 
     com_telnet_auth_len = 0;
     com_telnet_clear_rings();
@@ -308,65 +307,41 @@ static bool com_telnet_on_accept(uint16_t port)
     return true;
 }
 
-void com_telnet_load_port(const char *str)
-{
-    str_parse_uint16(&str, &com_telnet_port);
-}
 
-void com_telnet_load_key(const char *str)
+
+/* The task re-derives from the stored value every pass, so there is
+ * nothing to apply and every port number is legal. */
+int com_telnet_port_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    size_t n = strlen(str);
-    if (n < COM_TELNET_KEY_SIZE)
+    (void)width;
+    if (state == 0)
     {
-        memcpy(com_telnet_key, str, n);
-        com_telnet_key[n] = 0;
+        bool en = com_telnet_get_port() > 0 && com_telnet_get_key()[0];
+        oem_snprintf(buf, buf_size, STR_SET_PORT_RESPONSE, com_telnet_get_port(),
+                     en ? S(STR_ENABLED) : S(STR_DISABLED));
+        return 1;
     }
+    return com_telnet_key_response(buf, buf_size, 0, width);
 }
 
-bool com_telnet_set_port(uint16_t port)
+int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    if (com_telnet_port != port)
-    {
-        com_telnet_port = port;
-        if (port == 0)
-            com_telnet_shutdown();
-    }
-    cfg_save();
-    return true;
+    (void)state;
+    (void)width;
+    const char *key = com_telnet_get_key();
+    oem_snprintf(buf, buf_size, STR_SET_KEY_RESPONSE,
+                 strlen(key) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    return -1;
 }
 
-bool com_telnet_set_key(const char *key)
-{
-    size_t n = strlen(key);
-    if (n >= COM_TELNET_KEY_SIZE)
-        return false;
-    if (strcmp(com_telnet_key, key))
-    {
-        memcpy(com_telnet_key, key, n);
-        com_telnet_key[n] = 0;
-        if (com_telnet_key[0] == 0)
-            com_telnet_shutdown();
-    }
-    cfg_save();
-    return true;
-}
 
-uint16_t com_telnet_get_port(void)
-{
-    return com_telnet_port;
-}
-
-const char *com_telnet_get_key(void)
-{
-    return com_telnet_key;
-}
 
 void com_telnet_task(void)
 {
     com_telnet_drain_tx();
 
     if (com_telnet_state != COM_TELNET_STATE_IDLE &&
-        (!com_telnet_should_listen() || com_telnet_active_port != com_telnet_port))
+        (!com_telnet_should_listen() || com_telnet_active_port != com_telnet_get_port()))
     {
         com_telnet_shutdown();
         return;
@@ -375,11 +350,11 @@ void com_telnet_task(void)
     switch (com_telnet_state)
     {
     case COM_TELNET_STATE_IDLE:
-        if (com_telnet_should_listen() && telnet_listen(com_telnet_port, com_telnet_on_accept))
+        if (com_telnet_should_listen() && telnet_listen(com_telnet_get_port(), com_telnet_on_accept))
         {
-            com_telnet_active_port = com_telnet_port;
+            com_telnet_active_port = com_telnet_get_port();
             com_telnet_state = COM_TELNET_STATE_LISTENING;
-            DBG("NET TEL console listening on port %u\n", com_telnet_port);
+            DBG("NET TEL console listening on port %u\n", com_telnet_get_port());
         }
         break;
     case COM_TELNET_STATE_AUTH:

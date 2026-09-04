@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
 from rp6502_rom import tool  # noqa: E402
 
-# The monitor's buffer, src/host/pico/ria/sys/mem.h.
+# The monitor's buffer, src/host/pico/ria/sys/mbuf.h.
 MBUF_SIZE = 1024
 
 

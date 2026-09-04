@@ -20,6 +20,13 @@
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)  /* D0-D7 */
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10) /* A0-A4 */
 
+/* Two of the 6502's control pins, here because this is what drives them: the
+ * write state machine side-sets PHI2, and the RIA's own interrupt sources are
+ * the only thing this firmware puts on IRQB (the 6522 drives its own, wired-
+ * OR on the board). */
+#define CPU_PHI2_PIN 21
+#define CPU_IRQB_PIN 22
+
 #define RIA_CS_RWB_PIO pio0
 #define RIA_CS_RWB_SM 0
 #define RIA_WRITE_PIO pio0
@@ -29,7 +36,7 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-#include "core/main.h"
+#include "core/sys/driver.h"
 
 /* Main events
  */
@@ -65,5 +72,11 @@ void ria_verify_buf(uint16_t addr);
 
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Its position is init
+ * order and nothing more: the transfer that ria_active() reports is closed by
+ * ria_task, not by ria_stop, so no other driver's stop depends on where this
+ * one sits. */
+#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, nul_break, nul_config, nul_config)
 
 #endif /* _RIA_SYS_RIA_H_ */

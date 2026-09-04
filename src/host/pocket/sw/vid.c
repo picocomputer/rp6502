@@ -9,6 +9,7 @@
  * of latency, never a tear.
  */
 
+#include "core/api/xreg.h"
 #include "font.h"
 #include "mmio.h"
 #include "vga.h"
@@ -74,14 +75,37 @@ static void vid_publish(void)
     VID_BLINK = tv.blink_phase;
 }
 
+/* Set by vid_stop, performed by vid_task. It rides the savestate blob like
+ * everything else in here, which is right: a machine snapped between the two
+ * wakes still owing itself the restore. */
+static bool vid_needs_restore;
+
 void vid_task(void)
 {
+    /* Ahead of the frame gate on purpose. A stop commits at the end of a
+     * pass, so this is the first thing that runs afterwards, and a relaunch
+     * cannot be committed before the next pass -- which means the restore
+     * always lands before the next program's RESB goes up. Behind the gate it
+     * could slip a frame and arrive after the program had started drawing. */
+    if (vid_needs_restore)
+    {
+        vid_needs_restore = false;
+        xreg1(0x0F, 0x01, 437);
+        xreg1(0x0F, 0x00, vga_get_display_type());
+    }
     static uint32_t frame;
     uint32_t now = VID_FRAME;
     if (now == frame)
         return;
     frame = now;
     vid_publish();
+}
+
+/* The fabric's own count, which is the display's and not this firmware's --
+ * it advances whether or not the task above ran. */
+unsigned long vga_frame_count(void)
+{
+    return VID_FRAME;
 }
 
 /* The row table and the cursor would come back on their own at the
@@ -98,4 +122,15 @@ void vid_restore(void)
 {
     VID_PROG = vid_prog_word;
     vid_publish();
+}
+
+/* The console's code page and display type, restored on the way out of a
+ * program -- deferred to vid_task, which is where the RIA's vga_task puts the
+ * same two writes behind the same kind of flag. Deferring is what frees this
+ * driver's position in the list: the restore has to follow everything that could
+ * still draw, and a stop hook can only promise that by being last. A task can
+ * promise it from anywhere, because it runs after the whole fan-out. */
+void vid_stop(void)
+{
+    vid_needs_restore = true;
 }

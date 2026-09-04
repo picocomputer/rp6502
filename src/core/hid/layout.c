@@ -5,6 +5,7 @@
  */
 
 #include "core/hid/layout.h"
+#include <stdio.h>
 
 /* The image's header and record shape, as keyboard_layout_gen.py lays them
  * out. The header says where each record starts; a record's own fields
@@ -27,6 +28,10 @@ bool layout_init(void)
     layout_checked = true;
     if (layout_word(0) != LAYOUT_MAGIC)
     {
+        /* Said here, where it is known, rather than by whoever called: a
+         * platform that links the database in never reaches this, and one
+         * that loads it wants to hear about it once, at boot. */
+        printf("keyboard: no layouts\n");
         layout_layouts = 0;
         return false;
     }

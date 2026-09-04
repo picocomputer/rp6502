@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/str/oem.h"
+#include "core/sys/sys.h"
 #include "tusb.h"
 #include "class/msc/msc.h"
 #include "host/usbh.h"
@@ -12,7 +13,6 @@
 #include "host/hcd.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/mem.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "fatfs/ff.h"
@@ -22,7 +22,7 @@
 #include <string.h>
 #include "pico/time.h"
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -873,9 +873,9 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 }
 
 // Pumps USB events and all application tasks during blocking I/O.
-// FatFs re-entry would be a problem, so main_task() never calls FatFs
+// FatFs re-entry would be a problem, so sys_task() never calls FatFs
 // but it does call the required tuh_task().
-static void msc_pump(void) { main_task(); }
+static void msc_pump(void) { sys_task(); }
 
 // Wait for transport ready, submit command, and wait for completion.
 // No autosense — used directly for REQUEST SENSE itself.
@@ -1954,7 +1954,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
             msc_inquiry_rtrim(inq.vendor_id, 8);
             msc_inquiry_rtrim(inq.product_id, 16);
             msc_inquiry_rtrim(inq.product_rev, 4);
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+            oem_snprintf(buf, buf_size, STR_STATUS_MSC,
                               VolumeStr[vol],
                               sizebuf,
                               inq.vendor_id,
@@ -1963,7 +1963,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
         }
         else
         {
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+            oem_snprintf(buf, buf_size, STR_STATUS_MSC,
                               VolumeStr[vol],
                               sizebuf,
                               S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");

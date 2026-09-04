@@ -172,4 +172,7 @@ int gamepad_get_player_num(int slot);
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
                               uint8_t *report_id, uint16_t *report_len);
 
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define GAMEPAD_DRIVER DRIVER(gamepad_init, nul_task, nul_task, nul_run, gamepad_stop, nul_break, nul_config, nul_config)
+
 #endif /* _CORE_HID_GAMEPAD_H_ */

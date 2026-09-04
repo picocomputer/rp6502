@@ -18,8 +18,8 @@
 
 #include "mut.h"
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "tb_rom.h"
@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 static std::vector<uint8_t> mut_rom;
 static uint32_t mut_fb[640 * 480];
 
@@ -40,9 +40,9 @@ static uint32_t mut_fb[640 * 480];
  * emulator's single terminal sink carries. */
 static std::string mut_tap;
 
-#define FILL_STATE dut->rootp->rp6502__DOT__vid_fill__DOT__state
-#define SCHED_STATE dut->rootp->rp6502__DOT__vid_sched__DOT__state
-#define SCHED_PENDING dut->rootp->rp6502__DOT__vid_sched__DOT__plane_pending
+#define FILL_STATE dut->rootp->wiring__DOT__fill__DOT__state
+#define SCHED_STATE dut->rootp->wiring__DOT__sched__DOT__state
+#define SCHED_PENDING dut->rootp->wiring__DOT__sched__DOT__plane_pending
 
 /* A scanline is 800 pixels at two clocks; the deadline is the last of
  * them, not the end of the line. */
@@ -66,7 +66,7 @@ struct budget_t
     long grants_at_worst;
     long grants_planes;    /* to requester 0, the one fill engine */
     long grants_sprite;    /* to requester 1, the sprite stage */
-    /* The terminal renders every line whatever the canvas — vid_mode0
+    /* The terminal renders every line whatever the canvas — mode0
      * raises run at every line_start — and its cost is concurrent, not
      * added. It still has to fit the line on its own. */
     long worst_term;
@@ -82,7 +82,7 @@ struct budget_t
 static bool render_idle()
 {
     return SCHED_STATE == 0 && FILL_STATE == 0
-           && dut->rootp->rp6502__DOT__vid_sprite__DOT__state == 0;
+           && dut->rootp->wiring__DOT__sprite__DOT__state == 0;
 }
 
 /* One frame, watching every line. A line's cost is the clock at which
@@ -106,18 +106,18 @@ static void measure_frame(budget_t *b)
     b->lines = 0;
 
     /* Start at a line boundary so the first count is whole. */
-    uint16_t prev = dut->rp6502_scanline;
-    while (dut->rp6502_scanline == prev)
+    uint16_t prev = dut->wiring_scanline;
+    while (dut->wiring_scanline == prev)
         tb_clock(dut);
 
     for (int line = 0; line < 525; line++)
     {
-        prev = dut->rp6502_scanline;
+        prev = dut->wiring_scanline;
         long clocks = 0, busy_until = 0, planes_until = 0, sprite_until = 0;
         long grants = 0, g_planes = 0, g_sprite = 0, term_until = 0;
         long pdone[3] = {0, 0, 0};
         long spst[4] = {0, 0, 0, 0};
-        while (dut->rp6502_scanline == prev)
+        while (dut->wiring_scanline == prev)
         {
             tb_clock(dut);
             clocks++;
@@ -128,15 +128,15 @@ static void measure_frame(budget_t *b)
             if (SCHED_PENDING & 1) pdone[0] = clocks;
             if (SCHED_PENDING & 2) pdone[1] = clocks;
             if (SCHED_PENDING & 4) pdone[2] = clocks;
-            if (dut->rootp->rp6502__DOT__vid_sprite__DOT__state != 0)
+            if (dut->rootp->wiring__DOT__sprite__DOT__state != 0)
                 sprite_until = clocks;
-            spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 3]++;
-            if (dut->rootp->rp6502__DOT__vid_mode0__DOT__run)
+            spst[dut->rootp->wiring__DOT__sprite__DOT__state & 3]++;
+            if (dut->rootp->wiring__DOT__mode0__DOT__run)
                 term_until = clocks;
-            if (dut->rootp->rp6502__DOT__a_any)
+            if (dut->rootp->wiring__DOT__a_any)
             {
                 grants++;
-                unsigned sel = dut->rootp->rp6502__DOT__a_sel;
+                unsigned sel = dut->rootp->wiring__DOT__a_sel;
                 if (sel == 0)
                     g_planes++;
                 else if (sel == 1)
@@ -168,7 +168,7 @@ static void measure_frame(budget_t *b)
 void mut_init(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
 }
 
 void mut_free(void)
@@ -208,14 +208,14 @@ bool mut_boot(const char *rom)
      * verdict the same one the emulator's loader returns. */
     dut->final();
     delete dut;
-    dut = new Vrp6502;
+    dut = new Vwiring;
 
     bool ever_ran = false;
     bool quiet = tb_boot_each(dut, mut_rom, nullptr, [&] {
-        if (dut->rootp->rp6502__DOT__resb)
+        if (dut->rootp->wiring__DOT__resb)
             ever_ran = true;
-        if (dut->rp6502_rv_tx_valid)
-            mut_tap.push_back((char)dut->rp6502_rv_tx_data);
+        if (dut->wiring_rv_tx_valid)
+            mut_tap.push_back((char)dut->wiring_rv_tx_data);
     });
     /* The verdict is whether the 6502 was released, and only that. A machine
      * still running when its budget ran out is a failed run rather than an
@@ -233,10 +233,10 @@ void mut_xram(uint32_t addr, uint8_t *dst, size_t len)
     {
         uint32_t a = addr + (uint32_t)i;
         size_t wi = a >> 2;
-        dst[i] = (a & 3) == 0   ? r->rp6502__DOT__xram__DOT__mem0[wi]
-                 : (a & 3) == 1 ? r->rp6502__DOT__xram__DOT__mem1[wi]
-                 : (a & 3) == 2 ? r->rp6502__DOT__xram__DOT__mem2[wi]
-                                : r->rp6502__DOT__xram__DOT__mem3[wi];
+        dst[i] = (a & 3) == 0   ? r->wiring__DOT__xram__DOT__mem0[wi]
+                 : (a & 3) == 1 ? r->wiring__DOT__xram__DOT__mem1[wi]
+                 : (a & 3) == 2 ? r->wiring__DOT__xram__DOT__mem2[wi]
+                                : r->wiring__DOT__xram__DOT__mem3[wi];
     }
 }
 
@@ -281,7 +281,7 @@ mut_budget_t mut_measure(const char *name)
     /* Over means the sprite stage was seen to lose the race, not merely that
      * the clocks ran long. */
     if (b.worst >= LINE_DEADLINE &&
-        dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun > 0)
+        dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun > 0)
         return MUT_BUDGET_OVER;
     return b.worst < LINE_DEADLINE ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
 }

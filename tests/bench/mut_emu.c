@@ -5,15 +5,18 @@
  *
  * The machine under test, when it is emu_core.
  *
- * Everything here is the emulator's own lifecycle, which emu_boot.h already
+ * Everything here is the emulator's own bring-up, which emu_boot.h already
  * describes: init once for the binary, load/run per program, a frame at a
  * time from there.
  */
 
+#include "core/sys/proc.h"
+#include "core/sys/sys.h"
 #include "mut.h"
 
 #include "core/com/com.h"
-#include "core/mem/mem.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "emu_boot.h"
 
@@ -36,8 +39,9 @@ void mut_init(int argc, const char *const argv[])
      * A suite written to both has to be given one answer, and it is the one
      * that can be reproduced: an expectation written down against a random
      * fill would be a different number every run. */
-    mem_set_fill(false, 0, 0);
-    main_init();
+    sram_set_fill(false, 0, 0);
+    xram_set_fill(false, 0, 0);
+    sys_init();
 }
 
 void mut_free(void)
@@ -71,18 +75,13 @@ bool mut_boot(const char *rom)
 {
     /* A boot is a fresh machine, which is emu_restart plus the refill: the
      * other machine gets one by construction and a suite written to both has
-     * to be able to say what XRAM held before its program ran. mem_init is
-     * the first of the drivers, so the loader's bytes still land on top. */
-    main_stop();
-    main_commit();
-    mem_init();
-    if (!rom_load(rom))
+     * to be able to say what XRAM held before its program ran. The fills come
+     * before the loader in the drivers, so its bytes still land on top. */
+    if (!proc_boot(rom, 0, NULL, PROC_REFILL))
         return false;
-    main_run();
-    main_commit();
+    sys_commit();
     vga_set_framebuffer(mut_fb);
-    for (int i = 0; i < MUT_SETTLE_FRAMES; i++)
-        sys_run_frame();
+    emu_frames((int)MUT_SETTLE_FRAMES);
     return true;
 }
 
@@ -95,7 +94,7 @@ const uint32_t *mut_frame(int w, int h)
 {
     (void)w;
     (void)h;
-    sys_run_frame();
+    emu_frames(1);
     return mut_fb;
 }
 

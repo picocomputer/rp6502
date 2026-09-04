@@ -9,8 +9,8 @@
  * a reset vector into the register cells, then release the reset.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
@@ -18,7 +18,7 @@
 #include <cstring>
 #include <string>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* RESB is the OS's line and takes no reset, so a case that wants the
  * machine held starts a new one. */
@@ -29,7 +29,7 @@ static void machine_reset()
         dut->final();
         delete dut;
     }
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
@@ -38,7 +38,7 @@ static void machine_reset()
     tb_clock(dut);
     dut->rst_n = 1;
     /* These tests bypass the firmware boot; run the 6502 directly. */
-    dut->rootp->rp6502__DOT__resb = 1;
+    dut->rootp->wiring__DOT__resb = 1;
 }
 
 /* Load bytes into SRAM and point the reset vector at entry. */
@@ -46,11 +46,11 @@ static void load(uint16_t org, const uint8_t *bytes, size_t n, uint16_t entry)
 {
     auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < n; i++)
-        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[org + i] = bytes[i];
-    r->rp6502__DOT__ria__DOT__regs[0x1C] = entry & 0xFF;
-    r->rp6502__DOT__ria__DOT__regs[0x1D] = entry >> 8;
+        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[org + i] = bytes[i];
+    r->wiring__DOT__ria__DOT__regs[0x1C] = entry & 0xFF;
+    r->wiring__DOT__ria__DOT__regs[0x1D] = entry >> 8;
 }
 
 /* Run until STP or the budget runs out, collecting TX bytes. */
@@ -60,9 +60,9 @@ static std::string run(uint64_t max_clocks)
     for (uint64_t i = 0; i < max_clocks; i++)
     {
         tb_clock(dut);
-        if (dut->rp6502_tx_valid)
-            out.push_back((char)dut->rp6502_tx_data);
-        if (dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag)
+        if (dut->wiring_tx_valid)
+            out.push_back((char)dut->wiring_tx_data);
+        if (dut->rootp->wiring__DOT__cpu__DOT__stop_flag)
             break;
     }
     return out;
@@ -89,7 +89,7 @@ UTEST(hello, prints_through_the_uart)
     machine_reset();
     load(0x0200, prog, sizeof prog, 0x0200);
     std::string out = run(100000);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_STREQ(out.c_str(), "HELLO, WORLD!\r\n");
 }
 
@@ -113,18 +113,18 @@ UTEST(hello, echoes_through_the_latch)
     for (int i = 0; i < 100000; i++)
     {
         tb_clock(dut);
-        if (dut->rp6502_rx_taken)
+        if (dut->wiring_rx_taken)
         {
             taken = true;
             dut->rx_valid = 0;
         }
-        if (dut->rp6502_tx_valid)
-            out.push_back((char)dut->rp6502_tx_data);
-        if (dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag)
+        if (dut->wiring_tx_valid)
+            out.push_back((char)dut->wiring_tx_data);
+        if (dut->rootp->wiring__DOT__cpu__DOT__stop_flag)
             break;
     }
     ASSERT_TRUE(taken);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_STREQ(out.c_str(), "Q");
 }
 
@@ -160,9 +160,9 @@ UTEST(hello, ready_never_claims_more_than_it_can_do)
     machine_reset();
     load(0x0200, prog, sizeof prog, 0x0200);
     std::string out = run(100000);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag);
+    ASSERT_TRUE(dut->rootp->wiring__DOT__cpu__DOT__stop_flag);
 
-    uint8_t flags = dut->rootp->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[0];
+    uint8_t flags = dut->rootp->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0];
     if (flags & 0x80)
         ASSERT_TRUE(out.find('Z') != std::string::npos);
 }
@@ -172,7 +172,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     /* Verilator seeds its edge detectors from the first eval, so a model
      * first evaluated with a clock already high never sees that edge.
      * clk_rv rises once in the two cycles reset is held, and losing it

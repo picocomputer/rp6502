@@ -19,7 +19,7 @@
 #ifndef _RIA_SYS_COM_TELNET_H_
 #define _RIA_SYS_COM_TELNET_H_
 
-#include "core/com.h"
+#include "core/sys/com.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -42,8 +42,9 @@ void com_telnet_clear_rx(void);
 
 /* The other direction: what com.c lends its telnet half. */
 
-/* Take back the byte the register window staged for this source, if any. */
-size_t com_recover_rx_char(char *buf, com_source_t src);
+/* Take back the byte the register window staged for this source, if any, and
+ * only if the caller has room for it -- a zero-length read leaves it staged. */
+size_t com_recover_rx_char(char *buf, size_t length, com_source_t src);
 
 /* Non-consuming peek at an SPSC RX ring (head==tail empty; the next byte
  * sits one past tail). The byte, or -1. */

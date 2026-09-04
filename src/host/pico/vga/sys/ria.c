@@ -6,15 +6,19 @@
 
 #include "vga.pio.h"
 #include "vga/sys/com.h"
+#include "core/sys/version.h"
 #include "vga/sys/ria.h"
-#include "vga/sys/sys.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>
 #include <string.h>
 #include <stdio.h>
 
+/* The version answer, sent a byte a pass. Two segments because the board name
+ * is this file's and the stamp is version.c's; version_tail is what follows
+ * once version_pos runs out. */
 static const char *version_pos;
+static const char *version_tail;
 
 // One byte on the wire, start bit through stop bit. A transmission must not
 // straddle the window; its data bits carry edges the RIA would read as VSYNC.
@@ -73,6 +77,12 @@ void ria_task(void)
     if (version_pos && pio_sm_is_tx_fifo_empty(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
     {
         char ch = *version_pos++;
+        if (!ch && version_tail)
+        {
+            version_pos = version_tail;
+            version_tail = NULL;
+            ch = *version_pos++;
+        }
         if (!ch)
         {
             ch = '\r';
@@ -120,10 +130,13 @@ void ria_backchan(uint16_t word)
         break;
     case 1: // attach backchannel (PIO drives pin) and queue version string
         pio_gpio_init(RIA_BACKCHAN_PIO, RIA_BACKCHAN_PIN);
-        version_pos = sys_version();
+        version_pos = "VGA ";
+        version_tail = version_string();
         break;
     case 2: // reply to identification request
-        uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", 4);
+        /* STR_VGA1 is the RIA's half of this; spelled out because a board with
+         * no string table should not gain one for four bytes. */
+        uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", sizeof "VGA1" - 1);
         break;
     }
 }

@@ -7,10 +7,12 @@
 #ifndef _VGA_SYS_COM_H_
 #define _VGA_SYS_COM_H_
 
+#include "core/sys/driver.h"
+
 /* COnsole Manifold
  */
 
-#include "core/com.h"
+#include "core/sys/com.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -54,5 +56,10 @@ bool com_out_empty(void);
 bool com_out_full(void);
 char com_out_peek(void);
 char com_out_read(void);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Its task is the interleave in main.c's walk, not a column: this
+ * machine's console is drained after every other driver, which no single
+ * pass over the list can say. */
+#define COM_DRIVER DRIVER(com_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _VGA_SYS_COM_H_ */

@@ -5,11 +5,11 @@
  *
  * The VGA chip's font.c without the tables: here the glyphs live in the
  * video device and the soft CPU only moves them, so there is nothing to
- * export but the lifecycle and the setting.
+ * export but the bring-up and the setting.
  */
 
-#ifndef _FPGA_SW_FONT_H_
-#define _FPGA_SW_FONT_H_
+#ifndef _HOST_POCKET_SW_FONT_H_
+#define _HOST_POCKET_SW_FONT_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,4 +25,4 @@ uint16_t font_get_code_page(void);
  * the page still in force. */
 bool font_has_code_page(uint16_t cp);
 
-#endif /* _FPGA_SW_FONT_H_ */
+#endif /* _HOST_POCKET_SW_FONT_H_ */

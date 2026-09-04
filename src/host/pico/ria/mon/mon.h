@@ -14,10 +14,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/api/api.h" /* api_errno: the seam's error currency */
+
 /* Main events
  */
 
 void mon_task(void);
+void mon_init(void);
 void mon_stop(void);
 void mon_break(void);
 
@@ -32,6 +35,7 @@ void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_utf8(const char *utf8);
 void mon_add_response_lfs(int result);
 void mon_add_response_fatfs(int fresult);
+void mon_add_response_errno(api_errno err); /* the seam's answers */
 
 // After queuing a preview, request a YES/no confirmation. cb() runs only if the
 // user types YES; Ctrl-C, break, or anything else cancels back to the prompt.
@@ -41,5 +45,8 @@ void mon_response_confirm(mon_confirm_fn cb);
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break, nul_config, nul_config)
 
 #endif /* _RIA_MON_MON_H_ */

@@ -5,19 +5,22 @@
  *
  */
 
-#include "core/sys/proc.h"
+#include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
-#include "core/mem/mem.h"
-#include "core/sys/main.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/ria/ria.h"
+#include <stdatomic.h>
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
  * exactly as via.c wraps its m6522_t (`static m6522_t via;`). The memory-mapped
  * register file (regs[]) and the XSTACK are its dual-ported storage and stay
- * global; ria holds the bus pins + the non-memory-mapped internal latches. */
+ * global (core/ria/regs.h); ria holds the bus pins + the non-memory-mapped
+ * internal latches. */
 static ria_t ria;
 
 /* ------------------------------------------------------------------ */
@@ -75,10 +78,9 @@ static void ria_syscall(uint8_t op)
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
         (void)api_return_ax(0);
-        /* If a launcher is armed, proc_exit re-execs it (machine keeps running);
-         * otherwise the chain has ended, so halt. */
-        if (!proc_exit(code))
-            cpu_set_halted(true);
+        /* The stop walk decides what follows: a launcher to go back to, or
+         * nothing left to run. Either way the 6502 stops here. */
+        proc_exit(code);
         return;
     }
     default:
@@ -132,6 +134,9 @@ static void rw_write(int which, uint8_t data)
         {
             xram_queue[next][0] = (uint8_t)addr;
             xram_queue[next][1] = data;
+            /* The drain is the audio device's own thread: the entry has to
+             * be visible before the head that publishes it. */
+            atomic_thread_fence(memory_order_release);
             xram_queue_head = next;
         }
     }
@@ -307,7 +312,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
 }
 
 /* ------------------------------------------------------------------ */
-/* Lifecycle                                                           */
+/* Driver hooks                                                           */
 /* ------------------------------------------------------------------ */
 
 /* The SIGINT attribute (vendored atr.c) consumes the same latch the $FFF0 IRQ

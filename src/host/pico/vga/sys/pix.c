@@ -7,10 +7,10 @@
 #include "vga/main.h"
 #include "vga.pio.h"
 #include "vga/sys/com.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
-#include "vga/sys/sys.h"
+#include "vga/sys/flash.h"
 #include "vga/sys/vga.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
@@ -49,6 +49,14 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
     switch (addr)
     {
     case 0x00: // DISPLAY
+        /* Bounded before it is used: this indexes a view table and the view
+         * it picks decides a system clock, so a wild word is a dead board
+         * rather than a wrong picture. */
+        if (word > vga_sxga)
+        {
+            ria_nak();
+            return true;
+        }
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
@@ -68,7 +76,10 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         ria_backchan(word);
         return false;
     case 0x05: // FLASH_SECTOR
-        sys_flash_request(word);
+        /* A sector index times 4K reaches far past the flash; the SDK's
+         * hard_assert is not compiled out, so an unchecked one panics. */
+        if (!flash_request(word))
+            ria_nak();
         return true;
     case 0x06: // REBOOT_OR_LOCKUP
         if (word == 0)
@@ -92,7 +103,10 @@ static void pix_rx_sm_init(uint sm, uint offset, uint32_t channel_id)
     pio_sm_exec_wait_blocking(PIX_PIO, sm, pio_encode_out(pio_null, 32));
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
     pio_sm_init(PIX_PIO, sm, offset, &config);
-    pio_sm_set_enabled(PIX_PIO, sm, true);
+    /* Not enabled here: the RIA may already be streaming, and a word that
+     * lands before the DMA chain below is armed sits in a FIFO nothing
+     * drains -- an address without its data. pix_init enables both when the
+     * chain is ready. */
 }
 
 void pix_init(void)
@@ -174,6 +188,10 @@ void pix_init(void)
         &PIX_PIO->rxf[PIX_XRAM_SM], // src
         1,
         true);
+
+    // The chain is armed; now the wire may talk.
+    pio_sm_set_enabled(PIX_PIO, PIX_REGS_SM, true);
+    pio_sm_set_enabled(PIX_PIO, PIX_XRAM_SM, true);
 }
 
 void pix_task(void)

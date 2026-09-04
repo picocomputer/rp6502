@@ -27,7 +27,7 @@ add_dependencies(test_asm asm_ref)
 add_test(NAME asm_opcodes
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_TESTS_DIR}/gen/rp6502_asm.py --check)
-set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;ria")
+set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;cpu.ria")
 
 # The container, against the tool that defines it. Every generated ROM is
 # packaged by tools/rp6502.py now, so what it writes and what it reads have
@@ -38,7 +38,7 @@ add_test(NAME rom_tool
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(rom_tool PROPERTIES LABELS "gate;ria")
+set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
 
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
 rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)
@@ -56,19 +56,19 @@ rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_TB_HOSTOS}
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
 rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
 
-# --- OEM code page conversion (core/api/uni.c) against the ffunicode.c it
+# --- OEM code page conversion (core/str/unicode.c) against the ffunicode.c it
 # replaces. The vendored file is compiled beside it with its entry points
 # renamed, so every code page, every byte, every code point in the BMP,
 # and the whole up-case map are compared in one process. ---
 set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
-rp6502_add_test(uni
-    SOURCES test_uni.c ${RP6502_SRC}/core/api/uni.c ${OEMCP_C}
+rp6502_add_test(unicode
+    SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c ${OEMCP_C}
         ${RP6502_VENDOR}/fatfs/ffunicode.c
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_VENDOR}
         ${OEMCP_DIR})
-add_dependencies(test_uni oemcp)
+add_dependencies(test_unicode oemcp)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
-    TARGET_DIRECTORY test_uni PROPERTIES COMPILE_DEFINITIONS
+    TARGET_DIRECTORY test_unicode PROPERTIES COMPILE_DEFINITIONS
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 
 # --- The keyboard layouts (core/hid/layout.c) against the def files they are
@@ -83,19 +83,19 @@ rp6502_add_test(layout
 add_dependencies(test_layout kbdlay)
 
 # --- The same two suites over the ports that stage a binary ---
-# uni_word and layout_word are the one thing a port writes: one links the
+# unicode_word and layout_word are the one thing a port writes: one links the
 # generated C and reads an array, one stages the .bin and reads a window.
 # Both come out of one generator, so these are the suites above over the
 # other port — only a tree that builds the assets has one to be wrong about.
 if(OEMCP_BIN)
-    rp6502_add_test(uni_bin
-        SOURCES test_uni.c ${RP6502_SRC}/core/api/uni.c uni_bin.c
+    rp6502_add_test(unicode_bin
+        SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c unicode_bin.c
             ${RP6502_VENDOR}/fatfs/ffunicode.c
         INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${OEMCP_DIR}
         DEFS OEMCP_BIN_PATH="${OEMCP_BIN}")
-    add_dependencies(test_uni_bin oemcp oemcp_bin)
+    add_dependencies(test_unicode_bin oemcp oemcp_bin)
     set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
-        TARGET_DIRECTORY test_uni_bin PROPERTIES COMPILE_DEFINITIONS
+        TARGET_DIRECTORY test_unicode_bin PROPERTIES COMPILE_DEFINITIONS
         "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 endif()
 

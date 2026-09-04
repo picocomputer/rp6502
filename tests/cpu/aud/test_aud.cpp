@@ -27,8 +27,8 @@
  * looks like, and that too has already shipped once.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "tb_rom.h"
@@ -38,7 +38,7 @@
 #include <cstring>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 static std::vector<uint8_t> rom;
 
 static long g_valids;
@@ -51,15 +51,15 @@ static int g_peak;
 static void aud_clock()
 {
     tb_platform_clock(dut, rom, nullptr);
-    if (dut->rp6502_aud_valid)
+    if (dut->wiring_aud_valid)
     {
         g_valids++;
         /* Signed at full scale, silence at zero. This used to subtract
          * the RP2350 PWM's 512 center, which stopped being the center
          * when the path widened — and every threshold below was loose
          * enough that it kept passing while measuring the wrong thing. */
-        int dl = (int)(int16_t)dut->rp6502_aud_l;
-        int dr = (int)(int16_t)dut->rp6502_aud_r;
+        int dl = (int)(int16_t)dut->wiring_aud_l;
+        int dr = (int)(int16_t)dut->wiring_aud_r;
         if (dl < 0)
             dl = -dl;
         if (dr < 0)
@@ -74,9 +74,9 @@ static void aud_clock()
 
 static void run_frame()
 {
-    while (dut->rp6502_scanline != 524)
+    while (dut->wiring_scanline != 524)
         aud_clock();
-    while (dut->rp6502_scanline != 0)
+    while (dut->wiring_scanline != 0)
         aud_clock();
 }
 
@@ -88,7 +88,7 @@ static bool load_rom(const char *path)
     if (!tb_firmware(dut, SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
     g_valids = g_energy = 0;
     g_peak = 0;
     return true;
@@ -194,36 +194,36 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
     ASSERT_TRUE(load_rom(AUD_ROM_OPL));
     ASSERT_NE(frames_to_sound(8), -1);
 
-    dut->rootp->rp6502__DOT__resb = 0;
+    dut->rootp->wiring__DOT__resb = 0;
 
     long rv_bytes = 0;
     long frames = 0;
-    uint64_t mtime0 = dut->rootp->rp6502__DOT__rv__DOT__mtime_us;
+    uint64_t mtime0 = dut->rootp->wiring__DOT__soc__DOT__mtime_us;
     g_energy = 0;
     g_peak = 0;
     g_valids = 0;
     for (int i = 0; i < 3; i++)
     {
-        int prev = dut->rp6502_scanline;
-        while (dut->rp6502_scanline != 524)
+        int prev = dut->wiring_scanline;
+        while (dut->wiring_scanline != 524)
         {
             aud_clock();
-            if (dut->rp6502_rv_tx_valid)
+            if (dut->wiring_rv_tx_valid)
                 rv_bytes++;
-            if (dut->rp6502_scanline != prev)
-                prev = dut->rp6502_scanline;
+            if (dut->wiring_scanline != prev)
+                prev = dut->wiring_scanline;
         }
-        while (dut->rp6502_scanline != 0)
+        while (dut->wiring_scanline != 0)
             aud_clock();
         frames++;
     }
 
     /* The 6502 really is held. */
-    ASSERT_EQ((int)dut->rootp->rp6502__DOT__resb, 0);
+    ASSERT_EQ((int)dut->rootp->wiring__DOT__resb, 0);
     /* The raster kept its cadence. */
     ASSERT_EQ(frames, (long)3);
     /* The soft CPU kept time, which it cannot do if it stopped. */
-    ASSERT_GT(dut->rootp->rp6502__DOT__rv__DOT__mtime_us, mtime0);
+    ASSERT_GT(dut->rootp->wiring__DOT__soc__DOT__mtime_us, mtime0);
     /* And the note is still sounding. */
     ASSERT_GT(g_valids, (long)0);
     ASSERT_GT(g_peak, 32);
@@ -249,7 +249,7 @@ UTEST(aud, a_program_exit_goes_quiet)
     for (int i = 0; i < 20; i++)
     {
         run_frame();
-        if (!dut->rootp->rp6502__DOT__resb)
+        if (!dut->rootp->wiring__DOT__resb)
         {
             stopped = i;
             break;
@@ -276,7 +276,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;

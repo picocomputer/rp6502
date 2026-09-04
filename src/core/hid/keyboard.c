@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/main.h"
+#include "core/sys/xram.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
-#include "host.h"
+#include "core/hid/keymap.h"
+#include "machine.h"
 #include "core/hid/usage.h"
+#include <stdio.h>
+#include <string.h>
 
 // RP6502 and Windows boots like an IBM AT with num lock on.
 // The Raspberry Pi Keyboard uses num lock to enable a num pad over
@@ -92,6 +95,74 @@ uint8_t keyboard_keypad_nav(uint8_t hid_usage)
     case HID_KEY_KEYPAD_DECIMAL: return HID_KEY_DELETE;
     }
     return HID_KEY_NONE; /* KP5, and anything not on the keypad */
+}
+
+int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
+{
+    return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0) + (gui ? 8 : 0);
+}
+
+/* ESC[1;{mod}{c1} when modified, else the bare ESC{c0}{c1} -- ESC[A for an
+ * arrow, ESC O P for F1. */
+static size_t keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod)
+{
+    if (ansi_mod == 1)
+        return (size_t)snprintf(out, cap, "\33%c%c", c0, c1);
+    return (size_t)snprintf(out, cap, "\33[1;%d%c", ansi_mod, c1);
+}
+
+// The numbered form: ESC[{num}~, or ESC[{num};{mod}~ when modified.
+static size_t keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
+{
+    if (ansi_mod == 1)
+        return (size_t)snprintf(out, cap, "\33[%d~", num);
+    return (size_t)snprintf(out, cap, "\33[%d;%d~", num, ansi_mod);
+}
+
+/* Two contiguous HID runs, so the table is an index rather than a search.
+ * intro 'O' or '[' is the VT100 form and code is its final character; intro 0
+ * is the VT220 form and code is its number. */
+static const struct
+{
+    char intro;
+    uint8_t code;
+} keyboard_vt_keys[] = {
+    /* 0x3A..0x45, F1 to F12 */
+    {'O', 'P'}, {'O', 'Q'}, {'O', 'R'}, {'O', 'S'},
+    {0, 15}, {0, 17}, {0, 18}, {0, 19},
+    {0, 20}, {0, 21}, {0, 23}, {0, 24},
+    /* 0x46..0x48, PrintScreen, ScrollLock and Pause send nothing */
+    {0, 0}, {0, 0}, {0, 0},
+    /* 0x49..0x52, Insert to Up */
+    {0, 2}, {'[', 'H'}, {0, 5}, {0, 3}, {'[', 'F'},
+    {0, 6}, {'[', 'C'}, {'[', 'D'}, {'[', 'B'}, {'[', 'A'}};
+
+size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
+{
+    if (hid_usage < 0x3A || hid_usage > 0x52)
+        return 0;
+    const char intro = keyboard_vt_keys[hid_usage - 0x3A].intro;
+    const uint8_t code = keyboard_vt_keys[hid_usage - 0x3A].code;
+    if (intro)
+        return keyboard_vt100(out, cap, intro, (char)code, ansi_mod);
+    if (code)
+        return keyboard_vt220(out, cap, code, ansi_mod);
+    return 0;
+}
+
+char keyboard_ctrl_promote(char ch, uint8_t keycode)
+{
+    if (ch >= '`' && ch <= '~')
+        return (char)(ch - 96);
+    if (ch >= '@' && ch <= '_')
+        return (char)(ch - 64);
+    if (keycode == HID_KEY_BACKSPACE)
+        return '\b';
+    /* Enter, Tab and Escape are C0 controls already, so Ctrl has nothing left
+     * to promote and the key still types itself. */
+    if ((unsigned char)ch < 0x20)
+        return ch;
+    return 0;
 }
 
 void HOST_IN_FLASH("keyboard_init") keyboard_init(void)
@@ -205,11 +276,11 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
         bool curr = KEYBOARD_KEY_BIT_VAL(conn->keys, i);
         bool prev = KEYBOARD_KEY_BIT_VAL(old_keys, i);
         if (curr && !prev)
-            keyboard_spell_key(KEYBOARD_MODIFIER(keyboard_keys), i);
+            keymap_on_key(KEYBOARD_MODIFIER(keyboard_keys), i);
     }
 
     // Check for releasing ALT key during ALT mode.
-    keyboard_spell_modifiers(KEYBOARD_MODIFIER(keyboard_keys));
+    keymap_on_modifiers(KEYBOARD_MODIFIER(keyboard_keys));
 
     keyboard_publish();
 }

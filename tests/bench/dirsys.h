@@ -3,19 +3,19 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the host filesystem syscall handlers (core/sys/msc.c
- * msc_api_*) the way the 6502 does: stage the args on the xstack / in the API
+ * Test helpers to drive the directory syscall handlers (core/api/dir.c
+ * dir_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
- * FILINFO / string. The handlers are the unit under test; they call the platform
- * primitives (host/os.h) for the actual OS operations.
+ * f_stat_t / string. The handlers are the unit under test; they call the platform
+ * primitives for the actual OS operations through this machine's drive.
  */
 
 #ifndef _EMU_TESTS_DIRSYS_H_
 #define _EMU_TESTS_DIRSYS_H_
 
 #include "core/api/api.h"
-#include "core/mem/mem.h" /* xstack */
-#include "fatfs/ff.h"    /* FILINFO */
+#include "core/ria/regs.h" /* xstack */
+#include "core/api/dir.h" /* the dir_api_* under test, and the f_stat_t they push */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -74,8 +74,8 @@ static inline int32_t dsys_axsreg(void)
     return (int32_t)((uint32_t)lo | ((uint32_t)API_SREG << 16));
 }
 
-/* Decode the FILINFO a stat/readdir handler pushed (reverse of fat_push_filinfo). */
-static inline void dsys_filinfo(FILINFO *fno)
+/* Decode the f_stat_t a stat/readdir handler pushed (reverse of dir_push_stat). */
+static inline void dsys_filinfo(f_stat_t *fno)
 {
     size_t p = xstack_ptr;
     memcpy(&fno->fsize, &xstack[p], 4), p += 4;

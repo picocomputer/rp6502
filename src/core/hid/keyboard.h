@@ -7,8 +7,10 @@
 #ifndef _CORE_HID_KEYBOARD_H_
 #define _CORE_HID_KEYBOARD_H_
 
-/* Which keys are down, as a bitmap the 6502 polls. What that spells is
- * core/hid/keymap.h.
+/* Which keys are down, as a bitmap the 6502 polls, and the facts about a key
+ * that no layout and no host gets a vote on: where the keypad navigates, the
+ * escape sequence a function key sends, what Ctrl makes of a byte. What a key
+ * types is core/hid/keymap.h.
  */
 
 #include <stddef.h>
@@ -80,11 +82,28 @@ void keyboard_hid_set(uint8_t keycode, bool down);
  * A keyboard fact, so every machine reads the same one. */
 uint8_t keyboard_keypad_nav(uint8_t hid_usage);
 
-/* Offered to whatever spells for this machine: every new key press, and the
- * modifier byte after every report. A firmware's layout engine answers these;
- * a machine whose host produced the characters before the keystroke arrived
- * answers with nothing and takes the text instead. */
-void keyboard_spell_key(uint8_t modifier, uint8_t keycode);
-void keyboard_spell_modifiers(uint8_t modifier);
+/* The xterm modifier parameter: 1 with nothing held, +1 shift, +2 alt, +4
+ * ctrl, +8 gui. A host whose window manager owns the gui key passes false
+ * for it. */
+int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui);
+
+/* The escape sequence a key with no character of its own sends, chosen by HID
+ * usage: the twelve function keys and the ten navigation keys. Zero for any
+ * other usage, including Enter, Tab, Escape and Backspace -- those have
+ * characters, and which character is the machine's to say. The numbering that
+ * says F5 is 15 and F6 is 17 is a table nobody can check by eye, so it lives
+ * once. Writes into the caller's buffer; who the bytes go to is the caller's,
+ * because one queues them for the 6502 and the other pushes a console ring. */
+size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
+
+/* What Ctrl makes of a byte: Ctrl-A is 0x01 through Ctrl-Z 0x1A and the
+ * punctuation range with it, Backspace is BS where DEL was, and a byte that
+ * is C0 already types itself. 0 when Ctrl has nothing to say. Backspace needs
+ * the keycode because DEL is outside both promotable ranges; pass
+ * HID_KEY_NONE where there is no key, only a character. */
+char keyboard_ctrl_promote(char ch, uint8_t keycode);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

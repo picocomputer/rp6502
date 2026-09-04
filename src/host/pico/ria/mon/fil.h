@@ -39,4 +39,7 @@ void fil_mon_unlink(const char *args);
 void fil_mon_copy(const char *args);
 void fil_mon_move(const char *args);
 
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define FIL_DRIVER DRIVER(nul_init, nul_task, fil_task, nul_run, nul_stop, fil_break, nul_config, nul_config)
+
 #endif /* _RIA_MON_FIL_H_ */

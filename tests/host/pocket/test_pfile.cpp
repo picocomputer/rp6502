@@ -218,12 +218,34 @@ static void dt_set(uint32_t slot, uint32_t size)
 
 /* --- Target commands --- */
 
-static void target_done()
+/* The real host takes milliseconds to answer: the bridge moves one word
+ * per ~1180ns and the card behind it costs more than the transfer. A
+ * handler that answers within its own few cycles is a host the firmware
+ * never has to share the machine with, and against it every driver bug
+ * that needs a second worker running while a command is outstanding is
+ * invisible. This is a tenth of a millisecond -- short for a card, and
+ * long enough that the main loop goes round many times inside one
+ * command. */
+static long g_host_delay = 5000;
+
+static void host_wait(long n)
 {
+    while (n-- > 0)
+        tick();
+}
+
+static void target_answer(int err)
+{
+    host_wait(g_host_delay);
     dut->target_dataslot_done = 1;
-    dut->target_dataslot_err = 0;
+    dut->target_dataslot_err = err;
     for (int k = 0; k < 4; k++)
         a_edge();
+}
+
+static void target_done()
+{
+    target_answer(0);
 }
 
 static void do_openfile()
@@ -240,10 +262,7 @@ static void do_openfile()
     if (name.empty() || name[0] != '/')
     {
         g_opens++;
-        dut->target_dataslot_done = 1;
-        dut->target_dataslot_err = 4; /* malformed path */
-        for (int k = 0; k < 4; k++)
-            a_edge();
+        target_answer(4); /* malformed path */
         return;
     }
     std::string key = name;
@@ -256,7 +275,7 @@ static void do_openfile()
      * that never once worked on hardware kept a green suite: the host
      * saw flags of 3 as 0x03000000 and opened without creating. Read
      * them the way the real host does, and put the byte order back in
-     * msc_win_u32 to watch this test go red. */
+     * fs_win_u32 to watch this test go red. */
     uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
                      | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
     uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
@@ -276,10 +295,7 @@ static void do_openfile()
     {
         if (!(flags & 1))
         {
-            dut->target_dataslot_done = 1;
-            dut->target_dataslot_err = 3; /* file not found */
-            for (int k = 0; k < 4; k++)
-                a_edge();
+            target_answer(3); /* file not found */
             return;
         }
         /* Create takes both bits. Bit 0 on its own is answered with a
@@ -291,10 +307,7 @@ static void do_openfile()
          * the hollow answer the firmware's conjure exists for. */
         if (!(flags & 2) || !g_dirs.count(parent))
         {
-            dut->target_dataslot_done = 1;
-            dut->target_dataslot_err = 1; /* created and opened, it says */
-            for (int k = 0; k < 4; k++)
-                a_edge();
+            target_answer(1); /* created and opened, it says */
             return;
         }
         it = g_files.emplace(key, std::vector<uint8_t>()).first;
@@ -306,10 +319,7 @@ static void do_openfile()
     dt_set(slot, (uint32_t)it->second.size());
     /* 0 opened, 1 created and opened; the host tells them apart and only
      * 2 and up are failures. */
-    dut->target_dataslot_done = 1;
-    dut->target_dataslot_err = created ? 1 : 0;
-    for (int k = 0; k < 4; k++)
-        a_edge();
+    target_answer(created ? 1 : 0);
 }
 
 static void do_slotread()
@@ -373,6 +383,12 @@ static void do_flush()
  * NUL-terminated name at offset 0 is what Open File's parameter struct
  * carries and what the firmware reads back; the real host is what
  * settles whether that is right. */
+/* Every Get File the firmware asks for, and whether the fabric noticed
+ * the answer. The bit is set while the command is still outstanding, so
+ * it is read after the completion this function hands back. */
+static int g_getfile_seen;
+static int g_getfile_wrote;
+
 static void do_getfile()
 {
     dut->target_dataslot_done = 0;
@@ -385,6 +401,13 @@ static void do_getfile()
         resp[i] = (uint8_t)name[i];
     host_put_bytes(at, resp.data(), resp.size());
     target_done();
+    /* The flag rides the completion handshake into clk_sys, so it is not
+     * there the instant done goes back up. */
+    for (int k = 0; k < 64; k++)
+        a_edge();
+    g_getfile_seen++;
+    if (dut->rootp->tb_pocket__DOT__core__DOT__file__DOT__wrote_flag)
+        g_getfile_wrote++;
 }
 
 /* One clk_sys step with the host watching for a command. The request
@@ -464,10 +487,10 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
         tick();
 
     auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3,
+    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
                 SW_BIN);
 
     dut->rst_n = 1;
@@ -636,5 +659,113 @@ UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
         if (it->first != g_bound[0])
             made++;
     ASSERT_EQ(made, (size_t)0);
+    teardown();
+}
+
+/* The name the host gave us, read back by the program it names.
+ *
+ * argv[0] on this machine has one source: Get File on the ROM slot. The
+ * host answers with a 256-byte struct written into the response window
+ * -- every time, blanked to a leading NUL when a slot is bound to
+ * nothing, which is what tells a bound slot from an empty one. The
+ * firmware used to ask the fabric whether any write had landed instead
+ * of reading what the window said, and on hardware that flag stayed
+ * clear while the right path sat in the window: nine calls in ten
+ * discarded, argv empty, and a wake unable to recognise the ROM it was
+ * already running.
+ *
+ * Empty brackets are that bug. The path is the fix. */
+UTEST(pfile, the_program_is_told_what_it_is_called)
+{
+    std::vector<uint8_t> rom = read_file(ARGV_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom, false);
+
+    for (long i = 0; i < 60000000L && g_console.find("]") == std::string::npos;
+         i++)
+        step();
+
+    if (g_console.find(".rp6502") == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find(".rp6502") != std::string::npos);
+    /* And it is the slot's own name, not a leftover from an earlier ask. */
+    ASSERT_TRUE(g_console.find(g_bound[0]) != std::string::npos);
+    teardown();
+}
+
+/* A Get File the host answers must be seen to have been answered.
+ *
+ * The fabric raises a bit when the host writes into the response window
+ * while a Get File is outstanding, and the firmware once refused any
+ * answer that arrived without it. On hardware that bit fired on the
+ * first Get File after power-on and on none of the ninety that
+ * followed: gf_pend was armed a state late, in F_ARM, which is a spin
+ * that holds until the previous command's done falls and which
+ * re-latched the arming from a request line it had cleared in its own
+ * first cycle. Only the very first command escaped, done being 0 out of
+ * reset -- so every later ask went unattributed and every name the host
+ * gave was thrown away.
+ *
+ * Be clear about what this case does and does not do. It proves the bit
+ * is raised for a Get File that was answered, which is a total-failure
+ * net. It does NOT reproduce the one-shot, because provoking a second
+ * Get File needs the firmware to stage twice and this harness has no
+ * reload: dropping and re-settling dataslot_allcomplete here does not
+ * bring main_stage back round, and test_pocket.cpp is the bench that
+ * owns that sequence. Moving this there, or teaching this one to
+ * reload, is what would close it. */
+UTEST(pfile, every_get_file_is_seen_to_be_answered)
+{
+    std::vector<uint8_t> rom = read_file(ARGV_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    g_getfile_seen = 0;
+    g_getfile_wrote = 0;
+    boot(rom, false);
+
+    for (long i = 0; i < 30000000L && g_getfile_seen < 1; i++)
+        step();
+
+
+    /* Two is the whole point: one proves nothing, since one is what the
+     * broken fabric managed. */
+    if (g_getfile_wrote != g_getfile_seen)
+        fprintf(stderr, "seen=%d wrote=%d console=[%s]\n", g_getfile_seen,
+                g_getfile_wrote, g_console.c_str());
+    ASSERT_GE(g_getfile_seen, 1);
+    ASSERT_EQ(g_getfile_wrote, g_getfile_seen);
+    teardown();
+}
+
+/* A program reading its own file, start to end, against the ownership
+ * bookkeeping in fs.c.
+ *
+ * The fabric carries one command and answers it in one register. With
+ * the 6502 parked in a syscall its operation is the only one in flight,
+ * so this is the case where a poll can only ever find its own answer —
+ * the control the drive's other tests are read against.
+ *
+ * The ROM checks its own reads, so this only has to run it and listen. */
+UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
+{
+    std::vector<uint8_t> rom = read_file(SLEEPFILE_ROM);
+    boot(rom, false);
+    /* Whole units of the pattern the ROM expects, which it re-reads
+     * from the top forever. */
+    std::vector<uint8_t> dat;
+    for (int u = 0; u < 64; u++)
+        for (const char *c = "0123456789ABCDEF"; *c; c++)
+            dat.push_back((uint8_t)*c);
+    g_files["/Saves/rp6502/common/probe.dat"] = dat;
+
+    for (long i = 0; i < 40000000L && g_console.size() < 4000; i++)
+        step();
+
+    if (g_console.find("CROOKED") != std::string::npos
+        || g_console.find("FAILED") != std::string::npos
+        || g_console.find("counting") == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find("counting") != std::string::npos);
+    ASSERT_TRUE(g_console.find("CROOKED") == std::string::npos);
+    ASSERT_TRUE(g_console.find("FAILED") == std::string::npos);
     teardown();
 }

@@ -6,42 +6,36 @@
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "core/api/proc.h"
+#include "ria/api/proc.h"
 #include "core/aud/bel.h"
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "core/str/rln.h"
+#include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
 #include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PROC)
+#if defined(DEBUG_API) || defined(DEBUG_API_PROC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Records argv[0] of the currently running process.
-
-// Records the launcher that will re-run when program ends.
-
-
 /* This machine loads through a task-driven state machine; both of these are
  * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
  * program first -- the relaunch is running inside a stop already. */
-void proc_exec_start(const char *path)
+void proc_exec_start(void)
 {
-    (void)path;
-    main_stop();
+    sys_stop();
     rom_exec();
 }
 
-void proc_exec_relaunch(const char *path)
+void proc_exec_relaunch(void)
 {
-    (void)path;
     rom_exec();
 }
 
@@ -52,14 +46,6 @@ bool proc_exec_inflight(void)
     return rom_active();
 }
 
-
-
-
-
-
-
-
-
 void proc_nfc(const uint8_t *tag_data, size_t len)
 {
     char path[256];
@@ -69,12 +55,17 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         goto fail;
     DBG("proc_nfc text %s\n", path);
 
-    // Parse the first arg for the ROM path. NFC tags address filesystem
-    // ROMs only; ':installed' names are rejected.
     const char *args = path;
     const char *first_arg = str_parse_string(&args);
-    if (!first_arg || *first_arg == ':')
+    if (!first_arg)
         goto fail;
+    if (*first_arg == ':')
+    {
+        /* An installed name: no drive to scan, no cwd to move, no case to
+         * correct. The open answers; a miss fails like any bad path. */
+        rom_load_argv(first_arg, args);
+        return;
+    }
 
     bool has_drive = (strchr(first_arg, ':') != NULL);
     if (has_drive)
@@ -82,7 +73,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         // NFC paths ignore the CWD: imply the leading '/' after the drive.
         const char *colon = strchr(first_arg, ':');
         const char *rest = colon + 1;
-        if (str_is_sep(*rest))
+        if (path_is_sep(*rest))
             rest++;
         snprintf(path, sizeof(path), "%.*s/%s",
                  (int)(colon + 1 - first_arg), first_arg, rest);
@@ -129,14 +120,12 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    rln_stop();
-    mon_stop();
-    main_stop();
+    sys_stop(); /* the walk behind it stops rln and mon */
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;
     for (char *p = path; *p; p++)
-        if (str_is_sep(*p))
+        if (path_is_sep(*p))
             slash = p;
     if (slash && slash > path)
     {

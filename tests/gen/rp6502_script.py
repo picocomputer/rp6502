@@ -5,7 +5,7 @@
 #
 # The emulator's script channel, driven from Python.
 #
-# src/host/sokol/script.c is the same protocol in C, and the two are one
+# src/host/sokol/cli/script.c is the same protocol in C, and the two are one
 # design: `--script -` reads commands from stdin, and `reply` turns on one
 # answer per command on stdout -- ok, ok <values>, or fail <why>. A command
 # that blocks answers when it finishes, not when it parses, so the reply for

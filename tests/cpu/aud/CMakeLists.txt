@@ -28,4 +28,16 @@ if(RP6502_SOFT_CPU)
             AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
         DEPENDS aud_roms
         TIMEOUT 600)
+else()
+    # The same programs on this machine, plus the one the fabric has no
+    # need of: a real program's clearing burst, more writes in a few
+    # scanlines than the queue holds, which the sink's pull has to drain
+    # before the note behind it is dropped.
+    rp6502_add_test(aud LIBS emu_core
+        DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
+            AUD_ROM_PSG_PRE="${AUD_ROM_PSG_PRE}"
+            AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
+            AUD_ROM_OPL_INIT="${AUD_ROM_OPL_INIT}"
+            AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
+        DEPENDS aud_roms)
 endif()

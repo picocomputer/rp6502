@@ -7,16 +7,19 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
+#include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
-#include "ria/sys/mem.h"
+#include "core/ria/regs.h"
+#include "ria/sys/mbuf.h"
+#include "host/host.h"
 #include "ria/sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_FIL)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -54,7 +57,7 @@ static FRESULT fil_resolve_dst(const char *src, const char *dst,
         // colon; "0:name" must stay relative to that drive's directory.
         size_t dst_len = strlen(dst);
         char dst_end = dst_len ? dst[dst_len - 1] : '\0';
-        const char *sep = (str_is_sep(dst_end) || dst_end == ':') ? "" : "/";
+        const char *sep = (path_is_sep(dst_end) || dst_end == ':') ? "" : "/";
         int n = snprintf(out, out_sz, "%s%s%s", dst, sep, fname);
         if (n < 0 || (size_t)n >= out_sz)
             return FR_INVALID_NAME;
@@ -215,7 +218,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state, unsigne
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
         return 0;
-    // 7-char fixed prefix (" <DIR> ", "%6.0f ", or "%5.1f%c ") before the name.
+    // 7-char fixed prefix (" <DIR> ", "%6u ", or "%3u.%u%c ") before the name.
     int name_max = (int)rln_get_term_width() - 7;
     if (name_max > (int)buf_size - 9)
         name_max = (int)buf_size - 9;
@@ -223,20 +226,22 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state, unsigne
         snprintf(buf, buf_size, " <DIR> %.*s\n", name_max, fno.fname);
     else
     {
-        double size = fno.fsize;
+        uint64_t size = fno.fsize;
         if (size <= 999999)
-            snprintf(buf, buf_size, "%6.0f %.*s\n", size, name_max, fno.fname);
+            snprintf(buf, buf_size, "%6u %.*s\n", (unsigned)size, name_max, fno.fname);
         else
         {
-            size /= 1024;
+            uint64_t div = 1024;
             char c = 'K';
-            if (size >= 1000)
-                size /= 1024, c = 'M';
-            if (size >= 1000)
-                size /= 1024, c = 'G';
-            if (size >= 1000)
-                size /= 1024, c = 'T';
-            snprintf(buf, buf_size, "%5.1f%c %.*s\n", size, c, name_max, fno.fname);
+            if (size / div >= 1000)
+                div *= 1024, c = 'M';
+            if (size / div >= 1000)
+                div *= 1024, c = 'G';
+            if (size / div >= 1000)
+                div *= 1024, c = 'T';
+            unsigned tenths = (unsigned)((size * 10 + div / 2) / div);
+            snprintf(buf, buf_size, "%3u.%u%c %.*s\n", tenths / 10, tenths % 10, c,
+                     name_max, fno.fname);
         }
     }
     if (strlen(fno.fname) > (size_t)name_max)
@@ -291,7 +296,7 @@ static void fil_upload_rx_mbuf(bool timeout)
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
-    else if (mem_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
+    else if (host_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
     {
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_CRC));
@@ -353,7 +358,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mem_read_mbuf(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
+        mbuf_read(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));

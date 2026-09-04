@@ -27,6 +27,14 @@ typedef enum
 
 /* False where nothing is attached, so a caller can lay text out for the console
  * it does have. Always true on a machine whose display cannot be unplugged. */
+/* Frames the display has finished: the video domain's own tick, and the only
+ * clock a thing drawn on the screen should keep. Every machine answers it --
+ * the beam's count here, scanvideo's there, the fabric's counter on a Pocket
+ * -- so a blink is the same blink on all three, which a microsecond could
+ * never be. On a software machine, pumping until this moves is also how a
+ * host asks for a frame. */
+unsigned long vga_frame_count(void);
+
 bool vga_connected(void);
 
 vga_canvas_t vga_get_canvas(void);

@@ -7,7 +7,12 @@
 #ifndef _CORE_API_PROC_H_
 #define _CORE_API_PROC_H_
 
-/* The process manager handles argv and launching other ROMs.
+/* The launcher chain: which program is running, which one to return to when
+ * it exits, and what it exited with. Every machine runs the same rules, so
+ * they are here once; how a machine actually starts the next program is the
+ * seam at the bottom, which each answers its own way. The driver row is the
+ * machine's too: its own proc header lists the columns its proc.c fills over
+ * these.
  */
 
 #include <stddef.h>
@@ -32,11 +37,6 @@ const char *proc_running(void);
 bool proc_api_argv(void);
 bool proc_api_exec(void);
 
-/* Platforms that stage their own next program: true when an exec is
- * waiting and its image has been loaded, so the caller starts the
- * machine again. Consumed by the call. */
-bool proc_exec_take(void);
-
 /* Launcher: when set, proc_stop() will re-exec the launcher ROM.
  * The chain breaks when the launcher itself stops or on proc_cancel_launcher().
  */
@@ -48,24 +48,26 @@ int16_t proc_get_exit_code(void);
 
 /* The code a program returned, for a stop that did not come through the
  * EXIT syscall -- a failed exec, where the machine halts with nothing to
- * run -- and for the machines whose EXIT handler reads it themselves. */
+ * run. */
 void proc_set_exit_code(int16_t code);
+
+/* Program EXIT (op 0xFF): record the code and stop. What happens next is the
+ * chain's, decided by the stop walk -- a launcher to go back to, or nothing
+ * left to run. */
+void proc_exit(int16_t exit_code);
 
 /* ---- what a machine answers about starting the next program ---- */
 
 /* Op 0x09 asked for a new program: commit to it, stopping whatever this
- * machine has to stop. The argv buffer already holds what it will be given. */
-void proc_exec_start(const char *path);
+ * machine has to stop. argv[0] already names it. */
+void proc_exec_start(void);
 
 /* The launcher is being re-run from inside a stop that is already underway,
- * so this one only commits the load. */
-void proc_exec_relaunch(const char *path);
+ * so this one only commits the load; argv[0] is the launcher's path. */
+void proc_exec_relaunch(void);
 
 /* True while a load this machine has already committed to is on its way, so
  * the chain must not schedule another over it. */
 bool proc_exec_inflight(void);
-
-// Load a ROM via NFC
-void proc_nfc(const uint8_t *tag_data, size_t len);
 
 #endif /* _CORE_API_PROC_H_ */

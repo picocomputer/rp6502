@@ -4,18 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
-#include "core/api/oem.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
+#include "core/str/oem.h"
 #include "core/aud/bel.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
-#include "ria/sys/mem.h"
+#include "core/ria/regs.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
-#include "ria/net/telnet.h"
+#include "ria-w/net/telnet.h"
 #include "ria/sys/vga.h"
-#include "ria/net/cyw.h"
-#include "ria/net/wifi.h"
+#include "ria-w/net/cyw.h"
+#include "ria-w/net/wifi.h"
 #include "ria/sys/cfg.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
@@ -29,7 +30,7 @@
 #include <hardware/sync.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -94,10 +95,16 @@ static com_source_t com_rx_char_src;
 // Single-byte recover from the cross-core handoff slot. Per-source readers call
 // this so a byte the merge picker offered to the 6502 isn't stranded when rln is
 // the active consumer instead.
-size_t com_recover_rx_char(char *buf, com_source_t src)
+//
+// The length is not decoration: a read of zero bytes is a legal thing to ask
+// for -- the API's short-stack pop makes read(fd, buf, 0) an ordinary 6502
+// sequence -- and the buffer it hands down has no room at all. Recovering into
+// it would put a byte one past the caller's buffer, and the byte is consumed
+// either way, so it has to stay in the slot for a read that can take it.
+size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
 {
     uint8_t ch;
-    if (com_rx_char_src == src && ria_uart_rx_reclaim(&ch))
+    if (length && com_rx_char_src == src && ria_uart_rx_reclaim(&ch))
     {
         buf[0] = (char)ch;
         return 1;
@@ -143,10 +150,10 @@ static void com_uart_drain_rx(void)
 
 static size_t com_uart_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, COM_SOURCE_UART);
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
     // Always pump the hw FIFO into the software ring so callers that
     // bypass com_task (e.g. vga_connect's blocking loop running only
-    // mem_task) still see fresh bytes. Idempotent.
+    // mbuf_task) still see fresh bytes. Idempotent.
     com_uart_drain_rx();
     while (count < length && com_uart_rx_head != com_uart_rx_tail)
     {
@@ -169,7 +176,7 @@ static int com_uart_peek(void)
 // the 1 ms grain.
 static size_t com_keyboard_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, COM_SOURCE_KEYBOARD);
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_KEYBOARD);
     if (count < length)
         count += keymap_in_chars(&buf[count], length - count);
     return count;
@@ -417,8 +424,10 @@ size_t com_stdin_read(char *buf, size_t length)
 {
     size_t count = 0;
 
-    // Take char from RIA register
-    if (REGS(0xFFE0) & 0b01000000)
+    // Take char from RIA register. Only with somewhere to put it: a zero-byte
+    // read must leave the staged byte staged, not drop it on the floor -- and
+    // not write it past the end of a buffer that has no room.
+    if (count < length && (REGS(0xFFE0) & 0b01000000))
     {
         buf[count++] = REGS(0xFFE2);
         REGS(0xFFE0) = 0;
@@ -430,7 +439,8 @@ size_t com_stdin_read(char *buf, size_t length)
     // readers inside com_rx_pick recover the offered byte when tagged for
     // their source, so any byte sitting in the handoff slot is delivered
     // here without a separate drain.
-    count += com_rx_pick(&buf[count], length - count, NULL);
+    if (count < length)
+        count += com_rx_pick(&buf[count], length - count, NULL);
 
     return count;
 }
@@ -514,7 +524,7 @@ void com_break(void)
 
 #ifdef RP6502_RIA_W
     if (com_telnet_connected())
-        while (telnet_rx(SYS_TELNET_DESC, scratch, sizeof scratch))
+        while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
             ;
     com_telnet_clear_rx();
 #endif
@@ -564,10 +574,8 @@ void com_task(void)
     if (current_break)
         hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
     else if (break_detect)
-        main_break();
+        sys_break();
     break_detect = current_break;
-
-    com_telnet_task();
 }
 
 bool com_get_bel(void)
@@ -591,5 +599,22 @@ int com_printf(const char *fmt, ...)
     va_start(va, fmt);
     int n = vprintf(fmt, va);
     va_end(va);
+    return n;
+}
+
+/* The longest caller is a monitor prompt; the UF2 progress line is shorter
+ * still. Sized so neither is ever the reason a message is cut. */
+#define COM_PRINTF_UTF8_SIZE 128
+
+int com_printf_utf8(const char *utf8_fmt, ...)
+{
+    char buf[COM_PRINTF_UTF8_SIZE];
+    va_list va;
+    va_start(va, utf8_fmt);
+    oem_vsnprintf(buf, sizeof(buf), utf8_fmt, va);
+    va_end(va);
+    int n = 0;
+    for (const char *p = buf; *p; p++, n++)
+        com_putchar(*p);
     return n;
 }

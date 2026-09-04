@@ -6,12 +6,12 @@
 # on a handheld gets it without ever seeing this repository.
 #
 # The templates want a CMake root and a target named ${CORENAME}_libretro,
-# which is what src/mach/libretro builds and why that target has that name.
+# which is what src/host/libretro builds and why that target has that name.
 
 .core-defs:
   variables:
     CORENAME: rp6502
-    CMAKE_SOURCE_ROOT: src/mach/libretro
+    CMAKE_SOURCE_ROOT: src/host/libretro
     # Submodules: the root fetches the two it reads when it configures, so a
     # checkout with none still builds. STRICT makes a fetch that failed say
     # so here rather than as a missing header later.

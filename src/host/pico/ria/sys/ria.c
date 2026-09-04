@@ -4,15 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/str/oem.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/api/proc.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/phi2.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
+#include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria.pio.h"
 #include <pico/stdio.h>
@@ -20,7 +25,7 @@
 #include <hardware/dma.h>
 #include <hardware/sync.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_RIA)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -96,7 +101,7 @@ void ria_run(void)
     action_result = RIA_ACTION_RESULT_NONE;
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
-    action_watchdog_timer = make_timeout_time_us(cpu_get_reset_us() +
+    action_watchdog_timer = make_timeout_time_us(resb_get_reset_us() +
                                                  RIA_WATCHDOG_MS * 1000);
     switch (action_state)
     {
@@ -133,16 +138,16 @@ void ria_run(void)
     }
 }
 
+/* The 6502's side of a program stop. What is NOT here is closing a fast-load
+ * transfer: the action machinery opened that one and closes it itself, in
+ * ria_task, once the stop has committed. Otherwise this would have to run last
+ * in the fan-out -- vga_stop, rln_stop and com_stop all read ria_active() to
+ * tell a program stop from a transfer, and would see it change underneath
+ * them depending on where this row sat. */
 void ria_stop(void)
 {
     irq_enabled = 0;
     gpio_put(CPU_IRQB_PIN, true);
-    action_state = action_state_idle;
-    if (saved_reset_vec >= 0)
-    {
-        REGSW(0xFFFC) = saved_reset_vec;
-        saved_reset_vec = -1;
-    }
     ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
@@ -153,13 +158,31 @@ bool ria_active(void)
 
 void ria_task(void)
 {
+    /* Close a transfer whose stop has been performed. Here rather than in
+     * ria_stop so ria_active() holds one value for the whole fan-out: every
+     * stop that asks sees the transfer whole, and none sees it half closed.
+     *
+     * Ahead of the watchdog, because a stop asked for before the machine ever
+     * started skips the fan-out entirely (core/sys/sys.c) -- without this
+     * the transfer would never close, and the stale watchdog would fire a
+     * timeout at whatever ran next. */
+    if (ria_active() && !sys_active())
+    {
+        action_state = action_state_idle;
+        if (saved_reset_vec >= 0)
+        {
+            REGSW(0xFFFC) = saved_reset_vec;
+            saved_reset_vec = -1;
+        }
+    }
+
     // check on watchdog unless we explicitly ended or errored
     if (ria_active() && action_result == RIA_ACTION_RESULT_NONE)
     {
         if (time_reached(action_watchdog_timer))
         {
             action_result = RIA_ACTION_RESULT_TIMEOUT;
-            main_stop();
+            sys_stop();
         }
     }
 
@@ -175,7 +198,7 @@ void ria_task(void)
 
 static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
 {
-    com_snprintf_utf8(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
+    oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
     return -1;
 }
 
@@ -198,7 +221,7 @@ bool ria_handle_error(void)
 
 void ria_read_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -215,12 +238,12 @@ void ria_read_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_read;
-    main_run();
+    sys_run();
 }
 
 void ria_verify_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -235,12 +258,12 @@ void ria_verify_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_verify;
-    main_run();
+    sys_run();
 }
 
 void ria_write_buf(uint16_t addr)
 {
-    assert(!cpu_active());
+    assert(!resb_running());
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -256,7 +279,7 @@ void ria_write_buf(uint16_t addr)
     // First write doesn't always write because ???
     rw_pos = -1; // force a second write
     action_state = action_state_write;
-    main_run();
+    sys_run();
 }
 
 // 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
@@ -354,7 +377,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            sys_stop();
                         }
                         else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
@@ -371,7 +394,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (++rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            sys_stop();
                         }
                     }
                     break;
@@ -385,7 +408,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         {
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            sys_stop();
                         }
                     }
                     break;
@@ -418,8 +441,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         // Captured before the stop, while A and X still hold
                         // what the program exited with, for a launcher to read
                         // back through ATTR_EXIT_CODE.
-                        proc_set_exit_code((int16_t)API_AX);
-                        main_stop();
+                        proc_exit((int16_t)API_AX);
                     }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack

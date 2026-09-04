@@ -4,19 +4,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
-#include "core/cfg.h"
-#include "core/cpu.h"
+#include "core/sys/config.h"
+#include "core/wdc/phi2.h"
+/* FatFs where there is one: ff.h declares ff_oem2uni and ff_wtoupper itself,
+ * in types it picks per platform, and it is the authority wherever a tree has
+ * it. core/str/unicode.h declares them for a tree that does not -- the
+ * Pocket, which has no FatFs anywhere. */
+#ifdef __has_include
+#if __has_include(<fatfs/ff.h>)
 #include <fatfs/ff.h>
+#endif
+#endif
+#include "core/str/unicode.h"
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
-#include "host.h"
+#include "machine.h"
 #include <assert.h>
 
-#if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
+#if defined(DEBUG_STR) || defined(DEBUG_STR_STR)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -25,13 +34,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 /* Two-level so an argument that is itself a macro expands first, which is
  * the whole reason these are here: glibc's __CONCAT expands once. */
-#define STR_XSTR1(x) #x
-#define STR_XSTR(x) STR_XSTR1(x)
 #define STR_CAT1(a, b) a##b
 #define STR_CAT(a, b) STR_CAT1(a, b)
 
-static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-#define STR_PHI2_MIN_MAX STR_XSTR(CPU_PHI2_MIN_KHZ) "-" STR_XSTR(CPU_PHI2_MAX_KHZ)
+static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
+#define STR_PHI2_MIN_MAX STR_XSTR(PHI2_MIN_KHZ) "-" STR_XSTR(PHI2_MAX_KHZ)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
@@ -141,7 +148,6 @@ static const uint16_t HOST_IN_FLASH("str_locale_cp") str_locale_cp[] = {
 #undef X
 
 static int str_locale_index;
-static bool str_locale_loaded;
 
 const char *S(int id)
 {
@@ -149,7 +155,7 @@ const char *S(int id)
 }
 
 // Switch the active string table (clamped). Internal; the locale is selected
-// by name through str_set_locale / str_load_locale.
+// by name; str_check_locale is what judges one.
 static void str_select_locale(int index)
 {
     int count = (int)(sizeof str_tabs / sizeof str_tabs[0]);
@@ -173,18 +179,31 @@ static int str_sanitize_locale(const char *name)
     return found_index < 0 ? default_index : found_index;
 }
 
-// Switch the string table and push the locale's default code page to oem
-// (oem only acts on it in auto mode).
-static void str_apply_locale(int index)
+/* The file keeps the canonical spelling, so "en" is stored as "EN". An
+ * unknown name is not sanitized here the way loading once did -- a name
+ * that is not a locale is not a locale. */
+bool str_check_locale(const char *in, char *out)
 {
+    int i = str_sanitize_locale(in);
+    if (strcasecmp(in, str_locale_names[i]))
+        return false;
+    strcpy(out, str_locale_names[i]);
+    return true;
+}
+
+/* Switch the string table and push the locale's default code page to oem
+ * (oem only acts on it in auto mode). */
+void str_apply_locale(const char *name, bool changed)
+{
+    (void)changed;
+    int index = str_sanitize_locale(name);
     str_select_locale(index);
     oem_locale_changed(str_locale_cp[index]);
 }
 
 void HOST_IN_FLASH("str_init") str_init(void)
 {
-    if (!str_locale_loaded)
-        str_apply_locale(str_sanitize_locale(""));
+    str_apply_locale(str_get_locale(), true);
 }
 
 int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
@@ -207,26 +226,14 @@ int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-void str_load_locale(const char *name)
+/* SET's line for this row, now that the row is this driver's. */
+int str_locale_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    str_apply_locale(str_sanitize_locale(name));
-    str_locale_loaded = true;
-}
-
-bool str_set_locale(const char *name)
-{
-    int new_index = str_sanitize_locale(name);
-    if (strcasecmp(name, str_locale_names[new_index]))
-        return false;
-    if (str_locale_index != new_index)
-        str_apply_locale(new_index);
-    cfg_save();
-    return true;
-}
-
-const char *str_get_locale(void)
-{
-    return str_locale_names[str_locale_index];
+    (void)state;
+    (void)width;
+    snprintf(buf, buf_size, STR_SET_LOC_RESPONSE,
+             str_get_locale(), str_get_locale_verbose());
+    return -1;
 }
 
 const char *str_get_locale_verbose(void)
@@ -242,11 +249,11 @@ static char str_buf[256];
 // upper-case via ff_wtoupper. strcasecmp would only fold ASCII.
 bool str_oem_eq(const char *a, const char *b)
 {
-    WORD cp = oem_get_code_page_run();
+    uint16_t cp = oem_get_code_page_run();
     for (;;)
     {
-        WCHAR ua = ff_oem2uni((unsigned char)*a, cp);
-        WCHAR ub = ff_oem2uni((unsigned char)*b, cp);
+        uint16_t ua = ff_oem2uni((unsigned char)*a, cp);
+        uint16_t ub = ff_oem2uni((unsigned char)*b, cp);
         if (ff_wtoupper(ua) != ff_wtoupper(ub))
             return false;
         if (!*a)
@@ -453,22 +460,26 @@ bool str_parse_end(const char *args)
     return true;
 }
 
+
 void str_size(uint64_t bytes, char *out, size_t out_size)
 {
     const char *unit;
-    double size;
     if (bytes < 5000000ULL)
     {
         // Floppy-era media: KB, rolling to MB, trailing zeros stripped.
-        unit = "KB";
-        size = bytes / 1024.0;
-        if (size >= 1000)
+        unsigned milli;
+        if (bytes < 1024000ULL)
+        {
+            unit = "KB";
+            milli = (unsigned)((bytes * 1000 + 512) / 1024);
+        }
+        else
         {
             unit = "MB";
-            size /= 1000;
+            milli = (unsigned)((bytes + 512) / 1024);
         }
         char num[16];
-        snprintf(num, sizeof(num), "%.3f", size);
+        snprintf(num, sizeof(num), "%u.%03u", milli / 1000, milli % 1000);
         char *p = num + strlen(num) - 1;
         while (*p == '0')
             *p-- = '\0';
@@ -478,18 +489,22 @@ void str_size(uint64_t bytes, char *out, size_t out_size)
     }
     else
     {
-        unit = "MB";
-        size = bytes / 1e6;
-        if (size >= 1000)
+        unsigned tenths;
+        if (bytes < 1000000000ULL)
+        {
+            unit = "MB";
+            tenths = (unsigned)((bytes + 50000) / 100000);
+        }
+        else if (bytes < 1000000000000ULL)
         {
             unit = "GB";
-            size /= 1000;
+            tenths = (unsigned)((bytes + 50000000) / 100000000);
         }
-        if (size >= 1000)
+        else
         {
             unit = "TB";
-            size /= 1000;
+            tenths = (unsigned)((bytes + 50000000000ULL) / 100000000000ULL);
         }
-        snprintf(out, out_size, "%.1f %s", size, unit);
+        snprintf(out, out_size, "%u.%u %s", tenths / 10, tenths % 10, unit);
     }
 }

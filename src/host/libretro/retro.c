@@ -14,35 +14,39 @@
  * and when it stops, the core is done.
  */
 
+#include "core/sys/config.h"
 #include "input.h"
 
-#include "core/api/oem.h"
-#include "core/sys/rand.h"
+#include "core/str/oem.h"
+#include "core/sys/random.h"
+#include "host/host.h"
 #include "core/sys/version.h"
-#include "core/aud/aud_mix.h"
-#include "core/sys/log.h"
-#include "core/sys/msc.h"
+#include "core/aud/mix.h"
+#include "core/sys/com.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
 #include "core/sys/proc.h"
-#include "core/sys/rom.h"
-#include "core/sys/main.h"
-#include "core/wdc/cpu.h"
-#include "core/mem/mem.h"
+#include "core/rom/rom.h"
 #include "core/sys/sys.h"
+#include "core/wdc/phi2.h"
+#include "core/wdc/resb.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
-#include "host/fs.h"
-#include "host.h"
+#include "osal/os.h"
 
 #include "libretro.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* The rate this core declares in av_info, and the rate aud_pump converts to.
- * Most of the machine's voices are generated at it already and pass through
- * untouched; the OPL2 is not, because a YM3812 runs at 49716 Hz. */
+/* The rate this core declares in av_info. The machine makes every voice at
+ * a YM3812's 49716 Hz and resamples to this, which is also the mixer's
+ * default sink rate, so this core never has to say so. */
 #define RETRO_AUD_RATE 48000
-#define RETRO_AUD_FRAMES_MAX (RETRO_AUD_RATE / VGA_HZ + 64)
+#define RETRO_AUD_FRAMES (RETRO_AUD_RATE / VGA_HZ)
 
 static retro_environment_t environ_cb;
 static retro_video_refresh_t video_cb;
@@ -52,10 +56,11 @@ static retro_input_state_t input_state_cb;
 static retro_log_printf_t log_cb;
 
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
+static float audio_out[RETRO_AUD_FRAMES * 2];
+static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
 
-static char loaded_rom[MSC_MAX_PATH];    /* OEM, absolute, for retro_reset */
-static char loaded_path[MSC_MAX_PATH];   /* as the frontend spelled it */
+static char *loaded_rom;  /* OEM, absolute, for retro_reset; owned */
+static char *loaded_path; /* as the frontend spelled it; owned */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
@@ -65,12 +70,53 @@ static bool hint_shown;
 /* Environment                                                         */
 /* ------------------------------------------------------------------ */
 
-static void retro_log_sink(const char *msg)
+/* One finished line to the frontend, or to stderr when it gave no logger.
+ * A core writing stderr is antisocial but better than a diagnostic nobody
+ * ever sees; the frontend's log is where this is meant to land. */
+static void retro_say(enum retro_log_level level, const char *msg)
 {
     if (log_cb)
-        log_cb(RETRO_LOG_ERROR, "%s\n", msg);
+        log_cb(level, "%s\n", msg);
     else
         fprintf(stderr, "rp6502: %s\n", msg);
+}
+
+/* This core's own diagnostics, which are about the frontend rather than about
+ * the machine: a game that is not one, a pixel format it will not show. */
+__printflike(1, 2) static void retro_log(const char *fmt, ...)
+{
+    char msg[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    retro_say(RETRO_LOG_ERROR, msg);
+}
+
+/* The machine's console, line by line. com_tx_write is where every
+ * terminal-bound byte passes once, so this is the whole of what the machine
+ * says: the terminal a frontend renders is a picture of it, and its log is
+ * the only place the text itself can go. A line too long for the buffer is
+ * split rather than truncated. */
+static void retro_tx_tap(const char *buf, int len)
+{
+    static char line[256];
+    static size_t used;
+    for (int i = 0; i < len; i++)
+    {
+        char c = buf[i];
+        if (c == '\r')
+            continue;
+        if (c == '\n' || used == sizeof line - 1)
+        {
+            line[used] = 0;
+            used = 0;
+            if (line[0])
+                retro_say(RETRO_LOG_INFO, line);
+        }
+        if (c != '\n')
+            line[used++] = c;
+    }
 }
 
 static const struct retro_core_option_v2_definition option_defs[] = {
@@ -127,11 +173,11 @@ static void apply_options(bool started)
 {
     const char *v = option_value("rp6502_phi2");
     long khz = v ? strtol(v, NULL, 10) : 0;
-    if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
+    if (khz >= PHI2_MIN_KHZ && khz <= PHI2_MAX_KHZ)
     {
-        cpu_set_phi2_khz((uint16_t)khz);
+        phi2_set_khz((uint16_t)khz);
         if (started)
-            cpu_set_phi2_khz_run((uint16_t)khz);
+            phi2_set_khz_run((uint16_t)khz);
     }
 
     v = option_value("rp6502_code_page");
@@ -143,15 +189,20 @@ static void apply_options(bool started)
             oem_set_code_page_run((uint16_t)cp);
     }
 
-    /* Read by mem_init, which every boot calls, so this one needs no
-     * second telling. */
+    /* Read by the fills, which every boot runs, so this one needs no second
+     * telling. */
     v = option_value("rp6502_mem_fill");
+    bool fill_random = true;
+    uint8_t fill_value = 0x00;
     if (v && !strcmp(v, "00"))
-        mem_set_fill(false, 0x00, rand_seed_value());
+        fill_random = false;
     else if (v && !strcmp(v, "ff"))
-        mem_set_fill(false, 0xFF, rand_seed_value());
-    else
-        mem_set_fill(true, 0, rand_seed_value());
+    {
+        fill_random = false;
+        fill_value = 0xFF;
+    }
+    sram_set_fill(fill_random, fill_value, host_seed());
+    xram_set_fill(fill_random, fill_value, host_seed());
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,7 +325,7 @@ void retro_init(void)
     struct retro_log_callback logging;
     if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
         log_cb = logging.log;
-    log_set_sink(retro_log_sink);
+    com_set_tx_tap(retro_tx_tap);
 
     struct retro_keyboard_callback kb = {input_keyboard_event};
     if (environ_cb)
@@ -291,17 +342,17 @@ void retro_deinit(void)
 {
     if (machine_inited)
     {
-        main_stop();
-        main_commit(); /* no more frames after this to do it in */
+        sys_stop();
+        sys_commit(); /* no more frames after this to do it in */
     }
     machine_inited = false;
-    loaded_rom[0] = 0;
-    loaded_path[0] = 0;
+    free(loaded_rom), loaded_rom = NULL;
+    free(loaded_path), loaded_path = NULL;
     shutdown_sent = false;
     geom_w = geom_h = 0;
     hint_shown = false;
     input_reset();
-    log_set_sink(NULL);
+    com_set_tx_tap(NULL);
     log_cb = NULL;
 }
 
@@ -311,8 +362,7 @@ void retro_get_system_info(struct retro_system_info *info)
     info->library_name = "Picocomputer 6502";
     /* The frontend prints this beside the name, so it supplies the word the
      * stamp has in front of a tagged build. */
-    info->library_version = version_string() +
-                            (strncmp(version_string(), "Version ", 8) ? 0 : 8);
+    info->library_version = version_bare();
     info->valid_extensions = "rp6502";
     /* A program's assets are never read into memory: a ROM: open scans the
      * file for them on demand, so the file has to stay where it is. */
@@ -382,18 +432,53 @@ static void say_how_to_type(void)
     environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
 }
 
+/* The seed for this run, decided once: a frontend offers no --seed, so it is
+ * the OS's, and it is asked for both the stream and the memory fill. */
+static uint32_t run_seed;
+static bool run_seed_taken;
+
+uint32_t host_seed(void)
+{
+    if (!run_seed_taken)
+    {
+        run_seed = os_random();
+        run_seed_taken = true;
+    }
+    return run_seed;
+}
+
+/* argv in the guest's code page, allocated to fit: the conversion only ever
+ * contracts, so the argument's own length is the bound. The caller frees.
+ *
+ * A frontend hands its paths over as UTF-8, on Windows as anywhere else, so
+ * this is core's conversion and not an OS call. The emulator beside this one
+ * needs os_argv_to_oem because an ANSI main() is given its own code page. */
+static char *argv_to_oem(const char *arg)
+{
+    size_t sz = strlen(arg) + 1;
+    char *oem = malloc(sz);
+    if (oem && oem_from_utf8(arg, oem, sz) >= sz)
+    {
+        free(oem);
+        oem = NULL;
+    }
+    return oem;
+}
+
 /* Where the frontend wants a program's saves to go. MSC0: is still the whole
  * host filesystem, as on every other host; this is only where a program
  * starts out. */
 static void enter_save_directory(const char *content_path)
 {
     const char *dir = NULL;
+    char *own = NULL;
     if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir || !*dir)
     {
         /* No save directory: the program's own folder, which is where the SDK
          * puts what it ships beside a ROM. */
-        static char own[MSC_MAX_PATH];
-        snprintf(own, sizeof own, "%s", content_path);
+        own = strdup(content_path);
+        if (!own)
+            return;
         char *slash = strrchr(own, '/');
 #ifdef _WIN32
         char *back = strrchr(own, '\\');
@@ -401,13 +486,20 @@ static void enter_save_directory(const char *content_path)
             slash = back;
 #endif
         if (!slash)
+        {
+            free(own);
             return;
+        }
         *slash = 0;
         dir = own;
     }
-    char oem[MSC_MAX_PATH];
-    if (host_argv_to_oem(dir, oem, sizeof oem))
-        fs_chdir(oem);
+    char *oem = argv_to_oem(dir);
+    if (oem)
+    {
+        api_errno err;
+        drive_chdir(oem, &err);
+    }
+    free(oem), free(own);
 }
 
 /* Stand a program up: a fresh machine, the image, then run. The first load
@@ -416,24 +508,18 @@ static void enter_save_directory(const char *content_path)
 static bool boot(const char *rom_oem)
 {
     apply_options(machine_inited);
+    unsigned flags = PROC_UNCHAIN;
     if (machine_inited)
-    {
-        main_stop();
-        main_commit(); /* before mem_init and the load wipe what it runs on */
-        mem_init();
-    }
+        flags |= PROC_REFILL; /* every load after the first is a fresh machine */
     else
     {
-        main_init();
+        sys_init();
         machine_inited = true;
     }
-    if (!rom_load(rom_oem))
+    if (!proc_boot(rom_oem, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
-    proc_set_argv(rom_oem, 0, NULL);
-    proc_set_launcher(false);
-    main_run();
-    main_commit();
+    sys_commit();
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
     return true;
@@ -443,32 +529,41 @@ bool retro_load_game(const struct retro_game_info *game)
 {
     if (!game || !game->path)
     {
-        log_error("this core plays a .rp6502 program; there is nothing to run");
+        retro_log("this core plays a .rp6502 program; there is nothing to run");
         return false;
     }
 
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
     if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
     {
-        log_error("this frontend cannot show XRGB8888");
+        retro_log("this frontend cannot show XRGB8888");
         return false;
     }
 
     /* Absolute before anything moves: the frontend's path is relative to a
      * directory we are about to leave, and retro_reset has to find the same
      * file again from wherever the program has since gone. */
-    char given[MSC_MAX_PATH];
-    if (!host_argv_to_oem(game->path, given, sizeof given))
+    char *given = argv_to_oem(game->path);
+    if (!given)
     {
-        log_error("ROM path too long");
+        retro_log("cannot take the ROM path");
         return false;
     }
-    if (!fs_realpath(given, loaded_rom, sizeof loaded_rom))
-        snprintf(loaded_rom, sizeof loaded_rom, "%s", given);
+    char *abs = os_dir_realpath(given);
+    free(loaded_rom);
+    loaded_rom = abs ? abs : given;
+    if (abs)
+        free(given);
 
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);
 
-    snprintf(loaded_path, sizeof loaded_path, "%s", game->path);
+    free(loaded_path);
+    loaded_path = strdup(game->path);
+    if (!loaded_rom || !loaded_path)
+    {
+        retro_log("cannot take the ROM path");
+        return false;
+    }
     enter_save_directory(loaded_path);
 
     if (!boot(loaded_rom))
@@ -489,11 +584,11 @@ void retro_unload_game(void)
 {
     if (machine_inited)
     {
-        main_stop();
-        main_commit(); /* the frontend may never call us again */
+        sys_stop();
+        sys_commit(); /* the frontend may never call us again */
     }
-    loaded_rom[0] = 0;
-    loaded_path[0] = 0;
+    free(loaded_rom), loaded_rom = NULL;
+    free(loaded_path), loaded_path = NULL;
 }
 
 /* A reset is the boot a load does, and all of it: the program left the
@@ -501,7 +596,7 @@ void retro_unload_game(void)
  * where it got to. */
 void retro_reset(void)
 {
-    if (!loaded_rom[0])
+    if (!loaded_rom)
         return;
     enter_save_directory(loaded_path);
     boot(loaded_rom);
@@ -524,44 +619,16 @@ static void swizzle(uint32_t *px, size_t n)
     }
 }
 
-static int audio_frames_sent;
-
-/* aud_pump's sink: the machine's floats as the int16 pairs libretro takes.
- * It arrives already at the rate this core declared, which is the whole
- * reason to go through aud_pump — a YM3812 runs at 49716 Hz or it is not
- * one, and resampling it is the machine's business rather than ours. */
-static int push_frames(const float *frames, int n)
-{
-    int done = 0;
-    while (done < n)
-    {
-        int chunk = n - done;
-        if (chunk > RETRO_AUD_FRAMES_MAX)
-            chunk = RETRO_AUD_FRAMES_MAX;
-        for (int i = 0; i < chunk * 2; i++)
-        {
-            float s = frames[done * 2 + i];
-            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
-            audio_buf[i] = (int16_t)(s * 32767.0f);
-        }
-        audio_batch_cb(audio_buf, (size_t)chunk);
-        done += chunk;
-    }
-    audio_frames_sent += n;
-    return n;
-}
-
+/* One frame's worth per call, which is what a frontend syncing on sound
+ * waits for, as the int16 pairs libretro takes. A silent machine generates
+ * silence rather than nothing: the standing BEL is always the installed
+ * device. */
 static void push_audio(void)
 {
-    audio_frames_sent = 0;
-    aud_pump(RETRO_AUD_RATE, push_frames);
-    if (audio_frames_sent)
-        return;
-    /* A silent machine still has to keep time, or a frontend syncing on
-     * sound waits for a frame that never sounds. */
-    int frames = RETRO_AUD_RATE / VGA_HZ;
-    memset(audio_buf, 0, (size_t)frames * 2 * sizeof *audio_buf);
-    audio_batch_cb(audio_buf, (size_t)frames);
+    aud_render(audio_out, RETRO_AUD_FRAMES);
+    for (int i = 0; i < RETRO_AUD_FRAMES * 2; i++)
+        audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
+    audio_batch_cb(audio_buf, RETRO_AUD_FRAMES);
 }
 
 void retro_run(void)
@@ -571,8 +638,8 @@ void retro_run(void)
     {
         const char *v = option_value("rp6502_phi2");
         long khz = v ? strtol(v, NULL, 10) : 0;
-        if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
-            cpu_set_phi2_khz_run((uint16_t)khz);
+        if (khz >= PHI2_MIN_KHZ && khz <= PHI2_MAX_KHZ)
+            phi2_set_khz_run((uint16_t)khz);
         v = option_value("rp6502_code_page");
         long cp = v ? strtol(v, NULL, 10) : 0;
         if (cp > 0 && cp <= UINT16_MAX)
@@ -582,7 +649,8 @@ void retro_run(void)
     input_poll_cb();
     input_poll(input_state_cb);
 
-    sys_run_frame();
+    /* The frontend paces us: one frame per call, as fast as this can run it. */
+    vga_run_frame();
 
     int w, h;
     vga_canvas_size(&w, &h);
@@ -612,7 +680,7 @@ void retro_run(void)
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */
-    if (cpu_halted() && !shutdown_sent)
+    if (!resb_running() && !shutdown_sent)
     {
         shutdown_sent = true;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
@@ -627,7 +695,7 @@ void *retro_get_memory_data(unsigned id)
 {
     switch (id)
     {
-    case RETRO_MEMORY_SYSTEM_RAM: return ram;
+    case RETRO_MEMORY_SYSTEM_RAM: return sram;
     /* xram is volatile because the machine's own readers race the bus with
      * it; a frontend reading it between frames does not. */
     case RETRO_MEMORY_VIDEO_RAM: return (void *)xram;

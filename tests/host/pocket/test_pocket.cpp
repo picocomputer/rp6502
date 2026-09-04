@@ -10,7 +10,7 @@
  * 25.2 MHz and unpacked from RGB888 — must be settled and match the
  * CRC written down beside each case, across every canvas geometry the
  * mapping owns. What the machine paints into that frame is checked in
- * tests/cpu/vid against these same ROMs, on both machines; what is
+ * tests/cpu/vga against these same ROMs, on both machines; what is
  * left here is the trip out through the scaler. The reload case
  * runs the host's mid-session order — Reset Enter, a new slot,
  * completion, Exit — with a button held through the whole load: the
@@ -29,7 +29,7 @@
 #include "Vtb_pocket___024root.h"
 
 #include "corpus.h"
-#include "crc32.h"
+#include "host/host.h"
 
 #include "tb_asm.h"
 #include "tb_rom.h"
@@ -158,10 +158,10 @@ static bool load_firmware(const char *path)
 {
     auto *r = dut->rootp;
     return tb_load_tcm(
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3, path);
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3, path);
 }
 
 /* The run is over when the 6502 has run, stopped, and a frame has
@@ -197,7 +197,7 @@ static bool run_until_quiet(long *presses = nullptr)
         frames++;
         auto *r = dut->rootp;
         bool stopped =
-            r->tb_pocket__DOT__core__DOT__machine__DOT__w65c02__DOT__stop_flag != 0
+            r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag != 0
             || !r->tb_pocket__DOT__core__DOT__machine__DOT__resb;
         if (ran && stopped && !moved)
             return true;
@@ -210,7 +210,7 @@ static bool run_until_quiet(long *presses = nullptr)
                 (int)dut->rootp
                     ->tb_pocket__DOT__core__DOT__machine__DOT__resb,
                 (int)dut->rootp
-                    ->tb_pocket__DOT__core__DOT__machine__DOT__w65c02__DOT__stop_flag);
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag);
     return false;
 }
 
@@ -351,7 +351,7 @@ static void run_and_check(int *utest_result, const char *name,
                                     : (oh == 240 ? 2 : 3);
     ASSERT_EQ(slot, want_slot);
 
-    uint32_t crc = bench_crc32(fb, got * sizeof(uint32_t));
+    uint32_t crc = host_crc32(0, fb, got * sizeof(uint32_t));
     if (getenv("RP6502_BLESS_CRC"))
         fprintf(stderr, "    %-12s 0x%08X\n", name, crc);
     else if (crc != expect)
@@ -435,13 +435,13 @@ UTEST(pocket, canvas3_640x480)
      * built from the asset's pieces rather than copied out of one of them,
      * so what is checked is the face — against the number below, the same
      * way every other picture in the suite is checked. What that face has
-     * to be is tests/rtl/vid's, against the font.c the asset comes from;
+     * to be is tests/rtl/vga's, against the font.c the asset comes from;
      * this is the trip. */
-    auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__vid_font__DOT__f16;
+    auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__font__DOT__f16;
     static uint32_t face[1024];
     for (size_t i = 0; i < 1024; i++)
         face[i] = f16[i];
-    uint32_t fcrc = bench_crc32(face, sizeof face);
+    uint32_t fcrc = host_crc32(0, face, sizeof face);
     if (getenv("RP6502_BLESS_CRC"))
         fprintf(stderr, "    %-12s 0x%08X\n", "font16 store", fcrc);
     else

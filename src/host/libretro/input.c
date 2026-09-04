@@ -14,8 +14,9 @@
 
 #include "input.h"
 
-#include "core/sys/keyboard.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/usage.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
@@ -95,35 +96,6 @@ static uint8_t retrok_to_hid(unsigned k)
     }
 }
 
-/* Encode one Unicode codepoint as NUL-terminated UTF-8 (keyboard_text then maps it
- * to the active OEM code page). */
-static const char *utf8_encode(uint32_t cp, char dst[5])
-{
-    int n = 0;
-    if (cp < 0x80)
-        dst[n++] = (char)cp;
-    else if (cp < 0x800)
-    {
-        dst[n++] = (char)(0xC0 | (cp >> 6));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    else if (cp < 0x10000)
-    {
-        dst[n++] = (char)(0xE0 | (cp >> 12));
-        dst[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    else
-    {
-        dst[n++] = (char)(0xF0 | (cp >> 18));
-        dst[n++] = (char)(0x80 | ((cp >> 12) & 0x3F));
-        dst[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    dst[n] = 0;
-    return dst;
-}
-
 /* US-ASCII of a printable RETROK honoring shift, else 0. A frontend that sends
  * no character (several do not) still gets chords and Meta this way — a
  * US-layout approximation, not an OEM-codepage match. */
@@ -179,9 +151,9 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
 
     switch (keycode)
     {
-    case RETROK_NUMLOCK: keyboard_toggle_lock(1); return;
-    case RETROK_CAPSLOCK: keyboard_toggle_lock(2); return;
-    case RETROK_SCROLLOCK: keyboard_toggle_lock(4); return;
+    case RETROK_NUMLOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); return;
+    case RETROK_CAPSLOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); return;
+    case RETROK_SCROLLOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); return;
     default: break;
     }
 
@@ -193,7 +165,7 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
         if (nav)
             hid = nav;
     }
-    if (keyboard_key(hid, ctrl, shift, alt))
+    if (vtkeys_key(hid, ctrl, shift, alt))
         return;
 
     /* Ctrl+<key> is a C0 byte and Alt+<key> is ESC then the byte, so neither
@@ -201,26 +173,25 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * the way the firmware promotes them. */
     if (ctrl && !alt)
     {
-        keyboard_ctrl_letter(ascii_from_key(keycode, shift));
+        vtkeys_ctrl_letter(ascii_from_key(keycode, shift));
         return;
     }
     if (alt)
     {
-        keyboard_alt_char(ascii_from_key(keycode, shift), ctrl);
+        vtkeys_alt_char(ascii_from_key(keycode, shift), ctrl);
         return;
     }
 
     /* Plain typing. The frontend already applied the layout, so its character
      * is better than anything reconstructed from a keycode — but a frontend
      * that sends none still types, from the US-layout approximation. */
-    char u[5];
     if (character >= 32 && character != 127)
-        keyboard_text(utf8_encode(character, u));
+        vtkeys_char(character);
     else
     {
         char ch = ascii_from_key(keycode, shift);
         if (ch)
-            keyboard_text(utf8_encode((uint32_t)(unsigned char)ch, u));
+            vtkeys_char((uint32_t)(unsigned char)ch);
     }
 }
 

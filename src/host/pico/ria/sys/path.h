@@ -8,8 +8,8 @@
 #define _RIA_SYS_PATH_H_
 
 /* Path questions only the drive can answer, asked of FatFs. A machine whose
- * drive is a host filesystem resolves paths in its own drive module instead
- * (core/sys/msc.c), so nothing here is shared. */
+ * drive is a host filesystem resolves paths in its own dir.c instead, so
+ * nothing here is shared -- the syntax both stand on is core/str/path.h. */
 
 #include <stdbool.h>
 #include <stddef.h>

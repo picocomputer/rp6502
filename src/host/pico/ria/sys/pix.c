@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/api/xreg.h"
+#include "core/sys/sys.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "ria/sys/pix.h"
@@ -13,7 +14,7 @@
 #include <pico/time.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_PIX)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_PIX)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -202,7 +203,7 @@ bool pix_api_xreg(void)
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);
             }
-            if (!main_xreg_0(pix_channel, pix_addr, data))
+            if (!xreg0(pix_channel, pix_addr, data))
             {
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);

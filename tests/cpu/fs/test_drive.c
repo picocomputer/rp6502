@@ -13,10 +13,12 @@
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/sys/rom.h"
-#include "core/sys/msc.h"
-#include "host/fs.h"
-#include "core/mem/mem.h"
+#include "core/rom/rom.h"
+#include "osal/fs.h"
+#include "core/str/path.h"
+#include "osal/os.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
@@ -30,18 +32,38 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the MSC0: mount */
+static char g_dir[256]; /* a temp dir, made the MSC0: mount, in the 6502's spelling */
+
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_mkdir(path, &err);
+}
 
 static bool fresh(void)
 {
-    char dir[MSC_MAX_PATH];
+    char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
-    if (!fs_chdir(dir))
+    if (!drive_chdir_to(dir))
         return false;
-    /* g_dir mirrors msc's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
-    return fs_getcwd(g_dir, sizeof(g_dir));
+    /* g_dir mirrors the drive's own getcwd, so it holds on any host. */
+    return drive_cwd(g_dir, sizeof(g_dir));
 }
 
 static void make_file(const char *rel, const char *data, uint16_t n)
@@ -54,18 +76,15 @@ static void make_file(const char *rel, const char *data, uint16_t n)
     }
 }
 
-/* g_dir is a host path, and on Windows that carries a drive letter the guest
- * spells //C/ instead. msc_from_host owns that mapping. */
+
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[MSC_MAX_PATH];
-    msc_from_host(g_dir, base, sizeof(base));
-    snprintf(out, sz, "%s%s", base, suffix);
+    snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
 
 /* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
- * firmware, ONLY the boot/exec loader resolves it (rom_resolve + rom_load);
+ * firmware, ONLY the boot/exec loader resolves it (rom_alias_resolve + rom_load);
  * a 6502 open(":name") is not special — it goes to MSC0: and fails. Installs are
  * separate from MSC0: (a same-named host file is untouched) and coexist. */
 UTEST(drive, rom_resolve_and_load)
@@ -75,26 +94,25 @@ UTEST(drive, rom_resolve_and_load)
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" -> TEST_FIXTURE */
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" -> TEST_FIXTURE */
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
-    char second[MSC_MAX_PATH];
+    char second[TEST_PATH_MAX];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
-    ASSERT_TRUE(rom_install(second));
+    ASSERT_TRUE(rom_alias_insert(second));
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
-    char host[MSC_MAX_PATH];
-    ASSERT_TRUE(rom_resolve(":adventure.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, TEST_FIXTURE);
-    ASSERT_TRUE(rom_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
-    ASSERT_STREQ(host, TEST_FIXTURE);
-    ASSERT_TRUE(rom_resolve(":second.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, second);
-    /* An uninstalled or empty ":name" does not resolve. */
-    ASSERT_FALSE(rom_resolve(":nope.rp6502", host, sizeof(host)));
-    ASSERT_FALSE(rom_resolve(":", host, sizeof(host)));
+    ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), TEST_FIXTURE);
+    ASSERT_STREQ(rom_alias_resolve(":ADVENTURE.RP6502"), TEST_FIXTURE); /* case-insensitive */
+    ASSERT_STREQ(rom_alias_resolve(":second.rp6502"), second);
+    /* An unaliased ":name" passes through -- the map is not a gate; the
+     * store (here: a host with none) answers at the open. It comes back as
+     * the caller's own pointer, which is the whole of "borrowed". */
+    const char *unaliased = ":nope.rp6502";
+    ASSERT_EQ(rom_alias_resolve(unaliased), unaliased);
+    ASSERT_FALSE(rom_load(":nope.rp6502"));
 
     /* The boot/exec loader streams the installed file. */
     ASSERT_TRUE(rom_load(":adventure.rp6502"));
@@ -113,13 +131,55 @@ UTEST(drive, rom_resolve_and_load)
     ssys_close(f);
 }
 
+/* The seam itself: fs_rom_open serves ":name" (the null drive) and paths (the
+ * filesystem), colon-exclusive -- a miss is ENOENT, never a fall-through. The
+ * write combo refuses on this machine (installs are references), anything
+ * else is EINVAL, and the descriptor it returns is a C-side thing the 6502's
+ * std API rejects as the invalid fd it would be. */
+UTEST(drive, fs_rom_open_is_the_one_way_in)
+{
+    ASSERT_TRUE(fresh());
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE));
+
+    api_errno err;
+    int fd = fs_rom_open(TEST_FIXTURE, FS_RD, &err);
+    ASSERT_TRUE(fd >= 0);
+    char magic[8] = {0};
+    uint32_t got = 0;
+    std_rw_result r;
+    do
+        r = fs_std_read(fd, magic, 8, &got, &err);
+    while (r == STD_PENDING);
+    ASSERT_EQ(r, STD_OK);
+    ASSERT_EQ(memcmp(magic, "#!RP6502", 8), 0);
+
+    /* The 6502 cannot use the ROM descriptor: it is not a guest fd. */
+    ASSERT_TRUE(ssys_read(fd, magic, 1) < 0);
+    ASSERT_TRUE(ssys_close(fd) < 0);
+
+    fs_std_close(fd, &err);
+
+    /* The seam does not alias: rom_load resolves ":name" above it, and a
+     * colon reaching this host's open is just a name no file has. */
+    ASSERT_TRUE(fs_rom_open(":adventure.rp6502", FS_RD, &err) < 0);
+
+    /* The write side: references have nothing to create; junk flags refuse. */
+    ASSERT_TRUE(fs_rom_open(":new.rp6502", FS_WR | FS_CREAT | FS_EXCL, &err) < 0);
+    ASSERT_EQ(err, API_EACCES);
+    ASSERT_TRUE(fs_rom_open(TEST_FIXTURE, FS_WR, &err) < 0);
+    ASSERT_EQ(err, API_EINVAL);
+    ASSERT_FALSE(fs_rom_remove(":adventure.rp6502", &err));
+    ASSERT_EQ(err, API_EACCES);
+}
+
+
 /* The null drive is loader-only: never the cwd, never enumerated/stat'd/mutated.
  * Every MSC0: op on a ":name" (or bare ":") refuses it cleanly, and ":" never
  * aliases a host path — not even via "MSC0::name". */
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" */
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
     dir_api_stat();
@@ -151,7 +211,7 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
@@ -161,9 +221,10 @@ UTEST(drive, mount_transparent_no_chroot)
     int f = ssys_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
-    char hostprobe[512];
+    char hostprobe[512], probenative[TEST_PATH_MAX];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
-    FILE *hp = fopen(hostprobe, "rb");
+    ASSERT_TRUE(path_to_native(hostprobe, probenative, sizeof(probenative)));
+    FILE *hp = fopen(probenative, "rb"); /* behind the drive's back */
     ASSERT_TRUE(hp != NULL);
     if (hp)
         fclose(hp);

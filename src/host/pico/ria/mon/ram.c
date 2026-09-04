@@ -4,19 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/mem.h"
+#include "core/sys/xram.h"
+#include "ria/sys/mbuf.h"
+#include "host/host.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include <stdio.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_RAM)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_RAM)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -342,7 +344,7 @@ static void ram_rx_mbuf(bool timeout)
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         return;
     }
-    if (mem_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
+    if (host_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return;
@@ -391,7 +393,7 @@ void ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mem_read_mbuf(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        mbuf_read(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }
@@ -400,7 +402,7 @@ void ram_mon_binary(const char *args)
 
 void ram_task(void)
 {
-    if (main_active())
+    if (sys_active())
         return;
     switch (ram_state)
     {

@@ -6,12 +6,12 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/tablet.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga.h"
-#include "host.h"
+#include "machine.h"
 #include <string.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_TABLET)
+#if defined(DEBUG_HID) || defined(DEBUG_HID_TABLET)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/ria.h"
 #include "core/api/ops.h"
-#include "core/main.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
-#include "core/cpu.h"
+#include "core/wdc/resb.h"
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
+#if defined(DEBUG_API) || defined(DEBUG_API_API)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -86,7 +87,7 @@ static uint8_t api_active_op;
 void api_task(void)
 {
     // Latch called op in case 6502 app misbehaves
-    if (cpu_active() && !ria_active() &&
+    if (resb_running() && !ria_active() &&
         !api_active_op && API_BUSY)
     {
         uint8_t op = API_OP;
@@ -104,6 +105,12 @@ void api_stop(void)
 
 void api_run(void)
 {
+    /* A fast load borrows the run to cycle RESB; it is not a program start.
+     * None of what follows means anything to one, and the stub it drives the
+     * 6502 with lives on $FFF2-$FFF9 -- the same bytes as the released
+     * registers below. */
+    if (ria_active())
+        return;
     api_errno_opt = API_ERRNO_OPT_NULL;
     // Clear the fastcall/RW register window (0xFFE0..0xFFEF),
     // leaving the VSYNC frame counter alone — owned by vga.

@@ -3,7 +3,7 @@
 # A test here is written once and asks about the RP6502, not about a program
 # or a board. Where the claim can be made of both implementations, one source
 # makes it of both: the corpora in wdc/ run against chips_dut.c or
-# w65c02_dut.cpp depending on the tree, and the frame suites boot the same
+# rtl_dut.cpp depending on the tree, and the frame suites boot the same
 # generated ROMs on emu_core or on the verilated machine.
 #
 # Nothing here names a tree. A registration that needs the simulator guards on
@@ -14,7 +14,7 @@
 # told which it is.
 
 add_subdirectory(wdc)
-add_subdirectory(vid)
+add_subdirectory(vga)
 add_subdirectory(mem)
 add_subdirectory(ria)
 add_subdirectory(aud)

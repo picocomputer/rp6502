@@ -35,6 +35,9 @@
 #define TB_HOST_SLOT_FONTS 9u
 #define TB_HOST_SLOT_OEMCP 10u
 
+/* get_dataslot_file_t: one 256-byte path, per Analogue's reference. */
+#define TB_HOST_GETFILE_STRUCT 256u
+
 class tb_host
 {
 public:
@@ -50,9 +53,9 @@ public:
     /* One call per clk_sys edge, before eval. */
     template <class DUT> void tick(DUT *dut)
     {
-        if (dut->rp6502_host_stb && dut->rp6502_host_we)
-            write(dut->rp6502_host_addr & 0x0FFFFFFFu, dut->rp6502_host_wdata);
-        dut->host_rdata = read(dut->rp6502_host_addr & 0x0FFFFFFFu);
+        if (dut->wiring_host_stb && dut->wiring_host_we)
+            write(dut->wiring_host_addr & 0x0FFFFFFFu, dut->wiring_host_wdata);
+        dut->host_rdata = read(dut->wiring_host_addr & 0x0FFFFFFFu);
     }
 
 private:
@@ -140,11 +143,24 @@ private:
                 tb_stage_write(bridge_ + i, p[off_ + i]);
             break;
         }
-        case 5: /* GETFILE: the name, NUL terminated, where BRIDGE points */
+        case 5: /* GETFILE: the response struct, where BRIDGE points */
         {
+            /* The whole 256 bytes, every time, blanked past the name --
+             * which is what the device does. Measured: a Get File on a
+             * bound slot leaves its path in the window, and a Get File
+             * on an unbound slot immediately after leaves the window
+             * empty. The host clears it rather than declining to write,
+             * so the window's own contents say whether a slot is bound
+             * and a reader needs nothing else to tell.
+             *
+             * Writing only the name plus its terminator, as this did,
+             * modelled a host that leaves the rest alone -- under which
+             * an unbound slot would answer with whatever the last ask
+             * left there, and a bench could never catch a reader that
+             * trusted it. */
             const std::string &s = (id_ == TB_HOST_SLOT_ROM) ? name_
                                                              : empty_;
-            for (size_t i = 0; i <= s.size(); i++)
+            for (size_t i = 0; i < TB_HOST_GETFILE_STRUCT; i++)
                 tb_stage_write(bridge_ + (uint32_t)i,
                                i < s.size() ? (uint8_t)s[i] : 0);
             break;

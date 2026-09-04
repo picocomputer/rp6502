@@ -17,8 +17,8 @@
  * still look right.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "utest.h"
@@ -26,7 +26,7 @@
 
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 UTEST(xregs, the_program_reaches_the_devices)
 {
@@ -39,7 +39,7 @@ UTEST(xregs, the_program_reaches_the_devices)
         /* The bell is a voice of the PSG now and the soft CPU rings it by
          * writing the voice's gate, so a strike is that bit going up. */
         const bool bg =
-            (dut->rootp->rp6502__DOT__aud_psg__DOT__bel_hi >> 16) & 1;
+            (dut->rootp->wiring__DOT__psg__DOT__bel_hi >> 16) & 1;
         if (!bel_gate_prev && bg)
             strikes++;
         bel_gate_prev = bg;
@@ -50,32 +50,32 @@ UTEST(xregs, the_program_reaches_the_devices)
 
     /* The PSG took 0x8000 and the OPL took 0xF000 after it. Setting up
      * either engine resets the other, so the PSG's pointer is parked. */
-    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0xFFFF);
-    ASSERT_TRUE(dut->rootp->rp6502__DOT__aud_opl__DOT__enabled);
-    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_opl__DOT__page, 0xF0);
+    ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0xFFFF);
+    ASSERT_TRUE(dut->rootp->wiring__DOT__opl__DOT__enabled);
+    ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__page, 0xF0);
 
     /* Canvas 1, mode 3 entries across [0, 240) on plane 0 with the config
      * pointer, nothing at 240. */
     auto *r = dut->rootp;
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__canvas_shadow, 1);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[0],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__canvas_shadow, 1);
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__fill_e[0],
               0x80000000u | (3u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_c[0], 0x1000);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[239 * 4],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__fill_c[0], 0x1000);
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__fill_e[239 * 4],
               0x80000000u | (3u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[240 * 4], 0u);
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__fill_e[240 * 4], 0u);
 
     /* The sprite slots: mode 4 plane 1, mode 5 plane 2, count over config in
      * the second word. spr_e keeps only the live bits —
      * {enable, mode[2:0], attr[15:0]} — because the twelve dead ones cost
      * three M10K to store. */
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 1],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__spr_e[100 * 4 + 1],
               (1u << 19) | (4u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 1],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__spr_c[100 * 4 + 1],
               (3u << 16) | 0x2000u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 2],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__spr_e[100 * 4 + 2],
               (1u << 19) | (5u << 16) | 10u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 2],
+    ASSERT_EQ(r->wiring__DOT__prog__DOT__spr_c[100 * 4 + 2],
               (2u << 16) | 0x3000u);
 }
 
@@ -84,7 +84,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

@@ -8,7 +8,7 @@
 # worth.
 #
 # R101  Combinational logic used as a reset, unsynchronised.
-#       aud_opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
+#       opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
 #       reset of the vendored OPL's own afifo. It is a counter compared
 #       against zero, held for 255 clocks at a time, and the core it
 #       resets is the vendor's. The machine's own reset is one flop now
@@ -122,7 +122,26 @@ R101 2
 #       the same packing sensitivity D102 records below, which reached
 #       this rule for the first time and cost a build to learn. Read the
 #       list before moving this line in either direction.
-D101 716
+#
+#       717 since the file bridge started saying whether the host wrote
+#       into its response window. Named in the report as structure 558,
+#       pocket_file's wrote_q -- read from the list, which is what this
+#       entry says to do. It is the fourth field of an answer whose
+#       other three are already counted above: written on clk_74a while
+#       the command is outstanding, then sampled on the far side only
+#       when ret_t's toggle has come through three flops, and bounded in
+#       the SDC by the same max_delay as err_q, tmo_q and result_q.
+#
+#       It rose because the bit stopped lying rather than because
+#       anything got less safe. It used to cross as a toggle with its
+#       own three-flop chain, which the tool credits and this rule
+#       therefore never counted -- and which did not work: the arming it
+#       depended on lasted one clk_74a cycle on every command but the
+#       first after reset, so on hardware the bit fired once per
+#       power-on and was dead for the other ninety asks of a session. A
+#       crossing the tool is happy with and the device is not is worth
+#       one line here.
+D101 717
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
@@ -148,7 +167,7 @@ D101 716
 #       what this whole entry is about.
 #
 #       The gate has asked for 23. Do not take it: a fit reported 23 and
-#       the next reported 24 with only vid_mode's config fetch changed
+#       the next reported 24 with only linebuf's config fetch changed
 #       between them, and that touches none of these structures — all 24
 #       are named above and every one is in the platform layer. The count
 #       is packing-sensitive, so one observation is not a new floor.
@@ -193,8 +212,8 @@ R102 1
 #       soft CPU's bus strobe on negedge clk_sys.
 #
 #       This was first written down as a hack to be backed out, and that
-#       was wrong. The signal being narrowed is rv_soc_bus_stb, which is
-#       rv_soc_bus_pend AND bus_rdy — one term a clk_rv flop, the other
+#       was wrong. The signal being narrowed is soc_bus_stb, which is
+#       soc_bus_pend AND bus_rdy — one term a clk_rv flop, the other
 #       from clk_sys logic decoding a clk_rv address. It settles partway
 #       through the clk_sys period by construction, so a rising-edge
 #       sample asks while it is still moving, and what a wrong answer

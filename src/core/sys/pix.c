@@ -9,16 +9,18 @@
  * delivery is a call and a handler's false is the NAK.
  *
  * Two such machines exist and they were answering identically -- the video
- * half is main_xreg_1 on both, and both have one XRAM that the write has
+ * half is xreg1 on both, and both have one XRAM that the write has
  * already reached -- so there is nothing left below this to be per-machine.
  * A machine with a real bus (host/pico/ria/sys/pix.c) implements op 0x01
  * itself and links none of this.
  */
 
-#include "core/pix.h"
-#include "core/main.h"
+#include "core/api/xreg.h"
+#include "core/sys/pix.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
-#include "core/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include <string.h>
 
 static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);
@@ -47,11 +49,11 @@ bool pix_api_xreg(void)
     if (device == PIX_DEVICE_VGA && channel == 0xF)
         return api_return_errno(API_EACCES);
     /* Device 0 is the RIA-local virtual xreg, never bussed: dispatch straight to
-     * main_xreg_0 with the address held constant (last-wins). */
+     * xreg0 with the address held constant (last-wins). */
     if (device == PIX_DEVICE_RIA)
     {
         for (int i = count - 1; i >= 0; i--)
-            if (!main_xreg_0(channel, address, pix_word_at(i)))
+            if (!xreg0(channel, address, pix_word_at(i)))
                 return api_return_errno(API_EINVAL);
         return api_return_ax(0);
     }
@@ -74,7 +76,7 @@ bool pix_api_xreg(void)
 static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
 {
     if (dev == PIX_DEVICE_VGA)
-        return main_xreg_1(channel, byte, word);
+        return xreg1(channel, byte, word);
     return true;
 }
 

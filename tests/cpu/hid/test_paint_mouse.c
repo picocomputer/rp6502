@@ -13,8 +13,8 @@
  */
 
 #include "core/hid/mouse.h"
-#include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
+#include "host/host.h"
+#include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "emu_boot.h"
@@ -25,13 +25,12 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return mem_crc32(0, fb, (size_t)cw * ch * 4);
+    return host_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 static void run(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
 }
 
 UTEST(paint, via_irq_moves_pointer)
@@ -54,7 +53,7 @@ UTEST(paint, via_irq_moves_pointer)
     run(20);
     ASSERT_NE(frame_crc(), still);
 
-    ASSERT_FALSE(cpu_halted());
+    ASSERT_TRUE(resb_running());
 }
 
 UTEST_MAIN_EMU()

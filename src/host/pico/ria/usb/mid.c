@@ -13,7 +13,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MID)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_MID)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -808,7 +808,7 @@ int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
             tuh_vid_pid_get(conn->daddr, &vid, &pid);
             snprintf(name, sizeof(name), "%04X:%04X", vid, pid);
         }
-        // name is OEM, com_snprintf_utf8 would mangle high bytes
+        // name is OEM, oem_snprintf would mangle high bytes
         snprintf(buf, buf_size, STR_STATUS_MIDI, devname, name);
     }
     return state + 1;

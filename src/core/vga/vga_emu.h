@@ -20,18 +20,21 @@ void vga_init(void);
 /* Arm a console reset for the next vga_task() when a program stops (firmware vga_stop). */
 void vga_stop(void);
 
-/* Perform an armed console reset via the DISPLAY xreg; call once per frame. */
+/* Advance the beam at most one scanline: render it, fire vsync where the
+ * program's last line falls, count the frame at the wrap. The 6502 follows,
+ * catching up to vga_beam_lines() -- on hardware the two run at once, here
+ * they zip. */
 void vga_task(void);
 
-/* The scanline at which vsync fires for the current frame — the highest
- * scanline any installed program renders (firmware fires ria_vsync there). */
-int16_t vga_vsync_scanline(void);
+/* Scanlines the beam has done, ever. The bus turns the ones it has not
+ * answered for yet into a cycle budget; host_clock_us turns the whole count
+ * into microseconds. */
+uint64_t vga_beam_lines(void);
 
-/* Render one scanline y of the current frame into the present buffer (RGBA8
- * 0xAABBGGRR, canvas-native stride). Interleaved with the CPU between scanlines
- * so mid-frame state changes land on later lines (raster effects), matching
- * real per-scanline scanout. */
-void vga_render_scanline(int y);
+/* Run the machine until video says one frame went by. False when a
+ * debugger holds it -- a held machine never will, and a caller must not
+ * wait for it. */
+bool vga_run_frame(void);
 
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
@@ -51,6 +54,11 @@ uint32_t *vga_get_framebuffer(void);
 
 /* The rest of what a machine's video answers -- the canvas, the scanline
  * program, the code page -- is core/vga/vga.h, which every machine shares.
- * This file is only what the emulator additionally has: a framebuffer. */
+ * This file is only what the emulator additionally has: a framebuffer, and
+ * the beam as the clock the whole machine follows. */
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. Video leads: its
+ * task runs before the CPU's, which follows the beam. */
+#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

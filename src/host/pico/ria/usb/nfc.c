@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/proc.h"
+#include "ria/api/proc.h"
 #include "ria/usb/nfc.h"
+#include "core/sys/config.h"
 #include "ria/usb/vcp.h"
 #include "core/aud/bel.h"
 #include "core/str/str.h"
@@ -15,7 +16,7 @@
 #include <string.h>
 #include <pico/time.h>
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_NFC)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_NFC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -134,7 +135,6 @@ static enum {
 _Static_assert(sizeof(nfc_state_names) / sizeof(*nfc_state_names) == NFC_TAG_WRITE_RX + 1,
                "nfc_state_names out of sync with nfc_state enum");
 
-static uint8_t nfc_enabled;
 static int nfc_desc = -1;
 static uint8_t nfc_scan_idx;
 static absolute_time_t nfc_timeout;
@@ -422,38 +422,44 @@ static void nfc_apply_cfg(uint8_t val)
         break;
     case NFC_CFG_FORGET:
         nfc_close_device();
-        vcp_set_nfc_device_name(""); /* saves for itself; empty is idempotent */
+        vcp_set_nfc_device_hash(""); /* saves for itself; empty is idempotent */
         nfc_goto(NFC_OFF, 0);
         break;
     }
 }
 
-void nfc_load_enabled(const char *str)
+/* SCAN and FORGET are things to do, not things to keep: the file only ever
+ * holds off or on. */
+bool nfc_check_enabled(uint8_t *v)
 {
-    str_parse_uint8(&str, &nfc_enabled);
-    if (nfc_enabled > NFC_CFG_ON)
-        nfc_enabled = NFC_CFG_OFF;
-    if (nfc_enabled)
-        nfc_apply_cfg(NFC_CFG_ON);
-}
-
-bool nfc_set_enabled(uint8_t val)
-{
-    if (val != NFC_CFG_OFF && val != NFC_CFG_ON &&
-        val != NFC_CFG_SCAN && val != NFC_CFG_FORGET)
+    if (*v > NFC_CFG_SCAN && *v != NFC_CFG_FORGET)
         return false;
-    nfc_apply_cfg(val);
-    uint8_t persist = (val == NFC_CFG_OFF || val == NFC_CFG_FORGET)
-                          ? NFC_CFG_OFF
-                          : NFC_CFG_ON;
-    nfc_enabled = persist;
-    cfg_save();
+    *v = (*v == NFC_CFG_OFF || *v == NFC_CFG_FORGET) ? NFC_CFG_OFF : NFC_CFG_ON;
     return true;
 }
 
-uint8_t nfc_get_enabled(void)
+/* The raw request, so a scan asked for while already on still scans. */
+void nfc_apply_enabled(uint8_t val, bool changed)
 {
-    return nfc_enabled;
+    (void)changed;
+    nfc_apply_cfg(val);
+}
+
+void nfc_init(void)
+{
+    if (nfc_get_enabled())
+        nfc_apply_cfg(NFC_CFG_ON);
+}
+
+/* SET's line for this row. */
+int nfc_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    uint8_t en = nfc_get_enabled();
+    oem_snprintf(buf, buf_size, STR_SET_NFC_RESPONSE,
+                 en, en ? S(STR_ENABLED) : S(STR_DISABLED));
+    return -1;
 }
 
 // Parse tag data and extract the first Well Known Text record
@@ -625,7 +631,7 @@ void nfc_task(void)
         {
             char name[8];
             nfc_vcp_name(name, sizeof(name));
-            if (vcp_set_nfc_device_name(name)) /* saves the hash itself */
+            if (vcp_set_nfc_device_hash(name)) /* saves the hash itself */
             {
                 nfc_success();
                 nfc_start_tx(NFC_SAM_TX);

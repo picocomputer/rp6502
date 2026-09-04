@@ -10,7 +10,6 @@
 /* Common code shared among all HID and HID-like drivers.
  */
 
-#include "host.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -57,13 +56,6 @@ typedef struct keyboard_connection keyboard_connection_t;
 typedef struct mouse_connection mouse_connection_t;
 typedef struct tablet_connection tablet_connection_t;
 typedef struct gamepad_connection gamepad_connection_t;
-
-/* Devices that at least one driver wanted. A machine with more physical
- * ports than this simply runs out, which is what the drivers do too. A
- * host that knows it has fewer says so in its host.h. */
-#ifndef HID_MAX_SLOTS
-#define HID_MAX_SLOTS 16
-#endif
 
 #define HID_CLAIM_KEYBOARD (1 << 0)
 #define HID_CLAIM_MOUSE (1 << 1)

@@ -4,21 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/main.h"
+#include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "core/com.h"
-#include "core/mem.h"
-#include "core/pix.h"
-#include "host.h"
+#include "core/sys/com.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
+#include "core/sys/pix.h"
+#include "machine.h"
+#include "drivers.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
+#if defined(DEBUG_API) || defined(DEBUG_API_STD)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -144,6 +146,17 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
     return STD_OK;
 }
 
+/* This machine's stdio driver table, listed by its drivers.h. The row order
+ * is the order open() tries them, so the filesystem catch-all is last. */
+static HOST_IN_FLASH("std_drivers") const std_driver_t std_driver_table[] = {
+    RP6502_STD_DRIVERS};
+
+const std_driver_t *std_drivers(size_t *count)
+{
+    *count = sizeof std_driver_table / sizeof std_driver_table[0];
+    return std_driver_table;
+}
+
 bool std_api_open(void)
 {
     char *path = (char *)&xstack[xstack_ptr];
@@ -162,7 +175,7 @@ bool std_api_open(void)
     if (fd < 0)
         return api_return_errno(API_EMFILE);
     size_t count;
-    const std_driver_t *drivers = main_std_drivers(&count);
+    const std_driver_t *drivers = std_drivers(&count);
     for (size_t i = 0; i < count; i++)
     {
         if (drivers[i].handles(path))

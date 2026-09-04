@@ -44,7 +44,7 @@ template <typename Dut> static void tb_clock(Dut *dut)
      * that is not running. Reset reopens the gate, so a test that
      * dies mid-save cannot poison the next one. */
     static bool en = true;
-    if (!dut->rst_n || !dut->rp6502_sst_stop_req)
+    if (!dut->rst_n || !dut->wiring_sst_stop_req)
         en = true;
     else
         en = false;
@@ -65,10 +65,10 @@ template <typename Dut>
 static bool tb_firmware(Dut *dut, const char *path)
 {
     auto *r = dut->rootp;
-    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
-                       r->rp6502__DOT__rv__DOT__tcm1,
-                       r->rp6502__DOT__rv__DOT__tcm2,
-                       r->rp6502__DOT__rv__DOT__tcm3, path);
+    return tb_load_tcm(r->wiring__DOT__soc__DOT__tcm0,
+                       r->wiring__DOT__soc__DOT__tcm1,
+                       r->wiring__DOT__soc__DOT__tcm2,
+                       r->wiring__DOT__soc__DOT__tcm3, path);
 }
 
 template <typename Dut> static void tb_reset(Dut *dut)
@@ -96,12 +96,12 @@ template <typename Dut>
 static void tb_platform_clock(Dut *dut, const std::vector<uint8_t> &rom,
                               std::string *console)
 {
-    uint32_t at = dut->rp6502_stage_addr;
+    uint32_t at = dut->wiring_stage_addr;
     tb_host_tick(dut, rom);
     dut->stage_rdata = tb_stage(rom, at);
     tb_clock(dut);
-    if (console && dut->rp6502_tx_valid)
-        console->push_back((char)dut->rp6502_tx_data);
+    if (console && dut->wiring_tx_valid)
+        console->push_back((char)dut->wiring_tx_data);
 }
 
 /* Run the announced image until the run goes quiet. `each` is called
@@ -125,7 +125,7 @@ static bool tb_boot_each(Dut *dut, const std::vector<uint8_t> &rom,
     if (!tb_firmware(dut, SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
     return tb_run(dut, rom, console, each);
 }
 
@@ -155,12 +155,12 @@ static uint32_t tb_rgba8(uint16_t px)
 template <typename Dut, typename Each>
 static void tb_frame_start(Dut *dut, Each each)
 {
-    while (dut->rp6502_scanline != 524)
+    while (dut->wiring_scanline != 524)
     {
         each();
         tb_clock(dut);
     }
-    while (dut->rp6502_scanline != 0)
+    while (dut->wiring_scanline != 0)
     {
         each();
         tb_clock(dut);
@@ -176,7 +176,7 @@ static void tb_frame_start(Dut *dut, Each each)
  * The walk to the top comes first, and the frame it spends is not
  * waste. tb_run returns on the clock that starts a frame, so a capture
  * that began there would take the frame immediately after the run — and
- * vid_prog latches the canvas at scanline 524, one line before the
+ * prog latches the canvas at scanline 524, one line before the
  * beam's frame, so a program whose last xreg landed after that point
  * renders its old canvas for one more frame. The picture a stopped
  * program leaves is the frame after that one. mode3_2bppr is the
@@ -192,8 +192,8 @@ static void tb_capture_each(Dut *dut, uint32_t *fb, size_t px, Each each)
     {
         each();
         tb_clock(dut);
-        if (dut->rp6502_vid_de)
-            fb[at++] = tb_rgba8(dut->rp6502_vid_pixel);
+        if (dut->wiring_vid_de)
+            fb[at++] = tb_rgba8(dut->wiring_vid_pixel);
     }
 }
 

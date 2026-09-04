@@ -10,7 +10,7 @@
 /* Pico Information eXchange bus driver.
  */
 
-#include "core/pix.h"
+#include "core/sys/pix.h"
 
 #include <hardware/pio.h>
 #include <stddef.h>
@@ -65,5 +65,8 @@ static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, ui
         tight_loop_contents();
     pix_send(dev3, ch4, byte, word);
 }
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define PIX_DRIVER DRIVER(pix_init, nul_task, nul_task, nul_run, pix_stop, nul_break, nul_config, nul_config)
 
 #endif /* _RIA_SYS_PIX_H_ */

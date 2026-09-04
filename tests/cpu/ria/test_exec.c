@@ -10,12 +10,15 @@
  * loading a program by its MSC0: path, and the frame-boundary CPU restart.
  */
 
+#include "osal/dir.h"
 #include "core/sys/proc.h"
 #include "core/com/com.h"
-#include "core/sys/msc.h"
-#include "host/fs.h"
-#include "core/wdc/cpu.h"
+#include "osal/fs.h"
+#include "core/str/path.h"
+#include "osal/os.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
+#include "tb_hostos.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,8 +34,27 @@ static void tap(const char *buf, int len)
 
 static void run_frames(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
+}
+
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_mkdir(path, &err);
 }
 
 UTEST(exec, reexecs_self_with_arg)
@@ -43,23 +65,24 @@ UTEST(exec, reexecs_self_with_arg)
 
     /* Seed argv[0] = the ROM's own MSC0: path, exactly as main.c does, so the
      * program can re-exec itself. chdir into the ROM's directory (like launching
-     * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
-     * MSC0: path and round-trips through the exec resolver. */
-    char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH], dir[MSC_MAX_PATH];
-    ASSERT_TRUE(fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
+     * `rp6502-emu exec.rp6502` from that dir); realpath answers in the 6502's
+     * spelling, which is what round-trips through the exec resolver. */
+    char *abs = os_dir_realpath(TEST_FIXTURE);
+    ASSERT_TRUE(abs != NULL);
+    char dir[TEST_PATH_MAX];
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
-    ASSERT_TRUE(fs_chdir(dir));
-    msc_from_host(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
-    proc_set_argv(msc, 0, NULL);
+    ASSERT_TRUE(drive_chdir_to(dir));
+    proc_set_argv(abs, 0, NULL);
+    free(abs);
 
     com_set_tx_tap(tap);
     run_frames(90); /* first run -> exec -> second run -> exit */
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted());
+    ASSERT_FALSE(resb_running());
     ASSERT_EQ(proc_get_exit_code(), 0);
     /* First run reached the exec, second run received the extra arg and won. */
     ASSERT_TRUE(strstr(cap, "Executing self with arg: Foo") != NULL);
@@ -83,7 +106,7 @@ UTEST(exec, boot_args_reach_program)
     run_frames(90);
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted());
+    ASSERT_FALSE(resb_running());
     ASSERT_EQ(proc_get_exit_code(), 0);
     ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "Success") != NULL);

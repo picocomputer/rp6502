@@ -15,7 +15,7 @@
 /* Create the DAP session, register handlers, and bind it to stdin/stdout.
  * cppdap runs the message reader on its own thread; handlers either marshal work
  * to the main loop (via dap_pump) or read machine state while the CPU is
- * stopped. Call once, after main_init(). */
+ * stopped. Call once, after sys_init(). */
 void dap_start(void);
 
 /* True once dap_start created the session — a DAP client owns the machine's run

@@ -15,8 +15,8 @@
  * filter does not click. Each one is written so the wrong answer looks
  * different from the right one rather than merely worse.
  *
- * aud_rsmp.sv is held to this same C sample-for-sample elsewhere, the way
- * aud_psg is held to psg.c. This file is about whether the arithmetic is
+ * rsmp.sv is held to this same C sample-for-sample elsewhere, the way
+ * psg is held to psg.c. This file is about whether the arithmetic is
  * any good; that one is about whether the fabric copies it exactly.
  */
 

@@ -5,10 +5,10 @@
 #
 # The video-mode corpus against its readers.
 #
-# tests/roms/vidmodes.py writes forty-seven ROMs. tests/cpu/vid/test_modes.c
+# tests/roms/vidmodes.py writes forty-seven ROMs. tests/cpu/vga/test_modes.c
 # boots nearly all of them on whichever machine its tree builds and holds each
 # frame to the CRC in its case; the one fixture the two machines disagree
-# about by design is asserted in tests/rtl/vid, where the machine that owns
+# about by design is asserted in tests/rtl/vga, where the machine that owns
 # that behaviour is.
 #
 # The suites name every file by hand, and they have to: the case names are not

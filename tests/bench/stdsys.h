@@ -14,7 +14,8 @@
 
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/mem/mem.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
 #include "dirsys.h"
 #include <stdint.h>
 #include <string.h>

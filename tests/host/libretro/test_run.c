@@ -15,6 +15,7 @@
  * about the wrong canvas is not evidence.
  */
 
+#include "core/aud/mix.h"
 #include "corpus.h"
 #include "retro_fe.h"
 #include "utest.h"
@@ -114,6 +115,10 @@ UTEST(run, a_device_at_its_own_rate_still_arrives_at_ours)
 UTEST(run, a_silent_program_still_keeps_time)
 {
     ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
+    /* The resampler's history is twenty-four samples of whatever the last
+     * program was playing, and it rings down through the first frame after
+     * the stop. Half a millisecond of tail, and this asserts exact zero. */
+    fe_run(1);
     fe.audio_peak = 0;
     fe.audio_frames = 0;
     fe_run(60);

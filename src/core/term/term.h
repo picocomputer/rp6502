@@ -95,4 +95,7 @@ const term_data_t *term_view_row(uint8_t y);
 // The view reports its geometry: rows of the 40- or 80-column terminal.
 void term_set_height(uint8_t width, uint8_t height);
 
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define TERM_DRIVER DRIVER(term_init, nul_task, term_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+
 #endif /* _CORE_TERM_TERM_H_ */

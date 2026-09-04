@@ -1,7 +1,7 @@
 # Porting to the Analogue Pocket
 
 Notes for working on this core. Nothing here is needed to use it — the
-distribution tree is described in `src/mach/pocket/dist/rp6502.txt`.
+distribution tree is described in `src/host/pocket/dist/rp6502.txt`.
 
 ## The board's memory
 
@@ -31,7 +31,7 @@ lower."*
 **The SRAM holds the 6502's 64 KB**, and it was tied off dead in
 `core_top.sv` for most of this port's life while block memory did that
 job. Block memory is what this design runs out of first: the fit sat at
-275 of 308 M10K with `sram64k`, `xram64k` and the firmware's TCM taking
+275 of 308 M10K with `sram`, `xram` and the firmware's TCM taking
 64 blocks each. Moving the 6502 off-chip freed exactly the 64 that
 doubling the TCM to 96 KB cost — 243 of 308 now, and the firmware went
 from 5,048 bytes of stack and heap to 39,584.
@@ -210,6 +210,28 @@ Waking the machine is a sequenced handoff:
 
 The 6502 continues from the exact cycle the blob froze it in.
 
+### The console queue
+
+The RIA holds sixteen bytes of console output the 6502 has written and
+the soft CPU has not taken yet, and for two versions of the blob a
+sleep dropped them. Word 16 of the regs window is the queue's front
+door and *reading it takes the byte off*, so the savestate cannot read
+it — `REGS_HOLE` punches that one word out of the blob, and a walk that
+tried to save it would eat a character every time a state was made.
+
+The hole is right and the loss was not a consequence of it. The queue
+has its own words now — 20 for the read and write positions, 21 to 24
+for the sixteen bytes — which answer without disturbing anything. They
+were already inside the regs region, so nothing about the blob's shape
+changed; they simply meant nothing before. The bytes are an array on
+the memory clock and go back through the window with the xstack; the
+pointers are machine-clock flops and ride the jam, in the slot the map
+had been holding empty.
+
+That also closes the quieter half of the same bug: a load used to
+neither restore the queue nor clear it, so whatever the pre-restore
+session had left in it was delivered into the restored one.
+
 ### What a sleep does not carry
 
 - The PSG's envelopes, phase and noise, and the OPL's internal
@@ -222,9 +244,6 @@ The 6502 continues from the exact cycle the blob froze it in.
   make — would be ignored in the replayed byte and a sustained voice
   would come back silent for the rest of the program's life, which is
   a wider loss than the one above and not the one this promises.
-- Up to sixteen undrained console bytes: reading regs word 16 pops the
-  queue, so the blob has a hole there instead of a savestate that eats
-  a character every time one is made.
 - One in-flight type-ahead byte, an open LR/SC reservation (its SC
   fails, as the ISA permits), and the RW engine's suspended XRAM write
   — old-session work, deliberately discarded rather than allowed to
@@ -236,7 +255,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   activity can still lose the program — holding the freeze off during
   single commands was tried and made it worse (it moves the cut into
   the gap between two commands of one operation); a hold spanning
-  whole operations is firmware work in `msc.c`, still open.
+  whole operations is firmware work in `fs.c`, still open.
 
   The split to keep straight is that a sleep cuts the power to the
   core and not to the card. The files are where they were. What
@@ -248,7 +267,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   to bind — but a binding made at runtime with `0x0192` is not in
   `data.json` and no page says whether it survives.
 
-  So `msc_restore` asks. `0x0190` answers with the path a slot is
+  So `fs_restore` asks. `0x0190` answers with the path a slot is
   bound to, and a slot still holding the right file is left alone.
   That is correct whichever way the host behaves, and it is the
   difference between one round trip per open file and none: a wake
@@ -268,7 +287,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   other one, and it asserts the Open Files do not happen.
 
   So a file failure that only happens on hardware is now, by
-  construction, something the model does not have. `msc_restore` says
+  construction, something the model does not have. `fs_restore` says
   which descriptor refused and with which of the host's own result
   codes, because the last one of these cost a day of inference over a
   number nobody could read off the screen.
@@ -473,7 +492,7 @@ anything; trying `save00.dat` upward is the directory listing this
 host will ever have.
 
 **The drive's folder ships in the package.** The host creates no
-directories, so `src/mach/pocket/dist/` carries `Saves/rp6502/common/` with a readme
+directories, so `src/host/pocket/dist/` carries `Saves/rp6502/common/` with a readme
 in it and the card has the folder from the moment the core is
 installed.
 
@@ -585,16 +604,23 @@ your code works:
 - The two integers in Open File's parameter struct are read as bridge
   words while the path lying next to them in the same struct is read as
   a byte stream. Get that wrong and every flag you send is zero.
-- The create bit on its own creates nothing. Resize is what makes the
-  file. Nowhere.
-- Creating into a folder that does not exist returns a **descriptor** —
-  the success code — and writes nothing. Nothing in the API creates a
-  folder either. So the documented way to make a file silently does not.
+- The create bit on its own creates nothing, and says it did. Asked to
+  create a file that is not there it answers 1, "created", and afterwards
+  the file is still not there. Resize alone is no better: it answers 3,
+  "not found", and makes nothing. Only the two bits together make a
+  file. Measured on OS 2.6 across four phases of one session, on names
+  carrying the boot's wall clock so each run started from nothing.
+- Creating into a folder that does not exist answers 1, "created", and
+  writes nothing. Nothing in the API creates a folder either. So the
+  documented way to make a file silently does not.
 - There is a flush command, 0x0188, in the reference. Analogue's own
   reference core does not implement it and the console does not answer
-  it. Issue one through the stock bridge and it never retires; every
-  data slot command after it queues forever. One call killed the drive
-  for the session until the override grew its own deadline. Not a word.
+  it — no response line appears against one, ever. What was written here
+  before, that a single call kills the drive for the session, is not
+  what this device does: a session issued 4391 of them and every read,
+  write, open and Get File afterwards completed normally. They cost a
+  round trip each and buy nothing. Whatever the older behaviour was, do
+  not plan against it.
 - The controller page packs a word's bytes most significant first — its
   own table puts the keyboard's first scan code in `joy[31:24]` — and
   then calls three fields "little endian byte order" without saying
@@ -636,7 +662,101 @@ never going to get, and the SDRAM controller was written against padded
 guesses on that basis while a 256 KB SRAM sat tied off in `core_top.sv`
 because nobody had read the page. That was our failure, not theirs.
 
+### What the fabric can and cannot tell you about an answer
+
+Get File has no result code for a slot that is defined and bound to
+nothing, which is every one of the eight file slots until a program
+opens one. It answers 0 either way. So the drive needs some other way to
+tell a name from silence, and `pocket_file` grew a bit for it:
+`FILE_ST_WROTE`, raised when the host writes into the response window
+while a Get File is outstanding.
+
+**It cannot answer that question, and it never could.** The host writes
+the whole 256-byte struct every time, blanked past the name — asked for
+a bound slot the window holds its path, asked for an unbound slot
+immediately after it comes back empty, and the emptiness is the host's
+doing rather than memory that happened to start zeroed. The bit is
+therefore 1 in both cases. What tells them apart is the window's own
+contents, which is what `fs_getfile` reads.
+
+The bit was also broken for most of its life, in a way worth recording
+because it took a hardware probe to see. `F_ARM` is a spin — it holds
+until the previous command's `target_dataslot_done` falls, and
+`core_bridge_cmd.v` holds that high "until next command is issued" —
+and it re-latched `gf_pend` every pass from a request line it had
+cleared in its own first cycle. So the arming lasted one `clk_74a`
+cycle, microseconds before the host writes anything. The single
+exception is the first command after power-on, where `done` is 0 out of
+reset: `F_ARM` runs once, falls straight through, and the flag stands.
+On the device that read as a bit that fired once per power-on and was
+dead for the other sixty-odd asks of a session. It is armed with the
+request now, in `F_START`.
+
+Two things that were believed about this and are not true. The host
+cannot outrun the fabric: every bridge write is a separate SPI
+transaction with its address re-clocked, and Analogue's own
+`io_bridge_peripheral.v` puts the worst case at "every 88 cycles @
+74.25mhz / which is about 1180ns" — sixty `clk_sys` cycles apart, so
+nothing here can alias. And `resp_hit` had no address compare by
+design, which was wrong: APF acknowledges every command by writing
+'bu' and 'ok' to `target_0` up in 0xF8xxxxxx, and those are bridge
+writes too, so the bit could be set by the conversation rather than the
+answer. It is filtered to the staging store now.
+
+### One command, one owner
+
+The fabric carries one file command at a time and answers it in one
+register, and for most of this driver's life that was enough: the 6502
+is parked in a single syscall, so its operation is the only one in
+flight and a poll can only find its own answer.
+
+Anything else in the same main loop that touches the drive — a restore
+rebinding descriptors under a program, a second worker mid-write — stops
+that being true. A read that retires someone else's write copies out of
+a window the write never filled, and the program is handed bytes that
+belong to no file it opened. On the device this reads as a program whose
+file has turned to garbage. `fs.c` records who issued the command,
+and an answer found by the wrong worker is kept for the right one
+rather than dropped, which is what lets the blocking form wait out a
+record another worker is holding instead of deadlocking against it.
+
+The reason this shipped is worth more than the bug. The bench's model
+host answered every command within its own handful of cycles, so the
+firmware never had to share the machine with an outstanding command and
+no ordering bug could show. It waits a tenth of a millisecond now —
+short for a card, long enough that the main loop goes round many times
+inside one command — and the bug reproduces on the first run.
+
+### Bindings across a wake
+
+A binding made at runtime with 0x0192 **survives a sleep and wake**.
+Measured: slot 8 opened in one phase still named its file after two
+wakes, each of which is a full core relaunch. This is the question
+`fs_still_bound` exists to ask and that the documentation does not
+answer. It is worth asking anyway — the answer is the host's to change
+— but the deferred rebind normally finds its slots intact.
+
 ## Reading the console
+
+A restore is the one event the card log could not record, and the reason
+is worth stating because it took a hardware run to see. `fs_pool`'s file
+position lives in the TCM the blob carries, so a restored session
+resumed writing at the offset it held when the state was saved --
+straight over the middle of the file it was recording. What came off the
+card was two runs spliced at an offset neither chose, with every sector
+the two did not cover still holding whatever was there before the file
+existed. A counter that appeared to resume mid-file was leftover bytes,
+and it was read as evidence. The log drops its descriptor and reopens on
+a restore now; `FS_APPEND` asks the host how long the file is, which is
+the one number true for both sessions.
+
+Measured after that fix, across a real Memory load: the restored session
+appends in order, and its output matches the pre-save session's pass
+through the same state byte for byte. The restore's own narration did
+not survive -- the ring was already overflowing from the freeze, and the
+drop counter showed 453 bytes of loss beyond the console text it
+swallowed, which is about what those lines weigh.
+
 
 The machine's console — the 6502's `$FFE1` writes and the soft CPU's own
 `com_printf`, interleaved — comes out two ways, both live in every
@@ -657,7 +777,7 @@ specific.
 
 ## What the card tree is made of
 
-`src/mach/pocket/dist/` carries everything the card needs except the
+`src/host/pocket/dist/` carries everything the card needs except the
 binaries, which the build supplies:
 
 - `Cores/Rumbledethumps.RP6502/core.bin` comes from the Quartus build
@@ -684,7 +804,7 @@ binaries, which the build supplies:
   without the other while the arrows and the hotkeys go on working.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
-  `src/core/gen/pocket_image_gen.py`. Analogue documents one format
+  `src/host/pocket/gen/image_gen.py`. Analogue documents one format
   for both, under "Image Format" in its packaging-a-core page: sixteen
   bits a pixel, monochrome, brightness in the upper eight, the raster
   stored rotated a quarter turn counter-clockwise, no header and no
@@ -698,7 +818,7 @@ binaries, which the build supplies:
 
 `core_top` takes two parameters. `TCM_INIT_FILE` names the soft CPU's
 firmware image, four byte-lane files from
-`src/core/gen/rv_tcm_gen.py`; the build supplies it and a bitstream
+`src/host/pocket/gen/rv_tcm_gen.py`; the build supplies it and a bitstream
 without it comes up fetching zeros, which looks exactly like a dead
 video path and is not one. `CORE_TEST_PATTERN` replaces the picture with
 colour bars while leaving the machine built and still talking on both
@@ -742,7 +862,7 @@ The firmware is cheap because it is not logic. It is the initial contents
 of four M10K arrays, so a new image places nothing, routes nothing and
 moves no timing arc, and the fit already on disk is still the fit that
 comes out. Quartus keeps a MIF of each array under `db/`, generated from
-`rv_soc`'s `$readmemh` while mapping, and those are what
+`soc`'s `$readmemh` while mapping, and those are what
 `quartus_cdb --update_mif` reads back rather than the lane files they came
 from. `rv_mif_gen.py` rewrites the four, `--update_mif` takes them into the
 database, and the assembler makes a programming file out of the placement

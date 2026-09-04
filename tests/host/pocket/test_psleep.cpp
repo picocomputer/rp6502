@@ -260,7 +260,7 @@ static void do_openfile()
      * that never once worked on hardware kept a green suite: the host
      * saw flags of 3 as 0x03000000 and opened without creating. Read
      * them the way the real host does, and put the byte order back in
-     * msc_win_u32 to watch this test go red. */
+     * fs_win_u32 to watch this test go red. */
     uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
                      | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
     uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
@@ -506,10 +506,10 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
         tick();
 
     auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3,
+    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
                 SW_BIN);
 
     dut->rst_n = 1;
@@ -775,7 +775,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     /* The terminal's raster window, which is fabric no blob carries and
      * which only vid_restore() can put back. Nonzero because the boot
      * programmed the console into it. */
-    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
+    uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
     ASSERT_NE(0u, prog_pre);
     /* Marks in the memories the program itself will not touch, so that
      * every window the engine reads through is checked and not only the
@@ -786,10 +786,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         MEM(xram__DOT__mem1)[i] = (uint8_t)(0xB0 + i);
         MEM(xram__DOT__mem2)[i] = (uint8_t)(0xC0 + i);
         MEM(xram__DOT__mem3)[i] = (uint8_t)(0xD0 + i);
-        MEM(vid_mode0__DOT__cell0)[i] = (uint8_t)(0x10 + i);
-        MEM(vid_mode0__DOT__cell1)[i] = (uint8_t)(0x20 + i);
-        MEM(vid_prog__DOT__fill_e)[i] = 0x80005000u + i;
-        MEM(vid_prog__DOT__spr_c)[i] = 0x99000000u + i;
+        MEM(mode0__DOT__cell0)[i] = (uint8_t)(0x10 + i);
+        MEM(mode0__DOT__cell1)[i] = (uint8_t)(0x20 + i);
+        MEM(prog__DOT__fill_e)[i] = 0x80005000u + i;
+        MEM(prog__DOT__spr_c)[i] = 0x99000000u + i;
     }
 
     std::vector<uint8_t> blob;
@@ -845,7 +845,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         if ((i % 4000000L) == 3999999L)
             fprintf(stderr, "after save t=%ldM pc=%04x resb=%d eng=%d "
                             "con=%zu rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                     (int)MEM(engine__DOT__state), g_console.size(),
                     g_rv.size());
     }
@@ -885,10 +885,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         ASSERT_EQ(0xB0u + i, (uint32_t)MEM(xram__DOT__mem1)[i]);
         ASSERT_EQ(0xC0u + i, (uint32_t)MEM(xram__DOT__mem2)[i]);
         ASSERT_EQ(0xD0u + i, (uint32_t)MEM(xram__DOT__mem3)[i]);
-        ASSERT_EQ(0x10u + i, (uint32_t)MEM(vid_mode0__DOT__cell0)[i]);
-        ASSERT_EQ(0x20u + i, (uint32_t)MEM(vid_mode0__DOT__cell1)[i]);
-        ASSERT_EQ(0x80005000u + i, (uint32_t)MEM(vid_prog__DOT__fill_e)[i]);
-        ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(vid_prog__DOT__spr_c)[i]);
+        ASSERT_EQ(0x10u + i, (uint32_t)MEM(mode0__DOT__cell0)[i]);
+        ASSERT_EQ(0x20u + i, (uint32_t)MEM(mode0__DOT__cell1)[i]);
+        ASSERT_EQ(0x80005000u + i, (uint32_t)MEM(prog__DOT__fill_e)[i]);
+        ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(prog__DOT__spr_c)[i]);
     }
 
     /* The whole claim, in one line of console. The 6502 program was
@@ -904,13 +904,13 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         step();
         if ((i % 2000000L) == 1999999L)
             fprintf(stderr, "t=%ldM pc=%04x resb=%d con=%zu rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc),
                     (int)MEM(resb), g_console.size(), g_rv.size());
     }
     if (g_console.find(DONE) == std::string::npos)
         fprintf(stderr,
                 "6502 pc %04x resb=%d running=%d engine=%d console=[%s] rv=[%s]\n",
-                (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                 (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
                 g_console.c_str(), g_rv.c_str());
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
@@ -922,7 +922,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     /* The window the terminal draws in is back. Nothing in the blob
      * carries it and nothing in the fabric remembers it, so this is
      * the firmware having replayed its own shadow. */
-    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
     teardown();
 }
 
@@ -949,8 +949,6 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
  */
 UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
 {
-    UTEST_SKIP("the firmware does not rebind a descriptor's data slot on wake");
-
     std::vector<uint8_t> rom = read_file(STREAM_ROM);
     ASSERT_GT(rom.size(), 0u);
 
@@ -1002,15 +1000,35 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
          i++)
         step();
     ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
-    ASSERT_STREQ((before + want.substr(before.size()) + "stream ok\r\n").c_str(),
-                 (before + g_console).c_str());
+    /* Compared as strings, and reported by hand. The payload is binary,
+     * so it has NULs in it, and ASSERT_STREQ takes const char* out of
+     * two std::string temporaries that are destroyed before its strcmp
+     * runs -- it was comparing freed heap against freed heap, and
+     * passing on whatever the allocator happened to hand back. */
+    std::string want_tail = want.substr(before.size()) + "stream ok\r\n";
+    if (want_tail != g_console)
+    {
+        size_t at = 0;
+        while (at < want_tail.size() && at < g_console.size()
+               && want_tail[at] == g_console[at])
+            at++;
+        size_t from = at > 8 ? at - 8 : 0;
+        fprintf(stderr,
+                "join: before=%zu want=%zu got=%zu differ at %zu\n",
+                before.size(), want_tail.size(), g_console.size(), at);
+        for (size_t i = from; i < at + 8; i++)
+            fprintf(stderr, "  %zu want=%02x got=%02x\n", i,
+                    i < want_tail.size() ? (unsigned)(uint8_t)want_tail[i] : 0,
+                    i < g_console.size() ? (unsigned)(uint8_t)g_console[i] : 0);
+    }
+    ASSERT_TRUE(want_tail == g_console);
     teardown();
 }
 
 /* The other half of the drive: a sleep that lands INSIDE a file
- * operation rather than between two. msc_std_write starts a bridge
- * command, sets msc_busy, and returns to the task loop until it
- * retires, so a blob can carry msc_busy true and a half-issued command
+ * operation rather than between two. fs_std_write starts a bridge
+ * command, sets fs_busy, and returns to the task loop until it
+ * retires, so a blob can carry fs_busy true and a half-issued command
  * whose other end no longer exists. Waiting for the first write puts
  * the freeze in that window.
  */
@@ -1098,7 +1116,7 @@ UTEST(psleep, the_raster_registers_come_back)
      * programmed its scanlines: the save point is only where the 6502
      * is let go, and the two happen in that order. */
     for (long i = 0; i < 8000000L
-                     && !(uint32_t)MEM(vid_prog__DOT__canvas_shadow);
+                     && !(uint32_t)MEM(prog__DOT__canvas_shadow);
          i++)
         step();
     for (long i = 0; i < 2000000L; i++)
@@ -1106,9 +1124,9 @@ UTEST(psleep, the_raster_registers_come_back)
 
     /* 320x240 and a window inside it, neither of which a fresh boot
      * would choose. */
-    uint32_t canvas_pre = (uint32_t)MEM(vid_prog__DOT__canvas_shadow);
-    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
-    uint32_t vsync_pre = (uint32_t)MEM(vid_prog__DOT__vsync_shadow);
+    uint32_t canvas_pre = (uint32_t)MEM(prog__DOT__canvas_shadow);
+    uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
+    uint32_t vsync_pre = (uint32_t)MEM(prog__DOT__vsync_shadow);
     /* 320x240 with 240 programmed lines: a fresh boot chooses console
      * and 480, so all three readings below can tell the two apart. */
     ASSERT_EQ(1u, canvas_pre);
@@ -1118,7 +1136,7 @@ UTEST(psleep, the_raster_registers_come_back)
     /* The microsecond counter, which is in the blob for the same reason
      * the canvas is out of it: the firmware's every deadline is an
      * absolute reading of this, held in the TCM the blob does carry. */
-    uint64_t mtime_pre = (uint64_t)MEM(rv__DOT__mtime_us);
+    uint64_t mtime_pre = (uint64_t)MEM(soc__DOT__mtime_us);
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
@@ -1133,8 +1151,8 @@ UTEST(psleep, the_raster_registers_come_back)
     ASSERT_GT(other.size(), 0u);
     boot(other);
     step_to_save_point();
-    ASSERT_EQ(0u, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
-    ASSERT_EQ(480u, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
+    ASSERT_EQ(0u, (uint32_t)MEM(prog__DOT__canvas_shadow));
+    ASSERT_EQ(480u, (uint32_t)MEM(prog__DOT__vsync_shadow));
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
@@ -1157,13 +1175,13 @@ UTEST(psleep, the_raster_registers_come_back)
      * power-on and the load. Left to restart out of the bitstream it
      * would be the latter, and every deadline the blob brought would
      * sit that far in the future of a machine that meant them now. */
-    uint64_t mtime_post = (uint64_t)MEM(rv__DOT__mtime_us);
+    uint64_t mtime_post = (uint64_t)MEM(soc__DOT__mtime_us);
     ASSERT_GE(mtime_post, mtime_pre);
     ASSERT_LT(mtime_post, mtime_pre + 20000u);
 
-    ASSERT_EQ(canvas_pre, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
-    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
-    ASSERT_EQ(vsync_pre, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
+    ASSERT_EQ(canvas_pre, (uint32_t)MEM(prog__DOT__canvas_shadow));
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
+    ASSERT_EQ(vsync_pre, (uint32_t)MEM(prog__DOT__vsync_shadow));
     teardown();
 }
 
@@ -1195,7 +1213,7 @@ UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
         if ((i % 4000000L) == 3999999L)
             fprintf(stderr, "refused t=%ldM pc=%04x resb=%d eng=%d con=%zu "
                             "clken=%d rv=%zu\n",
-                    i / 1000000L, (unsigned)MEM(w65c02__DOT__pc), (int)MEM(resb),
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                     (int)MEM(engine__DOT__state), g_console.size(),
                     (int)dut->rootp->tb_pocket__DOT__mach_clk_en, g_rv.size());
     }

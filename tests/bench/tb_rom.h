@@ -8,10 +8,9 @@
  * a CRC, followed by the bytes. A runnable image ends with the reset
  * vector, which is a record like any other.
  *
- * The CRC is spelled out rather than taken from mem_crc32 because a
- * bench builds images for tests that link no emulator, and a table this
- * short is cheaper than the dependency. tests/host/emu/test_units.c holds
- * mem_crc32 to the same vectors.
+ * The CRC is host_crc32's: the bench compiles core/sys/crc32.c beside
+ * tb_seed.c, and tests/host/emu/test_units.c holds it to the standard
+ * vectors.
  *
  * tests/gen/rp6502_rom.py is this file in Python, for the generators that
  * write images to disk. The two must agree on the header format; there
@@ -21,36 +20,36 @@
 #ifndef _TESTS_BENCH_TB_ROM_H_
 #define _TESTS_BENCH_TB_ROM_H_
 
+#include "host/host.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>
 
-static uint32_t tb_rom_crc32(const void *buf, size_t n)
-{
-    const uint8_t *p = (const uint8_t *)buf;
-    uint32_t crc = 0xFFFFFFFFu;
-    while (n--)
-    {
-        crc ^= *p++;
-        for (int k = 0; k < 8; k++)
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
-
 /* The address is five digits so one format serves both the 6502's
  * sixteen bits and XRAM's seventeen; the loader scans hex and does not
- * care about the leading zero. */
+ * care about the leading zero. Chunked at the format's 1024-byte record
+ * cap, as the packer writes them -- the loaders refuse anything bigger.
+ * Deliberately NOT split at the 64 KB page: the straddle rule is the
+ * record parser's to refuse, and the suites that prove it write the
+ * straddle through here. */
 static void tb_rom_record(std::vector<uint8_t> &rom, uint32_t addr,
                           const void *data, size_t len)
 {
-    char line[64];
-    snprintf(line, sizeof(line), "$%05X $%zX $%08X\n",
-             addr, len, tb_rom_crc32(data, len));
-    rom.insert(rom.end(), line, line + strlen(line));
     const uint8_t *p = (const uint8_t *)data;
-    rom.insert(rom.end(), p, p + len);
+    while (len)
+    {
+        size_t n = len < 1024 ? len : 1024;
+        char line[64];
+        snprintf(line, sizeof(line), "$%05X $%zX $%08X\n",
+                 addr, n, host_crc32(0, p, n));
+        rom.insert(rom.end(), line, line + strlen(line));
+        rom.insert(rom.end(), p, p + n);
+        addr += (uint32_t)n;
+        p += n;
+        len -= n;
+    }
 }
 
 static void tb_rom_magic(std::vector<uint8_t> &rom)

@@ -15,7 +15,7 @@
 
 import argparse
 
-from rp6502_asm import API_OP, RIA_TX, Asm
+from rp6502_asm import API_OP, RIA_TX, RW0_ADDR, RW0_DATA, Asm
 from rp6502_rom import image
 
 
@@ -128,9 +128,12 @@ def opl_prog():
 
 
 def opl_exit_prog():
-    """The OPL note, a moment of it, then a clean program exit. test_aud
-    holds the machine to silence afterwards — the coverage the stopped-
-    program bug never had, on the platform where the engines free-run."""
+    """The OPL note, held longer than a frame, then a clean program exit.
+    test_aud holds the machine to silence afterwards — the coverage the
+    stopped-program bug never had, on the platform where the engines
+    free-run. Longer than a frame because the emulator's sink pulls once a
+    frame and a note that starts and ends between two pulls is never
+    heard; the fabric hears it either way."""
     p = Prog()
     page = 0xF000
     p.xreg(0, 1, 1, page)
@@ -140,8 +143,38 @@ def opl_exit_prog():
         (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
     ):
         p.poke(page + reg, val)
-    p.delay(64)
+    p.delay(128)
     p.exit()
+    return p
+
+
+def opl_init_prog():
+    """The note after the clearing burst a real OPL2 program opens with:
+    a store to every register, as fast as the 6502 can make them through
+    a stepping RW0, then the note. The queue that carries a program's
+    writes to the engine holds 255, so a machine that drains it once a
+    frame loses the key-on at the end of this and the note with it --
+    which is how every real OPL2 program went silent on the emulator
+    while these eleven-write ones played."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    p.store(RW0_ADDR, 0x01)
+    p.store(RW0_ADDR + 1, page >> 8)
+    clear = p.local("clear")
+    p.lda_imm(0)
+    p.ldx_imm(0xFF)
+    p.symbol(clear)
+    p.sta_abs(RW0_DATA)
+    p.dex()
+    p.bne(clear)
+    for reg, val in (
+        (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
+        (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
+        (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
+    ):
+        p.poke(page + reg, val)
+    p.spin()
     return p
 
 
@@ -185,6 +218,7 @@ def main():
     ap.add_argument("--emit-psg-pre")
     ap.add_argument("--emit-opl")
     ap.add_argument("--emit-opl-exit")
+    ap.add_argument("--emit-opl-init")
     ap.add_argument("--emit-bel")
     ap.add_argument("--emit-opl-bel")
     a = ap.parse_args()
@@ -196,6 +230,8 @@ def main():
         print(f"opl.rp6502 {emit(a.emit_opl, opl_prog())} bytes")
     if a.emit_opl_exit:
         print(f"opl_exit.rp6502 {emit(a.emit_opl_exit, opl_exit_prog())} bytes")
+    if a.emit_opl_init:
+        print(f"opl_init.rp6502 {emit(a.emit_opl_init, opl_init_prog())} bytes")
     if a.emit_bel:
         print(f"bel.rp6502 {emit(a.emit_bel, bel_prog())} bytes")
     if a.emit_opl_bel:

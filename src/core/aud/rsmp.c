@@ -6,7 +6,7 @@
 
 #include "core/aud/rsmp.h"
 
-/* src/core/gen/rsmp_coef_gen.py designs and emits these; aud_rsmp.sv reads the
+/* src/core/gen/rsmp_coef_gen.py designs and emits these; rsmp.sv reads the
  * same numbers out of the package the same script writes. */
 const int32_t rsmp_coef[RSMP_PHASES + 1][RSMP_TAPS] = {
 #include "rsmp_coef.h"

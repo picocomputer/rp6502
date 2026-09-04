@@ -8,14 +8,22 @@
 
 set(CPU_WDC ${RP6502_TESTS_DIR}/cpu/wdc)
 
+# --- Every whole kilohertz, exactly ---
+# The clock the rest of this directory runs on. tests/cpu/ria/test_clock.c
+# makes the same claim of the C accumulator.
+rp6502_add_module_test(phi2
+    TOP phi2
+    RTL ${RP6502_SRC}/core/wdc/phi2.sv
+    TIMEOUT 120)
+
 # Interrupts, reset, RDY, WAI and STP: the C emulation and the RTL in
 # lockstep under scripted pins — coverage the vectors cannot express.
 # Its scenarios are the ones cpu/wdc holds, so it wants no corpus and is
 # not gated on one.
 rp6502_add_module_test(lockstep
-    TOP w65c02
-    RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/w65c02.sv
-    SOURCES test_lockstep.cpp ${CPU_WDC}/w65c02_dut.cpp
+    TOP cpu
+    RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/cpu.sv
+    SOURCES test_lockstep.cpp ${CPU_WDC}/rtl_dut.cpp
         ${CPU_WDC}/chips_dut.c lockstep.c ${CPU_WDC}/lockstep_scen.c
     INCLUDES ${CPU_WDC} ${CMAKE_CURRENT_LIST_DIR} ${RP6502_VENDOR}
     DEPENDS w65c02_rom
@@ -25,7 +33,7 @@ rp6502_add_module_test(lockstep
 # A savestate's whole claim about the 6502: the core that comes back
 # continues rather than restarts, cycle for cycle.
 rp6502_add_module_test(freeze
-    TOP w65c02
-    RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/w65c02.sv
+    TOP cpu
+    RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/cpu.sv
     DEPENDS w65c02_rom
     TIMEOUT 300)

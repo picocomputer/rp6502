@@ -4,17 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * What the HID drivers reach for, on a host that is none of their
- * platforms. The Pocket answers these in rtl/sw/hid.c and the RIA in
+ * platforms. The Pocket answers these in host/pocket/sw/hid.c and the RIA in
  * its own drivers; here they only have to exist and be quiet, because
  * what test_apf.c asks about is where the bits landed.
  */
 
-#include "core/api/oem.h"
-#include "core/cfg.h"
+#include "core/str/oem.h"
 #include "core/hid/hid.h"
-#include "core/main.h"
+#include "core/sys/sys.h"
 #include "core/vga/vga.h"
-#include "host/os.h"
+#include "osal/os.h"
 
 #include <stdint.h>
 
@@ -58,24 +57,27 @@ void ria_trigger_sigint(void)
 {
 }
 
-/* The machine clock the key repeat asks for. Standing still: a repeat is
- * a thing that happens to a key still held later, and nothing here holds
- * one. */
+/* Both clocks stand still. A repeat is a thing that happens to a key still
+ * held later, and nothing here holds one; the machine clock has no fabric to
+ * read either. timer_passed compares signed, so a deadline armed in the
+ * future stays in the future. */
 uint64_t host_clock_us(void)
 {
     return 0;
 }
 
-void cfg_save(void)
+uint64_t os_mono_ns(void)
 {
+    return 0;
 }
 
-bool main_break(void)
+
+bool sys_break(void)
 {
     return false;
 }
 
-bool main_break_to_launcher(void)
+bool sys_break_to_launcher(void)
 {
     return false;
 }

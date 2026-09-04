@@ -4,19 +4,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Unit tests for the pure-logic corners: CRC-32, the .rp6502 loader, the
- * xreg device/channel dispatch, and the CLI parser.
+ * xreg device/channel dispatch, the CLI parser, and the generator's seam.
  */
 
-#include "core/api/oem.h"
+#include "core/sys/config.h"
+#include "core/sys/random.h"
+#include "host/host.h"
+#include "core/api/xreg.h"
+#include "core/str/oem.h"
+#include "core/term/font.h"
 #include "core/str/str.h"
-#include "host/sokol/cli.h"
+#include "host/sokol/cli/cli.h"
+#include "tb_hostos.h"
 #include "core/hid/usage.h"
-#include "core/sys/keyboard.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/sys/main.h"
-#include "core/sys/rom.h"
-#include "core/mem/mem.h"
+#include "core/sys/sys.h"
+#include "core/rom/rom.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
 #include "core/com/com.h"
 #include "utest.h"
 #include <stdio.h>
@@ -25,19 +32,19 @@
 UTEST(crc32, known_vectors)
 {
     /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
-    ASSERT_EQ(mem_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
-    ASSERT_EQ(mem_crc32(0, "", 0), (uint32_t)0x00000000u);
+    ASSERT_EQ(host_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
+    ASSERT_EQ(host_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
 UTEST(rom, loads)
 {
-    memset(ram, 0, 0x10000);
+    memset(sram, 0, 0x10000);
     ASSERT_TRUE(rom_load(TEST_FIXTURE));
     /* the loader places code at the $0200 entry and points the reset vector
      * there ($FFFC/$FFFD -> $0200). */
-    ASSERT_EQ(ram[0xFFFC], 0x00);
-    ASSERT_EQ(ram[0xFFFD], 0x02);
-    ASSERT_NE(ram[0x0200], 0x00);
+    ASSERT_EQ(sram[0xFFFC], 0x00);
+    ASSERT_EQ(sram[0xFFFD], 0x02);
+    ASSERT_NE(sram[0x0200], 0x00);
 }
 
 UTEST(rom, rejects_missing_file)
@@ -63,24 +70,46 @@ UTEST(rom, loads_a_headerless_image)
     ASSERT_EQ(fwrite(image, 1, sizeof image - 1, f), sizeof image - 1);
     fclose(f);
 
-    memset(ram, 0, 0x10000);
+    memset(sram, 0, 0x10000);
     ASSERT_TRUE(rom_load(path));
-    ASSERT_EQ(ram[0x0300], 0xA9);
-    ASSERT_EQ(ram[0x0302], 0xDB);
-    ASSERT_EQ(ram[0xFFFC], 0x00);
-    ASSERT_EQ(ram[0xFFFD], 0x03);
+    ASSERT_EQ(sram[0x0300], 0xA9);
+    ASSERT_EQ(sram[0x0302], 0xDB);
+    ASSERT_EQ(sram[0xFFFC], 0x00);
+    ASSERT_EQ(sram[0xFFFD], 0x03);
+}
+
+/* The format caps a record at 1024 bytes (the packer never writes more), and
+ * the pump refuses what the packer cannot produce -- on every machine, which
+ * this one stands in for. */
+UTEST(rom, rejects_a_record_over_the_format_cap)
+{
+    char path[TEST_PATH_MAX];
+    snprintf(path, sizeof path, "%s/overcap.rp6502", TEST_SCRATCH);
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    static uint8_t big[1025];
+    fputs("#!RP6502\n", f);
+    fprintf(f, "$00300 $%X $%X\n", (unsigned)sizeof big,
+            (unsigned)host_crc32(0, big, sizeof big));
+    fwrite(big, 1, sizeof big, f);
+    /* a reset vector so only the cap can be the refusal */
+    uint8_t vec[2] = {0x00, 0x03};
+    fprintf(f, "$FFFC $2 $%X\n", (unsigned)host_crc32(0, vec, 2));
+    fwrite(vec, 1, 2, f);
+    fclose(f);
+    ASSERT_FALSE(rom_load(path));
 }
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(main_xreg_0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(main_xreg_1(0, 0, 3)); /* VGA canvas 640x480 */
+    ASSERT_TRUE(xreg0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(xreg1(0, 0, 3)); /* VGA canvas 640x480 */
     /* The control channel: CODE_PAGE is answered, and so is DISPLAY, which is
      * not exercised here because it resets the machine. The rest are registers
      * of a real VGA chip that a machine which is its own has no analog for. */
-    ASSERT_TRUE(main_xreg_1(15, 1, 437));
-    ASSERT_FALSE(main_xreg_1(15, 2, 0));
-    ASSERT_TRUE(main_xreg_1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(xreg1(15, 1, 437));
+    ASSERT_FALSE(xreg1(15, 2, 0));
+    ASSERT_TRUE(xreg1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
@@ -91,7 +120,7 @@ UTEST(gamepad, host_report_encoding)
     gamepad_stop();
     ASSERT_FALSE(gamepad_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(main_xreg_0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
+    ASSERT_TRUE(xreg0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
     ASSERT_TRUE(gamepad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
@@ -126,7 +155,7 @@ UTEST(gamepad, host_report_encoding)
     /* Unplug blanks the record; unmapping clears the gate. */
     gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
-    ASSERT_TRUE(main_xreg_0(0, 2, 0xFFFF));
+    ASSERT_TRUE(xreg0(0, 2, 0xFFFF));
     ASSERT_FALSE(gamepad_is_mapped());
 }
 
@@ -137,7 +166,7 @@ UTEST(tablet, host_wheel_encoding)
     tablet_stop();
     ASSERT_FALSE(tablet_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(main_xreg_0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_is_mapped());
     ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
     ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
@@ -150,11 +179,11 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
     ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
 
-    ASSERT_TRUE(main_xreg_0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_FALSE(tablet_is_mapped());
 }
 
-/* Drain the keyboard com ring (what keyboard_key/keyboard_text push) into buf. */
+/* Drain the keyboard com ring (what vtkeys_key/vtkeys_text push) into buf. */
 static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
@@ -174,66 +203,66 @@ UTEST(keyboard, ansi_sequences)
     char b[32];
 
     com_init();
-    keyboard_key(HID_KEY_ARROW_UP, false, false, false);
+    vtkeys_key(HID_KEY_ARROW_UP, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
     com_init();
-    keyboard_key(HID_KEY_F1, false, false, false);
+    vtkeys_key(HID_KEY_F1, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
     com_init();
-    keyboard_key(HID_KEY_F5, false, false, false);
+    vtkeys_key(HID_KEY_F5, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
     com_init();
-    keyboard_key(HID_KEY_F12, false, false, false);
+    vtkeys_key(HID_KEY_F12, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_init();
-    keyboard_key(HID_KEY_INSERT, false, false, false);
+    vtkeys_key(HID_KEY_INSERT, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_init();
-    keyboard_key(HID_KEY_HOME, false, false, false);
+    vtkeys_key(HID_KEY_HOME, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
     com_init();
-    keyboard_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
+    vtkeys_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_init();
-    keyboard_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
+    vtkeys_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_init();
-    keyboard_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
+    vtkeys_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_init();
-    keyboard_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    vtkeys_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
-    keyboard_key(HID_KEY_ENTER, false, false, false);
-    keyboard_key(HID_KEY_BACKSPACE, false, false, false);
-    keyboard_key(HID_KEY_BACKSPACE, true, false, false);
+    vtkeys_key(HID_KEY_ENTER, false, false, false);
+    vtkeys_key(HID_KEY_BACKSPACE, false, false, false);
+    vtkeys_key(HID_KEY_BACKSPACE, true, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
-/* Ctrl and Alt on the four keys that spell a character of their own. The
+/* Ctrl and Alt on the four keys that type a character of their own. The
  * console keymap defines no control form for Enter, Tab or Escape -- each is
  * already a C0 control -- so the key still types itself, while Alt is an ESC
  * prefix over whatever the other modifiers settled on. */
@@ -242,24 +271,24 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     char b[16];
 
     com_init();
-    keyboard_key(HID_KEY_ENTER, true, false, false);
-    keyboard_key(HID_KEY_TAB, true, false, false);
-    keyboard_key(HID_KEY_ESCAPE, true, false, false);
+    vtkeys_key(HID_KEY_ENTER, true, false, false);
+    vtkeys_key(HID_KEY_TAB, true, false, false);
+    vtkeys_key(HID_KEY_ESCAPE, true, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
     com_init();
-    keyboard_key(HID_KEY_ENTER, false, false, true);
-    keyboard_key(HID_KEY_TAB, false, false, true);
-    keyboard_key(HID_KEY_ESCAPE, false, false, true);
+    vtkeys_key(HID_KEY_ENTER, false, false, true);
+    vtkeys_key(HID_KEY_TAB, false, false, true);
+    vtkeys_key(HID_KEY_ESCAPE, false, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
     /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
      * Ctrl already chose. */
     com_init();
-    keyboard_key(HID_KEY_BACKSPACE, false, false, true);
-    keyboard_key(HID_KEY_BACKSPACE, true, false, true);
+    vtkeys_key(HID_KEY_BACKSPACE, false, false, true);
+    vtkeys_key(HID_KEY_BACKSPACE, true, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
@@ -271,19 +300,39 @@ UTEST(keyboard, text_to_oem)
     str_init(); /* apply the default locale: code page 437 */
 
     com_init();
-    keyboard_text("Hi!"); /* ASCII passes through */
+    vtkeys_text("Hi!"); /* ASCII passes through */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
     com_init();
-    keyboard_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
+    vtkeys_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    keyboard_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+}
+
+/* font_init rebuilds the glyph store and knows nothing about the active code
+ * page, so oem_init has to tell it -- and therefore has to run after it. When
+ * it ran before, --cp 850 (and every non-EN locale, and the libretro code page
+ * option) converted bytes in one page and drew glyphs from another. */
+UTEST(oem, glyph_store_follows_the_run_page)
+{
+    /* Through the machine's real init, because the defect was the order
+     * inside it: font_init rebuilds the glyph store knowing nothing of the
+     * page, so oem_init has to follow it. */
+    ASSERT_TRUE(oem_set_code_page(850));
+    sys_init();
+    ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
+    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+
+    ASSERT_TRUE(oem_set_code_page(0)); /* back to auto */
+    str_init();
+    sys_init();
+    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
 }
 
 /* The oem string family: UTF-8 <-> OEM round-trip in the active code page,
@@ -392,3 +441,54 @@ UTEST(cli, no_separator_no_rom_args)
 }
 
 UTEST_MAIN();
+
+/* ---- the generator and the seed it asks the machine for ------------------ */
+
+/* The contract says a machine answers the same seed every time, because one
+ * run reads it for the stream, for the memory fill and for what it reports. A
+ * machine that drew fresh entropy per call would fill from one and print
+ * another. */
+UTEST(random, the_machines_seed_does_not_move)
+{
+    uint32_t first = host_seed();
+    ASSERT_EQ(first, host_seed());
+    ASSERT_EQ(first, host_seed());
+}
+
+/* One generator written once, so the same state gives the same stream --
+ * which is the whole of what lets a seeded run be repeated, and what lets an
+ * oracle be pinned across two machines. */
+UTEST(random, the_same_state_gives_the_same_stream)
+{
+    uint32_t a = 0x6502C0DE, b = 0x6502C0DE;
+    for (int i = 0; i < 16; i++)
+        ASSERT_EQ(sys_random_step(&a), sys_random_step(&b));
+    ASSERT_EQ(a, b);
+}
+
+/* Zero used to mean "unseeded" and was mapped to 1. It is an ordinary state
+ * now -- the increment is odd, so the sequence walks away from it -- which
+ * matters because a fixture may legitimately pin a seed of zero. */
+UTEST(random, zero_is_an_ordinary_state)
+{
+    uint32_t z = 0;
+    uint32_t seen[4];
+    for (int i = 0; i < 4; i++)
+        seen[i] = sys_random_step(&z);
+    ASSERT_NE(z, 0u);
+    for (int i = 1; i < 4; i++)
+        ASSERT_NE(seen[i], seen[0]);
+}
+
+/* A stream of one's own leaves the machine's alone: the fills draw 64 KB each
+ * from their own state so a wipe cannot move what a seeded program's rand()
+ * sees. */
+UTEST(random, a_private_stream_does_not_touch_the_machines)
+{
+    uint32_t mine = 1;
+    uint32_t before = sys_random();
+    for (int i = 0; i < 1000; i++)
+        sys_random_step(&mine);
+    uint32_t after = sys_random();
+    ASSERT_NE(before, after); /* the machine's stream moved by its own draws only */
+}

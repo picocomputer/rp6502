@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/aud.h"
-#include "core/aud/bel.h"
+#include "core/aud/mix.h"
 #include "core/aud/psg.h"
-#include "core/mem.h"
-#include "host.h"
+#include "core/aud/sine.h"
+#include "core/ria/regs.h"
+#include "core/sys/xram.h"
+#include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_PSG)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_PSG)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -21,12 +22,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define PSG_CHANNELS 8
 
-/* The rate psg_setup was last given, and the divisor the phase increments
- * come out of. Both derived once, because a runtime divisor in the sample
- * loop would be a real 64-bit division: eight of them per sample, against
- * 5,333 cycles at 48 kHz on a core that is also running the 6502's bus. */
-static uint32_t psg_rate;
-static uint32_t psg_phase_div;
+/* The divisor the phase increments come out of. A constant, because a
+ * runtime divisor in the sample loop would be a real 64-bit division: eight
+ * of them per sample, against 5,149 cycles at 49716 Hz on a core that is
+ * also running the 6502's bus. */
+#define PSG_PHASE_DIV (3u * AUD_NATIVE_RATE)
 
 /* Full scale of a generated wave, and the value a closed duty gate rails
  * to. The rail is -PSG_PEAK, not the true minimum, because it was -127
@@ -64,21 +64,25 @@ static const uint32_t psg_vol_table[] = {
     0 << 16,
 };
 
-// Same rates as the 6581 SID, in milliseconds
-static const uint16_t psg_attack_ms_table[] = {
-    2, 8, 16, 24, 38, 56, 68, 80,
-    100, 250, 500, 800, 1000, 3000, 5000, 8000,
+/* Same rates as the 6581 SID, in milliseconds, as the increments they come
+ * to at AUD_NATIVE_RATE. (rate * ms) / 1000, not (rate / 1000) * ms: the old
+ * form was exact at 24000 and 48000 and 0.23% slow at 44100. Constants, so
+ * they are rodata and the sample loop indexes them with nothing to derive. */
+#define PSG_STEP(ms) ((1u << 24) / (uint32_t)(((uint64_t)AUD_NATIVE_RATE * (ms)) / 1000))
+
+static const uint32_t psg_attack_table[16] = {
+    PSG_STEP(2), PSG_STEP(8), PSG_STEP(16), PSG_STEP(24),
+    PSG_STEP(38), PSG_STEP(56), PSG_STEP(68), PSG_STEP(80),
+    PSG_STEP(100), PSG_STEP(250), PSG_STEP(500), PSG_STEP(800),
+    PSG_STEP(1000), PSG_STEP(3000), PSG_STEP(5000), PSG_STEP(8000),
 };
 
-static const uint16_t psg_decay_release_ms_table[] = {
-    6, 24, 48, 72, 114, 168, 204, 240,
-    300, 750, 1500, 2400, 3000, 9000, 15000, 24000,
+static const uint32_t psg_decay_release_table[16] = {
+    PSG_STEP(6), PSG_STEP(24), PSG_STEP(48), PSG_STEP(72),
+    PSG_STEP(114), PSG_STEP(168), PSG_STEP(204), PSG_STEP(240),
+    PSG_STEP(300), PSG_STEP(750), PSG_STEP(1500), PSG_STEP(2400),
+    PSG_STEP(3000), PSG_STEP(9000), PSG_STEP(15000), PSG_STEP(24000),
 };
-
-/* The same rates as increments, once psg_setup knows what a second is.
- * 128 bytes of RAM where there used to be 128 bytes of flash. */
-static uint32_t psg_attack_table[16];
-static uint32_t psg_decay_release_table[16];
 
 struct psg_channel
 {
@@ -108,43 +112,15 @@ static struct
     uint32_t phase_inc;
 } psg_channel_state[PSG_CHANNELS];
 
-void psg_setup(uint32_t rate)
-{
-    psg_rate = rate;
-    /* One divisor rather than two divisions per channel per sample.
-     * floor(floor(x/3)/rate) is floor(x/(3*rate)) for positive integers, so
-     * this is the same number the RTL's restoring divider produces from the
-     * same constant. */
-    psg_phase_div = 3 * rate;
-    for (unsigned i = 0; i < 16; i++)
-    {
-        /* (rate * ms) / 1000, not (rate / 1000) * ms: the old form was exact
-         * at 24000 and 48000 and 0.23% slow at 44100, which is a rate a
-         * sound card can hand back. */
-        psg_attack_table[i] =
-            (1 << 24) / (uint32_t)(((uint64_t)rate * psg_attack_ms_table[i]) / 1000);
-        psg_decay_release_table[i] =
-            (1 << 24) / (uint32_t)(((uint64_t)rate * psg_decay_release_ms_table[i]) / 1000);
-    }
-    /* The cached increments were divided by the old rate. */
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
-    {
-        psg_channel_state[i].freq = 0;
-        psg_channel_state[i].phase_inc = 0;
-    }
-}
-
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-static void
-    HOST_ISR
-    HOST_TIME_CRITICAL(psg_irq_handler)(void)
+void psg_sample(int16_t *left, int16_t *right)
 {
-    aud_clear_irq();
-
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
-    /* Output previous sample at start to minimize jitter.
+    /* The mix comes first, from the wave and envelope the last step left and
+     * the registers as they stand now; the step comes after. That is the
+     * order psg.sv walks in, and the lockstep holds the two to the sample.
      *
      * The mix accumulates unshifted and rounds once. It used to truncate
      * twice — after the envelope and again after the pan — and a floor is
@@ -170,9 +146,8 @@ static void
     }
     /* 63/64 rather than 1/2 per side is the pan law this has always had;
      * the shift undoes it and lands on full scale. */
-    int32_t bel_mix = bel_sample(psg_rate);
-    acc_l = ((acc_l + 64) >> 7) + bel_mix;
-    acc_r = ((acc_r + 64) >> 7) + bel_mix;
+    acc_l = (acc_l + 64) >> 7;
+    acc_r = (acc_r + 64) >> 7;
     if (acc_l < AUD_SAMPLE_MIN)
         acc_l = AUD_SAMPLE_MIN;
     if (acc_l > AUD_SAMPLE_MAX)
@@ -181,7 +156,8 @@ static void
         acc_r = AUD_SAMPLE_MIN;
     if (acc_r > AUD_SAMPLE_MAX)
         acc_r = AUD_SAMPLE_MAX;
-    aud_out((int16_t)acc_l, (int16_t)acc_r);
+    *left = (int16_t)acc_l;
+    *right = (int16_t)acc_r;
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
@@ -189,7 +165,7 @@ static void
         {
             psg_channel_state[i].freq = channels[i].freq;
             psg_channel_state[i].phase_inc =
-                (uint32_t)(((uint64_t)channels[i].freq << 32) / psg_phase_div);
+                (uint32_t)(((uint64_t)channels[i].freq << 32) / PSG_PHASE_DIV);
         }
         psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
         /* The duty gate still compares the top byte of the phase, so where
@@ -207,7 +183,7 @@ static void
             if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = PSG_RAIL;
             else
-                psg_channel_state[i].sample = aud_sine_table[phase];
+                psg_channel_state[i].sample = sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)
@@ -286,6 +262,7 @@ static void
     uint8_t max_work = 32;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
+        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
         uint8_t tail = ++xram_queue_tail;
         uint8_t loc = xram_queue[tail][0];
         uint8_t val = xram_queue[tail][1];
@@ -310,7 +287,7 @@ bool psg_xreg(uint16_t word)
 {
     /* Taking control and giving it up both reset the engine, the way a
      * reset line would, so a program never inherits the last one's
-     * envelopes. The fabric has always done this — aud_psg resets on any
+     * envelopes. The fabric has always done this — psg resets on any
      * write to its pointer register, 0xFFFF included — and this is the
      * software catching up.
      *
@@ -331,16 +308,16 @@ bool psg_xreg(uint16_t word)
         ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
     {
         psg_xaddr = 0xFFFF;
-        /* And hand the interrupt back. The handler reads its channel
-         * block from &xram[psg_xaddr] with nothing guarding it, so a
-         * parked pointer left installed walks 64 bytes off the end of
-         * XRAM once a sample, forever. */
+        /* And hand the mix back. The sampler reads its channel block from
+         * &xram[psg_xaddr] with nothing guarding it, so a parked pointer
+         * left registered walks 64 bytes off the end of XRAM once a sample,
+         * forever. */
         aud_stop();
         return word == 0xFFFF;
     }
     psg_xaddr = word;
     xram_queue_page = word >> 8;
     xram_queue_tail = xram_queue_head;
-    aud_setup(psg_irq_handler, psg_rate);
+    aud_setup(psg_sample);
     return true;
 }

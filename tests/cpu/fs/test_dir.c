@@ -14,10 +14,11 @@
  */
 
 #include "core/com/com.h"
-#include "core/sys/msc.h"
-#include "host/fs.h"
+#include "osal/dir.h"
+#include "osal/fs.h"
+#include "osal/os.h"
 #include "tb_hostos.h"
-#include "core/wdc/cpu.h"
+#include "core/wdc/resb.h"
 #include "emu_boot.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,26 +46,46 @@ static void write_file(const char *dir, const char *name, const char *data)
     }
 }
 
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_mkdir(path, &err);
+}
+
 UTEST(dir, lists_directory)
 {
     char d[512];
     ASSERT_TRUE(host_make_tmpdir(d, sizeof(d)));
     write_file(d, "alpha.txt", "hello");             /* 5 bytes */
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
-    char sub[512];
+    char sub[TEST_PATH_MAX];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_TRUE(fs_mkdir(sub));
+    ASSERT_TRUE(drive_mkdir_at(sub));
 
-    ASSERT_TRUE(fs_chdir(d)); /* the program lists "" = the cwd */
+    ASSERT_TRUE(drive_chdir_to(d)); /* the program lists "" = the cwd */
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
-    for (int i = 0; i < 600 && !cpu_halted(); i++)
-        sys_run_frame();
+    for (int i = 0; i < 600 && resb_running(); i++)
+        emu_frames(1);
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(cpu_halted()); /* the program ran to completion */
+    ASSERT_FALSE(resb_running()); /* the program ran to completion */
 
     /* The cwd (PATH line) and all three entries are listed. The cwd shows as the
      * native MSC0:<host path>. */

@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/str/oem.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
@@ -19,7 +21,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_DRIVE)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_DRIVE)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -250,7 +252,7 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
             szbuf[0] = '\0';
             if (msc_drive_get_info(drive_vol, &info) && info.block_size)
                 str_size((uint64_t)info.block_count * info.block_size, szbuf, sizeof(szbuf));
-            com_snprintf_utf8(buf, size, S(STR_DISK_DEV), szbuf, vendor, product, rev);
+            oem_snprintf(buf, size, S(STR_DISK_DEV), szbuf, vendor, product, rev);
         }
         return 1;
     }
@@ -258,7 +260,7 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
     {
         char serial[USB_DESC_STRING_BUF_SIZE];
         if (msc_drive_serial(drive_vol, serial, sizeof(serial)))
-            com_snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
+            oem_snprintf(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
     case 2: // VOL: boot scheme, filesystem, cluster size, and volume label
@@ -285,7 +287,7 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
         }
         else
             drive_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
-        com_snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
+        oem_snprintf(buf, size, S(STR_DISK_VOL_FMT), desc);
         return 3;
     }
     case 3: // VOL: filesystem used of total, percent used (case 2's scan)
@@ -299,13 +301,13 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
             char usedbuf[24], totbuf[24];
             str_size(usedb, usedbuf, sizeof(usedbuf));
             str_size(totb, totbuf, sizeof(totbuf));
-            com_snprintf_utf8(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
+            oem_snprintf(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
         }
         // INFO/VERIFY end here; format and erase continue to the warning.
         return drive_preview_op == DRIVE_PREVIEW_PLAIN ? -1 : 4;
     }
     case 4: // confirm warning (format or erase)
-        com_snprintf_utf8(buf, size, S(drive_preview_op == DRIVE_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
+        oem_snprintf(buf, size, S(drive_preview_op == DRIVE_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
         return drive_preview_op == DRIVE_PREVIEW_FORMAT ? 5 : -1;
     case 5: // FMT: target layout, filesystem, cluster size, quick/full, label
     {
@@ -316,7 +318,7 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
         drive_fmt_desc(desc, sizeof(desc), scheme, drive_fs_name(drive_fs_resolved), drive_au,
                      drive_full ? STR_FULL : STR_QUICK,
                      drive_has_label ? drive_label_oem : NULL);
-        com_snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
+        oem_snprintf(buf, size, S(STR_DISK_FMT), desc);
         return -1;
     }
     default:
@@ -427,7 +429,7 @@ static void drive_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *hea
 // One mon_response producer drives a whole run (format/erase/verify), one chunk
 // per call, emitting at most one line; progress redraws in place via \r, so
 // unchanged-percent ticks emit nothing. drive_state selects the phase. Ctrl-C
-// aborts via main_break(), whose break_() resets the queue and owns drive IDLE.
+// aborts via sys_break(), whose break_() resets the queue and owns drive IDLE.
 static int drive_run_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
@@ -439,7 +441,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol); // partial low-level format; drop stale mount
-            main_break();
+            sys_break();
             return -1;
         }
         if (!msc_drive_format_track(drive_vol, drive_fmt_track, drive_fmt_head))
@@ -463,7 +465,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             if (overall != drive_last_pct)
             {
                 drive_last_pct = overall;
-                com_snprintf_utf8(buf, size, STR_DISK_PROG_FORMAT, overall);
+                oem_snprintf(buf, size, STR_DISK_PROG_FORMAT, overall);
             }
         }
         if (drive_fmt_track >= drive_fmt_tracks)
@@ -479,7 +481,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         // before the result. The quick path printed no progress.
         const char *nl = drive_last_pct >= 0 ? "\n" : "";
         if (fr == FR_OK)
-            com_snprintf_utf8(buf, size, "%s%s", nl, S(STR_DISK_DONE));
+            oem_snprintf(buf, size, "%s%s", nl, S(STR_DISK_DONE));
         else
         {
             mon_add_response_fatfs(fr);
@@ -493,14 +495,14 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol); // sectors were zeroed; drop stale mount
-            main_break();
+            sys_break();
             return -1;
         }
         if (drive_lba >= drive_total) // all sectors zeroed; final progress already shown
         {
             msc_drive_reenumerate(drive_vol);
             drive_state = DRIVE_IDLE;
-            com_snprintf_utf8(buf, size, "\n%s", S(STR_DISK_DONE));
+            oem_snprintf(buf, size, "\n%s", S(STR_DISK_DONE));
             return -1;
         }
         {
@@ -525,7 +527,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             if (pct != drive_last_pct)
             {
                 drive_last_pct = pct;
-                com_snprintf_utf8(buf, size, STR_DISK_PROG_ERASE, pct);
+                oem_snprintf(buf, size, STR_DISK_PROG_ERASE, pct);
             }
         }
         return 0;
@@ -534,7 +536,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         if (ria_get_sigint()) // Ctrl-C stops the scan
         {
             putchar('\n');
-            main_break();
+            sys_break();
             return -1;
         }
         if (drive_pin_n) // re-reading a failed chunk one sector at a time
@@ -546,7 +548,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
                 {
                     drive_bad++;
                     buf[0] = '\r'; // overwrite the transient progress line
-                    com_snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
+                    oem_snprintf(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
                     return 0;
                 }
             }
@@ -572,7 +574,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             if (pct != drive_last_pct)
             {
                 drive_last_pct = pct;
-                com_snprintf_utf8(buf, size, STR_DISK_PROG_VERIFY, pct);
+                oem_snprintf(buf, size, STR_DISK_PROG_VERIFY, pct);
                 return 0;
             }
         }
@@ -580,7 +582,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         {
             drive_state = DRIVE_IDLE;
             buf[0] = '\n';
-            com_snprintf_utf8(buf + 1, size - 1, S(STR_DISK_VERIFY_DONE), (int)drive_bad);
+            oem_snprintf(buf + 1, size - 1, S(STR_DISK_VERIFY_DONE), (int)drive_bad);
             return -1;
         }
         return 0;
@@ -903,9 +905,9 @@ static int drive_label_response(char *buf, size_t size, int state, unsigned)
     if (state < 0)
         return state;
     if (drive_label_changed)
-        com_snprintf_utf8(buf, size, S(STR_DISK_LABEL_CHANGED), drive_label_old, drive_label_cur);
+        oem_snprintf(buf, size, S(STR_DISK_LABEL_CHANGED), drive_label_old, drive_label_cur);
     else
-        com_snprintf_utf8(buf, size, S(STR_DISK_LABEL_RESPONSE), drive_label_cur);
+        oem_snprintf(buf, size, S(STR_DISK_LABEL_RESPONSE), drive_label_cur);
     return -1;
 }
 

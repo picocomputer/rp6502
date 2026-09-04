@@ -64,4 +64,7 @@ bool clk_api_get_res(void);
 bool clk_api_get_time(void);
 bool clk_api_set_time(void);
 
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define CLK_DRIVER DRIVER(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break, nul_config, nul_config)
+
 #endif /* _CORE_API_CLK_H_ */

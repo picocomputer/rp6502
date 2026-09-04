@@ -10,9 +10,9 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "host.h"
+#include "machine.h"
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
+#if defined(DEBUG_HID) || defined(DEBUG_HID_HID)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

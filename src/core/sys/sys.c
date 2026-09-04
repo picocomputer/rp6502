@@ -3,268 +3,183 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * Starting and stopping the 6502, which is a request and not the doing of it.
+ *
+ * A stop can be asked for from anywhere -- a syscall, a key, an interrupt on
+ * another core -- and almost none of those places can afford to run a fan-out
+ * that closes files and parks drivers. So the ask is cheap and idempotent, and
+ * the machine's loop performs it at a moment of its own choosing. The one
+ * thing that cannot wait is RESB, which goes down inside the ask, because a
+ * 6502 left running would keep asking for what is being torn down. That is a
+ * concurrency fact of the machines whose CPU runs beside the fan-out -- the
+ * Pico's second core, the Pocket's fabric. On a software machine the 6502
+ * only ever runs inside the bus task, so there is no race for RESB to win; it
+ * goes down early there because a stop is a stop, not because it must.
+ *
+ * So this file is where the line lives (core/wdc/resb.h): down before the
+ * driver walk, down again in every ask, up once the run fan-out has finished.
+ * No driver row could be all three.
  */
 
-#include "core/sys/proc.h"
-#include "core/aud/aud_mix.h"
-#include "core/dap/dbg.h"
-#include "core/sys/log.h"
-#include "core/sys/rom.h"
-#include "core/sys/keyboard.h"
-#include "core/sys/main.h"
-#include "core/wdc/cpu.h"
-#include "core/mem/mem.h"
-#include "core/ria/ria.h"
 #include "core/sys/sys.h"
-#include "core/vga/vga_emu.h"
-#include "core/wdc/via.h"
-#include "core/api/api.h"
-#include "core/api/std.h"
-#include "core/str/rln.h"
-#include "core/term/term.h"
-#include "host.h"
-#include <stdio.h>
+#include "core/wdc/resb.h"
+#include "drivers.h"
 
-/* The system clock, oversampled — see SYS_OVERSAMPLE. Wraps in centuries. */
-static uint64_t sys_clk;
-
-/* Absolute, never reset per frame — feeds the exact deadline math below. */
-static uint64_t scanline_n;
-
-static unsigned long frame_count;
-
-/* The bus between run_until calls, which hoists it into locals for the loop. data and
- * the IRQs carry across cycles: the CPU latches the settled data on the next tick, and
- * samples the interrupt line there too. IRQB is wired-OR, but each device keeps its
- * own line so none has to clear another's — sys_tick ORs them at the CPU. */
-static uint16_t bus_addr;
-static uint8_t bus_data;
-static bool bus_read;
-static bool bus_via_irq;
-static bool bus_ria_irq;
-
-uint64_t sys_clk_now(void) { return sys_clk; }
-uint64_t host_clock_us(void) { return sys_clk / SYS_TICKS_PER_US; }
-unsigned long sys_frame_count(void) { return frame_count; }
-
-/* No init: main_init runs exactly once per process, so static zero-initialization
- * is the cold-boot state. (sys_init in ria/sys/sys.h is the firmware's monitor
- * banner, which the emulator does not implement.) */
-
-/* Deadline at which scanline n is due:
- *   n * (SYS_RP2350_KHZ*1000 * SYS_OVERSAMPLE) / (60*525 scanline/s)
- *     = n * 4096000 / 63  (reduced).
- * Computed from the ABSOLUTE scanline number every time — never accumulated — so the
- * integer division introduces NO drift: it is exact at every frame boundary (n a
- * multiple of 525, since 31500/63 = 500). Do NOT "fix" the non-exact 4096000/63 by
- * tracking a per-scanline remainder; that would double-correct and create real drift.
- * The n*4096000 intermediate overflows uint64 ~4.5 years of uptime (well before
- * sys_clk itself), still unreachable. */
-static uint64_t scanline_deadline(uint64_t n)
+static enum state
 {
-    return n * 4096000ull / 63;
+    stopped,
+    starting,
+    running,
+    stopping,
+} volatile sys_state;
+
+/* A break asked for, not yet performed. Kept apart from the state above
+ * because a break is a teardown that outlives the stop it implies: the stop
+ * fan-out puts the program away, the break fan-out puts the machine's own
+ * state machines back. */
+static volatile bool sys_breaking;
+
+/* Cold boot: every driver this machine lists, in the order it lists them.
+ * One copy for every machine -- each root puts its own machine directory on
+ * the include path, so "drivers.h" above is its own. */
+void sys_init(void)
+{
+    resb_init();
+#define DRIVER(i, t, iot, r, s, b, ...) i();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
-/* Take the parked bus for the run_until loop to own as locals. */
-static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,
-                             bool *via_irq, bool *ria_irq)
+/* One pass of a machine's drivers: the task column, then the io_task column.
+ * They are separate walks because only one of them is safe to call during
+ * blocking file IO -- a machine whose file operations block re-enters
+ * sys_task while a transfer completes, and sys_io_task is where the tasks
+ * that may themselves touch a filesystem go. A machine that never blocks
+ * calls the two back to back. */
+void sys_task(void)
 {
-    *addr = bus_addr;
-    *data = bus_data;
-    *read = bus_read;
-    *via_irq = bus_via_irq;
-    *ria_irq = bus_ria_irq;
+#define DRIVER(i, t, iot, r, s, b, ...) t();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
-/* Park it back. Paired with sys_clk at every return from run_until — miss one and a
- * resumed frame drives a stale bus. */
-static inline void bus_park(uint16_t addr, uint8_t data, bool read,
-                            bool via_irq, bool ria_irq)
+void sys_io_task(void)
 {
-    bus_addr = addr;
-    bus_data = data;
-    bus_read = read;
-    bus_via_irq = via_irq;
-    bus_ria_irq = ria_irq;
+#define DRIVER(i, t, iot, r, s, b, ...) iot();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
-/* One PHI2 cycle of the whole machine — the board wiring, in the floooh/chips
- * system-tick style (see _vic20_tick). The CPU is the only bus master and drives the
- * bus in decoded signals; every device ticks each cycle (the VIA counts its timers,
- * the RIA drives IRQB and publishes its pins) and decodes its own window, so the
- * board holds no chip-select state. The read ranges do not overlap, so the order
- * here does not matter.
- *
- * The bus arrives by pointer because run_until owns it as locals for the duration of
- * the loop, not as the file statics it is parked in between calls. */
-static inline void sys_tick(uint16_t *addr, uint8_t *data, bool *read,
-                            bool *via_irq, bool *ria_irq)
+/* The fan-outs behind the latch: what a machine brings up for a program to
+ * run, and what it puts away afterwards. Static because sys_commit below is
+ * the only thing that may perform them -- asking is everyone's, doing is
+ * the loop's. */
+static void sys_on_run(void)
 {
-    cpu_tick(addr, read, data, *via_irq || *ria_irq);
-    *via_irq = via_tick(*addr, *read, data);
-    *ria_irq = ria_tick(*addr, *read, data);
-    mem_tick(*addr, *read, data);
+#define DRIVER(i, t, iot, r, s, b, ...) r();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
-/* Run 6502 cycles until the system clock reaches deadline, the program halts, or
- * (dbg) an instruction breakpoint stops the machine. Returns true on a breakpoint
- * stop, leaving the clock mid-scanline; otherwise the clock is at deadline or later
- * on return (time flows even while halted). */
-static bool run_until(uint64_t deadline, bool dbg)
+static void sys_on_stop(void)
 {
-    /* Hoist the clock and the bus into locals and commit both before every return:
-     * nothing else reads either mid-scanline, so the loop never touches the statics
-     * and the compiler is free to keep the bus in registers (as vic20_exec does with
-     * sys->pins). Measured break-even here — the statics were a single cache line the
-     * store buffer forwarded — so this is for the intent, not a win. */
-    uint64_t clk = sys_clk;
-    uint16_t addr;
-    uint8_t data;
-    bool read;
-    bool via_irq;
-    bool ria_irq;
-    bus_hoist(&addr, &data, &read, &via_irq, &ria_irq);
-    const uint32_t cycle_ticks = cpu_cycle_ticks();
-    if (!dbg)
-    {
-        /* Two loops rather than a per-cycle test, per vic20_exec: at ~8M cycles a
-         * second the debug branch is worth keeping out of the common path. */
-        while (clk < deadline && cpu_active())
-        {
-            sys_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            clk += cycle_ticks;
-        }
-    }
-    else
-    {
-        while (clk < deadline && cpu_active())
-        {
-            sys_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            clk += cycle_ticks;
-            if (cpu_dbg_cycle_cb)
-                cpu_dbg_cycle_cb(cpu_dbg_pins());
-            /* Data breakpoints. Only the accesses mem_tick serviced count, so reads a
-             * device drove are excluded — watchpoints cover the SRAM, not registers. */
-            if (dbg_watch_armed && (!read || addr <= MEM_MMAP_HI))
-                dbg_watch_access(addr, data, !read);
-            /* Stop before the fetched instruction's effect runs; the partial frame
-             * is then abandoned and the machine holds until resume. */
-            uint16_t pc;
-            uint8_t sp;
-            if (cpu_opcode_fetch(&pc, &sp) && dbg_at_instruction(pc, sp))
-            {
-                sys_clk = clk; /* commit both before abandoning the frame */
-                bus_park(addr, data, read, via_irq, ria_irq);
-                return true;
-            }
-        }
-    }
-    if (clk < deadline)
-        clk = deadline; /* halted: keep the clock (time) flowing */
-    sys_clk = clk;
-    bus_park(addr, data, read, via_irq, ria_irq);
-    return false;
+#define DRIVER(i, t, iot, r, s, b, ...) s();
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
-/* Advance one 60 Hz VGA frame (525 scanlines). Within each scanline the 6502 is
- * pumped until the system clock reaches that scanline's deadline — so the CPU runs
- * PHI2/scanline-rate cycles and the video is paced by the same clock. The vsync
- * counter ($FFE3) ticks at the highest scanline any program renders. The app loop
- * calls this at 60 Hz regardless of the host display's refresh rate. */
-static void run_frame(bool render)
+/* Backward, like stop: a break is a teardown. It is also what puts com_break
+ * near the last, where the newline it writes lands after whatever the other
+ * breaks printed. */
+static void sys_on_break(void)
 {
-    /* Debugger hold: only the 6502 and virtual time freeze. Console output that
-     * reached the terminal after the beam passed its row this frame (a program's
-     * final prints before the stop) hasn't been scanned out yet, so sweep the
-     * visible canvas once from the frozen state; after that the window simply
-     * re-presents the settled frame. Hoisted once per frame so the hot tick loop
-     * pays nothing when debugging is inactive (the common case). */
-    static bool stop_swept;
-    const bool dbg = dbg_is_active();
-    if (dbg && dbg_is_stopped())
+#define DRIVER(i, t, iot, r, s, b, ...) b();
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#undef DRIVER
+}
+
+void sys_run(void)
+{
+    /* Only from stopped. A stop that has been asked for but not performed is
+     * a teardown this machine still owes its drivers, and promoting it to a
+     * start would skip the fan-out that closes their files. Every caller
+     * already asks only when sys_active() is false; this is that rule kept
+     * here, where it cannot be forgotten. */
+    if (sys_state == stopped)
+        sys_state = starting;
+}
+
+void sys_stop(void)
+{
+    resb_assert(); /* the rest of the fan-out can wait; this cannot */
+    if (sys_state == starting)
+        sys_state = stopped; /* never started; nothing to tear down */
+    else if (sys_state != stopped)
+        sys_state = stopping;
+}
+
+bool sys_active(void)
+{
+    return sys_state != stopped;
+}
+
+/* A break is a stop plus a teardown of what the machine itself was in the
+ * middle of. RESB drops here, with the ask, for the same reason every other
+ * stop drops it here. */
+void sys_break_request(void)
+{
+    sys_breaking = true;
+    sys_stop();
+}
+
+/* Put the outgoing program away, on the spot. The one thing a driver inside a
+ * walk may perform: a program's RAM is about to be written over, and what ran
+ * on it has to be shut down first. Performing a break is the loop's alone. */
+void sys_stop_now(void)
+{
+    sys_stop();
+    if (sys_state == stopping)
     {
-        if (render && !stop_swept)
-        {
-            const int h = vga_canvas_height();
-            for (int line = 0; line < h; line++)
-                vga_render_scanline(line);
-            stop_swept = true;
-        }
-        return;
-    }
-    stop_swept = false;
-
-    vga_task(); /* perform an armed console reset before rendering this frame */
-
-    const int vsync_line = vga_vsync_scanline();
-    const int canvas_h = vga_canvas_height();
-    const uint64_t frame_end_n = scanline_n + VGA_SCANLINES;
-    int line = 0; /* 0-based scanline within this frame */
-    bool vsynced = false;
-
-    while (scanline_n < frame_end_n)
-    {
-        /* Raster-accurate scanout: draw this visible line from the CURRENT machine
-         * state BEFORE its CPU cycles run, so a mid-frame register/VRAM write only
-         * affects later lines (real per-scanline VGA behavior). A catch-up frame
-         * (render == false) skips the pixels but keeps the timing. */
-        if (render && line < canvas_h)
-            vga_render_scanline(line);
-
-        if (run_until(scanline_deadline(scanline_n + 1), dbg))
-            return; /* held at a breakpoint mid-frame; resume re-runs the frame */
-        std_task(); /* drain read_xram's PIX gate before the op re-polls */
-        api_task(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
-        term_task(); /* VGA chip super-loop analog: per scanline, so the
-                      * one-row-per-tick lazy clears drain within the frame
-                      * that issued them, not one row per frame */
-        scanline_n++;
-        if (!vsynced && line + 1 >= vsync_line)
-        {
-            REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
-            ria_trigger_vsync(); /* latch $FFF0 bit7; raises IRQ only if the program enabled it */
-            vsynced = true;
-        }
-        line++;
-    }
-
-    frame_count++;
-    /* Drip any typed text into the keyboard ring before the line editor drains it,
-     * so a paste arriving this frame is read this frame. Here rather than in the
-     * window loop: the windowed app, the headless batch and a script all share this
-     * frame boundary and must pace a paste the same way. */
-    keyboard_task();
-    /* Pump the line editor (drains keyboard + terminal replies, echoes, fires the
-     * read callback) then advance any blocking syscall waiting on it. */
-    rln_task();
-    ria_task();
-    aud_task();
-
-    /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the system clock and the argv proc_api_exec stored. main_stop arms the
-     * console reset (vga_task performs it before the new program draws), as on real
-     * hardware; the screen text survives (preserve-screen terminal RIS). */
-    const char *exec_path = proc_take_exec();
-    if (exec_path)
-    {
-        /* Committed here rather than left for the next frame: the load below
-         * writes the RAM the outgoing program was running out of. */
-        main_stop();
-        main_commit();
-        if (!rom_load(exec_path))
-        {
-            log_error("exec failed to load '%s'", exec_path);
-            proc_set_exit_code(1); /* stays halted from main_stop */
-        }
-        else
-            main_run(); /* start the incoming program; keeps VSYNC + clock */
-        main_commit();
+        sys_on_stop();
+        sys_state = stopped;
     }
 }
 
-void sys_run_frame(void) { run_frame(true); }
-
-/* Run one frame WITHOUT rendering — a catch-up frame the pacer will not present.
- * CPU/chip/timing/vsync all advance; only the per-scanline pixel work is skipped
- * (most of the per-frame cost), so catching up after a slow/stalled host is cheap. */
-void sys_run_frame_norender(void) { run_frame(false); }
+/* Perform whatever was asked for. The machine's loop calls this where it can
+ * afford to, which is what makes the ask cheap everywhere else. */
+void sys_commit(void)
+{
+    /* Re-derived from the flag rather than taken on trust from the ask: a
+     * break asked for anywhere in a pass has to beat a run armed anywhere in
+     * it, and the ask's own stop can be undone -- it maps a machine that
+     * never started to stopped, which a later sys_run takes back to starting.
+     * Deriving the stop here is what makes the two orders the same. */
+    if (sys_breaking)
+        sys_stop();
+    if (sys_state == starting)
+    {
+        /* Running before the fan-out, not after: a stop asked for while
+         * sys_on_run is still walking is a real teardown of drivers that are
+         * already up, and the stopping it lands on is performed just below.
+         * Assigning after would discard it. */
+        sys_state = running;
+        sys_on_run();
+        /* Only if the walk did not stop us. The ask lowers RESB from anywhere,
+         * including from inside a run hook, and nothing downstream would raise
+         * it again -- the stop fan-out does not touch the line. */
+        if (sys_state == running)
+            resb_release();
+    }
+    if (sys_state == stopping)
+    {
+        sys_on_stop();
+        sys_state = stopped;
+    }
+    /* Cleared first: a break asked for by a break hook gets its own pass
+     * rather than being swallowed by this one. */
+    if (sys_breaking)
+    {
+        sys_breaking = false;
+        sys_on_break();
+    }
+}

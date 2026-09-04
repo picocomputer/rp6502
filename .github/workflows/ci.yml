@@ -32,20 +32,18 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       fwver: ${{ steps.v.outputs.fwver }}
       fwci: ${{ steps.v.outputs.fwci }}
-      stamp: ${{ steps.v.outputs.stamp }}
     steps:
       - name: Derive version
         id: v
         run: |
           set -euo pipefail
-          # version names files, fwver/fwci go to CMake, and stamp is the same
-          # string the build writes into itself — for metadata fields that are
-          # filled in by hand out here rather than by a compiler.
+          # version names files; fwver/fwci go to CMake, which decides every
+          # version string a build says about itself. Nothing is spelled out
+          # twice here any more.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwci=" >> "$GITHUB_OUTPUT"
-            echo "stamp=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             # Off a tag there is no version, and inventing one that looks like
             # a version is worse than not having it. The run id is what the
@@ -54,7 +52,6 @@ jobs:
             echo "version=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "fwver=" >> "$GITHUB_OUTPUT"
             echo "fwci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-            echo "stamp=CI ${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT"
 
@@ -168,12 +165,10 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir stage
-          cp build/ria/rp6502-ria-w.uf2     "stage/rp6502-${V}-ria-w.uf2"
+          cp build/ria-w/rp6502-ria-w.uf2   "stage/rp6502-${V}-ria-w.uf2"
           cp build/pico2/ria/rp6502-ria.uf2 "stage/rp6502-${V}-ria.uf2"
           cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
-          # The README names the files it tells you to FLASH, so the version
-          # has to reach it too.
-          sed "s/@VERSION@/${V}/g" src/mach/pico/dist/README.txt > stage/README.txt
+          cp src/host/pico/dist/README.txt stage/
           ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
@@ -214,14 +209,14 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/emu -B build/emu/linux/release -G Ninja \
+          cmake -S src/host/sokol -B build/sokol/linux/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/emu/linux/release
+          cmake --build build/sokol/linux/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emu/linux/release --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/sokol/linux/release --output-on-failure --parallel $(nproc)
 
       # tar, not zip: it is what a Linux user expects and the only container
       # here that carries the execute bit through GitHub's artifact round-trip.
@@ -229,8 +224,8 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir stage
-          cp build/emu/linux/release/rp6502-emu stage/
-          cp src/mach/emu/dist/linux/README.txt stage/
+          cp build/sokol/linux/release/rp6502-emu stage/
+          cp src/host/sokol/dist/linux/README.txt stage/
           tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
       - uses: actions/upload-artifact@v7
@@ -268,7 +263,7 @@ jobs:
       - name: Configure & build core (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -296,7 +291,7 @@ jobs:
           mkdir -p stage/linux-${{ matrix.arch }}
           cp build/libretro/release/rp6502_libretro.so stage/linux-${{ matrix.arch }}/
           cp build/libretro/release/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -324,7 +319,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/mach/libretro
+          cd src/host/libretro
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -361,7 +356,7 @@ jobs:
           New-Item -ItemType Directory stage/windows-x86_64 -Force | Out-Null
           Copy-Item build/libretro/release/rp6502_libretro.dll stage/windows-x86_64/
           Copy-Item build/libretro/release/rp6502_libretro.info stage/
-          Copy-Item src/mach/libretro/dist/README.txt stage/
+          Copy-Item src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -384,7 +379,7 @@ jobs:
       - name: Configure & build core (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
@@ -408,7 +403,7 @@ jobs:
           mkdir -p stage/macos-arm64
           cp build/libretro/release/rp6502_libretro.dylib stage/macos-arm64/
           cp build/libretro/release/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -469,8 +464,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # libretro-android: the buildbot's other target, built with the runner's own
-  # NDK. Not src/mach/android — that root is the APK. This is the same
-  # src/mach/libretro the buildbot's android template points at, driven by the
+  # NDK. Not src/host/sokol/android/apk — that root is the APK. This is the same
+  # src/host/libretro the buildbot's android template points at, driven by the
   # NDK's toolchain file. No ctest: the tests would be arm64 Android binaries,
   # so what is checked here is that it builds and exports nothing extra.
   # android-28 is the floor the APK already declares.
@@ -484,7 +479,7 @@ jobs:
       - name: Configure & build core (Release, arm64-v8a)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/libretro -B build/libretro/android -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
@@ -509,7 +504,7 @@ jobs:
           mkdir -p stage/android-arm64
           cp build/libretro/android/rp6502_libretro.so stage/android-arm64/
           cp build/libretro/android/rp6502_libretro.info stage/
-          cp src/mach/libretro/dist/README.txt stage/
+          cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
@@ -532,51 +527,23 @@ jobs:
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/mach/emu -B build/emu/macos/release -G Ninja \
+          cmake -S src/host/sokol -B build/sokol/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/emu/macos/release
+          cmake --build build/sokol/macos/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emu/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
+        run: ctest --test-dir build/sokol/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Package macos
-        env:
-          FWVER: ${{ needs.version.outputs.fwver }}
-          STAMP: ${{ needs.version.outputs.stamp }}
         run: |
           set -euxo pipefail
-          # CFBundleVersion wants a dotted number, which a run id is not, so an
-          # untagged build says 0.0 rather than lying in Finder's Get Info.
-          # CFBundleGetInfoString is free-form and says what the build really is.
-          VER="${FWVER:-0.0}"
           mkdir stage
-          APP=stage/rp6502-emu.app
-          mkdir -p "$APP/Contents/MacOS"
-          cp build/emu/macos/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
-          chmod +x "$APP/Contents/MacOS/rp6502-emu"
-          cat > "$APP/Contents/Info.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>            <string>rp6502-emu</string>
-              <key>CFBundleIdentifier</key>            <string>com.picocomputer.rp6502-emu</string>
-              <key>CFBundleName</key>                  <string>rp6502-emu</string>
-              <key>CFBundleDisplayName</key>           <string>RP6502 Emulator</string>
-              <key>CFBundlePackageType</key>           <string>APPL</string>
-              <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
-              <key>CFBundleShortVersionString</key>    <string>${VER}</string>
-              <key>CFBundleVersion</key>               <string>${VER}</string>
-              <key>CFBundleGetInfoString</key>         <string>${STAMP}</string>
-              <key>LSMinimumSystemVersion</key>        <string>11.0</string>
-              <key>NSHighResolutionCapable</key>       <true/>
-          </dict>
-          </plist>
-          PLIST
-          cp src/mach/emu/dist/macos/README.txt stage/
+          # The build made the bundle; its Info.plist is osal/macos/.
+          cp -R build/sokol/macos/release/rp6502-emu.app stage/
+          cp src/host/sokol/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.
           # No --keepParent, so stage/'s contents land at the zip root.
@@ -614,7 +581,7 @@ jobs:
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/mach/itch.io
+          cd src/host/itch.io
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -656,7 +623,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/mach/emu
+          cd src/host/sokol
           cmake --preset windows-release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -668,7 +635,7 @@ jobs:
       # count is spelled a different way in each of them.
       - name: Run emulator tests
         shell: pwsh
-        run: ctest --test-dir build/emu/windows/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
+        run: ctest --test-dir build/sokol/windows/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
 
       # Compress-Archive rather than bash zip: Windows ships it, and there are
       # no mode bits here worth preserving.
@@ -677,8 +644,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
-          Copy-Item build/emu/windows/release/rp6502-emu.exe stage/
-          Copy-Item src/mach/emu/dist/windows/README.txt stage/
+          Copy-Item build/sokol/windows/release/rp6502-emu.exe stage/
+          Copy-Item src/host/sokol/dist/windows/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
@@ -717,7 +684,7 @@ jobs:
           if [ -n "$FWVER" ]; then
             CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
           fi
-          cd src/mach/android
+          cd src/host/sokol/android/apk
           ./gradlew assembleRelease \
             -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
 
@@ -849,7 +816,7 @@ jobs:
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset release
-        working-directory: src/mach/pocket
+        working-directory: src/host/pocket
 
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly

@@ -9,7 +9,8 @@
  */
 
 #include "sys/path.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
+#include "core/str/path.h"
 #include "core/str/str.h"
 #include "fatfs/ff.h"
 #include <ctype.h>
@@ -28,8 +29,8 @@ const char *path_abs(const char *path)
     // A drive-prefixed path without a separator after the colon is
     // relative to that drive's current directory. ":name" (installed
     // ROM namespace) stays absolute.
-    bool relative = colon ? (colon != path && !str_is_sep(colon[1]))
-                          : !str_is_sep(path[0]);
+    bool relative = colon ? (colon != path && !path_is_sep(colon[1]))
+                          : !path_is_sep(path[0]);
 
     if (colon && !relative)
     {
@@ -40,7 +41,7 @@ const char *path_abs(const char *path)
             path_buf[i] = (char)toupper((unsigned char)path[i]);
         path_buf[drive_len - 1] = ':';
         segs_src = colon + 1;
-        if (str_is_sep(*segs_src))
+        if (path_is_sep(*segs_src))
             segs_src++;
     }
     else
@@ -70,7 +71,7 @@ const char *path_abs(const char *path)
             return NULL;
         drive_len = (size_t)(buf_colon - path_buf) + 1;
         segs_src = colon ? colon + 1 : path;
-        if (str_is_sep(*segs_src))
+        if (path_is_sep(*segs_src))
             segs_src++;
     }
 
@@ -93,7 +94,7 @@ const char *path_abs(const char *path)
     while (*seg)
     {
         const char *next = seg;
-        while (*next && !str_is_sep(*next))
+        while (*next && !path_is_sep(*next))
             next++;
         size_t slen = (size_t)(next - seg);
         if (!*next)
@@ -143,7 +144,7 @@ bool path_correct_basename(char *path, size_t path_size)
     // Find where the basename starts (after the last separator or drive
     // colon), ignoring any trailing separators on path.
     size_t end = strlen(path);
-    while (end > 0 && str_is_sep(path[end - 1]))
+    while (end > 0 && path_is_sep(path[end - 1]))
         end--;
 
     size_t name_start = 0;
@@ -151,7 +152,7 @@ bool path_correct_basename(char *path, size_t path_size)
     if (colon && (size_t)(colon - path) < end)
         name_start = (size_t)(colon - path) + 1;
     for (size_t i = name_start; i < end; i++)
-        if (str_is_sep(path[i]))
+        if (path_is_sep(path[i]))
             name_start = i + 1;
 
     size_t fname_len = strlen(fname);
@@ -168,7 +169,7 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
 
     // Trim trailing separators so "folder/" is treated like "folder".
     size_t end = strlen(path);
-    while (end > 0 && str_is_sep(path[end - 1]))
+    while (end > 0 && path_is_sep(path[end - 1]))
         end--;
     if (end == 0)
         return false;
@@ -180,7 +181,7 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
     if (colon)
         name_start = (size_t)(colon - path) + 1;
     for (size_t i = name_start; i < end; i++)
-        if (str_is_sep(path[i]))
+        if (path_is_sep(path[i]))
             name_start = i + 1;
 
     size_t name_len = end - name_start;
@@ -203,7 +204,7 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
     else
     {
         size_t parent_len = name_start;
-        if (parent_len > 1 && str_is_sep(path[parent_len - 1]) &&
+        if (parent_len > 1 && path_is_sep(path[parent_len - 1]) &&
             path[parent_len - 2] != ':')
             parent_len--;
         if (parent_len >= sizeof parent)

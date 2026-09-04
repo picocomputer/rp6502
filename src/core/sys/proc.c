@@ -2,66 +2,43 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
 
+#include "core/sys/sys.h"
 #include "core/sys/proc.h"
+#include "core/rom/rom.h"
 #include "core/api/proc.h"
-#include "core/sys/msc.h"
-#include "host/fs.h"
-#include "core/mem/mem.h"
-#include "core/wdc/cpu.h"
-#include "core/api/api.h"
 #include "core/api/arg.h"
-#include <stdio.h>
+#include "core/ria/regs.h"
+#include "core/wdc/sram.h"
+#include "core/sys/xram.h"
+#include "core/wdc/resb.h"
+#include "core/str/path.h"
+#include "osal/dir.h"
+#include "osal/os.h"
 #include <stdlib.h>
 #include <string.h>
 
-/* Pending exec (op 0x09): the new program loads at the frame boundary rather
- * than mid-tick, so the master clock and the partially-run frame stay
- * consistent. proc_exec() captures the ROM path and stops the current program;
- * the frame loop commits it via proc_take_exec(). */
-static bool exec_pending;
-static char exec_path[MSC_MAX_PATH];
+/* An exec argv[0] already names, waiting for a frame boundary. */
+static bool queued;
 
-void proc_init(void)
+void proc_exec_init(void)
 {
-    exec_pending = false;
+    queued = false;
 }
 
-void proc_exec(const char *rom_path)
+void proc_exec_request(void)
 {
-    snprintf(exec_path, sizeof(exec_path), "%s", rom_path);
-    exec_pending = true;
-    cpu_set_halted(true); /* stop the current program; the tick loop exits */
+    queued = true;
+    resb_assert(); /* stop the current program; the tick loop exits */
 }
 
-const char *proc_take_exec(void)
-{
-    if (!exec_pending)
-        return NULL;
-    exec_pending = false;
-    return exec_path;
-}
-
-bool proc_exec_pending(void)
-{
-    return exec_pending;
-}
-
-/* Seed the initially loaded program's argv (firmware rom_load_argv/rom_exec).
- * argv[0] is the program's own path in 6502 form so it can re-exec itself: a
- * drive path or an installed ":name" is used verbatim; a host path maps back
- * through realpath. Empty args are kept, like the monitor's LOAD. */
 bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
-    char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH];
-    const char *argv0 = rom;
-    if (!msc_has_drive_prefix(rom) && rom[0] != ':' && fs_realpath(rom, abs, sizeof(abs)))
-    {
-        msc_from_host(abs, msc, sizeof(msc));
-        argv0 = msc;
-    }
+    /* realpath answers in the 6502's spelling, so an absolute host path comes
+     * back as the drive path a program can hand straight back to exec. */
+    char *abs = (!path_has_drive(rom) && rom[0] != ':') ? os_dir_realpath(rom) : NULL;
+    const char *argv0 = abs ? abs : rom;
     /* Length-guard each string: arg_append's uint16 math trusts
      * monitor-capped tokens, but host input is unbounded. */
     arg_clear();
@@ -70,38 +47,61 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
         ok = strlen(args[i]) < XSTACK_SIZE && arg_append(args[i]);
     if (!ok)
         arg_clear(); /* no partial argv; the caller decides severity */
-    proc_run(); /* the initial program is now what's running */
+    free(abs);
+    proc_run(); /* the new program is now what's running */
     return ok;
 }
 
-/* Program EXIT (op 0xFF). Records the code, then the shared chain decides
- * whether there is a launcher to go back to; false means nothing is left to
- * run and the caller halts. */
-bool proc_exit(int16_t exit_code)
+bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
-    proc_set_exit_code(exit_code);
-    return proc_stop();
+    sys_stop_now(); /* before the load writes what the outgoing program ran on */
+    /* Whatever the outgoing program queued on its way out goes with it. The
+     * stop above ran proc_stop, which arms a launcher relaunch when there is
+     * a chain -- and a start that was asked for by name is not that child. */
+    queued = false;
+    if (flags & PROC_REFILL)
+    {
+        sram_init();
+        xram_init();
+    }
+    if (!rom_load(rom)) /* rom_load says why; a caller adding to it says it twice */
+        return false;
+    if (argc >= 0)
+        proc_set_argv(rom, argc, args);
+    if (flags & PROC_UNCHAIN)
+        proc_set_launcher(false);
+    sys_run();
+    return true;
 }
 
 /* Both are the same note here: this machine loads at the frame boundary
- * rather than mid-tick, where the master clock and a half-run frame would
- * disagree. proc_exec halts the 6502, which is all the stopping op 0x09
- * needs. */
-void proc_exec_start(const char *path)
+ * rather than mid-tick, where the clock and a half-run frame would disagree.
+ * proc_exec_request halts the 6502, which is all the stopping op 0x09 needs. */
+void proc_exec_start(void)
 {
-    proc_exec(path);
+    proc_exec_request();
 }
 
-void proc_exec_relaunch(const char *path)
+void proc_exec_relaunch(void)
 {
-    proc_exec(path);
+    proc_exec_request();
 }
 
-/* Never: a pending exec on this machine is the note the frame loop is about
- * to read, including the one the chain itself just wrote. A load someone else
- * committed cannot be outstanding at a stop, because an exec halts the 6502
- * on the spot rather than letting it reach EXIT. */
+/* A queued exec is a load this machine has committed to, including the one
+ * the chain just wrote: the launcher must not be put over it. proc_boot
+ * clears the queue after the stop walk has read this, so a start by name
+ * still wins. */
 bool proc_exec_inflight(void)
 {
-    return false;
+    return queued;
+}
+
+void proc_exec_task(void)
+{
+    if (!queued)
+        return;
+    /* argv[0], where the request left it: the stop walk inside proc_boot
+     * leaves argv alone while an exec is in flight. */
+    if (!proc_boot(arg_index(0), -1, NULL, 0))
+        proc_set_exit_code(1); /* stays stopped from proc_boot's stop */
 }

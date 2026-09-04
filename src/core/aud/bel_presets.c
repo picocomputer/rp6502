@@ -10,7 +10,7 @@
  */
 
 #include "core/aud/bel.h"
-#include "host.h"
+#include "machine.h"
 
 // Teletype bell: restrike-capable
 HOST_IN_FLASH("bel_teletype") const ria_bel_t bel_teletype = {

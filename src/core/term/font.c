@@ -6,7 +6,7 @@
 
 #include "core/term/font.h"
 #include "core/term/term.h"
-#include "host.h"
+#include "machine.h"
 #include <stdio.h>
 #include <string.h>
 

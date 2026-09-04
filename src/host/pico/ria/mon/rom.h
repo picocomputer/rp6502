@@ -32,6 +32,9 @@ bool rom_active(void);
  */
 
 void rom_mon_load(const char *args);
+/* The load below LOAD's argument gate: argv0 verbatim plus parsed args.
+ * NFC feeds installed names through here; the open answers for them. */
+void rom_load_argv(const char *argv0, const char *args);
 void rom_mon_info(const char *args);
 void rom_mon_install(const char *args);
 void rom_mon_remove(const char *args);
@@ -55,10 +58,11 @@ const char *rom_get_boot(void); // uses mbuf
 /* STDIO 
  */
 
-bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
-std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
-int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break, nul_config, nul_config)
+
 
 #endif /* _RIA_MON_ROM_H_ */

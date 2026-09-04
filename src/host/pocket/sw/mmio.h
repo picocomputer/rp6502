@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The soft CPU's windows on the machine, as mapped in rp6502.sv and
- * rv_soc.sv. Byte windows by design; the register cells are true words.
+ * soc.sv. Byte windows by design; the register cells are true words.
  */
 
-#ifndef _FPGA_SW_MMIO_H_
-#define _FPGA_SW_MMIO_H_
+#ifndef _HOST_POCKET_SW_MMIO_H_
+#define _HOST_POCKET_SW_MMIO_H_
 
 #include <stdint.h>
 
@@ -195,4 +195,4 @@ static inline int32_t set_tz_minutes(void)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 
-#endif /* _FPGA_SW_MMIO_H_ */
+#endif /* _HOST_POCKET_SW_MMIO_H_ */

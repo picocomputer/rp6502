@@ -5,7 +5,7 @@
  *
  * Code first because the reset vector is address zero.
  *
- * VIDCELLS length must match vid_mode0.sv, and covers both screens, so
+ * VIDCELLS length must match mode0.sv, and covers both screens, so
  * it moves with TERM_ALT_SCREEN in vga/term/term.h.
  */
 

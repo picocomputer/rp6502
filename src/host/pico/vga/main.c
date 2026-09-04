@@ -5,53 +5,37 @@
  */
 
 #include "vga/main.h"
-#include "core/vga/mode0.h"
-#include "core/vga/mode1.h"
-#include "core/vga/mode2.h"
-#include "core/vga/mode3.h"
-#include "core/vga/mode4.h"
-#include "core/vga/mode5.h"
-#include "vga/sys/com.h"
-#include "vga/sys/led.h"
-#include "vga/sys/pix.h"
-#include "vga/sys/ria.h"
-#include "vga/sys/sys.h"
-#include "vga/sys/vga.h"
-#include "core/term/font.h"
-#include "core/term/term.h"
-#include "vga/usb/cdc.h"
-#include "vga/usb/usb.h"
+#include "drivers.h"
+#include "core/vga/mode/mode0.h"
+#include "core/vga/mode/mode1.h"
+#include "core/vga/mode/mode2.h"
+#include "core/vga/mode/mode3.h"
+#include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode5.h"
 #include <pico/stdlib.h>
 
 static void init(void)
 {
-    com_init();
-    vga_init();
-    font_init();
-    term_init();
-    usb_init();
-    led_init();
-    ria_init();
-    pix_init();
+#define DRIVER(i, t, iot, r, s, b, ...) i();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
+    /* Last, and not inside vga_init where it used to live: core 1 renders
+     * the terminal, and until everything above has run there is no terminal
+     * to render -- the screen pointer is null and the glyph tables are
+     * uninitialized RAM. */
+    vga_start_render_core();
 }
 
+/* com_task after every driver, which is why this machine expands the walk
+ * itself. The UART is this firmware's whole reason to exist and its FIFO is
+ * 32 bytes; a driver that takes its time would overrun it. Both columns,
+ * because the terminal's row is core's and carries term_task in the io one --
+ * there is no file IO here to split them apart. */
 static void task(void)
 {
-    // com_task is important
-    term_task();
-    com_task();
-    cdc_task();
-    com_task();
-    ria_task();
-    com_task();
-    vga_task();
-    com_task();
-    usb_task();
-    com_task();
-    pix_task();
-    com_task();
-    sys_task();
-    com_task();
+#define DRIVER(i, t, iot, r, s, b, ...) t(); iot(); com_task();
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
 void main_pre_reclock(void)

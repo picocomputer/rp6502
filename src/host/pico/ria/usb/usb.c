@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "fatfs/ff.h"
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"
@@ -12,11 +12,11 @@
 #include "core/hid/tablet.h"
 #include "core/hid/gamepad.h"
 #include "host/hcd.h"
-#include "ria/main.h"
+#include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/usb/msc.h"
-#include "ria/ble/ble.h"
+#include "ria-w/ble/ble.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
 #include <pico/time.h>
@@ -26,7 +26,7 @@
 
 extern int hcd_free_ep_count(void);
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_USB)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -134,7 +134,7 @@ int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
     (void)state;
     int count_gamepad = usb_count_hid_gamepad + xin_status_count();
     int count_ep_free = hcd_free_ep_count();
-    com_snprintf_utf8(buf, buf_size, STR_STATUS_USB,
+    oem_snprintf(buf, buf_size, STR_STATUS_USB,
                       usb_count_hid_keyboard, usb_count_hid_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
                       usb_count_hid_mouse, usb_count_hid_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                       count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
@@ -272,7 +272,7 @@ static void usb_string_fetch_cb(tuh_xfer_t *xfer)
     usb_string_pending = false;
 }
 
-// Pumps main_task() while spinning, like msc_scsi_sync.
+// Pumps sys_task() while spinning, like msc_scsi_sync.
 static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
 {
     if (usb_string_pending)
@@ -292,7 +292,7 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
     {
         if (tusb_time_millis_api() - start_ms >= 250)
             return NULL; // the callback still owns the buffer
-        main_task();
+        sys_task();
     }
     if (usb_string_result != XFER_RESULT_SUCCESS)
         memset(usb_string_buf, 0, sizeof(usb_string_buf));
@@ -411,7 +411,9 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
 void hid_set_leds(uint8_t leds)
 {
     usb_set_hid_leds(leds);
+#ifdef RP6502_RIA_W
     ble_set_hid_leds(leds);
+#endif
 }
 
 bool hid_boot_enumerating(void)

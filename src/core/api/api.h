@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include "core/mem.h"
+#include "core/ria/regs.h"
 
 /* Main events
  */
@@ -207,5 +207,8 @@ static inline bool api_return_errno(api_errno errnum)
     xstack_ptr = XSTACK_SIZE;
     return api_return_axsreg(-1);
 }
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_API_API_H_ */

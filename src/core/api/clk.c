@@ -10,7 +10,7 @@
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/tim.h"
-#include "host.h"
+#include "host/host.h"
 #include <string.h>
 #include <time.h>
 
@@ -45,8 +45,10 @@ bool clk_api_time_set(void)
     if (!api_pop_uint64_end(&u))
         return api_return_errno(API_EINVAL);
     struct timespec ts = {.tv_sec = (int64_t)u, .tv_nsec = 0};
+    /* EACCES, not ERANGE: only a machine that owns a real time-of-day clock
+     * may move it, and the others are refusing rather than failing. */
     if (!tim_set_time(&ts))
-        return api_return_errno(API_ERANGE);
+        return api_return_errno(API_EACCES);
     return api_return_ax(0);
 }
 
@@ -175,6 +177,6 @@ bool clk_api_set_time(void)
     ts.tv_sec = rawtime_sec;
     ts.tv_nsec = rawtime_nsec;
     if (!tim_set_time(&ts))
-        return api_return_errno(API_ERANGE);
+        return api_return_errno(API_EACCES);
     return api_return_ax(0);
 }

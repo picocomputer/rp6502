@@ -16,7 +16,7 @@
 #include "bel.h"
 #include "mmio.h"
 
-#include "host.h"
+#include "host/host.h"
 
 
 #include <string.h>
@@ -97,7 +97,7 @@ void aud_restore(void)
     {
         AUD_OPL_XADDR = opl;
         /* Installing the pointer is also how this chip is reset, and
-         * aud_opl.sv holds that reset for 255 machine clocks while it
+         * opl.sv holds that reset for 255 machine clocks while it
          * walks its register file clear. A write arriving inside the
          * walk is not walked over, it is dropped outright, and the head
          * of the page is where the operator settings are.

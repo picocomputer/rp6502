@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#define TB_TERM_LANE(r, l, i) (r->rp6502__DOT__vid_mode0__DOT__cell##l[i])
+#define TB_TERM_LANE(r, l, i) (r->wiring__DOT__mode0__DOT__cell##l[i])
 
 template <typename Root>
 static uint32_t term_cell(Root *r, size_t i)

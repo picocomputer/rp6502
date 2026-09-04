@@ -13,12 +13,11 @@
  * of this shape gets all of them. The wire is core/com/tty.h.
  */
 
+#include "core/sys/ria.h"
 #include "core/com/com.h"
 #include "core/com/tty.h"
-#include "core/api/oem.h"
 #include "core/aud/bel.h"
-#include "core/main.h"
-#include "host.h" /* COM_RING_SIZE */
+#include "core/sys/driver.h"
 
 #include <stdio.h>
 #include <string.h>

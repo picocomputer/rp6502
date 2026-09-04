@@ -13,10 +13,11 @@ extern "C"
 {
 #endif
 
-    /* What this build is: "Version 0.31", "CI <run id>", or the time it was
-     * compiled. The same string the RIA and VGA firmware print in their
-     * banners, from the same generated header. */
+    /* "Version 0.31", "CI <run id>", or the time it was compiled. */
     const char *version_string(void);
+
+    /* "0.31" where the above says "Version 0.31". */
+    const char *version_bare(void);
 
 #ifdef __cplusplus
 }

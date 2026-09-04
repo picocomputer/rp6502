@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/aud.h"
+#include "core/aud/mix.h"
 #include "core/aud/bel.h"
-#include "host.h"
+#include "core/aud/sine.h"
 
-#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_BEL)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_BEL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -51,43 +51,24 @@ static const uint32_t bel_vol_table[] = {
     0 << 16,
 };
 
-// Same rates as the 6581 SID, in milliseconds
-static const uint16_t bel_attack_ms_table[] = {
-    2,    // 0
-    8,    // 1
-    16,   // 2
-    24,   // 3
-    38,   // 4
-    56,   // 5
-    68,   // 6
-    80,   // 7
-    100,  // 8
-    250,  // 9
-    500,  // A
-    800,  // B
-    1000, // C
-    3000, // D
-    5000, // E
-    8000, // F
+/* Same rates as the 6581 SID, in milliseconds, as the increments they come
+ * to at AUD_NATIVE_RATE. (rate * ms) / 1000, not (rate / 1000) * ms: the old
+ * form threw away the part of the rate below a kilohertz, which is exact at
+ * 24000 and 48000 and 1.44% fast at 49716. Constants, as psg.c's are. */
+#define BEL_STEP(ms) ((1 << 24) / (uint32_t)(((uint64_t)AUD_NATIVE_RATE * (ms)) / 1000))
+
+static const uint32_t bel_attack_table[16] = {
+    BEL_STEP(2), BEL_STEP(8), BEL_STEP(16), BEL_STEP(24),
+    BEL_STEP(38), BEL_STEP(56), BEL_STEP(68), BEL_STEP(80),
+    BEL_STEP(100), BEL_STEP(250), BEL_STEP(500), BEL_STEP(800),
+    BEL_STEP(1000), BEL_STEP(3000), BEL_STEP(5000), BEL_STEP(8000),
 };
 
-static const uint16_t bel_decay_release_ms_table[] = {
-    6,     // 0
-    24,    // 1
-    48,    // 2
-    72,    // 3
-    114,   // 4
-    168,   // 5
-    204,   // 6
-    240,   // 7
-    300,   // 8
-    750,   // 9
-    1500,  // A
-    2400,  // B
-    3000,  // C
-    9000,  // D
-    15000, // E
-    24000, // F
+static const uint32_t bel_decay_release_table[16] = {
+    BEL_STEP(6), BEL_STEP(24), BEL_STEP(48), BEL_STEP(72),
+    BEL_STEP(114), BEL_STEP(168), BEL_STEP(204), BEL_STEP(240),
+    BEL_STEP(300), BEL_STEP(750), BEL_STEP(1500), BEL_STEP(2400),
+    BEL_STEP(3000), BEL_STEP(9000), BEL_STEP(15000), BEL_STEP(24000),
 };
 
 /* Sound queue ring buffer.
@@ -127,28 +108,13 @@ void bel_add(const ria_bel_t *sound)
         bel_state.vol = 0;
         bel_state.phase = 0;
         bel_state.elapsed_samples = 0;
-        bel_state.active = true; // published last; IRQ always sees consistent state
+        bel_state.active = true; // published last; a sampler on another thread sees consistent state
     }
-}
-
-/* (rate * ms) / 1000, not (rate / 1000) * ms. The old form threw away the
- * part of the rate below a kilohertz, which is exact at 24000 and 48000 and
- * 1.44% fast at the OPL's 49716 — the one rate the bell is stepped at that
- * is not a round number of samples per millisecond. */
-static inline uint32_t bel_attack_rate(uint8_t nibble, uint32_t rate)
-{
-    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_attack_ms_table[nibble]) / 1000);
-}
-
-static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
-{
-    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_decay_release_ms_table[nibble]) / 1000);
 }
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-int16_t
-HOST_TIME_CRITICAL(bel_sample)(uint32_t rate)
+int16_t bel_sample(void)
 {
     if (!bel_state.active)
         return 0;
@@ -157,7 +123,7 @@ HOST_TIME_CRITICAL(bel_sample)(uint32_t rate)
 
     // Advance elapsed time and check timing events
     bel_state.elapsed_samples++;
-    uint32_t elapsed_ms = (uint32_t)bel_state.elapsed_samples * 1000 / rate;
+    uint32_t elapsed_ms = (uint32_t)bel_state.elapsed_samples * 1000 / AUD_NATIVE_RATE;
 
     // Restrike when current and next both request it
     if (snd->restrike_ms > 0 && elapsed_ms >= snd->restrike_ms)
@@ -210,7 +176,7 @@ HOST_TIME_CRITICAL(bel_sample)(uint32_t rate)
 
 generate:;
     // Generate waveform sample
-    uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * snd->freq / 3 / rate;
+    uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * snd->freq / 3 / AUD_NATIVE_RATE;
     bel_state.phase += phase_inc;
     uint32_t phase = bel_state.phase >> 24;
     uint32_t duty = snd->duty;
@@ -225,7 +191,7 @@ generate:;
         if (phase < 128u - duty || phase >= 128u + duty)
             bel_state.sample = BEL_RAIL;
         else
-            bel_state.sample = aud_sine_table[phase];
+            bel_state.sample = sine_table[phase];
         break;
     case 1: // square
         if (phase > duty)
@@ -264,11 +230,11 @@ generate:;
     }
 
     // Compute ADSR envelope
-    uint32_t atk_rate = bel_attack_rate(snd->vol_attack & 0xF, rate);
+    uint32_t atk_rate = bel_attack_table[snd->vol_attack & 0xF];
     uint32_t atk_target = bel_vol_table[snd->vol_attack >> 4];
-    uint32_t dec_rate = bel_decay_release_rate(snd->vol_decay & 0xF, rate);
+    uint32_t dec_rate = bel_decay_release_table[snd->vol_decay & 0xF];
     uint32_t dec_target = bel_vol_table[snd->vol_decay >> 4];
-    uint32_t rel_rate = bel_decay_release_rate(snd->wave_release & 0xF, rate);
+    uint32_t rel_rate = bel_decay_release_table[snd->wave_release & 0xF];
 
     switch (bel_state.adsr)
     {
@@ -309,22 +275,10 @@ generate:;
                       + (1 << 11))
                      >> 12);
 }
-
-static HOST_ISR void
-HOST_TIME_CRITICAL(bel_irq_handler)(void)
-{
-    aud_clear_irq();
-
-    /* bel_sample already answers at full scale and cannot exceed it, so
-     * there is nothing to clamp; the platform's aud_out narrows. */
-    int16_t sample = bel_sample(aud_native_rate());
-    aud_out(sample, sample);
-}
 #pragma GCC pop_options
 
-void bel_setup(void)
+void bel_init(void)
 {
     bel_state.noise1 = 0x67452301;
     bel_state.noise2 = 0xEFCDAB89;
-    aud_setup(bel_irq_handler, aud_native_rate());
 }

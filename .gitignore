@@ -1,4 +1,4 @@
 /build/
 /.venv/
 __pycache__/
-/src/mach/android/local.properties
+/src/host/sokol/android/apk/local.properties

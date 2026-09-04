@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
-#include "core/api/oem.h"
+#include "core/api/arg.h"
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
+#include "core/str/oem.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/help.h"
@@ -13,23 +15,24 @@
 #include "ria/mon/ram.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
+#include "ria/mon/status.h"
 #include "ria/mon/uf2.h"
-#include "ria/net/cyw.h"
+#include "ria-w/net/cyw.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/mem.h"
 #include "ria/sys/ria.h"
-#include "ria/sys/sys.h"
 #include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
+#include <hardware/watchdog.h>
+#include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_MON)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_MON)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -75,6 +78,23 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
+/* The two commands that restart something. They are the table's, not a
+ * driver's: one reboots this chip, the other hands the 6502 back a machine it
+ * already has. */
+static void mon_reboot(const char *args)
+{
+    (void)args;
+    stdio_flush();
+    watchdog_reboot(0, 0, 0);
+}
+
+static void mon_reset(const char *args)
+{
+    (void)args;
+    arg_clear();
+    sys_run();
+}
+
 typedef void (*mon_command_fn)(const char *);
 __in_flash("mon_commands") static struct
 {
@@ -84,7 +104,7 @@ __in_flash("mon_commands") static struct
     {STR_HELP, help_mon_help},
     {STR_H, help_mon_help},
     {STR_QUESTION_MARK, help_mon_help},
-    {STR_STATUS, sys_mon_status},
+    {STR_STATUS, status_mon_status},
     {STR_SET, set_mon_set},
     {STR_LS, fil_mon_dir},
     {STR_DIR, fil_mon_dir},
@@ -95,8 +115,8 @@ __in_flash("mon_commands") static struct
     {STR_INFO, rom_mon_info},
     {STR_INSTALL, rom_mon_install},
     {STR_REMOVE, rom_mon_remove},
-    {STR_REBOOT, sys_mon_reboot},
-    {STR_RESET, sys_mon_reset},
+    {STR_REBOOT, mon_reboot},
+    {STR_RESET, mon_reset},
     {STR_FLASH, uf2_mon_flash},
     {STR_UPLOAD, fil_mon_upload},
     {STR_UNLINK, fil_mon_unlink},
@@ -197,7 +217,7 @@ static void mon_confirm_enter(bool timeout, const char *buf)
     // The typed token is OEM (active code page); the confirm word is UTF-8, so
     // convert it to OEM, then compare with the code-page-aware str_oem_eq.
     char yes[16];
-    com_snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
+    oem_snprintf(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
     const char *tok = str_parse_string(&buf);
     if (cb && tok && str_oem_eq(tok, yes) && str_parse_end(buf))
         cb();
@@ -314,9 +334,9 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
         return state;
     const char *err_str = lookup(state);
     if (err_str != NULL)
-        com_snprintf_utf8(buf, buf_size, "%s", err_str);
+        oem_snprintf(buf, buf_size, "%s", err_str);
     else
-        com_snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
+        oem_snprintf(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
     return -1;
 }
 
@@ -423,6 +443,27 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
+/* The seam answers in api_errno; these are the ones its ROM half can say,
+ * worded with the strings the two backends already print. */
+void mon_add_response_errno(api_errno err)
+{
+    switch (err)
+    {
+    case API_ENOENT:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_NO_FILE));
+    case API_EACCES:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
+    case API_EEXIST:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_EXIST));
+    case API_ENOEXEC:
+        return mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+    case API_ENOSPC:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
+    default:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DISK_ERR));
+    }
+}
+
 static void mon_more(void)
 {
     if (mon_needs_break)
@@ -489,7 +530,7 @@ static void mon_more(void)
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
-    if (main_active())
+    if (sys_active())
         return;
     if (mon_more_state)
     {
@@ -684,6 +725,23 @@ void mon_task(void)
         while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
             tight_loop_contents();
     }
+}
+
+/* The startup banner, queued before anything else can queue an error: it opens
+ * by clearing the terminal, so whatever went in ahead of it would be erased. */
+void __in_flash("mon_init") mon_init(void)
+{
+#ifdef NDEBUG
+    mon_add_response_utf8(STR_TERM_HARD_RESET);
+#else
+    // We can't soft reset cursor when ROMs stop because minicom
+    // will print the q, but one at startup is fine for debug.
+    mon_add_response_utf8("\30\33[0 q");
+    mon_add_response_utf8(STR_TERM_SOFT_RESET);
+#endif
+    mon_add_response_utf8("\n");
+    status_add_boot_response();
+    mon_add_response_utf8("\n");
 }
 
 void mon_stop(void)

@@ -42,32 +42,43 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
     long frames = 0;
     bool moved = false;
     bool ran = false;
+    int quiet_frames = 0;
     /* An image waiting in the staging window; the firmware clears the
      * length when it is done with it, run or refused. */
-    bool had_image = dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len != 0;
+    bool had_image = dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len != 0;
     bool pending = had_image;
-    uint16_t prev = dut->rp6502_scanline;
+    uint16_t prev = dut->wiring_scanline;
     while (frames < frame_limit && budget-- > 0)
     {
         cycle();
-        if (dut->rp6502_rv_halted)
+        if (dut->wiring_rv_halted)
             return false;
-        if (dut->rp6502_tx_valid || dut->rp6502_rv_tx_valid)
+        if (dut->wiring_tx_valid || dut->wiring_rv_tx_valid)
             moved = true;
-        if (dut->rootp->rp6502__DOT__resb)
+        if (dut->rootp->wiring__DOT__resb)
             ran = true;
-        if (pending && !dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len)
+        if (pending && !dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len)
             pending = false;
-        uint16_t sl = dut->rp6502_scanline;
+        uint16_t sl = dut->wiring_scanline;
         bool frame_edge = sl == 0 && prev != 0;
         prev = sl;
         if (!frame_edge)
             continue;
         frames++;
-        bool stopped = dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag != 0
-            || !dut->rootp->rp6502__DOT__resb;
+        bool stopped = dut->rootp->wiring__DOT__cpu__DOT__stop_flag != 0
+            || !dut->rootp->wiring__DOT__resb;
+        /* Two frames, not one. A firmware that is still working through
+         * a boot is silent while it does it, and one quiet frame edge
+         * can land inside that silence -- before the 6502 has been
+         * released -- which reads as a machine that refused its image.
+         * Whether it did is exactly what the caller is asking. */
         if (!pending && (ran || had_image) && stopped && !moved)
-            return true;
+        {
+            if (++quiet_frames >= 2)
+                return true;
+        }
+        else
+            quiet_frames = 0;
         moved = false;
     }
     return false;

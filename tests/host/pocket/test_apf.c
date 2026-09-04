@@ -6,7 +6,7 @@
  * The Pocket's synthetic HID descriptors, against the drivers they were
  * written for.
  *
- * src/rtl/sw/apf.c hands the dock's registers to ria/hid as reports,
+ * src/host/pocket/sw/apf.c hands the dock's registers to ria/hid as reports,
  * and what makes that work is four descriptors that say where every
  * bit went. Nothing else checks them. A descriptor that put the d-pad
  * where the buttons go, or the right stick where the left one is, would
@@ -20,13 +20,16 @@
  * are never dereferenced here, because nothing below calls apf_task.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/mem.h"
+#include "core/sys/xram.h"
+/* keymap_set_layout_list is generated from keymap.h's config row; the
+ * declaration comes with the roster, not with the driver header. */
+#include "core/sys/config.h"
 
 #include "host/pocket/sw/apf.c"
 
@@ -282,7 +285,7 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
 UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
-    keymap_load_layout("US");
+    keymap_set_layout_list("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -300,7 +303,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 
     /* And a layout that moves a key moves it: on the German layout the
      * key at 0x1C types z, not y. */
-    keymap_load_layout("DE");
+    keymap_set_layout_list("DE");
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
@@ -319,7 +322,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 {
     reset_all();
     oem_set_code_page_run(437);
-    keymap_load_layout("US-INTL");
+    keymap_set_layout_list("US-INTL");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];

@@ -6,18 +6,18 @@
 
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
-#include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "ria/mon/help.h"
+#include "core/sys/config.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
-#include "ria/net/cyw.h"
-#include "ria/net/wifi.h"
+#include "ria-w/net/cyw.h"
+#include "ria-w/net/wifi.h"
 #include "core/str/str.h"
 #include <pico.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HELP)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_HELP)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -68,16 +68,35 @@ __in_flash("help_commands") static const help_entry_t HELP_COMMANDS[] = {
 };
 static const size_t HELP_COMMANDS_COUNT = sizeof HELP_COMMANDS / sizeof *HELP_COMMANDS;
 
-__in_flash("help_settings") static const help_entry_t HELP_SETTINGS[] = {
-#define X(ltr, fmt, get, load, attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
-#define XCFG(...)
-#define XMON(attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
-#include "ria/sys/cfg.def"
-#undef X
-#undef XCFG
-#undef XMON
-};
-static const size_t HELP_SETTINGS_COUNT = sizeof HELP_SETTINGS / sizeof *HELP_SETTINGS;
+/* HELP SET <attr>, from the same rows SET itself is built from. An if-chain
+ * rather than a table because a walked row may not emit a top-level comma,
+ * which a brace initializer is made of. BOOT is hand-written for the same
+ * reason it is in set.c: it has no row. */
+static const char *help_find_setting(const char *key, mon_response_fn *fn)
+{
+    if (!strcasecmp(key, STR_BOOT))
+        return S(STR_HELP_SET_BOOT);
+#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, help, helpfn) \
+    if (!strcasecmp(key, attr))                                                       \
+    {                                                                                 \
+        if (fn)                                                                       \
+            *fn = helpfn;                                                             \
+        return S(help);                                                               \
+    }
+#define CONFIG_STR CONFIG_INT
+#define CONFIG_RAW CONFIG_INT
+#define CONFIG_HIDDEN(...)
+#define CONFIG_SAVE(fn)
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef CONFIG_SAVE
+#undef CONFIG_HIDDEN
+#undef CONFIG_RAW
+#undef CONFIG_STR
+#undef CONFIG_INT
+#undef DRIVER
+    return NULL;
+}
 
 __in_flash("help_disk") static const help_entry_t HELP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
@@ -115,7 +134,7 @@ const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
     if (sub)
     {
         if (!strcasecmp(word, STR_SET))
-            return help_find(HELP_SETTINGS, HELP_SETTINGS_COUNT, sub, fn);
+            return help_find_setting(sub, fn);
         if (!strcasecmp(word, STR_DISK))
             return help_find(HELP_DISK, HELP_DISK_COUNT, sub, fn);
         return NULL;

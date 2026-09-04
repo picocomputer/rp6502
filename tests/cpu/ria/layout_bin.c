@@ -44,7 +44,7 @@ static void layout_bin_load(void)
     kbdlay_loaded = 1;
 }
 
-/* Little-endian halfwords, which is how src/rtl/sw/layout.c reads them out
+/* Little-endian halfwords, which is how src/host/pocket/sw/hid.c reads them out
  * of the staging window a byte at a time. */
 uint16_t layout_word(uint32_t index)
 {

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The PSG in lockstep: the vendored psg.c drives its handler sample by
- * sample over shim seams while the verilated aud_psg runs the same
+ * sample over shim seams while the verilated psg runs the same
  * configs from the same XRAM image, gates injected at identical sample
  * indices on both sides — every stereo PWM pair must match exactly.
  * Covers all five waves across the channels, the envelope through
@@ -17,7 +17,7 @@
  *
  * So do not ring one in this file. psg.c still mixes the bell, because
  * on the RP2350 and in the emulator the driver is the whole output
- * stage and there is nowhere else for it to go; aud_psg does not,
+ * stage and there is nowhere else for it to go; psg does not,
  * because on the Pocket there is somewhere else. The two agree exactly
  * while the bell is silent, which is the only condition this lockstep
  * is valid under.
@@ -28,8 +28,8 @@
  * that pins every table constant the song phases left dark.
  */
 
-#include "Vaud_psg.h"
-#include "Vaud_psg___024root.h"
+#include "Vpsg.h"
+#include "Vpsg___024root.h"
 
 #include "psg_shim.h"
 #include "utest.h"
@@ -47,7 +47,7 @@ extern "C"
 
 extern "C" bool psg_xreg(uint16_t word);
 
-static Vaud_psg *dut;
+static Vpsg *dut;
 
 static void clock_cycle()
 {
@@ -71,7 +71,7 @@ static void snoop_dut(uint16_t addr, uint8_t val, bool host)
     dut->q_host = 1;
 }
 
-/* aud_psg_xreg's import, which is how a block programmed before the
+/* psg_xreg's import, which is how a block programmed before the
  * pointer reaches an engine that only hears writes. The soft CPU reads
  * each byte and writes it back over itself; the firmware needs nothing
  * because it reads the block every sample. q_host low, so the pan_gate
@@ -136,16 +136,16 @@ static void run_lockstep(int *utest_result, int n)
         int16_t cl, cr;
         shim_sample(&cl, &cr);
         int guard = 0;
-        while (!dut->aud_psg_valid && guard++ < 4000)
+        while (!dut->psg_valid && guard++ < 4000)
             clock_cycle();
         ASSERT_LT(guard, 4000);
         if (getenv("PSG_DEBUG")
-            && ((int16_t)dut->aud_psg_l != cl || (int16_t)dut->aud_psg_r != cr))
+            && ((int16_t)dut->psg_l != cl || (int16_t)dut->psg_r != cr))
             fprintf(stderr, "psg diff sample=%ld rtl=(%d,%d) c=(%d,%d)\n",
-                    g_sample, (int16_t)dut->aud_psg_l, (int16_t)dut->aud_psg_r,
+                    g_sample, (int16_t)dut->psg_l, (int16_t)dut->psg_r,
                     cl, cr);
-        ASSERT_EQ((int16_t)dut->aud_psg_l, cl);
-        ASSERT_EQ((int16_t)dut->aud_psg_r, cr);
+        ASSERT_EQ((int16_t)dut->psg_l, cl);
+        ASSERT_EQ((int16_t)dut->psg_r, cr);
         g_sample++;
         clock_cycle(); /* consume the strobe */
         release_snoop();
@@ -159,7 +159,7 @@ static void run_lockstep(int *utest_result, int n)
 static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
 {
     held.clear(); /* psg_xreg drops the ring; the pointer paths must agree */
-    while (dut->rootp->aud_psg__DOT__state == 0)
+    while (dut->rootp->psg__DOT__state == 0)
         clock_cycle();
     for (int i = 0; i < depth; i++)
         clock_cycle();
@@ -193,8 +193,7 @@ static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
 UTEST(psg, lockstep_bit_exact)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
-    bel_setup();
+    bel_init();
 
     /* The machine as aud_init leaves it: pointer parked, and the walk
      * still running so the output stage keeps its sample tick. The bell
@@ -389,9 +388,9 @@ static void snoop_now(uint16_t addr, uint8_t val)
 static int rtl_sample()
 {
     int guard = 0;
-    while (!dut->aud_psg_valid && guard++ < 4000)
+    while (!dut->psg_valid && guard++ < 4000)
         clock_cycle();
-    int l = (int16_t)dut->aud_psg_l;
+    int l = (int16_t)dut->psg_l;
     clock_cycle();
     return l;
 }
@@ -405,7 +404,7 @@ static void rtl_reset()
         dut->final();
         delete dut;
     }
-    dut = new Vaud_psg;
+    dut = new Vpsg;
     dut->clk = 0;
     dut->q_we = 0;
     dut->q_host = 1;
@@ -433,7 +432,7 @@ static void one_loud_channel(uint16_t base)
  * rates, and this is a question about when the write arrives. */
 #define ADSR_RELEASE 0
 #define ADSR_ATTACK 1
-/* P_STEP, the last member of state_t in aud_psg.sv. Sequential, not the
+/* P_STEP, the last member of state_t in psg.sv. Sequential, not the
  * one-hot Quartus re-encodes to; move it when the walk gains or loses a
  * state. */
 #define PSG_STATE_STEP 5
@@ -441,18 +440,17 @@ static void one_loud_channel(uint16_t base)
 UTEST(psg, gate_applies_on_the_clock_it_lands)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
     rtl_sample();
 
-    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
     snoop_now(base + 6, 0x01);
-    ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
 
     snoop_now(base + 6, 0x00);
-    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
 }
 
 /* And no bound on how many land. The firmware keeps 256 of them and
@@ -462,7 +460,6 @@ UTEST(psg, gate_applies_on_the_clock_it_lands)
 UTEST(psg, no_write_is_dropped)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
@@ -471,11 +468,11 @@ UTEST(psg, no_write_is_dropped)
     /* Far past the ring, and past any one sample's replay. */
     for (int i = 0; i < 600; i++)
         snoop_now(base + 6, (uint8_t)(i & 1));
-    ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
 
     for (int i = 0; i < 601; i++)
         snoop_now(base + 6, (uint8_t)(i & 1));
-    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
 }
 
 /* The engine holds its registers in memory the walk reads as it goes,
@@ -488,7 +485,6 @@ UTEST(psg, no_write_is_dropped)
 UTEST(psg, a_write_reaches_the_step_it_lands_on)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     for (int ch = 1; ch < 8; ch++)
@@ -499,13 +495,13 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
      * is whole from the next one. */
     rtl_sample();
     rtl_sample();
-    ASSERT_EQ(32767, (int16_t)dut->rootp->aud_psg__DOT__ch_sample[0]);
+    ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
 
-    while (dut->rootp->aud_psg__DOT__state != PSG_STATE_STEP
-           || dut->rootp->aud_psg__DOT__ch != 0)
+    while (dut->rootp->psg__DOT__state != PSG_STATE_STEP
+           || dut->rootp->psg__DOT__ch != 0)
         clock_cycle();
     snoop_dut(base + 5, 0x50, false);
-    ASSERT_EQ(0, (int16_t)dut->rootp->aud_psg__DOT__ch_sample[0]);
+    ASSERT_EQ(0, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
 }
 
 /* A block programmed before its pointer. Every byte of it arrives, by
@@ -515,7 +511,6 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
 UTEST(psg, an_imported_block_carries_no_gate)
 {
     shim_init();
-    psg_setup(PSG_SHIM_RATE);
     rtl_reset();
     const uint16_t base = 0x4000;
     for (int ch = 0; ch < 8; ch++)
@@ -525,12 +520,12 @@ UTEST(psg, an_imported_block_carries_no_gate)
     rtl_sample();
     rtl_sample();
     for (int ch = 0; ch < 8; ch++)
-        ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[ch]);
+        ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[ch]);
 
     /* And they did arrive: a gate written now finds the imported wave. */
     snoop_now(base + 6, 0x01);
-    ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
-    ASSERT_EQ(32767, (int16_t)dut->rootp->aud_psg__DOT__ch_sample[0]);
+    ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
+    ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
 }
 
 /* The phase increment the engine multiplies for and the oracle divides
@@ -539,7 +534,7 @@ UTEST(psg, an_imported_block_carries_no_gate)
  * for all the ones a song happens to play, and the pairs this rejects
  * first fail at 53932 and 12307, which no test above ever sounds.
  *
- * Must match PHASE_MAGIC and PHASE_SHIFT in aud_psg.sv. */
+ * Must match PHASE_MAGIC and PHASE_SHIFT in psg.sv. */
 UTEST(psg, the_phase_magic_is_a_division)
 {
     for (uint32_t f = 0; f < 65536; f++)
@@ -555,7 +550,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vaud_psg;
+    dut = new Vpsg;
     dut->clk = 0;
     dut->q_host = 1;
     dut->eval();

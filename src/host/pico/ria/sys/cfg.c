@@ -4,37 +4,39 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
-#include "ria/ble/ble.h"
-#include "core/hid/keyboard.h"
+#include "ria-w/ble/ble.h"
 #include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
-#include "ria/net/cyw.h"
-#include "ria/net/wifi.h"
+#include "ria-w/net/cyw.h"
+#include "ria-w/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
+#include "core/sys/config.h"
 #include "ria/sys/com.h"
-#include "ria/sys/cpu.h"
-#include "ria/sys/lfs.h"
-#include "ria/sys/mem.h"
+#include "ria/sys/phi2.h"
+#include "osal/pico/lfs.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 
-#include <stdarg.h> /* before pico/printf.h, which uses va_list without it */
-#include <pico/printf.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_CFG)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Configuration is a plain ASCII file on the LFS. e.g.
+/* Configuration is a plain ASCII file on the LFS. The rows are the machine's
+ * driver rows -- see core/sys/config.h -- and their order here follows from
+ * the roster, which does not matter: a line is found by its letter, so a file
+ * written by any build loads on any other. The letters C and R are retired.
+ * e.g. */
 // +V1         | Version - Must be first
 // +P8000      | PHI2
 // +C0         | Caps (retired)
@@ -54,8 +56,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +O23        | Telnet Port
 // +AsEkRiT    | Telnet Key
 // BASIC       | Boot ROM - Must be last
-
-#define CFG_VERSION 1
 
 /* Every setting, rendered. Called twice: once against the file to find out
  * whether anything actually changed, once to write it if something did. */
@@ -87,61 +87,13 @@ static void cfg_sink_cb(char character, void *arg)
         sink->error = (int)result;
 }
 
-/* Must stay a function, not a macro: the settings expand from a directive,
- * and a directive among a function-like macro's arguments is undefined
- * (C11 6.10.3p11). */
-static int cfg_printf(struct cfg_sink *sink, const char *format, ...)
+/* Every row, then the boot line -- which is not a row: it has no RAM, it is
+ * the last line of the file. */
+static void cfg_emit(struct cfg_sink *sink, const char *opt_str)
 {
-    va_list va;
-    va_start(va, format);
-    // vfctprintf is Marco Paland's "Tiny printf" from the Pi Pico SDK
-    int result = vfctprintf(cfg_sink_cb, sink, format, va);
-    va_end(va);
-    return result;
-}
-
-static int cfg_emit(struct cfg_sink *sink, const char *opt_str)
-{
-    /* The format and the arguments are two expansions of one table. Legal
-     * because a directive is processed on lines, before adjacent string
-     * literals are joined -- but cfg_printf must stay a function, because a
-     * directive among a function-like macro's arguments is undefined
-     * (C11 6.10.3p11). */
-#define X(ltr, fmt, get, load, ...) "+" #ltr fmt "\n"
-#define XCFG(ltr, fmt, get, load) "+" #ltr fmt "\n"
-#define XMON(...)
-    return cfg_printf(sink,
-                      "+V%u\n"
-#include "ria/sys/cfg.def"
-                      "%s",
-#undef X
-#undef XCFG
-#undef XMON
-#define X(ltr, fmt, get, load, ...) get(),
-#define XCFG(ltr, fmt, get, load) get(),
-#define XMON(...)
-                      CFG_VERSION,
-#include "ria/sys/cfg.def"
-                      opt_str);
-#undef X
-#undef XCFG
-#undef XMON
-}
-
-/* Which loader a "+" line belongs to. An if-chain rather than a switch:
- * stringizing a letter gives "P", and "P"[0] is not an integer constant
- * expression, so it cannot be a case label. */
-static void cfg_load_line(char letter, const char *str)
-{
-#define X(ltr, fmt, get, load, ...) \
-    if (letter == #ltr[0])          \
-        return load(str);
-#define XCFG(ltr, fmt, get, load) X(ltr, fmt, get, load)
-#define XMON(...)
-#include "ria/sys/cfg.def"
-#undef X
-#undef XCFG
-#undef XMON
+    config_render(cfg_sink_cb, sink);
+    while (*opt_str)
+        cfg_sink_cb(*opt_str++, sink);
 }
 
 // Optional string can replace boot string
@@ -175,7 +127,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
     struct cfg_sink sink = {.file = &lfs_file, .compare = true};
     lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
     if (lfsresult >= 0)
-        lfsresult = cfg_emit(&sink, opt_str);
+        cfg_emit(&sink, opt_str);
     if (lfsresult >= 0 && sink.error < 0)
         lfsresult = sink.error;
     if (lfsresult >= 0 && !sink.differs)
@@ -192,7 +144,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         if (lfsresult >= 0)
             lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
         if (lfsresult >= 0)
-            lfsresult = cfg_emit(&sink, opt_str);
+            cfg_emit(&sink, opt_str);
         if (lfsresult >= 0 && sink.error < 0)
             lfsresult = sink.error;
     }
@@ -229,7 +181,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         if (len < 2)
             continue;
         const char *str = (char *)mbuf + 2;
-        cfg_load_line(mbuf[1], str);
+        config_load_line(mbuf[1], str);
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     mon_add_response_lfs(lfsresult);
@@ -237,10 +189,13 @@ static void cfg_load_with_boot_opt(bool boot_only)
 
 void __in_flash("cfg_init") cfg_init(void)
 {
+    /* The first thing on this machine to read the volume, so the first that
+     * can say the mount went wrong. */
+    mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);
 }
 
-void cfg_save(void)
+void cfg_file_save(void)
 {
     cfg_save_with_boot_opt(NULL);
 }

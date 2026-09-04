@@ -6,7 +6,7 @@
  * Whichever 6522 this tree built.
  *
  * The VIA exists twice for the same reason the 6502 does — chips/m6522.h in
- * the emulator, w65c22.sv in the fabric — and the machine drives both the same
+ * the emulator, via.sv in the fabric — and the machine drives both the same
  * way: chip select asserted, ports unwired, a register read or written per
  * cycle. That is the whole of this interface, which is why one suite can hold
  * both to one recorded trace and to the same documented behaviour.
@@ -17,7 +17,7 @@
 #ifndef _TESTS_CPU_WDC_VIA_DUT_H_
 #define _TESTS_CPU_WDC_VIA_DUT_H_
 
-#include "w65c22_scen.h"
+#include "via_scen.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -37,7 +37,7 @@ extern "C"
     /* One cycle, the way core/wdc/via.c wires it: *data is what a read
      * returned (meaningless on a write or an idle), *irq the IRQ line as this
      * cycle left it. */
-    void via_step(const w65c22_op_t *op, uint8_t *data, bool *irq);
+    void via_step(const via_op_t *op, uint8_t *data, bool *irq);
 
 #ifdef __cplusplus
 }

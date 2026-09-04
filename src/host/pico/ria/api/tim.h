@@ -24,8 +24,18 @@ int tim_tzdata_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting TZ
 // Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
-void tim_load_time_zone(const char *str);
-bool tim_set_time_zone(const char *tz);
-const char *tim_get_time_zone(void);
+bool tim_check_time_zone(const char *in, char *out);
+void tim_apply_time_zone(const char *tz, bool changed);
+int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width);
+
+/* The zone rides this machine's TIM row. core/api/tim.h has the clock and no
+ * setting; this header re-rows it, and the pico roster includes this one. */
+#include "core/api/tim.h"
+#undef TIM_DRIVER
+#define TIM_CONFIG_TZ CONFIG_STR(T, tim, time_zone, TIM_TZ_MAX_SIZE, "UTC0", \
+    tim_check_time_zone, tim_apply_time_zone, STR_TZ, tim_time_zone_response, \
+    STR_HELP_SET_TZ, tim_tzdata_response)
+#define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    TIM_CONFIG_TZ, nul_config)
 
 #endif /* _RIA_API_TIM_H_ */

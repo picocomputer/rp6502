@@ -39,10 +39,9 @@
 #include "aud.h"
 #include "com.h"
 #include "font.h"
-#include "log.h"
 #include "main.h"
 #include "mmio.h"
-#include "msc.h"
+#include "fs.h"
 #include "proc.h"
 #include "rom.h"
 #include "vga.h"
@@ -50,31 +49,9 @@
 
 #include "core/api/tim.h"
 
-#include "host.h"
 
 #include <stdio.h>
 #include <string.h>
-
-/* Everything about a wake this side is not certain of, said once, at
- * the one moment all of it is knowable. The device is the only place
- * these questions can be put -- Analogue documents none of it -- and a
- * hardware pass is expensive, so this asks the whole list in one go
- * rather than one question per bitstream.
- *
- * Once per restore and never in a loop: a running program owns the
- * console and this must not become weather. */
-static void sst_log_restore(uint32_t ctl)
-{
-    uint64_t us = host_clock_us();
-    LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
-           (unsigned)(us >> 32), (unsigned)us);
-    LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
-            (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
-           (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
-    LOG_SAY("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
-           (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,
-           (unsigned)main_boot_slot, (unsigned)main_boot_upd);
-}
 
 bool sst_pending(void)
 {
@@ -86,10 +63,6 @@ void sst_task(void)
     uint32_t ctl = SST_CTL;
     if (!(ctl & SST_RESTORED))
         return;
-    /* Before anything downstream can fail, so a log that reaches here
-     * and no further says where. */
-    LOG_SAY("sst: restored\n");
-    sst_log_restore(ctl);
 
     /* Refused, and nothing was written: this is still the session it
      * was, so there is nothing to fix up and every fixup would be
@@ -130,8 +103,7 @@ void sst_task(void)
 
     /* The host's slot-to-path bindings are a session's, and a wake is a
      * new session. */
-    msc_restore();
-
+    fs_restore();
     /* The staging store is the board's and no blob carries it, and the
      * device has been asked: loading a memory does not restore slot 0
      * and does not re-announce it. So the store holds whatever the
@@ -153,36 +125,39 @@ void sst_task(void)
          * nothing restreamed -- has the store right already and is owed
          * nothing.
          *
-         * Relative against absolute: msc_stage_rom opens under the
+         * Relative against absolute: fs_stage_rom opens under the
          * assets folder, so the host spells back what this side asked
          * for with that in front. */
         const char *want = proc_staged_path();
         char bound[128];
-        uint32_t len = 0;
         bool same = false;
-        if (want && *want && msc_getfile(MSC_SLOT_ROM, bound, sizeof bound))
+        if (want && *want && fs_getfile(FS_SLOT_ROM, bound, sizeof bound))
         {
             const char *at = bound;
             if (*want != '/'
-                && !strncmp(bound, MSC_ASSETS_PATH, sizeof MSC_ASSETS_PATH - 1))
-                at += sizeof MSC_ASSETS_PATH - 1;
+                && !strncmp(bound, FS_ASSETS_PATH, sizeof FS_ASSETS_PATH - 1))
+                at += sizeof FS_ASSETS_PATH - 1;
             same = !strcmp(at, want);
-            LOG_SAY("rom: want '%s' bound '%s'%s\n", want, bound,
-                    same ? " same" : "");
         }
         if (!same && (!want || !*want))
             printf("rom: no path to stage\n");
-        else if (!same && !msc_stage_rom(want, &len))
-            printf("rom: stage '%s' failed\n", want);
         else if (!same)
         {
-            /* Nothing re-parses the image -- rom_load_staged would
-             * rewrite the 6502 memory the blob just restored -- so the
-             * length is the only check left, and a file that changed on
-             * the card since the memory was made is worth saying. */
-            if (len != rom_staged_len())
-                printf("rom: staged %u, session had %u\n", (unsigned)len,
-                       (unsigned)rom_staged_len());
+            /* The blob restored the ROM descriptor open on the wrong
+             * store; close it and open the session's own file, which is
+             * the restage. Nothing re-parses the image -- the loader
+             * would rewrite the 6502 memory the blob just restored --
+             * so the length is the only check left, and a file that
+             * changed on the card since the memory was made is worth
+             * saying. */
+            uint32_t had = fs_rom_staged_len();
+            api_errno err;
+            fs_std_close(FS_DESC_ROM, &err);
+            if (fs_rom_open(want, FS_RD, &err) < 0)
+                printf("rom: stage '%s' failed\n", want);
+            else if (fs_rom_staged_len() != had)
+                printf("rom: staged %u, session had %u\n",
+                       (unsigned)fs_rom_staged_len(), (unsigned)had);
         }
     }
 
@@ -194,9 +169,7 @@ void sst_task(void)
      * for itself does not survive that, and the host's is the one that
      * is right. */
     tim_init();
-    LOG_SAY("sst: released mtime=%u:%u\n",
-            (unsigned)(host_clock_us() >> 32), (unsigned)host_clock_us());
-    msc_log();
+    fs_log();
 
     /* The host re-announces its slots on a wake and the loop reads a
      * change in either announcement as the user picking a new program.

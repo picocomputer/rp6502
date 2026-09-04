@@ -20,9 +20,9 @@ function(rp6502_add_cpu_test name)
     cmake_parse_arguments(P "" "" "SOURCES;DEFS" ${ARGN})
     if(COMMAND rp6502_add_module_test)
         rp6502_add_module_test(${name}
-            TOP w65c02
-            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/w65c02.sv
-            SOURCES ${P_SOURCES} cpu_dut_rtl.cpp w65c02_dut.cpp
+            TOP cpu
+            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/cpu.sv
+            SOURCES ${P_SOURCES} cpu_dut_rtl.cpp rtl_dut.cpp
             INCLUDES ${CPU_INCLUDES}
             DEFS ${P_DEFS}
             DEPENDS w65c02_rom
@@ -40,8 +40,8 @@ function(rp6502_add_via_test name)
     cmake_parse_arguments(P "" "" "SOURCES;DEFS" ${ARGN})
     if(COMMAND rp6502_add_module_test)
         rp6502_add_module_test(${name}
-            TOP w65c22
-            RTL ${RP6502_SRC}/core/wdc/w65c22.sv
+            TOP via
+            RTL ${RP6502_SRC}/core/wdc/via.sv
             SOURCES ${P_SOURCES} via_rtl.cpp
             INCLUDES ${CPU_INCLUDES}
             DEFS ${P_DEFS}
@@ -114,6 +114,6 @@ rp6502_add_test(w65c02_chips
 # --- The VIA, directed cases and recorded traces ---
 # T1/T2 timers and their interrupts are live machine features; see
 # core/wdc/via.c for the wiring both implementations are driven through.
-rp6502_add_via_test(w65c22
-    SOURCES test_w65c22.c w65c22_scen.c
-    DEFS W65C22_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/w65c22_golden.txt")
+rp6502_add_via_test(via
+    SOURCES test_via.c via_scen.c
+    DEFS VIA_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/via_golden.txt")

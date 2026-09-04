@@ -3,14 +3,14 @@
 #
 # What belongs here is a claim about this host's program rather than about the
 # RP6502 — the DAP and DWARF readers, the desktop gamepad policy above the
-# per-OS seam, the rate pump between the machine's clock and an audio device,
+# per-OS seam, the render that fills an audio device's buffer,
 # and the binary driven from outside. The scripts that pair with a subsystem
 # live with that subsystem in tests/cpu; what is left is about the program.
 
 # The exception: how many frames a script spends is the one thing a script
 # cannot check about itself, so that one is a C test around script.c.
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
-    SOURCES test_script.c ${RP6502_SRC}/host/sokol/script.c ${RP6502_SRC}/host/sokol/png.c ${RP6502_SRC}/host/sokol/gamepad.c
+    SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c ${RP6502_SRC}/host/sokol/cli/png.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
@@ -51,22 +51,32 @@ set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")
 # Here rather than under cpu/ria because cli.c is this program's, and the
 # loader and dispatch cases ride along in the same binary.
 rp6502_add_test(units
-    SOURCES test_units.c ${RP6502_SRC}/host/sokol/cli.c
+    SOURCES test_units.c ${RP6502_SRC}/host/sokol/cli/cli.c
     LIBS emu_core FIXTURE adventure.rp6502)
 if(WIN32) # cli.c needs the same getopt the app uses
     target_link_libraries(test_units PRIVATE wingetopt)
     target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
 endif()
 
-# --- aud_pump: the seam between the machine's rate and the host's ---
-rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
+# --- The latch: what a run and a stop asked before the same commit mean ---
+# No fixture: the claims are about the fan-outs, not about a program.
+rp6502_add_test(sys LIBS emu_core)
+
+# --- Which way each of the roster's walks goes ---
+# No machine linked, on purpose: the roster beside the test is the only
+# drivers.h on the path, and sys.c is compiled in because the stop and break
+# fan-outs are static.
+rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
+
+# --- aud_render: the device's buffer, filled from the registers ---
+rp6502_add_test(render LIBS emu_core)
 
 # --- The desktop gamepad policy, against a host that does as it is told ---
 # Reading a controller is per-OS code no runner has hardware for. Everything
 # above that seam is not, and the privacy gate and player numbering are the
 # parts worth being sure of.
 rp6502_add_test(gamepad_input LIBS emu_core
-    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/gamepad_input.c)
+    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
 
 # --- The debugger: the engine, the DWARF and cc65 readers, the disassembler ---
 # Their fixtures live here rather than in roms/ because none of them is a

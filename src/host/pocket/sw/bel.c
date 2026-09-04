@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The console bell. The fabric holds the voice, a ninth channel of
- * aud_psg; this side decides what it plays and when.
+ * psg; this side decides what it plays and when.
  *
  * The split is where the clocks are. A voice steps 48000 times a second,
  * which this processor cannot do — no interrupts, and it can sit inside
@@ -15,14 +15,27 @@
 #include "bel.h"
 #include "mmio.h"
 #include "core/aud/bel.h"
-#include "host.h"
+#include "host/host.h"
 
 #define BEL_QUEUE_SIZE 8
 
 static ria_bel_t bel_queue[BEL_QUEUE_SIZE];
 static uint8_t bel_head, bel_tail;
 static bool bel_active;
-static host_deadline_t bel_restrike_at, bel_release_at, bel_end_at;
+/* Machine time, not real time: the bell runs on the clock its audio engine
+ * does, which here is the fabric's. Zero means no deadline -- mtime is never
+ * legitimately at absolute zero once the machine is up. */
+static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
+
+static uint64_t bel_in_ms(uint32_t ms)
+{
+    return host_clock_us() + (uint64_t)ms * 1000;
+}
+
+static bool bel_due(uint64_t at)
+{
+    return at && (int64_t)(host_clock_us() - at) >= 0;
+}
 
 /* The pan is centre and the gate is its low bit; the fabric takes the
  * edge off the register. */
@@ -49,10 +62,10 @@ static void bel_strike(void)
     const ria_bel_t *snd = &bel_queue[bel_tail];
     bel_voice(snd, true);
     bel_restrike_at = snd->restrike_ms
-                          ? host_deadline_ms(snd->restrike_ms) : 0;
+                          ? bel_in_ms(snd->restrike_ms) : 0;
     bel_release_at = snd->release_ms
-                         ? host_deadline_ms(snd->release_ms) : 0;
-    bel_end_at = snd->end_ms ? host_deadline_ms(snd->end_ms) : 0;
+                         ? bel_in_ms(snd->release_ms) : 0;
+    bel_end_at = snd->end_ms ? bel_in_ms(snd->end_ms) : 0;
     bel_active = true;
 }
 
@@ -74,7 +87,7 @@ void bel_task(void)
 
     /* A restrike takes both sounds asking for one. Where the next does
      * not, this one runs out its own life instead. */
-    if (bel_restrike_at && host_deadline_passed(bel_restrike_at))
+    if (bel_due(bel_restrike_at))
     {
         uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_head && bel_queue[next].restrike_ms)
@@ -86,13 +99,13 @@ void bel_task(void)
         bel_restrike_at = 0;
     }
 
-    if (bel_release_at && host_deadline_passed(bel_release_at))
+    if (bel_due(bel_release_at))
     {
         bel_voice(&bel_queue[bel_tail], false);
         bel_release_at = 0;
     }
 
-    if (bel_end_at && host_deadline_passed(bel_end_at))
+    if (bel_due(bel_end_at))
     {
         bel_tail = (bel_tail + 1) % BEL_QUEUE_SIZE;
         if (bel_tail != bel_head)

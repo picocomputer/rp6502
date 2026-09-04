@@ -321,7 +321,7 @@ def emit_c(path, words):
     # staging store.
     out = [HEADER,
            '\n#include "kbdlay.h"\n#include "core/hid/layout.h"\n'
-           '\n#include "host.h"\n\n',
+           '\n#include "machine.h"\n\n',
            'static const HOST_IN_FLASH("kbdlay") uint16_t'
            " kbdlay_data[KBDLAY_WORDS] = {\n"]
     for i in range(0, len(words), 12):

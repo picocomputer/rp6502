@@ -6,10 +6,10 @@
 
 #include "core/term/color.h"
 #include "core/term/term.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
-#include "host.h"
+#include "machine.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,10 +37,8 @@
 //    pays only a 1-byte load and a predicted-not-taken branch.
 
 #define TERM_STD_HEIGHT 30
-/* The tallest terminal any view can ask for -- 512 scanlines over a
- * 16-line font on the one machine that has them. See HOST_TERM_MAX_HEIGHT
- * in host/os.h for what it costs everyone else. */
-#define TERM_MAX_HEIGHT HOST_TERM_MAX_HEIGHT
+/* TERM_MAX_HEIGHT, the tallest terminal any view can ask for, is the
+ * machine's: 32 where the 512-line SXGA console exists, 30 everywhere else. */
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16
@@ -54,26 +52,31 @@
 // SGR-state-only flags (not stored per-cell): emit-time fg/bg transforms.
 // Held in cursor_state_t alongside bold/faint, not in sgr_attr.
 
+// A blink is a thing on the screen, so it keeps the screen's time: these are
+// frames, counted by vga_frame_count(), not microseconds. Every machine
+// answers that tick, so a blink is the same blink on all of them -- and a
+// period counted in frames cannot beat against the refresh it is drawn on,
+// which is what the microsecond versions of these had to be detuned to avoid.
+
 // Cell-blink base tick = the SGR 6 rapid-blink half-period. The phase counter
 // (cell_blink_phase) increments every tick: bit 0 flips each tick (SGR 6 rapid,
 // ~3 Hz), bit 1 every two ticks (SGR 5 slow, ~1.5 Hz -- the original rate).
-// ~3 Hz clears ECMA-48's 150/min (2.5 Hz) slow/rapid boundary. Slightly off
-// 166.67ms to avoid frame-tear sync with display refresh.
-#define TERM_BLINK_TICK_US 166500
+// ~3 Hz clears ECMA-48's 150/min (2.5 Hz) slow/rapid boundary.
+#define TERM_BLINK_TICK_FRAMES 10
 
 // Cursor blink half-period: normal cell vs "stuck at right edge"
 // (off-screen deferred-wrap state blinks at 2x rate so it's still noticeable).
-// 0.3ms drift to avoid blinking cursor tearing.
-#define TERM_CURSOR_BLINK_US 499700
-#define TERM_CURSOR_BLINK_FAST_US 249700
+#define TERM_CURSOR_BLINK_FRAMES 30
+#define TERM_CURSOR_BLINK_FAST_FRAMES 15
 
 // Whenever input changes the cursor's logical position or its
 // appearance (DECSCUSR style, DECTCEM visibility), the cursor is
 // forced unlit and its next blink tick is armed this far out. Pure
 // SGR/OSC sequences and color-only changes (OSC 12/112) leave the
 // blink schedule untouched. The gap re-lights to the appropriate
-// steady/blink state when it fires.
-#define TERM_CURSOR_INPUT_GAP_US 5000
+// steady/blink state when it fires -- one frame, which is as soon as
+// anything can be seen.
+#define TERM_CURSOR_INPUT_GAP_FRAMES 1
 
 typedef enum
 {
@@ -164,9 +167,9 @@ typedef struct term_state
     uint8_t save_y;
     bool save_origin_mode;
     bool cursor_enabled;
-    host_deadline_t cursor_timer;
+    unsigned long cursor_frame;
     volatile bool cursor_lit;
-    host_deadline_t cell_blink_timer;
+    unsigned long cell_blink_frame;
     volatile uint8_t cell_blink_phase;
     uint16_t default_fg_color;
     uint16_t default_bg_color;
@@ -284,7 +287,7 @@ static void term_clean_line(term_state_t *term, uint8_t y)
 static inline void term_cursor_restart_blink(term_state_t *term)
 {
     term->cursor_lit = false;
-    term->cursor_timer = host_deadline_us(TERM_CURSOR_INPUT_GAP_US);
+    term->cursor_frame = vga_frame_count() + TERM_CURSOR_INPUT_GAP_FRAMES;
 }
 
 // Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
@@ -538,7 +541,7 @@ static void term_state_init(term_state_t *term, uint8_t width,
     term->cursor_save_valid = false;
     term->cursor_lit = false;
     term->cell_blink_phase = 0;
-    term->cell_blink_timer = host_deadline_us(TERM_BLINK_TICK_US);
+    term->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
     term_out_RIS(term);
 }
 
@@ -2582,13 +2585,12 @@ static void term_blink_cursor(term_state_t *term)
         term->cursor_lit = false;
         return;
     }
-    if (!host_deadline_passed(term->cursor_timer))
+    if ((long)(vga_frame_count() - term->cursor_frame) < 0)
         return;
     term->cursor_lit = !term->cursor_lit;
-    if (term->cur->x == term->width)
-        term->cursor_timer = host_deadline_us(TERM_CURSOR_BLINK_FAST_US);
-    else
-        term->cursor_timer = host_deadline_us(TERM_CURSOR_BLINK_US);
+    term->cursor_frame = vga_frame_count() + (term->cur->x == term->width
+                                                  ? TERM_CURSOR_BLINK_FAST_FRAMES
+                                                  : TERM_CURSOR_BLINK_FRAMES);
 }
 
 // SGR-5/6 cell blink phase, per-term: a free-running 2-bit counter at bits 0-1
@@ -2600,11 +2602,11 @@ static void term_blink_cursor(term_state_t *term)
 // timer and cell blink timer share an owner instead of crossing a global.
 static void term_cell_blink_phase_task(term_state_t *term)
 {
-    if (host_deadline_passed(term->cell_blink_timer))
+    if ((long)(vga_frame_count() - term->cell_blink_frame) >= 0)
     {
         term->cell_blink_phase =
             (uint8_t)((term->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
-        term->cell_blink_timer = host_deadline_us(TERM_BLINK_TICK_US);
+        term->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
     }
 }
 

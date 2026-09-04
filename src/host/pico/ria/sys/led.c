@@ -5,10 +5,10 @@
  */
 
 #include "ria/sys/led.h"
-#include "ria/net/cyw.h"
+#include "ria-w/net/cyw.h"
 #include <pico/stdlib.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_LED)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_LED)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

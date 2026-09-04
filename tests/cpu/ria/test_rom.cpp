@@ -13,8 +13,8 @@
  * staging answer holding stage_stall the way SDRAM will.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
+#include "Vwiring.h"
+#include "Vwiring___024root.h"
 
 #include "tb_machine.h"
 #include "tb_rom.h"
@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
+static Vwiring *dut;
 
 /* Build the two-record image every case stages. */
 static std::vector<uint8_t> make_rom()
@@ -71,14 +71,14 @@ static void run_staged(int *utest_result, bool slot_by_port,
         dut->slot_set = 0;
     }
     else
-        dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len =
+        dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len =
             (uint32_t)rom.size();
 
     std::string rv_out, cpu_out;
     int stalled = 0;
     bool quiet = tb_quiet(dut, [&] {
-        uint32_t a = dut->rp6502_stage_addr;
-        if (stall_cycles && dut->rp6502_stage_pend)
+        uint32_t a = dut->wiring_stage_addr;
+        if (stall_cycles && dut->wiring_stage_pend)
         {
             /* The byte stands only when the stall drops, like a
              * controller finishing its read. */
@@ -102,12 +102,12 @@ static void run_staged(int *utest_result, bool slot_by_port,
             stalled = 0;
         }
         tb_clock(dut);
-        if (!dut->rp6502_stage_pend)
+        if (!dut->wiring_stage_pend)
             stalled = 0;
-        if (dut->rp6502_rv_tx_valid)
-            rv_out.push_back((char)dut->rp6502_rv_tx_data);
-        if (dut->rp6502_tx_valid)
-            cpu_out.push_back((char)dut->rp6502_tx_data);
+        if (dut->wiring_rv_tx_valid)
+            rv_out.push_back((char)dut->wiring_rv_tx_data);
+        if (dut->wiring_tx_valid)
+            cpu_out.push_back((char)dut->wiring_tx_data);
     });
 
     if (getenv("BOOT_DEBUG"))
@@ -140,7 +140,7 @@ UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
+    dut = new Vwiring;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

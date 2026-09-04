@@ -4,15 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/ria.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/mem.h"
+#include "core/ria/regs.h"
+#include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
+#include "core/sys/config.h"
 #include "ria.pio.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
@@ -20,7 +23,7 @@
 #include <strings.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_VGA)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -45,7 +48,6 @@ static enum {
 } vga_state;
 
 static bool vga_needs_reset = true;
-static uint8_t vga_display_type;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
 static absolute_time_t vga_version_timer;
@@ -220,11 +222,11 @@ static void vga_connect(void)
         tight_loop_contents();
 
     // Test if VGA connected
-    mem_read_mbuf(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
+    mbuf_read(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
-        mem_task();
+        mbuf_task();
     if (vga_state == VGA_NOT_FOUND)
     {
         vga_pix_backchannel_disable();
@@ -352,7 +354,7 @@ void vga_task(void)
         // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
         // which resets canvas to vga_canvas_console. Mirror that here.
         vga_canvas_current = vga_canvas_console;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_get_display_type());
     }
 }
 
@@ -443,29 +445,28 @@ int vga_status_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-void vga_load_display_type(const char *str)
+bool vga_check_display_type(uint8_t *v)
 {
-    str_parse_uint8(&str, &vga_display_type);
-    if (vga_display_type > 2)
-        vga_display_type = 0;
+    return *v <= 2;
 }
 
-bool vga_set_display_type(uint8_t display_type)
+/* The VGA is told on the next task pass; a type that did not move needs no
+ * canvas reset. */
+void vga_apply_display_type(uint8_t display_type, bool changed)
 {
-    if (display_type > 2)
-        return false;
-    if (vga_display_type != display_type)
-    {
-        vga_display_type = display_type;
+    (void)display_type;
+    if (changed)
         vga_needs_reset = true;
-    }
-    cfg_save();
-    return true;
 }
 
-uint8_t vga_get_display_type(void)
+/* SET's line for this row. */
+int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    return vga_display_type;
+    (void)state;
+    (void)width;
+    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE,
+             vga_get_display_type(), vga_get_display_type_verbose());
+    return -1;
 }
 
 const char *vga_get_display_type_verbose(void)
@@ -473,5 +474,5 @@ const char *vga_get_display_type_verbose(void)
     const char *const labels[] = {STR_VGA_DISPLAY_TYPE_0,
                                   STR_VGA_DISPLAY_TYPE_1,
                                   STR_VGA_DISPLAY_TYPE_2};
-    return labels[vga_display_type];
+    return labels[vga_get_display_type()];
 }

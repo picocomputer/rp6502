@@ -33,26 +33,12 @@ endif()
 
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
-# The keyboard layouts as a C table. The def files are the source, the
-# generator makes one image, and hid/layout.c reads it a word at a time. No
-# machine here compiles it: the RIA firmware generates its own copy in its
-# own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
-# already translated. Only the layout suites want it, to check the image against
-# the defs it came from, so it is built here rather than in a machine's
-# tree that would never name it. See src/core/gen/keyboard_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
-set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
-set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
-set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
-        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
-    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
-    COMMENT "Generating the keyboard layouts"
-    VERBATIM)
-add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
+# The keyboard layouts as a C table. No machine in a desktop tree compiles
+# them -- the RIA firmware builds its own copy, the Pocket stages the .bin, and
+# the emulator's keyboard arrives already translated. Only the layout suites
+# want this form, to hold the image against the defs it came from.
+include(${RP6502_SRC}/core/gen.cmake)
+rp6502_gen_kbdlay(kbdlay)
 
 # The video-mode corpus is generated, not committed. Every byte of it comes
 # out of vidmodes.py, so a committed copy is only a second copy that can
@@ -134,15 +120,17 @@ set(AUD_ROM_PSG ${RP6502_TEST_ROM_DIR}/psg.rp6502)
 set(AUD_ROM_PSG_PRE ${RP6502_TEST_ROM_DIR}/psg_pre.rp6502)
 set(AUD_ROM_OPL ${RP6502_TEST_ROM_DIR}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_TEST_ROM_DIR}/opl_exit.rp6502)
+set(AUD_ROM_OPL_INIT ${RP6502_TEST_ROM_DIR}/opl_init.rp6502)
 set(AUD_ROM_BEL ${RP6502_TEST_ROM_DIR}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_TEST_ROM_DIR}/opl_bel.rp6502)
 rp6502_test_rom(aud_roms GEN ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
     ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
         --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
+        --emit-opl-init ${AUD_ROM_OPL_INIT}
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
     OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
-        ${AUD_ROM_OPL_EXIT}
+        ${AUD_ROM_OPL_EXIT} ${AUD_ROM_OPL_INIT}
         ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")
@@ -185,9 +173,48 @@ rp6502_test_rom(probe_rom GEN ${RP6502_TESTS_DIR}/gen/probe_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the open-file probe ROM")
 
+# A file read across a sleep, and a count printed while it is read:
+# issue 183 in the reads and issue 185 in the gap the count shows. The
+# Pocket bench runs it for the reads, which is where a second worker on
+# the file bridge can answer them; the count needs a sleep, so that half
+# is run on hardware.
+set(SLEEPFILE_ROM ${RP6502_TEST_ROM_DIR}/sleepfile.rp6502)
+rp6502_test_rom(sleepfile_rom GEN ${RP6502_TESTS_DIR}/gen/sleepfile_rom_gen.py
+    ARGS --emit ${SLEEPFILE_ROM}
+    OUTPUTS ${SLEEPFILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the sleep file probe ROM")
+
+# Music's stand-in, in two variants. A ROM: asset read in a loop forever,
+# printing what arrives, so a descriptor left on the wrong file after a
+# sleep says so in letters rather than in silence. Built here so they
+# keep compiling; they are read on a Pocket, not by ctest.
+set(SLEEPASSET_A_ROM ${RP6502_TEST_ROM_DIR}/sleepasset-a.rp6502)
+set(SLEEPASSET_B_ROM ${RP6502_TEST_ROM_DIR}/sleepasset-b.rp6502)
+rp6502_test_rom(sleepasset_a_rom GEN ${RP6502_TESTS_DIR}/gen/sleepasset_rom_gen.py
+    ARGS --emit ${SLEEPASSET_A_ROM} --variant A
+    OUTPUTS ${SLEEPASSET_A_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the sleep asset probe ROM (A)")
+rp6502_test_rom(sleepasset_b_rom GEN ${RP6502_TESTS_DIR}/gen/sleepasset_rom_gen.py
+    ARGS --emit ${SLEEPASSET_B_ROM} --variant B
+    OUTPUTS ${SLEEPASSET_B_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the sleep asset probe ROM (B)")
+
 # The whole drive in one boot: forty-eight checks the machine decides
 # for itself. It runs here against the bench's host as well as on the
 # card, so a bug in the ROM is found before a photograph is.
+# argv[0] read back by the program it names. On the Pocket that string
+# can only have come from asking the host what the ROM slot is bound to,
+# so an empty argv here is that ask being thrown away.
+set(ARGV_ROM ${RP6502_TEST_ROM_DIR}/argv.rp6502)
+rp6502_test_rom(argv_rom GEN ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
+    ARGS --emit ${ARGV_ROM}
+    OUTPUTS ${ARGV_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the argv ROM")
+
 set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)
 rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
     ARGS --emit ${FSTEST_ROM}
@@ -278,7 +305,7 @@ function(rp6502_add_script_test name)
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)
     endif()
-    # EMU_ECHO mirrors the terminal to stderr (core/sys/tty.c). A script fails on
+    # EMU_ECHO mirrors the terminal to stderr (core/com/tty.c). A script fails on
     # one line and the question is always what the machine had been saying, so
     # --output-on-failure carries the console with it.
     set_tests_properties(script.${name} PROPERTIES
@@ -332,9 +359,12 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
+    # The bench's own answers to host/host.h, which every machine owes.
+    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_SRC}/core/sys/crc32.c)
+
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE
-        ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${T_INCLUDES})
+        ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${RP6502_SRC} ${T_INCLUDES})
 
     if(T_LIBS)
         target_link_libraries(test_${name} PRIVATE ${T_LIBS})

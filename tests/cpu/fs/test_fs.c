@@ -7,18 +7,20 @@
  * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
  * process cwd, ".." walks freely), plus the read-only ROM: drive. Both the file
  * and dir/metadata ops are driven as the 6502 does — stage the xstack, call the
- * std_api_* / msc_api_* handler, read AX and any pushed result (stdsys.h,
+ * std_api_* / dir_api_* handler, read AX and any pushed result (stdsys.h,
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/sys/rom.h"
-#include "core/sys/msc.h"
-#include "core/mem/mem.h"
-#include "host/fs.h"
+#include "core/rom/rom.h"
+#include "osal/fs.h"
+#include "core/str/path.h"
+#include "core/ria/regs.h"
+#include "host/host.h"
+#include "osal/os.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
@@ -33,40 +35,58 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
+static char g_dir[256]; /* a temp dir, made the cwd, in the 6502's spelling */
+
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_mkdir(path, &err);
+}
 
 static bool fresh_cwd(void)
 {
-    char dir[MSC_MAX_PATH];
+    char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
-    if (!fs_chdir(dir))
+    if (!drive_chdir_to(dir))
         return false;
-    /* g_dir is the emulator's own view of the cwd (same fs_getcwd msc uses),
-     * so the MSC0:<g_dir> comparisons below hold whatever the host's path
-     * spelling — notably '/'-normalized on Windows. */
-    return fs_getcwd(g_dir, sizeof(g_dir));
+    /* g_dir is the drive's own view of the cwd -- the same getcwd slot the
+     * syscalls answer with -- so the comparisons below hold whatever the host's
+     * path spelling, notably '/'-normalized and //C/-drived on Windows. */
+    return drive_cwd(g_dir, sizeof(g_dir));
 }
 
+/* Behind the drive's back: does the real filesystem have this file? */
 static bool host_exists(const char *rel)
 {
-    char p[512];
+    char p[512], native[TEST_PATH_MAX];
     snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
-    FILE *f = fopen(p, "rb");
+    if (!path_to_native(p, native, sizeof(native)))
+        return false;
+    FILE *f = fopen(native, "rb");
     if (f)
         fclose(f);
     return f != NULL;
 }
 
-/* g_dir is a host path, and on Windows that carries a drive letter the guest
- * spells //C/ instead. msc_from_host owns that mapping; its own vectors are in
- * path_forms below. */
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[MSC_MAX_PATH];
-    msc_from_host(g_dir, base, sizeof(base));
-    snprintf(out, sz, "%s%s", base, suffix);
+    snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
 
@@ -107,7 +127,7 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
@@ -147,7 +167,7 @@ UTEST(fs, no_chroot_clamp)
     dsys_path("sub");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "/sub");
@@ -175,18 +195,18 @@ UTEST(fs, no_chroot_clamp)
  * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
 UTEST(fs, path_translation)
 {
-    char host[MSC_MAX_PATH], msc[MSC_MAX_PATH];
+    char host[TEST_PATH_MAX], msc[TEST_PATH_MAX];
 
-    ASSERT_TRUE(msc_to_host("MSC0:/sub/file", host, sizeof(host)));
+    ASSERT_TRUE(path_to_native("MSC0:/sub/file", host, sizeof(host)));
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(msc_to_host("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
+    ASSERT_TRUE(path_to_native("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(msc_to_host("MSC0://C/Users/Homey", host, sizeof(host)));
+    ASSERT_TRUE(path_to_native("MSC0://C/Users/Homey", host, sizeof(host)));
     ASSERT_STREQ(host, "C:/Users/Homey");
 
-    msc_from_host("/sub/file", msc, sizeof(msc));
+    path_from_native("/sub/file", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0:/sub/file");
-    msc_from_host("C:/Users/Homey", msc, sizeof(msc));
+    path_from_native("C:/Users/Homey", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0://C/Users/Homey"); /* another drive keeps //C/ */
 }
 
@@ -230,7 +250,7 @@ UTEST(fs, dir_enumeration)
     ASSERT_EQ(dsys_ax(), 0);
 
     /* stat reports size + synthesized FAT attributes. */
-    FILINFO info;
+    f_stat_t info;
     dsys_path("alpha.txt");
     dir_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
@@ -369,13 +389,14 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
      * reset vector (so rom_load accepts it), then a named asset r.txt="abc".
      * The header's chunks_len marks where the program ends and the asset starts. */
     unsigned char vec[2] = {0x00, 0x80}; /* reset vector bytes at $FFFC/$FFFD */
-    uint32_t vcrc = mem_crc32(0, vec, 2);
+    uint32_t vcrc = host_crc32(0, vec, 2);
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300];
+    char rompath[300], romnative[TEST_PATH_MAX];
     snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
-    FILE *rf = fopen(rompath, "wb");
+    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
+    FILE *rf = fopen(romnative, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
     fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2)); /* chunks_len = the program section */
@@ -408,6 +429,44 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
 }
 
+/* An asset is named in the file's UTF-8 and a program's path is code page
+ * bytes; the driver converts as it walks, so a non-ASCII name a build host
+ * wrote is openable by the code page spelling the guest actually has. */
+UTEST(fs, rom_asset_name_compares_through_the_code_page)
+{
+    ASSERT_TRUE(fresh_cwd());
+    oem_set_code_page_run(437);
+
+    unsigned char vec[2] = {0x00, 0x80};
+    uint32_t vcrc = host_crc32(0, vec, 2);
+    char rec[64];
+    int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
+
+    char rompath[300], romnative[TEST_PATH_MAX];
+    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
+    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
+    FILE *rf = fopen(romnative, "wb");
+    ASSERT_TRUE(rf != NULL);
+    fputs("#!RP6502\r\n", rf);
+    fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2));
+    fwrite(rec, 1, (size_t)recn, rf);
+    fwrite(vec, 1, 2, rf);
+    /* "caf\u00e9" in UTF-8: c3 a9 is e-acute, CP437 0x82. */
+    fputs("#>$2 $0 caf\xc3\xa9\r\n", rf);
+    fwrite("ok", 1, 2, rf);
+    fclose(rf);
+
+    ASSERT_TRUE(rom_load(rompath));
+
+    char oem_name[16] = {'R', 'O', 'M', ':', 'c', 'a', 'f', (char)0x82, 0};
+    int f = ssys_open(oem_name, O_RD);
+    ASSERT_TRUE(f >= 0);
+    char buf[4] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 4), 2);
+    ASSERT_STREQ(buf, "ok");
+    ssys_close(f);
+}
+
 /* OEM (code page) filenames: the guest works in CP437 bytes; the host seam
  * converts to the host's Unicode spelling and back, so the same OEM bytes
  * round-trip through create -> readdir -> stat -> unlink. */
@@ -427,7 +486,7 @@ UTEST(fs, oem_names_roundtrip)
     ASSERT_TRUE(host_exists("nap\xC3\xA9.txt"));
 #endif
 
-    FILINFO info;
+    f_stat_t info;
     dsys_path("");
     dir_api_opendir();
     int des = dsys_ax();
@@ -460,6 +519,54 @@ UTEST(fs, oem_names_roundtrip)
     dsys_path("nap\x82.txt");
     dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1); /* gone */
+}
+
+/* A read of nothing is a legal thing to ask for -- the API's short-stack pop
+ * makes read(fd, buf, 0) an ordinary 6502 sequence -- and it hands the driver
+ * a buffer at &xstack[XSTACK_SIZE], which is the always-zero guard byte that
+ * terminates an unterminated 6502 string. A driver that writes there anyway
+ * corrupts the next op that reads a path, and the errant byte turns up much
+ * later somewhere else.
+ *
+ * The RIA firmware's console driver did exactly that. It has no test of its
+ * own -- nothing compiles host/pico/ria/sys/com.c -- so this pins the
+ * contract on the copy that is testable, and a second copy that drifts from
+ * it has somewhere to be caught. */
+UTEST(fs, a_read_of_nothing_writes_nothing)
+{
+    ASSERT_TRUE(fresh_cwd());
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0); /* the guard, before anything */
+
+    /* A real file: zero bytes asked for, zero delivered. */
+    make_file("zero.txt", "hello", 5);
+    int f = ssys_open("zero.txt", O_RD);
+    ASSERT_TRUE(f >= 0);
+    char buf[8] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 0), 0);
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0);
+    ssys_close(f);
+
+    /* And the console with a byte actually staged in the $FFE2 latch, which
+     * is the only thing a zero-length console read can find to write. Without
+     * one there is nothing to misplace and the check proves nothing.
+     * std_init opens the reserved descriptors this bench does not otherwise
+     * need; the TTY is 4. */
+    std_init();
+    regs[0x02] = 'X';
+    regs[0x00] |= 0x40; /* RIA_UART_RX_READY: a byte is in the latch */
+    ASSERT_EQ(ssys_read(4 /* STD_FD_TTY */, buf, 0), 0);
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0); /* not written past the buffer */
+    ASSERT_TRUE(regs[0x00] & 0x40);    /* and left staged, not eaten */
+
+    /* A read with room takes it, so it was only deferred. */
+    ASSERT_EQ(ssys_read(4, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'X');
+
+    /* The guard still terminates a full unterminated string, which is the
+     * thing the errant byte used to break. */
+    dsys_path("zero.txt");
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), 0);
 }
 
 UTEST_MAIN()

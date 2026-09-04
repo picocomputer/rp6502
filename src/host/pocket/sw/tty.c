@@ -4,14 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's end of the console wire: a word poked at the fabric, which
- * forwards it to the platform's bridge, and a copy to the log the savestate
- * carries. Plus the stream picolibc wants before printf will link.
+ * forwards it to the platform's bridge. Plus the stream picolibc wants before
+ * printf will link.
  */
 
 #include "core/com/tty.h"
-#include "core/com.h"
+#include "core/sys/com.h"
 
-#include "log.h"
 #include "mmio.h"
 
 #include <stdarg.h>
@@ -22,7 +21,6 @@ void tty_write(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         MMIO_CONSOLE = (uint8_t)buf[i];
-        log_putc(buf[i]);
     }
 }
 

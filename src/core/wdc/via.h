@@ -15,8 +15,8 @@
 #define VIA_MMAP_LO 0xFFD0
 #define VIA_MMAP_HI 0xFFDF
 
-/* Program start: reset the VIA (it shares the 6502 RESB). */
-void via_run(void);
+/* Reset, from resb_assert: this part shares the 6502's RESB. */
+void via_reset(void);
 
 /* One PHI2 tick: counts the timers always, and services the register access when
  * the address is in the VIA's window. data is in/out. Returns the VIA's IRQ. */

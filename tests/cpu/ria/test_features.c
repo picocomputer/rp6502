@@ -9,12 +9,15 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
+#include "core/sys/sys.h"
+#include "core/sys/ria.h"
+#include "core/api/arg.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
-#include "core/aud/aud_mix.h"
-#include "core/mem/mem.h"
+#include "core/aud/mix.h"
+#include "core/ria/regs.h"
 #include "core/aud/bel.h"
-#include "core/sys/keyboard.h"
+#include "core/hid/vtkeys.h"
 #include "core/com/com.h"
 #include "core/ria/ria.h"
 #include "stdsys.h"
@@ -31,12 +34,12 @@ UTEST(features, sigint_irq)
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
 
     /* The SIGINT attribute consumes the latch once. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_get_sigint());
     ASSERT_FALSE(ria_get_sigint());
 
     /* With the IRQ disabled, a pending SIGINT does not assert the line. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_FALSE(ria_irq_asserted());
 
     /* Writing the enable mask also acks the bits it names (firmware fallthrough),
@@ -45,7 +48,7 @@ UTEST(features, sigint_irq)
     ASSERT_FALSE(ria_irq_asserted());
 
     /* A fresh Ctrl-C now drives the IRQ line. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_irq_asserted());
 
     /* Reading $FFF0 returns the pending flags and acknowledges them. */
@@ -63,7 +66,7 @@ UTEST(features, ria_tick_holds_irq_through_ack)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ria_reg_write(0xFFF0, 0x40); /* enable SIGINT (the write acks it too) */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_irq_asserted());
 
     uint8_t data = 0;
@@ -91,19 +94,77 @@ UTEST(features, launcher_chain)
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
-    /* The game exits -> the launcher is scheduled to re-run, chain still armed. */
-    ASSERT_TRUE(proc_exit(7));
+    /* The game exits. The stop walk decides the chain, so the re-run is armed
+     * by the commit rather than by the exit itself. */
+    proc_exit(7);
+    sys_commit();
     ASSERT_EQ(proc_get_exit_code(), 7);
     ASSERT_TRUE(proc_has_launcher());
+    ASSERT_TRUE(proc_exec_inflight()); /* the shell's re-run, queued once */
+    proc_exec_init();                 /* standing in for the proc_exec_task that loads it */
 
-    /* The frame loop reloads the shell (proc_exit set its argv); proc_run picks it
-     * up, so the shell is running again and is the launcher. */
+    /* proc_run picks up the argv the chain left, so the shell is running
+     * again and is the launcher. */
     proc_run();
     ASSERT_TRUE(proc_is_launcher());
 
     /* The shell itself exits -> no relaunch, chain cleared. */
-    ASSERT_FALSE(proc_exit(0));
+    sys_run();
+    sys_commit();
+    proc_exit(0);
+    sys_commit();
     ASSERT_FALSE(proc_has_launcher());
+    ASSERT_FALSE(proc_exec_inflight());
+}
+
+/* An installed ROM's ":name" spelling survives the launcher chain verbatim:
+ * argv[0] is recorded and replayed exactly, and the reload resolves it
+ * through the alias map the same way the first exec did. */
+UTEST(features, an_installed_name_round_trips_the_chain)
+{
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" */
+
+    /* The launcher runs from the null drive and registers. */
+    proc_set_argv(":adventure.rp6502", 0, NULL);
+    proc_set_launcher(true);
+    ASSERT_TRUE(proc_is_launcher());
+
+    /* A child by filesystem path; the launcher's spelling is what replays. */
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_exit(0);
+    sys_commit();
+    ASSERT_TRUE(proc_exec_inflight());
+    /* The re-run boots the ":name" itself -- the whole path through resolve,
+     * the seam and the loader, not just the string. */
+    ASSERT_TRUE(proc_boot(":adventure.rp6502", 0, NULL, 0));
+    sys_commit();
+    ASSERT_STREQ(arg_index(0), ":adventure.rp6502");
+}
+
+/* An exec is not an exit. proc_boot stops the machine on its way in, and that
+ * stop runs the same walk a program's exit does -- so the chain must be able
+ * to tell "this program is going away because it asked to be replaced" from
+ * "this program ended, put the launcher back". Get it wrong and the launcher
+ * loads over the child the program just asked for. */
+UTEST(features, an_exec_is_not_the_child_exiting)
+{
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* running, which the stop needs */
+
+    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_launcher(true);
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    ASSERT_FALSE(proc_is_launcher());
+    ASSERT_TRUE(proc_has_launcher());
+
+    proc_set_argv("MSC0:/other.rp6502", 0, NULL);
+    proc_exec_request(); /* op 0x09, machine still running */
+    ASSERT_TRUE(proc_exec_inflight());
+
+    /* Performing it leaves nothing queued behind. The image cannot load here,
+     * which is fine: the queue is cleared before the load either way. */
+    proc_exec_task();
+    ASSERT_FALSE(proc_exec_inflight());
 }
 
 /* Empty args are protocol elements: the seeded argv keeps them, so the
@@ -130,17 +191,19 @@ UTEST(features, empty_args_kept)
     ASSERT_STREQ(argv3, "");
 }
 
-/* Pump frames, draining audio, until a nonzero sample appears or the budget
- * runs out. Returns whether the standing handler produced any audible output. */
-static bool pumped_audio(int frames)
+/* Run a frame and take it as the device would, until the machine makes a
+ * nonzero sample or the budget runs out. Only what the machine made
+ * counts: a short render repeats a level, which is not evidence. */
+static float g_out[800 * 2];
+
+static bool rendered_audio(int frames)
 {
-    static float buf[8192];
-    for (int f = 0; f < frames; f++)
+    for (int p = 0; p < frames; p++)
     {
-        aud_task();
-        int got = aud_read(buf, 4096);
-        for (int i = 0; i < got * 2; i++)
-            if (buf[i] != 0.0f)
+        emu_frames(1);
+        const int n = aud_render(g_out, 800);
+        for (int i = 0; i < n * 2; i++)
+            if (g_out[i] != 0.0f)
                 return true;
     }
     return false;
@@ -151,52 +214,43 @@ static bool pumped_audio(int frames)
  * teletype bell, and the enable flag gates that ring end to end. */
 UTEST(features, teletype_bell)
 {
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    /* No program: the writes below are dispatched from here, and a running
+     * program's own syscall would be in flight between them. */
+    sys_stop();
+    sys_commit();
 
-    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* standing BEL device */
+    ASSERT_TRUE(aud_enabled());
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
 
     /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
     com_set_bel(false);
     ASSERT_EQ(ssys_write(1, "\a", 1), 1); /* fd 1 = stdout */
-    ASSERT_FALSE(pumped_audio(16));
+    ASSERT_FALSE(rendered_audio(16));
 
     /* Enabled: the same BEL byte now rings the bell -> audible samples. */
     com_set_bel(true);
     ASSERT_EQ(ssys_write(1, "\a", 1), 1);
-    ASSERT_TRUE(pumped_audio(16));
+    ASSERT_TRUE(rendered_audio(16));
 }
 
-/* --mute (aud_set_enabled(false)): no rate is reported and the synth
- * generates no samples at all — not even for a rung bell. */
+/* --mute (aud_set_enabled(false)): the synth generates no samples at all —
+ * not even for a rung bell. */
 UTEST(features, audio_disable)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* enabled by default */
+    ASSERT_TRUE(aud_enabled()); /* enabled by default */
 
     aud_set_enabled(false);
     ASSERT_FALSE(aud_enabled());
-    ASSERT_EQ(aud_rate(), 0);
 
-    /* Ringing a bell and pumping must produce nothing (no per-sample work). */
+    /* A rung bell renders as silence: the handler never runs. */
     bel_add(&bel_teletype);
-    static float buf[4096];
-    int total = 0;
-    for (int f = 0; f < 8; f++)
-    {
-        aud_task();
-        total += aud_read(buf, 2048);
-    }
-    ASSERT_EQ(total, 0);
+    ASSERT_FALSE(rendered_audio(8));
 
     aud_set_enabled(true); /* restore the default for any later test */
-    /* Drain the bell we rang: audio is a continuous stream (a reset never
-     * silences it), so play it out here instead of bleeding into a later test. */
-    for (int f = 0; f < 128; f++)
-    {
-        aud_task();
-        aud_read(buf, 2048);
-    }
+    /* Play out the bell we rang: audio is a continuous stream (a reset never
+     * silences it), so let it end here instead of bleeding into a later test. */
+    emu_frames(60);
 }
 
 UTEST_MAIN_EMU()

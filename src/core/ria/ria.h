@@ -14,17 +14,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* host/sokol/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
- * unlike its sibling core/sys headers this one must declare its own linkage. */
+/* host/sokol/dbg/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
+ * unlike its siblings in core this one must declare its own linkage. */
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-/* The bus this RIA sits on: ria_active, ria_trigger_sigint, ria_get_sigint. The
- * PIO/UART/mbuf half is firmware-only and has no implementation here; ria_active
- * is always false (no mbuf transfers). */
-#include "core/main.h"
+/* The bus this RIA sits on. The PIO/UART/mbuf half is firmware-only and has
+ * no implementation here; ria_active is always false (no mbuf transfers). */
+#include "core/sys/ria.h"
 
 /* Program start, per-frame service, and the vsync the video half raises. */
 void ria_run(void);
@@ -35,8 +34,8 @@ void ria_trigger_vsync(void);
  * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL
  * and USB-HID devices, the clock — are NOT part of this interface; an OP write
  * ($FFEF) hands off to them from ria.c's dispatch. The register file (regs[]) and the
- * XSTACK are dual-ported shared backing rather than state held here, because the
- * RIA's own firmware addresses them directly through REGS(). */
+ * XSTACK are dual-ported shared backing (core/ria/regs.h) rather than state held
+ * here, because the RIA's own firmware addresses them directly through REGS(). */
 
 /* 6502 memory map: 32 registers, the last six being the vectors (ria.rst).
  * A5-A15 are decoded off-chip into CS. */
@@ -45,7 +44,7 @@ void ria_trigger_vsync(void);
 
 /* The RIA's pins. It wires only CS, RW, D0-D7 and the low five address lines that
  * select its register window, so it has its own compact layout rather than borrowing
- * the CPU's. RES is not a RIA input; the debug overlay lights it from cpu_halted(). */
+ * the CPU's. RES is not a RIA input; the debug overlay lights it from resb_running(). */
 #define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
 #define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
 #define RIA_PIN_RW (1ULL << 16)
@@ -82,5 +81,11 @@ bool ria_irq_asserted(void);
 #ifdef __cplusplus
 }
 #endif
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. First in a machine's drivers, so
+ * reversal puts its stop last -- which is where a machine with a real bus
+ * needs it, because other stops read ria_active() to tell a program stop
+ * from a fast-load transfer. This machine has no transfer and no stop. */
+#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, nul_break, nul_config, nul_config)
 
 #endif /* _CORE_RIA_RIA_H_ */

@@ -2,52 +2,42 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * SET, built from the same driver rows the settings themselves are. What is
+ * hand-written here is what a row cannot say: the boot ROM, which is a
+ * command routed through SET rather than a setting, and the order the bare
+ * listing reads in -- roster order is bring-up order, which is not a UI.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
-#include "ria/ble/ble.h"
+#include "ria-w/ble/ble.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
-#include "ria/net/cyw.h"
-#include "ria/net/wifi.h"
+#include "ria-w/net/cyw.h"
+#include "ria-w/net/wifi.h"
 #include "core/str/str.h"
+#include "core/sys/config.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/cpu.h"
+#include "ria/sys/phi2.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include <stdio.h>
 #include <pico.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_SET)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_SET)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static int set_phi2_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    snprintf(buf, buf_size, STR_SET_PHI2_RESPONSE, cpu_get_phi2_khz());
-    return -1;
-}
-
-static void set_phi2(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !cpu_set_phi2_khz(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_phi2_response);
-}
-
+/* The boot ROM has no row: it is not held in RAM, it is the last line of the
+ * config file, and rom.c owns both halves of that. */
 static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
@@ -75,352 +65,109 @@ static void set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-static int set_code_page_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    if (oem_is_auto())
-        snprintf(buf, buf_size, STR_SET_CODE_PAGE_AUTO_RESPONSE, oem_get_code_page_run());
-    else
-        snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, oem_get_code_page());
-    return -1;
-}
-
-static void set_code_page(const char *args)
-{
-    uint16_t val;
-    if (*args && (!str_parse_uint16(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !oem_set_code_page(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_code_page_response);
-}
-
-static int set_vga_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE,
-             vga_get_display_type(), vga_get_display_type_verbose());
-    return -1;
-}
-
-static void set_vga(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !vga_set_display_type(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_vga_response);
-}
-
-#ifdef RP6502_RIA_W
-
-static int set_rf_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    uint8_t en = cyw_get_rf_enable();
-    com_snprintf_utf8(buf, buf_size, STR_SET_RF_RESPONSE,
-                      en, en ? S(STR_ON) : S(STR_OFF));
-    return -1;
-}
-
-static void set_rf(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !cyw_set_rf_enable(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_rf_response);
-}
-
-static int set_rfcc_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    const char *cc = cyw_get_rf_country_code();
-    if (strlen(cc))
-        com_snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                          cc, " ", cyw_get_rf_country_code_verbose());
-    else
-        com_snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                          "", "", S(STR_WORLDWIDE));
-    return -1;
-}
-
-static void set_rfcc(const char *args)
+/* One token, with "-" as the way to clear a setting -- quoted, it is just a
+ * dash. Shared by every string row so the spelling cannot drift between
+ * them. */
+static void set_string(const char *args, bool (*set)(const char *),
+                       int (*resp)(char *, size_t, int, unsigned))
 {
     if (*args)
     {
         const char *scan = args;
         const char *tok = str_parse_string(&scan);
         if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-            cyw_set_rf_country_code("");
-        else
-        {
-            if (!tok || !str_parse_end(scan) || !cyw_set_rf_country_code(tok))
-                return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        }
-    }
-    mon_add_response_fn(set_rfcc_response);
-}
-
-static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    const char *ssid = wifi_get_ssid();
-#if RP6502_CREATOR
-    com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
-                      strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
-#else
-    com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
-                      strlen(ssid) ? ssid : S(STR_PARENS_NONE));
-#endif
-    return -1;
-}
-
-static int set_pass_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    const char *pass = wifi_get_pass();
-    com_snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
-                      strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
-    return -1;
-}
-
-static void set_ssid(const char *args)
-{
-    if (!*args)
-        return mon_add_response_fn(set_ssid_response);
-    const char *scan = args;
-    const char *tok = str_parse_string(&scan);
-    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wifi_set_ssid("");
-    else
-    {
-        if (!tok || !str_parse_end(scan) || !wifi_set_ssid(tok))
+            tok = "";
+        else if (!tok || !str_parse_end(scan))
+            tok = NULL;
+        if (!tok || !set(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
-    mon_add_response_fn(set_ssid_response);
-    mon_add_response_fn(set_pass_response);
+    mon_add_response_fn(resp);
 }
 
-static void set_pass(const char *args)
-{
-    if (!*args)
-        return mon_add_response_fn(set_pass_response);
-    const char *scan = args;
-    const char *tok = str_parse_string(&scan);
-    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wifi_set_pass("");
-    else
-    {
-        if (!tok || !str_parse_end(scan) || !wifi_set_pass(tok))
-            return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+/* One parse function per row. The only thing that varies is the type, which
+ * is what the row already says. */
+#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, ...) \
+    static void set_mon_##pfx##_##name(const char *args)                     \
+    {                                                                        \
+        uint32_t val;                                                        \
+        if (*args && (!str_parse_uint32(&args, &val) ||                      \
+                      !str_parse_end(args) ||                                \
+                      val != (uint32_t)(type)val ||                          \
+                      !pfx##_set_##name((type)val)))                         \
+            return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));       \
+        mon_add_response_fn(resp);                                           \
     }
-    mon_add_response_fn(set_ssid_response);
-    mon_add_response_fn(set_pass_response);
-}
-
-static int set_ble_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    uint8_t en = ble_get_enabled();
-    com_snprintf_utf8(buf, buf_size, STR_SET_BLE_RESPONSE,
-                      en, en ? S(STR_ENABLED) : S(STR_DISABLED),
-                      ble_is_pairing() ? S(STR_BLE_PAIRING) : "",
-                      cyw_get_rf_enable() ? "" : S(STR_BLE_NO_RF));
-    return -1;
-}
-
-static void set_ble(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !ble_set_enabled(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_ble_response);
-}
-
-static int set_key_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    const char *key = com_telnet_get_key();
-    com_snprintf_utf8(buf, buf_size, STR_SET_KEY_RESPONSE,
-                      strlen(key) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
-    return -1;
-}
-
-static int set_port_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    bool en = com_telnet_get_port() > 0 && com_telnet_get_key()[0];
-    com_snprintf_utf8(buf, buf_size, STR_SET_PORT_RESPONSE,
-                      com_telnet_get_port(), en ? S(STR_ENABLED) : S(STR_DISABLED));
-    return -1;
-}
-
-static void set_port(const char *args)
-{
-    if (!*args)
-        return mon_add_response_fn(set_port_response);
-    uint16_t val;
-    if (!str_parse_uint16(&args, &val) ||
-        !str_parse_end(args) ||
-        !com_telnet_set_port(val))
-        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    mon_add_response_fn(set_port_response);
-    mon_add_response_fn(set_key_response);
-}
-
-static void set_key(const char *args)
-{
-    if (!*args)
-        return mon_add_response_fn(set_key_response);
-    const char *scan = args;
-    const char *tok = str_parse_string(&scan);
-    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        com_telnet_set_key("");
-    else
-    {
-        if (!tok || !str_parse_end(scan) || !com_telnet_set_key(tok))
-            return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+#define CONFIG_STR(ltr, pfx, name, size, def, check, apply, attr, resp, ...) \
+    static void set_mon_##pfx##_##name(const char *args)                    \
+    {                                                                       \
+        set_string(args, pfx##_set_##name, resp);                           \
     }
-    mon_add_response_fn(set_port_response);
-    mon_add_response_fn(set_key_response);
-}
-
-#endif
-
-static int set_nfc_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    uint8_t en = nfc_get_enabled();
-    com_snprintf_utf8(buf, buf_size, STR_SET_NFC_RESPONSE,
-                      en, en ? S(STR_ENABLED) : S(STR_DISABLED));
-    return -1;
-}
-
-static void set_nfc(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !nfc_set_enabled(val)))
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    else
-        mon_add_response_fn(set_nfc_response);
-}
-
-static int set_time_zone_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, tim_get_time_zone());
-    return -1;
-}
-
-static void set_time_zone(const char *args)
-{
-    if (*args)
-    {
-        const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !tim_set_time_zone(tok))
-        {
-            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-            return;
-        }
+/* A list is not a token: SET KB US DE is one value with a space in it. */
+#define CONFIG_RAW(ltr, pfx, name, size, def, check, apply, attr, resp, ...) \
+    static void set_mon_##pfx##_##name(const char *args)                    \
+    {                                                                       \
+        if (*args && !pfx##_set_##name(args))                               \
+            return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));      \
+        mon_add_response_fn(resp);                                          \
     }
-    mon_add_response_fn(set_time_zone_response);
-}
-
-static int set_locale_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    snprintf(buf, buf_size, STR_SET_LOC_RESPONSE,
-             str_get_locale(), str_get_locale_verbose());
-    return -1;
-}
-
-static void set_locale(const char *args)
-{
-    if (*args)
-    {
-        const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !str_set_locale(tok))
-        {
-            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-            return;
-        }
-    }
-    mon_add_response_fn(set_locale_response);
-}
-
-static int set_keyboard_layout_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    (void)state;
-    const char *list = keymap_get_layout_list();
-    if (strchr(list, ' '))
-        snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
-    else
-        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, keymap_get_layout(), keymap_get_layout_verbose());
-    return -1;
-}
-
-static void set_keyboard_layout(const char *args)
-{
-    if (*args && !keymap_set_layout(args))
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        return;
-    }
-    mon_add_response_fn(set_keyboard_layout_response);
-}
-
-typedef void (*set_function)(const char *);
-__in_flash("set_attributes") static struct
-{
-    const char *const attr;
-    set_function func;
-} const SET_ATTRIBUTES[] = {
-#define X(ltr, fmt, get, load, attr, setfn, ...) {attr, setfn},
-#define XCFG(...)
-#define XMON(attr, setfn, ...) {attr, setfn},
-#include "ria/sys/cfg.def"
-#undef X
-#undef XCFG
-#undef XMON
-};
-static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
+#define CONFIG_HIDDEN(...)
+#define CONFIG_SAVE(fn)
+DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef CONFIG_SAVE
+#undef CONFIG_HIDDEN
+#undef CONFIG_RAW
+#undef CONFIG_STR
+#undef CONFIG_INT
+#undef DRIVER
 
 void set_mon_set(const char *args)
 {
     if (*args)
     {
-        const char *attr = str_parse_string(&args);
-        if (attr)
+        const char *word = str_parse_string(&args);
+        if (word)
         {
-            for (size_t i = 0; i < SET_ATTRIBUTES_COUNT; i++)
-            {
-                if (!strcasecmp(attr, SET_ATTRIBUTES[i].attr))
-                {
-                    SET_ATTRIBUTES[i].func(args);
-                    return;
-                }
-            }
+            if (!strcasecmp(word, STR_BOOT))
+                return set_boot(args);
+/* A hidden row is one the machine keeps but no one may set, so it has no
+ * arm here at all. */
+#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, ...) \
+    if (!strcasecmp(word, attr))                                       \
+        return set_mon_##pfx##_##name(args);
+#define CONFIG_STR CONFIG_INT
+#define CONFIG_RAW CONFIG_INT
+#define CONFIG_HIDDEN(...)
+#define CONFIG_SAVE(fn)
+            DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#undef CONFIG_SAVE
+#undef CONFIG_HIDDEN
+#undef CONFIG_RAW
+#undef CONFIG_STR
+#undef CONFIG_INT
+#undef DRIVER
         }
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        return;
+        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
-    // No args, show everything
-#define X(ltr, fmt, get, load, attr, setfn, respfn, ...) mon_add_response_fn(respfn);
-#define XCFG(...)
-#define XMON(attr, setfn, respfn, ...) mon_add_response_fn(respfn);
-#include "ria/sys/cfg.def"
-#undef X
-#undef XCFG
-#undef XMON
+
+    /* The listing, in the order a person reads it. SSID prints the password's
+     * line and the port prints the key's, because setting one is always news
+     * about the other. */
+    mon_add_response_fn(phi2_response);
+    mon_add_response_fn(set_boot_response);
+    mon_add_response_fn(tim_time_zone_response);
+    mon_add_response_fn(str_locale_response);
+    mon_add_response_fn(keymap_layout_list_response);
+    mon_add_response_fn(oem_code_page_response);
+    mon_add_response_fn(vga_display_type_response);
+    mon_add_response_fn(nfc_enabled_response);
+#ifdef RP6502_RIA_W
+    mon_add_response_fn(cyw_rf_enable_response);
+    mon_add_response_fn(cyw_rf_country_code_response);
+    mon_add_response_fn(wifi_ssid_response);
+    mon_add_response_fn(com_telnet_port_response);
+    mon_add_response_fn(ble_enabled_response);
+#endif
 }

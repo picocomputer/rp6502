@@ -54,7 +54,9 @@ int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width);
 int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting VGA
-void vga_load_display_type(const char *str);
+bool vga_check_display_type(uint8_t *v);
+void vga_apply_display_type(uint8_t display_type, bool changed);
+int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width);
 bool vga_set_display_type(uint8_t display_type);
 const char *vga_get_display_type_verbose(void);
 
@@ -62,5 +64,14 @@ void vga_set_canvas(uint16_t canvas_word);
 
 // VGA-bound protocol state pushed from other subsystems
 void vga_set_tel_console_active(bool active);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. After PIX in the driver list:
+ * vga_init's first act is to disable the backchannel, which is a PIX message,
+ * and its connect blocks on the bus RIA brought up. */
+#define VGA_CONFIG_DISPLAY_TYPE CONFIG_INT(D, vga, display_type, uint8_t, 0, \
+    vga_check_display_type, vga_apply_display_type, STR_VGA, \
+    vga_display_type_response, STR_HELP_SET_VGA, NULL)
+#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, vga_run, vga_stop, vga_break, \
+    VGA_CONFIG_DISPLAY_TYPE, nul_config)
 
 #endif /* _RIA_SYS_VGA_H_ */

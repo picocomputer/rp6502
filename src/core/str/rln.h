@@ -90,4 +90,7 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, nul_config, nul_config)
+
 #endif /* _CORE_STR_RLN_H_ */

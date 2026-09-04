@@ -2,8 +2,9 @@
 # functions that hide the simulator.
 #
 # Only what genuinely needs Verilator is here. What to verilate — the machine's
-# source list — and the soft CPU firmware are in src/core/machine.cmake, because
-# a Quartus project needs both and needs no simulator to read them.
+# source list — is in src/core/rtl.cmake and the soft CPU's firmware is in
+# src/host/pocket/sw.cmake, because a Quartus project needs both and needs no
+# simulator to read them.
 
 # --- The generated tables, as C a test can read ---
 # Four of the machine's generators can also write their table as a header,
@@ -56,10 +57,10 @@ rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
     COMMENT "Generating the OPL2 LUT tables test_oplrom reads")
 
 # --- The verilated machine ---
-# Host wrappers under src/host are not verilated; the simulation
+# Host wrappers under src/osal are not verilated; the simulation
 # models the host bridge in C++ instead, so one harness serves every target.
 # The waivers ride with the simulator rather than with the manifest in
-# machine.cmake, because that is what they are: Verilator's own lint, waived.
+# core/rtl.cmake, because that is what they are: Verilator's own lint, waived.
 # Quartus never sees them — its lists are filtered by extension — and a
 # tree built without a simulator has no business naming a file in tests/.
 #
@@ -179,7 +180,7 @@ function(rp6502_add_machine_test name)
         set(M_SOURCES test_${name}.cpp)
     endif()
     if(NOT M_TOP)
-        set(M_TOP rp6502)
+        set(M_TOP wiring)
     endif()
     if(NOT M_PREFIX)
         set(M_PREFIX V${M_TOP})
@@ -231,7 +232,7 @@ function(rp6502_add_machine_test name)
         PREFIX ${M_PREFIX}
         RTL ${RP6502_MACHINE_SOURCES} ${M_RTL}
         ${_trace}
-        ARGS ${RP6502_MACHINE_VERILATOR_ARGS}
+        ARGS ${RP6502_RTL_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
         DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
     target_link_libraries(test_${name} PRIVATE ${_model})

@@ -4,21 +4,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
-#include "core/com.h"
-#include "core/cpu.h"
-#include "core/main.h"
-#include "host.h"
+#include "core/sys/com.h"
+#include "core/wdc/phi2.h"
+#include "core/sys/driver.h"
+#include "core/sys/random.h"
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_ATTR)
+#if defined(DEBUG_API) || defined(DEBUG_API_ATTR)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -51,13 +52,13 @@ bool attr_api_get(void)
     case ATTR_ERRNO_OPT:
         return api_return_axsreg(api_get_errno_opt());
     case ATTR_PHI2_KHZ:
-        return api_return_axsreg(cpu_get_phi2_khz_run());
+        return api_return_axsreg(phi2_get_khz_run());
     case ATTR_CODE_PAGE:
         return api_return_axsreg(oem_get_code_page_run());
     case ATTR_RLN_LENGTH:
         return api_return_axsreg(rln_get_max_length());
     case ATTR_LRAND:
-        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+        return api_return_axsreg(sys_random() & 0x7FFFFFFF);
     case ATTR_BEL:
         return api_return_axsreg(com_get_bel());
     case ATTR_LAUNCHER:
@@ -104,7 +105,7 @@ bool attr_api_set(void)
     case ATTR_PHI2_KHZ:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
-        cpu_set_phi2_khz_run((uint16_t)value);
+        phi2_set_khz_run((uint16_t)value);
         break;
     case ATTR_CODE_PAGE:
         if (value > UINT16_MAX)
@@ -164,10 +165,10 @@ bool attr_api_set(void)
  * Still dispatched from main.c; also reachable via the unified attribute API.
  */
 
-// int phi2(void) - set/get CPU clock
+// int phi2(void)
 bool attr_api_phi2(void)
 {
-    return api_return_ax(cpu_get_phi2_khz_run());
+    return api_return_ax(phi2_get_khz_run());
 }
 
 // int codepage(unsigned cp) - set/get OEM code page
@@ -182,7 +183,7 @@ bool attr_api_code_page(void)
 // long lrand(void) - get random number
 bool attr_api_lrand(void)
 {
-    return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+    return api_return_axsreg(sys_random() & 0x7FFFFFFF);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping

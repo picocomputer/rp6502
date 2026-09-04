@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
+#include "core/sys/config.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include <pico/aon_timer.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -115,17 +117,26 @@ int __wrap_iswspace(wint_t c)
     return c == ' ' || (c >= '\t' && c <= '\r');
 }
 
+/* Eliminates a second, complete formatting engine: newlib's strftime calls
+ * sniprintf, which drags in _svfiprintf_r. Nothing we write calls it, so it
+ * forwards to the one printf this firmware already has.
+ * Enabled with -Wl,--wrap=sniprintf. */
+int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    int n = vsnprintf(buf, size, fmt, va);
+    va_end(va);
+    return n;
+}
+
 void __in_flash("tim_init") tim_init(void)
 {
     // Noon UTC keeps localtime on day 0 for any TZ offset.
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    // cfg_init ran first; apply any tz it loaded now that aon_timer is up.
-    if (tim_tzinfo_index >= 0)
-    {
-        setenv(STR_TZ, tim_tzinfo_tz[tim_tzinfo_index], 1);
-        tzset();
-    }
+    // cfg_init ran first; apply what it loaded now that aon_timer is up.
+    tim_apply_time_zone(tim_get_time_zone(), true);
 }
 
 bool tim_get_time(struct timespec *ts)
@@ -307,67 +318,46 @@ int tim_tzdata_response(char *buf, size_t buf_size, int state, unsigned)
     return ((unsigned)state + 1 < rows) ? state + 1 : -1;
 }
 
-void tim_load_time_zone(const char *str)
+/* A city's short form is stored as the full table name, so "Tokyo" keeps as
+ * "Asia/Tokyo". Anything the table does not know is a POSIX TZ string and is
+ * kept exactly as typed -- the generated setter already bounded its length. */
+bool tim_check_time_zone(const char *in, char *out)
 {
-    char tz[TIM_TZ_MAX_SIZE];
-    size_t n = strlen(str);
-    if (n >= sizeof(tz))
-        return;
-    memcpy(tz, str, n);
-    tz[n] = 0;
     for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
     {
-        if (!strcasecmp(tz, tim_tzinfo_name[i]))
+        const char *name = tim_tzinfo_name[i];
+        const char *slash = strchr(name, '/');
+        if (!strcasecmp(in, name) || (slash && !strcasecmp(in, slash + 1)))
         {
-            tim_tzinfo_index = i;
-            return;
+            strcpy(out, name);
+            return true;
         }
     }
-    tim_tzinfo_index = -1;
-    setenv(STR_TZ, tz, 1);
-    tzset();
-}
-
-bool tim_set_time_zone(const char *tz)
-{
-    if (strlen(tz) >= TIM_TZ_MAX_SIZE)
-        return false;
-    int found_index = -1;
-    for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
-    {
-        const char *tzname = tim_tzinfo_name[i];
-        if (!strcasecmp(tz, tzname))
-        {
-            found_index = i;
-            break;
-        }
-        const char *slash = strchr(tzname, '/');
-        if (slash && !strcasecmp(tz, slash + 1))
-        {
-            found_index = i;
-            break;
-        }
-    }
-    const char *current_tz = getenv(STR_TZ);
-    if (found_index != tim_tzinfo_index ||
-        (found_index < 0 && tim_tzinfo_index < 0 &&
-         (!current_tz || strcmp(current_tz, tz))))
-    {
-        tim_tzinfo_index = found_index;
-        if (tim_tzinfo_index < 0)
-            setenv(STR_TZ, tz, 1);
-        else
-            setenv(STR_TZ, tim_tzinfo_tz[tim_tzinfo_index], 1);
-        tzset();
-    }
-    cfg_save();
     return true;
 }
 
-const char *tim_get_time_zone(void)
+/* The index is derived state, not the setting: the stored name is. */
+void tim_apply_time_zone(const char *tz, bool changed)
 {
-    if (tim_tzinfo_index < 0)
-        return getenv(STR_TZ);
-    else
-        return tim_tzinfo_name[tim_tzinfo_index];
+    (void)tz;
+    (void)changed;
+    const char *stored = tim_get_time_zone();
+    tim_tzinfo_index = -1;
+    for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
+        if (!strcasecmp(stored, tim_tzinfo_name[i]))
+        {
+            tim_tzinfo_index = i;
+            break;
+        }
+    setenv(STR_TZ, tim_tzinfo_index < 0 ? stored : tim_tzinfo_tz[tim_tzinfo_index], 1);
+    tzset();
+}
+
+/* SET's line for this row. */
+int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)state;
+    (void)width;
+    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, tim_get_time_zone());
+    return -1;
 }

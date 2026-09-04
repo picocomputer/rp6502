@@ -17,9 +17,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// True if c is a path separator. FatFs accepts both '/' and '\'.
-#define str_is_sep(c) ((c) == '/' || (c) == '\\')
-
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 
@@ -93,9 +90,26 @@ void str_init(void);
 
 // Locale (UI language) selection.
 int str_locales_response(char *buf, size_t buf_size, int state, unsigned width);
-void str_load_locale(const char *name);
-bool str_set_locale(const char *name);
-const char *str_get_locale(void);
 const char *str_get_locale_verbose(void);
+
+/* Stringize, for a row default that has to name the build's locale. */
+#define STR_XSTR1(x) #x
+#define STR_XSTR(x) STR_XSTR1(x)
+
+/* Two letters and a terminator, with room to spare. */
+#define STR_LOCALE_SIZE 8
+
+/* This driver's setting; see core/sys/config.h. str_get_locale and
+ * str_set_locale are generated from the row below. */
+bool str_check_locale(const char *in, char *out);
+void str_apply_locale(const char *name, bool changed);
+int str_locale_response(char *buf, size_t buf_size, int state, unsigned width);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. */
+#define STR_CONFIG_LOCALE CONFIG_STR(M, str, locale, STR_LOCALE_SIZE, STR_XSTR(RP6502_LOCALE), \
+    str_check_locale, str_apply_locale, STR_LOC, str_locale_response, \
+    STR_HELP_SET_LOC, str_locales_response)
+#define STR_DRIVER DRIVER(str_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    STR_CONFIG_LOCALE, nul_config)
 
 #endif /* _CORE_STR_STR_H_ */

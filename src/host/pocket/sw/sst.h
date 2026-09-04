@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FPGA_SW_SST_H_
-#define _FPGA_SW_SST_H_
+#ifndef _HOST_POCKET_SW_SST_H_
+#define _HOST_POCKET_SW_SST_H_
 
 #include <stdbool.h>
 
@@ -18,4 +18,8 @@ bool sst_pending(void);
  * happened, and then does it once. */
 void sst_task(void);
 
-#endif /* _FPGA_SW_SST_H_ */
+/* This driver's row in a machine's driver list; see core/sys/driver.h. The savestate engine: it reads and writes the slot, so it is not safe
+ * during file IO and runs after api in the io column. */
+#define SST_DRIVER DRIVER(nul_init, nul_task, sst_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+
+#endif /* _HOST_POCKET_SW_SST_H_ */
