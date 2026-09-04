@@ -434,15 +434,8 @@ static bool fs_open_slot(uint32_t slot, const char *name, uint32_t flags,
  * not aliased. */
 const char *fs_strip_drive(const char *path)
 {
-    const char *p = path;
-    if ((p[0] | 0x20) == 'm' && (p[1] | 0x20) == 's' && (p[2] | 0x20) == 'c')
-        p += 3;
-    if (*p >= '0' && *p <= '9' && p[1] == ':')
-    {
-        if (*p != '0')
-            return NULL;
-        return p + 2;
-    }
+    if ((path[0] | 0x20) == 'f' && (path[1] | 0x20) == 's' && path[2] == ':')
+        return path + 3;
     return path;
 }
 
@@ -631,7 +624,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     const char *p = fs_strip_drive(path);
-    if (!p || !*p)
+    if (!*p)
     {
         *err = API_EINVAL;
         return -1;
@@ -695,11 +688,6 @@ bool fs_std_handles(const char *path)
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     path = fs_strip_drive(path);
-    if (!path)
-    {
-        *err = API_ENODEV;
-        return -1;
-    }
     if (!*path || strlen(path) >= FS_NAME_MAX - FS_SAVES_LEN)
     {
         *err = API_EINVAL;

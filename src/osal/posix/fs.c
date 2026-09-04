@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Paths cross the seam in the guest's OEM code page. Convert to the host's
- * UTF-8 with oem_to_utf8() (core/str/oem.h) before every libc call, and
- * returned names/paths back with oem_from_utf8(). Fallible calls set errno,
- * which errmap.c turns into the api_errno the contract answers in.
+ * Paths cross the seam in the guest's OEM code page and may carry this drive's
+ * name; path_to_utf8() (osal/posix/dir.h) takes both off before every libc
+ * call. Fallible calls set errno, which errmap.c turns into the api_errno the
+ * contract answers in.
  */
 
 #include "osal/fs.h"
@@ -14,7 +14,6 @@
 #include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/resource.h>

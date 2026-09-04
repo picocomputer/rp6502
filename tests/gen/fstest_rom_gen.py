@@ -51,9 +51,12 @@ EXPL, EXPH = 0x0206, 0x0207
 CNT = 0x0208
 BAD = 0x0209
 CNTL, CNTH = 0x020A, 0x020B
+PFXN = 0x020C   # how many bytes of PFX this machine's drive name is
 TMP2 = 0x020C
 FAILS = 0x0210  # the indices that failed, printed at the end
 FDS = 0x0230    # eight descriptors for the slot exhaustion check
+PFX = 0x0240    # this machine's drive name, taken from getcwd
+PFX_MAX = 8     # nothing longer than this is a device name
 
 CHUNK = 128
 CHUNKS = 12     # 1536 bytes: three transfer windows and a bit
@@ -255,6 +258,57 @@ def build():
         p.inc_abs(BAD)
     p.lda_abs(BAD)
     p.rts()
+
+    # --- this machine's drive name, read off getcwd ---
+    # A machine that puts a device in a path says so in the first thing
+    # getcwd answers with: everything up to and including a colon, when the
+    # colon comes before the first separator. A host whose paths carry no
+    # device answers nothing, and the prefixed spellings below become the
+    # bare ones -- which is the same claim about the same file, made where
+    # there is a device to make it about. Asked rather than spelled because
+    # no one literal is true on a Pocket, a POSIX host and Windows at once.
+    p.symbol("drive_pfx")
+    p.call(OP_GETCWD)
+    p.store(PFXN, 0)
+    p.ldx_imm(0)
+    p.symbol("drive_pfx.top")
+    p.lda_abs(XSTACK)
+    p.cmp_imm(ord(":"))
+    with p.branch("bne"):
+        p.sta_abx(PFX)
+        p.inx()
+        p.stx_abs(PFXN)
+        p.rts()
+    p.cmp_imm(ord("/"))
+    with p.branch("bne"):
+        p.rts()
+    p.cmp_imm(ord("\\"))
+    with p.branch("bne"):
+        p.rts()
+    p.cmp_imm(0)
+    with p.branch("bne"):
+        p.rts()
+    p.sta_abx(PFX)
+    p.inx()
+    p.cpx_imm(PFX_MAX)
+    with p.branch("bne"):
+        p.rts()
+    p.jmp_abs("drive_pfx.top")
+
+    # --- push the drive name in front of a name already pushed ---
+    # The xstack reverses, so a prefix goes on after the name it precedes
+    # and its own bytes go on backwards.
+    p.symbol("push_pfx")
+    p.lda_abs(PFXN)
+    p.tax()
+    p.symbol("push_pfx.top")
+    p.cpx_imm(0)
+    with p.branch("bne"):
+        p.rts()
+    p.dex()
+    p.lda_abx(PFX)
+    p.sta_abs(XSTACK)
+    p.jmp_abs("push_pfx.top")
 
     # --- main ---
     p.symbol("main")
@@ -573,19 +627,35 @@ def build():
     p.lda_abs(FD)
     check("is_ff")
 
+    # This machine's drive name, so the spellings below can say it without
+    # any one literal having to be true on all four machines.
+    p.jsr_abs("drive_pfx")
+
     # 37 the relative spellings are one file: create under the drive
-    # prefix
-    open_it("MSC0:pfx.dat", O_WRONLY | O_CREAT | O_TRUNC)
+    # name, whatever this machine calls it
+    p.push_str("pfx.dat")
+    p.jsr_abs("push_pfx")
+    p.store(API_A, O_WRONLY | O_CREAT | O_TRUNC)
+    p.call(OP_OPEN)
+    p.sta_abs(FD)
     p.lda_abs(FD)
     check("not_ff")
     p.jsr_abs("do_close")
-    # 38 the slash names the card's root, not the working directory,
+    # 38 the slash names the drive's root, not the working directory,
     # so the rooted spelling must miss
-    open_it("msc0:/pfx.dat", O_RDONLY)
+    p.push_str("/pfx.dat")
+    p.jsr_abs("push_pfx")
+    p.store(API_A, O_RDONLY)
+    p.call(OP_OPEN)
+    p.sta_abs(FD)
     p.lda_abs(FD)
     check("is_ff")
     # 39 the absolute spelling of the working directory finds it
-    open_it("MSC0:/Saves/rp6502/common/pfx.dat", O_RDONLY)
+    p.push_str("/Saves/rp6502/common/pfx.dat")
+    p.jsr_abs("push_pfx")
+    p.store(API_A, O_RDONLY)
+    p.call(OP_OPEN)
+    p.sta_abs(FD)
     p.lda_abs(FD)
     check("not_ff", platform=True)
     p.jsr_abs("do_close")
@@ -594,21 +664,22 @@ def build():
     p.lda_abs(FD)
     check("not_ff")
     p.jsr_abs("do_close")
-    # 41 a drive that is not 0 is not this drive
+    # 41 a name that is not this drive's name is a name, not a drive,
+    # and there is no file by it
     open_it("msc1:pfx.dat", O_RDONLY)
     p.lda_abs(FD)
     check("is_ff")
 
     # 42 the working directory is pinned and synthetic: getcwd answers
     # len+1 — the expectation stored first, because storing it uses A
-    p.store(EXPL, 27)
+    p.store(EXPL, 21)
     p.store(EXPH, 0)
     p.call(OP_GETCWD)
     check("eq16", platform=True)
-    # 43 ...and spells it exactly, popped in order, so appending a name
-    # to it opens the same file the bare name does
+    # 43 ...and spells it exactly, popped in order, so appending a
+    # separator and a name opens the same file the bare name does
     p.store(TMP, 0)
-    for ch in "MSC0:/Saves/rp6502/common/":
+    for ch in "/Saves/rp6502/common":
         p.lda_abs(XSTACK)
         p.cmp_imm(ord(ch))
         with p.branch("beq"):
@@ -618,12 +689,16 @@ def build():
 
     # 44 chdir errors whatever it names, even the directory getcwd
     # just answered
-    p.push_str("MSC0:/Saves/rp6502/common/")
+    # Spelled out rather than derived: on a host this names a directory
+    # nobody has, which is what makes the failure the same failure.
+    p.push_str("/Saves/rp6502/common")
     p.call(OP_CHDIR)
     check("is_ff")
 
-    # 45 chdrive accepts the one drive there is
-    p.push_str("MSC0:")
+    # 45 chdrive accepts the drive this machine is standing on, which on a
+    # host that has real ones is the letter getcwd just answered with
+    p.push_str("")
+    p.jsr_abs("push_pfx")
     p.call(OP_CHDRIVE)
     check("not_ff")
 

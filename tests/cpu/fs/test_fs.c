@@ -3,9 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Unit tests for the host-backed filesystem: the MSC0: drive IS the native host
- * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
- * process cwd, ".." walks freely), plus the read-only ROM: drive. Both the file
+ * Unit tests for the host-backed filesystem: this drive IS the native host
+ * filesystem (no chroot — its root is the OS root, a relative path resolves
+ * the process cwd, ".." walks freely), and it answers in the host's own
+ * spelling. Plus the read-only ROM: drive. Both the file
  * and dir/metadata ops are driven as the 6502 does — stage the xstack, call the
  * std_api_* / dir_api_* handler, read AX and any pushed result (stdsys.h,
  * dirsys.h) — since those handlers are now the whole implementation.
@@ -17,9 +18,9 @@
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "osal/fs.h"
-#include "core/str/path.h"
 #include "core/ria/regs.h"
 #include "host/host.h"
+#include "osal/dir.h"
 #include "osal/os.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -35,7 +36,7 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the cwd, in the 6502's spelling */
+static char g_dir[256]; /* a temp dir, made the cwd, as the drive spells it */
 
 /* Setup goes through the drive, because that is now the only way in: these
  * are the backend's own slots, called the way core/api/dir.c calls them. */
@@ -67,18 +68,18 @@ static bool fresh_cwd(void)
         return false;
     /* g_dir is the drive's own view of the cwd -- the same getcwd slot the
      * syscalls answer with -- so the comparisons below hold whatever the host's
-     * path spelling, notably '/'-normalized and //C/-drived on Windows. */
+     * path spelling, notably '/'-normalized and drive-lettered on Windows. */
     return drive_cwd(g_dir, sizeof(g_dir));
 }
 
-/* Behind the drive's back: does the real filesystem have this file? */
+/* Behind the drive's back: does the real filesystem have this file? What
+ * getcwd answered is a host path already, so fopen takes it as it stands --
+ * which is itself the claim this makes. */
 static bool host_exists(const char *rel)
 {
-    char p[512], native[TEST_PATH_MAX];
+    char p[512];
     snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
-    if (!path_to_native(p, native, sizeof(native)))
-        return false;
-    FILE *f = fopen(native, "rb");
+    FILE *f = fopen(p, "rb");
     if (f)
         fclose(f);
     return f != NULL;
@@ -90,9 +91,9 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
 }
 
 
-/* MSC0: paths are host paths: a relative name resolves under the cwd; an
- * absolute "MSC0:<hostpath>" reaches the real filesystem. */
-UTEST(fs, msc0_write_read_seek)
+/* Drive paths are host paths: a relative name resolves under the cwd; an
+ * absolute one reaches the real filesystem. */
+UTEST(fs, drive_write_read_seek)
 {
     ASSERT_TRUE(fresh_cwd());
 
@@ -112,8 +113,10 @@ UTEST(fs, msc0_write_read_seek)
     ASSERT_EQ(buf[0], 'e');
     ssys_close(f);
 
-    /* The same file by its MSC0: (relative) path -> the process cwd. */
-    f = ssys_open("MSC0:hello.txt", O_RD);
+    /* The same file named through this machine's drive, relative -> the cwd. */
+    char named[64];
+    snprintf(named, sizeof(named), "%shello.txt", host_drive());
+    f = ssys_open(named, O_RD);
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
 
@@ -155,7 +158,7 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_EQ(dsys_ax(), -1); /* missing dir fails */
 }
 
-/* No chroot: MSC0: is the whole native filesystem, so ".." walks freely up the
+/* No chroot: the drive is the whole native filesystem, so ".." walks up the
  * real tree (the old mount-root confinement is gone). */
 UTEST(fs, no_chroot_clamp)
 {
@@ -191,37 +194,60 @@ UTEST(fs, no_chroot_clamp)
     ASSERT_STRNE(cwd, expect);
 }
 
-/* The MSC0:<->host translation: MSC0: maps straight onto the native filesystem
- * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
-UTEST(fs, path_translation)
-{
-    char host[TEST_PATH_MAX], msc[TEST_PATH_MAX];
-
-    ASSERT_TRUE(path_to_native("MSC0:/sub/file", host, sizeof(host)));
-    ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(path_to_native("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
-    ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(path_to_native("MSC0://C/Users/Homey", host, sizeof(host)));
-    ASSERT_STREQ(host, "C:/Users/Homey");
-
-    path_from_native("/sub/file", msc, sizeof(msc));
-    ASSERT_STREQ(msc, "MSC0:/sub/file");
-    path_from_native("C:/Users/Homey", msc, sizeof(msc));
-    ASSERT_STREQ(msc, "MSC0://C/Users/Homey"); /* another drive keeps //C/ */
-}
-
-UTEST(fs, chdrive_stays_on_msc0)
+/* What the drive answers with is a host path, not a spelling of its own: the
+ * cwd it reports opens as-is with fopen, and a path made absolute round-trips
+ * back to the same string. Prepending the drive's own name is accepted and
+ * reaches the same file. */
+UTEST(fs, answers_in_the_host_s_spelling)
 {
     ASSERT_TRUE(fresh_cwd());
-    dsys_path("MSC0:");
+
+    char cwd[TEST_PATH_MAX];
+    dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
+    ASSERT_STREQ(cwd, g_dir);
+
+    /* The host takes it back with no translation at all. */
+    char probe[TEST_PATH_MAX + 16];
+    snprintf(probe, sizeof(probe), "%s/round.txt", cwd);
+    FILE *f = fopen(probe, "wb");
+    ASSERT_TRUE(f != NULL);
+    fclose(f);
+
+    /* realpath answers in the same spelling it was asked in. */
+    char *abs = os_dir_realpath(probe);
+    ASSERT_TRUE(abs != NULL);
+    ASSERT_STREQ(abs, probe);
+    free(abs);
+
+    /* And the drive's own name is a spelling of the same file. */
+    char named[TEST_PATH_MAX + 32];
+    snprintf(named, sizeof(named), "%s%s", host_drive(), probe);
+    int fd = ssys_open(named, O_RD);
+    ASSERT_TRUE(fd >= 0);
+    ssys_close(fd);
+}
+
+/* The drive answers to its own name and to no name; anything else is a missing
+ * device. A real chdrive moves the process, so this puts it back. */
+UTEST(fs, chdrive_takes_this_machine_s_drive)
+{
+    ASSERT_TRUE(fresh_cwd());
+
+    dsys_path(host_drive());
     dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), 0);
-    dsys_path("MSC0");
+    dsys_path("");
     dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), 0);
-    dsys_path("Z:");
+
+    /* Not a letter and not this drive's name -- and deliberately more than one
+     * letter, because a Windows runner really does have a D: and may have a Z:. */
+    dsys_path("NOPE:");
     dir_api_chdrive();
-    ASSERT_EQ(dsys_ax(), -1); /* another drive is not a thing */
+    ASSERT_EQ(dsys_ax(), -1);
+
+    ASSERT_TRUE(drive_chdir_to(g_dir)); /* chdrive may have moved us */
 }
 
 /* FatFs attribute bits the 6502 sees (FatFs AM_*). */
@@ -393,10 +419,9 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300], romnative[TEST_PATH_MAX];
+    char rompath[300];
     snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
-    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
-    FILE *rf = fopen(romnative, "wb");
+    FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
     fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2)); /* chunks_len = the program section */
@@ -442,10 +467,9 @@ UTEST(fs, rom_asset_name_compares_through_the_code_page)
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300], romnative[TEST_PATH_MAX];
+    char rompath[300];
     snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
-    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
-    FILE *rf = fopen(romnative, "wb");
+    FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
     fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2));

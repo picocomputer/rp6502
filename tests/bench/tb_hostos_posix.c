@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The two helpers tb_hostos.h declares, on a POSIX host. The build picks
+ * The helpers tb_hostos.h declares, on a POSIX host. The build picks
  * this file or its Windows sibling; neither carries the other's spelling.
  */
 
@@ -26,4 +26,11 @@ bool host_make_tmpdir(char *buf, size_t sz)
 void host_setenv(const char *name, const char *value)
 {
     setenv(name, value, 1);
+}
+
+/* A POSIX path names no device, so the drive has a name only because chdrive
+ * needs one. Prepending it is still legal, and that is what a test spells. */
+const char *host_drive(void)
+{
+    return "FS:";
 }

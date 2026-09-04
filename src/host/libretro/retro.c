@@ -465,8 +465,8 @@ static char *argv_to_oem(const char *arg)
     return oem;
 }
 
-/* Where the frontend wants a program's saves to go. MSC0: is still the whole
- * host filesystem, as on every other host; this is only where a program
+/* Where the frontend wants a program's saves to go. The drive is still the
+ * whole host filesystem, as on every other host; this is only where a program
  * starts out. */
 static void enter_save_directory(const char *content_path)
 {

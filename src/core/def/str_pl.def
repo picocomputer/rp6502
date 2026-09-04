@@ -269,7 +269,7 @@ X(STR_HELP_SYSTEM,
 X(STR_HELP_DIR,
   "LS (także pod aliasem DIR) i CD służą do poruszania się po urządzeniach pamięci\n"
   "pamięci masowej USB. Możesz przełączyć się na inne urządzenie USB przez\n"
-  "0: do 7:. Użyj komendy STATUS, aby uzyskać listę zamontowanych napędów.\n")
+  "0: do 9:. Użyj komendy STATUS, aby uzyskać listę zamontowanych napędów.\n")
 
 X(STR_HELP_MKDIR,
   "MKDIR służy do tworzenia nowych katalogów. Użyj UNLINK, aby usuwać puste katalogi.\n")

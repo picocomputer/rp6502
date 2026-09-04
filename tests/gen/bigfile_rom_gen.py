@@ -110,8 +110,9 @@ def build():
     p.sta_abs(API_A)
     p.call(OP_CLOSE)
 
-    # Read it back through the drive prefix, checking every byte.
-    p.push_str("MSC0:" + NAME)
+    # Read it back, checking every byte. Bare: this ROM is about the
+    # bytes, and a bare name reaches the same file on every machine.
+    p.push_str(NAME)
     p.store(API_A, O_RDONLY)
     p.call(OP_OPEN)
     p.sta_abs(FD)

@@ -87,10 +87,12 @@ UTEST(dir, lists_directory)
 
     ASSERT_FALSE(resb_running()); /* the program ran to completion */
 
-    /* The cwd (PATH line) and all three entries are listed. The cwd shows as the
-     * native MSC0:<host path>. */
+    /* The cwd (PATH line) and all three entries are listed. The cwd shows in
+     * the host's own spelling, which is what the drive answered with. */
+    char cwd[TEST_PATH_MAX];
+    ASSERT_TRUE(drive_cwd(cwd, sizeof(cwd)));
     ASSERT_TRUE(strstr(cap, "PATH :") != NULL);
-    ASSERT_TRUE(strstr(cap, "MSC0:/") != NULL);
+    ASSERT_TRUE(strstr(cap, cwd) != NULL);
     ASSERT_TRUE(strstr(cap, "alpha.txt") != NULL);
     ASSERT_TRUE(strstr(cap, "beta.dat") != NULL);
     ASSERT_TRUE(strstr(cap, "subdir") != NULL);

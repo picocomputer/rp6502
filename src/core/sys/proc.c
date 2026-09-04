@@ -13,7 +13,6 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/wdc/resb.h"
-#include "core/str/path.h"
 #include "osal/dir.h"
 #include "osal/os.h"
 #include <stdlib.h>
@@ -35,9 +34,9 @@ void proc_exec_request(void)
 
 bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
-    /* realpath answers in the 6502's spelling, so an absolute host path comes
-     * back as the drive path a program can hand straight back to exec. */
-    char *abs = (!path_has_drive(rom) && rom[0] != ':') ? os_dir_realpath(rom) : NULL;
+    /* argv[0] has to survive the chdir proc_boot is about to do, so it is
+     * made absolute here. Only the null drive has no path to resolve. */
+    char *abs = (rom[0] == ':') ? NULL : os_dir_realpath(rom);
     const char *argv0 = abs ? abs : rom;
     /* Length-guard each string: arg_append's uint16 math trusts
      * monitor-capped tokens, but host input is unbounded. */

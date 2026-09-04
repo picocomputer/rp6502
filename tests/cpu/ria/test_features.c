@@ -83,14 +83,14 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
-    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("/shell.rp6502", 0, NULL);
     ASSERT_FALSE(proc_has_launcher());
     proc_set_launcher(true);
     ASSERT_TRUE(proc_has_launcher());
     ASSERT_TRUE(proc_is_launcher());
 
     /* It execs a game (the reload calls proc_run): the game is not the launcher. */
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
@@ -131,7 +131,7 @@ UTEST(features, an_installed_name_round_trips_the_chain)
     ASSERT_TRUE(proc_is_launcher());
 
     /* A child by filesystem path; the launcher's spelling is what replays. */
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     proc_exit(0);
     sys_commit();
     ASSERT_TRUE(proc_exec_inflight());
@@ -151,13 +151,13 @@ UTEST(features, an_exec_is_not_the_child_exiting)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* running, which the stop needs */
 
-    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("/shell.rp6502", 0, NULL);
     proc_set_launcher(true);
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
-    proc_set_argv("MSC0:/other.rp6502", 0, NULL);
+    proc_set_argv("/other.rp6502", 0, NULL);
     proc_exec_request(); /* op 0x09, machine still running */
     ASSERT_TRUE(proc_exec_inflight());
 
@@ -175,7 +175,7 @@ UTEST(features, empty_args_kept)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
-    ASSERT_TRUE(proc_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_TRUE(proc_set_argv("/a.rp6502", 3, args));
     ASSERT_FALSE(proc_api_argv()); /* false = op complete, not still working */
 
     const uint8_t *blob = &xstack[xstack_ptr];

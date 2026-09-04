@@ -44,6 +44,7 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_NOT_READY:
     case ERROR_BAD_UNIT:
     case ERROR_INVALID_DRIVE:
+    case ERROR_NOT_SAME_DEVICE: /* a rename across volumes, now that there are */
         return API_ENODEV;
     case ERROR_BUSY:
     case ERROR_PIPE_BUSY:

@@ -159,7 +159,7 @@
     // ----- Configure from the URL and boot the module -----
     // ?rom=<url>      ROM(s) to install (null drive, :name); repeat or comma-
     //                 separate. The first boots; a program can exec the rest.
-    // ?db=<name>      browser save database for MSC0: (default: the boot URL,
+    // ?db=<name>      browser save database for the drive (default: the boot URL,
     //                 sanitized). Same name -> shared saves; different -> isolated.
     // ?persist=1      keep saves in browser storage (default: discard on leaving).
     // ?bg=RRGGBB      letterbox/pillarbox fill color.
@@ -306,7 +306,7 @@
         }],
         preRun: [function () {
           var M = Module;
-          // MSC0: is /db, made the cwd so program writes land there. With
+          // /db is made the cwd, so program writes land there. With
           // persist it's IDBFS, mirrored to the ?db= IndexedDB database —
           // IDBFS names databases after the mountpoint, so wrap getDB to
           // substitute ours. Without persist it's plain memory.

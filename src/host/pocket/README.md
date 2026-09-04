@@ -420,15 +420,18 @@ with none registered, it says no too.
 
 ## The host's filesystem
 
-`MSC0:` is the card, and the drive writes. The drive prefix is
-stripped and the slash after it decides everything: a name that
-follows the colon directly is relative and the firmware spells it out
-against `/Saves/rp6502/common/`, while a name that starts with a slash
-is already absolute and travels untouched. `foo.txt` and
-`MSC0:foo.txt` are the same saved game;
-`MSC0:/Assets/rp6502/common/foo.txt` reaches the package's own folder,
-which is writable. A program's plain `open("game.save", ...)` lands in
-the same place on every platform.
+`FS:` is the card, and the drive writes. The name is stripped and the
+slash after it decides everything: a name that follows the colon
+directly is relative and the firmware spells it out against
+`/Saves/rp6502/common/`, while a name that starts with a slash is
+already absolute and travels untouched. `foo.txt` and `FS:foo.txt` are
+the same saved game; `FS:/Assets/rp6502/common/foo.txt` reaches the
+package's own folder, which is writable. A program's plain
+`open("game.save", ...)` lands in the same place on every platform.
+
+`FS:` is a name this drive answers to, not one it hands out. Nothing
+here puts it in front of a path, because a path on this card does not
+carry a device any more than a POSIX path does.
 
 **The host resolves nothing.** It looked for a while as though it kept
 a working directory at `/Saves/rp6502/common/`, and one run settled
@@ -438,9 +441,11 @@ host absolute or it does not arrive. The bench refuses a relative path
 outright so the firmware cannot quietly go back to hoping.
 
 getcwd is therefore entirely ours: it answers
-`MSC0:/Saves/rp6502/common/`, which is where relative names go, so
-appending a name to it opens the same file the bare name does. chdir
-errors whatever it names, even that directory.
+`/Saves/rp6502/common`, which is where relative names go, so appending
+a separator and a name opens the same file the bare name does. No
+trailing separator, because no other machine's getcwd has one and the
+ordinary way to build a path would then double it. chdir errors
+whatever it names, even that directory.
 **Two pinned folders, and they are not the same one.** This is the
 platform hack, written down here because nothing about it is
 guessable from the API. A machine with no working directory still has

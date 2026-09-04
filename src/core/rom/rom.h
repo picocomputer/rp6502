@@ -67,7 +67,7 @@ bool rom_alias_insert(const char *hostpath);
 const char *rom_alias_resolve(const char *path);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
- * (MSC0:/...), or an overlay ROM name; rom_load resolves it. The program
+ * (a filesystem path), or an overlay ROM name; rom_load resolves it. The program
  * memory-chunk records are streamed straight into ram[]/xram[]; the named assets
  * are NOT read — only the start of the asset directory is noted, so a ROM: read
  * scans the file for the entry on demand. Returns false (message to the log

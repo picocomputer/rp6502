@@ -10,7 +10,6 @@
 
 #include "core/sys/com.h"
 #include "osal/fs.h"
-#include "core/str/path.h"
 #include "core/rom/rom.h"
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
@@ -54,7 +53,7 @@ bool rom_load(const char *path)
      * backing file here, and the seam below never sees a colon on this
      * machine. */
     const char *host = rom_alias_resolve(path);
-    rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
+    rom_assets_reset(); /* forget the previous ROM (the filesystem persists) */
     api_errno err;
     rom_pump_t pump;
     static uint8_t buf[ROM_RECORD_MAX];

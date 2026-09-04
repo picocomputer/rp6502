@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The two helpers tb_hostos.h declares, on Windows. The build picks this
+ * The helpers tb_hostos.h declares, on Windows. The build picks this
  * file or its POSIX sibling; neither carries the other's spelling.
  */
 
@@ -51,4 +51,20 @@ bool host_make_tmpdir(char *buf, size_t sz)
 void host_setenv(const char *name, const char *value)
 {
     _putenv_s(name, value);
+}
+
+/* Whichever letter the process is standing on -- the tests chdir into a temp
+ * directory first, so this is the drive the scratch files are on. */
+const char *host_drive(void)
+{
+    static char drive[3];
+    wchar_t cwd[MAX_PATH];
+    DWORD n = GetCurrentDirectoryW(MAX_PATH, cwd);
+    if (n && n < MAX_PATH && cwd[0] && cwd[1] == L':')
+    {
+        drive[0] = (char)cwd[0];
+        drive[1] = ':';
+        drive[2] = 0;
+    }
+    return drive;
 }

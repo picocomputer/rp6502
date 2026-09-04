@@ -11,10 +11,11 @@
  * natively, so this is where struct stat becomes an f_stat_t, in a single
  * step: the host says what it knows, in the terms the answer is wanted in.
  *
- * Paths cross spelled the way the 6502 spells them and in its OEM code page.
- * The drive prefix comes off with path_to_native() and the code page with
- * oem_to_utf8() (core/str/oem.h) before every libc call; returned names go
- * back with oem_from_utf8().
+ * Paths cross in the 6502's OEM code page, and may carry this drive's name.
+ * strip_drive() takes the name off and oem_to_utf8() (core/str/oem.h) the code
+ * page, before every libc call; returned names go back with oem_from_utf8().
+ * Nothing puts a name back on: a POSIX path has no device in it, so what this
+ * drive answers with is what getcwd(3) said.
  */
 
 #include "osal/dir.h"
@@ -36,25 +37,29 @@
 
 #define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too.
+/* Past this drive's name, if the path carries one. There is one filesystem
+ * here and FS: is what it answers to; a path without it is already native,
+ * which is what lets a host path from a command line go straight through. */
+static const char *strip_drive(const char *path)
+{
+    return strncasecmp(path, "FS:", 3) == 0 ? path + 3 : path;
+}
+
+/* A path arrives spelled the way the 6502 spells it. This drive is a real
+ * filesystem, so the name comes off here and what is left is the native path
+ * -- and then the code page comes off too.
  *
- * Allocated to fit rather than capped: path_to_native never grows a path, and
- * oem_to_utf8 answers how much room it wants, so both lengths are known
- * instead of guessed. The caller frees. */
+ * Allocated to fit rather than capped: oem_to_utf8 answers how much room it
+ * wants, so the length is known instead of guessed. The caller frees. */
 char *path_to_utf8(const char *path, api_errno *err)
 {
-    size_t nsz = strlen(path) + 1;
-    char *native = malloc(nsz);
-    if (!native)
+    const char *native = strip_drive(path);
+    /* A leading ":" is the null drive, where installed ROMs live. It has no
+     * native spelling at all, so neither ":name" nor "FS::name" can be made to
+     * land on a real file; the ROM loader reaches installs its own way. Asked
+     * after the strip, which is what makes the second spelling fail too. */
+    if (native[0] == ':')
     {
-        *err = API_ENOMEM;
-        return NULL;
-    }
-    if (!path_to_native(path, native, nsz))
-    {
-        free(native);
         *err = API_EINVAL;
         return NULL;
     }
@@ -64,34 +69,18 @@ char *path_to_utf8(const char *path, api_errno *err)
         oem_to_utf8(native, u8, usz);
     else
         *err = API_ENOMEM;
-    free(native);
     return u8;
 }
 
-/* And back: what the OS answered, spelled for the 6502. One length answers
- * for both steps -- oem_from_utf8 contracts and path_from_native prepends at
- * most a six-byte drive prefix. */
-char *path_from_utf8(const char *u8, api_errno *err)
+/* And back: what the OS answered, in the 6502's code page. Nothing is
+ * prepended -- a POSIX path names no device -- and oem_from_utf8 only ever
+ * contracts, so the host's own length bounds the answer. */
+static char *path_from_utf8(const char *u8)
 {
-    size_t sz = strlen(u8) + 7;
-    char *native = malloc(sz), *out = malloc(sz);
-    if (native && out)
-    {
-        oem_from_utf8(u8, native, sz);
-        if (!path_from_native(native, out, sz))
-        {
-            free(out);
-            out = NULL;
-            *err = API_EINVAL; /* a name too long, as errno_to_api spells it */
-        }
-    }
-    else
-    {
-        free(out);
-        out = NULL;
-        *err = API_ENOMEM;
-    }
-    free(native);
+    size_t sz = strlen(u8) + 1;
+    char *out = malloc(sz);
+    if (out)
+        oem_from_utf8(u8, out, sz);
     return out;
 }
 
@@ -108,7 +97,7 @@ char *os_dir_realpath(const char *path)
     free(u8);
     if (!r)
         return NULL;
-    char *out = path_from_utf8(r, &ignored);
+    char *out = path_from_utf8(r);
     free(r);
     return out;
 }
@@ -357,26 +346,21 @@ bool drive_chdir(const char *path, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    /* chdir validates existence and dir-ness, and sets errno */
-    bool ok = posix_ok(chdir(u8) == 0, err);
+    /* A path of no name is the drive in use, the way f_chdir("0:") is a no-op
+     * on FatFs. chdir validates existence and dir-ness, and sets errno. */
+    bool ok = posix_ok(chdir(u8[0] ? u8 : ".") == 0, err);
     free(u8);
     return ok;
 }
 
-/* The 6502 sees MSC0: (and the bare current drive); anything else is a
- * missing device. */
+/* The 6502 sees FS: (and the bare current drive); anything else is a missing
+ * device. Whatever the name leaves behind has to be nothing -- "FS:junk" names
+ * no drive, and neither does the null drive. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
-    if (drive[0] != ':') /* the null drive (installs) is not a cwd-able drive */
-    {
-        char name[16];
-        size_t i = 0;
-        for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
-            name[i] = drive[i];
-        name[i] = 0;
-        if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
-            return true;
-    }
+    const char *rest = strip_drive(drive);
+    if (rest[0] == 0 && drive[0] != ':')
+        return true;
     *err = API_ENODEV;
     return false;
 }
@@ -430,27 +414,18 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
     return ok;
 }
 
+/* What getcwd(3) said, in the guest's code page. No drive name goes in front
+ * of it: this host's paths do not carry one, and answering as if they did is
+ * the emulation this drive no longer does. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     char *u8 = getcwd(NULL, 0); /* the OS says how long its own answer is */
     if (!posix_ok(u8 != NULL, err))
         return false;
-    /* oem_from_utf8 contracts and path_from_native prepends at most a
-     * six-byte drive prefix, so one length answers for both steps. */
-    size_t sz = strlen(u8) + 7;
-    char *native = malloc(sz), *cwd = malloc(sz);
-    bool ok = native && cwd;
-    if (ok)
-    {
-        oem_from_utf8(u8, native, sz);
-        ok = path_from_native(native, cwd, sz) &&
-             strlen(cwd) < size; /* did not fit: full-path-or-error */
-    }
-    if (ok)
-        strcpy(buf, cwd);
-    else
+    bool ok = oem_from_utf8(u8, buf, size) < size; /* full-path-or-error */
+    if (!ok)
         *err = API_ENOMEM;
-    free(u8), free(native), free(cwd);
+    free(u8);
     return ok;
 }
 
@@ -474,12 +449,13 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                           api_errno *err)
 {
     /* A drive query names a drive, and no name is the one in use -- the same
-     * rule opendir follows, and what f_getfree does with "". */
-    char *u8 = path_to_utf8(path[0] ? path : ".", err);
+     * rule opendir follows, and what f_getfree does with "". Asked after the
+     * conversion, so that "FS:" is a drive query and not an empty path. */
+    char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
     struct statvfs vfs;
-    bool ok = posix_ok(statvfs(u8, &vfs) == 0, err);
+    bool ok = posix_ok(statvfs(u8[0] ? u8 : ".", &vfs) == 0, err);
     free(u8);
     if (!ok)
         return false;

@@ -16,10 +16,13 @@
  * There is no opendir/readdir on Win32: FindFirstFileW/FindNextFileW/FindClose
  * over an opaque heap struct.
  *
- * Paths cross spelled the way the 6502 spells them and in its OEM code page.
- * The drive prefix comes off with path_to_native() and the code page with
- * oem_to_wide() (core/str/oem.h) before every ...W call; returned names go
- * back with oem_from_wide().
+ * Paths cross in the 6502's OEM code page, and are already spelled the way
+ * Win32 wants them: this host puts a drive letter in a path itself, so there
+ * is nothing to take off or put back. Only the code page changes, with
+ * oem_to_wide() / oem_from_wide() (core/str/oem.h), and backslashes become
+ * slashes on the way out. Forward slashes need no conversion on the way in --
+ * every Win32 path is normalized through RtlGetFullPathName, which folds them
+ * -- and nothing here emits the \\?\ prefix that would turn that off.
  */
 
 #include "osal/dir.h"
@@ -28,75 +31,47 @@
 #include "osal/os.h"
 #include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
-#include <strings.h>
 #include <windows.h>
 
 #define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too. */
+/* A path arrives in the 6502's code page, otherwise as Win32 wants it. */
 wchar_t *path_to_wide(const char *path, api_errno *err)
 {
-    size_t nsz = strlen(path) + 1;
-    char *native = malloc(nsz);
-    if (!native)
+    /* A leading ":" is the null drive, where installed ROMs live. It has no
+     * native spelling at all, and here it would be an alternate data stream
+     * rather than a miss, so it is refused before Win32 sees it. */
+    if (path[0] == ':')
     {
-        *err = API_ENOMEM;
-        return NULL;
-    }
-    if (!path_to_native(path, native, nsz))
-    {
-        free(native);
         *err = API_EINVAL;
         return NULL;
     }
-    size_t wcount = strlen(native) + 1; /* one unit per OEM byte */
+    size_t wcount = strlen(path) + 1; /* one unit per OEM byte */
     wchar_t *w = malloc(wcount * sizeof *w);
     if (w)
-    {
-        oem_to_wide(native, (uint16_t *)w, (int)wcount);
-        if (!w[0]) /* a path of no name reaches no file here */
-        {
-            free(w);
-            w = NULL;
-            *err = API_ENOENT;
-        }
-    }
+        oem_to_wide(path, (uint16_t *)w, (int)wcount);
     else
         *err = API_ENOMEM;
-    free(native);
     return w;
 }
 
-/* And back: what Win32 answered, slashed and spelled for the 6502. One length
- * answers for both steps -- one OEM byte per unit, and path_from_native
- * prepends at most a six-byte drive prefix. */
+/* And back: what Win32 answered, slashed and in the 6502's code page. One OEM
+ * byte per unit bounds the answer, and nothing is prepended. */
 char *path_from_wide(const wchar_t *w, api_errno *err)
 {
-    size_t sz = wcslen(w) + 7;
-    char *native = malloc(sz), *out = malloc(sz);
-    if (native && out)
+    size_t sz = wcslen(w) + 1;
+    char *out = malloc(sz);
+    if (out)
     {
-        oem_from_wide((const uint16_t *)w, native, sz);
-        win_to_slash(native);
-        if (!path_from_native(native, out, sz))
-        {
-            free(out);
-            out = NULL;
-            *err = API_EINVAL; /* a name too long, as win_error_to_api spells it */
-        }
+        oem_from_wide((const uint16_t *)w, out, sz);
+        win_to_slash(out);
     }
     else
-    {
-        free(out);
-        out = NULL;
         *err = API_ENOMEM;
-    }
-    free(native);
     return out;
 }
 
@@ -105,6 +80,34 @@ void win_to_slash(char *p)
     for (; *p; p++)
         if (*p == '\\')
             *p = '/';
+}
+
+/* What Win32 makes of a path when it is asked to say it in full: relative
+ * against the process cwd, drive-relative ("C:") against that drive's own
+ * remembered directory. Sized by asking first -- zero means failure, and
+ * otherwise the count includes the terminating null. */
+static wchar_t *win_full_path(const wchar_t *w, api_errno *err)
+{
+    DWORD n = GetFullPathNameW(w, 0, NULL, NULL);
+    if (!n)
+    {
+        *err = win_last_error_to_api();
+        return NULL;
+    }
+    wchar_t *full = malloc((size_t)n * sizeof *full);
+    if (!full)
+    {
+        *err = API_ENOMEM;
+        return NULL;
+    }
+    DWORD got = GetFullPathNameW(w, n, full, NULL);
+    if (!got || got >= n) /* grew since the sizing call: it asked again */
+    {
+        *err = got ? API_ENOMEM : win_last_error_to_api();
+        free(full);
+        return NULL;
+    }
+    return full;
 }
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir.
@@ -116,14 +119,12 @@ char *os_dir_realpath(const char *path)
     wchar_t *wpath = path_to_wide(path, &ignored);
     if (!wpath)
         return NULL;
-    /* Asked for its own length first: zero means failure, otherwise it counts
-     * the terminating null, which is exactly what the second call wants. */
-    DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
-    wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
-    DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
-    /* got >= n means it grew since the sizing call and asked again */
-    char *out = (got && got < n) ? path_from_wide(wfull, &ignored) : NULL;
-    free(wpath), free(wfull);
+    wchar_t *wfull = win_full_path(wpath, &ignored);
+    free(wpath);
+    if (!wfull)
+        return NULL;
+    char *out = path_from_wide(wfull, &ignored);
+    free(wfull);
     return out;
 }
 
@@ -238,11 +239,20 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
     }
     struct win_dir *d = &dirs[i];
     /* a directory of no name is the working directory */
-    wchar_t *base = path_to_wide(path_strip_drive(path)[0] ? path : ".", err);
+    wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
+    if (!rel)
+        return false;
+    /* Expanded before the glob is built, which answers two questions at once:
+     * a bare "C:" is that drive's own directory rather than its root, the way
+     * every other call here reads it; and the pattern the slot keeps is
+     * absolute, so drive_rewinddir cannot re-resolve it against wherever the
+     * program has since gone. */
+    wchar_t *base = win_full_path(rel, err);
+    free(rel);
     if (!base)
         return false;
     size_t n = wcslen(base);
-    while (n > 0 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
+    while (n > 1 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
         n--;
     wchar_t *pattern = malloc((n + 3) * sizeof *pattern); /* + \\ * and the null */
     if (!pattern)
@@ -393,19 +403,27 @@ bool drive_chdir(const char *path, api_errno *err)
     return ok;
 }
 
-/* The 6502 sees MSC0: (and the bare current drive); anything else is a
- * missing device. */
+/* The drives here are Windows' own, so this is Windows' own change-drive:
+ * SetCurrentDirectory of a bare "X:", which is what cd /d and the CRT's
+ * _chdrive are. Win32 reads a bare drive against the directory it remembers
+ * for that drive in the hidden "=X:" variable, and lands on the drive's root
+ * when it remembers none -- which is the usual case for a process that was
+ * not started from cmd.exe. That is the platform's answer and this takes it.
+ *
+ * The letter is checked against the mounted set first, so a drive that is not
+ * there is a missing device rather than whatever a path error would say. One
+ * that is there but not ready then reports what Win32 thinks of it. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
-    if (drive[0] != ':') /* the null drive (installs) is not a cwd-able drive */
+    if (!drive[0]) /* no name is the drive in use */
+        return true;
+    char letter = drive[0];
+    bool named = isalpha((unsigned char)letter) &&
+                 (!drive[1] || (drive[1] == ':' && !drive[2]));
+    if (named && (GetLogicalDrives() & (1u << (toupper((unsigned char)letter) - 'A'))))
     {
-        char name[16];
-        size_t i = 0;
-        for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
-            name[i] = drive[i];
-        name[i] = 0;
-        if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
-            return true;
+        const wchar_t w[3] = {(wchar_t)letter, L':', 0};
+        return win_ok(SetCurrentDirectoryW(w), err);
     }
     *err = API_ENODEV;
     return false;
@@ -489,22 +507,14 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
         free(w);
         return false;
     }
-    /* one OEM byte per unit, and path_from_native prepends at most six */
-    size_t sz = wcslen(w) + 7;
-    char *native = malloc(sz), *cwd = malloc(sz);
-    bool ok = native && cwd;
+    /* What Win32 said, which already carries this host's drive letter. One OEM
+     * byte per unit bounds it. */
+    bool ok = oem_from_wide((const uint16_t *)w, buf, size) < size;
     if (ok)
-    {
-        oem_from_wide((const uint16_t *)w, native, sz);
-        win_to_slash(native);
-        ok = path_from_native(native, cwd, sz) &&
-             strlen(cwd) < size; /* did not fit: full-path-or-error */
-    }
-    if (ok)
-        strcpy(buf, cwd);
+        win_to_slash(buf);
     else
-        *err = API_ENOMEM;
-    free(w), free(native), free(cwd);
+        *err = API_ENOMEM; /* did not fit: full-path-or-error */
+    free(w);
     return ok;
 }
 
@@ -529,8 +539,14 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                           api_errno *err)
 {
     /* A drive query names a drive, and no name is the one in use -- the same
-     * rule opendir follows, and what f_getfree does with "". */
-    wchar_t *w = path_to_wide(path[0] ? path : ".", err);
+     * rule opendir follows, and what f_getfree does with "". Expanded first,
+     * so a bare "C:" is that drive's own directory and GetDiskFreeSpaceEx is
+     * given a directory, which is what it asks for. */
+    wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
+    if (!rel)
+        return false;
+    wchar_t *w = win_full_path(rel, err);
+    free(rel);
     if (!w)
         return false;
     /* Prefer the parent directory when path names a file. Truncated in place:

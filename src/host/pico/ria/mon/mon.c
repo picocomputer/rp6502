@@ -154,7 +154,7 @@ static mon_command_fn mon_command_lookup(const char **buf)
     // "cd" is the chdir command, not a hex address.
     if (!strcasecmp(tok, STR_CD))
         is_addr = false;
-    // 0:-7: and MSC0:-MSC7:
+    // 0:-9: and MSC0:-MSC9:
     if (fil_drive_exists(cmd))
     {
         *buf = cmd;
