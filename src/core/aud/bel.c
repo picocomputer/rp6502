@@ -115,8 +115,7 @@ void bel_add(const ria_bel_t *sound)
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-int16_t
-HOST_TIME_CRITICAL(bel_sample)(void)
+int16_t bel_sample(void)
 {
     if (!bel_state.active)
         return 0;

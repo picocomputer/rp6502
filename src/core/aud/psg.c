@@ -114,7 +114,7 @@ static struct
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-void HOST_TIME_CRITICAL(psg_sample)(int16_t *left, int16_t *right)
+void psg_sample(int16_t *left, int16_t *right)
 {
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 

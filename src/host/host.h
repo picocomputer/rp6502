@@ -21,12 +21,6 @@
 #ifndef HOST_UNINITIALIZED_RAM
 #define HOST_UNINITIALIZED_RAM(name) name
 #endif
-#ifndef HOST_TIME_CRITICAL
-#define HOST_TIME_CRITICAL(name) name
-#endif
-#ifndef HOST_ISR
-#define HOST_ISR
-#endif
 
 #ifndef HOST_TERM_MAX_HEIGHT
 #define HOST_TERM_MAX_HEIGHT 30

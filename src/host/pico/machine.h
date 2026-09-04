@@ -20,8 +20,6 @@
 #define HOST_IN_FLASH(group) __in_flash(group)
 #define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
 #define HOST_UNINITIALIZED_RAM(name) __uninitialized_ram(name)
-#define HOST_TIME_CRITICAL(name) __time_critical_func(name)
-#define HOST_ISR __isr
 
 /* The SXGA console's two extra rows. The SIO interpolators mode4 walks are
  * not named here: PICO_ON_DEVICE already says which machine has them, and

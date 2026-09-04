@@ -26,8 +26,7 @@ static OPL *opl_emu8950;
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-int16_t
-HOST_TIME_CRITICAL(opl_sample)(void)
+int16_t opl_sample(void)
 {
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
@@ -56,8 +55,7 @@ HOST_TIME_CRITICAL(opl_sample)(void)
 }
 
 /* What a mixer registers: the one voice this chip has, on both sides. */
-static void
-HOST_TIME_CRITICAL(opl_stereo)(int16_t *left, int16_t *right)
+static void opl_stereo(int16_t *left, int16_t *right)
 {
     *left = *right = opl_sample();
 }
