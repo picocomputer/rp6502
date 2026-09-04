@@ -29,11 +29,11 @@
 UTEST_MAIN();
 
 /* Each hook writes its row's letter and its column's, in the order called. */
-static char log[64];
+static char walked[64];
 static void note(const char *what)
 {
-    if (strlen(log) + 2 < sizeof log)
-        strcat(log, what);
+    if (strlen(walked) + 2 < sizeof walked)
+        strcat(walked, what);
 }
 
 /* clang-format off */
@@ -61,14 +61,14 @@ static void from_stopped(void)
 {
     sys_stop();
     sys_commit();
-    log[0] = '\0';
+    walked[0] = '\0';
 }
 
 UTEST(roster, init_walks_the_list_forward)
 {
-    log[0] = '\0';
+    walked[0] = '\0';
     sys_init();
-    ASSERT_STREQ("aibici", log);
+    ASSERT_STREQ("aibici", walked);
 }
 
 UTEST(roster, a_run_walks_forward)
@@ -76,7 +76,7 @@ UTEST(roster, a_run_walks_forward)
     from_stopped();
     sys_run();
     sys_commit();
-    ASSERT_STREQ("arbrcr", log);
+    ASSERT_STREQ("arbrcr", walked);
 }
 
 /* Backward, so a row is put away before whatever came up before it. */
@@ -85,10 +85,10 @@ UTEST(roster, a_stop_walks_the_run_in_reverse)
     from_stopped();
     sys_run();
     sys_commit();
-    log[0] = '\0';
+    walked[0] = '\0';
     sys_stop();
     sys_commit();
-    ASSERT_STREQ("csbsas", log);
+    ASSERT_STREQ("csbsas", walked);
 }
 
 /* The performed-on-the-spot stop takes the same direction as the deferred one;
@@ -98,9 +98,9 @@ UTEST(roster, stop_now_walks_the_same_way)
     from_stopped();
     sys_run();
     sys_commit();
-    log[0] = '\0';
+    walked[0] = '\0';
     sys_stop_now();
-    ASSERT_STREQ("csbsas", log);
+    ASSERT_STREQ("csbsas", walked);
     ASSERT_FALSE(sys_active());
 }
 
@@ -110,10 +110,10 @@ UTEST(roster, a_break_walks_in_reverse_after_the_stop)
     from_stopped();
     sys_run();
     sys_commit();
-    log[0] = '\0';
+    walked[0] = '\0';
     sys_break_request();
     sys_commit();
-    ASSERT_STREQ("csbsascbbbab", log);
+    ASSERT_STREQ("csbsascbbbab", walked);
 }
 
 /* Two columns and two walks. A machine whose file operations block re-enters
@@ -124,10 +124,10 @@ UTEST(roster, the_task_columns_are_two_walks)
 {
     from_stopped();
     sys_task();
-    ASSERT_STREQ("atbtct", log);
-    log[0] = '\0';
+    ASSERT_STREQ("atbtct", walked);
+    walked[0] = '\0';
     sys_io_task();
-    ASSERT_STREQ("aoboco", log);
+    ASSERT_STREQ("aoboco", walked);
 }
 
 /* RESB is sys.c's own, and no row could hold it: down before the walk, down
