@@ -50,6 +50,27 @@ void os_sleep_ns(uint64_t ns);
  * .exe and --help would otherwise vanish. */
 void os_console_attach(void);
 
+/* The host's stdin, for a program whose console it is.
+ *
+ * os_stdin_read never waits: it answers what is ready now and 0 when nothing
+ * is, as UTF-8 whatever the host stores natively. End of file is latched
+ * there rather than reported separately, so a reader cannot ask before the
+ * last bytes are taken.
+ *
+ * Raw hands the keystrokes over one at a time and gives the machine every
+ * byte it can, Ctrl-C included. What it must not take is the one way out
+ * when the machine has stopped listening, so Ctrl-\ keeps its signal.
+ * Restored at exit however the process leaves. */
+bool os_stdin_is_terminal(void);
+bool os_stderr_is_terminal(void); /* the same one, when a console owns stdio */
+void os_stdin_raw(bool on);
+size_t os_stdin_read(char *buf, size_t count);
+bool os_stdin_ended(void);
+
+/* Wait until stdin is ready or the deadline passes, for a host with nothing
+ * else to do meanwhile. False if it waited the whole time for nothing. */
+bool os_stdin_wait(uint64_t ns);
+
 /* Where an application's config file goes, in the host's native path spelling
  * -- the machine has no config directory, an application does. This is also
  * where the literal "rp6502-emu" lives. ensure_parent_dir works in host path

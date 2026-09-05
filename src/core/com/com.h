@@ -21,6 +21,19 @@ void com_keyboard_push_byte(uint8_t b);
 #define COM_RING_SIZE 64 /* each ring; a power of two */
 size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */
 
+/* The UART source: a machine whose console has a wire pushes what arrived on
+ * it here, the way a Pico drains its UART FIFO. A Ctrl-C latches SIGINT
+ * before the space check, so a break is caught even when the ring is full and
+ * the byte is dropped. */
+void com_uart_push(const char *s, size_t n);
+size_t com_uart_free(void); /* headroom; a wire reads no more than this */
+
+/* Stop answering the terminal queries a program sends, because something at
+ * the far end of the wire is a real terminal and will answer them itself.
+ * The Pico's VGA chip has the same switch, thrown by a live CDC or telnet
+ * connection. Wiring, not machine state: com_init does not touch it. */
+void com_suppress_term_reply(bool suppress);
+
 /* Cold-boot flush: clear both input rings and reset BEL (machine power-up). */
 void com_init(void);
 

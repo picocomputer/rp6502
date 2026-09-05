@@ -55,6 +55,17 @@ unsigned char oem_from_codepoint(uint32_t cp);
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
 
+/* A run of host text -> OEM, for the doors host characters arrive at: the
+ * clipboard's paste and a console wire's input. '?' stands in for what the
+ * code page cannot spell, because the decoder's own stand-in is DEL and a
+ * line editor reads that as a backspace. Control bytes pass through, except
+ * that a newline in any of its three spellings becomes the CR a line editor
+ * ends a line on. Stops on a full dst, and on a sequence the buffer does not
+ * hold whole unless end says none is coming; *taken is what was read, so the
+ * rest can be carried to the next call. Returns the count written. */
+size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
+                         char *dst, size_t dstsz, size_t *taken);
+
 // One OEM byte -> UTF-8 in dst (at most 3 bytes, no NUL); returns the count
 int oem_to_utf8_char(unsigned char b, char *dst);
 

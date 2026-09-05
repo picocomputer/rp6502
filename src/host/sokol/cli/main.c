@@ -255,6 +255,14 @@ int main(int argc, char **argv)
                         "--screenshot, --crc, --dap or --debug\n");
         return 2;
     }
+    /* The console wants the host's stdin, and each of these already has it or
+     * owns the stream the console would answer on. */
+    if (o.console && (o.script || o.crc || o.dap))
+    {
+        fprintf(stderr, "rp6502-emu: --stdin cannot be combined with --script, "
+                        "--crc or --dap\n");
+        return 2;
+    }
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
@@ -335,9 +343,14 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
+    /* The host's stdio on the machine's console wire. A terminal at the far
+     * end becomes the console itself and carries the machine's screen, so it
+     * is already showing everything the mirror below would repeat. */
+    bool console_is_terminal = o.console && streams_console_open();
+
     /* The program's stdout on the host's too, except where host stdout is
      * already the emulator's own channel: a script's replies, a CRC. */
-    if (!o.script && !o.crc)
+    if (!o.script && !o.crc && !console_is_terminal)
         streams_mirror_stdout();
 
     sys_commit(); /* proc_boot asked; this starts it */
@@ -351,7 +364,7 @@ int main(int argc, char **argv)
         while (!proc_exited())
         {
             vga_run_frame();
-            streams_feed_stdin();
+            streams_stdin_idle();
             if (o.unpaced)
                 continue;
             const uint64_t now = os_mono_ns();

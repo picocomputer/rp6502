@@ -39,6 +39,12 @@ typedef struct
 
 static ring_t keyboard_ring;
 static ring_t uart_ring;
+/* The emulated terminal's answers, apart from the wire that shares their
+ * source: they are what a program is waiting on, they arrive in bounded
+ * bursts, and a wire delivering a file would both delay them and truncate
+ * one. Drained before either ring. */
+static ring_t reply_ring;
+static bool com_term_reply_suppressed;
 
 /* Gates the teletype bell rung on a BEL (0x07) in program output. The setting
  * roundtrips through the BEL attribute, so a program reads back what it set. */
@@ -67,6 +73,11 @@ static void ring_push(ring_t *r, uint8_t b)
     r->head = next;
 }
 
+static size_t ring_free(const ring_t *r)
+{
+    return (size_t)((r->tail - r->head - 1) & RING_MASK);
+}
+
 static int ring_peek(const ring_t *r)
 {
     if (r->head == r->tail)
@@ -87,10 +98,12 @@ int com_getchar(com_source_t *src)
 {
     if (*src == COM_SOURCE_ANY)
     {
-        /* Terminal replies before typed input, so the CPR/DA handshake
-         * resolves promptly; the keyboard never starves, because the reply
-         * ring only fills in bounded bursts. */
-        int c = ring_pop(&uart_ring);
+        /* Terminal replies before anything else, so the CPR/DA handshake
+         * resolves promptly; nothing starves behind them, because that ring
+         * only fills in bounded bursts. */
+        int c = ring_pop(&reply_ring);
+        if (c < 0)
+            c = ring_pop(&uart_ring);
         if (c >= 0)
         {
             *src = COM_SOURCE_UART;
@@ -105,8 +118,15 @@ int com_getchar(com_source_t *src)
         *src = COM_SOURCE_ANY;
         return -1;
     }
-    ring_t *r = ring_for(*src);
-    int c = r ? ring_pop(r) : -1;
+    /* Asked for the UART, the replies are still the older bytes. */
+    int c = -1;
+    if (*src == COM_SOURCE_UART || *src == COM_SOURCE_TEL)
+        c = ring_pop(&reply_ring);
+    if (c < 0)
+    {
+        ring_t *r = ring_for(*src);
+        c = r ? ring_pop(r) : -1;
+    }
     if (c < 0)
         *src = COM_SOURCE_ANY;
     return c;
@@ -114,6 +134,12 @@ int com_getchar(com_source_t *src)
 
 int com_peekchar(com_source_t src)
 {
+    if (src == COM_SOURCE_UART || src == COM_SOURCE_TEL)
+    {
+        int c = ring_peek(&reply_ring);
+        if (c >= 0)
+            return c;
+    }
     ring_t *r = ring_for(src);
     return r ? ring_peek(r) : -1;
 }
@@ -249,10 +275,38 @@ size_t com_stderr_write(const char *buf, size_t count)
 
 /* ---- input: what arrives, and what a Ctrl-C in it means ---- */
 
+/* Dropped whole rather than truncated: half a CSI is a sequence the reader
+ * would parse as something else. */
 void com_in_write_reply(const char *s, size_t n)
 {
+    if (com_term_reply_suppressed || n > ring_free(&reply_ring))
+        return;
     for (size_t i = 0; i < n; i++)
-        ring_push(&uart_ring, (uint8_t)s[i]);
+        ring_push(&reply_ring, (uint8_t)s[i]);
+}
+
+void com_suppress_term_reply(bool suppress)
+{
+    com_term_reply_suppressed = suppress;
+}
+
+/* The wire's end of the console, shaped after a Pico draining its UART FIFO:
+ * the SIGINT scan comes before the space check, so a Ctrl-C is caught even
+ * when the byte after it is dropped. */
+void com_uart_push(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+    {
+        uint8_t b = (uint8_t)s[i];
+        if (b == COM_ETX)
+            ria_trigger_sigint();
+        ring_push(&uart_ring, b);
+    }
+}
+
+size_t com_uart_free(void)
+{
+    return ring_free(&uart_ring);
 }
 
 void com_keyboard_push(const char *s, size_t n)
@@ -270,7 +324,7 @@ void com_keyboard_push_byte(uint8_t b)
 
 size_t com_keyboard_free(void)
 {
-    return (size_t)((keyboard_ring.tail - keyboard_ring.head - 1) & RING_MASK);
+    return ring_free(&keyboard_ring);
 }
 
 bool com_get_bel(void)
@@ -289,6 +343,7 @@ void com_init(void)
 {
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
+    memset(&reply_ring, 0, sizeof(reply_ring));
     com_bel_enabled = true;
 }
 

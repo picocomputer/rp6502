@@ -112,6 +112,64 @@ unsigned char oem_from_utf8_next(const char **p)
     return unicode_from_utf8_next(p, oem_code_page_run);
 }
 
+/* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
+static size_t oem_utf8_len(unsigned char lead)
+{
+    if ((lead & 0xe0) == 0xc0)
+        return 2;
+    if ((lead & 0xf0) == 0xe0)
+        return 3;
+    if ((lead & 0xf8) == 0xf0)
+        return 4;
+    return 1;
+}
+
+size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
+                         char *dst, size_t dstsz, size_t *taken)
+{
+    size_t in = 0, out = 0;
+    while (in < len && out < dstsz)
+    {
+        unsigned char c = (unsigned char)utf8[in];
+        if (c == '\r' || c == '\n')
+        {
+            /* One line end, however the host spells it. A CR at the very end
+             * waits for the LF that may be following it, so CRLF split
+             * across two reads is still one. */
+            if (c == '\r' && in + 1 == len && !end)
+                break;
+            dst[out++] = '\r';
+            in++;
+            if (c == '\r' && in < len && utf8[in] == '\n')
+                in++;
+            continue;
+        }
+        if (c < 0x80)
+        {
+            dst[out++] = (char)c;
+            in++;
+            continue;
+        }
+        size_t n = oem_utf8_len(c);
+        if (n > len - in)
+        {
+            if (!end)
+                break; /* the rest of the sequence has not arrived */
+            n = len - in; /* it never will; let the decoder call it */
+        }
+        char seq[5];
+        memcpy(seq, utf8 + in, n);
+        seq[n] = 0;
+        const char *p = seq;
+        unsigned char b = oem_from_utf8_next(&p);
+        dst[out++] = (char)(b && b != 0x7F ? b : '?');
+        in += n;
+    }
+    if (taken)
+        *taken = in;
+    return out;
+}
+
 int oem_to_utf8_char(unsigned char b, char *dst)
 {
     return unicode_to_utf8_char(b, oem_code_page_run, dst);

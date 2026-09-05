@@ -462,6 +462,66 @@ UTEST(cli, batch_headless_and_unpaced)
     ASSERT_EQ(o.phi2_khz, 4000);
 }
 
+
+/* ---- host text to OEM, the one door a paste and a console wire share ---- */
+
+UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
+{
+    char out[32];
+    size_t taken = 0;
+    /* Every spelling of a newline is the CR a line editor ends a line on,
+     * and CRLF is one of them, not two. */
+    size_t n = oem_from_utf8_run("a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
+    ASSERT_EQ(taken, (size_t)7);
+    ASSERT_EQ(n, (size_t)6);
+    ASSERT_EQ(memcmp(out, "a\rb\rc\r", 6), 0);
+    /* A control byte the machine may want is not a character to drop: ESC,
+     * Ctrl-C and DEL all arrive. */
+    n = oem_from_utf8_run("\33[A\3\177", 6, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)6);
+    ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
+}
+
+UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
+{
+    char out[32];
+    size_t taken = 0;
+    /* 'é' is two bytes of UTF-8 and this read holds only the first. */
+    size_t n = oem_from_utf8_run("h\xc3", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(out[0], 'h');
+    ASSERT_EQ(taken, (size_t)1); /* the lead byte waits for its second */
+    n = oem_from_utf8_run("\xc3\xa9!", 3, false, out, sizeof out, &taken);
+    ASSERT_EQ(taken, (size_t)3);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
+    ASSERT_EQ(out[1], '!');
+    /* A CR waits too, in case the LF that would pair with it is next. */
+    n = oem_from_utf8_run("x\r", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(taken, (size_t)1);
+    /* Unless nothing more is coming, when it is a line end of its own. */
+    n = oem_from_utf8_run("x\r", 2, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ(taken, (size_t)2);
+    ASSERT_EQ(out[1], '\r');
+}
+
+UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
+{
+    char out[8];
+    size_t taken = 0;
+    /* U+4E2D is in no OEM code page here. The decoder's own stand-in is DEL,
+     * which a line editor would take as a backspace. */
+    size_t n = oem_from_utf8_run("\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(out[0], '?');
+    /* And a full destination stops it without losing what it did not read. */
+    n = oem_from_utf8_run("abcd", 4, true, out, 2, &taken);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ(taken, (size_t)2);
+}
+
 UTEST_MAIN();
 
 /* ---- the generator and the seed it asks the machine for ------------------ */

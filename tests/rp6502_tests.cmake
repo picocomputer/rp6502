@@ -236,6 +236,11 @@ rp6502_test_rom(tty_rom GEN ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
 
 # The program's three standard streams on a host that keeps them apart: what
 # it reads, what it writes to each, and what it exits with, seen from outside.
+set(CON_ROM ${RP6502_TEST_ROM_DIR}/con.rp6502)
+rp6502_test_rom(con_rom GEN ${RP6502_TESTS_DIR}/gen/con_rom_gen.py
+    ARGS --emit ${CON_ROM}
+    OUTPUTS ${CON_ROM})
+
 set(STDIO_ROM ${RP6502_TEST_ROM_DIR}/stdio.rp6502)
 rp6502_test_rom(stdio_rom GEN ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
     ARGS --emit ${STDIO_ROM}

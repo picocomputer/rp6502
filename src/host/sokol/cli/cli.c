@@ -95,7 +95,7 @@ enum
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
-    OPT_CRC, OPT_HEADLESS,
+    OPT_CRC, OPT_HEADLESS, OPT_STDIN,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
@@ -106,6 +106,7 @@ static const struct option longopts[] = {
     {"filter",       required_argument, NULL, OPT_FILTER},
     {"script",       required_argument, NULL, OPT_SCRIPT},
     {"headless",     no_argument,       NULL, OPT_HEADLESS},
+    {"stdin",        no_argument,       NULL, OPT_STDIN},
     {"rom",          required_argument, NULL, OPT_ROM},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
     {"phi2",         required_argument, NULL, OPT_PHI2},
@@ -135,6 +136,9 @@ void cli_usage(FILE *out, const char *argv0)
             "                            always headless: the script is the only clock\n"
             "  --headless                no window and no picture: host stdin, stdout and\n"
             "                            stderr are the program's; exits with its exit code\n"
+            "  --stdin                   host stdin is the machine's console, and a terminal\n"
+            "                            there is the console: keys raw, screen drawn on it,\n"
+            "                            Ctrl-\\ the way out. Implied by --headless\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
             "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
@@ -200,6 +204,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_SCREENSHOT: o->screenshot = optarg; break;
         case OPT_CRC: o->crc = true; break;
         case OPT_HEADLESS: o->headless = true; break;
+        case OPT_STDIN: o->console = true; break;
         case OPT_FRAMES:
         {
             long long v;
@@ -304,6 +309,10 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             return 2;
         }
     }
+    /* No window to be a console instead, so the host's stdio is the one this
+     * machine has. --stdin is how a run with a window asks for it anyway. */
+    if (o->headless)
+        o->console = true;
     /* The lone positional is the ROM path; tolerate empty args (e.g. an unfilled
      * launch.json input) by taking the first non-empty one. */
     for (int i = optind; i < argc; i++)

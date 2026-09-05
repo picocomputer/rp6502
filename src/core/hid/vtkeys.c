@@ -131,18 +131,6 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 static char *vtkeys_paste_buf;
 static size_t vtkeys_paste_len, vtkeys_paste_pos;
 
-/* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
-static size_t vtkeys_utf8_len(uint8_t lead)
-{
-    if ((lead & 0xe0) == 0xc0)
-        return 2;
-    if ((lead & 0xf0) == 0xe0)
-        return 3;
-    if ((lead & 0xf8) == 0xf0)
-        return 4;
-    return 1;
-}
-
 void vtkeys_paste_cancel(void)
 {
     free(vtkeys_paste_buf);
@@ -176,35 +164,18 @@ void vtkeys_task(void)
      * paste; a full ring drops bytes, which would corrupt the paste. */
     while (vtkeys_paste_pos < vtkeys_paste_len && com_keyboard_free() > COM_RING_SIZE / 4)
     {
-        char c = vtkeys_paste_buf[vtkeys_paste_pos];
-        if (c == '\r' || c == '\n')
-        {
-            vtkeys_key(HID_KEY_ENTER, false, false, false);
-            vtkeys_paste_pos++;
-            if (c == '\r' && vtkeys_paste_pos < vtkeys_paste_len &&
-                vtkeys_paste_buf[vtkeys_paste_pos] == '\n')
-                vtkeys_paste_pos++; /* CRLF is one Enter */
-        }
-        else if (c == '\t')
-        {
-            vtkeys_key(HID_KEY_TAB, false, false, false);
-            vtkeys_paste_pos++;
-        }
-        else if ((uint8_t)c < 32 || c == 127)
-        {
-            vtkeys_paste_pos++; /* strip other control bytes */
-        }
-        else
-        {
-            char seq[5];
-            size_t n = vtkeys_utf8_len((uint8_t)c);
-            if (n > vtkeys_paste_len - vtkeys_paste_pos)
-                n = vtkeys_paste_len - vtkeys_paste_pos;
-            memcpy(seq, vtkeys_paste_buf + vtkeys_paste_pos, n);
-            seq[n] = '\0';
-            vtkeys_text(seq);
-            vtkeys_paste_pos += n;
-        }
+        char out[16];
+        size_t room = com_keyboard_free() - COM_RING_SIZE / 4;
+        if (room > sizeof out)
+            room = sizeof out;
+        size_t taken = 0;
+        size_t n = oem_from_utf8_run(vtkeys_paste_buf + vtkeys_paste_pos,
+                                     vtkeys_paste_len - vtkeys_paste_pos,
+                                     true, out, room, &taken);
+        if (!taken)
+            break; /* a sequence the clipboard ended mid-way */
+        com_keyboard_push(out, n);
+        vtkeys_paste_pos += taken;
     }
     if (vtkeys_paste_pos >= vtkeys_paste_len)
         vtkeys_paste_cancel();

@@ -13,6 +13,7 @@
 #include "core/ria/ria.h"
 
 #include "core/com/com.h"
+#include "core/vga/vga.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -38,8 +39,21 @@ static void tty_utf8_write(FILE *f, const char *buf, int len)
         fwrite(out, 1, (size_t)n, f);
 }
 
+/* The host's end of the wire, when the host has one. */
+static void (*tty_tx)(const char *buf, int len);
+static size_t (*tty_rx)(char *buf, size_t max);
+
+void tty_set_wire(void (*tx)(const char *buf, int len),
+                  size_t (*rx)(char *buf, size_t max))
+{
+    tty_tx = tx;
+    tty_rx = rx;
+}
+
 void tty_write(const char *buf, int len)
 {
+    if (tty_tx)
+        tty_tx(buf, len);
     /* EMU_ECHO mirrors the terminal stream to the host's stderr, so a
      * program's output is visible without rendering a frame. */
     static int echo = -1;
@@ -49,9 +63,17 @@ void tty_write(const char *buf, int len)
         tty_utf8_write(stderr, buf, len);
 }
 
+static bool tty_stderr_host = true;
+
+void tty_set_stderr_host(bool on)
+{
+    tty_stderr_host = on;
+}
+
 void tty_stderr_write(const char *buf, int len)
 {
-    tty_utf8_write(stderr, buf, len);
+    if (tty_stderr_host)
+        tty_utf8_write(stderr, buf, len);
 }
 
 /* A read of $FFE0 pulls a byte into the $FFE2 latch to answer the ready bit;
@@ -78,6 +100,28 @@ int com_printf(const char *fmt, ...)
 }
 
 /* The console's task on a machine whose console is the terminal the walk
- * already reaches. The consoles with a transport of their own -- a UART, a
- * fabric bridge -- do real work here; see core/com/com.h. */
-void com_task(void) {}
+ * already reaches: nothing, until a host puts a wire on it.
+ *
+ * Once a frame rather than once a pass. The walk runs per scanline, which is
+ * thirty thousand times a second, and asking the operating system that often
+ * whether a key has been pressed is thirty thousand system calls to answer
+ * no. A frame's worth of ring is more than a wire fills in a frame. */
+void com_task(void)
+{
+    if (!tty_rx)
+        return;
+    static unsigned long seen;
+    unsigned long now = vga_frame_count();
+    if (now == seen)
+        return;
+    seen = now;
+    size_t room = com_uart_free();
+    if (!room)
+        return;
+    char buf[COM_RING_SIZE];
+    if (room > sizeof buf)
+        room = sizeof buf;
+    size_t n = tty_rx(buf, room);
+    if (n)
+        com_uart_push(buf, n);
+}

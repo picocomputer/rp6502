@@ -147,6 +147,11 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(stdio DRIVER ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
         ROM ${STDIO_ROM} DEPENDS stdio_rom TIMEOUT 120)
 
+    # The other reader: TTY: opened by name and read raw, fed from the host's
+    # stdin, which the line-editor-watching feed could never reach.
+    rp6502_add_script_test(con DRIVER ${RP6502_TESTS_DIR}/gen/con_rom_gen.py
+        ROM ${CON_ROM} DEPENDS con_rom TIMEOUT 120)
+
     # The ANSI keyboard against the line editor, through the shipped binary:
     # type and wait against a program that reads whole lines. test_adventure
     # above injects on stdin, so the two prove different halves of one path.

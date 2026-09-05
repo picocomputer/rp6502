@@ -32,6 +32,7 @@ typedef struct
     int code_page; /* 0 = leave at the default 437 */
     bool crc;      /* --crc: render headlessly, print the canvas CRC-32 and exit */
     bool headless; /* --headless: no window, no picture; host stdio is the program's */
+    bool console;  /* --stdin: host stdio is the machine's console wire; --headless implies it */
     bool unpaced;  /* --phi2 0: no pacing, time warps */
     bool mute;
     bool debug;   /* --debug: on-screen machine debugger */

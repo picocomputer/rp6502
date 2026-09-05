@@ -8,8 +8,10 @@
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
 #include "core/com/com.h"
-#include "core/hid/vtkeys.h"
+#include "core/com/tty.h"
 #include "core/str/oem.h"
+#include "core/vga/vga_emu.h"
+#include "osal/os.h"
 #include "core/sys/debug_log.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "core/dap/dap.h"
@@ -70,27 +72,110 @@ void streams_mirror_stdout(void)
     com_set_std_tap(streams_stdout_tap);
 }
 
-/* Only when the read is genuinely starved: the last paste has dripped and the
- * line editor has taken every byte of it, so an end of file found here can
- * only cancel a read nothing is on its way to. */
-void streams_feed_stdin(void)
+/* ---- the host's stdio as this machine's console wire ---- */
+
+/* What the far end sent and this end could not use yet: a UTF-8 sequence or
+ * a CR whose LF may be in the next read. Never more than one sequence. */
+static char stdin_carry[8];
+static size_t stdin_carry_len;
+/* Whether the wire has delivered anything since the last line end, so an
+ * input that stops without one still finishes its line. */
+static bool stdin_mid_line;
+static bool stdin_closed;
+
+static size_t stdin_rx(char *buf, size_t max)
 {
-    if (!std_stdin_waiting() || vtkeys_paste_busy() ||
-        com_keyboard_free() != COM_RING_SIZE - 1)
+    /* No more than the ring can take: a sequence never grows, so max bytes
+     * in convert to at most max out, and what is left over is only ever the
+     * tail of a sequence the read cut in half. */
+    char raw[256];
+    size_t held = stdin_carry_len;
+    size_t want = max < sizeof raw - held ? max : sizeof raw - held;
+    memcpy(raw, stdin_carry, held);
+    size_t got = want ? os_stdin_read(raw + held, want) : 0;
+    size_t have = held + got;
+    bool end = os_stdin_ended();
+
+    size_t taken = 0;
+    size_t n = have ? oem_from_utf8_run(raw, have, end, buf, max, &taken) : 0;
+    stdin_carry_len = have - taken;
+    if (stdin_carry_len > sizeof stdin_carry)
+        stdin_carry_len = 0; /* nothing that long is a sequence; drop it */
+    memcpy(stdin_carry, raw + taken, stdin_carry_len);
+    for (size_t i = 0; i < n; i++)
+        stdin_mid_line = buf[i] != '\r';
+
+    if (!end || stdin_carry_len || n)
+        return n;
+    /* The far end is gone and everything it sent has been converted. A last
+     * line it never ended is still a line, so it gets its return before the
+     * read that was waiting on it is told there is nothing more. */
+    if (stdin_mid_line && max)
+    {
+        stdin_mid_line = false;
+        buf[0] = '\r';
+        return 1;
+    }
+    /* Only once the wire has drained and a cooked read is genuinely starved:
+     * an end of file found here can then cancel nothing that was coming. */
+    if (!stdin_closed && std_stdin_waiting() && com_uart_free() == COM_RING_SIZE - 1)
+    {
+        stdin_closed = true;
+        std_stdin_eof();
+    }
+    return 0;
+}
+
+/* The machine's terminal stream, out on the host's, where a real terminal is
+ * reading it. Already CRLF-translated; the encoding is all that changes. */
+static void console_tx(const char *buf, int len)
+{
+    char out[3 * 128];
+    int n = 0;
+    bool line = false;
+    for (int i = 0; i < len; i++)
+    {
+        line |= buf[i] == '\n';
+        n += oem_to_utf8_char((unsigned char)buf[i], out + n);
+        if (n > (int)sizeof(out) - 3)
+        {
+            fwrite(out, 1, (size_t)n, stdout);
+            n = 0;
+        }
+    }
+    if (n)
+        fwrite(out, 1, (size_t)n, stdout);
+    if (line)
+        fflush(stdout);
+}
+
+bool streams_console_open(void)
+{
+    bool terminal = os_stdin_is_terminal();
+    if (!terminal)
+    {
+        tty_set_wire(NULL, stdin_rx);
+        return false;
+    }
+    os_stdin_raw(true);
+    tty_set_wire(console_tx, stdin_rx);
+    /* Two terminals must not both answer a program's query. The one at the
+     * far end is the one the program can see, so the emulated one stops
+     * answering and goes on drawing. */
+    com_suppress_term_reply(true);
+    /* Its stderr reaches the same screen through the stream above; a second
+     * copy on the host's would print everything twice. A redirected stderr
+     * is another destination and still gets its own. */
+    if (os_stderr_is_terminal())
+        tty_set_stderr_host(false);
+    return true;
+}
+
+void streams_stdin_idle(void)
+{
+    if (!std_stdin_waiting() || com_uart_free() != COM_RING_SIZE - 1)
         return;
     fflush(stdout);
-    char line[4096];
-    if (!fgets(line, sizeof line - 1, stdin))
-    {
-        std_stdin_eof();
-        return;
-    }
-    /* A last line without a newline is still a line. */
-    size_t n = strlen(line);
-    if ((!n || line[n - 1] != '\n') && feof(stdin))
-    {
-        line[n++] = '\n';
-        line[n] = 0;
-    }
-    vtkeys_paste(line);
+    os_stdin_wait(VGA_FRAME_NS);
 }
+
