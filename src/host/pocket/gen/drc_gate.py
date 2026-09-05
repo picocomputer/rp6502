@@ -24,25 +24,77 @@
 # new crossing somebody added without a synchroniser, and that is worth
 # a failed build.
 #
+# What is counted is names, not the structures the report numbers. The
+# fitter copies a register when placement wants one, and the report
+# lists the copy as a structure of its own -- pocket_file_id[7] and
+# pocket_file_id[7]~DUPLICATE are one crossing counted twice -- so the
+# structure count moved with placement and a change in one module
+# failed the gate for a copy the fitter made in another. A finding here
+# is the set of nodes the report lists for it with those copies folded
+# into the bits they copy, and a rule's number is how many different
+# findings that leaves. The baseline is in the same units.
+#
 # Lower the baseline when a fix lands. The file is the record of what is
 # known-bad and why, so an entry that no longer fires should go.
 
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Information-only rules count fan-out and are not defects.
 IGNORED = ("T101", "T102")
 
+# A finding's first row names the rule; a structure's own nodes follow on
+# rows indented two spaces, one node in the second cell of each. The
+# enable table has the same first row with "On" where a node would be.
+RULE_ROW = re.compile(r"^;\s*Rule\s+(\w+):\s*(.*?)\s*;\s*([^;]*?)\s*;")
+NODE_ROW = re.compile(r"^;\s{2,}[^;]*;\s*([^;]*?)\s*;")
 
-def parse_report(text: str) -> dict[str, int]:
-    """Rule id -> violation count, from the Design Assistant Summary."""
+
+def parse_summary(text: str) -> dict[str, int]:
+    """Rule id -> structure count, from the Design Assistant Summary."""
     found: dict[str, int] = {}
     for rule, count in re.findall(
             r"^;\s*-\s*Rule\s+(\w+)\s*;\s*(\d+)\s*;", text, re.M):
         if rule not in IGNORED:
             found[rule] = int(count)
     return found
+
+
+def fold(node: str) -> str:
+    return node.replace("~DUPLICATE", "")
+
+
+def parse_findings(text: str) -> dict[str, int]:
+    """Rule id -> how many different findings it lists, by name."""
+    findings: dict[str, set[frozenset[str]]] = defaultdict(set)
+    rule = None
+    names: set[str] | None = None
+
+    def close() -> None:
+        if rule and names is not None:
+            findings[rule].add(frozenset(names))
+
+    for line in text.splitlines():
+        m = RULE_ROW.match(line)
+        if m:
+            close()
+            rule, desc, node = m.groups()
+            if node == "On" or (not node and "- Structure" not in desc):
+                rule, names = None, None
+                continue
+            names = {fold(node)} if node else set()
+            continue
+        m = NODE_ROW.match(line)
+        if m and names is not None:
+            if m.group(1):
+                names.add(fold(m.group(1)))
+            continue
+        close()
+        rule, names = None, None
+    close()
+    return {r: len(s) for r, s in findings.items() if r not in IGNORED}
 
 
 def parse_baseline(text: str) -> dict[str, int]:
@@ -71,7 +123,11 @@ def main() -> int:
               " rule check or its format moved", file=sys.stderr)
         return 1
 
-    found = parse_report(text)
+    structures = parse_summary(text)
+    named = parse_findings(text)
+    # A rule the summary counts but the detail does not list is scored on
+    # the count, which is all there is to read.
+    found = {r: named.get(r, n) for r, n in structures.items()}
     allowed = parse_baseline(baseline.read_text()) if baseline.exists() else {}
 
     # A Critical finding is never baselined. The tool reserves that
@@ -85,7 +141,7 @@ def main() -> int:
     for rule, n in sorted(found.items()):
         was = allowed.get(rule)
         mark = "  NEW" if n > (was or 0) else ""
-        print(f"  Rule {rule:<5} {n:5d}"
+        print(f"  Rule {rule:<5} {n:5d}   structures {structures[rule]:5d}"
               + (f"   baseline {was}" if was is not None else "")
               + mark)
 
