@@ -171,7 +171,7 @@ void vtkeys_task(void)
         size_t taken = 0;
         size_t n = oem_from_utf8_run(vtkeys_paste_buf + vtkeys_paste_pos,
                                      vtkeys_paste_len - vtkeys_paste_pos,
-                                     true, out, room, &taken);
+                                     true, NULL, out, room, &taken);
         if (!taken)
             break; /* a sequence the clipboard ended mid-way */
         com_keyboard_push(out, n);
