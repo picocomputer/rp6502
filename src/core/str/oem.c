@@ -133,7 +133,7 @@ size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
         unsigned char c = (unsigned char)utf8[in];
         bool paired = run->after_cr;
         run->after_cr = false;
-        if (run->newlines && (c == '\r' || c == '\n'))
+        if (c == '\r' || c == '\n')
         {
             /* One line end, however the host spells it, and out at once: a
              * reader that waited to see whether a line feed follows would

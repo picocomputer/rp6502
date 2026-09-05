@@ -463,11 +463,11 @@ UTEST(cli, batch_headless_and_unpaced)
 }
 
 
-/* ---- host text to OEM, the one door a paste and a console wire share ---- */
+/* ---- host text to OEM, which is what a clipboard holds ---- */
 
 UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
 {
-    oem_run_t text = {.newlines = true};
+    oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
     /* Every spelling of a newline is the CR a line editor ends a line on,
@@ -485,7 +485,7 @@ UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
 
 UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
 {
-    oem_run_t text = {.newlines = true};
+    oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
     /* 'é' is two bytes of UTF-8 and this read holds only the first. */
@@ -519,7 +519,7 @@ UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
 
 UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
 {
-    oem_run_t text = {.newlines = true};
+    oem_run_t text = {0};
     char out[8];
     size_t taken = 0;
     /* U+4E2D is in no OEM code page here. The decoder's own stand-in is DEL,
@@ -531,20 +531,6 @@ UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
     n = oem_from_utf8_run(&text, "abcd", 4, true, out, 2, &taken);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ(taken, (size_t)2);
-}
-
-UTEST(units, a_wire_is_not_host_text_and_keeps_the_bytes_it_was_sent)
-{
-    /* A terminal already sends the return a line editor reads, so nothing
-     * about what it sends is the host's spelling to correct. */
-    oem_run_t wire = {0};
-    char out[8];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run(&wire, "a\r\nb\n", 5, false, out, sizeof out, &taken);
-    ASSERT_EQ(taken, (size_t)5);
-    ASSERT_EQ(n, (size_t)5);
-    ASSERT_EQ(memcmp(out, "a\r\nb\n", 5), 0);
-    ASSERT_FALSE(wire.after_cr);
 }
 
 UTEST_MAIN();

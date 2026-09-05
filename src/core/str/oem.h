@@ -55,25 +55,24 @@ unsigned char oem_from_codepoint(uint32_t cp);
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
 
-/* A conversion in progress, because host text arrives a piece at a time.
- * Zeroed to start one. */
+/* A conversion in progress, because a clipboard is handed over a piece at a
+ * time. Zeroed to start one. */
 typedef struct
 {
-    /* Whether this is host text, whose line endings are the host's, or a
-     * wire whose bytes are already the machine's. A file and a clipboard
-     * spell a line end the way the host does; a terminal already sends the
-     * return a line editor reads, and everything it sends is passed on as
-     * it was struck. */
-    bool newlines;
     /* The last byte out was a return, so a line feed opening the next call
      * is the other half of one this call did not hold. */
     bool after_cr;
 } oem_run_t;
 
-/* A run of host text -> OEM, for the doors host characters arrive at: the
- * clipboard's paste and a console wire's input. '?' stands in for what the
- * code page cannot spell, because the decoder's own stand-in is DEL and a
- * line editor reads that as a backspace. Control bytes pass through.
+/* A run of host text -> OEM, which is what a clipboard holds: characters in
+ * the host's encoding, ending lines the host's way. '?' stands in for what
+ * the code page cannot spell, because the decoder's own stand-in is DEL and
+ * a line editor reads that as a backspace. A newline in any of its three
+ * spellings becomes the one return a line editor ends a line on, and every
+ * other control byte passes through.
+ *
+ * Not for the console's wire, which carries whatever the far end sent and is
+ * not the host's text to correct.
  *
  * Stops on a full dst, and on a sequence the buffer does not hold whole
  * unless end says none is coming; *taken is what was read, so the rest can

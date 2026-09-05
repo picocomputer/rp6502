@@ -74,54 +74,17 @@ void streams_mirror_stdout(void)
 
 /* ---- the host's stdio as this machine's console wire ---- */
 
-/* What the far end sent and this end could not use yet: a UTF-8 sequence or
- * a CR whose LF may be in the next read. Never more than one sequence. */
-static char stdin_carry[8];
-static size_t stdin_carry_len;
-/* Whether the wire has delivered anything since the last line end, so an
- * input that stops without one still finishes its line. */
-static bool stdin_mid_line;
-/* A pipe or a file carries host text, whose line endings are the host's. A
- * terminal is the wire itself and already sends what a line editor reads, so
- * every byte it sends is passed on as it was struck. */
-static oem_run_t stdin_run;
 static bool stdin_closed;
 
+/* Whatever the far end sent, byte for byte. A wire carries no encoding and
+ * spells no line ends: what a terminal or a pipe put on it is what a UART
+ * would have delivered, and the machine reads it the way it reads one.
+ * Translating belongs to the clipboard, which is host text. */
 static size_t stdin_rx(char *buf, size_t max)
 {
-    /* No more than the ring can take: a sequence never grows, so max bytes
-     * in convert to at most max out, and what is left over is only ever the
-     * tail of a sequence the read cut in half. */
-    char raw[256];
-    size_t held = stdin_carry_len;
-    size_t want = max < sizeof raw - held ? max : sizeof raw - held;
-    memcpy(raw, stdin_carry, held);
-    size_t got = want ? os_stdin_read(raw + held, want) : 0;
-    size_t have = held + got;
-    bool end = os_stdin_ended();
-
-    size_t taken = 0;
-    size_t n = have ? oem_from_utf8_run(&stdin_run, raw, have, end,
-                                        buf, max, &taken)
-                    : 0;
-    stdin_carry_len = have - taken;
-    if (stdin_carry_len > sizeof stdin_carry)
-        stdin_carry_len = 0; /* nothing that long is a sequence; drop it */
-    memcpy(stdin_carry, raw + taken, stdin_carry_len);
-    for (size_t i = 0; i < n; i++)
-        stdin_mid_line = buf[i] != '\r';
-
-    if (!end || stdin_carry_len || n)
+    size_t n = os_stdin_read(buf, max);
+    if (n || !os_stdin_ended())
         return n;
-    /* The far end is gone and everything it sent has been converted. A last
-     * line it never ended is still a line, so it gets its return before the
-     * read that was waiting on it is told there is nothing more. */
-    if (stdin_mid_line && max)
-    {
-        stdin_mid_line = false;
-        buf[0] = '\r';
-        return 1;
-    }
     /* Only once the wire has drained and a cooked read is genuinely starved:
      * an end of file found here can then cancel nothing that was coming. */
     if (!stdin_closed && std_stdin_waiting() && com_uart_free() == COM_RING_SIZE - 1)
@@ -158,7 +121,6 @@ static void console_tx(const char *buf, int len)
 bool streams_console_open(void)
 {
     bool terminal = os_stdin_is_terminal();
-    stdin_run.newlines = !terminal;
     if (!terminal)
     {
         tty_set_wire(NULL, stdin_rx);

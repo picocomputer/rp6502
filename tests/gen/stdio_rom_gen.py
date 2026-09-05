@@ -5,8 +5,8 @@
 #
 # The three standard streams, on a host that keeps them apart.
 #
-# Under --headless the emulator has no window: host stdin is the program's
-# stdin, and what the program writes to fd 1 and fd 2 lands on host stdout
+# Under --headless the emulator has no window: host stdin is the machine's
+# console and what the program writes to fd 1 and fd 2 lands on host stdout
 # and host stderr, apart. This program says one line on stderr, then reads
 # its input a byte at a time and echoes it to stdout, prints eof when a read
 # answers nothing, and exits with a code the shell can see -- so one run of
@@ -27,8 +27,13 @@ OP_EXIT = 0xFF
 EXIT_CODE = 3
 ERR = "err\n"
 EOF = "eof\n"
-INPUT = "a\nbb\n"
-OUTPUT = INPUT + EOF
+# The console's wire carries what the far end sent, and what a terminal
+# sends for Enter is a return. Nothing between here and the machine
+# translates, so this is the machine's spelling rather than the host's.
+INPUT = "a\rbb\r"
+# What comes back is the line editor's: it hands a program the line and
+# then the newline, whichever key ended it.
+OUTPUT = "a\nbb\n" + EOF
 
 
 def write_str(p, fd, s):
