@@ -8,13 +8,6 @@
 #include "ria-w/net/cyw.h"
 #include <pico/stdlib.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_LED)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define LED_BLINK_TIME_MS 100
 
 static bool led_state;

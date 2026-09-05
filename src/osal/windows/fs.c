@@ -17,15 +17,14 @@
  * handle is made -- so the transfer could not leave this file even if there
  * were a reason.
  *
- * Paths cross in the guest's OEM code page and the 6502's spelling; the drive
- * prefix comes off with path_to_native() and the code page with oem_to_wide()
- * before every ...W call. Failures are reported with osal/windows/errmap.h,
- * straight from GetLastError.
+ * Paths cross in the guest's OEM code page and are otherwise Win32's own;
+ * path_to_wide() (osal/windows/dir.h) changes the code page before every ...W
+ * call. Failures are reported with osal/windows/errmap.h, straight from
+ * GetLastError.
  */
 
 #include "osal/fs.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include "osal/os.h"
 #include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"

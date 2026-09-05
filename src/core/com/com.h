@@ -39,6 +39,11 @@ void com_crlf_write(const char *buf, int len);
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
+/* Tap the program's own streams before any translation (NULL to clear): fd 1
+ * for everything it sends to stdout, cooked or raw, fd 2 for stderr. One
+ * consumer at a time: the desktop's mirror, the debug adapter, a test. */
+void com_set_std_tap(void (*tap)(int fd, const char *buf, int len));
+
 /* Drain the wire both ways. The host that is linked defines it -- a machine
  * whose console is a UART has real work here, one whose console is the
  * terminal the walk already reaches has nothing to do here. */

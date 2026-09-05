@@ -80,10 +80,10 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap);
  * bytes of that program. */
 uint32_t fs_rom_staged_len(void);
 
-/* Past this machine's drive prefix, or NULL for a drive that is not this one.
- * Shared with dir.c, which has to answer chdrive the same way an open does.
- * Deliberately not core/str/path.c's: that one hands back an unrecognized
- * prefix unchanged, and this one refuses it. */
+/* Past this machine's drive name, if the path carries one. There is one card
+ * and FS: is what it answers to; anything else is a name, not a drive, and
+ * fails as a name. Shared with dir.c, which has to answer chdrive the same way
+ * an open does. */
 const char *fs_strip_drive(const char *path);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */

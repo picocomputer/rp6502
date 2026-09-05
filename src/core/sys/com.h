@@ -50,9 +50,6 @@ int com_getchar(com_source_t *src);
 // consuming. Returns the byte (0..255), or negative when none is queued.
 int com_peekchar(com_source_t src);
 
-// Ensure putchar will not block even with a newline expansion
-bool com_putchar_ready(void);
-
 // Ensure space for com_write()
 bool com_writable(void);
 
@@ -62,6 +59,13 @@ void com_write(char ch);
 // Console TX with newline (CRLF) expansion.
 int com_putchar(int c);
 __printflike(1, 2) int com_printf(const char *fmt, ...);
+
+/* The program's two output streams, as many bytes as the console can take
+ * now, which is the count answered. stdout is the console with newline
+ * expansion. stderr is a stream of its own: the terminal shows it beside
+ * stdout, and a machine with a stderr of its own gets it there as well. */
+size_t com_stdout_write(const char *buf, size_t count);
+size_t com_stderr_write(const char *buf, size_t count);
 
 // The '\a' BEL alert
 bool com_get_bel(void);

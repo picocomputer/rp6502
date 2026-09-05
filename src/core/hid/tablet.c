@@ -6,18 +6,11 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/tablet.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "machine.h"
 #include <string.h>
-
-#if defined(DEBUG_HID) || defined(DEBUG_HID_TABLET)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 
 /* XRAM report block, laid out in tablet.h. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
@@ -154,8 +147,8 @@ bool HOST_IN_FLASH("tablet_mount") tablet_mount(int slot, const tablet_connectio
             continue;
         tablet_connections[i] = *desc;
         tablet_connections[i].slot = slot;
-        DBG("tablet_mount: slot=%d, x_rel=%d, tip=%d\n", slot, desc->x_relative,
-            desc->tip_offset != HID_ABSENT);
+        RP6502_LOG(hid, INFO, "tablet mount slot=%d, x_rel=%d, tip=%d", slot, desc->x_relative,
+                   desc->tip_offset != HID_ABSENT);
         return true;
     }
     return false;

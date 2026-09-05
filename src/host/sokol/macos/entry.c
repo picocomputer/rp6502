@@ -12,7 +12,6 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
-#include "sokol/sokol_log.h"
 #include <stdint.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -83,7 +82,7 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .enable_dragndrop = true, /* drop a .rp6502 to boot it */
         .enable_clipboard = true, /* Cmd+V types into the emulated keyboard */
         .clipboard_size = 65536,
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     return app_exit_code();
 }

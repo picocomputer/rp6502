@@ -20,6 +20,7 @@
 #include "core/dap/dbg.h"
 #include "core/vga/pixel_format.h"
 #include "core/sys/sys.h"
+#include "host/host.h"
 #include <assert.h>
 #include <string.h>
 
@@ -209,6 +210,16 @@ void vga_set_framebuffer(uint32_t *fb)
 uint32_t *vga_get_framebuffer(void)
 {
     return g_framebuffer;
+}
+
+bool vga_frame_crc(uint32_t *crc)
+{
+    if (!g_framebuffer)
+        return false;
+    int w, h;
+    vga_canvas_size(&w, &h);
+    *crc = host_crc32(0, g_framebuffer, (size_t)w * (size_t)h * sizeof *g_framebuffer);
+    return true;
 }
 
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride

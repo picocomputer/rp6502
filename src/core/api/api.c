@@ -10,13 +10,6 @@
 #include "core/api/api.h"
 #include "core/wdc/resb.h"
 
-#if defined(DEBUG_API) || defined(DEBUG_API_API)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // These are known to both cc65 and llvm-mos
 #define API_CC65_ENOENT 1
 #define API_LLVM_ENOENT 2

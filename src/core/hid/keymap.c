@@ -18,6 +18,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/config.h"
 #include "core/hid/usage.h"
 #include <stdio.h>
@@ -26,13 +27,6 @@
  * POSIX rather than by C, and a host that has no such header supplies
  * one — see src/osal/windows. */
 #include <strings.h>
-
-#if defined(DEBUG_HID) || defined(DEBUG_HID_KEYBOARD)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 #define KEYMAP_REPEAT_DELAY 500000
 #define KEYMAP_REPEAT_RATE 30000
@@ -599,7 +593,7 @@ overflow_error:
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
     keymap_deadkey_cache[0] = 0;
-    DBG("keyboard: dead key cache overflow\n");
+    RP6502_LOG(keyboard, ERROR, "dead key cache overflow");
 }
 
 size_t keymap_in_chars(char *buf, size_t length)

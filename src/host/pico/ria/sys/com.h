@@ -32,6 +32,9 @@ void com_task(void);
 void com_stop(void);
 void com_break(void);
 
+/* Room for a byte and the CR a newline may grow, so a putchar cannot block. */
+bool com_putchar_ready(void);
+
 // Telnet console server settings
 void com_telnet_task(void);
 

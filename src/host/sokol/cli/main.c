@@ -12,6 +12,7 @@
 #include "core/sys/proc.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
+#include "host/sokol/app/app.h"
 #include "osal/os.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
@@ -27,6 +28,7 @@
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
+#include "host/sokol/cli/streams.h"
 #include "host/sokol/cli/credits.h"
 #include "core/sys/version.h"
 #include <stdio.h>
@@ -49,6 +51,7 @@ static void apply_options(const cli_options *o)
     gfx_set_filter(o->scale_filter);
     if (o->mute)
         aud_set_enabled(false);
+    app_set_unpaced(o->unpaced);
 }
 
 #ifdef EMU_WITH_DEBUGGER
@@ -156,9 +159,9 @@ int main(int argc, char **argv)
      * error without it. Different from one that is merely inert on a host —
      * --scale under --script — which stays quiet so a wrapper can pass one
      * set of flags to every host. */
-    if (o.have_frames && !o.screenshot)
+    if (o.have_frames && !o.screenshot && !o.crc)
     {
-        fprintf(stderr, "rp6502-emu: --frames only applies to --screenshot; "
+        fprintf(stderr, "rp6502-emu: --frames only applies to --screenshot or --crc; "
                         "a script's frames are its own (see 'run')\n");
         return 2;
     }
@@ -244,6 +247,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "rp6502-emu: --dap and --script cannot both drive the machine\n");
         return 2;
     }
+    /* Headless is the program alone on the host's streams: nothing else may
+     * drive it, and there is no picture to shoot or hash. */
+    if (o.headless && (o.script || o.screenshot || o.crc || o.dap || o.debug))
+    {
+        fprintf(stderr, "rp6502-emu: --headless cannot be combined with --script, "
+                        "--screenshot, --crc, --dap or --debug\n");
+        return 2;
+    }
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
@@ -280,10 +291,10 @@ int main(int argc, char **argv)
 
     if (!rom)
     {
-        /* No ROM. --screenshot and --script are batch (nothing to shoot, nothing
-         * to drive); otherwise a desktop host waits for a drag-and-dropped one.
-         * Anything else prints usage. */
-        if (o.screenshot || o.script || !entry_wait_for_rom())
+        /* No ROM. --screenshot, --crc, --script and --headless are batch (nothing
+         * to shoot, nothing to drive); otherwise a desktop host waits for a
+         * drag-and-dropped one. Anything else prints usage. */
+        if (o.screenshot || o.crc || o.script || o.headless || !entry_wait_for_rom())
         {
             cli_usage(stderr, argv[0]);
             script_usage(stderr);
@@ -292,6 +303,7 @@ int main(int argc, char **argv)
         apply_options(&o);
         if (o.debug)
             dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
+        streams_mirror_stdout();
         /* Still held from sys_init, until a dropped .rp6502 boots one. */
         return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
@@ -307,7 +319,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
+    if (!o.headless)
+        vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     apply_options(&o);
 
@@ -322,7 +335,35 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
+    /* The program's stdout on the host's too, except where host stdout is
+     * already the emulator's own channel: a script's replies, a CRC. */
+    if (!o.script && !o.crc)
+        streams_mirror_stdout();
+
     sys_commit(); /* proc_boot asked; this starts it */
+
+    if (o.headless)
+    {
+        /* Paced like a window without one: a deadline a frame ahead, slept
+         * to, and a stall -- a blocking stdin read -- forgiven rather than
+         * replayed. --phi2 0 drops the sleep and time warps. */
+        uint64_t deadline = os_mono_ns() + VGA_FRAME_NS;
+        while (!proc_exited())
+        {
+            vga_run_frame();
+            streams_feed_stdin();
+            if (o.unpaced)
+                continue;
+            const uint64_t now = os_mono_ns();
+            if (deadline > now)
+                os_sleep_ns(deadline - now);
+            else if (now - deadline > 3 * VGA_FRAME_NS)
+                deadline = now;
+            deadline += VGA_FRAME_NS;
+        }
+        fflush(stdout);
+        return proc_get_exit_code();
+    }
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its
@@ -336,21 +377,30 @@ int main(int argc, char **argv)
             if (script_running())
                 vga_run_frame();
         }
-        if (script_exit_code() || !o.screenshot)
+        if (script_exit_code() || !(o.screenshot || o.crc))
             return script_exit_code(); /* a passing script may still want the shot */
     }
 
-    if (o.screenshot)
+    if (o.screenshot || o.crc)
     {
         const int frames = o.frames < 1 ? 1 : o.frames;
         for (int i = 0; i < frames; i++)
             vga_run_frame(); /* the last frame lands in g_fb, registered above */
-        int cw, ch;
-        vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
-        if (!png_write(o.screenshot, cw, ch, g_fb))
-            return 1;
-        printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.screenshot, frames, resb_running() ? "running" : "halted", proc_get_exit_code());
+        if (o.screenshot)
+        {
+            int cw, ch;
+            vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
+            if (!png_write(o.screenshot, cw, ch, g_fb))
+                return 1;
+            fprintf(stderr, "rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
+                    o.screenshot, frames, resb_running() ? "running" : "halted", proc_get_exit_code());
+        }
+        if (o.crc)
+        {
+            uint32_t crc;
+            vga_frame_crc(&crc);
+            printf("%08X\n", crc);
+        }
         return 0;
     }
 

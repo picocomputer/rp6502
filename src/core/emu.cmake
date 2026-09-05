@@ -161,6 +161,8 @@ target_compile_definitions(emu_core PUBLIC
     RP6502_EXFAT=0
     RP6502_LOCALE=EN
     PICO_PROGRAM_NAME="RP6502-EMU")
+include(${RP6502_SRC}/core/log.cmake)
+rp6502_log_definitions(emu_core PUBLIC)
 # MSVC has no separate libm; what it does need instead is in
 # src/osal/windows/windows.cmake, which is that seam's.
 if(NOT MSVC)

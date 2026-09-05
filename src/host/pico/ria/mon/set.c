@@ -30,12 +30,6 @@
 #include <stdio.h>
 #include <pico.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_SET)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* The boot ROM has no row: it is not held in RAM, it is the last line of the
  * config file, and rom.c owns both halves of that. */
 static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)

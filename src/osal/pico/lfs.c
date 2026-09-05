@@ -10,12 +10,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_LFS)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // 1MB LFS volume on the tail of flash
 #define LFS_DISK_BLOCKS 256
 

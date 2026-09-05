@@ -21,4 +21,11 @@
 
 api_errno errno_to_api(int host_errno);
 
+/* The same, for a read or a write. std_validate_fd has already said the
+ * descriptor is one this machine handed out, so an EBADF arriving from the OS
+ * here can only mean it was opened the other way round -- which every other
+ * backend calls EACCES, and which a program has no reason to treat as the
+ * fatal thing a bad descriptor is. */
+api_errno errno_to_api_rw(int host_errno);
+
 #endif /* _OSAL_POSIX_ERRMAP_H_ */

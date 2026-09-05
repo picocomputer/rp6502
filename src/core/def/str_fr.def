@@ -264,7 +264,7 @@ X(STR_HELP_SYSTEM,
 
 X(STR_HELP_DIR,
   "LS (alias DIR) et CD servent à naviguer dans les périphériques de stockage "
-  "USB. Vous pouvez passer à un autre périphérique USB avec 0: à 7:. Utilisez "
+  "USB. Vous pouvez passer à un autre périphérique USB avec 0: à 9:. Utilisez "
   "STATUS pour obtenir la liste des lecteurs montés.\n")
 
 X(STR_HELP_MKDIR,

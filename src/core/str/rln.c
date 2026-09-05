@@ -12,16 +12,9 @@
 #include "core/sys/com.h"
 #include "core/sys/driver.h"
 #include "core/vga/vga.h"
-#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
-
-#if defined(DEBUG_STR) || defined(DEBUG_STR_RLN)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 /* Console manifold compatibility rules.
 **
@@ -1535,6 +1528,13 @@ void rln_read_line_no_history(rln_read_callback_t callback)
 {
     rln_read_line(callback);
     rln_skip_history = true;
+}
+
+void rln_read_cancel(void)
+{
+    rln_callback = NULL;
+    rln_complete_deferred = false;
+    rln_idle_timeout_ms = 0;
 }
 
 // Read one byte from the appropriate source(s). In normal operation

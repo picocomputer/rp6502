@@ -37,6 +37,7 @@ add_executable(${RIA_TARGET})
 add_dependencies(${RIA_TARGET} hid_usage)
 rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
+rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} copy_to_ram)
 
@@ -80,6 +81,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
+    LFS_DEFINES=osal/pico/lfs_log.h
     USE_EMU8950_OPL=1
 )
 

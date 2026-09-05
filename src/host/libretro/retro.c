@@ -8,7 +8,7 @@
  * A frontend owns the loop, so this host has none: retro_run advances the
  * machine exactly one 60 Hz frame and hands over the picture and the sound
  * it made. That is the whole of the difference from the desktop hosts, whose
- * window.c does the pacing the frontend does here.
+ * app.c does the pacing the frontend does here.
  *
  * There is no monitor on this host and no debugger. A .rp6502 is what runs,
  * and when it stops, the core is done.
@@ -22,14 +22,13 @@
 #include "host/host.h"
 #include "core/sys/version.h"
 #include "core/aud/mix.h"
-#include "core/sys/com.h"
+#include "core/sys/debug_log.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
 #include "core/sys/proc.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
@@ -70,53 +69,40 @@ static bool hint_shown;
 /* Environment                                                         */
 /* ------------------------------------------------------------------ */
 
-/* One finished line to the frontend, or to stderr when it gave no logger.
- * A core writing stderr is antisocial but better than a diagnostic nobody
- * ever sees; the frontend's log is where this is meant to land. */
-static void retro_say(enum retro_log_level level, const char *msg)
+/* The frontend's log, which carries the level itself and wants a finished
+ * string, so the message is formatted into a buffer that grows to its
+ * high-water mark. stderr when it gave no logger: a core writing stderr is
+ * antisocial but better than a diagnostic nobody ever sees. */
+void host_log(int level, const char *category, const char *fmt, ...)
 {
-    if (log_cb)
-        log_cb(level, "%s\n", msg);
-    else
-        fprintf(stderr, "rp6502: %s\n", msg);
-}
-
-/* This core's own diagnostics, which are about the frontend rather than about
- * the machine: a game that is not one, a pixel format it will not show. */
-__printflike(1, 2) static void retro_log(const char *fmt, ...)
-{
-    char msg[256];
+    static const enum retro_log_level levels[] = {
+        RETRO_LOG_DEBUG, RETRO_LOG_ERROR, RETRO_LOG_WARN, RETRO_LOG_INFO, RETRO_LOG_DEBUG};
+    static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
+    static char *text;
+    static size_t cap;
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(msg, sizeof msg, fmt, ap);
-    va_end(ap);
-    retro_say(RETRO_LOG_ERROR, msg);
-}
-
-/* The machine's console, line by line. com_tx_write is where every
- * terminal-bound byte passes once, so this is the whole of what the machine
- * says: the terminal a frontend renders is a picture of it, and its log is
- * the only place the text itself can go. A line too long for the buffer is
- * split rather than truncated. */
-static void retro_tx_tap(const char *buf, int len)
-{
-    static char line[256];
-    static size_t used;
-    for (int i = 0; i < len; i++)
+    if (!log_cb)
     {
-        char c = buf[i];
-        if (c == '\r')
-            continue;
-        if (c == '\n' || used == sizeof line - 1)
-        {
-            line[used] = 0;
-            used = 0;
-            if (line[0])
-                retro_say(RETRO_LOG_INFO, line);
-        }
-        if (c != '\n')
-            line[used++] = c;
+        fprintf(stderr, "%s %s: ", names[level], category);
+        vfprintf(stderr, fmt, ap);
+        va_end(ap);
+        fputc('\n', stderr);
+        return;
     }
+    va_list sizing;
+    va_copy(sizing, ap);
+    int n = vsnprintf(text, cap, fmt, sizing);
+    va_end(sizing);
+    if (n >= 0 && (size_t)n >= cap)
+    {
+        cap = (size_t)n + 1;
+        text = realloc(text, cap);
+        vsnprintf(text, cap, fmt, ap);
+    }
+    va_end(ap);
+    if (n >= 0)
+        log_cb(levels[level], "%s: %s\n", category, text);
 }
 
 static const struct retro_core_option_v2_definition option_defs[] = {
@@ -325,7 +311,6 @@ void retro_init(void)
     struct retro_log_callback logging;
     if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
         log_cb = logging.log;
-    com_set_tx_tap(retro_tx_tap);
 
     struct retro_keyboard_callback kb = {input_keyboard_event};
     if (environ_cb)
@@ -352,7 +337,6 @@ void retro_deinit(void)
     geom_w = geom_h = 0;
     hint_shown = false;
     input_reset();
-    com_set_tx_tap(NULL);
     log_cb = NULL;
 }
 
@@ -465,8 +449,8 @@ static char *argv_to_oem(const char *arg)
     return oem;
 }
 
-/* Where the frontend wants a program's saves to go. MSC0: is still the whole
- * host filesystem, as on every other host; this is only where a program
+/* Where the frontend wants a program's saves to go. The drive is still the
+ * whole host filesystem, as on every other host; this is only where a program
  * starts out. */
 static void enter_save_directory(const char *content_path)
 {
@@ -529,14 +513,14 @@ bool retro_load_game(const struct retro_game_info *game)
 {
     if (!game || !game->path)
     {
-        retro_log("this core plays a .rp6502 program; there is nothing to run");
+        RP6502_LOG(retro, ERROR, "this core plays a .rp6502 program; there is nothing to run");
         return false;
     }
 
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
     if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
     {
-        retro_log("this frontend cannot show XRGB8888");
+        RP6502_LOG(retro, ERROR, "this frontend cannot show XRGB8888");
         return false;
     }
 
@@ -546,7 +530,7 @@ bool retro_load_game(const struct retro_game_info *game)
     char *given = argv_to_oem(game->path);
     if (!given)
     {
-        retro_log("cannot take the ROM path");
+        RP6502_LOG(retro, ERROR, "cannot take the ROM path");
         return false;
     }
     char *abs = os_dir_realpath(given);
@@ -561,7 +545,7 @@ bool retro_load_game(const struct retro_game_info *game)
     loaded_path = strdup(game->path);
     if (!loaded_rom || !loaded_path)
     {
-        retro_log("cannot take the ROM path");
+        RP6502_LOG(retro, ERROR, "cannot take the ROM path");
         return false;
     }
     enter_save_directory(loaded_path);
@@ -680,7 +664,7 @@ void retro_run(void)
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */
-    if (!resb_running() && !shutdown_sent)
+    if (proc_exited() && !shutdown_sent)
     {
         shutdown_sent = true;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);

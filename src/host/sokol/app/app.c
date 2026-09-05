@@ -19,7 +19,6 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
-#include "sokol/sokol_log.h"
 #include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
@@ -37,6 +36,7 @@
 #include "host/sokol/app/gamepad.h"
 #endif
 #include "core/sys/version.h"
+#include "core/sys/debug_log.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
@@ -46,7 +46,6 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
-#include "core/wdc/resb.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
@@ -59,15 +58,20 @@
 static struct
 {
     bool exit_on_halt; /* close the window when the program stops */
+    bool unpaced;      /* --phi2 0: no sleep, time warps */
     int title_variant; /* last window-title state (running/stopped/mouse) */
 } app;
+
+void app_set_unpaced(bool on)
+{
+    app.unpaced = on;
+}
 
 /* Wall time owed to the machine, repaid in whole frames at the top of each
  * callback. When the present holds the thread the display paces us; when it
  * returns at once nothing does, and the callback sleeps to the next frame. */
 static uint64_t entered_ns, returned_ns, debt_ns, machine_ns;
 static bool paced, ran_frame, held;
-#define FRAME_NS (1000000000ull / VGA_HZ)
 #define PRESENT_WAIT_NS 2000000 /* longer than a present that waits for nothing */
 
 uint64_t app_machine_ns(void) { return machine_ns; }
@@ -77,7 +81,7 @@ static void update_title(void)
 {
     int v;
     const char *t;
-    if (!resb_running())
+    if (proc_exited())
     {
         v = 1;
         t = "Picocomputer 6502 (stopped)";
@@ -118,7 +122,7 @@ void app_init(void)
     sapp_set_icon(icon_desc());
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     if (aud_enabled()) /* --mute opens no OS audio device */
     {
@@ -131,7 +135,7 @@ void app_init(void)
             .num_channels = 2,
             .buffer_frames = 512, /* the device's own latency: 10.7 ms, not sokol's 43 */
             .stream_cb = stream_cb,
-            .logger.func = slog_func,
+            .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
     }
@@ -149,13 +153,13 @@ void app_frame(void)
     /* The display paces us when the present held the thread; when a frame
      * ate the whole period (past 240 Hz it does), the callback before knew. */
     paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && ran_frame);
-    uint64_t dt = entered_ns ? now - entered_ns : FRAME_NS;
+    uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
     entered_ns = now;
     /* A 59.94 or 60 Hz display is one frame per callback, not a beat. */
-    if (paced && dt > FRAME_NS - FRAME_NS / 10 && dt < FRAME_NS + FRAME_NS / 10)
-        dt = FRAME_NS;
-    if (dt > 3 * FRAME_NS) /* a stall is forgiven, not replayed */
-        dt = 3 * FRAME_NS;
+    if (paced && dt > VGA_FRAME_NS - VGA_FRAME_NS / 10 && dt < VGA_FRAME_NS + VGA_FRAME_NS / 10)
+        dt = VGA_FRAME_NS;
+    if (dt > 3 * VGA_FRAME_NS) /* a stall is forgiven, not replayed */
+        dt = 3 * VGA_FRAME_NS;
     debt_ns += dt;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
@@ -174,26 +178,42 @@ void app_frame(void)
 
     /* A held machine is paced by nothing, and the present's rate is more
      * than the workbench needs. */
-    if ((!paced || held) && debt_ns < FRAME_NS)
+    if (!app.unpaced && (!paced || held) && debt_ns < VGA_FRAME_NS)
     {
-        os_sleep_ns(FRAME_NS - debt_ns);
+        os_sleep_ns(VGA_FRAME_NS - debt_ns);
         const uint64_t woke = os_mono_ns();
         debt_ns += woke - entered_ns;
         entered_ns = woke;
     }
     ran_frame = held = false;
     const uint64_t t0 = os_mono_ns();
-    while (debt_ns >= FRAME_NS)
+    if (app.unpaced)
     {
-        if (!vga_run_frame()) /* held by a debugger: owed nothing on resume */
+        /* Time warps: as many frames as a present's worth of wall time
+         * holds, then the picture, so the window stays live. */
+        do
         {
-            debt_ns = 0;
-            held = true;
-            break;
-        }
-        debt_ns -= FRAME_NS;
-        ran_frame = true;
+            if (!vga_run_frame())
+            {
+                held = true;
+                break;
+            }
+            ran_frame = true;
+        } while (os_mono_ns() - t0 < VGA_FRAME_NS);
+        debt_ns = 0;
     }
+    else
+        while (debt_ns >= VGA_FRAME_NS)
+        {
+            if (!vga_run_frame()) /* held by a debugger: owed nothing on resume */
+            {
+                debt_ns = 0;
+                held = true;
+                break;
+            }
+            debt_ns -= VGA_FRAME_NS;
+            ran_frame = true;
+        }
     machine_ns += os_mono_ns() - t0;
 
     /* Reflect the run state in the title so the user knows the run is done (exec
@@ -207,7 +227,7 @@ void app_frame(void)
     update_title();
     /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the
      * CPU with no program yet, so a halt there isn't a program exit — don't quit. */
-    if (!resb_running() && app.exit_on_halt && !host_window_menu_active())
+    if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
         sapp_request_quit();
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
@@ -356,7 +376,7 @@ void app_input(const struct sapp_event *e)
  * stays 0. */
 int app_exit_code(void)
 {
-    return (app.exit_on_halt && !resb_running()) ? proc_get_exit_code() : 0;
+    return (app.exit_on_halt && proc_exited()) ? proc_get_exit_code() : 0;
 }
 
 void app_cleanup(void)
@@ -389,4 +409,28 @@ void app_prepare(uint32_t *fb, double scale, bool have_scale,
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
     gfx_prepare(fb, scale, have_scale, out_w, out_h);
+}
+
+void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
+             const char *message_or_null, uint32_t line_nr,
+             const char *filename_or_null, void *user_data)
+{
+    (void)user_data;
+    const char *message = message_or_null ? message_or_null : "";
+    const char *filename = filename_or_null ? filename_or_null : "";
+    switch (log_level)
+    {
+    case 0:
+        RP6502_LOG(sokol, ERROR, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        abort();
+    case 1:
+        RP6502_LOG(sokol, ERROR, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    case 2:
+        RP6502_LOG(sokol, WARN, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    default:
+        RP6502_LOG(sokol, INFO, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    }
 }

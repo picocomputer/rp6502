@@ -28,8 +28,10 @@ void vtkeys_text(const char *utf8)
         return;
     const char *p = utf8;
     unsigned char oem;
+    /* The decoder's stand-in for a character the code page cannot spell is
+     * DEL, which the line editor would take as a backspace. */
     while ((oem = oem_from_utf8_next(&p)))
-        com_keyboard_push_byte(oem);
+        com_keyboard_push_byte(oem == 0x7F ? '?' : oem);
 }
 
 void vtkeys_char(uint32_t codepoint)
@@ -38,9 +40,14 @@ void vtkeys_char(uint32_t codepoint)
         return;
     /* Below 0x80 the code page does not get a vote, which is also what the
      * UTF-8 decoder does with a lead byte it can return directly. */
-    com_keyboard_push_byte(codepoint < 0x80
-                               ? (uint8_t)codepoint
-                               : unicode_from_codepoint(codepoint, oem_get_code_page_run()));
+    uint8_t oem = (uint8_t)codepoint;
+    if (codepoint >= 0x80)
+    {
+        oem = unicode_from_codepoint(codepoint, oem_get_code_page_run());
+        if (oem == 0x7F)
+            oem = '?';
+    }
+    com_keyboard_push_byte(oem);
 }
 
 /* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte

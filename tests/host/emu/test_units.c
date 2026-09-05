@@ -310,9 +310,11 @@ UTEST(keyboard, text_to_oem)
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    /* The decoder's stand-in for an unmappable character is DEL, which the
+     * line editor would take as a backspace; typed text says '?' instead. */
+    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
-    ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+    ASSERT_EQ(b[0], '?');
 }
 
 /* font_init rebuilds the glyph store and knows nothing about the active code
@@ -438,6 +440,26 @@ UTEST(cli, no_separator_no_rom_args)
     ASSERT_TRUE(o.rom_args == NULL);
     ASSERT_EQ(o.n_rom_args, 0);
     ASSERT_STREQ(o.rom, "rom.rp6502");
+}
+
+/* The batch product, the window-less run, and the pacing switch, which rides
+ * the clock option: 0 is no clock to pace against. */
+UTEST(cli, batch_headless_and_unpaced)
+{
+    cli_options o;
+    cli_options_init(&o);
+    char *argv[] = {"emu", "--crc", "--headless", "--phi2", "0", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(6, argv, &o), 0);
+    ASSERT_TRUE(o.crc);
+    ASSERT_TRUE(o.headless);
+    ASSERT_TRUE(o.unpaced);
+    ASSERT_EQ(o.phi2_khz, 0);
+
+    cli_options_init(&o);
+    char *khz[] = {"emu", "--phi2", "4000", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(4, khz, &o), 0);
+    ASSERT_FALSE(o.unpaced);
+    ASSERT_EQ(o.phi2_khz, 4000);
 }
 
 UTEST_MAIN();

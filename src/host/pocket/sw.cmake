@@ -4,10 +4,17 @@
 #
 # Toolchain per README: apt install gcc-riscv64-unknown-elf.
 #
-# RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
-#                  booted soft CPU can be registered.
+# RP6502_SOFT_CPU   the RISC-V toolchain is present, so anything that needs a
+#                   booted soft CPU can be registered.
+# RP6502_SW_TTY     the tty.c that answers the console wire, for a tree that
+#                   boots this firmware somewhere else. The Pocket's own
+#                   unless set.
 
 include(${RP6502_SRC}/core/assets.cmake)
+include(${RP6502_SRC}/core/log.cmake)
+if(NOT RP6502_SW_TTY)
+    set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/sw/tty.c)
+endif()
 
 find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
@@ -47,7 +54,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/sys/crc32.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${RP6502_SW_TTY} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/core/sys/pix.c
@@ -89,6 +96,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode/mode5.c
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/term.c)
+    rp6502_log_flags(SW_LOG_FLAGS)
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             # Prologues and epilogues become calls into libgcc's
@@ -119,6 +127,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # undefined, the default becomes the macro's own name, too long
             # for the field and left unterminated.
             -DRP6502_LOCALE=EN
+            ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}

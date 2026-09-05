@@ -10,13 +10,13 @@
  */
 
 #include "host/sokol/app/prompt.h"
+#include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/icon.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
-#include "sokol/sokol_log.h"
 #include "core/sys/version.h"
 #include <math.h>
 #include <string.h>
@@ -164,7 +164,7 @@ void prompt_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
         .fonts[0] = sdtx_font_c64(),
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     /* No formats: they default to the environment sg_setup was given, which is
      * sglue_environment() and therefore the swapchain's. Naming them here meant
@@ -175,7 +175,7 @@ void prompt_setup(void)
     sgl_setup(&(sgl_desc_t){
         .max_vertices = 16384, /* the dashed border strokes many thick quads */
         .max_commands = 64,
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
 
     const sapp_image_desc *ico = &icon_desc()->images[2]; /* 64x64 */

@@ -20,12 +20,6 @@
 #include <string.h>
 #include <strings.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_STD)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // The stdio file descriptor pool.
 #define STD_FD_MAX 16
 #define STD_FD_STDIN 0
@@ -60,6 +54,7 @@ static const char *std_rln_buf;
 static bool std_rln_needs_nl;
 static size_t std_rln_pos;
 static size_t std_rln_len;
+static bool std_stdin_closed;
 
 static std_fd_t *std_validate_fd(int fd)
 {
@@ -82,14 +77,18 @@ static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_
 {
     (void)desc;
     (void)err;
+    *bytes_read = 0;
+    if (count == 0)
+        return STD_OK;
     if (!std_rln_needs_nl && std_rln_pos >= std_rln_len)
     {
+        if (std_stdin_closed)
+            return STD_OK;
         if (!std_rln_active)
         {
             std_rln_active = true;
             rln_read_line(std_rln_callback);
         }
-        *bytes_read = 0;
         return STD_PENDING;
     }
     uint32_t i = 0;
@@ -108,11 +107,16 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    uint32_t i = 0;
-    for (; i < count && com_putchar_ready(); i++)
-        com_putchar(buf[i]);
-    *bytes_written = i;
-    return (i < count) ? STD_PENDING : STD_OK;
+    *bytes_written = (uint32_t)com_stdout_write(buf, count);
+    return (*bytes_written < count) ? STD_PENDING : STD_OK;
+}
+
+static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    *bytes_written = (uint32_t)com_stderr_write(buf, count);
+    return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
 static std_rw_result std_con_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
@@ -438,6 +442,21 @@ bool std_api_lseek_llvm(void)
     return std_lseek_common(fd, whence, ofs);
 }
 
+bool std_stdin_waiting(void)
+{
+    return std_rln_active;
+}
+
+void std_stdin_eof(void)
+{
+    std_stdin_closed = true;
+    if (std_rln_active)
+    {
+        std_rln_active = false;
+        rln_read_cancel();
+    }
+}
+
 void std_task(void)
 {
     while (std_xram_len && pix_ready())
@@ -455,7 +474,7 @@ void HOST_IN_FLASH("std_init") std_init(void)
     std_fd_pool[STD_FD_STDOUT].is_open = true;
     std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
     std_fd_pool[STD_FD_STDERR].is_open = true;
-    std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
+    std_fd_pool[STD_FD_STDERR].write = std_stderr_write;
     std_fd_pool[STD_FD_CON].is_open = true;
     std_fd_pool[STD_FD_CON].read = std_con_read;
     std_fd_pool[STD_FD_CON].write = std_con_write;
@@ -471,6 +490,7 @@ void std_stop(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
+    std_stdin_closed = false;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
     {
         if (!std_fd_pool[i].is_open)

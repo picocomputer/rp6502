@@ -24,14 +24,6 @@
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 
-
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_CFG)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* Configuration is a plain ASCII file on the LFS. The rows are the machine's
  * driver rows -- see core/sys/config.h -- and their order here follows from
  * the roster, which does not matter: a line is found by its letter, so a file

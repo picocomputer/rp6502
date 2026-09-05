@@ -53,7 +53,7 @@ def build():
     p.push(0x9A)
     p.pushw(0xBCDE)
     p.pushl(0x01234567)
-    p.push_str("MSC0:\xff")
+    p.push_str("FS:\xff")
 
     # The API, both call shapes.
     p.push_str("T.DAT")

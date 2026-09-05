@@ -3,19 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The drive backings beyond the plain host MSC0:, exercised on the host:
+ * The drive backings beyond the plain host filesystem, exercised on the host:
  *   - installed ROMs on the null drive ":" (--rom): a .rp6502 reached as ":name",
  *     open/load only — resolved for boot/exec and openable read-only, separate
- *     from MSC0:, but never the cwd and never enumerated or stat'd.
- *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
- *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
+ *     from the filesystem, but never the cwd and never enumerated or stat'd.
+ *   - the filesystem itself (no chroot): a relative path resolves the process
+ *     cwd, an absolute one is the OS root, and ".." walks the real tree.
  */
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "osal/fs.h"
-#include "core/str/path.h"
 #include "osal/os.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -32,7 +31,7 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the MSC0: mount, in the 6502's spelling */
+static char g_dir[256]; /* a temp dir, made the cwd, as the drive spells it */
 
 /* Setup goes through the drive, because that is now the only way in: these
  * are the backend's own slots, called the way core/api/dir.c calls them. */
@@ -85,13 +84,13 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
 
 /* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
  * firmware, ONLY the boot/exec loader resolves it (rom_alias_resolve + rom_load);
- * a 6502 open(":name") is not special — it goes to MSC0: and fails. Installs are
- * separate from MSC0: (a same-named host file is untouched) and coexist. */
+ * a 6502 open(":name") is not special — it goes to the filesystem and fails.
+ * Installs are separate from it (a same-named host file is untouched). */
 UTEST(drive, rom_resolve_and_load)
 {
     ASSERT_TRUE(fresh());
 
-    /* A real MSC0: file with the same basename — the install must NOT shadow it. */
+    /* A real host file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
     ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" -> TEST_FIXTURE */
@@ -117,17 +116,18 @@ UTEST(drive, rom_resolve_and_load)
     /* The boot/exec loader streams the installed file. */
     ASSERT_TRUE(rom_load(":adventure.rp6502"));
 
-    /* A 6502 open(":name") is NOT a thing — like the firmware it goes to MSC0:,
+    /* A 6502 open(":name") is NOT a thing — like the firmware it goes to the
+     * filesystem,
      * where a leading ":" is refused; the install never leaks to the host fs. */
     ASSERT_TRUE(ssys_open(":adventure.rp6502", O_RD) < 0);
     ASSERT_TRUE(ssys_open(":", O_RD) < 0);
 
-    /* The same basename on MSC0: is the real (different) host file, untouched. */
+    /* The same basename on the filesystem is the real host file, untouched. */
     int f = ssys_open("adventure.rp6502", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
     ASSERT_EQ(ssys_read(f, buf, 8), 8);
-    ASSERT_EQ(memcmp(buf, "NOT THE ", 8), 0); /* MSC0:, never the install */
+    ASSERT_EQ(memcmp(buf, "NOT THE ", 8), 0); /* the host file, never the install */
     ssys_close(f);
 }
 
@@ -174,8 +174,8 @@ UTEST(drive, fs_rom_open_is_the_one_way_in)
 
 
 /* The null drive is loader-only: never the cwd, never enumerated/stat'd/mutated.
- * Every MSC0: op on a ":name" (or bare ":") refuses it cleanly, and ":" never
- * aliases a host path — not even via "MSC0::name". */
+ * Every op on a ":name" (or bare ":") refuses it cleanly, and ":" never aliases
+ * a host path — not even with the drive's own name in front of it. */
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
@@ -199,14 +199,17 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     dsys_path(":sub");
     dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
-    /* "MSC0::name" must not alias the null drive onto a host path either. */
-    dsys_path("MSC0::adventure.rp6502");
+    /* The drive's own name in front of it must not alias the null drive onto a
+     * host path either -- the refusal is asked after the name comes off. */
+    char aliased[64];
+    snprintf(aliased, sizeof(aliased), "%s:adventure.rp6502", host_drive());
+    dsys_path(aliased);
     dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
-/* MSC0: IS the native filesystem (no chroot): a relative path resolves the
- * process cwd, absolute MSC0:/ is the OS root, and ".." walks the real tree. */
+/* The drive IS the native filesystem (no chroot): a relative path resolves the
+ * process cwd, an absolute one is the OS root, and ".." walks the real tree. */
 UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
@@ -217,14 +220,15 @@ UTEST(drive, mount_transparent_no_chroot)
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
-    /* A relative MSC0: path lands in the cwd (= g_dir). */
-    int f = ssys_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
+    /* A relative drive path lands in the cwd (= g_dir). */
+    char named[64];
+    snprintf(named, sizeof(named), "%ssave.dat", host_drive());
+    int f = ssys_open(named, O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
-    char hostprobe[512], probenative[TEST_PATH_MAX];
+    char hostprobe[512];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
-    ASSERT_TRUE(path_to_native(hostprobe, probenative, sizeof(probenative)));
-    FILE *hp = fopen(probenative, "rb"); /* behind the drive's back */
+    FILE *hp = fopen(hostprobe, "rb"); /* behind the drive's back */
     ASSERT_TRUE(hp != NULL);
     if (hp)
         fclose(hp);

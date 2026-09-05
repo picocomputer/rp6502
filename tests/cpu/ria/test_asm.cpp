@@ -60,7 +60,7 @@ static tb_asm build()
     p.push(0x9A);
     p.pushw(0xBCDE);
     p.pushl(0x01234567);
-    p.push_str("MSC0:\xff");
+    p.push_str("FS:\xff");
 
     p.push_str("T.DAT");
     p.lda(0x02 | 0x10); /* O_WRONLY | O_CREAT */

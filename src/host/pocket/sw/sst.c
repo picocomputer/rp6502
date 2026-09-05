@@ -48,9 +48,8 @@
 #include "vid.h"
 
 #include "core/api/tim.h"
+#include "core/sys/debug_log.h"
 
-
-#include <stdio.h>
 #include <string.h>
 
 bool sst_pending(void)
@@ -71,7 +70,7 @@ void sst_task(void)
      * hostage to the ack, so the ack is all this path does. */
     if (ctl & SST_RESTORE_ERR)
     {
-        printf("sst: refused, staging the rom instead\n");
+        RP6502_LOG(sst, ERROR, "refused, staging the rom instead");
         SST_CTL = SST_RESTORED;
         /* Acked first, because staging can take the better part of a
          * second and the ack is the cheaper thing to owe. Nothing
@@ -140,7 +139,7 @@ void sst_task(void)
             same = !strcmp(at, want);
         }
         if (!same && (!want || !*want))
-            printf("rom: no path to stage\n");
+            RP6502_LOG(rom, ERROR, "no path to stage");
         else if (!same)
         {
             /* The blob restored the ROM descriptor open on the wrong
@@ -154,10 +153,10 @@ void sst_task(void)
             api_errno err;
             fs_std_close(FS_DESC_ROM, &err);
             if (fs_rom_open(want, FS_RD, &err) < 0)
-                printf("rom: stage '%s' failed\n", want);
+                RP6502_LOG(rom, ERROR, "stage '%s' failed", want);
             else if (fs_rom_staged_len() != had)
-                printf("rom: staged %u, session had %u\n",
-                       (unsigned)fs_rom_staged_len(), (unsigned)had);
+                RP6502_LOG(rom, INFO, "staged %u, session had %u",
+                           (unsigned)fs_rom_staged_len(), (unsigned)had);
         }
     }
 

@@ -37,7 +37,7 @@
 #endif
 #endif
 #include "core/str/unicode.h"
-#include <stdio.h>
+#include "core/sys/debug_log.h"
 
 #ifndef FF_DEFINED
 typedef uint16_t WCHAR;
@@ -68,7 +68,7 @@ bool unicode_init(void)
         /* Said here, where it is known, rather than by whoever called: a
          * platform that links the tables in never reaches this, and one that
          * loads them wants to hear about it once, at boot. */
-        printf("oem: no tables\n");
+        RP6502_LOG(oem, ERROR, "no tables");
         return false;
     }
     return true;

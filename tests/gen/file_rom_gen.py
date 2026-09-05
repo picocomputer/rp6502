@@ -6,7 +6,7 @@
 # A .rp6502 that writes a file, closes it, opens it again, reads it
 # back, and prints what came back. tests/host/pocket/test_pfile.cpp asserts
 # the printed bytes, so the whole path — the 6502's syscalls, the
-# shared std.c, the Pocket's MSC0: driver, pocket_file, and a host
+# shared std.c, the Pocket's file driver, pocket_file, and a host
 # playing the APF target commands — is proven by one string arriving.
 #
 # It ships in the package too. A round trip is the one thing about a
@@ -50,9 +50,10 @@ def prog():
     p.sta_abs(API_A)
     p.call(OP_CLOSE)
 
-    # Open it again under the drive name the real machine uses — the
-    # prefix has to reach the same file — read it back, print it.
-    p.push_str("MSC0:" + NAME)
+    # Open it again, read it back, print it. Bare, which is the one
+    # spelling every machine reads the same way — what the drive is
+    # called is fstest's question, not this ROM's.
+    p.push_str(NAME)
     p.lda_imm(O_RDONLY)
     p.sta_abs(API_A)
     p.call(OP_OPEN)

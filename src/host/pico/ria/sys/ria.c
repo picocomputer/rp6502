@@ -25,13 +25,6 @@
 #include <hardware/dma.h>
 #include <hardware/sync.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_RIA)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define RIA_WATCHDOG_MS 250
 
 #define RIA_ACTION_RESULT_NONE (-1)

@@ -36,7 +36,9 @@ function(rp6502_osal_windows target)
     # directory because it goes on every consumer's include path and the host's
     # own headers are not ours to publish. MinGW takes none of it.
     target_include_directories(${target} PUBLIC ${RP6502_OSAL_WINDOWS}/msvc)
-    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
+    # /Zc:preprocessor: core/sys/debug_log.h pastes a macro that expands to two
+    # arguments, which the traditional preprocessor keeps as one.
+    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h /Zc:preprocessor)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(${target} PRIVATE /wd4068 /wd4098)

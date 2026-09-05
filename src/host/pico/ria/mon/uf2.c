@@ -12,6 +12,7 @@
 #include "ria/mon/uf2.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
@@ -27,12 +28,6 @@
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#if defined(DEBUG_MON) || defined(DEBUG_MON_UF2)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 #define UF2_MAP_TABLE_MAX 10 // small arbitrary cap; picotool also uses one
 #define UF2_NAME_READ_MAX 32
@@ -218,15 +213,15 @@ static const char *uf2_find_program_name(void)
     }
     if (found < 0)
     {
-        DBG("UF2 binary_info marker not found in first %lu bytes\n",
-            (unsigned long)(want_blocks * uf2_payload_size));
+        RP6502_LOG(uf2, WARN, "binary_info marker not found in first %lu bytes",
+                   (unsigned long)(want_blocks * uf2_payload_size));
         return NULL;
     }
-    DBG("UF2 binary_info marker at image offset %lu\n",
-        (unsigned long)(found * 4));
-    DBG("UF2 bi_addr=[0x%08lX..0x%08lX) map=0x%08lX\n",
-        (unsigned long)bi_addr_start, (unsigned long)bi_addr_end,
-        (unsigned long)map_tbl_ptr);
+    RP6502_LOG(uf2, DEBUG, "binary_info marker at image offset %lu",
+               (unsigned long)(found * 4));
+    RP6502_LOG(uf2, DEBUG, "bi_addr=[0x%08lX..0x%08lX) map=0x%08lX",
+               (unsigned long)bi_addr_start, (unsigned long)bi_addr_end,
+               (unsigned long)map_tbl_ptr);
 
     uf2_map_count = 0;
     while (map_tbl_ptr && uf2_map_count < UF2_MAP_TABLE_MAX)
@@ -246,9 +241,9 @@ static const char *uf2_find_program_name(void)
         uf2_map_table[uf2_map_count].source = src;
         uf2_map_table[uf2_map_count].dest_start = ds;
         uf2_map_table[uf2_map_count].dest_end = de;
-        DBG("UF2 map[%d] src=0x%08lX dst=[0x%08lX..0x%08lX)\n",
-            uf2_map_count, (unsigned long)src,
-            (unsigned long)ds, (unsigned long)de);
+        RP6502_LOG(uf2, DEBUG, "map[%d] src=0x%08lX dst=[0x%08lX..0x%08lX)",
+                   uf2_map_count, (unsigned long)src,
+                   (unsigned long)ds, (unsigned long)de);
         uf2_map_count++;
     }
 
@@ -257,7 +252,7 @@ static const char *uf2_find_program_name(void)
         int32_t slot_off = uf2_ptr_to_file_off(slot, 4);
         if (slot_off < 0)
         {
-            DBG("UF2 bi slot 0x%08lX off image\n", (unsigned long)slot);
+            RP6502_LOG(uf2, WARN, "bi slot 0x%08lX off image", (unsigned long)slot);
             return NULL;
         }
         if (!uf2_read_at(slot_off, 4))
@@ -291,22 +286,22 @@ static const char *uf2_find_program_name(void)
         int32_t str_off = uf2_ptr_to_file_off(value, 1);
         if (str_off < 0)
         {
-            DBG("UF2 program_name ptr 0x%08lX off image\n",
-                (unsigned long)value);
+            RP6502_LOG(uf2, WARN, "program_name ptr 0x%08lX off image",
+                       (unsigned long)value);
             return NULL;
         }
         if (!uf2_read_at(str_off, UF2_NAME_READ_MAX))
             return NULL;
         if (!memchr(mbuf, 0, UF2_NAME_READ_MAX))
         {
-            DBG("UF2 program_name not NUL-terminated within %d bytes\n",
-                UF2_NAME_READ_MAX);
+            RP6502_LOG(uf2, WARN, "program_name not NUL-terminated within %d bytes",
+                       UF2_NAME_READ_MAX);
             return NULL;
         }
-        DBG("UF2 program_name=\"%s\"\n", (const char *)mbuf);
+        RP6502_LOG(uf2, DEBUG, "program_name=\"%s\"", (const char *)mbuf);
         return (const char *)mbuf;
     }
-    DBG("UF2 no program_name entry in binary_info\n");
+    RP6502_LOG(uf2, WARN, "no program_name entry in binary_info");
     return NULL;
 }
 
@@ -319,78 +314,78 @@ static bool uf2_check_block_at(const void *blk, uint32_t block_no)
     const struct uf2_block *b = (const struct uf2_block *)blk;
     if (b->magic_start0 != UF2_MAGIC_START0)
     {
-        DBG("UF2 block %lu bad magic_start0=0x%08lX\n",
-            (unsigned long)block_no, (unsigned long)b->magic_start0);
+        RP6502_LOG(uf2, WARN, "block %lu bad magic_start0=0x%08lX",
+                   (unsigned long)block_no, (unsigned long)b->magic_start0);
         return false;
     }
     if (b->magic_start1 != UF2_MAGIC_START1)
     {
-        DBG("UF2 block %lu bad magic_start1=0x%08lX\n",
-            (unsigned long)block_no, (unsigned long)b->magic_start1);
+        RP6502_LOG(uf2, WARN, "block %lu bad magic_start1=0x%08lX",
+                   (unsigned long)block_no, (unsigned long)b->magic_start1);
         return false;
     }
     if (b->magic_end != UF2_MAGIC_END)
     {
-        DBG("UF2 block %lu bad magic_end=0x%08lX\n",
-            (unsigned long)block_no, (unsigned long)b->magic_end);
+        RP6502_LOG(uf2, WARN, "block %lu bad magic_end=0x%08lX",
+                   (unsigned long)block_no, (unsigned long)b->magic_end);
         return false;
     }
     if (!(b->flags & UF2_FLAG_FAMILY_ID_PRESENT))
     {
-        DBG("UF2 block %lu no FAMILY_ID_PRESENT flag (flags=0x%08lX)\n",
-            (unsigned long)block_no, (unsigned long)b->flags);
+        RP6502_LOG(uf2, WARN, "block %lu no FAMILY_ID_PRESENT flag (flags=0x%08lX)",
+                   (unsigned long)block_no, (unsigned long)b->flags);
         return false;
     }
     if (b->flags & UF2_FLAG_NOT_MAIN_FLASH)
     {
-        DBG("UF2 block %lu NOT_MAIN_FLASH flag set (flags=0x%08lX)\n",
-            (unsigned long)block_no, (unsigned long)b->flags);
+        RP6502_LOG(uf2, WARN, "block %lu NOT_MAIN_FLASH flag set (flags=0x%08lX)",
+                   (unsigned long)block_no, (unsigned long)b->flags);
         return false;
     }
     if (b->file_size != RP2350_ARM_S_FAMILY_ID &&
         b->file_size != ABSOLUTE_FAMILY_ID)
     {
-        DBG("UF2 block %lu family=0x%08lX (want RP2350_ARM_S 0x%08lX or ABSOLUTE 0x%08lX)\n",
-            (unsigned long)block_no, (unsigned long)b->file_size,
-            (unsigned long)RP2350_ARM_S_FAMILY_ID,
-            (unsigned long)ABSOLUTE_FAMILY_ID);
+        RP6502_LOG(uf2, WARN, "block %lu family=0x%08lX (want RP2350_ARM_S 0x%08lX or ABSOLUTE 0x%08lX)",
+                   (unsigned long)block_no, (unsigned long)b->file_size,
+                   (unsigned long)RP2350_ARM_S_FAMILY_ID,
+                   (unsigned long)ABSOLUTE_FAMILY_ID);
         return false;
     }
     if (b->block_no != block_no)
     {
-        DBG("UF2 block_no=%lu expected %lu\n",
-            (unsigned long)b->block_no, (unsigned long)block_no);
+        RP6502_LOG(uf2, WARN, "block_no=%lu expected %lu",
+                   (unsigned long)b->block_no, (unsigned long)block_no);
         return false;
     }
     if (block_no == 0)
     {
         if (b->payload_size < 1 || b->payload_size > 476)
         {
-            DBG("UF2 block 0 payload_size=%lu out of spec range 1..476\n",
-                (unsigned long)b->payload_size);
+            RP6502_LOG(uf2, WARN, "block 0 payload_size=%lu out of spec range 1..476",
+                       (unsigned long)b->payload_size);
             return false;
         }
         uf2_num_blocks = b->num_blocks;
         uf2_first_target = b->target_addr;
         uf2_payload_size = (uint16_t)b->payload_size;
-        DBG("UF2 block 0 OK: num_blocks=%lu first_target=0x%08lX payload_size=%u\n",
-            (unsigned long)uf2_num_blocks, (unsigned long)uf2_first_target,
-            (unsigned)uf2_payload_size);
+        RP6502_LOG(uf2, DEBUG, "block 0 OK: num_blocks=%lu first_target=0x%08lX payload_size=%u",
+                   (unsigned long)uf2_num_blocks, (unsigned long)uf2_first_target,
+                   (unsigned)uf2_payload_size);
     }
     else
     {
         if (b->num_blocks != uf2_num_blocks)
         {
-            DBG("UF2 block %lu num_blocks=%lu expected %lu\n",
-                (unsigned long)block_no, (unsigned long)b->num_blocks,
-                (unsigned long)uf2_num_blocks);
+            RP6502_LOG(uf2, WARN, "block %lu num_blocks=%lu expected %lu",
+                       (unsigned long)block_no, (unsigned long)b->num_blocks,
+                       (unsigned long)uf2_num_blocks);
             return false;
         }
         if (b->payload_size != uf2_payload_size)
         {
-            DBG("UF2 block %lu payload_size=%lu expected %u\n",
-                (unsigned long)block_no, (unsigned long)b->payload_size,
-                (unsigned)uf2_payload_size);
+            RP6502_LOG(uf2, WARN, "block %lu payload_size=%lu expected %u",
+                       (unsigned long)block_no, (unsigned long)b->payload_size,
+                       (unsigned)uf2_payload_size);
             return false;
         }
     }
@@ -440,14 +435,14 @@ static bool uf2_ria_write(uint32_t flash_addr, const uint8_t *src, uint32_t n)
             {
                 if (uf2_cur_sector != (uint32_t)-1 && sec <= uf2_cur_sector)
                 {
-                    DBG("UF2 sector revisit rejected: cur=%lu new=%lu\n",
-                        (unsigned long)uf2_cur_sector, (unsigned long)sec);
+                    RP6502_LOG(uf2, WARN, "sector revisit rejected: cur=%lu new=%lu",
+                               (unsigned long)uf2_cur_sector, (unsigned long)sec);
                     return false;
                 }
-                DBG("UF2 erase sector @0x%08lX (block %lu/%lu)\n",
-                    (unsigned long)(sec * FLASH_SECTOR_SIZE),
-                    (unsigned long)uf2_block_idx,
-                    (unsigned long)uf2_num_blocks);
+                RP6502_LOG(uf2, DEBUG, "erase sector @0x%08lX (block %lu/%lu)",
+                           (unsigned long)(sec * FLASH_SECTOR_SIZE),
+                           (unsigned long)uf2_block_idx,
+                           (unsigned long)uf2_num_blocks);
                 flash_range_erase(sec * FLASH_SECTOR_SIZE, FLASH_SECTOR_SIZE);
                 uf2_cur_sector = sec;
             }
@@ -482,8 +477,8 @@ static void uf2_do_write(void)
     if (fr != FR_OK || br != 512 ||
         !uf2_check_block_at(UF2_RIA_BLOCK_BUF, uf2_block_idx))
     {
-        DBG("UF2 write-phase read/validate failed at block %lu (fr=%d br=%u)\n",
-            (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
+        RP6502_LOG(uf2, ERROR, "write-phase read/validate failed at block %lu (fr=%d br=%u)",
+                   (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
         uf2_state = UF2_FAILED;
         return;
     }
@@ -535,8 +530,8 @@ static void uf2_do_vga_stream_block(void)
         FRESULT fr = f_read(&uf2_fil, mbuf, 512, &br);
         if (fr != FR_OK || br != 512 || !uf2_check_block(uf2_block_idx))
         {
-            DBG("UF2 VGA read/validate failed at block %lu (fr=%d br=%u)\n",
-                (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
+            RP6502_LOG(uf2, ERROR, "VGA read/validate failed at block %lu (fr=%d br=%u)",
+                       (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
             uf2_state = UF2_VGA_LOCKUP;
             return;
         }
@@ -548,8 +543,8 @@ static void uf2_do_vga_stream_block(void)
 
     if (off_in_sector + uf2_payload_size > FLASH_SECTOR_SIZE)
     {
-        DBG("UF2 VGA block %lu straddles sector boundary — unsupported layout\n",
-            (unsigned long)uf2_block_idx);
+        RP6502_LOG(uf2, WARN, "VGA block %lu straddles sector boundary — unsupported layout",
+                   (unsigned long)uf2_block_idx);
         uf2_state = UF2_VGA_LOCKUP;
         return;
     }
@@ -557,8 +552,8 @@ static void uf2_do_vga_stream_block(void)
     // Sector transition: flush the in-flight sector first, defer this block.
     if (uf2_cur_sector != (uint32_t)-1 && sector != uf2_cur_sector)
     {
-        DBG("UF2 VGA flush sector %lu (about to start %lu)\n",
-            (unsigned long)uf2_cur_sector, (unsigned long)sector);
+        RP6502_LOG(uf2, DEBUG, "VGA flush sector %lu (about to start %lu)",
+                   (unsigned long)uf2_cur_sector, (unsigned long)sector);
         uf2_vga_last_sector = uf2_cur_sector;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)uf2_cur_sector);
         uf2_cur_sector = (uint32_t)-1;
@@ -599,7 +594,7 @@ static void uf2_do_vga_stream_block(void)
     // End of image: flush the in-flight sector.
     if (uf2_block_idx >= uf2_num_blocks)
     {
-        DBG("UF2 VGA final flush sector %lu\n", (unsigned long)uf2_cur_sector);
+        RP6502_LOG(uf2, DEBUG, "VGA final flush sector %lu", (unsigned long)uf2_cur_sector);
         uf2_vga_last_sector = uf2_cur_sector;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)uf2_cur_sector);
         uf2_cur_sector = (uint32_t)-1;
@@ -635,8 +630,8 @@ static void uf2_do_vga_wait(void)
         }
         return;
     default:
-        DBG("UF2 VGA flash failed at sector %lu\n",
-            (unsigned long)uf2_vga_last_sector);
+        RP6502_LOG(uf2, ERROR, "VGA flash failed at sector %lu",
+                   (unsigned long)uf2_vga_last_sector);
         uf2_state = UF2_VGA_LOCKUP;
         return;
     }
@@ -695,18 +690,18 @@ void uf2_mon_flash(const char *args)
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    DBG("UF2 FLASH \"%s\"\n", path);
+    RP6502_LOG(uf2, INFO, "FLASH \"%s\"", path);
 
     FRESULT fr = f_open(&uf2_fil, path, FA_READ);
     if (fr != FR_OK)
     {
-        DBG("UF2 f_open failed fr=%d\n", (int)fr);
+        RP6502_LOG(uf2, DEBUG, "f_open failed fr=%d", (int)fr);
         mon_add_response_fatfs(fr);
         uf2_fil.obj.fs = NULL;
         return;
     }
     FSIZE_t fsize = f_size(&uf2_fil);
-    DBG("UF2 f_size=%lu\n", (unsigned long)fsize);
+    RP6502_LOG(uf2, DEBUG, "f_size=%lu", (unsigned long)fsize);
 
     // Scan past any leading RP2350-E10 abs blocks to find main firmware.
     uf2_main_start = 0;
@@ -714,7 +709,7 @@ void uf2_mon_flash(const char *args)
     {
         if (uf2_main_start + 512 > fsize)
         {
-            DBG("UF2 no main-firmware block found before EOF\n");
+            RP6502_LOG(uf2, WARN, "no main-firmware block found before EOF");
             uf2_close();
             mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
             return;
@@ -729,24 +724,24 @@ void uf2_mon_flash(const char *args)
         fr = f_read(&uf2_fil, mbuf, 512, &br);
         if (fr != FR_OK || br != 512)
         {
-            DBG("UF2 read at offset %lu failed (fr=%d br=%u)\n",
-                (unsigned long)uf2_main_start, (int)fr, (unsigned)br);
+            RP6502_LOG(uf2, WARN, "read at offset %lu failed (fr=%d br=%u)",
+                       (unsigned long)uf2_main_start, (int)fr, (unsigned)br);
             uf2_close();
             mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
             return;
         }
         if (!uf2_is_abs_block())
             break;
-        DBG("UF2 skipping abs_block at offset %lu\n",
-            (unsigned long)uf2_main_start);
+        RP6502_LOG(uf2, DEBUG, "skipping abs_block at offset %lu",
+                   (unsigned long)uf2_main_start);
         uf2_main_start += 512;
     }
-    DBG("UF2 main firmware starts at file offset %lu\n",
-        (unsigned long)uf2_main_start);
+    RP6502_LOG(uf2, DEBUG, "main firmware starts at file offset %lu",
+               (unsigned long)uf2_main_start);
 
     if (!uf2_check_block(0))
     {
-        DBG("UF2 main block 0 validate failed\n");
+        RP6502_LOG(uf2, DEBUG, "main block 0 validate failed");
         uf2_close();
         mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
         return;
@@ -755,8 +750,8 @@ void uf2_mon_flash(const char *args)
     FSIZE_t main_end = uf2_main_start + (FSIZE_t)uf2_num_blocks * 512;
     if (main_end > fsize)
     {
-        DBG("UF2 truncated: f_size=%lu need at least %lu\n",
-            (unsigned long)fsize, (unsigned long)main_end);
+        RP6502_LOG(uf2, WARN, "truncated: f_size=%lu need at least %lu",
+                   (unsigned long)fsize, (unsigned long)main_end);
         uf2_close();
         mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
         return;
@@ -781,7 +776,7 @@ void uf2_mon_flash(const char *args)
         fr = f_lseek(&uf2_fil, uf2_main_start);
         if (fr != FR_OK)
         {
-            DBG("UF2 VGA rewind f_lseek failed fr=%d\n", (int)fr);
+            RP6502_LOG(uf2, WARN, "VGA rewind f_lseek failed fr=%d", (int)fr);
             uf2_close();
             mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
             return;
@@ -790,16 +785,16 @@ void uf2_mon_flash(const char *args)
         uf2_last_percent = -1;
         uf2_cur_sector = (uint32_t)-1;
         uf2_vga_has_deferred_block = false;
-        DBG("UF2 entering VGA stream phase, %lu blocks from offset %lu\n",
-            (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
+        RP6502_LOG(uf2, INFO, "entering VGA stream phase, %lu blocks from offset %lu",
+                   (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
         uf2_state = UF2_VGA_STREAM;
         return;
     }
 
     if (strcmp(name, STR_UF2_PROG_NAME_RIA))
     {
-        DBG("UF2 program_name \"%s\" does not match \"%s\"\n",
-            name, STR_UF2_PROG_NAME_RIA);
+        RP6502_LOG(uf2, WARN, "program_name \"%s\" does not match \"%s\"",
+                   name, STR_UF2_PROG_NAME_RIA);
         uf2_close();
         mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
         return;
@@ -808,7 +803,7 @@ void uf2_mon_flash(const char *args)
     fr = f_lseek(&uf2_fil, uf2_main_start);
     if (fr != FR_OK)
     {
-        DBG("UF2 rewind f_lseek failed fr=%d\n", (int)fr);
+        RP6502_LOG(uf2, WARN, "rewind f_lseek failed fr=%d", (int)fr);
         uf2_close();
         mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
         return;
@@ -817,7 +812,7 @@ void uf2_mon_flash(const char *args)
     uf2_last_percent = -1;
     uf2_cur_page = (uint32_t)-1;
     uf2_cur_sector = (uint32_t)-1;
-    DBG("UF2 entering write phase, %lu blocks from offset %lu\n",
-        (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
+    RP6502_LOG(uf2, INFO, "entering write phase, %lu blocks from offset %lu",
+               (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
     uf2_state = UF2_WRITE;
 }

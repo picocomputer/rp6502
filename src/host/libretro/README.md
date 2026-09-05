@@ -163,3 +163,5 @@ Afterwards, if it seems worth it: an icon in
 in [libretro-database](https://github.com/libretro/libretro-database) so
 programs land in a playlist, and a page in
 [libretro-docs](https://github.com/libretro/docs).
+
+TODO: figure out versioning and release tagging.

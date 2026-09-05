@@ -8,7 +8,6 @@
 
 #include "core/api/xreg.h"
 #include "drivers.h"
-#include <stdio.h>
 
 #include "apf.h"
 #include "aud.h"
@@ -40,6 +39,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
+#include "core/sys/debug_log.h"
 #include "core/str/rln.h"
 #include "core/sys/pix.h"
 #include "core/vga/mode/mode1.h"
@@ -158,7 +158,7 @@ static void main_stage(void)
     if (ok)
         sys_run();
     else if (staged)
-        printf("rom: bad image\n");
+        RP6502_LOG(rom, ERROR, "bad image");
 }
 
 int main(void)

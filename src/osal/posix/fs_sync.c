@@ -25,7 +25,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
     ssize_t r = read(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
         return STD_ERROR;
     }
     *got = (uint32_t)r;
@@ -38,7 +38,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     ssize_t r = write(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
         return STD_ERROR;
     }
     *put = (uint32_t)r;

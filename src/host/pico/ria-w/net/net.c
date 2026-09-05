@@ -7,6 +7,7 @@
 
 #include "ria-w/net/modem.h"
 #include "ria-w/net/net.h"
+#include "core/sys/debug_log.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
 #include <lwip/dns.h>
@@ -18,13 +19,6 @@
 #define NET_KEEP_IDLE_MS 60000
 #define NET_KEEP_INTVL_MS 10000
 #define NET_KEEP_CNT 3
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_NET)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 _Static_assert(MEMP_NUM_TCP_PCB >= NET_MAX_CONNECTIONS,
                "MEMP_NUM_TCP_PCB must be >= NET_MAX_CONNECTIONS");
@@ -138,14 +132,14 @@ static bool net_pcb_teardown(struct tcp_pcb *pcb, bool connected)
     tcp_recv(pcb, NULL);
     if (!connected)
     {
-        DBG("NET tcp_abort\n");
+        RP6502_LOG(net, DEBUG, "tcp_abort");
         tcp_abort(pcb);
         return true;
     }
-    DBG("NET tcp_close\n");
+    RP6502_LOG(net, DEBUG, "tcp_close");
     if (tcp_close(pcb) == ERR_OK)
         return false;
-    DBG("NET tcp_close failed\n");
+    RP6502_LOG(net, WARN, "tcp_close failed");
     tcp_abort(pcb);
     return true;
 }
@@ -237,7 +231,7 @@ uint16_t net_tx(int desc, const char *buf, uint16_t len)
             return 0;
         // ERR_CONN/ERR_CLSD/ERR_ABRT/ERR_RST and any unclassified err_t:
         // treat as terminal. Retrying an unknown error can spin.
-        DBG("NET tcp_write err %d, closing\n", err);
+        RP6502_LOG(net, WARN, "tcp_write err %d, closing", err);
         net_close(desc);
     }
     return 0;
@@ -257,7 +251,7 @@ bool net_tx_all(int desc, const char *buf, uint16_t len)
     {
         if (err == ERR_MEM)
             return false;
-        DBG("NET tcp_write err %d, closing\n", err);
+        RP6502_LOG(net, WARN, "tcp_write err %d, closing", err);
         net_close(desc);
         return false;
     }
@@ -274,7 +268,7 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
     // it once we return ERR_OK) and tear down inline.
     if (err != ERR_OK)
     {
-        DBG("NET net_recv err %d\n", err);
+        RP6502_LOG(net, WARN, "net_recv err %d", err);
         if (p)
             pbuf_free(p);
         nc->state = net_state_closed;
@@ -322,11 +316,11 @@ static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     // ever carries a real error, close cleanly instead of asserting.
     if (err != ERR_OK)
     {
-        DBG("NET net_connected err %d\n", err);
+        RP6502_LOG(net, WARN, "net_connected err %d", err);
         net_close(desc);
         return ERR_OK;
     }
-    DBG("NET TCP Connected %d\n", err);
+    RP6502_LOG(net, INFO, "TCP Connected %d", err);
     nc->state = net_state_connected;
     if (desc < NET_MODEM_DESCS)
     {
@@ -340,7 +334,7 @@ static void net_err(void *arg, err_t err)
 {
     net_conn_t *nc = (net_conn_t *)arg;
     (void)err;
-    DBG("NET tcp_err %d\n", err);
+    RP6502_LOG(net, WARN, "tcp_err %d", err);
     nc->pcb = NULL; // PCB already freed by lwip
     net_close(net_desc(nc));
 }
@@ -357,23 +351,23 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     // Drop stale callbacks from a previous net_open on this descriptor.
     if (gen != nc->dns_gen || nc->state != net_state_dns_lookup)
     {
-        DBG("NET DNS stale callback dropped\n");
+        RP6502_LOG(net, DEBUG, "DNS stale callback dropped");
         return;
     }
     if (!ipaddr)
     {
-        DBG("NET DNS did not resolve\n");
+        RP6502_LOG(net, WARN, "DNS did not resolve");
         net_close(net_desc(nc));
         return;
     }
     nc->pcb = tcp_new_ip_type(IP_GET_TYPE(ipaddr));
     if (!nc->pcb)
     {
-        DBG("NET tcp_new_ip_type failed\n");
+        RP6502_LOG(net, ERROR, "tcp_new_ip_type failed");
         net_close(net_desc(nc));
         return;
     }
-    DBG("NET connecting\n");
+    RP6502_LOG(net, DEBUG, "connecting");
     nc->state = net_state_connecting;
     tcp_arg(nc->pcb, nc);
     tcp_nagle_disable(nc->pcb);
@@ -383,7 +377,7 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     err_t err = tcp_connect(nc->pcb, ipaddr, nc->port, net_connected);
     if (err != ERR_OK)
     {
-        DBG("NET tcp_connect failed %d\n", err);
+        RP6502_LOG(net, ERROR, "tcp_connect failed %d", err);
         net_close(net_desc(nc));
     }
 }
@@ -399,25 +393,25 @@ bool net_open(int desc, const char *hostname, uint16_t port,
     net_dns_ctx_t *ctx = net_dns_ctx_alloc(nc, ++nc->dns_gen);
     if (!ctx)
     {
-        DBG("NET DNS ctx pool exhausted\n");
+        RP6502_LOG(net, ERROR, "DNS ctx pool exhausted");
         nc->port = 0;
         return false;
     }
     err_t err = dns_gethostbyname(hostname, &ipaddr, net_dns_found, ctx);
     if (err == ERR_INPROGRESS)
     {
-        DBG("NET DNS looking up\n");
+        RP6502_LOG(net, DEBUG, "DNS looking up");
         nc->state = net_state_dns_lookup;
         return true;
     }
     if (err == ERR_OK)
     {
-        DBG("NET DNS resolved locally\n");
+        RP6502_LOG(net, DEBUG, "DNS resolved locally");
         nc->state = net_state_dns_lookup;
         net_dns_found(hostname, &ipaddr, ctx);
         return nc->state == net_state_connecting;
     }
-    DBG("NET dns_gethostbyname (%d)\n", err);
+    RP6502_LOG(net, WARN, "dns_gethostbyname (%d)", err);
     net_dns_ctx_free(ctx);
     nc->port = 0;
     return false;
@@ -438,7 +432,7 @@ static void net_pending_err(void *arg, err_t err)
 {
     net_listener_t *nl = (net_listener_t *)arg;
     (void)err;
-    DBG("NET pending pcb err %d\n", err);
+    RP6502_LOG(net, WARN, "pending pcb err %d", err);
     if (nl)
         nl->pending_pcb = NULL;
 }
@@ -495,13 +489,13 @@ bool net_listen(uint16_t port, net_accept_fn on_accept)
     struct tcp_pcb *pcb = tcp_new();
     if (!pcb)
     {
-        DBG("NET tcp_new failed for listen\n");
+        RP6502_LOG(net, ERROR, "tcp_new failed for listen");
         return false;
     }
     err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
     if (err != ERR_OK)
     {
-        DBG("NET tcp_bind port %u failed %d\n", port, err);
+        RP6502_LOG(net, ERROR, "tcp_bind port %u failed %d", port, err);
         if (tcp_close(pcb) != ERR_OK)
             tcp_abort(pcb);
         return false;
@@ -509,7 +503,7 @@ bool net_listen(uint16_t port, net_accept_fn on_accept)
     struct tcp_pcb *listen_pcb = tcp_listen_with_backlog(pcb, 1);
     if (!listen_pcb)
     {
-        DBG("NET tcp_listen failed\n");
+        RP6502_LOG(net, ERROR, "tcp_listen failed");
         if (tcp_close(pcb) != ERR_OK)
             tcp_abort(pcb);
         return false;
@@ -521,7 +515,7 @@ bool net_listen(uint16_t port, net_accept_fn on_accept)
     nl->on_accept = on_accept;
     tcp_arg(listen_pcb, nl);
     tcp_accept(listen_pcb, net_accept_cb);
-    DBG("NET listening on port %u\n", port);
+    RP6502_LOG(net, INFO, "listening on port %u", port);
     return true;
 }
 
@@ -543,7 +537,7 @@ void net_listen_close(uint16_t port)
             tcp_abort(nl->listen_pcb);
         nl->listen_pcb = NULL;
         nl->port = 0;
-        DBG("NET listener closed on port %u\n", port);
+        RP6502_LOG(net, INFO, "listener closed on port %u", port);
     }
 }
 
@@ -563,7 +557,7 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int))
     tcp_err(nc->pcb, net_err);
     tcp_recv(nc->pcb, net_recv);
     net_arm_keepalive(nc->pcb);
-    DBG("NET accepted connection on port %u desc %d\n", port, desc);
+    RP6502_LOG(net, INFO, "accepted connection on port %u desc %d", port, desc);
     return true;
 }
 

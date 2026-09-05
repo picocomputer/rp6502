@@ -8,47 +8,29 @@
  * here opens, resolves, or asks a filesystem anything -- a path that names
  * nothing gets the same answers as one that does.
  *
- * The questions that do need a filesystem belong to whichever drive would
- * have to answer them: osal/posix/dir.c and osal/windows/dir.c map into their
- * host's namespace, and host/pico/ria/sys/path.c resolves a CWD through
- * FatFs.
+ * What a drive is called is not one of those questions. It belongs to
+ * whichever drive would have to answer it: osal/posix/dir.c and
+ * osal/windows/dir.c each speak their host's own namespace, and
+ * host/pico/ria/sys/path.c resolves a CWD through FatFs.
  */
 
 #ifndef _CORE_STR_PATH_H_
 #define _CORE_STR_PATH_H_
 
-#include <stdbool.h>
-#include <stddef.h>
-
-/* True if c separates path components. FatFs accepts both, so both are. */
+/* True if c separates path components. FatFs accepts both, and so does Win32,
+ * so both are. Not every machine agrees -- a backslash is an ordinary byte in
+ * a POSIX filename -- which is why the drive that has to open a path is the
+ * one that decides what its separators are, and this is only what the two
+ * that take both have in common. */
 #define path_is_sep(c) ((c) == '/' || (c) == '\\')
 
-/* The text after the last separator. A path that has none is all basename. */
+/* The text after the last '/'. A path that has none is all basename.
+ *
+ * Only a slash, deliberately. This is what names a ROM and what a program is
+ * told it is called, and on a POSIX host a backslash is a character in a name
+ * rather than a separator -- splitting on one there would answer with half a
+ * filename. A machine whose separators are both takes them off before it asks
+ * (osal/windows/dir.c slashes every path it hands back). */
 const char *path_basename(const char *path);
-
-/* Past this machine's drive prefix, if the path carries one. There is one
- * writable drive, so "0:" and "MSC0:" (case-insensitive) are it; anything
- * else keeps its prefix and is a relative name, which the drive then rejects
- * on its own terms. */
-const char *path_strip_drive(const char *path);
-
-/* Whether path_strip_drive would strip anything. */
-bool path_has_drive(const char *path);
-
-/* Between the two spellings of a path on a machine whose drive is a host
- * filesystem. "MSC0:/x" is the native "/x", "MSC0:x" is relative to the
- * process cwd, and "MSC0://C/x" names a Windows drive as "C:/x". A path with
- * no drive prefix is already native and crosses unchanged, which is what lets
- * a host path from a command line go straight through.
- *
- * A path crosses as written -- an empty one stays empty, and the OS says
- * what it thinks of that. Only the directory calls give "" a meaning (the
- * working directory), and they say so themselves.
- *
- * to_native sets errno and returns false if the result does not fit;
- * from_native returns the length written, or 0 -- never a short path, since
- * getcwd is full-path-or-error. */
-bool path_to_native(const char *path, char *out, size_t outsz);
-size_t path_from_native(const char *native, char *out, size_t outsz);
 
 #endif /* _CORE_STR_PATH_H_ */

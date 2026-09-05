@@ -34,6 +34,7 @@
 #include "fs.h"
 
 #include "core/str/unicode.h"
+#include "core/sys/debug_log.h"
 #include "core/term/font.h"
 
 #include <assert.h>
@@ -59,7 +60,7 @@
 static struct
 {
     bool used;
-    bool writable;
+    uint8_t flags; /* what it was opened as: reads and writes both ask */
     /* A restore leaves the drive's own idea of a descriptor intact and
      * the host's binding for it gone. Rebinding all eight there costs
      * eight round trips for files the session may never touch again, so
@@ -175,9 +176,9 @@ void fs_log(void)
         fs_n_defer = 0;
         return;
     }
-    printf("fs: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)fs_n_tmo,
-           (unsigned)fs_n_err, (unsigned)fs_n_defer,
-           (unsigned)(fs_last_st & 0xFFu));
+    RP6502_LOG(fs, WARN, "tmo=%u err=%u defer=%u last=%02x", (unsigned)fs_n_tmo,
+               (unsigned)fs_n_err, (unsigned)fs_n_defer,
+               (unsigned)(fs_last_st & 0xFFu));
     fs_n_tmo = fs_n_err = fs_n_defer = 0;
 }
 
@@ -434,15 +435,8 @@ static bool fs_open_slot(uint32_t slot, const char *name, uint32_t flags,
  * not aliased. */
 const char *fs_strip_drive(const char *path)
 {
-    const char *p = path;
-    if ((p[0] | 0x20) == 'm' && (p[1] | 0x20) == 's' && (p[2] | 0x20) == 'c')
-        p += 3;
-    if (*p >= '0' && *p <= '9' && p[1] == ':')
-    {
-        if (*p != '0')
-            return NULL;
-        return p + 2;
-    }
+    if ((path[0] | 0x20) == 'f' && (path[1] | 0x20) == 's' && path[2] == ':')
+        return path + 3;
     return path;
 }
 
@@ -534,7 +528,7 @@ static void fs_rebind(int d)
      * the size the blob remembers. A writable descriptor keeps its
      * own, because it is what resized the file and the host's table
      * is only as fresh as the last open. */
-    if (got && !fs_pool[d].writable)
+    if (got && !(fs_pool[d].flags & FS_WR))
         fs_pool[d].len = len;
     if (fs_pool[d].pos > fs_pool[d].len)
         fs_pool[d].pos = fs_pool[d].len;
@@ -626,12 +620,12 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
      * rule made enforceable rather than remembered. */
     if (CPU_RESB & 1)
     {
-        printf("rom: stage refused, 6502 running\n");
+        RP6502_LOG(rom, ERROR, "stage refused, 6502 running");
         *err = API_EBUSY;
         return -1;
     }
     const char *p = fs_strip_drive(path);
-    if (!p || !*p)
+    if (!*p)
     {
         *err = API_EINVAL;
         return -1;
@@ -695,7 +689,10 @@ bool fs_std_handles(const char *path)
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     path = fs_strip_drive(path);
-    if (!path)
+    /* The null drive is the API's own namespace, and there is nothing here to
+     * defer to: without this the card would be asked to open, and with
+     * FS_CREAT to make, a file called ":name". */
+    if (path[0] == ':')
     {
         *err = API_ENODEV;
         return -1;
@@ -735,7 +732,9 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     /* The probe above found the file, so a failure here is the host's and
      * final; the retry below has nothing to offer. */
-    bool empty = !exists || (flags & FS_TRUNC);
+    /* Truncation is a write. Without the access-mode term a read-only open
+     * with FS_TRUNC set emptied the file and then refused every write to it. */
+    bool empty = !exists || ((flags & FS_TRUNC) && (flags & FS_WR));
     if (empty && exists && !fs_open_slot(slot, path, FS_DS_RESIZE, 0))
     {
         *err = API_EIO;
@@ -758,7 +757,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     fs_pool[d].used = true;
-    fs_pool[d].writable = (flags & FS_WR) != 0;
+    fs_pool[d].flags = flags;
     /* A fresh binding, so nothing is owed and the window holds nothing
      * of this file. */
     fs_pool[d].stale = false;
@@ -807,7 +806,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
      * restore is still in flight: a descriptor with nothing to flush is
      * released from this side alone. Taken before the guard because a
      * close that costs no round trip should not wait for one. */
-    if (!fs_pool[desc].writable || fs_flush_state == FS_FLUSH_NEVER)
+    if (!(fs_pool[desc].flags & FS_WR) || fs_flush_state == FS_FLUSH_NEVER)
     {
         fs_pool[desc].used = false;
         fs_pool[desc].cache_len = 0;
@@ -881,6 +880,14 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         *err = API_EBADF;
         return STD_ERROR;
     }
+    /* Write-only means write-only, the way every other backend has it. An
+     * open that asked for neither is a read, which is what open(2) and
+     * CreateFile make of it too, so only an explicit FS_WR alone refuses. */
+    if ((fs_pool[desc].flags & (FS_RD | FS_WR)) == FS_WR)
+    {
+        *err = API_EACCES; /* as fs_std_write answers the other way round */
+        return STD_ERROR;
+    }
     if (fs_adrift())
         return STD_PENDING;
     fs_rebind(desc);
@@ -947,8 +954,8 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
             if (fs_note(st))
-                printf("fs: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
-                       (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
+                RP6502_LOG(fs, DEBUG, "read %u off=%u len=%u st=%02x", (unsigned)desc,
+                           (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
             fs_pool[desc].cache_len = 0;
             *err = API_EIO;
             return STD_ERROR;
@@ -988,7 +995,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (fs_adrift())
         return STD_PENDING;
     fs_rebind(desc);
-    if (!fs_pool[desc].writable)
+    if (!(fs_pool[desc].flags & FS_WR))
     {
         *err = API_EACCES;
         return STD_ERROR;
@@ -1013,7 +1020,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
                                    FS_SAVES_PATH)
                 != FS_RC_STARTED)
             {
-                *err = API_ENOSPC;
+                *err = API_EIO; /* the host never said anything about space */
                 return STD_ERROR;
             }
             fs_grow = true;
@@ -1023,7 +1030,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         fs_grow = false;
         if (rc > 1)
         {
-            *err = API_ENOSPC;
+            *err = API_EIO; /* the host never said anything about space */
             return STD_ERROR;
         }
         fs_pool[desc].len = pos + want;
@@ -1045,8 +1052,8 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
         if (fs_note(st))
-            printf("fs: write %u off=%u len=%u st=%02x\n", (unsigned)desc,
-                   (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
+            RP6502_LOG(fs, DEBUG, "write %u off=%u len=%u st=%02x", (unsigned)desc,
+                       (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
         return STD_ERROR;
     }
@@ -1124,12 +1131,33 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                    : whence == SEEK_CUR ? (int32_t)fs_pool[desc].pos
                    : whence == SEEK_END ? (int32_t)fs_pool[desc].len
                                         : -1;
-    if (from < 0 || from + off < 0)
+    if (from < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    fs_pool[desc].pos = (uint32_t)(from + off);
-    *pos = from + off;
+    /* Widened before it is judged: from + off in int32 arithmetic wraps, and a
+     * target past 2GB-1 has to be refused rather than landing somewhere the
+     * signed result cannot report. */
+    int64_t target = (int64_t)from + off;
+    if (target < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (target > 0x7FFFFFFF)
+    {
+        *err = API_ERANGE;
+        return -1;
+    }
+    /* Past the end of a file this cannot write is the end of it, which is what
+     * every other backend answers. Extending a writable one is not done here:
+     * it would take the resize open and its pending state machine, and until
+     * it does, a seek past the end of a writable file stops at the end too
+     * rather than reporting a position no read or write would agree with. */
+    if (target > (int64_t)fs_pool[desc].len)
+        target = (int64_t)fs_pool[desc].len;
+    fs_pool[desc].pos = (uint32_t)target;
+    *pos = (int32_t)target;
     return 0;
 }

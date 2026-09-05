@@ -5,7 +5,7 @@
  */
 
 #include "core/hid/layout.h"
-#include <stdio.h>
+#include "core/sys/debug_log.h"
 
 /* The image's header and record shape, as keyboard_layout_gen.py lays them
  * out. The header says where each record starts; a record's own fields
@@ -31,7 +31,7 @@ bool layout_init(void)
         /* Said here, where it is known, rather than by whoever called: a
          * platform that links the database in never reaches this, and one
          * that loads it wants to hear about it once, at boot. */
-        printf("keyboard: no layouts\n");
+        RP6502_LOG(keyboard, ERROR, "no layouts");
         layout_layouts = 0;
         return false;
     }

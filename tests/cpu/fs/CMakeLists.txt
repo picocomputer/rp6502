@@ -1,9 +1,9 @@
-# Drives and filesystems: the host-backed MSC0: and the ROM overlay.
+# Drives and filesystems: the host-backed drive and the ROM overlay.
 
-# --- Host-backed MSC0: + read-only ROM: + directory enumeration ---
+# --- The host-backed drive + read-only ROM: + directory enumeration ---
 rp6502_add_test(fs SOURCES test_fs.c ${RP6502_TB_HOSTOS} LIBS emu_core)
 
-# --- Drive fs.c paths: host-backed MSC0:, ROM overlay, async POSIX-AIO ---
+# --- Drive fs.c paths: the host-backed drive, ROM overlay, async POSIX-AIO ---
 rp6502_add_test(drive SOURCES test_drive.c ${RP6502_TB_HOSTOS}
     LIBS emu_core FIXTURE adventure.rp6502)
 

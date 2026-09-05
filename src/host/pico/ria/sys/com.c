@@ -30,12 +30,6 @@
 #include <hardware/sync.h>
 #include <stdio.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* Two TX producers feed com_tx_fanout: stdio / std_tty_write on core 0
  * write to com_tx_core0_buf; act_loop on core 1 (6502 writes to 0xFFE1)
  * fills the ria-owned TX ring, drained here via ria_uart_tx_dequeue().
@@ -68,6 +62,19 @@ void com_write(char ch)
     size_t next = (com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE;
     com_tx_core0_buf[next] = (uint8_t)ch;
     com_tx_core0_head = next;
+}
+
+size_t com_stdout_write(const char *buf, size_t count)
+{
+    size_t i = 0;
+    for (; i < count && com_putchar_ready(); i++)
+        com_putchar(buf[i]);
+    return i;
+}
+
+size_t com_stderr_write(const char *buf, size_t count)
+{
+    return com_stdout_write(buf, count);
 }
 
 #define COM_UART_TX_BUF_SIZE 32

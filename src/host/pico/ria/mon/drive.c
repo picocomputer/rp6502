@@ -21,13 +21,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_DRIVE)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // RP6502 FF_MIN_GPT hook: definition for the runtime threshold the FatFs edits
 // reference (ffconf.h [1/3] macro + [2/3] declaration, ff.c [3/3]). The default
 // reproduces the stock threshold; drive_preview_mkfs and drive_do_mkfs force MBR or

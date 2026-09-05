@@ -62,6 +62,14 @@ int oem_to_utf8_char(unsigned char b, char *dst);
 size_t oem_to_utf8(const char *s, char *dst, size_t dstsz);
 size_t oem_from_utf8(const char *u8, char *dst, size_t dstsz);
 
+/* Whether every character of a string has a representation, so converting it
+ * gives the same string rather than one with substitutions in it. A filename
+ * is what asks: a substituted character is a different name, and it opens a
+ * different file or none. Text a person reads does not ask, and substitutes. */
+bool oem_maps_utf8(const char *u8);  // host UTF-8 -> the code page
+bool oem_maps_wide(const uint16_t *w); // host UTF-16 -> the code page
+bool oem_maps_oem(const char *s);      // the code page -> Unicode
+
 // UTF-16 strings; returns units/bytes written
 int oem_to_wide(const char *s, uint16_t *w, int wcount);
 size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);

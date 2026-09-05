@@ -10,6 +10,7 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
     PICO_PRINTF_SUPPORT_FLOAT=0
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
 )
+rp6502_log_definitions(rp6502-vga PRIVATE)
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
 pico_set_binary_type(rp6502-vga copy_to_ram)

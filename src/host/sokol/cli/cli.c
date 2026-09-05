@@ -95,14 +95,17 @@ enum
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
+    OPT_CRC, OPT_HEADLESS,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
+    {"crc",          no_argument,       NULL, OPT_CRC},
     {"frames",       required_argument, NULL, OPT_FRAMES},
     {"scale",        required_argument, NULL, OPT_SCALE},
     {"filter",       required_argument, NULL, OPT_FILTER},
     {"script",       required_argument, NULL, OPT_SCRIPT},
+    {"headless",     no_argument,       NULL, OPT_HEADLESS},
     {"rom",          required_argument, NULL, OPT_ROM},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
     {"phi2",         required_argument, NULL, OPT_PHI2},
@@ -124,15 +127,19 @@ void cli_usage(FILE *out, const char *argv0)
             "usage: %s [rom.rp6502] [options] [-- <args...>]\n"
             "  --help                    print this and exit\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
-            "  --frames <n>              frames to run before screenshot (default 120)\n"
+            "  --crc                     render headlessly, print the canvas CRC-32 and exit\n"
+            "  --frames <n>              frames to run before the screenshot or crc (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
             "                            always headless: the script is the only clock\n"
+            "  --headless                no window and no picture: host stdin, stdout and\n"
+            "                            stderr are the program's; exits with its exit code\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
             "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
-            "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000)\n"
+            "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000);\n"
+            "                            0 runs unpaced, warping time\n"
             "  --cp <n>                  OEM code page (437/720/737/771/775/850/852/855/\n"
             "                            857/860-866/869, default 437)\n"
             "  --seed <n>                fixed RNG seed for reproducible runs\n"
@@ -191,6 +198,8 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         {
         case OPT_HELP: o->help = true; break;
         case OPT_SCREENSHOT: o->screenshot = optarg; break;
+        case OPT_CRC: o->crc = true; break;
+        case OPT_HEADLESS: o->headless = true; break;
         case OPT_FRAMES:
         {
             long long v;
@@ -247,9 +256,11 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_PHI2:
         {
             long long v;
-            if (!cli_number(optarg, &v) || v < 1 || v > INT_MAX)
+            if (!cli_number(optarg, &v) || v < 0 || v > INT_MAX)
                 return cli_bad("--phi2", optarg), 2;
-            o->phi2_khz = (int)v; /* the range itself is cpu.c's to judge */
+            o->unpaced = v == 0; /* no clock to pace against: time warps */
+            if (v)
+                o->phi2_khz = (int)v; /* the range itself is cpu.c's to judge */
             break;
         }
         case OPT_CP:

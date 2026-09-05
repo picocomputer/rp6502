@@ -42,11 +42,13 @@ void os_dir_path_drop(char *path)
 
 /* ---- What this drive can answer ------------------------------------------ */
 
-/* Synthetic: the host cannot be asked. Spelled from the drive so
- * appending a name opens the same file the bare name does. */
+/* Synthetic: the host cannot be asked. This is where a relative name goes, so
+ * a program that appends a separator and a name opens the same file the bare
+ * name does. No drive in front of it and no separator behind it, which is what
+ * every other machine's getcwd answers with. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    static const char cwd[] = "MSC0:/Saves/rp6502/common/";
+    static const char cwd[] = "/Saves/rp6502/common";
     if (size < sizeof cwd)
     {
         *err = API_ENOMEM;
@@ -56,15 +58,14 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     return true;
 }
 
+/* FS: and the bare current drive; whatever the name leaves behind has to be
+ * nothing, because "FS:junk" names no drive and neither does anything else. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
-    const char *rest = fs_strip_drive(drive);
-    if (!rest || *rest)
-    {
-        *err = API_ENODEV;
-        return false;
-    }
-    return true;
+    if (!*fs_strip_drive(drive))
+        return true;
+    *err = API_ENODEV;
+    return false;
 }
 
 /* ---- And what it cannot -------------------------------------------------- */

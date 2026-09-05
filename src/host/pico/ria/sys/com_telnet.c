@@ -15,6 +15,7 @@
 #include "core/sys/ria.h"
 #include "ria/sys/com.h"
 #include "core/sys/config.h"
+#include "core/sys/debug_log.h"
 #include "ria/sys/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/vga.h"
@@ -25,14 +26,7 @@
 #include "core/sys/driver.h"
 #include "ria-w/net/wifi.h"
 #include <pico/stdlib.h>
-#include <stdio.h>
 #include <string.h>
-
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 #ifndef RP6502_RIA_W
 
@@ -171,12 +165,12 @@ static void com_telnet_handle_auth(uint8_t ch)
             telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
             vga_set_tel_console_active(true);
-            DBG("NET TEL console authenticated\n");
+            RP6502_LOG(telnet, INFO, "console authenticated");
         }
         else
         {
             telnet_tx(NET_TELNET_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
-            DBG("NET TEL console auth failed\n");
+            RP6502_LOG(telnet, WARN, "console auth failed");
             com_telnet_state = COM_TELNET_STATE_LISTENING;
             telnet_close(NET_TELNET_DESC);
         }
@@ -284,7 +278,7 @@ static void com_telnet_on_disconnect(int desc)
 {
     if (com_telnet_state == COM_TELNET_STATE_AUTH || com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
-        DBG("NET TEL console disconnected\n");
+        RP6502_LOG(telnet, INFO, "console disconnected");
         com_telnet_teardown(COM_TELNET_STATE_LISTENING);
     }
     telnet_close(desc);
@@ -303,7 +297,7 @@ static bool com_telnet_on_accept(uint16_t port)
     com_telnet_auth_len = 0;
     com_telnet_clear_rings();
     com_telnet_state = COM_TELNET_STATE_AUTH;
-    DBG("NET TEL console accepted, awaiting auth\n");
+    RP6502_LOG(telnet, INFO, "console accepted, awaiting auth");
     return true;
 }
 
@@ -354,7 +348,7 @@ void com_telnet_task(void)
         {
             com_telnet_active_port = com_telnet_get_port();
             com_telnet_state = COM_TELNET_STATE_LISTENING;
-            DBG("NET TEL console listening on port %u\n", com_telnet_get_port());
+            RP6502_LOG(telnet, INFO, "console listening on port %u", com_telnet_get_port());
         }
         break;
     case COM_TELNET_STATE_AUTH:

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's end of the console wire. There is no wire: the terminal is
- * rendered in the same process, so the only thing here is the bring-up mirror
- * and the register-window byte the RIA model stages.
+ * rendered in the same process, so what is here is the host's stderr, the
+ * bring-up mirror and the register-window byte the RIA model stages.
  */
 
 #include "core/com/tty.h"
@@ -18,21 +18,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Host streams carry host encoding, so OEM bytes expand to UTF-8 -- in
+ * chunks, because stderr is unbuffered and a write per byte is a syscall
+ * per byte. */
+static void tty_utf8_write(FILE *f, const char *buf, int len)
+{
+    char out[3 * 128];
+    int n = 0;
+    for (int i = 0; i < len; i++)
+    {
+        n += oem_to_utf8_char((unsigned char)buf[i], out + n);
+        if (n > (int)sizeof(out) - 3)
+        {
+            fwrite(out, 1, (size_t)n, f);
+            n = 0;
+        }
+    }
+    if (n)
+        fwrite(out, 1, (size_t)n, f);
+}
+
 void tty_write(const char *buf, int len)
 {
     /* EMU_ECHO mirrors the terminal stream to the host's stderr, so a
-     * program's output is visible without rendering a frame. Host streams
-     * carry host encoding, so OEM bytes expand to UTF-8. */
+     * program's output is visible without rendering a frame. */
     static int echo = -1;
     if (echo < 0)
         echo = getenv("EMU_ECHO") ? 1 : 0;
-    if (!echo)
-        return;
-    for (int i = 0; i < len; i++)
-    {
-        char enc[3];
-        fwrite(enc, 1, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc), stderr);
-    }
+    if (echo)
+        tty_utf8_write(stderr, buf, len);
+}
+
+void tty_stderr_write(const char *buf, int len)
+{
+    tty_utf8_write(stderr, buf, len);
 }
 
 /* A read of $FFE0 pulls a byte into the $FFE2 latch to answer the ready bit;

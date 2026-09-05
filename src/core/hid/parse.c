@@ -15,13 +15,6 @@
 #include "core/hid/parse.h"
 #include <string.h>
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_PARSE)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* Per-field info the descriptor walk yields. */
 typedef struct
 {

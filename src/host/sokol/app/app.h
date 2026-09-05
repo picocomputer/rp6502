@@ -22,6 +22,11 @@ struct sapp_event;
 void app_prepare(uint32_t *fb, double scale, bool have_scale,
                  bool exit_on_halt, int *out_w, int *out_h);
 
+/* --phi2 0: no pacing. Each callback runs as many frames as a present's worth
+ * of wall time holds, so the window stays live while the machine's time
+ * warps. Before sokol starts. */
+void app_set_unpaced(bool on);
+
 /* The four sokol lifecycle callbacks each platform's sapp_desc points at. */
 void app_init(void);
 void app_frame(void);
@@ -44,5 +49,11 @@ bool app_boot_rom(const char *path);
 
 /* Wall time the machine has spent running frames, in total. */
 uint64_t app_machine_ns(void);
+
+/* sokol's logger, for every .logger.func: its lines are the sokol category,
+ * and a panic does not return. */
+void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
+             const char *message_or_null, uint32_t line_nr,
+             const char *filename_or_null, void *user_data);
 
 #endif /* _HOST_SOKOL_APP_APP_H_ */

@@ -15,13 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_OEM)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 
@@ -195,6 +188,42 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     while (w[len])
         len++;
     return oem_from_wide_n(w, len, dst, dstsz);
+}
+
+/* Whether a conversion would be the same string and not a near one. The
+ * conversions substitute -- 0x7F coming in, U+FFFD going out -- which is right
+ * for text a person reads and wrong for a name a program opens: two files can
+ * arrive under one name, and a name handed back can reach a third. So a
+ * filename asks first. */
+/* 0x7F is what the conversions put where a character had no spelling, and it
+ * is not a character a name may contain either -- FatFs rejects it outright --
+ * so a result of 0x7F means "no spelling" whichever way it got there. */
+#define OEM_NO_SPELLING 0x7F
+
+bool oem_maps_utf8(const char *u8)
+{
+    const char *p = u8;
+    while (*p)
+        if (oem_from_utf8_next(&p) == OEM_NO_SPELLING)
+            return false;
+    return true;
+}
+
+bool oem_maps_wide(const uint16_t *w)
+{
+    for (; *w; w++)
+        if (*w == OEM_NO_SPELLING ||
+            (*w >= 0x80 && !ff_uni2oem(*w, oem_code_page_run)))
+            return false;
+    return true;
+}
+
+bool oem_maps_oem(const char *s)
+{
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+        if (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run))
+            return false;
+    return true;
 }
 
 int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va)

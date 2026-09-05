@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Paths cross the seam in the guest's OEM code page. Convert to the host's
- * UTF-8 with oem_to_utf8() (core/str/oem.h) before every libc call, and
- * returned names/paths back with oem_from_utf8(). Fallible calls set errno,
- * which errmap.c turns into the api_errno the contract answers in.
+ * Paths cross the seam in the guest's OEM code page and may carry this drive's
+ * name; path_to_utf8() (osal/posix/dir.h) takes both off before every libc
+ * call. Fallible calls set errno, which errmap.c turns into the api_errno the
+ * contract answers in.
  */
 
 #include "osal/fs.h"
@@ -14,7 +14,6 @@
 #include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -56,6 +55,16 @@ static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
     if (fd < 0)
         *err = errno_to_api(errno); /* before the free, which may clobber it */
     free(u8);
+    /* POSIX lets O_RDONLY on a directory through, and Windows and FatFs both
+     * refuse it. A descriptor whose every read fails is the worse answer, so
+     * the refusal happens here rather than at the first read. */
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode))
+    {
+        close(fd);
+        *err = API_EACCES; /* FR_DENIED, as the other machines spell it */
+        return -1;
+    }
     return fd;
 }
 

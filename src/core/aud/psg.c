@@ -13,13 +13,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#if defined(DEBUG_AUD) || defined(DEBUG_AUD_PSG)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define PSG_CHANNELS 8
 
 /* The divisor the phase increments come out of. A constant, because a

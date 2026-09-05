@@ -6,16 +6,10 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/gamepad.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
 #include <string.h>
-
-#if defined(DEBUG_HID) || defined(DEBUG_HID_GAMEPAD)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // If you're here to remap HID buttons on a new HID gamepad, create
 // a new gamepad_remap_ function and add it to gamepad_distill().
@@ -75,7 +69,7 @@ static void gamepad_remap_playstation_classic(
 {
     if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
-    DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    RP6502_LOG(hid, DEBUG, "Playstation Classic remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
     conn->features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION);
     gamepad_swap_buttons(conn, 0, 2); // buttons
     gamepad_swap_buttons(conn, 2, 3); // buttons
@@ -95,7 +89,7 @@ static void gamepad_remap_8bitdo_m30(
 {
     if (vendor_id != 0x2DC8 || product_id != 0x5006)
         return;
-    DBG("8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    RP6502_LOG(hid, DEBUG, "8BitDo M30 remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
     // Our analog trigger emulation conflicts
     // with the M30's reversed analog triggers.
     conn->rx_size = 0;
@@ -293,13 +287,13 @@ static void gamepad_distill(
     {
         *conn = gamepad_desc_sony_ds4;
         conn->led_type = GAMEPAD_LED_DS4;
-        DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
+        RP6502_LOG(hid, DEBUG, "Detected Sony DS4 gamepad, using pre-computed descriptor");
     }
     else if (gamepad_is_sony_ds5(vendor_id, product_id))
     {
         *conn = gamepad_desc_sony_ds5;
         conn->led_type = GAMEPAD_LED_DS5;
-        DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
+        RP6502_LOG(hid, DEBUG, "Detected Sony DS5 gamepad, using pre-computed descriptor");
     }
     else
     {
@@ -312,7 +306,7 @@ static void gamepad_distill(
 
     if (!conn->valid)
     {
-        DBG("HID descriptor not a gamepad.\n");
+        RP6502_LOG(hid, ERROR, "descriptor not a gamepad");
         return;
     }
 
@@ -516,10 +510,10 @@ bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connec
     }
     if (!conn)
     {
-        DBG("gamepad_mount: No available descriptor slots, max players reached\n");
+        RP6502_LOG(hid, ERROR, "no available gamepad slots, max players reached");
         return false;
     }
-    DBG("gamepad_mount: mounting player %d\n", player);
+    RP6502_LOG(hid, INFO, "mounting gamepad player %d", player);
 
     gamepad_distill(conn, desc, vendor_id, product_id, button_type);
     if (conn->valid)

@@ -23,12 +23,6 @@
 #include <strings.h>
 #include <stdio.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_VGA)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 3
 // How long to wait before aborting version string
