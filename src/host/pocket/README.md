@@ -763,9 +763,10 @@ drop counter showed 453 bytes of loss beyond the console text it
 swallowed, which is about what those lines weigh.
 
 
-The machine's console — the 6502's `$FFE1` writes and the soft CPU's own
-`com_printf`, interleaved — comes out two ways, both live in every
-bitstream.
+The soft CPU's console port — the 6502's `$FFE1` writes as the firmware
+forwards them and the firmware's own `com_printf`, interleaved in the
+order the firmware saw them, one copy — comes out two ways, both live in
+every bitstream.
 
 **Through the Pocket.** With debug logging switched on in the Pocket,
 target command 0x0152 carries four console bytes per entry, first byte in

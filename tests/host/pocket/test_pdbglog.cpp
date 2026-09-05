@@ -54,8 +54,6 @@ static void reset(int endian_little)
     dut->clk_mach = 0;
     dut->clk_74a = 0;
     dut->arst_n = 0;
-    dut->tx_data = 0;
-    dut->tx_valid = 0;
     dut->rv_tx_data = 0;
     dut->rv_tx_valid = 0;
     dut->bridge_wr = 0;

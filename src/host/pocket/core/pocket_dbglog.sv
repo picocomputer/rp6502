@@ -50,8 +50,6 @@ module pocket_dbglog #(
      * clock behind the gate, a valid frozen high by a stop would push
      * the same byte on every edge for the whole savestate. */
     input logic clk_mach,
-    input logic [7:0] tx_data,
-    input logic tx_valid,
     input logic [7:0] rv_tx_data,
     input logic rv_tx_valid,
 
@@ -66,9 +64,6 @@ module pocket_dbglog #(
     output logic [31:0] pocket_dbglog_id
 );
 
-    logic [7:0] byte_in;
-    always_comb byte_in = rv_tx_valid ? rv_tx_data : tx_data;
-
     logic fifo_full, fifo_empty, take;
     logic [7:0] byte_out;
 
@@ -77,8 +72,8 @@ module pocket_dbglog #(
         .DEPTH_LOG2(7)
     ) q (
         .wclk(clk_mach),
-        .w_stb(tx_valid || rv_tx_valid),
-        .w_data(byte_in),
+        .w_stb(rv_tx_valid),
+        .w_data(rv_tx_data),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_74a),
         .r_take(take),

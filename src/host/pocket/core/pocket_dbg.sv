@@ -3,20 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's console, out the debug pin. Both of them: the 6502's
- * $FFE1 writes and the soft CPU's own printf, interleaved as they
- * happen, which is exactly what the simulation prints and what made it
- * debuggable.
+ * The soft CPU's console port, out the debug pin: the firmware's own
+ * printf and the 6502's $FFE1 writes as the firmware forwards them, one
+ * copy in the order the firmware saw them, which is exactly what the
+ * simulation prints and what made it debuggable.
  *
  * It runs on the host's clock, not the machine's. A debug channel that
  * needs the PLL is no use when the PLL is what is broken — this way the
  * pin still talks even if everything downstream of the PLL is dead, and
  * silence means something specific rather than being ambiguous. The
- * bytes cross from the machine on the same queue the bridge uses.
- *
- * When both consoles speak on one clock the soft CPU wins, because it
- * is the one narrating the boot. A dropped byte here costs a character
- * of a log; there is nothing to be gained by making it cost more.
+ * bytes cross from the machine on the same queue the bridge uses. A
+ * dropped byte here costs a character of a log; there is nothing to be
+ * gained by making it cost more.
  */
 
 module pocket_dbg #(
@@ -29,8 +27,6 @@ module pocket_dbg #(
      * the same byte on every edge for the whole savestate. */
     input logic clk_mach,
     input logic rst_n,
-    input logic [7:0] tx_data,
-    input logic tx_valid,
     input logic [7:0] rv_tx_data,
     input logic rv_tx_valid,
 
@@ -38,9 +34,6 @@ module pocket_dbg #(
     input logic arst_n,
     output logic pocket_dbg_tx
 );
-
-    logic [7:0] byte_in;
-    always_comb byte_in = rv_tx_valid ? rv_tx_data : tx_data;
 
     logic fifo_full, fifo_empty, take;
     logic [7:0] byte_out;
@@ -50,8 +43,8 @@ module pocket_dbg #(
         .DEPTH_LOG2(6)
     ) q (
         .wclk(clk_mach),
-        .w_stb(tx_valid || rv_tx_valid),
-        .w_data(byte_in),
+        .w_stb(rv_tx_valid),
+        .w_data(rv_tx_data),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_74a),
         .r_take(take),
