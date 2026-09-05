@@ -62,6 +62,13 @@ static struct
     int title_variant; /* last window-title state (running/stopped/mouse) */
 } app;
 
+/* Why the run is ending. The app asks for its own reasons -- a program
+ * halted, a bench finished, a debug client left -- and the host asks by
+ * closing the window or breaking at the console. The host's way is a break:
+ * it stops a machine that was still running, and the shell hears about it. */
+static bool app_quit_asked;
+static bool app_broke;
+
 void app_set_unpaced(bool on)
 {
     app.unpaced = on;
@@ -166,7 +173,10 @@ void app_frame(void)
     {
         dap_pump(); /* apply queued DAP requests before running this frame */
         if (dap_quit_requested()) /* the DAP client disconnected */
+        {
+            app_quit_asked = true;
             sapp_request_quit();
+        }
     }
 #endif
 #ifdef RP6502_PAD_HOST
@@ -228,7 +238,19 @@ void app_frame(void)
     /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the
      * CPU with no program yet, so a halt there isn't a program exit — don't quit. */
     if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
+    {
+        app_quit_asked = true; /* the program's own exit, not the host's */
         sapp_request_quit();
+    }
+    /* Ctrl-Break at the console this run was launched from. It is answered
+     * here rather than in the handler that latched it, so the machine is
+     * taken down by the loop that owns it, and it is answered even while a
+     * debugger holds the machine, which is the state it exists for. */
+    if (os_break_asked() && !app_broke)
+    {
+        app_quit_asked = app_broke = true;
+        sapp_request_quit();
+    }
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
      * be ~60 Hz regardless of the host display) and quit. */
@@ -244,6 +266,7 @@ void app_frame(void)
         const double secs = (double)(now - bench_start_ns) / 1e9;
         fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
                 vga_frame_count(), secs, (double)vga_frame_count() / secs);
+        app_quit_asked = true;
         sapp_request_quit();
     }
 
@@ -376,11 +399,25 @@ void app_input(const struct sapp_event *e)
  * stays 0. */
 int app_exit_code(void)
 {
+    if (app_broke)
+        return APP_EXIT_BREAK; /* whatever a debugger was holding at the time */
     return (app.exit_on_halt && proc_exited()) ? proc_get_exit_code() : 0;
 }
 
 void app_cleanup(void)
 {
+    /* The machine goes down before the host it was standing on. A program
+     * that halted has already been put away; anything else leaving -- the
+     * close button, a break at the console -- is the host stopping a machine
+     * that was still running, which is what a break is. Either way every
+     * driver's stop hook runs here rather than being skipped on the way out.
+     */
+    if (!app_quit_asked)
+        app_broke = true; /* nobody here asked, so it was the close button */
+    if (app_broke)
+        sys_break_request();
+    sys_stop();
+    sys_commit();
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop(); /* the window is going; let go of the host's controllers */
 #endif

@@ -145,6 +145,17 @@ static void stdin_restore(void)
     stdin_apply(&stdin_saved);
 }
 
+/* Ctrl-\ is the one key raw mode holds back from the machine, so it is the
+ * way out of a program that has stopped listening. The first press asks; the
+ * loop that owns the machine sees it and takes the machine down properly.
+ * The second is for when nothing is reading the ask any more. */
+static volatile sig_atomic_t stdin_break_asked;
+
+bool os_break_asked(void)
+{
+    return stdin_break_asked != 0;
+}
+
 /* A signal that ends the process, and the one that resumes it: a terminal
  * left raw outlives the emulator, and a shell restores its own settings over
  * ours when a stopped job comes back. */
@@ -157,6 +168,11 @@ static void stdin_signal(int sig)
             stdin_raw_on = false;
             os_stdin_raw(true);
         }
+        return;
+    }
+    if (sig == SIGQUIT && !stdin_break_asked)
+    {
+        stdin_break_asked = 1;
         return;
     }
     stdin_restore();

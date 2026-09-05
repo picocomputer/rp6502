@@ -361,7 +361,7 @@ int main(int argc, char **argv)
          * to, and a stall -- a blocking stdin read -- forgiven rather than
          * replayed. --phi2 0 drops the sleep and time warps. */
         uint64_t deadline = os_mono_ns() + VGA_FRAME_NS;
-        while (!proc_exited())
+        while (!proc_exited() && !os_break_asked())
         {
             vga_run_frame();
             streams_stdin_idle();
@@ -374,8 +374,15 @@ int main(int argc, char **argv)
                 deadline = now;
             deadline += VGA_FRAME_NS;
         }
+        /* A break asked for at the console is the host stopping a machine
+         * that was still running, so the machine is torn down the way a
+         * break tears it down. */
+        if (os_break_asked())
+            sys_break_request();
+        sys_stop();
+        sys_commit(); /* every driver's stop hook, before the process goes */
         fflush(stdout);
-        return proc_get_exit_code();
+        return os_break_asked() ? APP_EXIT_BREAK : proc_get_exit_code();
     }
 
     /* A script is the clock, always: it runs the machine here rather than under a
@@ -391,7 +398,11 @@ int main(int argc, char **argv)
                 vga_run_frame();
         }
         if (script_exit_code() || !(o.screenshot || o.crc))
+        {
+            sys_stop();
+            sys_commit(); /* every driver's stop hook, before the process goes */
             return script_exit_code(); /* a passing script may still want the shot */
+        }
     }
 
     if (o.screenshot || o.crc)
@@ -414,6 +425,8 @@ int main(int argc, char **argv)
             vga_frame_crc(&crc);
             printf("%08X\n", crc);
         }
+        sys_stop();
+        sys_commit(); /* every driver's stop hook, before the process goes */
         return 0;
     }
 

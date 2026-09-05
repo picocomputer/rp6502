@@ -63,6 +63,13 @@ void os_console_attach(void);
  * Restored at exit however the process leaves. */
 bool os_stdin_is_terminal(void);
 bool os_stderr_is_terminal(void); /* the same one, when a console owns stdio */
+
+/* The host asking the machine to stop from outside the program it is
+ * running: Ctrl-Break at a Windows console, Ctrl-\ at a POSIX one. Latched
+ * on another thread or in a signal handler, so it only records the ask and
+ * whoever owns the machine performs it. A second ask is the hard way out,
+ * for a machine too wedged to reach its own teardown. */
+bool os_break_asked(void);
 void os_stdin_raw(bool on);
 size_t os_stdin_read(char *buf, size_t count);
 bool os_stdin_ended(void);

@@ -15,8 +15,13 @@
 #include <wchar.h>
 #include <windows.h>
 
+static BOOL WINAPI stdin_ctrl(DWORD type);
+
 void os_console_attach(void)
 {
+    /* Before the console is even found: Ctrl-Break is a console's own way of
+     * asking, and every run on one may need answering. */
+    SetConsoleCtrlHandler(stdin_ctrl, TRUE);
     HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
     HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
     HANDLE pre_in = GetStdHandle(STD_INPUT_HANDLE);
@@ -72,9 +77,21 @@ static void stdin_restore(void)
         SetConsoleMode(o, stdin_saved_out);
 }
 
+/* Ctrl-Break is the one the console never hands to a program as a key, so it
+ * is the way out of a machine that has stopped listening. The first press
+ * asks; the loop that owns the machine sees it and takes the machine down
+ * properly. The second is for when nothing is reading the ask any more. */
+static volatile LONG stdin_break_asked;
+
+bool os_break_asked(void)
+{
+    return stdin_break_asked != 0;
+}
+
 static BOOL WINAPI stdin_ctrl(DWORD type)
 {
-    (void)type;
+    if (type == CTRL_BREAK_EVENT && !InterlockedExchange(&stdin_break_asked, 1))
+        return TRUE; /* asked; the machine goes down on the main thread */
     stdin_restore(); /* CTRL_CLOSE_EVENT gives us only moments */
     return FALSE;    /* and the default handler still ends the process */
 }
@@ -110,8 +127,7 @@ void os_stdin_raw(bool on)
     if (!hooked)
     {
         hooked = true;
-        atexit(stdin_restore);
-        SetConsoleCtrlHandler(stdin_ctrl, TRUE);
+        atexit(stdin_restore); /* the control handler is os_console_attach's */
     }
 }
 

@@ -1010,7 +1010,10 @@ static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
 
 static void rln_dispatch_C0(uint8_t ch)
 {
-    if (ch == '\r')
+    // Either spelling ends a line. A terminal sends a return, and what else
+    // arrives is whatever the far end put on the wire; the console does not
+    // rewrite it on the way in, so this is where both are understood.
+    if (ch == '\r' || ch == '\n')
     {
         rln_action_taken = true;
         rln_finish_line(true);
@@ -1602,7 +1605,7 @@ void rln_task(void)
         for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
             if (rln_sources[s].buf_len >= RLN_BUF_SIZE)
                 any_overflow = true;
-        if (rln_phase != rln_phase_edit && (ch == '\r' || any_overflow))
+        if (rln_phase != rln_phase_edit && (ch == '\r' || ch == '\n' || any_overflow))
         {
             // Skip the rest of the handshake: geometry was never
             // confirmed, so drop prompt_col to force no-wrap rendering.
