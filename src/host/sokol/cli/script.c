@@ -8,6 +8,7 @@
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
 #include "core/api/proc.h"
+#include "core/sys/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -15,10 +16,8 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
-#include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "host/host.h"
 #include "core/vga/vga_emu.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -296,17 +295,6 @@ static void script_gamepad_publish(int player)
                         script_gamepad[player].button1, script_gamepad[player].lx, script_gamepad[player].ly,
                     script_gamepad[player].rx, script_gamepad[player].ry, script_gamepad[player].lt,
                     script_gamepad[player].rt);
-}
-
-static bool script_canvas_crc(uint32_t *out)
-{
-    const uint32_t *fb = vga_get_framebuffer();
-    if (!fb)
-        return false;
-    int w, h;
-    vga_canvas_size(&w, &h);
-    *out = host_crc32(0, fb, (size_t)w * h * 4);
-    return true;
 }
 
 /* The button names a script writes, and the buttons core/hid knows. Only a
@@ -885,7 +873,7 @@ bool script_command(const char *line)
         !strcasecmp(cmd, "expect-same") || !strcasecmp(cmd, "expect-changed"))
     {
         uint32_t crc;
-        if (!script_canvas_crc(&crc))
+        if (!vga_frame_crc(&crc))
             return script_error("no framebuffer to hash");
         if (!strcasecmp(cmd, "crc"))
         {
@@ -979,7 +967,7 @@ static bool script_settle(void)
             return false;
         return script_error("timed out typing; the program is not reading its input");
     case SCRIPT_EXIT:
-        if (!resb_running())
+        if (proc_exited())
         {
             int code = proc_get_exit_code();
             if (code != script_exit_want)

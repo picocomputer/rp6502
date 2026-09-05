@@ -48,6 +48,11 @@ void proc_exec_request(void);
 void proc_exec_init(void); /* nothing an earlier run asked for survives a cold boot */
 void proc_exec_task(void); /* perform a requested exec */
 
+/* The program is gone and nothing is on its way: RESB low with no exec or
+ * launcher relaunch queued. A frame boundary can fall inside a program
+ * change, when RESB alone says stopped. */
+bool proc_exited(void);
+
 /* This machine's proc row; see core/sys/driver.h. The chain's columns over
  * core/api/proc.c, and the exec's: performed in the io column because loading
  * a ROM reads a file. */

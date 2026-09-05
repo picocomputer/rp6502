@@ -1537,6 +1537,13 @@ void rln_read_line_no_history(rln_read_callback_t callback)
     rln_skip_history = true;
 }
 
+void rln_read_cancel(void)
+{
+    rln_callback = NULL;
+    rln_complete_deferred = false;
+    rln_idle_timeout_ms = 0;
+}
+
 // Read one byte from the appropriate source(s). In normal operation
 // src=COM_SOURCE_ANY lets com_getchar pick via the sticky RX picker.
 // During deferred completion we walk only the still-busy sources, leaving

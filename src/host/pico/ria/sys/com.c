@@ -70,6 +70,19 @@ void com_write(char ch)
     com_tx_core0_head = next;
 }
 
+size_t com_stdout_write(const char *buf, size_t count)
+{
+    size_t i = 0;
+    for (; i < count && com_putchar_ready(); i++)
+        com_putchar(buf[i]);
+    return i;
+}
+
+size_t com_stderr_write(const char *buf, size_t count)
+{
+    return com_stdout_write(buf, count);
+}
+
 #define COM_UART_TX_BUF_SIZE 32
 static size_t com_uart_tx_tail;
 static size_t com_uart_tx_head;

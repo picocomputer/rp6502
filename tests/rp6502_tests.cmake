@@ -233,6 +233,15 @@ rp6502_test_rom(tty_rom GEN ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the raw console read ROM")
 
+# The program's three standard streams on a host that keeps them apart: what
+# it reads, what it writes to each, and what it exits with, seen from outside.
+set(STDIO_ROM ${RP6502_TEST_ROM_DIR}/stdio.rp6502)
+rp6502_test_rom(stdio_rom GEN ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
+    ARGS --emit ${STDIO_ROM}
+    OUTPUTS ${STDIO_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the standard streams ROM")
+
 # rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
 #                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]
 #                        [DEPENDS <target>...] [TIMEOUT <seconds>])

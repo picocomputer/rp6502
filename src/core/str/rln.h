@@ -39,6 +39,9 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms);
 // keeping the normal (disabled) idle timeout.
 void rln_read_line_no_history(rln_read_callback_t callback);
 
+// Give up a read in progress: the callback never fires.
+void rln_read_cancel(void);
+
 // 6502 applications may configure the max length
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);

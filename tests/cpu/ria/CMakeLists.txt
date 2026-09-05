@@ -141,6 +141,12 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(tty DRIVER ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
         ROM ${TTY_ROM} DEPENDS tty_rom TIMEOUT 120)
 
+    # The three standard streams under --headless, from outside: host stdin is
+    # the program's, what it writes to fd 1 and fd 2 lands on host stdout and
+    # host stderr apart, and its exit code is the status.
+    rp6502_add_script_test(stdio DRIVER ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
+        ROM ${STDIO_ROM} DEPENDS stdio_rom TIMEOUT 120)
+
     # The ANSI keyboard against the line editor, through the shipped binary:
     # type and wait against a program that reads whole lines. test_adventure
     # above injects on stdin, so the two prove different halves of one path.

@@ -22,6 +22,14 @@ void std_init(void);
 void std_task(void);
 void std_stop(void);
 
+/* A host's stdin, where there is one: whether a cooked read is waiting on
+ * it, and that it has run out -- the read in progress answers nothing and
+ * every read after answers end of file, until the next program.
+ */
+
+bool std_stdin_waiting(void);
+void std_stdin_eof(void);
+
 /* The API implementation for stdio support.
  */
 

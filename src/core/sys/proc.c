@@ -97,6 +97,11 @@ bool proc_exec_inflight(void)
     return queued;
 }
 
+bool proc_exited(void)
+{
+    return !resb_running() && !proc_exec_inflight();
+}
+
 void proc_exec_task(void)
 {
     if (!queued)

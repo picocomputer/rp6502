@@ -8,7 +8,7 @@
  * A frontend owns the loop, so this host has none: retro_run advances the
  * machine exactly one 60 Hz frame and hands over the picture and the sound
  * it made. That is the whole of the difference from the desktop hosts, whose
- * window.c does the pacing the frontend does here.
+ * app.c does the pacing the frontend does here.
  *
  * There is no monitor on this host and no debugger. A .rp6502 is what runs,
  * and when it stops, the core is done.
@@ -29,7 +29,6 @@
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
@@ -680,7 +679,7 @@ void retro_run(void)
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */
-    if (!resb_running() && !shutdown_sent)
+    if (proc_exited() && !shutdown_sent)
     {
         shutdown_sent = true;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);

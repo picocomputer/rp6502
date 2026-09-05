@@ -33,11 +33,23 @@ foreach(_case
     "phi2;--phi2;fast"
     "scale;--scale;abc"
     "cp;--cp;4o7"
-    "frames_without_screenshot;--frames;10")
+    "frames_without_screenshot;--frames;10"
+    "headless_with_script;--headless;--script;-"
+    "headless_with_crc;--headless;--crc")
     list(POP_FRONT _case _name)
     rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_ROMS}/gamepad.rp6502)
     set_tests_properties(cli_${_name} PROPERTIES WILL_FAIL TRUE)
 endforeach()
+
+# The CRC batch product is eight hex digits and nothing else on stdout; CMake's
+# regex has no {n}, so they are spelled out. The clock at 0 is the pacing
+# switch, and a batch run must take it without complaint.
+rp6502_add_cli_test(crc --mute --seed 1 --fill 0 --crc --frames 10
+    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
+    "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
+rp6502_add_cli_test(phi2_zero --mute --seed 1 --fill 0 --phi2 0 --crc --frames 1
+    ${RP6502_TEST_ROMS}/gamepad.rp6502)
 
 # A run that repeats: the seed reaches the fill, and the fill is read in the
 # grammar the scripts and the docs use rather than C's, where 010 is eight.

@@ -42,6 +42,7 @@ bool vga_run_frame(void);
 #define VGA_MAX_HEIGHT 480
 
 #define VGA_HZ 60         /* the RP6502 VGA is always 60 Hz */
+#define VGA_FRAME_NS (1000000000ull / VGA_HZ)
 #define VGA_SCANLINES 525 /* 640x480@60 total scanlines (480 visible + blanking) */
 
 /* Register the app-owned framebuffer the scanlines render into (RGBA8, canvas
@@ -51,6 +52,10 @@ void vga_set_framebuffer(uint32_t *fb);
 /* What the last rendered frame went into, for a caller that wants the pixels
  * without owning them (a screenshot, a frame hash). NULL when none is set. */
 uint32_t *vga_get_framebuffer(void);
+
+/* The last rendered frame as a CRC-32, for a script or a batch run to
+ * compare. False when no framebuffer is registered. */
+bool vga_frame_crc(uint32_t *crc);
 
 /* The rest of what a machine's video answers -- the canvas, the scanline
  * program, the code page -- is core/vga/vga.h, which every machine shares.

@@ -19,8 +19,12 @@
 #include <stdint.h>
 
 /* Terminal-bound bytes, already CRLF-translated. Where they go is the
- * machine's: a memory-mapped console register, a host's stderr. */
+ * machine's: a memory-mapped console port, or nowhere but a test's mirror. */
 void tty_write(const char *buf, int len);
+
+/* The program's stderr, raw. The terminal has already been given it; this
+ * is for a machine with a stderr of its own. */
+void tty_stderr_write(const char *buf, int len);
 
 /* Take back a byte the register window staged ahead of a reader, if this
  * machine stages one. False when there is nothing to reclaim. */

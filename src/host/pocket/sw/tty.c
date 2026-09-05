@@ -24,6 +24,14 @@ void tty_write(const char *buf, int len)
     }
 }
 
+/* The console port carries the machine's own messages, not a copy of a
+ * program's streams; its stderr is the screen's, like its stdout. */
+void tty_stderr_write(const char *buf, int len)
+{
+    (void)buf;
+    (void)len;
+}
+
 /* The fabric asks for a byte only when the 6502 has one outstanding, so
  * nothing is ever staged ahead of a reader. */
 bool tty_reg_reclaim(char *out)

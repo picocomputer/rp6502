@@ -305,11 +305,14 @@ const char *reason_str(int r)
     }
 }
 
+void out_flush();
+
 void send_stopped(int reason)
 {
     g_stop_gen++; /* a new stop: expandable-variable refs from the last one are stale */
     if (!g_session)
         return;
+    out_flush(); /* what the program said before it stopped, before the stop */
     dap::StoppedEvent ev;
     ev.reason = reason_str(reason);
     ev.threadId = 1;
@@ -331,24 +334,55 @@ void on_stopped(int reason, uint16_t pc)
     send_stopped(reason);
 }
 
-/* Program console output -> the Debug Console (also still shown in the window).
- * The bytes are in the active OEM code page; convert to UTF-8 so a high byte
- * (e.g. CP437 0x81 'ü') can't produce a malformed JSON OutputEvent. */
-void stdout_tap(const char *buf, int len)
+/* Program output -> the Debug Console: one OutputEvent per category per
+ * frame rather than one per byte. The buffer grows to its high-water mark
+ * and stays there. Main thread only, like the taps that feed it. */
+char *g_out_buf;
+size_t g_out_len, g_out_cap;
+const char *g_out_category = "stdout";
+
+void out_flush()
 {
-    if (!g_session)
-        return;
-    std::string utf8;
-    utf8.reserve((size_t)len);
+    if (g_out_len && g_session)
+    {
+        dap::OutputEvent ev;
+        ev.category = g_out_category;
+        ev.output = std::string(g_out_buf, g_out_len);
+        g_session->send(ev);
+    }
+    g_out_len = 0;
+}
+
+void out_append(const char *category, const char *utf8, size_t len)
+{
+    if (strcmp(g_out_category, category) != 0)
+    {
+        out_flush();
+        g_out_category = category;
+    }
+    if (g_out_len + len > g_out_cap)
+    {
+        size_t cap = g_out_cap ? g_out_cap : 4096;
+        while (cap < g_out_len + len)
+            cap *= 2;
+        g_out_buf = (char *)realloc(g_out_buf, cap);
+        g_out_cap = cap;
+    }
+    memcpy(g_out_buf + g_out_len, utf8, len);
+    g_out_len += len;
+}
+
+/* The program's own streams, raw bytes in the active OEM code page; the
+ * JSON wants UTF-8, or a high byte (CP437 0x81 'ü') makes a malformed
+ * OutputEvent. */
+void std_tap(int fd, const char *buf, int len)
+{
+    const char *category = fd == 2 ? "stderr" : "stdout";
     for (int i = 0; i < len; i++)
     {
         char enc[3];
-        utf8.append(enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
+        out_append(category, enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
     }
-    dap::OutputEvent ev;
-    ev.category = "stdout";
-    ev.output = std::move(utf8);
-    g_session->send(ev);
 }
 
 /* The inverse boundary: DAP JSON strings are UTF-8, the guest wants OEM. */
@@ -1378,10 +1412,8 @@ bool bp_filter(uint16_t pc)
     {
         if (g_session)
         {
-            dap::OutputEvent ev;
-            ev.category = "console";
-            ev.output = interp_log(m.logMessage, pc) + "\n";
-            g_session->send(ev);
+            std::string msg = interp_log(m.logMessage, pc) + "\n";
+            out_append("console", msg.data(), msg.size());
         }
         return false; /* logpoint: logged, keep running */
     }
@@ -1420,7 +1452,7 @@ extern "C" void dap_start(void)
     dbg_set_line_lookup(line_lookup);
     dbg_set_break_filter(bp_filter);
     dbg_set_watch_cb(dbg_watch_on_access);
-    com_set_tx_tap(stdout_tap);
+    com_set_std_tap(std_tap);
 
     g_session = dap::Session::create();
 
@@ -2206,6 +2238,7 @@ extern "C" void dap_start(void)
 
 extern "C" void dap_pump(void)
 {
+    out_flush();
     std::vector<std::function<void()>> work;
     {
         std::lock_guard<std::mutex> lk(g_mtx);
@@ -2248,7 +2281,7 @@ extern "C" void dap_pump(void)
     /* Program exit (once): either keep the session alive in a stopped state so
      * the final screen + machine state stay inspectable until the client
      * disconnects (stopOnExit, the default), or terminate the session. */
-    if (!g_terminated && g_launch_done && !resb_running() && !dbg_is_stopped())
+    if (!g_terminated && g_launch_done && proc_exited() && !dbg_is_stopped())
     {
         g_terminated = true;
         if (g_session)
@@ -2287,6 +2320,7 @@ extern "C" void dap_stop(void)
      * client seeing a dropped pipe. send() flushes (cppdap's File::write). Skip
      * when the client itself asked to disconnect (g_quit) or a TerminatedEvent
      * already went out. */
+    out_flush();
     if (g_session && !g_quit.load() && !g_term_sent)
     {
         g_session->send(dap::TerminatedEvent());

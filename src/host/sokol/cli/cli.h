@@ -30,6 +30,9 @@ typedef struct
     gfx_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
+    bool crc;      /* --crc: render headlessly, print the canvas CRC-32 and exit */
+    bool headless; /* --headless: no window, no picture; host stdio is the program's */
+    bool unpaced;  /* --phi2 0: no pacing, time warps */
     bool mute;
     bool debug;   /* --debug: on-screen machine debugger */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
@@ -55,12 +58,9 @@ void cli_options_init(cli_options *o);
  * argv[1..]), never parsed as options. */
 int cli_parse_args(int argc, char **argv, cli_options *o);
 
-/* Print the option summary to stderr (argv0 names the program). */
-/* The options. The script verbs are script_usage()'s, and the two are
- * printed together for --help — cli.c is linked by things that carry no
- * script driver. */
+/* The options, to out (argv0 names the program). The script verbs are
+ * script_usage()'s, and the two are printed together for --help — cli.c is
+ * linked by things that carry no script driver. */
 void cli_usage(FILE *out, const char *argv0);
-
-/* The path component after the last '/'. */
 
 #endif /* _HOST_SOKOL_CLI_CLI_H_ */

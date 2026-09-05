@@ -22,6 +22,11 @@ struct sapp_event;
 void app_prepare(uint32_t *fb, double scale, bool have_scale,
                  bool exit_on_halt, int *out_w, int *out_h);
 
+/* --phi2 0: no pacing. Each callback runs as many frames as a present's worth
+ * of wall time holds, so the window stays live while the machine's time
+ * warps. Before sokol starts. */
+void app_set_unpaced(bool on);
+
 /* The four sokol lifecycle callbacks each platform's sapp_desc points at. */
 void app_init(void);
 void app_frame(void);

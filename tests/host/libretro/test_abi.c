@@ -38,7 +38,7 @@ UTEST(abi, the_machine_is_not_exported)
 {
     static const char *inside[] = {
         "sys_init", "sys_run", "sys_stop", "rom_load", "sys_task",
-        "vga_set_framebuffer", "vga_canvas_size", "com_set_tx_tap", "sram_init",
+        "vga_set_framebuffer", "vga_canvas_size", "com_set_tx_tap", "com_set_std_tap", "sram_init",
         "xram_init", "aud_render", "vga_run_frame", "sram", "xram", "regs", "xstack",
         "keyboard_hid_set", "gamepad_host_report", "fs_std_open", "fs_std_read", "com_printf",
     };

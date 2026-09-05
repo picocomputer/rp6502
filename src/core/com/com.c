@@ -154,6 +154,14 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len))
     com_tx_tap = tap;
 }
 
+/* The program's streams, raw, for whoever wants them apart from the terminal. */
+static void (*com_std_tap)(int fd, const char *buf, int len);
+
+void com_set_std_tap(void (*tap)(int fd, const char *buf, int len))
+{
+    com_std_tap = tap;
+}
+
 /* Every terminal-bound byte passes here exactly once, after CRLF translation:
  * the tap, the bell and the wire all observe the same merged stream. */
 void com_tx_write(const char *buf, int len)
@@ -205,14 +213,8 @@ int com_putchar(int c)
     return (int)(unsigned char)c;
 }
 
-
 /* The terminal sink never backpressures on these machines: a write is always
  * ready and completes on the spot. */
-
-bool com_putchar_ready(void)
-{
-    return true;
-}
 
 bool com_writable(void)
 {
@@ -221,7 +223,28 @@ bool com_writable(void)
 
 void com_write(char ch)
 {
+    if (com_std_tap)
+        com_std_tap(1, &ch, 1);
     com_tx_write(&ch, 1);
+}
+
+size_t com_stdout_write(const char *buf, size_t count)
+{
+    if (com_std_tap)
+        com_std_tap(1, buf, (int)count);
+    com_crlf_write(buf, (int)count);
+    return count;
+}
+
+/* The wire takes the raw bytes; the terminal shows them beside stdout, so
+ * nobody at the screen has an error hidden from them. */
+size_t com_stderr_write(const char *buf, size_t count)
+{
+    if (com_std_tap)
+        com_std_tap(2, buf, (int)count);
+    tty_stderr_write(buf, (int)count);
+    com_crlf_write(buf, (int)count);
+    return count;
 }
 
 /* ---- input: what arrives, and what a Ctrl-C in it means ---- */
