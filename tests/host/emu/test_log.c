@@ -30,9 +30,13 @@ void host_log(int level, const char *category, const char *fmt, ...)
     va_end(ap);
 }
 
-/* Declared and never defined: a call above the level compiles to nothing,
- * or the test does not link. */
-int log_never_linked(void);
+/* A call above the level evaluates nothing, arguments included. */
+static int evaluated;
+
+static int count(void)
+{
+    return ++evaluated;
+}
 
 UTEST(log, the_level_lets_through_what_is_at_or_below_it)
 {
@@ -45,9 +49,10 @@ UTEST(log, the_level_lets_through_what_is_at_or_below_it)
     RP6502_LOG(quiet, WARN, "w");
     ASSERT_EQ(calls, 2);
     ASSERT_EQ(last_level, RP6502_LOG_WARN);
-    RP6502_LOG(quiet, INFO, "i");
-    RP6502_LOG(quiet, DEBUG, "%d", log_never_linked());
+    RP6502_LOG(quiet, INFO, "%d", count());
+    RP6502_LOG(quiet, DEBUG, "%d", count());
     ASSERT_EQ(calls, 2);
+    ASSERT_EQ(evaluated, 0);
 }
 
 UTEST(log, a_category_can_have_a_level_of_its_own)
