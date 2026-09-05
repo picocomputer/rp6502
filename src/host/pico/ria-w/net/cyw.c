@@ -17,13 +17,7 @@
 #include "ria/sys/rp2350.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_CYW)
 #include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // These are from cyw43_arch.h
 #define CYW_CC_X                  \

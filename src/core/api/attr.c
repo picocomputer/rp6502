@@ -16,14 +16,7 @@
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
 #include "core/sys/random.h"
-#include <stdio.h>
 #include <string.h>
-
-#if defined(DEBUG_API) || defined(DEBUG_API_ATTR)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // Attribute IDs
 #define ATTR_ERRNO_OPT 0x00

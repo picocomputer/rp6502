@@ -18,13 +18,6 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_RAM)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define RAM_TIMEOUT_MS 200
 
 static enum {

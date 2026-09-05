@@ -25,13 +25,6 @@
 #include "machine.h"
 #include <assert.h>
 
-#if defined(DEBUG_STR) || defined(DEBUG_STR_STR)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* Two-level so an argument that is itself a macro expands first, which is
  * the whole reason these are here: glibc's __CONCAT expands once. */
 #define STR_CAT1(a, b) a##b

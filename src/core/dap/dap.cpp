@@ -32,6 +32,7 @@ extern "C"
 #include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/dap/dap.h"
+#include "core/sys/debug_log.h"
 #include "core/dap/dwarf_line.h"
 #include "core/dap/dwarf_info.h"
 #include "core/dap/dwarf_frame.h"
@@ -336,12 +337,14 @@ void on_stopped(int reason, uint16_t pc)
 
 /* Program output -> the Debug Console: one OutputEvent per category per
  * frame rather than one per byte. The buffer grows to its high-water mark
- * and stays there. Main thread only, like the taps that feed it. */
+ * and stays there. The taps feed it from the main thread; a log line can
+ * come from any, so the lock. */
 char *g_out_buf;
 size_t g_out_len, g_out_cap;
 const char *g_out_category = "stdout";
+std::mutex g_out_mutex;
 
-void out_flush()
+void out_flush_locked()
 {
     if (g_out_len && g_session)
     {
@@ -353,13 +356,23 @@ void out_flush()
     g_out_len = 0;
 }
 
-void out_append(const char *category, const char *utf8, size_t len)
+void out_flush()
+{
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_flush_locked();
+}
+
+void out_select_locked(const char *category)
 {
     if (strcmp(g_out_category, category) != 0)
     {
-        out_flush();
+        out_flush_locked();
         g_out_category = category;
     }
+}
+
+void out_reserve_locked(size_t len)
+{
     if (g_out_len + len > g_out_cap)
     {
         size_t cap = g_out_cap ? g_out_cap : 4096;
@@ -368,8 +381,33 @@ void out_append(const char *category, const char *utf8, size_t len)
         g_out_buf = (char *)realloc(g_out_buf, cap);
         g_out_cap = cap;
     }
+}
+
+void out_append(const char *category, const char *utf8, size_t len)
+{
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_select_locked(category);
+    out_reserve_locked(len);
     memcpy(g_out_buf + g_out_len, utf8, len);
     g_out_len += len;
+}
+
+extern "C" void dap_log(int level, const char *category, const char *fmt, va_list ap)
+{
+    static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
+    va_list sizing;
+    va_copy(sizing, ap);
+    int text = vsnprintf(nullptr, 0, fmt, sizing);
+    va_end(sizing);
+    int head = snprintf(nullptr, 0, "%s %s: ", names[level], category);
+    if (text < 0 || head < 0)
+        return;
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_select_locked("stderr");
+    out_reserve_locked((size_t)head + (size_t)text + 2); /* both NULs, one overwritten by the newline */
+    g_out_len += (size_t)snprintf(g_out_buf + g_out_len, (size_t)head + 1, "%s %s: ", names[level], category);
+    g_out_len += (size_t)vsnprintf(g_out_buf + g_out_len, (size_t)text + 1, fmt, ap);
+    g_out_buf[g_out_len++] = '\n';
 }
 
 /* The program's own streams, raw bytes in the active OEM code page; the
@@ -1455,6 +1493,7 @@ extern "C" void dap_start(void)
     com_set_std_tap(std_tap);
 
     g_session = dap::Session::create();
+    g_session->onError([](const char *msg) { RP6502_LOG(dap, ERROR, "%s", msg); });
 
     g_session->registerHandler([](const dap::InitializeRequest &) {
         dap::InitializeResponse r;

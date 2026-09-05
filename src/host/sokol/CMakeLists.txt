@@ -86,6 +86,7 @@ endif()
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
     ${RP6502_SRC}/host/sokol/cli/main.c
+    ${RP6502_SRC}/host/sokol/cli/streams.c
     ${RP6502_EMU_WINDOW}
     ${RP6502_SOKOL_OS}/entry.c
     ${RP6502_SOKOL_OS}/gamepad.c

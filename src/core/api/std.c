@@ -20,12 +20,6 @@
 #include <string.h>
 #include <strings.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_STD)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // The stdio file descriptor pool.
 #define STD_FD_MAX 16
 #define STD_FD_STDIN 0

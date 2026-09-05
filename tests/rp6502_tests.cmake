@@ -38,6 +38,7 @@ set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 # the emulator's keyboard arrives already translated. Only the layout suites
 # want this form, to hold the image against the defs it came from.
 include(${RP6502_SRC}/core/gen.cmake)
+include(${RP6502_SRC}/core/log.cmake)
 rp6502_gen_kbdlay(kbdlay)
 
 # The video-mode corpus is generated, not committed. Every byte of it comes
@@ -348,7 +349,7 @@ endfunction()
 # second it would cost more in process starts than it saves, which is why it is
 # asked for rather than assumed.
 function(rp6502_add_test name)
-    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT"
+    cmake_parse_arguments(T "SPLIT;SINK" "FIXTURE;TIMEOUT"
         "SOURCES;LIBS;INCLUDES;DEFS;LABELS;DEPENDS" ${ARGN})
 
     # What a test is about is the directory it lives in, and what it costs is
@@ -368,8 +369,12 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    # The bench's own answers to host/host.h, which every machine owes.
+    # The bench's own answers to host/host.h, which every machine owes, and
+    # to core/sys/debug_log.h's host_log, unless the test is about that.
     list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_SRC}/core/sys/crc32.c)
+    if(NOT T_SINK)
+        list(APPEND T_SOURCES ${RP6502_BENCH}/tb_log.c)
+    endif()
 
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE
@@ -389,6 +394,10 @@ function(rp6502_add_test name)
     endif()
     if(T_DEFS)
         target_compile_definitions(test_${name} PRIVATE ${T_DEFS})
+    endif()
+    # The log level, which a test linking emu_core already has from it.
+    if(NOT "emu_core" IN_LIST T_LIBS AND NOT "${T_DEFS}" MATCHES "RP6502_LOG_LEVEL=")
+        rp6502_log_definitions(test_${name} PRIVATE)
     endif()
 
     add_dependencies(test_${name} rp6502_test_corpus ${T_DEPENDS})

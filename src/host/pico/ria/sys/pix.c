@@ -14,13 +14,6 @@
 #include <pico/time.h>
 #include <string.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_PIX)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static uint32_t pix_send_count;
 static absolute_time_t pix_api_state_timer;
 

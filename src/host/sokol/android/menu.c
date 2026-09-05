@@ -14,7 +14,6 @@
 #include "core/hid/gamepad.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
-#include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
 #include <android/keycodes.h>
 #include <android/native_activity.h>
@@ -273,7 +272,7 @@ void menu_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
         .fonts[0] = sdtx_font_c64(),
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
 }
 

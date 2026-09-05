@@ -80,6 +80,12 @@ rp6502_add_test(sys LIBS emu_core)
 # fan-outs are static.
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
+# --- The log: what a level lets through, and that a message is a printf ---
+# Its own host_log, which keeps what it was given; its own levels, whatever
+# the configuration's.
+rp6502_add_test(log SINK
+    DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
+
 # --- aud_render: the device's buffer, filled from the registers ---
 rp6502_add_test(render LIBS emu_core)
 

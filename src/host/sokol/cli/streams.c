@@ -10,9 +10,35 @@
 #include "core/com/com.h"
 #include "core/hid/vtkeys.h"
 #include "core/str/oem.h"
+#include "core/sys/debug_log.h"
+#ifdef EMU_WITH_DEBUGGER
+#include "core/dap/dap.h"
+#endif
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+/* The machine's own lines: host stderr, or the debugger's stderr channel
+ * when a client has the console. */
+void host_log(int level, const char *category, const char *fmt, ...)
+{
+    static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
+    va_list ap;
+    va_start(ap, fmt);
+#ifdef EMU_WITH_DEBUGGER
+    if (dap_is_active())
+    {
+        dap_log(level, category, fmt, ap);
+        va_end(ap);
+        return;
+    }
+#endif
+    fprintf(stderr, "%s %s: ", names[level], category);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fputc('\n', stderr);
+}
 
 /* Host streams carry host encoding, so OEM bytes expand to UTF-8. A line is
  * flushed here because Windows has no line buffering. */

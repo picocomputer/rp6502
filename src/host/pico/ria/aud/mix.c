@@ -12,13 +12,6 @@
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
 
-#if defined(DEBUG_AUD) || defined(DEBUG_AUD_MIX)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* PWM pin/slice/channel mapping (firmware hardware; formerly in aud.h). */
 #define AUD_L_PIN 28
 #define AUD_R_PIN 27

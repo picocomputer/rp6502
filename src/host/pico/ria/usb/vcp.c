@@ -9,16 +9,11 @@
 #include "core/sys/config.h"
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
+#include "core/sys/debug_log.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-
-#if defined(DEBUG_USB) || defined(DEBUG_USB_VCP)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // TinyUSB wraps all serial devices as CDC, which is
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
@@ -259,8 +254,8 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    DBG("VCP%d: open %lu,%d%c%s\n", idx, (unsigned long)baudrate, data_bits,
-        "NOEMS"[parity], CDC_LINE_CODING_STOP_BITS_TEXT(stop_bits));
+    RP6502_LOG(vcp, INFO, "%d open %lu,%d%c%s", idx, (unsigned long)baudrate, data_bits,
+               "NOEMS"[parity], CDC_LINE_CODING_STOP_BITS_TEXT(stop_bits));
     vcp_mounts[idx].opened = true;
     return idx;
 }
@@ -272,7 +267,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    DBG("VCP%d: close\n", desc);
+    RP6502_LOG(vcp, INFO, "%d close", desc);
     tuh_cdc_disconnect(desc, NULL, 0);
     vcp_mounts[desc].opened = false;
     return STD_OK;
@@ -337,12 +332,12 @@ void tuh_cdc_mount_cb(uint8_t idx)
     tuh_vid_pid_get(daddr, &vid, &pid);
     dev->daddr = daddr;
     dev->mounted = true;
-    DBG("VCP%d: mount %04X:%04X dev_addr=%d\n", idx, vid, pid, daddr);
+    RP6502_LOG(vcp, INFO, "%d mount %04X:%04X dev_addr=%d", idx, vid, pid, daddr);
 }
 
 void tuh_cdc_umount_cb(uint8_t idx)
 {
-    DBG("VCP%d: unmount\n", idx);
+    RP6502_LOG(vcp, INFO, "%d unmount", idx);
     if (idx < CFG_TUH_CDC)
     {
         vcp_mounts[idx].mounted = false;
@@ -400,7 +395,7 @@ int vcp_nfc_open(void)
                                    CDC_LINE_CODING_PARITY_NONE,
                                    CDC_LINE_CODING_STOP_BITS_1))
         return -1;
-    DBG("VCP%d: nfc open\n", idx);
+    RP6502_LOG(vcp, INFO, "%d nfc open", idx);
     vcp_mounts[idx].opened = true;
     return idx;
 }

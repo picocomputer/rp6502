@@ -18,14 +18,15 @@
 #include "host/sokol/android/menu.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
-#include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "core/hid/gamepad.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "core/sys/proc.h"
 #include "core/vga/vga_emu.h"
+#include "core/sys/debug_log.h"
 #include <android/input.h>
+#include <android/log.h>
 #include <android/keycodes.h>
 #include <android/native_activity.h>
 #include <jni.h>
@@ -37,6 +38,17 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+/* logcat carries the level itself and takes the category as the tag. */
+void host_log(int level, const char *category, const char *fmt, ...)
+{
+    static const int prio[] = {ANDROID_LOG_SILENT, ANDROID_LOG_ERROR, ANDROID_LOG_WARN,
+                               ANDROID_LOG_INFO, ANDROID_LOG_DEBUG};
+    va_list ap;
+    va_start(ap, fmt);
+    __android_log_vprint(prio[level], category, fmt, ap);
+    va_end(ap);
+}
 
 #define MAX_ROMS 64
 #define ROM_NAME_MAX 128
@@ -257,6 +269,6 @@ sapp_desc sokol_main(int argc, char* argv[])
         .width = 640,
         .height = 480,
         .window_title = "Picocomputer 6502",
-        .logger.func = slog_func,
+        .logger.func = app_log,
     };
 }

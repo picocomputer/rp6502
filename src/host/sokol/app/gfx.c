@@ -14,12 +14,12 @@
  */
 
 #include "host/sokol/app/gfx.h"
+#include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "core/vga/vga_emu.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
-#include "sokol/sokol_log.h"
 #include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
 #ifdef EMU_WITH_DEBUGGER
@@ -233,7 +233,7 @@ bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy)
 void gfx_setup(void)
 {
     sfb_setup(&(sfb_desc){
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     int cw, ch;
     vga_canvas_size(&cw, &ch);

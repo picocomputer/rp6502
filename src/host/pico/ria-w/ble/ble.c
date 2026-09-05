@@ -9,6 +9,7 @@
 #include "ria-w/ble/ble.h"
 #include "machine.h"
 #include "core/sys/config.h"
+#include "core/sys/debug_log.h"
 #include "core/hid/parse.h"
 #include "core/str/oem.h"
 #include "core/hid/keyboard.h"
@@ -21,16 +22,8 @@
 #include "ria/sys/cfg.h"
 #include "ria/sys/led.h"
 #include "core/sys/sys.h"
-#include <stdio.h>
 #include <pico/time.h>
 #include <btstack.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_BLE)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 static enum {
     BLE_OFF,
@@ -109,11 +102,11 @@ static void ble_connect_with_whitelist(void)
     {
         if (gap_connect_with_whitelist() == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Started whitelist connection for %d bonded device(s)\n", added);
+            RP6502_LOG(ble, DEBUG, "Started whitelist connection for %d bonded device(s)", added);
         }
         else
         {
-            DBG("BLE: Whitelist connect busy, will retry\n");
+            RP6502_LOG(ble, WARN, "Whitelist connect busy, will retry");
             ble_retry_at = make_timeout_time_ms(1000);
         }
     }
@@ -179,7 +172,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
         uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
         uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
-        DBG("BLE: HID service connected - Status: 0x%02x, CID: 0x%04x\n", status, cid);
+        RP6502_LOG(ble, INFO, "HID service connected - Status: 0x%02x, CID: 0x%04x", status, cid);
         // A hids client for an abandoned device can still emit this after we
         // moved on, so only touch connection-setup state for the current cid.
         bool current = cid == ble_connecting_cid;
@@ -229,7 +222,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
     case GATTSERVICE_SUBEVENT_HID_SERVICE_DISCONNECTED:
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
-        DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
+        RP6502_LOG(ble, INFO, "HID service disconnected - CID: 0x%04x", cid);
         // The event carries no service index, so every instance's slot goes.
         for (int slot = 0; slot < HID_MAX_SLOTS; slot++)
         {
@@ -276,7 +269,7 @@ static void ble_start_hids_host(hci_con_handle_t con_handle)
                                        HID_PROTOCOL_MODE_REPORT, &ble_connecting_cid);
     if (status != ERROR_CODE_SUCCESS)
     {
-        DBG("BLE: HIDS connect failed: 0x%02x\n", status);
+        RP6502_LOG(ble, WARN, "HIDS connect failed: 0x%02x", status);
         gap_disconnect(con_handle);
         ble_restart_reconnection();
     }
@@ -297,7 +290,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     case BTSTACK_EVENT_STATE:
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
-            DBG("BLE: Bluetooth LE Central ready and working!\n");
+            RP6502_LOG(ble, INFO, "Bluetooth LE Central ready and working!");
             // Defer to ble_task's retry so discovery honors pairing vs.
             // reconnect even if a pre-WORKING retry already ran.
             ble_retry_at = get_absolute_time();
@@ -325,14 +318,14 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         uint8_t connect_status = gap_connect(event_addr, addr_type);
         if (connect_status == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Found HID %s, connecting...\n", bd_addr_to_str(event_addr));
+            RP6502_LOG(ble, DEBUG, "Found HID %s, connecting...", bd_addr_to_str(event_addr));
             gap_stop_scan();
             ble_retry_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
         }
         else
         {
-            DBG("BLE: Found HID %s, connect failed with status 0x%02x\n",
-                bd_addr_to_str(event_addr), connect_status);
+            RP6502_LOG(ble, WARN, "Found HID %s, connect failed with status 0x%02x",
+                       bd_addr_to_str(event_addr), connect_status);
         }
         break;
     }
@@ -347,7 +340,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
             if (status != ERROR_CODE_SUCCESS)
             {
-                DBG("BLE: LE Connection failed - Status: 0x%02x\n", status);
+                RP6502_LOG(ble, WARN, "LE Connection failed - Status: 0x%02x", status);
                 ble_restart_reconnection();
                 break;
             }
@@ -355,7 +348,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             ble_connecting_handle = con_handle;
             ble_retry_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
             sm_request_pairing(con_handle);
-            DBG("BLE: LE Connected 0x%04x, requesting encryption\n", con_handle);
+            RP6502_LOG(ble, INFO, "LE Connected 0x%04x, requesting encryption", con_handle);
             break;
         }
         }
@@ -365,7 +358,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     case HCI_EVENT_DISCONNECTION_COMPLETE:
     {
         hci_con_handle_t con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
-        DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
+        RP6502_LOG(ble, INFO, "Disconnection Complete - Handle: 0x%04x", con_handle);
         if (ble_connecting_handle == con_handle)
             ble_restart_reconnection();
         break;
@@ -386,7 +379,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
     switch (event_type)
     {
     case SM_EVENT_JUST_WORKS_REQUEST:
-        DBG("BLE: SM Just Works Request\n");
+        RP6502_LOG(ble, DEBUG, "SM Just Works Request");
         if (ble_pairing)
             sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
         else
@@ -394,7 +387,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         break;
 
     case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
-        DBG("BLE: SM Numeric Comparison Request\n");
+        RP6502_LOG(ble, DEBUG, "SM Numeric Comparison Request");
         if (ble_pairing)
             sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
         else
@@ -402,7 +395,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         break;
 
     case SM_EVENT_AUTHORIZATION_REQUEST:
-        DBG("BLE: SM Authorization Request\n");
+        RP6502_LOG(ble, DEBUG, "SM Authorization Request");
         if (ble_pairing)
             sm_authorization_grant(sm_event_authorization_request_get_handle(packet));
         else
@@ -410,8 +403,8 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         break;
 
     case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
-        DBG("BLE: SM Passkey Display: %06lu\n",
-            (unsigned long)sm_event_passkey_display_number_get_passkey(packet));
+        RP6502_LOG(ble, DEBUG, "SM Passkey Display: %06lu",
+                   (unsigned long)sm_event_passkey_display_number_get_passkey(packet));
         break;
 
     case SM_EVENT_PAIRING_COMPLETE:
@@ -419,7 +412,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         hci_con_handle_t handle = sm_event_pairing_complete_get_handle(packet);
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Pairing complete\n");
+            RP6502_LOG(ble, INFO, "Pairing complete");
             ble_pairing = false;
             led_blink(false);
             if (handle == ble_connecting_handle)
@@ -427,8 +420,8 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         }
         else
         {
-            DBG("BLE: Pairing failed: 0x%02x\n",
-                sm_event_pairing_complete_get_reason(packet));
+            RP6502_LOG(ble, WARN, "Pairing failed: 0x%02x",
+                       sm_event_pairing_complete_get_reason(packet));
             if (handle == ble_connecting_handle)
                 ble_restart_reconnection();
             gap_disconnect(handle);
@@ -442,7 +435,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         uint8_t status = sm_event_reencryption_complete_get_status(packet);
         if (status == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Re-encryption complete\n");
+            RP6502_LOG(ble, INFO, "Re-encryption complete");
             // A bonded device found while pairing re-encrypts instead of
             // pairing again, so this also ends pairing mode.
             ble_pairing = false;
@@ -452,10 +445,10 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         }
         else
         {
-            DBG("BLE: Re-encryption failed: 0x%02x\n", status);
+            RP6502_LOG(ble, WARN, "Re-encryption failed: 0x%02x", status);
             if (status == ERROR_CODE_PIN_OR_KEY_MISSING)
             {
-                DBG("BLE: Deleting bond\n");
+                RP6502_LOG(ble, WARN, "Deleting bond");
                 bd_addr_t addr;
                 uint8_t addr_type = sm_event_reencryption_complete_get_addr_type(packet);
                 sm_event_reencryption_complete_get_address(packet, addr);
@@ -498,7 +491,7 @@ static void ble_init_stack(void)
 
     hci_power_control(HCI_POWER_ON);
 
-    DBG("BLE: Initialized with HIDS host\n");
+    RP6502_LOG(ble, DEBUG, "Initialized with HIDS host");
 }
 
 void ble_task(void)

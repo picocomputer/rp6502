@@ -18,14 +18,13 @@
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "core/str/oem.h"
+#include "core/sys/debug_log.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
-#include "sokol/sokol_log.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
 
@@ -100,7 +99,7 @@ void host_window_files_dropped(void)
     if (!wide || !MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wn))
     {
         free(wide);
-        fprintf(stderr, "rp6502-emu: cannot take the dropped path\n");
+        RP6502_LOG(emu, ERROR, "cannot take the dropped path");
         return;
     }
     if (wide_is_oem_lossless(wide))
@@ -130,7 +129,7 @@ void host_window_files_dropped(void)
     free(shortw);
     if (!shortu8)
     {
-        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
+        RP6502_LOG(emu, ERROR, "dropped path not representable in the OEM code page");
         return;
     }
     bool booted = app_boot_rom(shortu8);
@@ -164,7 +163,7 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .enable_dragndrop = true, /* drop a .rp6502 to boot it */
         .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */
         .clipboard_size = 65536,
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     return app_exit_code();
 }

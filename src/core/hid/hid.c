@@ -12,13 +12,6 @@
 #include "core/hid/tablet.h"
 #include "machine.h"
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_HID)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size >= 32)

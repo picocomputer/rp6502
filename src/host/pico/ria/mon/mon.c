@@ -32,13 +32,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_MON)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define MON_RESPONSE_BUF_SIZE 128
 // 16 = longest response chain (set with no args queues 15) + 1 free-slot margin.
 #define MON_RESPONSE_FN_COUNT 16

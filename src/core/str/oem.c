@@ -15,13 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_OEM)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 

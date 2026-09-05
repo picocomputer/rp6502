@@ -30,12 +30,6 @@
 #include <hardware/sync.h>
 #include <stdio.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* Two TX producers feed com_tx_fanout: stdio / std_tty_write on core 0
  * write to com_tx_core0_buf; act_loop on core 1 (6502 writes to 0xFFE1)
  * fills the ria-owned TX ring, drained here via ria_uart_tx_dequeue().

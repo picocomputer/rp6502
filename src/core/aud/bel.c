@@ -8,13 +8,6 @@
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
 
-#if defined(DEBUG_AUD) || defined(DEBUG_AUD_BEL)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define BEL_QUEUE_SIZE 8
 
 /* As psg.c: full scale, and the value a closed duty gate rails to. */

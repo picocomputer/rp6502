@@ -50,4 +50,10 @@ bool app_boot_rom(const char *path);
 /* Wall time the machine has spent running frames, in total. */
 uint64_t app_machine_ns(void);
 
+/* sokol's logger, for every .logger.func: its lines are the sokol category,
+ * and a panic does not return. */
+void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
+             const char *message_or_null, uint32_t line_nr,
+             const char *filename_or_null, void *user_data);
+
 #endif /* _HOST_SOKOL_APP_APP_H_ */

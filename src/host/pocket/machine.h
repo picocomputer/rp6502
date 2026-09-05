@@ -20,4 +20,5 @@
 #define HID_MAX_SLOTS 4
 #define TERM_MAX_HEIGHT 30
 
+
 #endif /* _HOST_MACHINE_H_ */

@@ -34,6 +34,7 @@
 #include "fs.h"
 
 #include "core/str/unicode.h"
+#include "core/sys/debug_log.h"
 #include "core/term/font.h"
 
 #include <assert.h>
@@ -175,9 +176,9 @@ void fs_log(void)
         fs_n_defer = 0;
         return;
     }
-    printf("fs: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)fs_n_tmo,
-           (unsigned)fs_n_err, (unsigned)fs_n_defer,
-           (unsigned)(fs_last_st & 0xFFu));
+    RP6502_LOG(fs, WARN, "tmo=%u err=%u defer=%u last=%02x", (unsigned)fs_n_tmo,
+               (unsigned)fs_n_err, (unsigned)fs_n_defer,
+               (unsigned)(fs_last_st & 0xFFu));
     fs_n_tmo = fs_n_err = fs_n_defer = 0;
 }
 
@@ -619,7 +620,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
      * rule made enforceable rather than remembered. */
     if (CPU_RESB & 1)
     {
-        printf("rom: stage refused, 6502 running\n");
+        RP6502_LOG(rom, ERROR, "stage refused, 6502 running");
         *err = API_EBUSY;
         return -1;
     }
@@ -953,8 +954,8 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
             if (fs_note(st))
-                printf("fs: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
-                       (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
+                RP6502_LOG(fs, DEBUG, "read %u off=%u len=%u st=%02x", (unsigned)desc,
+                           (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
             fs_pool[desc].cache_len = 0;
             *err = API_EIO;
             return STD_ERROR;
@@ -1051,8 +1052,8 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
         if (fs_note(st))
-            printf("fs: write %u off=%u len=%u st=%02x\n", (unsigned)desc,
-                   (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
+            RP6502_LOG(fs, DEBUG, "write %u off=%u len=%u st=%02x", (unsigned)desc,
+                       (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
         return STD_ERROR;
     }

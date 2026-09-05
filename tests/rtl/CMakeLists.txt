@@ -57,6 +57,9 @@ find_package(verilator CONFIG REQUIRED
 # The machine as a list of files and the generated packages, then the firmware
 # the Pocket's soft CPU boots -- the suites below run the real one.
 include(${RP6502_SRC}/host/pocket/machine.cmake)
+# Booted here with the bench's own end of the console wire, which puts a
+# program's console on the port the bench reads.
+set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/pocket/tty.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
 # --- The emulator, for the suites that read it directly ---

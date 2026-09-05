@@ -3,25 +3,26 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's end of the console wire, and the port behind the debug pin
- * and the 0x0152 log. The screen is the terminal, so the wire carries
- * nothing; the port carries the machine's own lines and nothing a program
- * prints. Plus the stream picolibc wants before printf will link.
+ * The bench's end of the Pocket's console wire: a program's console and the
+ * machine's own lines both go to the port the bench reads, one word poked at
+ * the fabric per byte. Plus the stream picolibc wants before printf will link.
  */
 
 #include "core/com/tty.h"
 #include "core/sys/com.h"
 #include "core/sys/debug_log.h"
 
-#include "mmio.h"
+#include "host/pocket/sw/mmio.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 
 void tty_write(const char *buf, int len)
 {
-    (void)buf;
-    (void)len;
+    for (int i = 0; i < len; i++)
+    {
+        MMIO_CONSOLE = (uint8_t)buf[i];
+    }
 }
 
 void tty_stderr_write(const char *buf, int len)

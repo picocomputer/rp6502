@@ -7,17 +7,12 @@
 #include "ria/usb/mid.h"
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
+#include "core/sys/debug_log.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-
-#if defined(DEBUG_USB) || defined(DEBUG_USB_MID)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // De-frame one 4-byte USB-MIDI event packet to raw wire bytes; implemented in
 // the MIDI host override (vendor/tinyusb_rp6502/midi_host.c), which drops
@@ -908,9 +903,9 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_sysex_break = false;
     conn->opened = true;
     if (raw)
-        DBG("MIDI%d: open raw\n", idx);
+        RP6502_LOG(midi, INFO, "%d open raw", idx);
     else
-        DBG("MIDI%d: open ppqn %u\n", idx, conn->ppqn);
+        RP6502_LOG(midi, INFO, "%d open ppqn %u", idx, conn->ppqn);
     return (conn->session << 4) | idx;
 }
 
@@ -981,7 +976,7 @@ std_rw_result mid_std_close(int desc, api_errno *err)
     std_rw_result result = mid_drain_gate(desc, &conn, err);
     if (result != STD_OK)
         return result;
-    DBG("MIDI%d: close\n", desc & 0xF);
+    RP6502_LOG(midi, INFO, "%d close", desc & 0xF);
     mid_close_finalize(conn);
     return STD_OK;
 }
@@ -1060,14 +1055,14 @@ void tuh_midi_mount_cb(uint8_t itf, const tuh_midi_mount_cb_t *mount_cb_data)
         conn->has_rx = c < rx;
         conn->has_tx = c < tx;
         conn->mounted = true;
-        DBG("MIDI%u: itf %u cable %u %c%c %04X:%04X\n", slot, itf, c,
-            conn->has_rx ? 'R' : '-', conn->has_tx ? 'T' : '-', vid, pid);
+        RP6502_LOG(midi, INFO, "%u mount itf %u cable %u %c%c %04X:%04X", slot, itf, c,
+                   conn->has_rx ? 'R' : '-', conn->has_tx ? 'T' : '-', vid, pid);
     }
 }
 
 void tuh_midi_umount_cb(uint8_t itf)
 {
-    DBG("MIDI: unmount itf %u\n", itf);
+    RP6502_LOG(midi, INFO, "unmount itf %u", itf);
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
         if (mid_mounts[i].mounted && mid_mounts[i].itf == itf)
         {

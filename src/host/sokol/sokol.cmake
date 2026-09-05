@@ -1,12 +1,14 @@
 # The application around emu_core: the window, the command line, the debugger.
 #
 # Two lists, in the order the link wants them: the program, then the window.
-# What goes between is the host's — main() for everyone who enters through
-# one, and the browser's exported entry points — so a root writes
+# What goes between is the host's — main() and the host's stdio for everyone
+# who enters through one, and the browser's exported entry points — so a root
+# writes
 #
-#     ${RP6502_EMU_APP} main.c ${RP6502_EMU_WINDOW} entry.c ...
+#     ${RP6502_EMU_APP} main.c streams.c ${RP6502_EMU_WINDOW} entry.c ...
 #
-# and Android, which enters through its own sokol_main, simply omits main.c.
+# and Android, which enters through its own sokol_main and has no stdio,
+# simply omits both.
 #
 # rp6502_emu_debugger(<target>) adds the imgui and DAP halves. Web and Android
 # ship without it, so it is a call rather than something this include does.
@@ -23,7 +25,6 @@ set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/app/input.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/png.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/script.c
-    ${CMAKE_CURRENT_LIST_DIR}/cli/streams.c
     ${RP6502_SRC}/core/sys/crc32.c
     ${RP6502_SRC}/core/sys/version.c)
 

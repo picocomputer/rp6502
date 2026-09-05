@@ -19,7 +19,6 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
-#include "sokol/sokol_log.h"
 #include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
@@ -37,6 +36,7 @@
 #include "host/sokol/app/gamepad.h"
 #endif
 #include "core/sys/version.h"
+#include "core/sys/debug_log.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
@@ -122,7 +122,7 @@ void app_init(void)
     sapp_set_icon(icon_desc());
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     if (aud_enabled()) /* --mute opens no OS audio device */
     {
@@ -135,7 +135,7 @@ void app_init(void)
             .num_channels = 2,
             .buffer_frames = 512, /* the device's own latency: 10.7 ms, not sokol's 43 */
             .stream_cb = stream_cb,
-            .logger.func = slog_func,
+            .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
     }
@@ -409,4 +409,28 @@ void app_prepare(uint32_t *fb, double scale, bool have_scale,
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
     gfx_prepare(fb, scale, have_scale, out_w, out_h);
+}
+
+void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
+             const char *message_or_null, uint32_t line_nr,
+             const char *filename_or_null, void *user_data)
+{
+    (void)user_data;
+    const char *message = message_or_null ? message_or_null : "";
+    const char *filename = filename_or_null ? filename_or_null : "";
+    switch (log_level)
+    {
+    case 0:
+        RP6502_LOG(sokol, ERROR, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        abort();
+    case 1:
+        RP6502_LOG(sokol, ERROR, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    case 2:
+        RP6502_LOG(sokol, WARN, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    default:
+        RP6502_LOG(sokol, INFO, "%s [%u] %s (%s:%u)", tag, log_item_id, message, filename, line_nr);
+        break;
+    }
 }

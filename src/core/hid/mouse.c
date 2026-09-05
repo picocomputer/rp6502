@@ -6,17 +6,10 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/mouse.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
 #include <string.h>
-
-#if defined(DEBUG_HID) || defined(DEBUG_HID_MOUSE)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 
 // This is the report we generate for XRAM.
 static struct
@@ -81,8 +74,8 @@ bool HOST_IN_FLASH("mouse_mount") mouse_mount(int slot, const mouse_connection_t
             continue;
         mouse_connections[i] = *desc;
         mouse_connections[i].slot = slot;
-        DBG("mouse_mount: slot=%d, report_id=%d, x=%d/%d rel=%d\n", slot,
-            desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
+        RP6502_LOG(hid, INFO, "mouse mount slot=%d, report_id=%d, x=%d/%d rel=%d", slot,
+                   desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
         return true;
     }
     return false;
@@ -93,7 +86,7 @@ bool mouse_umount(int slot)
     mouse_connection_t *conn = mouse_get_connection_by_slot(slot);
     if (conn == NULL)
         return false;
-    DBG("mouse_umount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
+    RP6502_LOG(hid, INFO, "mouse umount slot=%d, valid=%d, report_id=%d", slot, conn->valid, conn->report_id);
     conn->valid = false;
     uint8_t merged = 0;
     for (int i = 0; i < MOUSE_MAX_MICE; ++i)
