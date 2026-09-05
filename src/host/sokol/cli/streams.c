@@ -81,9 +81,10 @@ static size_t stdin_carry_len;
 /* Whether the wire has delivered anything since the last line end, so an
  * input that stops without one still finishes its line. */
 static bool stdin_mid_line;
-/* The last byte out was a return, so a line feed opening the next read is
- * its pair rather than a line of its own. */
-static bool stdin_after_cr;
+/* A pipe or a file carries host text, whose line endings are the host's. A
+ * terminal is the wire itself and already sends what a line editor reads, so
+ * every byte it sends is passed on as it was struck. */
+static oem_run_t stdin_run;
 static bool stdin_closed;
 
 static size_t stdin_rx(char *buf, size_t max)
@@ -100,7 +101,7 @@ static size_t stdin_rx(char *buf, size_t max)
     bool end = os_stdin_ended();
 
     size_t taken = 0;
-    size_t n = have ? oem_from_utf8_run(raw, have, end, &stdin_after_cr,
+    size_t n = have ? oem_from_utf8_run(&stdin_run, raw, have, end,
                                         buf, max, &taken)
                     : 0;
     stdin_carry_len = have - taken;
@@ -157,6 +158,7 @@ static void console_tx(const char *buf, int len)
 bool streams_console_open(void)
 {
     bool terminal = os_stdin_is_terminal();
+    stdin_run.newlines = !terminal;
     if (!terminal)
     {
         tty_set_wire(NULL, stdin_rx);

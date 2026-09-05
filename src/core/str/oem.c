@@ -124,22 +124,23 @@ static size_t oem_utf8_len(unsigned char lead)
     return 1;
 }
 
-size_t oem_from_utf8_run(const char *utf8, size_t len, bool end, bool *after_cr,
+size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
                          char *dst, size_t dstsz, size_t *taken)
 {
     size_t in = 0, out = 0;
     while (in < len && out < dstsz)
     {
         unsigned char c = (unsigned char)utf8[in];
-        bool paired = after_cr && *after_cr;
-        if (after_cr)
-            *after_cr = false;
-        if (c == '\r' || c == '\n')
+        bool paired = run->after_cr;
+        run->after_cr = false;
+        if (run->newlines && (c == '\r' || c == '\n'))
         {
-            /* One line end, however the host spells it, and out at once. */
+            /* One line end, however the host spells it, and out at once: a
+             * reader that waited to see whether a line feed follows would
+             * answer a keystroke one keystroke late. */
             if (c == '\n' && paired)
             {
-                in++; /* the second half of a CRLF the last read cut */
+                in++; /* the second half of a CRLF the last call cut */
                 continue;
             }
             dst[out++] = '\r';
@@ -151,8 +152,8 @@ size_t oem_from_utf8_run(const char *utf8, size_t len, bool end, bool *after_cr,
                 if (utf8[in] == '\n')
                     in++;
             }
-            else if (after_cr)
-                *after_cr = true; /* its LF may open the next read */
+            else
+                run->after_cr = true; /* its LF may open the next call */
             continue;
         }
         if (c < 0x80)

@@ -55,21 +55,30 @@ unsigned char oem_from_codepoint(uint32_t cp);
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
 
+/* A conversion in progress, because host text arrives a piece at a time.
+ * Zeroed to start one. */
+typedef struct
+{
+    /* Whether this is host text, whose line endings are the host's, or a
+     * wire whose bytes are already the machine's. A file and a clipboard
+     * spell a line end the way the host does; a terminal already sends the
+     * return a line editor reads, and everything it sends is passed on as
+     * it was struck. */
+    bool newlines;
+    /* The last byte out was a return, so a line feed opening the next call
+     * is the other half of one this call did not hold. */
+    bool after_cr;
+} oem_run_t;
+
 /* A run of host text -> OEM, for the doors host characters arrive at: the
  * clipboard's paste and a console wire's input. '?' stands in for what the
  * code page cannot spell, because the decoder's own stand-in is DEL and a
- * line editor reads that as a backspace. Control bytes pass through, except
- * that a newline in any of its three spellings becomes the one CR a line
- * editor ends a line on. A return goes out the moment it arrives, because a
- * terminal sends one per keystroke and a reader waiting to see whether a
- * line feed follows would answer every key one key late; after_cr carries
- * across calls instead, so the line feed of a CRLF split between two reads
- * is still swallowed. NULL where the whole text is in one buffer.
+ * line editor reads that as a backspace. Control bytes pass through.
  *
  * Stops on a full dst, and on a sequence the buffer does not hold whole
  * unless end says none is coming; *taken is what was read, so the rest can
  * be carried to the next call. Returns the count written. */
-size_t oem_from_utf8_run(const char *utf8, size_t len, bool end, bool *after_cr,
+size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
                          char *dst, size_t dstsz, size_t *taken);
 
 // One OEM byte -> UTF-8 in dst (at most 3 bytes, no NUL); returns the count

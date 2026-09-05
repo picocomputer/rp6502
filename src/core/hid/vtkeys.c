@@ -130,6 +130,8 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 /* Text still being dripped into the keyboard ring (NULL = idle). */
 static char *vtkeys_paste_buf;
 static size_t vtkeys_paste_len, vtkeys_paste_pos;
+/* A clipboard is host text: it spells a line end the host's way. */
+static oem_run_t vtkeys_paste_run;
 
 void vtkeys_paste_cancel(void)
 {
@@ -149,6 +151,7 @@ void vtkeys_paste(const char *utf8)
     memcpy(vtkeys_paste_buf, utf8, n);
     vtkeys_paste_len = n;
     vtkeys_paste_pos = 0;
+    vtkeys_paste_run = (oem_run_t){.newlines = true};
 }
 
 bool vtkeys_paste_busy(void)
@@ -169,9 +172,10 @@ void vtkeys_task(void)
         if (room > sizeof out)
             room = sizeof out;
         size_t taken = 0;
-        size_t n = oem_from_utf8_run(vtkeys_paste_buf + vtkeys_paste_pos,
+        size_t n = oem_from_utf8_run(&vtkeys_paste_run,
+                                     vtkeys_paste_buf + vtkeys_paste_pos,
                                      vtkeys_paste_len - vtkeys_paste_pos,
-                                     true, NULL, out, room, &taken);
+                                     true, out, room, &taken);
         if (!taken)
             break; /* a sequence the clipboard ended mid-way */
         com_keyboard_push(out, n);
