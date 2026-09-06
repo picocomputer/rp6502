@@ -56,7 +56,9 @@ bool vtkeys_paste_busy(void);
 void vtkeys_task(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. No stop hook:
- * type-ahead deliberately survives an exec. */
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+ * type-ahead deliberately survives an exec. A break cancels the paste: the
+ * console's break clears the ring, and a drip left running would refill it
+ * with the rest of a paste the user just interrupted. */
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, vtkeys_paste_cancel, nul_config, nul_config)
 
 #endif /* _CORE_HID_VTKEYS_H_ */

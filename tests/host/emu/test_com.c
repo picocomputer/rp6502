@@ -10,8 +10,10 @@
  */
 
 #include "core/com/com.h"
+#include "core/hid/vtkeys.h"
 #include "core/sys/com.h"
 #include "core/sys/com_term.h"
+#include "core/sys/sys.h"
 #include "utest.h"
 #include <string.h>
 
@@ -87,6 +89,27 @@ UTEST(com, nothing_queued_anywhere_is_one_question)
     com_in_write_reply("\33[0n", 4);
     ASSERT_FALSE(com_input_idle());
     drain();
+    ASSERT_TRUE(com_input_idle());
+}
+
+UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
+{
+    com_init();
+    /* More than a ring's worth: the drip parks the rest and refills the ring
+     * a chunk at a time as it drains. */
+    char big[COM_RING_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    big[sizeof big - 1] = 0;
+    vtkeys_paste(big);
+    vtkeys_task();
+    ASSERT_TRUE(vtkeys_paste_busy());
+    /* The console's break clears the ring. Without a break column of its own
+     * the drip would refill it on the next pass, with the rest of a paste the
+     * user had just interrupted. */
+    sys_break_request();
+    sys_commit();
+    ASSERT_FALSE(vtkeys_paste_busy());
+    vtkeys_task();
     ASSERT_TRUE(com_input_idle());
 }
 
