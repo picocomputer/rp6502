@@ -14,6 +14,7 @@
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
 #include "core/com/com.h"
+#include "core/sys/com_term.h"
 #include "core/com/tty.h"
 #include "core/str/oem.h"
 #include "core/vga/vga_emu.h"

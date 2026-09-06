@@ -32,11 +32,6 @@ size_t com_uart_free(void); /* headroom; a wire reads no more than this */
  * host asks before it decides its input has genuinely run out. */
 bool com_input_idle(void);
 
-/* Stop answering the terminal queries a program sends, because something at
- * the far end of the wire is a real terminal and will answer them itself.
- * The Pico's VGA chip has the same switch, thrown by a live CDC or telnet
- * connection. Wiring, not machine state: com_init does not touch it. */
-void com_suppress_term_reply(bool suppress);
 
 /* Cold-boot flush: clear the input and reset BEL (machine power-up). */
 void com_init(void);

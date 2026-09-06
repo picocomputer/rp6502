@@ -12,7 +12,7 @@
 /* COnsole Manifold
  */
 
-#include "core/sys/com.h"
+#include "core/sys/com_term.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -46,7 +46,6 @@ void com_set_uart_break(bool en);
 size_t com_in_free(void);
 bool com_in_empty(void);
 void com_in_write(char ch);
-void com_suppress_term_reply(bool suppress);
 
 // OUT is sourced here from UART
 // OUT is sourced from PIX $F:03

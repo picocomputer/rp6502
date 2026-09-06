@@ -71,13 +71,6 @@ size_t com_stderr_write(const char *buf, size_t count);
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* A terminal query's answer (DSR/CPR/DA), entering the console's input as
- * though it had been typed -- as the UART source, ahead of typed input, since
- * the program asked for it and is waiting. Dropped rather than truncated if it
- * does not fit, and dropped entirely where a real terminal is attached and
- * will answer the host's query itself. */
-void com_in_write_reply(const char *s, size_t n);
-
 /* The console's merged input, as the OS's raw console read (TTY:) takes it:
  * up to count bytes, however many are queued now, 0 when none. Not the line
  * editor's door -- that one is com_getchar, and rln owns the editing.
@@ -88,9 +81,5 @@ void com_in_write_reply(const char *s, size_t n);
  * documentation, which is what licenses the steal -- and without it that byte
  * is stranded until the program happens to read the register. */
 size_t com_stdin_read(char *buf, size_t count);
-
-/* The sink term.c hands over at init; the console fans printf output to it
- * alongside its own. */
-void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 #endif /* _CORE_SYS_COM_H_ */

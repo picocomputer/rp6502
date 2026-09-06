@@ -15,6 +15,7 @@
 
 #include "core/sys/ria.h"
 #include "core/com/com.h"
+#include "core/sys/com_term.h"
 #include "core/com/tty.h"
 #include "core/aud/bel.h"
 #include "core/str/str.h"

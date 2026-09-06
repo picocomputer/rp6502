@@ -5,6 +5,7 @@
  */
 
 #include "vga/sys/com.h"
+#include "core/sys/com_term.h"
 #include "vga/usb/cdc.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
