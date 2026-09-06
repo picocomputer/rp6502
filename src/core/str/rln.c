@@ -238,7 +238,11 @@ static void rln_defer_check_resolved(com_source_t s)
         return;
     if (a->defer_esc_pending && a->state == ansi_state_C0)
         a->defer_esc_pending = false;
-    if (!a->defer_esc_pending && a->cpr_expecting == 0)
+    /* Same cpr_seen guard rln_source_busy arms with. Every source is seeded
+     * with an expected CPR count and only a real terminal ever answers one,
+     * so without it a source that armed mid-sequence and is not a terminal
+     * -- the keyboard -- can never resolve, and waits out the deadline. */
+    if (!a->defer_esc_pending && (!a->cpr_seen || a->cpr_expecting == 0))
         a->defer_pending = false;
 }
 

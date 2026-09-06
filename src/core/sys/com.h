@@ -46,8 +46,16 @@ typedef enum
 // have none. Which negative is the machine's own business.
 int com_getchar(com_source_t *src);
 
-// Non-blocking 1-byte peek at a specific source (UART/TEL), without
-// consuming. Returns the byte (0..255), or negative when none is queued.
+// Take back a byte this machine's register window staged ahead of a reader.
+// Answering a ready bit commits a byte out of the console, so a program
+// reading the console some other way has to be able to get it back. False on
+// a machine that stages nothing, which is one whose bus is fabric.
+bool ria_rx_reclaim(char *ch);
+
+// Non-blocking 1-byte peek at a specific source, without consuming. Returns
+// the byte (0..255), or negative when none is queued -- which is also the
+// answer for a source this machine keeps no queue for, since the reader
+// cannot tell "nothing yet" from "never" and must not have to.
 int com_peekchar(com_source_t src);
 
 // Ensure space for com_write()

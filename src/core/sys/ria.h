@@ -32,13 +32,6 @@ extern "C"
     bool ria_get_sigint(void);
     void ria_trigger_sigint(void);
 
-    /* Take back a byte this machine's register window staged ahead of a
-     * reader. Answering a ready bit commits a byte out of the console, so a
-     * program reading the console some other way has to be able to get it
-     * back. False on a machine that stages nothing, which is one whose bus
-     * is fabric. */
-    bool ria_rx_reclaim(char *ch);
-
 #ifdef __cplusplus
 }
 #endif

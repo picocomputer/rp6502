@@ -64,11 +64,10 @@ static ring_t *ring_for(com_source_t src)
         return &keyboard_ring;
     case COM_SOURCE_UART:
         return &uart_ring;
-    /* No telnet on a machine of this shape. Answering the wire's ring here
-     * would file its bytes under the wrong source in the line editor. */
-    case COM_SOURCE_TEL:
-        return NULL;
     default:
+        /* Telnet among them: a machine of this shape has none, and answering
+         * the wire's ring here would file its bytes under the wrong source in
+         * the line editor. */
         return NULL;
     }
 }

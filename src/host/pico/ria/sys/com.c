@@ -292,51 +292,31 @@ static void com_tx_fanout(void)
 // offered byte for later recovery by the matching per-source reader.
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
-    static com_source_t source = COM_SOURCE_ANY;
+    static com_source_t held = COM_SOURCE_ANY;
     static absolute_time_t idle_timer;
 
-    if (source != COM_SOURCE_ANY && time_reached(idle_timer))
-        source = COM_SOURCE_ANY;
+    if (held != COM_SOURCE_ANY && time_reached(idle_timer))
+        held = COM_SOURCE_ANY;
 
-    if (source == COM_SOURCE_KEYBOARD || source == COM_SOURCE_ANY)
+    // The enum's order is the try order: keyboard, then UART, then telnet.
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
-        size_t i = com_keyboard_read(buf, length);
+        if (held != COM_SOURCE_ANY && held != s)
+            continue;
+        size_t i = com_read_source(s, buf, length);
         if (i)
         {
-            source = COM_SOURCE_KEYBOARD;
+            held = s;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_SOURCE_KEYBOARD;
+                *src_out = s;
             return i;
         }
-        // Keyboard doesn't hold the lock when empty.
-        source = COM_SOURCE_ANY;
-    }
-
-    if (source == COM_SOURCE_UART || source == COM_SOURCE_ANY)
-    {
-        size_t i = com_uart_read(buf, length);
-        if (i)
-        {
-            source = COM_SOURCE_UART;
-            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-            if (src_out)
-                *src_out = COM_SOURCE_UART;
-            return i;
-        }
-    }
-
-    if (source == COM_SOURCE_TEL || source == COM_SOURCE_ANY)
-    {
-        size_t i = com_telnet_read(buf, length);
-        if (i)
-        {
-            source = COM_SOURCE_TEL;
-            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-            if (src_out)
-                *src_out = COM_SOURCE_TEL;
-            return i;
-        }
+        // The keyboard has no wire behind it, so an empty queue is a user who
+        // stopped typing rather than a gap in a burst still arriving. The two
+        // that do have a wire keep the lock for the dwell.
+        if (s == COM_SOURCE_KEYBOARD)
+            held = COM_SOURCE_ANY;
     }
 
     return 0;
