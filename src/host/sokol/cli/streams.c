@@ -12,6 +12,7 @@
 #include "core/str/oem.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
+#include "osal/console.h"
 #include "core/sys/debug_log.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "core/dap/dap.h"
@@ -65,6 +66,8 @@ static void streams_stdout_tap(int fd, const char *buf, int len)
         fwrite(out, 1, (size_t)n, stdout);
     if (line)
         fflush(stdout);
+    if (ferror(stdout))
+        os_console_break_ask(); /* the reader went away */
 }
 
 void streams_mirror_stdout(void)
@@ -82,8 +85,8 @@ static bool stdin_closed;
  * Translating belongs to the clipboard, which is host text. */
 static size_t stdin_rx(char *buf, size_t max)
 {
-    size_t n = os_stdin_read(buf, max);
-    if (n || !os_stdin_ended())
+    size_t n = os_console_read(buf, max);
+    if (n || !os_console_ended())
         return n;
     /* Only once the wire has drained and a cooked read is genuinely starved:
      * an end of file found here can then cancel nothing that was coming. */
@@ -116,17 +119,19 @@ static void console_tx(const char *buf, int len)
         fwrite(out, 1, (size_t)n, stdout);
     if (line)
         fflush(stdout);
+    if (ferror(stdout))
+        os_console_break_ask(); /* the reader went away */
 }
 
 bool streams_console_open(void)
 {
-    bool terminal = os_stdin_is_terminal();
+    bool terminal = os_console_is_terminal();
     if (!terminal)
     {
         tty_set_wire(NULL, stdin_rx);
         return false;
     }
-    os_stdin_raw(true);
+    os_console_raw(true);
     tty_set_wire(console_tx, stdin_rx);
     /* Two terminals must not both answer a program's query. The one at the
      * far end is the one the program can see, so the emulated one stops
@@ -135,7 +140,7 @@ bool streams_console_open(void)
     /* Its stderr reaches the same screen through the stream above; a second
      * copy on the host's would print everything twice. A redirected stderr
      * is another destination and still gets its own. */
-    if (os_stderr_is_terminal())
+    if (os_console_stderr_is_terminal())
         tty_set_stderr_host(false);
     return true;
 }
@@ -145,6 +150,6 @@ void streams_stdin_idle(void)
     if (!std_stdin_waiting() || com_uart_free() != COM_RING_SIZE - 1)
         return;
     fflush(stdout);
-    os_stdin_wait(VGA_FRAME_NS);
+    os_console_wait(VGA_FRAME_NS);
 }
 

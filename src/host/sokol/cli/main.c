@@ -14,6 +14,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "osal/os.h"
+#include "osal/console.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/cli/png.h"
@@ -196,11 +197,6 @@ int main(int argc, char **argv)
         run_seed = (uint32_t)o.seed, run_seed_taken = true;
     sram_set_fill(o.fill_random, o.fill_value, host_seed());
     xram_set_fill(o.fill_random, o.fill_value, host_seed());
-    /* Say which seed a random fill used, or a run that turns something up is a
-     * run nobody can repeat. Host stderr, so nothing a script matches moves. */
-    if (o.fill_random && !o.have_seed)
-        fprintf(stderr, "rp6502-emu: memory filled at random; --seed %u repeats it\n",
-                (unsigned)host_seed());
     sys_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
@@ -361,7 +357,7 @@ int main(int argc, char **argv)
          * to, and a stall -- a blocking stdin read -- forgiven rather than
          * replayed. --phi2 0 drops the sleep and time warps. */
         uint64_t deadline = os_mono_ns() + VGA_FRAME_NS;
-        while (!proc_exited() && !os_break_asked())
+        while (!proc_exited() && !os_console_break_asked())
         {
             vga_run_frame();
             streams_stdin_idle();
@@ -377,12 +373,14 @@ int main(int argc, char **argv)
         /* A break asked for at the console is the host stopping a machine
          * that was still running, so the machine is torn down the way a
          * break tears it down. */
-        if (os_break_asked())
+        if (os_console_break_asked())
             sys_break_request();
         sys_stop();
         sys_commit(); /* every driver's stop hook, before the process goes */
         fflush(stdout);
-        return os_break_asked() ? APP_EXIT_BREAK : proc_get_exit_code();
+        if (os_console_break_asked())
+            os_console_break_exit(); /* the way it was asked; does not return */
+        return proc_get_exit_code();
     }
 
     /* A script is the clock, always: it runs the machine here rather than under a

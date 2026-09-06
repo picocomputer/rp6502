@@ -34,14 +34,10 @@ void app_input(const struct sapp_event *e);
 void app_cleanup(void);
 
 /* The process exit code once sokol returns: the ROM's exit code when it halted
- * the app outside debug mode, else 0, and APP_EXIT_BREAK for a run the host
- * ended. entry_run returns this. */
+ * the app outside debug mode, else 0, and 1 for a window the host closed on a
+ * running machine. A break at the console never reaches here: it leaves as the
+ * signal that asked. entry_run returns this. */
 int app_exit_code(void);
-
-/* What the shell is told when the host ended the run rather than the program:
- * the window closed, or a break at the console. The shell's own number for a
- * run someone interrupted. */
-#define APP_EXIT_BREAK 130
 
 /* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. The path
  * is host UTF-8; conversion to the guest's OEM code page happens here, so

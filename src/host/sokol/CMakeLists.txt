@@ -50,11 +50,12 @@ include(${RP6502_SRC}/core/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
     rp6502_osal_windows(emu_core)
-    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os_emu.c)
+    target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/windows/console.c)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
     rp6502_osal_posix(emu_core TRANSPORT aio)
-    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
+    target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c
+        ${RP6502_SRC}/osal/posix/console.c)
 endif()
 
 # This machine's drivers.h: what it is made of, the order it comes up in,

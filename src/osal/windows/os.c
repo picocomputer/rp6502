@@ -6,6 +6,7 @@
  */
 
 #include "osal/os.h"
+#include "core/str/oem.h"
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>
@@ -13,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <wchar.h>
 #include <windows.h>
 
 /* The flag is the same on every SDK; only the newer ones spell it. */
@@ -136,4 +138,21 @@ void os_ensure_parent_dir(const char *filepath)
         }
     _mkdir(tmp);
     free(tmp);
+}
+
+/* The ANSI main()'s argv is in the process ACP, not UTF-8. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+{
+    int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0); /* asks its own size */
+    wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;
+    if (!w || !MultiByteToWideChar(CP_ACP, 0, arg, -1, w, n))
+    {
+        free(w);
+        return false;
+    }
+    bool ok = wcslen(w) < dstsz; /* one OEM byte per UTF-16 unit */
+    if (ok)
+        oem_from_wide((const uint16_t *)w, dst, dstsz);
+    free(w);
+    return ok;
 }

@@ -14,6 +14,7 @@
 
 #include "osal/fs.h"
 #include "osal/os.h" /* os_mono_ns */
+#include "osal/console.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "sokol/sokol_app.h"
@@ -246,7 +247,7 @@ void app_frame(void)
      * here rather than in the handler that latched it, so the machine is
      * taken down by the loop that owns it, and it is answered even while a
      * debugger holds the machine, which is the state it exists for. */
-    if (os_break_asked() && !app_broke)
+    if (os_console_break_asked() && !app_broke)
     {
         app_quit_asked = app_broke = true;
         sapp_request_quit();
@@ -399,8 +400,10 @@ void app_input(const struct sapp_event *e)
  * stays 0. */
 int app_exit_code(void)
 {
+    /* A break at the console leaves as the signal that asked, from
+     * app_cleanup, so this is only ever reached by the window closing. */
     if (app_broke)
-        return APP_EXIT_BREAK; /* whatever a debugger was holding at the time */
+        return 1;
     return (app.exit_on_halt && proc_exited()) ? proc_get_exit_code() : 0;
 }
 
@@ -418,6 +421,13 @@ void app_cleanup(void)
         sys_break_request();
     sys_stop();
     sys_commit();
+    /* A console break leaves as the signal that asked; the close button has
+     * no signal to leave by and takes the code above. */
+    if (os_console_break_asked())
+    {
+        fflush(NULL);
+        os_console_break_exit();
+    }
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop(); /* the window is going; let go of the host's controllers */
 #endif

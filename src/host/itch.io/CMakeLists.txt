@@ -43,6 +43,9 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT sync)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
+# The host's console, named here and not in posix.cmake: a machine that is a
+# guest in someone else's process installs no signal handlers.
+target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/posix/console.c)
 
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
