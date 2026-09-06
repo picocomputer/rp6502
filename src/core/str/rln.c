@@ -93,7 +93,7 @@ typedef struct
     uint16_t buf_len;
     uint16_t inflight_len;
     // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
-    // sticky across reads — preserved by rln_read_line's per-read reset.
+    // sticky, kept by rln_sources_reset.
     uint8_t cpr_expecting;  // outstanding CPR count this read
     uint16_t cpr_w;         // max column this read = the screen right edge
     uint16_t cpr_h;         // max row this read = the screen bottom edge
@@ -163,6 +163,24 @@ static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mo
 // is separate — fed synchronously from rln_poke (the 6502 API).
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
+
+// Everything a source knows about this read, forgotten. What it knows about
+// the wire is not this read's to forget: a source that answered a CPR is
+// still a real terminal, and a return that ended a line is still owed its
+// line feed, whether the next line comes from the same read, the next one,
+// or after the machine has stopped.
+static void rln_sources_reset(void)
+{
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+    {
+        bool cpr_seen = rln_sources[s].cpr_seen;
+        uint8_t line_end = rln_sources[s].line_end;
+        memset(&rln_sources[s], 0, sizeof rln_sources[s]);
+        rln_sources[s].cpr_seen = cpr_seen;
+        rln_sources[s].line_end = line_end;
+    }
+    memset(&rln_poke_source, 0, sizeof rln_poke_source);
+}
 
 // CPR-pending count seeded into each source's cpr_expecting at read
 // start (1 or 2, depending on geometry overrides).
@@ -1478,31 +1496,14 @@ void rln_read_line(rln_read_callback_t callback)
     rln_last_render_buflen = 0;
     rln_decscusr_ok = false;
     rln_decscusr_locked_off = false;
-    // Reset per-read source state, preserving cpr_seen (sticky across
-    // reads — a source that proved itself a real terminal last round
-    // still owes us CPRs this round, so defer must engage even before
-    // the first CPR of this round arrives).
-    bool sticky_cpr_seen[COM_SOURCE_COUNT];
-    uint8_t sticky_line_end[COM_SOURCE_COUNT];
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        sticky_cpr_seen[s] = rln_sources[s].cpr_seen;
-        sticky_line_end[s] = rln_sources[s].line_end;
-    }
-    memset(rln_sources, 0, sizeof rln_sources);
-    memset(&rln_poke_source, 0, sizeof rln_poke_source);
+    rln_sources_reset();
     // CPR1 always sent; CPR2 sent only when at least one geometry axis
     // isn't overridden. Seed expecting for every source — bytes go to
     // all attached terminals and any of them may reply. Non-terminal
     // sources have cpr_seen=false so they never block defer regardless.
     rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        rln_sources[s].cpr_seen = sticky_cpr_seen[s];
-        // The return ended the line, so its line feed lands in the next read.
-        rln_sources[s].line_end = sticky_line_end[s];
         rln_sources[s].cpr_expecting = rln_cpr_initial;
-    }
     rln_handshake_deadline = timer_in_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1682,8 +1683,7 @@ void HOST_IN_FLASH("rln_init") rln_init(void)
     rln_width_override = 0;
     rln_height_override = 0;
     rln_complete_deferred = false;
-    memset(rln_sources, 0, sizeof rln_sources);
-    memset(&rln_poke_source, 0, sizeof rln_poke_source);
+    rln_sources_reset();
     rln_decscusr_locked_off = false;
 }
 
