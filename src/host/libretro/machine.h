@@ -19,6 +19,9 @@
 #define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
 #define TERM_MAX_HEIGHT 30
+/* Each console ring, a power of two: the type-ahead a source keeps while
+ * nobody is reading. */
+#define COM_RING_SIZE 256
 
 
 #endif /* _HOST_MACHINE_H_ */

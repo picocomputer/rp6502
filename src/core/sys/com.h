@@ -55,6 +55,15 @@ typedef struct
  * number for every burst source, because they are the same case. */
 #define COM_WIRE_DWELL_US 1000
 
+/* How long a full ring holds a wire whose far end keeps bytes without loss --
+ * the kernel's tty queue, a TCP window -- before the fill reads to drop,
+ * still scanning for a Ctrl-C. Armed when a fill first finds no room and
+ * disarmed when room reappears, so a reader that takes anything within the
+ * hold loses nothing. A wire that cannot hold uses none: a UART with no flow
+ * control overruns, and a keyboard is a person. A stream holds for ever. One
+ * number for every wire that can hold, because they are the same case. */
+#define COM_WIRE_HOLD_MS 5000
+
 /* Reset the picker and clear every listed row: a cold boot and a break. */
 void com_rx_clear(void);
 

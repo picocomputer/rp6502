@@ -17,6 +17,7 @@
 #include "core/hid/usage.h"
 #include "core/com/com.h"
 #include "core/hid/keyboard.h"
+#include "machine.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

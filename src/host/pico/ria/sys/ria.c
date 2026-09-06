@@ -63,11 +63,13 @@ void ria_trigger_vsync(void)
     }
 }
 
+// Latched whenever it happens. Only the publish waits out a transfer, during
+// which $FFF0 is the transfer stub's vector; ria_task publishes after.
 void ria_trigger_sigint(void)
 {
+    sigint_pending = RIA_IRQ_SIGINT;
     if (!ria_active())
     {
-        sigint_pending = RIA_IRQ_SIGINT;
         __dmb();
         REGS(0xFFF0) = vsync_pending | sigint_pending;
         if (irq_enabled & RIA_IRQ_SIGINT)

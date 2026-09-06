@@ -10,6 +10,9 @@
 
 #include "core/com/tty.h"
 #include "core/com/com.h"
+#include "core/sys/com.h"
+#include "core/sys/timer.h"
+#include "machine.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,12 +20,18 @@
 /* The host's end of the wire, when the host has one. */
 static void (*tty_tx)(const char *buf, int len);
 static size_t (*tty_rx)(char *buf, size_t max);
+static bool tty_stream;
+/* The hold on a console wire, from the pass that first found no room. */
+static bool tty_held;
+static timer_deadline_t tty_hold;
 
 void tty_set_wire(void (*tx)(const char *buf, int len),
-                  size_t (*rx)(char *buf, size_t max))
+                  size_t (*rx)(char *buf, size_t max), bool stream)
 {
     tty_tx = tx;
     tty_rx = rx;
+    tty_stream = stream;
+    tty_held = false;
 }
 
 void tty_write(const char *buf, int len)
@@ -49,21 +58,40 @@ int com_printf(const char *fmt, ...)
 
 /* The console's task on a machine whose console is the terminal the walk
  * already reaches: nothing, until a host puts a wire on it. Every pass, like
- * every other task, and gated on the one condition that means there is
- * nothing to do -- no room. A machine that is not reading fills the ring and
- * this stops asking; a machine that is reading gets the wire's full rate
- * rather than a ring a frame. */
+ * every other task. While the ring has room the wire is asked for what fits,
+ * so a reader that keeps up loses nothing and gets the wire's full rate. A
+ * full ring means nobody is reading: a stream is left where it is, which is
+ * the backpressure that keeps a pipe whole, and a console is held for the
+ * hold and then read to drop, because a Ctrl-C typed behind the type-ahead
+ * has to be seen whether or not anyone will ever read the rest. */
 void com_task(void)
 {
     if (!tty_rx)
         return;
-    size_t room = com_uart_free();
-    if (!room)
-        return;
     char buf[COM_RING_SIZE];
-    if (room > sizeof buf)
-        room = sizeof buf;
-    size_t n = tty_rx(buf, room);
+    size_t room = com_uart_free();
+    if (room)
+    {
+        tty_held = false;
+        size_t n = tty_rx(buf, room < sizeof buf ? room : sizeof buf);
+        if (!n)
+            return;
+        if (tty_stream)
+            com_stream_push(buf, n);
+        else
+            com_uart_push(buf, n);
+        return;
+    }
+    if (tty_stream)
+        return;
+    if (!tty_held)
+    {
+        tty_held = true;
+        tty_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+    }
+    if (!timer_passed(tty_hold))
+        return;
+    size_t n = tty_rx(buf, sizeof buf);
     if (n)
         com_uart_push(buf, n);
 }

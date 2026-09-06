@@ -40,6 +40,9 @@ from rp6502_rom import image  # noqa: E402
 
 OP_EXIT = 0xFF
 NAME = "console_test.rp6502"
+# core/sys/com.h's COM_WIRE_HOLD_MS: how long a full ring holds a wire whose
+# far end can keep its bytes before it is read to drop.
+COM_WIRE_HOLD_S = 5.0
 # The line editor's handshake: the prompt's cursor-position and device queries,
 # which a terminal answers and this file does not. Elided so an echo reads.
 HANDSHAKE = re.compile(rb"\x1b\[\?25l.*?\x1b\[\?25h", re.S)
@@ -55,13 +58,17 @@ class Board:
         return bool(self.telnet and self.key)
 
     def serial(self):
-        return fresh(Console(SerialDevice(self.device)))
+        con = fresh(Console(SerialDevice(self.device)))
+        con.held = False  # a UART FIFO cannot hold the far end
+        return con
 
     def telnet_con(self):
         host, _, port = self.telnet.rpartition(":")
         if not (host and port.isdigit()):
             host, port = self.telnet, "23"
-        return fresh(Console(TelnetDevice(host, int(port), self.key)))
+        con = fresh(Console(TelnetDevice(host, int(port), self.key)))
+        con.held = True  # a TCP window can
+        return con
 
 
 def fresh(con):
@@ -152,6 +159,19 @@ def loops():
     return p
 
 
+def waits_for_sigint():
+    """Never touches $FFE0. Polls $FFF0 bit 6 and, when a Ctrl-C has been
+    latched, sends '@' and stops."""
+    p = Asm()
+    p.symbol("poll")
+    p.bit_abs(0xFFF0)
+    with p.branch("bvc"):
+        p.store(0xFFE1, ord("@"))
+        p.stp()
+    p.jmp_abs("poll")
+    return p
+
+
 def echoes():
     """Reads the console through its registers: polls bit 6 of $FFE0 and
     copies $FFE2 to $FFE1, which is what a program that skips the OS does."""
@@ -230,6 +250,25 @@ def a_break_reaches_a_program_that_never_reads(open_con):
         con.serial.close()
 
 
+def a_ctrl_c_reaches_a_program_that_never_reads(open_con):
+    """A Ctrl-C typed behind type-ahead nobody is reading still latches: at
+    once on the UART, whose FIFO cannot hold the far end, and after the
+    hold on telnet, whose TCP window can."""
+    con = open_con()
+    try:
+        program(con, waits_for_sigint())
+        send(con, b"f" * 40, 0.5)
+        out = send(con, b"\x03", 1.0)
+        held = b"@" not in out
+        if held:
+            out += drain(con, COM_WIRE_HOLD_S + 1.0)
+        check(b"@" in out, f"no '@' after {COM_WIRE_HOLD_S + 2.5:.0f}s: {plain(out)[:60]!r}")
+        check(held == con.held, f"{'held' if held else 'at once'}, expected {'held' if con.held else 'at once'}")
+    finally:
+        con.send_break()
+        con.serial.close()
+
+
 def a_register_reader_echoes_in_order(open_con):
     """A program reading $FFE2 behind bit 6 of $FFE0 sees every byte, once,
     in order, from the console the bytes were typed at."""
@@ -261,6 +300,7 @@ PER_CONSOLE = [
     type_ahead_survives_a_command,
     type_ahead_survives_a_program_start,
     a_break_reaches_a_program_that_never_reads,
+    a_ctrl_c_reaches_a_program_that_never_reads,
     a_register_reader_echoes_in_order,
     a_large_upload_is_intact,
 ]

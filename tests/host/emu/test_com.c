@@ -11,11 +11,14 @@
 
 #include "core/com/com.h"
 #include "core/hid/vtkeys.h"
+#include "core/com/tty.h"
 #include "core/ria/ria.h"
 #include "core/sys/com.h"
 #include "core/sys/com_term.h"
+#include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
+#include "machine.h"
 #include "utest.h"
 #include <string.h>
 
@@ -184,6 +187,134 @@ UTEST(com, a_break_drops_what_the_window_staged)
     ria_break();
     ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
+}
+
+/* A scripted host wire: what the far end has sent, handed over as asked. */
+static const char *wire_data;
+static size_t wire_len, wire_pos, wire_asked_max;
+
+static size_t wire_rx(char *buf, size_t max)
+{
+    if (max > wire_asked_max)
+        wire_asked_max = max;
+    size_t n = wire_len - wire_pos;
+    if (n > max)
+        n = max;
+    memcpy(buf, wire_data + wire_pos, n);
+    wire_pos += n;
+    return n;
+}
+
+static void wire(const char *data, size_t len, bool stream)
+{
+    wire_data = data;
+    wire_len = len;
+    wire_pos = 0;
+    wire_asked_max = 0;
+    tty_set_wire(NULL, wire_rx, stream);
+}
+
+static void unwire(void)
+{
+    tty_set_wire(NULL, NULL, false);
+}
+
+/* Pump and read until the wire is spent and the console is empty. */
+static size_t read_all(char *out, size_t max)
+{
+    size_t got = 0;
+    for (int pass = 0; pass < 4000 && (wire_pos < wire_len || !com_input_idle()); pass++)
+    {
+        com_task();
+        got += com_stdin_read(out + got, max - got);
+    }
+    return got;
+}
+
+UTEST(com, a_ctrl_c_on_a_console_wire_latches_at_the_fill)
+{
+    com_init();
+    ria_get_sigint();
+    wire("ab\3", 3, false);
+    com_task();
+    /* Latched before anything read it, and the byte still arrives. */
+    ASSERT_TRUE(ria_get_sigint());
+    char buf[8];
+    ASSERT_EQ(com_stdin_read(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(memcmp(buf, "ab\3", 3), 0);
+    unwire();
+}
+
+UTEST(com, a_full_console_wire_is_held_then_read_to_drop)
+{
+    com_init();
+    ria_get_sigint();
+    static char data[COM_RING_SIZE - 1 + 100 + 1];
+    memset(data, 'x', COM_RING_SIZE - 1);
+    memset(data + COM_RING_SIZE - 1, 'y', 100);
+    data[sizeof data - 1] = 3;
+    wire(data, sizeof data, false);
+    /* Nobody reads. The wire is asked for what fits and then left alone: what
+     * the far end is holding is not lost while a reader might still come. */
+    for (int i = 0; i < 10; i++)
+        com_task();
+    ASSERT_EQ(wire_pos, (size_t)COM_RING_SIZE - 1);
+    ASSERT_FALSE(ria_get_sigint());
+    /* The hold runs out. The wire is drained to its end, the Ctrl-C behind
+     * the type-ahead latches, and what did not fit is gone. */
+    timer_deadline_t d = timer_in_ms(COM_WIRE_HOLD_MS + 20);
+    while (!timer_passed(d))
+        ;
+    com_task();
+    ASSERT_EQ(wire_pos, sizeof data);
+    ASSERT_TRUE(ria_get_sigint());
+    static char out[COM_RING_SIZE * 2];
+    size_t got = read_all(out, sizeof out);
+    ASSERT_EQ(got, (size_t)COM_RING_SIZE - 1);
+    for (size_t i = 0; i < got; i++)
+        ASSERT_EQ(out[i], 'x');
+    unwire();
+}
+
+UTEST(com, a_reader_that_keeps_up_loses_nothing_to_a_console_wire)
+{
+    com_init();
+    ria_get_sigint();
+    static char data[600];
+    for (size_t i = 0; i < sizeof data; i++)
+        data[i] = (char)('a' + i % 26);
+    wire(data, sizeof data, false);
+    static char out[sizeof data + 1];
+    size_t got = read_all(out, sizeof out);
+    ASSERT_EQ(got, sizeof data);
+    ASSERT_EQ(memcmp(out, data, sizeof data), 0);
+    /* Never asked for more than there was room for. */
+    ASSERT_LE(wire_asked_max, (size_t)COM_RING_SIZE - 1);
+    ASSERT_FALSE(ria_get_sigint());
+    unwire();
+}
+
+UTEST(com, a_stream_never_signals_and_never_loses_a_byte)
+{
+    com_init();
+    ria_get_sigint();
+    static char data[5 + 600];
+    memcpy(data, "ab\3cd", 5);
+    for (size_t i = 5; i < sizeof data; i++)
+        data[i] = (char)('a' + i % 26);
+    wire(data, sizeof data, true);
+    /* Nobody reads: the pipe is left holding what does not fit, for as long
+     * as it takes, and nothing on it is a signal. */
+    for (int i = 0; i < 10; i++)
+        com_task();
+    ASSERT_LE(wire_pos, (size_t)COM_RING_SIZE - 1);
+    ASSERT_FALSE(ria_get_sigint());
+    static char out[sizeof data + 1];
+    size_t got = read_all(out, sizeof out);
+    ASSERT_EQ(got, sizeof data);
+    ASSERT_EQ(memcmp(out, data, sizeof data), 0);
+    ASSERT_FALSE(ria_get_sigint());
+    unwire();
 }
 
 UTEST_MAIN();

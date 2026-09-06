@@ -13,7 +13,9 @@
 # saw nothing a pipe sent it.
 #
 # The bytes come back on fd 1 rather than the terminal, so the claim is one
-# a shell can check.
+# a shell can check. A 0x03 rides in the middle: on a pipe it is a byte like
+# the rest, echoed back and latching nothing, so the program also asks the
+# Ctrl-C latch on its way out and fails if anything was there.
 
 import argparse
 import os
@@ -27,10 +29,13 @@ from rp6502_asm import (API_A, API_X, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
 from rp6502_rom import image  # noqa: E402
 
 OP_EXIT = 0xFF
+OP_ATTR_GET = 0x0A
+ATTR_SIGINT = 0x08
 FD = 0x0200
-INPUT = "raw bytes."
+INPUT = "raw \x03 bytes."
 END = "."
 EXIT_CODE = 7
+EXIT_SIGINT = 9
 
 
 def prog():
@@ -61,6 +66,15 @@ def prog():
             p.lda_abs(FD)
             p.sta_abs(API_A)
             p.call(OP_CLOSE)
+            # The trampoline leaves the attribute in A: a Ctrl-C the pipe
+            # was never allowed to raise.
+            p.call_a(OP_ATTR_GET, ATTR_SIGINT)
+            p.tax()
+            with p.branch("beq"):
+                p.store(API_A, EXIT_SIGINT)
+                p.store(API_X, 0)
+                p.call(OP_EXIT)
+                p.stp()
             p.store(API_A, EXIT_CODE)
             p.store(API_X, 0)
             p.call(OP_EXIT)

@@ -46,6 +46,11 @@ bool os_console_is_terminal(void)
            con_same_file(STDIN_FILENO, STDOUT_FILENO);
 }
 
+bool os_console_stdin_is_terminal(void)
+{
+    return isatty(STDIN_FILENO) == 1;
+}
+
 bool os_console_stderr_is_terminal(void)
 {
     return isatty(STDERR_FILENO) == 1 && con_same_file(STDERR_FILENO, STDOUT_FILENO);
@@ -149,7 +154,7 @@ void os_console_attach(void)
 
 void os_console_raw(bool on)
 {
-    if (on == con_raw_on || !os_console_is_terminal())
+    if (on == con_raw_on || !os_console_stdin_is_terminal())
         return;
     if (!on)
     {

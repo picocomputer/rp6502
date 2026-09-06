@@ -22,6 +22,7 @@
 #include "core/aud/bel.h"
 #include "core/str/str.h"
 #include "core/sys/driver.h"
+#include "machine.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -299,6 +300,12 @@ void com_uart_push(const char *s, size_t n)
             ria_trigger_sigint();
         ring_push(&uart_ring, b);
     }
+}
+
+void com_stream_push(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        ring_push(&uart_ring, (uint8_t)s[i]);
 }
 
 size_t com_uart_free(void)

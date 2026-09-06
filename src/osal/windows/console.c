@@ -14,8 +14,17 @@
 
 static DWORD con_saved_in, con_saved_out;
 static bool con_raw_on;
+static bool con_out_saved; /* stdout was a console when raw mode went on */
 static bool con_ended;
 static WCHAR con_high; /* a surrogate whose pair is in the next record */
+/* What did not fit the last read, served first on the next, so a read of one
+ * byte delivers one byte: the UTF-8 of one conversion (an ill-formed
+ * surrogate pair converts to two characters), and the repeats of a key whose
+ * record is already consumed. */
+static char con_carry[6];
+static size_t con_carry_len;
+static WCHAR con_repeat_ch;
+static WORD con_repeat_left;
 
 /* Which ask arrived. There is no signal to re-raise here, so leaving is the
  * console's own default, which is what a Ctrl-Break normally does. */
@@ -45,6 +54,13 @@ bool os_console_is_terminal(void)
     return i && o && GetConsoleMode(i, &mode) && GetConsoleMode(o, &mode);
 }
 
+bool os_console_stdin_is_terminal(void)
+{
+    DWORD mode;
+    HANDLE i = con_in();
+    return i && GetConsoleMode(i, &mode);
+}
+
 bool os_console_stderr_is_terminal(void)
 {
     DWORD mode;
@@ -61,7 +77,7 @@ static void con_restore(void)
     HANDLE i = con_in(), o = con_out();
     if (i)
         SetConsoleMode(i, con_saved_in);
-    if (o)
+    if (o && con_out_saved)
         SetConsoleMode(o, con_saved_out);
 }
 
@@ -125,15 +141,18 @@ void os_console_attach(void)
 void os_console_raw(bool on)
 {
     HANDLE i = con_in(), o = con_out();
-    if (on == con_raw_on || !i || !o || !os_console_is_terminal())
+    if (on == con_raw_on || !os_console_stdin_is_terminal())
         return;
     if (!on)
     {
         con_restore();
         return;
     }
-    if (!GetConsoleMode(i, &con_saved_in) || !GetConsoleMode(o, &con_saved_out))
+    if (!GetConsoleMode(i, &con_saved_in))
         return;
+    /* Only a console has an output mode to save; a file on stdout has none
+     * and is left alone below. */
+    con_out_saved = o && GetConsoleMode(o, &con_saved_out);
     /* Processed input off is what hands Ctrl-C to the machine. Ctrl-Break is
      * unaffected by it and still raises its event, which is the one way out
      * when the machine has stopped answering. */
@@ -144,7 +163,8 @@ void os_console_raw(bool on)
     if (!SetConsoleMode(i, mode))
         return;
     /* The same console has to render what the machine draws. */
-    SetConsoleMode(o, con_saved_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    if (con_out_saved)
+        SetConsoleMode(o, con_saved_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     con_raw_on = true;
 }
 
@@ -169,13 +189,33 @@ static size_t con_put_wide(WCHAR w, char *buf, size_t count)
     return got > 0 ? (size_t)got : 0;
 }
 
+/* What fits of the carry, then of the repeats still owed. */
+static size_t con_serve(char *buf, size_t count)
+{
+    size_t out = 0;
+    for (;;)
+    {
+        size_t n = con_carry_len < count - out ? con_carry_len : count - out;
+        for (size_t i = 0; i < n; i++)
+            buf[out + i] = con_carry[i];
+        out += n;
+        con_carry_len -= n;
+        for (size_t i = 0; i < con_carry_len; i++)
+            con_carry[i] = con_carry[i + n];
+        if (con_carry_len || !con_repeat_left || out >= count)
+            return out;
+        con_repeat_left--;
+        con_carry_len = con_put_wide(con_repeat_ch, con_carry, sizeof con_carry);
+    }
+}
+
 static size_t con_read_console(HANDLE h, char *buf, size_t count)
 {
+    size_t out = con_serve(buf, count);
     DWORD queued = 0;
-    if (!GetNumberOfConsoleInputEvents(h, &queued) || !queued)
-        return 0;
-    size_t out = 0;
-    while (queued-- && out + 4 <= count)
+    if (!GetNumberOfConsoleInputEvents(h, &queued))
+        return out;
+    while (queued-- && out < count)
     {
         INPUT_RECORD rec;
         DWORD got = 0;
@@ -187,8 +227,9 @@ static size_t con_read_console(HANDLE h, char *buf, size_t count)
         if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown ||
             !rec.Event.KeyEvent.uChar.UnicodeChar)
             continue;
-        for (WORD i = 0; i < rec.Event.KeyEvent.wRepeatCount && out + 4 <= count; i++)
-            out += con_put_wide(rec.Event.KeyEvent.uChar.UnicodeChar, buf + out, count - out);
+        con_repeat_ch = rec.Event.KeyEvent.uChar.UnicodeChar;
+        con_repeat_left = rec.Event.KeyEvent.wRepeatCount;
+        out += con_serve(buf + out, count - out);
     }
     return out;
 }

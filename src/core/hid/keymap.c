@@ -62,39 +62,26 @@ static bool keymap_cache_valid;
 static char keymap_layout_name[LAYOUT_NAME_MAX];
 static char keymap_layout_description[LAYOUT_DESC_MAX];
 
-static void keymap_queue_str(const char *str)
+// The one door onto the queue: all or nothing, and a Ctrl-C latches SIGINT
+// before the space check, whichever way it was typed.
+static void keymap_queue(const char *s, size_t n)
 {
-    // All or nothing
-    size_t len = strlen(str);
+    for (size_t i = 0; i < n; i++)
+        if (s[i] == 0x03)
+            ria_trigger_sigint();
     size_t used = (KEYMAP_KEY_QUEUE_SIZE + keymap_key_queue_head - keymap_key_queue_tail) % KEYMAP_KEY_QUEUE_SIZE;
-    if (len > KEYMAP_KEY_QUEUE_SIZE - 1 - used)
+    if (n > KEYMAP_KEY_QUEUE_SIZE - 1 - used)
         return;
-    while (*str)
+    for (size_t i = 0; i < n; i++)
     {
         keymap_key_queue_head = (keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        keymap_key_queue[keymap_key_queue_head] = *str++;
+        keymap_key_queue[keymap_key_queue_head] = s[i];
     }
 }
 
 static void keymap_queue_char(char ch)
 {
-    if ((keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE != keymap_key_queue_tail)
-    {
-        keymap_key_queue_head = (keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        keymap_key_queue[keymap_key_queue_head] = ch;
-    }
-}
-
-static void keymap_queue_char_char(char ch0, char ch1)
-{
-    if ((keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE != keymap_key_queue_tail &&
-        (keymap_key_queue_head + 2) % KEYMAP_KEY_QUEUE_SIZE != keymap_key_queue_tail)
-    {
-        keymap_key_queue_head = (keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        keymap_key_queue[keymap_key_queue_head] = ch0;
-        keymap_key_queue_head = (keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        keymap_key_queue[keymap_key_queue_head] = ch1;
-    }
+    keymap_queue(&ch, 1);
 }
 
 // Resolve keymap_layout_index from keymap_layout_pos and rebuild the cache.
@@ -241,7 +228,7 @@ static bool keymap_alt_escape(const keymap_press_t *k)
     }
     if (!ch)
         return false;
-    keymap_queue_char_char('\33', ch);
+    keymap_queue((char[]){'\33', ch}, 2);
     return true;
 }
 
@@ -407,7 +394,7 @@ static void keymap_emit_vt(const keymap_press_t *k)
     char seq[16];
     if (keyboard_vt_seq(seq, sizeof(seq), k->keycode,
                         keyboard_vt_mod(k->shift, k->alt, k->ctrl, k->gui)))
-        keymap_queue_str(seq);
+        keymap_queue(seq, strlen(seq));
 }
 
 static void keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
@@ -422,9 +409,6 @@ static void keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_pre
         return;
     if (k.ctrl)
         ch = keyboard_ctrl_promote(ch, k.keycode);
-    // Latch a SIGINT even if com not draining
-    if (ch == 0x03)
-        ria_trigger_sigint();
     if (ch)
     {
         keymap_compose(ch);

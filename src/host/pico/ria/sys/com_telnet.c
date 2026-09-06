@@ -24,6 +24,7 @@
 #include "core/str/str.h"
 #include "core/str/rln.h"
 #include "core/sys/driver.h"
+#include "core/sys/timer.h"
 #include "ria-w/net/wifi.h"
 #include <pico/stdlib.h>
 #include <string.h>
@@ -57,13 +58,13 @@ static volatile size_t com_telnet_tx_head;
 static volatile size_t com_telnet_tx_tail;
 
 #define COM_TELNET_RX_BUF_SIZE 32
-// After this many milliseconds with a full ring and no consume,
-// com_telnet_drain_rx drops bytes instead of backpressuring the TCP peer.
-#define COM_TELNET_RX_OVERFLOW_MS 5000
 static char com_telnet_rx_buf[COM_TELNET_RX_BUF_SIZE];
 static size_t com_telnet_rx_head;
 static size_t com_telnet_rx_tail;
-static absolute_time_t com_telnet_rx_drop_after;
+/* The hold on a full ring, from the pass that first found no room: the TCP
+ * window keeps the peer's bytes meanwhile. */
+static bool com_telnet_rx_held;
+static timer_deadline_t com_telnet_rx_hold;
 
 void com_telnet_clear_rx(void)
 {
@@ -76,7 +77,7 @@ void com_telnet_clear_rx(void)
             ;
     }
     com_telnet_rx_head = com_telnet_rx_tail = 0;
-    com_telnet_rx_drop_after = make_timeout_time_ms(COM_TELNET_RX_OVERFLOW_MS);
+    com_telnet_rx_held = false;
 }
 
 static void com_telnet_clear_rings(void)
@@ -104,8 +105,6 @@ size_t com_telnet_read(char *buf, size_t length)
         com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;
         buf[count++] = com_telnet_rx_buf[com_telnet_rx_tail];
     }
-    if (count)
-        com_telnet_rx_drop_after = make_timeout_time_ms(COM_TELNET_RX_OVERFLOW_MS);
     return count;
 }
 
@@ -183,12 +182,11 @@ static void com_telnet_handle_auth(uint8_t ch)
 
 static void com_telnet_drain_rx(void)
 {
-    // Default: limit read to ring buffer free space so decoded bytes
-    // always fit (decoded <= raw). If the ring has been full and the
-    // consumer has been idle for COM_TELNET_RX_OVERFLOW_MS, switch to
-    // drop-mode: drain a full scratch buffer from telnet_rx and discard,
-    // but still scan discarded bytes for Ctrl-C so a SIGINT during
-    // overflow is not lost.
+    // While the ring has room, read what fits (decoded <= raw). A full ring
+    // means nobody is reading: the peer is held for COM_WIRE_HOLD_MS, which
+    // its TCP window absorbs without loss, and then drained to drop, still
+    // scanning, so a Ctrl-C or an Interrupt Process behind the type-ahead is
+    // seen whether or not anyone will read the rest.
     uint16_t limit = COM_TELNET_RX_BUF_SIZE;
     bool drop_mode = false;
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
@@ -197,12 +195,20 @@ static void com_telnet_drain_rx(void)
         size_t free = COM_TELNET_RX_BUF_SIZE - 1 - used;
         if (free == 0)
         {
-            if (!time_reached(com_telnet_rx_drop_after))
+            if (!com_telnet_rx_held)
+            {
+                com_telnet_rx_held = true;
+                com_telnet_rx_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+            }
+            if (!timer_passed(com_telnet_rx_hold))
                 return;
             drop_mode = true;
         }
         else
+        {
+            com_telnet_rx_held = false;
             limit = (uint16_t)free;
+        }
     }
 
     char decoded[COM_TELNET_RX_BUF_SIZE];

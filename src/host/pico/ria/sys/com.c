@@ -73,11 +73,11 @@ static size_t com_uart_tx_tail;
 static size_t com_uart_tx_head;
 static uint8_t com_uart_tx_buf[COM_UART_TX_BUF_SIZE];
 
-// UART RX software ring. com_task drains the hw FIFO into this ring
-// every tick (so SIGINT scans and break detection keep working even
-// when nobody is reading). Consumers pull via com_uart_read. Sized
-// to absorb bursts that span several main-loop ticks at 115200 baud.
-#define COM_UART_RX_BUF_SIZE 64
+// The PL011 FIFO's shadow, sized to it. com_task pops the FIFO into it
+// every tick whether or not anyone reads: a byte left in the FIFO hides the
+// break flag behind it and the Ctrl-C in it, and with no flow control there
+// is no holding the far end, so type-ahead past this drops.
+#define COM_UART_RX_BUF_SIZE 32
 static size_t com_uart_rx_head;
 static size_t com_uart_rx_tail;
 static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];

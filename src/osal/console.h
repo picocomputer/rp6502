@@ -35,10 +35,14 @@
  * one that takes a terminal raw. */
 void os_console_attach(void);
 
-/* One terminal, both ways. Not two questions: a terminal on stdin with a file
- * on stdout is a pipeline, and the machine's screen does not belong in the
- * file. */
+/* One terminal, both ways: a terminal on stdin with a file on stdout is a
+ * pipeline, and the machine's screen does not belong in the file. This
+ * decides who owns stdout. */
 bool os_console_is_terminal(void);
+
+/* Whether stdin alone is a terminal, which decides what stdin is: a console
+ * someone types at, taken raw, or a stream to be read as it is consumed. */
+bool os_console_stdin_is_terminal(void);
 
 /* Whether stderr is that same terminal, which is what decides whether a
  * second copy of the program's stderr would print everything twice. */

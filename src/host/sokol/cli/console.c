@@ -8,6 +8,13 @@
  * hardware, so the registers, the line editor and a raw TTY: read all reach
  * it. Nothing is translated on the way in: a wire carries what the far end
  * sent. Translating is the clipboard's business, which is host text.
+ *
+ * Two facts, decided apart. What stdin is: a terminal is a console, taken
+ * raw, whose Ctrl-C is a SIGINT; a pipe or a file is a stream, read as the
+ * program takes it, whose 0x03 is a byte. Who owns stdout: only a terminal
+ * that is stdin's too gets the machine's screen, the terminal's answers and
+ * its stderr; a file on either side is a pipeline and gets the program's
+ * output alone.
  */
 
 #include "host/sokol/cli/console.h"
@@ -65,14 +72,13 @@ static void console_tx(const char *buf, int len)
 
 bool console_open(void)
 {
+    bool typed = os_console_stdin_is_terminal();
     bool terminal = os_console_is_terminal();
+    if (typed)
+        os_console_raw(true);
+    tty_set_wire(terminal ? console_tx : NULL, stdin_rx, !typed);
     if (!terminal)
-    {
-        tty_set_wire(NULL, stdin_rx);
         return false;
-    }
-    os_console_raw(true);
-    tty_set_wire(console_tx, stdin_rx);
     /* Two terminals must not both answer a program's query. The one at the
      * far end is the one the program can see, so the emulated one stops
      * answering and goes on drawing. */

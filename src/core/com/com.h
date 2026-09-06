@@ -18,7 +18,6 @@
  * and neither the Pocket nor the RIA pushes here at all. */
 void com_keyboard_push(const char *s, size_t n);
 void com_keyboard_push_byte(uint8_t b);
-#define COM_RING_SIZE 64 /* each ring; a power of two */
 size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */
 
 /* The row core/com/pick.c reads it through. A dwell, because the paste drip
@@ -31,9 +30,12 @@ void com_keyboard_clear(void);
 /* The UART source: a machine whose console has a wire pushes what arrived on
  * it here, the way a Pico drains its UART FIFO. A Ctrl-C latches SIGINT
  * before the space check, so a break is caught even when the ring is full and
- * the byte is dropped. */
+ * the byte is dropped. A stream -- a pipe or a file -- comes in the second
+ * door onto the same ring: a 0x03 on it is a byte, and its caller pushes no
+ * more than fits, so nothing on it is ever dropped. */
 void com_uart_push(const char *s, size_t n);
-size_t com_uart_free(void); /* headroom; a wire reads no more than this */
+void com_stream_push(const char *s, size_t n);
+size_t com_uart_free(void); /* headroom; a wire reads no more than this while there is some */
 
 /* The row core/com/pick.c reads it through. The emulated terminal's answer
  * to a query is this row's tail: promoted into the ring only once the wire
