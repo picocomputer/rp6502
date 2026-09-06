@@ -34,7 +34,7 @@ static size_t stdin_rx(char *buf, size_t max)
         return n;
     /* Only once the wire has drained and a cooked read is genuinely starved:
      * an end of file found here can then cancel nothing that was coming. */
-    if (!stdin_closed && std_stdin_waiting() && com_uart_free() == COM_RING_SIZE - 1)
+    if (!stdin_closed && std_stdin_waiting() && com_input_idle())
     {
         stdin_closed = true;
         std_stdin_eof();
@@ -91,7 +91,7 @@ bool console_open(void)
 
 void console_idle(void)
 {
-    if (!std_stdin_waiting() || com_uart_free() != COM_RING_SIZE - 1)
+    if (!std_stdin_waiting() || !com_input_idle())
         return;
     fflush(stdout);
     os_console_wait(VGA_FRAME_NS);

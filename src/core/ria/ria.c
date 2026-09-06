@@ -170,7 +170,7 @@ static int ria_uart_rx_next(void)
  * Answering the ready bit commits a byte out of the console's rings, so a
  * program reading the console some other way has to be able to get it
  * back -- see com_stdin_read, and ria/sys/com.c, which does the same. */
-bool ria_reg_rx_reclaim(char *ch)
+bool ria_rx_reclaim(char *ch)
 {
     if (!(regs[0x00] & RIA_UART_RX_READY))
         return false;
@@ -204,16 +204,16 @@ uint8_t ria_reg_read(uint16_t addr)
     case 0x02: /* UART RX: return the latched byte, then refill it. */
     {
         uint8_t v = regs[0x02];
+        /* Given up before the refill asks the console for the next one: that
+         * ask can reclaim a staged byte, and this one is already spoken for.
+         */
+        regs[0x02] = 0;
+        regs[0x00] &= ~RIA_UART_RX_READY;
         int ch = ria_uart_rx_next();
         if (ch >= 0)
         {
             regs[0x02] = (uint8_t)ch;
             regs[0x00] |= RIA_UART_RX_READY;
-        }
-        else
-        {
-            regs[0x02] = 0;
-            regs[0x00] &= ~RIA_UART_RX_READY;
         }
         return v;
     }

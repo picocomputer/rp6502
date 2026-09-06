@@ -30,14 +30,6 @@ void tty_stderr_write(const char *buf, int len)
     (void)len;
 }
 
-/* The fabric asks for a byte only when the 6502 has one outstanding, so
- * nothing is ever staged ahead of a reader. */
-bool tty_reg_reclaim(char *out)
-{
-    (void)out;
-    return false;
-}
-
 /* picolibc wants a stream before printf will link. Pointing it at com_putchar
  * puts a plain printf through the same CRLF expansion, bell scan and terminal
  * tap as com_printf. */

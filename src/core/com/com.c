@@ -17,6 +17,7 @@
 #include "core/com/com.h"
 #include "core/com/tty.h"
 #include "core/aud/bel.h"
+#include "core/str/str.h"
 #include "core/sys/driver.h"
 
 #include <stdio.h>
@@ -39,11 +40,13 @@ typedef struct
 
 static ring_t keyboard_ring;
 static ring_t uart_ring;
-/* The emulated terminal's answers, apart from the wire that shares their
- * source: they are what a program is waiting on, they arrive in bounded
- * bursts, and a wire delivering a file would both delay them and truncate
- * one. Drained before either ring. */
-static ring_t reply_ring;
+/* The emulated terminal's answer, held whole until the wire it shares a
+ * source with is empty. Promoted then and not before, so it can never land
+ * in the middle of a sequence the wire is still delivering -- the same rule
+ * the VGA chip's console states for the same reason. A reply is a bounded
+ * burst, so one buffer holds any of them. */
+static uint8_t reply_buf[32];
+static size_t reply_len;
 static bool com_term_reply_suppressed;
 
 /* Gates the teletype bell rung on a BEL (0x07) in program output. The setting
@@ -57,8 +60,11 @@ static ring_t *ring_for(com_source_t src)
     case COM_SOURCE_KEYBOARD:
         return &keyboard_ring;
     case COM_SOURCE_UART:
-    case COM_SOURCE_TEL:
         return &uart_ring;
+    /* No telnet on a machine of this shape. Answering the wire's ring here
+     * would file its bytes under the wrong source in the line editor. */
+    case COM_SOURCE_TEL:
+        return NULL;
     default:
         return NULL;
     }
@@ -94,16 +100,34 @@ static int ring_pop(ring_t *r)
     return b;
 }
 
+/* The wire is empty, so a held answer can go in without landing inside
+ * something the wire had half-delivered. */
+static void reply_promote(void)
+{
+    if (!reply_len || uart_ring.head != uart_ring.tail)
+        return;
+    for (size_t i = 0; i < reply_len; i++)
+        ring_push(&uart_ring, reply_buf[i]);
+    reply_len = 0;
+}
+
 int com_getchar(com_source_t *src)
 {
+    /* A byte the register window staged is older than anything in the rings,
+     * and is stranded unless whoever reads next takes it back. */
+    if (*src == COM_SOURCE_ANY || *src == COM_SOURCE_UART)
+    {
+        char staged;
+        if (ria_rx_reclaim(&staged))
+        {
+            *src = COM_SOURCE_UART;
+            return (unsigned char)staged;
+        }
+    }
+    reply_promote();
     if (*src == COM_SOURCE_ANY)
     {
-        /* Terminal replies before anything else, so the CPR/DA handshake
-         * resolves promptly; nothing starves behind them, because that ring
-         * only fills in bounded bursts. */
-        int c = ring_pop(&reply_ring);
-        if (c < 0)
-            c = ring_pop(&uart_ring);
+        int c = ring_pop(&uart_ring);
         if (c >= 0)
         {
             *src = COM_SOURCE_UART;
@@ -118,15 +142,8 @@ int com_getchar(com_source_t *src)
         *src = COM_SOURCE_ANY;
         return -1;
     }
-    /* Asked for the UART, the replies are still the older bytes. */
-    int c = -1;
-    if (*src == COM_SOURCE_UART || *src == COM_SOURCE_TEL)
-        c = ring_pop(&reply_ring);
-    if (c < 0)
-    {
-        ring_t *r = ring_for(*src);
-        c = r ? ring_pop(r) : -1;
-    }
+    ring_t *r = ring_for(*src);
+    int c = r ? ring_pop(r) : -1;
     if (c < 0)
         *src = COM_SOURCE_ANY;
     return c;
@@ -134,12 +151,7 @@ int com_getchar(com_source_t *src)
 
 int com_peekchar(com_source_t src)
 {
-    if (src == COM_SOURCE_UART || src == COM_SOURCE_TEL)
-    {
-        int c = ring_peek(&reply_ring);
-        if (c >= 0)
-            return c;
-    }
+    reply_promote();
     ring_t *r = ring_for(src);
     return r ? ring_peek(r) : -1;
 }
@@ -147,11 +159,6 @@ int com_peekchar(com_source_t src)
 size_t com_stdin_read(char *buf, size_t count)
 {
     size_t n = 0;
-    /* A machine that stages a byte in its register window to answer a ready
-     * bit has to take it back, or a program polling the one while reading the
-     * console through the other leaves it stranded. */
-    if (n < count && tty_reg_reclaim(&buf[n]))
-        n++;
     for (; n < count; n++)
     {
         com_source_t src = COM_SOURCE_ANY;
@@ -279,10 +286,10 @@ size_t com_stderr_write(const char *buf, size_t count)
  * would parse as something else. */
 void com_in_write_reply(const char *s, size_t n)
 {
-    if (com_term_reply_suppressed || n > ring_free(&reply_ring))
+    if (com_term_reply_suppressed || n > sizeof reply_buf - reply_len)
         return;
     for (size_t i = 0; i < n; i++)
-        ring_push(&reply_ring, (uint8_t)s[i]);
+        reply_buf[reply_len++] = (uint8_t)s[i];
 }
 
 void com_suppress_term_reply(bool suppress)
@@ -307,6 +314,12 @@ void com_uart_push(const char *s, size_t n)
 size_t com_uart_free(void)
 {
     return ring_free(&uart_ring);
+}
+
+bool com_input_idle(void)
+{
+    return !reply_len && uart_ring.head == uart_ring.tail &&
+           keyboard_ring.head == keyboard_ring.tail;
 }
 
 void com_keyboard_push(const char *s, size_t n)
@@ -343,11 +356,31 @@ void com_init(void)
 {
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
-    memset(&reply_ring, 0, sizeof(reply_ring));
+    reply_len = 0;
     com_bel_enabled = true;
 }
 
 void com_run(void)
 {
     com_bel_enabled = true;
+}
+
+/* What was typed was meant for the program being interrupted. The register
+ * window's staged byte goes with it, or a program that starts next reads a
+ * character aimed at the one that just stopped. */
+void com_break(void)
+{
+    char staged;
+    ria_rx_reclaim(&staged);
+    memset(&keyboard_ring, 0, sizeof(keyboard_ring));
+    memset(&uart_ring, 0, sizeof(uart_ring));
+    reply_len = 0;
+}
+
+void com_stop(void)
+{
+    /* The terminal is somebody's, and the guest may have left it in a mode
+     * of its own. This is the same string the Pico's console signs off with.
+     */
+    com_printf("%s", STR_TERM_SOFT_RESET);
 }

@@ -27,10 +27,6 @@ void tty_write(const char *buf, int len);
  * is for a machine with a stderr of its own. */
 void tty_stderr_write(const char *buf, int len);
 
-/* Take back a byte the register window staged ahead of a reader, if this
- * machine stages one. False when there is nothing to reclaim. */
-bool tty_reg_reclaim(char *out);
-
 /* A host that puts a real wire on this machine's console installs both ends
  * here: terminal-bound bytes go out on tx, and what has arrived comes back
  * through rx, at most max bytes, as the UART source. Either may be NULL, and

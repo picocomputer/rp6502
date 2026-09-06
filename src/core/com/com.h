@@ -28,14 +28,29 @@ size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it 
 void com_uart_push(const char *s, size_t n);
 size_t com_uart_free(void); /* headroom; a wire reads no more than this */
 
+/* Nothing queued anywhere, from any source, with nothing held back: what a
+ * host asks before it decides its input has genuinely run out. */
+bool com_input_idle(void);
+
 /* Stop answering the terminal queries a program sends, because something at
  * the far end of the wire is a real terminal and will answer them itself.
  * The Pico's VGA chip has the same switch, thrown by a live CDC or telnet
  * connection. Wiring, not machine state: com_init does not touch it. */
 void com_suppress_term_reply(bool suppress);
 
-/* Cold-boot flush: clear both input rings and reset BEL (machine power-up). */
+/* Cold-boot flush: clear the input and reset BEL (machine power-up). */
 void com_init(void);
+
+/* A break drops what was typed at a machine that is being interrupted: the
+ * type-ahead was meant for the program being stopped, not for whatever comes
+ * next. The Pico's console has always done this; this one had no hook at all.
+ */
+void com_break(void);
+
+/* The machine is going away and the screen it drew is somebody's terminal:
+ * hand it back the way it was found rather than wearing what the guest set.
+ */
+void com_stop(void);
 
 /* Program start: restore the BEL default, keeping queued input (type-ahead
  * survives an exec). The cold-boot ring flush is com_init. */
@@ -63,6 +78,6 @@ void com_set_std_tap(void (*tap)(int fd, const char *buf, int len));
 void com_task(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, nul_stop, nul_break, nul_config, nul_config)
+#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, nul_config, nul_config)
 
 #endif /* _CORE_COM_COM_H_ */

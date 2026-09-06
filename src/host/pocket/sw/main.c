@@ -52,6 +52,14 @@
 
 #include <stdint.h>
 
+/* The fabric asks for a byte only when the 6502 has one outstanding, so
+ * nothing is ever staged ahead of a reader here. */
+bool ria_rx_reclaim(char *ch)
+{
+    (void)ch;
+    return false;
+}
+
 bool ria_active(void)
 {
     return false;

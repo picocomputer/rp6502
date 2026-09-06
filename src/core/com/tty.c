@@ -13,7 +13,6 @@
 #include "core/ria/ria.h"
 
 #include "core/com/com.h"
-#include "core/vga/vga.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -76,13 +75,6 @@ void tty_stderr_write(const char *buf, int len)
         tty_utf8_write(stderr, buf, len);
 }
 
-/* A read of $FFE0 pulls a byte into the $FFE2 latch to answer the ready bit;
- * this is where it comes back. */
-bool tty_reg_reclaim(char *out)
-{
-    return ria_reg_rx_reclaim(out);
-}
-
 /* A host libc has no cheap stream that reaches com_putchar, so this formats
  * into a buffer and hands the result to the shared translation. */
 int com_printf(const char *fmt, ...)
@@ -100,21 +92,15 @@ int com_printf(const char *fmt, ...)
 }
 
 /* The console's task on a machine whose console is the terminal the walk
- * already reaches: nothing, until a host puts a wire on it.
- *
- * Once a frame rather than once a pass. The walk runs per scanline, which is
- * thirty thousand times a second, and asking the operating system that often
- * whether a key has been pressed is thirty thousand system calls to answer
- * no. A frame's worth of ring is more than a wire fills in a frame. */
+ * already reaches: nothing, until a host puts a wire on it. Every pass, like
+ * every other task, and gated on the one condition that means there is
+ * nothing to do -- no room. A machine that is not reading fills the ring and
+ * this stops asking; a machine that is reading gets the wire's full rate
+ * rather than a ring a frame. */
 void com_task(void)
 {
     if (!tty_rx)
         return;
-    static unsigned long seen;
-    unsigned long now = vga_frame_count();
-    if (now == seen)
-        return;
-    seen = now;
     size_t room = com_uart_free();
     if (!room)
         return;
