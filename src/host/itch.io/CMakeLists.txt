@@ -54,6 +54,8 @@ add_executable(rp6502-emu
     ${RP6502_EMU_APP}
     ${RP6502_SRC}/host/sokol/cli/main.c
     ${RP6502_SRC}/host/sokol/cli/streams.c
+    ${RP6502_SRC}/host/sokol/cli/console.c
+    ${RP6502_SRC}/host/sokol/cli/log.c
     ${CMAKE_CURRENT_LIST_DIR}/webapi.c
     ${RP6502_EMU_WINDOW}
     ${CMAKE_CURRENT_LIST_DIR}/entry.c)

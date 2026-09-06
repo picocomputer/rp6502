@@ -14,7 +14,6 @@
 
 #include "osal/fs.h"
 #include "osal/os.h" /* os_mono_ns */
-#include "osal/console.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "sokol/sokol_app.h"
@@ -69,6 +68,16 @@ static struct
  * it stops a machine that was still running, and the shell hears about it. */
 static bool app_quit_asked;
 static bool app_broke;
+
+/* The host's ask, where the host has one. */
+static bool (*app_break_asked)(void);
+static void (*app_break_leave)(void);
+
+void app_set_break(bool (*asked)(void), void (*leave)(void))
+{
+    app_break_asked = asked;
+    app_break_leave = leave;
+}
 
 void app_set_unpaced(bool on)
 {
@@ -247,7 +256,7 @@ void app_frame(void)
      * here rather than in the handler that latched it, so the machine is
      * taken down by the loop that owns it, and it is answered even while a
      * debugger holds the machine, which is the state it exists for. */
-    if (os_console_break_asked() && !app_broke)
+    if (app_break_asked && app_break_asked() && !app_broke)
     {
         app_quit_asked = app_broke = true;
         sapp_request_quit();
@@ -423,10 +432,10 @@ void app_cleanup(void)
     sys_commit();
     /* A console break leaves as the signal that asked; the close button has
      * no signal to leave by and takes the code above. */
-    if (os_console_break_asked())
+    if (app_broke && app_break_leave && app_break_asked && app_break_asked())
     {
         fflush(NULL);
-        os_console_break_exit();
+        app_break_leave();
     }
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop(); /* the window is going; let go of the host's controllers */

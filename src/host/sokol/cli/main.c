@@ -29,6 +29,7 @@
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
+#include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
 #include "host/sokol/cli/credits.h"
 #include "core/sys/version.h"
@@ -112,6 +113,10 @@ static char *argv_to_oem(const char *arg)
 int main(int argc, char **argv)
 {
     os_console_attach();
+    /* The window's frame and its teardown ask through here, so the app does
+     * not have to know what a console is; a host without one installs
+     * nothing. */
+    app_set_break(os_console_break_asked, os_console_break_exit);
     cli_options o;
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))
@@ -342,7 +347,7 @@ int main(int argc, char **argv)
     /* The host's stdio on the machine's console wire. A terminal at the far
      * end becomes the console itself and carries the machine's screen, so it
      * is already showing everything the mirror below would repeat. */
-    bool console_is_terminal = o.console && streams_console_open();
+    bool console_is_terminal = o.console && console_open();
 
     /* The program's stdout on the host's too, except where host stdout is
      * already the emulator's own channel: a script's replies, a CRC. */
@@ -360,7 +365,7 @@ int main(int argc, char **argv)
         while (!proc_exited() && !os_console_break_asked())
         {
             vga_run_frame();
-            streams_stdin_idle();
+            console_idle();
             if (o.unpaced)
                 continue;
             const uint64_t now = os_mono_ns();

@@ -39,6 +39,13 @@ void app_cleanup(void);
  * signal that asked. entry_run returns this. */
 int app_exit_code(void);
 
+/* The host's way of asking this run to stop from outside the program it is
+ * running, for a host that has one: whether it was asked, and how to leave
+ * when it was. A machine that is a guest in someone else's process -- an APK,
+ * a browser tab -- installs neither, and its window closing still ends the
+ * run the same way. */
+void app_set_break(bool (*asked)(void), void (*leave)(void));
+
 /* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. The path
  * is host UTF-8; conversion to the guest's OEM code page happens here, so
  * platforms pass what the OS handed them (a lossy spelling never boots —
