@@ -35,6 +35,15 @@ void keymap_task(void);
 // Drain the character queue into buf.
 size_t keymap_in_chars(char *buf, size_t length);
 
+/* Drop whatever was half-typed: the queue, and a dead key or Alt code still
+ * being composed. A break, on the machines that list the row below. */
+void keymap_abandon(void);
+
+/* The keyboard row core/com/pick.c reads on a machine with a layout engine of
+ * its own. No peek -- a reader may not look into a keyboard -- and no dwell,
+ * because an empty queue here is a user who stopped typing. */
+#define KEYMAP_COM_SOURCE {.read = keymap_in_chars, .clear = keymap_abandon}
+
 // Responder prints all keyboard layout options.
 int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
 

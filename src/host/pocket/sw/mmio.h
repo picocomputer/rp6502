@@ -13,7 +13,6 @@
 #include <stdint.h>
 
 #define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
-#define MMIO_KBD (*(volatile uint32_t *)0xF0000008u)
 #define MMIO_PHI2 (*(volatile uint32_t *)0xF000000Cu)
 #define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)

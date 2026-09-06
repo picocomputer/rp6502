@@ -15,17 +15,28 @@
 #include "core/sys/com.h"
 #include "core/sys/com_term.h"
 #include "core/sys/sys.h"
+#include "core/sys/timer.h"
 #include "utest.h"
 #include <string.h>
+
+/* A source keeps the reader for its dwell after it runs dry, so a read that
+ * answers nothing is not the end of the input. */
+static void dwell(void)
+{
+    timer_deadline_t d = timer_in_us(2 * COM_WIRE_DWELL_US);
+    while (!timer_passed(d))
+        ;
+}
 
 static void drain(void)
 {
     char buf[COM_RING_SIZE * 2];
-    while (com_stdin_read(buf, sizeof buf))
-        ;
+    timer_deadline_t give_up = timer_in_ms(50);
+    while (!com_input_idle() && !timer_passed(give_up))
+        com_stdin_read(buf, sizeof buf);
 }
 
-UTEST(com, a_source_keeps_the_reader_until_it_runs_dry)
+UTEST(com, a_source_keeps_the_reader_until_it_runs_dry_and_a_dwell_past)
 {
     com_init();
     /* A paste is arriving at the keyboard while a wire delivers a file. */
@@ -40,9 +51,29 @@ UTEST(com, a_source_keeps_the_reader_until_it_runs_dry)
     ASSERT_EQ(one[0], 'b');
     ASSERT_EQ(com_stdin_read(one, 1), (size_t)1);
     ASSERT_EQ(one[0], 'c');
-    /* Dry, so the wire has it now. */
+    /* Dry -- but a ring the paste drip fills a chunk at a time is dry
+     * between two chunks, so the keyboard keeps the reader for the dwell and
+     * the wire waits. */
+    ASSERT_EQ(com_stdin_read(one, 1), (size_t)0);
+    dwell();
     ASSERT_EQ(com_stdin_read(one, 1), (size_t)1);
     ASSERT_EQ(one[0], 'X');
+    drain();
+}
+
+UTEST(com, one_read_is_one_source_and_the_keyboard_goes_first)
+{
+    com_init();
+    com_keyboard_push("ab", 2);
+    com_uart_push("XY", 2);
+    char buf[8];
+    /* Both have bytes; a raw read gets one source's, never a splice of two,
+     * and a keystroke does not queue behind a file for its first byte. */
+    ASSERT_EQ(com_stdin_read(buf, sizeof buf), (size_t)2);
+    ASSERT_EQ(memcmp(buf, "ab", 2), 0);
+    dwell();
+    ASSERT_EQ(com_stdin_read(buf, sizeof buf), (size_t)2);
+    ASSERT_EQ(memcmp(buf, "XY", 2), 0);
     drain();
 }
 
@@ -63,6 +94,19 @@ UTEST(com, a_terminal_answer_never_jumps_ahead_of_the_wire)
      * sent, and only the far end knows that. */
     ASSERT_EQ(n, (size_t)11);
     ASSERT_EQ(memcmp(buf, "hello\33[1;1R", 11), 0);
+    drain();
+}
+
+UTEST(com, a_held_answer_is_read_by_the_source_that_owes_it)
+{
+    com_init();
+    /* The line editor waits out a query by peeking the source it asked and
+     * then reading only that source. */
+    com_in_write_reply("\33[0n", 4);
+    ASSERT_EQ(com_peekchar(COM_SOURCE_UART), 0x1b);
+    com_source_t src = COM_SOURCE_UART;
+    ASSERT_EQ(com_getchar(&src), 0x1b);
+    ASSERT_EQ(src, COM_SOURCE_UART);
     drain();
 }
 

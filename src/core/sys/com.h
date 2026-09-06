@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* Guarded the way the pico-sdk guards it, so whichever header arrives first
  * wins and the other skips. */
@@ -25,7 +26,8 @@
 #endif
 #endif
 
-/* Where a byte came from, or which one to read. */
+/* Where a byte came from, or which one to read. The order is the order the
+ * picker tries them: keyboard, then wire, then remote. */
 typedef enum
 {
     COM_SOURCE_KEYBOARD,
@@ -34,6 +36,27 @@ typedef enum
     COM_SOURCE_COUNT,
     COM_SOURCE_ANY = COM_SOURCE_COUNT,
 } com_source_t;
+
+/* One console input source, as the picker reads it. A machine builds its
+ * table from the RP6502_COM_SOURCES rows its drivers.h lists, indexed by
+ * com_source_t; a source it has not got is a row it does not name, and
+ * reads nothing. */
+typedef struct
+{
+    size_t (*read)(char *buf, size_t length);
+    int (*peek)(void);   /* next byte or -1; NULL where a reader may not look */
+    void (*clear)(void); /* drop what is queued: a cold boot and a break */
+    uint32_t dwell_us;   /* how long a dry source keeps the reader */
+} com_source_driver_t;
+
+/* A source fed in bursts -- a wire, or a ring a paste drips into a chunk at
+ * a time -- is empty between two chunks, so a dry read keeps the reader for
+ * this long. A source whose empty queue means nobody is typing sets 0. One
+ * number for every burst source, because they are the same case. */
+#define COM_WIRE_DWELL_US 1000
+
+/* Reset the picker and clear every listed row: a cold boot and a break. */
+void com_rx_clear(void);
 
 // Non-blocking 1-byte read. *src is in/out:
 //   - in COM_SOURCE_ANY: read from any active source via the sticky

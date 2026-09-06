@@ -47,10 +47,11 @@
 #include "core/wdc/bus.h"
 #include "core/wdc/phi2.h"
 
-/* init and run walk this forward; stop walks it backward; the two task
- * columns are walked forward every pass of core/sys/sys.c's sys_task and
- * sys_io_task, which with sys_commit are this machine's super-loop. There
- * is no break fan-out -- no monitor to break into.
+/* init and run walk this forward; stop and break walk it backward; the two
+ * task columns are walked forward every pass of core/sys/sys.c's sys_task and
+ * sys_io_task, which with sys_commit are this machine's super-loop. A break
+ * is asked for from the host, when its console or its window is closed on a
+ * running program.
  *
  * Video leads and the bus follows, so VGA sits before BUS: the beam advances
  * a scanline and bus_task runs the 6502 up to it. TERM stays after API in the
@@ -70,5 +71,12 @@
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+
+/* Where console input comes from, indexed by com_source_t; core/com/pick.c
+ * reads them. The host resolves keystrokes into text before they arrive, so
+ * the keyboard is core's ring, and the wire is host stdin when there is one. */
+#define RP6502_COM_SOURCES                       \
+    [COM_SOURCE_KEYBOARD] = COM_KEYBOARD_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

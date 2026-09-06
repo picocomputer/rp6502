@@ -74,4 +74,13 @@
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
 
+/* Where console input comes from, indexed by com_source_t; core/com/pick.c
+ * reads them. This machine has a layout engine, so its keyboard is keymap's
+ * own queue and core's keyboard ring is never referenced. No wire, but the
+ * UART row stays: it is where the terminal's answers to a program's queries
+ * arrive. */
+#define RP6502_COM_SOURCES                     \
+    [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE
+
 #endif /* _HOST_DRIVERS_H_ */

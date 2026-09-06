@@ -12,14 +12,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The KEYBOARD source: every host keystroke, scripted or typed, enters the
- * machine here. The pushers are core/hid/vtkeys.c and the Pocket's own com.c.
- * A RIA is not among them -- it links no core/com at all, and its console
- * pulls from keymap_in_chars instead, which is why the keymap keeps a queue. */
+/* The KEYBOARD source, for a machine whose host resolved the keystroke into
+ * text before it arrived: core/hid/vtkeys.c pushes here. A machine with a
+ * layout engine of its own lists keymap's queue as its keyboard row instead,
+ * and neither the Pocket nor the RIA pushes here at all. */
 void com_keyboard_push(const char *s, size_t n);
 void com_keyboard_push_byte(uint8_t b);
 #define COM_RING_SIZE 64 /* each ring; a power of two */
 size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */
+
+/* The row core/com/pick.c reads it through. A dwell, because the paste drip
+ * fills this ring a chunk at a time and the line editor drains it dry every
+ * pass: a dry ring mid-paste is a gap in the drip, not a person who stopped. */
+size_t com_keyboard_read(char *buf, size_t length);
+void com_keyboard_clear(void);
+#define COM_KEYBOARD_SOURCE {.read = com_keyboard_read, .clear = com_keyboard_clear, .dwell_us = COM_WIRE_DWELL_US}
 
 /* The UART source: a machine whose console has a wire pushes what arrived on
  * it here, the way a Pico drains its UART FIFO. A Ctrl-C latches SIGINT
@@ -27,6 +34,16 @@ size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it 
  * the byte is dropped. */
 void com_uart_push(const char *s, size_t n);
 size_t com_uart_free(void); /* headroom; a wire reads no more than this */
+
+/* The row core/com/pick.c reads it through. The emulated terminal's answer
+ * to a query is this row's tail: promoted into the ring only once the wire
+ * is empty, so it never lands inside something the wire had half-delivered.
+ * Every software machine lists this row, the Pocket included, because that
+ * is where its terminal's answers arrive. */
+size_t com_uart_read(char *buf, size_t length);
+int com_uart_peek(void);
+void com_uart_clear(void);
+#define COM_UART_SOURCE {.read = com_uart_read, .peek = com_uart_peek, .clear = com_uart_clear, .dwell_us = COM_WIRE_DWELL_US}
 
 /* Nothing queued anywhere, from any source, with nothing held back: what a
  * host asks before it decides its input has genuinely run out. */

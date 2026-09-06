@@ -246,7 +246,7 @@ static bool keymap_alt_escape(const keymap_press_t *k)
 }
 
 // Drop whatever was half-typed; the machine is going somewhere else.
-static void keymap_abandon(void)
+void keymap_abandon(void)
 {
     keymap_key_queue_tail = keymap_key_queue_head;
     keymap_alt_mode = false;

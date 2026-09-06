@@ -6,6 +6,8 @@
  * The console, for a machine whose console has no wire of its own to
  * arbitrate: two rings, one for what was typed and one for what the terminal
  * answered, and a single sink every terminal-bound byte passes through once.
+ * Which ring the next byte comes from is core/com/pick.c's; the rings answer
+ * as two of its rows.
  *
  * The rules here are the machine's, not the wire's -- a Ctrl-C latches a
  * SIGINT wherever it enters, a BEL in program output rings the teletype, a
@@ -56,22 +58,6 @@ static bool com_term_reply_suppressed;
  * roundtrips through the BEL attribute, so a program reads back what it set. */
 static bool com_bel_enabled = true;
 
-static ring_t *ring_for(com_source_t src)
-{
-    switch (src)
-    {
-    case COM_SOURCE_KEYBOARD:
-        return &keyboard_ring;
-    case COM_SOURCE_UART:
-        return &uart_ring;
-    default:
-        /* Telnet among them: a machine of this shape has none, and answering
-         * the wire's ring here would file its bytes under the wrong source in
-         * the line editor. */
-        return NULL;
-    }
-}
-
 static void ring_push(ring_t *r, uint8_t b)
 {
     uint16_t next = (uint16_t)((r->head + 1) & RING_MASK);
@@ -113,94 +99,53 @@ static void reply_promote(void)
     reply_len = 0;
 }
 
-/* The source a read is in the middle of. A merged read takes one source's
- * bytes until that source is dry, then moves on -- so a keystroke cannot cut
- * into a paste, and a wire delivering a file cannot starve the keyboard for
- * the two readers that take one byte at a time. Without it a raw TTY: read
- * could return an escape sequence from one source spliced with bytes from
- * another, in the same buffer.
- *
- * The contract has always promised this; only the machine with a real serial
- * port had it. */
-static com_source_t rx_held = COM_SOURCE_ANY;
+/* ---- the two rows the picker reads ---- */
 
-static int rx_pick(com_source_t *src)
-{
-    if (rx_held != COM_SOURCE_ANY)
-    {
-        ring_t *r = ring_for(rx_held);
-        int c = r ? ring_pop(r) : -1;
-        if (c >= 0)
-        {
-            *src = rx_held;
-            return c;
-        }
-        rx_held = COM_SOURCE_ANY; /* dry: whoever speaks next holds it */
-    }
-    int c = ring_pop(&uart_ring);
-    if (c >= 0)
-    {
-        *src = rx_held = COM_SOURCE_UART;
-        return c;
-    }
-    c = ring_pop(&keyboard_ring);
-    if (c >= 0)
-    {
-        *src = rx_held = COM_SOURCE_KEYBOARD;
-        return c;
-    }
-    *src = COM_SOURCE_ANY;
-    return -1;
-}
-
-int com_getchar(com_source_t *src)
-{
-    /* A byte the register window staged is older than anything in the rings,
-     * and is stranded unless whoever reads next takes it back. It comes back
-     * to the source it was taken from, so a read pinned to one source never
-     * takes another's. */
-    char staged;
-    if (*src != COM_SOURCE_ANY)
-    {
-        if (com_rx_reclaim(&staged, 1, *src))
-            return (unsigned char)staged;
-    }
-    else
-        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-            if (com_rx_reclaim(&staged, 1, s))
-            {
-                *src = s;
-                return (unsigned char)staged;
-            }
-    reply_promote();
-    if (*src == COM_SOURCE_ANY)
-        return rx_pick(src);
-    ring_t *r = ring_for(*src);
-    int c = r ? ring_pop(r) : -1;
-    if (c < 0)
-        *src = COM_SOURCE_ANY;
-    return c;
-}
-
-int com_peekchar(com_source_t src)
-{
-    reply_promote();
-    ring_t *r = ring_for(src);
-    return r ? ring_peek(r) : -1;
-}
-
-size_t com_stdin_read(char *buf, size_t count)
+size_t com_keyboard_read(char *buf, size_t length)
 {
     size_t n = 0;
-    for (; n < count; n++)
+    for (; n < length; n++)
     {
-        com_source_t src = COM_SOURCE_ANY;
-        int c = com_getchar(&src);
+        int c = ring_pop(&keyboard_ring);
         if (c < 0)
             break;
         buf[n] = (char)c;
     }
     return n;
+}
+
+void com_keyboard_clear(void)
+{
+    memset(&keyboard_ring, 0, sizeof keyboard_ring);
+}
+
+/* The terminal's answer is this row's tail: promoted before each byte, so it
+ * follows whatever the wire had queued and a read that drains the wire reads
+ * on into the answer. */
+size_t com_uart_read(char *buf, size_t length)
+{
+    size_t n = 0;
+    for (; n < length; n++)
+    {
+        reply_promote();
+        int c = ring_pop(&uart_ring);
+        if (c < 0)
+            break;
+        buf[n] = (char)c;
+    }
+    return n;
+}
+
+int com_uart_peek(void)
+{
+    reply_promote();
+    return ring_peek(&uart_ring);
+}
+
+void com_uart_clear(void)
+{
+    memset(&uart_ring, 0, sizeof uart_ring);
+    reply_len = 0;
 }
 
 /* ---- output: the one path to the terminal ---- */
@@ -330,10 +275,11 @@ size_t com_stderr_write(const char *buf, size_t count)
  * would parse as something else. */
 void com_in_write_reply(const char *s, size_t n)
 {
-    if (com_term_reply_suppressed || n > sizeof reply_buf - reply_len)
+    if (com_term_reply_suppressed || n > sizeof reply_buf ||
+        reply_len > sizeof reply_buf - n)
         return;
-    for (size_t i = 0; i < n; i++)
-        reply_buf[reply_len++] = (uint8_t)s[i];
+    memcpy(reply_buf + reply_len, s, n);
+    reply_len += n;
 }
 
 void com_suppress_term_reply(bool suppress)
@@ -399,10 +345,7 @@ void com_set_bel(bool value)
  * alone. */
 void com_init(void)
 {
-    memset(&keyboard_ring, 0, sizeof(keyboard_ring));
-    memset(&uart_ring, 0, sizeof(uart_ring));
-    reply_len = 0;
-    rx_held = COM_SOURCE_ANY;
+    com_rx_clear();
     com_bel_enabled = true;
 }
 
@@ -415,10 +358,7 @@ void com_run(void)
  * register window staged for it is the bus's to drop, in ria_break. */
 void com_break(void)
 {
-    memset(&keyboard_ring, 0, sizeof(keyboard_ring));
-    memset(&uart_ring, 0, sizeof(uart_ring));
-    reply_len = 0;
-    rx_held = COM_SOURCE_ANY;
+    com_rx_clear();
 }
 
 void com_stop(void)
