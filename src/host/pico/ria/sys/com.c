@@ -484,9 +484,18 @@ void __in_flash("com_init") com_init(void)
 
 // Reset per-program-start console state: the BEL alert returns to its default
 // (enabled) so a program that muted it doesn't leak the setting into the next.
+//
+// The handoff slot is dropped here rather than at the stop that preceded us.
+// A byte the picker staged is still console input until a 6502 reads it, and
+// a stop is where the monitor takes the console back -- dropping it there
+// loses whatever was typed behind the line that caused the stop. Only a real
+// program start may take it: an action borrows the run to cycle RESB, the
+// same case api_run declines.
 void com_run(void)
 {
     com_bel_enabled = true;
+    if (!ria_active())
+        ria_uart_rx_clear();
 }
 
 void com_stop(void)
@@ -538,6 +547,7 @@ void com_break(void)
 
     REGS(0xFFE0) = 0;
     REGS(0xFFE2) = 0;
+    ria_uart_rx_clear();
 }
 
 void com_task(void)

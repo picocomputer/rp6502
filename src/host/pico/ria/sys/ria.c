@@ -141,7 +141,6 @@ void ria_stop(void)
 {
     irq_enabled = 0;
     gpio_put(CPU_IRQB_PIN, true);
-    ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
 bool ria_active(void)
