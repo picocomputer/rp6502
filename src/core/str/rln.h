@@ -42,6 +42,12 @@ void rln_read_line_no_history(rln_read_callback_t callback);
 // Give up a read in progress: the callback never fires.
 void rln_read_cancel(void);
 
+/* Give up a read the way an input that ran out gives it up: what has been
+ * typed so far is still a line, so the callback fires with it rather than
+ * the read being thrown away. False when nothing was held, so a caller can
+ * tell an unfinished line from an empty one. */
+bool rln_read_flush(void);
+
 // 6502 applications may configure the max length
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);

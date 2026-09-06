@@ -102,6 +102,9 @@ typedef struct
     bool da2_seen;          // proven DA2-aware this read
     bool defer_pending;     // arm-time busy criteria still pending
     bool defer_esc_pending; // arm-time in-flight ESC sequence not yet done
+    // The end character this source last ended a line with. The opposite one
+    // arriving next is the other half of it and ends nothing.
+    uint8_t line_end;
 } rln_source_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -1008,13 +1011,23 @@ static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
     }
 }
 
-static void rln_dispatch_C0(uint8_t ch)
+static void rln_dispatch_C0(rln_source_t *a, uint8_t ch)
 {
-    // Either spelling ends a line. A terminal sends a return, and what else
-    // arrives is whatever the far end put on the wire; the console does not
-    // rewrite it on the way in, so this is where both are understood.
+    // Either spelling ends a line. A terminal sends a return and a file of
+    // host text holds a line feed; the console does not rewrite either on the
+    // way in, so this is where both are understood. The pair is one line end
+    // and not two, and the memory of it lasts exactly one character -- which
+    // is why "\r\r" is still two lines and a blank line in a CRLF file
+    // survives. Cleared by whatever is dispatched next, because the parser's
+    // own protocol bytes arrive on this source too and are not what a return
+    // was followed by.
+    uint8_t was = a->line_end;
+    a->line_end = 0;
+    if ((ch == '\r' || ch == '\n') && was && ch != was)
+        return;
     if (ch == '\r' || ch == '\n')
     {
+        a->line_end = ch;
         rln_action_taken = true;
         rln_finish_line(true);
     }
@@ -1234,7 +1247,7 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
         switch (entry_state)
         {
         case ansi_state_C0:
-            rln_dispatch_C0(term);
+            rln_dispatch_C0(a, term);
             break;
         case ansi_state_Fe:
             rln_dispatch_Fe(term);
@@ -1470,8 +1483,12 @@ void rln_read_line(rln_read_callback_t callback)
     // still owes us CPRs this round, so defer must engage even before
     // the first CPR of this round arrives).
     bool sticky_cpr_seen[COM_SOURCE_COUNT];
+    uint8_t sticky_line_end[COM_SOURCE_COUNT];
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+    {
         sticky_cpr_seen[s] = rln_sources[s].cpr_seen;
+        sticky_line_end[s] = rln_sources[s].line_end;
+    }
     memset(rln_sources, 0, sizeof rln_sources);
     memset(&rln_poke_source, 0, sizeof rln_poke_source);
     // CPR1 always sent; CPR2 sent only when at least one geometry axis
@@ -1482,6 +1499,8 @@ void rln_read_line(rln_read_callback_t callback)
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
         rln_sources[s].cpr_seen = sticky_cpr_seen[s];
+        // The return ended the line, so its line feed lands in the next read.
+        rln_sources[s].line_end = sticky_line_end[s];
         rln_sources[s].cpr_expecting = rln_cpr_initial;
     }
     rln_handshake_deadline = timer_in_ms(RLN_HANDSHAKE_MS);
@@ -1538,6 +1557,14 @@ void rln_read_cancel(void)
     rln_callback = NULL;
     rln_complete_deferred = false;
     rln_idle_timeout_ms = 0;
+}
+
+bool rln_read_flush(void)
+{
+    if (!rln_callback || !rln_buflen)
+        return false;
+    rln_finish_line(false);
+    return true;
 }
 
 // Read one byte from the appropriate source(s). In normal operation

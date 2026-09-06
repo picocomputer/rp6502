@@ -450,11 +450,14 @@ bool std_stdin_waiting(void)
 void std_stdin_eof(void)
 {
     std_stdin_closed = true;
-    if (std_rln_active)
-    {
-        std_rln_active = false;
+    if (!std_rln_active)
+        return;
+    std_rln_active = false;
+    /* A last line the input never ended is still a line. It is handed over
+     * before the read is given up, and the read after this one is the one
+     * that answers nothing. */
+    if (!rln_read_flush())
         rln_read_cancel();
-    }
 }
 
 void std_task(void)
