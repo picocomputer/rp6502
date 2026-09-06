@@ -52,6 +52,14 @@ int com_getchar(com_source_t *src);
 // cannot tell "nothing yet" from "never" and must not have to.
 int com_peekchar(com_source_t src);
 
+// A machine whose 6502 reads the console through registers commits a byte
+// there ahead of any reader, and a reader some other way has to be able to
+// get it back. Both answer for one source only, the one whose row is about
+// to be read: the byte it staged, taken (zero length leaves it staged) or
+// looked at (-1 when none). A machine whose bus is fabric stages nothing.
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src);
+int com_rx_peek(com_source_t src);
+
 // Ensure space for com_write()
 bool com_writable(void);
 
@@ -75,13 +83,7 @@ void com_set_bel(bool value);
 
 /* The console's merged input, as the OS's raw console read (TTY:) takes it:
  * up to count bytes, however many are queued now, 0 when none. Not the line
- * editor's door -- that one is com_getchar, and rln owns the editing.
- *
- * A machine whose 6502 reads the console through registers of its own stages
- * a byte there before the program asks, and this reclaims it before draining
- * the rings, oldest first. Mixing the two is undefined by the machine's own
- * documentation, which is what licenses the steal -- and without it that byte
- * is stranded until the program happens to read the register. */
+ * editor's door -- that one is com_getchar, and rln owns the editing. */
 size_t com_stdin_read(char *buf, size_t count);
 
 #endif /* _CORE_SYS_COM_H_ */

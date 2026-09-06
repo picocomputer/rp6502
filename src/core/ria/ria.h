@@ -72,6 +72,11 @@ void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI 
  * contract) latches the VSYNC source, raising IRQB only while it is enabled. */
 bool ria_irq_asserted(void);
 
+/* A break drops the byte the $FFE2 latch holds for the program being
+ * interrupted. The console's own break clears its rings; the latch is the
+ * bus's, so the bus clears it. */
+void ria_break(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -80,6 +85,6 @@ bool ria_irq_asserted(void);
  * reversal puts its stop last -- which is where a machine with a real bus
  * needs it, because other stops read ria_active() to tell a program stop
  * from a fast-load transfer. This machine has no transfer and no stop. */
-#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, nul_break, nul_config, nul_config)
+#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, ria_break, nul_config, nul_config)
 
 #endif /* _CORE_RIA_RIA_H_ */

@@ -11,6 +11,7 @@
 
 #include "core/com/com.h"
 #include "core/hid/vtkeys.h"
+#include "core/ria/ria.h"
 #include "core/sys/com.h"
 #include "core/sys/com_term.h"
 #include "core/sys/sys.h"
@@ -111,6 +112,34 @@ UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
     ASSERT_FALSE(vtkeys_paste_busy());
     vtkeys_task();
     ASSERT_TRUE(com_input_idle());
+}
+
+UTEST(com, a_byte_the_window_staged_comes_back_to_its_own_source)
+{
+    com_init();
+    com_keyboard_push("k", 1);
+    /* A $FFE0 poll commits it into $FFE2. */
+    ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_UART), -1);
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), 'k');
+    char buf[1];
+    /* Another source's reader never takes it, and one with no room leaves it. */
+    ASSERT_EQ(com_rx_reclaim(buf, 1, COM_SOURCE_UART), (size_t)0);
+    ASSERT_EQ(com_rx_reclaim(buf, 0, COM_SOURCE_KEYBOARD), (size_t)0);
+    ASSERT_EQ(com_rx_reclaim(buf, 1, COM_SOURCE_KEYBOARD), (size_t)1);
+    ASSERT_EQ(buf[0], 'k');
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
+    ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
+}
+
+UTEST(com, a_break_drops_what_the_window_staged)
+{
+    com_init();
+    com_keyboard_push("k", 1);
+    ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
+    ria_break();
+    ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
 }
 
 UTEST_MAIN();

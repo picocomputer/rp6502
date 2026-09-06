@@ -54,10 +54,18 @@
 
 /* The fabric asks for a byte only when the 6502 has one outstanding, so
  * nothing is ever staged ahead of a reader here. */
-bool ria_rx_reclaim(char *ch)
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
 {
-    (void)ch;
-    return false;
+    (void)buf;
+    (void)length;
+    (void)src;
+    return 0;
+}
+
+int com_rx_peek(com_source_t src)
+{
+    (void)src;
+    return -1;
 }
 
 bool ria_active(void)

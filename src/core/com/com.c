@@ -156,16 +156,22 @@ static int rx_pick(com_source_t *src)
 int com_getchar(com_source_t *src)
 {
     /* A byte the register window staged is older than anything in the rings,
-     * and is stranded unless whoever reads next takes it back. */
-    if (*src == COM_SOURCE_ANY || *src == COM_SOURCE_UART)
+     * and is stranded unless whoever reads next takes it back. It comes back
+     * to the source it was taken from, so a read pinned to one source never
+     * takes another's. */
+    char staged;
+    if (*src != COM_SOURCE_ANY)
     {
-        char staged;
-        if (ria_rx_reclaim(&staged))
-        {
-            *src = COM_SOURCE_UART;
+        if (com_rx_reclaim(&staged, 1, *src))
             return (unsigned char)staged;
-        }
     }
+    else
+        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+            if (com_rx_reclaim(&staged, 1, s))
+            {
+                *src = s;
+                return (unsigned char)staged;
+            }
     reply_promote();
     if (*src == COM_SOURCE_ANY)
         return rx_pick(src);
@@ -405,13 +411,10 @@ void com_run(void)
     com_bel_enabled = true;
 }
 
-/* What was typed was meant for the program being interrupted. The register
- * window's staged byte goes with it, or a program that starts next reads a
- * character aimed at the one that just stopped. */
+/* What was typed was meant for the program being interrupted. The byte the
+ * register window staged for it is the bus's to drop, in ria_break. */
 void com_break(void)
 {
-    char staged;
-    ria_rx_reclaim(&staged);
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
     reply_len = 0;

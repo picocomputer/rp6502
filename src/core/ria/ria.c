@@ -159,25 +159,48 @@ static void rw_write(int which, uint8_t data)
  * stream (keyboard plus terminal replies), matching the firmware's com_rx_pick
  * across all sources — so a terminal-query reply (e.g. the CPR from ESC[6n) is
  * readable at $FFE2. Mixing the direct UART regs with an in-flight stdio call is
- * undefined per the docs, so sharing the stream is faithful. */
-static int ria_uart_rx_next(void)
+ * undefined per the docs, so sharing the stream is faithful.
+ *
+ * The source of the byte in the latch, kept so a reader that comes at the
+ * console another way gets it back for the source it was taken from and no
+ * other. */
+static com_source_t ria_uart_rx_src;
+
+static void ria_uart_rx_latch(void)
 {
     com_source_t src = COM_SOURCE_ANY;
-    return com_getchar(&src);
+    int ch = com_getchar(&src);
+    if (ch < 0)
+        return;
+    regs[0x02] = (uint8_t)ch;
+    regs[0x00] |= RIA_UART_RX_READY;
+    ria_uart_rx_src = src;
 }
 
-/* The byte a $FFE0 read pulled into the latch and the 6502 never took.
- * Answering the ready bit commits a byte out of the console's rings, so a
- * program reading the console some other way has to be able to get it
- * back -- see com_stdin_read, and ria/sys/com.c, which does the same. */
-bool ria_rx_reclaim(char *ch)
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
 {
-    if (!(regs[0x00] & RIA_UART_RX_READY))
-        return false;
-    *ch = (char)regs[0x02];
+    if (!length || !(regs[0x00] & RIA_UART_RX_READY) || ria_uart_rx_src != src)
+        return 0;
+    buf[0] = (char)regs[0x02];
     regs[0x00] &= ~RIA_UART_RX_READY;
     regs[0x02] = 0;
-    return true;
+    return 1;
+}
+
+int com_rx_peek(com_source_t src)
+{
+    if (!(regs[0x00] & RIA_UART_RX_READY) || ria_uart_rx_src != src)
+        return -1;
+    return regs[0x02];
+}
+
+/* What was typed was meant for the program being interrupted: the byte the
+ * window staged for it goes with it, or the program that starts next reads a
+ * character aimed at the one that just stopped. */
+void ria_break(void)
+{
+    regs[0x00] &= ~RIA_UART_RX_READY;
+    regs[0x02] = 0;
 }
 
 uint8_t ria_reg_read(uint16_t addr)
@@ -187,19 +210,10 @@ uint8_t ria_reg_read(uint16_t addr)
     case 0x00: /* UART flow control: bit7 TX always ok; bit6 set once a byte is
                 * pulled into the $FFE2 latch. */
     {
-        uint8_t flags = regs[0x00];
-        if (!(flags & RIA_UART_RX_READY))
-        {
-            int ch = ria_uart_rx_next();
-            if (ch >= 0)
-            {
-                regs[0x02] = (uint8_t)ch;
-                flags |= RIA_UART_RX_READY;
-            }
-        }
-        flags |= RIA_UART_TX_READY;
-        regs[0x00] = flags;
-        return flags;
+        if (!(regs[0x00] & RIA_UART_RX_READY))
+            ria_uart_rx_latch();
+        regs[0x00] |= RIA_UART_TX_READY;
+        return regs[0x00];
     }
     case 0x02: /* UART RX: return the latched byte, then refill it. */
     {
@@ -209,12 +223,7 @@ uint8_t ria_reg_read(uint16_t addr)
          */
         regs[0x02] = 0;
         regs[0x00] &= ~RIA_UART_RX_READY;
-        int ch = ria_uart_rx_next();
-        if (ch >= 0)
-        {
-            regs[0x02] = (uint8_t)ch;
-            regs[0x00] |= RIA_UART_RX_READY;
-        }
+        ria_uart_rx_latch();
         return v;
     }
     case 0x04: /* RW0 */
