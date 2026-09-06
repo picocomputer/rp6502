@@ -172,3 +172,7 @@ enable_testing()
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 add_subdirectory(${RP6502_ROOT}/tests/host/emu tests/host/emu)
 add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)
+# A board on a serial port, asked for by name. Nothing under it runs in CI.
+if(RP6502_DEVICE)
+    add_subdirectory(${RP6502_ROOT}/tests/pico tests/pico)
+endif()
