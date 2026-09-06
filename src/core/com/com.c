@@ -42,9 +42,11 @@ typedef struct
 static ring_t keyboard_ring;
 static ring_t uart_ring;
 /* The emulated terminal's answer, held whole until the wire it shares a
- * source with is empty. Promoted then and not before, so it can never land
- * in the middle of a sequence the wire is still delivering -- the same rule
- * the VGA chip's console states for the same reason. A reply is a bounded
+ * source with is empty. Promoted then and not before, so it always follows
+ * everything the wire has delivered rather than jumping the queue into the
+ * middle of it -- the same rule the VGA chip's console states for the same
+ * reason. What no rule here can catch is a wire that stopped mid sequence
+ * and has more coming; only the far end knows that. A reply is a bounded
  * burst, so one buffer holds any of them. */
 static uint8_t reply_buf[32];
 static size_t reply_len;
@@ -112,6 +114,46 @@ static void reply_promote(void)
     reply_len = 0;
 }
 
+/* The source a read is in the middle of. A merged read takes one source's
+ * bytes until that source is dry, then moves on -- so a keystroke cannot cut
+ * into a paste, and a wire delivering a file cannot starve the keyboard for
+ * the two readers that take one byte at a time. Without it a raw TTY: read
+ * could return an escape sequence from one source spliced with bytes from
+ * another, in the same buffer.
+ *
+ * The contract has always promised this; only the machine with a real serial
+ * port had it. */
+static com_source_t rx_held = COM_SOURCE_ANY;
+
+static int rx_pick(com_source_t *src)
+{
+    if (rx_held != COM_SOURCE_ANY)
+    {
+        ring_t *r = ring_for(rx_held);
+        int c = r ? ring_pop(r) : -1;
+        if (c >= 0)
+        {
+            *src = rx_held;
+            return c;
+        }
+        rx_held = COM_SOURCE_ANY; /* dry: whoever speaks next holds it */
+    }
+    int c = ring_pop(&uart_ring);
+    if (c >= 0)
+    {
+        *src = rx_held = COM_SOURCE_UART;
+        return c;
+    }
+    c = ring_pop(&keyboard_ring);
+    if (c >= 0)
+    {
+        *src = rx_held = COM_SOURCE_KEYBOARD;
+        return c;
+    }
+    *src = COM_SOURCE_ANY;
+    return -1;
+}
+
 int com_getchar(com_source_t *src)
 {
     /* A byte the register window staged is older than anything in the rings,
@@ -127,22 +169,7 @@ int com_getchar(com_source_t *src)
     }
     reply_promote();
     if (*src == COM_SOURCE_ANY)
-    {
-        int c = ring_pop(&uart_ring);
-        if (c >= 0)
-        {
-            *src = COM_SOURCE_UART;
-            return c;
-        }
-        c = ring_pop(&keyboard_ring);
-        if (c >= 0)
-        {
-            *src = COM_SOURCE_KEYBOARD;
-            return c;
-        }
-        *src = COM_SOURCE_ANY;
-        return -1;
-    }
+        return rx_pick(src);
     ring_t *r = ring_for(*src);
     int c = r ? ring_pop(r) : -1;
     if (c < 0)
@@ -358,6 +385,7 @@ void com_init(void)
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
     reply_len = 0;
+    rx_held = COM_SOURCE_ANY;
     com_bel_enabled = true;
 }
 
@@ -376,6 +404,7 @@ void com_break(void)
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
     reply_len = 0;
+    rx_held = COM_SOURCE_ANY;
 }
 
 void com_stop(void)

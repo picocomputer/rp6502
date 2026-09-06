@@ -80,6 +80,9 @@ rp6502_add_test(sys LIBS emu_core)
 # fan-outs are static.
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
+# --- The console's input, with more than one source live at once ---
+rp6502_add_test(com LIBS emu_core)
+
 # --- The log: what a level lets through, and that a message is a printf ---
 # Its own host_log, which keeps what it was given; its own levels, whatever
 # the configuration's.
