@@ -46,6 +46,7 @@
 #include "ria-w/net/wifi.h"
 #include "ria/sys/rp2350.h"
 #include "ria/sys/com.h"
+#include "ria/sys/com_telnet.h"
 #include "ria/sys/phi2.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/led.h"
@@ -101,5 +102,13 @@
     MODEM_STD_DRIVER, VCP_STD_DRIVER,                \
     MID_STD_DRIVER, ROM_STD_DRIVER,                  \
     NFC_STD_DRIVER, FS_STD_DRIVER
+
+/* Where console input comes from, indexed by com_source_t; core/com/pick.c
+ * reads them. Keymap's queue is the keyboard, the UART is the wire, and the
+ * telnet session is the remote. */
+#define RP6502_COM_SOURCES                     \
+    [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE,       \
+    [COM_SOURCE_TEL] = COM_TELNET_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

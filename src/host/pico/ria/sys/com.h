@@ -7,9 +7,9 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* COnsole Manifold and UART driver.
- * TX fan-out to UART and REM (telnet).
- * RX merge from UART, keyboard, and remote.
+/* The console: its UART, the TX fan-out to it and to telnet, and the stdio
+ * driver the monitor reads through. Which source a byte comes from is
+ * core/com/pick.c's, reading the rows this machine's drivers.h lists.
  */
 
 #include <stdarg.h>
@@ -56,6 +56,14 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
  * out. The monitor's prompts and the UF2 progress line are the callers;
  * oem_snprintf is the same thing into a buffer. */
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
+
+/* The UART as a console row: the same three names core/com/com.h gives its
+ * ring, so a roster reads the same on every machine. The two never link
+ * together. */
+size_t com_uart_read(char *buf, size_t length);
+int com_uart_peek(void);
+void com_uart_clear(void);
+#define COM_UART_SOURCE {.read = com_uart_read, .peek = com_uart_peek, .clear = com_uart_clear, .dwell_us = COM_WIRE_DWELL_US}
 
 /* This machine's console row, early because everything after it may print.
  * Early is also what its stop and its break want: both walk backward, so a

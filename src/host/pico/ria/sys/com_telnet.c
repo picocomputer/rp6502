@@ -8,8 +8,8 @@
  * stopped reading. A board with no radio answers the same calls with
  * nothing.
  *
- * This is a source the console picks between, not the console: com.c owns
- * the picking, this owns the socket.
+ * This is a source the console picks between, not the console: core/com/pick.c
+ * owns the picking, this owns the socket.
  */
 
 #include "core/sys/ria.h"
@@ -32,17 +32,8 @@
 
 bool com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
-size_t com_telnet_read(char *buf, size_t length)
-{
-    (void)buf;
-    (void)length;
-    return 0;
-}
-int com_telnet_peek(void) { return -1; }
 void com_telnet_pump(void) {}
 void com_telnet_task(void) {}
-bool com_telnet_connected(void) { return false; }
-void com_telnet_clear_rx(void) {}
 
 #else
 
@@ -76,6 +67,14 @@ static absolute_time_t com_telnet_rx_drop_after;
 
 void com_telnet_clear_rx(void)
 {
+    /* What the peer has already sent was typed for the program being
+     * interrupted, the same as what is in the ring. */
+    if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
+    {
+        char scratch[16];
+        while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
+            ;
+    }
     com_telnet_rx_head = com_telnet_rx_tail = 0;
     com_telnet_rx_drop_after = make_timeout_time_ms(COM_TELNET_RX_OVERFLOW_MS);
 }
@@ -99,7 +98,7 @@ void com_telnet_tx_write(char ch)
 
 size_t com_telnet_read(char *buf, size_t length)
 {
-    size_t count = com_rx_reclaim(buf, length, COM_SOURCE_TEL);
+    size_t count = 0;
     while (count < length && com_telnet_rx_head != com_telnet_rx_tail)
     {
         com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;
@@ -359,11 +358,6 @@ void com_telnet_task(void)
     case COM_TELNET_STATE_LISTENING:
         break;
     }
-}
-
-bool com_telnet_connected(void)
-{
-    return com_telnet_state == COM_TELNET_STATE_CONNECTED;
 }
 
 #endif
