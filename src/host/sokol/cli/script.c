@@ -86,8 +86,19 @@ static struct
 static char script_cap[SCRIPT_CAP_SIZE];
 static size_t script_cap_len;
 
+/* Where the captured console also goes, when someone is watching. A script
+ * owns the one terminal tap, so anyone else who wants those bytes asks here. */
+static void (*script_echo)(const char *buf, int len);
+
+void script_set_echo(void (*echo)(const char *buf, int len))
+{
+    script_echo = echo;
+}
+
 static void script_tap(const char *buf, int len)
 {
+    if (script_echo)
+        script_echo(buf, len);
     for (int i = 0; i < len; i++)
     {
         if (script_cap_len == sizeof script_cap - 1)

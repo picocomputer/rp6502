@@ -3,40 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's end of the console wire. There is no wire: the terminal is
- * rendered in the same process, so what is here is the host's stderr, the
- * bring-up mirror and the register-window byte the RIA model stages.
+ * This machine's end of the console wire: where a host that has one installs
+ * it, and the pump that fills the console from it. A machine whose console is
+ * the terminal it already renders installs nothing and this does nothing.
  */
 
 #include "core/com/tty.h"
-#include "core/str/oem.h"
-#include "core/ria/ria.h"
-
 #include "core/com/com.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
-
-/* Host streams carry host encoding, so OEM bytes expand to UTF-8 -- in
- * chunks, because stderr is unbuffered and a write per byte is a syscall
- * per byte. */
-static void tty_utf8_write(FILE *f, const char *buf, int len)
-{
-    char out[3 * 128];
-    int n = 0;
-    for (int i = 0; i < len; i++)
-    {
-        n += oem_to_utf8_char((unsigned char)buf[i], out + n);
-        if (n > (int)sizeof(out) - 3)
-        {
-            fwrite(out, 1, (size_t)n, f);
-            n = 0;
-        }
-    }
-    if (n)
-        fwrite(out, 1, (size_t)n, f);
-}
 
 /* The host's end of the wire, when the host has one. */
 static void (*tty_tx)(const char *buf, int len);
@@ -53,26 +29,6 @@ void tty_write(const char *buf, int len)
 {
     if (tty_tx)
         tty_tx(buf, len);
-    /* EMU_ECHO mirrors the terminal stream to the host's stderr, so a
-     * program's output is visible without rendering a frame. */
-    static int echo = -1;
-    if (echo < 0)
-        echo = getenv("EMU_ECHO") ? 1 : 0;
-    if (echo)
-        tty_utf8_write(stderr, buf, len);
-}
-
-static bool tty_stderr_host = true;
-
-void tty_set_stderr_host(bool on)
-{
-    tty_stderr_host = on;
-}
-
-void tty_stderr_write(const char *buf, int len)
-{
-    if (tty_stderr_host)
-        tty_utf8_write(stderr, buf, len);
 }
 
 /* A host libc has no cheap stream that reaches com_putchar, so this formats

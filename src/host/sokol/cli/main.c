@@ -16,6 +16,7 @@
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
+#include "core/com/com.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/cli/png.h"
 #include "core/sys/random.h"
@@ -204,6 +205,11 @@ int main(int argc, char **argv)
     xram_set_fill(o.fill_random, o.fill_value, host_seed());
     sys_init();
 
+    /* The program's stderr on the host's. Every path from here on, unlike
+     * stdout: no mode of the emulator claims host stderr for itself. The one
+     * console that already carries it to the same screen takes it back. */
+    streams_mirror_stderr();
+
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
      * ROM args are guest-bound, so they convert from host argv encoding to OEM
      * here at the entry; --shot/--ini stay host-domain untouched. */
@@ -343,6 +349,17 @@ int main(int argc, char **argv)
      * program's first output. */
     if (o.script && !script_load(o.script))
         return 1;
+
+    /* EMU_ECHO mirrors the machine's console to the host's stderr, so a run
+     * that failed can be read without rendering a frame. A script has taken
+     * the terminal tap by now, so it is asked rather than displaced. */
+    if (getenv("EMU_ECHO"))
+    {
+        if (o.script)
+            script_set_echo(streams_stderr);
+        else
+            com_set_tx_tap(streams_stderr);
+    }
 
     /* The host's stdio on the machine's console wire. A terminal at the far
      * end becomes the console itself and carries the machine's screen, so it

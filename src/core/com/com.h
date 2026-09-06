@@ -67,6 +67,13 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len));
  * consumer at a time: the desktop's mirror, the debug adapter, a test. */
 void com_set_std_tap(void (*tap)(int fd, const char *buf, int len));
 
+/* Where the program's stderr goes besides the terminal (NULL to clear). The
+ * terminal shows it either way; this is the second copy, for a host with a
+ * stderr of its own to put it on. A host that installs nothing sends the
+ * program's errors nowhere but the screen, which is what a machine running
+ * inside someone else's process must do. */
+void com_set_stderr_sink(void (*sink)(const char *buf, int len));
+
 /* Drain the wire both ways. The host that is linked defines it -- a machine
  * whose console is a UART has real work here, one whose console is the
  * terminal the walk already reaches has nothing to do here. */

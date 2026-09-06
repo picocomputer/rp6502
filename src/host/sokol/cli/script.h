@@ -55,4 +55,8 @@ bool script_command(const char *line);
 /* 0 when every assertion held. */
 int script_exit_code(void);
 
+/* Watch the console the script is matching. A script takes the terminal tap
+ * for itself, so this is the only way to see those bytes while one runs. */
+void script_set_echo(void (*echo)(const char *buf, int len));
+
 #endif /* _HOST_SOKOL_CLI_SCRIPT_H_ */

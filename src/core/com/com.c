@@ -223,6 +223,16 @@ void com_set_std_tap(void (*tap)(int fd, const char *buf, int len))
     com_std_tap = tap;
 }
 
+/* Where the program's stderr goes besides the terminal. NULL until a host
+ * says, because a machine that is a guest in someone else's process has no
+ * stderr to claim. */
+static void (*com_stderr_sink)(const char *buf, int len);
+
+void com_set_stderr_sink(void (*sink)(const char *buf, int len))
+{
+    com_stderr_sink = sink;
+}
+
 /* Every terminal-bound byte passes here exactly once, after CRLF translation:
  * the tap, the bell and the wire all observe the same merged stream. */
 void com_tx_write(const char *buf, int len)
@@ -303,7 +313,8 @@ size_t com_stderr_write(const char *buf, size_t count)
 {
     if (com_std_tap)
         com_std_tap(2, buf, (int)count);
-    tty_stderr_write(buf, (int)count);
+    if (com_stderr_sink)
+        com_stderr_sink(buf, (int)count);
     com_crlf_write(buf, (int)count);
     return count;
 }

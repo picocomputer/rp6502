@@ -16,7 +16,6 @@
 #include "core/com/com.h"
 #include "core/sys/com_term.h"
 #include "core/com/tty.h"
-#include "core/str/oem.h"
 #include "core/vga/vga_emu.h"
 #include "osal/console.h"
 #include <stdbool.h>
@@ -55,32 +54,11 @@ static size_t stdin_rx(char *buf, size_t max)
 }
 
 /* The machine's terminal stream, out on the host's, where a real terminal is
- * reading it. Already CRLF-translated; the encoding is all that changes. */
+ * reading it. Already CRLF-translated; the encoding is all that changes. A
+ * burst that ended a line has already reached the screen. */
 static void console_tx(const char *buf, int len)
 {
-    char out[3 * 128];
-    int n = 0;
-    bool line = false;
-    for (int i = 0; i < len; i++)
-    {
-        line |= buf[i] == '\n';
-        n += oem_to_utf8_char((unsigned char)buf[i], out + n);
-        if (n > (int)sizeof(out) - 3)
-        {
-            fwrite(out, 1, (size_t)n, stdout);
-            n = 0;
-        }
-    }
-    if (n)
-        fwrite(out, 1, (size_t)n, stdout);
-    tx_pending = true;
-    if (line)
-    {
-        fflush(stdout);
-        tx_pending = false;
-    }
-    if (ferror(stdout))
-        os_console_break_ask(); /* the reader went away */
+    tx_pending = !streams_write(stdout, buf, len);
 }
 
 bool console_open(void)
@@ -101,7 +79,7 @@ bool console_open(void)
      * copy on the host's would print everything twice. A redirected stderr
      * is another destination and still gets its own. */
     if (os_console_stderr_is_terminal())
-        tty_set_stderr_host(false);
+        com_set_stderr_sink(NULL);
     return true;
 }
 

@@ -25,12 +25,6 @@ void tty_write(const char *buf, int len)
     }
 }
 
-void tty_stderr_write(const char *buf, int len)
-{
-    (void)buf;
-    (void)len;
-}
-
 /* picolibc wants a stream before printf will link. Pointing it at com_putchar
  * puts a plain printf through the same CRLF expansion, bell scan and terminal
  * tap as com_printf. */
