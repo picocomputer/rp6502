@@ -23,6 +23,9 @@
 #include <stdio.h>
 
 static bool stdin_closed;
+/* Written since the last flush. A program that draws with escapes and never
+ * prints a newline would otherwise sit in the buffer unseen. */
+static bool tx_pending;
 
 /* Whatever the far end sent, byte for byte. A wire carries no encoding and
  * spells no line ends: what a terminal or a pipe put on it is what a UART
@@ -31,6 +34,14 @@ static bool stdin_closed;
 static size_t stdin_rx(char *buf, size_t max)
 {
     size_t n = os_console_read(buf, max);
+    /* Nothing arriving is the moment the machine has drawn whatever it was
+     * going to. This is the only flush a windowed run ever gets, and it is
+     * where a prompt with no newline after it reaches the screen. */
+    if (!n && tx_pending)
+    {
+        tx_pending = false;
+        fflush(stdout);
+    }
     if (n || !os_console_ended())
         return n;
     /* Only once the wire has drained and a cooked read is genuinely starved:
@@ -62,8 +73,12 @@ static void console_tx(const char *buf, int len)
     }
     if (n)
         fwrite(out, 1, (size_t)n, stdout);
+    tx_pending = true;
     if (line)
+    {
         fflush(stdout);
+        tx_pending = false;
+    }
     if (ferror(stdout))
         os_console_break_ask(); /* the reader went away */
 }
