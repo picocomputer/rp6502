@@ -32,6 +32,17 @@ size_t com_uart_free(void); /* headroom; a wire reads no more than this */
  * host asks before it decides its input has genuinely run out. */
 bool com_input_idle(void);
 
+/* Take back a byte this machine's register window staged ahead of a reader.
+ * Answering a ready bit commits a byte out of the console, so a program
+ * reading the console some other way has to be able to get it back. False on
+ * a machine that stages nothing, which is one whose bus is fabric.
+ *
+ * Declared here rather than in the machine contract because this console is
+ * what asks. A machine that keeps a console of its own answers the same need
+ * its own way -- the firmware tags its cross-core slot with the source that
+ * filled it -- and never links this. */
+bool ria_rx_reclaim(char *ch);
+
 
 /* Cold-boot flush: clear the input and reset BEL (machine power-up). */
 void com_init(void);

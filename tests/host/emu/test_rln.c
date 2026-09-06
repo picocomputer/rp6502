@@ -34,6 +34,17 @@ static void wire(const char *s)
         rln_task();
 }
 
+/* A machine nobody has typed at yet. rln keeps what it learned about a wire
+ * across a read and a program, so a case that did not say so would inherit
+ * the one before it. */
+static void fresh(void)
+{
+    com_init();
+    rln_init();
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+        rln_forget_source(s);
+}
+
 static void reading(void)
 {
     lines = 0;
@@ -43,8 +54,7 @@ static void reading(void)
 
 UTEST(rln, either_spelling_ends_a_line)
 {
-    com_init();
-    rln_init();
+    fresh();
     reading();
     wire("a\r");
     ASSERT_EQ(lines, 1);
@@ -57,8 +67,7 @@ UTEST(rln, either_spelling_ends_a_line)
 
 UTEST(rln, a_return_and_its_line_feed_are_one_line_end)
 {
-    com_init();
-    rln_init();
+    fresh();
     reading();
     wire("a\r\n");
     ASSERT_EQ(lines, 1);
@@ -69,8 +78,7 @@ UTEST(rln, a_return_and_its_line_feed_are_one_line_end)
 
 UTEST(rln, the_memory_of_a_line_end_lasts_one_character)
 {
-    com_init();
-    rln_init();
+    fresh();
     /* Enter twice is a blank line, and a blank line in a file of CRLF text
      * is a line of its own. Both would go if the rule were "swallow the
      * next line feed" instead of "the opposite one, once". */
@@ -85,8 +93,7 @@ UTEST(rln, the_memory_of_a_line_end_lasts_one_character)
 
 UTEST(rln, a_line_end_outlives_the_machine_it_was_typed_at)
 {
-    com_init();
-    rln_init();
+    fresh();
     reading();
     wire("a\r");
     ASSERT_EQ(lines, 1);
@@ -101,6 +108,22 @@ UTEST(rln, a_line_end_outlives_the_machine_it_was_typed_at)
     wire("b\r");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "b");
+}
+
+UTEST(rln, a_source_that_goes_away_takes_its_half_line_end_with_it)
+{
+    fresh();
+    reading();
+    wire("a\r");
+    ASSERT_EQ(lines, 1);
+    /* The client that sent the return dropped before its line feed arrived.
+     * The next one is a different terminal and owes nothing the last one did;
+     * without this its first Enter would be eaten as the other half of a pair
+     * it never sent. */
+    rln_forget_source(COM_SOURCE_UART);
+    reading();
+    wire("\n");
+    ASSERT_EQ(lines, 1);
 }
 
 UTEST_MAIN();

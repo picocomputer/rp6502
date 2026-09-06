@@ -210,6 +210,19 @@ int main(int argc, char **argv)
      * console that already carries it to the same screen takes it back. */
     streams_mirror_stderr();
 
+    /* EMU_ECHO mirrors the machine's console to the host's stderr, so a run
+     * that failed can be read without rendering a frame. Every mode, which is
+     * why it is here rather than past the launch paths that return early. A
+     * script takes the one terminal tap for itself, so it is asked rather
+     * than displaced. */
+    if (getenv("EMU_ECHO"))
+    {
+        if (o.script)
+            script_set_echo(streams_stderr);
+        else
+            com_set_tx_tap(streams_stderr);
+    }
+
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
      * ROM args are guest-bound, so they convert from host argv encoding to OEM
      * here at the entry; --shot/--ini stay host-domain untouched. */
@@ -349,17 +362,6 @@ int main(int argc, char **argv)
      * program's first output. */
     if (o.script && !script_load(o.script))
         return 1;
-
-    /* EMU_ECHO mirrors the machine's console to the host's stderr, so a run
-     * that failed can be read without rendering a frame. A script has taken
-     * the terminal tap by now, so it is asked rather than displaced. */
-    if (getenv("EMU_ECHO"))
-    {
-        if (o.script)
-            script_set_echo(streams_stderr);
-        else
-            com_set_tx_tap(streams_stderr);
-    }
 
     /* The host's stdio on the machine's console wire. A terminal at the far
      * end becomes the console itself and carries the machine's screen, so it

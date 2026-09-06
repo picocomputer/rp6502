@@ -72,6 +72,12 @@ void rln_set_term_height(uint16_t v);
 // change reflow the current input line at the new effective width.
 void rln_set_naws_size(uint16_t w, uint16_t h);
 
+// A source's far end has gone. What a source knows about its wire outlives a
+// read and a program, which is what makes type-ahead and a CRLF pair work
+// across both -- but not a session: the next client is a different terminal
+// and owes nothing the last one did. Takes a com_source_t.
+void rln_forget_source(unsigned src);
+
 // Terminal width. Priority: rln_set_term_width override if set, then the
 // telnet NAWS width, then the highest-priority terminal's CPR width (telnet
 // over uart), then a VGA-aware fallback (40 for 320-wide canvases, 80

@@ -34,15 +34,20 @@ bool streams_write(FILE *f, const char *buf, int len)
         fwrite(out, 1, (size_t)n, f);
     if (line)
         fflush(f);
-    if (ferror(f))
-        os_console_break_ask(); /* the reader went away */
     return line;
 }
 
+/* Only the stream the machine's output is on may end the run by going away.
+ * The diagnostic copies -- the program's stderr, EMU_ECHO's console -- write
+ * to a stream nobody may be reading, and a failure there is not a reason to
+ * stop a machine that is working. */
 static void streams_stdout_tap(int fd, const char *buf, int len)
 {
-    if (fd == 1)
-        streams_write(stdout, buf, len);
+    if (fd != 1)
+        return;
+    streams_write(stdout, buf, len);
+    if (ferror(stdout))
+        os_console_break_ask(); /* the reader went away */
 }
 
 void streams_mirror_stdout(void)

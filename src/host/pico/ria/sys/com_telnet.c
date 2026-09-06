@@ -258,7 +258,8 @@ static void com_telnet_teardown(com_telnet_state_t target)
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
         vga_set_tel_console_active(false);
-        rln_set_naws_size(0, 0); // drop stale telnet geometry
+        rln_set_naws_size(0, 0);               // drop stale telnet geometry
+        rln_forget_source(COM_SOURCE_TEL);     // and what that client's wire was mid-way through
     }
     if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE)
     {

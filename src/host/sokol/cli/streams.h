@@ -16,8 +16,8 @@
 
 /* Machine bytes onto one of the host's streams, in the host's encoding. True
  * when a line ended, which is when it flushed -- Windows has no line
- * buffering, so nothing arrives until someone says so. A write the reader is
- * gone from asks for a break rather than reporting a failure nobody reads. */
+ * buffering, so nothing arrives until someone says so. Reports no error: what
+ * a failed write means is the caller's, and it differs by stream. */
 bool streams_write(FILE *f, const char *buf, int len);
 
 /* Mirror the program's stdout to the host's. Not under --script or --dap,

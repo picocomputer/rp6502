@@ -59,7 +59,7 @@ bool ria_uart_rx_offer_ready(void);    // RX handoff slot free?
 void ria_uart_rx_offer(uint8_t ch);    // hand a byte to the 6502
 int ria_uart_rx_peek(void);            // peek the offered byte (-1 if none)
 bool ria_uart_rx_reclaim(uint8_t *ch); // take back an unconsumed offered byte
-void ria_uart_rx_clear(void);          // drop the handoff (program start/break)
+void ria_uart_rx_clear(void);          // drop the handoff (break)
 
 // Move data from the 6502 to mbuf.
 void ria_read_buf(uint16_t addr);

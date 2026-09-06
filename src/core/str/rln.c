@@ -201,6 +201,15 @@ static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
+// The sources whose CPR/DA2 replies are real protocol responses. Typed input
+// from a keyboard can look like a reply and isn't, and the poke source is
+// virtual. All CPR accounting gates on this, so a source that is not one of
+// these can never work off a CPR it was seeded to expect.
+static bool rln_source_tracked(com_source_t s)
+{
+    return s == COM_SOURCE_UART || s == COM_SOURCE_TEL;
+}
+
 // True if source s still owes in-band protocol work: mid a multi-byte
 // ANSI sequence, or owes a proven CPR reply. cpr_seen keeps
 // never-replying script peers from pinning completion open.
@@ -238,11 +247,13 @@ static void rln_defer_check_resolved(com_source_t s)
         return;
     if (a->defer_esc_pending && a->state == ansi_state_C0)
         a->defer_esc_pending = false;
-    /* Same cpr_seen guard rln_source_busy arms with. Every source is seeded
-     * with an expected CPR count and only a real terminal ever answers one,
-     * so without it a source that armed mid-sequence and is not a terminal
-     * -- the keyboard -- can never resolve, and waits out the deadline. */
-    if (!a->defer_esc_pending && (!a->cpr_seen || a->cpr_expecting == 0))
+    /* Every source is seeded with an expected CPR count, but only a tracked
+     * one can ever work it off, so an untracked source that armed mid-sequence
+     * would otherwise wait out the deadline. Not cpr_seen: that is false for a
+     * real terminal until its first reply of the round lands, and releasing on
+     * it would spill this round's answers into the next. */
+    if (!a->defer_esc_pending &&
+        (!rln_source_tracked(s) || a->cpr_expecting == 0))
         a->defer_pending = false;
 }
 
@@ -1204,11 +1215,7 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     bool is_da2 = (entry_state == ansi_state_CSI_private &&
                    a->csi_private == '>' &&
                    term == 'c');
-    // Tracked sources (UART/TEL) are the ones whose CPR/DA2 replies are
-    // real protocol responses. KEYBOARD typed input can look like a reply but
-    // isn't; the poke source is virtual (src=COM_SOURCE_ANY). All
-    // CPR/DA2 handling below gates on this.
-    bool tracked = (src == COM_SOURCE_UART || src == COM_SOURCE_TEL);
+    bool tracked = rln_source_tracked(src);
     // Protocol-state accounting (cpr_seen/cpr_expecting, da2_seen),
     // geometry refinement (rln_cpr_dispatch), and the lock-off latch all
     // run before the defer gate below: they must record every CPR/DA2,
@@ -1716,6 +1723,12 @@ void rln_break(void)
 }
 
 /* 6502 applications may configure the max length */
+
+void rln_forget_source(unsigned src)
+{
+    if (src < COM_SOURCE_COUNT)
+        memset(&rln_sources[src], 0, sizeof rln_sources[src]);
+}
 
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
 uint8_t rln_get_max_length(void) { return rln_max_length; }

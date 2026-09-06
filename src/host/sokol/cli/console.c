@@ -59,6 +59,8 @@ static size_t stdin_rx(char *buf, size_t max)
 static void console_tx(const char *buf, int len)
 {
     tx_pending = !streams_write(stdout, buf, len);
+    if (ferror(stdout))
+        os_console_break_ask(); /* the reader went away */
 }
 
 bool console_open(void)

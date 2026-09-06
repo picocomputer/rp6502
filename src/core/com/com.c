@@ -389,7 +389,8 @@ void com_set_bel(bool value)
 }
 
 /* Cold boot: clear queued input and restore the BEL default. Not run per
- * program -- type-ahead survives an exec, and com_run resets the BEL alone. */
+ * program -- type-ahead survives an exec, and com_run restores the BEL enable
+ * alone. */
 void com_init(void)
 {
     memset(&keyboard_ring, 0, sizeof(keyboard_ring));
