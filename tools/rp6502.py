@@ -11,6 +11,7 @@ import os
 import re
 import time
 import binascii
+import codecs
 import argparse
 import configparser
 import platform
@@ -620,35 +621,45 @@ class Console:
 
     def term_posix(self, cp: str):
         """POSIX terminal emulator for Linux, BSD, MacOS, etc."""
-        tty.setraw(sys.stdin.fileno())
-        ctrl_a_pressed = False
-        while True:
-            ready, _, _ = select.select([sys.stdin, self.serial], [], [], None)
-            if sys.stdin in ready:
-                char = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="ignore")
-                if char == "\x01":  # CTRL-A
-                    ctrl_a_pressed = True
-                    self.serial.write(char.encode(cp))
-                elif ctrl_a_pressed and char.lower() in "bf":
-                    self.send_break()  # eats prompt
-                    sys.stdout.write("\r\n]")  # fake prompt
-                    ctrl_a_pressed = False
-                elif ctrl_a_pressed and char.lower() in "xq":
-                    sys.stdout.write("\r\n")
-                    if sys.stdin.isatty():
-                        os.system("stty sane")
-                    break
-                else:
-                    ctrl_a_pressed = False
-                    self.serial.write(char.encode(cp))
-            if self.serial in ready:
-                data = self.serial.read(1)
-                if len(data) > 0:
-                    try:
-                        sys.stdout.write(data.decode(cp))
-                    except UnicodeDecodeError:
-                        sys.stdout.write(f"\\x{data[0]:02x}")
-                    sys.stdout.flush()
+        fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
+        if saved:
+            tty.setraw(fd)
+        # A keystroke arrives a byte at a time and only a whole character can
+        # be spelled in the device code page.
+        decoder = codecs.getincrementaldecoder("utf-8")("ignore")
+        try:
+            ctrl_a_pressed = False
+            while True:
+                ready, _, _ = select.select([sys.stdin, self.serial], [], [], None)
+                if sys.stdin in ready:
+                    char = decoder.decode(os.read(fd, 1))
+                    if not char:
+                        continue  # a character still arriving
+                    if char == "\x01":  # CTRL-A
+                        ctrl_a_pressed = True
+                        self.serial.write(char.encode(cp, "replace"))
+                    elif ctrl_a_pressed and char.lower() in "bf":
+                        self.send_break()  # eats prompt
+                        sys.stdout.write("\r\n]")  # fake prompt
+                        ctrl_a_pressed = False
+                    elif ctrl_a_pressed and char.lower() in "xq":
+                        sys.stdout.write("\r\n")
+                        break
+                    else:
+                        ctrl_a_pressed = False
+                        self.serial.write(char.encode(cp, "replace"))
+                if self.serial in ready:
+                    data = self.serial.read(1)
+                    if len(data) > 0:
+                        try:
+                            sys.stdout.write(data.decode(cp))
+                        except UnicodeDecodeError:
+                            sys.stdout.write(f"\\x{data[0]:02x}")
+                        sys.stdout.flush()
+        finally:
+            if saved:
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
     def term_windows(self, cp):
         """Windows terminal emulator using Console API"""
@@ -667,7 +678,7 @@ class Console:
                     if key_in:
                         if key_in == "\x01":  # CTRL-A
                             ctrl_a_pressed = True
-                            self.serial.write(key_in.encode(cp))
+                            self.serial.write(key_in.encode(cp, "replace"))
                         elif ctrl_a_pressed and key_in.lower() in "bf":
                             self.send_break()  # eats prompt
                             sys.stdout.write("\r\n]")  # fake prompt
@@ -677,7 +688,7 @@ class Console:
                             break
                         else:
                             ctrl_a_pressed = False
-                            self.serial.write(key_in.encode(cp))
+                            self.serial.write(key_in.encode(cp, "replace"))
                     else:
                         time.sleep(0.001)
             except KeyboardInterrupt:
