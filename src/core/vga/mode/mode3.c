@@ -368,31 +368,63 @@ mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_
  *
  * The reverse walks the forward rather than keeping a second table, so the
  * two cannot drift apart when a renderer is added. */
+/* Every attribute this mode has and the renderer it names, written once. The
+ * forward lookup, the reverse a savestate needs, and the check a booking
+ * makes all read this list, so none of them can drift from the others.
+ *
+ * A machine whose fabric rasterizes reads only the left column: it has no
+ * renderer to name, and naming one would hold software it never runs in a
+ * memory it shares with its stack. */
+#define MODE3_FILLS(F) \
+    F(0, mode3_render_1bpp)          \
+    F(1, mode3_render_2bpp)          \
+    F(2, mode3_render_4bpp)          \
+    F(3, mode3_render_8bpp)          \
+    F(4, mode3_render_16bpp)         \
+    F(8, mode3_render_1bpp_reverse)  \
+    F(9, mode3_render_2bpp_reverse)  \
+    F(10, mode3_render_4bpp_reverse)
+
+bool mode3_fill_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE3_CASE(attr, fn) case attr:
+        MODE3_FILLS(MODE3_CASE)
+#undef MODE3_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
 vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
 {
     switch (attributes)
     {
-    case 0:
-        return mode3_render_1bpp;
-    case 1:
-        return mode3_render_2bpp;
-    case 2:
-        return mode3_render_4bpp;
-    case 3:
-        return mode3_render_8bpp;
-    case 4:
-        return mode3_render_16bpp;
-    case 8:
-        return mode3_render_1bpp_reverse;
-    case 9:
-        return mode3_render_2bpp_reverse;
-    case 10:
-        return mode3_render_4bpp_reverse;
+#define MODE3_CASE(attr, fn) \
+    case attr:                \
+        return fn;
+        MODE3_FILLS(MODE3_CASE)
+#undef MODE3_CASE
     default:
         return NULL;
     }
 }
 
+#endif
+
+#ifndef RP6502_VGA_FABRIC
 bool mode3_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
 {
     for (uint16_t a = 0; a < 16; a++)
@@ -403,6 +435,7 @@ bool mode3_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
         }
     return false;
 }
+#endif
 
 bool mode3_prog(uint16_t *xregs)
 {
@@ -416,9 +449,11 @@ bool mode3_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    vga_fill_fn_t render_fn = mode3_fill_fn(attributes);
-    if (!render_fn)
+    /* Asked of the list rather than of the pointer: a fabric machine has no
+     * pointer, and this is the same question either way. */
+    if (!mode3_fill_valid(attributes))
         return false;
+    vga_fill_fn_t render_fn = mode3_fill_fn(attributes);
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }

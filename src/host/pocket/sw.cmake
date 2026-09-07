@@ -127,6 +127,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # undefined, the default becomes the macro's own name, too long
             # for the field and left unterminated.
             -DRP6502_LOCALE=EN
+            # The scanline program lives in fabric registers and the fabric
+            # rasterizes, so the mode files' software renderers are named by
+            # nothing here. Without this the tile modes name core's font,
+            # which is not the font this machine draws with.
+            -DRP6502_VGA_FABRIC
             # 64 bytes of table rather than 1024. This image shares a 96 KB
             # memory with its stack and heap, and its CRC is a cold path:
             # nothing here makes a savestate, the fabric does.

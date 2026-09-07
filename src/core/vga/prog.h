@@ -41,15 +41,10 @@ const vga_prog_t *vga_prog_row(int16_t scanline);
 /* Forget all programming: a canvas change, or a machine stopping. */
 void vga_prog_reset(void);
 
-/* The last line any program renders, which is where vsync fires. Zero when
- * nothing is programmed. */
-int16_t vga_prog_highest(void);
-
-/* Bound a booking against the canvas and this plane, resolving a zero end to
- * "the bottom", and track the highest line. A machine whose program lives in
- * fabric registers bounds its own, because the numbers it bounds against are
- * the fabric's -- see the note above about not linking this file. */
-bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
+/* vga_prog_highest and vga_prog_valid are every machine's to answer and are
+ * declared in core/vga/vga.h beside the bookings. This file is one answer:
+ * a machine whose program lives in fabric registers bounds its own, because
+ * the numbers it bounds against are the fabric's. */
 
 /* A row put back exactly as it was, and the watermark with it.
  *

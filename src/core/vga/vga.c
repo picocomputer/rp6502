@@ -103,7 +103,6 @@ void vga_stop(void)
         vga_needs_reset = true;
 }
 
-static int16_t vga_vsync_scanline(void);
 static void vga_render_scanline(int y);
 
 /* ---- the beam ------------------------------------------------------------
@@ -346,7 +345,7 @@ void vga_task(void)
     if (vga_scanout && line < vga_canvas_height())
         vga_render_scanline(line);
     beam_n++;
-    if (!vsynced && line + 1 >= vga_vsync_scanline())
+    if (!vsynced && line + 1 >= vga_vsync_line())
     {
         REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
         ria_trigger_vsync(); /* latch $FFF0 bit7; IRQ only if the program enabled it */
@@ -359,15 +358,6 @@ void vga_task(void)
     }
 }
 
-static int16_t vga_vsync_scanline(void)
-{
-    /* Mirror the firmware (vga_scanline_complete): vsync fires at the highest
-     * scanline any program renders, clamped to / falling back to the canvas
-     * height (the visible region) — not the full 525-line frame. */
-    if (vga_prog_highest() > 0 && vga_prog_highest() <= vga_canvas_height())
-        return vga_prog_highest();
-    return vga_canvas_height();
-}
 
 /* The app-owned framebuffer the scanlines render into (the window's texture
  * staging, main.c's screenshot buffer, a test's assertion buffer). The owner

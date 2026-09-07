@@ -254,67 +254,81 @@ mode5_render_2bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16
  *
  * The reverse walks the forward rather than keeping a second table, so the
  * two cannot drift apart when a renderer is added. */
+/* Every attribute this mode has and the renderer it names, written once. The
+ * forward lookup, the reverse a savestate needs, and the check a booking
+ * makes all read this list, so none of them can drift from the others.
+ *
+ * A machine whose fabric rasterizes reads only the left column: it has no
+ * renderer to name, and naming one would hold software it never runs in a
+ * memory it shares with its stack. */
+#define MODE5_SPRITES(F) \
+    F(0, mode5_render_1bpp_8x8)      \
+    F(1, mode5_render_2bpp_8x8)      \
+    F(2, mode5_render_4bpp_8x8)      \
+    F(3, mode5_render_8bpp_8x8)      \
+    F(8, mode5_render_1bpp_16x16)    \
+    F(9, mode5_render_2bpp_16x16)    \
+    F(10, mode5_render_4bpp_16x16)   \
+    F(11, mode5_render_8bpp_16x16)   \
+    F(16, mode5_render_1bpp_32x32)   \
+    F(17, mode5_render_2bpp_32x32)   \
+    F(18, mode5_render_4bpp_32x32)   \
+    F(19, mode5_render_8bpp_32x32)   \
+    F(24, mode5_render_1bpp_64x64)   \
+    F(25, mode5_render_2bpp_64x64)   \
+    F(26, mode5_render_4bpp_64x64)   \
+    F(27, mode5_render_8bpp_64x64)   \
+    F(32, mode5_render_1bpp_128x128) \
+    F(33, mode5_render_2bpp_128x128) \
+    F(34, mode5_render_4bpp_128x128) \
+    F(35, mode5_render_8bpp_128x128) \
+    F(40, mode5_render_1bpp_256x256) \
+    F(41, mode5_render_2bpp_256x256) \
+    F(42, mode5_render_4bpp_256x256) \
+    F(43, mode5_render_8bpp_256x256) \
+    F(48, mode5_render_1bpp_512x512) \
+    F(49, mode5_render_2bpp_512x512)
+
+bool mode5_sprite_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE5_CASE(attr, fn) case attr:
+        MODE5_SPRITES(MODE5_CASE)
+#undef MODE5_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_sprite_fn_t mode5_sprite_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
 vga_sprite_fn_t mode5_sprite_fn(uint16_t attributes)
 {
     switch (attributes)
     {
-    case 0:
-        return mode5_render_1bpp_8x8;
-    case 1:
-        return mode5_render_2bpp_8x8;
-    case 2:
-        return mode5_render_4bpp_8x8;
-    case 3:
-        return mode5_render_8bpp_8x8;
-    case 8:
-        return mode5_render_1bpp_16x16;
-    case 9:
-        return mode5_render_2bpp_16x16;
-    case 10:
-        return mode5_render_4bpp_16x16;
-    case 11:
-        return mode5_render_8bpp_16x16;
-    case 16:
-        return mode5_render_1bpp_32x32;
-    case 17:
-        return mode5_render_2bpp_32x32;
-    case 18:
-        return mode5_render_4bpp_32x32;
-    case 19:
-        return mode5_render_8bpp_32x32;
-    case 24:
-        return mode5_render_1bpp_64x64;
-    case 25:
-        return mode5_render_2bpp_64x64;
-    case 26:
-        return mode5_render_4bpp_64x64;
-    case 27:
-        return mode5_render_8bpp_64x64;
-    case 32:
-        return mode5_render_1bpp_128x128;
-    case 33:
-        return mode5_render_2bpp_128x128;
-    case 34:
-        return mode5_render_4bpp_128x128;
-    case 35:
-        return mode5_render_8bpp_128x128;
-    case 40:
-        return mode5_render_1bpp_256x256;
-    case 41:
-        return mode5_render_2bpp_256x256;
-    case 42:
-        return mode5_render_4bpp_256x256;
-    case 43:
-        return mode5_render_8bpp_256x256;
-    case 48:
-        return mode5_render_1bpp_512x512;
-    case 49:
-        return mode5_render_2bpp_512x512;
+#define MODE5_CASE(attr, fn) \
+    case attr:                \
+        return fn;
+        MODE5_SPRITES(MODE5_CASE)
+#undef MODE5_CASE
     default:
         return NULL;
     }
 }
 
+#endif
+
+#ifndef RP6502_VGA_FABRIC
 bool mode5_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 {
     for (uint16_t a = 0; a < 64; a++)
@@ -325,6 +339,7 @@ bool mode5_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
         }
     return false;
 }
+#endif
 
 bool mode5_prog(uint16_t *xregs)
 {
@@ -342,9 +357,11 @@ bool mode5_prog(uint16_t *xregs)
     if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
         return false;
 
-    vga_sprite_fn_t render_fn = mode5_sprite_fn(attributes);
-    if (!render_fn)
+    /* Asked of the list rather than of the pointer: a fabric machine has no
+     * pointer, and this is the same question either way. */
+    if (!mode5_sprite_valid(attributes))
         return false;
+    vga_sprite_fn_t render_fn = mode5_sprite_fn(attributes);
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, render_fn);
 }

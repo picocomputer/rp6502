@@ -21,7 +21,11 @@
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
+#include "core/vga/mode/mode1.h"
 #include "core/vga/mode/mode2.h"
+#include "core/vga/mode/mode3.h"
+#include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode5.h"
 #include "utest.h"
 
 #include <string.h>
@@ -139,6 +143,22 @@ UTEST(progmap, no_two_renderers_are_the_same_address)
     for (size_t i = 0; i < n; i++)
         for (size_t j = i + 1; j < n; j++)
             ASSERT_TRUE(seen[i] != seen[j]);
+}
+
+/* The list a booking is checked against and the list a renderer is looked up
+ * in are the same list. They are two expansions of one macro, so this cannot
+ * drift here -- but a machine whose fabric rasterizes takes only the first,
+ * and this is what says the two halves still agree about which attributes
+ * exist. If they ever part, that machine books a mode it cannot draw. */
+UTEST(progmap, validity_and_lookup_are_the_same_list)
+{
+    for (unsigned a = 0; a <= 0xFF; a++)
+    {
+        ASSERT_TRUE(mode1_fill_valid((uint16_t)a) == (vga_mode_fill_fn(1, (uint16_t)a) != NULL));
+        ASSERT_TRUE(mode3_fill_valid((uint16_t)a) == (vga_mode_fill_fn(3, (uint16_t)a) != NULL));
+        ASSERT_TRUE(mode4_sprite_valid((uint16_t)a) == (vga_mode_sprite_fn(4, (uint16_t)a) != NULL));
+        ASSERT_TRUE(mode5_sprite_valid((uint16_t)a) == (vga_mode_sprite_fn(5, (uint16_t)a) != NULL));
+    }
 }
 
 /* A mode this build does not have, and an attribute a mode does not accept,

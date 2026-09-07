@@ -103,6 +103,28 @@ static inline void vga_canvas_geometry(vga_canvas_t code, int *w, int *h)
 // Number of programmable scanlines, also bounds scanline_id.
 #define VGA_PROG_MAX 512
 
+/* The last line any program renders, and the bounds a booking is held to.
+ * Every machine answers both -- a table to walk here, fabric registers
+ * there -- so they are asked for beside the bookings rather than beside the
+ * table one kind of machine happens to keep. */
+int16_t vga_prog_highest(void);
+bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
+
+/* Where vsync fires: the lowest line anything draws, or the bottom of the
+ * canvas where nothing does or where a stale watermark reaches past it.
+ *
+ * One copy, because the two machines that pace a beam this way had one each
+ * and a beam that fires on a different line is a different machine. Inline
+ * rather than in prog.c: it is a fact about the two numbers above, and the
+ * machine whose program lives in fabric registers does not link that file. */
+static inline int16_t vga_vsync_line(void)
+{
+    int16_t highest = vga_prog_highest();
+    if (highest > 0 && highest <= vga_canvas_height())
+        return highest;
+    return vga_canvas_height();
+}
+
 /* Booking scanlines for a mode. fill_fn is the renderer itself where the
  * machine rasterizes in software; where the fabric does, it is ignored and the
  * mode is announced out of band instead. */

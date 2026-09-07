@@ -454,35 +454,67 @@ mode1_render_16bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, ui
  *
  * The reverse walks the forward rather than keeping a second table, so the
  * two cannot drift apart when a renderer is added. */
+/* Every attribute this mode has and the renderer it names, written once. The
+ * forward lookup, the reverse a savestate needs, and the check a booking
+ * makes all read this list, so none of them can drift from the others.
+ *
+ * A machine whose fabric rasterizes reads only the left column. It has no
+ * renderer to name and could not link one if it tried: these read the font
+ * out of core/term/font.c, and that machine's font is in fabric RAM. Naming
+ * them would hold eight kilobytes of software it never runs inside a memory
+ * it shares with its stack. */
+#define MODE1_FILLS(F)              \
+    F(0, mode1_render_1bpp_8x8)     \
+    F(1, mode1_render_4bppr_8x8)    \
+    F(2, mode1_render_4bpp_8x8)     \
+    F(3, mode1_render_8bpp_8x8)     \
+    F(4, mode1_render_16bpp_8x8)    \
+    F(8, mode1_render_1bpp_8x16)    \
+    F(9, mode1_render_4bppr_8x16)   \
+    F(10, mode1_render_4bpp_8x16)   \
+    F(11, mode1_render_8bpp_8x16)   \
+    F(12, mode1_render_16bpp_8x16)
+
+bool mode1_fill_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE1_CASE(attr, fn) case attr:
+        MODE1_FILLS(MODE1_CASE)
+#undef MODE1_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
 vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
 {
     switch (attributes)
     {
-    case 0:
-        return mode1_render_1bpp_8x8;
-    case 1:
-        return mode1_render_4bppr_8x8;
-    case 2:
-        return mode1_render_4bpp_8x8;
-    case 3:
-        return mode1_render_8bpp_8x8;
-    case 4:
-        return mode1_render_16bpp_8x8;
-    case 8:
-        return mode1_render_1bpp_8x16;
-    case 9:
-        return mode1_render_4bppr_8x16;
-    case 10:
-        return mode1_render_4bpp_8x16;
-    case 11:
-        return mode1_render_8bpp_8x16;
-    case 12:
-        return mode1_render_16bpp_8x16;
+#define MODE1_CASE(attr, fn) \
+    case attr:               \
+        return fn;
+        MODE1_FILLS(MODE1_CASE)
+#undef MODE1_CASE
     default:
         return NULL;
     }
 }
 
+#endif
+
+#ifndef RP6502_VGA_FABRIC
 bool mode1_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
 {
     for (uint16_t a = 0; a < 16; a++)
@@ -493,6 +525,7 @@ bool mode1_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
         }
     return false;
 }
+#endif
 
 bool mode1_prog(uint16_t *xregs)
 {
@@ -506,11 +539,13 @@ bool mode1_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode1_config_t))
         return false;
 
-    vga_fill_fn_t render_fn = mode1_fill_fn(attributes);
-    if (!render_fn)
+    /* Asked of the list rather than of the pointer: a fabric machine has no
+     * pointer, and this is the same question either way. */
+    if (!mode1_fill_valid(attributes))
         return false;
 
-    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr,
+                         mode1_fill_fn(attributes));
 }
 
 #pragma GCC pop_options

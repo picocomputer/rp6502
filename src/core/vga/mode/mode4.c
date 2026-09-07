@@ -460,19 +460,57 @@ static void mode4_render_asprite(
 /* The renderer an attribute names, and the attribute a renderer came from.
  * Only the choice of renderer moves here; each attribute's own bounds check
  * stays with the booking, where the length it needs is in hand. */
+/* Every attribute this mode has and the renderer it names, written once. The
+ * forward lookup, the reverse a savestate needs, and the check a booking
+ * makes all read this list, so none of them can drift from the others.
+ *
+ * A machine whose fabric rasterizes reads only the left column: it has no
+ * renderer to name, and naming one would hold software it never runs in a
+ * memory it shares with its stack. */
+#define MODE4_SPRITES(F) \
+    F(0, mode4_render_sprite)  \
+    F(1, mode4_render_asprite)
+
+bool mode4_sprite_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE4_CASE(attr, fn) case attr:
+        MODE4_SPRITES(MODE4_CASE)
+#undef MODE4_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
 vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
 {
     switch (attributes)
     {
-    case 0:
-        return mode4_render_sprite;
-    case 1:
-        return mode4_render_asprite;
+#define MODE4_CASE(attr, fn) \
+    case attr:                \
+        return fn;
+        MODE4_SPRITES(MODE4_CASE)
+#undef MODE4_CASE
     default:
         return NULL;
     }
 }
 
+#endif
+
+#ifndef RP6502_VGA_FABRIC
 bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 {
     for (uint16_t a = 0; a < 4; a++)
@@ -483,6 +521,7 @@ bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
         }
     return false;
 }
+#endif
 
 bool mode4_prog(uint16_t *xregs)
 {
@@ -496,9 +535,11 @@ bool mode4_prog(uint16_t *xregs)
     if (config_ptr & 1)
         return false;
 
-    vga_sprite_fn_t render_fn = mode4_sprite_fn(attributes);
-    if (!render_fn)
+    /* Asked of the list rather than of the pointer: a fabric machine has no
+     * pointer, and this is the same question either way. */
+    if (!mode4_sprite_valid(attributes))
         return false;
+    vga_sprite_fn_t render_fn = mode4_sprite_fn(attributes);
     switch (attributes)
     {
     case 0:
