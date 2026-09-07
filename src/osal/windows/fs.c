@@ -33,6 +33,7 @@
 #include "osal/fs.h"
 #include "core/str/oem.h"
 #include "osal/os.h"
+#include "osal/dir.h"
 #include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"
 #include <direct.h>
@@ -67,6 +68,13 @@ static struct win_file
     bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
+    /* What a savestate needs to find this file again in another session: the
+     * path made absolute after the open succeeded, so a create resolves too
+     * and a later chdir cannot move it, and the access it was opened with.
+     * No pool of its own as POSIX needs -- a descriptor here is an index into
+     * this table, so the record can live in the row it describes. */
+    uint8_t flags;
+    char path[API_PATH_MAX + 1];
 } win_files[WIN_MAX_FILES + 1];
 
 static struct win_file *win_fil(int fd)
@@ -140,7 +148,14 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0, .writable = (flags & FS_WR) != 0};
+    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0,
+                                      .writable = (flags & FS_WR) != 0,
+                                      .flags = (uint8_t)(flags & (FS_RD | FS_WR))};
+    char *abs = os_dir_realpath(path);
+    const char *keep = abs ? abs : path;
+    if (strlen(keep) <= API_PATH_MAX)
+        strcpy(win_files[fd].path, keep);
+    free(abs);
     if (flags & FS_APPEND) /* a one-time seek to the end, after any TRUNC */
     {
         LARGE_INTEGER sz;
@@ -153,6 +168,40 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         }
         win_files[fd].pos = (int64_t)sz.QuadPart;
     }
+    return fd;
+}
+
+/* The position is this table's rather than the handle's: neither transport
+ * reads the handle's own file pointer, so f->pos is the only one there is. */
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    struct win_file *f = win_fil(desc);
+    if (!f || !f->path[0] || f->pos < 0 || f->pos > INT32_MAX)
+        return false;
+    sst_put_str(c, f->path, FS_PATH_SLOT);
+    sst_put_u8(c, f->flags);
+    sst_put_i32(c, (int32_t)f->pos);
+    return sst_ok(c);
+}
+
+int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    char path[FS_PATH_SLOT];
+    sst_get_str(c, path, FS_PATH_SLOT);
+    uint8_t flags = sst_get_u8(c);
+    int32_t pos = sst_get_i32(c);
+    if (!sst_ok(c) || pos < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    /* The access bits only. CREAT, EXCL, TRUNC and APPEND are one-time acts
+     * the opening program already had, and re-firing one would make or empty
+     * the very file this is trying to find again. */
+    int fd = fs_std_open(path, flags & (FS_RD | FS_WR), err);
+    if (fd < 0)
+        return -1;
+    win_files[fd].pos = pos;
     return fd;
 }
 
