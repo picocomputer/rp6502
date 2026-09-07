@@ -49,6 +49,10 @@ bool vga_run_frame(void);
  * stride; must hold the largest canvas). NULL skips pixel work. */
 void vga_set_framebuffer(uint32_t *fb);
 
+/* Whether to paint at all. Off skips the per-scanline render and nothing
+ * else; the machine runs identically either way. Defaults on. */
+void vga_set_scanout(bool on);
+
 /* What the last rendered frame went into, for a caller that wants the pixels
  * without owning them (a screenshot, a frame hash). NULL when none is set. */
 uint32_t *vga_get_framebuffer(void);

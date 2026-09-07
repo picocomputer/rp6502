@@ -68,8 +68,11 @@ Focus (Scroll Lock, on a keyboard) and the whole keyboard is the
 computer's, and so is the mouse. The core says so on screen the
 first time a program asks for either.
 
-To have it on every time, set Settings / Input / Auto Enable Game
-Focus to "Detect". This core tells RetroArch it wants a keyboard,
+Scroll Lock is only the default hotkey, and many handhelds and
+laptops have no such key; if yours does not, remap the hotkey.
+Better, set Settings / Input / Auto Enable Game Focus to "Detect"
+and it is on every time - that is input_auto_game_focus = "2" in
+retroarch.cfg. This core tells RetroArch it wants a keyboard,
 which is what that setting looks for.
 
 A program that uses the tablet draws its own pointer. RetroArch's
@@ -89,5 +92,7 @@ emulator has all three, and the same programs run on it:
 
     https://github.com/picocomputer/rp6502/releases
 
-Save states are not implemented. The core says so, so rewind and
-netplay will not offer themselves.
+Save states are not implemented yet - nothing in the machine
+serializes, so there is nothing to save. The core says so, and a
+frontend takes it at its word: rewind and netplay do not offer
+themselves either.

@@ -214,3 +214,39 @@ UTEST(run, the_pixels_are_where_the_pitch_says)
     ASSERT_EQ(fe.frame_pitch, (size_t)fe.frame_w * 4);
     fe.unload_game();
 }
+
+/* A frontend discarding this frame's picture still gets its one video call —
+ * the core guide requires exactly one per retro_run — but the machine skips
+ * the raster behind it, and the frame after it comes back is whole. */
+UTEST(run, a_frontend_that_wants_no_video_still_gets_its_call)
+{
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    fe_run(60);
+    ASSERT_TRUE(fe.av_enable_asked);
+
+    static uint32_t drawn[640 * 480];
+    const size_t px = (size_t)fe.frame_w * fe.frame_h;
+    memcpy(drawn, fe.frame_copy, px * sizeof(uint32_t));
+
+    fe.av_enable = RETRO_AV_ENABLE_AUDIO; /* video off */
+    int before = fe.video_calls;
+    fe_run(10);
+    ASSERT_EQ(fe.video_calls - before, 10); /* still exactly one per frame */
+
+    fe.av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    fe_run(10);
+    ASSERT_EQ((size_t)fe.frame_w * fe.frame_h, px); /* and whole again */
+    fe.unload_game();
+}
+
+/* The two blocks a frontend can search for cheats, with addresses on them. */
+UTEST(run, the_memory_map_reaches_the_frontend)
+{
+    fe_close();
+    fe_open();
+    ASSERT_FALSE(fe.memory_maps_set);
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe.memory_maps_set);
+    ASSERT_EQ(fe.memory_map_count, 2u);
+    fe.unload_game();
+}

@@ -321,6 +321,18 @@ void keyboard_toggle_lock(uint8_t bit)
     keyboard_publish();
 }
 
+/* A host whose OS already tracks the locks says what they are, rather than
+ * this guessing from an assumed start and every keypress after it. */
+void keyboard_set_locks(uint8_t leds)
+{
+    leds &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
+    if (leds == keyboard_hid_leds)
+        return;
+    keyboard_hid_leds = leds;
+    keyboard_send_leds();
+    keyboard_publish();
+}
+
 /* A host whose OS decodes its own keyboard sets the bits a report would
  * have set. Keycodes 0-3 are reserved -- none, and the rollover errors --
  * and their bits in word 0 carry the no-keys and lock flags, so a key

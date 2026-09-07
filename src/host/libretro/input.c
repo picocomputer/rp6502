@@ -39,6 +39,8 @@ static uint8_t retrok_to_hid(unsigned k)
         return (uint8_t)(0x1E + (k - RETROK_1));
     if (k >= RETROK_F1 && k <= RETROK_F12)
         return (uint8_t)(0x3A + (k - RETROK_F1));
+    if (k >= RETROK_F13 && k <= RETROK_F15)
+        return (uint8_t)(0x68 + (k - RETROK_F13));
     if (k >= RETROK_KP1 && k <= RETROK_KP9)
         return (uint8_t)(0x59 + (k - RETROK_KP1));
     switch (k)
@@ -56,15 +58,21 @@ static uint8_t retrok_to_hid(unsigned k)
     case RETROK_NUMLOCK: return 0x53;
     case RETROK_PRINT: return 0x46;
     case RETROK_PAUSE: return 0x48;
+    case RETROK_BREAK: return 0x48; /* one key, printed with two words */
     case RETROK_MENU: return 0x65;
     case RETROK_LCTRL: return 0xE0;
     case RETROK_LSHIFT: return 0xE1;
     case RETROK_LALT: return 0xE2;
     case RETROK_LSUPER: return 0xE3;
+    /* META and SUPER are the same physical key under two names, and a
+     * frontend may report either. Note the enum lists RMETA before LMETA. */
+    case RETROK_LMETA: return 0xE3;
     case RETROK_RCTRL: return 0xE4;
     case RETROK_RSHIFT: return 0xE5;
     case RETROK_RALT: return 0xE6;
     case RETROK_RSUPER: return 0xE7;
+    case RETROK_RMETA: return 0xE7;
+    case RETROK_MODE: return 0xE6; /* AltGr is the right Alt */
     case RETROK_0: return 0x27;
     case RETROK_RETURN: return 0x28;
     case RETROK_ESCAPE: return 0x29;
@@ -82,6 +90,8 @@ static uint8_t retrok_to_hid(unsigned k)
     case RETROK_COMMA: return 0x36;
     case RETROK_PERIOD: return 0x37;
     case RETROK_SLASH: return 0x38;
+    /* The ISO key between the left Shift and Z, which no ANSI board has. */
+    case RETROK_OEM_102: return 0x64;
     case RETROK_RIGHT: return 0x4F;
     case RETROK_LEFT: return 0x50;
     case RETROK_DOWN: return 0x51;
@@ -132,6 +142,24 @@ static char ascii_from_key(unsigned k, bool shift)
     case RETROK_COMMA: return shift ? '<' : ',';
     case RETROK_PERIOD: return shift ? '>' : '.';
     case RETROK_SLASH: return shift ? '?' : '/';
+    /* Some frontends report the symbol rather than the key that made it.
+     * Without these such a key produced neither a character nor a chord. */
+    case RETROK_EXCLAIM: return '!';
+    case RETROK_QUOTEDBL: return '"';
+    case RETROK_HASH: return '#';
+    case RETROK_DOLLAR: return '$';
+    case RETROK_AMPERSAND: return '&';
+    case RETROK_LEFTPAREN: return '(';
+    case RETROK_RIGHTPAREN: return ')';
+    case RETROK_ASTERISK: return '*';
+    case RETROK_PLUS: return '+';
+    case RETROK_COLON: return ':';
+    case RETROK_LESS: return '<';
+    case RETROK_GREATER: return '>';
+    case RETROK_QUESTION: return '?';
+    case RETROK_AT: return '@';
+    case RETROK_CARET: return '^';
+    case RETROK_UNDERSCORE: return '_';
     default: return 0;
     }
 }
@@ -149,11 +177,18 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     bool shift = (key_modifiers & RETROKMOD_SHIFT) != 0;
     bool alt = (key_modifiers & RETROKMOD_ALT) != 0;
 
+    /* The locks are the frontend's to know: it sends all three in every
+     * event. Toggling them here instead would start from a guess (NumLock on)
+     * and drift the moment one is pressed while the core is not focused. */
+    keyboard_set_locks(
+        (uint8_t)(((key_modifiers & RETROKMOD_NUMLOCK) ? KEYBOARD_LED_NUMLOCK : 0) |
+                  ((key_modifiers & RETROKMOD_CAPSLOCK) ? KEYBOARD_LED_CAPSLOCK : 0) |
+                  ((key_modifiers & RETROKMOD_SCROLLOCK) ? KEYBOARD_LED_SCROLLLOCK : 0)));
     switch (keycode)
     {
-    case RETROK_NUMLOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); return;
-    case RETROK_CAPSLOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); return;
-    case RETROK_SCROLLOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); return;
+    case RETROK_NUMLOCK:
+    case RETROK_CAPSLOCK:
+    case RETROK_SCROLLOCK: return; /* the modifier bits above carried it */
     default: break;
     }
 
@@ -207,7 +242,7 @@ static unsigned port_device[GAMEPAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
 static bool port_live[GAMEPAD_PLAYERS];
 static bool have_bitmasks;
-static bool mouse_seen; /* the frontend has shown one; see poll_pointer */
+static bool mouse_owns_pointer; /* the mouse holds the tablet; see poll_pointer */
 
 /* How many players the frontend actually has. The machine has four ports
  * and a frontend offers four whether or not anyone is holding anything, so
@@ -246,7 +281,7 @@ void input_reset(void)
     }
     have_bitmasks = false;
     max_users = GAMEPAD_PLAYERS;
-    mouse_seen = false;
+    mouse_owns_pointer = false;
     input_environ = NULL;
 }
 
@@ -365,18 +400,55 @@ static int16_t canvas_coord(int p, int extent)
     return (int16_t)(((p + 0x7FFF) * (extent - 1)) / 0xFFFE);
 }
 
+/* A lightgun is an absolute pointer that hovers: screen coordinates plus a
+ * trigger and two auxiliary buttons. Its range is [-0x8000, 0x7fff] and
+ * -0x8000 means out of bounds — unlike the pointer, which has no such
+ * sentinel — so an off-screen gun is no contact rather than a bogus pixel. */
+static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h)
+{
+    int gx = state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X);
+    int gy = state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y);
+    if (gx == -0x8000 || gy == -0x8000 ||
+        state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN))
+    {
+        tablet_host_clear();
+        return;
+    }
+    uint8_t buttons = 0;
+    if (state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER))
+        buttons |= TABLET_FLAG_LEFT;
+    if (state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_A))
+        buttons |= TABLET_FLAG_RIGHT;
+    if (state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_B))
+        buttons |= TABLET_FLAG_MIDDLE;
+    tablet_host_pointer(canvas_coord(gx, w), canvas_coord(gy, h), buttons, false);
+}
+
+/* Whether a lightgun is plugged into any port. A gun is an absolute pointer
+ * with its own buttons, so it drives the tablet in place of the mouse. */
+static int lightgun_port(void)
+{
+    for (int p = 0; p < GAMEPAD_PLAYERS; p++)
+        if ((port_device[p] & RETRO_DEVICE_MASK) == RETRO_DEVICE_LIGHTGUN)
+            return p;
+    return -1;
+}
+
 /* Both devices are read only once a program has asked for the block, which is
  * the same courtesy the desktop hosts extend: a ROM that wants neither is not
  * a reason to watch where anyone is pointing.
  *
- * What the pointer is depends on whether this frontend has shown a mouse —
- * reported motion or a button, mouse_seen. Until then its pointer is a
- * finger, walked by index until one is not pressed, and a finger that lifts
- * leaves nothing. With one, the pointer is where that mouse is, hovering,
- * and its buttons are the mouse's own three rather than the pointer's one
- * PRESSED bit — which x11 and udev also spread over indices 1 and 2 as
- * pretend fingers for right and middle, so a mouse's pointer is never
- * walked. */
+ * Touch and the mouse take turns at the tablet. The mouse drives it while
+ * nothing is being touched; a real touch takes it away and keeps it until
+ * the touches end and the mouse moves again, so a finger never fights a
+ * cursor parked somewhere else. mouse_owns_pointer is which of them holds
+ * it, and it starts false so an untouched screen with no mouse yet reports
+ * no contact rather than a ghost at whatever the pointer last read.
+ *
+ * A press arriving while a mouse button is held is not a touch: x11 and udev
+ * manufacture contacts at indices 1 and 2 out of the right and middle
+ * buttons, and honouring those would turn a right-click into a tip-down
+ * finger. */
 static void poll_pointer(retro_input_state_t state)
 {
     bool tablet = tablet_is_mapped();
@@ -393,8 +465,10 @@ static void poll_pointer(retro_input_state_t state)
         buttons |= TABLET_FLAG_RIGHT;
     if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
         buttons |= TABLET_FLAG_MIDDLE;
-    if (dx || dy || buttons)
-        mouse_seen = true;
+    if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_4))
+        buttons |= TABLET_FLAG_BTN4;
+    if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_5))
+        buttons |= TABLET_FLAG_BTN5;
 
     /* Off the game image the cursor is over the rest of the frontend, and
      * nothing there is a press on the machine. A frontend that cannot tell
@@ -405,34 +479,43 @@ static void poll_pointer(retro_input_state_t state)
     {
         int w, h;
         vga_canvas_size(&w, &h);
-        tablet_point_t pts[TABLET_MAX_CONTACTS];
-        int n = 0;
-        if (!mouse_seen)
-            for (int i = 0; i < TABLET_MAX_CONTACTS; i++)
-            {
-                if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
-                    break;
-                pts[n].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
-                pts[n].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
-                n++;
-            }
-        if (n)
-            tablet_host_touch(pts, n);
-        else if (mouse_seen && !offscreen)
-        {
-            int x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
-            int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
-            uint8_t b = buttons;
-            /* A press with no mouse button behind it is a touchscreen beside
-             * the mouse, and the press is the tip. */
-            if (!b && state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
-                b = TABLET_FLAG_LEFT;
-            /* No host cursor: libretro gives a core no way to ask a frontend
-             * to draw one, so the program draws its own. */
-            tablet_host_pointer(x, y, b, false);
-        }
+        int gun = lightgun_port();
+        if (gun >= 0)
+            poll_lightgun(state, (unsigned)gun, w, h);
         else
-            tablet_host_clear();
+        {
+            tablet_point_t pts[TABLET_MAX_CONTACTS];
+            int n = 0;
+            if (!buttons) /* no mouse button: nothing here is faking a finger */
+                for (int i = 0; i < TABLET_MAX_CONTACTS; i++)
+                {
+                    if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
+                        break;
+                    pts[n].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
+                    pts[n].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
+                    n++;
+                }
+            if (n)
+            {
+                mouse_owns_pointer = false; /* a finger takes it */
+                tablet_host_touch(pts, n);
+            }
+            else
+            {
+                if (dx || dy)
+                    mouse_owns_pointer = true; /* and moving hands it back */
+                if (mouse_owns_pointer && !offscreen)
+                {
+                    int x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
+                    int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
+                    /* No host cursor: libretro gives a core no way to ask a
+                     * frontend to draw one, so the program draws its own. */
+                    tablet_host_pointer(x, y, buttons, false);
+                }
+                else
+                    tablet_host_clear();
+            }
+        }
     }
 
     if (mouse)

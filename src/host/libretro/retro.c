@@ -68,6 +68,11 @@ static int geom_w, geom_h;
 static bool shutdown_sent;
 static bool hint_shown;
 
+/* The seed for this run, taken once and kept until the library is taken
+ * down, so the stream and the memory fill agree with each other. */
+static uint32_t run_seed;
+static bool run_seed_taken;
+
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
 /* ------------------------------------------------------------------ */
@@ -239,15 +244,18 @@ static const struct retro_input_descriptor input_descriptors[] = {
 };
 
 /* The machine has four gamepads and reads them as one modern controller each.
- * Saying so is how a frontend knows the ports exist at all. */
+ * Saying so is how a frontend knows the ports exist at all. A lightgun is
+ * offered beside them because the machine's tablet is an absolute pointer
+ * and a gun is one -- a player who has one has nowhere else to plug it in. */
 static const struct retro_controller_description gamepad_types[] = {
     {"Gamepad", RETRO_DEVICE_JOYPAD},
     {"Gamepad (Analog)", RETRO_DEVICE_ANALOG},
+    {"Lightgun", RETRO_DEVICE_LIGHTGUN},
     {NULL, 0},
 };
 
 static const struct retro_controller_info controller_info[] = {
-    {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {NULL, 0},
+    {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {NULL, 0},
 };
 
 /* The same options a frontend too old for v2 can still read. Two forms cover
@@ -339,6 +347,7 @@ void retro_deinit(void)
     shutdown_sent = false;
     geom_w = geom_h = 0;
     hint_shown = false;
+    run_seed_taken = false; /* a second session in one process is a new run */
     input_reset();
     log_cb = NULL;
 }
@@ -422,9 +431,6 @@ static void say_how_to_type(void)
 
 /* The seed for this run, decided once: a frontend offers no --seed, so it is
  * the OS's, and it is asked for both the stream and the memory fill. */
-static uint32_t run_seed;
-static bool run_seed_taken;
-
 uint32_t host_seed(void)
 {
     if (!run_seed_taken)
@@ -463,7 +469,24 @@ static void enter_save_directory(const char *content_path)
     if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir || !*dir)
     {
         /* No save directory: the program's own folder, which is where the SDK
-         * puts what it ships beside a ROM. */
+         * puts what it ships beside a ROM. Ask the frontend which folder that
+         * is -- it also knows when the program came out of an archive, where
+         * the path points inside the zip and has no directory to cut. */
+        struct retro_game_info_ext *ext = NULL;
+        if (environ_cb(RETRO_ENVIRONMENT_GET_GAME_INFO_EXT, &ext) &&
+            ext && ext->dir && *ext->dir)
+        {
+            char *oem_dir = argv_to_oem(ext->dir);
+            if (oem_dir)
+            {
+                api_errno err;
+                drive_chdir(oem_dir, &err);
+                free(oem_dir);
+            }
+            return;
+        }
+        if (!content_path)
+            return;
         own = strdup(content_path);
         if (!own)
             return;
@@ -556,6 +579,19 @@ bool retro_load_game(const struct retro_game_info *game)
 
     if (!boot(loaded_rom))
         return false;
+
+    /* Two blocks in one flat map, XRAM above the 6502's own space. Blank
+     * addrspace on both is what keeps them in one namespace; naming them
+     * would make two spaces each starting at zero. select and disconnect
+     * stay 0, which the header defines as "start and len are the whole
+     * mapping", and both lengths are the power of two that requires. */
+    static struct retro_memory_descriptor descs[2];
+    descs[0] = (struct retro_memory_descriptor){
+        .flags = RETRO_MEMDESC_SYSTEM_RAM, .ptr = sram, .start = 0x00000, .len = 0x10000};
+    descs[1] = (struct retro_memory_descriptor){
+        .flags = RETRO_MEMDESC_VIDEO_RAM, .ptr = (void *)xram, .start = 0x10000, .len = 0x10000};
+    struct retro_memory_map map = {descs, sizeof descs / sizeof *descs};
+    environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
     return true;
 }
 
@@ -641,6 +677,17 @@ void retro_run(void)
                         mouse_is_mapped()))
         say_how_to_type();
 
+    /* What the frontend will actually use this frame. Bit 0 video, bit 1
+     * audio; a frontend without the call leaves both on. Skipping the raster
+     * is the saving — the beam, vsync and the 6502 run either way — and the
+     * video callback is still made exactly once, as the core guide requires,
+     * because a discarded frame is discarded by the frontend, not by us. */
+    int av = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    if (!environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &av))
+        av = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    bool want_video = (av & RETRO_AV_ENABLE_VIDEO) != 0;
+    vga_set_scanout(want_video);
+
     /* The frontend paces us: one frame per call, as fast as this can run it. */
     vga_run_frame();
 
@@ -665,10 +712,17 @@ void retro_run(void)
         }
     }
 
-    swizzle(frame_buf, (size_t)w * (size_t)h);
+    if (want_video)
+        swizzle(frame_buf, (size_t)w * (size_t)h);
     video_cb(frame_buf, (unsigned)w, (unsigned)h, (size_t)w * sizeof *frame_buf);
 
-    push_audio();
+    /* Bit 1 only discards this frame's sound, and the next frame's must be no
+     * different for it, so the mixer is still clocked — aud_render is what
+     * advances it. Bit 3 is the frontend promising it will never want audio
+     * again (it is running a second copy for runahead), and that is the one
+     * that allows not synthesizing at all. */
+    if (!(av & RETRO_AV_ENABLE_HARD_DISABLE_AUDIO))
+        push_audio();
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */
@@ -705,8 +759,10 @@ size_t retro_get_memory_size(unsigned id)
     }
 }
 
-/* No savestates yet. Answering zero is how a core says so; answering anything
- * else promises rewind and netplay this machine cannot keep. */
+/* No savestates yet: nothing in the machine serializes, so there is nothing
+ * to answer with. Zero is how a core says so. It is not that serializing
+ * would over-promise -- SET_SERIALIZATION_QUIRKS and savestate_features
+ * exist to offer plain save states while declining rewind and netplay. */
 size_t retro_serialize_size(void) { return 0; }
 bool retro_serialize(void *data, size_t size) { (void)data; (void)size; return false; }
 bool retro_unserialize(const void *data, size_t size) { (void)data; (void)size; return false; }

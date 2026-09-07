@@ -109,6 +109,14 @@ static uint64_t beam_n;
 static unsigned long frame_n;
 static bool vsynced;
 
+/* Whether the beam paints. A host whose frontend is discarding this frame
+ * turns it off: the machine is untouched -- the beam still advances, vsync
+ * still latches, the 6502 still chases it -- and only the picture goes
+ * unpainted. Every visible line is drawn from XRAM each frame and nothing on
+ * the 6502 side can read the framebuffer back, so the frame after it comes
+ * back on is whole. */
+static bool vga_scanout = true;
+
 /* The machine's clock is the beam, so this is host.h's contract: one
  * scanline is 1000000/(VGA_HZ*VGA_SCANLINES) microseconds, reduced to
  * 2000/63. Asserted against the constants it came from, because the two
@@ -127,6 +135,8 @@ uint64_t host_clock_us(void)
      * and creates the drift it looks like it removes. */
     return beam_n * BEAM_US_NUM / BEAM_US_DEN;
 }
+
+void vga_set_scanout(bool on) { vga_scanout = on; }
 
 uint64_t vga_beam_lines(void) { return beam_n; }
 
@@ -170,7 +180,7 @@ void vga_task(void)
      * cycles that belong to it have run -- the CPU catches up to the beam
      * afterwards, so a write lands on later lines. Real per-scanline scanout. */
     const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
-    if (line < vga_canvas_height())
+    if (vga_scanout && line < vga_canvas_height())
         vga_render_scanline(line);
     beam_n++;
     if (!vsynced && line + 1 >= vga_vsync_scanline())

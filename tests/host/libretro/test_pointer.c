@@ -292,3 +292,124 @@ UTEST(pointer, two_fingers_are_two_contacts)
     ASSERT_NE(c0[7] | c0[8] << 8 | c0[9] << 16, c0[1] | c0[2] << 8 | c0[3] << 16);
     fe.unload_game();
 }
+
+/* The block's button byte, which the mouse fixture maps at PAINT_XREG. */
+#define MOUSE_BUTTONS 0
+
+/* Five buttons reach the machine, not three. The two side buttons are
+ * BACKWARD and FORWARD in the mouse block, bits 3 and 4. */
+UTEST(pointer, the_side_buttons_reach_the_machine)
+{
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_mouse.rp6502"));
+
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 1;
+    fe_run(5);
+    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x08);
+
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 0;
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_5] = 1;
+    fe_run(5);
+    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x10);
+
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe_run(5);
+    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x00);
+    fe.unload_game();
+}
+
+/* Touch and the mouse take turns: a finger takes the tablet, keeps it while
+ * the mouse moves under it, and gives it back once the touch ends and the
+ * mouse moves again. */
+UTEST(pointer, a_finger_takes_the_tablet_from_the_mouse)
+{
+    fe_close();
+    fe_open();
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+
+    a_mouse_has_moved();
+    finger_at(0, 0.30f, 0.30f, false);
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80); /* the mouse, hovering */
+
+    /* A finger arrives: tip down, no hover, and it owns the block. */
+    finger_at(0, 0.60f, 0.60f, true);
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01);
+
+    /* The mouse moving does not take it back while the touch is live. */
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 5;
+    fe_run(2);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 0;
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01);
+
+    /* The touch ends and nothing is pointed at until the mouse moves. */
+    finger_at(0, 0.60f, 0.60f, false);
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
+    a_mouse_has_moved();
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80);
+    fe.unload_game();
+}
+
+/* x11 and udev report a contact per held mouse button, at the mouse's own
+ * position. Those are not fingers: a right-click is RIGHT on a hovering
+ * pointer, not a tip-down touch that would paint. */
+UTEST(pointer, a_held_button_is_not_a_finger)
+{
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    a_mouse_has_moved();
+
+    /* What those drivers send for a right-click: index 0 and index 1 both
+     * pressed, both at the cursor. */
+    finger_at(0, 0.40f, 0.40f, true);
+    finger_at(1, 0.40f, 0.40f, true);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_RIGHT] = 1;
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x82);      /* hover + RIGHT */
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[6], 0x00);      /* no second finger */
+
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    fe.unload_game();
+}
+
+/* A lightgun is an absolute pointer with its own buttons, and -0x8000 on an
+ * axis is the frontend saying it is off the screen. */
+UTEST(pointer, a_lightgun_points_at_the_tablet)
+{
+    fe_close();
+    fe_open();
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    memset(fe.lightgun, 0, sizeof fe.lightgun);
+    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    fe.set_controller_port_device(0, RETRO_DEVICE_LIGHTGUN);
+
+    fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = (int16_t)(0.25f * 0x7FFF);
+    fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y] = (int16_t)(0.25f * 0x7FFF);
+    fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_TRIGGER] = 1;
+    fe_run(5);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x81); /* hover + tip */
+    frame_copy(settled);
+
+    fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = (int16_t)(0.70f * 0x7FFF);
+    fe_run(20);
+    ASSERT_TRUE(frame_differs(settled));
+
+    /* Off the screen: no contact, and the program's pointer stays put. */
+    fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = -0x8000;
+    fe_run(5);
+    for (int i = 0; i < 6; i++)
+        ASSERT_EQ(xram_at(TABLET_CONTACT0)[i], 0x00);
+
+    fe.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    memset(fe.lightgun, 0, sizeof fe.lightgun);
+    fe.unload_game();
+}

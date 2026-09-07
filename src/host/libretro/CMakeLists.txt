@@ -49,6 +49,14 @@ elseif(APPLE)
 else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
+# A shipped core is the only copy most people will ever run, and a Release
+# build defaults to saying nothing at all -- so a load that fails tells its
+# user nothing, at any frontend verbosity. ERROR costs a few strings and
+# turns "it doesn't work" into a reason. A -D on the command line still wins,
+# this being the cache default rather than a set().
+set(RP6502_LOG_LEVEL ERROR CACHE STRING
+    "What every log category says: NONE, ERROR, WARN, INFO, DEBUG")
+
 include(${RP6502_SRC}/core/emu.cmake)
 # This machine's own directory, for the drivers.h core/sys/sys.c includes by
 # bare name. emu.cmake puts src/ on the path and nothing more specific.

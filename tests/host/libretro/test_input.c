@@ -358,3 +358,24 @@ UTEST(input, the_buttons_are_labelled_for_the_frontend)
     ASSERT_TRUE(fe.input_descriptors_set);
     fe.unload_game();
 }
+
+/* Some frontends name the symbol a shifted key made rather than the key.
+ * Those codes reached neither the bitmap nor the console before. */
+UTEST(input, a_shifted_symbol_still_types)
+{
+    static uint32_t settled[640 * 480];
+    memset(fe.input, 0, sizeof fe.input);
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120); /* to the prompt */
+    ASSERT_TRUE(fe.keyboard.callback != NULL);
+
+    const size_t px = (size_t)fe.frame_w * fe.frame_h;
+    memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
+
+    /* A frontend that composed no character, only the symbol's keycode. */
+    fe.keyboard.callback(true, RETROK_QUESTION, 0, 0);
+    fe.keyboard.callback(false, RETROK_QUESTION, 0, 0);
+    fe_run(30);
+    ASSERT_TRUE(pixels_differing(settled, fe.frame_copy, px) > 0);
+    fe.unload_game();
+}

@@ -111,9 +111,11 @@ which is Scroll Lock by default, and the core says so on screen the first
 time a program asks for the console, the keyboard or the mouse. A program
 that wants only a gamepad or the tablet is never told.
 
-Settings > Input > "Auto Enable Game Focus" set to **Detect** makes it
-automatic for cores that register a keyboard callback, which this one
-does.
+Scroll Lock is only the default hotkey and a handheld may not have the
+key at all, in which case it wants remapping. Settings > Input > "Auto
+Enable Game Focus" set to **Detect** (`input_auto_game_focus = "2"`)
+avoids the question: it makes it automatic for cores that register a
+keyboard callback, which this one does.
 
 ### Under WSL
 

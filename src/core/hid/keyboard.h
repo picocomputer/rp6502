@@ -77,6 +77,9 @@ bool keyboard_key_down(uint8_t keycode);
 uint8_t keyboard_get_leds(void);
 void keyboard_toggle_lock(uint8_t bit);
 
+/* The lock state as a host that owns it reports it (KEYBOARD_LED_* bits). */
+void keyboard_set_locks(uint8_t leds);
+
 // A host that decodes its own keyboard, in place of a report.
 void keyboard_hid_set(uint8_t keycode, bool down);
 
