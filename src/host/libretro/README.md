@@ -108,8 +108,8 @@ Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder
 buttons, and keeps the mouse for its own cursor — so on a machine that is
 a computer both look dead. The player turns that off with **Game Focus**,
 which is Scroll Lock by default, and the core says so on screen the first
-time a program asks for the console, the keyboard, the mouse or the
-tablet. A program that wants only a gamepad is never told.
+time a program asks for the console, the keyboard or the mouse. A program
+that wants only a gamepad or the tablet is never told.
 
 Settings > Input > "Auto Enable Game Focus" set to **Detect** makes it
 automatic for cores that register a keyboard callback, which this one

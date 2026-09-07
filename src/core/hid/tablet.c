@@ -14,8 +14,8 @@
 
 /* XRAM report block, laid out in tablet.h. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
- * one non-zero, decoded first-non-zero-wins. An inactive contact reports flags=0;
- * X/Y are always kept within the canvas. wheel/pan are 8-bit wrapping
+ * one non-zero, decoded first-non-zero-wins. An inactive contact is all zero:
+ * flags 0 and no window set, which the decode reads as keep-the-last. wheel/pan are 8-bit wrapping
  * accumulators read like the mouse's (subtract the previous value). The ROM-owned
  * control byte leads the block so everything the firmware writes back — status,
  * wheel, pan, contacts — is one contiguous run. */
@@ -97,7 +97,7 @@ static void tablet_put_contact(int i, uint8_t flags, int x, int y)
 
 static void tablet_clear_contact(int i)
 {
-    tablet_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
+    memset(&tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE], 0, TABLET_CONTACT_SIZE);
 }
 
 /* Push everything the firmware owns — status, wheel, pan, contacts — to XRAM in

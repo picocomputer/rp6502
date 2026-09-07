@@ -63,14 +63,18 @@ a mouse, or up to four gamepads.
 
 The keyboard needs one setting. RetroArch binds keys to its own
 controller and hotkeys - Enter is Start, "p" pauses - so until you
-turn that off, typing does not reach the program. Press Scroll
-Lock for Game Focus, and the whole keyboard is the computer's,
-and so is the mouse. The core says so on screen the first time a
-program asks for either.
+turn that off, typing does not reach the program. Turn on Game
+Focus (Scroll Lock, on a keyboard) and the whole keyboard is the
+computer's, and so is the mouse. The core says so on screen the
+first time a program asks for either.
 
 To have it on every time, set Settings / Input / Auto Enable Game
 Focus to "Detect". This core tells RetroArch it wants a keyboard,
 which is what that setting looks for.
+
+A program that uses the tablet draws its own pointer. RetroArch's
+cursor stays over the window until Game Focus or Settings / Input /
+Auto Mouse Grab hides it.
 
 A program's saves go to the save directory your frontend has
 chosen for it.

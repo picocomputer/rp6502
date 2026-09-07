@@ -35,7 +35,6 @@
 #include "core/api/std.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tablet.h"
 #include "osal/os.h"
 
 #include "libretro.h"
@@ -396,7 +395,7 @@ static void say_how_to_type(void)
     hint_shown = true;
 
     static const char text[] =
-        "Game Focus gives the keyboard and mouse to the program (Scroll Lock in RetroArch)";
+        "Enable Game Focus for Keyboard and Mouse.";
 
     unsigned version = 0;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &version) &&
@@ -636,9 +635,10 @@ void retro_run(void)
 
     input_poll_cb();
     input_poll(input_state_cb);
-    /* Not the gamepad: a frontend polls pads with Game Focus on or off. */
+    /* Not the gamepad or the tablet: a frontend polls pads and the pointer
+     * with Game Focus on or off; it withholds the keyboard and the mouse. */
     if (!hint_shown && (std_console_asked() || keyboard_is_mapped() ||
-                        mouse_is_mapped() || tablet_is_mapped()))
+                        mouse_is_mapped()))
         say_how_to_type();
 
     /* The frontend paces us: one frame per call, as fast as this can run it. */

@@ -81,10 +81,11 @@ UTEST(pointer, letting_go_ends_the_contact)
     ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tablet.rp6502"));
     point_at(0.30f, 0.30f, true);
     fe_run(60);
+    frame_copy(settled);
 
     point_at(0.30f, 0.30f, false); /* lifted */
     fe_run(20);
-    frame_copy(settled);
+    ASSERT_FALSE(frame_differs(settled)); /* the lift itself moves nothing */
 
     /* Moving a lifted pointer paints nothing and moves nothing. */
     point_at(0.80f, 0.75f, false);
@@ -224,10 +225,15 @@ UTEST(pointer, a_pointer_off_the_image_is_no_contact)
     finger_at(0, 0.50f, 0.50f, false);
     fe_run(5);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80);
+    frame_copy(settled);
 
+    /* No contact is six zero bytes -- no position, so the program's pointer
+     * stays where it was rather than going to (0,0). */
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
+    for (int i = 0; i < 6; i++)
+        ASSERT_EQ(xram_at(TABLET_CONTACT0)[i], 0x00);
+    ASSERT_FALSE(frame_differs(settled));
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 0;
     fe_run(5);

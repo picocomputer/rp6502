@@ -305,6 +305,30 @@ UTEST(input, a_program_that_never_asks_is_never_told)
     fe.unload_game();
 }
 
+/* The pointer is polled with Game Focus on or off, so a program that wants
+ * only the tablet is never told either. */
+UTEST(input, a_program_that_wants_only_the_tablet_is_never_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_tablet.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 0);
+    fe.unload_game();
+}
+
+/* The mouse is withheld, so a program that maps it is told. */
+UTEST(input, a_program_that_wants_the_mouse_is_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_mouse.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 1);
+    ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
+    fe.unload_game();
+}
+
 /* A frontend too old for the message interface still hears it, through the
  * call that counts in frames. */
 UTEST(input, an_old_frontend_is_told_the_old_way)
