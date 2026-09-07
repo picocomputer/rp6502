@@ -1,13 +1,13 @@
 # The Win32 seam, for the machines whose OS is one.
 #
-# rp6502_osal_windows(<target>)
+# rp6502_osal_windows(<target> TRANSPORT overlapped|sync)
 #
-# The desktop emulator and the libretro core share every file here. Unlike the
-# POSIX seam there is no transport to choose: overlapped I/O is the kernel's
-# own, with no helper threads to outlive an unloaded library, and the
-# overlapped flag belongs to fs_std_open — so the transport could not leave
-# fs.c. See its header. Nothing collides with ff.h on Win32 either, so the
-# drive is one file rather than two.
+# The desktop emulator and the libretro core share every file here. The
+# transport is the same choice the POSIX seam makes between fs_aio.c and
+# fs_sync.c, made with a define rather than a file: the overlapped flag
+# belongs to the handle, so both arms have to live in fs.c. See its header for
+# which root wants which and why. Nothing collides with ff.h on Win32 either,
+# so the drive is one file rather than two.
 #
 # What is not here is what differs between machines rather than between
 # operating systems: the console attach and the argv encoding, which the
@@ -19,6 +19,13 @@ include_guard(GLOBAL)
 set(RP6502_OSAL_WINDOWS ${CMAKE_CURRENT_LIST_DIR})
 
 function(rp6502_osal_windows target)
+    cmake_parse_arguments(W "" "TRANSPORT" "" ${ARGN})
+    if(NOT W_TRANSPORT MATCHES "^(overlapped|sync)$")
+        message(FATAL_ERROR "rp6502_osal_windows(${target}): TRANSPORT is overlapped or sync")
+    endif()
+    if(W_TRANSPORT STREQUAL "sync")
+        target_compile_definitions(${target} PRIVATE RP6502_FS_SYNC)
+    endif()
     target_sources(${target} PRIVATE
         ${RP6502_OSAL_WINDOWS}/dir.c
         ${RP6502_OSAL_WINDOWS}/errmap.c

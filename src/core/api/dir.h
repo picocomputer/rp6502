@@ -20,6 +20,7 @@
 #define _CORE_API_DIR_H_
 
 #include "osal/dir.h"
+#include "core/sys/sst.h"
 
 /* Machine events: a run starts with no directory open. */
 void dir_run(void);
@@ -44,7 +45,18 @@ bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 bool dir_api_getfree(void);
 
+/* Every open directory, by the path it is reading and the entry it has read
+ * up to, and the working directory all of them and every file syscall resolve
+ * against. A directory is reopened and wound rather than restored, because
+ * what a drive holds open is the host's own object and no blob can carry it.
+ *
+ * 8 tells of 4, 8 slots of a flag and a path, then the cwd. */
+#define DIR_SST_SIZE (8 * 4 + 8 * (1 + API_PATH_MAX + 1) + API_PATH_MAX + 1)
+void dir_sst_save(sst_cursor_t *c, unsigned flags);
+bool dir_sst_load(sst_cursor_t *c, unsigned flags);
+
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, nul_config, nul_config)
+#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, \
+    nul_config, nul_config, SST(DIR_, 1, DIR_SST_SIZE, dir_sst_save, dir_sst_load))
 
 #endif /* _CORE_API_DIR_H_ */

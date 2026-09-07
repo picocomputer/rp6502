@@ -51,6 +51,6 @@ char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. Only an init, which is
  * still a bring-up: the volume has to be mounted before anything reads it. */
-#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _OSAL_PICO_LFS_H_ */

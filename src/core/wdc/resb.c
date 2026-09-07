@@ -45,3 +45,8 @@ bool resb_running(void)
 {
     return !held;
 }
+
+void resb_restore(bool down)
+{
+    held = down;
+}

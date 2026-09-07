@@ -23,7 +23,7 @@ static size_t (*tty_rx)(char *buf, size_t max);
 static bool tty_stream;
 /* The hold on a console wire, from the pass that first found no room. */
 static bool tty_held;
-static timer_deadline_t tty_hold;
+static timer_mach_t tty_hold;
 
 void tty_set_wire(void (*tx)(const char *buf, int len),
                   size_t (*rx)(char *buf, size_t max), bool stream)
@@ -87,9 +87,9 @@ void com_task(void)
     if (!tty_held)
     {
         tty_held = true;
-        tty_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+        tty_hold = timer_mach_in_ms(COM_WIRE_HOLD_MS);
     }
-    if (!timer_passed(tty_hold))
+    if (!timer_mach_passed(tty_hold))
         return;
     size_t n = tty_rx(buf, sizeof buf);
     if (n)

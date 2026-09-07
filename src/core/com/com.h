@@ -10,6 +10,7 @@
 
 #include "core/sys/com.h"
 #include <stddef.h>
+#include "core/sys/sst.h"
 #include <stdint.h>
 
 /* The KEYBOARD source, for a machine whose host resolved the keystroke into
@@ -98,6 +99,16 @@ void com_set_stderr_sink(void (*sink)(const char *buf, int len));
 void com_task(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, nul_config, nul_config)
+/* Both input rings, the terminal's held answer, the bell setting, the CRLF
+ * latch, and pick's source hold. The wiring is not here: the taps, the wire
+ * and the reply suppression are the host's, installed once before any load
+ * can happen, and libretro installs no wire at all.
+ * 2 * (COM_RING_SIZE + 4) + 1 + 32 + 1 + 1 + 9 */
+#define COM_SST_SIZE (2 * (COM_RING_SIZE + 4) + 44)
+void com_sst_save(sst_cursor_t *c, unsigned flags);
+bool com_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, \
+    nul_config, nul_config, SST(COM_, 1, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

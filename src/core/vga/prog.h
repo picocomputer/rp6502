@@ -51,4 +51,16 @@ int16_t vga_prog_highest(void);
  * the fabric's -- see the note above about not linking this file. */
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
 
+/* A row put back exactly as it was, and the watermark with it.
+ *
+ * Not through the three writers above: two of them refuse outright on the
+ * console canvas, and all three run vga_prog_valid, which raises the very
+ * watermark a savestate is restoring. A load has already been told what every
+ * row holds and needs neither the bounds nor the tracking.
+ *
+ * The pointers are the caller's to work out. A blob carries a mode and an
+ * attribute, because an address is this build's own. */
+void vga_prog_load_row(int16_t scanline, const vga_prog_t *row);
+void vga_prog_set_highest(int16_t scanline);
+
 #endif /* _CORE_VGA_PROG_H_ */

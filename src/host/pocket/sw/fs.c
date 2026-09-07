@@ -187,7 +187,7 @@ void fs_log(void)
  * out of the blob, the slot it names belongs to whatever the wake booted
  * into, and pocket_file was reconfigured under a command the sleeping
  * session issued. The main loop makes the window unavoidable -- api_task
- * runs before sst_task, so a syscall carried across the sleep is
+ * runs before wake_task, so a syscall carried across the sleep is
  * re-dispatched a whole pass before fs_restore rebinds anything -- so
  * the guard belongs here, at the driver, where it holds whatever order
  * the tasks run in.
@@ -195,7 +195,7 @@ void fs_log(void)
  * Answering STD_PENDING is lossless: pos is not advanced, fs_restore
  * frees the record, and the next pass re-issues the same operation
  * against a slot that is its own again. The stall is one pass, because
- * sst_task clears the bit at the end of it. */
+ * wake_task clears the bit at the end of it. */
 static bool fs_adrift(void)
 {
     if (!(SST_CTL & SST_RESTORED))
@@ -785,6 +785,26 @@ void fs_release(int desc)
 /* A close flushes: there is no close command, so this is the only thing
  * that puts a write on the card. It blocks, unlike sync, because
  * std_stop discards what close returns and would drop a STD_PENDING. */
+/* The fabric answers a savestate itself; this firmware never makes one, and
+ * the host's own transfers are retired before a command returns. */
+void fs_std_settle(void)
+{
+}
+
+/* The fabric carries this machine's state; nothing here is ever asked. */
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    (void)desc, (void)c;
+    return false;
+}
+
+int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    (void)c;
+    *err = API_ENOSYS;
+    return -1;
+}
+
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     (void)err;
@@ -814,7 +834,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
     }
     /* Everything past here talks to the host, and a close carried
      * across a sleep arrives before the fixups have run: api_task is a
-     * whole pass ahead of sst_task, so the syscall the sleeping session
+     * whole pass ahead of wake_task, so the syscall the sleeping session
      * left outstanding is re-dispatched against a bridge still holding
      * the dead session's command and a slot the wake rebound. fs_rebind
      * is no help there -- stale comes out of the blob as false, so it

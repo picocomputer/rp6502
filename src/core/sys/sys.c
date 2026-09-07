@@ -98,6 +98,25 @@ static void sys_on_break(void)
 #undef DRIVER
 }
 
+void sys_latch_get(sys_latch_t *latch)
+{
+    latch->state = (uint8_t)sys_state;
+    latch->breaking = sys_breaking;
+    latch->held = !resb_running();
+}
+
+bool sys_latch_apply(const sys_latch_t *latch)
+{
+    if (latch->state != stopped && latch->state != running)
+        return false;
+    if (latch->state == stopped && !latch->held)
+        return false;
+    sys_state = latch->state;
+    sys_breaking = latch->breaking;
+    resb_restore(latch->held);
+    return true;
+}
+
 void sys_run(void)
 {
     /* Only from stopped. A stop that has been asked for but not performed is

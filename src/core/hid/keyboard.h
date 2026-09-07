@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 #include "core/hid/hid.h"
@@ -83,6 +84,14 @@ void keyboard_set_locks(uint8_t leds);
 // A host that decodes its own keyboard, in place of a report.
 void keyboard_hid_set(uint8_t keycode, bool down);
 
+/* Every key up, the locks left alone. For a host that has just put a
+ * savestate back: the bitmap it restored says which keys were down when the
+ * blob was made, and nobody is holding those. A key still physically down
+ * comes back on its next event; a key left set would never come up at all,
+ * because the release that would have cleared it belongs to a session the
+ * machine is no longer in. */
+void keyboard_release_all(void);
+
 /* What a keypad key navigates to with NumLock off: KP7 is Home, KP2 is Down,
  * KP5 is nowhere. Zero for any usage that is not on the keypad, and for KP5.
  * A keyboard fact, so every machine reads the same one. */
@@ -110,6 +119,15 @@ size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
 char keyboard_ctrl_promote(char ch, uint8_t keycode);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break, nul_config, nul_config)
+/* Where the program asked for its bitmap and what is in it. The connection
+ * table is not here: on a software machine nothing ever mounts, so it is
+ * permanently zero, and on a machine that does mount it describes what is
+ * plugged in now rather than what the blob remembers. */
+#define KEYBOARD_SST_SIZE 35
+void keyboard_sst_save(sst_cursor_t *c, unsigned flags);
+bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break, \
+    nul_config, nul_config, SST(KEYB, 1, KEYBOARD_SST_SIZE, keyboard_sst_save, keyboard_sst_load))
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

@@ -51,6 +51,13 @@ int16_t proc_get_exit_code(void);
  * run. */
 void proc_set_exit_code(int16_t code);
 
+/* The two paths a savestate carries, in the guest's own bytes. proc_running
+ * already answers the first; these are the launcher's, and the way a load
+ * puts both back without going through proc_run, which would take argv[0]
+ * from a buffer the walk has not restored yet. */
+const char *proc_launcher(void);
+void proc_restore_paths(const char *running, const char *launcher);
+
 /* Program EXIT (op 0xFF): record the code and stop. What happens next is the
  * chain's, decided by the stop walk -- a launcher to go back to, or nothing
  * left to run. */

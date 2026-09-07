@@ -73,6 +73,14 @@ void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
 }
+/* Putting a page back rather than choosing one. This machine's font is
+ * elsewhere and the message is the same either way; only the terminal reset
+ * differs, and that one is core's. */
+void vga_load_code_page(uint16_t cp)
+{
+    vga_set_code_page(cp);
+}
+
 
 static inline void vga_pix_backchannel_enable(void)
 {

@@ -18,6 +18,7 @@
 #define _CORE_SYS_PROC_H_
 
 #include "core/api/proc.h"
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -56,6 +57,21 @@ bool proc_exited(void);
 /* This machine's proc row; see core/sys/driver.h. The chain's columns over
  * core/api/proc.c, and the exec's: performed in the io column because loading
  * a ROM reads a file. */
-#define PROC_DRIVER DRIVER(proc_exec_init, nul_task, proc_exec_task, proc_run, proc_stop, nul_break, nul_config, nul_config)
+/* An exec the machine has committed to but not performed, the exit code, and
+ * the two paths the chain is made of. argv rides whole: it is a flat buffer
+ * whose internal offsets are already little-endian by design, so it means the
+ * same thing on any machine that reads it.
+ *
+ * A restored exec is performed on the next io pass, which stops everything
+ * and rewrites both memories. That is right: the machine that made the blob
+ * owed itself the same exec.
+ * 1 + 2 + 256 + 256 + XSTACK_SIZE */
+#define PROC_SST_SIZE (515 + XSTACK_SIZE)
+#define PROC_PATH_SLOT 256
+void proc_sst_save(sst_cursor_t *c, unsigned flags);
+bool proc_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define PROC_DRIVER DRIVER(proc_exec_init, nul_task, proc_exec_task, proc_run, proc_stop, nul_break, \
+    nul_config, nul_config, SST(PROC, 1, PROC_SST_SIZE, proc_sst_save, proc_sst_load))
 
 #endif /* _CORE_SYS_PROC_H_ */

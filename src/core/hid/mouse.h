@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 #include "core/hid/hid.h"
@@ -55,7 +56,12 @@ bool mouse_is_mapped(void);
  * in the block's counter units and fractions are carried between calls;
  * the wheel and pan bytes are 8-bit wrapping accumulators, and the
  * button byte is in HID order (bit 0 left, 1 right, 2 middle). */
-void mouse_host_move(float dx, float dy);
+/* Q16.16 counts: 65536 is one. A float here would be machine state a blob
+ * could not carry across two builds identically, and netplay compares blobs
+ * byte for byte. The host converts at its own boundary, where a float is
+ * nobody's problem but that host's. */
+#define MOUSE_ONE 65536
+void mouse_host_move(int32_t dx, int32_t dy);
 void mouse_host_wheel(int dwheel, int dpan);
 void mouse_host_buttons(uint8_t buttons);
 
@@ -68,7 +74,13 @@ bool mouse_umount(int slot);
 // Process HID report.
 void mouse_report(int slot, uint8_t const *report, size_t size);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define MOUSE_DRIVER DRIVER(mouse_init, nul_task, nul_task, nul_run, mouse_stop, nul_break, nul_config, nul_config)
+/* The block, the half-resolution counters behind it, and the sub-count
+ * remainders the host's motion leaves. 2 + 5 + 2 + 2 + 4 + 4 */
+#define MOUSE_SST_SIZE 19
+void mouse_sst_save(sst_cursor_t *c, unsigned flags);
+bool mouse_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define MOUSE_DRIVER DRIVER(mouse_init, nul_task, nul_task, nul_run, mouse_stop, nul_break, \
+    nul_config, nul_config, SST(MOUS, 1, MOUSE_SST_SIZE, mouse_sst_save, mouse_sst_load))
 
 #endif /* _CORE_HID_MOUSE_H_ */

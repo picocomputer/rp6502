@@ -8,6 +8,7 @@
 #include "machine.h"
 #include "core/sys/ria.h"
 #include "core/api/api.h"
+#include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/sys/com.h"
 #include "core/sys/driver.h"
@@ -55,6 +56,7 @@ typedef enum
 } rln_phase_t;
 
 #define RLN_BUF_SIZE 256
+_Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
 #define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
@@ -117,8 +119,13 @@ static uint8_t rln_history_pos;
 
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
+
+const char *rln_line(void)
+{
+    return rln_buf;
+}
 static rln_read_callback_t rln_callback;
-static timer_deadline_t rln_idle_deadline;
+static timer_mach_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
 static bool rln_enable_history;
@@ -140,11 +147,11 @@ static bool rln_suppress_newline;
 // rln_poke_source is exempt (synchronous; never owes a handshake).
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timed_out;
-static timer_deadline_t rln_complete_deferred_deadline;
+static timer_mach_t rln_complete_deferred_deadline;
 
 // Cross-terminal display state
 static rln_phase_t rln_phase;
-static timer_deadline_t rln_handshake_deadline;
+static timer_mach_t rln_handshake_deadline;
 static uint16_t rln_prompt_col;        // 1-based
 static uint16_t rln_term_width;        // 0 if no CPR
 static uint16_t rln_term_height;       // 0 if no CPR
@@ -205,6 +212,211 @@ static bool rln_lastkey_action;
 // from a keyboard can look like a reply and isn't, and the poke source is
 // virtual. All CPR accounting gates on this, so a source that is not one of
 // these can never work off a CPR it was seeded to expect.
+/* One input source's parser, which is most of this chunk: four of them, and
+ * the in-flight escape sequence inside each. */
+static void rln_source_save(sst_cursor_t *c, const rln_source_t *s)
+{
+    sst_put_u8(c, (uint8_t)s->state);
+    for (int i = 0; i < RLN_CSI_PARAM_MAX_LEN; i++)
+        sst_put_u16(c, s->csi_param[i]);
+    sst_put_u8(c, s->csi_param_count);
+    sst_put_u8(c, s->csi_private);
+    sst_put(c, s->buf, RLN_BUF_SIZE);
+    sst_put_u16(c, s->buf_len);
+    sst_put_u16(c, s->inflight_len);
+    sst_put_u8(c, s->cpr_expecting);
+    sst_put_u16(c, s->cpr_w);
+    sst_put_u16(c, s->cpr_h);
+    sst_put_u16(c, s->cpr_pcol);
+    sst_put_bool(c, s->cpr_seen);
+    sst_put_bool(c, s->da2_seen);
+    sst_put_bool(c, s->defer_pending);
+    sst_put_bool(c, s->defer_esc_pending);
+    sst_put_u8(c, s->line_end);
+}
+
+static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
+{
+    uint8_t state = sst_get_u8(c);
+    uint16_t param[RLN_CSI_PARAM_MAX_LEN];
+    for (int i = 0; i < RLN_CSI_PARAM_MAX_LEN; i++)
+        param[i] = sst_get_u16(c);
+    uint8_t count = sst_get_u8(c);
+    uint8_t priv = sst_get_u8(c);
+    uint8_t buf[RLN_BUF_SIZE];
+    sst_get(c, buf, sizeof buf);
+    uint16_t blen = sst_get_u16(c), iflen = sst_get_u16(c);
+    uint8_t expecting = sst_get_u8(c);
+    uint16_t w = sst_get_u16(c), h = sst_get_u16(c), pcol = sst_get_u16(c);
+    bool cpr = sst_get_bool(c), da2 = sst_get_bool(c);
+    bool defer = sst_get_bool(c), defer_esc = sst_get_bool(c);
+    uint8_t end = sst_get_u8(c);
+    /* Both lengths index buf, and the parser walks from one to the other. */
+    if (!sst_ok(c) || blen > RLN_BUF_SIZE || iflen > blen)
+        return false;
+    s->state = (rln_ansi_state_t)state;
+    memcpy(s->csi_param, param, sizeof s->csi_param);
+    s->csi_param_count = count;
+    s->csi_private = priv;
+    memcpy(s->buf, buf, sizeof s->buf);
+    s->buf_len = blen;
+    s->inflight_len = iflen;
+    s->cpr_expecting = expecting;
+    s->cpr_w = w;
+    s->cpr_h = h;
+    s->cpr_pcol = pcol;
+    s->cpr_seen = cpr;
+    s->da2_seen = da2;
+    s->defer_pending = defer;
+    s->defer_esc_pending = defer_esc;
+    s->line_end = end;
+    return true;
+}
+
+void rln_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (int i = 0; i < RLN_HISTORY_SIZE; i++)
+        sst_put(c, rln_history[i], RLN_BUF_SIZE);
+    sst_put_u8(c, rln_history_count);
+    sst_put_u8(c, rln_history_pos);
+    sst_put(c, rln_buf, RLN_BUF_SIZE);
+    /* The reader as a token, never as a pointer. std.c's is the only reader
+     * this file can name, and a callback it cannot name is a machine it cannot
+     * write down: fail the save rather than hand the load a different reader. */
+    if (!rln_callback)
+        sst_put_u8(c, 0);
+    else if (rln_callback == std_rln_reader())
+        sst_put_u8(c, 1);
+    else
+        sst_fail(c);
+    sst_put_u64(c, rln_idle_deadline);
+    sst_put_u8(c, rln_buflen);
+    sst_put_u8(c, rln_bufpos);
+    sst_put_bool(c, rln_enable_history);
+    sst_put_bool(c, rln_skip_history);
+    sst_put_u8(c, rln_max_length);
+    sst_put_u32(c, rln_idle_timeout_ms);
+    sst_put_u8(c, rln_caps);
+    sst_put_bool(c, rln_suppress_newline);
+    sst_put_bool(c, rln_complete_deferred);
+    sst_put_bool(c, rln_complete_deferred_timed_out);
+    sst_put_u64(c, rln_complete_deferred_deadline);
+    sst_put_u8(c, (uint8_t)rln_phase);
+    sst_put_u64(c, rln_handshake_deadline);
+    sst_put_u16(c, rln_prompt_col);
+    sst_put_u16(c, rln_term_width);
+    sst_put_u16(c, rln_term_height);
+    sst_put_u16(c, rln_width_override);
+    sst_put_u16(c, rln_height_override);
+    sst_put_u16(c, rln_naws_width);
+    sst_put_u16(c, rln_naws_height);
+    sst_put_u8(c, rln_cur_idx);
+    sst_put_bool(c, rln_overwrite);
+    sst_put_bool(c, rln_decscusr_ok);
+    sst_put_u8(c, rln_rendered_max_row);
+    sst_put_u8(c, rln_last_render_buflen);
+    sst_put_u8(c, rln_cpr_initial);
+    sst_put_bool(c, rln_decscusr_locked_off);
+    sst_put(c, rln_lastkey_buf, RLN_LASTKEY_MAX);
+    sst_put_u8(c, rln_lastkey_len);
+    sst_put_bool(c, rln_action_taken);
+    sst_put_bool(c, rln_lastkey_action);
+    for (int i = 0; i < COM_SOURCE_COUNT; i++)
+        rln_source_save(c, &rln_sources[i]);
+    rln_source_save(c, &rln_poke_source);
+}
+
+bool rln_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    static char history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+    for (int i = 0; i < RLN_HISTORY_SIZE; i++)
+        sst_get(c, history[i], RLN_BUF_SIZE);
+    uint8_t hcount = sst_get_u8(c), hpos = sst_get_u8(c);
+    static char line[RLN_BUF_SIZE];
+    sst_get(c, line, sizeof line);
+    uint8_t reader = sst_get_u8(c);
+    uint64_t idle = sst_get_u64(c);
+    uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
+    bool hist = sst_get_bool(c), skip = sst_get_bool(c);
+    uint8_t maxlen = sst_get_u8(c);
+    uint32_t idle_ms = sst_get_u32(c);
+    uint8_t caps = sst_get_u8(c);
+    bool suppress = sst_get_bool(c);
+    bool deferred = sst_get_bool(c), deferred_out = sst_get_bool(c);
+    uint64_t defer_at = sst_get_u64(c);
+    uint8_t phase = sst_get_u8(c);
+    uint64_t hand_at = sst_get_u64(c);
+    uint16_t pcol = sst_get_u16(c), tw = sst_get_u16(c), th = sst_get_u16(c);
+    uint16_t wov = sst_get_u16(c), hov = sst_get_u16(c);
+    uint16_t nw = sst_get_u16(c), nh = sst_get_u16(c);
+    uint8_t cur = sst_get_u8(c);
+    bool over = sst_get_bool(c), dec_ok = sst_get_bool(c);
+    uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
+    uint8_t cpr0 = sst_get_u8(c);
+    bool dec_off = sst_get_bool(c);
+    static uint8_t lastkey[RLN_LASTKEY_MAX];
+    sst_get(c, lastkey, sizeof lastkey);
+    uint8_t lastkey_len = sst_get_u8(c);
+    bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
+    static rln_source_t sources[COM_SOURCE_COUNT], poke;
+    for (int i = 0; i < COM_SOURCE_COUNT; i++)
+        if (!rln_source_load(c, &sources[i]))
+            return false;
+    if (!rln_source_load(c, &poke))
+        return false;
+    /* Everything that indexes the edit buffer or the history ring. The
+     * lengths themselves need no bound: a byte cannot reach past a buffer
+     * this size, and the assert is what keeps that true if the size moves. */
+    _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
+    if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
+        cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
+        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        return false;
+
+    memcpy(rln_history, history, sizeof rln_history);
+    rln_history_count = hcount;
+    rln_history_pos = hpos;
+    memcpy(rln_buf, line, sizeof rln_buf);
+    rln_callback = reader ? std_rln_reader() : NULL;
+    rln_idle_deadline = idle;
+    rln_buflen = buflen;
+    rln_bufpos = bufpos;
+    rln_enable_history = hist;
+    rln_skip_history = skip;
+    rln_max_length = maxlen;
+    rln_idle_timeout_ms = idle_ms;
+    rln_caps = caps;
+    rln_suppress_newline = suppress;
+    rln_complete_deferred = deferred;
+    rln_complete_deferred_timed_out = deferred_out;
+    rln_complete_deferred_deadline = defer_at;
+    rln_phase = (rln_phase_t)phase;
+    rln_handshake_deadline = hand_at;
+    rln_prompt_col = pcol;
+    rln_term_width = tw;
+    rln_term_height = th;
+    rln_width_override = wov;
+    rln_height_override = hov;
+    rln_naws_width = nw;
+    rln_naws_height = nh;
+    rln_cur_idx = cur;
+    rln_overwrite = over;
+    rln_decscusr_ok = dec_ok;
+    rln_rendered_max_row = maxrow;
+    rln_last_render_buflen = lastlen;
+    rln_cpr_initial = cpr0;
+    rln_decscusr_locked_off = dec_off;
+    memcpy(rln_lastkey_buf, lastkey, sizeof rln_lastkey_buf);
+    rln_lastkey_len = lastkey_len;
+    rln_action_taken = acted;
+    rln_lastkey_action = key_acted;
+    memcpy(rln_sources, sources, sizeof rln_sources);
+    rln_poke_source = poke;
+    return true;
+}
+
 static bool rln_source_tracked(com_source_t s)
 {
     return s == COM_SOURCE_UART || s == COM_SOURCE_TEL;
@@ -319,7 +531,7 @@ static void rln_complete(bool timed_out)
         rln_defer_arm(s);
     rln_complete_deferred = true;
     rln_complete_deferred_timed_out = timed_out;
-    rln_complete_deferred_deadline = timer_in_ms(RLN_COMPLETE_DEFER_MS);
+    rln_complete_deferred_deadline = timer_mach_in_ms(RLN_COMPLETE_DEFER_MS);
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -1515,7 +1727,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_sources[s].cpr_expecting = rln_cpr_initial;
-    rln_handshake_deadline = timer_in_ms(RLN_HANDSHAKE_MS);
+    rln_handshake_deadline = timer_mach_in_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
@@ -1555,7 +1767,7 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
     assert(timeout_ms);
     rln_read_line(callback);
     rln_idle_timeout_ms = timeout_ms;
-    rln_idle_deadline = timer_in_ms(rln_idle_timeout_ms);
+    rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
 }
 
 void rln_read_line_no_history(rln_read_callback_t callback)
@@ -1631,7 +1843,7 @@ void rln_task(void)
         if (c < 0)
             break;
         char ch = (char)c;
-        rln_idle_deadline = timer_in_ms(rln_idle_timeout_ms);
+        rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
         if (this_src != COM_SOURCE_ANY)
             rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
         if (rln_complete_deferred && this_src != COM_SOURCE_ANY)
@@ -1658,7 +1870,7 @@ void rln_task(void)
             rln_enter_edit();
         }
     }
-    if (rln_callback && timer_passed(rln_handshake_deadline))
+    if (rln_callback && timer_mach_passed(rln_handshake_deadline))
     {
         if (rln_phase != rln_phase_edit)
             rln_handshake_fallback();
@@ -1675,10 +1887,10 @@ void rln_task(void)
     if (rln_complete_deferred)
     {
         if (!rln_any_defer_pending() ||
-            timer_passed(rln_complete_deferred_deadline))
+            timer_mach_passed(rln_complete_deferred_deadline))
             rln_complete_now(rln_complete_deferred_timed_out);
     }
-    if (rln_idle_timeout_ms && timer_passed(rln_idle_deadline))
+    if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
         rln_complete(true);
 }
 

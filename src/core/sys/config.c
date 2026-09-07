@@ -27,7 +27,7 @@ static bool config_dirty;
 /* Letter uniqueness, for free: two rows sharing one costs a redeclared
  * enumerator. The name collides in the storage below for the same reason.
  * The letters C and R are retired -- they were Caps and RESB. Do not reuse. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     enum { config_letter_##ltr };
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...) \
@@ -45,7 +45,7 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 
 /* The bytes. Nothing else in the machine defines one, and the compile-time
  * default is what a host that sets before sys_init writes over. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     static type config_##pfx##_##name = def;
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...) \
@@ -65,7 +65,7 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
  * still validates, stores and applies; only the write is absent. */
 static void config_save_now(void)
 {
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(...)
 #define CONFIG_STR(...)
 #define CONFIG_RAW(...)
@@ -95,7 +95,7 @@ static bool config_end(bool ok, bool changed)
 /* check judges and normalizes, the store takes what it said, apply takes what
  * was asked -- so an action value reaches the driver intact -- and runs
  * whether or not the byte moved. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...)  \
     type pfx##_get_##name(void) { return config_##pfx##_##name; } \
     bool pfx##_set_##name(type v)                                 \
@@ -143,7 +143,7 @@ void config_load_line(char letter, const char *value)
  * label. An unknown letter falls through -- a retired one, or a row this
  * build has not got -- which is what lets a file written by any machine
  * load on any other. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     if (letter == (#ltr)[0])                                     \
     {                                                            \
@@ -197,7 +197,7 @@ static void config_emit(config_sink_t sink, void *arg, const char *fmt, ...)
 void config_render(config_sink_t sink, void *arg)
 {
     config_emit(sink, arg, "+V%u\n", CONFIG_VERSION);
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     config_emit(sink, arg, "+" #ltr "%u\n",                      \
                 (unsigned)config_##pfx##_##name);

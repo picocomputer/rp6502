@@ -50,7 +50,7 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
 #define COM_TELNET_CONFIG_KEY CONFIG_STR(A, com_telnet, key, COM_TELNET_KEY_SIZE, "", \
     nul_check, nul_apply, STR_KEY, com_telnet_key_response, STR_HELP_SET_KEY, NULL)
 #define COM_TELNET_DRIVER DRIVER(nul_init, com_telnet_task, nul_task, nul_run, \
-    nul_stop, nul_break, COM_TELNET_CONFIG_PORT, COM_TELNET_CONFIG_KEY)
+    nul_stop, nul_break, COM_TELNET_CONFIG_PORT, COM_TELNET_CONFIG_KEY, nul_sst)
 
 /* Console TX for UTF-8 source text, converted to the code page on the way
  * out. The monitor's prompts and the UF2 progress line are the callers;
@@ -69,6 +69,6 @@ void com_uart_clear(void);
  * Early is also what its stop and its break want: both walk backward, so a
  * row near the front is torn down near the last -- com_stop writing the reset
  * after the other stops, com_break its newline after whatever they printed. */
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, nul_config, nul_config)
+#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_COM_H_ */

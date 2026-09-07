@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 /* Guarded the way core/sys/com.h and the pico-sdk guard it, so whichever header
@@ -114,7 +115,15 @@ int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 #define OEM_CONFIG_CODE_PAGE CONFIG_INT(S, oem, code_page, uint16_t, 0, \
     oem_check_code_page, oem_apply_code_page, STR_CP, oem_code_page_response, \
     STR_HELP_SET_CP, NULL)
+/* The page in force, and nothing derived from it. The glyph tables and the
+ * conversion tables are a function of this one number, so the load asks for
+ * the page again and lets them be rebuilt. The setting behind it is the
+ * host's and stays behind, as does the locale's own answer. */
+#define OEM_SST_SIZE 2
+void oem_sst_save(sst_cursor_t *c, unsigned flags);
+bool oem_sst_load(sst_cursor_t *c, unsigned flags);
+
 #define OEM_DRIVER DRIVER(oem_init, nul_task, nul_task, nul_run, oem_stop, nul_break, \
-    OEM_CONFIG_CODE_PAGE, nul_config)
+    OEM_CONFIG_CODE_PAGE, nul_config, SST(OEM_, 1, OEM_SST_SIZE, oem_sst_save, oem_sst_load))
 
 #endif /* _CORE_STR_OEM_H_ */

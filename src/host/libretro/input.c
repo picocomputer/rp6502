@@ -272,6 +272,13 @@ static void refresh_max_users(void)
         max_users = GAMEPAD_PLAYERS;
 }
 
+void input_state_restored(void)
+{
+    for (int p = 0; p < GAMEPAD_PLAYERS; p++)
+        port_live[p] = true;
+    keyboard_release_all();
+}
+
 void input_reset(void)
 {
     for (int p = 0; p < GAMEPAD_PLAYERS; p++)
@@ -521,7 +528,7 @@ static void poll_pointer(retro_input_state_t state)
     if (mouse)
     {
         if (dx || dy)
-            mouse_host_move((float)dx, (float)dy);
+            mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
         mouse_host_buttons(offscreen ? 0 : buttons);
     }
 

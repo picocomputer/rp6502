@@ -469,6 +469,54 @@ static void gamepad_publish(int player)
            &gamepad_reports[player], sizeof(gamepad_xram_t));
 }
 
+/* Never through gamepad_xreg, which blanks all four reports on its way in. */
+void gamepad_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, gamepad_xram);
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+    {
+        const gamepad_xram_t *r = &gamepad_reports[p];
+        sst_put_u8(c, r->dpad);
+        sst_put_u8(c, r->sticks);
+        sst_put_u8(c, r->button0);
+        sst_put_u8(c, r->button1);
+        sst_put_u8(c, (uint8_t)r->lx);
+        sst_put_u8(c, (uint8_t)r->ly);
+        sst_put_u8(c, (uint8_t)r->rx);
+        sst_put_u8(c, (uint8_t)r->ry);
+        sst_put_u8(c, r->lt);
+        sst_put_u8(c, r->rt);
+    }
+}
+
+bool gamepad_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    gamepad_xram_t in[GAMEPAD_MAX_PLAYERS];
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+    {
+        in[p].dpad = sst_get_u8(c);
+        in[p].sticks = sst_get_u8(c);
+        in[p].button0 = sst_get_u8(c);
+        in[p].button1 = sst_get_u8(c);
+        in[p].lx = (int8_t)sst_get_u8(c);
+        in[p].ly = (int8_t)sst_get_u8(c);
+        in[p].rx = (int8_t)sst_get_u8(c);
+        in[p].ry = (int8_t)sst_get_u8(c);
+        in[p].lt = sst_get_u8(c);
+        in[p].rt = sst_get_u8(c);
+    }
+    if (!sst_ok(c))
+        return false;
+    gamepad_xram = at;
+    memcpy(gamepad_reports, in, sizeof gamepad_reports);
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+        gamepad_publish(p);
+    return true;
+}
+
 // Provides first and final updates in xram
 static void gamepad_reset_xram(int player)
 {

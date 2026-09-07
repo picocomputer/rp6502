@@ -18,25 +18,43 @@
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
+#include "core/vga/vga_emu.h"
 #include "machine.h"
 #include "utest.h"
 #include <string.h>
+
+/* Both waits below are on the machine's clock rather than the host's, which
+ * is what the console's deadlines now keep: a deadline the 6502 can observe
+ * has to mean the same thing in a machine restored from a savestate as it did
+ * in the one that made it. The beam is that clock, so a wait here is a number
+ * of scanlines and not a spin. It is also exact, which a spin never was. */
+static void machine_us(uint64_t us)
+{
+    timer_mach_t d = timer_mach_in_us(us);
+    while (!timer_mach_passed(d))
+        vga_task();
+}
 
 /* A source keeps the reader for its dwell after it runs dry, so a read that
  * answers nothing is not the end of the input. */
 static void dwell(void)
 {
-    timer_deadline_t d = timer_in_us(2 * COM_WIRE_DWELL_US);
-    while (!timer_passed(d))
-        ;
+    machine_us(2 * COM_WIRE_DWELL_US);
 }
 
+/* Read until nothing is queued anywhere. The source hold is machine time now,
+ * so the beam has to move for it to expire; the give-up is machine time too,
+ * which makes this loop terminate in a fixed number of scanlines rather than
+ * in however long the host took. */
 static void drain(void)
 {
     char buf[COM_RING_SIZE * 2];
-    timer_deadline_t give_up = timer_in_ms(50);
-    while (!com_input_idle() && !timer_passed(give_up))
+    timer_mach_t give_up = timer_mach_in_ms(50);
+    while (!com_input_idle() && !timer_mach_passed(give_up))
+    {
         com_stdin_read(buf, sizeof buf);
+        vga_task();
+    }
 }
 
 UTEST(com, a_source_keeps_the_reader_until_it_runs_dry_and_a_dwell_past)
@@ -262,9 +280,7 @@ UTEST(com, a_full_console_wire_is_held_then_read_to_drop)
     ASSERT_FALSE(ria_get_sigint());
     /* The hold runs out. The wire is drained to its end, the Ctrl-C behind
      * the type-ahead latches, and what did not fit is gone. */
-    timer_deadline_t d = timer_in_ms(COM_WIRE_HOLD_MS + 20);
-    while (!timer_passed(d))
-        ;
+    machine_us((COM_WIRE_HOLD_MS + 20) * 1000);
     com_task();
     ASSERT_EQ(wire_pos, sizeof data);
     ASSERT_TRUE(ria_get_sigint());

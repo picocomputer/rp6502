@@ -12,6 +12,7 @@
  * (host/pico/vga/sys/pix.c) and lists core/api/xreg0.c alone.
  */
 
+#include "core/api/xreg.h"
 #include "core/sys/driver.h"
 #include "core/term/term.h"
 #include "core/vga/vga.h"
@@ -27,6 +28,25 @@ static uint16_t xregs[16];
 static void xregs_clear(void)
 {
     memset(xregs, 0, sizeof(xregs));
+}
+
+void xreg_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (int i = 0; i < 16; i++)
+        sst_put_u16(c, xregs[i]);
+}
+
+bool xreg_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t in[16];
+    for (int i = 0; i < 16; i++)
+        in[i] = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    memcpy(xregs, in, sizeof xregs);
+    return true;
 }
 
 bool xreg1(uint8_t channel, uint8_t address, uint16_t word)

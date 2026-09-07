@@ -20,6 +20,8 @@
 
 #include "core/sys/driver.h"
 #include "core/api/api.h"
+#include "core/api/xreg.h"
+#include "core/sys/random.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
@@ -28,6 +30,8 @@
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/mix.h"
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"
@@ -45,6 +49,8 @@
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
+#include "core/wdc/cpu.h"
+#include "core/wdc/via.h"
 #include "core/wdc/phi2.h"
 
 /* init and run walk this forward; stop and break walk it backward; the two
@@ -59,14 +65,15 @@
  * (vga_init programs the console canvas, which asks term its height). */
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
-    PROC_DRIVER, STR_DRIVER,                                 \
+    PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
     COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
-    API_DRIVER, TERM_DRIVER,                                 \
+    API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
     OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
-    AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
-    CLK_DRIVER, PHI2_DRIVER, BUS_DRIVER
+    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
+    CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
+    CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */

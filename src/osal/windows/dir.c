@@ -226,6 +226,7 @@ struct win_dir
     bool first; /* FindFirstFileW already yielded the first entry */
     bool alive;
     wchar_t *pattern; /* owned, the FindFirstFile glob this slot rewinds to */
+    char path[API_PATH_MAX + 1]; /* the same directory as the guest names it */
 };
 static struct win_dir dirs[DIR_MAX_OPEN];
 
@@ -289,17 +290,9 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     return true;
 }
 
-bool drive_opendir(const char *path, int *des, api_errno *err)
+/* Open into a slot the caller names, remembering where from. */
+static bool dir_open_into(int i, const char *path, api_errno *err)
 {
-    int i = 0;
-    for (; i < DIR_MAX_OPEN; i++)
-        if (!dirs[i].used)
-            break;
-    if (i == DIR_MAX_OPEN)
-    {
-        *err = API_EMFILE;
-        return false;
-    }
     struct win_dir *d = &dirs[i];
     /* a directory of no name is the working directory */
     wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
@@ -340,8 +333,53 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
     d->used = true;
     d->first = true;
     d->alive = true;
+    d->path[0] = 0;
+    char *abs = os_dir_realpath(path);
+    if (abs)
+    {
+        if (strlen(abs) <= API_PATH_MAX)
+            strcpy(d->path, abs);
+        free(abs);
+    }
+    return true;
+}
+
+bool drive_opendir(const char *path, int *des, api_errno *err)
+{
+    int i = 0;
+    for (; i < DIR_MAX_OPEN; i++)
+        if (!dirs[i].used)
+            break;
+    if (i == DIR_MAX_OPEN)
+    {
+        *err = API_EMFILE;
+        return false;
+    }
+    if (!dir_open_into(i, path, err))
+        return false;
     *des = i;
     return true;
+}
+
+bool drive_dir_path(int des, char *buf, size_t size)
+{
+    if (des < 0 || des >= DIR_MAX_OPEN || !dirs[des].used ||
+        !dirs[des].path[0] || strlen(dirs[des].path) >= size)
+        return false;
+    strcpy(buf, dirs[des].path);
+    return true;
+}
+
+bool drive_reopendir(int des, const char *path, api_errno *err)
+{
+    if (des < 0 || des >= DIR_MAX_OPEN)
+    {
+        *err = API_EINVAL;
+        return false;
+    }
+    if (dirs[des].used)
+        drive_closedir(des, err);
+    return dir_open_into(des, path, err);
 }
 
 /* "." and ".." are not entries the 6502 sees. */

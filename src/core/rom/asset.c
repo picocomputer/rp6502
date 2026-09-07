@@ -10,6 +10,7 @@
  */
 
 #include "osal/fs.h"
+#include "core/api/proc.h"
 #include "core/rom/rom.h"
 #include "core/str/str.h"
 #include "core/str/oem.h"
@@ -50,6 +51,62 @@ void rom_assets_reset(void)
 }
 
 uint32_t rom_generation(void) { return g_rom_generation; }
+
+/* How long the image is, which is where a seek to its end lands. */
+static uint32_t rom_image_len(void)
+{
+    int32_t end = 0;
+    api_errno ignored;
+    if (rom_fd < 0 || fs_std_lseek(rom_fd, SEEK_END, 0, &end, &ignored) != 0 || end < 0)
+        return 0;
+    return (uint32_t)end;
+}
+
+void asset_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_bool(c, rom_fd >= 0);
+    sst_put_u32(c, rom_assets_start);
+    sst_put_u32(c, rom_image_len());
+    sst_put_u32(c, g_rom_generation);
+}
+
+bool asset_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    bool open = sst_get_bool(c);
+    uint32_t start = sst_get_u32(c);
+    uint32_t len = sst_get_u32(c);
+    uint32_t gen = sst_get_u32(c);
+    if (!sst_ok(c))
+        return false;
+
+    rom_assets_reset();
+    g_rom_generation = gen;
+    if (!open)
+        return true;
+
+    /* The program proc restored is the image this drive was reading; the
+     * alias map turns an installed ":name" back into the file behind it, the
+     * same way the load that opened it did. */
+    const char *running = proc_running();
+    if (!running || !running[0])
+        return false;
+    api_errno err;
+    int fd = fs_rom_open(rom_alias_resolve(running), FS_RD, &err);
+    if (fd < 0)
+        return false;
+    rom_fd = fd;
+    if (rom_image_len() != len)
+    {
+        rom_assets_reset();
+        return false;
+    }
+    int32_t landed;
+    fs_std_lseek(rom_fd, SEEK_SET, 0, &landed, &err);
+    rom_assets_start = start;
+    return true;
+}
 
 /* The adopted descriptor, for a caller that streams an asset itself. */
 int rom_asset_fd(void) { return rom_fd; }
@@ -245,6 +302,40 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         if (!windows[i].used)
         {
             windows[i] = (window_t){.used = true, .base = base, .len = len};
+            return i;
+        }
+    *err = API_EMFILE;
+    return -1;
+}
+
+/* A window needs no name. It is a range inside the image the ASSET row has
+ * already identified by path and length, so the three numbers are the whole
+ * of it and a reopen is an allocation rather than a lookup. */
+bool rom_std_ident(int desc, sst_cursor_t *c)
+{
+    window_t *w = window_get(desc);
+    if (!w)
+        return false;
+    sst_put_u32(c, w->base);
+    sst_put_u32(c, w->len);
+    sst_put_u32(c, w->pos);
+    return sst_ok(c);
+}
+
+int rom_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    uint32_t base = sst_get_u32(c);
+    uint32_t len = sst_get_u32(c);
+    uint32_t pos = sst_get_u32(c);
+    if (!sst_ok(c) || pos > len)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    for (int i = 0; i < ROM_OPEN_MAX; i++)
+        if (!windows[i].used)
+        {
+            windows[i] = (window_t){.used = true, .base = base, .len = len, .pos = pos};
             return i;
         }
     *err = API_EMFILE;

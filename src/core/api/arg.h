@@ -12,6 +12,7 @@
  * share one definition of the guest ABI.
  */
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -24,5 +25,12 @@ const char *arg_index(uint16_t idx);
 uint16_t arg_push_xstack(void);
 // op 0x09: load the argv from the xstack and validate it.
 bool arg_pull_xstack(void);
+
+/* The whole buffer, for a savestate. It is a flat XSTACK_SIZE bytes whose
+ * internal offsets are already little-endian, so it rides the wire as it
+ * stands. arg_bytes answers the size so nothing outside has to know it. */
+size_t arg_bytes(void);
+const uint8_t *arg_data(void);
+void arg_set_data(const uint8_t *buf);
 
 #endif /* _CORE_API_ARG_H_ */

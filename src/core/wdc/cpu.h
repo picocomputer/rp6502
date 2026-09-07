@@ -13,6 +13,7 @@
 #ifndef _CORE_WDC_CPU_H_
 #define _CORE_WDC_CPU_H_
 
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -42,5 +43,23 @@ void *cpu_chip(void); /* w65c02_t* */
  * NOT gate the CPU -- dbg.c is the one authoritative engine. NULL when no
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
+
+/* The vendored model, field by field, and the board's pin word beside it. A
+ * frame boundary is a cycle boundary and not an instruction one, so IR is
+ * mid-opcode as often as not: it holds the opcode in its high bits and the
+ * cycle step in its low three, and the model reloads it only on a SYNC.
+ *
+ * That pair is also the one thing a load must check. The decoder switches on
+ * IR and its last case is 0x7FF; a blob holding 0x7FF with SYNC clear steps
+ * to 0x800 and then jumps through an index nothing bounds. IR at 0x7FF with
+ * SYNC set is ordinary, so neither field is checkable alone. */
+#define CPU_SST_SIZE 34
+void cpu_sst_save(sst_cursor_t *c, unsigned flags);
+bool cpu_sst_load(sst_cursor_t *c, unsigned flags);
+
+/* This driver's row: a pure carrier. resb_init resets both parts before the
+ * driver walk and bus_task ticks them, so there is no other column to fill. */
+#define CPU_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    nul_config, nul_config, SST(CPU_, 1, CPU_SST_SIZE, cpu_sst_save, cpu_sst_load))
 
 #endif /* _CORE_WDC_CPU_H_ */

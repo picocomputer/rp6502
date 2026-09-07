@@ -1,0 +1,295 @@
+# Every mutable file-scope object the emulator's core owns, and what carries it.
+#
+# tests/gen/state_inventory.py rebuilds each of emu.cmake's translation units
+# without link-time optimization and reads the symbols with writable storage
+# out of the objects, so this list is measured rather than remembered. A new
+# one that is not here fails the suite.
+#
+# The point is not the count. A static added to core is machine state the
+# moment it is added, and nothing else in the tree would notice that a blob
+# does not carry it: the program would come back subtly wrong, or two netplay
+# peers would diverge and never be told why. So each one says which chunk
+# carries it, or why nothing has to.
+#
+# Read-only objects are not here -- a table nobody writes is not state.
+#
+#   <file> <symbol>: <what carries it, or why nothing does>
+
+core/api/api.c api_active_op: the API chunk
+core/api/api.c api_errno_opt: the API chunk
+core/api/arg.c arg_buf: the PROC chunk, whose row reaches into this file for it
+core/api/clk.c clk_start_us: the CLK chunk
+core/api/dir.c tells: the DIR chunk
+core/api/proc.c proc_exit_code: the PROC chunk
+core/api/proc.c proc_launcher_path: the PROC chunk
+core/api/proc.c proc_running_path: the PROC chunk
+core/api/std.c std_asked_console: the STD chunk
+core/api/std.c std_buf: the STD chunk
+core/api/std.c std_driver_table: the machine's own stdio table, fixed at build; the manifest folds its length so two machines cannot disagree about what a driver index means
+core/api/std.c std_fd_active: the STD chunk
+core/api/std.c std_fd_pool: the STD chunk
+core/api/std.c std_pos: the STD chunk
+core/api/std.c std_rln_active: the STD chunk
+core/api/std.c std_rln_buf: the STD chunk
+core/api/std.c std_rln_len: the STD chunk
+core/api/std.c std_rln_needs_nl: the STD chunk
+core/api/std.c std_rln_pos: the STD chunk
+core/api/std.c std_size: the STD chunk
+core/api/std.c std_stdin_closed: not carried: the host re-asserts it
+core/api/std.c std_xram_addr: the STD chunk
+core/api/std.c std_xram_len: the STD chunk
+core/api/xreg1.c xregs: the XREG chunk
+core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/mix.c aud_dev: the AUD chunk
+core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
+core/aud/mix.c g_enabled: not carried: --mute is a session setting
+core/aud/mix.c g_last_l: the AUD chunk
+core/aud/mix.c g_last_r: the AUD chunk
+core/aud/mix.c g_park: not carried: the host holding the device's thread out of a walk
+core/aud/mix.c g_park_ack: not carried: the host holding the device's thread out of a walk
+core/aud/mix.c g_park_gen: not carried: the host holding the device's thread out of a walk
+core/aud/mix.c g_pend_i: the AUD chunk
+core/aud/mix.c g_pend_l: the AUD chunk
+core/aud/mix.c g_pend_n: the AUD chunk
+core/aud/mix.c g_pend_r: the AUD chunk
+core/aud/mix.c g_rs_l: the AUD chunk
+core/aud/mix.c g_rs_r: the AUD chunk
+core/aud/mix.c g_sink_rate: not carried: what the host's device answered
+core/aud/mix.c g_viz: not carried: a display of what was rendered
+core/aud/mix.c g_viz_pos: not carried: a display of what was rendered
+core/aud/opl.c opl_emu8950: the OPL chunk
+core/aud/opl.c opl_wave_base: the OPL chunk
+core/aud/opl.c opl_xaddr: the OPL chunk
+core/aud/psg.c psg_channel_state: the PSG chunk
+core/aud/psg.c psg_xaddr: the PSG chunk
+core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
+core/com/com.c com_bel_enabled: the COM chunk
+core/com/com.c com_crlf_last: the COM chunk
+core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all
+core/com/com.c com_stderr_sink: not carried: host wiring
+core/com/com.c com_term_out: not carried: host wiring
+core/com/com.c com_term_reply_suppressed: not carried: host wiring
+core/com/com.c com_tx_tap: not carried: host wiring; libretro installs no wire at all
+core/com/com.c keyboard_ring: the COM chunk
+core/com/com.c reply_buf: the COM chunk
+core/com/com.c reply_len: the COM chunk
+core/com/com.c uart_ring: the COM chunk
+core/com/pick.c com_rx_deadline: the COM chunk
+core/com/pick.c com_rx_held: the COM chunk
+core/com/pick.c com_sources: the COM chunk
+core/com/tty.c tty_held: not carried: host wiring, cleared by the COM chunk's load
+core/com/tty.c tty_hold: not carried: host wiring, cleared by the COM chunk's load
+core/com/tty.c tty_rx: not carried: host wiring
+core/com/tty.c tty_stream: not carried: host wiring, cleared by the COM chunk's load
+core/com/tty.c tty_tx: not carried: host wiring
+core/dap/dbg.c dbg_watch_armed: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_active: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_bp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_break_filter: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_break_req: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_cur_sp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_data_addr: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_data_pending: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_line_lookup: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_nsegments: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_pause_req: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_seg_generation: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_segments: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_step: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_step_file: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_step_line: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_step_sp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stop_at_entry: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stop_pc: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stop_reason: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stop_sp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stopped: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_stopped_cb: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/dap/dbg.c g_watch_cb: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
+core/hid/gamepad.c gamepad_connections: not carried: what is plugged in now, which the host re-announces after a load
+core/hid/gamepad.c gamepad_reports: the GPAD chunk
+core/hid/gamepad.c gamepad_xram: the GPAD chunk
+core/hid/hid.c hid_claims: not carried: no transport reaches the claim table on a software machine
+core/hid/keyboard.c keyboard_connections: not carried: nothing mounts on a software machine, so it is permanently zero
+core/hid/keyboard.c keyboard_hid_leds: the KEYB chunk
+core/hid/keyboard.c keyboard_keys: the KEYB chunk
+core/hid/keyboard.c keyboard_xram: the KEYB chunk
+core/hid/mouse.c mouse_acc_x: the MOUS chunk
+core/hid/mouse.c mouse_acc_y: the MOUS chunk
+core/hid/mouse.c mouse_connections: not carried: nothing mounts on a software machine
+core/hid/mouse.c mouse_state: the MOUS chunk
+core/hid/mouse.c mouse_x: the MOUS chunk
+core/hid/mouse.c mouse_xram: the MOUS chunk
+core/hid/mouse.c mouse_y: the MOUS chunk
+core/hid/tablet.c tablet_connections: not carried: nothing mounts on a software machine
+core/hid/tablet.c tablet_host_cursor: the TBLT chunk
+core/hid/tablet.c tablet_ref_x: the TBLT chunk
+core/hid/tablet.c tablet_ref_y: the TBLT chunk
+core/hid/tablet.c tablet_state: the TBLT chunk
+core/hid/tablet.c tablet_sub_x: the TBLT chunk
+core/hid/tablet.c tablet_sub_y: the TBLT chunk
+core/hid/tablet.c tablet_x: the TBLT chunk
+core/hid/tablet.c tablet_xram: the TBLT chunk
+core/hid/tablet.c tablet_y: the TBLT chunk
+core/hid/vtkeys.c vtkeys_paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/vtkeys.c vtkeys_paste_len: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/vtkeys.c vtkeys_paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/vtkeys.c vtkeys_paste_run: not carried: every load cancels the paste, so there is nothing left to carry
+core/ria/regs.c regs: the RIA chunk
+core/ria/regs.c xram_queue: the RIA chunk
+core/ria/regs.c xram_queue_head: the RIA chunk
+core/ria/regs.c xram_queue_page: the RIA chunk
+core/ria/regs.c xram_queue_tail: the RIA chunk
+core/ria/regs.c xstack: the RIA chunk
+core/ria/regs.c xstack_ptr: the RIA chunk
+core/ria/ria.c queue.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/ria/ria.c ria: the RIA chunk
+core/ria/ria.c ria_uart_rx_src: the RIA chunk
+core/ria/ria.c stack.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting
+core/rom/asset.c g_rom_generation: the ASET chunk
+core/rom/asset.c rom_assets_start: the ASET chunk
+core/rom/asset.c rom_fd: the ASET chunk
+core/rom/asset.c windows: not carried: each open window is the STD chunk's own record of that descriptor
+core/rom/rom.c buf.0: parse scratch, dead at every frame boundary
+core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
+core/str/oem.c oem_code_page_run: the OEM chunk
+core/str/rln.c history.4: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c lastkey.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c line.3: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c poke.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c rln_action_taken: the RLN chunk
+core/str/rln.c rln_buf: the RLN chunk
+core/str/rln.c rln_buflen: the RLN chunk
+core/str/rln.c rln_bufpos: the RLN chunk
+core/str/rln.c rln_callback: the RLN chunk
+core/str/rln.c rln_caps: the RLN chunk
+core/str/rln.c rln_complete_deferred: the RLN chunk
+core/str/rln.c rln_complete_deferred_deadline: the RLN chunk
+core/str/rln.c rln_complete_deferred_timed_out: the RLN chunk
+core/str/rln.c rln_cpr_initial: the RLN chunk
+core/str/rln.c rln_cur_idx: the RLN chunk
+core/str/rln.c rln_decscusr_locked_off: the RLN chunk
+core/str/rln.c rln_decscusr_ok: the RLN chunk
+core/str/rln.c rln_enable_history: the RLN chunk
+core/str/rln.c rln_handshake_deadline: the RLN chunk
+core/str/rln.c rln_height_override: the RLN chunk
+core/str/rln.c rln_history: the RLN chunk
+core/str/rln.c rln_history_count: the RLN chunk
+core/str/rln.c rln_history_pos: the RLN chunk
+core/str/rln.c rln_idle_deadline: the RLN chunk
+core/str/rln.c rln_idle_timeout_ms: the RLN chunk
+core/str/rln.c rln_last_render_buflen: the RLN chunk
+core/str/rln.c rln_lastkey_action: the RLN chunk
+core/str/rln.c rln_lastkey_buf: the RLN chunk
+core/str/rln.c rln_lastkey_len: the RLN chunk
+core/str/rln.c rln_max_length: the RLN chunk
+core/str/rln.c rln_naws_height: the RLN chunk
+core/str/rln.c rln_naws_width: the RLN chunk
+core/str/rln.c rln_overwrite: the RLN chunk
+core/str/rln.c rln_phase: the RLN chunk
+core/str/rln.c rln_poke_source: the RLN chunk
+core/str/rln.c rln_prompt_col: the RLN chunk
+core/str/rln.c rln_rendered_max_row: the RLN chunk
+core/str/rln.c rln_skip_history: the RLN chunk
+core/str/rln.c rln_sources: the RLN chunk
+core/str/rln.c rln_suppress_newline: the RLN chunk
+core/str/rln.c rln_term_height: the RLN chunk
+core/str/rln.c rln_term_width: the RLN chunk
+core/str/rln.c rln_width_override: the RLN chunk
+core/str/rln.c sources.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/str.c str_buf: parse scratch, dead at every frame boundary
+core/str/str.c str_locale_index: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_locale_names: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_locale_verbose: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_tab_EN: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_tab_FR: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_tab_PL: the linked table image and a parse buffer dead at every frame boundary
+core/str/str.c str_tabs: the linked table image and a parse buffer dead at every frame boundary
+core/str/unicode.c unicode_cp_at: derived: a pure function of the linked table image, found lazily on first use
+core/str/unicode.c unicode_cvt1_at: derived: a pure function of the linked table image, found lazily on first use
+core/str/unicode.c unicode_cvt2_at: derived: a pure function of the linked table image, found lazily on first use
+core/str/unicode.c unicode_page_at: derived: a pure function of the linked table image, found lazily on first use
+core/str/unicode.c unicode_pages: derived: a pure function of the linked table image, found lazily on first use
+core/sys/config.c config_depth: not carried: host settings, not machine state
+core/sys/config.c config_dirty: not carried: host settings, not machine state
+core/sys/config.c config_oem_code_page: not carried: host settings, not machine state
+core/sys/config.c config_phi2_khz: not carried: host settings, not machine state
+core/sys/config.c config_str_locale: not carried: host settings, not machine state
+core/sys/proc.c argv.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c launcher.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c queued: the PROC chunk
+core/sys/proc.c running.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/random.c sys_random_seeded: the RAND chunk
+core/sys/random.c sys_random_state: the RAND chunk
+core/sys/sst.c sst_body: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_manifest_crc: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_manifest_done: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_offset: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_scratch: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sys.c sys_breaking: the blob's latch, which sst.c applies before the walk
+core/sys/sys.c sys_state: the blob's latch, which sst.c applies before the walk
+core/sys/xram.c xram: the XRAM chunk
+core/sys/xram.c xram_blocks: not carried: the debugger's view of who mapped what
+core/sys/xram.c xram_fill_random: not carried: a session's fill setting
+core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
+core/sys/xram.c xram_fill_value: not carried: a session's fill setting
+core/term/color.c color_256_term: the TERM chunk
+core/term/font.c font16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
+core/term/font.c font8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
+core/term/font.c font_code_page: derived: the OEM chunk's load installs it through font_load_code_page
+core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
+core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
+core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
+core/term/term.c term40_alt_mem.5: the TERM chunk
+core/term/term.c term40_pri_mem.6: the TERM chunk
+core/term/term.c term80_alt_mem.3: the TERM chunk
+core/term/term.c term80_pri_mem.4: the TERM chunk
+core/term/term.c term_40: the TERM chunk
+core/term/term.c term_80: the TERM chunk
+core/vga/canvas.c canvas_code: the VGA chunk
+core/vga/canvas.c canvas_h: the VGA chunk
+core/vga/canvas.c canvas_w: the VGA chunk
+core/vga/mode/mode0.c mode0_scanline_begin: the VGA chunk
+core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
+core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
+core/vga/prog.c vga_highest_scanline: the VGA chunk
+core/vga/prog.c vga_prog: the VGA chunk
+core/vga/vga.c beam_n: the VGA chunk
+core/vga/vga.c frame_n: the VGA chunk
+core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
+core/vga/vga.c vga_needs_reset: the VGA chunk
+core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
+core/vga/vga.c vsynced: the VGA chunk
+core/wdc/bus.c bus_addr: the BUS chunk
+core/wdc/bus.c bus_cycle_count: the BUS chunk
+core/wdc/bus.c bus_data: the BUS chunk
+core/wdc/bus.c bus_lines: the BUS chunk
+core/wdc/bus.c bus_owed: the BUS chunk
+core/wdc/bus.c bus_read: the BUS chunk
+core/wdc/bus.c bus_ria_irq: the BUS chunk
+core/wdc/bus.c bus_via_irq: the BUS chunk
+core/wdc/cpu.c cpu: the CPU chunk
+core/wdc/cpu.c cpu_dbg_cycle_cb: the CPU chunk
+core/wdc/cpu.c pins: the CPU chunk
+core/wdc/phi2.c khz_run: the PHI2 chunk
+core/wdc/resb.c held: the blob's latch
+core/wdc/sram.c sram: the SRAM chunk
+core/wdc/sram.c sram_fill_random: not carried: a session's fill setting
+core/wdc/sram.c sram_fill_seed: not carried: a session's fill setting
+core/wdc/sram.c sram_fill_value: not carried: a session's fill setting
+core/wdc/via.c via: the VIA chunk
+osal/posix/console.c con_break_sig: not carried: the host's terminal, not the machine's
+osal/posix/console.c con_ended: not carried: the host's terminal, not the machine's
+osal/posix/console.c con_raw: not carried: the host's terminal, not the machine's
+osal/posix/console.c con_raw_on: not carried: the host's terminal, not the machine's
+osal/posix/console.c con_saved: not carried: the host's terminal, not the machine's
+osal/posix/dir.c dirs: the DIR chunk reopens each slot by the path this table keeps
+osal/posix/fs.c fs_kept: the STD chunk reopens each descriptor by the path this pool keeps
+osal/posix/fs_aio.c g_xfer: not carried: fs_std_settle cancels the transfer before either walk
+osal/posix/os.c g_locale: not carried: the host's locale

@@ -8,6 +8,7 @@
 
 #include "core/sys/timer.h"
 
+#include "host/host.h"
 #include "osal/os.h"
 
 uint64_t timer_ns(void)
@@ -28,4 +29,19 @@ timer_deadline_t timer_in_ms(uint64_t ms)
 bool timer_passed(timer_deadline_t d)
 {
     return (int64_t)(os_mono_ns() - d) >= 0;
+}
+
+timer_mach_t timer_mach_in_us(uint64_t us)
+{
+    return host_clock_us() + us;
+}
+
+timer_mach_t timer_mach_in_ms(uint64_t ms)
+{
+    return host_clock_us() + ms * 1000;
+}
+
+bool timer_mach_passed(timer_mach_t d)
+{
+    return (int64_t)(host_clock_us() - d) >= 0;
 }

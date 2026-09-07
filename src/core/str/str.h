@@ -110,6 +110,6 @@ int str_locale_response(char *buf, size_t buf_size, int state, unsigned width);
     str_check_locale, str_apply_locale, STR_LOC, str_locale_response, \
     STR_HELP_SET_LOC, str_locales_response)
 #define STR_DRIVER DRIVER(str_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    STR_CONFIG_LOCALE, nul_config)
+    STR_CONFIG_LOCALE, nul_config, nul_sst)
 
 #endif /* _CORE_STR_STR_H_ */

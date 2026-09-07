@@ -47,7 +47,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
-        ${SW_SRC}/sst.c
+        ${SW_SRC}/wake.c
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/pick.c ${SW_SRC}/com.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/mem.c ${RP6502_SRC}/core/sys/timer.c
@@ -127,6 +127,10 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # undefined, the default becomes the macro's own name, too long
             # for the field and left unterminated.
             -DRP6502_LOCALE=EN
+            # 64 bytes of table rather than 1024. This image shares a 96 KB
+            # memory with its stack and heap, and its CRC is a cold path:
+            # nothing here makes a savestate, the fabric does.
+            -DRP6502_CRC32_SMALL
             ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf

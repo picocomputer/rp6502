@@ -92,7 +92,8 @@ emulator has all three, and the same programs run on it:
 
     https://github.com/picocomputer/rp6502/releases
 
-Save states are not implemented yet - nothing in the machine
-serializes, so there is nothing to save. The core says so, and a
-frontend takes it at its word: rewind and netplay do not offer
-themselves either.
+Two things a save state does not put back. The filesystem is not in
+it: a program's writes are on disk, so rewinding past one leaves what
+it wrote. And netplay does not replicate a keyboard - this machine
+takes keys as events rather than as a polled port, so two peers typing
+diverge. Pads, the pointer and the tablet are polled, and do replicate.

@@ -5,6 +5,8 @@
  */
 
 #include "core/aud/mix.h"
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
 #include "ria/sys/rp2350.h"
@@ -23,7 +25,7 @@
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
 /* The device to mix, or none. */
-static void (*aud_dev)(int16_t *left, int16_t *right);
+static aud_dev_t aud_dev;
 
 /* The pair the last interrupt mixed, already narrowed to the PWM's ten
  * bits, for the next interrupt to write before it computes anything.
@@ -45,8 +47,12 @@ static void __isr __time_critical_func(aud_irq)(void)
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     int16_t l = 0, r = 0;
-    if (aud_dev)
-        aud_dev(&l, &r);
+    switch (aud_dev)
+    {
+    case aud_dev_psg: psg_sample(&l, &r); break;
+    case aud_dev_opl: opl_stereo(&l, &r); break;
+    case aud_dev_none: break;
+    }
     const int32_t bel = bel_sample();
     int32_t sl = l + bel;
     int32_t sr = r + bel;
@@ -106,10 +112,12 @@ void __in_flash("aud_init") aud_init(void)
 
 void aud_stop(void)
 {
-    aud_dev = NULL;
+    aud_dev = aud_dev_none;
 }
 
-void aud_setup(void (*sample)(int16_t *left, int16_t *right))
+void aud_setup(aud_dev_t dev)
 {
-    aud_dev = sample;
+    aud_dev = dev;
 }
+
+aud_dev_t aud_device(void) { return aud_dev; }

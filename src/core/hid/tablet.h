@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 #include "core/hid/hid.h"
@@ -133,6 +134,14 @@ void tablet_host_clear(void);
 uint8_t tablet_control(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break, nul_config, nul_config)
+/* The block and whether a host lends its own cursor. The six report-only
+ * counters are not here: only tablet_report writes them, and no software
+ * machine has a report to hand over. 2 + TABLET_BLOCK_SIZE + 1 */
+#define TABLET_SST_SIZE (3 + TABLET_BLOCK_SIZE)
+void tablet_sst_save(sst_cursor_t *c, unsigned flags);
+bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break, \
+    nul_config, nul_config, SST(TBLT, 1, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
 
 #endif /* _CORE_HID_TABLET_H_ */

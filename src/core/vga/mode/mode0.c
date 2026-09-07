@@ -242,6 +242,29 @@ mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb
 }
 #pragma GCC pop_options
 
+vga_fill_fn_t mode0_fill_fn(uint16_t attributes)
+{
+    return attributes ? NULL : mode0_render;
+}
+
+bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
+{
+    if (fn != mode0_render)
+        return false;
+    *attributes = 0;
+    return true;
+}
+
+int16_t mode0_begin(void)
+{
+    return mode0_scanline_begin;
+}
+
+void mode0_set_begin(int16_t at)
+{
+    mode0_scanline_begin = at;
+}
+
 bool mode0_prog(uint16_t *xregs)
 {
     int16_t plane = xregs[2];

@@ -171,3 +171,17 @@ bool drive_validate(int des, api_errno *err)
     *err = API_EBADF;
     return false;
 }
+
+/* A savestate is a software machine's, and neither of these two builds one.
+ * The seam still has to be answered, because core/api/dir.c compiles here. */
+bool drive_dir_path(int des, char *buf, size_t size)
+{
+    (void)des, (void)buf, (void)size;
+    return false;
+}
+
+bool drive_reopendir(int des, const char *path, api_errno *err)
+{
+    (void)des, (void)path;
+    return drive_enosys(err);
+}

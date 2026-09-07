@@ -37,6 +37,10 @@ typedef struct
     std_rw_result (*sync)(int, api_errno *);
     int (*lseek)(int, int8_t, int32_t, int32_t *, api_errno *);
     int desc;
+    /* Which row of std_driver_table opened it. The five pointers above are
+     * this build's addresses and no blob can carry them; the index is what a
+     * savestate writes down and rebuilds them from. */
+    uint8_t driver;
 } std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
@@ -72,6 +76,159 @@ static void std_rln_callback(bool timeout, const char *buf)
     std_rln_pos = 0;
     std_rln_len = strlen(buf);
     std_rln_needs_nl = true;
+}
+
+/* Which of xstack and xram a transfer is landing in, and where it started.
+ * The base is not derivable from the rest: a read into xram advances
+ * std_xram_addr as std_task drains it, and a write into xram never records
+ * the address at all. */
+#define STD_BUF_NONE 0
+#define STD_BUF_XSTACK 1
+#define STD_BUF_XRAM 2
+
+void std_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        std_fd_t *f = &std_fd_pool[fd];
+        bool carried = f->is_open && fd >= STD_FD_FIRST_FREE;
+        sst_put_bool(c, carried);
+        if (!carried)
+            continue;
+        size_t count;
+        const std_driver_t *drivers = std_drivers(&count);
+        if (f->driver >= count || !drivers[f->driver].ident)
+        {
+            sst_fail(c); /* a drive that cannot say what it holds */
+            return;
+        }
+        sst_put_u8(c, f->driver);
+        if (!drivers[f->driver].ident(f->desc, c))
+        {
+            sst_fail(c);
+            return;
+        }
+    }
+    /* The transfer in flight, as a buffer and an offset into it. */
+    uint8_t kind = STD_BUF_NONE;
+    uint16_t at = 0;
+    if (std_buf)
+    {
+        if (std_buf >= (char *)xstack && std_buf <= (char *)xstack + XSTACK_SIZE)
+        {
+            kind = STD_BUF_XSTACK;
+            at = (uint16_t)(std_buf - (char *)xstack);
+        }
+        else
+        {
+            kind = STD_BUF_XRAM;
+            at = (uint16_t)(std_buf - (char *)xram);
+        }
+    }
+    sst_put_u8(c, std_fd_active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
+    sst_put_u8(c, kind);
+    sst_put_u16(c, at);
+    sst_put_u16(c, std_size);
+    sst_put_u16(c, std_pos);
+    sst_put_u16(c, std_xram_addr);
+    sst_put_u16(c, std_xram_len);
+    sst_put_bool(c, std_rln_active);
+    sst_put_bool(c, std_rln_needs_nl);
+    sst_put_u16(c, (uint16_t)std_rln_pos);
+    sst_put_u16(c, (uint16_t)std_rln_len);
+    sst_put_bool(c, std_stdin_closed);
+    sst_put_bool(c, std_asked_console);
+}
+
+bool std_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+
+    /* Close what this machine has open before the blob's descriptors take
+     * their places, or the host's own file handles leak. The console rows
+     * below STD_FD_FIRST_FREE are std_init's and stay. */
+    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+        if (std_fd_pool[fd].is_open && std_fd_pool[fd].close)
+        {
+            api_errno ignored;
+            while (std_fd_pool[fd].close(std_fd_pool[fd].desc, &ignored) == STD_PENDING)
+                ;
+            std_fd_pool[fd].is_open = false;
+        }
+
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        bool carried = sst_get_bool(c);
+        if (!sst_ok(c))
+            return false;
+        if (!carried)
+            continue;
+        uint8_t row = sst_get_u8(c);
+        if (!sst_ok(c) || row >= count || !drivers[row].reopen)
+            return false;
+        api_errno err = API_EIO;
+        int desc = drivers[row].reopen(c, &err);
+        if (desc < 0 || !sst_ok(c))
+            return false;
+        std_fd_pool[fd].is_open = true;
+        std_fd_pool[fd].close = drivers[row].close;
+        std_fd_pool[fd].read = drivers[row].read;
+        std_fd_pool[fd].write = drivers[row].write;
+        std_fd_pool[fd].sync = drivers[row].sync;
+        std_fd_pool[fd].lseek = drivers[row].lseek;
+        std_fd_pool[fd].desc = desc;
+        std_fd_pool[fd].driver = row;
+    }
+
+    uint8_t active = sst_get_u8(c);
+    uint8_t kind = sst_get_u8(c);
+    uint16_t at = sst_get_u16(c);
+    uint16_t size = sst_get_u16(c), pos = sst_get_u16(c);
+    uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
+    bool rln_on = sst_get_bool(c), needs_nl = sst_get_bool(c);
+    uint16_t rpos = sst_get_u16(c), rlen = sst_get_u16(c);
+    bool closed = sst_get_bool(c), asked = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    /* Everything that is dereferenced or indexed. An active descriptor must
+     * be one that is open, and a transfer must point inside the buffer it
+     * names, or the first re-dispatch walks off it. */
+    if (active != 0xFF && (active >= STD_FD_MAX || !std_fd_pool[active].is_open))
+        return false;
+    if (kind > STD_BUF_XRAM)
+        return false;
+    if (kind == STD_BUF_XSTACK && at > XSTACK_SIZE)
+        return false;
+    if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
+        return false;
+    if (pos > size || rpos > rlen || rlen >= RLN_LINE_MAX)
+        return false;
+
+    std_fd_active = (active == 0xFF) ? NULL : &std_fd_pool[active];
+    std_buf = (kind == STD_BUF_XSTACK) ? (char *)xstack + at
+              : (kind == STD_BUF_XRAM) ? (char *)xram + at
+                                       : NULL;
+    std_size = size;
+    std_pos = pos;
+    std_xram_addr = xaddr;
+    std_xram_len = xlen;
+    std_rln_active = rln_on;
+    std_rln_needs_nl = needs_nl;
+    std_rln_pos = rpos;
+    std_rln_len = rlen;
+    std_stdin_closed = closed;
+    std_asked_console = asked;
+    /* Never carried: it is always rln's own buffer, and rln has restored it. */
+    std_rln_buf = rln_line();
+    return true;
+}
+
+rln_read_callback_t std_rln_reader(void)
+{
+    return std_rln_callback;
 }
 
 static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
@@ -198,6 +355,7 @@ bool std_api_open(void)
             std_fd_pool[fd].sync = drivers[i].sync;
             std_fd_pool[fd].lseek = drivers[i].lseek;
             std_fd_pool[fd].desc = idx;
+            std_fd_pool[fd].driver = (uint8_t)i;
             return api_return_ax(fd);
         }
     }

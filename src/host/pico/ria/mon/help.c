@@ -69,7 +69,7 @@ static const char *help_find_setting(const char *key, mon_response_fn *fn)
 {
     if (!strcasecmp(key, STR_BOOT))
         return S(STR_HELP_SET_BOOT);
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, help, helpfn) \
     if (!strcasecmp(key, attr))                                                       \
     {                                                                                 \

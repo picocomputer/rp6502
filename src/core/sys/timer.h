@@ -42,4 +42,22 @@ timer_deadline_t timer_in_ms(uint64_t ms);
  * every armed one for a whole clock period. */
 bool timer_passed(timer_deadline_t d);
 
+/* The machine's own clock, and distances in it. host_clock_us pauses when the
+ * machine does and is a pure function of the beam on a software machine, so a
+ * deadline against it means the same thing in a machine restored from a blob
+ * as it did in the one that made the blob. Every deadline the 6502 can
+ * observe belongs here: a terminal's reply timeout, the line editor's
+ * handshake, the console's source hold.
+ *
+ * What stays on the clock above is what is genuinely the operating system's:
+ * a network retry, a key repeat on a board with a keyboard.
+ *
+ * Microseconds rather than nanoseconds, and a type of its own, so the two
+ * cannot be mixed by accident. */
+typedef uint64_t timer_mach_t;
+
+timer_mach_t timer_mach_in_us(uint64_t us);
+timer_mach_t timer_mach_in_ms(uint64_t ms);
+bool timer_mach_passed(timer_mach_t d);
+
 #endif /* _CORE_SYS_TIMER_H_ */

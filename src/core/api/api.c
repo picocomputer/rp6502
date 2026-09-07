@@ -91,6 +91,25 @@ void api_task(void)
         api_active_op = 0;
 }
 
+void api_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u8(c, api_active_op);
+    sst_put_u8(c, api_errno_opt);
+}
+
+bool api_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t op = sst_get_u8(c);
+    uint8_t opt = sst_get_u8(c);
+    if (!sst_ok(c))
+        return false;
+    api_active_op = op;
+    api_errno_opt = opt;
+    return true;
+}
+
 void api_stop(void)
 {
     api_active_op = 0;

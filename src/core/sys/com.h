@@ -12,6 +12,7 @@
 #define _CORE_SYS_COM_H_
 
 #include <stdarg.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -66,6 +67,11 @@ typedef struct
 
 /* Reset the picker and clear every listed row: a cold boot and a break. */
 void com_rx_clear(void);
+
+/* The hold a savestate carries, which is pick.c's and not com.c's: which
+ * source has the reader and how long it keeps it. */
+void com_rx_save(sst_cursor_t *c);
+bool com_rx_load(sst_cursor_t *c);
 
 // Non-blocking 1-byte read. *src is in/out:
 //   - in COM_SOURCE_ANY: read from any active source via the sticky

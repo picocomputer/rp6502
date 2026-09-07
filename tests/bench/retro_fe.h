@@ -170,6 +170,18 @@ typedef struct
     int av_enable;
     bool av_enable_asked;
 
+    /* What this frontend will say a savestate is for. The call is
+     * experimental, so a frontend is allowed to refuse it outright and a
+     * core has to cope: savestate_context_refused is that frontend. */
+    int savestate_context;
+    bool savestate_context_asked;
+    bool savestate_context_refused;
+
+    /* The quirks word the core last declared, and whether it declared one.
+     * A frontend keeps only the latest and reads it when netplay starts. */
+    uint64_t serialization_quirks;
+    bool serialization_quirks_set;
+
     /* The content directory the frontend hands over, when it answers
      * GET_GAME_INFO_EXT at all. */
     const char *game_info_dir;
@@ -324,6 +336,18 @@ static bool fe_environment(unsigned cmd, void *data)
         *(int *)data = fe.av_enable;
         return true;
 
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT:
+        fe.savestate_context_asked = true;
+        if (fe.savestate_context_refused)
+            return false;
+        *(int *)data = fe.savestate_context;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
+        fe.serialization_quirks = *(uint64_t *)data;
+        fe.serialization_quirks_set = true;
+        return true;
+
     case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:
     {
         /* Plain assignment rather than a compound literal: this header is
@@ -449,6 +473,7 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     fe.max_users = -1; /* a frontend that will not say, unless a case does */
     /* Everything on, which is what a frontend not skipping anything says. */
     fe.av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    fe.savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
     fe.lib = fe_dl_open(RETRO_SO);
     if (!fe.lib)
     {

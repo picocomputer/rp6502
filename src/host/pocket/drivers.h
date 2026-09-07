@@ -39,7 +39,7 @@
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
-#include "sw/sst.h"
+#include "sw/wake.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"
 #include "sw/fs.h"
@@ -67,7 +67,7 @@
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \
-    DIR_DRIVER, API_DRIVER, SST_DRIVER,                 \
+    DIR_DRIVER, API_DRIVER, WAKE_DRIVER,                \
     CLK_DRIVER, PHI2_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is

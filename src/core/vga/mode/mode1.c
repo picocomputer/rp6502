@@ -448,6 +448,52 @@ mode1_render_16bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, ui
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
+/* The renderer an attribute names, and the attribute a renderer came from.
+ * A savestate carries the attribute: a function's address is this build's own
+ * and means nothing to the build that loads the blob.
+ *
+ * The reverse walks the forward rather than keeping a second table, so the
+ * two cannot drift apart when a renderer is added. */
+vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+    case 0:
+        return mode1_render_1bpp_8x8;
+    case 1:
+        return mode1_render_4bppr_8x8;
+    case 2:
+        return mode1_render_4bpp_8x8;
+    case 3:
+        return mode1_render_8bpp_8x8;
+    case 4:
+        return mode1_render_16bpp_8x8;
+    case 8:
+        return mode1_render_1bpp_8x16;
+    case 9:
+        return mode1_render_4bppr_8x16;
+    case 10:
+        return mode1_render_4bpp_8x16;
+    case 11:
+        return mode1_render_8bpp_8x16;
+    case 12:
+        return mode1_render_16bpp_8x16;
+    default:
+        return NULL;
+    }
+}
+
+bool mode1_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 16; a++)
+        if (fn && mode1_fill_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+
 bool mode1_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -460,42 +506,9 @@ bool mode1_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode1_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
-    switch (attributes)
-    {
-    case 0:
-        render_fn = mode1_render_1bpp_8x8;
-        break;
-    case 1:
-        render_fn = mode1_render_4bppr_8x8;
-        break;
-    case 2:
-        render_fn = mode1_render_4bpp_8x8;
-        break;
-    case 3:
-        render_fn = mode1_render_8bpp_8x8;
-        break;
-    case 4:
-        render_fn = mode1_render_16bpp_8x8;
-        break;
-    case 8:
-        render_fn = mode1_render_1bpp_8x16;
-        break;
-    case 9:
-        render_fn = mode1_render_4bppr_8x16;
-        break;
-    case 10:
-        render_fn = mode1_render_4bpp_8x16;
-        break;
-    case 11:
-        render_fn = mode1_render_8bpp_8x16;
-        break;
-    case 12:
-        render_fn = mode1_render_16bpp_8x16;
-        break;
-    default:
+    vga_fill_fn_t render_fn = mode1_fill_fn(attributes);
+    if (!render_fn)
         return false;
-    };
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }

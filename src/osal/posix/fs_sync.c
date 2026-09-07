@@ -54,3 +54,8 @@ std_rw_result fs_std_close(int desc, api_errno *err)
     }
     return STD_OK;
 }
+
+/* Nothing is ever in flight here; the file's own header says why. */
+void fs_std_settle(void)
+{
+}

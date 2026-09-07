@@ -34,7 +34,7 @@
  * on hardware it has only ever read zero.
  */
 
-#include "sst.h"
+#include "wake.h"
 
 #include "aud.h"
 #include "com.h"
@@ -52,12 +52,12 @@
 
 #include <string.h>
 
-bool sst_pending(void)
+bool wake_pending(void)
 {
     return (SST_CTL & SST_BLOB_SEEN) != 0;
 }
 
-void sst_task(void)
+void wake_task(void)
 {
     uint32_t ctl = SST_CTL;
     if (!(ctl & SST_RESTORED))

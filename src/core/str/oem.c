@@ -37,6 +37,31 @@ static void oem_request_code_page(uint16_t cp)
         vga_set_code_page(oem_code_page_run);
 }
 
+/* The page, and then the tables that follow from it, pushed the same way
+ * oem_init pushes them: through vga_set_code_page, which is the seam a
+ * machine whose font lives on another chip answers with a message. Not
+ * through oem_request_code_page, which only speaks when the number changes
+ * and would leave a restored store holding the loading session's glyphs. */
+void oem_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, oem_code_page_run);
+}
+
+bool oem_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t cp = sst_get_u16(c);
+    /* Zero is a page in force: a machine whose resolved page the tables do
+     * not carry runs with it for the life of the session. */
+    if (!sst_ok(c) || (cp != 0 && (cp >= 900 || !unicode_has_page(cp))))
+        return false;
+    oem_code_page_run = cp;
+    oem_fs_code_page(cp);
+    vga_load_code_page(cp);
+    return true;
+}
+
 void HOST_IN_FLASH("oem_init") oem_init(void)
 {
     oem_apply_code_page(oem_get_code_page(), true);

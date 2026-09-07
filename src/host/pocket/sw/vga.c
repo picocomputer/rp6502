@@ -31,11 +31,6 @@ uint8_t vga_get_display_type(void)
     return 1;
 }
 
-int16_t vga_vsync_scanline(void)
-{
-    return vga_highest_scanline;
-}
-
 /* The fabric renders, so it is told which mode before the planes arrive. */
 void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
@@ -172,3 +167,11 @@ void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
 }
+/* Putting a page back rather than choosing one. This machine's font is
+ * elsewhere and the message is the same either way; only the terminal reset
+ * differs, and that one is core's. */
+void vga_load_code_page(uint16_t cp)
+{
+    vga_set_code_page(cp);
+}
+

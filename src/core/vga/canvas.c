@@ -22,6 +22,37 @@
 static vga_canvas_t canvas_code = vga_canvas_console;
 static int16_t canvas_w = 640, canvas_h = 480;
 
+/* The canvas a savestate found, without the reset select performs. select
+ * clears the scanline table and re-programs the console terminal across it;
+ * a load has the table's own bytes and the terminal's, and both arrive by
+ * their own rows. */
+bool vga_canvas_load(uint16_t canvas)
+{
+    switch (canvas)
+    {
+    case vga_canvas_console:
+    case vga_canvas_320_240:
+    case vga_canvas_320_180:
+    case vga_canvas_640_480:
+    case vga_canvas_640_360:
+        break;
+    default:
+        return false;
+    }
+    int w, h;
+    vga_canvas_geometry((vga_canvas_t)canvas, &w, &h);
+    canvas_code = (vga_canvas_t)canvas;
+    canvas_w = (int16_t)w;
+    canvas_h = (int16_t)h;
+    vga_canvas_publish(canvas_code);
+    return true;
+}
+
+vga_canvas_t vga_canvas_code(void)
+{
+    return canvas_code;
+}
+
 bool vga_canvas_select(uint16_t canvas)
 {
     switch (canvas)

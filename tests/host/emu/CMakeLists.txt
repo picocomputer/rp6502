@@ -12,10 +12,16 @@
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
         ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/streams.c
+        ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
 rp6502_add_script_test(poke FIXTURE gamepad.rp6502)
+
+# The machine written down and put back, through the verbs a driver on the
+# other end of a pipe would use. The blob lands in the test's own working
+# directory, which rp6502_add_script_test gives each script.
+rp6502_add_script_test(state FIXTURE gamepad.rp6502)
 
 # The command line, which had no test at all: the script suites reach cli.c
 # only through the options they happen to pass, so nothing was checking that a
@@ -75,10 +81,34 @@ endif()
 # No fixture: the claims are about the fan-outs, not about a program.
 rp6502_add_test(sys LIBS emu_core)
 
+# --- The savestate's framing: what a blob must be before it is believed ---
+# No fixture: every claim is about the header, the manifest and the trailer,
+# which are the machine's shape rather than any program's state.
+rp6502_add_test(sst LIBS emu_core FIXTURE adventure.rp6502)
+
+# --- Every mutable object the core owns, against what carries it ---
+# A static added to core is machine state the moment it is added, and nothing
+# else in the tree would notice that no chunk carries it. Measured from the
+# objects rather than grepped from the source: the scanner rebuilds each of
+# emu.cmake's units without LTO, which is what keeps a file-scope static in
+# the symbol table. Needs the compile database, so it is skipped where the
+# generator does not write one.
+if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    add_test(NAME state_inventory
+        COMMAND ${CMAKE_COMMAND} -E env python3
+            ${RP6502_TESTS_DIR}/gen/state_inventory.py
+            ${CMAKE_BINARY_DIR}/compile_commands.json
+            ${RP6502_SRC}
+            ${RP6502_TESTS_DIR}/gen/state_inventory.txt)
+    set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
+endif()
+
 # --- Which way each of the roster's walks goes ---
 # No machine linked, on purpose: the roster beside the test is the only
 # drivers.h on the path, and sys.c is compiled in because the stop and break
-# fan-outs are static.
+# fan-outs are static. sst.c comes in the same way and for the same reason:
+# its five expansions of the ninth column are private to it, and two of the
+# three fake rows carry a chunk so the savestate walks can be seen too.
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
 # --- The console's input, with more than one source live at once ---

@@ -10,6 +10,7 @@
 
 /* Pulled in ahead of the extern "C" block so the firmware header's own includes
  * are already-guarded no-ops by the time it is reached. */
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -25,9 +26,8 @@ extern "C"
  * no implementation here; ria_active is always false (no mbuf transfers). */
 #include "core/sys/ria.h"
 
-/* Program start, per-frame service, and the vsync the video half raises. */
+/* Program start and the vsync the video half raises. */
 void ria_run(void);
-void ria_task(void);
 void ria_trigger_vsync(void);
 
 /* The RIA decodes the RIA_MMAP_* register window, drives data on reads and asserts
@@ -85,6 +85,20 @@ void ria_break(void);
  * reversal puts its stop last -- which is where a machine with a real bus
  * needs it, because other stops read ria_active() to tell a program stop
  * from a fast-load transfer. This machine has no transfer and no stop. */
-#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, ria_break, nul_config, nul_config)
+/* The chip, the register window, the extended stack and the write queue the
+ * audio device drains. The queue rides whole rather than as its live window:
+ * a full ring drops writes, so how many are in it is state.
+ *
+ * regs[$FFEC] mirrors the top of the xstack and regs[$FFF0] mirrors the
+ * pending interrupts. Both are carried rather than re-derived, because a
+ * transfer in flight leaves the first legitimately stale.
+ *
+ * 8 + 1 + 1 + 1 + 32 + 513 + 2 + 1 + 1 + 1 + 512 */
+#define RIA_SST_SIZE 1073
+void ria_sst_save(sst_cursor_t *c, unsigned flags);
+bool ria_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, ria_break, \
+    nul_config, nul_config, SST(RIA_, 1, RIA_SST_SIZE, ria_sst_save, ria_sst_load))
 
 #endif /* _CORE_RIA_RIA_H_ */

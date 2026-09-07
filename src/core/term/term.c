@@ -2633,6 +2633,244 @@ void term_RIS_no_clear(void)
     term_out_RIS_no_clear(&term_80);
 }
 
+/* ---- savestate ----------------------------------------------------------
+ *
+ * A terminal is two screens of cells, a cursor state for each, two more saved
+ * cursors beside them, and the parser's own place in whatever escape sequence
+ * was arriving when the blob was taken.
+ *
+ * Written field by field. cursor_state_t has a byte of padding after its five
+ * uint8_t members, and a struct copy would put whatever is in it on the wire,
+ * where it would make two saves of one unchanged machine differ. */
+
+static void term_put_cursor(sst_cursor_t *c, const cursor_state_t *cs)
+{
+    sst_put_u8(c, cs->x);
+    sst_put_u8(c, cs->y);
+    sst_put_u8(c, cs->sgr_attr);
+    sst_put_u8(c, cs->fg_color_index);
+    sst_put_u8(c, cs->bg_color_index);
+    sst_put_u16(c, cs->fg_color);
+    sst_put_u16(c, cs->bg_color);
+    sst_put_u16(c, cs->user_fg_color);
+    sst_put_u16(c, cs->user_bg_color);
+    sst_put_u16(c, cs->ul_color);
+    sst_put_bool(c, cs->underline_color_set);
+    sst_put_bool(c, cs->bold);
+    sst_put_bool(c, cs->faint);
+    sst_put_bool(c, cs->reverse);
+    sst_put_bool(c, cs->conceal);
+    sst_put_bool(c, cs->origin_mode);
+    sst_put_bool(c, cs->line_wrap);
+    sst_put_u8(c, cs->g0_charset);
+    sst_put_u8(c, cs->g1_charset);
+    sst_put_bool(c, cs->gl_is_g1);
+}
+
+static void term_get_cursor(sst_cursor_t *c, cursor_state_t *cs)
+{
+    cs->x = sst_get_u8(c);
+    cs->y = sst_get_u8(c);
+    cs->sgr_attr = sst_get_u8(c);
+    cs->fg_color_index = sst_get_u8(c);
+    cs->bg_color_index = sst_get_u8(c);
+    cs->fg_color = sst_get_u16(c);
+    cs->bg_color = sst_get_u16(c);
+    cs->user_fg_color = sst_get_u16(c);
+    cs->user_bg_color = sst_get_u16(c);
+    cs->ul_color = sst_get_u16(c);
+    cs->underline_color_set = sst_get_bool(c);
+    cs->bold = sst_get_bool(c);
+    cs->faint = sst_get_bool(c);
+    cs->reverse = sst_get_bool(c);
+    cs->conceal = sst_get_bool(c);
+    cs->origin_mode = sst_get_bool(c);
+    cs->line_wrap = sst_get_bool(c);
+    cs->g0_charset = sst_get_u8(c);
+    cs->g1_charset = sst_get_u8(c);
+    cs->gl_is_g1 = sst_get_bool(c);
+}
+
+static void term_put_screen(sst_cursor_t *c, const screen_buf_t *b)
+{
+    term_put_cursor(c, &b->cs);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u8(c, b->row_idx[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_bool(c, b->dirty[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_fg_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_bg_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_ul_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u8(c, b->erase_attr[i]);
+    sst_put_u8(c, b->y_offset);
+    sst_put_bool(c, b->all_clean);
+    sst_put_u8(c, b->margin_top);
+    sst_put_u8(c, b->margin_bot);
+}
+
+static bool term_get_screen(sst_cursor_t *c, screen_buf_t *b)
+{
+    term_get_cursor(c, &b->cs);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->row_idx[i] = sst_get_u8(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->dirty[i] = sst_get_bool(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_fg_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_bg_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_ul_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_attr[i] = sst_get_u8(c);
+    b->y_offset = sst_get_u8(c);
+    b->all_clean = sst_get_bool(c);
+    b->margin_top = sst_get_u8(c);
+    b->margin_bot = sst_get_u8(c);
+    /* Everything here indexes the cell array. row_idx is the scroll remap and
+     * y_offset is added to it before the lookup, so both are bounded. */
+    if (!sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT ||
+        b->margin_bot >= TERM_MAX_HEIGHT || b->margin_top > b->margin_bot)
+        return false;
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        if (b->row_idx[i] >= TERM_MAX_HEIGHT)
+            return false;
+    return true;
+}
+
+static void term_put_one(sst_cursor_t *c, const term_state_t *t)
+{
+    sst_put_u8(c, t->width);
+    sst_put_u8(c, t->height);
+    sst_put_bool(c, t->alt_active);
+    sst_put_bool(c, t->cursor_save_valid);
+    sst_put_u8(c, t->save_x);
+    sst_put_u8(c, t->save_y);
+    sst_put_bool(c, t->save_origin_mode);
+    sst_put_bool(c, t->cursor_enabled);
+    sst_put_u64(c, t->cursor_frame);
+    sst_put_bool(c, t->cursor_lit);
+    sst_put_u64(c, t->cell_blink_frame);
+    sst_put_u8(c, t->cell_blink_phase);
+    sst_put_u16(c, t->default_fg_color);
+    sst_put_u16(c, t->default_bg_color);
+    sst_put_u16(c, t->cursor_color);
+    sst_put_u8(c, (uint8_t)t->ansi_state);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        sst_put_u16(c, t->csi_param[i]);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        sst_put_u8(c, (uint8_t)t->csi_separator[i]);
+    sst_put_u8(c, t->csi_param_count);
+    sst_put_u8(c, t->csi_intermediate);
+    sst_put_bool(c, t->ice_colors);
+    sst_put_u8(c, t->cursor_style);
+    sst_put(c, t->tab_stops, TERM_TAB_BITMAP_BYTES);
+    sst_put_bool(c, t->decsc_valid);
+    term_put_cursor(c, &t->cursor_save);
+    term_put_cursor(c, &t->decsc);
+    term_put_screen(c, &t->bufs[0]);
+    term_put_screen(c, &t->bufs[1]);
+}
+
+static bool term_get_one(sst_cursor_t *c, term_state_t *t, uint8_t width)
+{
+    uint8_t w = sst_get_u8(c);
+    uint8_t h = sst_get_u8(c);
+    bool alt = sst_get_bool(c);
+    t->cursor_save_valid = sst_get_bool(c);
+    t->save_x = sst_get_u8(c);
+    t->save_y = sst_get_u8(c);
+    t->save_origin_mode = sst_get_bool(c);
+    t->cursor_enabled = sst_get_bool(c);
+    t->cursor_frame = (unsigned long)sst_get_u64(c);
+    t->cursor_lit = sst_get_bool(c);
+    t->cell_blink_frame = (unsigned long)sst_get_u64(c);
+    t->cell_blink_phase = sst_get_u8(c);
+    t->default_fg_color = sst_get_u16(c);
+    t->default_bg_color = sst_get_u16(c);
+    t->cursor_color = sst_get_u16(c);
+    t->ansi_state = (ansi_state_t)sst_get_u8(c);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        t->csi_param[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        t->csi_separator[i] = (char)sst_get_u8(c);
+    t->csi_param_count = sst_get_u8(c);
+    t->csi_intermediate = sst_get_u8(c);
+    t->ice_colors = sst_get_bool(c);
+    t->cursor_style = sst_get_u8(c);
+    sst_get(c, t->tab_stops, TERM_TAB_BITMAP_BYTES);
+    t->decsc_valid = sst_get_bool(c);
+    term_get_cursor(c, &t->cursor_save);
+    term_get_cursor(c, &t->decsc);
+    if (!term_get_screen(c, &t->bufs[0]) || !term_get_screen(c, &t->bufs[1]))
+        return false;
+    /* A terminal is a different object at another width or height, and the
+     * alt screen only exists in a build that has one. */
+    if (!sst_ok(c) || w != width || h < 1 || h > TERM_MAX_HEIGHT)
+        return false;
+    if (alt && !t->bufs[1].mem)
+        return false;
+    /* Every saved cursor row, before anything indexes with one. The parser
+     * state is checked because csi_param doubles as the OSC sub-state, where
+     * slot four is an index into the runtime palette. */
+    if (t->bufs[0].cs.y >= TERM_MAX_HEIGHT || t->bufs[1].cs.y >= TERM_MAX_HEIGHT ||
+        t->cursor_save.y >= TERM_MAX_HEIGHT || t->decsc.y >= TERM_MAX_HEIGHT ||
+        t->save_y >= TERM_MAX_HEIGHT || t->csi_param[4] > 255)
+        return false;
+    t->height = h;
+    t->alt_active = alt;
+    t->screen = &t->bufs[alt ? 1 : 0];
+    t->cur = &t->screen->cs;
+    /* One past the last cell of a row is where a deferred wrap parks, so the
+     * cursor's own column is allowed to equal the width. */
+    if (t->cur->x > t->width)
+        return false;
+    t->ptr = term_row_ptr(t, t->cur->y) + t->cur->x;
+    return true;
+}
+
+void term_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u8(c, TERM_MAX_HEIGHT);
+    sst_put_bool(c, TERM_ALT_SCREEN ? true : false);
+    sst_put_u8(c, 2); /* how many terminals this machine has */
+    term_put_one(c, &term_40);
+    term_put_one(c, &term_80);
+    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
+    {
+        sst_put(c, term_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_put(c, term_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+    }
+    sst_put(c, color_256_term, sizeof color_256_term);
+}
+
+bool term_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t rows = sst_get_u8(c);
+    bool alt = sst_get_bool(c);
+    uint8_t count = sst_get_u8(c);
+    if (!sst_ok(c) || rows != TERM_MAX_HEIGHT ||
+        alt != (TERM_ALT_SCREEN ? true : false) || count != 2)
+        return false;
+    if (!term_get_one(c, &term_40, 40) || !term_get_one(c, &term_80, 80))
+        return false;
+    /* Never mem: the cell arrays are term_init's own statics and their
+     * addresses are already right. Only what is in them is the blob's. */
+    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
+    {
+        sst_get(c, term_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_get(c, term_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+    }
+    sst_get(c, color_256_term, sizeof color_256_term);
+    return sst_ok(c);
+}
+
 static term_state_t *term_visible(void)
 {
     int16_t height = vga_canvas_height();

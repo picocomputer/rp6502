@@ -18,6 +18,22 @@ static bool xram_fill_random = true;
 static uint8_t xram_fill_value;
 static uint32_t xram_fill_seed;
 
+/* Through xram_blocks, not through xram. The array is plain and only the
+ * pointer to it is volatile-qualified, so this is a copy rather than the byte
+ * loop a volatile-defined object would need. */
+void xram_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put(c, xram_blocks, sizeof xram_blocks);
+}
+
+bool xram_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_get(c, xram_blocks, sizeof xram_blocks);
+    return sst_ok(c);
+}
+
 void xram_set_fill(bool random, uint8_t value, uint32_t seed)
 {
     xram_fill_random = random;

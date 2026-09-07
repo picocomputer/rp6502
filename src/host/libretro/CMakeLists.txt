@@ -73,7 +73,7 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 # going away.
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
-    rp6502_osal_windows(emu_core)
+    rp6502_osal_windows(emu_core TRANSPORT sync)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
     rp6502_osal_posix(emu_core TRANSPORT sync)

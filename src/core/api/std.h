@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
+#include "core/str/rln.h"
+#include "core/sys/sst.h"
 
 /* Main events
  */
@@ -33,6 +35,11 @@ void std_stdin_eof(void);
 /* Whether this program has read the console at all -- a latch, because a
  * raw TTY: read is not outstanding between calls. */
 bool std_console_asked(void);
+
+/* The one line reader a software machine has. rln carries whether a read was
+ * outstanding as a token rather than a pointer, and this is what it installs
+ * the token back as. */
+rln_read_callback_t std_rln_reader(void);
 
 /* The API implementation for stdio support.
  */
@@ -73,6 +80,17 @@ typedef struct
     std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
     std_rw_result (*sync)(int desc, api_errno *);
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
+    // A savestate's two, and optional like the rest. ident writes down what an
+    // open descriptor is; reopen reads that back and makes the descriptor
+    // again. What a driver writes is its own -- a filesystem needs a name, an
+    // access and an offset, while a ROM: window is three numbers and no name
+    // at all -- so the two speak in bytes rather than in a shape.
+    //
+    // A driver that leaves them NULL cannot carry its descriptors. A machine
+    // with one of those open refuses to be saved, rather than come back
+    // holding nothing.
+    bool (*ident)(int desc, sst_cursor_t *);
+    int (*reopen)(sst_cursor_t *, api_errno *);
 } std_driver_t;
 
 /* This machine's driver table, in the order open() tries them. std.c builds
@@ -81,6 +99,21 @@ typedef struct
 const std_driver_t *std_drivers(size_t *count);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break, nul_config, nul_config)
+/* Every open descriptor, the transfer one of them may be in the middle of,
+ * and the stdin bridge's own place in a line the reader has not finished.
+ *
+ * A descriptor is written down by the driver that opened it -- a name, an
+ * access and an offset for a file, three numbers for a ROM: window -- so the
+ * five function pointers in the pool are rebuilt from a driver index rather
+ * than carried. The manifest covers the stdio roster for that reason: an
+ * index means nothing to a machine that lists its drivers differently.
+ *
+ * The slot is the worst case, sixteen descriptors each naming a path. */
+#define STD_SST_SIZE 4240
+void std_sst_save(sst_cursor_t *c, unsigned flags);
+bool std_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break, \
+    nul_config, nul_config, SST(STD_, 1, STD_SST_SIZE, std_sst_save, std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

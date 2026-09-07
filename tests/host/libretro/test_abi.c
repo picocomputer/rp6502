@@ -72,12 +72,21 @@ UTEST(abi, there_is_nothing_to_run_without_a_program)
     ASSERT_FALSE(fe.load_game(NULL));
 }
 
-/* Answering zero is how a core says it has no savestates. Answering anything
- * else promises rewind and netplay it cannot keep. */
-UTEST(abi, savestates_are_declined_rather_than_faked)
+/* A size answered before any content is loaded, and answered the same
+ * afterwards. A frontend asks through two entry points that each allocate
+ * once against what they were told, so a core that grew its answer between
+ * them would have the second one write past the first one's buffer. */
+UTEST(abi, the_savestate_size_is_answered_and_never_moves)
 {
-    ASSERT_EQ(fe.serialize_size(), (size_t)0);
-    char buf[64];
+    ASSERT_GT(fe.serialize_size(), (size_t)0);
+}
+
+/* And with no program standing, both halves refuse rather than write down a
+ * machine that was never booted. */
+UTEST(abi, savestates_are_refused_until_a_program_stands)
+{
+    static char buf[1 << 20];
+    ASSERT_LE(fe.serialize_size(), sizeof buf);
     ASSERT_FALSE(fe.serialize(buf, sizeof buf));
     ASSERT_FALSE(fe.unserialize(buf, sizeof buf));
 }

@@ -11,6 +11,7 @@
  * Always available: every mixer adds it to whatever else is sounding.
  */
 
+#include "core/sys/sst.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -40,6 +41,15 @@ int16_t bel_sample(void);
 
 // Queue a sound to play.
 void bel_add(const ria_bel_t *sound);
+
+/* The bell rides the AUD chunk rather than a row of its own: aud_init is
+ * what starts it, and the name BEL is the Pocket's own driver.
+ *
+ * 8 queued sounds of 12, a head and a tail, then the generator: 2 sample,
+ * 1 adsr, 4 vol, 4 phase, 4+4 noise, 4 elapsed, 1 active. */
+#define BEL_SST_SIZE (8 * 12 + 2 + 24)
+void bel_sst_save(sst_cursor_t *c, unsigned flags);
+bool bel_sst_load(sst_cursor_t *c, unsigned flags);
 
 // Preset bell sounds
 extern const ria_bel_t bel_teletype;

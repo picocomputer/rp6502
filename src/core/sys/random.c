@@ -44,12 +44,40 @@ void sys_random_fill(void *dst, size_t len, uint32_t *state)
 static uint32_t sys_random_state;
 static bool sys_random_seeded;
 
-uint32_t sys_random(void)
+void sys_random_seed(void)
 {
     if (!sys_random_seeded)
     {
         sys_random_state = host_seed();
         sys_random_seeded = true;
     }
+}
+
+uint32_t sys_random(void)
+{
+    sys_random_seed();
     return sys_random_step(&sys_random_state);
+}
+
+/* Seeded first, so a blob never carries a stream that has not started: the
+ * machine that loads one would otherwise draw its own entropy at the first
+ * rand() and two peers would part company there. It is the only thing a save
+ * changes about the machine, and it changes it identically every time, so two
+ * saves of one unchanged machine are still the same bytes. */
+void random_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sys_random_seed();
+    sst_put_u32(c, sys_random_state);
+}
+
+bool random_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint32_t state = sst_get_u32(c);
+    if (!sst_ok(c))
+        return false;
+    sys_random_state = state;
+    sys_random_seeded = true;
+    return true;
 }

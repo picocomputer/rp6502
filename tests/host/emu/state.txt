@@ -1,0 +1,29 @@
+# The savestate through the script channel: written down, moved away from,
+# and put back.
+#
+# The gamepad tester renders whatever is in its XRAM block, so a poke to that
+# block is a change the picture shows and a load has to undo. Two witnesses,
+# because they fail differently: the canvas says the machine came back, and
+# the memory says which machine.
+
+run 40
+expect "Disconnected"
+
+mark
+state save "machine.sst"
+
+# Somewhere else: a pad the program believes in, and the picture that draws.
+poke xram:$FF00 $80 $00 $00 $08
+run 20
+expect "Select"
+expect-changed
+peek xram:$FF00 $80 $00 $00 $08
+
+# And back to the frame the mark was taken on.
+state load "machine.sst"
+run 1
+expect-same
+peek xram:$FF00 $00 $00 $00 $00
+
+# A blob is a file like any other: this one is not one.
+poke $0200 $52 $50 $36 $34

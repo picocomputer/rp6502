@@ -59,6 +59,6 @@ void vtkeys_task(void);
  * type-ahead deliberately survives an exec. A break cancels the paste: the
  * console's break clears the ring, and a drip left running would refill it
  * with the rest of a paste the user just interrupted. */
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, vtkeys_paste_cancel, nul_config, nul_config)
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, vtkeys_paste_cancel, nul_config, nul_config, nul_sst)
 
 #endif /* _CORE_HID_VTKEYS_H_ */

@@ -7,6 +7,10 @@
 
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
+#include "host/sokol/cli/state.h"
+#include "core/rom/rom.h"
+#include "core/sys/sys.h"
+#include "host/host.h"
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
 #include "core/hid/keyboard.h"
@@ -440,7 +444,7 @@ static bool script_cmd_mouse(char *p)
         long dx, dy;
         if (!script_number(&p, &dx) || !script_number(&p, &dy))
             return script_error("mouse move wants dx dy");
-        mouse_host_move((float)dx, (float)dy);
+        mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -924,6 +928,89 @@ bool script_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "state"))
+    {
+        char *what = script_word(&p);
+        if (!what || (strcasecmp(what, "save") && strcasecmp(what, "load")))
+            return script_error("state wants save or load");
+        bool saving = !strcasecmp(what, "save");
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("state %s wants a quoted path",
+                                saving ? "save" : "load");
+        const char *why = "";
+        if (saving ? !state_save_file(path, &why) : !state_load_file(path, &why))
+            return script_error("cannot %s '%s': %s", saving ? "save" : "load",
+                                path, why);
+        /* Held keys stay held across a script's load: the blob is what the
+         * script is checking, and a script is not a pair of hands. */
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "seed"))
+    {
+        printf(script_replies ? "ok %u\n" : "%u\n", host_seed());
+        fflush(stdout);
+        script_answered = script_replies;
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "install"))
+    {
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("install wants a quoted path");
+        char *as = script_more(&p) ? script_word(&p) : NULL;
+        if (as && *as == ':')
+            as++;
+        if (!(as ? rom_alias_insert_as(path, as) : rom_alias_insert(path)))
+            return script_error("cannot install '%s'", path);
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "remove"))
+    {
+        char *name = script_word(&p);
+        if (!name || !*name)
+            return script_error("remove wants an installed name");
+        if (!rom_alias_remove(name))
+            return script_error("nothing installed as '%s'", name);
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "load"))
+    {
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("load wants a quoted path");
+        /* A program already running would have its memory written out from
+         * under it, so this is a thing to do between programs. */
+        if (sys_active())
+            return script_error("load wants a stopped machine");
+        vtkeys_paste_cancel();
+        if (!proc_boot(path, 0, NULL, PROC_UNCHAIN))
+            return script_error("cannot load '%s'", path);
+        sys_commit();
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "sys"))
+    {
+        char *what = script_word(&p);
+        if (!what)
+            return script_error("sys wants run, stop or break");
+        if (!strcasecmp(what, "run"))
+            sys_run();
+        else if (!strcasecmp(what, "stop"))
+            sys_stop();
+        else if (!strcasecmp(what, "break"))
+            sys_break_request();
+        else
+            return script_error("sys wants run, stop or break");
+        sys_commit();
+        return true;
+    }
+
     return script_error("unknown command '%s'", cmd);
 }
 
@@ -1038,11 +1125,11 @@ void script_usage(FILE *out)
             "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"
-            "  gamepad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
-            "  gamepad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
+            "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
+            "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
-            "  gamepad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
-            "  gamepad <n> trigger <lt> <rt>           0..255\n"
+            "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
+            "  pad <n> trigger <lt> <rt>           0..255\n"
             "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
             "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
             "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
@@ -1053,6 +1140,12 @@ void script_usage(FILE *out)
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
+            "  state save \"file\" / state load \"file\"   the machine, written down\n"
+            "  seed                      print this run's seed\n"
+            "  install \"path\" [NAME]     put a ROM on the null drive as :NAME\n"
+            "  remove <NAME>             take it back off\n"
+            "  load \"path\"               boot a program on a stopped machine\n"
+            "  sys run|stop|break        start, stop, or interrupt the machine\n"
             "  reply [on|off]            answer every command on stdout, for a\n"
             "                            driver on the other end of a pipe\n");
 }

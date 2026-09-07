@@ -9,6 +9,8 @@
 #define _CORE_VGA_VGA_EMU_H_
 
 #include "core/vga/vga.h"
+#include "core/vga/prog.h"
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -68,6 +70,43 @@ bool vga_frame_crc(uint32_t *crc);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. Video leads: its
  * task runs before the CPU's, which follows the beam. */
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, nul_config, nul_config)
+/* The beam, which is this machine's clock as well as its picture, and the
+ * canvas the beam is painting. frame_n is not carried: it is beam_n divided
+ * by the scanlines in a frame, exactly, so carrying both would be carrying
+ * one fact twice.
+ *
+ * vga_needs_reset is armed teardown, not a cosmetic flag. A machine saved
+ * with it set owes itself a console reset on the next task pass, and it gets
+ * one, which is what the machine that made the blob would have done.
+ *
+ * The scanline program goes with it: for every row a plane can draw, which
+ * renderer draws it and what it reads. A renderer is named by mode and
+ * attribute rather than by address, because an address is this build's own.
+ * The booking that installed it cannot be replayed instead: the table is the
+ * fold of an unbounded sequence of bookings that overwrite one another, and
+ * the ranges they were made over are gone.
+ *
+ * Rows at or past 480 are never booked, because every booking is bounded
+ * against the canvas and no canvas is taller than that.
+ *
+ * 8 beam, 1 vsynced, 1 needs_reset, 2 canvas, 2 watermark, 2 mode-0 begin,
+ * then the rows: 3 planes of 12 each. */
+#define VGA_SST_ROWS 480
+#define VGA_SST_SIZE (16 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
+/* A row of the scanline table names its renderer by mode and attribute
+ * rather than by address. These are the two directions, over every mode this
+ * machine has. A mode of 0xFF is an empty slot. */
+#define VGA_MODE_NONE 0xFF
+vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes);
+bool vga_mode_fill_id(vga_fill_fn_t fn, int16_t scanline, int16_t plane,
+                      uint8_t *mode, uint16_t *attributes);
+vga_sprite_fn_t vga_mode_sprite_fn(uint8_t mode, uint16_t attributes);
+bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes);
+
+void vga_sst_save(sst_cursor_t *c, unsigned flags);
+bool vga_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, \
+    nul_config, nul_config, SST(VGA_, 1, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

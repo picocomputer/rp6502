@@ -25,6 +25,6 @@ void rp2350_init(void);
 /* This driver's row in a machine's driver list; see core/sys/driver.h. It goes
  * first: every other driver sets up something divided from this clock. */
 #define RP2350_DRIVER DRIVER(rp2350_init, nul_task, nul_task, nul_run, \
-    nul_stop, nul_break, nul_config, nul_config)
+    nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_RP2350_H_ */

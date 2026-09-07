@@ -30,11 +30,13 @@ typedef struct
 } alias_t;
 static alias_t aliases[ROM_ALIAS_MAX];
 
-/* Install a .rp6502 on the null drive, keyed by its host-path basename. */
-bool rom_alias_insert(const char *hostpath)
+/* Install a .rp6502 on the null drive under a name the caller chooses. The
+ * basename is the natural key, and rom_alias_insert is this with that
+ * choice made; a caller that wants a program to answer to something else --
+ * a script installing two builds of one program, say -- names it here. */
+bool rom_alias_insert_as(const char *hostpath, const char *name)
 {
-    const char *base = path_basename(hostpath);
-    if (!*base)
+    if (!name || !*name)
         return false;
     /* Must exist. Asked through the driver, because that is the machine's
      * answer for what a file is. */
@@ -46,15 +48,40 @@ bool rom_alias_insert(const char *hostpath)
     for (int i = 0; i < ROM_ALIAS_MAX; i++)
         if (!aliases[i].host)
         {
-            char *name = strdup(base), *host = strdup(hostpath);
-            if (name && host)
+            char *key = strdup(name), *host = strdup(hostpath);
+            if (key && host)
             {
-                aliases[i].name = name;
+                aliases[i].name = key;
                 aliases[i].host = host; /* last: it is what marks the slot used */
                 return true;
             }
-            free(name), free(host);
+            free(key), free(host);
             return false;
+        }
+    return false;
+}
+
+bool rom_alias_insert(const char *hostpath)
+{
+    return rom_alias_insert_as(hostpath, path_basename(hostpath));
+}
+
+/* Take an installed name back off the null drive. The host it aliased is
+ * cleared last, as the install sets it last: it is what marks the slot. */
+bool rom_alias_remove(const char *name)
+{
+    if (!name)
+        return false;
+    if (*name == ':')
+        name++;
+    for (int i = 0; i < ROM_ALIAS_MAX; i++)
+        if (aliases[i].host && strcasecmp(aliases[i].name, name) == 0)
+        {
+            char *key = aliases[i].name, *host = aliases[i].host;
+            aliases[i].host = NULL;
+            aliases[i].name = NULL;
+            free(key), free(host);
+            return true;
         }
     return false;
 }
@@ -82,6 +109,18 @@ const char *rom_alias_resolve(const char *path)
 bool rom_alias_insert(const char *hostpath)
 {
     (void)hostpath;
+    return false;
+}
+
+bool rom_alias_insert_as(const char *hostpath, const char *name)
+{
+    (void)hostpath, (void)name;
+    return false;
+}
+
+bool rom_alias_remove(const char *name)
+{
+    (void)name;
     return false;
 }
 

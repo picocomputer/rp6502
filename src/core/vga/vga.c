@@ -14,6 +14,11 @@
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
 #include "core/vga/mode/mode0.h"
+#include "core/vga/mode/mode1.h"
+#include "core/vga/mode/mode2.h"
+#include "core/vga/mode/mode3.h"
+#include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode5.h"
 #include "core/term/term.h"
 #include "core/term/font.h"
 #include "core/wdc/bus.h"
@@ -75,6 +80,11 @@ void vga_mode_begin(uint8_t mode, uint16_t attr)
 void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
+}
+
+void vga_load_code_page(uint16_t cp)
+{
+    font_load_code_page(cp);
 }
 
 void vga_init(void)
@@ -156,6 +166,159 @@ bool vga_run_frame(void)
         sys_io_task();
         sys_commit();
     }
+    return true;
+}
+
+vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes)
+{
+    switch (mode)
+    {
+    case 0: return mode0_fill_fn(attributes);
+    case 1: return mode1_fill_fn(attributes);
+    case 2: return mode2_fill_fn(attributes);
+    case 3: return mode3_fill_fn(attributes);
+    default: return NULL;
+    }
+}
+
+/* Mode 2 is asked which row, because all eight of its classes are one
+ * renderer and the class is in its own shadow. */
+bool vga_mode_fill_id(vga_fill_fn_t fn, int16_t scanline, int16_t plane,
+                      uint8_t *mode, uint16_t *attributes)
+{
+    if (!fn)
+    {
+        *mode = VGA_MODE_NONE;
+        *attributes = 0;
+        return true;
+    }
+    if (mode0_fill_attr(fn, attributes)) { *mode = 0; return true; }
+    if (mode1_fill_attr(fn, attributes)) { *mode = 1; return true; }
+    if (mode3_fill_attr(fn, attributes)) { *mode = 3; return true; }
+    if (fn == mode2_fill_fn(0) && mode2_fill_attr(scanline, plane, attributes))
+    {
+        *mode = 2;
+        return true;
+    }
+    return false;
+}
+
+vga_sprite_fn_t vga_mode_sprite_fn(uint8_t mode, uint16_t attributes)
+{
+    switch (mode)
+    {
+    case 4: return mode4_sprite_fn(attributes);
+    case 5: return mode5_sprite_fn(attributes);
+    default: return NULL;
+    }
+}
+
+bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes)
+{
+    if (!fn)
+    {
+        *mode = VGA_MODE_NONE;
+        *attributes = 0;
+        return true;
+    }
+    if (mode4_sprite_attr(fn, attributes)) { *mode = 4; return true; }
+    if (mode5_sprite_attr(fn, attributes)) { *mode = 5; return true; }
+    return false;
+}
+
+void vga_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u64(c, beam_n);
+    sst_put_bool(c, vsynced);
+    sst_put_bool(c, vga_needs_reset);
+    sst_put_u16(c, (uint16_t)vga_canvas_code());
+    sst_put_u16(c, (uint16_t)vga_prog_highest());
+    sst_put_u16(c, (uint16_t)mode0_begin());
+    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
+    {
+        const vga_prog_t *row = vga_prog_row(line);
+        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
+        {
+            uint8_t mode;
+            uint16_t attr;
+            if (!vga_mode_fill_id(row->fill_fn[plane], line, plane, &mode, &attr))
+                mode = VGA_MODE_NONE, attr = 0;
+            sst_put_u8(c, mode);
+            sst_put_u16(c, attr);
+            sst_put_u16(c, row->fill_config[plane]);
+            if (!vga_mode_sprite_id(row->sprite_fn[plane], &mode, &attr))
+                mode = VGA_MODE_NONE, attr = 0;
+            sst_put_u8(c, mode);
+            sst_put_u16(c, attr);
+            sst_put_u16(c, row->sprite_config[plane]);
+            sst_put_u16(c, row->sprite_length[plane]);
+        }
+    }
+}
+
+bool vga_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint64_t beam = sst_get_u64(c);
+    bool synced = sst_get_bool(c);
+    bool reset = sst_get_bool(c);
+    uint16_t canvas = sst_get_u16(c);
+    uint16_t highest = sst_get_u16(c);
+    uint16_t term_begin = sst_get_u16(c);
+    if (!sst_ok(c) || highest > VGA_SST_ROWS || term_begin > VGA_SST_ROWS)
+        return false;
+
+    /* Every renderer the table names is resolved before a row of it is
+     * installed, so a mode this build does not have refuses the load with
+     * the machine still standing. The cursor is read twice rather than the
+     * table staged, because a staging copy is 34 KB of core's memory to
+     * spare one pass over bytes that are already in cache. */
+    const sst_cursor_t table = *c;
+    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
+        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
+        {
+            uint8_t mode = sst_get_u8(c);
+            uint16_t attr = sst_get_u16(c);
+            if (mode != VGA_MODE_NONE && !vga_mode_fill_fn(mode, attr))
+                return false;
+            sst_get_u16(c);
+            mode = sst_get_u8(c);
+            attr = sst_get_u16(c);
+            if (mode != VGA_MODE_NONE && !vga_mode_sprite_fn(mode, attr))
+                return false;
+            sst_get_u16(c);
+            sst_get_u16(c);
+        }
+    if (!sst_ok(c) || !vga_canvas_load(canvas))
+        return false;
+
+    beam_n = beam;
+    frame_n = (unsigned long)(beam / VGA_SCANLINES);
+    vsynced = synced;
+    vga_needs_reset = reset;
+    vga_prog_reset();
+    *c = table;
+    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
+    {
+        vga_prog_t row;
+        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
+        {
+            uint8_t mode = sst_get_u8(c);
+            uint16_t attr = sst_get_u16(c);
+            row.fill_fn[plane] = mode == VGA_MODE_NONE ? NULL : vga_mode_fill_fn(mode, attr);
+            row.fill_config[plane] = sst_get_u16(c);
+            mode2_set_options(line, plane, mode == 2 ? attr : 0);
+            mode = sst_get_u8(c);
+            attr = sst_get_u16(c);
+            row.sprite_fn[plane] = mode == VGA_MODE_NONE ? NULL : vga_mode_sprite_fn(mode, attr);
+            row.sprite_config[plane] = sst_get_u16(c);
+            row.sprite_length[plane] = sst_get_u16(c);
+        }
+        vga_prog_load_row(line, &row);
+    }
+    vga_prog_set_highest((int16_t)highest);
+    mode0_set_begin((int16_t)term_begin);
     return true;
 }
 

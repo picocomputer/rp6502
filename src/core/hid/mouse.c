@@ -162,23 +162,62 @@ bool mouse_is_mapped(void)
  * so it moves the same counters a report would have. The block carries
  * half of what a mouse counts, so a host count -- which is already in
  * the block's units -- is doubled on the way in and arrives whole. */
-static float mouse_acc_x, mouse_acc_y;
+static int32_t mouse_acc_x, mouse_acc_y;
 
-void mouse_host_move(float dx, float dy)
+void mouse_host_move(int32_t dx, int32_t dy)
 {
     mouse_acc_x += dx;
     mouse_acc_y += dy;
-    int ix = (int)mouse_acc_x; // truncate toward zero; keep the remainder
-    int iy = (int)mouse_acc_y;
+    int ix = mouse_acc_x / MOUSE_ONE; // truncates toward zero, as the float did
+    int iy = mouse_acc_y / MOUSE_ONE;
     if (ix == 0 && iy == 0)
         return;
-    mouse_acc_x -= ix;
-    mouse_acc_y -= iy;
+    mouse_acc_x -= ix * MOUSE_ONE;
+    mouse_acc_y -= iy * MOUSE_ONE;
     mouse_x += (uint16_t)(ix * 2);
     mouse_y += (uint16_t)(iy * 2);
     mouse_state.x = mouse_x >> 1;
     mouse_state.y = mouse_y >> 1;
     mouse_write_xram();
+}
+
+void mouse_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, mouse_xram);
+    sst_put_u8(c, mouse_state.buttons);
+    sst_put_u8(c, mouse_state.x);
+    sst_put_u8(c, mouse_state.y);
+    sst_put_u8(c, mouse_state.wheel);
+    sst_put_u8(c, mouse_state.pan);
+    sst_put_u16(c, mouse_x);
+    sst_put_u16(c, mouse_y);
+    sst_put_i32(c, mouse_acc_x);
+    sst_put_i32(c, mouse_acc_y);
+}
+
+bool mouse_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    uint8_t b = sst_get_u8(c), x = sst_get_u8(c), y = sst_get_u8(c);
+    uint8_t w = sst_get_u8(c), p = sst_get_u8(c);
+    uint16_t mx = sst_get_u16(c), my = sst_get_u16(c);
+    int32_t ax = sst_get_i32(c), ay = sst_get_i32(c);
+    if (!sst_ok(c))
+        return false;
+    mouse_xram = at;
+    mouse_state.buttons = b;
+    mouse_state.x = x;
+    mouse_state.y = y;
+    mouse_state.wheel = w;
+    mouse_state.pan = p;
+    mouse_x = mx;
+    mouse_y = my;
+    mouse_acc_x = ax;
+    mouse_acc_y = ay;
+    mouse_write_xram();
+    return true;
 }
 
 void mouse_host_wheel(int dwheel, int dpan)

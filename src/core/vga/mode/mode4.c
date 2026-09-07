@@ -457,6 +457,33 @@ static void mode4_render_asprite(
     }
 }
 
+/* The renderer an attribute names, and the attribute a renderer came from.
+ * Only the choice of renderer moves here; each attribute's own bounds check
+ * stays with the booking, where the length it needs is in hand. */
+vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+    case 0:
+        return mode4_render_sprite;
+    case 1:
+        return mode4_render_asprite;
+    default:
+        return NULL;
+    }
+}
+
+bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 4; a++)
+        if (fn && mode4_sprite_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+
 bool mode4_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -469,12 +496,13 @@ bool mode4_prog(uint16_t *xregs)
     if (config_ptr & 1)
         return false;
 
-    void (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t, uint16_t);
+    vga_sprite_fn_t render_fn = mode4_sprite_fn(attributes);
+    if (!render_fn)
+        return false;
     switch (attributes)
     {
     case 0:
     {
-        render_fn = mode4_render_sprite;
         const uint32_t region_size = (uint32_t)sizeof(mode4_sprite_t) * length;
         if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
             return false;
@@ -482,7 +510,6 @@ bool mode4_prog(uint16_t *xregs)
     }
     case 1:
     {
-        render_fn = mode4_render_asprite;
         const uint32_t region_size = (uint32_t)sizeof(mode4_asprite_t) * length;
         if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
             return false;

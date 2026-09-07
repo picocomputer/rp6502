@@ -16,6 +16,7 @@
 #include "osal/os.h" /* os_mono_ns */
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/sokol/cli/state.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -155,6 +156,9 @@ void app_init(void)
             .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
+        /* The callback runs on the device's thread on every desktop backend,
+         * so a savestate walk has to hold it out of the engines. */
+        state_audio_is_threaded(true);
     }
     gfx_setup();
     host_window_init(); /* Android stands up its text overlay; no-op elsewhere */

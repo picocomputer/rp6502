@@ -84,6 +84,20 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     return r;
 }
 
+void fs_std_settle(void)
+{
+    if (g_xfer.fd < 0)
+        return;
+    /* The reap fs_std_close does, without the close and without the lseek
+     * that advances the offset on a completed read. */
+    const struct aiocb *cb = &g_xfer.cb;
+    aio_cancel(g_xfer.fd, &g_xfer.cb);
+    while (aio_error(&g_xfer.cb) == EINPROGRESS)
+        aio_suspend(&cb, 1, NULL);
+    aio_return(&g_xfer.cb);
+    g_xfer.fd = -1;
+}
+
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     int fd = desc;

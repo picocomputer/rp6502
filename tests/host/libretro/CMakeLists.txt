@@ -64,3 +64,14 @@ rp6502_add_test(pointer
     DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
     DEPENDS rp6502_libretro
     TIMEOUT 60)
+
+# The savestate as a frontend uses it: the size it allocates against, the
+# machine coming back, a refusal leaving the core standing, and the four
+# contexts it saves in.
+rp6502_add_test(state
+    SOURCES test_state.c
+    LIBS ${CMAKE_DL_LIBS}
+    INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+    DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
+    DEPENDS rp6502_libretro
+    TIMEOUT 120)

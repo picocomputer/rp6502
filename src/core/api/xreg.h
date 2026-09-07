@@ -17,6 +17,8 @@
 #ifndef _CORE_API_XREG_H_
 #define _CORE_API_XREG_H_
 
+#include "core/sys/driver.h"
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -31,5 +33,16 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
+
+/* The staging registers a mode write consumes. A program sets its parameters
+ * one xreg at a time and the MODE write reads the lot, so a save taken
+ * between the two has a half-assembled program that lives nowhere else --
+ * the write clears them the moment it has them. */
+#define XREG_SST_SIZE 32
+void xreg_sst_save(sst_cursor_t *c, unsigned flags);
+bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define XREG_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    nul_config, nul_config, SST(XREG, 1, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
 
 #endif /* _CORE_API_XREG_H_ */

@@ -362,6 +362,48 @@ mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_
     return true;
 }
 
+/* The renderer an attribute names, and the attribute a renderer came from.
+ * A savestate carries the attribute: a function's address is this build's own
+ * and means nothing to the build that loads the blob.
+ *
+ * The reverse walks the forward rather than keeping a second table, so the
+ * two cannot drift apart when a renderer is added. */
+vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+    case 0:
+        return mode3_render_1bpp;
+    case 1:
+        return mode3_render_2bpp;
+    case 2:
+        return mode3_render_4bpp;
+    case 3:
+        return mode3_render_8bpp;
+    case 4:
+        return mode3_render_16bpp;
+    case 8:
+        return mode3_render_1bpp_reverse;
+    case 9:
+        return mode3_render_2bpp_reverse;
+    case 10:
+        return mode3_render_4bpp_reverse;
+    default:
+        return NULL;
+    }
+}
+
+bool mode3_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 16; a++)
+        if (fn && mode3_fill_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+
 bool mode3_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -374,36 +416,9 @@ bool mode3_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
-    switch (attributes)
-    {
-    case 0:
-        render_fn = mode3_render_1bpp;
-        break;
-    case 1:
-        render_fn = mode3_render_2bpp;
-        break;
-    case 2:
-        render_fn = mode3_render_4bpp;
-        break;
-    case 3:
-        render_fn = mode3_render_8bpp;
-        break;
-    case 4:
-        render_fn = mode3_render_16bpp;
-        break;
-    case 8:
-        render_fn = mode3_render_1bpp_reverse;
-        break;
-    case 9:
-        render_fn = mode3_render_2bpp_reverse;
-        break;
-    case 10:
-        render_fn = mode3_render_4bpp_reverse;
-        break;
-    default:
+    vga_fill_fn_t render_fn = mode3_fill_fn(attributes);
+    if (!render_fn)
         return false;
-    };
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }

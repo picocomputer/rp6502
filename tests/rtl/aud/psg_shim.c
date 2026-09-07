@@ -32,7 +32,9 @@ int16_t sine_table[256];
 
 /* psg_xreg registers itself and parks itself through these. There is no
  * mixer here to tell; the bench calls psg_sample directly. */
-void aud_setup(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
+void aud_setup(aud_dev_t dev) { (void)dev; }
+aud_dev_t aud_device(void) { return aud_dev_none; }
+void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
 void aud_stop(void) {}
 
 void shim_init(void)

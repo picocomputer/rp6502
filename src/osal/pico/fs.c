@@ -188,6 +188,25 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return (int)(fp - fat_fil_pool);
 }
 
+/* littlefs is synchronous; nothing is ever in flight. */
+void fs_std_settle(void)
+{
+}
+
+/* littlefs keeps no name per descriptor and this machine makes no blob. */
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    (void)desc, (void)c;
+    return false;
+}
+
+int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    (void)c;
+    *err = API_ENOSYS;
+    return -1;
+}
+
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     lfs_file_t *lf;

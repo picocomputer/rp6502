@@ -27,6 +27,22 @@ void phi2_set_khz_run(uint16_t khz)
     khz_run = khz;
 }
 
+void phi2_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, khz_run);
+}
+
+bool phi2_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t khz = sst_get_u16(c);
+    if (!sst_ok(c) || khz < PHI2_MIN_KHZ || khz > PHI2_MAX_KHZ)
+        return false;
+    khz_run = khz;
+    return true;
+}
+
 uint16_t phi2_get_khz_run(void)
 {
     return khz_run;

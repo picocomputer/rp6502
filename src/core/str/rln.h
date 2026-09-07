@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 /* Main events
@@ -105,7 +106,29 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
+/* The line the reader is building, which std.c's stdin bridge points into.
+ * A savestate rebuilds that pointer from here rather than carrying it, and
+ * bounds its own index into it against this length. */
+#define RLN_LINE_MAX 256
+const char *rln_line(void);
+
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, nul_config, nul_config)
+/* The line being edited, the history behind it, the terminal this reader has
+ * worked out it is talking to, and one parser per input source.
+ *
+ * The reader itself is a function pointer and rides as a token instead: on a
+ * software machine there is exactly one, std.c's stdin bridge, and rebuilding
+ * it by calling rln_read_line would emit the whole handshake and wipe the
+ * line the blob just restored.
+ *
+ * The three deadlines are machine time, so they are carried whole rather than
+ * re-armed: a deadline against the beam means the same thing in the machine
+ * that loads the blob as in the one that made it. */
+#define RLN_SST_SIZE 3629
+void rln_sst_save(sst_cursor_t *c, unsigned flags);
+bool rln_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, \
+    nul_config, nul_config, SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_STR_RLN_H_ */

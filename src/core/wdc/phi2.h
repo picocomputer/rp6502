@@ -14,6 +14,7 @@
 #ifndef _CORE_WDC_PHI2_H_
 #define _CORE_WDC_PHI2_H_
 
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -39,7 +40,14 @@ void phi2_apply_khz(uint16_t phi2_khz, bool changed);
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define PHI2_CONFIG_KHZ CONFIG_INT(P, phi2, khz, uint16_t, PHI2_DEFAULT_KHZ, \
     phi2_check_khz, phi2_apply_khz, STR_PHI2, phi2_response, STR_HELP_SET_PHI2, NULL)
+/* The clock the machine is running at, which is not the one it is configured
+ * for: a ROM may set its own, and a reset takes the setting back. The setting
+ * is the host's and stays behind. */
+#define PHI2_SST_SIZE 2
+void phi2_sst_save(sst_cursor_t *c, unsigned flags);
+bool phi2_sst_load(sst_cursor_t *c, unsigned flags);
+
 #define PHI2_DRIVER DRIVER(phi2_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    PHI2_CONFIG_KHZ, nul_config)
+    PHI2_CONFIG_KHZ, nul_config, SST(PHI2, 1, PHI2_SST_SIZE, phi2_sst_save, phi2_sst_load))
 
 #endif /* _CORE_WDC_PHI2_H_ */

@@ -44,6 +44,56 @@ void cpu_tick(uint16_t *addr, bool *read, uint8_t *data, bool irq)
     *data = W65C02_GET_DATA(pins);
 }
 
+void cpu_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, cpu.IR);
+    sst_put_u16(c, cpu.PC);
+    sst_put_u16(c, cpu.AD);
+    sst_put_u8(c, cpu.A);
+    sst_put_u8(c, cpu.X);
+    sst_put_u8(c, cpu.Y);
+    sst_put_u8(c, cpu.S);
+    sst_put_u8(c, cpu.P);
+    sst_put_u64(c, cpu.PINS);
+    sst_put_u16(c, cpu.irq_pip);
+    sst_put_u16(c, cpu.nmi_pip);
+    sst_put_u8(c, cpu.brk_flags);
+    sst_put_u8(c, cpu.wait_flag);
+    sst_put_u8(c, cpu.stop_flag);
+    sst_put_u64(c, pins);
+}
+
+bool cpu_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    w65c02_t in;
+    in.IR = sst_get_u16(c);
+    in.PC = sst_get_u16(c);
+    in.AD = sst_get_u16(c);
+    in.A = sst_get_u8(c);
+    in.X = sst_get_u8(c);
+    in.Y = sst_get_u8(c);
+    in.S = sst_get_u8(c);
+    in.P = sst_get_u8(c);
+    in.PINS = sst_get_u64(c);
+    in.irq_pip = sst_get_u16(c);
+    in.nmi_pip = sst_get_u16(c);
+    in.brk_flags = sst_get_u8(c);
+    in.wait_flag = sst_get_u8(c);
+    in.stop_flag = sst_get_u8(c);
+    uint64_t board = sst_get_u64(c);
+    if (!sst_ok(c))
+        return false;
+    /* The decoder's last case is 0x7FF and it steps IR before it switches, so
+     * this pair and no other value is the one that walks off the table. */
+    if (in.IR > 0x7FF || (in.IR == 0x7FF && !(board & W65C02_SYNC)))
+        return false;
+    cpu = in;
+    pins = board;
+    return true;
+}
+
 uint64_t cpu_dbg_pins(void) { return pins; }
 
 bool cpu_opcode_fetch(uint16_t *pc, uint8_t *sp)

@@ -52,6 +52,10 @@ bool vga_canvas_is_console(void);
 // The code page the display renders text in.
 void vga_set_code_page(uint16_t cp);
 
+/* The same, without the terminal reset choosing one performs. A machine
+ * whose font is another chip sends the same message either way. */
+void vga_load_code_page(uint16_t cp);
+
 /* Select a canvas, which discards whatever was programmed on the last one.
  * False for a canvas this machine does not have. A machine whose video device
  * is across a bus does not choose here -- it writes the wire and shadows what
@@ -71,6 +75,12 @@ void vga_canvas_publish(vga_canvas_t canvas);
  * draw -- fabric does, software does not, because software is told by the
  * plane it is handed -- publishes it here. */
 void vga_mode_begin(uint8_t mode, uint16_t attr);
+
+/* The canvas a savestate found, and what it is. load installs one without
+ * the reset select performs, because a load brings the scanline table and the
+ * terminal back by their own rows. */
+bool vga_canvas_load(uint16_t canvas);
+vga_canvas_t vga_canvas_code(void);
 
 /* Program the canvas for a mode number, as the mode xreg asked. */
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);

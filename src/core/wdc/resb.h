@@ -34,4 +34,10 @@ void resb_release(void);
  * still low. */
 bool resb_running(void);
 
+/* The line put back where a savestate found it. Not resb_assert, because that
+ * one resets the 6502, the 6522, the parked bus and the run clock -- all four
+ * of them state a blob carries and their own rows have already restored. Only
+ * a load may call this. */
+void resb_restore(bool down);
+
 #endif /* _CORE_WDC_RESB_H_ */

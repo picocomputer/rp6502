@@ -69,6 +69,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/sys/sys.c
+    ${RP6502_SRC}/core/sys/sst.c
     ${RP6502_SRC}/core/api/api.c
     ${RP6502_SRC}/core/api/proc.c
     ${RP6502_SRC}/core/api/arg.c

@@ -10,6 +10,7 @@
  */
 
 #include "osal/fs.h"
+#include "osal/dir.h"
 #include "osal/os.h"
 #include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
@@ -19,6 +20,7 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +32,92 @@
 /* ---- The std driver ------------------------------------------------------ */
 
 /* A descriptor is this host's own fd. std.c hands back whatever open returned,
- * and the OS validates it on every call, so there is no pool here. */
+ * and the OS validates it on every call, so there is no pool here -- except
+ * for the one thing the OS will not answer, which is the name a descriptor
+ * was opened by. A savestate needs it to open the same file again.
+ *
+ * Sixteen is std.c's own limit on open descriptors and the ROM's is the
+ * seventeenth. Searched rather than indexed, because an fd number is the OS's
+ * and may be anything. The path is made absolute after the open succeeds, so
+ * a create resolves too and a later chdir cannot move it. */
+#define FS_KEPT_MAX 17
+static struct
+{
+    int fd; /* 0 marks a free slot; a real descriptor is fd + 1 */
+    uint8_t flags;
+    char path[API_PATH_MAX + 1];
+} fs_kept[FS_KEPT_MAX];
+
+/* Nothing drops a slot on close: fs_std_close belongs to the transport files
+ * and this pool does not. It does not need to. POSIX hands back the lowest
+ * free descriptor, so a closed one comes round again quickly, and this takes
+ * its own slot back when it does. A slot left behind describes a descriptor
+ * nobody can ask about, because std.c only ever asks about its open ones. */
+static void fs_keep(int fd, const char *path, uint8_t flags)
+{
+    char *abs = os_dir_realpath(path);
+    const char *keep = abs ? abs : path;
+    int slot = -1;
+    for (int i = 0; i < FS_KEPT_MAX; i++)
+        if (fs_kept[i].fd == fd + 1)
+        {
+            slot = i;
+            break;
+        }
+    for (int i = 0; slot < 0 && i < FS_KEPT_MAX; i++)
+        if (!fs_kept[i].fd)
+            slot = i;
+    if (slot >= 0 && strlen(keep) <= API_PATH_MAX)
+    {
+        fs_kept[slot].fd = fd + 1;
+        fs_kept[slot].flags = flags & (FS_RD | FS_WR);
+        strcpy(fs_kept[slot].path, keep);
+    }
+    free(abs);
+}
+
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    for (int i = 0; i < FS_KEPT_MAX; i++)
+        if (fs_kept[i].fd == desc + 1)
+        {
+            off_t at = lseek(desc, 0, SEEK_CUR);
+            if (at < 0 || at > INT32_MAX)
+                return false;
+            sst_put_str(c, fs_kept[i].path, FS_PATH_SLOT);
+            sst_put_u8(c, fs_kept[i].flags);
+            sst_put_i32(c, (int32_t)at);
+            return sst_ok(c);
+        }
+    return false;
+}
+
+int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    char path[FS_PATH_SLOT];
+    sst_get_str(c, path, FS_PATH_SLOT);
+    uint8_t flags = sst_get_u8(c);
+    int32_t pos = sst_get_i32(c);
+    if (!sst_ok(c))
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    /* The access bits only. CREAT, EXCL, TRUNC and APPEND are one-time acts
+     * the opening program already had, and re-firing one would make or empty
+     * the very file this is trying to find again. */
+    int fd = fs_std_open(path, flags & (FS_RD | FS_WR), err);
+    if (fd < 0)
+        return -1;
+    if (lseek(fd, pos, SEEK_SET) < 0)
+    {
+        *err = errno_to_api(errno);
+        api_errno ignored;
+        fs_std_close(fd, &ignored);
+        return -1;
+    }
+    return fd;
+}
 
 bool fs_std_handles(const char *path)
 {
@@ -84,6 +171,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
             return -1;
         }
     }
+    fs_keep(fd, path, flags);
     return fd;
 }
 
@@ -113,6 +201,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         close(fd);
         fd = high;
     }
+    fs_keep(fd, path, FS_RD); /* the image's own name, for the savestate */
     return fd;
 }
 

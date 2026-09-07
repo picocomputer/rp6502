@@ -3786,7 +3786,7 @@ uint16_t font_get_code_page(void)
     return font_code_page;
 }
 
-void font_set_code_page(uint16_t cp)
+static void font_code_page_to(uint16_t cp, bool ris)
 {
     const uint8_t *font8hi = NULL;
     const uint8_t *font16hi = NULL;
@@ -3869,7 +3869,8 @@ void font_set_code_page(uint16_t cp)
     if (font_code_page == cp)
         return;
     font_code_page = cp;
-    term_RIS();
+    if (ris)
+        term_RIS();
 
     if (!cp)
         for (int row = 0; row < 16; row++)
@@ -3885,4 +3886,21 @@ void font_set_code_page(uint16_t cp)
             if (row < 8)
                 memcpy(&font8[row * 256 + 128], &font8hi[row * 128], 128);
         }
+}
+
+/* Choosing a code page is a reset: a terminal showing glyphs from one page
+ * cannot be read against another, so the screen is cleared with it.
+ *
+ * Putting one back is not. A savestate carries the terminal's own cells and
+ * has already restored them by the time the page arrives, and a reset here
+ * would wipe exactly what it just brought back. Same tables, same number,
+ * one fewer act. */
+void font_set_code_page(uint16_t cp)
+{
+    font_code_page_to(cp, true);
+}
+
+void font_load_code_page(uint16_t cp)
+{
+    font_code_page_to(cp, false);
 }

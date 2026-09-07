@@ -165,6 +165,35 @@ char keyboard_ctrl_promote(char ch, uint8_t keycode)
     return 0;
 }
 
+/* The xram word is assigned rather than pushed through keyboard_xreg, which
+ * blanks the block before it publishes. What the blob carries is the block as
+ * the program last saw it. */
+void keyboard_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, keyboard_xram);
+    sst_put_u8(c, keyboard_hid_leds);
+    for (int i = 0; i < 8; i++)
+        sst_put_u32(c, keyboard_keys[i]);
+}
+
+bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    uint8_t leds = sst_get_u8(c);
+    uint32_t keys[8];
+    for (int i = 0; i < 8; i++)
+        keys[i] = sst_get_u32(c);
+    if (!sst_ok(c))
+        return false;
+    keyboard_xram = at;
+    keyboard_hid_leds = leds;
+    memcpy(keyboard_keys, keys, sizeof keyboard_keys);
+    keyboard_publish();
+    return true;
+}
+
 void HOST_IN_FLASH("keyboard_init") keyboard_init(void)
 {
     keyboard_stop();
@@ -337,6 +366,14 @@ void keyboard_set_locks(uint8_t leds)
  * have set. Keycodes 0-3 are reserved -- none, and the rollover errors --
  * and their bits in word 0 carry the no-keys and lock flags, so a key
  * never touches them. */
+void keyboard_release_all(void)
+{
+    /* The lock LEDs live in word 0's low bits and are the host's to report,
+     * not a key anyone is holding, so publish restates them. */
+    memset(keyboard_keys, 0, sizeof(keyboard_keys));
+    keyboard_publish();
+}
+
 void keyboard_hid_set(uint8_t keycode, bool down)
 {
     if (keycode < 4)

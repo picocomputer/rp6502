@@ -61,6 +61,6 @@ const char *keymap_get_layout_verbose(void);
     KEYMAP_LAYOUT_LIST_SIZE, "", keymap_check_layout_list, keymap_apply_layout_list, \
     STR_KB, keymap_layout_list_response, STR_HELP_SET_KB, keymap_layouts_response)
 #define KEYMAP_DRIVER DRIVER(keymap_init, keymap_task, nul_task, nul_run, nul_stop, nul_break, \
-    KEYMAP_CONFIG_LAYOUT_LIST, nul_config)
+    KEYMAP_CONFIG_LAYOUT_LIST, nul_config, nul_sst)
 
 #endif /* _CORE_HID_KEYMAP_H_ */

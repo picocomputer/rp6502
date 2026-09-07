@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
@@ -65,6 +66,14 @@ bool clk_api_get_time(void);
 bool clk_api_set_time(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define CLK_DRIVER DRIVER(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break, nul_config, nul_config)
+/* Machine time when the running program started, which is what clk_get_run
+ * measures against. It is a beam reading, so it means the same thing in the
+ * machine the blob restores as it did in the one that made it. */
+#define CLK_SST_SIZE 8
+void clk_sst_save(sst_cursor_t *c, unsigned flags);
+bool clk_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define CLK_DRIVER DRIVER(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break, \
+    nul_config, nul_config, SST(CLK_, 1, CLK_SST_SIZE, clk_sst_save, clk_sst_load))
 
 #endif /* _CORE_API_CLK_H_ */

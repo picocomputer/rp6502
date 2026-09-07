@@ -403,6 +403,29 @@ mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb
     }
 }
 
+vga_fill_fn_t mode2_fill_fn(uint16_t attributes)
+{
+    /* Every class this mode has is one renderer reading its own shadow, so
+     * the only attribute it refuses here is one the booking would have. */
+    return (attributes & 0xF000) ? NULL : mode2_render;
+}
+
+bool mode2_fill_attr(int16_t scanline, int16_t plane, uint16_t *attributes)
+{
+    if (scanline < 0 || scanline >= VGA_PROG_MAX ||
+        plane < 0 || plane >= SCANVIDEO_PLANE_COUNT)
+        return false;
+    *attributes = mode2_options[scanline][plane];
+    return true;
+}
+
+void mode2_set_options(int16_t scanline, int16_t plane, uint16_t options)
+{
+    if (scanline >= 0 && scanline < VGA_PROG_MAX &&
+        plane >= 0 && plane < SCANVIDEO_PLANE_COUNT)
+        mode2_options[scanline][plane] = options;
+}
+
 bool mode2_prog(uint16_t *xregs)
 {
     const uint16_t options = xregs[2];

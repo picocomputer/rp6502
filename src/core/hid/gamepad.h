@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "core/hid/hid.h"
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 /* Main events
@@ -173,6 +174,15 @@ bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
                               uint8_t *report_id, uint16_t *report_len);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define GAMEPAD_DRIVER DRIVER(gamepad_init, nul_task, nul_task, nul_run, gamepad_stop, nul_break, nul_config, nul_config)
+/* Where the program asked for the four players' reports, and the reports. On
+ * a software machine a report is self-contained: the host writes the feature
+ * bits straight into it rather than reading them back out of a connection.
+ * 2 + 4 * 10 */
+#define GAMEPAD_SST_SIZE 42
+void gamepad_sst_save(sst_cursor_t *c, unsigned flags);
+bool gamepad_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define GAMEPAD_DRIVER DRIVER(gamepad_init, nul_task, nul_task, nul_run, gamepad_stop, nul_break, \
+    nul_config, nul_config, SST(GPAD, 1, GAMEPAD_SST_SIZE, gamepad_sst_save, gamepad_sst_load))
 
 #endif /* _CORE_HID_GAMEPAD_H_ */

@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 /* Main events
@@ -96,6 +97,35 @@ const term_data_t *term_view_row(uint8_t y);
 void term_set_height(uint8_t width, uint8_t height);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define TERM_DRIVER DRIVER(term_init, nul_task, term_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+/* Both terminals, whole: every scalar, the four saved cursors, the scroll
+ * remap and the pending lazy erases, and the cells themselves. The runtime
+ * palette goes with them, because OSC 4 can move an entry and nothing but
+ * the blob would then know what it moved to.
+ *
+ * The three pointers inside a terminal are rebuilt rather than carried. Two
+ * of them point into the terminal itself and the third into its cells, and
+ * all three follow from the active screen and the cursor. The cell arrays'
+ * own addresses are never touched: they are function-scope statics in
+ * term_init, which has run long before any load, and nothing outside it can
+ * even name them.
+ *
+ * The shape rides on the wire and is checked. A terminal is a different
+ * object at a different height, and a blob from a machine with a taller one
+ * would put its rows in the wrong places.
+ *
+ * Per terminal: 40 scalars, 4 cursor states, 2 screens of metadata, and the
+ * cells. Both terminals, then the palette. */
+#define TERM_CURSOR_SST_SIZE 25
+#define TERM_SCREEN_SST_SIZE (TERM_CURSOR_SST_SIZE + 4 + 9 * TERM_MAX_HEIGHT)
+#define TERM_TAB_SST_SIZE ((80 + 7) / 8)
+#define TERM_ONE_SST_SIZE (86 + TERM_TAB_SST_SIZE + \
+    2 * TERM_CURSOR_SST_SIZE + 2 * TERM_SCREEN_SST_SIZE)
+#define TERM_CELLS_SST_SIZE (8 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
+#define TERM_SST_SIZE (3 + 2 * TERM_ONE_SST_SIZE + TERM_CELLS_SST_SIZE + 512)
+void term_sst_save(sst_cursor_t *c, unsigned flags);
+bool term_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define TERM_DRIVER DRIVER(term_init, nul_task, term_task, nul_run, nul_stop, nul_break, \
+    nul_config, nul_config, SST(TERM, 1, TERM_SST_SIZE, term_sst_save, term_sst_load))
 
 #endif /* _CORE_TERM_TERM_H_ */

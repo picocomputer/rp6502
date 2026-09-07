@@ -64,6 +64,8 @@ void rom_pump_close(rom_pump_t *p);
  * install's own string, or the path itself where nothing claims it, so a
  * caller neither sizes a buffer nor frees anything. */
 bool rom_alias_insert(const char *hostpath);
+bool rom_alias_insert_as(const char *hostpath, const char *name);
+bool rom_alias_remove(const char *name);
 const char *rom_alias_resolve(const char *path);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
@@ -93,6 +95,8 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
+bool rom_std_ident(int desc, sst_cursor_t *c);
+int rom_std_reopen(sst_cursor_t *c, api_errno *err);
 void rom_assets_reset(void); /* forget the asset directory (a new program replaces it) */
 
 /* Read a named asset from the loaded ROM into buf (NUL-terminated, truncated to
@@ -104,6 +108,26 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz);
  * the help asset when the loaded ROM changes while the window is open. */
 uint32_t rom_generation(void);
 
+/* The image the ROM: drive is reading, as a savestate carries it: whether
+ * there is one, where its asset directory begins, how long the file was, and
+ * the generation a viewer watches.
+ *
+ * Not the path. What the drive has open is the program that is running, and
+ * proc already carries that name -- a second copy could only ever disagree
+ * with the first. The length is the cross-check that the file on disk is
+ * still the file the blob was made from, and a mismatch is a late fail.
+ *
+ * 1 open, 4 directory, 4 length, 4 generation. */
+#define ASSET_SST_SIZE 13
+void asset_sst_save(sst_cursor_t *c, unsigned flags);
+bool asset_sst_load(sst_cursor_t *c, unsigned flags);
+
+/* This driver's row in a machine's driver list; see core/sys/driver.h. It
+ * carries nothing but the chunk: the descriptor is the loader's, and the
+ * loader is proc's. */
+#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+    nul_config, nul_config, SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
+
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. Read-only: the ROM a program is running out of. */
 #define ROM_STD_DRIVER           \
@@ -113,6 +137,8 @@ uint32_t rom_generation(void);
         .close = rom_std_close,     \
         .read = rom_std_read,       \
         .lseek = rom_std_lseek,     \
+        .ident = rom_std_ident,     \
+        .reopen = rom_std_reopen,   \
     }
 
 #endif /* _CORE_ROM_ROM_H_ */

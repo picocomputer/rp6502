@@ -31,6 +31,6 @@ const char *cfg_load_boot(void);
  * the file, and before every row that adopts a default -- each of those asks
  * whether the config already set one. */
 #define CFG_DRIVER DRIVER(cfg_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    CONFIG_SAVE(cfg_file_save), nul_config)
+    CONFIG_SAVE(cfg_file_save), nul_config, nul_sst)
 
 #endif /* _RIA_SYS_CFG_H_ */

@@ -27,7 +27,7 @@ static HOST_IN_FLASH("com_sources") const com_source_driver_t
 /* The source a read is in the middle of, and how long it keeps the reader
  * once it has run dry. */
 static com_source_t com_rx_held = COM_SOURCE_ANY;
-static timer_deadline_t com_rx_deadline;
+static timer_mach_t com_rx_deadline;
 
 static size_t com_read_source(com_source_t s, char *buf, size_t length)
 {
@@ -40,7 +40,7 @@ static size_t com_read_source(com_source_t s, char *buf, size_t length)
 /* The enum's order is the try order: keyboard, then wire, then remote. */
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
-    if (com_rx_held != COM_SOURCE_ANY && timer_passed(com_rx_deadline))
+    if (com_rx_held != COM_SOURCE_ANY && timer_mach_passed(com_rx_deadline))
         com_rx_held = COM_SOURCE_ANY;
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
@@ -50,7 +50,7 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
         if (n)
         {
             com_rx_held = s;
-            com_rx_deadline = timer_in_us(com_sources[s].dwell_us);
+            com_rx_deadline = timer_mach_in_us(com_sources[s].dwell_us);
             if (src_out)
                 *src_out = s;
             return n;
@@ -91,6 +91,23 @@ int com_peekchar(com_source_t src)
 size_t com_stdin_read(char *buf, size_t count)
 {
     return com_rx_pick(buf, count, NULL);
+}
+
+void com_rx_save(sst_cursor_t *c)
+{
+    sst_put_u8(c, (uint8_t)com_rx_held);
+    sst_put_u64(c, com_rx_deadline);
+}
+
+bool com_rx_load(sst_cursor_t *c)
+{
+    uint8_t held = sst_get_u8(c);
+    uint64_t at = sst_get_u64(c);
+    if (!sst_ok(c) || held > COM_SOURCE_ANY)
+        return false;
+    com_rx_held = (com_source_t)held;
+    com_rx_deadline = at;
+    return true;
 }
 
 void com_rx_clear(void)

@@ -89,13 +89,6 @@ static void ria_syscall(uint8_t op)
     }
 }
 
-/* Per-frame entry, run after the line editor (std_task) so a stdin line that
- * just arrived is dispatched at the frame boundary. */
-void ria_task(void)
-{
-    api_task();
-}
-
 /* rln consults this to suppress cursor-shape escapes while the RIA is busy
  * with an mbuf transfer; the emulator never is. */
 bool ria_active(void)
@@ -255,6 +248,76 @@ uint8_t ria_reg_read(uint16_t addr)
  * BEFORE the register access so a read of $FFF0 (which acks/clears the pending
  * flags) still shows IRQB asserted on its own cycle. ria.PINS is published in the
  * RIA's own pin layout for the debug overlay. */
+/* regs and the queue are defined volatile, so they cross a byte at a time
+ * through the volatile lvalue. Reading a volatile object through a plain one
+ * is undefined, and a memcpy would do exactly that. */
+void ria_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u64(c, ria.PINS);
+    sst_put_u8(c, ria.irq_enabled);
+    sst_put_u8(c, ria.irq_pending);
+    sst_put_u8(c, (uint8_t)ria_uart_rx_src);
+    for (int i = 0; i < 0x20; i++)
+        sst_put_u8(c, regs[i]);
+    sst_put(c, xstack, XSTACK_SIZE + 1);
+    sst_put_u16(c, (uint16_t)xstack_ptr);
+    sst_put_u8(c, xram_queue_page);
+    sst_put_u8(c, xram_queue_head);
+    sst_put_u8(c, xram_queue_tail);
+    for (int i = 0; i < 256; i++)
+    {
+        sst_put_u8(c, xram_queue[i][0]);
+        sst_put_u8(c, xram_queue[i][1]);
+    }
+}
+
+bool ria_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint64_t pins = sst_get_u64(c);
+    uint8_t enabled = sst_get_u8(c);
+    uint8_t pending = sst_get_u8(c);
+    uint8_t src = sst_get_u8(c);
+    uint8_t cells[0x20];
+    for (int i = 0; i < 0x20; i++)
+        cells[i] = sst_get_u8(c);
+    static uint8_t stack[XSTACK_SIZE + 1];
+    sst_get(c, stack, sizeof stack);
+    uint16_t ptr = sst_get_u16(c);
+    uint8_t page = sst_get_u8(c), head = sst_get_u8(c), tail = sst_get_u8(c);
+    static uint8_t queue[256][2];
+    for (int i = 0; i < 256; i++)
+    {
+        queue[i][0] = sst_get_u8(c);
+        queue[i][1] = sst_get_u8(c);
+    }
+    if (!sst_ok(c))
+        return false;
+    /* Everything the machine indexes with. A larger pointer walks off the
+     * xstack in the pop, in api_return's mirror and in every handler that
+     * reads from it; a source no row answers for is one nothing can reclaim. */
+    if (ptr > XSTACK_SIZE || src >= COM_SOURCE_COUNT)
+        return false;
+    ria.PINS = pins;
+    ria.irq_enabled = enabled;
+    ria.irq_pending = pending;
+    ria_uart_rx_src = (com_source_t)src;
+    for (int i = 0; i < 0x20; i++)
+        regs[i] = cells[i];
+    memcpy(xstack, stack, sizeof stack);
+    xstack_ptr = ptr;
+    xram_queue_page = page;
+    xram_queue_head = head;
+    xram_queue_tail = tail;
+    for (int i = 0; i < 256; i++)
+    {
+        xram_queue[i][0] = queue[i][0];
+        xram_queue[i][1] = queue[i][1];
+    }
+    return true;
+}
+
 bool ria_tick(uint16_t addr, bool read, uint8_t *data)
 {
     const bool selected = addr >= RIA_MMAP_LO && addr <= RIA_MMAP_HI;

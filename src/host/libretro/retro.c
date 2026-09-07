@@ -27,6 +27,7 @@
 #include "osal/fs.h"
 #include "core/sys/proc.h"
 #include "core/rom/rom.h"
+#include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/wdc/phi2.h"
 #include "core/wdc/sram.h"
@@ -67,6 +68,11 @@ static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
 static bool hint_shown;
+
+/* A third latch, because neither of the two above says a program is standing.
+ * loaded_rom and machine_inited are both set before boot() can fail, and a
+ * frontend asks for a savestate the moment the core loads content. */
+static bool booted;
 
 /* The seed for this run, taken once and kept until the library is taken
  * down, so the stream and the memory fill agree with each other. */
@@ -527,10 +533,12 @@ static bool boot(const char *rom_oem)
         sys_init();
         machine_inited = true;
     }
+    booted = false;
     if (!proc_boot(rom_oem, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
     sys_commit();
+    booted = true;
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
     return true;
@@ -592,6 +600,15 @@ bool retro_load_game(const struct retro_game_info *game)
         .flags = RETRO_MEMDESC_VIDEO_RAM, .ptr = (void *)xram, .start = 0x10000, .len = 0x10000};
     struct retro_memory_map map = {descs, sizeof descs / sizeof *descs};
     environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
+
+    /* No quirks: the blob is one fixed size, big-endian, holds no pointer,
+     * and is good in another session on another machine. Sent from here
+     * rather than from retro_init, after every path above that can refuse,
+     * so a core that never stood a program up never makes the claim. The
+     * frontend keeps only the last value and reads it when netplay starts,
+     * which is why it goes out on every load rather than once. */
+    uint64_t quirks = 0;
+    environ_cb(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
     return true;
 }
 
@@ -759,13 +776,79 @@ size_t retro_get_memory_size(unsigned id)
     }
 }
 
-/* No savestates yet: nothing in the machine serializes, so there is nothing
- * to answer with. Zero is how a core says so. It is not that serializing
- * would over-promise -- SET_SERIALIZATION_QUIRKS and savestate_features
- * exist to offer plain save states while declining rewind and netplay. */
-size_t retro_serialize_size(void) { return 0; }
-bool retro_serialize(void *data, size_t size) { (void)data; (void)size; return false; }
-bool retro_unserialize(const void *data, size_t size) { (void)data; (void)size; return false; }
+/* What the frontend is going to do with the blob it is asking for, in the
+ * two facts core can act on. The context call is experimental and a frontend
+ * may refuse it; FAST_SAVESTATES is the deprecated spelling of the same
+ * same-binary guarantee, so it answers when the newer call does not. */
+static unsigned savestate_flags(void)
+{
+    enum retro_savestate_context ctx = RETRO_SAVESTATE_CONTEXT_NORMAL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT, &ctx))
+        switch (ctx)
+        {
+        case RETRO_SAVESTATE_CONTEXT_RUNAHEAD_SAME_INSTANCE:
+        case RETRO_SAVESTATE_CONTEXT_RUNAHEAD_SAME_BINARY: return SST_TRUSTED;
+        case RETRO_SAVESTATE_CONTEXT_ROLLBACK_NETPLAY: return SST_SHARED;
+        default: return 0;
+        }
+    int av = 0;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &av) &&
+        (av & RETRO_AV_ENABLE_FAST_SAVESTATES))
+        return SST_TRUSTED;
+    return 0;
+}
+
+/* Unconditional, and the same number every time. The header requires the
+ * size not to grow between a load and an unload, and RetroArch asks through
+ * two entry points that each allocate once against the answer. */
+size_t retro_serialize_size(void) { return sst_size(); }
+
+bool retro_serialize(void *data, size_t size)
+{
+    if (!booted)
+        return false;
+    /* The in-flight transfer is cancelled rather than completed: completing
+     * it advances the host's file offset while the machine's own position
+     * does not, and the parked read has to re-issue losslessly from where
+     * the blob says it was. */
+    fs_std_settle();
+    const char *why = sst_save(data, size, savestate_flags());
+    if (why)
+        RP6502_LOG(retro, ERROR, "cannot save state: %s", why);
+    return why == NULL;
+}
+
+bool retro_unserialize(const void *data, size_t size)
+{
+    if (!booted)
+        return false;
+    fs_std_settle();
+    unsigned flags = savestate_flags();
+    const char *why = sst_load(data, size, flags, loaded_rom);
+    if (why)
+    {
+        RP6502_LOG(retro, ERROR, "cannot load state: %s", why);
+        /* A refused load rolls itself back, but a rollback that itself
+         * failed leaves nothing standing, and only this side has a ROM to
+         * stand it up with. */
+        if (!sys_active() && loaded_rom)
+            boot(loaded_rom);
+        return false;
+    }
+    /* Two things a row cannot put back. The shutdown latch is this file's,
+     * and the frontend's devices are the frontend's -- neither belongs to
+     * any machine the blob describes. Not under either flag: a same-session
+     * load has nothing to re-announce, and injecting this peer's input truth
+     * into a rolled-back netplay state is itself a desync. */
+    if (!flags)
+    {
+        shutdown_sent = proc_exited();
+        input_state_restored();
+    }
+    /* The picture and the geometry heal on their own: no row touches the
+     * framebuffer, and the next retro_run announces whatever canvas it finds. */
+    return true;
+}
 
 void retro_cheat_reset(void) {}
 void retro_cheat_set(unsigned index, bool enabled, const char *code)

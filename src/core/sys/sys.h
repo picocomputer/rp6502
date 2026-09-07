@@ -17,6 +17,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* The row shape and the walks this file's fan-outs are built out of. */
 #include "core/sys/driver.h"
@@ -73,5 +74,29 @@ bool sys_break(void);
 // platform, and with none registered on a platform that has no monitor
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool sys_break_to_launcher(void);
+
+/* The latch a savestate carries. Neither half belongs to a driver, so no row
+ * can answer for it: the run state is this file's own static and the reset
+ * line is core/wdc/resb.c's.
+ *
+ * A load applies the latch before it walks the rows, because the only other
+ * way to put RESB down is resb_assert, which resets four things the blob
+ * carries. Applying it performs no fan-out at all -- the walk that follows
+ * hands every driver its state, and a run or stop walk would undo that.
+ *
+ * state is the enum in sys.c, 0 to 3. Only a machine that has committed is
+ * legal: starting and stopping are moments inside sys_commit and never
+ * survive it. A stopped machine always holds the line. A running one may or
+ * may not, because an exec asks for RESB a pass before proc_exec_task
+ * performs it. */
+typedef struct
+{
+    uint8_t state;
+    bool breaking;
+    bool held;
+} sys_latch_t;
+
+void sys_latch_get(sys_latch_t *latch);
+bool sys_latch_apply(const sys_latch_t *latch); /* false when it is not legal */
 
 #endif /* _CORE_SYS_SYS_H_ */

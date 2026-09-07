@@ -5,6 +5,7 @@
  */
 
 #include "core/aud/mix.h"
+#include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
 #include "core/ria/regs.h"
@@ -276,6 +277,59 @@ void psg_sample(int16_t *left, int16_t *right)
 }
 #pragma GCC pop_options
 
+uint16_t psg_xaddr_get(void) { return psg_xaddr; }
+
+void psg_park(void) { psg_xaddr = 0xFFFF; }
+
+void psg_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, psg_xaddr);
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        sst_put_u16(c, (uint16_t)psg_channel_state[i].sample);
+        sst_put_u8(c, psg_channel_state[i].adsr);
+        sst_put_u32(c, psg_channel_state[i].vol);
+        sst_put_u32(c, psg_channel_state[i].phase);
+        sst_put_u32(c, psg_channel_state[i].noise1);
+        sst_put_u32(c, psg_channel_state[i].noise2);
+        sst_put_u16(c, psg_channel_state[i].freq);
+        sst_put_u32(c, psg_channel_state[i].phase_inc);
+    }
+}
+
+bool psg_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    __typeof__(psg_channel_state[0]) ch[PSG_CHANNELS];
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        ch[i].sample = (int16_t)sst_get_u16(c);
+        ch[i].adsr = sst_get_u8(c);
+        ch[i].vol = sst_get_u32(c);
+        ch[i].phase = sst_get_u32(c);
+        ch[i].noise1 = sst_get_u32(c);
+        ch[i].noise2 = sst_get_u32(c);
+        ch[i].freq = sst_get_u16(c);
+        ch[i].phase_inc = sst_get_u32(c);
+        if (ch[i].adsr > sustain)
+            return false;
+    }
+    /* The sampler reads the block at &xram[psg_xaddr] with nothing guarding
+     * it, so a pointer that is neither parked nor a whole block inside XRAM
+     * would walk off the end once a sample, forever. */
+    if (!sst_ok(c) ||
+        (at != 0xFFFF &&
+         (at & 1 || at > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
+          (at >> 8) != ((at + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8))))
+        return false;
+    psg_xaddr = at;
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+        psg_channel_state[i] = ch[i];
+    return true;
+}
+
 bool psg_xreg(uint16_t word)
 {
     /* Taking control and giving it up both reset the engine, the way a
@@ -311,6 +365,10 @@ bool psg_xreg(uint16_t word)
     psg_xaddr = word;
     xram_queue_page = word >> 8;
     xram_queue_tail = xram_queue_head;
-    aud_setup(psg_sample);
+    /* One engine sounds at a time, and the other is parked rather than left
+     * pointing at a page this one now owns. The fabric has always done it:
+     * a write to either pointer register releases the other. */
+    opl_park();
+    aud_setup(aud_dev_psg);
     return true;
 }

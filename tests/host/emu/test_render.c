@@ -29,7 +29,7 @@ static float g_out[800 * 2];
  * 828 or 829 calls as the resampler's phase carries. */
 UTEST(render, a_sink_frame_is_a_frame_of_calls_at_the_machine_rate)
 {
-    aud_setup(counting);
+    aud_setup_probe(counting);
     g_calls = 0;
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_GE(g_calls, 828);
@@ -45,7 +45,7 @@ UTEST(render, a_sink_frame_is_a_frame_of_calls_at_the_machine_rate)
  * their own; the count moves only when the sink asks. */
 UTEST(render, nothing_is_made_until_the_sink_asks)
 {
-    aud_setup(counting);
+    aud_setup_probe(counting);
     g_calls = 0;
     emu_frames(10);
     ASSERT_EQ(g_calls, 0);
@@ -59,7 +59,7 @@ UTEST(render, nothing_is_made_until_the_sink_asks)
  * up where it stopped. */
 UTEST(render, a_held_machine_repeats_its_last_level)
 {
-    aud_setup(counting);
+    aud_setup_probe(counting);
     g_calls = 0;
     ASSERT_EQ(aud_render(g_out, 800), 800);
     const float last_l = g_out[799 * 2];

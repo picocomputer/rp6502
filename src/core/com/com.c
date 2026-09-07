@@ -59,6 +59,68 @@ static bool com_term_reply_suppressed;
  * roundtrips through the BEL attribute, so a program reads back what it set. */
 static bool com_bel_enabled = true;
 
+/* The last byte the CRLF translator passed, so a newline arriving in a later
+ * call than the return before it is not given a second one. At file scope
+ * because the COM row carries it: a function-scope static is invisible even
+ * to the rest of this file. */
+static char com_crlf_last;
+
+static void ring_save(sst_cursor_t *c, const ring_t *r)
+{
+    sst_put(c, r->buf, COM_RING_SIZE);
+    sst_put_u16(c, r->head);
+    sst_put_u16(c, r->tail);
+}
+
+static bool ring_load(sst_cursor_t *c, ring_t *r)
+{
+    uint8_t buf[COM_RING_SIZE];
+    sst_get(c, buf, sizeof buf);
+    uint16_t head = sst_get_u16(c), tail = sst_get_u16(c);
+    if (!sst_ok(c) || head >= COM_RING_SIZE || tail >= COM_RING_SIZE)
+        return false;
+    memcpy(r->buf, buf, sizeof buf);
+    r->head = head;
+    r->tail = tail;
+    return true;
+}
+
+void com_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    ring_save(c, &keyboard_ring);
+    ring_save(c, &uart_ring);
+    sst_put_u8(c, (uint8_t)reply_len);
+    sst_put(c, reply_buf, sizeof reply_buf);
+    sst_put_bool(c, com_bel_enabled);
+    sst_put_u8(c, (uint8_t)com_crlf_last);
+    com_rx_save(c);
+}
+
+bool com_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    ring_t kb, wire;
+    if (!ring_load(c, &kb) || !ring_load(c, &wire))
+        return false;
+    uint8_t len = sst_get_u8(c);
+    uint8_t held[sizeof reply_buf];
+    sst_get(c, held, sizeof held);
+    bool bel = sst_get_bool(c);
+    uint8_t crlf = sst_get_u8(c);
+    if (!sst_ok(c) || len > sizeof reply_buf)
+        return false;
+    if (!com_rx_load(c))
+        return false;
+    keyboard_ring = kb;
+    uart_ring = wire;
+    reply_len = len;
+    memcpy(reply_buf, held, sizeof reply_buf);
+    com_bel_enabled = bel;
+    com_crlf_last = (char)crlf;
+    return true;
+}
+
 static void ring_push(ring_t *r, uint8_t b)
 {
     uint16_t next = (uint16_t)((r->head + 1) & RING_MASK);
@@ -208,16 +270,15 @@ void com_tx_write(const char *buf, int len)
  * vsnprintf form needs -- but every machine's printf ends here. */
 void com_crlf_write(const char *buf, int len)
 {
-    static char last;
     char out[2 * 64];
     int n = 0;
     for (int i = 0; i < len; i++)
     {
         char c = buf[i];
-        if (c == '\n' && last != '\r')
+        if (c == '\n' && com_crlf_last != '\r')
             out[n++] = '\r';
         out[n++] = c;
-        last = c;
+        com_crlf_last = c;
         if (n >= (int)sizeof(out) - 1)
         {
             com_tx_write(out, n);

@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <string.h>
 #include "core/ria/regs.h"
@@ -215,6 +216,14 @@ static inline bool api_return_errno(api_errno errnum)
 }
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break, nul_config, nul_config)
+/* The op the 6502 is parked on, and the errno policy it asked for. What the
+ * op is actually doing lives in the handler's own row: this is only which
+ * one, so that the first pass after a load re-dispatches the same call. */
+#define API_SST_SIZE 2
+void api_sst_save(sst_cursor_t *c, unsigned flags);
+bool api_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break, \
+    nul_config, nul_config, SST(API_, 1, API_SST_SIZE, api_sst_save, api_sst_load))
 
 #endif /* _CORE_API_API_H_ */

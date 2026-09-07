@@ -50,6 +50,19 @@ bool proc_has_launcher(void)
     return proc_launcher_path != NULL;
 }
 
+const char *proc_launcher(void)
+{
+    return proc_launcher_path ? proc_launcher_path : "";
+}
+
+/* Both slots at once, so a load cannot leave the chain half restored. An
+ * empty string is no path, which is what set_path already means by it. */
+void proc_restore_paths(const char *running, const char *launcher)
+{
+    set_path(&proc_running_path, running);
+    set_path(&proc_launcher_path, launcher);
+}
+
 /* A program registers ITSELF -- its argv[0] -- as the one to return to. */
 void proc_set_launcher(bool is_launcher)
 {

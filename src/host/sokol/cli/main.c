@@ -30,6 +30,7 @@
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
+#include "host/sokol/cli/state.h"
 #include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
 #include "host/sokol/cli/credits.h"
@@ -166,6 +167,10 @@ int main(int argc, char **argv)
      * error without it. Different from one that is merely inert on a host —
      * --scale under --script — which stays quiet so a wrapper can pass one
      * set of flags to every host. */
+    /* Named before anything can chdir the process, which the machine does on
+     * every load. */
+    state_slot_init(o.rom);
+
     if (o.have_frames && !o.screenshot && !o.crc)
     {
         fprintf(stderr, "rp6502-emu: --frames only applies to --screenshot or --crc; "

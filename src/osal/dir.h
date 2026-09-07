@@ -55,6 +55,19 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err);
 bool drive_closedir(int des, api_errno *err);
 bool drive_rewinddir(int des, api_errno *err);
 bool drive_validate(int des, api_errno *err);
+
+/* The absolute path an open slot is reading, so a savestate can put that slot
+ * back in a later session. False for a slot that is not open, or one whose
+ * path will not fit. Absolute because the working directory is the guest's to
+ * move and a load restores it separately.
+ *
+ * The reopen is slot-directed rather than allocating, which is the one thing
+ * drive_opendir cannot do: a blob names which descriptor a directory was, and
+ * the program that made the blob is still holding that number. Where the slot
+ * was open it is closed first. Position is not restored here -- the layer
+ * above winds the entry count, which is the number it kept. */
+bool drive_dir_path(int des, char *buf, size_t size);
+bool drive_reopendir(int des, const char *path, api_errno *err);
 void oem_fs_code_page(uint16_t cp);
 
 char *os_dir_realpath(const char *path);

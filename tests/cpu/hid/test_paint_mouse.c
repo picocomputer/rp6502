@@ -49,7 +49,7 @@ UTEST(paint, via_irq_moves_pointer)
 
     /* Move the mouse far. The pointer can only track it if the 6522 timer IRQ
      * fires and its ISR runs — so a frame change is the end-to-end proof. */
-    mouse_host_move(80.0f, 60.0f);
+    mouse_host_move(80 * MOUSE_ONE, 60 * MOUSE_ONE);
     run(20);
     ASSERT_NE(frame_crc(), still);
 

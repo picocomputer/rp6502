@@ -7,6 +7,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
+#include <string.h>
 
 #define BEL_QUEUE_SIZE 8
 
@@ -85,6 +86,80 @@ static struct
     uint32_t elapsed_samples;
     volatile bool active;
 } bel_state;
+
+/* A queued sound is the nine numbers a program wrote, and the generator is
+ * where the last one got to. Both go on the wire whole: a bell that restarted
+ * on load would ring again on every rewound frame. */
+static void bel_put_sound(sst_cursor_t *c, const ria_bel_t *b)
+{
+    sst_put_u16(c, b->freq);
+    sst_put_u8(c, b->duty);
+    sst_put_u8(c, b->vol_attack);
+    sst_put_u8(c, b->vol_decay);
+    sst_put_u8(c, b->wave_release);
+    sst_put_u16(c, b->restrike_ms);
+    sst_put_u16(c, b->release_ms);
+    sst_put_u16(c, b->end_ms);
+}
+
+static void bel_get_sound(sst_cursor_t *c, ria_bel_t *b)
+{
+    b->freq = sst_get_u16(c);
+    b->duty = sst_get_u8(c);
+    b->vol_attack = sst_get_u8(c);
+    b->vol_decay = sst_get_u8(c);
+    b->wave_release = sst_get_u8(c);
+    b->restrike_ms = sst_get_u16(c);
+    b->release_ms = sst_get_u16(c);
+    b->end_ms = sst_get_u16(c);
+}
+
+void bel_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (int i = 0; i < BEL_QUEUE_SIZE; i++)
+        bel_put_sound(c, &bel_queue[i]);
+    sst_put_u8(c, bel_queue_head);
+    sst_put_u8(c, bel_queue_tail);
+    sst_put_u16(c, (uint16_t)bel_state.sample);
+    sst_put_u8(c, bel_state.adsr);
+    sst_put_u32(c, bel_state.vol);
+    sst_put_u32(c, bel_state.phase);
+    sst_put_u32(c, bel_state.noise1);
+    sst_put_u32(c, bel_state.noise2);
+    sst_put_u32(c, bel_state.elapsed_samples);
+    sst_put_bool(c, bel_state.active);
+}
+
+bool bel_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    ria_bel_t queue[BEL_QUEUE_SIZE];
+    for (int i = 0; i < BEL_QUEUE_SIZE; i++)
+        bel_get_sound(c, &queue[i]);
+    uint8_t head = sst_get_u8(c), tail = sst_get_u8(c);
+    int16_t sample = (int16_t)sst_get_u16(c);
+    uint8_t adsr = sst_get_u8(c);
+    uint32_t vol = sst_get_u32(c), phase = sst_get_u32(c);
+    uint32_t n1 = sst_get_u32(c), n2 = sst_get_u32(c);
+    uint32_t elapsed = sst_get_u32(c);
+    bool active = sst_get_bool(c);
+    if (!sst_ok(c) || head >= BEL_QUEUE_SIZE || tail >= BEL_QUEUE_SIZE ||
+        adsr > sustain)
+        return false;
+    memcpy(bel_queue, queue, sizeof bel_queue);
+    bel_queue_head = head;
+    bel_queue_tail = tail;
+    bel_state.sample = sample;
+    bel_state.adsr = adsr;
+    bel_state.vol = vol;
+    bel_state.phase = phase;
+    bel_state.noise1 = n1;
+    bel_state.noise2 = n2;
+    bel_state.elapsed_samples = elapsed;
+    bel_state.active = active;
+    return true;
+}
 
 void bel_add(const ria_bel_t *sound)
 {

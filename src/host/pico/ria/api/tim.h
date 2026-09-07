@@ -36,6 +36,6 @@ int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width
     tim_check_time_zone, tim_apply_time_zone, STR_TZ, tim_time_zone_response, \
     STR_HELP_SET_TZ, tim_tzdata_response)
 #define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    TIM_CONFIG_TZ, nul_config)
+    TIM_CONFIG_TZ, nul_config, nul_sst)
 
 #endif /* _RIA_API_TIM_H_ */

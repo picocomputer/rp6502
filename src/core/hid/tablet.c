@@ -117,6 +117,33 @@ void HOST_IN_FLASH("tablet_init") tablet_init(void)
     tablet_stop();
 }
 
+/* The whole block, control byte and all. tablet_write_xram deliberately
+ * starts past the control byte, because that one is the program's, so a load
+ * puts the block back and lets the publisher restate the rest. */
+void tablet_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, tablet_xram);
+    sst_put(c, tablet_state, sizeof tablet_state);
+    sst_put_bool(c, tablet_host_cursor);
+}
+
+bool tablet_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    uint8_t block[TABLET_BLOCK_SIZE];
+    sst_get(c, block, sizeof block);
+    bool cursor = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    tablet_xram = at;
+    memcpy(tablet_state, block, sizeof tablet_state);
+    tablet_host_cursor = cursor;
+    tablet_write_xram();
+    return true;
+}
+
 void tablet_stop(void)
 {
     tablet_xram = 0xFFFF;

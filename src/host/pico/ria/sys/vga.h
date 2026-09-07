@@ -72,6 +72,6 @@ void vga_set_tel_console_active(bool active);
     vga_check_display_type, vga_apply_display_type, STR_VGA, \
     vga_display_type_response, STR_HELP_SET_VGA, NULL)
 #define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, vga_run, vga_stop, vga_break, \
-    VGA_CONFIG_DISPLAY_TYPE, nul_config)
+    VGA_CONFIG_DISPLAY_TYPE, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_VGA_H_ */

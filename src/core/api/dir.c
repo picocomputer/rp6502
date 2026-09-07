@@ -75,6 +75,82 @@ void dir_stop(void)
             drive_closedir(i, &err);
 }
 
+/* A directory is not carried, it is reopened and wound. The wind is a read
+ * per entry the slot had handed out, which is what telldir and seekdir
+ * already do and the only position a drive here agrees to take.
+ *
+ * A path slot is written empty under SST_SHARED, because a path under one
+ * peer's home is a desync the moment the other CRCs the payload. The load
+ * then keeps the directories and the working directory it already has. */
+#define DIR_SLOT (API_PATH_MAX + 1)
+
+void dir_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+        sst_put_i32(c, tells[i]);
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+    {
+        char path[DIR_SLOT];
+        bool open = !(flags & SST_SHARED) && drive_dir_path(i, path, sizeof path);
+        sst_put_bool(c, open);
+        sst_put_str(c, open ? path : "", DIR_SLOT);
+    }
+    char cwd[DIR_SLOT];
+    api_errno err;
+    if (flags & SST_SHARED || !drive_getcwd(cwd, sizeof cwd, &err))
+        cwd[0] = 0;
+    sst_put_str(c, cwd, DIR_SLOT);
+}
+
+bool dir_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    int32_t at[DIR_MAX_OPEN];
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+        at[i] = sst_get_i32(c);
+    bool open[DIR_MAX_OPEN];
+    char paths[DIR_MAX_OPEN][DIR_SLOT];
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+    {
+        open[i] = sst_get_bool(c);
+        sst_get_str(c, paths[i], DIR_SLOT);
+    }
+    char cwd[DIR_SLOT];
+    sst_get_str(c, cwd, DIR_SLOT);
+    if (!sst_ok(c))
+        return false;
+
+    /* The working directory first, so a slot recorded relative to it -- one
+     * whose drive could not make it absolute -- reopens against the same
+     * place it was opened from. Not under either flag: drive_chdir moves the
+     * whole process, and runahead runs a second copy of this machine in it. */
+    api_errno err;
+    if (!flags && cwd[0] && !drive_chdir(cwd, &err))
+        return false;
+
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+    {
+        tells[i] = at[i];
+        if (flags & SST_SHARED)
+            continue;
+        if (!open[i])
+        {
+            if (drive_validate(i, &err))
+                drive_closedir(i, &err);
+            continue;
+        }
+        if (!drive_reopendir(i, paths[i], &err))
+            return false;
+        /* Wind to where the slot had read to. The entries a host hands back
+         * are its own order, which POSIX does not promise is the order the
+         * saving session saw. */
+        f_stat_t info;
+        for (int32_t n = 0; n < at[i]; n++)
+            if (!drive_readdir(i, &info, &err) || !info.fname[0])
+                return false;
+    }
+    return true;
+}
+
 bool dir_api_stat(void)
 {
     f_stat_t info;

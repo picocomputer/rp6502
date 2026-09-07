@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* One accessor pair per row this machine carries. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     type pfx##_get_##name(void);                                 \
     bool pfx##_set_##name(type v);

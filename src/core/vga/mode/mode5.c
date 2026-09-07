@@ -248,6 +248,84 @@ mode5_render_2bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16
     mode5_render(scanline, width, rgb, config_ptr, length, 512, 2);
 }
 
+/* The renderer an attribute names, and the attribute a renderer came from.
+ * A savestate carries the attribute: a function's address is this build's own
+ * and means nothing to the build that loads the blob.
+ *
+ * The reverse walks the forward rather than keeping a second table, so the
+ * two cannot drift apart when a renderer is added. */
+vga_sprite_fn_t mode5_sprite_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+    case 0:
+        return mode5_render_1bpp_8x8;
+    case 1:
+        return mode5_render_2bpp_8x8;
+    case 2:
+        return mode5_render_4bpp_8x8;
+    case 3:
+        return mode5_render_8bpp_8x8;
+    case 8:
+        return mode5_render_1bpp_16x16;
+    case 9:
+        return mode5_render_2bpp_16x16;
+    case 10:
+        return mode5_render_4bpp_16x16;
+    case 11:
+        return mode5_render_8bpp_16x16;
+    case 16:
+        return mode5_render_1bpp_32x32;
+    case 17:
+        return mode5_render_2bpp_32x32;
+    case 18:
+        return mode5_render_4bpp_32x32;
+    case 19:
+        return mode5_render_8bpp_32x32;
+    case 24:
+        return mode5_render_1bpp_64x64;
+    case 25:
+        return mode5_render_2bpp_64x64;
+    case 26:
+        return mode5_render_4bpp_64x64;
+    case 27:
+        return mode5_render_8bpp_64x64;
+    case 32:
+        return mode5_render_1bpp_128x128;
+    case 33:
+        return mode5_render_2bpp_128x128;
+    case 34:
+        return mode5_render_4bpp_128x128;
+    case 35:
+        return mode5_render_8bpp_128x128;
+    case 40:
+        return mode5_render_1bpp_256x256;
+    case 41:
+        return mode5_render_2bpp_256x256;
+    case 42:
+        return mode5_render_4bpp_256x256;
+    case 43:
+        return mode5_render_8bpp_256x256;
+    case 48:
+        return mode5_render_1bpp_512x512;
+    case 49:
+        return mode5_render_2bpp_512x512;
+    default:
+        return NULL;
+    }
+}
+
+bool mode5_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 64; a++)
+        if (fn && mode5_sprite_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+
 bool mode5_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -264,90 +342,9 @@ bool mode5_prog(uint16_t *xregs)
     if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
         return false;
 
-    void (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t, uint16_t);
-    switch (attributes)
-    {
-    case 0:
-        render_fn = mode5_render_1bpp_8x8;
-        break;
-    case 1:
-        render_fn = mode5_render_2bpp_8x8;
-        break;
-    case 2:
-        render_fn = mode5_render_4bpp_8x8;
-        break;
-    case 3:
-        render_fn = mode5_render_8bpp_8x8;
-        break;
-    case 8:
-        render_fn = mode5_render_1bpp_16x16;
-        break;
-    case 9:
-        render_fn = mode5_render_2bpp_16x16;
-        break;
-    case 10:
-        render_fn = mode5_render_4bpp_16x16;
-        break;
-    case 11:
-        render_fn = mode5_render_8bpp_16x16;
-        break;
-    case 16:
-        render_fn = mode5_render_1bpp_32x32;
-        break;
-    case 17:
-        render_fn = mode5_render_2bpp_32x32;
-        break;
-    case 18:
-        render_fn = mode5_render_4bpp_32x32;
-        break;
-    case 19:
-        render_fn = mode5_render_8bpp_32x32;
-        break;
-    case 24:
-        render_fn = mode5_render_1bpp_64x64;
-        break;
-    case 25:
-        render_fn = mode5_render_2bpp_64x64;
-        break;
-    case 26:
-        render_fn = mode5_render_4bpp_64x64;
-        break;
-    case 27:
-        render_fn = mode5_render_8bpp_64x64;
-        break;
-    case 32:
-        render_fn = mode5_render_1bpp_128x128;
-        break;
-    case 33:
-        render_fn = mode5_render_2bpp_128x128;
-        break;
-    case 34:
-        render_fn = mode5_render_4bpp_128x128;
-        break;
-    case 35:
-        render_fn = mode5_render_8bpp_128x128;
-        break;
-    case 40:
-        render_fn = mode5_render_1bpp_256x256;
-        break;
-    case 41:
-        render_fn = mode5_render_2bpp_256x256;
-        break;
-    case 42:
-        render_fn = mode5_render_4bpp_256x256;
-        break;
-    case 43:
-        render_fn = mode5_render_8bpp_256x256;
-        break;
-    case 48:
-        render_fn = mode5_render_1bpp_512x512;
-        break;
-    case 49:
-        render_fn = mode5_render_2bpp_512x512;
-        break;
-    default:
+    vga_sprite_fn_t render_fn = mode5_sprite_fn(attributes);
+    if (!render_fn)
         return false;
-    };
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, render_fn);
 }

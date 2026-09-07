@@ -21,9 +21,9 @@
 #include "proc.h"
 #include "rom.h"
 #include "core/rom/rom.h"
-#include "sst.h"
 #include "vga.h"
 #include "vid.h"
+#include "wake.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
@@ -185,7 +185,7 @@ int main(void)
      * rather than starting it, and the restore that is coming will
      * replace everything a staged ROM would put here. Starting one
      * under it is a cold boot the user watches get rolled back. */
-    main_wake_pending = sst_pending();
+    main_wake_pending = wake_pending();
     /* Measured on hardware, this reads zero on every wake -- the host
      * writes the blob only after Reset Exit -- so the check here is
      * kept for the case where a blob does precede the boot, and the
@@ -238,7 +238,7 @@ int main(void)
          * The bit clears in fabric when the load lands, so this is a
          * question and not a latch: a program launched after a wake
          * still starts. */
-        bool wake = sst_pending();
+        bool wake = wake_pending();
         if (wake && !main_wake_pending)
             sys_stop();
         main_wake_pending = wake;

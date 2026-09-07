@@ -42,6 +42,43 @@ static bool bus_ria_irq;
 
 uint64_t bus_cycles(void) { return bus_cycle_count; }
 
+void bus_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u64(c, bus_lines);
+    sst_put_i64(c, bus_owed);
+    sst_put_u64(c, bus_cycle_count);
+    sst_put_u16(c, bus_addr);
+    sst_put_u8(c, bus_data);
+    sst_put_bool(c, bus_read);
+    sst_put_bool(c, bus_via_irq);
+    sst_put_bool(c, bus_ria_irq);
+}
+
+bool bus_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint64_t lines = sst_get_u64(c);
+    int64_t owed = sst_get_i64(c);
+    uint64_t count = sst_get_u64(c);
+    uint16_t addr = sst_get_u16(c);
+    uint8_t data = sst_get_u8(c);
+    bool read = sst_get_bool(c);
+    bool via_irq = sst_get_bool(c);
+    bool ria_irq = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    bus_lines = lines;
+    bus_owed = owed;
+    bus_cycle_count = count;
+    bus_addr = addr;
+    bus_data = data;
+    bus_read = read;
+    bus_via_irq = via_irq;
+    bus_ria_irq = ria_irq;
+    return true;
+}
+
 void bus_reset(void)
 {
     bus_addr = 0;

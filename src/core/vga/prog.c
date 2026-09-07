@@ -36,6 +36,17 @@ int16_t vga_prog_highest(void)
     return vga_highest_scanline;
 }
 
+void vga_prog_load_row(int16_t scanline, const vga_prog_t *row)
+{
+    if (scanline >= 0 && scanline < VGA_PROG_MAX)
+        vga_prog[scanline] = *row;
+}
+
+void vga_prog_set_highest(int16_t scanline)
+{
+    vga_highest_scanline = scanline;
+}
+
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end)
 {
     if (!*scanline_end)
