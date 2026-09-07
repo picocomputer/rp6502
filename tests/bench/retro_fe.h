@@ -326,10 +326,14 @@ static bool fe_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:
     {
+        /* Plain assignment rather than a compound literal: this header is
+         * also compiled as C++ by test_load.cpp, where (T){...} is not a
+         * thing and designated initializers want C++20. */
         static struct retro_game_info_ext ext;
         if (!fe.game_info_dir)
             return false;
-        ext = (struct retro_game_info_ext){.dir = fe.game_info_dir};
+        memset(&ext, 0, sizeof ext);
+        ext.dir = fe.game_info_dir;
         *(struct retro_game_info_ext **)data = &ext;
         return true;
     }
