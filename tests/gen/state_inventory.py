@@ -74,13 +74,19 @@ def objects_in(src, cmd, tmp):
         _, kind, name = parts
         # b/B .bss, d/D .data, g/G small-data. Not r/R: a table nobody writes
         # is derived, not state. Not t/T: those are code.
-        if kind in "bBdDgG":
-            keep_it = True
-            # A function-local static is that function's, not the file's, but
-            # it is still state a blob would have to carry; the compiler names
-            # it with the function, so it is kept and named that way.
-            if keep_it:
-                yield name
+        if kind not in "bBdDgG":
+            continue
+        # A toolchain that coalesces statics has nothing left to count, and a
+        # count taken there would pass while saying nothing. Refuse rather
+        # than measure: the CMakeLists only registers this where it holds.
+        if "MergedGlobals" in name:
+            raise SystemExit(
+                "%s: this toolchain merges file-scope objects into %s, so they "
+                "cannot be counted one by one" % (src, name))
+        # A function-local static is that function's, not the file's, but it
+        # is still state a blob would have to carry; the compiler names it
+        # with the function, so it is kept and named that way.
+        yield name
     os.unlink(obj)
 
 

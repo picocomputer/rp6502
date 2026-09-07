@@ -91,9 +91,16 @@ rp6502_add_test(sst LIBS emu_core FIXTURE adventure.rp6502)
 # else in the tree would notice that no chunk carries it. Measured from the
 # objects rather than grepped from the source: the scanner rebuilds each of
 # emu.cmake's units without LTO, which is what keeps a file-scope static in
-# the symbol table. Needs the compile database, so it is skipped where the
-# generator does not write one.
-if(CMAKE_EXPORT_COMPILE_COMMANDS)
+# the symbol table.
+#
+# GNU and ELF only, and that is not a portability gap to close. Clang's global
+# merge coalesces several statics into one __MergedGlobals symbol, so on that
+# toolchain there is nothing left to enumerate, and Mach-O and COFF each name
+# what survives differently again. This is a tripwire, and one platform
+# holding it is what a tripwire needs.
+if(CMAKE_EXPORT_COMPILE_COMMANDS
+   AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
+   AND NOT APPLE AND NOT WIN32)
     add_test(NAME state_inventory
         COMMAND ${CMAKE_COMMAND} -E env python3
             ${RP6502_TESTS_DIR}/gen/state_inventory.py

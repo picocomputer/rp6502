@@ -71,7 +71,7 @@ UTEST(state, a_program_comes_back_to_where_it_was)
     ASSERT_TRUE(fe.serialize(blob, fe.serialize_size()));
 
     fe_run(1);
-    uint32_t at_save[640 * 480];
+    static uint32_t at_save[640 * 480]; /* a frame is 1.2 MB; a stack may be 1 */
     memcpy(at_save, fe.frame_copy, sizeof at_save);
 
     /* Somewhere else entirely. */
@@ -215,7 +215,7 @@ UTEST(state, a_blob_survives_unload_and_load)
     size_t n = fe.serialize_size();
     ASSERT_TRUE(fe.serialize(blob, n));
     fe_run(1);
-    uint32_t at_save[640 * 480];
+    static uint32_t at_save[640 * 480]; /* a frame is 1.2 MB; a stack may be 1 */
     memcpy(at_save, fe.frame_copy, sizeof at_save);
 
     fe.unload_game();
