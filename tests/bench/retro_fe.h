@@ -170,10 +170,6 @@ typedef struct
     int av_enable;
     bool av_enable_asked;
 
-    /* The pair a core hands over to be rendered on the audio thread. There
-     * is no audio thread here: a case is the driver, and calls them. */
-    struct retro_audio_callback audio_cb;
-
     /* The content directory the frontend hands over, when it answers
      * GET_GAME_INFO_EXT at all. */
     const char *game_info_dir;
@@ -326,11 +322,6 @@ static bool fe_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
         fe.av_enable_asked = true;
         *(int *)data = fe.av_enable;
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
-        if (data)
-            fe.audio_cb = *(const struct retro_audio_callback *)data;
         return true;
 
     case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:

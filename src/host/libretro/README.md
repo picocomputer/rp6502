@@ -16,7 +16,7 @@ The seams it needs were already there:
 | --- | --- |
 | a frame | `vga_run_frame`, which is exactly what `retro_run` is asked for |
 | a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
-| sound | `aud_render`, pulled by the frontend's audio thread through `SET_AUDIO_CALLBACK` at the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz. A frontend that declines the callback is handed a frame's worth from `retro_run` instead |
+| sound | `aud_render`, which fills a buffer at the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
 | devices | the `keyboard_` / `gamepad_` / `mouse_` / `tablet_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `proc_set_argv`, `main_run` |
 
