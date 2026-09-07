@@ -40,6 +40,7 @@
 #include "libretro.h"
 
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +50,11 @@
  * default sink rate, so this core never has to say so. */
 #define RETRO_AUD_RATE 48000
 #define RETRO_AUD_FRAMES (RETRO_AUD_RATE / VGA_HZ)
+/* Stereo samples per pull. The frontend's audio thread names no count, so
+ * this is the core's to choose: each pull is one blocking write to the
+ * device, so it has to fit under the smallest buffer anyone will set, and
+ * the batch contract's floor is 32. */
+#define RETRO_AUD_PULL_FRAMES 256
 
 static retro_environment_t environ_cb;
 static retro_video_refresh_t video_cb;
@@ -60,6 +66,35 @@ static retro_log_printf_t log_cb;
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static float audio_out[RETRO_AUD_FRAMES * 2];
 static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
+
+/* Whether the frontend's audio driver is pulling the mixer on its own
+ * thread. While it is, retro_run hands over no sound: aud_render carries
+ * state across calls and is one sink's to call. */
+static atomic_bool pulled;
+
+/* Render this many stereo samples and hand them over as the int16 pairs
+ * libretro takes. A silent machine generates silence rather than nothing:
+ * the standing BEL is always the installed device. */
+static void hand_over(int frames)
+{
+    aud_render(audio_out, frames);
+    for (int i = 0; i < frames * 2; i++)
+        audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
+    audio_batch_cb(audio_buf, (size_t)frames);
+}
+
+/* The frontend's audio thread, ready for more. */
+static void audio_pull(void)
+{
+    hand_over(RETRO_AUD_PULL_FRAMES);
+}
+
+/* The frontend's audio driver going active or idle, from whichever thread
+ * it says so on. */
+static void audio_set_state(bool on)
+{
+    atomic_store(&pulled, on);
+}
 
 static char *loaded_rom;  /* OEM, absolute, for retro_reset; owned */
 static char *loaded_path; /* as the frontend spelled it; owned */
@@ -592,6 +627,12 @@ bool retro_load_game(const struct retro_game_info *game)
         .flags = RETRO_MEMDESC_VIDEO_RAM, .ptr = (void *)xram, .start = 0x10000, .len = 0x10000};
     struct retro_memory_map map = {descs, sizeof descs / sizeof *descs};
     environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
+
+    /* Closed until the frontend's audio driver opens it. A frontend that
+     * declines never calls set_state, and retro_run carries the sound. */
+    atomic_store(&pulled, false);
+    static const struct retro_audio_callback audio_cb = {audio_pull, audio_set_state};
+    environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, (void *)&audio_cb);
     return true;
 }
 
@@ -640,18 +681,6 @@ static void swizzle(uint32_t *px, size_t n)
         uint32_t v = px[i];
         px[i] = (v & 0x0000FF00u) | ((v & 0x000000FFu) << 16) | ((v >> 16) & 0xFFu);
     }
-}
-
-/* One frame's worth per call, which is what a frontend syncing on sound
- * waits for, as the int16 pairs libretro takes. A silent machine generates
- * silence rather than nothing: the standing BEL is always the installed
- * device. */
-static void push_audio(void)
-{
-    aud_render(audio_out, RETRO_AUD_FRAMES);
-    for (int i = 0; i < RETRO_AUD_FRAMES * 2; i++)
-        audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
-    audio_batch_cb(audio_buf, RETRO_AUD_FRAMES);
 }
 
 void retro_run(void)
@@ -716,13 +745,14 @@ void retro_run(void)
         swizzle(frame_buf, (size_t)w * (size_t)h);
     video_cb(frame_buf, (unsigned)w, (unsigned)h, (size_t)w * sizeof *frame_buf);
 
-    /* Bit 1 only discards this frame's sound, and the next frame's must be no
+    /* A frame's worth, for a frontend whose audio thread is not pulling it.
+     * Bit 1 only discards this frame's sound, and the next frame's must be no
      * different for it, so the mixer is still clocked — aud_render is what
      * advances it. Bit 3 is the frontend promising it will never want audio
      * again (it is running a second copy for runahead), and that is the one
      * that allows not synthesizing at all. */
-    if (!(av & RETRO_AV_ENABLE_HARD_DISABLE_AUDIO))
-        push_audio();
+    if (!(av & RETRO_AV_ENABLE_HARD_DISABLE_AUDIO) && !atomic_load(&pulled))
+        hand_over(RETRO_AUD_FRAMES);
 
     /* The program stopped and there is no monitor here to fall back to, so
      * the core is finished. The frame above is the last thing it drew. */

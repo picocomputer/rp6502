@@ -79,6 +79,11 @@ A program that uses the tablet draws its own pointer. RetroArch's
 cursor stays over the window until Game Focus or Settings / Input /
 Auto Mouse Grab hides it.
 
+The Picocomputer's sound is made on demand rather than a frame at
+a time, and this core is rendered on RetroArch's audio thread, so
+Settings / Audio / Audio Latency can go as low as your sound
+device allows.
+
 A program's saves go to the save directory your frontend has
 chosen for it.
 
