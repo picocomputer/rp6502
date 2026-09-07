@@ -474,7 +474,7 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants x y");
         if (script_more(&p) && (!script_number(&p, &buttons) || buttons < 0 || buttons > 255))
             return script_error("tablet at wants a button bitmap 0..255");
-        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons);
+        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons, true);
         return true;
     }
     if (verb && !strcasecmp(verb, "touch"))

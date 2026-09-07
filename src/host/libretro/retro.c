@@ -32,6 +32,10 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
+#include "core/api/std.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/mouse.h"
+#include "core/hid/tablet.h"
 #include "osal/os.h"
 
 #include "libretro.h"
@@ -377,13 +381,14 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 /* Content                                                             */
 /* ------------------------------------------------------------------ */
 
-/* Say once, on screen, how to type.
+/* Say once, on screen, what Game Focus is for.
  *
- * A frontend binds the keyboard to its own gamepad and hotkeys, so on a machine
- * that is a computer the keyboard looks broken until the player turns that
- * off — Game Focus, in RetroArch. The core cannot turn it on and there is
- * no environment call to ask, so the honest thing is to tell them. Once per
- * session: it is an instruction, not a status. */
+ * A frontend binds the keyboard to its own gamepad and hotkeys and keeps the
+ * mouse for its own cursor, so on a machine that is a computer both look
+ * broken until the player turns that off — Game Focus, in RetroArch. The
+ * core cannot turn it on and there is no environment call to ask, so the
+ * honest thing is to tell them, when a program first asks for either. Once
+ * per session: it is an instruction, not a status. */
 static void say_how_to_type(void)
 {
     if (hint_shown || !environ_cb)
@@ -391,7 +396,7 @@ static void say_how_to_type(void)
     hint_shown = true;
 
     static const char text[] =
-        "Keyboard: turn on Game Focus to type (Scroll Lock in RetroArch)";
+        "Game Focus gives the keyboard and mouse to the program (Scroll Lock in RetroArch)";
 
     unsigned version = 0;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &version) &&
@@ -552,7 +557,6 @@ bool retro_load_game(const struct retro_game_info *game)
 
     if (!boot(loaded_rom))
         return false;
-    say_how_to_type();
     return true;
 }
 
@@ -632,6 +636,10 @@ void retro_run(void)
 
     input_poll_cb();
     input_poll(input_state_cb);
+    /* Not the gamepad: a frontend polls pads with Game Focus on or off. */
+    if (!hint_shown && (std_console_asked() || keyboard_is_mapped() ||
+                        mouse_is_mapped() || tablet_is_mapped()))
+        say_how_to_type();
 
     /* The frontend paces us: one frame per call, as fast as this can run it. */
     vga_run_frame();

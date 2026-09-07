@@ -207,6 +207,7 @@ static unsigned port_device[GAMEPAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
 static bool port_live[GAMEPAD_PLAYERS];
 static bool have_bitmasks;
+static bool mouse_seen; /* the frontend has shown one; see poll_pointer */
 
 /* How many players the frontend actually has. The machine has four ports
  * and a frontend offers four whether or not anyone is holding anything, so
@@ -245,6 +246,7 @@ void input_reset(void)
     }
     have_bitmasks = false;
     max_users = GAMEPAD_PLAYERS;
+    mouse_seen = false;
     input_environ = NULL;
 }
 
@@ -356,71 +358,102 @@ static void poll_gamepads(retro_input_state_t state)
 /* Pointer and mouse                                                   */
 /* ------------------------------------------------------------------ */
 
+/* [-0x7FFF, 0x7FFF] spans the frame we last handed over, whatever the
+ * frontend then did with it on screen. */
+static int16_t canvas_coord(int p, int extent)
+{
+    return (int16_t)(((p + 0x7FFF) * (extent - 1)) / 0xFFFE);
+}
+
 /* Both devices are read only once a program has asked for the block, which is
  * the same courtesy the desktop hosts extend: a ROM that wants neither is not
- * a reason to watch where anyone is pointing. */
+ * a reason to watch where anyone is pointing.
+ *
+ * What the pointer is depends on whether this frontend has shown a mouse —
+ * reported motion or a button, mouse_seen. Until then its pointer is a
+ * finger, walked by index until one is not pressed, and a finger that lifts
+ * leaves nothing. With one, the pointer is where that mouse is, hovering,
+ * and its buttons are the mouse's own three rather than the pointer's one
+ * PRESSED bit — which x11 and udev also spread over indices 1 and 2 as
+ * pretend fingers for right and middle, so a mouse's pointer is never
+ * walked. */
 static void poll_pointer(retro_input_state_t state)
 {
-    if (tablet_is_mapped())
+    bool tablet = tablet_is_mapped();
+    bool mouse = mouse_is_mapped();
+    if (!tablet && !mouse)
+        return;
+
+    int dx = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
+    int dy = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
+    uint8_t buttons = 0; /* HID's order, which both blocks carry */
+    if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT))
+        buttons |= TABLET_FLAG_LEFT;
+    if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT))
+        buttons |= TABLET_FLAG_RIGHT;
+    if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
+        buttons |= TABLET_FLAG_MIDDLE;
+    if (dx || dy || buttons)
+        mouse_seen = true;
+
+    /* Off the game image the cursor is over the rest of the frontend, and
+     * nothing there is a press on the machine. A frontend that cannot tell
+     * answers 0, which is on. */
+    bool offscreen = state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN);
+
+    if (tablet)
     {
         int w, h;
         vga_canvas_size(&w, &h);
-        int count = state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-        if (count > TABLET_MAX_CONTACTS)
-            count = TABLET_MAX_CONTACTS;
-
-        /* [-0x7FFF, 0x7FFF] spans the frame we last handed over, whatever the
-         * frontend then did with it on screen. */
-        /* Contacts, not a hovering cursor. tablet_host_pointer would declare a
-         * host cursor available, and this host has none to lend: libretro
-         * gives a core no way to ask a frontend to draw one, so a program
-         * that hid its own pointer for ours would be left with neither.
-         * Touch is also what the frontend's pointer is for. */
         tablet_point_t pts[TABLET_MAX_CONTACTS];
         int n = 0;
-        for (int i = 0; i < count; i++)
-        {
-            if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
-                continue;
-            int px = state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X);
-            int py = state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y);
-            pts[n].x = (int16_t)(((px + 0x7FFF) * (w - 1)) / 0xFFFE);
-            pts[n].y = (int16_t)(((py + 0x7FFF) * (h - 1)) / 0xFFFE);
-            n++;
-        }
+        if (!mouse_seen)
+            for (int i = 0; i < TABLET_MAX_CONTACTS; i++)
+            {
+                if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
+                    break;
+                pts[n].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
+                pts[n].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
+                n++;
+            }
         if (n)
             tablet_host_touch(pts, n);
+        else if (mouse_seen && !offscreen)
+        {
+            int x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
+            int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
+            uint8_t b = buttons;
+            /* A press with no mouse button behind it is a touchscreen beside
+             * the mouse, and the press is the tip. */
+            if (!b && state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED))
+                b = TABLET_FLAG_LEFT;
+            /* No host cursor: libretro gives a core no way to ask a frontend
+             * to draw one, so the program draws its own. */
+            tablet_host_pointer(x, y, b, false);
+        }
         else
             tablet_host_clear();
     }
 
-    if (mouse_is_mapped())
+    if (mouse)
     {
-        int dx = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
-        int dy = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
         if (dx || dy)
             mouse_host_move((float)dx, (float)dy);
-        uint8_t buttons = 0;
-        if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT))
-            buttons |= 1;
-        if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT))
-            buttons |= 2;
-        if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
-            buttons |= 4;
-        mouse_host_buttons(buttons);
+        mouse_host_buttons(offscreen ? 0 : buttons);
     }
 
     /* One scroll, both devices — the same wheel a mouse-mapped program reads
-     * is the one a tablet-mapped program reads, as on the desktop. */
+     * is the one a tablet-mapped program reads, as on the desktop. Read every
+     * frame because a frontend clears the tick on the read. */
     int dwheel = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) -
                  state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
     int dpan = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP) -
                state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN);
-    if (dwheel || dpan)
+    if ((dwheel || dpan) && !offscreen)
     {
-        if (tablet_is_mapped())
+        if (tablet)
             tablet_host_wheel(dwheel, dpan);
-        if (mouse_is_mapped())
+        if (mouse)
             mouse_host_wheel(dwheel, dpan);
     }
 }

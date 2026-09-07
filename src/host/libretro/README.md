@@ -105,9 +105,11 @@ RetroArch is where a person looks at it.
 
 A frontend binds the keyboard to its own gamepad and hotkeys — in RetroArch
 Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder
-buttons — so on a machine that is a computer the keyboard looks dead. The
-player turns that off with **Game Focus**, which is Scroll Lock by
-default, and the core says so on screen when a program loads.
+buttons, and keeps the mouse for its own cursor — so on a machine that is
+a computer both look dead. The player turns that off with **Game Focus**,
+which is Scroll Lock by default, and the core says so on screen the first
+time a program asks for the console, the keyboard, the mouse or the
+tablet. A program that wants only a gamepad is never told.
 
 Settings > Input > "Auto Enable Game Focus" set to **Detect** makes it
 automatic for cores that register a keyboard callback, which this one

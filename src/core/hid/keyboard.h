@@ -66,6 +66,9 @@ uint8_t keyboard_get_report_id(int slot);
 // Set the extended register value.
 bool keyboard_xreg(uint16_t word);
 
+// Whether a program has mapped the bitmap into XRAM.
+bool keyboard_is_mapped(void);
+
 /* What the terminal half needs back: the merged modifier byte, whether a
  * key is still held (auto-repeat asks), and the lock lamps, which live here
  * because they also ride in the bitmap the 6502 reads. */

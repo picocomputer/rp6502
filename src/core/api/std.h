@@ -30,6 +30,10 @@ void std_stop(void);
 bool std_stdin_waiting(void);
 void std_stdin_eof(void);
 
+/* Whether this program has read the console at all -- a latch, because a
+ * raw TTY: read is not outstanding between calls. */
+bool std_console_asked(void);
+
 /* The API implementation for stdio support.
  */
 

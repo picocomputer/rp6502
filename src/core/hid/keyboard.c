@@ -294,6 +294,11 @@ bool keyboard_xreg(uint16_t word)
     return true;
 }
 
+bool keyboard_is_mapped(void)
+{
+    return keyboard_xram != 0xFFFF;
+}
+
 uint8_t keyboard_get_modifier(void)
 {
     return KEYBOARD_MODIFIER(keyboard_keys);

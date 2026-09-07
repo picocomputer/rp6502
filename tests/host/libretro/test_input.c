@@ -266,10 +266,11 @@ UTEST(input, a_silent_frontend_gets_all_four)
     fe.unload_game();
 }
 
-/* The keyboard is bound to the frontend's own gamepad and hotkeys until a player
- * turns that off, so a computer's keyboard looks broken on first launch. The
- * core cannot turn it off and has no way to ask, so it says so — once, on
- * the first program of a session, not once per program. */
+/* The keyboard and mouse are the frontend's until a player turns on Game
+ * Focus, so a computer's keyboard looks broken on first launch. The core
+ * cannot turn it on and has no way to ask, so it says so — once a program
+ * asks for the console or a device Game Focus withholds, and once per
+ * session, not once per program. */
 UTEST(input, the_core_says_how_to_type_once)
 {
     /* A session of its own: the hint is per-session and earlier cases in
@@ -278,14 +279,29 @@ UTEST(input, the_core_says_how_to_type_once)
     fe_open();
 
     ASSERT_EQ(fe.message_count, 0); /* nothing before content */
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_EQ(fe.message_count, 0); /* nothing at load either */
+    fe_run(120);                    /* to the prompt, which reads the console */
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
 
     /* A second program is not a second lecture. */
     fe.unload_game();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
+    fe.unload_game();
+}
+
+/* A program that wants only a gamepad is never told about a setting it does
+ * not need. */
+UTEST(input, a_program_that_never_asks_is_never_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 0);
     fe.unload_game();
 }
 
@@ -297,7 +313,8 @@ UTEST(input, an_old_frontend_is_told_the_old_way)
     fe_open_as(2, true);
     fe.message_version = 0; /* only SET_MESSAGE */
 
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
     fe.unload_game();

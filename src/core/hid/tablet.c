@@ -297,9 +297,9 @@ static void tablet_set_host_cursor(bool on)
         tablet_state[TABLET_OFF_STATUS] &= (uint8_t)~TABLET_STATUS_HOST_CURSOR;
 }
 
-void tablet_host_pointer(int x, int y, uint8_t buttons)
+void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
 {
-    tablet_set_host_cursor(true);
+    tablet_set_host_cursor(host_cursor);
     tablet_put_contact(0, (uint8_t)(buttons | TABLET_FLAG_HOVER), x, y);
     for (int i = 1; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);

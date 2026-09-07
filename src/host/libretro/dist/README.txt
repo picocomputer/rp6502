@@ -22,16 +22,29 @@ each:
     android-arm64/rp6502_libretro.so
 
 Take the one for your machine, put it in the directory your
-frontend keeps its cores in, and put rp6502_libretro.info beside
-it in the info directory. RetroArch prints both paths under
-Settings / Directory; on Linux they are usually:
+frontend keeps its cores in, and put rp6502_libretro.info in its
+info directory. RetroArch prints both under Settings / Directory.
+Where they usually are:
 
-    ~/.config/retroarch/cores
-    ~/.config/retroarch/info
+    Windows, from the zip or the installer:
+        C:\RetroArch-Win64\cores
+        C:\RetroArch-Win64\info
+    Windows, from Steam: the same two folders inside the game's
+    install folder (Properties / Installed Files / Browse).
+    macOS:
+        ~/Library/Application Support/RetroArch/cores
+        ~/Library/Application Support/RetroArch/info
+    Linux:
+        ~/.config/retroarch/cores    (the .info file goes here too)
+    Linux, Flatpak:
+        ~/.var/app/org.libretro.RetroArch/config/retroarch/cores
 
 You can also load it without installing it at all:
 
     retroarch -L linux-x86_64/rp6502_libretro.so program.rp6502
+    retroarch.exe -L windows-x86_64\rp6502_libretro.dll program.rp6502
+    /Applications/RetroArch.app/Contents/MacOS/RetroArch \
+        -L macos-arm64/rp6502_libretro.dylib program.rp6502
 
 
 Running software
@@ -51,7 +64,9 @@ a mouse, or up to four gamepads.
 The keyboard needs one setting. RetroArch binds keys to its own
 controller and hotkeys - Enter is Start, "p" pauses - so until you
 turn that off, typing does not reach the program. Press Scroll
-Lock for Game Focus, and the whole keyboard is the computer's.
+Lock for Game Focus, and the whole keyboard is the computer's,
+and so is the mouse. The core says so on screen the first time a
+program asks for either.
 
 To have it on every time, set Settings / Input / Auto Enable Game
 Focus to "Detect". This core tells RetroArch it wants a keyboard,

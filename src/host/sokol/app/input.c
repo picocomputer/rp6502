@@ -330,7 +330,7 @@ static bool input_tablet(const sapp_event *e)
         input_set_pointer_on_canvas(inside); /* the tablet owns the cursor only on-canvas */
         uint8_t buttons = pointer_buttons(e);
         if (inside)
-            tablet_host_pointer(cx, cy, buttons);
+            tablet_host_pointer(cx, cy, buttons, true);
         else
             tablet_host_clear(); /* outside the canvas: no contact, all buttons released */
         if (mouse_is_mapped()) /* the same physical pointer also drives the mouse block */

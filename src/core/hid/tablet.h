@@ -113,8 +113,10 @@ void tablet_report(int slot, uint8_t const *report, size_t size);
  */
 
 /* A hovering absolute pointer (mouse/pen) at canvas x,y with a button bitmap
- * (TABLET_FLAG_*). Occupies contact 0 and declares a host cursor is available. */
-void tablet_host_pointer(int x, int y, uint8_t buttons);
+ * (TABLET_FLAG_*). Occupies contact 0. host_cursor is whether this host can
+ * draw a cursor for the program; a host that cannot says so and the program
+ * draws its own. */
+void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor);
 
 /* n touch contacts (tip down, no hover); the rest go inactive. No host cursor. */
 void tablet_host_touch(const tablet_point_t *pts, int n);

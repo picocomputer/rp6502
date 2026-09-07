@@ -55,6 +55,7 @@ static bool std_rln_needs_nl;
 static size_t std_rln_pos;
 static size_t std_rln_len;
 static bool std_stdin_closed;
+static bool std_asked_console;
 
 static std_fd_t *std_validate_fd(int fd)
 {
@@ -77,6 +78,7 @@ static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_
 {
     (void)desc;
     (void)err;
+    std_asked_console = true;
     *bytes_read = 0;
     if (count == 0)
         return STD_OK;
@@ -135,6 +137,7 @@ static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t 
 {
     (void)desc;
     (void)err;
+    std_asked_console = true;
     *bytes_read = (uint32_t)com_stdin_read(buf, count);
     return STD_OK;
 }
@@ -447,6 +450,11 @@ bool std_stdin_waiting(void)
     return std_rln_active;
 }
 
+bool std_console_asked(void)
+{
+    return std_asked_console;
+}
+
 void std_stdin_eof(void)
 {
     std_stdin_closed = true;
@@ -494,6 +502,7 @@ void std_stop(void)
     std_rln_pos = 0;
     std_rln_len = 0;
     std_stdin_closed = false;
+    std_asked_console = false;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
     {
         if (!std_fd_pool[i].is_open)
