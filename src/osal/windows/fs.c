@@ -3,31 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Files on a Win32 filesystem, as osal/fs.h asks for them.
+ * Two transports, chosen at build time the way osal/posix chooses between
+ * fs_aio.c and fs_sync.c. Both live in this one file, because
+ * FILE_FLAG_OVERLAPPED belongs to the handle rather than to the transfer.
+ * Overlapped is the default: the transfer is started, the dispatcher is told
+ * STD_PENDING, and a later dispatch reaps it. RP6502_FS_SYNC completes the
+ * transfer before it answers.
  *
- * Two transports, chosen at build time as osal/posix chooses between fs_aio.c
- * and fs_sync.c -- in one file rather than two, because the overlapped flag
- * belongs to the handle and not to the transfer. Overlapped is the default:
- * the transfer is started, the dispatcher is told STD_PENDING, and a later
- * dispatch reaps it. RP6502_FS_SYNC completes it before it answers.
+ * The choice is visible to the 6502, because a read that completes in a
+ * different number of frames diverges the machine at the point a savestate was
+ * loaded. A blob is therefore portable only between builds that took the same
+ * transport. The libretro core takes the sync arm so that the frames a read
+ * costs are its machine's own rather than the kernel's.
  *
- * The choice is 6502-visible. A read that completes in a different number of
- * frames diverges the machine at the load point, so a savestate blob is
- * portable only between roots that took the same transport. The libretro core
- * takes the sync arm to make the frames a read costs its machine's own rather
- * than the kernel's.
- *
- * Neither arm reads the handle's file pointer: an overlapped handle has none,
- * and the sync arm transfers at an explicit offset. So a descriptor is an
- * index into a table that carries the offset. Under overlapped one transfer
- * is in flight at a time (the dispatcher is single-op, and re-dispatches
- * until it retires) and fs_std_close and fs_std_settle reap it before the
- * handle or the memory goes away. Under sync there is never one to reap.
- *
- * Paths cross in the guest's OEM code page and are otherwise Win32's own;
- * path_to_wide() (osal/windows/dir.h) changes the code page before every ...W
- * call. Failures are reported with osal/windows/errmap.h, straight from
- * GetLastError.
+ * Neither arm reads the handle's file pointer, because an overlapped handle
+ * has none and the sync arm transfers at an explicit offset, so a descriptor
+ * is an index into a table that carries the offset itself.
  */
 
 #include "osal/fs.h"
@@ -55,11 +46,8 @@
 #define WIN_OPEN_FLAGS (FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED)
 #endif
 
-/* Neither transport keeps its place in the handle, so a descriptor is an
- * index into this table and the offset is ours to track. 16 open files + 16
- * ROM windows = 32 concurrent; 64 leaves headroom for tests. One more beyond
- * the table is the ROM loader's alone -- fs_std_open never counts that high,
- * so a program can neither name it nor be handed it. */
+/* One row past the table is the ROM loader's alone. fs_std_open never counts
+ * that high, so a program can neither name that descriptor nor be handed it. */
 #define WIN_MAX_FILES 64
 #define WIN_FILE_ROM WIN_MAX_FILES
 static struct win_file
@@ -68,11 +56,10 @@ static struct win_file
     bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
-    /* What a savestate needs to find this file again in another session: the
-     * path made absolute after the open succeeded, so a create resolves too
-     * and a later chdir cannot move it, and the access it was opened with.
-     * No pool of its own as POSIX needs -- a descriptor here is an index into
-     * this table, so the record can live in the row it describes. */
+    /* What a savestate needs to find this file again in a later session. The
+     * path is made absolute so a later chdir cannot move it. GetFullPathNameW
+     * is lexical and never touches the filesystem, so it resolves a name that
+     * does not exist yet. */
     uint8_t flags;
     char path[API_PATH_MAX + 1];
 } win_files[WIN_MAX_FILES + 1];
@@ -85,10 +72,9 @@ static struct win_file *win_fil(int fd)
 }
 
 #ifndef RP6502_FS_SYNC
-/* The single in-flight transfer (guest dispatcher is single-op, so only one exists at a
- * time). fd < 0 = idle; g_xfer_event is its manual-reset completion event. A reader from
- * outside that dispatch -- the dropped-file screen, which runs with a program still
- * going -- is refused, not served this transfer. */
+/* The one transfer that can be in flight, because the guest dispatcher runs a
+ * single operation at a time. fd below zero means idle, and g_xfer_event is the
+ * manual-reset event the transfer completes on. */
 static struct
 {
     OVERLAPPED ov;
@@ -97,12 +83,12 @@ static struct
 static HANDLE g_xfer_event;
 #endif
 
-/* ---- The std driver ------------------------------------------------------ */
-
 bool fs_std_handles(const char *path)
 {
     (void)path;
-    return true; /* catch-all, registered last */
+    /* FS_STD_DRIVER comes last in every RP6502_STD_DRIVERS, so this catch-all
+     * sees only what the drivers before it declined. */
+    return true;
 }
 
 static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
@@ -127,8 +113,10 @@ static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
 
     HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            NULL, disp, WIN_OPEN_FLAGS, NULL);
+    /* win_last_error_to_api runs before the free, because free can change
+     * GetLastError. */
     if (h == INVALID_HANDLE_VALUE)
-        *err = win_last_error_to_api(); /* before the free, which may clobber it */
+        *err = win_last_error_to_api();
     free(w);
     return h;
 }
@@ -156,7 +144,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     if (strlen(keep) <= API_PATH_MAX)
         strcpy(win_files[fd].path, keep);
     free(abs);
-    if (flags & FS_APPEND) /* a one-time seek to the end, after any TRUNC */
+    if (flags & FS_APPEND) /* a one-time seek to the end, after any truncation */
     {
         LARGE_INTEGER sz;
         if (!GetFileSizeEx(h, &sz))
@@ -171,8 +159,6 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return fd;
 }
 
-/* The position is this table's rather than the handle's: neither transport
- * reads the handle's own file pointer, so f->pos is the only one there is. */
 bool fs_std_ident(int desc, sst_cursor_t *c)
 {
     struct win_file *f = win_fil(desc);
@@ -195,9 +181,9 @@ int fs_std_reopen(sst_cursor_t *c, api_errno *err)
         *err = API_EINVAL;
         return -1;
     }
-    /* The access bits only. CREAT, EXCL, TRUNC and APPEND are one-time acts
-     * the opening program already had, and re-firing one would make or empty
-     * the very file this is trying to find again. */
+    /* The access bits only. CREAT, EXCL, TRUNC and APPEND happened once, when
+     * the program opened the file, and repeating one here would create or
+     * empty the very file this is trying to find again. */
     int fd = fs_std_open(path, flags & (FS_RD | FS_WR), err);
     if (fd < 0)
         return -1;
@@ -223,7 +209,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 bool fs_rom_remove(const char *name, api_errno *err)
 {
     (void)name;
-    *err = API_EACCES; /* installs are references; there is nothing to delete */
+    *err = API_EACCES;
     return false;
 }
 
@@ -235,8 +221,9 @@ void fs_std_settle(void)
     struct win_file *f = win_fil(g_xfer.fd);
     if (f)
     {
-        /* The reap fs_std_close does, without the close and without the
-         * f->pos advance a completed transfer would make. */
+        /* fs_std_settle reaps the transfer as fs_std_close does, but leaves
+         * the handle open and does not advance f->pos, so the next dispatch
+         * re-issues from where core's own position is. */
         DWORD bytes;
         CancelIoEx(f->h, &g_xfer.ov);
         GetOverlappedResult(f->h, &g_xfer.ov, &bytes, TRUE);
@@ -255,7 +242,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
         return STD_ERROR;
     }
 #ifndef RP6502_FS_SYNC
-    if (g_xfer.fd == fd) /* reap the in-flight transfer before the handle goes away */
+    if (g_xfer.fd == fd) /* reap the transfer before its handle goes away */
     {
         DWORD bytes;
         CancelIoEx(f->h, &g_xfer.ov);
@@ -284,8 +271,8 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
         return STD_ERROR;
     }
 #ifdef RP6502_FS_SYNC
-    /* A synchronous handle given an OVERLAPPED transfers at that offset and
-     * does not return until it is done. */
+    /* A handle opened without FILE_FLAG_OVERLAPPED still takes an OVERLAPPED:
+     * it transfers at that offset and does not return until it is done. */
     OVERLAPPED ov;
     memset(&ov, 0, sizeof ov);
     ov.Offset = (DWORD)((uint64_t)f->pos & 0xFFFFFFFFu);
@@ -296,19 +283,20 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
     if (!ok)
     {
         DWORD e = GetLastError();
-        if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
+        if (e == ERROR_HANDLE_EOF) /* a read starting at or past the end */
             return STD_OK;
         *err = win_error_to_api(e);
         return STD_ERROR;
     }
-    f->pos += bytes; /* the kernel moved its own pointer, not the one we keep */
+    f->pos += bytes;
     *got = (uint32_t)bytes;
     return STD_OK;
 #else
     if (g_xfer.fd >= 0 && g_xfer.fd != fd)
     {
-        /* The slot holds someone else's transfer. Reaping it here would hand
-         * this caller that one's byte count and leave its buffer unwritten. */
+        /* The slot holds another descriptor's transfer, and reaping it here
+         * would hand this caller that transfer's byte count while leaving this
+         * caller's buffer unwritten. */
         *err = API_EBUSY;
         return STD_ERROR;
     }
@@ -329,7 +317,7 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
         if (!ok)
         {
             DWORD e = GetLastError();
-            if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
+            if (e == ERROR_HANDLE_EOF) /* a read starting at or past the end */
                 return STD_OK;
             if (e != ERROR_IO_PENDING)
             {
@@ -337,7 +325,9 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
                 return STD_ERROR;
             }
         }
-        g_xfer.fd = fd; /* completed synchronously or queued: reap on the next dispatch */
+        /* Whether it completed at once or queued, the event is what says so,
+         * so both are reaped by the next dispatch. */
+        g_xfer.fd = fd;
         return STD_PENDING;
     }
     DWORD bytes = 0;
@@ -347,13 +337,13 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
         if (e == ERROR_IO_INCOMPLETE)
             return STD_PENDING;
         g_xfer.fd = -1;
-        if (e == ERROR_HANDLE_EOF) /* completed at EOF: 0 bytes */
+        if (e == ERROR_HANDLE_EOF) /* it completed at the end of the file */
             return STD_OK;
         *err = win_error_to_api(e);
         return STD_ERROR;
     }
     g_xfer.fd = -1;
-    f->pos += bytes; /* the overlapped handle didn't move; advance our tracked offset */
+    f->pos += bytes;
     *got = (uint32_t)bytes;
     return STD_OK;
 #endif
@@ -380,9 +370,8 @@ static int64_t win_size_of(struct win_file *f, api_errno *err)
     return (int64_t)sz.QuadPart;
 }
 
-/* The position is ours to keep rather than the handle's -- but the file's
- * length is still the kernel's, and extending it is a real call that can fail
- * on a full volume. */
+/* The position is this table's, but the length is still the filesystem's, so
+ * extending a file is a call that can fail on a full volume. */
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct win_file *f = win_fil(desc);
@@ -407,9 +396,9 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = API_EINVAL;
         return -1;
     }
-    /* The position comes back as a signed 32-bit value (0xFFFFFFFF is the
-     * error sentinel), so a target past 2GB-1 is refused before the pointer
-     * moves rather than landing somewhere unreportable. */
+    /* The API reports the position as a signed 32-bit value, so a target past
+     * 0x7FFFFFFF is refused before anything moves rather than landing where it
+     * cannot be reported. */
     int64_t target = base + off;
     if (target < 0)
     {
@@ -427,14 +416,14 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
     if (target > size)
     {
         if (!f->writable)
-            target = size; /* read-only: stop at the end */
+            target = size;
         else
         {
             FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = (LONGLONG)target}};
             if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
             {
                 *err = win_last_error_to_api();
-                return -1; /* no room: the pointer has not moved */
+                return -1; /* the position has not moved */
             }
         }
     }
@@ -451,9 +440,8 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    /* Nothing was written, so there is nothing to push to the medium -- and
-     * FlushFileBuffers refuses a handle that has no write access at all,
-     * which is what a read-only descriptor is. */
+    /* Nothing was written, and FlushFileBuffers refuses a handle that has no
+     * write access. */
     if (!f->writable)
         return STD_OK;
     if (!FlushFileBuffers(f->h))

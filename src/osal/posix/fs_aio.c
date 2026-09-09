@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The read/write/close slots of the POSIX file driver, done asynchronously: a
- * transfer is started, the dispatcher is told STD_PENDING, and the same call
- * reaps it on a later scanline. fs_sync.c answers the same three slots the
- * other way, and a machine names the one it wants.
+ * The read, write, close and settle of the POSIX file driver, done
+ * asynchronously: a transfer is started, the caller is answered STD_PENDING,
+ * and the same call reaps it on a later scanline. fs_sync.c answers those four
+ * synchronously, leaving settle nothing to do, and posix.cmake takes the one a
+ * machine names.
  */
 
 #include "osal/fs.h"
@@ -16,10 +17,12 @@
 #include <string.h>
 #include <unistd.h>
 
-/* The single in-flight transfer. fd < 0 means idle; only one exists at a time because
- * the guest syscall dispatcher is single-op (the same read/write is re-dispatched until
- * it completes). A reader from outside that dispatch -- the dropped-file screen, which
- * runs with a program still going -- is refused, not served this transfer. */
+/* The one transfer that can be in flight, fd < 0 meaning idle. Only one is
+ * needed because the 6502 syscall dispatcher runs a single operation at a
+ * time, re-dispatching the same read or write until it completes. A reader
+ * from outside that dispatch, such as rom/pump.c's pump_read or rom/asset.c's
+ * asset_read loading a ROM while a program is still going, is refused rather
+ * than served this transfer. */
 static struct
 {
     struct aiocb cb;
@@ -31,14 +34,14 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
     *got = 0;
     if (g_xfer.fd >= 0 && g_xfer.fd != fd)
     {
-        /* The slot holds someone else's transfer. Reaping it here would hand
-         * this caller that one's byte count and leave its buffer unwritten. */
+        /* Reaping another descriptor's transfer here would hand this caller
+         * that one's byte count and leave this buffer unwritten. */
         errno = EBUSY;
         return STD_ERROR;
     }
     if (g_xfer.fd < 0)
     {
-        off_t off = lseek(fd, 0, SEEK_CUR); /* aio positions explicitly; snapshot here */
+        off_t off = lseek(fd, 0, SEEK_CUR); /* aio takes an explicit offset, so read it now */
         if (off < 0)
             return STD_ERROR;
         memset(&g_xfer.cb, 0, sizeof g_xfer.cb);
@@ -59,11 +62,11 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
     g_xfer.fd = -1;
     if (r < 0)
     {
-        errno = e; /* the async failure, not aio_return's own errno write */
+        errno = e; /* the transfer's failure, not whatever aio_return set */
         return STD_ERROR;
     }
     if (r > 0)
-        lseek(fd, g_xfer.cb.aio_offset + r, SEEK_SET); /* aio left the offset; advance it */
+        lseek(fd, g_xfer.cb.aio_offset + r, SEEK_SET); /* aio worked from a copy of the offset */
     *got = (uint32_t)r;
     return STD_OK;
 }
@@ -88,8 +91,6 @@ void fs_std_settle(void)
 {
     if (g_xfer.fd < 0)
         return;
-    /* The reap fs_std_close does, without the close and without the lseek
-     * that advances the offset on a completed read. */
     const struct aiocb *cb = &g_xfer.cb;
     aio_cancel(g_xfer.fd, &g_xfer.cb);
     while (aio_error(&g_xfer.cb) == EINPROGRESS)
@@ -101,7 +102,7 @@ void fs_std_settle(void)
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     int fd = desc;
-    if (g_xfer.fd == fd) /* reap the in-flight transfer before the fd goes away */
+    if (g_xfer.fd == fd) /* reap the transfer before the descriptor goes away */
     {
         const struct aiocb *cb = &g_xfer.cb;
         aio_cancel(fd, &g_xfer.cb);

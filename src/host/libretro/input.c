@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * What the frontend's devices mean to the machine's.
- *
- * The frontend owns the hardware here, so nothing in this file opens a
- * device: the keyboard arrives as events and everything else is read once a
- * frame from the callback the frontend gave us. That is why there is no
- * gamepad_input.c in this host — its whole job is deciding when it is polite to
- * open a controller, and a frontend has already decided.
  */
 
 #include "input.h"
@@ -24,13 +16,8 @@
 
 #include "libretro.h"
 
-/* ------------------------------------------------------------------ */
-/* Keyboard                                                            */
-/* ------------------------------------------------------------------ */
-
-/* A RETROK code as a USB HID keyboard usage id, for the xreg keyboard bitmap.
- * 0 = unmapped (not reported). RETROK is ASCII for the printable keys, which
- * is most of this table's shortness. */
+/* A RETROK code as a USB HID keyboard usage id, or 0 for a key this machine
+ * does not report. */
 static uint8_t retrok_to_hid(unsigned k)
 {
     if (k >= RETROK_a && k <= RETROK_z)
@@ -58,14 +45,14 @@ static uint8_t retrok_to_hid(unsigned k)
     case RETROK_NUMLOCK: return 0x53;
     case RETROK_PRINT: return 0x46;
     case RETROK_PAUSE: return 0x48;
-    case RETROK_BREAK: return 0x48; /* one key, printed with two words */
+    case RETROK_BREAK: return 0x48; /* Pause and Break are the same key */
     case RETROK_MENU: return 0x65;
     case RETROK_LCTRL: return 0xE0;
     case RETROK_LSHIFT: return 0xE1;
     case RETROK_LALT: return 0xE2;
     case RETROK_LSUPER: return 0xE3;
-    /* META and SUPER are the same physical key under two names, and a
-     * frontend may report either. Note the enum lists RMETA before LMETA. */
+    /* META and SUPER are two names for the same physical key, and a frontend
+     * may report either. */
     case RETROK_LMETA: return 0xE3;
     case RETROK_RCTRL: return 0xE4;
     case RETROK_RSHIFT: return 0xE5;
@@ -106,9 +93,10 @@ static uint8_t retrok_to_hid(unsigned k)
     }
 }
 
-/* US-ASCII of a printable RETROK honoring shift, else 0. A frontend that sends
- * no character (several do not) still gets chords and Meta this way — a
- * US-layout approximation, not an OEM-codepage match. */
+/* US-ASCII of a printable RETROK honoring shift, else 0. Several frontends
+ * send no composed character at all, and this is what still gets those a
+ * character and a chord. It approximates a US layout rather than matching the
+ * machine's OEM code page. */
 static char ascii_from_key(unsigned k, bool shift)
 {
     if (k >= RETROK_a && k <= RETROK_z)
@@ -118,8 +106,10 @@ static char ascii_from_key(unsigned k, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[k - RETROK_0] : (char)('0' + (k - RETROK_0));
     }
-    /* The keypad prints its digit when NumLock is on, and a frontend that
-     * sends no character still has to be able to type one. */
+    /* NumLock is the caller's business: with it off the caller swaps a keypad
+     * usage for its navigation usage, which vtkeys_key then consumes. KEYPAD_5
+     * has no navigation key, so it arrives here and types its digit either
+     * way. */
     if (k >= RETROK_KP0 && k <= RETROK_KP9)
         return (char)('0' + (k - RETROK_KP0));
     switch (k)
@@ -142,8 +132,7 @@ static char ascii_from_key(unsigned k, bool shift)
     case RETROK_COMMA: return shift ? '<' : ',';
     case RETROK_PERIOD: return shift ? '>' : '.';
     case RETROK_SLASH: return shift ? '?' : '/';
-    /* Some frontends report the symbol rather than the key that made it.
-     * Without these such a key produced neither a character nor a chord. */
+    /* Some frontends report the symbol rather than the key that made it. */
     case RETROK_EXCLAIM: return '!';
     case RETROK_QUOTEDBL: return '"';
     case RETROK_HASH: return '#';
@@ -177,9 +166,10 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     bool shift = (key_modifiers & RETROKMOD_SHIFT) != 0;
     bool alt = (key_modifiers & RETROKMOD_ALT) != 0;
 
-    /* The locks are the frontend's to know: it sends all three in every
-     * event. Toggling them here instead would start from a guess (NumLock on)
-     * and drift the moment one is pressed while the core is not focused. */
+    /* The frontend sends all three lock states in every event, so they are
+     * taken from it rather than toggled here. Toggling would have to start
+     * from a guess and would then drift whenever a lock key is pressed while
+     * the core does not have focus. */
     keyboard_set_locks(
         (uint8_t)(((key_modifiers & RETROKMOD_NUMLOCK) ? KEYBOARD_LED_NUMLOCK : 0) |
                   ((key_modifiers & RETROKMOD_CAPSLOCK) ? KEYBOARD_LED_CAPSLOCK : 0) |
@@ -188,12 +178,12 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     {
     case RETROK_NUMLOCK:
     case RETROK_CAPSLOCK:
-    case RETROK_SCROLLOCK: return; /* the modifier bits above carried it */
+    case RETROK_SCROLLOCK: return;
     default: break;
     }
 
     /* A numpad key with NumLock off is the navigation key printed under the
-     * digit; unlike sokol, a frontend tells us which it is. */
+     * digit. */
     if (!(key_modifiers & RETROKMOD_NUMLOCK))
     {
         uint8_t nav = keyboard_keypad_nav(hid);
@@ -204,8 +194,8 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
         return;
 
     /* Ctrl+<key> is a C0 byte and Alt+<key> is ESC then the byte, so neither
-     * is the character the frontend composed; both are built from the keycode
-     * the way the firmware promotes them. */
+     * is the character the frontend composed. Both are built from the keycode
+     * instead. */
     if (ctrl && !alt)
     {
         vtkeys_ctrl_letter(ascii_from_key(keycode, shift));
@@ -217,9 +207,8 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
         return;
     }
 
-    /* Plain typing. The frontend already applied the layout, so its character
-     * is better than anything reconstructed from a keycode — but a frontend
-     * that sends none still types, from the US-layout approximation. */
+    /* The frontend has already applied the keyboard layout, so its character
+     * is better than anything reconstructed from a keycode. */
     if (character >= 32 && character != 127)
         vtkeys_char(character);
     else
@@ -230,38 +219,31 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Gamepads                                                            */
-/* ------------------------------------------------------------------ */
-
-/* RETRO_DEVICE_NONE until the frontend says otherwise, and a joypad is what
- * the frontend means by nothing said (retro_set_controller_port_device is not
- * guaranteed to be called for a port that is simply plugged in). */
+/* Every port starts as a joypad, because a frontend is not required to call
+ * retro_set_controller_port_device for a port that is simply plugged in. */
 static unsigned port_device[GAMEPAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD,
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
 static bool port_live[GAMEPAD_PLAYERS];
 static bool have_bitmasks;
-static bool mouse_owns_pointer; /* the mouse holds the tablet; see poll_pointer */
+static bool mouse_owns_pointer;
 
-/* How many players the frontend actually has. The machine has four ports
- * and a frontend offers four whether or not anyone is holding anything, so
- * connecting all of them would show four players to a program counting
- * them. GET_INPUT_MAX_USERS is the frontend saying how many are real; a
- * frontend that will not answer gets all four, which is where this
- * started. */
+/* How many players the frontend actually has. It offers four ports whether or
+ * not anyone is holding a controller, so connecting all four would show four
+ * players to a program that counts them. GET_INPUT_MAX_USERS is the frontend
+ * saying how many are real; a frontend that will not answer, or answers zero,
+ * gets all four. */
 static int max_users = GAMEPAD_PLAYERS;
 static retro_environment_t input_environ;
 
 void input_init(retro_environment_t environ_cb)
 {
     input_environ = environ_cb;
-    /* One call per gamepad instead of sixteen, where the frontend offers it. */
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
 }
 
-/* Asked every frame rather than once: the count "may change between frames"
- * (libretro.h), which is a controller being plugged in while a program runs. */
+/* Asked every frame rather than once, because libretro.h says the count may
+ * change between frames: someone plugs a controller in while a program runs. */
 static void refresh_max_users(void)
 {
     unsigned n = 0;
@@ -304,7 +286,7 @@ void input_set_port_device(unsigned port, unsigned device)
     }
 }
 
-/* A face/shoulder button, taking the analog reading where the frontend has
+/* A face or shoulder button, taking the analog reading where the frontend has
  * one. A frontend without analog buttons answers 0 to the analog query, which
  * is also what a released button reads, so the digital query settles it. */
 static uint16_t button_value(retro_input_state_t state, unsigned port, unsigned id,
@@ -325,9 +307,6 @@ static void poll_gamepads(retro_input_state_t state)
     {
         if (port_device[p] == RETRO_DEVICE_NONE || p >= max_users)
         {
-            /* A player the frontend does not have is one the machine does
-             * not have either, and saying so once is what keeps a program
-             * from waiting on someone who is not there. */
             if (port_live[p])
             {
                 gamepad_connect(p, false, GAMEPAD_TYPE_UNKNOWN, false);
@@ -346,8 +325,8 @@ static void poll_gamepads(retro_input_state_t state)
             {RETRO_DEVICE_ID_JOYPAD_DOWN, GAMEPAD_BTN_DPAD_DOWN},
             {RETRO_DEVICE_ID_JOYPAD_LEFT, GAMEPAD_BTN_DPAD_LEFT},
             {RETRO_DEVICE_ID_JOYPAD_RIGHT, GAMEPAD_BTN_DPAD_RIGHT},
-            /* Positional, not by name: the RetroPad's B is its south button
-             * and this machine's A is too. */
+            /* Mapped by position, not by name: the RetroPad's B is its south
+             * button and this machine's A is too. */
             {RETRO_DEVICE_ID_JOYPAD_B, GAMEPAD_BTN_A},
             {RETRO_DEVICE_ID_JOYPAD_A, GAMEPAD_BTN_B},
             {RETRO_DEVICE_ID_JOYPAD_Y, GAMEPAD_BTN_X},
@@ -375,7 +354,9 @@ static void poll_gamepads(retro_input_state_t state)
         gamepad_button_apply(GAMEPAD_BTN_L2, lt != 0, &dpad, &b0, &b1);
         gamepad_button_apply(GAMEPAD_BTN_R2, rt != 0, &dpad, &b0, &b1);
 
-        /* The block's units: sticks signed 8-bit, triggers unsigned 8-bit. */
+        /* A stick axis arrives as an int16 and a trigger as 0 to 0x7FFF, so
+         * the shifts here and below bring them to the signed and unsigned
+         * bytes gamepad_host_report takes. */
         int lx = state((unsigned)p, RETRO_DEVICE_ANALOG,
                         RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) >> 8;
         int ly = state((unsigned)p, RETRO_DEVICE_ANALOG,
@@ -385,32 +366,30 @@ static void poll_gamepads(retro_input_state_t state)
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
                         RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
-        /* A RetroPad is a western-layout gamepad with two sticks — that is the
-         * abstraction, whatever hardware is behind it. Claiming the sticks
-         * only for RETRO_DEVICE_ANALOG would deny them to most players,
-         * because a frontend reports a plain joypad for an analog controller
-         * unless someone goes and changes it. */
+        /* A RetroPad is a western-layout gamepad with two sticks whatever
+         * hardware is behind it. Claiming the sticks only for
+         * RETRO_DEVICE_ANALOG would deny them to most players, because a
+         * frontend reports a plain joypad for an analog controller unless
+         * someone goes and changes it. */
         gamepad_connect(p, true, GAMEPAD_TYPE_WESTERN, true);
         port_live[p] = true;
         gamepad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Pointer and mouse                                                   */
-/* ------------------------------------------------------------------ */
-
-/* [-0x7FFF, 0x7FFF] spans the frame we last handed over, whatever the
- * frontend then did with it on screen. */
+/* A frontend reports pointer positions over [-0x7FFF, 0x7FFF], spanning the
+ * frame this core last handed over, whatever the frontend then did with that
+ * frame on screen. A lightgun runs to -0x8000 as well, which poll_lightgun
+ * rejects before calling this. */
 static int16_t canvas_coord(int p, int extent)
 {
     return (int16_t)(((p + 0x7FFF) * (extent - 1)) / 0xFFFE);
 }
 
 /* A lightgun is an absolute pointer that hovers: screen coordinates plus a
- * trigger and two auxiliary buttons. Its range is [-0x8000, 0x7fff] and
- * -0x8000 means out of bounds — unlike the pointer, which has no such
- * sentinel — so an off-screen gun is no contact rather than a bogus pixel. */
+ * trigger and two auxiliary buttons. Its range runs to -0x8000, which
+ * libretro.h defines as out of bounds and the pointer has no equivalent of,
+ * so an off-screen gun reports no contact rather than a bogus pixel. */
 static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h)
 {
     int gx = state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X);
@@ -431,8 +410,8 @@ static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h
     tablet_host_pointer(canvas_coord(gx, w), canvas_coord(gy, h), buttons, false);
 }
 
-/* Whether a lightgun is plugged into any port. A gun is an absolute pointer
- * with its own buttons, so it drives the tablet in place of the mouse. */
+/* A gun is an absolute pointer with its own buttons, so it drives the tablet
+ * in place of the mouse. */
 static int lightgun_port(void)
 {
     for (int p = 0; p < GAMEPAD_PLAYERS; p++)
@@ -441,21 +420,19 @@ static int lightgun_port(void)
     return -1;
 }
 
-/* Both devices are read only once a program has asked for the block, which is
- * the same courtesy the desktop hosts extend: a ROM that wants neither is not
- * a reason to watch where anyone is pointing.
+/* Neither device is read until a program has mapped it into XRAM, so a ROM
+ * that wants neither is never a reason to watch where anyone is pointing.
  *
  * Touch and the mouse take turns at the tablet. The mouse drives it while
- * nothing is being touched; a real touch takes it away and keeps it until
- * the touches end and the mouse moves again, so a finger never fights a
- * cursor parked somewhere else. mouse_owns_pointer is which of them holds
- * it, and it starts false so an untouched screen with no mouse yet reports
- * no contact rather than a ghost at whatever the pointer last read.
+ * nothing is being touched; a touch takes it away and keeps it until the
+ * touches end and the mouse moves again, so a finger never fights a cursor
+ * parked somewhere else. mouse_owns_pointer says which of them holds it, and
+ * it starts false so an untouched screen with no mouse yet reports no contact
+ * rather than a ghost wherever the pointer last read.
  *
- * A press arriving while a mouse button is held is not a touch: x11 and udev
- * manufacture contacts at indices 1 and 2 out of the right and middle
- * buttons, and honouring those would turn a right-click into a tip-down
- * finger. */
+ * A contact reported while any mouse button is held is not a touch: libretro.h
+ * says a frontend usually reports a held left button as a pointer contact, and
+ * honouring that would turn a click into a finger going down. */
 static void poll_pointer(retro_input_state_t state)
 {
     bool tablet = tablet_is_mapped();
@@ -465,7 +442,7 @@ static void poll_pointer(retro_input_state_t state)
 
     int dx = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
     int dy = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
-    uint8_t buttons = 0; /* HID's order, which both blocks carry */
+    uint8_t buttons = 0;
     if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT))
         buttons |= TABLET_FLAG_LEFT;
     if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT))
@@ -479,7 +456,7 @@ static void poll_pointer(retro_input_state_t state)
 
     /* Off the game image the cursor is over the rest of the frontend, and
      * nothing there is a press on the machine. A frontend that cannot tell
-     * answers 0, which is on. */
+     * answers 0, which reads as on-screen. */
     bool offscreen = state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN);
 
     if (tablet)
@@ -493,7 +470,7 @@ static void poll_pointer(retro_input_state_t state)
         {
             tablet_point_t pts[TABLET_MAX_CONTACTS];
             int n = 0;
-            if (!buttons) /* no mouse button: nothing here is faking a finger */
+            if (!buttons)
                 for (int i = 0; i < TABLET_MAX_CONTACTS; i++)
                 {
                     if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
@@ -504,19 +481,19 @@ static void poll_pointer(retro_input_state_t state)
                 }
             if (n)
             {
-                mouse_owns_pointer = false; /* a finger takes it */
+                mouse_owns_pointer = false;
                 tablet_host_touch(pts, n);
             }
             else
             {
                 if (dx || dy)
-                    mouse_owns_pointer = true; /* and moving hands it back */
+                    mouse_owns_pointer = true;
                 if (mouse_owns_pointer && !offscreen)
                 {
                     int x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
                     int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
-                    /* No host cursor: libretro gives a core no way to ask a
-                     * frontend to draw one, so the program draws its own. */
+                    /* libretro gives a core no way to ask the frontend to
+                     * draw a cursor, so the program draws its own. */
                     tablet_host_pointer(x, y, buttons, false);
                 }
                 else
@@ -532,9 +509,8 @@ static void poll_pointer(retro_input_state_t state)
         mouse_host_buttons(offscreen ? 0 : buttons);
     }
 
-    /* One scroll, both devices — the same wheel a mouse-mapped program reads
-     * is the one a tablet-mapped program reads, as on the desktop. Read every
-     * frame because a frontend clears the tick on the read. */
+    /* The wheel is read every frame because a frontend clears the tick when
+     * the core reads it. */
     int dwheel = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) -
                  state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
     int dpan = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP) -

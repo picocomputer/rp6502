@@ -17,7 +17,7 @@
 #include <wchar.h>
 #include <windows.h>
 
-/* The flag is the same on every SDK; only the newer ones spell it. */
+/* The value is the same on every SDK; only the newer ones declare it. */
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
@@ -35,11 +35,12 @@ uint32_t os_random(void)
     return (uint32_t)(s ^ (s >> 32));
 }
 
-/* Integer throughout: a double holds whole nanoseconds exactly only to 2^53,
- * which is about 104 days of uptime, after which it quantizes. Split the
- * counter into whole seconds and a remainder so the multiply cannot overflow
- * -- ticks * 1e9 would at ~18 seconds on a 10 MHz timer. The frequency is
- * fixed after boot, so it is asked for once. */
+/* Integer throughout, because a double holds whole nanoseconds exactly only to
+ * 2^53, which is about 104 days of uptime. The counter is split into whole
+ * seconds and a remainder so the multiply cannot overflow: a plain
+ * t * 1000000000 passes 2^64 after about half an hour on the 10 MHz counter
+ * Windows usually reports. The frequency is fixed after boot, so it is read
+ * once. */
 uint64_t os_mono_ns(void)
 {
     static LARGE_INTEGER f;
@@ -52,9 +53,10 @@ uint64_t os_mono_ns(void)
     return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
 }
 
-/* A high-resolution waitable timer wakes on time; Sleep rounds to the
- * scheduler's tick. Windows before 1803 refuses the flag, and there the
- * wake is late by up to a tick, which the caller's debt absorbs. */
+/* A high-resolution waitable timer wakes on time, where Sleep rounds up to the
+ * scheduler's tick. Windows before 1803 refuses the flag and falls back to
+ * Sleep, so a wake there can be a tick late; the caller measures when it woke
+ * and carries the difference forward. */
 void os_sleep_ns(uint64_t ns)
 {
     static HANDLE timer;
@@ -87,7 +89,9 @@ bool os_gmtime(time_t t, struct tm *out)
     return gmtime_s(out, &t) == 0;
 }
 
-void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
+/* Nothing to load. No setlocale call anywhere moves the CRT out of the C
+ * locale, so the strftime below answers in it. */
+void os_locale_reset(void) {}
 
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
@@ -96,7 +100,7 @@ size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm
 
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
-    (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
+    (void)tm, (void)probe; /* the CRT's struct tm has no tm_gmtoff or tm_zone */
 }
 
 char *os_config_dir(void)
@@ -104,7 +108,6 @@ char *os_config_dir(void)
     const char *base = getenv("APPDATA");
     if (!base || !base[0])
         return NULL;
-    /* An environment variable is as long as the environment made it. */
     static const char tail[] = "\\rp6502-emu";
     char *dir = malloc(strlen(base) + sizeof tail);
     if (dir)
@@ -112,11 +115,9 @@ char *os_config_dir(void)
     return dir;
 }
 
-/* GUI-subsystem processes don't inherit an interactive console's stdio. */
-
 void os_ensure_parent_dir(const char *filepath)
 {
-    char *tmp = strdup(filepath); /* walked in place, so it is ours */
+    char *tmp = strdup(filepath);
     if (!tmp)
         return;
     char *s1 = strrchr(tmp, '/');
@@ -140,10 +141,10 @@ void os_ensure_parent_dir(const char *filepath)
     free(tmp);
 }
 
-/* The ANSI main()'s argv is in the process ACP, not UTF-8. */
+/* An ANSI main()'s argv is in the process ANSI code page, not UTF-8. */
 bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
-    int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0); /* asks its own size */
+    int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0);
     wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;
     if (!w || !MultiByteToWideChar(CP_ACP, 0, arg, -1, w, n))
     {

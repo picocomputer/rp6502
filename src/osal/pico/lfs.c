@@ -10,7 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-// 1MB LFS volume on the tail of flash
+// 256 sectors of 4KB is a 1MB volume, placed at the end of flash.
 #define LFS_DISK_BLOCKS 256
 
 static_assert(!(LFS_DISK_BLOCKS % 8));
@@ -78,15 +78,13 @@ static const struct lfs_config cfg = {
 
 void __in_flash("lfs_init") lfs_init(void)
 {
-    // Check we're not overlapping the LFS region in flash
     extern char __flash_binary_end;
     (void)__flash_binary_end;
     assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE));
-    // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);
     if (err)
     {
-        // Maybe first boot. Attempt format.
+        // A first boot has nothing to mount, so format and try again.
         err = lfs_format(&lfs_volume, &cfg);
         if (!err)
             err = lfs_mount(&lfs_volume, &cfg);
@@ -103,7 +101,6 @@ int lfs_eof(lfs_t *lfs, lfs_file_t *file)
     return pos >= size;
 }
 
-// Returns number of characters written or a lfs_error.
 int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...)
 {
     char buf[LFS_PRINTF_MAX];

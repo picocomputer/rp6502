@@ -2,7 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
 
 #include "osal/os.h"
@@ -47,8 +46,9 @@ size_t strftime_l(char *restrict, size_t, const char *restrict,
                   const struct tm *restrict, locale_t);
 #endif
 
-/* Host locale used only for strftime, so the rest of the process stays in the
- * C locale. NULL if the environment locale isn't installed (falls back to C). */
+/* The environment's locale, used only by strftime so that the rest of the
+ * process stays in the C locale. NULL when that locale is not installed, and
+ * the C locale answers instead. */
 static locale_t g_locale;
 
 void os_locale_reset(void)
@@ -84,7 +84,6 @@ char *os_config_dir(void)
     }
     if (!base || !base[0])
         return NULL;
-    /* An environment variable is as long as the environment made it. */
     char *dir = malloc(strlen(base) + strlen(tail) + 1);
     if (dir)
         sprintf(dir, "%s%s", base, tail);
@@ -93,7 +92,7 @@ char *os_config_dir(void)
 
 void os_ensure_parent_dir(const char *filepath)
 {
-    char *tmp = strdup(filepath); /* walked in place, so it is ours */
+    char *tmp = strdup(filepath); /* the separators are cut and restored in place */
     if (!tmp)
         return;
     char *slash = strrchr(tmp, '/');

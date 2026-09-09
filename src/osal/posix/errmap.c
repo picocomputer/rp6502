@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See errno.h.
+ * See errmap.h.
  */
 
 #include "osal/posix/errmap.h"
@@ -14,15 +14,15 @@ api_errno errno_to_api(int host_errno)
     switch (host_errno)
     {
     case ENOENT:
-    /* FatFs spells a path that runs through a file FR_NO_PATH, which is
-     * this, and api_errno has no ENOTDIR to spell it any other way. */
+    /* A path that runs through a file is FR_NO_PATH on FatFs, which maps
+     * here, and api_errno has no ENOTDIR of its own. */
     case ENOTDIR:
         return API_ENOENT;
     case EACCES:
     case EPERM:
     case EROFS:
-    /* Both of these are FR_DENIED on FatFs: a directory opened as a file,
-     * and a directory removed with something still in it. */
+    /* FatFs answers FR_DENIED to both: a directory opened as a file, and a
+     * directory removed with something still in it. */
     case EISDIR:
     case ENOTEMPTY:
         return API_EACCES;

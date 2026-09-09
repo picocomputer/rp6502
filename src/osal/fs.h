@@ -26,25 +26,22 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
 std_rw_result fs_std_sync(int desc, api_errno *err);
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
-/* Leave no transfer in flight. A savestate reads and writes the memory a
- * transfer is landing in, so the host calls this before it saves and before
- * it loads. Cancelled and reaped, never completed: a transfer allowed to
- * finish would advance the descriptor's offset while core's own position did
- * not, and the parked read must re-issue from where the blob puts it. A
- * synchronous transport has nothing to do here. */
+/* Leaves no transfer in flight, which a savestate needs because it reads and
+ * writes the same memory a transfer is landing in. The host calls this before
+ * it saves and before it loads. The transfer is cancelled and reaped rather
+ * than allowed to finish, because finishing would advance the descriptor's
+ * offset past bytes the 6502 never received, and the read that is dispatched
+ * again after the load would start beyond them. A synchronous transport has
+ * nothing in flight to cancel. */
 void fs_std_settle(void);
 
-/* What a descriptor is, and how to get it back. A savestate's two, in
- * core/api/std.h's shape. This drive writes the absolute name it was opened
- * by, the access it was opened for, and where it is now; the name is made
- * absolute at open time, because the guest may chdir and this core does too.
- * A drive that cannot say answers false, and a machine cannot be saved with a
- * file open on a drive that cannot say. */
+/* Save a descriptor and open it again, in core/api/std.h's shape. The name is
+ * made absolute when the file is opened, because both the guest and this core
+ * may chdir before the save. */
 #define FS_PATH_SLOT (API_PATH_MAX + 1)
 bool fs_std_ident(int desc, sst_cursor_t *c);
 int fs_std_reopen(sst_cursor_t *c, api_errno *err);
 
-// File handle for ROM which the 6502 can not access dirfectly.
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);
 

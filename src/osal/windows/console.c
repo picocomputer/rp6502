@@ -14,20 +14,18 @@
 
 static DWORD con_saved_in, con_saved_out;
 static bool con_raw_on;
-static bool con_out_saved; /* stdout was a console when raw mode went on */
+static bool con_out_saved;
 static bool con_ended;
-static WCHAR con_high; /* a surrogate whose pair is in the next record */
+static WCHAR con_high; /* the console delivers a surrogate pair as two records */
 /* What did not fit the last read, served first on the next, so a read of one
- * byte delivers one byte: the UTF-8 of one conversion (an ill-formed
- * surrogate pair converts to two characters), and the repeats of a key whose
- * record is already consumed. */
+ * byte delivers one byte. Six bytes is the most one conversion produces: an
+ * unpaired high surrogate becomes U+FFFD, three bytes, ahead of a character of
+ * up to three more. */
 static char con_carry[6];
 static size_t con_carry_len;
 static WCHAR con_repeat_ch;
 static WORD con_repeat_left;
 
-/* Which ask arrived. There is no signal to re-raise here, so leaving is the
- * console's own default, which is what a Ctrl-Break normally does. */
 static volatile LONG con_break;
 
 static BOOL WINAPI con_ctrl(DWORD type);
@@ -44,9 +42,10 @@ static HANDLE con_out(void)
     return (h && h != INVALID_HANDLE_VALUE) ? h : NULL;
 }
 
-/* A console answers GetConsoleMode; GetFileType alone would say
- * FILE_TYPE_CHAR for NUL and for a serial port too. Both ways, because a
- * terminal on input with a file on output is a pipeline. */
+/* GetConsoleMode is what tells a console from anything else, because
+ * GetFileType answers FILE_TYPE_CHAR for NUL and for a serial port as well.
+ * Both handles are asked, because a terminal on input with a file on output is
+ * a pipeline. */
 bool os_console_is_terminal(void)
 {
     DWORD mode;
@@ -94,8 +93,8 @@ void os_console_break_ask(void)
 void os_console_break_exit(void)
 {
     con_restore();
-    /* The console's own answer for an interrupted run, which is what a
-     * default Ctrl-Break handler produces. */
+    /* 0xC000013A is STATUS_CONTROL_C_EXIT, the code a process ended by the
+     * default Ctrl-Break handler exits with. */
     ExitProcess(0xC000013AU);
 }
 
@@ -103,17 +102,21 @@ static BOOL WINAPI con_ctrl(DWORD type)
 {
     if (type == CTRL_BREAK_EVENT || type == CTRL_C_EVENT)
     {
+        /* The first event is only recorded, because this handler runs on a
+         * thread of the console's own and the machine goes down on the main
+         * thread. A second event falls through to the default handler, which
+         * ends the process. */
         if (!InterlockedExchange(&con_break, 1))
-            return TRUE; /* asked; the machine goes down on the main thread */
+            return TRUE;
     }
-    con_restore(); /* CTRL_CLOSE_EVENT gives us only moments */
-    return FALSE;  /* and the default handler still ends the process */
+    /* CTRL_CLOSE_EVENT ends the process before atexit runs, so the terminal is
+     * given back here. */
+    con_restore();
+    return FALSE;
 }
 
 void os_console_attach(void)
 {
-    /* Before the console is even found: Ctrl-Break is a console's own way of
-     * asking, and every run on one may need answering. */
     SetConsoleCtrlHandler(con_ctrl, TRUE);
     HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
     HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
@@ -127,8 +130,10 @@ void os_console_attach(void)
         if (!pre_in || pre_in == INVALID_HANDLE_VALUE)
             freopen("CONIN$", "r", stdin);
     }
-    /* A descriptor the launcher closed is one the machine's next open would
-     * land on, and fd 0 in particular would then be read by the console. */
+    /* A launcher may start this process with one of the three closed, and the
+     * CRT hands the next file opened the lowest free descriptor. Pointing each
+     * closed one at NUL first keeps a later fopen from becoming the descriptor
+     * that stdio reads and writes. */
     for (int fd = 0; fd < 3; fd++)
         if (_get_osfhandle(fd) == -1)
             if (freopen("NUL", fd ? "w" : "r", fd == 0   ? stdin
@@ -150,26 +155,21 @@ void os_console_raw(bool on)
     }
     if (!GetConsoleMode(i, &con_saved_in))
         return;
-    /* Only a console has an output mode to save; a file on stdout has none
-     * and is left alone below. */
     con_out_saved = o && GetConsoleMode(o, &con_saved_out);
-    /* Processed input off is what hands Ctrl-C to the machine. Ctrl-Break is
-     * unaffected by it and still raises its event, which is the one way out
-     * when the machine has stopped answering. */
+    /* Clearing ENABLE_PROCESSED_INPUT is what hands Ctrl-C to the machine.
+     * Ctrl-Break does not go through that flag and still raises its event, so
+     * it remains the way out when the machine has stopped reading. */
     DWORD mode = con_saved_in;
     mode &= ~(DWORD)(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT |
                      ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT | ENABLE_QUICK_EDIT_MODE);
     mode |= ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS;
     if (!SetConsoleMode(i, mode))
         return;
-    /* The same console has to render what the machine draws. */
     if (con_out_saved)
         SetConsoleMode(o, con_saved_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     con_raw_on = true;
 }
 
-/* One record's character, appended as UTF-8. A surrogate waits for its pair,
- * which arrives as the record after it. */
 static size_t con_put_wide(WCHAR w, char *buf, size_t count)
 {
     WCHAR pair[2];
@@ -189,7 +189,6 @@ static size_t con_put_wide(WCHAR w, char *buf, size_t count)
     return got > 0 ? (size_t)got : 0;
 }
 
-/* What fits of the carry, then of the repeats still owed. */
 static size_t con_serve(char *buf, size_t count)
 {
     size_t out = 0;
@@ -219,9 +218,9 @@ static size_t con_read_console(HANDLE h, char *buf, size_t count)
     {
         INPUT_RECORD rec;
         DWORD got = 0;
-        /* Every record, key or not: peeking past one this loop does not want
-         * would leave it at the head of the queue for ever, and a focus
-         * event would wedge the console after the first Alt-Tab. */
+        /* Every record is read, key or not, because a record this loop skips
+         * would otherwise stay at the head of the queue for ever and the first
+         * window or focus event would wedge the console. */
         if (!ReadConsoleInputW(h, &rec, 1, &got) || !got)
             break;
         if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown ||
@@ -247,7 +246,7 @@ size_t os_console_read(char *buf, size_t count)
         DWORD avail = 0;
         if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL))
         {
-            con_ended = true; /* the writer is gone */
+            con_ended = true; /* the writing end has closed */
             return 0;
         }
         if (!avail)
@@ -277,7 +276,8 @@ bool os_console_wait(uint64_t ns)
     DWORD ms = (DWORD)(ns / 1000000u);
     if (GetFileType(h) == FILE_TYPE_PIPE)
     {
-        /* A pipe is not waitable, so this is the one place that sleeps. */
+        /* Waiting on a pipe handle does not report that data has arrived, so
+         * this is the one path that has to poll and sleep. */
         DWORD avail = 0;
         if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) || avail)
             return true;

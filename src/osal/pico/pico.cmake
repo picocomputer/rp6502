@@ -1,11 +1,7 @@
-# The RP2350 seam, for the machine whose OS is its own firmware.
-#
 # rp6502_osal_pico(<target>)
 #
-# There is no process here and no filesystem underneath: fs.c is the file
-# driver over lfs.c, littlefs on the RIA's flash, and dir.c walks that. The
-# entropy source is the chip's, so unlike the desktop seams there is no os.c
-# left for a machine to name.
+# fs.c is the file driver over FatFs and over lfs.c, which is littlefs on the
+# RIA's flash.
 
 include_guard(GLOBAL)
 

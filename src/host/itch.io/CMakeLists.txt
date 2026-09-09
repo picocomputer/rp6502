@@ -1,9 +1,9 @@
 # The emulator in a browser, and the itch.io bundle it assembles.
 #
-# The toolchain names itself, so `cmake -S src/host/itch.io -B build/itch.io`
-# is the whole invocation: emsdk_toolchain.cmake beside it fetches and
-# installs Emscripten the first time. CMAKE_TOOLCHAIN_FILE is read by project() below
-# and a -D on the command line still wins.
+# `cmake -S src/host/itch.io -B build/itch.io` is the whole invocation, because
+# emsdk_toolchain.cmake beside this file is named below and installs Emscripten
+# the first time. It has to be set before project(), which is what reads
+# CMAKE_TOOLCHAIN_FILE; a -D on the command line still wins.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -26,25 +26,26 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
+# First: version.cmake takes RP6502_CI out of the cache, so nothing may read
+# it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_OSAL ${RP6502_SRC}/osal/emscripten)
 include(${RP6502_SRC}/core/emu.cmake)
-# The machine this is: the web build is the sokol machine in a browser, so it
-# takes the drivers.h beside that one rather than a copy that could drift.
+# The web build is the sokol machine in a browser, so it takes the drivers.h
+# beside that machine rather than a copy that could drift from it.
 target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
-# The browser has no <aio.h>, so it takes the POSIX seam's synchronous
-# transport -- the same pair the libretro core takes on every OS that is not
-# Windows. Persistence is not fs.c's: the page mounts IDBFS with autoPersist,
-# which syncs on close and on every directory change.
+# The browser has no <aio.h>, so the file driver takes the synchronous
+# transport. Persistence is not fs.c's job here: the page mounts IDBFS with
+# autoPersist, which syncs on close and on every directory change.
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT sync)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
-# The host's console, named here and not in posix.cmake: a machine that is a
-# guest in someone else's process installs no signal handlers.
+# console.c is named here rather than by posix.cmake because it installs
+# process-wide signal handlers, which a machine that is a guest in someone
+# else's process must not do.
 target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/posix/console.c)
 
 
@@ -62,9 +63,9 @@ add_executable(rp6502-emu
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 
-# Browsers that back growable wasm memory with a resizable ArrayBuffer
-# may still reject resizable views at TextDecoder/WebGL; keep the
-# classic heap so every API handoff works everywhere.
+# A browser that backs growable wasm memory with a resizable ArrayBuffer may
+# still reject a resizable view at TextDecoder or WebGL, so the classic heap
+# is kept and every handoff to a browser API works everywhere.
 target_link_options(rp6502-emu PRIVATE
     "-sUSE_WEBGL2=1"
     "-sENVIRONMENT=web"
@@ -77,10 +78,10 @@ target_link_options(rp6502-emu PRIVATE
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
-# One web output: build/itch.io/bundle is the shippable itch.io sample, and
-# the link writes rp6502.js/.wasm straight into it so the engine exists once.
-# The tester at src/host/itch.io/index.html is served from the source tree and
-# reads the same bundle; nothing is copied for it.
+# There is one web output. build/itch.io/bundle is the shippable itch.io
+# sample, and the link writes rp6502.js and rp6502.wasm straight into it so
+# that the engine exists exactly once. The tester at src/host/itch.io/index.html
+# is served from the source tree and reads that same bundle.
 set_target_properties(rp6502-emu PROPERTIES
     OUTPUT_NAME rp6502
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bundle")
@@ -94,10 +95,10 @@ add_custom_target(web_bundle ALL
     VERBATIM)
 add_dependencies(web_bundle rp6502-emu)
 
-# The tester's ROM menu. Written here rather than shipped in the page so a
-# new test ROM appears without editing it, and so its absence is how the
-# page knows the web target has never been built. CONFIGURE_DEPENDS makes
-# the build re-run cmake when the corpus changes.
+# The tester's ROM menu, written here rather than shipped in the page so that
+# a new test ROM appears without editing the page, and so that its absence is
+# how the page knows the web target has never been built. CONFIGURE_DEPENDS
+# re-runs cmake when the corpus changes.
 file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
 set(WEB_ROMS_JS "window.ROMS = [\n")
 foreach(_rom IN LISTS WEB_ROMS)
@@ -105,7 +106,7 @@ foreach(_rom IN LISTS WEB_ROMS)
     string(APPEND WEB_ROMS_JS "  \"${_name}\",\n")
 endforeach()
 string(APPEND WEB_ROMS_JS "];\n")
-# The page has no other way to ask: the wasm answers --credits, but only
-# once it has been fetched and started.
+# The page has no other way to learn the version: the wasm answers --credits,
+# but only once it has been fetched and started.
 string(APPEND WEB_ROMS_JS "window.VERSION = \"${RP6502_VERSION_STAMP}\";\n")
 file(WRITE "${CMAKE_BINARY_DIR}/roms.js" "${WEB_ROMS_JS}")

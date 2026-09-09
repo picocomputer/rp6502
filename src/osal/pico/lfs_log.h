@@ -3,8 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * littlefs's log macros, ahead of its own through LFS_DEFINES: its lines are
- * the lfs category, without the __FILE__ prefixes its defaults carry.
+ * ria.cmake names this file in LFS_DEFINES, so littlefs takes these macros
+ * instead of its own defaults: its lines go to the lfs log category without
+ * the __FILE__ prefixes the defaults carry.
  */
 
 #ifndef _OSAL_PICO_LFS_LOG_H_
