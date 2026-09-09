@@ -5,30 +5,29 @@ that is `src/host/libretro/dist/README.txt`.
 
 ## What this host is
 
-A libretro frontend owns the loop, the window, the audio device and the
-input hardware, and calls `retro_run` once per video frame. So this host
-is `emu_core` and an ABI file, and none of `src/host/sokol` — no sokol,
-no command line, no script channel, no debugger, no `main()`.
+A libretro frontend owns the loop, the window, the audio device and the input
+hardware, and it calls `retro_run` once per video frame. This host is
+therefore `emu_core` plus one ABI file, and none of `src/host/sokol`. There is
+no sokol, no command line, no script channel, no debugger and no `main()`.
 
-The seams it needs were already there:
+`emu_core` already had every entry point it needs:
 
 | | |
 | --- | --- |
-| a frame | `vga_run_frame`, which is exactly what `retro_run` is asked for |
-| a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
-| sound | `aud_render`, which fills a buffer at the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
-| devices | the `keyboard_` / `gamepad_` / `mouse_` / `tablet_` host entry points, the same ones the web host drives |
+| a frame | `vga_run_frame`, which is what `retro_run` is asked for |
+| a picture | `vga_set_framebuffer` and `vga_canvas_size`, plus `SET_GEOMETRY` when the canvas changes |
+| sound | `aud_render`, which fills a buffer at the 48 kHz this core declares. Most voices are generated at that rate already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
+| devices | the `keyboard_`, `gamepad_`, `mouse_` and `tablet_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `proc_set_argv`, `main_run` |
 
-Two things are converted on the way out. The machine paints RGBA8 and
-libretro asked for XRGB8888, so red and blue trade places — an exchange
-that is its own inverse, which is why `tests/cpu/vga` answers here with
-the same CRCs it answers everywhere. And what `aud_render` fills is
-floats, which become the int16 pairs the batch callback takes.
+Two things are converted on the way out. The machine paints RGBA8 and libretro
+asked for XRGB8888, so red and blue trade places. That exchange is its own
+inverse, so `tests/cpu/vga` answers here with the same CRCs it answers
+everywhere. `aud_render` fills floats, and those become the int16 pairs the
+batch callback takes.
 
-There is no monitor on this host, and no debugger or scripting. A
-`.rp6502` runs; when it stops, the core sends `RETRO_ENVIRONMENT_SHUTDOWN`
-and is finished.
+This host has no monitor, no debugger and no scripting. A `.rp6502` runs, and
+when it stops the core sends `RETRO_ENVIRONMENT_SHUTDOWN` and finishes.
 
 ## Build and test
 
@@ -38,37 +37,38 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-The same three commands build it on Windows, from a Visual Studio x64
-developer prompt, and on macOS — this is one root on every OS, and the
-seam under it is `host/posix` or `host/windows` depending on which one you
-are. The core is `rp6502_libretro.so`, `.dll`, or `.dylib`. The suite is
-two halves: `tests/cpu` is the machine, answering through the shipped
-library via `tests/bench/mut_libretro.c`, and `tests/host/libretro` is
-this core as a libretro citizen. Both open the `.so` rather than linking
-its objects, because the export list and the version script are exactly
-what a pile of objects cannot be wrong about.
+The same three commands build it on Windows from a Visual Studio x64 developer
+prompt, and on macOS. There is one CMake root for every operating system, and
+the layer underneath is `osal/posix` or `osal/windows`. The core is
+`rp6502_libretro.so`, `.dll` or `.dylib`.
+
+The suite has two halves. `tests/cpu` tests the machine through the shipped
+library, using `tests/bench/mut_libretro.c`. `tests/host/libretro` tests this
+core as a libretro citizen. Both open the shared library rather than linking
+its objects, because only the shipped library can prove the export list and
+the version script are right.
 
 ```
 nm -D --defined-only build/libretro/release/rp6502_libretro.so   # ELF
 nm -gU build/libretro/release/rp6502_libretro.dylib              # Mach-O, _retro_*
-dumpbin /exports build\libretro\release\rp6502_libretro.dll    # PE
+dumpbin /exports build\libretro\release\rp6502_libretro.dll      # PE
 ```
 
-should print `retro_*` and nothing else. CI checks all three, which is the
-only continuous proof of the two nobody here can run.
+Each should print `retro_*` symbols and nothing else. CI checks all three,
+which is the only continuous check on the two nobody here can run.
 
-Each platform builds in its own CI job — Linux x86_64 and aarch64,
-Windows, macOS, Android — and one `libretro-bundle` job collects them into
-a single `rp6502-<version>-libretro.zip`, a folder per platform. A core is one thing, and a release page listing it once per
-machine would bury everything else — libretro builds for twenty-odd
-platforms, and this shape does not grow a row for each.
+Each platform builds in its own CI job — Linux x86_64 and aarch64, Windows,
+macOS and Android — and a `libretro-bundle` job collects them into a single
+`rp6502-<version>-libretro.zip` with a folder per platform. One zip keeps the
+release page short. libretro builds for twenty-odd platforms, and a row per
+machine would bury everything else on the page.
 
 ## Running it in a frontend
 
 From VS Code, F5 on **RetroArch Debug** builds the debug core, launches
 RetroArch on it, and stops at breakpoints in `retro.c`. It picks a ROM from
-`tests/roms`; **RetroArch Debug (path…)** takes any path you type. Both
-carry the WSL workaround below, so nobody has to remember it.
+`tests/roms`. **RetroArch Debug (path…)** takes any path you type. Both carry
+the WSL workaround below, so nobody has to remember it.
 
 By hand:
 
@@ -76,7 +76,7 @@ By hand:
 retroarch -v -L build/libretro/release/rp6502_libretro.so tests/roms/adventure.rp6502
 ```
 
-Headless, for a smoke check — `--max-frames` runs N frames and exits:
+Headless, for a smoke check. `--max-frames` runs N frames and exits:
 
 ```
 cat > /tmp/headless.cfg <<'EOF'
@@ -90,31 +90,30 @@ retroarch --appendconfig /tmp/headless.cfg --max-frames 600 -v \
     -L build/libretro/release/rp6502_libretro.so tests/roms/adventure.rp6502
 ```
 
-`config_save_on_exit` is not optional there. RetroArch saves its
-configuration when it quits, appended files included, so without it those
-four null drivers become permanent and every later run is headless with no
-window and no sound.
+`config_save_on_exit` is not optional there. RetroArch saves its configuration
+when it quits, including appended files, so without it those four null drivers
+become permanent and every later run has no window and no sound.
 
-That only says the library loads and does not crash, which is why it is
-not a ctest: a frontend agreeing with us is not evidence about the
-machine, and making it one would be handing the oracle back to something
-outside this repository. The suite holds the core to the contract;
-RetroArch is where a person looks at it.
+A headless run only says that the library loads and does not crash, which is
+why it is not a ctest. A frontend agreeing with the core is not evidence about
+the machine, and treating it as evidence would put the oracle outside this
+repository. The suite holds the core to the contract, and RetroArch is where a
+person looks at it.
 
 ### Typing
 
-A frontend binds the keyboard to its own gamepad and hotkeys — in RetroArch
-Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder
-buttons, and keeps the mouse for its own cursor — so on a machine that is
-a computer both look dead. The player turns that off with **Game Focus**,
-which is Scroll Lock by default, and the core says so on screen the first
-time a program asks for the console, the keyboard or the mouse. A program
-that wants only a gamepad or the tablet is never told.
+A frontend binds the keyboard to its own gamepad and hotkeys. In RetroArch,
+Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder buttons.
+It also keeps the mouse for its own cursor. On a machine that is a computer,
+both therefore look dead. The player turns that off with **Game Focus**, which
+is Scroll Lock by default, and the core says so on screen the first time a
+program asks for the console, the keyboard or the mouse. A program that wants
+only a gamepad or the tablet is never told.
 
-Scroll Lock is only the default hotkey and a handheld may not have the
-key at all, in which case it wants remapping. Settings > Input > "Auto
-Enable Game Focus" set to **Detect** (`input_auto_game_focus = "2"`)
-avoids the question: it makes it automatic for cores that register a
+Scroll Lock is only the default hotkey, and a handheld may not have the key at
+all, in which case it needs remapping. Setting Settings > Input > "Auto Enable
+Game Focus" to **Detect** (`input_auto_game_focus = "2"`) avoids the question,
+because it turns Game Focus on automatically for cores that register a
 keyboard callback, which this one does.
 
 ### Under WSL
@@ -122,9 +121,9 @@ keyboard callback, which this one does.
 WSLg's compositor does not advertise `zxdg_decoration_manager_v1`, and
 RetroArch's Wayland backend draws no decorations of its own, so the window
 arrives with no title bar and no way to move or close it. Nothing is wrong
-with the install — server-side decorations are optional in Wayland and
-several compositors decline them. Hide the Wayland socket and X11 gets
-used instead, which under WSLg means a real Windows window:
+with the install, because server-side decorations are optional in Wayland and
+several compositors decline them. Hiding the Wayland socket makes RetroArch
+use X11 instead, which under WSLg means a real Windows window:
 
 ```
 WAYLAND_DISPLAY=nonexistent-0 retroarch -L … game.rp6502
@@ -142,30 +141,28 @@ WAYLAND_DISPLAY=nonexistent-0 retroarch -L … game.rp6502
 
 ## Getting it into the Online Updater
 
-Not done yet, and not something this repository can do on its own. The
-steps, for when it is:
+Not done yet, and not something this repository can do on its own. The steps,
+for when it is:
 
-1. PR the `rp6502_libretro.info` out of a tagged build to
+1. PR the `rp6502_libretro.info` from a tagged build to
    [libretro-super](https://github.com/libretro/libretro-super/tree/master/dist/info)
-   as `dist/info/rp6502_libretro.info`. It is already inside the release
-   zip — the template is `src/host/libretro/dist/rp6502_libretro.info.in` and
-   the build fills its version in from `version.cmake`, so the file to
-   send is the generated one and never the template.
-2. Ask the libretro team — an issue on libretro-super, or Discord — to
+   as `dist/info/rp6502_libretro.info`. It is already inside the release zip.
+   The template is `src/host/libretro/dist/rp6502_libretro.info.in` and the
+   build fills in its version from `version.cmake`, so send the generated file
+   and never the template.
+2. Ask the libretro team, through an issue on libretro-super or on Discord, to
    mirror this repository on git.libretro.com and enable its pipeline.
    `.gitlab-ci.yml` at the top of this repository is what their buildbot
-   reads; it names `src/host/libretro` as the CMake root and builds the
-   `rp6502_libretro` target, which is why that target has exactly that
-   name. Its Windows job asks for their MSVC template rather than the
-   mingw one, because MSVC is the Windows toolchain this repository
-   builds and tests.
-3. The buildbot's nightlies then appear under Online Updater / Core
-   Downloader.
+   reads. It names `src/host/libretro` as the CMake root and builds the
+   `rp6502_libretro` target, which is why that target has exactly that name.
+   Its Windows job asks for their MSVC template rather than the mingw one,
+   because MSVC is the Windows toolchain this repository builds and tests.
+3. The buildbot's nightlies then appear under Online Updater / Core Downloader.
 
 Afterwards, if it seems worth it: an icon in
-[retroarch-assets](https://github.com/libretro/retroarch-assets), entries
-in [libretro-database](https://github.com/libretro/libretro-database) so
-programs land in a playlist, and a page in
+[retroarch-assets](https://github.com/libretro/retroarch-assets), entries in
+[libretro-database](https://github.com/libretro/libretro-database) so programs
+land in a playlist, and a page in
 [libretro-docs](https://github.com/libretro/docs).
 
 TODO: figure out versioning and release tagging.
