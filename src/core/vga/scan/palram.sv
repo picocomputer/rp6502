@@ -3,19 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One plane's palette, shared by the three renderers that can hold it.
+ * The fill engine's palette, shared by the three fill modes that can
+ * hold the engine. One copy serves all three planes because sched runs
+ * one plane at a time and a mode that reads the palette fetches every
+ * entry it will index before it emits a pixel.
  *
- * A plane runs exactly one of mode 1, 2 or 3 on any scanline, and they
- * can share because a mode that reads the palette always reloads it
- * first: the config decides pal_xram at the top of the line, and the
- * S_PAL state fetches every entry that mode will index before a pixel is
- * emitted. A mode that leaves pal_xram clear reads the built-in colors
- * and never looks here.
- *
- * The parity split gives the load one write per XRAM word, which carries
- * two entries. The second copy gives mode 1 a foreground and a
- * background entry in the same cycle; modes 2 and 3 read port A alone.
- * LUT RAM, because the read has to answer where it is used.
+ * Entries are split by parity so that the load writes one XRAM word,
+ * which holds two entries, in one clock. The second copy answers mode
+ * 1's foreground and background in the same cycle; modes 2 and 3 read
+ * port A alone. Both reads are asynchronous because they have to answer
+ * where they are used.
  */
 
 module palram
@@ -30,9 +27,9 @@ module palram
     input logic [31:0] a_rdata,
 
     /* The read answers with a finished color: the loaded entry, or the
-     * builtin the mode would otherwise have indexed itself. The builtin
-     * is a 256-entry constant, and it was being synthesized once per
-     * reader — four times a plane where twice will do. */
+     * built-in color the mode would otherwise have indexed itself.
+     * VID_COLOR_256 is a 256-entry constant, so resolving it here builds
+     * it twice, once a port, instead of once per reader. */
     input logic xram,
     input logic one_bpp,
     input logic [7:0] idx_a,
@@ -41,10 +38,10 @@ module palram
     output logic [15:0] palram_qb
 );
 
-    /* Named, not inferred. Both reads are asynchronous, so a block is
-     * out; but left to itself Quartus does not fall back to LUT memory,
-     * it falls back to flip-flops — eight thousand of them an instance,
-     * three instances, and the device stops fitting. */
+    /* Asynchronous reads rule out a block RAM, and left to itself
+     * Quartus falls back to flip-flops rather than LUT memory: four
+     * arrays of 128 sixteen-bit entries is 8192 flip-flops, and the
+     * device stops fitting. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [15:0] pal_a_even[128];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -55,7 +52,9 @@ module palram
     logic [15:0] pal_b_odd[128];
 
     /* A halfword-aligned palette puts entry 0 in the first word's high
-     * half, so the ends of the run each write one side only. */
+     * half, so each end of the run writes one parity only: the first
+     * word's low half is the halfword before the palette, and the last
+     * word's high half is the halfword after it. */
     logic we_e, we_o;
     logic [6:0] wa_o;
     logic [15:0] wd_e, wd_o;
@@ -67,7 +66,7 @@ module palram
         wd_o = half ? a_rdata[15:0] : a_rdata[31:16];
     end
 
-    /* Outside any reset, so it can be memory at all. */
+    /* No reset, because an array that takes one cannot be memory. */
     always_ff @(posedge clk) begin
         if (we_e) begin
             pal_a_even[w[6:0]] <= wd_e;

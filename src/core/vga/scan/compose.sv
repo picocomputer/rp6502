@@ -3,13 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The composite, the three state machines' fixed rule: plane 0 always
- * drives, alpha-blind; planes 1 and 2 land where their own alpha bit is
- * set. Within a plane, a sprite's written pixel replaces the fill's —
- * the in-buffer overwrite — so an alpha-clear sprite texel replaces the
- * fill pixel and then fails the gate, the hardware's hole punch. There
- * is no filled: an unfilled line is its zeros, black under plane 0's
- * rule and transparent under the overlays'.
+ * The fixed rule that stacks the three planes. The alpha bit is bit 5 of
+ * a pixel, the one the RGB555 color leaves spare
+ * (core/vga/pixel_format.h).
+ *
+ * Within a plane, a sprite pixel replaces the fill's wherever the sprite
+ * buffer marks one written (bit 16), whether or not that pixel's alpha
+ * bit is set, so a sprite pixel with alpha clear punches a hole through
+ * an overlay plane.
  */
 
 module compose (

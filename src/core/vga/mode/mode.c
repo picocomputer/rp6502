@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Which mode a canvas was told to run. The table is the mode numbers the
- * API defines, so it is the same table on every machine; what each of them
- * does with mode 0 differs, and that is mode0_prog's business rather than
- * this one's.
  */
 
 #include "core/vga/vga.h"
@@ -34,6 +29,6 @@ bool vga_mode_prog(uint16_t mode, uint16_t *xregs)
     case 5:
         return mode5_prog(xregs);
     default:
-        return false; /* every mode the API defines is above */
+        return false;
     }
 }

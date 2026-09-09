@@ -123,7 +123,7 @@ module rsmp
 
     /* Sixteen bits of the twenty-five available, matching the C: a Q25
      * fraction against a 2^39 difference carries more than is worth
-     * carrying, and a sixteenth of a 128th of a sample is already finer
+     * carrying, and a 65,536th of a 128th of a sample is already finer
      * than the coefficients are quantised. */
     logic [15:0] frac;
     always_comb frac = phase[24:9];

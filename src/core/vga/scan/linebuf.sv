@@ -3,14 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One plane's line buffer: ping-pong banks as two arrays, the engine
- * writing one while the beam reads and erases the other — the eraser
- * rides one pixel behind the read, so every bank returns to write duty
- * holding zeros, and a line nothing filled IS its zeros: black under
- * the base plane's rule, transparent under an overlay's. done arms the
- * bank flip and nothing else. Banks as two arrays because one array
- * with two writers needs a true dual port, and no conditional shape
- * survives extraction.
+ * One plane's line buffer, as two ping-pong banks: the fill engine
+ * writes one while the other is scanned out and erased a pixel behind
+ * the one being displayed, so a bank holds zeros when it comes back to
+ * write duty. done_i arms the bank flip and does nothing else. The banks are
+ * separate arrays because one array with two writers would need a true
+ * dual port.
  */
 
 module linebuf (
@@ -33,8 +31,8 @@ module linebuf (
     (* ramstyle = "no_rw_check" *)
     logic [15:0] b1[1024];
 
-    /* The zeros are load-bearing from the first frame: hardware
-     * configures block RAM to zero, and simulation must agree. */
+    /* The fabric configures block RAM to zero, so an unfilled line reads
+     * as zeros on the first frame; simulation has to agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 16'h0000;
@@ -65,12 +63,14 @@ module linebuf (
         if (b1_we)
             b1[b1_addr] <= b1_data;
 
-    /* The beam reads one ahead of itself, on each pixel's last tick, and
-     * the bank flip lands on h==0's first tick — so only the pixel-0
-     * read at the end of h==799 sees the fresh line under its write-side
-     * label. Both banks read every pixel and the select is registered
-     * beside them: a mux after the output registers costs fabric, not
-     * the block-memory inference. */
+    /* Scanout reads one pixel ahead, on each pixel's last clock, while
+     * the bank flip lands on h==0's first clock. The read at the end of
+     * h==799 is therefore the next line's pixel 0, and it has to take
+     * the bank the flip is about to turn into the scan bank.
+     *
+     * Both banks are read every pixel and the select is registered
+     * beside them, so the bank choice is a mux after the output
+     * registers rather than logic in front of the memory. */
     logic [9:0] rd_addr;
     logic rd_bank;
     always_comb begin
@@ -97,8 +97,6 @@ module linebuf (
         wr_bank = 1'b0;
         flip_next = 1'b0;
     end
-    /* The next line's pixel 0 is read during h==799, so the flip must
-     * land before it or that pixel comes up stale. */
     always_ff @(posedge clk) begin
         if (line_start) begin
             if (flip_next)

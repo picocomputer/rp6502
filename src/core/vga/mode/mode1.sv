@@ -180,9 +180,8 @@ module mode1 (
         pal_bg = pal_qb;
     end
 
-    /* The font byte: gathered from XRAM, or fetched from the store the
-     * soft CPU owns. Both arrive through F_FONT, so the built-in path
-     * is the one the XRAM fixtures already exercise. */
+    /* The font byte comes either from XRAM or from the store the soft CPU
+     * owns, and F_FONT sequences both channels. */
     logic [7:0] font_gather;
     always_comb mode1_f_addr = fh16
         ? {2'b00, scanrow, g_glyph}
@@ -231,10 +230,9 @@ module mode1 (
     always_comb font_line_addr = {1'b0, cf_font}
         + {5'd0, scanrow, 8'd0} + {9'd0, g_glyph};
 
-    /* The next segment, purely from where col stands. The entry cell
-     * may start mid-glyph; pre-shifting the row puts its first visible
-     * pixel at the segment's bit zero, and every cell after it is
-     * aligned. */
+    /* The next segment, from where col stands. The entry cell may start
+     * mid-glyph, so the row is shifted left to put its first visible pixel on
+     * bit 7, which pixtail.sv emits first. Every cell after it is aligned. */
     logic [16:0] pad_left;
     always_comb pad_left = 17'(-col);
     logic [17:0] run_w;

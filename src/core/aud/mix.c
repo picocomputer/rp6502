@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The soft machine's mixer. The sink asks for a buffer and this fills it,
- * pulling the registered device and the bell one sample at a time at
- * AUD_NATIVE_RATE and resampling to whatever the sink runs at. Nothing here
- * keeps time: the sink's clock is the only one.
  */
 
 #include "core/aud/mix.h"
@@ -29,32 +24,24 @@ static aud_dev_t aud_dev;
 static void (*aud_probe)(int16_t *left, int16_t *right);
 
 /* One resampler per channel, carried across renders so the phase is
- * continuous. Every voice goes through it: the machine's rate is never the
- * sink's. */
+ * continuous. */
 static rsmp_t g_rs_l, g_rs_r;
 
 /* What the last input yielded past the end of a buffer, for the start of the
- * next. Empty at unity and below; only a sink faster than the machine leaves
- * any, and never more than rsmp_push can hand over at once. */
+ * next. Only a sink faster than the machine leaves samples over. */
 static int32_t g_pend_l[8], g_pend_r[8];
 static int g_pend_n, g_pend_i;
 
-/* The level as it stands, for a held machine to repeat. */
 static float g_last_l, g_last_r;
 
-/* Rolling mono downmix of everything rendered, for waveform display; the
- * reader plots the buffer directly against the write position. */
 #define AUD_VIZ_SAMPLES 4096
 static float g_viz[AUD_VIZ_SAMPLES];
 static int g_viz_pos;
 
-/* --mute: when off, the synth never runs (no per-sample CPU work) and the
- * app opens no OS audio device. A session setting, not machine state, so
- * resets leave it alone. */
+/* A session setting rather than machine state, so a reset leaves it
+ * alone. */
 static bool g_enabled = true;
 
-/* See aud_park_request. The generation is bumped by the requesting thread and
- * echoed by the rendering one; equality is the acknowledgement. */
 static _Atomic unsigned g_park_gen;
 static _Atomic unsigned g_park_ack;
 static _Atomic bool g_park;
@@ -118,8 +105,8 @@ void aud_set_sink_rate(uint32_t rate)
 
 static inline float to_f(int32_t v)
 {
-    /* The filter overshoots on transients, which is a sinc doing its job.
-     * The host's converter is the sink, so this is where it stops. */
+    /* A windowed sinc overshoots full scale on transients, and the host's
+     * converter is the end of the path, so the overshoot stops here. */
     if (v > 32767)
         v = 32767;
     if (v < -32768)
@@ -127,8 +114,8 @@ static inline float to_f(int32_t v)
     return (float)v / 32768.0f;
 }
 
-/* One frame at AUD_NATIVE_RATE: the device if one is registered, the bell
- * regardless, summed and clamped the way wiring.sv sums the fabric's. */
+/* One frame at AUD_NATIVE_RATE, clamped to sixteen bits as wiring.sv clamps
+ * the fabric's own sum. */
 static void mix(int32_t *left, int32_t *right)
 {
     int16_t l = 0, r = 0;
@@ -158,8 +145,9 @@ static void mix(int32_t *left, int32_t *right)
 
 int aud_render(float *dst, int samples)
 {
-    /* Ahead of the mute test: a muted device would otherwise never answer,
-     * and every wait would run to its bound. */
+    /* The acknowledgement is stored ahead of the tests below, because a
+     * muted or debugger-held machine renders nothing and a park that waited
+     * on those paths would run to its bound. */
     if (atomic_load(&g_park))
     {
         atomic_store(&g_park_ack, atomic_load(&g_park_gen));
@@ -175,9 +163,6 @@ int aud_render(float *dst, int samples)
         memset(dst, 0, (size_t)samples * 2 * sizeof *dst);
         return 0;
     }
-    /* A debugger holding the 6502 holds the whole machine, and a held
-     * machine makes nothing: every frame is the last one it made. Silence
-     * would be a click. */
     if (dbg_is_stopped())
     {
         for (int i = 0; i < samples; i++)
@@ -215,9 +200,6 @@ const float *aud_viz_buffer(int *num_samples)
 
 int aud_viz_pos(void) { return g_viz_pos; }
 
-/* The resampler's own state, which is a history window and a Q32 position
- * inside it. Carried rather than reset: a reset restarts the filter's phase,
- * and a rewind that did that every frame would buzz. */
 static void aud_put_rsmp(sst_cursor_t *c, const rsmp_t *r)
 {
     for (int i = 0; i < RSMP_TAPS; i++)
@@ -236,7 +218,7 @@ static void aud_get_rsmp(sst_cursor_t *c, rsmp_t *r)
 
 /* The held level goes out as the sixteen bits it came in as. It is only ever
  * a sample the mixer already clamped, so the float carries nothing the
- * integer does not, and a float on the wire is a byte two builds could
+ * integer does not, and a float in a savestate is a byte two builds could
  * disagree about. */
 static int16_t aud_to_i16(float v)
 {

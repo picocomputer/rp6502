@@ -29,10 +29,6 @@
 #include <assert.h>
 #include <string.h>
 
-/* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR). Computed inline rather than through a
- * 256 KB value-indexed table: the shifts vectorize, and keeping the cache free
- * for the CPU core and framebuffer beats a table that thrashes on color-rich
- * content (and it's a large fraction of L2 on the ARM/WASM targets). */
 static inline uint32_t rgb555_to_rgba8(uint16_t px)
 {
     uint32_t r5 = SCANVIDEO_R5_FROM_PIXEL(px);
@@ -51,14 +47,9 @@ bool vga_connected(void)
 
 uint8_t vga_get_display_type(void)
 {
-    /* 2 selects the 32-row text geometry in rln; the console is 30 rows. */
     return 1;
 }
 
-
-/* A software renderer keeps its programming in the scanline table, and that
- * is the whole of what it has to forget. Nothing else needs telling: what
- * draws next reads the canvas when it is asked to. */
 void vga_canvas_reset(void)
 {
     vga_prog_reset();
@@ -69,8 +60,6 @@ void vga_canvas_publish(vga_canvas_t canvas)
     (void)canvas;
 }
 
-/* Software renders from the plane it is handed, so there is nothing to
- * publish ahead of one. */
 void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
     (void)mode;
@@ -89,48 +78,30 @@ void vga_load_code_page(uint16_t cp)
 
 void vga_init(void)
 {
-    vga_canvas_select(0); /* console = 640x480, installs the term program */
+    vga_canvas_select(0);
 }
 
 static bool vga_needs_reset;
 
 void vga_stop(void)
 {
-    /* Reset only on a real program stop (firmware vga_stop). ria_active() is
-     * always false in the emu — no chunked fast-loads — so every sys_stop is an
-     * idle stop that arms, exactly as the firmware's exec/exit stop does. */
+    /* ria_active() is a constant false here, so every stop resets. The test
+     * is the RIA firmware's, where a stop that only closes a transfer must
+     * not reset the console. */
     if (!ria_active())
         vga_needs_reset = true;
 }
 
 static void vga_render_scanline(int y);
 
-/* ---- the beam ------------------------------------------------------------
- *
- * Video leads and the 6502 follows: this advances the beam at most one
- * scanline per call, and cpu_task runs the machine up to wherever it got to.
- * On real hardware the two run at once; here they zip, one line at a time.
- */
-
-/* Absolute scanline, never reset. Everything below is computed from it every
- * time rather than accumulated, so integer division introduces no drift. */
+/* The line within the frame and the clock are computed from beam_n rather than
+ * accumulated alongside it, so neither can drift away from it. */
 static uint64_t beam_n;
 static unsigned long frame_n;
 static bool vsynced;
 
-/* Whether the beam paints. A host whose frontend is discarding this frame
- * turns it off: the machine is untouched -- the beam still advances, vsync
- * still latches, the 6502 still chases it -- and only the picture goes
- * unpainted. Every visible line is drawn from XRAM each frame and nothing on
- * the 6502 side can read the framebuffer back, so the frame after it comes
- * back on is whole. */
 static bool vga_scanout = true;
 
-/* The machine's clock is the beam, so this is host.h's contract: one
- * scanline is 1000000/(VGA_HZ*VGA_SCANLINES) microseconds, reduced to
- * 2000/63. Asserted against the constants it came from, because the two
- * silently disagreeing is the bug this prevents. Reduced also for range --
- * the unreduced form would overflow a uint64 in about nine days. */
 #define BEAM_US_NUM 2000ull
 #define BEAM_US_DEN 63ull
 static_assert(BEAM_US_NUM * ((uint64_t)VGA_HZ * VGA_SCANLINES) ==
@@ -139,9 +110,8 @@ static_assert(BEAM_US_NUM * ((uint64_t)VGA_HZ * VGA_SCANLINES) ==
 
 uint64_t host_clock_us(void)
 {
-    /* Exact every 63 lines, so a second of frames is exactly a second. Do NOT
-     * "fix" the inexact ratio with a per-line remainder: that double-corrects
-     * and creates the drift it looks like it removes. */
+    /* The division is exact on every 63rd line, and a second is 31500 lines,
+     * so a second of frames comes out as exactly a second. */
     return beam_n * BEAM_US_NUM / BEAM_US_DEN;
 }
 
@@ -151,9 +121,6 @@ uint64_t vga_beam_lines(void) { return beam_n; }
 
 unsigned long vga_frame_count(void) { return frame_n; }
 
-/* Run the machine until video says one frame went by. False when a
- * debugger holds it -- a held machine never will, and a caller must not
- * wait for it. */
 bool vga_run_frame(void)
 {
     const unsigned long want = frame_n + 1;
@@ -180,8 +147,6 @@ vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes)
     }
 }
 
-/* Mode 2 is asked which row, because all eight of its classes are one
- * renderer and the class is in its own shadow. */
 bool vga_mode_fill_id(vga_fill_fn_t fn, int16_t scanline, int16_t plane,
                       uint8_t *mode, uint16_t *attributes)
 {
@@ -268,11 +233,10 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c) || highest > VGA_SST_ROWS || term_begin > VGA_SST_ROWS)
         return false;
 
-    /* Every renderer the table names is resolved before a row of it is
-     * installed, so a mode this build does not have refuses the load with
-     * the machine still standing. The cursor is read twice rather than the
-     * table staged, because a staging copy is 34 KB of core's memory to
-     * spare one pass over bytes that are already in cache. */
+    /* Every renderer the table names is resolved before any row is installed,
+     * so a blob naming a mode this build does not have refuses the load
+     * before anything is mutated. That is why the cursor is saved here and
+     * read a second time below. */
     const sst_cursor_t table = *c;
     for (int16_t line = 0; line < VGA_SST_ROWS; line++)
         for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
@@ -326,29 +290,28 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        /* The RIA-private control channel, which on that machine crosses
-         * the bus. Here the VGA is the same binary, so it is the call the
-         * message would have become. */
+        /* Channel $F is the control channel the RIA reserves for itself, which
+         * on a board crosses the PIX bus to the VGA. Here the VGA is the same
+         * binary, so it is the call that message would have become. */
         xreg1(0xF, 0x00, vga_get_display_type());
     }
     /* A debugger holding the 6502 holds the whole machine. Left running, the
-     * beam would keep counting frames and firing vsync while a program sat at
-     * a breakpoint, latching $FFF0 bit 7 each time -- so stepping one
-     * instruction would resume into an IRQ storm the program never lived
-     * through. The picture stays as it was; the window presents it again. */
+     * beam would go on counting frames and latching $FFF0 bit 7 while a
+     * program sat at a breakpoint, and stepping one instruction would resume
+     * into an interrupt storm the program never lived through. */
     if (dbg_is_stopped())
         return;
-    /* Draw the line from the machine state as it stands now, before the
-     * cycles that belong to it have run -- the CPU catches up to the beam
-     * afterwards, so a write lands on later lines. Real per-scanline scanout. */
+    /* The line is drawn from the machine as it stands before the cycles that
+     * belong to it have run, because the 6502 catches up to the beam
+     * afterwards, so a write it makes lands on a later line. */
     const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
     if (vga_scanout && line < vga_canvas_height())
         vga_render_scanline(line);
     beam_n++;
     if (!vsynced && line + 1 >= vga_vsync_line())
     {
-        REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
-        ria_trigger_vsync(); /* latch $FFF0 bit7; IRQ only if the program enabled it */
+        REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* the VSYNC counter */
+        ria_trigger_vsync();
         vsynced = true;
     }
     if (beam_n % VGA_SCANLINES == 0)
@@ -359,10 +322,6 @@ void vga_task(void)
 }
 
 
-/* The app-owned framebuffer the scanlines render into (the window's texture
- * staging, main.c's screenshot buffer, a test's assertion buffer). The owner
- * registers storage for the largest canvas before running frames; sokol's
- * swapchain provides the display double-buffering, so one buffer suffices. */
 static uint32_t *g_framebuffer;
 
 void vga_set_framebuffer(uint32_t *fb)
@@ -385,15 +344,14 @@ bool vga_frame_crc(uint32_t *crc)
     return true;
 }
 
-/* Render ONE scanline y of the canvas into fb at the canvas's native stride
- * (the canvas width). Each plane runs its fill and then its own sprites — slot k's
- * sprites belong to plane k, over a zeroed buffer when no fill ran. (The RIA
- * firmware paints sprites into the lowest filled buffer to skip the memset;
- * that is a bandwidth optimization whose artifacts are not modeled.) The
- * planes composite as scanvideo's PIO does — plane 0 is the unconditional
- * base, black when unfilled, and higher planes overlay where their pixel's
- * alpha bit is set, so e.g. a sprite layer shows through the transparent
- * background of a text layer above it. */
+/* The planes composite the way scanvideo's PIO does: plane 0 is the base, black
+ * where it is unfilled, and a higher plane replaces it only where that plane's
+ * pixel has the alpha bit set, because the PIO drives an overlay state
+ * machine's pins only while that bit is high.
+ *
+ * The VGA firmware diverges here: it paints a plane's sprites into the buffer
+ * of the most recently filled plane at or below it, not into the plane's
+ * own. */
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = vga_canvas_width();
@@ -426,9 +384,6 @@ static void render_scanline(int y, uint32_t *fb)
     }
 }
 
-/* Render scanline y of the current frame into the registered framebuffer,
- * interleaved with the CPU a line at a time, so mid-frame state changes land on
- * later lines (raster effects), matching the real per-scanline VGA scanout. */
 static void vga_render_scanline(int y)
 {
     if (g_framebuffer)

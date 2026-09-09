@@ -4,18 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* What canvas is selected, how tall it is, and how a mode books the scanlines
- * it will draw. Nothing about how the pixels get out: the Pico's backchannel
- * and vsync timing, the VGA firmware's scanline programs, the Pocket's fabric
- * registers. */
-
 #ifndef _CORE_VGA_VGA_H_
 #define _CORE_VGA_VGA_H_
 
 #include <stdbool.h>
 #include <stdint.h>
 
-// Canvas size.
 typedef enum
 {
     vga_canvas_console = 0,
@@ -25,68 +19,42 @@ typedef enum
     vga_canvas_640_360,
 } vga_canvas_t;
 
-/* False where nothing is attached, so a caller can lay text out for the console
- * it does have. Always true on a machine whose display cannot be unplugged. */
-/* Frames the display has finished: the video domain's own tick, and the only
- * clock a thing drawn on the screen should keep. Every machine answers it --
- * the beam's count here, scanvideo's there, the fabric's counter on a Pocket
- * -- so a blink is the same blink on all three, which a microsecond could
- * never be. On a software machine, pumping until this moves is also how a
- * host asks for a frame. */
 unsigned long vga_frame_count(void);
 
+/* False where no display is attached. Always true where the display cannot be
+ * unplugged. */
 bool vga_connected(void);
 
 vga_canvas_t vga_get_canvas(void);
 uint8_t vga_get_display_type(void);
 
-// Pixel dimensions of the current canvas.
 void vga_canvas_size(int *w, int *h);
 int16_t vga_canvas_height(void);
 int16_t vga_canvas_width(void);
 
-/* The console canvas is the one a machine boots into and returns to; the
- * graphics modes are the other four. */
 bool vga_canvas_is_console(void);
 
-// The code page the display renders text in.
 void vga_set_code_page(uint16_t cp);
 
-/* The same, without the terminal reset choosing one performs. A machine
- * whose font is another chip sends the same message either way. */
 void vga_load_code_page(uint16_t cp);
 
-/* Select a canvas, which discards whatever was programmed on the last one.
- * False for a canvas this machine does not have. A machine whose video device
- * is across a bus does not choose here -- it writes the wire and shadows what
- * it wrote (host/pico/ria/sys/vga.c). */
 bool vga_canvas_select(uint16_t canvas);
 
-/* How this machine forgets a mode program, because the canvas it described is
- * gone: a table to sweep, or registers to blank. */
 void vga_canvas_reset(void);
 
-/* Tell whatever has to be told which canvas is up. Nothing to do where the
- * selection is only a variable. */
 void vga_canvas_publish(vga_canvas_t canvas);
 
-/* A mode program is about to be laid down, before any of its planes are
- * booked. A machine whose renderer needs to be told which mode it is about to
- * draw -- fabric does, software does not, because software is told by the
- * plane it is handed -- publishes it here. */
+/* The mode a program is about to be laid down for, announced before any of its
+ * planes are booked. A machine whose fabric rasterizes needs this, because a
+ * fill function pointer means nothing to it; a machine that rasterizes in
+ * software ignores it. */
 void vga_mode_begin(uint8_t mode, uint16_t attr);
 
-/* The canvas a savestate found, and what it is. load installs one without
- * the reset select performs, because a load brings the scanline table and the
- * terminal back by their own rows. */
 bool vga_canvas_load(uint16_t canvas);
 vga_canvas_t vga_canvas_code(void);
 
-/* Program the canvas for a mode number, as the mode xreg asked. */
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 
-/* How big a canvas is. A pure fact about the code, which is why every
- * machine had written it out: the console is the 640x480 one. */
 static inline void vga_canvas_geometry(vga_canvas_t code, int *w, int *h)
 {
     switch (code)
@@ -100,23 +68,14 @@ static inline void vga_canvas_geometry(vga_canvas_t code, int *w, int *h)
     }
 }
 
-// Number of programmable scanlines, also bounds scanline_id.
+/* Rows in a scanline program, which also bounds a scanline number. It is 512
+ * rather than 480 because the VGA firmware draws the console canvas on a
+ * 1280x1024 display as a 640x512 view. */
 #define VGA_PROG_MAX 512
 
-/* The last line any program renders, and the bounds a booking is held to.
- * Every machine answers both -- a table to walk here, fabric registers
- * there -- so they are asked for beside the bookings rather than beside the
- * table one kind of machine happens to keep. */
 int16_t vga_prog_highest(void);
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
 
-/* Where vsync fires: the lowest line anything draws, or the bottom of the
- * canvas where nothing does or where a stale watermark reaches past it.
- *
- * One copy, because the two machines that pace a beam this way had one each
- * and a beam that fires on a different line is a different machine. Inline
- * rather than in prog.c: it is a fact about the two numbers above, and the
- * machine whose program lives in fabric registers does not link that file. */
 static inline int16_t vga_vsync_line(void)
 {
     int16_t highest = vga_prog_highest();
@@ -125,9 +84,9 @@ static inline int16_t vga_vsync_line(void)
     return vga_canvas_height();
 }
 
-/* Booking scanlines for a mode. fill_fn is the renderer itself where the
- * machine rasterizes in software; where the fabric does, it is ignored and the
- * mode is announced out of band instead. */
+/* Book scanlines for a mode. fill_fn is the renderer itself where the machine
+ * rasterizes in software; where the fabric rasterizes it is ignored, and the
+ * mode announced by vga_mode_begin is written to the fabric instead. */
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
                    bool (*fill_fn)(int16_t plane_id,
@@ -136,7 +95,9 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                                    uint16_t *rgb,
                                    uint16_t config_ptr));
 
-// For singleton fill modes, like the terminal
+/* Books like vga_prog_fill, but is allowed on the console canvas, and first
+ * clears the rows its last booking covered, so a renderer that re-programs
+ * itself over a different range leaves nothing behind. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                         uint16_t config_ptr,
                         bool (*fill_fn)(int16_t plane_id,

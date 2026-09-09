@@ -340,7 +340,7 @@ module mode4 (
         gnt_d <= a_gnt;
         mode4_done <= 1'b0;
         if (abort_i) begin
-            /* A lost race: the scaffold counted it; drop the line. */
+            /* sprite.sv has already counted this lost line; drop it. */
             state <= M4_IDLE;
         end else if (start) begin
             idx <= '0;

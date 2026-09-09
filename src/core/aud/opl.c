@@ -20,8 +20,9 @@ static OPL *opl_emu8950;
 
 /* Where the register page sits, and the first of the four OR-mask rows the
  * slots point into. The base is taken after a reset, which sets every slot
- * to row zero, so a slot's row is that many uint16_t[4] on from here. That
- * index is what goes on the wire; the address is this build's own. */
+ * to row zero, so a slot's row is that many uint16_t[4] on from here. The
+ * savestate carries that row index, because the address is this build's
+ * own. */
 static uint16_t opl_xaddr = 0xFFFF;
 static const uint16_t *opl_wave_base;
 
@@ -31,23 +32,24 @@ int16_t opl_sample(void)
 {
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
-    /* Four times hot, and the clamp lets the loud parts square off — the
-     * machine has always run its OPL this way. It used to reach the same
-     * ratio by shifting emu8950's sixteen bits down to ten, which threw
-     * six of them away at the source, before any host with a better
-     * converter than the RP2350's PWM could see them. Multiplying instead
-     * of shifting keeps every bit and clips in exactly the same place. */
+    /* Four is the gain that reaches the level the RTL YM3812 sets, where
+     * opl.sv's SAMPLE_SHIFT of 5 is unity. The two constants are not
+     * independent: move one alone and the platforms drift 12 dB apart. The
+     * clamp is what makes both clip at the same 8192 emu8950 units. */
     int32_t s = (int32_t)next * 4;
     if (s < AUD_SAMPLE_MIN)
         s = AUD_SAMPLE_MIN;
     if (s > AUD_SAMPLE_MAX)
         s = AUD_SAMPLE_MAX;
 
-    // Update opl regs from xram
+    /* The XRAM page mirrors the chip's register file, so the low byte of a
+     * queued write's address is the register number. */
     uint8_t max_work = 8;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
-        atomic_thread_fence(memory_order_acquire); /* the entry behind the head */
+        /* Pairs with the release fence in ria.c: the entry is written
+         * before the head that publishes it, and read after. */
+        atomic_thread_fence(memory_order_acquire);
         uint8_t tail = ++xram_queue_tail;
         OPL_writeReg(opl_emu8950,
                      xram_queue[tail][0],
@@ -56,7 +58,6 @@ int16_t opl_sample(void)
     return (int16_t)s;
 }
 
-/* What a mixer registers: the one voice this chip has, on both sides. */
 void opl_stereo(int16_t *left, int16_t *right)
 {
     *left = *right = opl_sample();
@@ -71,21 +72,21 @@ bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {
-        /* Giving up control resets the chip and hands the mix back, so a
-         * stopped program's last chord does not hold. */
+        /* Giving up the engine resets the chip and hands the mix back, so
+         * a stopped program's last chord does not hold. */
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         opl_xaddr = 0xFFFF;
         aud_stop();
         return word == 0xFFFF;
     }
-    // Would be nice to not malloc but initializeTables() is static
+    /* emu8950 builds its shared tables inside OPL_new, which callocs the
+     * chip, so there is no way to hold one statically. Its rate converter
+     * is compiled out, so the chip steps once per call at its own clock
+     * over 72, which is what AUD_NATIVE_RATE is. */
     if (!opl_emu8950)
-        /* A YM3812 samples at its clock over 72, and that is the rate the
-         * whole soft machine adopted; AUD_NATIVE_RATE is this chip's number
-         * before it is anyone else's. */
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, AUD_NATIVE_RATE);
-    assert(opl_emu8950); // OPL_new only fails under memory pressure (a debug build)
+    assert(opl_emu8950); // OPL_new returns NULL only when its calloc fails
     OPL_reset(opl_emu8950);
     opl_wave_base = opl_emu8950->slot[0].wav_or_table;
     opl_xaddr = word;
@@ -161,7 +162,9 @@ static bool opl_get_slot(sst_cursor_t *c, OPL_SLOT *s)
     s->number = sst_get_u8(c);
     s->type = sst_get_u8(c);
     opl_get_patch(c, &s->__patch);
-    s->patch = &s->__patch; /* every slot plays its own, always */
+    /* reset_slot is the only assignment to slot->patch, so the pointer is
+     * reconstructed here rather than carried in the blob. */
+    s->patch = &s->__patch;
     s->output[0] = sst_get_i32(c);
     s->output[1] = sst_get_i32(c);
     uint8_t row = sst_get_u8(c);
@@ -193,7 +196,7 @@ void opl_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, opl_xaddr);
     if (!o)
     {
-        /* The slot is still a fixed slot, so the walk pads it out. */
+        /* A chunk is a fixed size, so what this does not write is padding. */
         return;
     }
     for (int i = 0; i < 0x100; i++)
@@ -233,9 +236,9 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
     opl_xaddr = at;
     if (!present)
     {
-        /* A chip this machine allocated stays allocated -- OPL_new is a
-         * malloc and a table build, not machine state -- but it goes back
-         * to what a program would find on taking it. */
+        /* An allocation is not machine state, so a chip this machine
+         * allocated stays allocated; the reset puts it back to what a
+         * program would find on taking it. */
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         return true;
@@ -244,8 +247,9 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, AUD_NATIVE_RATE);
     if (!opl_emu8950)
         return false;
-    /* Reset first: it is what settles the members this blob does not carry,
-     * and it is where the wave rows are addressed from. */
+    /* Reset first: it settles the members this blob does not carry, and it
+     * is what puts every slot on wave row zero, which is where the rows are
+     * addressed from. */
     OPL_reset(opl_emu8950);
     opl_wave_base = opl_emu8950->slot[0].wav_or_table;
 

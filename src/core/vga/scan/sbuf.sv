@@ -3,15 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One sprite slot's line buffer: ping-pong banks as two arrays, so each
- * is a simple dual port the tool infers — the engine owns the write
- * bank's write port, the eraser owns the scan bank's, and the roles
- * swap with wr_bank. One array with both writers needs a true dual
- * port, and no conditional shape survived extraction. The eraser rides
- * the beam one pixel behind the scanout read, so every bank returns to
- * write duty already erased — no filled flag and no clear pass. Bit 16
- * is presence — written pixels carry it, the eraser clears it — and it
- * rides free: seventeen wide is the same block count as sixteen.
+ * One sprite slot's line buffer, as two ping-pong banks. The banks are
+ * separate arrays so each infers as a simple dual port: the engine owns
+ * the write bank's write port, the erase side owns the scan bank's, and
+ * the roles swap with wr_bank. One array with both writers would need a
+ * true dual port.
+ *
+ * Bit 16 marks a pixel as written; the erase side clears it. sprite.sv
+ * drives that side a pixel behind the one being displayed, so a bank is
+ * already zero when it comes back to write duty and there is no clear
+ * pass and no filled flag.
  */
 
 module sbuf (
@@ -37,8 +38,8 @@ module sbuf (
     (* ramstyle = "no_rw_check" *)
     logic [16:0] b1[1024];
 
-    /* The zeros are load-bearing from the first frame: hardware
-     * configures block RAM to zero, and simulation must agree. */
+    /* The fabric configures block RAM to zero, so a bank reads as
+     * transparent on the first frame; simulation has to agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 17'd0;
@@ -64,9 +65,9 @@ module sbuf (
         if (b1_we)
             b1[b1_addr] <= b1_data;
 
-    /* Both banks read every pixel and the select is registered beside
-     * them: a mux after the output registers costs fabric, not the
-     * block-memory inference. */
+    /* Both banks are read every pixel and rd_bank is registered beside
+     * them, so the bank choice is a mux after the output registers
+     * rather than logic in front of the memory. */
     logic [16:0] q0, q1;
     logic q_sel;
     initial begin

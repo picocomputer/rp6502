@@ -248,19 +248,12 @@ mode5_render_2bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16
     mode5_render(scanline, width, rgb, config_ptr, length, 512, 2);
 }
 
-/* The renderer an attribute names, and the attribute a renderer came from.
- * A savestate carries the attribute: a function's address is this build's own
- * and means nothing to the build that loads the blob.
+/* Every attribute this mode defines and the renderer it names is written here
+ * once. mode5_sprite_fn and mode5_sprite_valid both expand this list, so
+ * neither can drift from the other.
  *
- * The reverse walks the forward rather than keeping a second table, so the
- * two cannot drift apart when a renderer is added. */
-/* Every attribute this mode has and the renderer it names, written once. The
- * forward lookup, the reverse a savestate needs, and the check a booking
- * makes all read this list, so none of them can drift from the others.
- *
- * A machine whose fabric rasterizes reads only the left column: it has no
- * renderer to name, and naming one would hold software it never runs in a
- * memory it shares with its stack. */
+ * A fabric build expands only the attribute column. Nothing there calls these
+ * renderers, and that image has one 96 KB memory for text, stack and heap. */
 #define MODE5_SPRITES(F) \
     F(0, mode5_render_1bpp_8x8)      \
     F(1, mode5_render_2bpp_8x8)      \
@@ -357,8 +350,6 @@ bool mode5_prog(uint16_t *xregs)
     if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
         return false;
 
-    /* Asked of the list rather than of the pointer: a fabric machine has no
-     * pointer, and this is the same question either way. */
     if (!mode5_sprite_valid(attributes))
         return false;
     vga_sprite_fn_t render_fn = mode5_sprite_fn(attributes);

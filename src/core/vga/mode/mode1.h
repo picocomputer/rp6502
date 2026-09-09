@@ -14,13 +14,12 @@
 
 bool mode1_prog(uint16_t *xregs);
 
-/* Whether this mode has that attribute at all. What a booking asks, and the
- * only half of the list a machine whose fabric rasterizes has. */
 bool mode1_fill_valid(uint16_t attributes);
 
-/* The renderer an attribute names, and the attribute a renderer came from.
- * A savestate carries the attribute, never the address, so these are the two
- * directions it needs. NULL and absent respectively where the fabric draws. */
+/* The renderer an attribute names, and the attribute a renderer came from. A
+ * savestate stores the attribute rather than the function address, because the
+ * address belongs to the build that saved it. mode1_fill_fn returns NULL in a
+ * fabric build and the reverse is not compiled. */
 vga_fill_fn_t mode1_fill_fn(uint16_t attributes);
 #ifndef RP6502_VGA_FABRIC
 bool mode1_fill_attr(vga_fill_fn_t fn, uint16_t *attributes);

@@ -5,15 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// This is compatible with the sprite system in pico-playground which
-// is based on the sprite system used for the RISCBoy games console.
-
 #include "core/vga/mode/mode4.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include <assert.h>
-/* The SDK spells these in pico/platform.h; a mode that clips spans needs
- * them wherever it runs. */
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
@@ -21,7 +16,6 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-/* The SIO interpolators: the RP2350's, and nothing else has them. */
 #if PICO_ON_DEVICE
 #include <hardware/interp.h>
 #endif
@@ -39,8 +33,7 @@ typedef struct
 } mode4_sprite_t;
 
 // transform[6] is the top two rows of the affine matrix in signed 8.8 fixed
-// point, row-major: { a00, a01, b0, a10, a11, b1 }. Sign-extended and shifted
-// to signed 16.16 before use.
+// point, row-major: { a00, a01, b0, a10, a11, b1 }.
 typedef struct
 {
     int16_t transform[6];
@@ -51,10 +44,9 @@ typedef struct
     bool has_opacity_metadata;
 } mode4_asprite_t;
 
-// Unpacked affine transform: { a00, a01, b0, a10, a11, b1 } in signed 16.16.
-// [u]   [ a00 a01 b0 ]   [x]   [a00 * x + a01 * y + b0]
-// [v] = [ a10 a11 b1 ] * [y] = [a10 * x + a11 * y + b1]
-// [1]   [ 0   0   1  ]   [1]   [           1          ]
+// The same six numbers unpacked to signed 16.16, so that a pixel x,y in the
+// sprite's own box samples the texture at u = a00 * x + a01 * y + b0,
+// v = a10 * x + a11 * y + b1.
 typedef int32_t affine_transform_t[6];
 static const int32_t AF_ONE = 1 << 16;
 
@@ -71,7 +63,6 @@ typedef struct
     int size_x;
 } intersect_t;
 
-// Always-inline else the compiler does rash things like passing structs in memory
 static inline __attribute__((always_inline)) intersect_t
 get_sprite_intersect(int x_pos_px, int y_pos_px, int log_size, unsigned raster_y, unsigned raster_w)
 {
@@ -87,9 +78,10 @@ get_sprite_intersect(int x_pos_px, int y_pos_px, int log_size, unsigned raster_y
     return isct;
 }
 
-// Sprites may have an array of metadata on the end.
-// One word per line, encodes first opaque pixel, last opaque pixel,
-// and whether the span in between is solid. This allows fewer pixel-by-pixel alpha tests.
+// A sprite may carry an array of metadata after its texels, one 32-bit word per
+// row: bits 0-15 hold the end of the row's opaque span, one past its last opaque
+// pixel, bits 16-30 the first, and bit 31 marks the span between them solid so
+// the blit can skip the per-pixel alpha test.
 static inline intersect_t intersect_with_metadata(intersect_t isct, uint32_t meta)
 {
     int span_end = meta & 0xffff;
@@ -261,12 +253,9 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
 }
 
 #if !PICO_ON_DEVICE
-// Software stand-in for the SIO interpolator used by the affine path. The Pico
-// hardware interpolator emits each texel's address and advances the u,v
-// accumulators on every POP; off-device the same arithmetic runs here. Lanes
-// hold u,v in 16.16 fixed point; a POP masks the integer texel index out of
-// each lane, sums them onto the image base, then adds the per-step deltas
-// (the hardware's ADD_RAW accumulator feedback).
+// Off-device stand-in for the SIO interpolator the affine path uses, with the
+// same lane masks, base addition and accumulator step. The lanes hold u,v in
+// 16.16 fixed point.
 static struct
 {
     uint32_t accum[2];
@@ -292,13 +281,14 @@ static inline uintptr_t sw_interp_pop_full(void)
 }
 #endif
 
-// Set up an interpolator to follow a straight line through u,v space
+// The blit walks the span from its right end backward, and each step is the
+// negated first column of the matrix. A pop reads the accumulator before
+// stepping it, so the seed at tex_offs_x + size_x samples one column right of
+// the pixel each write lands on.
 static inline void setup_interp_affine(
     intersect_t isct,
     const affine_transform_t atrans)
 {
-    // Calculate the u,v coord of the first sample. Note that we are iterating
-    // *backward* along the raster span because this is faster (yes)
     int32_t x0 =
         mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
         mul_fp1616(atrans[1], isct.tex_offs_y * AF_ONE) +
@@ -310,28 +300,25 @@ static inline void setup_interp_affine(
 #if PICO_ON_DEVICE
     interp0->accum[0] = x0;
     interp0->accum[1] = y0;
-    interp0->base[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
-    interp0->base[1] = -atrans[3]; // -a10
+    interp0->base[0] = -atrans[0];
+    interp0->base[1] = -atrans[3];
 #else
     sw_interp.accum[0] = (uint32_t)x0;
     sw_interp.accum[1] = (uint32_t)y0;
-    sw_interp.step[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
-    sw_interp.step[1] = -atrans[3]; // -a10
+    sw_interp.step[0] = -atrans[0];
+    sw_interp.step[1] = -atrans[3];
 #endif
 }
 
-// Set up an interpolator to generate pixel lookup addresses from fp1616
-// numbers in accum1, accum0 based on the parameters of sprite sp and the size
-// of the individual pixels
+// Each lane takes from its accumulator as many bits as the sprite's edge needs,
+// so that a read of POP_FULL returns the texel's address: BASE2, holding the
+// image, plus the column's byte offset from lane 0 and the row's from lane 1.
+// Both lanes are configured ADD_RAW, so that same read adds BASE0 and BASE1 to
+// the raw accumulators, which steps u,v to the next texel.
 static inline void setup_interp_pix_coordgen(
     const mode4_asprite_t *sp,
     const void *sp_img, unsigned pixel_shift)
 {
-    // Concatenate from accum0[31:16] and accum1[31:16] as many LSBs as required
-    // to index the sprite texture in both directions. Reading from POP_FULL will
-    // yield these bits, added to sp->img, and this will also trigger BASE0 and
-    // BASE1 to be directly added (thanks to CTRL_ADD_RAW) to the accumulators,
-    // which generates the u,v coordinate for the *next* read.
     assert(sp->log_size + pixel_shift <= 15);
 
 #if PICO_ON_DEVICE
@@ -369,7 +356,7 @@ static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, unsigned mask)
     if (overflow)
         return;
     uint16_t pixel = *src_addr;
-    if (pixel & (1 << 5)) // alpha
+    if (pixel & (1 << 5))
         *dst = pixel;
 }
 
@@ -457,16 +444,13 @@ static void mode4_render_asprite(
     }
 }
 
-/* The renderer an attribute names, and the attribute a renderer came from.
- * Only the choice of renderer moves here; each attribute's own bounds check
- * stays with the booking, where the length it needs is in hand. */
-/* Every attribute this mode has and the renderer it names, written once. The
- * forward lookup, the reverse a savestate needs, and the check a booking
- * makes all read this list, so none of them can drift from the others.
+/* Every attribute this mode defines and the renderer it names is written here
+ * once. mode4_sprite_fn and mode4_sprite_valid both expand this list, so
+ * neither can drift from the other. Each attribute's own bounds check stays in
+ * mode4_prog, which has the array length in hand.
  *
- * A machine whose fabric rasterizes reads only the left column: it has no
- * renderer to name, and naming one would hold software it never runs in a
- * memory it shares with its stack. */
+ * A fabric build expands only the attribute column. Nothing there calls these
+ * renderers, and that image has one 96 KB memory for text, stack and heap. */
 #define MODE4_SPRITES(F) \
     F(0, mode4_render_sprite)  \
     F(1, mode4_render_asprite)
@@ -535,8 +519,6 @@ bool mode4_prog(uint16_t *xregs)
     if (config_ptr & 1)
         return false;
 
-    /* Asked of the list rather than of the pointer: a fabric machine has no
-     * pointer, and this is the same question either way. */
     if (!mode4_sprite_valid(attributes))
         return false;
     vga_sprite_fn_t render_fn = mode4_sprite_fn(attributes);

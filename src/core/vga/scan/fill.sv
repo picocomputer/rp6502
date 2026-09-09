@@ -3,17 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The fill engine, one for all three planes: the mode 1/2/3 subengines,
- * the shared pixel tail, and the palette snapshot, dispatched a plane at
- * a time by sched. Serial fills are safe by the palette's own
- * contract — a mode that reads the palette always reloads it first —
- * and by the line buffers living outside: this engine only ever writes
- * the plane it was dispatched to. The subengine owns the XRAM channel
- * and the pixel port until it reports done.
+ * The fill engine, one for all three planes: the mode 1, 2 and 3
+ * subengines, the shared pixel tail, and the palette, dispatched a plane
+ * at a time by sched. Running the fills serially is safe because a mode
+ * that reads the palette reloads it first. The subengine owns the XRAM
+ * channel and the pixel port until it reports done.
  *
- * A rejected line — blank, out of range — is emitted as a full line of
- * padding zeros, and the compose leans on that: zeros ARE the unfilled
- * line, black under the base plane's rule, transparent above.
+ * A line a mode rejects, blank or out of range, is emitted as a full
+ * line of zeros, which compose reads as black on plane 0 and as
+ * transparent on an overlay.
  */
 
 module fill (
@@ -28,7 +26,8 @@ module fill (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* gnt means the address was taken; the word arrives next clock. */
+    /* a_gnt means the address was taken; the word arrives on a_rdata the
+     * next clock. */
     output logic fill_a_req,
     output logic [13:0] fill_a_addr,
     input logic a_gnt,
@@ -55,9 +54,9 @@ module fill (
     logic [15:0] config_ptr;
     logic [2:0] mode_q;
 
-    /* Entered at the top, so the config ends flush against bit 127
-     * wherever it started and the junk halfword ahead of it falls out
-     * the bottom. */
+    /* Halfwords shift down, so the config's first halfword lands at bit
+     * 0 wherever it started: a halfword-aligned config takes nine shifts,
+     * and the junk halfword ahead of it falls off the bottom. */
     logic [2:0] cfg_i, cfg_n;
     logic [3:0] sh_c, sh_n;
     logic [127:0] cfgw;
@@ -107,8 +106,6 @@ module fill (
     logic [22:0] m2_seg_bits;
     logic [9:0] m2_seg_px;
 
-    /* Only the mode holding the engine can be loading, so the write side
-     * is a select rather than an arbiter. */
     logic m1_pal_ld;
     logic [7:0] m1_pal_w;
     logic [8:0] m1_pal_words;
@@ -226,10 +223,11 @@ module fill (
         .seg_take(tl_take)
     );
 
-    /* The tail's grants are only the cycles the front is not asking, so
-     * the channel mux presents the front's address first. Mode 1's
-     * segments are all immediate, so its grant line is silenced and the
-     * front's fetches cannot churn the tail's ledgers. */
+    /* The tail is granted only the clocks the front end is not asking
+     * for, so the channel mux presents the front's address first. Mode
+     * 1's segments are all immediate, so the tail's grant is held off for
+     * that whole mode and the front's fetches cannot disturb the tail's
+     * count of words in flight. */
     logic tf_start;
     logic [15:0] tf_pal_ptr;
     logic tf_pal_xram;
@@ -350,8 +348,8 @@ module fill (
 
     always_comb begin
         if (state == F_CFG) begin
-            /* One word in flight: the half held back has to shift before
-             * the next word's low half arrives. */
+            /* Only one word is in flight, because the half held back has
+             * to shift before the next word's low half arrives. */
             fill_a_req = cfg_i < cfg_n && !gnt_d;
             fill_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin

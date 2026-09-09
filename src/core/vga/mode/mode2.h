@@ -14,9 +14,10 @@
 
 bool mode2_prog(uint16_t *xregs);
 
-/* One renderer for all eight of this mode's classes: which class a row draws
- * is in mode2's own shadow rather than in the pointer, so the reverse needs
- * to be told which row it is asking about. */
+/* One renderer draws every mode 2 attribute, so the attribute a row was
+ * programmed with is kept in mode2.c per scanline and plane rather than in the
+ * function pointer, and the reverse lookup a savestate needs has to name a row
+ * instead of a renderer. */
 vga_fill_fn_t mode2_fill_fn(uint16_t attributes);
 bool mode2_fill_attr(int16_t scanline, int16_t plane, uint16_t *attributes);
 void mode2_set_options(int16_t scanline, int16_t plane, uint16_t options);
