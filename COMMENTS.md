@@ -45,7 +45,58 @@ Not this:
 Never invent an actor to give a sentence a subject. Much of this code is
 written in the passive because the code does not show which side acts.
 
-The em dash is not a marker of AI writing and is not being removed.
+The em dash is not a marker of AI writing and is not being removed. Neither
+is a trailing "which is" clause: "which is why you don't see any in this
+scripting language" and "which is how they detect screen size" are both the
+author's, so do not flag that shape.
+
+### Do not give hardware a personality
+
+A part does not want, ask, know, hear, see, say, owe, hand something back or
+lend anything. Say what it does. A register is read, a reply is sent, a
+message is printed, a device is present or absent.
+
+The exception is a request that is genuinely a request. A program asking for
+the mouse and a script asking for frames are both real, because a program and
+a script issue commands.
+
+| was | now |
+|---|---|
+| the drive answers to `FS:` | `FS:` is a name you can use for the drive |
+| a frontend with no cursor to lend | a frontend that provides no cursor |
+| the core says as much on screen | the core prints a message |
+| the terminal answers the queries | the terminal replies to the queries |
+
+### Ownership is a borrowing term, not a permanent home
+
+In this codebase ownership means something that can be passed and borrowed,
+the way a lock or a buffer is owned. Do not use it for where a thing lives or
+which part it belongs with.
+
+| was | now |
+|---|---|
+| paths are the host's | paths use the host's format |
+| a script's frames are its own | a script sets its own frame count |
+| the screen does not belong in the file | the screen would end up in the file |
+| the RTL belongs to the FPGA | the RTL is in the FPGA |
+| a machine that owns a real clock | a machine that has a real clock |
+| every command here belongs to a pico | every command here applies only to a pico |
+
+"Its own" meaning separate or dedicated is ordinary English and stays. "Each
+character can have its own foreground" and "the 6502's own vectors" are fine.
+
+### Say what a name is, not how it is spelled
+
+"Spelling" was used for a name, a notation, a byte encoding and a color
+format. Each of those has a real word.
+
+| was | now |
+|---|---|
+| ends a line on either spelling | ends a line on a carriage return or a line feed |
+| FatFs's own spelling | FatFs's own notation |
+| the machine's own spelling | the machine's own path format |
+| its code-page spelling | the code page's bytes rather than UTF-8 |
+| other xterm spellings | other xterm color formats |
 
 ### Words that are banned as the name of a mechanism
 
@@ -66,6 +117,10 @@ Counts still outstanding in the unfinished stages:
 | the roster | 7 |
 | so it is told | 4 |
 | the doing | 2 |
+
+The three patterns above are unswept. Across `src` and `tests` there are 89
+uses of "owns", 41 of "belongs to", 53 of "spelling" and 8 of "answers to".
+Most will be legitimate. Read each one.
 
 "The fabric" appears 90 times and needs judgment rather than a sweep. Fabric is
 the ordinary word for an FPGA's programmable logic and is fine as a noun. It is
@@ -150,6 +205,21 @@ Stage 9 is the biggest risk to voice, because the older one-line comments in
 `src/host/pico/ria` are the author's. Stage 10 is the largest by volume and the
 easiest, because a test's comments are mostly narration of the assertions
 beside them.
+
+## The docs got the same pass
+
+The Sphinx sources in the picocomputer.github.io repository were the model for
+the voice, so they were read the same way to check that the difference is still
+detectable. They are mostly the author's writing with AI passages mixed in.
+
+Forty-five passages were rewritten across emu.rst, term.rst, ria.rst, os.rst,
+index.rst, vga.rst, sdk.rst and fpga.rst. Nothing was found in pico.rst or
+ria_w.rst. The concentration was in emu.rst, which is also where the most
+recent AI writing went. One measurable tell: before the pass, "rather than"
+appeared eight times in emu.rst and not at all in os.rst, index.rst, sdk.rst,
+vga.rst or ria_w.rst.
+
+Those edits are uncommitted. The docs are the author's to commit.
 
 ## Verification
 
