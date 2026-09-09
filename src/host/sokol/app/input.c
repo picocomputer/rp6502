@@ -8,8 +8,6 @@
 #include "host/sokol/app/input.h"
 
 #include "host/sokol/app/gfx.h"
-#include "host/sokol/cli/state.h"
-#include "core/com/com.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -137,41 +135,6 @@ static char ascii_from_key(int kc, bool shift)
     case SAPP_KEYCODE_SLASH: return shift ? '?' : '/';
     default: return 0;
     }
-}
-
-/* The two keys this window keeps for itself. Ctrl+Shift+S and Ctrl+Shift+L,
- * because the machine cannot tell them from Ctrl+S and Ctrl+L -- both promote
- * to the same C0 byte, shift or no shift -- so what a program loses is a
- * chord it could never have read as its own.
- *
- * Every held key is released after a load. The bitmap the blob restores says
- * which keys were down when it was made, and whoever just reached for a load
- * key is not holding those; the release that would have cleared them belongs
- * to a session the machine is no longer in. A save releases nothing, because
- * nothing about the machine changed. */
-static bool input_state_key(const sapp_event *e)
-{
-    if (!(e->modifiers & SAPP_MODIFIER_CTRL) || !(e->modifiers & SAPP_MODIFIER_SHIFT))
-        return false;
-    bool saving = e->key_code == SAPP_KEYCODE_S;
-    if (!saving && e->key_code != SAPP_KEYCODE_L)
-        return false;
-    const char *path = state_slot();
-    if (!path)
-    {
-        com_printf("no program was named, so there is no state slot\n");
-        return true;
-    }
-    const char *why = "";
-    if (saving ? state_save_file(path, &why) : state_load_file(path, &why))
-    {
-        if (!saving)
-            keyboard_release_all();
-        com_printf("state %s\n", saving ? "saved" : "loaded");
-    }
-    else
-        com_printf("cannot %s state: %s\n", saving ? "save" : "load", why);
-    return true;
 }
 
 /* AltGr arrives as Ctrl+Alt only where the host reports it that way: Windows
@@ -440,11 +403,6 @@ void input_event(const sapp_event *e)
         if (e->key_code == SAPP_KEYCODE_ESCAPE && sapp_mouse_locked())
         {
             sapp_lock_mouse(false); /* matches the browser's pointer-lock exit */
-            break;
-        }
-        if (input_state_key(e))
-        {
-            suppress_char = true; /* X11 fires a CHAR for the chord too */
             break;
         }
         input_key(e);
