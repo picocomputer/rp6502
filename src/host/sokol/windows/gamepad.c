@@ -240,7 +240,7 @@ static int gamepad_hid_rescan;
 
 static uint64_t gamepad_hid_hash(const wchar_t *text)
 {
-    uint64_t hash = 1469598103934665603ull;
+    uint64_t hash = 14695981039346656037ull; /* FNV-1a offset basis */
     for (; *text; text++)
     {
         hash ^= (uint64_t)*text;

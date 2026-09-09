@@ -106,11 +106,8 @@ static char ascii_from_key(int kc, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
     }
-    if (kc >= SAPP_KEYCODE_KP_0 && kc <= SAPP_KEYCODE_KP_9)
-        return (char)('0' + (kc - SAPP_KEYCODE_KP_0));
     switch (kc)
     {
-    case SAPP_KEYCODE_KP_DECIMAL: return '.';
     case SAPP_KEYCODE_KP_DIVIDE: return '/';
     case SAPP_KEYCODE_KP_MULTIPLY: return '*';
     case SAPP_KEYCODE_KP_SUBTRACT: return '-';
