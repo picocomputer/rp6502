@@ -161,8 +161,13 @@ void bel_add(const ria_bel_t *sound)
         bel_state.vol = 0;
         bel_state.phase = 0;
         bel_state.elapsed_samples = 0;
-        /* Last, because bel_sample can be running on the audio thread and
-         * reads the rest of the generator only when this is set. */
+        /* No barrier, though bel_sample may be on the audio thread. The
+         * queue entry is written before bel_queue_head advances, and an idle
+         * bel_sample returns at the active test without reading anything
+         * else. Once it starts, every transition it makes waits on elapsed_ms
+         * reaching restrike_ms, release_ms or end_ms, and one millisecond is
+         * about fifty samples at 49716 Hz, so a field still in flight can
+         * only alter the first sample or two of the note. */
         bel_state.active = true;
     }
 }
