@@ -176,8 +176,8 @@ module psg
      * worth of write enable. Read asynchronously, so cf stays
      * combinational. The structure's seventh byte is padding.
      *
-     * Initialization matters here: the walk reads these from the first
-     * sample, before any program has written them. */
+     * Initialization matters here: the channel state machine reads these on
+     * the first sample, before any program has written them. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] cfg_freq_lo[8];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -231,9 +231,10 @@ module psg
     logic [VOL_W-1:0] w_vol;
     logic [3:0] w_ch;
 
-    /* Deferred to the load that would have read them: eight entries
-     * cannot be cleared on one clock. The gate is not deferred — a snoop
-     * landing between the xreg and the walk has to survive it. */
+    /* Deferred to the load that would have read them, because eight entries
+     * cannot be cleared on one clock. The gate is not deferred, because a
+     * snoop landing between the xreg write and the state machine reading it
+     * has to survive. */
     logic clr;
     logic [VOL_W-1:0] ld_vol;
     always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
@@ -347,17 +348,18 @@ module psg
         tri_up = {~w_phase[30], w_phase[29:15]};
     end
 
-    /* The circle in a block, addressed off the phase adder rather than
-     * the register it lands in, so the word is waiting and the walk grows
-     * no state. Initialized, not written: it rides in as a .mif.
+    /* The sine table lives in a block RAM, addressed off the phase adder
+     * rather than the register the phase lands in, so the word is ready
+     * without an extra pipeline register. It is initialized rather than
+     * written, and synthesis turns that into a .mif.
      *
-     * The envelope's two rate tables share the block above the circle,
-     * attack at 256 and decay-and-release at 272. A voice reads one or
-     * the other, never both, so they share the second port.
+     * The envelope's two rate tables share the block above the sine, attack
+     * at 256 and decay-and-release at 272. A voice reads one or the other,
+     * never both, so they share the second port.
      *
-     * The rate is fetched a clock ahead of the step, so a gate landing
-     * exactly on the fetch turns the arm the step reads but not the
-     * address the fetch used: that one step moves at the old arm's rate. */
+     * The rate is fetched a clock ahead of the step that uses it, so a gate
+     * landing exactly on the fetch changes the ADSR state the step reads but
+     * not the address the fetch used. That one step moves at the old rate. */
     localparam int ROM_W = 20;
     localparam int ROM_ATK = 256;
     localparam int ROM_DR = 272;
@@ -584,8 +586,8 @@ module psg
             default: state <= P_IDLE;
         endcase
 
-        /* After the case, so a write landing on the walk's own step
-         * wins it. */
+        /* After the case, so a write landing on the same step as the state
+         * machine wins it. */
         if (snoop_gate) begin
             if (!q_val[0] && ch_adsr[{1'b0, snoop_ch}] != ADSR_RELEASE)
                 ch_adsr[{1'b0, snoop_ch}] <= ADSR_RELEASE;

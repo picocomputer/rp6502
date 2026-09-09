@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* sst_save and sst_load walk this machine's roster, turning it into a blob
- * and back.
+/* sst_save and sst_load visit every driver in this machine's driver list,
+ * turning the machine into a blob and back.
  *
  * Every chunk has a slot of the size its driver declares, at an offset the
- * roster order decides, and a row that writes less than its slot is zero
- * padded to the end of it. Nothing is variable, so the total is a compile
- * time constant and a frontend that allocates once always allocates enough.
+ * order of the driver list decides, and a driver that writes less than its
+ * slot is zero padded to the end of it. Nothing is variable, so the total is
+ * a compile time constant and a frontend that allocates once always
+ * allocates enough.
  */
 
 #include "core/sys/sst.h"
@@ -20,8 +21,8 @@
 #include "core/wdc/resb.h"
 #include "host/host.h"
 
-/* A row's slot size may be built from the machine's own constants, so
- * machine.h comes before the roster in drivers.h. */
+/* A driver's slot size may be built from the machine's own constants, so
+ * machine.h is included before the driver list in drivers.h. */
 #include "machine.h"
 #include "drivers.h"
 
@@ -64,16 +65,17 @@ size_t sst_size(void)
     return SST_TOTAL;
 }
 
-/* A load overwrites the machine row by row, so a row that refuses partway
- * through leaves the rows before it already applied. This holds the machine
- * as it stood when the walk began. It is a static rather than an allocation
- * because sst_load fills it before the first row is written and replays it
- * after a refusal, and neither may fail for want of memory. */
+/* A load overwrites the machine one driver at a time, so a driver that
+ * refuses partway through leaves the drivers before it already applied. This
+ * holds the machine as it stood before the load started. It is a static
+ * rather than an allocation because sst_load fills it before the first driver
+ * is written and replays it after a refusal, and neither may fail for want of
+ * memory. */
 static uint8_t sst_scratch[SST_TOTAL];
 
-/* Every row's id, version and slot size, hashed in roster order, so a machine
- * whose roster differs in any of the three refuses a blob rather than walk it
- * into the wrong rows. */
+/* Every driver's id, version and slot size, hashed in driver list order, so a
+ * machine whose list differs in any of the three refuses a blob rather than
+ * loading chunks into the wrong drivers. */
 static uint32_t sst_manifest_crc;
 static bool sst_manifest_done;
 
@@ -158,10 +160,10 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     uint32_t used = ((uint32_t)p[6] << 24) | ((uint32_t)p[7] << 16) |
                     ((uint32_t)p[8] << 8) | p[9];
     uint16_t got = (uint16_t)((p[4] << 8) | p[5]);
-    /* The manifest sst_load matched is computed from the roster and not from
-     * these bytes, and the payload sum that covers them runs only when flags
-     * is clear, so a corrupt SST_TRUSTED or SST_SHARED blob arrives here with
-     * nothing having read them. */
+    /* The manifest sst_load matched is computed from the driver list and not
+     * from these bytes, and the payload sum that covers them runs only when
+     * flags is clear, so a corrupt SST_TRUSTED or SST_SHARED blob arrives here
+     * with nothing having read them. */
     if (memcmp(p, id, 4) != 0 || got != ver || used > size)
     {
         sst_walk_bad = true;

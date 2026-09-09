@@ -24,12 +24,13 @@ void font_init(void);
 
 void font_set_code_page(uint16_t cp);
 
-/* The same page without the reset, for a savestate putting one back. */
+/* The same tables as font_set_code_page, without the terminal reset. A
+ * savestate has already put the terminal's cells back by the time it
+ * restores the code page, and a reset would erase them. */
 void font_load_code_page(uint16_t cp);
 
 uint16_t font_get_code_page(void);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define FONT_DRIVER DRIVER(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _CORE_TERM_FONT_H_ */

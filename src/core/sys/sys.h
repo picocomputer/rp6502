@@ -61,18 +61,18 @@ bool sys_break(void);
  * none registered breaks to the monitor. */
 bool sys_break_to_launcher(void);
 
-/* The latch a savestate carries: the run state, which is sys.c's own static,
- * and the reset line, which is core/wdc/resb.c's. Neither belongs to a driver,
- * so no row can answer for it.
+/* A savestate carries the run state, which is sys.c's own static, and the
+ * reset line, which is core/wdc/resb.c's. Neither belongs to a driver, so no
+ * driver can answer for them.
  *
- * A load applies the latch before it walks the rows, because the only other
- * way to put RESB down is resb_assert, which also resets the 6502, the 6522,
- * the parked bus and the run clock -- four things the blob carries. Applying
- * the latch performs no fan-out at all, since the walk that follows hands
- * every driver its state and a run or stop walk would undo that.
+ * A load applies both before it loads the drivers, because the only other way
+ * to put RESB down is resb_assert, which also resets the 6502, the 6522, the
+ * parked bus and the run clock -- four things the blob carries. Applying them
+ * fans out to nothing, since each driver that follows gets its own state back
+ * and a run or stop would undo that.
  *
  * state is the enum in sys.c, 0 to 3. sys_latch_apply takes only stopped and
- * running, because starting and stopping still owe the machine a driver walk.
+ * running, because starting and stopping still owe every driver a call.
  * A stopped machine always holds the line. A running one may or may not,
  * because an exec asserts RESB one pass before proc_exec_task boots. */
 typedef struct

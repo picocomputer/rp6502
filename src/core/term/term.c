@@ -43,15 +43,12 @@
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16
-/* The longest answer term builds for a query. Every reply is snprintf'd and
- * dropped if it would not fit, so this bounds what a program can be told, not
- * what the console can hold. */
+/* The longest answer term builds for a query. DSR and DECRQM snprintf into a
+ * buffer this size and drop the reply if it would not fit, so this bounds what
+ * a program can be told, not what the console can hold. */
 #define TERM_REPLY_MAX 16
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
-
-// SGR-state-only flags (not stored per-cell): emit-time fg/bg transforms.
-// Held in cursor_state_t alongside bold/faint, not in sgr_attr.
 
 // A blink is a thing on the screen, so it keeps the screen's time: these are
 // frames, counted by vga_frame_count(), not microseconds. Every machine
@@ -101,10 +98,10 @@ typedef enum
 // screen_buf_t), and also reused as the storage type for DECSC and ?1049
 // snapshots so the field list is defined once.
 // fg_color_index sentinel: fg was set via SGR 38 (256-color or RGB) and the
-// recompute path should pull from user_fg_color instead of color_256[].
+// recompute path should pull from user_fg_color instead of color_256_term[].
 // bg_color_index sentinel: bg was set via SGR 48 or SGR 100-107; the
 // recompute path should pull from user_bg_color. (SGR 90-97 doesn't need a
-// sentinel — it stores the bright slot 8..15 directly, which color_256[]
+// sentinel — it stores the bright slot 8..15 directly, which color_256_term[]
 // resolves correctly. The bg side can't do that because ice_colors mode
 // reads bg_color_index + 8.)
 #define FG_COLOR_INDEX_EXTENDED 0xFF
@@ -206,8 +203,7 @@ static inline uint8_t term_buf_slot(uint8_t y_offset, uint8_t row)
 // Translate a logical row (0..height-1) into the start of its physical
 // cell row. Reads y_offset and row_idx[] without locking; the renderer
 // on Core 1 uses the same path. Worst case is one frame of visual tear
-// while a region scroll is mid-update — same severity as today's
-// y_offset++ race. No memory barrier required.
+// while a region scroll is mid-update. No memory barrier required.
 static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 {
     uint8_t slot = term_buf_slot(term->screen->y_offset, y);
@@ -216,7 +212,7 @@ static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 
 // Compute the effective fg/bg/attr a cell write should land with, given
 // the current SGR state. Applies emit-time REVERSE/CONCEAL toggles; render
-// bits (UL/STRIKE/OVERLINE/DBL_UL/BLINK/BLINK_FAST) flow through unchanged.
+// bits, meaning everything in TERM_ATTR_RENDER_MASK, flow through unchanged.
 // TERM_ATTR_DEC is the caller's responsibility -- only set for DEC glyph cells.
 // In ice_colors mode (DECSET ?33) both blink bits (TERM_ATTR_ANY_BLINK) are
 // suppressed at the cell level -- the bright bg is already baked into
@@ -253,8 +249,6 @@ static inline void term_emit_erase(const term_state_t *term, uint16_t *fg,
 }
 
 // Paint [start, end) of `row` with space glyphs at the given fg/bg/attr.
-// Used by every clear/erase/insert path; keep this the only place that
-// touches all five cell fields together.
 static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
                               uint16_t fg, uint16_t bg, uint16_t ul, uint8_t attr)
 {
@@ -301,8 +295,7 @@ static inline void term_refresh_cursor_ptr(term_state_t *term)
 }
 
 // Set a new cursor position, 0-indexed. x == term->width is legal and
-// places the cursor in the deferred-wrap parked state (one past row end);
-// CUP / RCP / DECRC / wrap-on glyph emit all route through here.
+// places the cursor in the deferred-wrap parked state (one past row end).
 static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
 {
     bool x_off_screen = false;
@@ -355,8 +348,8 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
 // the inactive one if the active is already clean. Invariant: cur->y is
 // never dirty on the active buffer (every code path that marks a row
 // dirty either avoids cur->y or follows up with term_clean_line on it),
-// so the cursor cell is never affected by this task and no unlit dance
-// is needed.
+// so the cursor cell is never affected by this task and it never has to
+// call term_cursor_restart_blink.
 static void term_clean_task(term_state_t *term)
 {
     if (term_clean_one_dirty(term->screen, term->width, term->height))
@@ -405,8 +398,7 @@ static void term_mark_rows_erase(term_state_t *term, uint8_t from, uint8_t to)
     term->screen->all_clean = false;
 }
 
-// Full screen clear + home cursor. Backs the C0 \f mapping; also used by
-// RIS. The name reflects the work done, not the dispatch source.
+// Full screen clear + home cursor. Backs the C0 \f mapping; also used by RIS.
 static void term_full_clear(term_state_t *term)
 {
     term_mark_rows_erase(term, 0, term->height);
@@ -629,10 +621,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 }
 
 // Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
-// resulting color through `color` (caller may pass a discard slot for 58)
-// and returns the number of *extra* params consumed beyond the introducer
-// itself. The caller then does `idx += returned; continue;` so the for-
-// loop's own idx++ advances past the introducer byte.
+// resulting color through `color` and returns the number of *extra* params
+// consumed beyond the introducer itself. The caller adds that to idx and
+// breaks, so the for-loop's own idx++ advances past the introducer byte.
 //   ;5;N         -> 2 extras (5, N)
 //   ;2;r;g;b     -> 4 extras
 //   :2::r:g:b    -> 5 extras (ITU/ISO 8613-6: empty colorspace slot)
@@ -724,8 +715,9 @@ static void term_update_bg_color(term_state_t *term)
 //   - bold && fg_color_index in 0..7 -> swap to the bright-palette slot
 //     (the bold-bright trick).
 //   - fg_color_index == TERM_FG_COLOR_INDEX with an OSC 10 override -> use
-//     the override (override wins over bold-bright).
-//   - otherwise -> color_256[fg_color_index]. SGR 90-97 stores the bright
+//     the override, but only while bold is clear: the bold-bright case above
+//     is tested first and index 7 is in its 0..7 range.
+//   - otherwise -> color_256_term[fg_color_index]. SGR 90-97 stores the bright
 //     slot index (8..15) directly so the lookup yields a bright color even
 //     without bold; this also means SGR 22 leaves bright colors alone.
 // Then if faint, halve each RGB channel via the scanvideo channel macros so
@@ -1347,9 +1339,10 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
     term_mark_rows_erase(term, top, (uint8_t)(top + n));
 }
 
-// Visually-empty test: a space, default background, and no rendered line
-// attributes (underline/strike/overline). A lazy-dirty row is judged from its
-// pending erase colors. Logical-row indexed (matches dirty[]/term_row_ptr).
+// Visually-empty test: a space, default background, and no attribute bits at
+// all -- blink and TERM_ATTR_DEC disqualify a row the same as underline does.
+// A lazy-dirty row is judged from its pending erase colors. Logical-row
+// indexed (matches dirty[]/term_row_ptr).
 static bool term_row_is_blank(const term_state_t *term, uint8_t y)
 {
     if (term->screen->dirty[y])
@@ -1466,8 +1459,10 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->cur->x == term->width)
     {
-        // Pending-wrap state. Only reachable with DECAWM on: the clamp at
-        // the end of this function keeps cur->x <= width-1 when wrap is off.
+        // Pending-wrap state. The clamp at the end of this function only
+        // keeps x from reaching width while wrap is off; an x already parked
+        // there survives DECRST ?7 and a saved-cursor restore, so this can
+        // run with DECAWM off.
         term_out_CR(term);
         term_out_LF(term);
     }
@@ -1621,8 +1616,8 @@ static void term_out_DL(term_state_t *term)
     term_set_cursor_position(term, 0, term->cur->y);
 }
 
-// Erase Pn characters from the cursor. Cursor doesn't move; wrap chain
-// is unchanged (this is a paint op, not a delete).
+// Erase Pn characters from the cursor. Cursor doesn't move (this is a
+// paint op, not a delete).
 static void term_out_ECH(term_state_t *term)
 {
     uint16_t n = term->csi_param[0];
@@ -1824,10 +1819,11 @@ static void term_out_EL(term_state_t *term)
     }
 }
 
-// Erase Display. ED 0/1/2 share the same parameter encoding as EL, so the
-// cases below pass through to term_out_EL without rewriting csi_param[0] --
-// ED 0 -> EL 0 (cursor to EOL), ED 1 -> EL 1 (SOL to cursor). The non-
-// cursor rows are lazy-erased via term_mark_rows_erase.
+// Erase Display. ED 0 and ED 1 share EL's parameter encoding, so they pass
+// through to term_out_EL without rewriting csi_param[0] -- ED 0 -> EL 0
+// (cursor to EOL), ED 1 -> EL 1 (SOL to cursor) -- and their non-cursor rows
+// are lazy-erased via term_mark_rows_erase. ED 2 marks every row, cur->y
+// included, and cleans the cursor row itself.
 static void term_out_ED(term_state_t *term)
 {
     switch (term->csi_param[0])
@@ -2640,7 +2636,7 @@ void term_RIS_no_clear(void)
  * was arriving when the blob was taken.
  *
  * Written field by field. cursor_state_t has a byte of padding after its five
- * uint8_t members, and a struct copy would put whatever is in it on the wire,
+ * uint8_t members, and a struct copy would put whatever is in it into the blob,
  * where it would make two saves of one unchanged machine differ. */
 
 static void term_put_cursor(sst_cursor_t *c, const cursor_state_t *cs)
@@ -2814,9 +2810,9 @@ static bool term_get_one(sst_cursor_t *c, term_state_t *t, uint8_t width)
         return false;
     if (alt && !t->bufs[1].mem)
         return false;
-    /* Every saved cursor row, before anything indexes with one. The parser
-     * state is checked because csi_param doubles as the OSC sub-state, where
-     * slot four is an index into the runtime palette. */
+    /* Every saved cursor row, before anything indexes with one. csi_param[4]
+     * is bounded because csi_param doubles as the OSC sub-state, where slot
+     * four is an index into the runtime palette. */
     if (t->bufs[0].cs.y >= TERM_MAX_HEIGHT || t->bufs[1].cs.y >= TERM_MAX_HEIGHT ||
         t->cursor_save.y >= TERM_MAX_HEIGHT || t->decsc.y >= TERM_MAX_HEIGHT ||
         t->save_y >= TERM_MAX_HEIGHT || t->csi_param[4] > 255)

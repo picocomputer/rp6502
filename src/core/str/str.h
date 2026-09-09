@@ -97,7 +97,6 @@ int str_locale_response(char *buf, size_t buf_size, int state, unsigned width);
 #define STR_CONFIG_LOCALE CONFIG_STR(M, str, locale, STR_LOCALE_SIZE, STR_XSTR(RP6502_LOCALE), \
     str_check_locale, str_apply_locale, STR_LOC, str_locale_response, \
     STR_HELP_SET_LOC, str_locales_response)
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define STR_DRIVER DRIVER(str_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
     STR_CONFIG_LOCALE, nul_config, nul_sst)
 

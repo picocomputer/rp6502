@@ -18,9 +18,9 @@ void clk_run(void);
 
 uint32_t clk_get_run(uint32_t us_per_tick);
 
-/* The struct tm on the wire to the 6502 libc: gmtime and localtime push it
- * there, mktime and strftime receive it from there. Every field is an int16 in
- * struct tm order, so it needs no packing. */
+/* The struct tm exchanged with the 6502 libc: gmtime and localtime push it,
+ * mktime and strftime receive it. Every field is an int16 in struct tm order,
+ * so it needs no packing. */
 struct clk_wire_tm
 {
     int16_t tm_sec, tm_min, tm_hour, tm_mday, tm_mon;

@@ -51,7 +51,7 @@ module mode5
      *
      * Taken once at the start rather than re-derived: the derivation is
      * the plane's slot mux, two shifts and a seventeen-bit multiply, and
-     * it stood in front of every decision the walk makes. Nothing
+     * it would stand in front of every decision the pixel scan makes. Nothing
      * downstream reads these before M5_JUDGE. */
     logic [3:0] size_log;
     logic [9:0] size_w, bytes_per_row_w;
@@ -156,9 +156,9 @@ module mode5
     logic [15:0] pal_color;
     always_comb pal_color = pal_q;
 
-    /* No address compare: a prefetch is only ever issued from a hit at
-     * dcache_word + 1 and the walk is sequential, so two fourteen-bit
-     * comparators off the pixel address adder would prove what the walk
+    /* No address compare, because a prefetch is only ever issued from a hit
+     * at dcache_word + 1 and the pixel scan is sequential. Two fourteen-bit
+     * comparators off the pixel address adder would only prove what the scan
      * already guarantees. */
     logic dhit;
     always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
@@ -193,9 +193,9 @@ module mode5
         endcase
     end
 
-    /* The write lands only where the color carries alpha, and only when
-     * the cache has answered — a miss stalls the pixel, not the walk's
-     * correctness. Builtin palettes always hit. */
+    /* The write lands only where the color carries alpha, and only when the
+     * cache has answered. A miss stalls the pixel but does not make the scan
+     * wrong. Builtin palettes always hit. */
     always_comb begin
         mode5_px_we = 1'b0;
         mode5_px_addr = dst;

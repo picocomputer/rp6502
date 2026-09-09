@@ -13,9 +13,9 @@
 #include <stdio.h>
 #include <string.h>
 
-// RP6502 and Windows boots like an IBM AT with num lock on.
-// The Raspberry Pi Keyboard uses num lock to enable a num pad over
-// letter keys; it was designed for Linux where num lock boots off.
+/* An RP6502 boots with NumLock on, the way an IBM AT and Windows do. The
+ * Raspberry Pi Keyboard has no keypad and uses NumLock to lay one over its
+ * letter keys, because it was designed for Linux, which boots NumLock off. */
 static const struct
 {
     uint16_t vid;
@@ -32,7 +32,9 @@ static keyboard_connection_t keyboard_connections[KEYBOARD_MAX_KEYBOARDS];
 #define KEYBOARD_KEY_BIT_SET(data, keycode) ((data)[(keycode) >> 5] |= 1 << ((keycode) & 31))
 #define KEYBOARD_KEY_BIT_VAL(data, keycode) ((data)[(keycode) >> 5] & (1 << ((keycode) & 31)))
 
-// Direct access to the modifier byte of keyboard_keys
+/* The eight modifier usages run 0xE0 to 0xE7, so they fill the one bitmap
+ * byte that holds HID_KEY_CONTROL_LEFT, in the order a HID report's modifier
+ * byte uses. */
 #define KEYBOARD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
 static keyboard_connection_t *keyboard_get_connection_by_slot(int slot)
@@ -57,9 +59,9 @@ static void keyboard_merge_keys(void)
             keyboard_keys[k] |= keyboard_connections[i].keys[k];
 }
 
-/* Word 0's low bits are not keys: bit 0 says nothing is pressed and bits
- * 1-3 are the lock LEDs, so they are restated every time the block goes
- * out. */
+/* Word 0's low four bits are not keys. Bit 0 says nothing is pressed and bits
+ * 1 to 3 are the lock lamps, so both are restated every time the block is
+ * published. */
 static void keyboard_publish(void)
 {
     bool any_key = false;
@@ -94,7 +96,7 @@ uint8_t keyboard_keypad_nav(uint8_t hid_usage)
     case HID_KEY_KEYPAD_0: return HID_KEY_INSERT;
     case HID_KEY_KEYPAD_DECIMAL: return HID_KEY_DELETE;
     }
-    return HID_KEY_NONE; /* KP5, and anything not on the keypad */
+    return HID_KEY_NONE;
 }
 
 int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
@@ -102,8 +104,6 @@ int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
     return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0) + (gui ? 8 : 0);
 }
 
-/* ESC[1;{mod}{c1} when modified, else the bare ESC{c0}{c1} -- ESC[A for an
- * arrow, ESC O P for F1. */
 static size_t keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod)
 {
     if (ansi_mod == 1)
@@ -111,7 +111,6 @@ static size_t keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_m
     return (size_t)snprintf(out, cap, "\33[1;%d%c", ansi_mod, c1);
 }
 
-// The numbered form: ESC[{num}~, or ESC[{num};{mod}~ when modified.
 static size_t keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
 {
     if (ansi_mod == 1)
@@ -119,9 +118,10 @@ static size_t keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
     return (size_t)snprintf(out, cap, "\33[%d;%d~", num, ansi_mod);
 }
 
-/* Two contiguous HID runs, so the table is an index rather than a search.
- * intro 'O' or '[' is the VT100 form and code is its final character; intro 0
- * is the VT220 form and code is its number. */
+/* The keys are one contiguous span of HID usages, so the table is indexed
+ * rather than searched. An intro of 'O' or '[' means the VT100 form and code
+ * is its final character; an intro of 0 means the VT220 form and code is its
+ * number. */
 static const struct
 {
     char intro;
@@ -158,16 +158,11 @@ char keyboard_ctrl_promote(char ch, uint8_t keycode)
         return (char)(ch - 64);
     if (keycode == HID_KEY_BACKSPACE)
         return '\b';
-    /* Enter, Tab and Escape are C0 controls already, so Ctrl has nothing left
-     * to promote and the key still types itself. */
     if ((unsigned char)ch < 0x20)
         return ch;
     return 0;
 }
 
-/* The xram word is assigned rather than pushed through keyboard_xreg, which
- * blanks the block before it publishes. What the blob carries is the block as
- * the program last saw it. */
 void keyboard_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -232,7 +227,6 @@ bool HOST_IN_FLASH("keyboard_mount") keyboard_mount(int slot, const keyboard_con
     return false;
 }
 
-// Clean up descriptor when device is disconnected.
 bool keyboard_umount(int slot)
 {
     keyboard_connection_t *conn = keyboard_get_connection_by_slot(slot);
@@ -253,22 +247,18 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
     const uint8_t *report_data = data;
     uint16_t report_data_len = size;
 
-    // Handle report ID if present
     if (conn->report_id != 0)
     {
         if (report_data_len == 0 || report_data[0] != conn->report_id)
             return;
-        // Skip report ID byte
         report_data++;
         report_data_len--;
     }
 
-    // Swap in a new keys bit array
     uint32_t old_keys[8];
     memcpy(old_keys, conn->keys, sizeof(conn->keys));
     memset(conn->keys, 0, sizeof(conn->keys));
 
-    // Extract from keycode array
     for (int i = 0; i < conn->codes_count; i++)
     {
         uint16_t bit_offset = conn->codes_offset + (i * 8);
@@ -276,14 +266,14 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
                                                     bit_offset, 8);
         if (keycode == 1)
         {
-            // ignore reports when in phantom/overflow condition
+            /* Usage 1 is ErrorRollOver: the keyboard has more keys down than
+             * it can report, and this report says nothing about any of them. */
             memcpy(conn->keys, old_keys, sizeof(conn->keys));
             return;
         }
         KEYBOARD_KEY_BIT_SET(conn->keys, keycode);
     }
 
-    // Extract individual keycode bits
     for (int r = 0; r < KEYBOARD_KEY_RUNS; r++)
     {
         const keyboard_key_run_t *run = &conn->runs[r];
@@ -294,12 +284,10 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
                 KEYBOARD_KEY_BIT_SET(conn->keys, run->usage_min + i);
     }
 
-    // Merge all keyboards into one report so we have
-    // an updated KEYBOARD_MODIFIER(keyboard_keys).
+    /* The merge comes first because the keymap is handed the merged modifier
+     * byte, and a modifier pressed in this same report has to be in it. */
     keyboard_merge_keys();
 
-    // Find new key down events after new keyboard_keys is made
-    // so we have the latest modifiers.
     for (int i = 0; i < 128; i++)
     {
         bool curr = KEYBOARD_KEY_BIT_VAL(conn->keys, i);
@@ -308,7 +296,6 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
             keymap_on_key(KEYBOARD_MODIFIER(keyboard_keys), i);
     }
 
-    // Check for releasing ALT key during ALT mode.
     keymap_on_modifiers(KEYBOARD_MODIFIER(keyboard_keys));
 
     keyboard_publish();
@@ -350,8 +337,6 @@ void keyboard_toggle_lock(uint8_t bit)
     keyboard_publish();
 }
 
-/* A host whose OS already tracks the locks says what they are, rather than
- * this guessing from an assumed start and every keypress after it. */
 void keyboard_set_locks(uint8_t leds)
 {
     leds &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
@@ -362,18 +347,14 @@ void keyboard_set_locks(uint8_t leds)
     keyboard_publish();
 }
 
-/* A host whose OS decodes its own keyboard sets the bits a report would
- * have set. Keycodes 0-3 are reserved -- none, and the rollover errors --
- * and their bits in word 0 carry the no-keys and lock flags, so a key
- * never touches them. */
 void keyboard_release_all(void)
 {
-    /* The lock LEDs live in word 0's low bits and are the host's to report,
-     * not a key anyone is holding, so publish restates them. */
     memset(keyboard_keys, 0, sizeof(keyboard_keys));
     keyboard_publish();
 }
 
+/* Usages 0 to 3 are None and the three error codes, and their bits in word 0
+ * carry the no-keys and lock flags instead, so no key may touch them. */
 void keyboard_hid_set(uint8_t keycode, bool down)
 {
     if (keycode < 4)

@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Keys to characters: the layout, dead keys, Alt codes, the VT sequences a
- * terminal expects, and auto-repeat. Separate from keyboard.c because a host
- * whose OS has already done this work links neither this nor the layout
- * database -- emu.cmake omits them both. */
+/* Keys to characters: the layout, dead keys, Alt codes, the escape sequences a
+ * terminal expects, and auto-repeat. Kept apart from keyboard.c because a
+ * machine whose host has already done this work links neither this file nor
+ * the layout database. */
 
 #include "core/sys/timer.h"
 #include "machine.h"
@@ -23,9 +23,8 @@
 #include "core/hid/usage.h"
 #include <stdio.h>
 #include <string.h>
-/* The case-insensitive compares a layout name is matched with. Named by
- * POSIX rather than by C, and a host that has no such header supplies
- * one — see src/osal/windows. */
+/* strcasecmp, which matches a layout name, is named by POSIX rather than by C.
+ * A host whose compiler has no such header supplies one; see src/osal. */
 #include <strings.h>
 
 #define KEYMAP_REPEAT_DELAY 500000
@@ -45,25 +44,28 @@ static bool keymap_alt_mode;
 static uint8_t keymap_alt_code;
 static char keymap_dead_key0;
 static char keymap_dead_key1;
-// Dead keys checks need a linear search with oem (8-bit) chars.
-// This can require hundreds of unicode lookups from flash.
-// To make this faster, we cache the oem chars in RAM.
+/* Checking a dead key is a linear search over OEM bytes, and converting the
+ * layout's code points to OEM as it went would cost hundreds of Unicode
+ * lookups out of flash per keystroke, so the converted bytes are cached in
+ * RAM. */
 #define KEYMAP_DEADKEY_CACHE_SIZE 512
 static char keymap_deadkey_cache[KEYMAP_DEADKEY_CACHE_SIZE];
 static char const (*keymap_cached_dead2)[3];
 static char const (*keymap_cached_dead3)[4];
-/* Which page the cache above was built for. A flag rather than a sentinel page,
- * so both live in .bss instead of one of them in .data. */
+/* Which code page the cache above holds. A separate flag rather than a
+ * reserved page number, so that both live in .bss rather than one of them
+ * having to be initialized in .data. */
 static uint16_t keymap_cache_code_page;
 static bool keymap_cache_valid;
 
-// The active layout's name and description, copied out of the database
-// so the settings pattern can keep returning a pointer.
+/* Copies of the active layout's name and description, because the settings
+ * code returns a pointer and the database may not be addressable memory. */
 static char keymap_layout_name[LAYOUT_NAME_MAX];
 static char keymap_layout_description[LAYOUT_DESC_MAX];
 
-// The one door onto the queue: all or nothing, and a Ctrl-C latches SIGINT
-// before the space check, whichever way it was typed.
+/* Everything reaches the queue through here. A run is queued whole or not at
+ * all, and a Ctrl-C latches SIGINT before the space is checked, so a break is
+ * seen even when the queue is too full to take the byte. */
 static void keymap_queue(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
@@ -84,7 +86,6 @@ static void keymap_queue_char(char ch)
     keymap_queue(&ch, 1);
 }
 
-// Resolve keymap_layout_index from keymap_layout_pos and rebuild the cache.
 static void keymap_apply_active(void)
 {
     size_t len = 0;
@@ -120,13 +121,12 @@ static void keymap_cycle_layout(void)
     keymap_apply_active();
 }
 
-/* The cache holds OEM bytes, so it is only good for the page it was built from.
- * Checked here rather than driven from oem.c: not every machine routes a code
- * page change through a module that could tell us -- the Pocket's is its font's
- * -- and on the RIA the USB task runs before this one, so a keystroke could
- * otherwise beat the rebuild by a whole pass of the loop. */
 static void keymap_rebuild_code_page_cache(void);
 
+/* The cache holds OEM bytes, so it is only good for the page it was built
+ * from. The page is checked here, on the way into a keystroke, rather than
+ * being invalidated by oem.c, because not every machine routes a code page
+ * change through a module that could say so. */
 static void keymap_cache_ready(void)
 {
     if (!keymap_cache_valid || keymap_cache_code_page != oem_get_code_page_run())
@@ -135,7 +135,7 @@ static void keymap_cache_ready(void)
 
 /* The modifier byte and the lock lamps, decoded once. The keypad remap moves
  * the keycode and shift together, so they travel as one from here on. mod is
- * kept raw because AltGr is RIGHTALT specifically, not either alt. */
+ * kept raw because AltGr is the right alt specifically, not either alt. */
 typedef struct
 {
     uint8_t mod;
@@ -157,12 +157,11 @@ static void keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
     k->gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
     k->capslock = keyboard_get_leds() & KEYBOARD_LED_CAPSLOCK;
     bool is_numlock = keyboard_get_leds() & KEYBOARD_LED_NUMLOCK;
-    /* Armed with the key that is physically down, before the remap below, so
-     * keymap_task can ask whether it is still held. */
+    /* Auto-repeat is armed with the key that is physically down, before the
+     * remap below, so that keymap_task can ask whether it is still held. */
     keymap_repeat_modifier = modifier;
     keymap_repeat_keycode = keycode;
     keymap_repeat_timer = timer_in_us(initial_press ? KEYMAP_REPEAT_DELAY : KEYMAP_REPEAT_RATE);
-    // When not in numlock, and not shifted, remap num pad
     if (keycode >= HID_KEY_KEYPAD_1 &&
         keycode <= HID_KEY_KEYPAD_DECIMAL &&
         (!is_numlock || k->shift))
@@ -174,7 +173,7 @@ static void keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
     k->keycode = keycode;
 }
 
-// Alt held over the num pad types a code point one digit at a time.
+// Alt held over the keypad types an OEM character code one digit at a time.
 static bool keymap_alt_code_key(const keymap_press_t *k)
 {
     bool on_pad = k->keycode >= HID_KEY_KEYPAD_1 && k->keycode <= HID_KEY_KEYPAD_0;
@@ -200,7 +199,6 @@ static bool keymap_shifted(const keymap_press_t *k)
     return k->shift ^ (k->capslock && use_caps_lock);
 }
 
-// The plain, shifted or AltGr character this key carries, 0 for none.
 static char keymap_layout_lookup(const keymap_press_t *k)
 {
     if (k->keycode >= 128 || (k->mod & (KEYBOARD_MODIFIER_LEFTALT |
@@ -213,8 +211,8 @@ static char keymap_layout_lookup(const keymap_press_t *k)
                       oem_get_code_page_run());
 }
 
-/* An Alt chord on a key AltGr does not answer: the unmodified character,
- * prefixed with ESC the way xterm sends Meta. */
+/* An Alt chord on a key that AltGr does not answer sends the character from
+ * the plain or shifted column prefixed with ESC, the way xterm sends Meta. */
 static bool keymap_alt_escape(const keymap_press_t *k)
 {
     char ch = ff_uni2oem(layout_code_point(keymap_layout_index, k->keycode,
@@ -232,7 +230,6 @@ static bool keymap_alt_escape(const keymap_press_t *k)
     return true;
 }
 
-// Drop whatever was half-typed; the machine is going somewhere else.
 void keymap_abandon(void)
 {
     keymap_key_queue_tail = keymap_key_queue_head;
@@ -240,11 +237,10 @@ void keymap_abandon(void)
     keymap_dead_key0 = keymap_dead_key1 = 0;
 }
 
-/* Dead keys compose across two or three presses. Space commits the mark on
- * its own, DEL cancels one, and an unmatched pair types both. */
+/* Dead keys compose across two or three presses. Space commits the mark on its
+ * own, DEL cancels one, and a pair that composes nothing types both. */
 static void keymap_compose(char ch)
 {
-    // Check for dead key start
     if (!keymap_dead_key0)
     {
         for (int i = 0; keymap_cached_dead2[i][0]; i++)
@@ -265,7 +261,6 @@ static void keymap_compose(char ch)
             }
         }
     }
-    // Handle second press in dead key sequence
     if (keymap_dead_key0 && !keymap_dead_key1)
     {
         if (ch == ' ')
@@ -306,7 +301,6 @@ static void keymap_compose(char ch)
         keymap_dead_key0 = 0;
         return;
     }
-    // Handle third press in dead key sequence
     if (keymap_dead_key0 && keymap_dead_key1)
     {
         if (ch == ' ')
@@ -341,11 +335,10 @@ static void keymap_compose(char ch)
         keymap_dead_key0 = keymap_dead_key1 = 0;
         return;
     }
-    // Not in dead key sequence
     keymap_queue_char(ch);
 }
 
-// Chords that do something other than type. True when one fired.
+// Chords that do something other than type. True when one of them fired.
 static bool keymap_chord(const keymap_press_t *k)
 {
     switch (k->keycode)
@@ -359,7 +352,6 @@ static bool keymap_chord(const keymap_press_t *k)
         }
         break;
     case HID_KEY_F4:
-        // alt-f4 exits and returns to launcher
         if (k->alt && sys_break_to_launcher())
         {
             keymap_abandon();
@@ -367,15 +359,15 @@ static bool keymap_chord(const keymap_press_t *k)
         }
         break;
     case HID_KEY_DELETE:
-        // ctrl-alt-del exits to monitor, where there is one
         if (k->ctrl && k->alt && sys_break())
         {
             keymap_abandon();
             return true;
         }
         break;
-    /* The lamps change and the key still falls through to send nothing:
-     * ScrollLock is inside the VT table's range with an empty entry. */
+    /* A lock key changes its lamp and then falls through to send nothing.
+     * ScrollLock needs the empty entry it has in the escape sequence table to
+     * do that, because its usage is inside the table's range. */
     case HID_KEY_NUM_LOCK:
         keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
         break;
@@ -438,7 +430,7 @@ static int keymap_sanitize_layout(const char *kb)
         return found_index;
 }
 
-// Find name as a whole token within a space separated list.
+// Find name as a whole token in a space separated list.
 static const char *keymap_find_token(const char *list, const char *name)
 {
     size_t name_len = strlen(name);
@@ -511,9 +503,8 @@ void keymap_task(void)
     }
 }
 
-/* The width the caller would like is ignored: the list sets its own
- * from the longest name it has. Named rather than left off, because
- * this file is compiled by MSVC now that tests/hid links it. */
+/* The width the caller asks for is ignored, because the list is laid out from
+ * the longest layout name it has. */
 int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;
@@ -571,9 +562,9 @@ static void keymap_rebuild_code_page_cache(void)
     keymap_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
-    // Unreachable for a database keyboard_layout_gen.py built: it refuses a
-    // layout whose dead keys do not fit here. A machine staging one it
-    // did not build loses the composing, not the keyboard.
+    /* A database that keyboard_layout_gen.py built never gets here, because it
+     * refuses a layout whose dead keys do not fit. A machine staging a database
+     * it did not build loses the composing rather than the keyboard. */
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
     keymap_deadkey_cache[0] = 0;
@@ -591,16 +582,14 @@ size_t keymap_in_chars(char *buf, size_t length)
     return i;
 }
 
-/* Validate and canonicalize in one pass -- unknown name, duplicate or
- * overflow all refuse -- writing only the caller's buffer. */
 bool keymap_check_layout_list(const char *in, char *out)
 {
     return keymap_build_layout_list(in, out, KEYMAP_LAYOUT_LIST_SIZE);
 }
 
-/* Keep the active layout if it survived the new list, otherwise the first.
- * The position points into config's storage, which holds these same bytes
- * by the time this runs. */
+/* The active layout is kept if it survived the new list, and otherwise the
+ * first is taken. The position points into config's own storage, which holds
+ * these same bytes by the time this runs. */
 void keymap_apply_layout_list(const char *list, bool changed)
 {
     (void)list;
@@ -611,7 +600,6 @@ void keymap_apply_layout_list(const char *list, bool changed)
     keymap_apply_active();
 }
 
-/* SET's line for this row: the list when there is one, else the layout. */
 int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -637,8 +625,8 @@ const char *keymap_get_layout_verbose(void)
 
 void HOST_IN_FLASH("keymap_init") keymap_init(void)
 {
-    /* An empty list is not a list. A machine with no stored layout adopts
-     * the build default and keeps it, so the file completes itself once. */
+    /* A machine with no stored layout adopts the default and writes it back,
+     * so the config file completes itself once. */
     if (!keymap_get_layout_list()[0])
     {
         char name[LAYOUT_NAME_MAX];
@@ -649,8 +637,8 @@ void HOST_IN_FLASH("keymap_init") keymap_init(void)
         keymap_apply_layout_list(keymap_get_layout_list(), true);
 }
 
-/* Once per report, so an Alt code committed while Alt was held is emitted
- * when it is released. */
+/* Called once per report, so that an Alt code typed while Alt was held is
+ * emitted when Alt is released. */
 void keymap_on_modifiers(uint8_t modifier)
 {
     if (keymap_alt_mode &&

@@ -6,9 +6,9 @@
  * What a keystroke types, on a machine whose OS already knows.
  *
  * The firmware turns HID keycodes into characters through its own layout
- * tables, because a Pico has nobody to ask. A desktop OS has done that
- * work before the keystroke arrives, so this takes the text and leaves
- * the keycodes to core/hid/keyboard.c, which keeps the bitmap a program polls.
+ * tables, because a Pico has nobody to ask. A desktop OS has done that work
+ * before the keystroke arrives, so this file takes the text and leaves the
+ * keycodes to core/hid/keyboard.c, which keeps the bitmap a program polls.
  */
 
 #include "core/str/oem.h"
@@ -29,8 +29,8 @@ void vtkeys_text(const char *utf8)
         return;
     const char *p = utf8;
     unsigned char oem;
-    /* The decoder's stand-in for a character the code page cannot spell is
-     * DEL, which the line editor would take as a backspace. */
+    /* The decoder returns DEL for a character the code page cannot spell, and
+     * the line editor would take that as a backspace. */
     while ((oem = oem_from_utf8_next(&p)))
         com_keyboard_push_byte(oem == 0x7F ? '?' : oem);
 }
@@ -39,8 +39,7 @@ void vtkeys_char(uint32_t codepoint)
 {
     if (!codepoint)
         return;
-    /* Below 0x80 the code page does not get a vote, which is also what the
-     * UTF-8 decoder does with a lead byte it can return directly. */
+    /* Below 0x80 the code page has no say. */
     uint8_t oem = (uint8_t)codepoint;
     if (codepoint >= 0x80)
     {
@@ -51,9 +50,8 @@ void vtkeys_char(uint32_t codepoint)
     com_keyboard_push_byte(oem);
 }
 
-/* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte
- * (Ctrl-A=0x01 .. Ctrl-Z=0x1A). Ctrl-C latches SIGINT on the way into the ring
- * (com.c scans for it), so a break is caught even if the ring is undrained. */
+/* com_keyboard_push_byte latches SIGINT when it sees the Ctrl-C this makes, so
+ * a break is caught even when the ring is full and the byte is dropped. */
 void vtkeys_ctrl_letter(char letter)
 {
     char c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
@@ -75,11 +73,11 @@ void vtkeys_alt_char(char ch, bool ctrl)
     com_keyboard_push_byte((uint8_t)ch);
 }
 
-/* A key with no character of its own, by HID usage. The four that do have one
- * are answered here because which byte they type is this machine's to say -- the
- * firmware reads them from its layout instead. Everything else is the shared
- * table. False when the usage sends nothing, so a caller can go on to try it
- * as a chord. */
+/* The four keys answered by the switch below have characters of their own, and
+ * which byte each types is this machine's to say, where the firmware reads
+ * them from its layout. Every other key comes from the shared table. False
+ * when the usage sends nothing, so that a caller can go on to try it as a
+ * chord. */
 bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
     char ch = 0;
@@ -107,14 +105,15 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
             if (c)
                 ch = c;
         }
-        /* Alt prefixes with ESC rather than changing the byte the key types,
-         * so it composes with whatever the other modifiers already decided. */
+        /* Alt prefixes ESC rather than changing the byte the key types, so it
+         * composes with whatever the other modifiers already decided. */
         if (alt)
             com_keyboard_push_byte(0x1b);
         com_keyboard_push_byte((uint8_t)ch);
         return true;
     }
-    /* No gui bit: the window manager owns that key on a desktop. */
+    /* The gui bit is not passed, because a desktop's window manager owns
+     * that key. */
     char seq[16];
     size_t n = keyboard_vt_seq(seq, sizeof seq, hid_usage,
                       keyboard_vt_mod(shift, alt, ctrl, false));
@@ -124,11 +123,7 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
     return true;
 }
 
-/* ------------------------------------------------------------------ */
-/* Typed text (clipboard paste, scripted input)                        */
-/* ------------------------------------------------------------------ */
-
-/* Text still being dripped into the keyboard ring (NULL = idle). */
+/* Text still being delivered to the keyboard ring, NULL when idle. */
 static char *vtkeys_paste_buf;
 static size_t vtkeys_paste_len, vtkeys_paste_pos;
 static oem_run_t vtkeys_paste_run;
@@ -163,8 +158,9 @@ void vtkeys_task(void)
 {
     if (!vtkeys_paste_buf)
         return;
-    /* Leave a quarter of the ring so live typing still fits during a long
-     * paste; a full ring drops bytes, which would corrupt the paste. */
+    /* A quarter of the ring is left free so that live typing still fits
+     * during a long paste, and because a full ring drops the bytes it is
+     * given, which would leave holes in the paste. */
     while (vtkeys_paste_pos < vtkeys_paste_len && com_keyboard_free() > COM_RING_SIZE / 4)
     {
         char out[16];
@@ -177,7 +173,7 @@ void vtkeys_task(void)
                                      vtkeys_paste_len - vtkeys_paste_pos,
                                      true, out, room, &taken);
         if (!taken)
-            break; /* a sequence the clipboard ended mid-way */
+            break;
         com_keyboard_push(out, n);
         vtkeys_paste_pos += taken;
     }
@@ -185,10 +181,10 @@ void vtkeys_task(void)
         vtkeys_paste_cancel();
 }
 
-/* core/hid/keymap.h's seam, answered by a machine that had an OS to ask. No
- * desktop host calls hid_report at all -- it sets bits with keyboard_hid_set
- * and pushes text with the door above -- so this is a link-time answer that
- * never runs, not a runtime one that declines. */
+/* The core/hid/keymap.h calls, answered by a machine that had an OS to ask.
+ * Only keyboard_report calls these, and a host that links this file never
+ * calls hid_report: it sets key bits with keyboard_hid_set and queues text
+ * through the calls above. */
 void keymap_on_key(uint8_t modifier, uint8_t keycode)
 {
     (void)modifier;

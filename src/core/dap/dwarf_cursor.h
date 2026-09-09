@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Byte cursor + DWARF LEB128 primitives shared by the .debug_info and
- * .debug_line readers. A short read sets ok=false and yields 0/""; readers
- * check ok and abort the current unit.
  */
 
 #ifndef _CORE_DAP_DWARF_CURSOR_H_

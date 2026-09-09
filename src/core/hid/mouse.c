@@ -11,7 +11,6 @@
 #include "machine.h"
 #include <string.h>
 
-// This is the report we generate for XRAM.
 static struct
 {
     uint8_t buttons;
@@ -20,7 +19,8 @@ static struct
     uint8_t wheel;
     uint8_t pan;
 } mouse_state;
-// Higher resolution x and y
+/* Raw device counts. The block carries these shifted down by one, so it
+ * advances one unit for every two counts the mouse reports. */
 static uint16_t mouse_x;
 static uint16_t mouse_y;
 
@@ -111,12 +111,10 @@ void mouse_report(int slot, uint8_t const *data, size_t size)
     {
         if (report_data_len == 0 || report_data[0] != conn->report_id)
             return;
-        // Skip report ID byte
         report_data++;
         report_data_len--;
     }
 
-    // Extract button states
     uint8_t buttons = 0;
     for (int i = 0; i < 8; i++)
     {
@@ -135,7 +133,6 @@ void mouse_report(int slot, uint8_t const *data, size_t size)
             merged |= mouse_connections[i].buttons;
     mouse_state.buttons = merged;
 
-    // Extract movement data
     mouse_x += hid_extract_signed(report_data, report_data_len,
                                   conn->x_offset, conn->x_size);
     mouse_state.x = mouse_x >> 1;
@@ -158,17 +155,15 @@ bool mouse_is_mapped(void)
     return mouse_xram != 0xFFFF;
 }
 
-/* A host whose OS decodes its own pointer has no report to hand over,
- * so it moves the same counters a report would have. The block carries
- * half of what a mouse counts, so a host count -- which is already in
- * the block's units -- is doubled on the way in and arrives whole. */
 static int32_t mouse_acc_x, mouse_acc_y;
 
+/* A host count is already in the block's units, and the counters behind the
+ * block run at twice that, so host motion is doubled on the way in. */
 void mouse_host_move(int32_t dx, int32_t dy)
 {
     mouse_acc_x += dx;
     mouse_acc_y += dy;
-    int ix = mouse_acc_x / MOUSE_ONE; // truncates toward zero, as the float did
+    int ix = mouse_acc_x / MOUSE_ONE;
     int iy = mouse_acc_y / MOUSE_ONE;
     if (ix == 0 && iy == 0)
         return;

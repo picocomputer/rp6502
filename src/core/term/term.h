@@ -28,7 +28,7 @@ void term_RIS_no_clear(void);
  */
 
 /* The cell store is the largest thing term.c owns, and two things size
- * it: this switch, and TERM_MAX_HEIGHT in term.c — 32 rows only where
+ * it: this switch, and the machine's TERM_MAX_HEIGHT — 32 rows only where
  * the device's 512-line SXGA console exists, 30 everywhere else.
  *
  * TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
@@ -69,7 +69,7 @@ _Static_assert(sizeof(term_data_t) == 8, "term_data_t size lock for cell-memory 
 // SGR 5 (slow) and SGR 6 (rapid) live at bits 0-1 so they map onto the live
 // blink phase counter directly. A cell carries exactly one of the two; the
 // renderer ANDs it against the phase so each pulses at its own rate. The two
-// underlines sit adjacent at bits 2-3. See TERM_BLINK_TICK_US.
+// underlines sit adjacent at bits 2-3. See TERM_BLINK_TICK_FRAMES.
 #define TERM_ATTR_ANY_BLINK (TERM_ATTR_BLINK | TERM_ATTR_BLINK_FAST)
 #define TERM_ATTR_RENDER_MASK (TERM_ATTR_BLINK | TERM_ATTR_BLINK_FAST |     \
                                TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL |     \
@@ -89,32 +89,31 @@ typedef struct
 } term_view_t;
 void term_view(term_view_t *out);
 
-// The visible terminal's logical row y, through the scroll remap — rides
-// region scrolls and alt-screen swaps.
+// The visible terminal's logical row y, resolved through the scroll remap, so
+// the caller sees the right row after a region scroll or an alt-screen swap.
 const term_data_t *term_view_row(uint8_t y);
 
 // The view reports its geometry: rows of the 40- or 80-column terminal.
 void term_set_height(uint8_t width, uint8_t height);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
-/* Both terminals, whole: every scalar, the four saved cursors, the scroll
- * remap and the pending lazy erases, and the cells themselves. The runtime
- * palette goes with them, because OSC 4 can move an entry and nothing but
- * the blob would then know what it moved to.
+/* The chunk holds both terminals in full: every scalar, the four saved
+ * cursors, the scroll remap, the pending lazy erases and the cells. It also
+ * holds the runtime palette, because OSC 4 can change an entry and nothing
+ * else records what it changed to.
  *
- * The three pointers inside a terminal are rebuilt rather than carried. Two
- * of them point into the terminal itself and the third into its cells, and
- * all three follow from the active screen and the cursor. The cell arrays'
- * own addresses are never touched: they are function-scope statics in
- * term_init, which has run long before any load, and nothing outside it can
- * even name them.
+ * The three pointers inside a terminal are rebuilt on load rather than saved.
+ * Two point into the terminal itself and the third into its cells, and all
+ * three follow from the active screen and the cursor. The cell arrays' own
+ * addresses are never written, because they are function-scope statics in
+ * term_init, which runs long before any load.
  *
- * The shape rides on the wire and is checked. A terminal is a different
- * object at a different height, and a blob from a machine with a taller one
- * would put its rows in the wrong places.
+ * The chunk starts with the terminal dimensions and a load rejects a chunk
+ * whose dimensions differ, because a blob made at a taller height would put
+ * its rows in the wrong places.
  *
- * Per terminal: 40 scalars, 4 cursor states, 2 screens of metadata, and the
- * cells. Both terminals, then the palette. */
+ * The size is, per terminal, 86 bytes of scalars plus the tab bitmap, four
+ * cursor states and two screens of metadata, then both terminals' cells, then
+ * the palette. */
 #define TERM_CURSOR_SST_SIZE 25
 #define TERM_SCREEN_SST_SIZE (TERM_CURSOR_SST_SIZE + 4 + 9 * TERM_MAX_HEIGHT)
 #define TERM_TAB_SST_SIZE ((80 + 7) / 8)

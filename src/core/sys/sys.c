@@ -148,13 +148,13 @@ void sys_commit(void)
         sys_stop();
     if (sys_state == starting)
     {
-        /* Assigned before the fan-out, not after: a stop asked for while
-         * sys_on_run is still walking is a real teardown of drivers already
-         * up, and the stopping it leaves behind is performed just below.
-         * Assigning after would discard it. */
+        /* Assigned before sys_on_run, not after, because a stop asked for
+         * while sys_on_run is still calling drivers is a real teardown of the
+         * drivers already up. The stopping state it leaves behind is handled
+         * just below, and assigning after would discard it. */
         sys_state = running;
         sys_on_run();
-        /* Only when the walk did not stop us. sys_stop lowers RESB from
+        /* Only when the run hooks did not stop us. sys_stop lowers RESB from
          * anywhere, including from inside a run hook, and releasing here would
          * raise the line on a machine that is being torn down. */
         if (sys_state == running)
@@ -165,8 +165,8 @@ void sys_commit(void)
         sys_on_stop();
         sys_state = stopped;
     }
-    /* The flag is cleared before the walk, so that a break asked for by a
-     * break hook gets its own pass instead of being swallowed by this one. */
+    /* The flag is cleared before the break hooks run, so a break asked for by
+     * a break hook gets its own pass instead of being swallowed by this one. */
     if (sys_breaking)
     {
         sys_breaking = false;

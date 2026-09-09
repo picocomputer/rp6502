@@ -43,10 +43,9 @@ void rln_read_line_no_history(rln_read_callback_t callback);
 // Give up a read in progress: the callback never fires.
 void rln_read_cancel(void);
 
-/* Give up a read the way an input that ran out gives it up: what has been
- * typed so far is still a line, so the callback fires with it rather than
- * the read being thrown away. False when nothing was held, so a caller can
- * tell an unfinished line from an empty one. */
+// Finish a read early with whatever has been typed, firing the callback with
+// that partial line. Returns false when no read was in progress or nothing
+// had been typed.
 bool rln_read_flush(void);
 
 // 6502 applications may configure the max length
@@ -73,10 +72,9 @@ void rln_set_term_height(uint16_t v);
 // change reflow the current input line at the new effective width.
 void rln_set_naws_size(uint16_t w, uint16_t h);
 
-// A source's far end has gone. What a source knows about its wire outlives a
-// read and a program, which is what makes type-ahead and a CRLF pair work
-// across both -- but not a session: the next client is a different terminal
-// and owes nothing the last one did. Takes a com_source_t.
+// Forget everything about a source, including the cpr_seen and line_end that
+// normally survive a read, because the next client on that source is a
+// different terminal. Takes a com_source_t.
 void rln_forget_source(unsigned src);
 
 // Terminal width. Priority: rln_set_term_width override if set, then the
@@ -106,24 +104,19 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
-/* The line the reader is building, which std.c's stdin bridge points into.
- * A savestate rebuilds that pointer from here rather than carrying it, and
- * bounds its own index into it against this length. */
+/* The line being edited. std.c's stdin bridge points into it, and a savestate
+ * rebuilds that pointer by calling this rather than carrying it. */
 #define RLN_LINE_MAX 256
 const char *rln_line(void);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
-/* The line being edited, the history behind it, the terminal this reader has
- * worked out it is talking to, and one parser per input source.
+/* The reader is a function pointer, so it is saved as a token. A software
+ * machine has exactly one, std.c's stdin bridge, and rebuilding it by calling
+ * rln_read_line would emit the whole handshake and wipe the line the blob
+ * just restored.
  *
- * The reader itself is a function pointer and rides as a token instead: on a
- * software machine there is exactly one, std.c's stdin bridge, and rebuilding
- * it by calling rln_read_line would emit the whole handshake and wipe the
- * line the blob just restored.
- *
- * The three deadlines are machine time, so they are carried whole rather than
- * re-armed: a deadline against the beam means the same thing in the machine
- * that loads the blob as in the one that made it. */
+ * The deadlines are machine time, so they are carried whole rather than
+ * re-armed. They mean the same thing in the machine that loads the blob as in
+ * the one that made it. */
 #define RLN_SST_SIZE 3629
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);

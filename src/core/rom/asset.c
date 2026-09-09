@@ -83,8 +83,8 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags)
         return true;
 
     /* proc_running() names the image this drive was reading only because
-     * PROC_DRIVER precedes ASSET_DRIVER in the roster and sst_load walks it
-     * forward; the name is reopened the way the load first opened it. */
+     * PROC_DRIVER precedes ASSET_DRIVER in the driver list and sst_load loads
+     * in that order. The name is reopened the way the load first opened it. */
     const char *running = proc_running();
     if (!running || !running[0])
         return false;
@@ -168,7 +168,7 @@ static bool asset_name_eq(const char *utf8, const char *oem)
 }
 
 /* Find the asset named `name`. Each entry in the directory is a "#>$len $crc
- * name" header followed by that many bytes, so the walk reads a header and
+ * name" header followed by that many bytes, so the search reads a header and
  * skips a body until the name matches or a line turns up that is not a header.
  * On success *base is the file offset of the asset's data and *len its
  * length. */

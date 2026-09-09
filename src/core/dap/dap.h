@@ -3,10 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * C-callable entry points for the cppdap-based DAP server (dap.cpp). The server
- * speaks the Debug Adapter Protocol over stdin/stdout (the channel VS Code's
- * lldb-dap host uses to drive us). Only built/called under EMU_WITH_DEBUGGER in
- * --dap mode.
+ * C entry points for the cppdap server in dap.cpp, which speaks the Debug
+ * Adapter Protocol over stdin and stdout. Built only under EMU_WITH_DEBUGGER.
  */
 
 #ifndef _CORE_DAP_DAP_H_
@@ -14,34 +12,28 @@
 
 #include <stdarg.h>
 
-/* Create the DAP session, register handlers, and bind it to stdin/stdout.
- * cppdap runs the message reader on its own thread; handlers either marshal work
- * to the main loop (via dap_pump) or read machine state while the CPU is
- * stopped. Call once, after sys_init(). */
+/* Call once, after sys_init. cppdap reads messages on a thread of its own, so a
+ * handler either queues its work for dap_pump or reads machine state that is
+ * still because the CPU is stopped. */
 void dap_start(void);
 
-/* True once dap_start created the session — a DAP client owns the machine's run
- * state (so a plain --debug overlay does not). False without --dap. */
 bool dap_is_active(void);
 
-/* ROM argv[1..] used when a launch request carries no args of its own.
- * Call before dap_start. */
+/* The ROM arguments a launch request falls back on. Call before dap_start. */
 void dap_set_default_args(int argc, char **argv);
 
-/* Main-thread service: apply queued DAP requests against the dbg engine and the
- * machine, and emit the launch-sequence / termination events. Call once per
- * frame from the window loop. */
+/* Applies the queued DAP requests and emits the launch and termination events.
+ * Call once per frame, on the thread that runs the machine. */
 void dap_pump(void);
 
-/* True once the client has sent a Disconnect request — the window loop should
- * then close the app. */
+/* True once the client has disconnected, which asks the window loop to quit. */
 bool dap_quit_requested(void);
 
-/* Close the session (window teardown). */
 void dap_stop(void);
 
-/* One of the machine's own lines, on the stderr channel beside the program's.
- * Any thread. */
+/* A machine log line, sent to the client as an OutputEvent in the "stderr"
+ * category beside the program's own output. The append holds the output
+ * buffer's mutex, so any thread may call this. */
 void dap_log(int level, const char *category, const char *fmt, va_list ap);
 
 #endif /* _CORE_DAP_DAP_H_ */

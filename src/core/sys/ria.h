@@ -25,8 +25,8 @@ extern "C"
      * machine that has no such transfer. */
     bool ria_active(void);
 
-    /* Takes the latch rather than reads it, so a caller that asks without
-     * meaning to act on it swallows the Ctrl-C. */
+    /* Consumes the flag rather than only reading it, so a caller that asks
+     * without meaning to act on it swallows the Ctrl-C. */
     bool ria_get_sigint(void);
     void ria_trigger_sigint(void);
 

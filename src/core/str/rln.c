@@ -104,8 +104,8 @@ typedef struct
     bool da2_seen;          // proven DA2-aware this read
     bool defer_pending;     // arm-time busy criteria still pending
     bool defer_esc_pending; // arm-time in-flight ESC sequence not yet done
-    // The end character this source last ended a line with. The opposite one
-    // arriving next is the other half of it and ends nothing.
+    // The CR or LF this source last ended a line with, so the other half of
+    // a CRLF pair arriving next is absorbed instead of ending a second line.
     uint8_t line_end;
 } rln_source_t;
 
@@ -171,11 +171,10 @@ static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mo
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
 
-// Everything a source knows about this read, forgotten. What it knows about
-// the wire is not this read's to forget: a source that answered a CPR is
-// still a real terminal, and a return that ended a line is still owed its
-// line feed, whether the next line comes from the same read, the next one,
-// or after the machine has stopped.
+// Clear each source's per-read state. cpr_seen and line_end survive because
+// they describe the terminal rather than the read: a source that answered a
+// CPR is still a real terminal, and a return that ended a line is still owed
+// its line feed even when the line feed arrives during the next read.
 static void rln_sources_reset(void)
 {
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
@@ -208,12 +207,6 @@ static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-// The sources whose CPR/DA2 replies are real protocol responses. Typed input
-// from a keyboard can look like a reply and isn't, and the poke source is
-// virtual. All CPR accounting gates on this, so a source that is not one of
-// these can never work off a CPR it was seeded to expect.
-/* One input source's parser, which is most of this chunk: four of them, and
- * the in-flight escape sequence inside each. */
 static void rln_source_save(sst_cursor_t *c, const rln_source_t *s)
 {
     sst_put_u8(c, (uint8_t)s->state);
@@ -251,7 +244,6 @@ static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
     bool cpr = sst_get_bool(c), da2 = sst_get_bool(c);
     bool defer = sst_get_bool(c), defer_esc = sst_get_bool(c);
     uint8_t end = sst_get_u8(c);
-    /* Both lengths index buf, and the parser walks from one to the other. */
     if (!sst_ok(c) || blen > RLN_BUF_SIZE || iflen > blen)
         return false;
     s->state = (rln_ansi_state_t)state;
@@ -281,9 +273,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u8(c, rln_history_count);
     sst_put_u8(c, rln_history_pos);
     sst_put(c, rln_buf, RLN_BUF_SIZE);
-    /* The reader as a token, never as a pointer. std.c's is the only reader
-     * this file can name, and a callback it cannot name is a machine it cannot
-     * write down: fail the save rather than hand the load a different reader. */
+    /* A callback is a function pointer, which cannot be written to a blob, so
+     * it is saved as a token. std.c's reader is the only one this file can
+     * name, and any other callback fails the save rather than being restored
+     * as the wrong reader. */
     if (!rln_callback)
         sst_put_u8(c, 0);
     else if (rln_callback == std_rln_reader())
@@ -366,9 +359,10 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
             return false;
     if (!rln_source_load(c, &poke))
         return false;
-    /* Everything that indexes the edit buffer or the history ring. The
-     * lengths themselves need no bound: a byte cannot reach past a buffer
-     * this size, and the assert is what keeps that true if the size moves. */
+    /* The lengths need no range check because a uint8_t cannot reach past a
+     * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
+     * changes. The indexes are checked because they can exceed the lengths
+     * they index. */
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
         cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
@@ -417,6 +411,10 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
+// The sources whose CPR/DA2 replies are real protocol responses. Typed input
+// from a keyboard can look like a reply and isn't, and the poke source is
+// virtual. All CPR accounting gates on this, so a source that is not one of
+// these can never work off a CPR it was seeded to expect.
 static bool rln_source_tracked(com_source_t s)
 {
     return s == COM_SOURCE_UART || s == COM_SOURCE_TEL;
@@ -1258,14 +1256,11 @@ static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
 
 static void rln_dispatch_C0(rln_source_t *a, uint8_t ch)
 {
-    // Either spelling ends a line. A terminal sends a return and a file of
-    // host text holds a line feed; the console does not rewrite either on the
-    // way in, so this is where both are understood. The pair is one line end
-    // and not two, and the memory of it lasts exactly one character -- which
-    // is why "\r\r" is still two lines and a blank line in a CRLF file
-    // survives. Cleared by whatever is dispatched next, because the parser's
-    // own protocol bytes arrive on this source too and are not what a return
-    // was followed by.
+    // Both CR and LF end a line, because a terminal sends CR and a file of
+    // host text holds LF, and nothing rewrites either on the way in. A CR and
+    // LF next to each other are one line ending, so the second is discarded.
+    // The memory lasts exactly one dispatched byte, which is why "\r\r" is
+    // two lines and why a blank line in a CRLF file survives.
     uint8_t was = a->line_end;
     a->line_end = 0;
     if ((ch == '\r' || ch == '\n') && was && ch != was)

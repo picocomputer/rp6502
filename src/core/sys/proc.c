@@ -83,8 +83,8 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
     sys_stop_now(); /* before the load writes over what it was running on */
-    /* Cleared after that stop and not before, because the walk it performs
-     * reaches proc_stop, which reads proc_exec_inflight to decide whether the
+    /* Cleared after that stop and not before, because the stop reaches
+     * proc_stop, which reads proc_exec_inflight to decide whether the
      * launcher comes back. Whatever the outgoing program had queued goes with
      * it, since a start asked for by name is not its child. */
     queued = false;

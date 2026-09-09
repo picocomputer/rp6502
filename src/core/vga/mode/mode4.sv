@@ -155,7 +155,7 @@ module mode4 (
         + {(17'(row_texel) + 17'(px_i[15:0])), 1'b0};
 
     /* The affine accumulators, the SIO interpolator's arithmetic: the
-     * first sample sits one past the span and the walk runs backward,
+     * first sample sits one past the span and the scan runs backward,
      * subtracting a00 and a10 in wrapping thirty-two bits — the exact
      * uint32 stream the oracle's software interpolator produces. */
     logic signed [31:0] af_a00, af_a10;
@@ -243,7 +243,7 @@ module mode4 (
                 /* A prefetch of this word may still be in flight, and a
                  * duplicate miss fetch would land on a clock the promote
                  * path already covers — leaving fw_i raised and the
-                 * request line silent for the rest of the walk. */
+                 * request line silent for the rest of the row. */
                 if (!dhit
                     && !((pre_v || pre_pend)
                          && pre_word == cur_byte_addr[15:2]))
@@ -452,8 +452,8 @@ module mode4 (
                     if (a_gnt)
                         fw_i <= 3'd1;
                     if (gnt_d) begin
-                        /* Narrow to the row's opaque span; the walk
-                         * below skips when it comes up empty. */
+                        /* Narrow to the row's opaque span. The pixel loop
+                         * below skips when the span comes up empty. */
                         if (17'($signed({2'd0, a_rdata[30:16]}))
                             > tex_x) begin
                             tex_x <= 17'({2'd0, a_rdata[30:16]});

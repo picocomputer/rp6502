@@ -3,34 +3,29 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * A HID report descriptor, read once into the four structs the drivers
- * process reports with.
- *
- * Only a machine that meets real USB or Bluetooth devices needs this.
- * The others state their devices outright -- see the Sony controllers in
- * gamepad.c, whose own descriptors lie, and the Pocket's dock -- so they do
- * not link it.
+ * A HID report descriptor, read into the four structs the drivers process
+ * reports with. Only a machine that meets real USB or Bluetooth devices links
+ * this; the others state their devices outright.
  */
 
 #include "core/hid/parse.h"
 #include <string.h>
 
-/* Per-field info the descriptor walk yields. */
 typedef struct
 {
     uint32_t app_usage;
     uint16_t usage_page;
     uint16_t usage;
-    /* An Array field's slots each hold one usage out of this range, so the
-     * range is the field's identity where usage is a Variable field's. */
+    /* An Array field's slots each carry one usage out of this range. A
+     * Variable field has a single usage instead. */
     uint16_t usage_min;
     uint16_t usage_max;
     uint16_t report_id; // 0xFFFF if no report ID
-    uint16_t bit_pos;   // Bit offset within report (excludes report ID byte)
-    uint8_t size;       // Field size in bits
+    uint16_t bit_pos;   // bit offset within the report, past any report ID byte
+    uint8_t size;       // field size in bits
     int32_t logical_min;
     int32_t logical_max;
-    uint8_t input_flags; // Raw Input item flags byte (bit 1 = variable, bit 2 = relative)
+    uint8_t input_flags; // the Input item's flags: bit 1 variable, bit 2 relative
 } hid_field_t;
 
 #define HID_FIELD_IS_ARRAY(f) (!((f)->input_flags & 0x02))
@@ -40,7 +35,6 @@ typedef bool (*hid_field_cb_t)(const hid_field_t *field, void *context);
 
 static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t cb, void *context)
 {
-    // Global state
     uint16_t usage_page = 0;
     int32_t logical_min = 0;
     int32_t logical_max = 0;
@@ -49,13 +43,13 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
     uint16_t report_id = 0xFFFF;
     uint16_t bit_pos = 0;
 
-    /* The Application Collection in scope, and how deep inside it we are, so
-     * a device that nests Physical collections still reports what it is. */
+    /* The Application Collection in scope and how deep inside it the walk is,
+     * so that a device nesting Physical collections still says what it is. */
     uint32_t app_usage = HID_APP_NONE;
     uint16_t app_depth = 0;
     uint16_t depth = 0;
 
-    // Local state (cleared after each Main item)
+    // Local state, which a Main item clears.
     uint16_t usages[32];
     const uint8_t max_usages = sizeof(usages) / sizeof(usages[0]);
     uint8_t usage_count = 0;
@@ -196,7 +190,6 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                     bit_pos += report_size;
                 }
             }
-            // Clear local state after any Main item
             usage_count = 0;
             have_usage_range = false;
             usage_min = 0;
@@ -208,12 +201,11 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
     }
 }
 
-/* Which report each driver reads. A device may put its keyboard on one
- * report and its mouse on another, so they are chosen apart: for each
- * driver, the first report carrying a field that driver can use. A
- * digitizer outranks a bare X and Y, so a pen or touch panel that also
- * offers a mouse-compatibility collection is decoded as the absolute
- * device it is and not as its relative alias. */
+/* Which report each driver reads. A device may put its keyboard on one report
+ * and its mouse on another, so each driver takes the first report carrying a
+ * field it can use. A digitizer outranks a bare X and Y, so that a pen or
+ * touch panel offering a mouse-compatibility collection as well is decoded as
+ * the absolute device it is. */
 #define HID_NO_REPORT 0xFFFF
 
 typedef struct
@@ -248,9 +240,9 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
     return true;
 }
 
-/* The four fills. Each takes the first declaration of a field it wants,
- * because a descriptor that says X twice in one report means the first
- * one -- the rest are an alternate collection's view of it. */
+/* Each fill takes the first declaration of a field it wants, because a
+ * descriptor that names X twice in one report means the first one; the rest
+ * are another collection's view of it. */
 
 typedef struct
 {
@@ -262,7 +254,7 @@ typedef struct
 static void hid_locate(uint16_t *offset, uint8_t *size, const hid_field_t *f)
 {
     if (*size)
-        return; // first declaration wins
+        return;
     *offset = f->bit_pos;
     *size = f->size;
 }
@@ -284,7 +276,7 @@ static void hid_fill_keyboard(keyboard_connection_t *keyboard, const hid_field_t
         return;
     if (HID_FIELD_IS_ARRAY(f) && f->size == 8)
     {
-        // Consecutive slots of one array; a gap starts nothing new.
+        // Consecutive slots of one array. A gap starts nothing new.
         if (!keyboard->codes_count)
         {
             keyboard->codes_offset = f->bit_pos;
@@ -296,9 +288,9 @@ static void hid_fill_keyboard(keyboard_connection_t *keyboard, const hid_field_t
     }
     if (HID_FIELD_IS_ARRAY(f) || f->size != 1 || f->usage > 0xFF)
         return;
-    /* A bit per usage. Both shapes a keyboard declares -- the modifier
-     * byte and an NKRO bitmap -- are runs of consecutive usages one bit
-     * apart, so a field either continues the open run or opens a new one. */
+    /* One bit per usage. Both shapes a keyboard declares, the modifier byte
+     * and an NKRO bitmap, are runs of consecutive usages one bit apart, so a
+     * field either continues the open run or opens a new one. */
     for (int i = 0; i < KEYBOARD_KEY_RUNS; i++)
     {
         keyboard_key_run_t *run = &keyboard->runs[i];
@@ -383,7 +375,7 @@ static void hid_fill_gamepad(gamepad_connection_t *gamepad, const hid_field_t *f
             gamepad->button_offsets[f->usage - 1] = f->bit_pos;
         return;
     }
-    if (f->usage_page == 0x02) // Simulation: the pedals a wheel reports triggers on
+    if (f->usage_page == 0x02) // Simulation, where a wheel puts its pedals
     {
         if (f->usage == 0xC5)
             hid_locate_range(&gamepad->rx_offset, &gamepad->rx_size, &gamepad->rx_min, &gamepad->rx_max, f);
@@ -463,24 +455,25 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     out->tablet.report_id = choice.tablet == HID_NO_REPORT ? 0 : (uint8_t)choice.tablet;
     out->gamepad.report_id = choice.gamepad == HID_NO_REPORT ? 0 : (uint8_t)choice.gamepad;
 
-    /* What each driver will take. A descriptor that says what it is gets
-     * believed; one that does not is judged by what turned up. */
+    /* What each driver will take. The mouse and the gamepad believe a
+     * descriptor that says what it is; the keyboard and the tablet are judged
+     * by the fields that turned up. */
     out->keyboard.valid = out->keyboard.codes_count || out->keyboard.runs[0].count;
 
-    // If it squeaks like a mouse: an X the device moves us by, not to.
+    // A mouse either says it is one or reports an X that is relative.
     out->mouse.valid = out->mouse.x_size > 0 &&
                      (fill.mouse_app == HID_APP_MOUSE || out->mouse.x_relative);
 
-    /* A relative mouse or an absolute digitizer/pen; not an absolute
-     * Generic-Desktop device with no digitizer usage, which is a gamepad's
-     * sticks. */
+    /* A tablet is a relative mouse, or an absolute digitizer or pen. An
+     * absolute Generic Desktop device with no digitizer usage is a gamepad's
+     * sticks rather than a tablet. */
     out->tablet.valid = out->tablet.x_size > 0 && out->tablet.y_size > 0 &&
                      (out->tablet.x_relative || out->tablet.tip_offset != HID_ABSENT ||
                       out->tablet.inrange_offset != HID_ABSENT);
 
-    /* If it creaks like a gamepad. A mouse has buttons and an X too, but
-     * its X is relative, and a digital gamepad has no axes at all, so its
-     * discrete dpad buttons are what say it isn't a keyboard. */
+    /* A mouse has buttons and an X as well, but its X is relative. A gamepad
+     * with neither sticks nor a hat has no axes at all, and what marks one out
+     * then is the first of the discrete dpad buttons at index 16. */
     bool axes = out->gamepad.x_size || out->gamepad.y_size || out->gamepad.z_size ||
                 out->gamepad.rz_size || out->gamepad.rx_size || out->gamepad.ry_size ||
                 out->gamepad.hat_size;

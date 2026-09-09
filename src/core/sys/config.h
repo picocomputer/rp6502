@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The machine's persisted settings, assembled from its driver roster. A driver
+/* The machine's persisted settings, assembled from its driver list. A driver
  * names a setting in the config columns of its DRIVER row and contributes a
  * check that judges a value and an apply that makes the machine match. This
  * header expands the row into the accessor pair; core/sys/config.c expands the

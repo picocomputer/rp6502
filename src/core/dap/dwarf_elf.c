@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Shared ELF32 image loader — see dwarf_elf.h.
  */
 
 #include "core/dap/dwarf_elf.h"
@@ -52,10 +50,11 @@ bool elf_open(const char *path, elf_image *im)
     if (sz <= 64) { fclose(f); return false; }
     uint8_t *buf = malloc((size_t)sz + 1);
     if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz) { free(buf); fclose(f); return false; }
-    buf[sz] = 0; /* terminate any unterminated string at end of file */
+    /* The image is one byte longer than the file and that byte is zero, so a
+     * string running to the end of the file still terminates inside the buffer. */
+    buf[sz] = 0;
     fclose(f);
 
-    /* ELF32, little-endian only (the llvm-mos target). */
     if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 /*ELFCLASS32*/ || buf[5] != 1 /*little*/) { free(buf); return false; }
     im->buf = buf;
     im->size = sz;
@@ -69,7 +68,8 @@ bool elf_open(const char *path, elf_image *im)
         elf_close(im);
         return false;
     }
-    /* section-header string table's own sh_offset (field 16 of its entry) */
+    /* Field 16 of a section header is sh_offset, here the offset of the
+     * section-header string table itself. */
     im->shstr_off = elf_shdr_u32(im, im->e_shstrndx, 16);
     if (im->shstr_off >= (uint64_t)sz)
     {
