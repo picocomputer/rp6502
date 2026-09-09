@@ -10,17 +10,15 @@
 #include <stdbool.h>
 #include <string.h>
 
-/* noinline on purpose. Left to itself, link-time optimization folds this into
- * sys_random, then folds that into the syscall dispatcher, and the finalizer's
- * constants land wherever a caller is -- bytes of a soft CPU's 96 KB to save
- * one call. MSVC has no such attribute and no such firmware; compat.h defines
- * it away there. */
+/* MSVC has no noinline attribute; osal/windows/msvc/compat.h defines
+ * __attribute__ away there. */
 __attribute__((noinline)) uint32_t sys_random_step(uint32_t *state)
 {
-    /* Numerical Recipes' LCG into Murmur3's 32-bit finalizer as retuned by
-     * lowbias32: full period, and every output bit well mixed. The increment
-     * is odd, so a state of zero is an ordinary state and needs no guard --
-     * which matters now that a fixture may pin a seed of zero. */
+    /* Numerical Recipes' linear congruential generator feeding the lowbias32
+     * tuning of Murmur3's 32-bit finalizer. The multiplier is one more than a
+     * multiple of four and the increment is odd, so the generator has full
+     * period and a state of zero is an ordinary state rather than a fixed
+     * point that would need a guard. */
     *state = *state * 1664525u + 1013904223u;
     uint32_t x = *state;
     x ^= x >> 16;
@@ -59,11 +57,12 @@ uint32_t sys_random(void)
     return sys_random_step(&sys_random_state);
 }
 
-/* Seeded first, so a blob never carries a stream that has not started: the
- * machine that loads one would otherwise draw its own entropy at the first
- * rand() and two peers would part company there. It is the only thing a save
- * changes about the machine, and it changes it identically every time, so two
- * saves of one unchanged machine are still the same bytes. */
+/* The state is seeded before it is written so that a blob never carries a
+ * stream that has not started. A machine loading one would otherwise come up
+ * with a state of zero and marked as seeded, while the machine that saved it
+ * still draws host_seed() at its first lrand. Seeded rather than drawn from,
+ * because a draw would advance the stream and make two saves of one unchanged
+ * machine differ. */
 void random_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;

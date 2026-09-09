@@ -4,22 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* A cursor over a savestate's bytes, and nothing else.
+/* A cursor over a savestate's bytes.
  *
- * Every driver that carries state writes it through one of these and reads it
- * back through another. The walk that hands them out is core/sys/sst.c, which
- * only a machine that makes blobs compiles -- but the save and load bodies
- * themselves sit in the drivers, and those are compiled by every machine that
- * has the driver. So this header stands alone: no osal, no host, and above
- * all no drivers.h, which every one of those drivers already includes.
+ * Every driver that carries state writes it through one of these, and a driver
+ * is compiled by every machine that lists it -- but core/sys/sst.c, which hands
+ * the cursors out row by row, is compiled only by a machine that makes blobs.
+ * So the accessors here are inline and this header includes nothing of a
+ * machine's own, or a firmware that never saves would be left with undefined
+ * references to a file it does not build.
  *
- * The put and get are inline for the same reason. A firmware that never makes
- * a blob still compiles the bodies, and they must not leave it an undefined
- * reference to a file it does not build.
- *
- * Big-endian on the wire, because rollback netplay requires it and the
- * Pocket's engine already is. Field by field and never a struct copy: no
- * padding, no ABI, no pointer.
+ * The sst_put_uN helpers below write big-endian a field at a time, so a row
+ * built from them carries no padding, no ABI and no pointer. A row that hands
+ * sst_put a struct instead writes host byte order and that struct's layout,
+ * which core/term/term.c does with its term_data_t cells and its uint16_t
+ * palette, so those bytes only read back under a build that lays them out the
+ * same way.
  */
 
 #ifndef _CORE_SYS_SST_H_
@@ -30,10 +29,11 @@
 #include <stdint.h>
 #include <string.h>
 
-/* at is where the next byte goes, end is one past this row's slot. A put or
- * get that would cross end sets fail and moves nothing; a get answers zero.
- * The walk stops at the first row whose cursor failed, so a body may run to
- * its end without checking after every call. */
+/* at is where the next byte goes, end is one past this row's slot. A put that
+ * would cross end sets fail and moves nothing; a get that would sets fail and
+ * zeros what it was asked to fill, so a body that reads a whole row's worth of
+ * fields before checking sst_ok once never acts on an indeterminate value.
+ * core/sys/sst.c stops at the first row whose cursor failed. */
 typedef struct
 {
     uint8_t *at;
@@ -86,8 +86,6 @@ static inline uint8_t sst_get_u8(sst_cursor_t *c)
     return v;
 }
 
-/* A bool is one byte of 0 or 1. Any other value is a blob this build did not
- * write, so the row that reads one fails rather than store a trap. */
 static inline void sst_put_bool(sst_cursor_t *c, bool v)
 {
     sst_put_u8(c, v ? 1 : 0);
@@ -140,8 +138,6 @@ static inline uint64_t sst_get_u64(sst_cursor_t *c)
     return (hi << 32) | sst_get_u32(c);
 }
 
-/* The signed widths a machine actually carries, in two's complement, which is
- * what every target here is. */
 static inline void sst_put_i16(sst_cursor_t *c, int16_t v) { sst_put_u16(c, (uint16_t)v); }
 static inline int16_t sst_get_i16(sst_cursor_t *c) { return (int16_t)sst_get_u16(c); }
 static inline void sst_put_i32(sst_cursor_t *c, int32_t v) { sst_put_u32(c, (uint32_t)v); }
@@ -150,8 +146,8 @@ static inline void sst_put_i64(sst_cursor_t *c, int64_t v) { sst_put_u64(c, (uin
 static inline int64_t sst_get_i64(sst_cursor_t *c) { return (int64_t)sst_get_u64(c); }
 
 /* A fixed-width slot holding a NUL-terminated string, zero-filled past it. A
- * string that does not fit fails the cursor rather than truncate: a path cut
- * short names a different file. */
+ * string that does not fit fails the cursor rather than truncate, because a
+ * path cut short names a different file. */
 static inline void sst_put_str(sst_cursor_t *c, const char *s, size_t slot)
 {
     size_t n = strlen(s);
@@ -173,27 +169,19 @@ static inline void sst_put_str(sst_cursor_t *c, const char *s, size_t slot)
 static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
 {
     sst_get(c, s, slot);
-    if (s[slot - 1] != 0) /* unterminated: not a string this build wrote */
+    if (s[slot - 1] != 0)
         c->fail = true;
     s[slot - 1] = 0;
 }
 
-/* ---- the blob ------------------------------------------------------------
- *
- * What a machine that makes savestates answers. core/sys/sst.c walks its own
- * roster to build these, so only a machine that compiles that file has them.
- *
- * The two flags are the only thing a caller says about why it is asking, and
- * core states them in its own words: it cannot name libretro's context enum,
- * because libretro.h reaches emu_core from the libretro root alone.
- *
- * TRUSTED  the caller made this blob and is handing it straight back. It may
- *          skip the scratch copy that would otherwise let a failed load undo
- *          itself, because there is nothing to distrust and runahead asks
- *          sixty times a second.
- * SHARED   it crosses to another machine. Every host path is written as zeros
- *          and the load keeps the files and the directory it already has,
- *          because a path under one user's home is a desync under another's.
+/* TRUSTED  the caller made this blob and is handing it straight back, so the
+ *          load skips the scratch copy that would otherwise let it undo
+ *          itself. There is nothing to distrust, and the copy costs a save on
+ *          every load.
+ * SHARED   the blob crosses to another machine, so core/api/dir.c writes its
+ *          path slots empty and a load keeps the directories and the working
+ *          directory it already has, because a path under one user's home is
+ *          a desync under another's.
  *
  * Neither flag means a plain load from a file, which takes the scratch and
  * checks the payload sum. */
@@ -201,14 +189,15 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
 #define SST_TRUSTED 0x01
 #define SST_SHARED 0x02
 
-/* The size of every blob this build makes, and the only size it will load.
- * A sum of per-row constants, so it is fixed at compile time and answerable
- * before the machine is even up. */
+/* The size of every blob this build makes, and the only size it will load. It
+ * is a sum of per-row constants, so it is fixed at compile time and can be
+ * answered before the machine is up. */
 size_t sst_size(void);
 
 /* NULL on success, else a static reason. A save refuses a machine that is
- * mid-fan-out; a load refuses a blob this build did not write, and undoes
- * itself if a row refuses partway through. */
+ * mid-fan-out. A load that a row refuses partway through puts back what it had
+ * already written over, but only when the scratch copy was taken, so a
+ * SST_TRUSTED load that a row refuses leaves the machine half loaded. */
 const char *sst_save(void *buf, size_t len, unsigned flags);
 const char *sst_load(const void *buf, size_t len, unsigned flags, const char *rom);
 

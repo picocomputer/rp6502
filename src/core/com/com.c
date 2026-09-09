@@ -3,16 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The console, for a machine whose console has no wire of its own to
- * arbitrate: two rings, one for what was typed and one for what the terminal
- * answered, and a single sink every terminal-bound byte passes through once.
- * Which ring the next byte comes from is core/com/pick.c's; the rings answer
- * as two of its rows.
- *
- * The rules here are the machine's, not the wire's -- a Ctrl-C latches a
- * SIGINT wherever it enters, a BEL in program output rings the teletype, a
- * bare newline is spelled CRLF -- so they are written once and every machine
- * of this shape gets all of them. The wire is core/com/tty.h.
  */
 
 #include "core/sys/ria.h"
@@ -27,9 +17,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* A Ctrl-C anywhere in the keyboard stream latches a SIGINT. The byte is still
- * delivered to the program; the latch is independent of consumption, and it
- * happens here so no machine can be the one that forgets to do it. */
 #define COM_ETX 0x03
 
 #define RING_MASK (COM_RING_SIZE - 1)
@@ -38,31 +25,18 @@ _Static_assert((COM_RING_SIZE & RING_MASK) == 0, "COM_RING_SIZE must be a power 
 typedef struct
 {
     uint8_t buf[COM_RING_SIZE];
-    uint16_t head; /* next write */
-    uint16_t tail; /* next read */
+    uint16_t head;
+    uint16_t tail;
 } ring_t;
 
 static ring_t keyboard_ring;
 static ring_t uart_ring;
-/* The emulated terminal's answer, held whole until the wire it shares a
- * source with is empty. Promoted then and not before, so it always follows
- * everything the wire has delivered rather than jumping the queue into the
- * middle of it -- the same rule the VGA chip's console states for the same
- * reason. What no rule here can catch is a wire that stopped mid sequence
- * and has more coming; only the far end knows that. A reply is a bounded
- * burst, so one buffer holds any of them. */
 static uint8_t reply_buf[32];
 static size_t reply_len;
 static bool com_term_reply_suppressed;
 
-/* Gates the teletype bell rung on a BEL (0x07) in program output. The setting
- * roundtrips through the BEL attribute, so a program reads back what it set. */
 static bool com_bel_enabled = true;
 
-/* The last byte the CRLF translator passed, so a newline arriving in a later
- * call than the return before it is not given a second one. At file scope
- * because the COM row carries it: a function-scope static is invisible even
- * to the rest of this file. */
 static char com_crlf_last;
 
 static void ring_save(sst_cursor_t *c, const ring_t *r)
@@ -125,7 +99,7 @@ static void ring_push(ring_t *r, uint8_t b)
 {
     uint16_t next = (uint16_t)((r->head + 1) & RING_MASK);
     if (next == r->tail)
-        return; /* full: drop */
+        return;
     r->buf[r->head] = b;
     r->head = next;
 }
@@ -151,8 +125,9 @@ static int ring_pop(ring_t *r)
     return b;
 }
 
-/* The wire is empty, so a held answer can go in without landing inside
- * something the wire had half-delivered. */
+/* A reply is held back while the ring still has bytes in it, because those
+ * bytes can be the start of a sequence whose rest has not arrived yet, and
+ * the reply would then be delivered in the middle of that sequence. */
 static void reply_promote(void)
 {
     if (!reply_len || uart_ring.head != uart_ring.tail)
@@ -161,8 +136,6 @@ static void reply_promote(void)
         ring_push(&uart_ring, reply_buf[i]);
     reply_len = 0;
 }
-
-/* ---- the two rows the picker reads ---- */
 
 size_t com_keyboard_read(char *buf, size_t length)
 {
@@ -182,9 +155,6 @@ void com_keyboard_clear(void)
     memset(&keyboard_ring, 0, sizeof keyboard_ring);
 }
 
-/* The terminal's answer is this row's tail: promoted before each byte, so it
- * follows whatever the wire had queued and a read that drains the wire reads
- * on into the answer. */
 size_t com_uart_read(char *buf, size_t length)
 {
     size_t n = 0;
@@ -211,8 +181,6 @@ void com_uart_clear(void)
     reply_len = 0;
 }
 
-/* ---- output: the one path to the terminal ---- */
-
 static void (*com_term_out)(const char *buf, int len);
 
 void com_set_term_out(void (*out_chars)(const char *buf, int len))
@@ -220,7 +188,6 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
     com_term_out = out_chars;
 }
 
-/* Optional tap on the terminal stream, set by tests to capture output. */
 static void (*com_tx_tap)(const char *buf, int len);
 
 void com_set_tx_tap(void (*tap)(const char *buf, int len))
@@ -228,7 +195,6 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len))
     com_tx_tap = tap;
 }
 
-/* The program's streams, raw, for whoever wants them apart from the terminal. */
 static void (*com_std_tap)(int fd, const char *buf, int len);
 
 void com_set_std_tap(void (*tap)(int fd, const char *buf, int len))
@@ -236,9 +202,6 @@ void com_set_std_tap(void (*tap)(int fd, const char *buf, int len))
     com_std_tap = tap;
 }
 
-/* Where the program's stderr goes besides the terminal. NULL until a host
- * says, because a machine that is a guest in someone else's process has no
- * stderr to claim. */
 static void (*com_stderr_sink)(const char *buf, int len);
 
 void com_set_stderr_sink(void (*sink)(const char *buf, int len))
@@ -246,8 +209,6 @@ void com_set_stderr_sink(void (*sink)(const char *buf, int len))
     com_stderr_sink = sink;
 }
 
-/* Every terminal-bound byte passes here exactly once, after CRLF translation:
- * the tap, the bell and the wire all observe the same merged stream. */
 void com_tx_write(const char *buf, int len)
 {
     if (com_tx_tap)
@@ -261,13 +222,6 @@ void com_tx_write(const char *buf, int len)
         com_term_out(buf, len);
 }
 
-/* The shared sources were written against a stdio layer that translated above
- * the driver, so a bare '\n' reaches the terminal as "\r\n". Batched, because
- * the sink is a call and one per byte is a call per byte.
- *
- * Public because com_printf is each machine's -- how it formats is its libc's
- * business, and a soft CPU with a 4 KB stack does not want the buffer a
- * vsnprintf form needs -- but every machine's printf ends here. */
 void com_crlf_write(const char *buf, int len)
 {
     char out[2 * 64];
@@ -296,9 +250,6 @@ int com_putchar(int c)
     return (int)(unsigned char)c;
 }
 
-/* The terminal sink never backpressures on these machines: a write is always
- * ready and completes on the spot. */
-
 bool com_writable(void)
 {
     return true;
@@ -319,8 +270,6 @@ size_t com_stdout_write(const char *buf, size_t count)
     return count;
 }
 
-/* The wire takes the raw bytes; the terminal shows them beside stdout, so
- * nobody at the screen has an error hidden from them. */
 size_t com_stderr_write(const char *buf, size_t count)
 {
     if (com_std_tap)
@@ -331,10 +280,9 @@ size_t com_stderr_write(const char *buf, size_t count)
     return count;
 }
 
-/* ---- input: what arrives, and what a Ctrl-C in it means ---- */
-
-/* Dropped whole rather than truncated: half a CSI is a sequence the reader
- * would parse as something else. */
+/* A reply that does not fit is dropped whole rather than truncated, because
+ * half of an escape sequence is a sequence the reader parses as something
+ * else. */
 void com_in_write_reply(const char *s, size_t n)
 {
     if (com_term_reply_suppressed || n > sizeof reply_buf ||
@@ -349,9 +297,8 @@ void com_suppress_term_reply(bool suppress)
     com_term_reply_suppressed = suppress;
 }
 
-/* The wire's end of the console, shaped after a Pico draining its UART FIFO:
- * the SIGINT scan comes before the space check, so a Ctrl-C is caught even
- * when the byte after it is dropped. */
+/* A Ctrl-C is scanned for before the byte is pushed, so a break is seen even
+ * when the ring is full and the byte itself is dropped. */
 void com_uart_push(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
@@ -408,9 +355,6 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-/* Cold boot: clear queued input and restore the BEL default. Not run per
- * program -- type-ahead survives an exec, and com_run restores the BEL enable
- * alone. */
 void com_init(void)
 {
     com_rx_clear();
@@ -422,8 +366,6 @@ void com_run(void)
     com_bel_enabled = true;
 }
 
-/* What was typed was meant for the program being interrupted. The byte the
- * register window staged for it is the bus's to drop, in ria_break. */
 void com_break(void)
 {
     com_rx_clear();
@@ -431,8 +373,5 @@ void com_break(void)
 
 void com_stop(void)
 {
-    /* The terminal is somebody's, and the guest may have left it in a mode
-     * of its own. This is the same string the Pico's console signs off with.
-     */
     com_printf("%s", STR_TERM_SOFT_RESET);
 }

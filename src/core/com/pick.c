@@ -2,18 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Which source the next console byte comes from. A machine lists its sources
- * in drivers.h -- a keyboard, a wire, a remote -- each a row of function
- * pointers over a queue that stays where it is; this file reads the rows.
- *
- * The rules here are the ones every console with more than one source needs.
- * A read holds the source it started on until that source has been dry for
- * its dwell, so a keystroke cannot cut into a paste and a burst on a wire is
- * not sliced by a byte from another. A byte the machine's register window
- * staged ahead of a reader comes back through the row it was taken from,
- * before that row is read, so no row can forget it and no path produces a
- * byte without its source.
  */
 
 #include "core/sys/com.h"
@@ -24,8 +12,6 @@
 static HOST_IN_FLASH("com_sources") const com_source_driver_t
     com_sources[COM_SOURCE_COUNT] = {RP6502_COM_SOURCES};
 
-/* The source a read is in the middle of, and how long it keeps the reader
- * once it has run dry. */
 static com_source_t com_rx_held = COM_SOURCE_ANY;
 static timer_mach_t com_rx_deadline;
 
@@ -37,7 +23,10 @@ static size_t com_read_source(com_source_t s, char *buf, size_t length)
     return n;
 }
 
-/* The enum's order is the try order: keyboard, then wire, then remote. */
+/* A source that read something holds the reader for the dwell it declares, so a
+ * byte from another source cannot land between two chunks of a burst. A source
+ * that declares no dwell is never held, because a deadline of zero microseconds
+ * has already passed. */
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
     if (com_rx_held != COM_SOURCE_ANY && timer_mach_passed(com_rx_deadline))
@@ -55,9 +44,6 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
                 *src_out = s;
             return n;
         }
-        /* A row without a dwell is one whose empty queue means the user
-         * stopped typing, so it lets go now. A row with one keeps the reader
-         * through the gap in a burst still arriving. */
         if (!com_sources[s].dwell_us)
             com_rx_held = COM_SOURCE_ANY;
     }
@@ -85,9 +71,6 @@ int com_peekchar(com_source_t src)
     return com_sources[src].peek ? com_sources[src].peek() : -1;
 }
 
-/* One source per read: what the hold promises to a reader that takes a
- * buffer at a time is the same as what it promises to one that takes a byte,
- * and a raw TTY: read never gets two sources spliced in one buffer. */
 size_t com_stdin_read(char *buf, size_t count)
 {
     return com_rx_pick(buf, count, NULL);

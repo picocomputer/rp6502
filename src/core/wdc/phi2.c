@@ -3,14 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * PHI2 on a software machine, which is a number and nothing else.
- *
- * There is no divider here. The board has one because a PIO clock divider is
- * what makes its PHI2, and the fabric has one because a clock enable is what
- * makes its own -- see phi2.sv. Here the beam is the machine's clock and the
- * bus converts scanlines into cycles when it needs to, so every whole
- * kilohertz in range is exact for the same reason it is exact in fabric:
- * nothing rounds.
+ * There is no clock divider on a software machine. The beam is the machine's
+ * clock and the bus converts scanlines into cycles with exact integer
+ * arithmetic, so every whole kilohertz in range is exact and phi2_check_khz
+ * can accept all of them.
  */
 
 #include "core/wdc/phi2.h"

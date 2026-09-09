@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The vendored model, and the board's side of it.
  */
 
 #define CHIPS_IMPL
@@ -12,14 +10,8 @@
 
 static w65c02_t cpu;
 
-/* The 6502 bus, in the w65c02's own pin layout. Private to this file -- the
- * board speaks decoded signals. */
 static uint64_t pins;
 
-/* Display-only per-cycle observer for the on-screen ui_dbg view. The window
- * overlay registers dbgui_tick here; NULL otherwise, so the hot tick loop pays
- * only a null check. It MUST NOT gate the CPU -- dbg.c is the one
- * authoritative engine. */
 void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
 void *cpu_chip(void) { return &cpu; }
@@ -85,8 +77,12 @@ bool cpu_sst_load(sst_cursor_t *c, unsigned flags)
     uint64_t board = sst_get_u64(c);
     if (!sst_ok(c))
         return false;
-    /* The decoder's last case is 0x7FF and it steps IR before it switches, so
-     * this pair and no other value is the one that walks off the table. */
+    /* w65c02_tick switches on IR and post-increments it. Its cases stop at
+     * 0x7FF and the default below them is marked unreachable, so a blob
+     * holding 0x7FF with SYNC clear steps to 0x800 and the next tick has no
+     * case to land on. IR at 0x7FF with SYNC set is harmless, because the tick
+     * reloads IR from the data bus before it switches; neither field can be
+     * checked alone. */
     if (in.IR > 0x7FF || (in.IR == 0x7FF && !(board & W65C02_SYNC)))
         return false;
     cpu = in;

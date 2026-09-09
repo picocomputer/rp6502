@@ -17,9 +17,8 @@
 #define nul_check(...) true
 #define nul_apply(...)
 
-/* A row with no state to carry. Object-like and empty, like nul_config: the
- * savestate column holds a macro invocation rather than a function name, so
- * the null of it is nothing at all rather than a call to nothing. */
+/* Object-like and empty, like nul_config, because the savestate column holds a
+ * macro invocation rather than a function name. */
 #define nul_sst
 
 #define DRIVERS_CAT(a, b) DRIVERS_CAT_(a, b)

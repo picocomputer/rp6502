@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* An exec argv[0] already names, waiting for a frame boundary. */
 static bool queued;
 
 void proc_sst_save(sst_cursor_t *c, unsigned flags)
@@ -58,43 +57,43 @@ void proc_exec_init(void)
 void proc_exec_request(void)
 {
     queued = true;
-    resb_assert(); /* stop the current program; the tick loop exits */
+    resb_assert();
 }
 
 bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
-    /* argv[0] has to survive the chdir proc_boot is about to do, so it is
-     * made absolute here. Only the null drive has no path to resolve. */
+    /* A ':name' is an installed ROM that rom_load resolves, not a path. */
     char *abs = (rom[0] == ':') ? NULL : os_dir_realpath(rom);
     const char *argv0 = abs ? abs : rom;
-    /* Length-guard each string: arg_append's uint16 math trusts
-     * monitor-capped tokens, but host input is unbounded. argv[0] is a path,
-     * so it is held to what a path may be rather than to what the xstack
-     * happens to hold. */
+    /* Every string is measured first, because arg_append computes with
+     * uint16_t and these come from a host that bounds nothing. argv[0] is a
+     * path, so it is held to what a path may be rather than to what the
+     * xstack happens to hold. */
     arg_clear();
     bool ok = strlen(argv0) <= API_PATH_MAX && arg_append(argv0);
     for (int i = 0; ok && i < argc; i++)
         ok = strlen(args[i]) < XSTACK_SIZE && arg_append(args[i]);
     if (!ok)
-        arg_clear(); /* no partial argv; the caller decides severity */
+        arg_clear();
     free(abs);
-    proc_run(); /* the new program is now what's running */
+    proc_run();
     return ok;
 }
 
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
-    sys_stop_now(); /* before the load writes what the outgoing program ran on */
-    /* Whatever the outgoing program queued on its way out goes with it. The
-     * stop above ran proc_stop, which arms a launcher relaunch when there is
-     * a chain -- and a start that was asked for by name is not that child. */
+    sys_stop_now(); /* before the load writes over what it was running on */
+    /* Cleared after that stop and not before, because the walk it performs
+     * reaches proc_stop, which reads proc_exec_inflight to decide whether the
+     * launcher comes back. Whatever the outgoing program had queued goes with
+     * it, since a start asked for by name is not its child. */
     queued = false;
     if (flags & PROC_REFILL)
     {
         sram_init();
         xram_init();
     }
-    if (!rom_load(rom)) /* rom_load says why; a caller adding to it says it twice */
+    if (!rom_load(rom)) /* rom_load has already said why on the console */
         return false;
     if (argc >= 0)
         proc_set_argv(rom, argc, args);
@@ -104,9 +103,6 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
     return true;
 }
 
-/* Both are the same note here: this machine loads at the frame boundary
- * rather than mid-tick, where the clock and a half-run frame would disagree.
- * proc_exec_request halts the 6502, which is all the stopping op 0x09 needs. */
 void proc_exec_start(void)
 {
     proc_exec_request();
@@ -117,10 +113,6 @@ void proc_exec_relaunch(void)
     proc_exec_request();
 }
 
-/* A queued exec is a load this machine has committed to, including the one
- * the chain just wrote: the launcher must not be put over it. proc_boot
- * clears the queue after the stop walk has read this, so a start by name
- * still wins. */
 bool proc_exec_inflight(void)
 {
     return queued;
@@ -135,8 +127,9 @@ void proc_exec_task(void)
 {
     if (!queued)
         return;
-    /* argv[0], where the request left it: the stop walk inside proc_boot
-     * leaves argv alone while an exec is in flight. */
+    /* argv[0] is still where the request left it, because the only thing that
+     * rewrites argv on a stop is proc_stop arming a launcher relaunch, and it
+     * does not do that while an exec is in flight. */
     if (!proc_boot(arg_index(0), -1, NULL, 0))
-        proc_set_exit_code(1); /* stays stopped from proc_boot's stop */
+        proc_set_exit_code(1);
 }

@@ -2,7 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
 
 #define CHIPS_IMPL
@@ -11,14 +10,11 @@
 
 static m6522_t via;
 
-/* RESB, which this part shares with the 6502. m6522_init is behind CHIPS_IMPL,
- * so the line cannot reach it from outside this file. */
 void via_reset(void)
 {
     m6522_init(&via);
 }
 
-/* The live 6522 instance, for the debugger UI. */
 void *via_chip(void) { return &via; }
 
 static void via_put_port(sst_cursor_t *c, const m6522_port_t *p)
@@ -104,13 +100,13 @@ bool via_sst_load(sst_cursor_t *c, unsigned flags)
 
 bool via_tick(uint16_t addr, bool read, uint8_t *data)
 {
-    /* The VIA's own pins, built fresh from the bus each cycle (the vendor pattern:
-     * see _vic20_tick). PA/PB/CA/CB are deliberately left clear — nothing is wired to
-     * this VIA's ports, so its inputs read low. Carrying them across cycles instead
-     * would feed the chip its own driven outputs back as inputs, latching a bit high
-     * forever once DDR flips it to input. */
+    /* The VIA's pin word is built fresh from the bus each cycle. PA/PB/CA/CB
+     * are left clear because nothing is wired to this VIA's ports, so its
+     * inputs read low. Carrying the pin word across cycles instead would feed
+     * the chip its own driven outputs back as inputs, which latches a bit high
+     * forever once DDR flips that line to an input. */
     const bool selected = addr >= VIA_MMAP_LO && addr <= VIA_MMAP_HI;
-    uint64_t pins = addr & M6522_RS_PINS; /* A0-A3 are the register select */
+    uint64_t pins = addr & M6522_RS_PINS;
     if (read)
         pins |= M6522_RW;
     else

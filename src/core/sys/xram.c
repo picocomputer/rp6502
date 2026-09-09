@@ -10,7 +10,8 @@
 #include <stdalign.h>
 #include <string.h>
 
-// 4KB segments because a single 64KB array crashes my debugger
+/* The 64 KB is declared as sixteen 4 KB blocks because a single 64 KB array
+ * crashes the debugger. */
 alignas(XRAM_ALIGN) static uint8_t HOST_UNINITIALIZED_RAM(xram_blocks)[16][0x1000];
 volatile uint8_t *const xram = (uint8_t *)xram_blocks;
 
@@ -18,9 +19,8 @@ static bool xram_fill_random = true;
 static uint8_t xram_fill_value;
 static uint32_t xram_fill_seed;
 
-/* Through xram_blocks, not through xram. The array is plain and only the
- * pointer to it is volatile-qualified, so this is a copy rather than the byte
- * loop a volatile-defined object would need. */
+/* The cursor is given xram_blocks and not xram because xram points to
+ * volatile bytes, and memcpy cannot take a volatile source. */
 void xram_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -41,8 +41,8 @@ void xram_set_fill(bool random, uint8_t value, uint32_t seed)
     xram_fill_seed = seed;
 }
 
-/* Its own stream, salted apart from sram's: both fill from the run's seed and
- * must not come up as the same 64 KB twice. */
+/* The salt is twice the golden-ratio constant sram_init uses, so the two
+ * fills of one run's seed do not produce the same 64 KB. */
 void xram_init(void)
 {
     if (!xram_fill_random)

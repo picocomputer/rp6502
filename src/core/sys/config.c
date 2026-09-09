@@ -11,22 +11,22 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The file's shape, not any one setting's. Bumped only if a reader would
- * have to behave differently -- a row appearing or leaving does not. */
+/* The version of the file's shape, not of any one setting. A row appearing or
+ * leaving does not change it, because a reader ignores letters it has no row
+ * for. */
 #define CONFIG_VERSION 1
 
-/* Long enough for the widest row plus its letter and newline; the NFC device
- * hash is the one that sets it. */
+/* Long enough for the widest row, vcp's 128-byte NFC device hash array, whose
+ * '+H%s\n' line is at most 131 bytes with the NUL. */
 #define CONFIG_LINE_MAX 160
 
-/* A set reached from inside another set -- an apply that clears a companion
- * row -- must not write the file twice. The outermost one writes. */
+/* An apply may set another row, and the file must not be written once per
+ * set, so only the outermost set writes it. */
 static uint8_t config_depth;
 static bool config_dirty;
 
-/* Letter uniqueness, for free: two rows sharing one costs a redeclared
- * enumerator. The name collides in the storage below for the same reason.
- * The letters C and R are retired -- they were Caps and RESB. Do not reuse. */
+/* These enumerators cost nothing and make a letter used twice a redeclaration
+ * error; the storage below does the same for a name. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     enum { config_letter_##ltr };
@@ -43,8 +43,6 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef CONFIG_INT
 #undef DRIVER
 
-/* The bytes. Nothing else in the machine defines one, and the compile-time
- * default is what a host that sets before sys_init writes over. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     static type config_##pfx##_##name = def;
@@ -61,8 +59,8 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef CONFIG_INT
 #undef DRIVER
 
-/* The store, if this machine has one. A machine with no CONFIG_SAVE row
- * still validates, stores and applies; only the write is absent. */
+/* A machine with no CONFIG_SAVE row still validates, stores and applies its
+ * settings; only the write is missing. */
 static void config_save_now(void)
 {
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
@@ -92,9 +90,10 @@ static bool config_end(bool ok, bool changed)
     return ok;
 }
 
-/* check judges and normalizes, the store takes what it said, apply takes what
- * was asked -- so an action value reaches the driver intact -- and runs
- * whether or not the byte moved. */
+/* The check may normalize, and it is the normalized value that gets stored.
+ * apply is given the value as it was asked for rather than the normalized
+ * one, so that a value meaning an action reaches the driver intact, and it
+ * runs whether or not the stored byte moved. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...)  \
     type pfx##_get_##name(void) { return config_##pfx##_##name; } \
@@ -138,11 +137,10 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 
 void config_load_line(char letter, const char *value)
 {
-/* An if-chain rather than a switch: stringizing a letter gives "P", and
- * "P"[0] is not an integer constant expression, so it cannot be a case
- * label. An unknown letter falls through -- a retired one, or a row this
- * build has not got -- which is what lets a file written by any machine
- * load on any other. */
+/* An if-chain rather than a switch, because stringizing a letter gives "P"
+ * and "P"[0] is not an integer constant expression, so it cannot be a case
+ * label. An unknown letter falls out of the chain and is ignored, which is
+ * what lets a file written by one machine load on another. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     if (letter == (#ltr)[0])                                     \

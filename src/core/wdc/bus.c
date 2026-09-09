@@ -14,26 +14,22 @@
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 
-/* Scanlines this has already answered for. The beam is the machine's clock
- * and runs whether or not the CPU does, so the only question here is how many
- * cycles the lines since last time were worth. Run time is therefore a
- * function of the frames that went by and not of the host's clock, which is
- * what makes a timed test repeat. */
+/* The beam line count this last ran up to. The beam is the machine's clock,
+ * so run time is a function of the frames that went by and not of the host's
+ * clock, which is what lets a timed test repeat. */
 static uint64_t bus_lines;
 
-/* The cycle budget's remainder, in sixty-thirds of a cycle. Signed because
- * the budget rounds up -- the cycle that crosses a line boundary is run on
- * that line, as it always was, and the overshoot is the next line's debt. */
+/* What is left of the cycle budget, in sixty-thirds of a cycle. Signed because
+ * the budget rounds up, so a scanline can overshoot into the next one's debt. */
 static int64_t bus_owed;
 
-/* Cycles run, for the test that pins how many a frame is worth. */
 static uint64_t bus_cycle_count;
 
-/* The bus between run_until calls, which hoists it into locals for the loop.
- * data and the IRQs carry across cycles: the CPU latches the settled data on
- * the next tick, and samples the interrupt line there too. IRQB is wired-OR,
- * but each device keeps its own line so none has to clear another's --
- * bus_tick ORs them at the CPU. */
+/* The bus as it stands between run_until calls. The data byte and the two
+ * interrupt lines carry across cycles because the CPU latches the settled data
+ * on the next tick and samples the interrupt line there too. IRQB is wired-OR
+ * on silicon, but each device keeps its own line here so that no device has to
+ * clear another's; bus_tick ORs them at the CPU. */
 static uint16_t bus_addr;
 static uint8_t bus_data;
 static bool bus_read;
@@ -88,7 +84,6 @@ void bus_reset(void)
     bus_ria_irq = false;
 }
 
-/* Take the parked bus for the run_until loop to own as locals. */
 static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,
                              bool *via_irq, bool *ria_irq)
 {
@@ -99,8 +94,6 @@ static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,
     *ria_irq = bus_ria_irq;
 }
 
-/* Park it back. Paired with bus_clk at every return from run_until -- miss one
- * and a resumed frame drives a stale bus. */
 static inline void bus_park(uint16_t addr, uint8_t data, bool read,
                             bool via_irq, bool ria_irq)
 {
@@ -111,16 +104,10 @@ static inline void bus_park(uint16_t addr, uint8_t data, bool read,
     bus_ria_irq = ria_irq;
 }
 
-/* One PHI2 cycle of everything on the bus, in the floooh/chips system-tick
- * style (see _vic20_tick). The CPU is the only bus master and drives the bus
- * in decoded signals; every device ticks each cycle (the VIA counts its
- * timers, the RIA drives IRQB and publishes its pins) and decodes its own
- * window, so nothing holds chip-select state. The read ranges do not overlap,
- * so the order here does not matter.
- *
- * The bus arrives by pointer because run_until owns it as locals for the
- * duration of the loop, not as the file statics it is parked in between
- * calls. */
+/* One PHI2 cycle of everything on the bus. The CPU is the only bus master, so
+ * it must tick first and drive the address before the devices answer. Only
+ * $0000-$FEFF, $FFD0-$FFDF and $FFE0-$FFFF answer a read, so no two devices
+ * drive data in the same cycle. */
 static inline void bus_tick(uint16_t *addr, uint8_t *data, bool *read,
                             bool *via_irq, bool *ria_irq)
 {
@@ -130,16 +117,17 @@ static inline void bus_tick(uint16_t *addr, uint8_t *data, bool *read,
     sram_tick(*addr, *read, data);
 }
 
-/* Run the cycles the scanlines since last time were worth. A machine held in
- * reset and a debugger-held one both stop fetching, and the beam goes on
- * without them: whatever is left of the budget is dropped rather than banked,
- * or a resumed machine would run a burst proportional to how long it was held.
- * Lost cycles, as RDY held on silicon. */
+/* Run the cycles the scanlines since last time were worth. The budget is spent
+ * whether or not those cycles run, so a machine held in reset or stopped at a
+ * breakpoint drops what is left rather than banking it; banking it would make a
+ * resumed machine run a burst proportional to how long it was held. */
 static void run_until(uint64_t lines)
 {
-    /* A scanline is 2*khz/63 cycles. Accumulate in sixty-thirds and round up,
-     * because the cycle that crosses the boundary is run on this line -- which
-     * is what the old tick loop did by testing clk < deadline. */
+    /* A scanline is worth 2*khz/63 cycles, because the beam runs 525 scanlines
+     * at 60 Hz and khz*1000 cycles a second over 31500 scanlines a second
+     * reduces to 2/63. Accumulating in sixty-thirds keeps that exact. The
+     * division rounds up so that the cycle straddling the boundary runs on
+     * this scanline. */
     bus_owed += (int64_t)(lines - bus_lines) * phi2_get_khz_run() * 2;
     bus_lines = lines;
     int64_t n = (bus_owed + 62) / 63;
@@ -147,11 +135,8 @@ static void run_until(uint64_t lines)
     if (n <= 0)
         return;
 
-    /* Hoist the bus into locals and commit before every return: nothing else
-     * reads it mid-scanline, so the loop never touches the statics and the
-     * compiler is free to keep the bus in registers (as vic20_exec does with
-     * sys->pins). Measured break-even here -- the statics were a single cache
-     * line the store buffer forwarded -- so this is for the intent, not a win. */
+    /* Nothing else reads the bus mid-scanline, so the loop can own it in
+     * locals and park it on the way out. */
     uint16_t addr;
     uint8_t data;
     bool read;
@@ -161,9 +146,9 @@ static void run_until(uint64_t lines)
     uint64_t ran = 0;
     if (!dbg_is_active())
     {
-        /* Two loops rather than a per-cycle test, per vic20_exec: at ~8M
-         * cycles a second the debug branch is worth keeping out of the common
-         * path. */
+        /* Two loops rather than one with a per-cycle test, because PHI2 runs
+         * at up to 8 MHz and the debug branch is worth keeping out of the
+         * common path. */
         while (ran < (uint64_t)n && resb_running())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
@@ -178,13 +163,10 @@ static void run_until(uint64_t lines)
             ++ran;
             if (cpu_dbg_cycle_cb)
                 cpu_dbg_cycle_cb(cpu_dbg_pins());
-            /* Data breakpoints. Only the accesses sram_tick serviced count, so
-             * reads a device drove are excluded -- watchpoints cover the SRAM,
-             * not registers. */
+            /* The same condition sram_tick uses: every write lands in sram[],
+             * whatever the address, but only $0000-$FEFF answers a read. */
             if (dbg_watch_armed && (!read || addr <= SRAM_MMAP_HI))
                 dbg_watch_access(addr, data, !read);
-            /* Stop before the fetched instruction's effect runs. The loop
-             * ends; the beam goes on without it. */
             uint16_t pc;
             uint8_t sp;
             if (cpu_opcode_fetch(&pc, &sp))

@@ -8,43 +8,32 @@
 #ifndef _CORE_RIA_RIA_H_
 #define _CORE_RIA_RIA_H_
 
-/* Pulled in ahead of the extern "C" block so the firmware header's own includes
- * are already-guarded no-ops by the time it is reached. */
 #include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-/* host/sokol/dbg/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
- * unlike its siblings in core this one must declare its own linkage. */
+/* host/sokol/dbg/ui_ria.h includes this from C++ before opening its own extern
+ * "C" block, so this header declares its linkage. */
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-/* The bus this RIA sits on. The PIO/UART/mbuf half is firmware-only and has
- * no implementation here; ria_active is always false (no mbuf transfers). */
 #include "core/sys/ria.h"
 
-/* Program start and the vsync the video half raises. */
 void ria_run(void);
 void ria_trigger_vsync(void);
 
-/* The RIA decodes the RIA_MMAP_* register window, drives data on reads and asserts
- * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL
- * and USB-HID devices, the clock — are NOT part of this interface; an OP write
- * ($FFEF) hands off to them from ria.c's dispatch. The register file (regs[]) and the
- * XSTACK are dual-ported shared backing (core/ria/regs.h) rather than state held
- * here, because the RIA's own firmware addresses them directly through REGS(). */
-
-/* 6502 memory map: 32 registers, the last six being the vectors (ria.rst).
- * A5-A15 are decoded off-chip into CS. */
+/* The 6502 sees the RIA as 32 bytes at $FFE0-$FFFF, the last six of which are
+ * its own NMI, RESET and IRQ vectors. */
 #define RIA_MMAP_LO 0xFFE0
 #define RIA_MMAP_HI 0xFFFF
 
-/* The RIA's pins. It wires only CS, RW, D0-D7 and the low five address lines that
- * select its register window, so it has its own compact layout rather than borrowing
- * the CPU's. RES is not a RIA input; the debug overlay lights it from resb_running(). */
+/* These pins do not follow the CPU's layout. The five address lines select a
+ * register within the RIA's window. Two of the bits are produced rather than
+ * read: ria_tick sets CS from its own decode of the address, and the debug
+ * overlay sets RES from resb_running(). */
 #define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
 #define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
 #define RIA_PIN_RW (1ULL << 16)
@@ -54,45 +43,34 @@ void ria_trigger_vsync(void);
 
 typedef struct
 {
-    uint64_t PINS;       /* last bus state in RIA pins (do NOT modify; for the debug UI) */
+    uint64_t PINS;       /* the last bus cycle, published for the debug UI */
     uint8_t irq_enabled; /* $FFF0 enable mask (VSYNC/SIGINT) */
-    uint8_t irq_pending; /* latched pending sources, ORed onto IRQB while enabled */
+    uint8_t irq_pending; /* latched sources, asserting IRQB while also enabled */
 } ria_t;
 
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
-/* One PHI2 tick, mirroring via_tick: services the register access when the address
- * is in the RIA's window, publishes PINS for the debug UI, and returns the RIA's
- * IRQB (VSYNC/SIGINT). data is in/out. */
+/* One PHI2 tick. data is in/out: the RIA drives it on a read of its window and
+ * takes it on a write. Returns the RIA's own IRQB, which the board ORs with
+ * every other device's. */
 bool ria_tick(uint16_t addr, bool read, uint8_t *data);
-void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI */
+void *ria_chip(void); /* ria_t *, for the debugger UI */
 
-/* True while an enabled $FFF0 source is pending. ria_trigger_vsync (firmware
- * contract) latches the VSYNC source, raising IRQB only while it is enabled. */
 bool ria_irq_asserted(void);
 
-/* A break drops the byte the $FFE2 latch holds for the program being
- * interrupted. The console's own break clears its rings; the latch is the
- * bus's, so the bus clears it. */
+/* Drops the byte the $FFE2 latch is holding. The console clears its own queues
+ * on a break, but this byte has already left them, so nothing else can drop it
+ * and the next program would read what was typed at the one just stopped. */
 void ria_break(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. First in a machine's drivers, so
- * reversal puts its stop last -- which is where a machine with a real bus
- * needs it, because other stops read ria_active() to tell a program stop
- * from a fast-load transfer. This machine has no transfer and no stop. */
-/* The chip, the register window, the extended stack and the write queue the
- * audio device drains. The queue rides whole rather than as its live window:
- * a full ring drops writes, so how many are in it is state.
- *
- * regs[$FFEC] mirrors the top of the xstack and regs[$FFF0] mirrors the
- * pending interrupts. Both are carried rather than re-derived, because a
- * transfer in flight leaves the first legitimately stale.
- *
+/* PINS, the two interrupt bytes and the latched RX source, then the register
+ * file, the xstack and its pointer, then the write queue's page, head and tail
+ * and the whole queue behind them:
  * 8 + 1 + 1 + 1 + 32 + 513 + 2 + 1 + 1 + 1 + 512 */
 #define RIA_SST_SIZE 1073
 void ria_sst_save(sst_cursor_t *c, unsigned flags);

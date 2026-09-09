@@ -3,22 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * CRC-32/ISO-HDLC, reflected polynomial: a table entry is 0xEDB88320 folded
- * through its index, low bit first.
+ * CRC-32/ISO-HDLC. Each table entry is the reflected polynomial 0xEDB88320
+ * folded through the entry's index, low bit first.
  *
- * Two tables, because the callers no longer agree on how cold this is. A
- * savestate is CRC'd on every save and a rewinding frontend serializes once a
- * frame, so a whole byte folded on one load is worth about 960 bytes of
- * rodata. The Pocket compiles this same file into a 96 KB memory it shares
- * with its stack and heap, so it defines RP6502_CRC32_SMALL and folds a
- * nibble at a time out of 64 bytes instead. Wide is the default because a
- * root that forgets to choose should get the answer that is only expensive,
- * not the one that is only slow.
- *
- * The two arms are the same CRC to the last bit, which is load bearing: a
- * savestate's manifest written under one is read under the other. A host that
- * already links a CRC -- littlefs's, on the RIA -- answers host.h with that
- * instead of compiling this.
+ * The byte table costs 1024 bytes of rodata and the nibble table 64, so
+ * RP6502_CRC32_SMALL buys back 960 bytes for two table lookups per byte
+ * instead of one. Only the Pocket defines it (src/host/pocket/sw.cmake),
+ * because its firmware shares one 96 KB memory with its stack and heap.
+ * Both arms compute the same CRC, which matters because core/rom/pump.c
+ * checks a .rp6502 record against the CRC tools/rp6502.py wrote, so a ROM
+ * built on a desktop verifies on the Pocket. A host that already links a CRC
+ * answers host_crc32 with that instead of compiling this file, as the RIA
+ * does with littlefs's.
  */
 
 #include "host/host.h"

@@ -13,10 +13,11 @@ extern "C"
 {
 #endif
 
-    /* "Version 0.31", "CI <run id>", or the time it was compiled. */
+    /* "Version 0.31" for a tagged build, "CI <run id>" for an untagged CI
+     * build, else a build timestamp. */
     const char *version_string(void);
 
-    /* "0.31" where the above says "Version 0.31". */
+    /* The same, without the "Version " a caller's own UI supplies. */
     const char *version_bare(void);
 
 #ifdef __cplusplus

@@ -9,7 +9,8 @@
 
 /* 64 KB extended RAM, every machine's. Volatile because something else writes
  * it while the machine reads: the 6502 through the RIA on a Pico, DMA off the
- * PIX bus on the VGA, the fabric on a Pocket. */
+ * PIX bus on the VGA. On a Pocket it is not an array at all but a fixed
+ * address in the fabric's memory map. */
 
 #include "core/sys/sst.h"
 #include <stdbool.h>
@@ -17,19 +18,19 @@
 
 extern volatile uint8_t *const xram;
 
-/* What xram holds before anything writes it, on the software machine. The
- * firmwares declare it uninitialized, so random is the default and a program
- * reading a byte it never wrote fails here instead of only on a Pico. Config,
- * set before xram_init adopts it; the seed is the run's, so the fill repeats. */
+/* What xram holds before anything writes it, on the software machine, where
+ * random is the default because the firmwares leave their own uninitialized.
+ * It must be set before xram_init, which is what reads it. */
 void xram_set_fill(bool random, uint8_t value, uint32_t seed);
 void xram_init(void);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. The
- * software machine's: a machine whose xram is real RAM lists no row. */
 #define XRAM_SST_SIZE 0x10000
 void xram_sst_save(sst_cursor_t *c, unsigned flags);
 bool xram_sst_load(sst_cursor_t *c, unsigned flags);
 
+/* Only the software machines list this row, because they are the ones that
+ * fill xram at boot and carry it in a savestate. The Pico's RIA and VGA
+ * compile xram.c too, but nothing there calls xram_init. */
 #define XRAM_DRIVER DRIVER(xram_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
     nul_config, nul_config, SST(XRAM, 1, XRAM_SST_SIZE, xram_sst_save, xram_sst_load))
 

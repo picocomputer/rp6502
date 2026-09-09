@@ -16,26 +16,14 @@
 #include <stdatomic.h>
 #include <string.h>
 
-/* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
- * exactly as via.c wraps its m6522_t (`static m6522_t via;`). The memory-mapped
- * register file (regs[]) and the XSTACK are its dual-ported storage and stay
- * global (core/ria/regs.h); ria holds the bus pins + the non-memory-mapped
- * internal latches. */
 static ria_t ria;
-
-/* ------------------------------------------------------------------ */
-/* RIA interrupt ($FFF0): VSYNC (bit7) + SIGINT (bit6)                 */
-/* ------------------------------------------------------------------ */
 
 #define RIA_IRQ_VSYNC 0x80
 #define RIA_IRQ_SIGINT 0x40
 
-/* Mirror ria/sys/ria.c: an enable mask the 6502 writes to $FFF0 plus the two
- * latched pending flags. The IRQ line is asserted while a pending source is
- * also enabled; reading $FFF0 returns the flags and acknowledges them. $FFF0
- * (offset 0x10) sits just past the API trampoline window, so it is its own
- * register, not RAM. */
-/* Keep $FFF0's readback byte in step with the live pending flags. */
+/* A read of $FFF0 on the bus is answered from ria.irq_pending and never from
+ * the register file, but the debugger's register panel peeks regs[] directly,
+ * so regs[0x10] is kept in step with the flags the RIA actually holds. */
 static void ria_irq_publish(void)
 {
     regs[0x10] = ria.irq_pending;
@@ -53,18 +41,15 @@ void ria_trigger_vsync(void)
     ria_irq_publish();
 }
 
-/* True while an enabled RIA source is pending. ria_tick returns this as the RIA's
- * IRQB; the board ORs every device's assertion onto the shared line, so the RIA and
- * the VIA can both raise it without either owning the clear. */
 bool ria_irq_asserted(void)
 {
     return (ria.irq_pending & ria.irq_enabled) != 0;
 }
 
-/* $FFEF write. ZXSTACK (0x00) and EXIT (0xFF) run inside the write, mirroring
- * act_loop in ria/sys/ria.c; every other op is latched by the shared api_task,
- * pumped once here so most syscalls still complete before the 6502's next
- * instruction. */
+/* api_task refuses to latch op 0x00 and op 0xFF, so those two are serviced here,
+ * inside the write that requested them. Every other op is latched and dispatched
+ * by api_task, called once here so a quick one finishes without waiting for the
+ * machine's next task pass. */
 static void ria_syscall(uint8_t op)
 {
     api_set_regs_blocked();
@@ -76,10 +61,10 @@ static void ria_syscall(uint8_t op)
         return;
     case 0xFF: /* EXIT */
     {
-        int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
+        /* Read first, because api_return_ax overwrites A and X with its own
+         * return value. */
+        int16_t code = (int16_t)API_AX;
         (void)api_return_ax(0);
-        /* The stop walk decides what follows: a launcher to go back to, or
-         * nothing left to run. Either way the 6502 stops here. */
         proc_exit(code);
         return;
     }
@@ -89,16 +74,10 @@ static void ria_syscall(uint8_t op)
     }
 }
 
-/* rln consults this to suppress cursor-shape escapes while the RIA is busy
- * with an mbuf transfer; the emulator never is. */
 bool ria_active(void)
 {
     return false;
 }
-
-/* ------------------------------------------------------------------ */
-/* XRAM windowed access (RW0/RW1 with signed auto-increment)           */
-/* ------------------------------------------------------------------ */
 
 static uint8_t rw_read(int which)
 {
@@ -118,8 +97,6 @@ static void rw_write(int which, uint8_t data)
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);
     int8_t step = (int8_t)(which ? regs[0x09] : regs[0x05]);
     xram[addr] = data;
-    /* Notify the active audio device of writes to its page (ria/sys/ria.c):
-     * record (low byte, value) for its handler to drain. */
     if (xram_queue_page == (uint8_t)(addr >> 8))
     {
         uint8_t next = (uint8_t)(xram_queue_head + 1);
@@ -127,8 +104,8 @@ static void rw_write(int which, uint8_t data)
         {
             xram_queue[next][0] = (uint8_t)addr;
             xram_queue[next][1] = data;
-            /* The drain is the audio device's own thread: the entry has to
-             * be visible before the head that publishes it. */
+            /* The drain pairs an acquire fence with this one, so the entry
+             * has to be written before the head that publishes it. */
             atomic_thread_fence(memory_order_release);
             xram_queue_head = next;
         }
@@ -140,23 +117,13 @@ static void rw_write(int which, uint8_t data)
         REGSW(0xFFE6) = addr;
 }
 
-/* ------------------------------------------------------------------ */
-/* Register window read/write                                          */
-/* ------------------------------------------------------------------ */
-
-/* Bare UART flow-control bits in $FFE0 (ria/sys/ria.c). */
 #define RIA_UART_RX_READY 0x40
 #define RIA_UART_TX_READY 0x80
 
-/* The emulator has no physical UART; the bare-UART RX pins read the merged input
- * stream (keyboard plus terminal replies), matching the firmware's com_rx_pick
- * across all sources — so a terminal-query reply (e.g. the CPR from ESC[6n) is
- * readable at $FFE2. Mixing the direct UART regs with an in-flight stdio call is
- * undefined per the docs, so sharing the stream is faithful.
- *
- * The source of the byte in the latch, kept so a reader that comes at the
- * console another way gets it back for the source it was taken from and no
- * other. */
+/* com_read_source (core/com/pick.c) offers the staged byte to every source in
+ * turn, so com_rx_reclaim and com_rx_peek compare this against the caller and
+ * hand the byte back only to the source it came from. Without the comparison,
+ * the keyboard would be handed a byte typed at the UART. */
 static com_source_t ria_uart_rx_src;
 
 static void ria_uart_rx_latch(void)
@@ -187,9 +154,6 @@ int com_rx_peek(com_source_t src)
     return regs[0x02];
 }
 
-/* What was typed was meant for the program being interrupted: the byte the
- * window staged for it goes with it, or the program that starts next reads a
- * character aimed at the one that just stopped. */
 void ria_break(void)
 {
     regs[0x00] &= ~RIA_UART_RX_READY;
@@ -200,20 +164,19 @@ uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)
     {
-    case 0x00: /* UART flow control: bit7 TX always ok; bit6 set once a byte is
-                * pulled into the $FFE2 latch. */
+    case 0x00: /* READY */
     {
         if (!(regs[0x00] & RIA_UART_RX_READY))
             ria_uart_rx_latch();
         regs[0x00] |= RIA_UART_TX_READY;
         return regs[0x00];
     }
-    case 0x02: /* UART RX: return the latched byte, then refill it. */
+    case 0x02: /* RX */
     {
         uint8_t v = regs[0x02];
-        /* Given up before the refill asks the console for the next one: that
-         * ask can reclaim a staged byte, and this one is already spoken for.
-         */
+        /* The refill reads the console through com_getchar, which offers the
+         * staged byte back before it reads any source. Drop the staged byte
+         * first, or the refill hands back the one being returned here. */
         regs[0x02] = 0;
         regs[0x00] &= ~RIA_UART_RX_READY;
         ria_uart_rx_latch();
@@ -231,8 +194,7 @@ uint8_t ria_reg_read(uint16_t addr)
         regs[0x0C] = xstack[xstack_ptr];
         return v;
     }
-    case 0x10: /* $FFF0 IRQ flags: read the pending sources, then acknowledge
-                * (clear) them — the read deasserts the line on the next tick. */
+    case 0x10: /* IRQ */
     {
         uint8_t live = ria.irq_pending;
         ria.irq_pending = 0;
@@ -244,13 +206,9 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* The RIA's 6502-bus interface, mirroring via_tick (via.c). The IRQB drive is read
- * BEFORE the register access so a read of $FFF0 (which acks/clears the pending
- * flags) still shows IRQB asserted on its own cycle. ria.PINS is published in the
- * RIA's own pin layout for the debug overlay. */
-/* regs and the queue are defined volatile, so they cross a byte at a time
- * through the volatile lvalue. Reading a volatile object through a plain one
- * is undefined, and a memcpy would do exactly that. */
+/* regs and the queue are declared volatile, so they are copied a byte at a time
+ * through the volatile lvalue. A memcpy would read them through a plain pointer,
+ * which is undefined. */
 void ria_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -294,9 +252,6 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     }
     if (!sst_ok(c))
         return false;
-    /* Everything the machine indexes with. A larger pointer walks off the
-     * xstack in the pop, in api_return's mirror and in every handler that
-     * reads from it; a source no row answers for is one nothing can reclaim. */
     if (ptr > XSTACK_SIZE || src >= COM_SOURCE_COUNT)
         return false;
     ria.PINS = pins;
@@ -318,6 +273,9 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
+/* IRQB is sampled before the register access, because a read of $FFF0
+ * acknowledges the pending flags and the line must still show asserted for the
+ * cycle that read it. */
 bool ria_tick(uint16_t addr, bool read, uint8_t *data)
 {
     const bool selected = addr >= RIA_MMAP_LO && addr <= RIA_MMAP_HI;
@@ -331,7 +289,6 @@ bool ria_tick(uint16_t addr, bool read, uint8_t *data)
             ria_reg_write(addr, *data);
     }
 
-    /* Only the five address lines the RIA wires actually reach it. */
     ria.PINS = (addr & 0x1F) * RIA_PIN_A0 | (uint64_t)*data * RIA_PIN_D0;
     if (read)
         ria.PINS |= RIA_PIN_RW;
@@ -343,17 +300,13 @@ bool ria_tick(uint16_t addr, bool read, uint8_t *data)
     return irq;
 }
 
-/* The live chip instance, for the debugger UI (the RIA overlay reads ria.PINS),
- * mirroring via_chip()/cpu_chip(). */
 void *ria_chip(void) { return &ria; }
 
 void ria_reg_write(uint16_t addr, uint8_t data)
 {
     switch (addr & 0x1F)
     {
-    case 0x01: /* UART TX: emit the byte; TX is always ready (bit7). */
-        /* Raw, like hardware: $FFE1 bypasses the SDK's CRLF translation, so a
-         * bare '\n' stair-steps on the terminal. */
+    case 0x01: /* TX */
         com_write((char)data);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
@@ -368,12 +321,14 @@ void ria_reg_write(uint16_t addr, uint8_t data)
             xstack[--xstack_ptr] = data;
         regs[0x0C] = xstack[xstack_ptr];
         return;
-    case 0x0F: /* API_OP trigger */
+    case 0x0F: /* OP */
         regs[0x0F] = data;
         ria_syscall(data);
         return;
-    case 0x10: /* $FFF0 IRQ enable mask; bits set in the write are also acked */
+    case 0x10: /* IRQ */
         ria.irq_enabled = data;
+        /* The write acknowledges every source it enables, so a source left
+         * disabled keeps its pending bit. */
         ria.irq_pending &= ~data;
         ria_irq_publish();
         return;
@@ -383,13 +338,9 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Driver hooks                                                           */
-/* ------------------------------------------------------------------ */
-
-/* The SIGINT attribute (vendored atr.c) consumes the same latch the $FFF0 IRQ
- * uses: a program can poll for a Ctrl-C break without enabling the interrupt.
- * Returns true once per latched SIGINT, then clears it. */
+/* The SIGINT attribute (core/api/attr.c) reads the same latch the $FFF0
+ * interrupt does, so a program can poll for Ctrl-C without enabling the
+ * interrupt at all. */
 bool ria_get_sigint(void)
 {
     if (!(ria.irq_pending & RIA_IRQ_SIGINT))
@@ -401,7 +352,7 @@ bool ria_get_sigint(void)
 
 void ria_run(void)
 {
-    ria.irq_enabled = 0; /* $FFF0: IRQ disabled, no pending sources, line idle */
+    ria.irq_enabled = 0;
     ria.irq_pending = 0;
     regs[0x10] = 0;
 }

@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's end of the console wire: where a host that has one installs
- * it, and the pump that fills the console from it. A machine whose console is
- * the terminal it already renders installs nothing and this does nothing.
  */
 
 #include "core/com/tty.h"
@@ -17,11 +13,9 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-/* The host's end of the wire, when the host has one. */
 static void (*tty_tx)(const char *buf, int len);
 static size_t (*tty_rx)(char *buf, size_t max);
 static bool tty_stream;
-/* The hold on a console wire, from the pass that first found no room. */
 static bool tty_held;
 static timer_mach_t tty_hold;
 
@@ -40,8 +34,6 @@ void tty_write(const char *buf, int len)
         tty_tx(buf, len);
 }
 
-/* A host libc has no cheap stream that reaches com_putchar, so this formats
- * into a buffer and hands the result to the shared translation. */
 int com_printf(const char *fmt, ...)
 {
     char buf[1024];
@@ -56,14 +48,10 @@ int com_printf(const char *fmt, ...)
     return n;
 }
 
-/* The console's task on a machine whose console is the terminal the walk
- * already reaches: nothing, until a host puts a wire on it. Every pass, like
- * every other task. While the ring has room the wire is asked for what fits,
- * so a reader that keeps up loses nothing and gets the wire's full rate. A
- * full ring means nobody is reading: a stream is left where it is, which is
- * the backpressure that keeps a pipe whole, and a console is held for the
- * hold and then read to drop, because a Ctrl-C typed behind the type-ahead
- * has to be seen whether or not anyone will ever read the rest. */
+/* A stream wire is not read while the ring is full. A console wire is left for
+ * COM_WIRE_HOLD_MS and then read into the full ring, where the bytes are
+ * dropped, because a Ctrl-C typed behind the type-ahead has to be seen even
+ * though the rest of what was typed is lost. */
 void com_task(void)
 {
     if (!tty_rx)
