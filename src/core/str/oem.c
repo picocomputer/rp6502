@@ -18,7 +18,6 @@
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 
-// Resolve the code page to apply: the override if set, else the locale auto.
 static uint16_t oem_resolve(void)
 {
     return oem_get_code_page() ? oem_get_code_page() : oem_auto_cp;
@@ -27,7 +26,6 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-    // cp >= 900 are DBCS; allow SBCS only
     if (cp < 900 && unicode_has_page(cp))
     {
         oem_fs_code_page(cp);
@@ -37,11 +35,6 @@ static void oem_request_code_page(uint16_t cp)
         vga_set_code_page(oem_code_page_run);
 }
 
-/* The page, and then the tables that follow from it, pushed the same way
- * oem_init pushes them: through vga_set_code_page, which is the seam a
- * machine whose font lives on another chip answers with a message. Not
- * through oem_request_code_page, which only speaks when the number changes
- * and would leave a restored store holding the loading session's glyphs. */
 void oem_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -52,12 +45,15 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     uint16_t cp = sst_get_u16(c);
-    /* Zero is a page in force: a machine whose resolved page the tables do
-     * not carry runs with it for the life of the session. */
+    /* Zero is a valid saved value, because a machine whose resolved page the
+     * tables do not carry runs with no page at all. */
     if (!sst_ok(c) || (cp != 0 && (cp >= 900 || !unicode_has_page(cp))))
         return false;
     oem_code_page_run = cp;
     oem_fs_code_page(cp);
+    /* vga_load_code_page rather than vga_set_code_page, because choosing a
+     * page resets the terminal and the savestate has already put the
+     * terminal's cells back by the time this runs. */
     vga_load_code_page(cp);
     return true;
 }
@@ -65,10 +61,8 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags)
 void HOST_IN_FLASH("oem_init") oem_init(void)
 {
     oem_apply_code_page(oem_get_code_page(), true);
-    /* The glyph store was rebuilt by font_init just above and has forgotten
-     * the page; oem_request_code_page only speaks when the number changes, so
-     * it would stay forgotten. On a machine whose font is another chip this is
-     * the PIX message that tells it, and this is where that message goes. */
+    /* oem_request_code_page calls vga_set_code_page only when the number
+     * changes, so the display is given a page here even when it did not. */
     vga_set_code_page(oem_code_page_run);
 }
 
@@ -83,9 +77,7 @@ void oem_set_code_page_run(uint16_t cp)
     oem_request_code_page(cp);
 }
 
-/* Zero is auto: track whatever the locale's default is. A page is carried
- * or it is not, and the table says which without applying anything -- the
- * same test oem_request_code_page makes before it speaks. */
+/* Zero is auto: follow the locale's default. */
 bool oem_check_code_page(uint16_t *v)
 {
     return *v == 0 || (*v < 900 && unicode_has_page(*v));
@@ -103,7 +95,6 @@ bool oem_is_auto(void)
     return oem_get_code_page() == 0;
 }
 
-/* SET's line for this row. Auto reports the page it landed on. */
 int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -137,7 +128,6 @@ unsigned char oem_from_utf8_next(const char **p)
     return unicode_from_utf8_next(p, oem_code_page_run);
 }
 
-/* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
 static size_t oem_utf8_len(unsigned char lead)
 {
     if ((lead & 0xe0) == 0xc0)
@@ -160,9 +150,9 @@ size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
         run->after_cr = false;
         if (c == '\r' || c == '\n')
         {
-            /* One line end, however the host spells it, and out at once: a
-             * reader that waited to see whether a line feed follows would
-             * answer a keystroke one keystroke late. */
+            /* A carriage return is written at once rather than held to see
+             * whether a line feed follows, because the run carries state and
+             * not output: a held return would have nothing to flush it. */
             if (c == '\n' && paired)
             {
                 in++; /* the second half of a CRLF the last call cut */
@@ -178,7 +168,7 @@ size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
                     in++;
             }
             else
-                run->after_cr = true; /* its LF may open the next call */
+                run->after_cr = true; /* its line feed may open the next call */
             continue;
         }
         if (c < 0x80)
@@ -192,7 +182,7 @@ size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
         {
             if (!end)
                 break; /* the rest of the sequence has not arrived */
-            n = len - in; /* it never will; let the decoder call it */
+            n = len - in;
         }
         char seq[5];
         memcpy(seq, utf8 + in, n);
@@ -212,7 +202,7 @@ int oem_to_utf8_char(unsigned char b, char *dst)
     return unicode_to_utf8_char(b, oem_code_page_run, dst);
 }
 
-// Truncation never splits a sequence: once one doesn't fit, writing stops
+// Truncation never splits a sequence: once one does not fit, writing stops
 // but the needed length keeps counting.
 size_t oem_to_utf8(const char *s, char *dst, size_t dstsz)
 {
@@ -285,14 +275,9 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     return oem_from_wide_n(w, len, dst, dstsz);
 }
 
-/* Whether a conversion would be the same string and not a near one. The
- * conversions substitute -- 0x7F coming in, U+FFFD going out -- which is right
- * for text a person reads and wrong for a name a program opens: two files can
- * arrive under one name, and a name handed back can reach a third. So a
- * filename asks first. */
-/* 0x7F is what the conversions put where a character had no spelling, and it
- * is not a character a name may contain either -- FatFs rejects it outright --
- * so a result of 0x7F means "no spelling" whichever way it got there. */
+/* 0x7F is what the conversions put where a character had no spelling, and
+ * FatFs rejects 0x7F in a name outright, so a result of 0x7F means "no
+ * spelling" whichever way it got there. */
 #define OEM_NO_SPELLING 0x7F
 
 bool oem_maps_utf8(const char *u8)

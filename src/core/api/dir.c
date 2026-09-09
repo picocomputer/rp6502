@@ -10,15 +10,12 @@
 
 #include <string.h>
 
-/* How many entries each open directory has handed out. telldir reports it,
- * seekdir winds to it, rewinddir zeroes it -- and no drive needs to know,
- * because a directory read is a directory read. */
 static int32_t tells[DIR_MAX_OPEN];
 
 static bool dir_push_stat(f_stat_t *info)
 {
-    /* Push fields in reverse so they land in forward
-     * order in the 6502-visible struct. */
+    /* The xstack grows downward, so the fields are pushed last first to land
+     * in struct order for the 6502. */
     bool ok = true;
     for (int i = F_NAME_MAX; i >= 0; i--)
         ok &= api_push_char(&info->fname[i]);
@@ -33,7 +30,6 @@ static bool dir_push_stat(f_stat_t *info)
     return ok;
 }
 
-/* The path a whole-path op was called with, consuming the xstack. */
 static const char *dir_path(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
@@ -41,14 +37,13 @@ static const char *dir_path(void)
     return path;
 }
 
-/* What a backend said, as the 6502 sees it. */
 static bool dir_return(bool ok, api_errno err)
 {
     return ok ? api_return_ax(0) : api_return_errno(err);
 }
 
-/* Read one entry through the backend and count it. End-of-directory is an
- * empty name, not an error, and does not advance the counter. */
+/* End of directory is an empty name rather than an error, so it does not
+ * advance the count. */
 static bool dir_next(int des, f_stat_t *info, api_errno *err)
 {
     if (!drive_readdir(des, info, err))
@@ -58,8 +53,6 @@ static bool dir_next(int des, f_stat_t *info, api_errno *err)
     return true;
 }
 
-/* Nothing stays open across a machine event: a run starts with none, and a
- * stop leaves none behind. */
 void dir_run(void)
 {
     dir_stop();
@@ -75,13 +68,15 @@ void dir_stop(void)
             drive_closedir(i, &err);
 }
 
-/* A directory is not carried, it is reopened and wound. The wind is a read
- * per entry the slot had handed out, which is what telldir and seekdir
- * already do and the only position a drive here agrees to take.
+/* A savestate carries an open directory as a path and a count, because the
+ * only position a drive here will take is a read per entry: a load reopens
+ * the path and reads forward to the count.
  *
- * A path slot is written empty under SST_SHARED, because a path under one
- * peer's home is a desync the moment the other CRCs the payload. The load
- * then keeps the directories and the working directory it already has. */
+ * Under SST_SHARED the path slots are written empty, because the blob crosses
+ * to another machine where a path under one peer's home directory names
+ * nothing under the other's. Such a load keeps the directories and the
+ * working directory it already has, though the entry counts still come from
+ * the blob. */
 #define DIR_SLOT (API_PATH_MAX + 1)
 
 void dir_sst_save(sst_cursor_t *c, unsigned flags)
@@ -119,10 +114,9 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c))
         return false;
 
-    /* The working directory first, so a slot recorded relative to it -- one
-     * whose drive could not make it absolute -- reopens against the same
-     * place it was opened from. Not under either flag: drive_chdir moves the
-     * whole process, and runahead runs a second copy of this machine in it. */
+    /* Only a load with no flags restores the working directory, because
+     * drive_chdir moves the whole host process and a caller passing
+     * SST_TRUSTED or SST_SHARED shares that process with something else. */
     api_errno err;
     if (!flags && cwd[0] && !drive_chdir(cwd, &err))
         return false;
@@ -140,9 +134,9 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
         }
         if (!drive_reopendir(i, paths[i], &err))
             return false;
-        /* Wind to where the slot had read to. The entries a host hands back
-         * are its own order, which POSIX does not promise is the order the
-         * saving session saw. */
+        /* POSIX does not promise a host lists a directory in the same order
+         * twice, so this winds to the same count and not to the same
+         * entries. */
         f_stat_t info;
         for (int32_t n = 0; n < at[i]; n++)
             if (!drive_readdir(i, &info, &err) || !info.fname[0])
@@ -204,9 +198,6 @@ bool dir_api_telldir(void)
     return api_return_axsreg((uint32_t)tells[des]);
 }
 
-/* Seek by entry index: wind back to the start if the target is behind, then
- * read forward to it. Past the end is EINVAL -- there is no such entry to be
- * positioned at. */
 bool dir_api_seekdir(void)
 {
     int des = API_A;
@@ -255,7 +246,8 @@ bool dir_api_unlink(void)
 
 bool dir_api_rename(void)
 {
-    /* The xstack holds newname\0oldname; rename takes them the other way. */
+    /* The xstack holds newname, its terminator, then oldname, which is the
+     * reverse of the order drive_rename takes them. */
     const char *newname = dir_path();
     const char *oldname = newname;
     while (*oldname)
@@ -279,8 +271,9 @@ bool dir_api_chmod(void)
 
 bool dir_api_utime(void)
 {
-    /* All four are popped whether or not this drive stores creation times,
-     * because the 6502 pushed all four. */
+    /* All four fields are taken whether or not this drive stores creation
+     * times, because the 6502 sent all four: crtime in the registers and the
+     * other three on the xstack. */
     f_stat_t info;
     info.crtime = API_AX;
     if (!api_pop_uint16(&info.crdate) ||

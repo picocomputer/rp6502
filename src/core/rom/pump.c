@@ -3,11 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The .rp6502 record pump, the piece of the loader every machine drives:
- * the stream read through the fs seam's ROM descriptor, one record per
- * step into the caller's buffer, CRC checked there. A machine that must
- * not stall its walks steps it once per pass; one that can block loops
- * it. The bytes land wherever the machine's own deposit puts them.
+ * The .rp6502 record pump, shared by the loaders that read one: one record per
+ * step into the caller's buffer, its CRC checked there.
  */
 
 #include "osal/fs.h"
@@ -18,21 +15,17 @@
 #include <string.h>
 #include <strings.h>
 
-/* ------------------------------------------------------------------ */
-/* The record pump                                                     */
-/* ------------------------------------------------------------------ */
-
 typedef enum
 {
     RECORD_OK,
-    RECORD_SKIP,      /* blank line or comment: not a record, not an error */
-    RECORD_MALFORMED, /* not three numbers and nothing else */
-    RECORD_RANGE,     /* would land somewhere no record may */
+    RECORD_SKIP,
+    RECORD_MALFORMED,
+    RECORD_RANGE,
 } record_result;
 
-/* Read one header line. RAM is below 0x10000 and XRAM above, and a record
- * may not straddle them, run off the end of either, or exceed the format's
- * own record cap. */
+/* RAM is the 64 KB below 0x10000 and XRAM the 64 KB above it, so a record may
+ * not straddle the two or run off the end of either. An empty record is refused
+ * too, as is one past ROM_RECORD_MAX, the packer's chunk cap. */
 static record_result record_parse(const char *line, rom_record_t *rec)
 {
     if (!line[0] || line[0] == '#')
@@ -51,10 +44,8 @@ static record_result record_parse(const char *line, rom_record_t *rec)
     return RECORD_OK;
 }
 
-/* The reset vector is what makes an image loadable, and it arrives as two
- * ordinary bytes inside whichever record happens to cover $FFFC and $FFFD.
- * Noted only once a record has landed, so a truncated or corrupt one cannot
- * vouch for the vector it was carrying. */
+/* The caller notes a record only after its CRC checks out, so a corrupt one
+ * cannot vouch for the vector it was carrying. */
 static void record_note(rom_pump_t *p, const rom_record_t *rec)
 {
     if (rec->addr <= 0xFFFC && rec->addr + rec->len > 0xFFFC)
@@ -63,10 +54,6 @@ static void record_note(rom_pump_t *p, const rom_record_t *rec)
         p->vec_hi = true;
 }
 
-/* Reads on the ROM descriptor may report STD_PENDING on a host whose file
- * driver is asynchronous. The pump spins them out: it runs only after the
- * machine stopped, when std_stop has closed every guest descriptor and
- * reaped whatever was in flight, so the transfer it waits on is its own. */
 static std_rw_result pump_read(int fd, void *buf, uint32_t count, uint32_t *got,
                                api_errno *err)
 {
@@ -77,11 +64,12 @@ static std_rw_result pump_read(int fd, void *buf, uint32_t count, uint32_t *got,
     return r;
 }
 
-/* One text line into line[] (NUL-terminated, CR/LF stripped, capped). Returns
- * its length, or -1 at EOF with nothing read. The pump's position is left at
- * the first byte after the newline -- the start of a record's raw data, or
- * the next header. Reads a block and seeks back, because the seam has no
- * byte-at-a-time worth using. */
+/* One text line into line[], NUL-terminated with any CR/LF stripped. Returns
+ * its length, or -1 at EOF or on a seek or read failure, which are
+ * indistinguishable here. A whole block is read and only the line taken from
+ * it, because reading a byte at a time through the file driver is not worth
+ * it; p->pos is left at the first byte after the newline, and each call seeks
+ * there before reading. */
 static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
 {
     int32_t landed;
@@ -113,10 +101,6 @@ bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err
     return rom_pump_open_fd(p, fd, buf, err);
 }
 
-/* From a descriptor the machine already holds -- the Pocket boots from an
- * image its host staged before anything ran, so the open was the host's.
- * The header lines borrow the caller's record buffer, as rom_pump_next's do,
- * and for the same reason: nothing parsed out of them outlives this call. */
 bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
 {
     memset(p, 0, sizeof *p);
@@ -129,10 +113,11 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
         *err = API_ENOEXEC;
         return false;
     }
-    /* Optional "#>$chunks_len $crc" bounds the program records; named assets
-     * follow. The directory starts at the header line itself -- it parses as
-     * an asset with no name, so a walker skips it like any other entry.
-     * Classic format runs records to EOF and carries no assets. */
+    /* An optional "#>$chunks_len $crc" line bounds the program records, and the
+     * named assets follow them. The asset directory is taken to start at that
+     * line, because it parses as an asset with no name and so is skipped like
+     * any other entry. The classic format has no such line: its records run to
+     * the end of the file and it carries no assets. */
     uint32_t after_shebang = p->pos;
     long n = pump_gets(p, line, ROM_RECORD_MAX, err);
     if (n >= 2 && line[0] == '#' && line[1] == '>')
@@ -150,7 +135,7 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
         p->assets_start = after_shebang;
     }
     else
-        p->pos = after_shebang; /* classic: reprocess from line 2 */
+        p->pos = after_shebang; /* the classic format's records start here */
     return true;
 }
 
@@ -159,12 +144,12 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
 {
     if (p->prog_end && p->pos >= p->prog_end)
         return ROM_PUMP_EOF;
-    /* The header line borrows the caller's record buffer: the parse is done
-     * with it before the payload read below writes over it, and a task-pump
-     * machine keeps a kilobyte off its stack. */
+    /* The header line is read into the caller's record buffer, so that a
+     * machine stepping the pump from a task need not keep a second kilobyte.
+     * The parse below finishes with it before the payload read overwrites it. */
     long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, err);
     if (n < 0)
-        return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
+        return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF;
     record_result r = record_parse((char *)buf, rec);
     if (r == RECORD_SKIP)
         return ROM_PUMP_SKIP;

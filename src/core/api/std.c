@@ -20,7 +20,6 @@
 #include <string.h>
 #include <strings.h>
 
-// The stdio file descriptor pool.
 #define STD_FD_MAX 16
 #define STD_FD_STDIN 0
 #define STD_FD_STDOUT 1
@@ -38,13 +37,12 @@ typedef struct
     int (*lseek)(int, int8_t, int32_t, int32_t *, api_errno *);
     int desc;
     /* Which row of std_driver_table opened it. The five pointers above are
-     * this build's addresses and no blob can carry them; the index is what a
-     * savestate writes down and rebuilds them from. */
+     * this build's own addresses, so a savestate writes down this index and
+     * rebuilds them from it. */
     uint8_t driver;
 } std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
-// Active operation state.
 static std_fd_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
@@ -52,7 +50,6 @@ static uint16_t std_pos;
 static uint16_t std_xram_addr;
 static uint16_t std_xram_len;
 
-// Readline state for stdin.
 static bool std_rln_active;
 static const char *std_rln_buf;
 static bool std_rln_needs_nl;
@@ -78,10 +75,10 @@ static void std_rln_callback(bool timeout, const char *buf)
     std_rln_needs_nl = true;
 }
 
-/* Which of xstack and xram a transfer is landing in, and where it started.
- * The base is not derivable from the rest: a read into xram advances
- * std_xram_addr as std_task drains it, and a write into xram never records
- * the address at all. */
+/* Which of xstack and xram a transfer is landing in. A savestate has to
+ * record where the buffer started, because it cannot be worked back out: a
+ * read into xram advances std_xram_addr as std_task drains it, and a write
+ * into xram never records the address at all. */
 #define STD_BUF_NONE 0
 #define STD_BUF_XSTACK 1
 #define STD_BUF_XRAM 2
@@ -100,7 +97,7 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
         const std_driver_t *drivers = std_drivers(&count);
         if (f->driver >= count || !drivers[f->driver].ident)
         {
-            sst_fail(c); /* a drive that cannot say what it holds */
+            sst_fail(c);
             return;
         }
         sst_put_u8(c, f->driver);
@@ -110,7 +107,6 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
             return;
         }
     }
-    /* The transfer in flight, as a buffer and an offset into it. */
     uint8_t kind = STD_BUF_NONE;
     uint16_t at = 0;
     if (std_buf)
@@ -147,9 +143,9 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     size_t count;
     const std_driver_t *drivers = std_drivers(&count);
 
-    /* Close what this machine has open before the blob's descriptors take
-     * their places, or the host's own file handles leak. The console rows
-     * below STD_FD_FIRST_FREE are std_init's and stay. */
+    /* What this machine has open is closed before the blob's descriptors take
+     * their places, because otherwise the host's own file handles leak. The
+     * console rows below STD_FD_FIRST_FREE belong to std_init and stay. */
     for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
         if (std_fd_pool[fd].is_open && std_fd_pool[fd].close)
         {
@@ -193,9 +189,9 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     bool closed = sst_get_bool(c), asked = sst_get_bool(c);
     if (!sst_ok(c))
         return false;
-    /* Everything that is dereferenced or indexed. An active descriptor must
-     * be one that is open, and a transfer must point inside the buffer it
-     * names, or the first re-dispatch walks off it. */
+    /* An active descriptor must be one that is open, or the first re-dispatch
+     * after the load calls through a row whose handlers and desc name
+     * nothing. */
     if (active != 0xFF && (active >= STD_FD_MAX || !std_fd_pool[active].is_open))
         return false;
     if (kind > STD_BUF_XRAM)
@@ -221,7 +217,8 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     std_rln_len = rlen;
     std_stdin_closed = closed;
     std_asked_console = asked;
-    /* Never carried: it is always rln's own buffer, and rln has restored it. */
+    /* Not carried in the blob. It is either NULL or rln's line buffer, which
+     * is at a fixed address, and nothing reads it until a line arrives. */
     std_rln_buf = rln_line();
     return true;
 }
@@ -373,7 +370,7 @@ bool std_api_close(void)
     api_errno err = API_EIO;
     std_rw_result result = f->close(f->desc, &err);
     if (result == STD_PENDING)
-        return api_working(); // driver draining on schedule, re-dispatched
+        return api_working();
     f->is_open = false;
     if (result == STD_ERROR)
         return api_return_errno(err);
@@ -395,7 +392,8 @@ bool std_api_read_xstack(void)
         std_fd_active = NULL;
         if (result == STD_ERROR)
             return api_return_errno(err);
-        // relocate buffer to top of xstack
+        // A short read leaves the data below the new stack pointer, and the
+        // 6502 pops from the top, so it moves up.
         xstack_ptr = XSTACK_SIZE - std_pos;
         if (std_pos != std_size)
             memmove(&xstack[xstack_ptr], std_buf, std_pos);
@@ -420,8 +418,8 @@ bool std_api_read_xram(void)
     {
         if (std_pos < std_size)
         {
-            // Read phase: request next chunk
-            // 2048 bytes is tuned for FatFs on MSC+BOT
+            // A chunk of 2048 bytes is tuned for FatFs over USB mass storage
+            // with the bulk-only transport.
             uint32_t chunk = std_size - std_pos;
             if (chunk > 2048)
                 chunk = 2048;
@@ -440,13 +438,15 @@ bool std_api_read_xram(void)
                 std_fd_active = NULL;
                 return api_return_errno(err);
             }
-            // Short read signals EOF for xram transfers (not applied to
-            // read_xstack, which returns whatever the driver handed back).
+            // A short read is end of file for an xram transfer. It is not
+            // for read_xstack, which returns whatever the driver handed back.
             if (bytes_read < chunk)
                 std_size = std_pos;
             return api_working();
         }
-        // All reads done — wait for PIX drain to complete
+        // The op does not return until std_task has forwarded every byte
+        // read, because a machine with a separate video device keeps its own
+        // copy of xram.
         if (std_xram_len > 0)
             return api_working();
         std_fd_active = NULL;
@@ -528,8 +528,8 @@ bool std_api_write_xram(void)
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
     std_buf = (char *)&xram[xram_addr];
-    // Writes must fit exactly; overrunning xram is a caller bug.
-    // (Reads clamp instead, matching POSIX read-up-to-N semantics.)
+    // A write that runs past the end of xram is refused. A read clamps to
+    // what fits instead, which is POSIX read-up-to-N.
     if (std_buf + std_size > (char *)xram + 0x10000)
         return api_return_errno(API_EINVAL);
     std_fd_active = fd;
@@ -547,7 +547,7 @@ bool std_api_syncfs(void)
     api_errno err = API_EIO;
     std_rw_result result = fd->sync(fd->desc, &err);
     if (result == STD_PENDING)
-        return api_working(); // driver draining on schedule, re-dispatched
+        return api_working();
     if (result == STD_ERROR)
         return api_return_errno(err);
     return api_return_ax(0);
@@ -619,9 +619,9 @@ void std_stdin_eof(void)
     if (!std_rln_active)
         return;
     std_rln_active = false;
-    /* A last line the input never ended is still a line. It is handed over
-     * before the read is given up, and the read after this one is the one
-     * that answers nothing. */
+    /* A last line that the input never terminated is still a line, so it is
+     * handed over before the read is given up; the next read is the one that
+     * answers nothing. */
     if (!rln_read_flush())
         rln_read_cancel();
 }

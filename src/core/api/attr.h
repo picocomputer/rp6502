@@ -7,21 +7,19 @@
 #ifndef _CORE_API_ATTR_H_
 #define _CORE_API_ATTR_H_
 
-/* The ATR driver dispatches get/set attribute calls.
- * The API allows for 256 attributes of 31 bits.
+/* Each attribute carries 31 bits, because the 6502 call returns a signed long
+ * and -1 is its error return.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-/* The API implementation
- */
-
 bool attr_api_get(void);
 bool attr_api_set(void);
 
-/* Deprecated API
+/* Deprecated single-purpose ops 0x02, 0x03, 0x04 and 0x06, which the two
+ * calls above replace. Retained for binaries built with older SDKs.
  */
 
 bool attr_api_phi2(void);

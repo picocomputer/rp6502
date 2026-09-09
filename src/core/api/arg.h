@@ -7,11 +7,6 @@
 #ifndef _CORE_API_ARG_H_
 #define _CORE_API_ARG_H_
 
-/* The on-wire argv buffer the 6502 exchanges through the argv/exec API ops. This
- * owns the argv layout (offset table + packed strings) so firmware and emulator
- * share one definition of the guest ABI.
- */
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -21,14 +16,11 @@ bool arg_append(const char *str);
 bool arg_replace(uint16_t idx, const char *str);
 const char *arg_index(uint16_t idx);
 
-// op 0x08: copy the argv onto the xstack; returns its byte size.
 uint16_t arg_push_xstack(void);
-// op 0x09: load the argv from the xstack and validate it.
 bool arg_pull_xstack(void);
 
-/* The whole buffer, for a savestate. It is a flat XSTACK_SIZE bytes whose
- * internal offsets are already little-endian, so it rides the wire as it
- * stands. arg_bytes answers the size so nothing outside has to know it. */
+/* The whole buffer, for a savestate. The offsets inside it are stored little
+ * endian whatever the host is, so the bytes carry no host layout. */
 size_t arg_bytes(void);
 const uint8_t *arg_data(void);
 void arg_set_data(const uint8_t *buf);

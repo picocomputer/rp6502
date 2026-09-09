@@ -3,34 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * OEM code page conversion, ours instead of FatFs's ffunicode.c.
+ * OEM code page conversion, ours instead of FatFs's ffunicode.c. The tables
+ * come out of src/core/gen/oem_table_gen.py, which lifts them from that same
+ * vendored file.
  *
- * The vendored file is 1.36 MB and almost all of it is the double-byte
- * pages FF_NO_DBCS excludes. What survives the preprocessor is about
- * five kilobytes of table and three short functions, wrapped in enough
- * FF_CODE_PAGE conditionals that the functions cannot be read without
- * first deciding which build you are in. The tables now come out of
- * src/core/gen/oem_table_gen.py — same numbers, lifted from the
- * same file — and the logic is here, once, with no build to choose.
- *
- * There is a second reason. The Pocket has no room to link five
- * kilobytes into a 48 KB tightly coupled memory, so its tables ride in
- * the staging store beside the fonts and are read a word at a time
- * through a window that cannot fetch anything wider than a byte. That
- * only works if every table access goes through one function, which is
- * unicode_word, and the platform supplies it.
- *
- * Conversion is therefore slower here than an array index, and on the
- * Pocket much slower. Nothing on a hot path converts: a code page
- * lookup happens when a filename is compared or a string is displayed,
- * never per character of a stream.
+ * Every table access goes through unicode_word, because five kilobytes is
+ * more than the Pocket's TCM can spare: its tables ride in the staging store
+ * beside the fonts and are read a word at a time through a window that cannot
+ * fetch anything wider than a byte.
  */
 
-/* FatFs where there is one: it declares these three itself, in types it
- * picks per platform, and a definition here has to be the same types. Not
- * every tree that compiles this file has the header — the simulation's
- * bench does not — so the fallback below is what its C99 branch would
- * have given us. */
+/* FatFs where there is one: a definition here has to use the same types ff.h
+ * picks, and not every tree that compiles this file has that header. */
 #ifdef __has_include
 #if __has_include(<fatfs/ff.h>)
 #include <fatfs/ff.h>
@@ -65,26 +49,23 @@ bool unicode_init(void)
     unicode_cvt2_at = unicode_cvt1_at + c1;
     if (unicode_word(0) != UNICODE_MAGIC)
     {
-        /* Said here, where it is known, rather than by whoever called: a
-         * platform that links the tables in never reaches this, and one that
-         * loads them wants to hear about it once, at boot. */
         RP6502_LOG(oem, ERROR, "no tables");
         return false;
     }
     return true;
 }
 
-/* A platform that links the tables in never fails, so it is spared
- * having to say so at boot; the first lookup reads the header. */
+/* unicode_page_at is zero until the header has been read, so a platform that
+ * never calls unicode_init gets the header read on its first lookup. */
 static void unicode_ready(void)
 {
     if (!unicode_page_at)
         unicode_init();
 }
 
-/* The image carries the page numbers in a run of its own, so a lookup
- * is a short scan rather than a table of pointers that would have to be
- * relocated for a machine reading them out of a file. */
+/* The image carries the page numbers in a run of their own, so a lookup is a
+ * short scan; pointers would have to be relocated by a machine that reads the
+ * image out of a file. */
 static int unicode_page(uint16_t cp)
 {
     for (uint32_t i = 0; i < unicode_pages; i++)
@@ -93,18 +74,17 @@ static int unicode_page(uint16_t cp)
     return -1;
 }
 
-/* Whether the tables carry a page at all. The filesystem below may keep a
- * page of its own, but it cannot spell a character these tables cannot. */
 bool unicode_has_page(uint16_t cp)
 {
     unicode_ready();
     return unicode_page(cp) >= 0;
 }
 
+/* The tables start at 0x80 because ASCII is the same in every page. */
 WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)
-        return oem; /* ASCII passes through every page */
+        return oem;
     unicode_ready();
     int p = unicode_page(cp);
     if (p < 0)
@@ -118,7 +98,7 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
     if (uni < 0x80)
         return (uint16_t)uni;
     if (uni >= 0x10000)
-        return 0; /* half a surrogate pair is not an OEM character */
+        return 0; /* the tables cover the BMP only */
     unicode_ready();
     int p = unicode_page(cp);
     if (p < 0)
@@ -130,15 +110,15 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
     return 0;
 }
 
-/* The up-case tables are runs, each headed by a base code point and a
- * word holding a command in its top byte and a length in its low one.
- * Command zero is followed by that many replacements; the rest are
- * arithmetic on the code point itself, which is how the whole of
- * Unicode's simple case mapping fits in a few hundred words. */
+/* The up-case tables are runs, each headed by a base code point and a word
+ * holding a command in its top byte and a length in its low one. Command zero
+ * is followed by that many replacement code points; every other command is
+ * arithmetic on the code point itself, which is how the simple case mapping
+ * fits in a few hundred words. */
 DWORD ff_wtoupper(DWORD uni)
 {
     if (uni >= 0x10000)
-        return uni; /* nothing outside the BMP has a simple up-case */
+        return uni; /* the tables cover the BMP only */
     unicode_ready();
     uint16_t uc = (uint16_t)uni;
     uint32_t p = uc < 0x1000 ? unicode_cvt1_at : unicode_cvt2_at;
@@ -158,7 +138,7 @@ DWORD ff_wtoupper(DWORD uni)
                 uc = unicode_word(p + (uc - base));
                 break;
             case 1:
-                uc -= (uc - base) & 1; /* the pairs are lower, upper */
+                uc -= (uc - base) & 1; /* the run is pairs of upper, lower */
                 break;
             case 2:
                 uc -= 16;
@@ -189,14 +169,6 @@ DWORD ff_wtoupper(DWORD uni)
     }
     return uc;
 }
-
-/* --- The UTF-8 codec. It lived in oem.c, which also owns the current
- * code page, the locale and telling the keyboard and the screen when it
- * changes — and reaches for four headers to do it, none of which exist
- * on a machine with no config store and its own video. The conversion
- * itself never needed any of them: only a page number and the two
- * lookups above. oem.c keeps its own names and passes the page it is
- * holding, so nothing that called it has changed. --- */
 
 unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page)
 {
@@ -250,8 +222,9 @@ unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
         cp = (cp << 6) | (bi & 0x3F);
     }
     *p = (const char *)(s + extra + 1);
-    // Reject overlong forms and beyond-Unicode: untrusted input (host file
-    // names) must not decode to an ASCII it doesn't contain ('/', '.').
+    // Overlong forms and code points beyond Unicode are rejected because this
+    // decodes untrusted host filenames, which must not produce an ASCII byte
+    // they do not contain, such as '/' or '.'.
     static const uint32_t min_cp[] = {0, 0x80, 0x800, 0x10000};
     if (cp < min_cp[extra] || cp > 0x10FFFF)
         return 0x7F;

@@ -8,10 +8,9 @@
 #include "core/str/str.h"
 #include "core/sys/config.h"
 #include "core/wdc/phi2.h"
-/* FatFs where there is one: ff.h declares ff_oem2uni and ff_wtoupper itself,
- * in types it picks per platform, and it is the authority wherever a tree has
- * it. core/str/unicode.h declares them for a tree that does not -- the
- * Pocket, which has no FatFs anywhere. */
+/* FatFs where there is one, because not every tree that compiles this file
+ * has ff.h; core/str/unicode.h declares ff_oem2uni and ff_wtoupper for one
+ * that does not. */
 #ifdef __has_include
 #if __has_include(<fatfs/ff.h>)
 #include <fatfs/ff.h>
@@ -25,15 +24,13 @@
 #include "machine.h"
 #include <assert.h>
 
-/* Two-level so an argument that is itself a macro expands first, which is
- * the whole reason these are here: glibc's __CONCAT expands once. */
+/* Two levels, so an argument that is itself a macro expands before the paste. */
 #define STR_CAT1(a, b) a##b
 #define STR_CAT(a, b) STR_CAT1(a, b)
 
 static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX STR_XSTR(PHI2_MIN_KHZ) "-" STR_XSTR(PHI2_MAX_KHZ)
 
-// Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
     const char HOST_IN_FLASH(STR_XSTR(name)) name[] = value;
 #define XR(name, value) \
@@ -42,15 +39,12 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #undef X
 #undef XR
 
-// Per-locale string storage and tables, generated from def/str.def. Adding a
-// locale touches only def/. STR_ID pairs the locale's XSUFFIX with a string
-// id to form one name shared by the storage pass and the table pass.
 #define STR_ID_(loc, name) str_loc_##loc##_##name
 #define STR_ID(loc, name) STR_ID_(loc, name)
 
-// Each localized string is its own external flash-placed array. External
-// linkage is required: a static array or a bare literal initializer gets
-// merged by LTO into .rodata.str, which a copy_to_ram build places in RAM.
+// Each localized string is its own flash-placed array. External linkage is
+// required, because LTO merges a static array or a bare literal initializer
+// into .rodata.str, which a copy_to_ram build places in RAM.
 #define XBEGIN(code, verbose, cp)
 #define XEND()
 #define X(name, value) const char HOST_IN_FLASH("str_loc") STR_ID(XSUFFIX, name)[] = value;
@@ -59,9 +53,9 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #undef XEND
 #undef X
 
-// Each XBEGIN opens one flash-placed table of pointers sized to str_loc_id; the
-// [name] designators place each string by its id, so line order within a
-// locale file is irrelevant.
+// Each XBEGIN opens one table of pointers sized to str_loc_id. The [name]
+// designators place each string by its id, so line order within a locale file
+// does not matter.
 #define XBEGIN(code, verbose, cp) \
     static const char *const HOST_IN_FLASH("str_tab") STR_CAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
 #define XEND() \
@@ -85,7 +79,7 @@ static const char *const *const HOST_IN_FLASH("str_tabs") str_tabs[] = {
 #undef XEND
 #undef X
 
-// Parallel registry arrays, ordered by def/str.def.
+// The registry arrays are parallel, one entry per locale in def/str.def order.
 #define XBEGIN(code, verbose, cp) code,
 #define XEND()
 #define X(name, value)
@@ -116,10 +110,9 @@ static const uint16_t HOST_IN_FLASH("str_locale_cp") str_locale_cp[] = {
 #undef XEND
 #undef X
 
-// Order no longer matters (entries are placed by id), but every locale must
-// still define each string exactly once. Count each locale's entries and
-// assert the total; a missing or extra line trips here, a duplicate id trips
-// -Werror=override-init in the table pass above.
+// Every locale must define each string exactly once. A missing or extra line
+// trips the count assert below. A duplicate id instead trips -Woverride-init
+// in the table pass above, which the pico build makes an error on this file.
 #define XBEGIN(code, verbose, cp) enum \
 {                                      \
     STR_CAT(str_count_, XSUFFIX) = 0
@@ -147,16 +140,14 @@ const char *S(int id)
     return str_tabs[str_locale_index][id];
 }
 
-// Switch the active string table (clamped). Internal; the locale is selected
-// by name; str_check_locale is what judges one.
 static void str_select_locale(int index)
 {
     int count = (int)(sizeof str_tabs / sizeof str_tabs[0]);
     str_locale_index = (index >= 0 && index < count) ? index : 0;
 }
 
-// Find a locale by short name. Falls back to the build default
-// (RP6502_LOCALE) when name is empty or unknown, mirroring keyboard.
+// A name that is empty or is not a locale falls back to the build default,
+// RP6502_LOCALE.
 static int str_sanitize_locale(const char *name)
 {
     const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
@@ -172,9 +163,8 @@ static int str_sanitize_locale(const char *name)
     return found_index < 0 ? default_index : found_index;
 }
 
-/* The file keeps the canonical spelling, so "en" is stored as "EN". An
- * unknown name is not sanitized here the way loading once did -- a name
- * that is not a locale is not a locale. */
+/* The canonical spelling is what gets stored, so "en" is saved as "EN". A
+ * name that is not a locale is rejected rather than sanitized. */
 bool str_check_locale(const char *in, char *out)
 {
     int i = str_sanitize_locale(in);
@@ -184,8 +174,6 @@ bool str_check_locale(const char *in, char *out)
     return true;
 }
 
-/* Switch the string table and push the locale's default code page to oem
- * (oem only acts on it in auto mode). */
 void str_apply_locale(const char *name, bool changed)
 {
     (void)changed;
@@ -219,7 +207,6 @@ int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-/* SET's line for this row, now that the row is this driver's. */
 int str_locale_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -234,12 +221,8 @@ const char *str_get_locale_verbose(void)
     return str_locale_verbose[str_locale_index];
 }
 
-// Shared output buffer for str_parse_string.
 static char str_buf[256];
 
-// Case-insensitive equality of two OEM strings in the active code page,
-// matching FatFs's name lookup: convert each OEM byte to Unicode then
-// upper-case via ff_wtoupper. strcasecmp would only fold ASCII.
 bool str_oem_eq(const char *a, const char *b)
 {
     uint16_t cp = oem_get_code_page_run();
@@ -351,7 +334,7 @@ const char *str_parse_string(const char **args)
     {
         if ((*args)[j] == '"')
         {
-            j++; // skip opening "
+            j++;
             while ((*args)[j] && (*args)[j] != '"')
             {
                 if (out >= 255)
@@ -426,7 +409,7 @@ const char *str_parse_string(const char **args)
             }
             if (!(*args)[j])
                 return NULL; // unclosed quote
-            j++;             // skip closing "
+            j++;
         }
         else
         {
@@ -459,7 +442,6 @@ void str_size(uint64_t bytes, char *out, size_t out_size)
     const char *unit;
     if (bytes < 5000000ULL)
     {
-        // Floppy-era media: KB, rolling to MB, trailing zeros stripped.
         unsigned milli;
         if (bytes < 1024000ULL)
         {
