@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The application: what happens between sokol calling us and the machine having
- * run. A platform's entry.c seeds it with app_prepare, builds a sapp_desc around
- * the four callbacks, and takes app_exit_code back out.
  */
 
 #ifndef _HOST_SOKOL_APP_APP_H_
@@ -17,14 +13,15 @@
 struct sapp_event;
 
 /* Seed the application from the launch options and report the window's initial
- * pixel size (canvas aspect at the requested scale, plus the debugger menu
- * strip). Called before sokol starts. */
+ * size in pixels: the canvas aspect at the requested scale plus the debugger's
+ * menu strip, or the size the last debug session was left at when the debugger
+ * is active and have_scale is false. Call before sokol starts. */
 void app_prepare(uint32_t *fb, double scale, bool have_scale,
                  bool exit_on_halt, int *out_w, int *out_h);
 
-/* --phi2 0: no pacing. Each callback runs as many frames as a present's worth
- * of wall time holds, so the window stays live while the machine's time
- * warps. Before sokol starts. */
+/* --phi2 0: run without pacing. Each callback runs as many frames as one frame
+ * period of wall time holds, so the window still answers the user while the
+ * machine's time warps. Call before sokol starts. */
 void app_set_unpaced(bool on);
 
 /* The four sokol lifecycle callbacks each platform's sapp_desc points at. */
@@ -33,34 +30,31 @@ void app_frame(void);
 void app_input(const struct sapp_event *e);
 void app_cleanup(void);
 
-/* The process exit code once sokol returns: the ROM's exit code when it halted
- * the app outside debug mode, else 0, and 1 for a window the host closed on a
- * running machine. A break at the console never reaches here: it leaves as the
- * signal that asked. entry_run returns this. */
+/* The process exit code once sokol returns, which entry_run passes on: the
+ * ROM's exit code when it halted the application outside debug mode, 1 when the
+ * host closed the window on a running machine, and 0 otherwise. A console break
+ * never reaches here, because app_break_leave does not return. */
 int app_exit_code(void);
 
-/* The host's way of asking this run to stop from outside the program it is
- * running, for a host that has one: whether it was asked, and how to leave
- * when it was. A machine that is a guest in someone else's process -- an APK,
- * a browser tab -- installs neither, and its window closing still ends the
- * run the same way. */
+/* How this host stops a run from outside the program it is running: whether it
+ * was asked for, and how to leave when it was. A host with no such thing, such
+ * as an APK or a browser tab, installs neither and ends the run by closing its
+ * window. */
 void app_set_break(bool (*asked)(void), void (*leave)(void));
 
-/* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. The path
- * is host UTF-8; conversion to the guest's OEM code page happens here, so
- * platforms pass what the OS handed them (a lossy spelling never boots —
- * pre-substitute one that converts, like the Windows 8.3 fallback). Ignored
- * while a debug session owns the machine. A failed load halts the machine:
- * rom_load streams into live RAM before it can fail, so the old program may
- * already be clobbered — matching hardware, where a failed LOAD leaves the CPU
- * stopped in the monitor. */
+/* Boot a .rp6502, true on success. The path is host UTF-8 and is converted to
+ * the guest's OEM code page here, so a platform passes what the OS handed it; a
+ * spelling the code page cannot hold never boots, and a platform that has
+ * another spelling (the Windows 8.3 name, say) should substitute it first.
+ * Ignored while a DAP client owns the machine. A failed load leaves the machine
+ * stopped, because rom_load streams records into live RAM before it can fail,
+ * as on hardware where a failed LOAD leaves the CPU stopped in the monitor. */
 bool app_boot_rom(const char *path);
 
-/* Wall time the machine has spent running frames, in total. */
 uint64_t app_machine_ns(void);
 
-/* sokol's logger, for every .logger.func: its lines are the sokol category,
- * and a panic does not return. */
+/* sokol's logger, for every .logger.func. Its lines are the sokol log category,
+ * and a panic (level 0) does not return. */
 void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
              const char *message_or_null, uint32_t line_nr,
              const char *filename_or_null, void *user_data);

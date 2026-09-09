@@ -3,8 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The host's stdio as this machine's console: the wire's two ends, and the
- * terminal on the far side of it when there is one.
+ * The host's stdio as this machine's console.
  */
 
 #ifndef _HOST_SOKOL_CLI_CONSOLE_H_
@@ -12,15 +11,16 @@
 
 #include <stdbool.h>
 
-/* Put the host's stdio on the machine's console wire. True when the far end
- * is a terminal, which then is the console: keys raw, the machine's screen
- * drawn on it, and the emulated terminal left a mirror that answers nothing.
- * A pipe or a file only feeds the wire. */
+/* Connect the host's stdio to the machine's console. True when stdin and
+ * stdout are the same terminal, which then takes the machine's screen and
+ * answers the queries the emulated terminal would; a pipe or a file only
+ * supplies input. */
 bool console_open(void);
 
-/* A run with nothing left to do: the program is parked on a read and the
- * wire is empty, so only the host can move it. Without this an unpaced run
- * spins the machine's clock forward over an empty wire. */
+/* Called when the run has nothing else to do. A program blocked on a console
+ * read with no input queued can only be moved by the host, so this waits up to
+ * one frame for a byte rather than running the machine's clock forward over
+ * nothing. The bound is what keeps a headless run pacing meanwhile. */
 void console_idle(void);
 
 #endif /* _HOST_SOKOL_CLI_CONSOLE_H_ */

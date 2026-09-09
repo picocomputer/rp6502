@@ -3,14 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The canvas: where the machine's picture lands in the window, and how it gets
- * there. Size, aspect, letterbox, the scaling filter and the upload are all
- * here, so there is one answer to where a canvas pixel is on screen -- the
- * render pass and the input layer read the same map.
- *
- * sokol_framebuffer.h does the upload and the prescaled blit and
- * sokol_letterbox.h fits the viewport, so this is arithmetic and bookkeeping
- * around those two.
+ * sokol_framebuffer.h does the upload and the prescaled blit, and
+ * sokol_letterbox.h fits the viewport.
  */
 
 #include "host/sokol/app/gfx.h"
@@ -30,13 +24,13 @@
 
 static struct
 {
-    double scale;     /* requested window scale (may be fractional) */
-    int tex_w, tex_h; /* last seen canvas native size (sfb tracks it lazily) */
-    sfb_framebuffer sfb;          /* presents fb: upload, prescale, letterboxed blit */
-    gfx_filter_t filter; /* 0 == NEAREST default */
-    float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
-    uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
-    bool ever_uploaded; /* sfb's texture is undefined before the first */
+    double scale;
+    int tex_w, tex_h; /* last seen canvas size */
+    sfb_framebuffer sfb;
+    gfx_filter_t filter;
+    float bg_r, bg_g, bg_b;
+    uint32_t *fb; /* the caller's framebuffer, which vga renders into */
+    bool ever_uploaded;
 } gfx;
 
 
@@ -50,13 +44,13 @@ void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 
 void gfx_set_filter(gfx_filter_t filter) { gfx.filter = filter; }
 
-/* Sharp-bilinear prescale factor: the largest integer by which the canvas
- * still fits the window (floor per axis, take the smaller for square pixels),
- * clamped to [1, WINDOW_PRESCALE_MAX]. sfb's final LINEAR pass absorbs the
- * leftover fractional scale. The cap bounds VRAM (sfb has no cap of its own;
- * a maximized window on a tiny canvas can't allocate an enormous target); 1
- * keeps a window-smaller-than-canvas from hitting a zero-size target. */
-#define WINDOW_PRESCALE_MAX 6 /* 640*6 x 480*6 RGBA8 ~= 42 MB ceiling */
+/* The largest integer scale at which the canvas still fits the window, taking
+ * the smaller axis so pixels stay square; sfb's final linear pass absorbs the
+ * fractional remainder. The cap bounds video memory, because sfb has none of
+ * its own and a maximized window on a small canvas would otherwise ask for an
+ * enormous render target: 640*6 by 480*6 in RGBA8 is a 42 MB ceiling. The floor
+ * of 1 keeps a window smaller than the canvas off a zero-size target. */
+#define WINDOW_PRESCALE_MAX 6
 
 static int sharp_prescale(int cw, int ch, int aw, int ah)
 {
@@ -69,10 +63,10 @@ static int sharp_prescale(int cw, int ch, int aw, int ah)
     return f;
 }
 
-/* Is the debugger overlay (menu bar + dockspace) on this window? The overlay
- * owns the layout then: panels dock beside the canvas and the central node
- * letterboxes it, so the window resizes freely — no WM aspect hint, no width
- * re-fit — and its size persists per debug session instead of tracking --scale. */
+/* The debugger's menu bar and dockspace own the window layout when they are up:
+ * panels dock beside the canvas and the central node letterboxes it, so the
+ * window resizes freely with no aspect hint and no width re-fit, and its size
+ * persists per debug session instead of tracking --scale. */
 static bool overlay_active(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -83,9 +77,10 @@ static bool overlay_active(void)
 }
 
 /* Framebuffer pixels reserved at the top of the window for the debugger's menu
- * bar, so the canvas is laid out BELOW the menu instead of under it (0 when the
- * overlay is inactive). The overlay renders 1:1 (dbgui gets dpi_scale 1.0), so the
- * reported bar height is already framebuffer pixels; never reserve the whole window. */
+ * bar, so the canvas is laid out below the menu rather than under it, and 0 when
+ * the overlay is down. The overlay is given a dpi_scale of 1.0, so the height it
+ * reports is already in framebuffer pixels. The clamp keeps at least one row for
+ * the canvas. */
 static int top_reserved_px(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -102,15 +97,11 @@ static int top_reserved_px(void)
     return 0;
 }
 
-/* Window width that gives the canvas its square-pixel aspect (cw:ch) at height
- * h; long math avoids overflow on tall canvases. */
 static int aspect_width(int h, int cw, int ch)
 {
     return (int)((long)h * cw / ch);
 }
 
-/* Canvas height in framebuffer pixels for a requested --scale (VGA_MAX_HEIGHT
- * rows at scale, rounded); inverse of gfx_get_scale. */
 static int scaled_canvas_height(double scale)
 {
     return (int)(VGA_MAX_HEIGHT * scale + 0.5);
@@ -120,9 +111,10 @@ void gfx_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    /* scaled_canvas_height is logical canvas px; host_window_resize wants
-     * framebuffer (== physical) px, so scale by the DPI factor (1.0 unless
-     * high_dpi is on). top_reserved_px() is already framebuffer px. */
+    /* scaled_canvas_height is in logical canvas pixels and host_window_resize
+     * takes physical framebuffer pixels, so the DPI factor converts between
+     * them; it is 1.0 unless high_dpi is on. top_reserved_px is already
+     * framebuffer pixels. */
     int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
     int w = aspect_width(h, cw, ch);
     host_window_resize(w, h + top_reserved_px());
@@ -132,15 +124,16 @@ double gfx_get_scale(void)
 {
     if (!sapp_isvalid())
         return 0.0;
-    /* sapp_height() and top_reserved_px() are framebuffer (physical) px; divide
-     * out the DPI factor so the reported scale stays in logical --scale units. */
+    /* sapp_height and top_reserved_px are physical framebuffer pixels, so the
+     * DPI factor divides out to leave the scale in the same logical units
+     * --scale is given in. */
     return (double)(sapp_height() - top_reserved_px()) / (VGA_MAX_HEIGHT * sapp_dpi_scale());
 }
 
-/* The framebuffer-pixel rect (x,y from top-left, w,h) the emulated canvas draws
- * into: the dockspace central node when the debugger overlay is up (so docked
- * panels take space beside the screen, not over it), else the whole window below
- * the menu-bar strip. */
+/* The framebuffer-pixel rectangle, x and y from the top left, that the emulated
+ * canvas draws into: the dockspace central node when the debugger overlay is up,
+ * so docked panels take space beside the screen rather than over it, and
+ * otherwise the whole window below the menu-bar strip. */
 static void canvas_region(int *x, int *y, int *w, int *h)
 {
     int top = top_reserved_px();
@@ -166,11 +159,9 @@ static void canvas_region(int *x, int *y, int *w, int *h)
 }
 
 /* The aspect-fit viewport the canvas draws into, centered within canvas_region
- * (expressed to slbx as borders against the full framebuffer). Computed live on
- * every call — events arrive before the first frame and across dock/menu
- * transitions, so a cached copy would be stale exactly when it matters; this
- * function is the single source of truth for the render pass and the input
- * mappers below. */
+ * and given to slbx as borders against the full framebuffer. It is computed on
+ * every call because input events arrive before the first frame and across menu
+ * and dock changes. */
 static slbx_viewport canvas_viewport(void)
 {
     int cw, ch;
@@ -189,9 +180,6 @@ static slbx_viewport canvas_viewport(void)
                           });
 }
 
-/* On-screen pixels per canvas pixel (the aspect-fit scale). Host mouse motion is
- * divided by this to get canvas-space motion, so pointer speed doesn't change
- * with the window size. */
 float gfx_canvas_scale(void)
 {
     int cw, ch;
@@ -228,8 +216,6 @@ bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy)
 }
 
 
-/* The framebuffer object and the first canvas size, from the sokol init
- * callback once sg_setup has run. */
 void gfx_setup(void)
 {
     sfb_setup(&(sfb_desc){
@@ -247,34 +233,32 @@ void gfx_setup(void)
         host_window_set_aspect_hint(cw, ch);
 }
 
-/* The canvas the machine renders can change size mid-run (a program picks a
- * new mode). Notice it, keep the WM hint honest, and re-fit a window the user
- * has not resized off-aspect. */
 void gfx_canvas_changed(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
     if (cw != gfx.tex_w || ch != gfx.tex_h)
     {
-        /* Before tex_w/tex_h update, note whether the window is still within <1px
-         * of the OLD canvas aspect, i.e. the user hasn't resized it off-aspect. */
+        /* Whether the window is still within a pixel of the old canvas aspect,
+         * which says the user has not resized it off-aspect. It has to be read
+         * before tex_w and tex_h are updated. */
         int w = sapp_width(), h = sapp_height();
         double off = (double)w - (double)h * gfx.tex_w / gfx.tex_h;
         int at_aspect = off < 1.0 && off > -1.0;
 
         gfx.tex_w = cw;
         gfx.tex_h = ch;
-        if (!overlay_active()) /* the debug workbench never tracks the canvas aspect */
+        if (!overlay_active()) /* the debugger's window never tracks the canvas aspect */
         {
-            /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
-             * this (the quad below letterboxes instead); native X11/other WMs honor it. */
+            /* Native X11 window managers honor the hint. WSLg ignores it, and
+             * the blit letterboxes there instead. */
             host_window_set_aspect_hint(cw, ch);
 
-            /* Re-fit the window width to the new aspect ONLY if it was still pristine;
-             * a window the user has resized off-aspect is left alone (and letterboxed).
-             * We don't poll-and-snap to enforce it: programmatic resizes are unreliable
-             * under WSLg (it restores geometry and drops requests). Height is left
-             * as-is; only the width tracks the aspect. */
+            /* Only a window still at the old aspect is re-fitted; one the user
+             * resized is left alone and letterboxed. There is no poll and snap
+             * to enforce it afterwards, because WSLg restores its own geometry
+             * and drops resize requests. The height is left as it was, and only
+             * the width tracks the aspect. */
             int new_w = aspect_width(h, cw, ch);
             if (at_aspect && new_w != w)
                 host_window_resize(new_w, h);
@@ -282,8 +266,8 @@ void gfx_canvas_changed(void)
     }
 }
 
-/* The viewport this frame's blit fills, computed by gfx_upload and read by
- * gfx_blit -- one canvas_viewport() per frame, not two. */
+/* Computed by gfx_upload and read by gfx_blit, so a frame fits its viewport
+ * once rather than twice. */
 static slbx_viewport frame_vp;
 
 void gfx_upload(bool new_frame)
@@ -291,19 +275,19 @@ void gfx_upload(bool new_frame)
     int cw, ch;
     vga_canvas_size(&cw, &ch);
 
-    /* Aspect-preserving viewport fitted into the canvas region (the dockspace
-     * central node when the debugger is up, else the whole window). The window
-     * tracks the canvas aspect (RP6502 square pixels -> canvas aspect = display
-     * aspect), so the viewport normally fills the region; if it is off-aspect
-     * (the WM ignored the aspect hint, or mid-resize) it letterboxes/pillarboxes
-     * against the clear so content never stretches. */
+    /* The window tracks the canvas aspect, because RP6502 pixels are square and
+     * so the canvas aspect is the display aspect, and the viewport then fills
+     * the region. When the window is off-aspect, because the window manager
+     * ignored the hint or a resize is in progress, the difference becomes
+     * letterbox or pillarbox against the clear color and nothing stretches. */
     frame_vp = canvas_viewport();
     int f = gfx.filter == GFX_FILTER_SHARP
                 ? sharp_prescale(cw, ch, frame_vp.width, frame_vp.height)
                 : 1;
-    /* Lazy: recreates sfb's images only when the canvas or the sharp prescale
-     * factor changed. cliprect must be spelled out -- sfb_resize stores the raw
-     * desc value, and a zeroed rect on a recreating resize makes a 0x0 image. */
+    /* sfb_resize recreates its images only when the canvas or the prescale
+     * factor changed. The cliprect has to be spelled out because sfb_resize
+     * stores the raw desc value, so a zeroed rectangle on a resize that
+     * recreates would make a 0 by 0 image. */
     bool recreated = sfb_resize(gfx.sfb, &(sfb_resize_desc){
         .width = cw,
         .height = ch,
@@ -311,10 +295,9 @@ void gfx_upload(bool new_frame)
         .cliprect = {0, 0, cw, ch},
     });
 
-    /* Upload the new frame from the window's framebuffer, but only when one was
-     * produced this callback; a duplicate present (no new frame, e.g. a display
-     * faster than 60 Hz) re-blits sfb's existing texture without re-uploading.
-     * A recreating resize must repopulate regardless. */
+    /* A duplicate present, which is what a display faster than 60 Hz asks for,
+     * re-blits sfb's existing texture instead of uploading again. A resize that
+     * recreated the images has to fill them whatever the machine did. */
     if (new_frame || recreated)
     {
         sfb_update(gfx.sfb, &(sfb_update_desc){
@@ -335,10 +318,10 @@ void gfx_begin_pass(void)
 
 void gfx_blit(void)
 {
-    /* Until the first frame has been uploaded sfb's texture is undefined; skip
-     * the blit so the pass shows only the clear color. host_window_menu_active()
-     * also suppresses the canvas while the Android ROM menu is up -- its sdtx
-     * overlay then draws with the pass's full-window viewport still in effect. */
+    /* sfb's texture holds nothing until the first upload, so skipping the blit
+     * leaves the pass showing only the clear color. A platform overlay suppresses
+     * the canvas the same way, and its own text then draws with the pass's
+     * full-window viewport still in effect. */
     if (!gfx.ever_uploaded || frame_vp.width <= 0 || frame_vp.height <= 0 ||
         host_window_menu_active())
         return;
@@ -360,11 +343,10 @@ void gfx_shutdown(void)
     sfb_shutdown();
 }
 
-/* Open at a fixed height with the width set to the canvas aspect (square
- * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
- * canvas opens wider. The WM may restore a previous size instead; that is fine
- * -- the init callback sets the aspect hint and the blit letterboxes either
- * way. */
+/* The window opens at the height --scale asks for and the width its canvas
+ * aspect gives, so a 4:3 canvas opens 640x480 and a 16:9 canvas opens wider.
+ * A window manager may restore a previous size instead, which is fine: the init
+ * callback sets the aspect hint and the blit letterboxes either way. */
 void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h)
 {
     (void)have_scale;
@@ -378,13 +360,14 @@ void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *o
     #ifdef EMU_WITH_DEBUGGER
         if (dbg_is_active())
         {
-            /* In debug mode the menu bar sits ABOVE the canvas, so open the window
-             * taller by the bar's height; otherwise the canvas-aspect window squeezes
-             * the VGA picture under the menu. Post-open resizes are unreliable (WSLg
-             * drops them), so size it right up front with the pre-frame estimate. */
+            /* The debugger's menu bar sits above the canvas, so the window opens
+             * taller by the bar's height; without that the canvas-aspect window
+             * squeezes the picture under the menu. It is sized up front from the
+             * estimate because WSLg drops resize requests made after the window
+             * is open. */
             win_h += (int)(dbgui_menu_bar_estimate() + 0.5f);
-            /* Reopen at the last debug session's window size (persisted with the
-             * layout); an explicit --scale asks for a specific size and wins. */
+            /* The last debug session's window size is persisted with its layout,
+             * and an explicit --scale asks for a size and wins over it. */
             int last_w, last_h;
             if (!have_scale && dbgui_window_size(&last_w, &last_h))
             {

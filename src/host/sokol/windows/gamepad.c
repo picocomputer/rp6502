@@ -5,18 +5,17 @@
  *
  * Windows gamepads, which take two backends because Windows has two kinds.
  *
- * XInput reports a fixed Xbox layout and is the only way to read an
- * Xbox-class gamepad properly: that same device also presents a HID collection,
- * but its collection shares one axis between the two triggers for DirectInput
- * compatibility, so L2 and R2 would be indistinguishable there. Everything
- * else — DualSense, DualShock, Switch Pro, arcade sticks, no-name USB gamepads —
- * is invisible to XInput and is read here as raw HID instead.
+ * XInput reports a fixed Xbox layout and is the only way to read an Xbox-class
+ * gamepad properly. Such a device also presents a HID collection, but that
+ * collection shares one axis between the two triggers for DirectInput
+ * compatibility, so L2 and R2 cannot be told apart there. Everything else, from
+ * a DualSense to a no-name USB gamepad, is invisible to XInput and is read as
+ * raw HID below.
  *
- * The HID half needs no mapping database, because hid.dll parses the report
- * descriptor for us and hands back Button 1..n and the Generic Desktop axes.
- * That is the same thing core/hid/hid.c hands core/hid/gamepad.c, so the two file
- * the same usages in the same places and a no-name gamepad behaves the same here
- * as it does plugged into the real machine.
+ * The HID half needs no mapping database because hid.dll parses the report
+ * descriptor and hands back Button 1 through n and the Generic Desktop axes.
+ * On the real machine core/hid/parse.c reads the same descriptor into the bit
+ * offsets core/hid/gamepad.c extracts with.
  */
 
 #include "core/hid/gamepad.h"
@@ -25,8 +24,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-/* hid.dll's functions return NTSTATUS, which is a driver-kit type that
- * windows.h does not declare and that hidpi.h does not declare for itself. */
+/* hid.dll's functions return NTSTATUS, a driver-kit type that neither
+ * windows.h nor hidpi.h declares. */
 #ifndef _NTDEF_
 #define _NTDEF_
 typedef LONG NTSTATUS;
@@ -40,12 +39,11 @@ typedef LONG NTSTATUS;
 #include <string.h>
 #include <wchar.h>
 
-/* Frames between looking for controllers we have not seen. An XInputGetState
- * on an empty slot costs about a millisecond on the older runtimes, so four of
- * them every frame is a visible cost on a 16ms budget. */
+/* Frames between looking for controllers that have not been seen. An
+ * XInputGetState on an empty slot costs about a millisecond on the older
+ * runtimes, so four of them every frame would be a visible cost against a
+ * 16 ms budget. */
 #define GAMEPAD_WIN_RESCAN 60
-
-/* ---------------------------------------------------------------- XInput -- */
 
 #define GAMEPAD_XIN_MAX 4
 
@@ -78,7 +76,7 @@ typedef DWORD(WINAPI *gamepad_xin_get_state_t)(DWORD, gamepad_xin_state_t *);
 #define GAMEPAD_XIN_RIGHT_THUMB 0x0080
 #define GAMEPAD_XIN_LEFT_SHOULDER 0x0100
 #define GAMEPAD_XIN_RIGHT_SHOULDER 0x0200
-#define GAMEPAD_XIN_GUIDE 0x0400 /* only the undocumented entry point reports it */
+#define GAMEPAD_XIN_GUIDE 0x0400 /* only XInputGetStateEx reports this one */
 #define GAMEPAD_XIN_A 0x1000
 #define GAMEPAD_XIN_B 0x2000
 #define GAMEPAD_XIN_X 0x4000
@@ -91,10 +89,10 @@ static int gamepad_xin_probe;
 
 static void gamepad_xin_open(void)
 {
-    /* Newest first. The ordinal 100 entry is XInputGetStateEx, which is the
-     * only one that reports the Guide button; it is undocumented and absent
-     * from every header, so it is asked for by number and the documented
-     * function stands in when it is missing. */
+    /* Newest runtime first. The export at ordinal 100 is XInputGetStateEx,
+     * the only entry point that reports the Guide button; it is undocumented
+     * and named in no header, so it is asked for by ordinal and the documented
+     * XInputGetState stands in when it is absent. */
     static const wchar_t *const names[] = {
         L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"};
     for (size_t i = 0; i < sizeof names / sizeof names[0] && !gamepad_xin_dll; i++)
@@ -118,11 +116,12 @@ static void gamepad_xin_close(void)
     gamepad_xin_probe = 0;
 }
 
-/* Inverted after scaling rather than before: negating the raw -32768 would
- * overflow, and negating it as -1-value leaves a centred stick reading -1. */
+/* The value is inverted after scaling rather than before, because negating a
+ * raw -32768 overflows, and the -1 - value that avoids the overflow leaves a
+ * centred stick reading -1. */
 static int8_t gamepad_xin_stick(SHORT value, bool invert)
 {
-    int scaled = value >> 8; /* -32768..32767 is exactly -128..127 */
+    int scaled = value >> 8; /* -32768..32767 shifts to exactly -128..127 */
     if (invert)
         scaled = -scaled;
     if (scaled > 127)
@@ -156,10 +155,10 @@ static int gamepad_xin_poll(gamepad_host_t *gamepads, int max)
 
         gamepad_host_t *gamepad = &gamepads[count++];
         memset(gamepad, 0, sizeof(*gamepad));
-        /* An XInput slot number is stable while the gamepad is in it. Kept clear
-         * of the HID half's ids, which are hashes of a device path. */
+        /* A slot number is stable while the gamepad is in that slot. The HID
+         * half sets the top bit of its own ids, so these cannot collide. */
         gamepad->id = 1 + slot;
-        gamepad->type = GAMEPAD_TYPE_WESTERN; /* XUSB is an Xbox layout by construction */
+        gamepad->type = GAMEPAD_TYPE_WESTERN; /* XInput reports an Xbox layout */
         gamepad->sticks = true;
 
         WORD b = state.gamepad.buttons;
@@ -190,7 +189,8 @@ static int gamepad_xin_poll(gamepad_host_t *gamepads, int max)
 
         gamepad->lx = gamepad_xin_stick(state.gamepad.thumb_lx, false);
         gamepad->rx = gamepad_xin_stick(state.gamepad.thumb_rx, false);
-        /* XInput's Y is up-positive and the report's is down-positive. */
+        /* XInput's Y is positive upward and the report's is positive
+         * downward. */
         gamepad->ly = gamepad_xin_stick(state.gamepad.thumb_ly, true);
         gamepad->ry = gamepad_xin_stick(state.gamepad.thumb_ry, true);
         gamepad->lt = state.gamepad.left_trigger;
@@ -199,12 +199,10 @@ static int gamepad_xin_poll(gamepad_host_t *gamepads, int max)
     return count;
 }
 
-/* ------------------------------------------------------------- raw HID -- */
-
 #define GAMEPAD_HID_MAX 4
 #define GAMEPAD_HID_REPORT_MAX 256
 
-/* The Generic Desktop usages core/hid/gamepad.c reads, in the same roles. */
+/* The Generic Desktop usages, in the roles core/hid/gamepad.c gives them. */
 enum
 {
     GAMEPAD_HID_X,  /* left stick X  */
@@ -242,13 +240,13 @@ static int gamepad_hid_rescan;
 
 static uint64_t gamepad_hid_hash(const wchar_t *text)
 {
-    uint64_t hash = 1469598103934665603ull; /* FNV-1a, so a device path is an id */
+    uint64_t hash = 1469598103934665603ull;
     for (; *text; text++)
     {
         hash ^= (uint64_t)*text;
         hash *= 1099511628211ull;
     }
-    return hash | 0x8000000000000000ull; /* never collides with an XInput slot */
+    return hash | 0x8000000000000000ull; /* the top bit keeps XInput's ids apart */
 }
 
 static void gamepad_hid_close_one(gamepad_hid_t *hid)
@@ -264,7 +262,6 @@ static void gamepad_hid_close_one(gamepad_hid_t *hid)
     memset(hid, 0, sizeof(*hid));
 }
 
-/* hid.c's scaling, over the ranges hid.dll read out of the descriptor. */
 static uint8_t gamepad_hid_scale(LONG value, LONG min, LONG max)
 {
     if (max <= min)
@@ -285,7 +282,7 @@ static bool gamepad_hid_open_one(gamepad_hid_t *hid, const wchar_t *path, uint64
     if (hid->file == INVALID_HANDLE_VALUE)
     {
         hid->file = NULL;
-        return false; /* another process may hold it exclusively; not ours to fix */
+        return false;
     }
 
     HIDP_CAPS caps;
@@ -321,7 +318,6 @@ static bool gamepad_hid_open_one(gamepad_hid_t *hid, const wchar_t *path, uint64
     hid->state.sticks = hid->has[GAMEPAD_HID_X] && hid->has[GAMEPAD_HID_Y] &&
                         hid->has[GAMEPAD_HID_Z] && hid->has[GAMEPAD_HID_RZ];
 
-    /* Only the vendors whose labels are not in doubt. */
     HIDD_ATTRIBUTES attributes;
     attributes.Size = sizeof(attributes);
     if (HidD_GetAttributes(hid->file, &attributes))
@@ -347,8 +343,7 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
     gamepad_host_t *state = &hid->state;
     state->dpad = state->button0 = state->button1 = 0;
 
-    /* Button n at index n-1, then the same two bytes plus a d-pad the
-     * firmware packs them into. */
+    /* HID numbers buttons from 1, so usage n is map[n - 1]. */
     USAGE usages[64];
     ULONG usage_count = sizeof usages / sizeof usages[0];
     if (hid->button_caps_len &&
@@ -366,8 +361,8 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
             if (index < sizeof map / sizeof map[0])
                 gamepad_button_apply(map[index], true, &state->dpad,
                                      &state->button0, &state->button1);
-            /* Usages 17-20 are the discrete d-pad an Xbox-style descriptor
-             * uses instead of a hat, the same place gamepad.c reads them. */
+            /* An Xbox-style descriptor declares its d-pad as usages 17 to 20
+             * instead of as a hat, which is where gamepad.c reads it too. */
             else if (index >= 16 && index <= 19)
                 gamepad_button_apply((gamepad_button_t)(GAMEPAD_BTN_DPAD_UP + (index - 16)),
                                  true, &state->dpad, &state->button0,
@@ -384,9 +379,9 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
                                (PCHAR)hid->report,
                                hid->report_len) != HIDP_STATUS_SUCCESS)
             continue;
-        /* HidP hands back the field's bits, not its value: an axis declared
-         * with a negative logical minimum arrives zero-extended and has to be
-         * signed here, the same way core/hid/hid.c does it. */
+        /* HidP_GetUsageValue hands back the field's bits rather than its
+         * value, so an axis whose logical minimum is negative arrives
+         * zero-extended and is sign-extended here. */
         LONG value = (LONG)raw;
         if (hid->min[slot] < 0 && hid->bits[slot] > 0 && hid->bits[slot] < 32 &&
             (raw & (1ul << (hid->bits[slot] - 1))))
@@ -394,7 +389,8 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
 
         if (slot == GAMEPAD_HID_HAT)
         {
-            /* gamepad.c's hat table: N, NE, E, SE, S, SW, W, NW. */
+            /* A hat counts clockwise from north, and the d-pad bits are up
+             * 0x01, down 0x02, left 0x04 and right 0x08. */
             static const uint8_t hat_to_dpad[8] = {1, 9, 8, 10, 2, 6, 4, 5};
             LONG index = value - hid->min[slot];
             if (hid->max[slot] - hid->min[slot] == 7 && index >= 0 && index < 8)
@@ -422,8 +418,8 @@ static bool gamepad_hid_holds(uint64_t id)
     return false;
 }
 
-/* Raw input's device list, which needs no window — only WM_INPUT delivery
- * does, and the reports are read from the device directly instead. */
+/* Raw input's device list needs no window, because only WM_INPUT delivery
+ * does and the reports here are read from each device directly. */
 static void gamepad_hid_scan(void)
 {
     UINT count = 0;
@@ -457,9 +453,8 @@ static void gamepad_hid_scan(void)
         if (GetRawInputDeviceInfoW(list[i].hDevice, RIDI_DEVICENAME, path, &size) ==
             (UINT)-1)
             continue;
-        /* An XInput device is in this list too, wearing its DirectInput
-         * shim. Microsoft's own way of spotting one is this substring, and
-         * the XInput half above reads it properly. */
+        /* Microsoft's own way of spotting an XInput device is the IG_ in its
+         * device path, and the XInput half above reads it properly. */
         if (wcsstr(path, L"IG_"))
             continue;
 
@@ -487,8 +482,8 @@ static int gamepad_hid_poll(gamepad_host_t *gamepads, int max)
         gamepad_hid_t *hid = &gamepad_hids[i];
         if (!hid->file)
             continue;
-        /* Drain what has arrived so the state is this frame's, but a device
-         * reporting faster than we ask is not allowed to hold the frame. */
+        /* The bound keeps a device that reports faster than it is polled from
+         * holding the frame. */
         for (int drain = 0; drain < 32; drain++)
         {
             if (!hid->reading)
@@ -499,7 +494,7 @@ static int gamepad_hid_poll(gamepad_host_t *gamepads, int max)
                 {
                     if (GetLastError() != ERROR_IO_PENDING)
                     {
-                        gamepad_hid_close_one(hid); /* unplugged */
+                        gamepad_hid_close_one(hid);
                         break;
                     }
                 }
@@ -512,7 +507,7 @@ static int gamepad_hid_poll(gamepad_host_t *gamepads, int max)
                 {
                     gamepad_hid_close_one(hid);
                 }
-                break; /* nothing new this frame; the read stays outstanding */
+                break;
             }
             hid->reading = false;
             if (got)
@@ -531,15 +526,13 @@ static int gamepad_hid_poll(gamepad_host_t *gamepads, int max)
     return count;
 }
 
-/* ----------------------------------------------------------------- seam -- */
-
 bool host_gamepad_open(void)
 {
     gamepad_xin_open();
     gamepad_xin_probe = 0;
     gamepad_hid_scan();
     gamepad_hid_rescan = GAMEPAD_WIN_RESCAN;
-    return true; /* nothing plugged in yet is ordinary */
+    return true;
 }
 
 void host_gamepad_close(void)

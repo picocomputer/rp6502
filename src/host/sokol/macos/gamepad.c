@@ -3,15 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * macOS gamepads, through GameController.framework. Apple's drivers know
- * DualSense, DualShock, Xbox and Switch Pro natively and hand back an already
- * normalized profile, so there is no mapping database here, and — unlike
- * IOKit — no Input Monitoring consent dialog for a user to be surprised by.
- * If one ever appears, something below has reached IOKit and that is the bug.
+ * macOS gamepads, through GameController.framework. Apple's drivers hand back
+ * an already normalized profile, so there is no mapping database here, and,
+ * unlike IOKit, GameController asks the user for no Input Monitoring consent.
  *
- * Compiled as Objective-C. Controllers arrive on the main run loop, which is
- * the one sokol already spins, so this is read from the frame callback along
- * with everything else rather than from a thread.
+ * GameController delivers on the main run loop, which is the one sokol spins,
+ * so the frame callback reads the controllers directly and no thread of its
+ * own is needed.
  */
 
 #include "core/hid/gamepad.h"
@@ -21,9 +19,9 @@
 
 static bool gamepad_macos_open;
 
-/* Apple hands out GCController objects, not indices. The pointer is the id
- * for as long as the controller is connected, which is exactly as long as a
- * player should keep their number. */
+/* Apple hands out GCController objects rather than indices, and the object
+ * lives exactly as long as the controller is connected, so its address is a
+ * player number that lasts. */
 static uint64_t gamepad_macos_id(GCController *controller)
 {
     return (uint64_t)(uintptr_t)controller;
@@ -31,8 +29,8 @@ static uint64_t gamepad_macos_id(GCController *controller)
 
 static uint8_t gamepad_macos_type(GCController *controller)
 {
-    /* Only what Apple names outright. productCategory is a display string, so
-     * this reads the ones that are documented and claims nothing otherwise. */
+    /* productCategory is a display string, so only the spellings Apple
+     * documents are read and anything else stays unknown. */
     NSString *category = controller.productCategory;
     if (!category)
         return GAMEPAD_TYPE_UNKNOWN;
@@ -49,7 +47,6 @@ static uint8_t gamepad_macos_type(GCController *controller)
 
 static int8_t gamepad_macos_axis(float value)
 {
-    /* The web shell's rounding, so the same stick reads the same in both. */
     float scaled = value * 127.0f;
     if (scaled > 127.0f)
         scaled = 127.0f;
@@ -70,9 +67,9 @@ static uint8_t gamepad_macos_trigger(float value)
 
 bool host_gamepad_open(void)
 {
-    /* No startWirelessControllerDiscovery: it asks the user for Bluetooth
-     * permission and wants an Info.plist string to explain why. Controllers
-     * paired with the system are already in the list. */
+    /* Nothing calls startWirelessControllerDiscovery, because it asks the user
+     * for Bluetooth permission and wants an Info.plist string explaining why.
+     * A controller already paired with the system is in the list regardless. */
     gamepad_macos_open = true;
     return true;
 }
@@ -94,7 +91,7 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
             break;
         GCExtendedGamepad *gc = controller.extendedGamepad;
         if (!gc)
-            continue; /* a remote or a micro gamepad is not one of these */
+            continue;
 
         gamepad_host_t *gamepad = &gamepads[count++];
         memset(gamepad, 0, sizeof(*gamepad));
@@ -132,7 +129,8 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
 
         gamepad->lx = gamepad_macos_axis(gc.leftThumbstick.xAxis.value);
         gamepad->rx = gamepad_macos_axis(gc.rightThumbstick.xAxis.value);
-        /* Apple's sticks are up-positive and the report's are down-positive. */
+        /* Apple's sticks are positive upward and the report's are positive
+         * downward. */
         gamepad->ly = gamepad_macos_axis(-gc.leftThumbstick.yAxis.value);
         gamepad->ry = gamepad_macos_axis(-gc.rightThumbstick.yAxis.value);
         gamepad->lt = gamepad_macos_trigger(gc.leftTrigger.value);

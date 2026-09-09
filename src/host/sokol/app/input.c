@@ -23,14 +23,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* ------------------------------------------------------------------ */
-/* Host (sokol) key/char translation                                   */
-/* ------------------------------------------------------------------ */
+static bool suppress_char;
 
-static bool suppress_char; /* swallow the CHAR a numpad KEY_DOWN would double-inject */
-
-/* Map a sokol keycode to a USB HID keyboard usage id for the xreg keyboard
- * bitmap. 0 = unmapped (not reported). */
+/* A sokol keycode as a USB HID keyboard usage id, for the keyboard bitmap.
+ * 0 means the key has no usage id and is not reported. */
 static uint8_t sokol_to_hid(int kc)
 {
     if (kc >= SAPP_KEYCODE_A && kc <= SAPP_KEYCODE_Z)
@@ -96,9 +92,11 @@ static uint8_t sokol_to_hid(int kc)
     }
 }
 
-/* US-ASCII of a printable sokol keycode honoring shift, else 0. Alt combos fire
- * no CHAR event, so an Alt+key Meta escape is reconstructed here — a US-layout
- * approximation, not an OEM-codepage match. */
+/* The US-ASCII character of a printable sokol keycode, honoring shift, else 0.
+ * The CHAR case below drops Ctrl and Alt chords, except where Ctrl+Alt means
+ * AltGr, so the character such a chord carries is reconstructed from the
+ * keycode here. It is a US-layout approximation and not a match for the code
+ * page in force. */
 static char ascii_from_key(int kc, bool shift)
 {
     if (kc >= SAPP_KEYCODE_A && kc <= SAPP_KEYCODE_Z)
@@ -108,9 +106,6 @@ static char ascii_from_key(int kc, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
     }
-    /* The keypad prints its digit when NumLock is on, and an Alt chord over
-     * it fires no CHAR event to read one from. libretro answered this and
-     * this side had not. */
     if (kc >= SAPP_KEYCODE_KP_0 && kc <= SAPP_KEYCODE_KP_9)
         return (char)('0' + (kc - SAPP_KEYCODE_KP_0));
     switch (kc)
@@ -137,19 +132,16 @@ static char ascii_from_key(int kc, bool shift)
     }
 }
 
-/* AltGr arrives as Ctrl+Alt only where the host reports it that way: Windows
- * natively, and browsers on a Windows host. On X11 AltGr is Mod5 and on macOS
- * plain Option — there Ctrl+Alt can only be a held chord, never composition. */
+/* AltGr arrives as Ctrl+Alt only where the host reports it that way, which is
+ * Windows and a browser on a Windows host. On X11 AltGr is Mod5 and on macOS it
+ * is Option, so there Ctrl+Alt can only be a held chord and never a composed
+ * character. */
 #if defined(_WIN32) || defined(__EMSCRIPTEN__)
 #define ALTGR_IS_CTRL_ALT 1
 #else
 #define ALTGR_IS_CTRL_ALT 0
 #endif
 
-/* Feed one key/char event to the emulated keyboard: the HID bitmap on
- * press/release, printable CHARs as OEM bytes, and the navigation/function/ctrl
- * keys as their byte sequences. (Esc-releases-mouse is a capture concern
- * input_event handles before forwarding here.) */
 static void input_key(const sapp_event *e)
 {
     if (e->type == SAPP_EVENTTYPE_KEY_DOWN || e->type == SAPP_EVENTTYPE_KEY_UP)
@@ -161,14 +153,13 @@ static void input_key(const sapp_event *e)
     switch (e->type)
     {
     case SAPP_EVENTTYPE_CHAR:
-        /* Printable input only; control codes (<32) and DEL arrive via KEY_DOWN
-         * below, so skip them here to avoid double injection. Ctrl/Alt chords are
-         * likewise emitted by KEY_DOWN (as C0 / ESC-prefixed bytes); X11 still fires
-         * a CHAR for them, so drop those here or the plain char double-injects.
-         * Super too: macOS delivers a printable CHAR for Cmd chords (Cmd+V would
-         * type 'v' before the CLIPBOARD_PASTED text lands). Where the host
-         * reports AltGr as Ctrl+Alt, that composed char types — matching the
-         * firmware's right-Alt level-3. */
+        /* Printable characters only. The control codes below 32, DEL, and the
+         * Ctrl and Alt chords are all emitted by the KEY_DOWN case below, and a
+         * host that also fires a CHAR for them would double-inject. macOS fires
+         * a CHAR for a Cmd chord too, so without the Super test Cmd+V would type
+         * a 'v' before the pasted text arrived. Where the host reports AltGr as
+         * Ctrl+Alt, the character it composed is typed, which is what the
+         * firmware's right-Alt does. */
         if (suppress_char)
             suppress_char = false;
         else if (e->char_code >= 32 && e->char_code != 127 &&
@@ -192,9 +183,9 @@ static void input_key(const sapp_event *e)
         case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); break;
         case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); break;
         case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); break;
-        /* NumLock-off numpad navigation. sokol reports no NumLock modifier, so
-         * always nav and swallow the digit CHAR the host emits when NumLock is
-         * on. KP5 navigates nowhere, so it only swallows. */
+        /* Sokol reports no NumLock modifier, so the keypad always navigates and
+         * always swallows the digit CHAR a host emits when NumLock is on. KP5
+         * navigates nowhere and only swallows. */
         case SAPP_KEYCODE_KP_1:
         case SAPP_KEYCODE_KP_2:
         case SAPP_KEYCODE_KP_3:
@@ -210,29 +201,24 @@ static void input_key(const sapp_event *e)
             vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;
         default:
-            /* A key that sends a sequence of its own -- Enter, Tab, an arrow,
-             * a function key -- takes it; the rest fall through to the chords. */
             if (vtkeys_key(hid, ctrl, shift, alt))
                 break;
-            /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
-             * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
-             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; vtkeys_ctrl_letter gates
-             * the valid range. The CHAR case above drops the X11 duplicate. */
             if (ctrl && !alt)
             {
                 char ch = ascii_from_key(e->key_code, shift);
 #if defined(__EMSCRIPTEN__)
-                /* The browser, not sokol, decides when a paste fires (any
-                 * Ctrl+V variant can land a JS paste event), so every Ctrl+V
-                 * chord types the paste instead of 0x16. */
+                /* The browser, not sokol, decides when a paste fires, and any
+                 * Ctrl+V variant can land a JavaScript paste event, so every
+                 * Ctrl+V chord types the pasted text instead of 0x16. */
                 if (e->key_code == SAPP_KEYCODE_V &&
                     sapp_query_desc().enable_clipboard)
                     ch = 0;
 #elif !defined(__APPLE__)
-                /* Unshifted Ctrl+V — the exact chord sokol pastes on — types the
-                 * CLIPBOARD_PASTED text instead of 0x16. Shifted variants still
-                 * inject 0x16 (they never paste), and macOS pastes on Cmd+V, so
-                 * its Ctrl+V stays a guest SYN. */
+                /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
+                 * Ctrl and the key is V, so that one chord types the pasted text
+                 * instead of 0x16. Shifted variants never paste and still inject
+                 * 0x16, and macOS pastes on Cmd+V, which leaves its Ctrl+V a
+                 * guest SYN. */
                 if (e->key_code == SAPP_KEYCODE_V &&
                     e->modifiers == SAPP_MODIFIER_CTRL &&
                     sapp_query_desc().enable_clipboard)
@@ -240,9 +226,9 @@ static void input_key(const sapp_event *e)
 #endif
                 vtkeys_ctrl_letter(ch);
             }
-            /* Alt+<printable> -> ESC<char> (Meta). No CHAR fires for Alt combos.
-             * Ctrl+Alt is excluded only where it means AltGr, whose composed char
-             * arrives via the CHAR case above. */
+            /* Alt and a printable key is the Meta form, ESC then the character.
+             * Ctrl+Alt is excluded only where it means AltGr, whose composed
+             * character arrives through the CHAR case above. */
             else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
                 vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
@@ -254,19 +240,14 @@ static void input_key(const sapp_event *e)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Mouse                                                               */
-/* ------------------------------------------------------------------ */
-
-/* Mouse sensitivity: the ROM always works in 640px-wide mouse units and halves
- * them itself for a 320px canvas, so convert host motion to a fraction of the
- * canvas's on-screen width scaled to a fixed 640 — a full-width sweep is 640
- * counts regardless of the canvas resolution. */
+/* One mouse count is one pixel on a 640-wide canvas and half a pixel on a
+ * 320-wide one, so host motion is converted to a fraction of the canvas's
+ * on-screen width against this fixed 640. A sweep across the drawn canvas is
+ * then 640 counts whatever the canvas resolution and the window size are. */
 #define INPUT_MOUSE_REF_WIDTH 640.0f
 
-static uint8_t host_mouse_buttons; /* host mouse button bitmap while captured */
+static uint8_t host_mouse_buttons;
 
-/* Set or clear a captured mouse button (0..2 = left/right/middle) and publish. */
 static void set_host_mouse_button(int btn, bool down)
 {
     if (btn < 0 || btn > 2)
@@ -278,11 +259,6 @@ static void set_host_mouse_button(int btn, bool down)
     mouse_host_buttons(host_mouse_buttons);
 }
 
-/* ------------------------------------------------------------------ */
-/* Tablet (absolute pointer / touch)                                   */
-/* ------------------------------------------------------------------ */
-
-/* Left/right/middle bit (TABLET_FLAG_*) for a sokol mouse button. */
 static uint8_t host_mouse_button_bit(sapp_mousebutton mb)
 {
     return mb == SAPP_MOUSEBUTTON_LEFT     ? TABLET_FLAG_LEFT
@@ -291,10 +267,11 @@ static uint8_t host_mouse_button_bit(sapp_mousebutton mb)
                                            : 0;
 }
 
-/* Host mouse buttons as a tablet/mouse bitmap (bit 0 left, 1 right, 2 middle).
- * Taken from the event modifiers so a release missed off-window (e.g. the web
- * build gets no mouseup outside the canvas) can't latch a stale button; the
- * changing button is forced on/off since some platforms report it a beat late. */
+/* The host's mouse buttons as a tablet bitmap, read from the event's modifiers
+ * because a release the window never saw would otherwise leave a button latched
+ * down; the web build gets no mouseup outside the canvas. The button this event
+ * is about is forced on or off, because some platforms report it in the
+ * modifiers a beat late. */
 static uint8_t pointer_buttons(const sapp_event *e)
 {
     uint8_t b = 0;
@@ -312,11 +289,11 @@ static uint8_t pointer_buttons(const sapp_event *e)
     return b;
 }
 
-/* Route a host pointer/touch event to the tablet device (absolute canvas
- * position, no capture). Because the pointer is never captured while a tablet is
- * mapped, a mouse the program also mapped is fed here too: the one physical
- * pointer drives both blocks like hardware, and the ROM reads the mouse block
- * whenever every tablet contact flag is 0. Returns true when it consumed e. */
+/* Route a host pointer or touch event to the tablet, which is an absolute canvas
+ * position and never captures. Because nothing is captured while a tablet is
+ * mapped, a mouse the program also mapped is fed from here as well: the one
+ * physical pointer drives both blocks, as it would on hardware. True when the
+ * event was consumed. */
 static bool input_tablet(const sapp_event *e)
 {
     int cx, cy;
@@ -327,13 +304,13 @@ static bool input_tablet(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_MOVE:
     {
         bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
-        input_set_pointer_on_canvas(inside); /* the tablet owns the cursor only on-canvas */
+        input_set_pointer_on_canvas(inside);
         uint8_t buttons = pointer_buttons(e);
         if (inside)
             tablet_host_pointer(cx, cy, buttons, true);
         else
-            tablet_host_clear(); /* outside the canvas: no contact, all buttons released */
-        if (mouse_is_mapped()) /* the same physical pointer also drives the mouse block */
+            tablet_host_clear();
+        if (mouse_is_mapped())
         {
             mouse_host_buttons(buttons);
             if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
@@ -353,12 +330,12 @@ static bool input_tablet(const sapp_event *e)
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
-        if (mouse_is_mapped()) /* the same scroll also drives the mouse block */
+        if (mouse_is_mapped())
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        input_set_pointer_on_canvas(false); /* hand the cursor back to the system */
-        tablet_host_clear();                    /* pointer left the window */
+        input_set_pointer_on_canvas(false);
+        tablet_host_clear();
         return true;
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
     case SAPP_EVENTTYPE_TOUCHES_MOVED:
@@ -372,9 +349,9 @@ static bool input_tablet(const sapp_event *e)
         for (int i = 0; i < e->num_touches && n < SAPP_MAX_TOUCHPOINTS; ++i)
         {
             if (ending && e->touches[i].changed)
-                continue; /* the finger lifting this event is no longer a contact */
+                continue; /* the finger this event lifts is no longer a contact */
             if (!gfx_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
-                continue; /* touch in the letterbox: not a canvas contact */
+                continue;
             pts[n].x = (int16_t)cx;
             pts[n].y = (int16_t)cy;
             n++;
@@ -389,20 +366,17 @@ static bool input_tablet(const sapp_event *e)
 
 void input_event(const sapp_event *e)
 {
-    /* An absolute-pointer program takes host pointer/touch events directly (no
-     * capture); input_tablet consumes those and returns true. Everything else
-     * (keys, and pointer events when no tablet is mapped) falls through below. */
     if (tablet_is_mapped() && input_tablet(e))
         return;
 
     switch (e->type)
     {
     case SAPP_EVENTTYPE_KEY_DOWN:
-        /* Esc releases a captured mouse (a capture concern) instead of being
-         * typed; every other key/char is translated below. */
+        /* Esc releases a captured mouse rather than being typed, which is how a
+         * browser leaves pointer lock. */
         if (e->key_code == SAPP_KEYCODE_ESCAPE && sapp_mouse_locked())
         {
-            sapp_lock_mouse(false); /* matches the browser's pointer-lock exit */
+            sapp_lock_mouse(false);
             break;
         }
         input_key(e);
@@ -414,8 +388,8 @@ void input_event(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_DOWN:
         if (!sapp_mouse_locked())
         {
-            /* First click captures the mouse (only once a program wants it);
-             * the click itself is consumed by the capture. */
+            /* The first click captures the pointer, and only once a program has
+             * mapped the mouse. That click is spent on the capture. */
             if (mouse_is_mapped())
                 sapp_lock_mouse(true);
         }
@@ -431,10 +405,10 @@ void input_event(const sapp_event *e)
         {
             int cw, ch;
             vga_canvas_size(&cw, &ch);
-            float onscreen_w = (float)cw * gfx_canvas_scale(); /* drawn canvas width, fb px */
+            float onscreen_w = (float)cw * gfx_canvas_scale();
             if (onscreen_w > 0.0f)
             {
-                float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
+                float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
                 mouse_host_move((int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE),
                                 (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE));
             }
@@ -452,7 +426,6 @@ void input_event(const sapp_event *e)
     }
 }
 
-/* Map the ROM's tablet control byte to a sokol system cursor. */
 static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
 {
     switch (shape)
@@ -467,10 +440,8 @@ static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
     }
 }
 
-/* Whether the host pointer is over the drawn canvas, set by the input layer. The
- * tablet only owns the host cursor while true; in the letterbox (or a debugger
- * panel, handled below) the system cursor shows. Defaults true so a freshly
- * mapped tablet shows its cursor before the first motion. */
+/* True so that a freshly mapped tablet shows its cursor before the pointer has
+ * moved once. */
 static bool pointer_on_canvas = true;
 
 void input_set_pointer_on_canvas(bool on)
@@ -478,19 +449,14 @@ void input_set_pointer_on_canvas(bool on)
     pointer_on_canvas = on;
 }
 
-/* Apply the tablet ROM's requested host cursor (control byte): TABLET_CURSOR_OFF
- * hides it (the ROM draws its own), otherwise show that shape. This is the sole
- * cursor writer (simgui's own control is disabled), run every frame so a ROM
- * cursor change or a debugger panel-hover change is reflected promptly. Over a
- * debugger panel ImGui owns the shape, applied via dbgui_mouse_cursor. */
 void input_update_cursor(void)
 {
     static bool had_tablet;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_wants_mouse())
     {
-        /* Over a debugger panel ImGui owns the shape; apply it (simgui no longer
-         * does) and keep the pointer visible over any TABLET_CURSOR_OFF hide. */
+        /* Over a debugger panel ImGui chooses the shape, and the pointer stays
+         * visible even where a program asked for it to be hidden. */
         sapp_set_mouse_cursor((sapp_mouse_cursor)dbgui_mouse_cursor());
         sapp_show_mouse(true);
         return;

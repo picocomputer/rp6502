@@ -7,9 +7,9 @@
 
 #pragma once
 
-/* Separate from the notices so each caller can put the version under the rule:
- * --credits prints both with the version between, and the debugger's about box
- * has its own title and skips this one. */
+/* The title is separate from the notices so that --credits can print the
+ * version between the two, while the debugger's about box supplies its own
+ * title and prints the notices alone. */
 static const char EMU_CREDITS_TITLE[] =
     "Picocomputer 6502 emulator - credits and third-party notices\n"
     "============================================================\n";

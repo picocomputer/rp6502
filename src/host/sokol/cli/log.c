@@ -3,10 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Where this machine's own lines go, which core/sys/debug_log.h asks every
- * machine to say. Not the program's streams: a program's output is its own
- * and goes wherever the run points it, while these are the machine talking
- * about itself and always end up on the host's stderr.
+ * The machine's own log lines, which core/sys/debug_log.h asks every machine
+ * to answer for. These are not a program's output, which goes wherever the
+ * run points it.
  */
 
 #include "core/sys/debug_log.h"

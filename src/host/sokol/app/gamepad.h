@@ -3,16 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host gamepads into the emulated ones: the privacy gate, which host controller
- * is which player, and when to look for more. The same policy everywhere.
- * Reading the controllers is the host_gamepad_ seam in entry.h, one
- * implementation per desktop; web and Android reach core/hid/gamepad.h by their
- * own paths and build none of this.
+ * Which host controller is which player, and when to look for more. Reading the
+ * controllers is the host_gamepad_ half of entry.h, one implementation per
+ * desktop; only the desktop emulator builds this file, because web and Android
+ * reach core/hid/gamepad.h by their own paths.
  *
- * The gamepad_ prefix is core/hid's, so these keep gamepad_input_.
- *
- * Sokol has no gamepad API, so this is polled rather than delivered as events
- * like the rest of input.c.
+ * Sokol has no gamepad API, so these are polled rather than delivered as events
+ * the way the rest of input.c is.
  */
 
 #ifndef _HOST_SOKOL_APP_GAMEPAD_H_

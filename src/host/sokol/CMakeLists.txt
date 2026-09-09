@@ -1,14 +1,3 @@
-# The emulator on the desktops it runs natively: Linux and the BSDs, macOS,
-# Windows.
-#
-# One root for the three because they are one program. What differs is the
-# host directory beside this one, the graphics backend sokol compiles, and
-# what the linker is handed — each in a branch below and nowhere else.
-#
-# android/ is the fourth. It is a root of its own because AGP drives it, but
-# it is the same machine: it takes the drivers.h beside this file, and the APK
-# that wraps it is in android/apk beside that.
-
 cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-emu C CXX)
@@ -22,19 +11,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
 set(RP6502_SRC ${RP6502_ROOT}/src)
 set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
-# First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-# The OS this build is for, twice over: the directory that answers osal/os.h
-# beyond what posix.cmake supplies, and this machine's own window and gamepad
-# for that OS. Two directories because they are two questions -- what the
-# system answers, and what this program does with it.
 if(WIN32)
     set(RP6502_OSAL ${RP6502_SRC}/osal/windows)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/windows)
@@ -58,20 +42,10 @@ else()
         ${RP6502_SRC}/osal/posix/console.c)
 endif()
 
-# This machine's drivers.h: what it is made of, the order it comes up in,
-# and what it offers a program to open.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
-
-# One optimization unit in Release, as it was when this tree was one file.
-# emu_core was made above this line, so it is told directly; everything made
-# below inherits the directory variable.
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
-# The desktop window + audio stack. Windows and macOS carry their own
-# (D3D11/Metal); Linux/BSD needs GL + X11 (+ Xi/Xcursor) and ALSA. These are
-# hard requirements — a windowless or silent emulator ships nowhere — so a
-# missing dev package fails configuration instead of degrading the build.
 if(NOT WIN32 AND NOT APPLE)
     find_package(OpenGL)
     find_package(X11)
@@ -99,11 +73,12 @@ target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
 
 if(WIN32)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11 _BSD_SOURCE)
-    # hid for the raw-HID gamepads; the XInput runtime is LoadLibrary'd because
-    # its DLL name varies and the Guide button is only at an ordinal.
+    # The XInput runtime is not linked here because windows/gamepad.c loads it
+    # by name at run time.
     target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
-    # GUI subsystem so no console pops up; keep our main() (os_console_attach
-    # reattaches stdio when launched from a terminal).
+    # The GUI subsystem keeps Windows from opening a console for the program,
+    # and mainCRTStartup keeps main() as the entry point rather than the
+    # WinMain the GUI subsystem would otherwise want.
     if(MSVC)
         target_link_options(rp6502-emu PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
     else()
@@ -116,8 +91,8 @@ if(WIN32)
     target_link_libraries(rp6502-emu PRIVATE wingetopt)
 elseif(APPLE)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-    # sokol on macOS needs Objective-C; compile the impl units as .m and
-    # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
+    # macos/gamepad.c imports GameController, and sokol's macOS backends are
+    # Objective-C, so these are compiled as Objective-C rather than C.
     set_source_files_properties(
         ${RP6502_SRC}/host/sokol/app/sokol.c
         ${RP6502_SRC}/host/sokol/app/app.c
@@ -127,8 +102,6 @@ elseif(APPLE)
         ${RP6502_SOKOL_OS}/entry.c
         ${RP6502_SOKOL_OS}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
-    # GameController rather than IOKit: Apple's own drivers normalize every
-    # modern gamepad, and it asks the user for no permission to do it.
     target_link_libraries(rp6502-emu PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")
@@ -141,22 +114,19 @@ endif()
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
-# The packaging, which names this program rather than the system under it.
 if(WIN32)
-    # The version metadata Explorer shows in Properties > Details. RC is not
-    # one of project()'s languages and a language is enabled for a directory
-    # rather than a target, so it is enabled here; both rc.exe and windres
-    # accept the file.
+    # RC is not one of project()'s languages, and CMake enables a language for
+    # a directory rather than for a target, so it is enabled here. Both rc.exe
+    # and windres accept the file.
     enable_language(RC)
     configure_file(${RP6502_SOKOL_OS}/version.rc.in version.rc @ONLY)
     target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 endif()
 
 if(APPLE)
-    # An .app is a directory holding the executable and an Info.plist, so the
-    # build makes the thing that ships. Configured here rather than handed to
-    # MACOSX_BUNDLE_INFO_PLIST as a template: that substitutes only CMake's own
-    # MACOSX_BUNDLE_* names, and the version fields are ours.
+    # MACOSX_BUNDLE_INFO_PLIST substitutes only CMake's own MACOSX_BUNDLE_*
+    # variables and the version fields here are ours, so the plist is
+    # configured before it is handed over.
     configure_file(${RP6502_SOKOL_OS}/Info.plist.in Info.plist @ONLY)
     set_target_properties(rp6502-emu PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -166,13 +136,10 @@ endif()
 rp6502_emu_debugger(rp6502-emu)
 
 enable_testing()
-# What a C compiler can answer: this program's own tests, and the machine's.
-# tests/cpu registers what needs a simulator only where one exists, so the
-# same directory serves this tree and the fpga one.
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 add_subdirectory(${RP6502_ROOT}/tests/host/emu tests/host/emu)
 add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)
-# A board on a serial port, asked for by name. Nothing under it runs in CI.
+# The tests under tests/pico drive a real board on a serial port.
 if(RP6502_DEVICE)
     add_subdirectory(${RP6502_ROOT}/tests/pico tests/pico)
 endif()

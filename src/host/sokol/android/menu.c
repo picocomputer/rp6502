@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The ROM browser this platform opens with. There is no command line on a
- * phone and no file to drag onto the window, so the list of what is on the
- * card is how a program gets started here: find the folder, scan it, draw it
- * as a text overlay, and boot what the pad selects.
  */
 
 #include "host/sokol/android/menu.h"
@@ -74,7 +69,6 @@ void menu_request_permission(void)
 
 static void detect_rom_directory(void)
 {
-    // 1. Try physical SD Card first: scan /storage/
     DIR* dir = opendir("/storage");
     if (dir)
     {
@@ -89,7 +83,6 @@ static void detect_rom_directory(void)
                 continue;
             }
 
-            // Try /storage/ID/Download/rp6502
             char path[512];
             snprintf(path, sizeof(path), "/storage/%s/Download/rp6502", de->d_name);
             DIR* d = opendir(path);
@@ -102,7 +95,6 @@ static void detect_rom_directory(void)
                 return;
             }
 
-            // Try /storage/ID/rp6502
             snprintf(path, sizeof(path), "/storage/%s/rp6502", de->d_name);
             d = opendir(path);
             if (d)
@@ -117,7 +109,6 @@ static void detect_rom_directory(void)
         closedir(dir);
     }
 
-    // 2. Try internal storage Download/rp6502 next
     DIR* d = opendir("/sdcard/Download/rp6502");
     if (d)
     {
@@ -126,7 +117,6 @@ static void detect_rom_directory(void)
         return;
     }
 
-    // 3. Try to create internal storage Download/rp6502
     if (mkdir("/sdcard/Download/rp6502", 0777) == 0 || errno == EEXIST)
     {
         d = opendir("/sdcard/Download/rp6502");
@@ -138,7 +128,6 @@ static void detect_rom_directory(void)
         }
     }
 
-    // 4. Fallback to app internal data path
     const void* native_act = sapp_android_get_native_activity();
     if (native_act)
     {
@@ -157,7 +146,6 @@ static void detect_rom_directory(void)
         }
     }
 
-    // Absolute fallback
     strcpy(g_rom_dir, ".");
 }
 
@@ -193,18 +181,18 @@ void menu_draw(void)
     {
         sdtx_canvas(320.0f, 240.0f);
         sdtx_origin(2.0f, 2.0f);
-        sdtx_color3b(255, 255, 0); // Yellow
+        sdtx_color3b(255, 255, 0);
         sdtx_puts("PICOCOMPUTER 6502 - ROM SELECT\n");
         sdtx_puts("==============================\n\n");
 
         if (g_rom_count == 0)
         {
-            sdtx_color3b(255, 100, 100); // Red
+            sdtx_color3b(255, 100, 100);
             sdtx_puts("No ROM files (.rp6502) found.\n\n");
             sdtx_color3b(200, 200, 200);
             sdtx_puts("Please copy ROMs to folder:\n");
             sdtx_printf("%s/\n\n", g_rom_dir);
-            sdtx_color3b(255, 255, 0); // Yellow
+            sdtx_color3b(255, 255, 0);
             sdtx_puts("Press SELECT/START/HOME to request\n");
             sdtx_puts("SD Card folder access permission");
         }
@@ -215,7 +203,7 @@ void menu_draw(void)
             {
                 if (i == g_rom_selected_index)
                 {
-                    sdtx_color3b(100, 255, 100); // Green selection cursor
+                    sdtx_color3b(100, 255, 100);
                     sdtx_printf("> %s\n", g_rom_files[i]);
                     sdtx_color3b(200, 200, 200);
                 }
@@ -231,16 +219,12 @@ void menu_draw(void)
     sdtx_draw();
 }
 
-
-/* The menu owns the pad while it is up: navigate, boot, ask for permission,
- * and swallow everything else so a keypress cannot reach the machine behind
- * it. False when the menu is not up and the key is the caller's to decode. */
 bool menu_key(int key_code, bool down)
 {
     if (!g_android_menu_active)
         return false;
     if (!down)
-        return true; /* the menu acts on the press; block the release */
+        return true;
     switch (key_code)
     {
     case AKEYCODE_DPAD_UP:
@@ -282,8 +266,9 @@ void menu_open(void)
     g_android_menu_active = true;
 }
 
-/* Navigation from a stick or hat, which arrive as absolute axes: act on the
- * crossing, not on every event that reports the same push. */
+/* A stick or hat arrives as an absolute position rather than as a change, so
+ * the selection moves on a crossing and not on every event that repeats the
+ * same push. */
 void menu_stick(float hat_y, float stick_y)
 {
     float y = 0.0f;
@@ -304,8 +289,8 @@ void menu_stick(float hat_y, float stick_y)
     g_last_menu_y = y;
 }
 
-/* Where the ROMs are is also where a program's own files are, so the guest
- * starts there. */
+/* A program's own files sit beside the ROM it was loaded from, so the guest
+ * starts in the folder this list is read from. */
 void menu_chdir(void)
 {
     detect_rom_directory();

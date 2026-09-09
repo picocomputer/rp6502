@@ -3,14 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What a platform directory answers. Every host/sokol/<os> (and the web root
- * beside it) implements this file and nothing else implements any of it: the
- * entry, because sokol's desc and entry convention differ per OS, and the hooks
- * the shared application calls when it needs something only that OS can do.
- *
- * The application never asks which OS it is on — there is not one platform
- * #ifdef in app.c. When it needs something platform-shaped it gains a hook
- * here; where a platform has nothing to say it writes an empty body.
+ * Every host/sokol/<os>, and src/host/itch.io for the web, implements the
+ * window functions here and nothing else implements any of them. A platform
+ * with nothing to say for one of these writes an empty body. The host_gamepad_
+ * three at the bottom are the desktops' alone, because app/gamepad.c, which is
+ * what calls them, is built only for the desktop emulator.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_
@@ -19,57 +16,54 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Open a sokol window and run the machine until closed. The ROM must already be
- * loaded and sys_init() called. fb is the caller-owned framebuffer (must hold
- * the largest canvas); vga renders into it and the window presents it. scale
- * may be fractional; have_scale marks an explicit --scale, which beats the
- * remembered debug-session window size. The title shows "(stopped)" once the
- * program exits; exit_on_halt closes the window then instead of leaving the
- * final output up. Returns app_exit_code(). Android has no entry_run: there
- * NativeActivity owns the entry and sokol_main stands in for main(). */
+/* Open a sokol window and run the machine until it closes. sys_init has already
+ * been called; a ROM has not necessarily been booted, because the window that
+ * entry_wait_for_rom asks for opens with nothing loaded. fb is the caller-owned
+ * framebuffer that vga renders into and the window presents, and it must hold
+ * the largest canvas. scale may be fractional, and have_scale marks an explicit
+ * --scale, which beats the remembered debug-session window size. exit_on_halt
+ * closes the window when the program exits instead of leaving its final output
+ * up. Returns app_exit_code. Android has no entry_run, because there
+ * NativeActivity owns the entry and sokol_main stands in for main. */
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt);
 
-/* No ROM was supplied. A platform that can still receive one (desktop
- * drag-and-drop) arms its on-screen "drop a .rp6502 here" prompt, holds the
- * machine, and returns true so the caller opens the window. One that cannot
- * (web: the page is one program; headless: no window) returns false, and the
- * caller prints usage and exits. */
+/* No ROM was supplied. A platform that can still receive one by drag and drop
+ * arms its on-screen prompt and returns true so the caller opens the window.
+ * One that cannot, such as the web page that is itself one program, returns
+ * false and the caller prints usage and exits. */
 bool entry_wait_for_rom(void);
 
-/* ---- what the application calls when only the OS can answer ---- */
-
-/* Resize the OS window to w x h framebuffer px (X11/Win32; no-op elsewhere). */
+/* Resize the OS window to w x h framebuffer pixels. X11 and Win32 only. */
 void host_window_resize(int w, int h);
 
-/* Ask the WM to keep the canvas aspect cw:ch during interactive resizes (X11;
- * no-op elsewhere). */
+/* Ask the window manager to keep the canvas aspect cw:ch during an interactive
+ * resize. X11 only. */
 void host_window_set_aspect_hint(int cw, int ch);
 
-/* Per-platform setup inside the sokol init callback (Android stands up its text
- * overlay; no-op elsewhere). */
+/* Per-platform setup, from the sokol init callback. */
 void host_window_init(void);
 
-/* True while a platform-owned modal overlay is up (the Android ROM menu): the
- * application freezes emulation and shows the overlay instead of the canvas.
- * Always false everywhere else. */
+/* True while a platform-owned overlay is up: the Android ROM menu, or a
+ * desktop's drop-a-ROM prompt. The canvas is not drawn while it is, and a
+ * halted program is not treated as a program exiting. */
 bool host_window_menu_active(void);
 
-/* Draw the platform-owned overlay into the current swapchain pass (the Android
- * ROM menu; no-op elsewhere). */
+/* Draw that overlay into the current swapchain pass. */
 void host_window_menu_draw(void);
 
-/* A file was dropped on the window: boot it. Desktop platforms pass the dropped
- * path to app_boot_rom; web and Android don't enable drag-n-drop, so the hook
- * never fires there. */
+/* A file was dropped on the window. Desktop platforms pass the path to
+ * app_boot_rom; web and Android do not enable drag and drop, so nothing calls
+ * this there. */
 void host_window_files_dropped(void);
 
-/* Open a URL in the user's default browser (desktop; no-op on web/Android).
- * Called when the docs link under the drop-a-ROM prompt is clicked. */
+/* Open a URL in the user's default browser, for the docs link under the
+ * drop-a-ROM prompt. Desktop only. */
 void host_window_open_url(const char *url);
 
-/* One host controller, in the units gamepad_host_report takes, because scaling
- * belongs where the ranges are known. A backend claims a type only when it is
- * certain of the labels, and sticks only when it found both. */
+/* One host controller, in the units gamepad_host_report takes, because the
+ * scaling belongs where the ranges are known. A backend sets type only when it
+ * is certain of the face-button labels, and sets sticks only when it found
+ * both. */
 typedef struct
 {
     uint64_t id; /* stable while plugged, so a player keeps its number */
@@ -81,12 +75,11 @@ typedef struct
 } gamepad_host_t;
 
 /* Start reading controllers. Called on the first frame a program has the
- * gamepad block mapped, and not before — until then the emulator must not
- * touch an input device. False when the host has nothing to offer, which is
- * ordinary and is retried. */
+ * gamepad block mapped and not before, because the emulator must not open an
+ * input device until a program asks for one. False when the host has nothing to
+ * offer, which is ordinary and is retried. */
 bool host_gamepad_open(void);
 
-/* Stop reading, release everything, and expect host_gamepad_open again. */
 void host_gamepad_close(void);
 
 /* What is connected now, newest state, up to max entries. Returns the count.

@@ -12,17 +12,18 @@
 
 struct sapp_event;
 
-/* Translate one host (sokol) input event into emulated keyboard/mouse input. */
+/* Translate one sokol input event into emulated keyboard, mouse or tablet
+ * input. */
 void input_event(const struct sapp_event *e);
 
-/* Tell the input layer whether the host pointer is over the drawn canvas, so
- * the tablet's requested cursor applies only there and the system cursor shows
- * in the letterbox. */
+/* Whether the host pointer is over the drawn canvas. The tablet's requested
+ * cursor applies only there, and the system cursor shows in the letterbox. */
 void input_set_pointer_on_canvas(bool on);
 
-/* Apply the tablet ROM's requested host cursor, or the debugger's over a panel.
- * The sole cursor writer -- simgui's own control is disabled -- run once per
- * frame so a ROM's change or a panel hover is reflected promptly. */
+/* Apply the cursor the tablet program asked for, or the debugger's over one of
+ * its panels. simgui's own cursor control is disabled, so the debugger's cursor
+ * is written here, and this runs once a frame so a program's change or a panel
+ * hover is answered promptly. */
 void input_update_cursor(void);
 
 #endif /* _HOST_SOKOL_APP_INPUT_H_ */

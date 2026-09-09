@@ -13,8 +13,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Host streams carry host encoding, so OEM bytes expand to UTF-8 -- in
- * chunks, because a write per byte is a syscall per byte. */
 bool streams_write(FILE *f, const char *buf, int len)
 {
     char out[3 * 128];
@@ -37,17 +35,16 @@ bool streams_write(FILE *f, const char *buf, int len)
     return line;
 }
 
-/* Only the stream the machine's output is on may end the run by going away.
- * The diagnostic copies -- the program's stderr, EMU_ECHO's console -- write
- * to a stream nobody may be reading, and a failure there is not a reason to
- * stop a machine that is working. */
+/* This tap writes to the host's stdout, and the program's stderr already has
+ * its own destination in com_stderr_sink, so fd 2 is dropped here rather than
+ * copied onto stdout. */
 static void streams_stdout_tap(int fd, const char *buf, int len)
 {
     if (fd != 1)
         return;
     streams_write(stdout, buf, len);
     if (ferror(stdout))
-        os_console_break_ask(); /* the reader went away */
+        os_console_break_ask(); /* the reader has gone */
 }
 
 void streams_mirror_stdout(void)

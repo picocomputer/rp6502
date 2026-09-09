@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The desktop's standard streams: which of the program's the host's carry,
- * and in what encoding. The machine's console is cli/console.h and the
- * machine's own lines are cli/log.c; neither is a program's stream.
+ * The program's stdout and stderr, mirrored onto the host's and converted
+ * from OEM to UTF-8. The machine's console is cli/console.h and its own log
+ * lines are cli/log.c; neither is a program's stream.
  */
 
 #ifndef _HOST_SOKOL_CLI_STREAMS_H_
@@ -14,24 +14,24 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-/* Machine bytes onto one of the host's streams, in the host's encoding. True
- * when a line ended, which is when it flushed -- Windows has no line
- * buffering, so nothing arrives until someone says so. Reports no error: what
- * a failed write means is the caller's, and it differs by stream. */
+/* Machine bytes onto one of the host's streams, as UTF-8. True when the bytes
+ * ended a line, which is when they were flushed, because Windows has no line
+ * buffering and nothing would arrive until something flushed. A write error is
+ * left for the caller to find with ferror, since what it means differs by
+ * stream. */
 bool streams_write(FILE *f, const char *buf, int len);
 
-/* Mirror the program's stdout to the host's. Not under --script or --dap,
- * which own host stdout, nor --crc, whose value it is. */
+/* Mirror the program's stdout to the host's. Not under --script, which owns
+ * the host's stdout, nor --crc, whose value it prints there, nor where a
+ * console terminal already carries those bytes to the same screen. */
 void streams_mirror_stdout(void);
 
-/* Machine bytes on the host's stderr. Two things want this: the program's own
- * errors, and EMU_ECHO's copy of the whole console, which is how a run that
- * failed is read without rendering a frame. */
 void streams_stderr(const char *buf, int len);
 
-/* Install the above as the program's stderr. Every desktop run: unlike stdout,
- * no mode of the emulator claims host stderr for itself. Cleared where the
- * console terminal already carries the same stream to the same screen. */
+/* Install the above as the program's stderr. Every run does this, because no
+ * mode of the emulator claims the host's stderr for itself. It is
+ * cleared again where a console terminal already carries the same bytes to
+ * the same screen. */
 void streams_mirror_stderr(void);
 
 #endif /* _HOST_SOKOL_CLI_STREAMS_H_ */

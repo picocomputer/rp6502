@@ -24,7 +24,6 @@ void state_slot_init(const char *rom)
 {
     if (!rom || !*rom)
         return;
-    /* Absolute while the ROM is still where the command line said it was. */
     char *abs = os_dir_realpath(rom);
     snprintf(state_slot_path, sizeof state_slot_path, "%s.sst", abs ? abs : rom);
     free(abs);
@@ -37,15 +36,12 @@ const char *state_slot(void)
 
 void state_audio_is_threaded(bool on) { state_threaded_audio = on; }
 
-/* Hold the device's thread out of the engines, and say whether it stopped.
- * Bounded, because a sink that has stopped calling back must not hold a save
- * forever: a walk that goes ahead anyway is a blob with one engine read
- * mid-sample, which is worse than nothing only if it is silent about it, and
- * it is not -- it is the same machine one sample either side.
- *
- * The bound is a spin rather than a sleep. A device buffer is ten
- * milliseconds and the callback is already running; there is nothing to
- * schedule around. */
+/* Hold the audio device's thread out of the engines while the machine is
+ * copied or replaced. The wait is bounded because a sink that has stopped
+ * calling back must not hold a save forever, and giving up costs one engine
+ * read taken mid-sample, which is the same machine a sample either side. It
+ * spins rather than sleeps because the device buffer is 512 frames at 48 kHz,
+ * about eleven milliseconds, and the callback is already running. */
 static void state_park(void)
 {
     if (!state_threaded_audio || !aud_enabled())
@@ -71,8 +67,6 @@ bool state_save_file(const char *path, const char **why)
         return false;
     }
     state_park();
-    /* The in-flight transfer is cancelled rather than completed: completing
-     * it moves the host's file offset while the machine's own does not. */
     fs_std_settle();
     const char *bad = sst_save(buf, len, 0);
     state_unpark();
@@ -138,14 +132,12 @@ bool state_load_file(const char *path, const char **why)
         return false;
     }
 
-    /* A paste is a queue of keys the outgoing machine was going to receive,
-     * and the incoming one never asked for them. Cancelled on every load,
-     * which is what lets the paste driver carry no chunk at all. */
+    /* A paste is a queue of keys the outgoing machine was going to receive
+     * and the incoming one never asked for. Cancelling it on every load is
+     * what lets vtkeys carry no savestate chunk. */
     vtkeys_paste_cancel();
     state_park();
     fs_std_settle();
-    /* The blob's own path is what reopens the image: this host loaded it by
-     * name and can find it again. */
     const char *bad = sst_load(buf, (size_t)len, 0, NULL);
     state_unpark();
     free(buf);

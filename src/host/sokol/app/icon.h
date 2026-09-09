@@ -11,7 +11,8 @@
 #include "sokol/sokol_app.h"
 
 /* Self-guarded, unlike sibling headers: sokol_app.h's C++ sapp_run overload
- * can't live in a caller's extern "C", so C++ callers can't wrap us. */
+ * can't live in a caller's extern "C", so a C++ caller cannot wrap this
+ * header. */
 #ifdef __cplusplus
 extern "C"
 {

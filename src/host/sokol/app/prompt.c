@@ -3,10 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The drop-a-ROM card, drawn rather than shipped as an image so it is sharp at
- * any window size: a rounded box, a heavy dashed border, the app icon, two
- * message lines and a link. sokol_gl for the vectors, sokol_debugtext for the
- * text, both in the pass the application has already begun.
+ * The drop-a-ROM card: a rounded box, a dashed border, the application icon,
+ * two message lines and a link. sokol_gl draws the vectors and sokol_debugtext
+ * the text, both into the pass the application has already begun.
  */
 
 #include "host/sokol/app/prompt.h"
@@ -21,8 +20,6 @@
 #include <math.h>
 #include <string.h>
 
-/* One convex filled rounded rect as a center-fan of triangles (sokol_gl, in the
- * current pass, window-pixel coords per the ortho set in prompt_draw). */
 static void prompt_round_rect(float x, float y, float w, float h, float rad,
                               uint8_t r, uint8_t g, uint8_t b)
 {
@@ -33,7 +30,7 @@ static void prompt_round_rect(float x, float y, float w, float h, float rad,
     if (rad > h * 0.5f)
         rad = h * 0.5f;
     const float pi = 3.14159265f;
-    enum { seg = 6 }; /* points per corner arc */
+    enum { seg = 6 }; /* segments per corner arc, so seg + 1 points */
     const float ccx[4] = {x + rad, x + w - rad, x + w - rad, x + rad};
     const float ccy[4] = {y + rad, y + rad, y + h - rad, y + h - rad};
     const float a0[4] = {pi, 1.5f * pi, 2.0f * pi, 2.5f * pi};
@@ -60,9 +57,6 @@ static void prompt_round_rect(float x, float y, float w, float h, float rad,
     sgl_end();
 }
 
-/* Stroke the rounded-rect outline as a heavy dashed line: walk the perimeter
- * (4 edges + 4 corner arcs) as a fine closed polyline and emit a thick quad for
- * each sample segment whose midpoint falls in a dash (not a gap) phase. */
 static void prompt_dashed_border(float x, float y, float w, float h, float rad,
                                  float thick, float dash, float gap,
                                  uint8_t r, uint8_t g, uint8_t b)
@@ -79,8 +73,8 @@ static void prompt_dashed_border(float x, float y, float w, float h, float rad,
     if (step < 2.5f)
         step = 2.5f;
 
-    /* edges (from->to) and corner arcs (center, start angle), interleaved
-     * clockwise from the top edge; y is down. */
+    /* Edges as from and to, and corner arcs as center and start angle,
+     * interleaved clockwise from the top edge with y running down. */
     const float ex0[4] = {x + rad, x + w, x + w - rad, x};
     const float ey0[4] = {y, y + rad, y + h, y + h - rad};
     const float ex1[4] = {x + w - rad, x + w, x + rad, x};
@@ -141,20 +135,18 @@ static void prompt_dashed_border(float x, float y, float w, float h, float rad,
     sgl_end();
 }
 
-/* GPU resources for the prompt masthead icon, created once in
- * prompt_setup (live for the app lifetime, like sgl/sdtx). */
 static struct
 {
     sg_image img;
     sg_view view;
     sg_sampler smp;
-    sgl_pipeline pip; /* alpha blend; the default sgl pipeline is opaque */
+    sgl_pipeline pip; /* alpha blend, because the default sgl pipeline is opaque */
 } prompt_icon;
 
-/* Docs link under the prompt bubble, and its on-screen hit box in framebuffer px
- * (set each frame by prompt_draw) so a click can open it. */
-static const char PROMPT_DOCS_URL[] = "https://picocomputer.github.io/"; /* opened on click */
-static const char PROMPT_DOCS_TEXT[] = "picocomputer.github.io";         /* shown on screen */
+/* The documentation link, and the hit box in framebuffer pixels that prompt_draw
+ * leaves it at each frame so a click can find it. */
+static const char PROMPT_DOCS_URL[] = "https://picocomputer.github.io/";
+static const char PROMPT_DOCS_TEXT[] = "picocomputer.github.io";
 static struct
 {
     float x, y, w, h;
@@ -166,14 +158,13 @@ void prompt_setup(void)
         .fonts[0] = sdtx_font_c64(),
         .logger.func = app_log,
     });
-    /* No formats: they default to the environment sg_setup was given, which is
-     * sglue_environment() and therefore the swapchain's. Naming them here meant
-     * casting sapp_color_format(), and sokol_app's pixel format is a different
-     * enum from sokol_gfx's — sokol_glue translates between them for exactly
-     * this reason. The cast read R8/R16SN out of an RGBA8 swapchain, and the
-     * pipeline was rejected on the first frame that drew this screen. */
+    /* The pixel formats are left out so they default to the environment
+     * sg_setup was given, which came from sglue_environment and is therefore the
+     * swapchain's. Naming them means casting sapp_color_format, and sokol_app's
+     * pixel format is a different enum from sokol_gfx's, which is what
+     * sokol_glue exists to translate. */
     sgl_setup(&(sgl_desc_t){
-        .max_vertices = 16384, /* the dashed border strokes many thick quads */
+        .max_vertices = 16384, /* the dashed border strokes a great many quads */
         .max_commands = 64,
         .logger.func = app_log,
     });
@@ -203,9 +194,6 @@ void prompt_setup(void)
     });
 }
 
-/* Textured quad for the masthead icon: a blend-enabled sgl pipeline over the
- * opaque default so the icon's transparent margin composites cleanly. Emitted
- * into the same sgl recording as the card, before sgl_draw. */
 static void prompt_icon_draw(float x, float y, float sz)
 {
     sgl_load_pipeline(prompt_icon.pip);
@@ -222,14 +210,14 @@ static void prompt_icon_draw(float x, float y, float sz)
     sgl_load_default_pipeline();
 }
 
-/* Accumulate one sdtx line at an arbitrary glyph height (px); x_px/y_px is its
- * top-left. Sets its own canvas so the glyph size is independent of the bubble's
- * grid (sdtx bakes each glyph's position at emit time). The caller flushes with a
- * single sdtx_draw. */
+/* One line of text at an arbitrary glyph height in pixels, with x_px and y_px
+ * its top left corner. It sets its own sdtx canvas, which makes the glyph size
+ * independent of the card's grid because sdtx fixes each glyph's position when
+ * it is emitted. The caller flushes every line with one sdtx_draw. */
 static void prompt_text_line(const char *s, float gh, float x_px, float y_px,
                              float w, float h, const uint8_t col[3])
 {
-    float tcols = w / gh; /* canvas columns so each cell is gh window px */
+    float tcols = w / gh; /* the column count that makes a cell gh window pixels */
     sdtx_canvas(tcols * 8.0f, tcols * 8.0f * h / w);
     sdtx_origin(0.0f, 0.0f);
     sdtx_color3b(col[0], col[1], col[2]);
@@ -243,35 +231,37 @@ void prompt_draw(const char *line1, const char *line2)
     if (w < 1.0f || h < 1.0f)
         return;
 
-    const uint8_t ink[3] = {0xc2, 0xca, 0xd6};       /* dashes + text (soft light) */
-    const uint8_t paper[3] = {0x26, 0x2b, 0x35};     /* dark card fill */
-    const uint8_t title_col[3] = {0xe8, 0xec, 0xf4}; /* masthead + docs URL (bright) */
+    const uint8_t ink[3] = {0xc2, 0xca, 0xd6};
+    const uint8_t paper[3] = {0x26, 0x2b, 0x35};
+    const uint8_t title_col[3] = {0xe8, 0xec, 0xf4};
 
-    /* Lay the two lines out on a 40-column grid mapped to the window; a square
-     * glyph keeps the box and text proportional at any window aspect. */
+    /* The card is laid out on a 40-column grid across the window. The glyph is
+     * square, which keeps the box and the text in proportion at any window
+     * aspect. */
     const int cols = 40;
-    float glyph = w / (float)cols; /* window px per character cell */
+    float glyph = w / (float)cols;
     int len1 = (int)strlen(line1), len2 = (int)strlen(line2);
     int wide = len1 > len2 ? len1 : len2;
 
-    float row_mid = (float)cols * 0.5f * h / w; /* grid row at the window center */
-    float row1 = row_mid - 1.15f, row2 = row_mid + 0.15f; /* two centered lines */
+    float row_mid = (float)cols * 0.5f * h / w;
+    float row1 = row_mid - 1.15f, row2 = row_mid + 0.15f;
 
     float gamepad_x = glyph * 2.0f, gamepad_y = glyph * 1.4f;
     float bw = wide * glyph + 2.0f * gamepad_x;
     float bh = (row2 + 1.0f - row1) * glyph + 2.0f * gamepad_y;
     float bx = (w - bw) * 0.5f, by = (h - bh) * 0.5f;
-    float border = glyph * 0.42f; /* heavy */
+    float border = glyph * 0.42f;
     float rad = glyph * 1.3f;
 
-    /* Masthead (icon + title) centered above the card; docs URL centered below.
-     * All in window px on the same y-down grid as the card. */
+    /* The icon and title sit above the card and the documentation link below it,
+     * all in window pixels on the same y-down grid as the card. Four cells of a
+     * 40-column grid is the icon's native 64 pixels in a 640-wide window. */
     const char *emu_title = "RP6502-EMU";
     const char *docs_url = PROMPT_DOCS_TEXT;
-    float icon_sz = glyph * 4.0f;   /* native 64px at a 640-wide window */
-    float title_gh = glyph * 2.2f;  /* masthead title glyph height */
-    float it_gap = glyph * 0.6f;    /* icon-to-title gap */
-    float gap = glyph * 1.3f;       /* card-to-masthead spacing */
+    float icon_sz = glyph * 4.0f;
+    float title_gh = glyph * 2.2f;
+    float it_gap = glyph * 0.6f;
+    float gap = glyph * 1.3f;
     float mast_w = icon_sz + it_gap + (float)strlen(emu_title) * title_gh;
     float mast_x = (w - mast_w) * 0.5f;
     float mast_top = by - gap - icon_sz;
@@ -280,11 +270,11 @@ void prompt_draw(const char *line1, const char *line2)
     const char *ver = version_string();
     float ver_gh = glyph;
     float ver_x = (w - (float)strlen(ver) * ver_gh) * 0.5f;
-    float ver_y = by + bh + gap * 1.7f; /* sit a little below the card */
+    float ver_y = by + bh + gap * 1.7f;
     float url_gh = glyph;
     float url_w = (float)strlen(docs_url) * url_gh;
     float url_x = (w - url_w) * 0.5f;
-    float url_y = ver_y + ver_gh * 1.6f; /* the version takes the line above */
+    float url_y = ver_y + ver_gh * 1.6f;
     prompt_url.x = url_x;
     prompt_url.y = url_y;
     prompt_url.w = url_w;
@@ -293,7 +283,7 @@ void prompt_draw(const char *line1, const char *line2)
     sgl_defaults();
     sgl_matrix_mode_projection();
     sgl_load_identity();
-    sgl_ortho(0.0f, w, h, 0.0f, -1.0f, 1.0f); /* top-left origin, y down, px units */
+    sgl_ortho(0.0f, w, h, 0.0f, -1.0f, 1.0f); /* origin top left, y down, pixel units */
     prompt_round_rect(bx, by, bw, bh, rad, paper[0], paper[1], paper[2]);
     prompt_dashed_border(bx + border * 0.5f, by + border * 0.5f, bw - border,
                          bh - border, rad - border * 0.5f, border,
@@ -301,7 +291,6 @@ void prompt_draw(const char *line1, const char *line2)
     prompt_icon_draw(mast_x, mast_top, icon_sz);
     sgl_draw();
 
-    /* Lines over the card, in the dash color, each centered on the same grid. */
     sdtx_canvas((float)cols * 8.0f, (float)cols * 8.0f * h / w);
     sdtx_origin(0.0f, 0.0f);
     sdtx_color3b(ink[0], ink[1], ink[2]);
@@ -310,12 +299,11 @@ void prompt_draw(const char *line1, const char *line2)
     sdtx_pos((float)(cols - len2) * 0.5f, row2);
     sdtx_puts(line2);
 
-    /* Accumulate the masthead title and docs URL into the same sdtx buffer, then
-     * flush once: sdtx uploads its vertices on the first sdtx_draw of the frame
-     * only, so a draw between blocks would drop everything emitted after it. */
+    /* The title and the two lines below the card go into the same sdtx buffer
+     * and are flushed once, because sdtx uploads its vertices on the first
+     * sdtx_draw of a frame only and a draw between them would drop everything
+     * emitted after it. */
     prompt_text_line(emu_title, title_gh, title_x, title_y, w, h, title_col);
-    /* Dash ink, not the bright title color: the URL below is the only thing
-     * here that does anything when clicked, and should look like it. */
     prompt_text_line(ver, ver_gh, ver_x, ver_y, w, h, ink);
     prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, title_col);
     sdtx_draw();
