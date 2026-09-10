@@ -10,10 +10,31 @@
 
 include_guard(GLOBAL)
 
+# A build that has no version to pass can take one from the tag on the commit
+# it is building. The libretro buildbot is why: it builds a branch rather than
+# a release, so the tag on that branch's tip is all that says which release the
+# core is. Off by default, so a developer sitting on a tagged commit does not
+# get a build that calls itself a release.
+option(RP6502_VERSION_FROM_GIT "Take the version from a tag on HEAD" OFF)
+
 # -DRP6502_VERSION=<v> (release builds) overrides an empty default
 set(RP6502_VERSION_VALUE "")
 if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
     set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
+elseif(RP6502_VERSION_FROM_GIT)
+    find_package(Git QUIET)
+    if(Git_FOUND)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_LIST_DIR}
+                describe --tags --exact-match HEAD
+            OUTPUT_VARIABLE _tag OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _rc ERROR_QUIET)
+        if(_rc EQUAL 0)
+            string(REGEX REPLACE "^v" "" RP6502_VERSION_VALUE "${_tag}")
+        endif()
+        unset(_tag)
+        unset(_rc)
+    endif()
 endif()
 
 # -DRP6502_CI=<run id> stamps untagged CI builds; never cached so a

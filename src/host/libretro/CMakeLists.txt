@@ -105,14 +105,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
             -Wl,-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
         set_target_properties(rp6502_libretro PROPERTIES
             LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
-    elseif(WIN32)
-        # The dllexports libretro.h already wrote are the PE export table, and
-        # their presence is what turns off MinGW ld's export-everything
-        # default, so there is nothing left to hide. -static-libgcc keeps the
-        # DLL from wanting a runtime nobody who downloads a core has.
-        target_link_options(rp6502_libretro PRIVATE
-            -Wl,--no-undefined -static-libgcc)
-    else()
+    elseif(NOT WIN32)
         target_link_options(rp6502_libretro PRIVATE
             -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/link.T
             -Wl,--no-undefined)
