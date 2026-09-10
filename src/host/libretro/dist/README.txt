@@ -1,99 +1,12 @@
 Picocomputer 6502 - libretro core
 =================================
 
-Always begin at the documentation:
-https://picocomputer.github.io/
+This zip is a development build, one folder per platform we build.
 
+To play, do not use it. Install the core from your frontend's own
+menu, which in RetroArch is Online Updater / Core Downloader,
+under "Picocomputer 6502". That copy keeps itself up to date and
+brings its own info file.
 
-Install
--------
-
-Most people never need this file. RetroArch's Online Updater has
-the core under "Picocomputer 6502", and installing it that way
-keeps it up to date.
-
-This zip holds the core for every platform we build, a folder
-each:
-
-    linux-x86_64/rp6502_libretro.so
-    linux-aarch64/rp6502_libretro.so
-    windows-x86_64/rp6502_libretro.dll
-    macos-arm64/rp6502_libretro.dylib
-    android-arm64/rp6502_libretro.so
-
-Take the one for your machine, put it in the directory your
-frontend keeps its cores in, and put rp6502_libretro.info in its
-info directory. RetroArch prints both under Settings / Directory.
-Where they usually are:
-
-    Windows, from the zip or the installer:
-        C:\RetroArch-Win64\cores
-        C:\RetroArch-Win64\info
-    Windows, from Steam: the same two folders inside the game's
-    install folder (Properties / Installed Files / Browse).
-    macOS:
-        ~/Library/Application Support/RetroArch/cores
-        ~/Library/Application Support/RetroArch/info
-    Linux:
-        ~/.config/retroarch/cores    (the .info file goes here too)
-    Linux, Flatpak:
-        ~/.var/app/org.libretro.RetroArch/config/retroarch/cores
-
-You can also load it without installing it at all:
-
-    retroarch -L linux-x86_64/rp6502_libretro.so program.rp6502
-    retroarch.exe -L windows-x86_64\rp6502_libretro.dll program.rp6502
-    /Applications/RetroArch.app/Contents/MacOS/RetroArch \
-        -L macos-arm64/rp6502_libretro.dylib program.rp6502
-
-
-Running software
-----------------
-
-6502 software is distributed as files ending with ".rp6502". Load
-one as content the way you would a cartridge. Find them on
-Discord, which has a forum for ROMs, or on itch.io under the
-RP6502 tag:
-
-    https://discord.gg/TC6X8kTr6d
-    https://itch.io/games/tag-rp6502
-
-The Picocomputer is a computer, so a program may want a keyboard,
-a mouse, or up to four gamepads.
-
-The keyboard needs one setting. RetroArch binds keys to its own
-controller and hotkeys - Enter is Start, "p" pauses - so until you
-turn that off, typing does not reach the program. Turn on Game
-Focus (Scroll Lock, on a keyboard) and the whole keyboard is the
-computer's, and so is the mouse. The core says so on screen the
-first time a program asks for either.
-
-Scroll Lock is only the default hotkey, and many handhelds and
-laptops have no such key; if yours does not, remap the hotkey.
-Better, set Settings / Input / Auto Enable Game Focus to "Detect"
-and it is on every time - that is input_auto_game_focus = "2" in
-retroarch.cfg. This core tells RetroArch it wants a keyboard,
-which is what that setting looks for.
-
-A program that uses the tablet draws its own pointer. RetroArch's
-cursor stays over the window until Game Focus or Settings / Input /
-Auto Mouse Grab hides it.
-
-A program's saves go to the save directory your frontend has
-chosen for it.
-
-
-What this core does not do
---------------------------
-
-There is no monitor, no debugger and no scripting here: this core
-plays a program and stops when the program does. The desktop
-emulator has all three, and the same programs run on it:
-
-    https://github.com/picocomputer/rp6502/releases
-
-Two things a save state does not put back. The filesystem is not in
-it: a program's writes are on disk, so rewinding past one leaves what
-it wrote. And netplay does not replicate a keyboard - this machine
-takes keys as events rather than as a polled port, so two peers typing
-diverge. Pads, the pointer and the tablet are polled, and do replicate.
+The documentation, including the one input setting a program that
+wants the keyboard needs, is at https://picocomputer.github.io/

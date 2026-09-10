@@ -81,11 +81,6 @@ libretro-build-ios-arm64:
     - .libretro-ios-cmake-arm64
     - .core-defs
 
-libretro-build-ios9:
-  extends:
-    - .libretro-ios-cmake-ios9
-    - .core-defs
-
 libretro-build-tvos-arm64:
   extends:
     - .libretro-tvos-cmake-arm64
