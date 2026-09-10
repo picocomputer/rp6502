@@ -28,4 +28,4 @@ needs_fullpath = "true"
 disk_control = "false"
 is_experimental = "false"
 
-description = "Rumbledethumps' Picocomputer 6502, an open source 8-bit computer built you can also build."
+description = "Rumbledethumps' Picocomputer 6502, an open source 8-bit computer built you can build."
