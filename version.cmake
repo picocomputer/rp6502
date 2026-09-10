@@ -198,6 +198,18 @@ function(rp6502_use_version_header tgt src)
         VERBATIM
     )
 
-    set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${hdr})
+    # Ninja treats a byproduct as an output and orders the object after it.
+    # Make writes no rule for a byproduct at all, so an object that names the
+    # header there stops the build the moment it is reached before the target
+    # below has run, which is how the libretro buildbot reaches it: its
+    # templates build the core target by name rather than building all. The
+    # stamp is a real output on both, so Make waits on that instead. Depending
+    # on the target rather than the file would be a cycle, because the stamp is
+    # what the other objects come before.
+    if(CMAKE_GENERATOR MATCHES "Make")
+        set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${stamp})
+    else()
+        set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${hdr})
+    endif()
     add_custom_target(${tgt}_version_header ALL DEPENDS ${stamp})
 endfunction()
