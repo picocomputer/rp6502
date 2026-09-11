@@ -1,4 +1,4 @@
-# One version string, four forms, shared by every tree that ships something.
+# One version string, shared by every tree that ships something.
 #
 #     Version 0.31                a tagged build, -DRP6502_VERSION=0.31
 #     CI 31666918326              an untagged CI build, -DRP6502_CI=<run id>
@@ -6,8 +6,8 @@
 #     Aug 12 2026 20:17:46 PDT    a developer's own build
 #
 # The firmware root and every machine root include this; src/host/pocket writes
-# the same three forms into core.json, without the "Version " prefix the Pocket
-# UI supplies itself.
+# the same string into core.json, without the "Version " prefix the Pocket UI
+# supplies itself.
 
 include_guard(GLOBAL)
 
@@ -56,10 +56,10 @@ if(DEFINED RP6502_GIT AND NOT RP6502_GIT STREQUAL "")
 endif()
 unset(RP6502_GIT CACHE)
 
-# The three forms, decided once. Everything that wants one includes this --
+# The ladder, decided once. Everything that wants a stamp includes this --
 # the header generator below, the Pocket's core.json stamper, and this file
-# itself for the configure-time copies -- so a fourth spelling of the ladder
-# cannot drift away from the other three.
+# itself for the configure-time copies -- so no second copy of the ladder can
+# drift away from it.
 #
 #   _stamp       what the machine says it is
 #   _stamp_bare  the same, without the word a UI supplies itself. Only the
@@ -97,7 +97,7 @@ endif()
 ]])
 
 # Configure-time forms, for the one consumer that cannot read a generated
-# header: the Windows resource compiler. Same three forms, except a dev build
+# header: the Windows resource compiler. The same ladder, except a dev build
 # is stamped when it was configured rather than when it was built, which is as
 # close as a .rc can get.
 set(STAMP_VERSION "${RP6502_VERSION_VALUE}")

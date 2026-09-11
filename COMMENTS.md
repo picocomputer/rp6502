@@ -229,7 +229,7 @@ Every stage builds clean and leaves the suites passing:
 cmake --build build/sokol -j16
 cmake --build build/libretro -j16
 ctest --test-dir build/sokol -LE pico     # 118
-ctest --test-dir build/libretro           # 83
+ctest --test-dir build/libretro           # 84
 ```
 
 Stages 7, 8 and 11 also need the Pocket firmware and the RTL:
