@@ -25,12 +25,12 @@ set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 # it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-# The .info in a release zip has to say what the binary beside it reports, so
-# this template takes the same bare version string retro_get_system_info
-# returns, without the leading "Version" of the stamped form.
-set(RP6502_INFO_VERSION "${RP6502_VERSION_BARE}")
-configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
-    ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
+# Copied, not generated. A frontend prints the version retro_get_system_info
+# returns, and reads display_version out of this file only for a core that is
+# not running, so the file carries no version and this copy is what libretro's
+# own dist/info holds.
+configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info
+    ${CMAKE_BINARY_DIR}/rp6502_libretro.info COPYONLY)
 
 # The OS this build is for. ANDROID is tested before the final else because
 # the NDK toolchain also sets UNIX.
