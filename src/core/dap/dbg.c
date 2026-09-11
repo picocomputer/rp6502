@@ -3,21 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Debugger core: the one run/stop/step + address-breakpoint engine, shared by
- * the cppdap adapter (dap.cpp) and the on-screen chips debugger (dbgui.cc).
- *
- * Inert until dbg_set_active(true): main.c's CPU loop only consults it when
- * active, so a normal run is byte-for-byte unaffected. All state changes run on
- * the emulation (main) thread — the cppdap reader thread marshals its requests
- * to the main loop — EXCEPT dbg_request_pause(), which is a lone atomic flag a
- * DAP thread may set at any time.
- *
- * Stop semantics: dbg_at_instruction() is called from the tick loop right after
- * the opcode-fetch cycle (W65C02_SYNC) of the instruction at pc, i.e. before that
- * instruction's effect cycles run. Stopping there means PC=pc with the registers
- * in their pre-instruction state; resuming completes the instruction. A given
- * address re-evaluates every time it is fetched, so a breakpoint inside a loop
- * re-triggers without a special "skip the current breakpoint" dance.
+ * bus.c calls dbg_at_instruction on the opcode fetch cycle (W65C02_SYNC) of the
+ * instruction at pc, so a stop leaves the registers in their pre-instruction
+ * state. That fetch cycle has already run, so a resume continues into the rest
+ * of the instruction rather than fetching it again, which is why a breakpoint
+ * never re-triggers on itself.
  */
 
 #include "core/dap/dbg.h"
@@ -31,31 +21,24 @@ static uint16_t g_stop_pc;
 static bool g_stop_at_entry;
 
 static dbg_step_t g_step;
-static uint8_t g_cur_sp;       /* SP at the current instruction boundary */
-static uint8_t g_stop_sp;      /* SP captured at the last stop */
-static int g_step_line;        /* source line at the step start (0 = unknown) */
-static const char *g_step_file; /* source file at the step start */
-static uint8_t g_step_sp;      /* SP at the step start (call-depth reference) */
+static uint8_t g_cur_sp;
+static uint8_t g_stop_sp;
+static int g_step_line; /* 0 = no line known at the step start */
+static const char *g_step_file;
+static uint8_t g_step_sp;
 
 static atomic_bool g_pause_req;
 static bool g_break_req;
 
-/* Optional per-breakpoint gate (condition/hit-count/logpoint), consulted by the
- * DAP layer only after the bitmap matched; NULL => every breakpoint stops. */
 static bool (*g_break_filter)(uint16_t pc);
 
-/* Watchpoints: the DAP bus hook latches a pending data stop; dbg_at_instruction
- * presents it at the next boundary (the store has already completed). */
 int dbg_watch_armed;
 static bool g_data_pending;
 static uint16_t g_data_addr;
 
-/* 64Kbit address-breakpoint bitmap (1 bit per 6502 address). */
 static uint8_t g_bp[0x10000 / 8];
 
 static void (*g_stopped_cb)(int reason, uint16_t pc);
-/* addr -> {file,line} for source-level stepping; set by the DAP adapter once the
- * program's line table is loaded. NULL -> line steps degrade to instruction steps. */
 static bool (*g_line_lookup)(uint16_t addr, const char **file, int *line);
 
 void dbg_set_active(bool on) { g_active = on; }
@@ -81,16 +64,13 @@ void dbg_note_stop(uint16_t pc)
     g_stopped = true;
     g_stop_reason = DBG_REASON_PAUSE;
     g_stop_pc = pc;
-    g_stop_sp = g_cur_sp; /* keep the step reference fresh (a Step after this stop) */
+    g_stop_sp = g_cur_sp; /* a step issued after this stop reads it as its call depth */
     g_step = DBG_STEP_NONE;
 }
 
 void dbg_set_stopped_cb(void (*cb)(int reason, uint16_t pc)) { g_stopped_cb = cb; }
 void dbg_set_line_lookup(bool (*cb)(uint16_t, const char **, int *)) { g_line_lookup = cb; }
 
-/* Program segment table, pushed by the DAP launch handler from the loaded linker
- * output, read by the ImGui memory map. Plain metadata storage (no execution
- * role) — main-thread only, like the line lookup. */
 static dbg_segment_t g_segments[DBG_MAX_SEGMENTS];
 static int g_nsegments;
 static unsigned g_seg_generation;
@@ -140,8 +120,6 @@ void dbg_step(dbg_step_t kind)
     if (!g_stopped)
         return;
     g_step = kind;
-    /* Snapshot the call-depth (hardware SP, used by JSR/RTS) and source line at
-     * the start, so line/over/out can tell when we've moved on. */
     g_step_sp = g_stop_sp;
     g_step_line = 0;
     g_step_file = NULL;
@@ -150,31 +128,26 @@ void dbg_step(dbg_step_t kind)
     g_stopped = false;
 }
 
-/* Should a pending step stop before the instruction at pc (SP = sp)? */
+/* JSR pushes a return address, so a called subroutine runs with the 6502 SP
+ * below the value it had at the step start, and RTS raises it back. Stepping
+ * out and stepping over both read the call depth from that. */
 static bool step_should_stop(uint16_t pc, uint8_t sp)
 {
-    /* Plain instruction step: stop at the next boundary. */
     if (g_step == DBG_STEP_INSTR)
         return true;
     if (g_step == DBG_STEP_LINE_OUT)
-        return sp > g_step_sp; /* returned past the starting frame (RTS unwinds SP) */
-    /* OVER/INTO want source lines. With no line table or no known start line (a
-     * program built without -g), INTO degrades to a single instruction step, but
-     * OVER still steps over calls by call-depth: run straight through anything
-     * deeper than the start frame (a JSR lowered SP by 2), stopping once SP is
-     * back at the start depth — so Step Over doesn't descend into JSR callees. */
+        return sp > g_step_sp;
+    /* Without a line table, or without a start line because the program was
+     * built without debug info, a line step has only call depth to go on: OVER
+     * still runs callees to completion, while INTO becomes one instruction. */
     if (!g_line_lookup || g_step_line == 0)
     {
         if (g_step == DBG_STEP_LINE_OVER)
             return sp >= g_step_sp;
-        return true; /* INTO (or any non-OVER line step): single instruction */
+        return true;
     }
-    /* OVER: while inside a deeper call (JSR pushed a return address, so SP fell
-     * below the start), run straight through it. */
     if (g_step == DBG_STEP_LINE_OVER && sp < g_step_sp)
         return false;
-    /* OVER (same/shallower depth) or INTO: stop at the next mapped line that
-     * differs from the start line. */
     const char *f = NULL;
     int l = 0;
     if (g_line_lookup(pc, &f, &l) && l != 0 &&
@@ -209,15 +182,14 @@ bool dbg_at_instruction(uint16_t pc, uint8_t sp)
         enter_stop(DBG_REASON_STEP, pc);
         return true;
     }
-    /* Breakpoints fire even mid-step (e.g. a bp inside a stepped-over call).
-     * A user-forced break (g_break_req, the dbgui pause) is unconditional; a real
-     * address breakpoint may carry a condition/hit-count/logpoint, consulted only
-     * after the O(1) bitmap already matched (so the hot path stays O(1)). */
     if (g_break_req)
     {
         enter_stop(DBG_REASON_BREAKPOINT, pc);
         return true;
     }
+    /* Breakpoints are tested even in the middle of a step, so one inside a
+     * stepped-over call still fires. The filter runs only after the bitmap has
+     * matched, so an address with no breakpoint costs a single bit test. */
     if (bp_test(pc) && (!g_break_filter || g_break_filter(pc)))
     {
         enter_stop(DBG_REASON_BREAKPOINT, pc);

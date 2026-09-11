@@ -64,3 +64,29 @@ rp6502_add_test(pointer
     DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
     DEPENDS rp6502_libretro
     TIMEOUT 60)
+
+# The buildbot builds this core for platforms nothing here does, so the two CI
+# files are the only record of which those are, and they are written by hand.
+# PyYAML is not something a build of this tree otherwise needs, so a machine
+# without it runs the rest of the suite.
+execute_process(COMMAND ${Python3_EXECUTABLE} -c "import yaml"
+    RESULT_VARIABLE _have_yaml OUTPUT_QUIET ERROR_QUIET)
+if(_have_yaml EQUAL 0)
+    add_test(NAME libretro_targets
+        COMMAND ${Python3_EXECUTABLE}
+            ${RP6502_TESTS_DIR}/gen/libretro_targets_gate.py
+            --gitlab ${RP6502_ROOT}/.gitlab-ci.yml
+            --github ${RP6502_ROOT}/.github/workflows/ci.yml)
+    set_tests_properties(libretro_targets PROPERTIES LABELS "gate;host.libretro")
+endif()
+
+# The savestate as a frontend uses it: the size it allocates against, the
+# machine coming back, a refusal leaving the core standing, and the four
+# contexts it saves in.
+rp6502_add_test(state
+    SOURCES test_state.c
+    LIBS ${CMAKE_DL_LIBS}
+    INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+    DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
+    DEPENDS rp6502_libretro
+    TIMEOUT 120)

@@ -266,10 +266,11 @@ UTEST(input, a_silent_frontend_gets_all_four)
     fe.unload_game();
 }
 
-/* The keyboard is bound to the frontend's own gamepad and hotkeys until a player
- * turns that off, so a computer's keyboard looks broken on first launch. The
- * core cannot turn it off and has no way to ask, so it says so — once, on
- * the first program of a session, not once per program. */
+/* The keyboard and mouse are the frontend's until a player turns on Game
+ * Focus, so a computer's keyboard looks broken on first launch. The core
+ * cannot turn it on and has no way to ask, so it says so — once a program
+ * asks for the console or a device Game Focus withholds, and once per
+ * session, not once per program. */
 UTEST(input, the_core_says_how_to_type_once)
 {
     /* A session of its own: the hint is per-session and earlier cases in
@@ -278,14 +279,53 @@ UTEST(input, the_core_says_how_to_type_once)
     fe_open();
 
     ASSERT_EQ(fe.message_count, 0); /* nothing before content */
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_EQ(fe.message_count, 0); /* nothing at load either */
+    fe_run(120);                    /* to the prompt, which reads the console */
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
 
     /* A second program is not a second lecture. */
     fe.unload_game();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
+    fe.unload_game();
+}
+
+/* A program that wants only a gamepad is never told about a setting it does
+ * not need. */
+UTEST(input, a_program_that_never_asks_is_never_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 0);
+    fe.unload_game();
+}
+
+/* The pointer is polled with Game Focus on or off, so a program that wants
+ * only the tablet is never told either. */
+UTEST(input, a_program_that_wants_only_the_tablet_is_never_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_tablet.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 0);
+    fe.unload_game();
+}
+
+/* The mouse is withheld, so a program that maps it is told. */
+UTEST(input, a_program_that_wants_the_mouse_is_told)
+{
+    fe_close();
+    fe_open();
+    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_mouse.rp6502"));
+    fe_run(120);
+    ASSERT_EQ(fe.message_count, 1);
+    ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
     fe.unload_game();
 }
 
@@ -297,7 +337,8 @@ UTEST(input, an_old_frontend_is_told_the_old_way)
     fe_open_as(2, true);
     fe.message_version = 0; /* only SET_MESSAGE */
 
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
     fe.unload_game();
@@ -315,5 +356,26 @@ UTEST(input, the_buttons_are_labelled_for_the_frontend)
     ASSERT_TRUE(fe.controller_info_set);
     ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
     ASSERT_TRUE(fe.input_descriptors_set);
+    fe.unload_game();
+}
+
+/* Some frontends name the symbol a shifted key made rather than the key.
+ * Those codes reached neither the bitmap nor the console before. */
+UTEST(input, a_shifted_symbol_still_types)
+{
+    static uint32_t settled[640 * 480];
+    memset(fe.input, 0, sizeof fe.input);
+    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    fe_run(120); /* to the prompt */
+    ASSERT_TRUE(fe.keyboard.callback != NULL);
+
+    const size_t px = (size_t)fe.frame_w * fe.frame_h;
+    memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
+
+    /* A frontend that composed no character, only the symbol's keycode. */
+    fe.keyboard.callback(true, RETROK_QUESTION, 0, 0);
+    fe.keyboard.callback(false, RETROK_QUESTION, 0, 0);
+    fe_run(30);
+    ASSERT_TRUE(pixels_differing(settled, fe.frame_copy, px) > 0);
     fe.unload_game();
 }

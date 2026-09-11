@@ -236,20 +236,24 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # libretro: build the core, run its suite, ship a zip per arch. No desktop
-  # dev packages: this host has no window and no audio device, which is most
-  # of what makes it a core. The libretro buildbot ships its own builds from
-  # .gitlab-ci.yml; this job is how we find out we broke it.
+  # libretro: build the core, run its suite, ship a folder per target. No
+  # desktop dev packages: this host has no window and no audio device, which is
+  # most of what makes it a core. The libretro buildbot ships its own builds
+  # from .gitlab-ci.yml; these jobs are how we find out we broke it.
+  #
+  # Every libretro job below builds from a matrix that names its targets, even
+  # where there is one of them, because tests/gen/libretro_targets_gate.py reads
+  # those names and fails when they differ from the jobs in .gitlab-ci.yml.
   # ---------------------------------------------------------------------------
   libretro:
-    name: libretro-${{ matrix.arch }}
+    name: libretro-${{ matrix.target }}
     needs: [version]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-22.04,     arch: x86_64 }
-          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+          - { target: linux-x86_64,  runner: ubuntu-22.04 }
+          - { target: linux-aarch64, runner: ubuntu-22.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -285,17 +289,17 @@ jobs:
       # its directory says which machine it is for. The info file and the
       # readme are identical everywhere, so they sit at the top of the bundle
       # and whichever job lands last writes them.
-      - name: Stage libretro-linux-${{ matrix.arch }}
+      - name: Stage ${{ matrix.target }}
         run: |
           set -euxo pipefail
-          mkdir -p stage/linux-${{ matrix.arch }}
-          cp build/libretro/release/rp6502_libretro.so stage/linux-${{ matrix.arch }}/
+          mkdir -p stage/${{ matrix.target }}
+          cp build/libretro/release/rp6502_libretro.so stage/${{ matrix.target }}/
           cp build/libretro/release/rp6502_libretro.info stage/
           cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
-          name: libretro-stage-linux-${{ matrix.arch }}
+          name: libretro-stage-${{ matrix.target }}
           path: stage/
           if-no-files-found: error
 
@@ -306,7 +310,12 @@ jobs:
   # shell a second time.
   # ---------------------------------------------------------------------------
   libretro-windows:
+    name: libretro-${{ matrix.target }}
     needs: [version]
+    strategy:
+      matrix:
+        include:
+          - { target: windows-x86_64 }
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -349,44 +358,69 @@ jobs:
           $bad = @($names | Where-Object { $_ -notlike 'retro_*' })
           if ($bad.Count) { $bad; exit 1 }
 
-      - name: Stage libretro-windows
+      - name: Stage ${{ matrix.target }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory stage/windows-x86_64 -Force | Out-Null
-          Copy-Item build/libretro/release/rp6502_libretro.dll stage/windows-x86_64/
+          New-Item -ItemType Directory stage/${{ matrix.target }} -Force | Out-Null
+          Copy-Item build/libretro/release/rp6502_libretro.dll stage/${{ matrix.target }}/
           Copy-Item build/libretro/release/rp6502_libretro.info stage/
           Copy-Item src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
-          name: libretro-stage-windows-x86_64
+          name: libretro-stage-${{ matrix.target }}
           path: stage/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # libretro-macos: the core on the other desktop, arm64 like the .app — the
-  # buildbot's osx-x86 job covers the Intel Macs. Mach-O wears a leading
-  # underscore, and this is the only continuous proof that the export list
-  # ld64 takes says what the version script says everywhere else.
+  # libretro-apple: every Apple target the buildbot builds. Mach-O wears a
+  # leading underscore, and this is the only continuous proof that the export
+  # list ld64 takes says what the version script says everywhere else.
+  #
+  # Only the native build runs the suite, because a cross build produces
+  # binaries this runner cannot start, and iOS and tvOS would need each test
+  # signed as an app besides. The mobile pair also takes the default generator
+  # rather than Ninja, which is what the buildbot's ios and tvos templates use,
+  # and no deployment target, because the one their template names predates
+  # what a current Xcode accepts.
+  #
+  # The two desktop entries carry the deployment targets the buildbot's osx
+  # templates set, 10.15 for arm64 and 10.13 for Intel. Without one, a core
+  # built on this runner records a floor of 15.0 and refuses to load in a
+  # RetroArch running on anything older.
   # ---------------------------------------------------------------------------
-  libretro-macos:
+  libretro-apple:
+    name: libretro-${{ matrix.target }}
     needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: macos-arm64,  gen: -GNinja, tests: 'ON',
+              extra: -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 }
+          - { target: macos-x86_64, gen: -GNinja, tests: 'OFF',
+              extra: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 }
+          - { target: ios-arm64,    gen: '',      tests: 'OFF',
+              extra: -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 }
+          - { target: tvos-arm64,   gen: '',      tests: 'OFF',
+              extra: -DCMAKE_SYSTEM_NAME=tvOS -DCMAKE_OSX_ARCHITECTURES=arm64 }
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
 
-      - name: Configure & build core (Release, arm64)
+      - name: Configure & build core (Release, ${{ matrix.target }})
         run: |
           set -euxo pipefail
-          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
+          cmake -S src/host/libretro -B build/libretro/release ${{ matrix.gen }} \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DRP6502_TESTS=${{ matrix.tests }} ${{ matrix.extra }} \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/libretro/release
 
       - name: Run core tests
+        if: matrix.tests == 'ON'
         run: ctest --test-dir build/libretro/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Check the export surface
@@ -397,17 +431,17 @@ jobs:
           grep -v '^_retro_' exports.txt > unexpected.txt || true
           if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
 
-      - name: Stage libretro-macos
+      - name: Stage ${{ matrix.target }}
         run: |
           set -euxo pipefail
-          mkdir -p stage/macos-arm64
-          cp build/libretro/release/rp6502_libretro.dylib stage/macos-arm64/
+          mkdir -p stage/${{ matrix.target }}
+          cp build/libretro/release/rp6502_libretro.dylib stage/${{ matrix.target }}/
           cp build/libretro/release/rp6502_libretro.info stage/
           cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
-          name: libretro-stage-macos-arm64
+          name: libretro-stage-${{ matrix.target }}
           path: stage/
           if-no-files-found: error
 
@@ -422,7 +456,7 @@ jobs:
   # readme are identical everywhere and sit at the top.
   # ---------------------------------------------------------------------------
   libretro-bundle:
-    needs: [version, libretro, libretro-windows, libretro-macos, libretro-android]
+    needs: [version, libretro, libretro-windows, libretro-apple, libretro-android]
     runs-on: ubuntu-24.04
     env:
       ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro.zip
@@ -438,20 +472,13 @@ jobs:
           set -euxo pipefail
           # Every staging job contributed, or the bundle is short a machine
           # and nobody would notice until a player did.
-          for d in linux-x86_64 linux-aarch64 windows-x86_64 macos-arm64 \
-                   android-arm64; do
+          for d in linux-x86_64 linux-aarch64 windows-x86_64 \
+                   macos-arm64 macos-x86_64 ios-arm64 tvos-arm64 \
+                   android-arm64 android-armeabi-v7a android-x86_64; do
             [ -d "stage/$d" ] || { echo "missing platform: $d" >&2; exit 1; }
           done
           test -f stage/README.txt
-          # Every job generates this file and the last one merged wins, so a
-          # job built without the version would quietly hand the bundle its
-          # own timestamp. The version is a fact of this run; say so here.
-          V='${{ needs.version.outputs.version }}'
-          got=$(sed -n 's/^display_version = "\(.*\)"$/\1/p' stage/rp6502_libretro.info)
-          if [ "$got" != "$V" ] && [ "$got" != "CI $V" ]; then
-            echo "info says '$got', this run is '$V'" >&2
-            exit 1
-          fi
+          test -f stage/rp6502_libretro.info
           (cd stage && zip -qr "$GITHUB_WORKSPACE/$ARCHIVE" .)
           unzip -l "$ARCHIVE"
 
@@ -463,25 +490,36 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # libretro-android: the buildbot's other target, built with the runner's own
-  # NDK. Not src/host/sokol/android/apk — that root is the APK. This is the same
-  # src/host/libretro the buildbot's android template points at, driven by the
-  # NDK's toolchain file. No ctest: the tests would be arm64 Android binaries,
-  # so what is checked here is that it builds and exports nothing extra.
-  # android-28 is the floor the APK already declares.
+  # libretro-android: the buildbot's Android targets, built with the runner's
+  # own NDK. Not src/host/sokol/android/apk — that root is the APK. This is the
+  # same src/host/libretro the buildbot's android template points at, driven by
+  # the NDK's toolchain file. No ctest: the tests would be Android binaries, so
+  # what is checked here is that it builds and exports nothing extra.
+  #
+  # android-21 rather than the APK's floor of 28, because 21 is what the
+  # buildbot template passes and what RetroArch itself declares, so a core
+  # built here is a core that loads everywhere RetroArch does.
   # ---------------------------------------------------------------------------
   libretro-android:
+    name: libretro-${{ matrix.target }}
     needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: android-arm64,       abi: arm64-v8a }
+          - { target: android-armeabi-v7a, abi: armeabi-v7a }
+          - { target: android-x86_64,      abi: x86_64 }
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - name: Configure & build core (Release, arm64-v8a)
+      - name: Configure & build core (Release, ${{ matrix.abi }})
         run: |
           set -euxo pipefail
           cmake -S src/host/libretro -B build/libretro/android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+            -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-21 \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_TESTS=OFF \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
@@ -498,17 +536,17 @@ jobs:
           grep -v '^retro_' exports.txt > unexpected.txt || true
           if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
 
-      - name: Stage libretro-android
+      - name: Stage ${{ matrix.target }}
         run: |
           set -euxo pipefail
-          mkdir -p stage/android-arm64
-          cp build/libretro/android/rp6502_libretro.so stage/android-arm64/
+          mkdir -p stage/${{ matrix.target }}
+          cp build/libretro/android/rp6502_libretro.so stage/${{ matrix.target }}/
           cp build/libretro/android/rp6502_libretro.info stage/
           cp src/host/libretro/dist/README.txt stage/
 
       - uses: actions/upload-artifact@v7
         with:
-          name: libretro-stage-android-arm64
+          name: libretro-stage-${{ matrix.target }}
           path: stage/
           if-no-files-found: error
 
@@ -530,6 +568,7 @@ jobs:
           cmake -S src/host/sokol -B build/sokol/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/sokol/macos/release

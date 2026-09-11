@@ -58,7 +58,7 @@ void vcp_apply_nfc_device_hash(const char *hash, bool changed);
 #define VCP_CONFIG_NFC_HASH CONFIG_HIDDEN(H, vcp, nfc_device_hash, VCP_NFC_HASH_SIZE, "", \
     vcp_check_nfc_device_hash, vcp_apply_nfc_device_hash)
 #define VCP_DRIVER DRIVER(nul_init, nul_task, vcp_task, nul_run, nul_stop, nul_break, \
-    VCP_CONFIG_NFC_HASH, nul_config)
+    VCP_CONFIG_NFC_HASH, nul_config, nul_sst)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. A stream: no seek, nothing to flush. */

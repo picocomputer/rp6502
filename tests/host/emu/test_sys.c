@@ -102,3 +102,95 @@ UTEST(sys, the_asks_repeat_without_effect)
     sys_commit();
     ASSERT_FALSE(sys_active());
 }
+
+/* ---- the latch a savestate carries ---- */
+
+/* The two bytes are the whole of what a blob says about whether the machine
+ * is running, and putting them back must not run either fan-out. That is the
+ * point of them: a load has just handed every driver its state, and a run
+ * walk would wipe the register window while a stop walk would close the files
+ * the load reopened. The witness above says which walk ran, so it says this
+ * too -- by staying where it was. */
+UTEST(sys, the_latch_goes_back_without_driving_anything)
+{
+    sys_run();
+    sys_commit();
+    ASSERT_TRUE(sys_active());
+
+    sys_latch_t running_here;
+    sys_latch_get(&running_here);
+    ASSERT_TRUE(running_here.state != 0); /* not stopped */
+
+    sys_stop();
+    sys_commit();
+    ASSERT_FALSE(sys_active());
+    forget_the_run();
+
+    ASSERT_TRUE(sys_latch_apply(&running_here));
+    ASSERT_TRUE(sys_active());
+    ASSERT_FALSE(the_run_walked()); /* no fan-out: that is the whole claim */
+
+    /* And back the other way, which is the direction with something to
+     * destroy: a stop walk would have closed every open file. */
+    sys_latch_t stopped_here;
+    sys_stop();
+    sys_commit();
+    sys_latch_get(&stopped_here);
+    ASSERT_TRUE(sys_latch_apply(&running_here));
+    forget_the_run();
+    ASSERT_TRUE(sys_latch_apply(&stopped_here));
+    ASSERT_FALSE(sys_active());
+    ASSERT_FALSE(the_run_walked());
+}
+
+/* A machine caught mid-commit is not a machine any blob may describe:
+ * starting and stopping are moments inside sys_commit and never survive it,
+ * so a blob claiming one was edited after it was written. Refused, and
+ * nothing moved. */
+UTEST(sys, a_machine_that_could_not_have_existed_is_refused)
+{
+    sys_run();
+    sys_commit();
+    sys_latch_t was;
+    sys_latch_get(&was);
+
+    sys_latch_t bad = was;
+    for (uint8_t s = 1; s <= 3; s += 2) /* starting, stopping */
+    {
+        bad.state = s;
+        ASSERT_FALSE(sys_latch_apply(&bad));
+    }
+    bad.state = 4;
+    ASSERT_FALSE(sys_latch_apply(&bad));
+
+    /* A stopped machine that is not holding the line never existed either:
+     * the only way to stop is to assert RESB. */
+    bad.state = 0;
+    bad.held = false;
+    ASSERT_FALSE(sys_latch_apply(&bad));
+
+    sys_latch_t now;
+    sys_latch_get(&now);
+    ASSERT_EQ((int)now.state, (int)was.state);
+    ASSERT_EQ((int)now.held, (int)was.held);
+    ASSERT_TRUE(sys_active()); /* every refusal left it alone */
+}
+
+/* A running machine may or may not be holding RESB: an exec asks for the line
+ * a pass before proc_exec_task performs the boot, so both readings are legal
+ * and the latch has to carry which one it was rather than derive it. */
+UTEST(sys, a_running_machine_carries_the_line_it_holds)
+{
+    sys_run();
+    sys_commit();
+    sys_latch_t held = {.state = 2, .breaking = false, .held = true};
+    sys_latch_t free_line = {.state = 2, .breaking = false, .held = false};
+    ASSERT_TRUE(sys_latch_apply(&held));
+    sys_latch_t got;
+    sys_latch_get(&got);
+    ASSERT_TRUE(got.held);
+    ASSERT_TRUE(sys_latch_apply(&free_line));
+    sys_latch_get(&got);
+    ASSERT_FALSE(got.held);
+    ASSERT_TRUE(sys_active());
+}

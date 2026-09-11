@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The read/write/close slots of the POSIX file driver, done synchronously.
- * The contract permits STD_PENDING; it never requires it, and a transfer that
- * finished before it answered is a legal answer to the same question
- * fs_aio.c answers over several scanlines.
+ * The read, write, close and settle of the POSIX file driver, done
+ * synchronously. STD_PENDING is permitted by the contract but never required,
+ * so completing before answering is a legal answer to what fs_aio.c spreads
+ * over several scanlines, and settle has nothing in flight to cancel.
  *
- * This is what a host that lives inside another program's process takes.
- * glibc's POSIX AIO is a pool of helper threads, and a frontend closing a
- * core with one still in flight is a write into a library that has been
- * unmapped. There is nothing to reap here.
+ * A host that lives inside another program's process takes this one, because
+ * glibc's POSIX AIO is a pool of helper threads: a frontend that unloads the
+ * core with a transfer still in flight leaves those threads writing into a
+ * library that has been unmapped.
  */
 
 #include "osal/fs.h"
@@ -25,7 +25,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
     ssize_t r = read(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
         return STD_ERROR;
     }
     *got = (uint32_t)r;
@@ -38,7 +38,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     ssize_t r = write(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api(errno);
+        *err = errno_to_api_rw(errno);
         return STD_ERROR;
     }
     *put = (uint32_t)r;
@@ -53,4 +53,8 @@ std_rw_result fs_std_close(int desc, api_errno *err)
         return STD_ERROR;
     }
     return STD_OK;
+}
+
+void fs_std_settle(void)
+{
 }

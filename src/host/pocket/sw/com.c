@@ -3,17 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What this machine does once a frame about its console: hand the fabric a
- * byte when the 6502 has asked for one, and take in what the platform's
- * keyboard and the layout engine produced. The console itself -- the rings,
- * the bell, the Ctrl-C -- is core/com/com.c.
+ * What this machine does once a frame about its console: pass on what the
+ * 6502 wrote to its UART, and hand the fabric a byte when the 6502 has asked
+ * for one. The console itself -- the rings, the bell, the Ctrl-C -- is
+ * core/com/com.c, and which source a byte comes from is core/com/pick.c,
+ * reading keymap's queue as this machine's keyboard row directly.
  */
 
 #include "com.h"
 #include "mmio.h"
 
 #include "core/sys/com.h"
-#include "core/hid/keymap.h"
 
 #include <stdint.h>
 
@@ -29,8 +29,7 @@ void com_task(void)
 
     /* Only on the ask: offering eagerly would commit bytes the console's
      * own readers still want, and an ask with nothing queued is answered
-     * with nothing rather than remembered. Served before the keyboard
-     * poll so a byte cannot arrive inside the same tick as an expired ask. */
+     * with nothing rather than remembered. */
     uint32_t st = RX_OFFER;
     if ((st & 3) == 3)
     {
@@ -45,14 +44,4 @@ void com_task(void)
             RX_OFFER = 0x200;
         }
     }
-
-    /* Bit 8 is the valid flag. Testbench only; nothing on hardware
-     * drives this register. */
-    uint32_t k = MMIO_KBD;
-    if (k & 0x100)
-        com_keyboard_push_byte((uint8_t)k);
-
-    char buf[16];
-    size_t n = keymap_in_chars(buf, sizeof buf);
-    com_keyboard_push(buf, n);
 }

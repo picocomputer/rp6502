@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drivers: the ones it is made of and the order it comes up
- * in, and the ones it offers a program to open. Both are the same kind of
- * fact, so they are the same file.
- *
- * It lives with the machine rather than in core because which drivers a
- * machine has is the one thing core cannot know. The software machines start
- * from the same list and are free to diverge. core/sys/sys.c walks the
- * machine rows; core/api/std.c builds the table from the stdio rows. The
- * drive a path reaches is in neither list: osal/dir.h names those calls
- * and the host that is linked defines them.
  */
 
 #ifndef _HOST_DRIVERS_H_
@@ -20,6 +9,8 @@
 
 #include "core/sys/driver.h"
 #include "core/api/api.h"
+#include "core/api/xreg.h"
+#include "core/sys/random.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
@@ -28,6 +19,8 @@
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/mix.h"
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"
@@ -45,30 +38,32 @@
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
+#include "core/wdc/cpu.h"
+#include "core/wdc/via.h"
 #include "core/wdc/phi2.h"
 
-/* init and run walk this forward; stop walks it backward; the two task
- * columns are walked forward every pass of core/sys/sys.c's sys_task and
- * sys_io_task, which with sys_commit are this machine's super-loop. There
- * is no break fan-out -- no monitor to break into.
+/* core/sys/sys.c reads this list forward for init, run and the two task
+ * columns, and backward for stop and break.
  *
- * Video leads and the bus follows, so VGA sits before BUS: the beam advances
- * a scanline and bus_task runs the 6502 up to it. TERM stays after API in the
- * io column (its lazy clears drain a row per call) and before VGA in the list
- * (vga_init programs the console canvas, which asks term its height). */
+ * VGA comes before BUS because vga_task advances the beam one scanline and
+ * bus_task then runs the 6502 up to it. TERM comes before VGA because
+ * vga_init programs the console canvas, which sets the terminal's height. */
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
-    PROC_DRIVER, STR_DRIVER,                                 \
+    PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
     COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
-    API_DRIVER, TERM_DRIVER,                                 \
+    API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
     OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
-    AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
-    CLK_DRIVER, PHI2_DRIVER, BUS_DRIVER
+    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
+    CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
+    CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-/* What a program may open, in the order open() tries them. The filesystem is
- * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+
+#define RP6502_COM_SOURCES                       \
+    [COM_SOURCE_KEYBOARD] = COM_KEYBOARD_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

@@ -11,16 +11,11 @@
 #include "core/aud/bel.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
+#include "core/sys/debug_log.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
 #include <pico/time.h>
-
-#if defined(DEBUG_USB) || defined(DEBUG_USB_NFC)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // NFC API command opcodes (written by 6502)
 #define NFC_CMD_WRITE 0x01
@@ -131,7 +126,7 @@ static enum {
     NFC_TAG_WRITE_RX, // keep last: the _Static_assert below counts from it
 } nfc_state;
 
-// nfc_state_names is indexed by nfc_state in DBG; keep the two in lockstep.
+// nfc_state_names is indexed by nfc_state in the transition log; keep the two in lockstep.
 _Static_assert(sizeof(nfc_state_names) / sizeof(*nfc_state_names) == NFC_TAG_WRITE_RX + 1,
                "nfc_state_names out of sync with nfc_state enum");
 
@@ -181,10 +176,8 @@ static void nfc_goto(int new_state, uint32_t ms)
     {
         if (!(nfc_state == NFC_POLL_TX || new_state == NFC_POLL_TX ||
               nfc_state == NFC_POLL_RX || new_state == NFC_POLL_RX))
-            DBG("NFC: [%6lu] %s -> %s\n",
-                (unsigned long)to_ms_since_boot(get_absolute_time()),
-                nfc_state_names[nfc_state],
-                nfc_state_names[new_state]);
+            RP6502_LOG(nfc, DEBUG, "%s -> %s",
+                       nfc_state_names[nfc_state], nfc_state_names[new_state]);
         if (new_state == NFC_OFF || new_state == NFC_WAIT_DEVICE ||
             new_state == NFC_IDLE)
         {

@@ -264,7 +264,7 @@ X(STR_HELP_SYSTEM,
 
 X(STR_HELP_DIR,
   "LS (also aliased as DIR) and CD are used to navigate USB mass storage "
-  "devices. You can change to a different USB device with 0: to 7:. Use the "
+  "devices. You can change to a different USB device with 0: to 9:. Use the "
   "STATUS command to get a list of mounted drives.\n")
 
 X(STR_HELP_MKDIR,

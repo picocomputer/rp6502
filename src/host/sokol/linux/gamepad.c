@@ -3,14 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux gamepads, through evdev. The kernel's HID drivers — xpad, hid-sony,
- * hid-playstation, hid-nintendo, hid-steam and the generic one — have already
- * decided which physical button is BTN_SOUTH and which axis is the right
- * stick, over USB and Bluetooth alike, so there is no mapping database here
- * and none is wanted. The layout below is the kernel's own gamepad API
- * (Documentation/input/gamepad.rst), which is not the HID layout core/hid/gamepad.c
- * parses: here the triggers are ABS_Z and ABS_RZ and the right stick is
- * ABS_RX/ABS_RY.
+ * Linux gamepads, through evdev. The kernel's HID drivers have already decided
+ * which physical button is BTN_SOUTH and which axis is the right stick, over
+ * USB and Bluetooth alike, so there is no mapping database here. The layout
+ * below is the kernel's own gamepad API (Documentation/input/gamepad.rst),
+ * which is not the HID layout core/hid/gamepad.c parses: here the triggers are
+ * ABS_Z and ABS_RZ, and the right stick is ABS_RX and ABS_RY.
  */
 
 #include "core/hid/gamepad.h"
@@ -25,12 +23,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define GAMEPAD_LINUX_RESCAN 60 /* frames between looking for new controllers */
+#define GAMEPAD_LINUX_RESCAN 60
 
 #define GAMEPAD_BIT_LONGS(n) (((n) + (8 * sizeof(long)) - 1) / (8 * sizeof(long)))
 #define GAMEPAD_BIT_TEST(bits, n) ((bits)[(n) / (8 * sizeof(long))] >> ((n) % (8 * sizeof(long))) & 1)
 
-/* The axes we read, in the order gamepad_host_t wants them. */
 enum
 {
     GAMEPAD_AXIS_LX,
@@ -58,10 +55,6 @@ typedef struct
 static gamepad_device_t gamepad_devices[GAMEPAD_PLAYERS];
 static int gamepad_rescan;
 
-/* core/hid/hid.c's scaling, over the kernel's per-axis range instead of a
- * report descriptor's. No deadzone: the analog values reach a program as the
- * hardware sends them, and gamepad.c applies its own where it makes the digital
- * sticks byte. */
 static uint8_t gamepad_scale(int32_t value, int32_t min, int32_t max)
 {
     if (max <= min)
@@ -143,15 +136,14 @@ static void gamepad_close_device(gamepad_device_t *dev)
     dev->fd = -1;
 }
 
-/* A node is a gamepad or it is closed again immediately. Every /dev/input
- * node has to be opened to be asked what it is, and a keyboard answering that
- * question is a keyboard we must not go on to read: a program that asked for a
- * gamepad would be reading keystrokes. */
+/* A /dev/input node has to be opened before it can be asked what it is, so
+ * anything that answers with no BTN_SOUTH is closed again here rather than
+ * holding one of the four gamepad_devices slots. */
 static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_t id)
 {
     int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0)
-        return false; /* EACCES for a user outside the input group; not ours to fix */
+        return false;
 
     unsigned long keys[GAMEPAD_BIT_LONGS(KEY_CNT)];
     memset(keys, 0, sizeof(keys));
@@ -187,11 +179,9 @@ static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_
             gamepad_apply_hat(dev, code, info.value);
     }
 
-    /* Both sticks or neither, the same rule the firmware applies. */
     dev->state.sticks = dev->present[GAMEPAD_AXIS_LX] && dev->present[GAMEPAD_AXIS_LY] &&
                         dev->present[GAMEPAD_AXIS_RX] && dev->present[GAMEPAD_AXIS_RY];
 
-    /* Only the three vendors whose labels are not in doubt. */
     struct input_id ids;
     if (ioctl(fd, EVIOCGID, &ids) >= 0)
         switch (ids.vendor)
@@ -201,7 +191,6 @@ static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_
         case 0x057E: dev->state.type = GAMEPAD_TYPE_EASTERN; break;
         }
 
-    /* Buttons held before we arrived. */
     memset(keys, 0, sizeof(keys));
     if (ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) >= 0)
         for (uint16_t code = BTN_JOYSTICK; code < KEY_CNT; code++)
@@ -248,7 +237,7 @@ bool host_gamepad_open(void)
         gamepad_devices[i].fd = -1;
     gamepad_scan();
     gamepad_rescan = GAMEPAD_LINUX_RESCAN;
-    return true; /* an empty scan is a host with nothing plugged in yet */
+    return true;
 }
 
 void host_gamepad_close(void)
@@ -289,7 +278,8 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
                             gamepad_apply_axis(dev, axis, event->value);
             }
         }
-        /* Unplugged. The kernel stops the reads with ENODEV rather than EAGAIN. */
+        /* A device that has been unplugged fails the read with ENODEV rather
+         * than with the EAGAIN of a device that has nothing to say. */
         if (got == 0 || (got < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
             gamepad_close_device(dev);
     }

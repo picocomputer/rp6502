@@ -1,14 +1,12 @@
-# The POSIX seam, for the machines whose OS is one.
-#
 # rp6502_osal_posix(<target> TRANSPORT aio|sync)
 #
-# fs.c is the file driver minus its read/write/close, which are a file of their
-# own because there is more than one right answer: fs_aio.c for a machine that
-# owns its process, fs_sync.c for one that is a guest in someone else's — the
-# libretro core, the browser and Android, none of which has a usable <aio.h>.
-#
-# What is not here is the entropy source: that differs between machines rather
-# than between operating systems, so each names its own osal/<os>/os.c.
+# fs.c is the file driver without its read, write, close and settle, which are
+# a file of their own because there is more than one right answer: fs_aio.c for
+# a machine that owns its process, fs_sync.c for one running inside someone
+# else's. The libretro core takes sync because a frontend unloads it and
+# glibc's AIO helper threads would be left holding a buffer inside a library
+# that is going away; the browser and Android take it because they have no
+# POSIX AIO at all.
 
 include_guard(GLOBAL)
 
@@ -28,8 +26,8 @@ function(rp6502_osal_posix target)
     if(NOT P_TRANSPORT STREQUAL "aio")
         return()
     endif()
-    # POSIX AIO. On macOS aio_read is in libc and there is no librt to find; the
-    # check is the same either way and answers for the platform it runs on.
+    # On macOS aio_read is in libc and there is no librt to find, so the check
+    # below answers for whichever platform it runs on.
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)

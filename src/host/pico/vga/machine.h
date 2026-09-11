@@ -26,4 +26,5 @@
 /* The SXGA console: 512 scanlines over a 16-line font. */
 #define TERM_MAX_HEIGHT 32
 
+
 #endif /* _HOST_MACHINE_H_ */

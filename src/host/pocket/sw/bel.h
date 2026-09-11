@@ -14,6 +14,6 @@ void bel_task(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. The bell's decay. Init is aud's -- the bell is part of the mixer it
  * belongs to, and is restored with it. */
-#define BEL_DRIVER DRIVER(nul_init, bel_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+#define BEL_DRIVER DRIVER(nul_init, bel_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _HOST_POCKET_SW_BEL_H_ */

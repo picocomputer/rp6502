@@ -23,6 +23,13 @@ include(${RP6502_ROOT}/version.cmake)
 
 # Where this board's own SystemVerilog lives, top level included.
 
+# This board reports over its own tty and nowhere else, and a Release build
+# otherwise compiles every message away -- so a firmware that will not come
+# up has nothing to say about why. ERROR costs a few strings of the flash
+# there is room for. A -D still wins, this being the cache default.
+set(RP6502_LOG_LEVEL ERROR CACHE STRING
+    "What every log category says: NONE, ERROR, WARN, INFO, DEBUG")
+
 # The machine as a list of files and its generated packages, the firmware this
 # board's soft CPU runs, then the Quartus command line the projects below run.
 include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
@@ -319,6 +326,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common

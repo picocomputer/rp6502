@@ -9,19 +9,14 @@
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/wifi.h"
 #include "core/sys/config.h"
+#include "core/sys/debug_log.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/mbuf.h"
 #include <pico/cyw43_arch.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_WIFI)
 #include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 typedef enum
 {
@@ -81,7 +76,7 @@ void wifi_task(void)
         wifi_state = wifi_state_connect;
         break;
     case wifi_state_connect:
-        DBG("NET WIFI connecting\n");
+        RP6502_LOG(wifi, DEBUG, "connecting");
         // Power management may be buggy, turn it off
         if (cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf))
             wifi_retry_connect();
@@ -100,14 +95,14 @@ void wifi_task(void)
         case CYW43_LINK_NOIP:
             break;
         case CYW43_LINK_UP:
-            DBG("NET WIFI connected\n");
+            RP6502_LOG(wifi, INFO, "connected");
             wifi_retry_count = 0;
             wifi_state = wifi_state_connected;
             break;
         case CYW43_LINK_FAIL:
         case CYW43_LINK_NONET:
         case CYW43_LINK_BADAUTH:
-            DBG("NET WIFI connect failed\n");
+            RP6502_LOG(wifi, WARN, "connect failed");
             wifi_retry_connect();
             break;
         }
@@ -122,7 +117,7 @@ void wifi_task(void)
     case wifi_state_connected:
         if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP)
         {
-            DBG("NET WIFI connection lost\n");
+            RP6502_LOG(wifi, WARN, "connection lost");
             wifi_retry_connect();
         }
         break;
@@ -262,11 +257,10 @@ static void wifi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
 static int wifi_scan_cb(void *env, const cyw43_ev_scan_result_t *r)
 {
     (void)env;
-    DBG("NET WIFI scan t=%u %02x:%02x:%02x:%02x:%02x:%02x rssi=%4d auth=%02x len=%2u ssid=%.*s\n",
-        (unsigned)to_ms_since_boot(get_absolute_time()),
-        r->bssid[0], r->bssid[1], r->bssid[2], r->bssid[3], r->bssid[4], r->bssid[5],
-        r->rssi, r->auth_mode, r->ssid_len,
-        (int)(r->ssid_len > 32 ? 32 : r->ssid_len), (const char *)r->ssid);
+    RP6502_LOG(wifi, DEBUG, "scan %02x:%02x:%02x:%02x:%02x:%02x rssi=%4d auth=%02x len=%2u ssid=%.*s",
+               r->bssid[0], r->bssid[1], r->bssid[2], r->bssid[3], r->bssid[4], r->bssid[5],
+               r->rssi, r->auth_mode, r->ssid_len,
+               (int)(r->ssid_len > 32 ? 32 : r->ssid_len), (const char *)r->ssid);
     if (r->ssid_len == 0)
         return 0; // hidden network
     char ssid[33];
@@ -291,11 +285,11 @@ static void wifi_scan_begin(void)
     if (!cyw43_wifi_scan(&cyw43_state, &opts, NULL, wifi_scan_cb))
     {
         wifi_scan_status = WIFI_SCAN_BUSY;
-        DBG("NET WIFI scan begin t=%u\n", (unsigned)to_ms_since_boot(get_absolute_time()));
+        RP6502_LOG(wifi, DEBUG, "scan begin");
     }
     else
     {
-        DBG("NET WIFI scan begin FAILED t=%u\n", (unsigned)to_ms_since_boot(get_absolute_time()));
+        RP6502_LOG(wifi, WARN, "scan begin FAILED");
         wifi_scan_status = WIFI_SCAN_DONE;
     }
 }
@@ -306,8 +300,7 @@ static bool wifi_scan_busy(void)
         return false;
     if (cyw43_wifi_scan_active(&cyw43_state))
         return true;
-    DBG("NET WIFI scan done  t=%u count=%u\n",
-        (unsigned)to_ms_since_boot(get_absolute_time()), wifi_ap_count);
+    RP6502_LOG(wifi, DEBUG, "scan done count=%u", wifi_ap_count);
     wifi_scan_status = WIFI_SCAN_DONE;
     return false;
 }

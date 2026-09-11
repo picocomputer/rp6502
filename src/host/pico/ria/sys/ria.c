@@ -25,13 +25,6 @@
 #include <hardware/dma.h>
 #include <hardware/sync.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_RIA)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define RIA_WATCHDOG_MS 250
 
 #define RIA_ACTION_RESULT_NONE (-1)
@@ -70,11 +63,13 @@ void ria_trigger_vsync(void)
     }
 }
 
+// Latched whenever it happens. Only the publish waits out a transfer, during
+// which $FFF0 is the transfer stub's vector; ria_task publishes after.
 void ria_trigger_sigint(void)
 {
+    sigint_pending = RIA_IRQ_SIGINT;
     if (!ria_active())
     {
-        sigint_pending = RIA_IRQ_SIGINT;
         __dmb();
         REGS(0xFFF0) = vsync_pending | sigint_pending;
         if (irq_enabled & RIA_IRQ_SIGINT)
@@ -148,7 +143,6 @@ void ria_stop(void)
 {
     irq_enabled = 0;
     gpio_put(CPU_IRQB_PIN, true);
-    ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
 bool ria_active(void)
@@ -326,26 +320,62 @@ bool ria_uart_tx_dequeue(uint8_t *ch)
 
 bool ria_uart_tx_empty(void) { return ria_uart_tx_head == ria_uart_tx_tail; }
 
-// 6502 UART-RX single-byte handoff: com_task (core 0) offers, act_loop (core 1)
-// consumes for 0xFFE0/0xFFE2 reads. -1 => empty. The source tag and the
-// ordering barrier stay on core 0 in com.c (act_loop never needs the tag).
+// 6502 UART-RX handoff: com_task (core 0) offers one byte into the slot;
+// act_loop (core 1) moves it into the $FFE2 latch when the 6502 polls $FFE0
+// and serves it from there. -1 => empty. The source tag stays on core 0 in
+// com.c (act_loop never needs it).
+//
+// At most one byte is ever past the console's rings, in the slot or in the
+// latch, and it is the one com.c's tag names. The offer waits on both, the
+// slot read first: act_loop fills the latch only from the slot, so a slot
+// seen empty pins the latch. Every reader that takes a byte back or looks at
+// one covers both places, so a program that polls $FFE0 once and leaves does
+// not strand what that poll committed.
 static volatile int ria_uart_rx_slot = -1;
 
-bool ria_uart_rx_offer_ready(void) { return ria_uart_rx_slot < 0; }
+bool ria_uart_rx_offer_ready(void)
+{
+    return ria_uart_rx_slot < 0 && !(REGS(0xFFE0) & 0b01000000);
+}
+
 void ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
-int ria_uart_rx_peek(void) { return ria_uart_rx_slot; }
+
+int ria_uart_rx_peek(void)
+{
+    int c = ria_uart_rx_slot;
+    if (c >= 0)
+        return c;
+    if (REGS(0xFFE0) & 0b01000000)
+        return REGS(0xFFE2);
+    return -1;
+}
 
 bool ria_uart_rx_reclaim(uint8_t *ch)
 {
     int c = ria_uart_rx_slot;
-    if (c < 0)
-        return false;
-    *ch = (uint8_t)c;
-    ria_uart_rx_slot = -1;
-    return true;
+    if (c >= 0)
+    {
+        *ch = (uint8_t)c;
+        ria_uart_rx_slot = -1;
+        return true;
+    }
+    if (REGS(0xFFE0) & 0b01000000)
+    {
+        *ch = REGS(0xFFE2);
+        REGS(0xFFE0) &= ~0b01000000;
+        REGS(0xFFE2) = 0;
+        return true;
+    }
+    return false;
 }
 
-void ria_uart_rx_clear(void) { ria_uart_rx_slot = -1; }
+// A break: the byte staged for the program being interrupted goes with it.
+void ria_uart_rx_clear(void)
+{
+    ria_uart_rx_slot = -1;
+    REGS(0xFFE0) = 0;
+    REGS(0xFFE2) = 0;
+}
 
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))

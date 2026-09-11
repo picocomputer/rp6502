@@ -7,7 +7,12 @@
 
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
+#include "host/sokol/cli/state.h"
+#include "core/rom/rom.h"
+#include "core/sys/sys.h"
+#include "host/host.h"
 #include "core/api/proc.h"
+#include "core/sys/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -15,10 +20,8 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
-#include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "host/host.h"
 #include "core/vga/vga_emu.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -28,10 +31,9 @@
 
 #define SCRIPT_LINE_MAX 1024
 #define SCRIPT_CAP_SIZE 65536
-#define SCRIPT_CAP_KEEP 4096   /* console tail kept when the capture fills */
-#define SCRIPT_WAIT_FRAMES 600 /* default budget for a command that blocks */
+#define SCRIPT_CAP_KEEP 4096
+#define SCRIPT_WAIT_FRAMES 600
 
-/* What the script is waiting for before its next command runs. */
 typedef enum
 {
     SCRIPT_IDLE,
@@ -43,34 +45,25 @@ typedef enum
 } script_wait_t;
 
 static FILE *script_file;
-static const char *script_path = "<script>"; /* named before a file, for script_command */
+static const char *script_path = "<script>"; /* until a file is opened */
 static int script_line_no;
 static bool script_run, script_fail;
 
 static script_wait_t script_wait;
-/* Frames still owed to the pending wait. script_task hands control back only when
- * one is due, so `run 600` costs exactly 600 frames and a budget expires on the
- * frame it names — neither depends on how often anything else polls. */
 static unsigned long script_budget;
 static char script_needle[256];
 static int script_exit_want;
 
-/* Where a wait on memory is looking. The byte is read at the frame boundary,
- * which is why the program on the other end holds its answer until the script
- * acknowledges it rather than publishing it for a cycle and moving on. */
+/* A `wait` on memory looks here. script_settle samples the byte once a
+ * frame, so a program that publishes a value for a few cycles and moves on can
+ * be missed. */
 static uint8_t *script_addr_base;
 static long script_addr;
 static uint8_t script_addr_want;
 
-/* The canvas as `mark` last saw it. A test of a graphic is usually "this moved"
- * or "this held still", which a remembered hash answers without a literal one
- * that every unrelated rendering change would invalidate. */
 static uint32_t script_mark;
 static bool script_marked;
 
-/* Every player's report, assembled here and handed to gamepad_host_report — the
- * same shape the web and Android hosts keep, so a scripted gamepad reaches XRAM
- * through the code a real one does. */
 static struct
 {
     bool connected;
@@ -80,21 +73,30 @@ static struct
     int lx, ly, rx, ry, lt, rt;
 } script_gamepad[4];
 
-/* ------------------------------------------------------------------ */
-/* Console capture                                                     */
-/* ------------------------------------------------------------------ */
-
 static char script_cap[SCRIPT_CAP_SIZE];
 static size_t script_cap_len;
 
+/* The captured console also goes here when someone is watching. It is set
+ * before script_load and deliberately not cleared there, because main installs
+ * the EMU_ECHO watcher before the script is opened. */
+static void (*script_echo)(const char *buf, int len);
+
+void script_set_echo(void (*echo)(const char *buf, int len))
+{
+    script_echo = echo;
+}
+
 static void script_tap(const char *buf, int len)
 {
+    if (script_echo)
+        script_echo(buf, len);
     for (int i = 0; i < len; i++)
     {
         if (script_cap_len == sizeof script_cap - 1)
         {
-            /* Only output nothing has matched yet gets this far; keep the tail
-             * so a needle straddling the discard still has somewhere to land. */
+            /* Only console output that no check has taken yet gets this far.
+             * The newest SCRIPT_CAP_KEEP bytes are kept so that a needle
+             * straddling the discard still has somewhere to match. */
             memmove(script_cap, script_cap + script_cap_len - SCRIPT_CAP_KEEP, SCRIPT_CAP_KEEP);
             script_cap_len = SCRIPT_CAP_KEEP;
         }
@@ -103,9 +105,6 @@ static void script_tap(const char *buf, int len)
     script_cap[script_cap_len] = 0;
 }
 
-/* Take the console up to and including a match, leaving the rest to be matched
- * by whatever the script checks next — two needles in one burst of output are
- * two checks, not a race. */
 static void script_cap_take(const char *through)
 {
     size_t used = (size_t)(through - script_cap);
@@ -113,13 +112,9 @@ static void script_cap_take(const char *through)
     script_cap_len -= used;
 }
 
-/* ------------------------------------------------------------------ */
-/* Parsing                                                             */
-/* ------------------------------------------------------------------ */
-
-/* What the console actually held. The capture is the wire: it carries the line
- * editor's escapes and the echo of anything the script typed, so a needle that
- * spans a cursor move never matches and the only way to see why is to look. */
+/* The capture carries the line editor's escapes and the echo of anything the
+ * script typed, so a needle that spans a cursor move never matches and the
+ * bytes have to be read to see why. */
 static void script_show_capture(void)
 {
     size_t from = script_cap_len > 200 ? script_cap_len - 200 : 0;
@@ -135,14 +130,6 @@ static void script_show_capture(void)
     fputc('\n', stderr);
 }
 
-/* One line per command once `reply` has turned them on: ok, ok <values>, or
- * fail <why>. Off until a script asks, so a driver sends its whole preamble
- * without waiting for anything, ends it with `reply`, and reads the ok for
- * that line as the signal the machine is now answering.
- *
- * A command that blocks answers when it finishes, not when it parses — the
- * reply for `run 600` comes six hundred frames later. That is the whole point
- * of the channel: a driver that saw it sooner would race the machine. */
 static bool script_replies;
 static bool script_answered; /* the finished command replied for itself */
 static bool script_pending;  /* a command is running and owes an answer */
@@ -188,7 +175,6 @@ static bool script_more(char **p)
     return *s != 0;
 }
 
-/* The next whitespace-delimited word, terminated in place. NULL at end of line. */
 static char *script_word(char **p)
 {
     char *s = *p;
@@ -208,8 +194,6 @@ static char *script_word(char **p)
     return word;
 }
 
-/* A double-quoted argument with \n \r \t \\ \" escapes. Text is always quoted
- * so a trailing space or an empty string means what it says. */
 static bool script_string(char **p, char *out, size_t outsz)
 {
     char *s = *p;
@@ -238,7 +222,6 @@ static bool script_string(char **p, char *out, size_t outsz)
     return true;
 }
 
-/* Strip a $ or 0x radix prefix, answering the base to read the rest in. */
 static int script_radix(char **w)
 {
     if (**w == '$')
@@ -265,7 +248,6 @@ static bool script_number(char **p, long *out)
     return true;
 }
 
-/* An address, in RAM unless it says xram:. */
 static bool script_address(char **p, uint8_t **base, long *addr)
 {
     char *word = script_word(p);
@@ -285,10 +267,6 @@ static bool script_address(char **p, uint8_t **base, long *addr)
     return true;
 }
 
-/* ------------------------------------------------------------------ */
-/* Commands                                                            */
-/* ------------------------------------------------------------------ */
-
 static void script_gamepad_publish(int player)
 {
     gamepad_connect(player, true, script_gamepad[player].type, script_gamepad[player].sticks);
@@ -298,19 +276,6 @@ static void script_gamepad_publish(int player)
                     script_gamepad[player].rt);
 }
 
-static bool script_canvas_crc(uint32_t *out)
-{
-    const uint32_t *fb = vga_get_framebuffer();
-    if (!fb)
-        return false;
-    int w, h;
-    vga_canvas_size(&w, &h);
-    *out = host_crc32(0, fb, (size_t)w * h * 4);
-    return true;
-}
-
-/* The button names a script writes, and the buttons core/hid knows. Only a
- * script needs the names -- a device sends bits. */
 static const struct
 {
     const char *name;
@@ -363,7 +328,6 @@ static bool script_cmd_gamepad(char *p)
         bool connect = !strcasecmp(verb, "connect");
         memset(&script_gamepad[player], 0, sizeof script_gamepad[player]);
         script_gamepad[player].connected = connect;
-        /* What a real host would know about the gamepad it found, if anything. */
         char *word;
         while (connect && (word = script_word(&p)) != NULL)
         {
@@ -381,7 +345,7 @@ static bool script_cmd_gamepad(char *p)
                                  word);
         }
         if (connect)
-            script_gamepad_publish((int)player); /* the claim lands now, not on first press */
+            script_gamepad_publish((int)player);
         else
             gamepad_connect((int)player, false, GAMEPAD_TYPE_UNKNOWN, false);
         return true;
@@ -439,7 +403,7 @@ static bool script_cmd_mouse(char *p)
         long dx, dy;
         if (!script_number(&p, &dx) || !script_number(&p, &dy))
             return script_error("mouse move wants dx dy");
-        mouse_host_move((float)dx, (float)dy);
+        mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -473,7 +437,7 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants x y");
         if (script_more(&p) && (!script_number(&p, &buttons) || buttons < 0 || buttons > 255))
             return script_error("tablet at wants a button bitmap 0..255");
-        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons);
+        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons, true);
         return true;
     }
     if (verb && !strcasecmp(verb, "touch"))
@@ -518,17 +482,9 @@ static bool script_cmd_tablet(char *p)
     return script_error("tablet wants at, touch, wheel or clear");
 }
 
-/* ------------------------------------------------------------------ */
-/* Key names                                                           */
-/* ------------------------------------------------------------------ */
-
-/* Only the script language takes a key as text; every other caller already
- * holds a usage. So the table lives here rather than in core, where libretro
- * and android were linking it and never asking. */
-
 /* The keys with a name instead of a character. Letters, digits, function keys
- * and the keypad are computed below rather than listed. key is -1 where the key
- * has no xterm sequence of its own. */
+ * and the keypad are computed below rather than listed. Only the script
+ * language takes a key as text, so the table lives here and not in core. */
 static const struct
 {
     const char *name;
@@ -583,7 +539,6 @@ static const struct
     {"rsuper", 0xE7},
 };
 
-/* "f1".."f12" -> 1..12, else 0. */
 static int script_fkey_num(const char *name)
 {
     if (name[0] != 'f' && name[0] != 'F')
@@ -605,7 +560,7 @@ static uint8_t script_hid_from_name(const char *name)
 {
     if (!name || !name[0])
         return 0;
-    if (!name[1]) /* a bare letter or digit is its own name */
+    if (!name[1])
     {
         char c = name[0];
         if (c >= 'A' && c <= 'Z')
@@ -656,9 +611,9 @@ bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "wait"))
     {
-        /* Text or a byte in memory. script_string does not consume the word when
-         * it finds no quote, so trying it first costs nothing and the two
-         * grammars cannot be confused for each other. */
+        /* Text, or a byte in memory. script_string leaves the line alone when
+         * it finds no quote, so trying the text form first costs nothing and
+         * the two grammars cannot be confused. */
         char text[sizeof script_needle];
         if (script_string(&p, text, sizeof text))
         {
@@ -722,8 +677,9 @@ bool script_command(const char *line)
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
         vtkeys_paste(text);
-        /* Blocks until the ring has it all, so back-to-back type commands
-         * cannot replace each other mid-drip. */
+        /* Waiting for the paste to drain, because vtkeys_paste replaces
+         * whatever is still being delivered and back-to-back type commands
+         * would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;
         script_budget = (unsigned long)frames;
         return true;
@@ -825,8 +781,10 @@ bool script_command(const char *line)
         return true;
     }
 
-    /* Writes land in sram[]/xram[] only. The VIA and the RIA answer the bus, not
-     * memory, so a poke changes what the program reads and triggers nothing. */
+    /* Writes land in sram[] or xram[] directly. sram_tick stores any address
+     * but answers a read only at or below SRAM_MMAP_HI ($FEFF), so a poke
+     * above that changes nothing the program can read, and it reaches no
+     * device either because it never goes on the bus. */
     if (!strcasecmp(cmd, "poke"))
     {
         uint8_t *base;
@@ -878,14 +836,15 @@ bool script_command(const char *line)
         return true;
     }
 
-    /* The canvas is checked against a remembered hash, never a literal one:
-     * a hash written into a script is invalidated by every unrelated
-     * rendering change. A driver that wants the number reads `crc`. */
+    /* The canvas is checked against a remembered hash rather than a literal
+     * one, because a hash written into a script is invalidated by every
+     * unrelated rendering change. A driver that wants the number reads
+     * `crc`. */
     if (!strcasecmp(cmd, "crc") || !strcasecmp(cmd, "mark") ||
         !strcasecmp(cmd, "expect-same") || !strcasecmp(cmd, "expect-changed"))
     {
         uint32_t crc;
-        if (!script_canvas_crc(&crc))
+        if (!vga_frame_crc(&crc))
             return script_error("no framebuffer to hash");
         if (!strcasecmp(cmd, "crc"))
         {
@@ -923,14 +882,90 @@ bool script_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "state"))
+    {
+        char *what = script_word(&p);
+        if (!what || (strcasecmp(what, "save") && strcasecmp(what, "load")))
+            return script_error("state wants save or load");
+        bool saving = !strcasecmp(what, "save");
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("state %s wants a quoted path",
+                                saving ? "save" : "load");
+        const char *why = "";
+        if (saving ? !state_save_file(path, &why) : !state_load_file(path, &why))
+            return script_error("cannot %s '%s': %s", saving ? "save" : "load",
+                                path, why);
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "seed"))
+    {
+        printf(script_replies ? "ok %u\n" : "%u\n", host_seed());
+        fflush(stdout);
+        script_answered = script_replies;
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "install"))
+    {
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("install wants a quoted path");
+        char *as = script_more(&p) ? script_word(&p) : NULL;
+        if (as && *as == ':')
+            as++;
+        if (!(as ? rom_alias_insert_as(path, as) : rom_alias_insert(path)))
+            return script_error("cannot install '%s'", path);
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "remove"))
+    {
+        char *name = script_word(&p);
+        if (!name || !*name)
+            return script_error("remove wants an installed name");
+        if (!rom_alias_remove(name))
+            return script_error("nothing installed as '%s'", name);
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "load"))
+    {
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("load wants a quoted path");
+        /* A running program would have its memory written out from under it,
+         * so a load happens only between programs. */
+        if (sys_active())
+            return script_error("load wants a stopped machine");
+        vtkeys_paste_cancel();
+        if (!proc_boot(path, 0, NULL, PROC_UNCHAIN))
+            return script_error("cannot load '%s'", path);
+        sys_commit();
+        return true;
+    }
+
+    if (!strcasecmp(cmd, "sys"))
+    {
+        char *what = script_word(&p);
+        if (!what)
+            return script_error("sys wants run, stop or break");
+        if (!strcasecmp(what, "run"))
+            sys_run();
+        else if (!strcasecmp(what, "stop"))
+            sys_stop();
+        else if (!strcasecmp(what, "break"))
+            sys_break_request();
+        else
+            return script_error("sys wants run, stop or break");
+        sys_commit();
+        return true;
+    }
+
     return script_error("unknown command '%s'", cmd);
 }
 
-/* ------------------------------------------------------------------ */
-/* Lifecycle                                                           */
-/* ------------------------------------------------------------------ */
-
-/* Spend one of the pending wait's frames. False once the budget is gone. */
 static bool script_spend(void)
 {
     if (!script_budget)
@@ -939,8 +974,8 @@ static bool script_spend(void)
     return true;
 }
 
-/* True once whatever the script is waiting for has happened. A budget that runs
- * out fails the run here rather than hanging it. */
+/* An exhausted budget is how a 'run' finishes; on every other wait the same
+ * counter is a timeout that fails the run rather than hanging it. */
 static bool script_settle(void)
 {
     switch (script_wait)
@@ -979,7 +1014,7 @@ static bool script_settle(void)
             return false;
         return script_error("timed out typing; the program is not reading its input");
     case SCRIPT_EXIT:
-        if (!resb_running())
+        if (proc_exited())
         {
             int code = proc_get_exit_code();
             if (code != script_exit_want)
@@ -994,16 +1029,13 @@ static bool script_settle(void)
     return true;
 }
 
-/* Run the script forward until it owes the machine a frame, which is the only
- * reason it hands control back. The caller runs exactly one frame per return,
- * so a wait costs the frames it asked for and not one more. */
 void script_task(void)
 {
     char line[SCRIPT_LINE_MAX];
     while (script_run && script_settle())
     {
-        /* Settling is what says the last command is done, so this is where it
-         * is answered — after the frames it asked for, not when it parsed. */
+        /* Settling is what says the last command finished, so this is where it
+         * is answered: after the frames it asked for, not when it parsed. */
         if (script_pending)
         {
             if (!script_answered)
@@ -1012,19 +1044,16 @@ void script_task(void)
         }
         if (!fgets(line, sizeof line, script_file))
         {
-            script_run = false; /* end of script */
+            script_run = false;
             return;
         }
         script_line_no++;
         script_pending = true;
         if (!script_command(line))
-            return; /* script_error ended the run */
+            return;
     }
 }
 
-/* The verbs, printed beside where they are implemented. A second copy in
- * cli.c is a second thing to remember, and the one that gets forgotten is
- * the copy nobody is reading while they change the parser. */
 void script_usage(FILE *out)
 {
     fprintf(out,
@@ -1037,11 +1066,11 @@ void script_usage(FILE *out)
             "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"
-            "  gamepad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
-            "  gamepad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
+            "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
+            "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
-            "  gamepad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
-            "  gamepad <n> trigger <lt> <rt>           0..255\n"
+            "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
+            "  pad <n> trigger <lt> <rt>           0..255\n"
             "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
             "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
             "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
@@ -1052,6 +1081,12 @@ void script_usage(FILE *out)
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
+            "  state save \"file\" / state load \"file\"   the machine, written down\n"
+            "  seed                      print this run's seed\n"
+            "  install \"path\" [NAME]     put a ROM on the null drive as :NAME\n"
+            "  remove <NAME>             take it back off\n"
+            "  load \"path\"               boot a program on a stopped machine\n"
+            "  sys run|stop|break        start, stop, or interrupt the machine\n"
             "  reply [on|off]            answer every command on stdout, for a\n"
             "                            driver on the other end of a pipe\n");
 }
@@ -1074,8 +1109,6 @@ bool script_load(const char *path)
         script_path = path;
     }
     com_set_tx_tap(script_tap);
-    /* Arm a clean run: a load inherits nothing from a script that ran before it,
-     * not a half-finished wait, not console text nobody matched, not a verdict. */
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;

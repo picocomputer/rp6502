@@ -11,10 +11,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "host/sokol/app/gfx.h" /* gfx_filter_t */
+#include "host/sokol/app/gfx.h"
 #include <stdio.h>
 
-/* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
     const char *rom, *screenshot, *script;
@@ -28,39 +27,36 @@ typedef struct
     double scale;
     bool have_scale;
     gfx_filter_t scale_filter;
-    int phi2_khz;  /* 0 = leave at default */
-    int code_page; /* 0 = leave at the default 437 */
+    int phi2_khz;  /* 0 leaves the machine's default */
+    int code_page; /* 0 leaves the machine's default */
+    bool crc;
+    bool headless;
+    bool console; /* --stdin */
+    bool unpaced; /* --phi2 0 */
     bool mute;
-    bool debug;   /* --debug: on-screen machine debugger */
-    bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
-    bool credits;       /* --credits: print third-party notices and exit */
-    bool version;       /* --version: print the version and exit */
-    const char *ini; /* --ini: config file for the debugger UI layout (else default) */
+    bool debug;
+    bool dap;
+    bool credits;
+    bool version;
+    const char *ini;
     unsigned long long seed;
     bool have_seed;
-    bool fill_random;   /* --fill: random (the default) or fill_value throughout */
+    bool fill_random;
     uint8_t fill_value;
-    char **rom_args; /* words after "--", argv[1..] for the booted ROM (NULL = none given) */
+    char **rom_args; /* the words after "--"; NULL when none was given */
     int n_rom_args;
 } cli_options;
 
 void cli_options_init(cli_options *o);
 
-/* Parse argv (argv[0] is the program name, per the getopt convention) into o,
- * assigning only the options present so a later pass overrides an earlier one.
- * Returns 0, or 2 on a bad/unknown option (a message is printed; the caller
- * decides whether it is fatal). getopt_long accepts both "--opt value" and
- * "--opt=value", and permutes the lone positional (the ROM) to the tail.
- * Everything after a standalone "--" lands in rom_args (the booted ROM's
- * argv[1..]), never parsed as options. */
+/* Parse argv (argv[0] is the program name) into o, assigning only the options
+ * that are present. Returns 0, or 2 after printing a message about a bad or
+ * unknown option. Everything after a standalone "--" lands in rom_args rather
+ * than being parsed. */
 int cli_parse_args(int argc, char **argv, cli_options *o);
 
-/* Print the option summary to stderr (argv0 names the program). */
-/* The options. The script verbs are script_usage()'s, and the two are
- * printed together for --help — cli.c is linked by things that carry no
- * script driver. */
+/* Print the options to out. The script verbs are script_usage()'s, because
+ * cli.c is also linked without script.c; --help prints both. */
 void cli_usage(FILE *out, const char *argv0);
-
-/* The path component after the last '/'. */
 
 #endif /* _HOST_SOKOL_CLI_CLI_H_ */

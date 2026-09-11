@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Integration test for the exec/argv syscalls (proc.c, ops 0x08/0x09) and the
- * MSC0: filesystem. exec.rp6502 prints its argv, and when run with one arg
+ * host filesystem. exec.rp6502 prints its argv, and when run with one arg
  * (just argv[0], its own path) it re-execs itself with an extra "Foo" arg; the
  * second run sees argc==2 and prints "Success". This exercises argv passing,
- * loading a program by its MSC0: path, and the frame-boundary CPU restart.
+ * loading a program by its host path, and the frame-boundary CPU restart.
  */
 
 #include "osal/dir.h"
@@ -63,7 +63,7 @@ UTEST(exec, reexecs_self_with_arg)
     cap[0] = 0;
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
-    /* Seed argv[0] = the ROM's own MSC0: path, exactly as main.c does, so the
+    /* Seed argv[0] = the ROM's own absolute path, exactly as main.c does, so
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); realpath answers in the 6502's
      * spelling, which is what round-trips through the exec resolver. */
@@ -97,7 +97,7 @@ UTEST(exec, boot_args_reach_program)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* Boot args (the CLI's `exec.rp6502 -- Foo`): proc_set_argv resolves the raw
-     * host path to MSC0: form itself. argc==2 at startup, so the program prints
+     * host path itself. argc==2 at startup, so the program prints
      * its argv and wins on the first run, without the re-exec. */
     char *args[] = {"Foo"};
     ASSERT_TRUE(proc_set_argv(TEST_FIXTURE, 1, args));

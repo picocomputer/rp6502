@@ -3,20 +3,21 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Dummy chips-ui elements (nothing drawn) behind the emulator's own entries in
- * the debugger's ini file:
- *   [RP6502][Launch]  key=value — rp6502.py's device block, round-tripped
- *                     verbatim by an ImGuiSettingsHandler (the emulator never
- *                     interprets it), placed so the block leads the file
- *   [Window][Manager] — the HOST window, riding ImGui's built-in geometry
- *                     handler as a window named "Manager" that is never drawn:
- *                     each save refreshes its Size from the live sokol window,
- *                     and the next session reads it back to reopen at that size
+ * Two entries in the debugger's ini file that draw nothing.
  *
- * Header-only with the implementation under CHIPS_UI_IMPL, emitted by the single
- * TU that defines it (dbgui.cc), matching the chips-ui convention. ImGui
- * (including imgui_internal.h, for the window-settings storage) is assumed
- * already included by that TU.
+ * [RP6502][Launch] is rp6502.py's launch configuration. An
+ * ImGuiSettingsHandler round-trips it verbatim and the emulator never reads
+ * what is in it.
+ *
+ * [Window][Manager] is the host window's own size, kept in ImGui's built-in
+ * geometry handler as a window named "Manager" that is never drawn: each save
+ * refreshes its Size from the live sokol window, and the next session reads it
+ * back to reopen at that size.
+ *
+ * This header carries its implementation under CHIPS_UI_IMPL, which one
+ * translation unit defines (dbgui.cc), following the chips-ui convention. That
+ * unit must have included ImGui already, imgui_internal.h with it for the
+ * window-settings storage, because this file includes neither.
  */
 
 #pragma once
@@ -31,31 +32,32 @@ extern "C"
 typedef struct
 {
     int launch_len;
-    char launch[2048]; /* [Launch] raw lines; a line that would not fit is dropped whole */
+    char launch[2048]; /* raw [Launch] lines; a line that will not fit is dropped whole */
 } ui_ini_t;
 
-/* Add the settings handler at the FRONT of the current ImGui context's handler
- * list: [RP6502][Launch] then leads the written file, and the [Window][Manager]
- * Size refresh lands before ImGui's built-in [Window] handler writes it. */
+/* Adds the settings handler at the front of the current ImGui context's
+ * handler list, because that list is the write order: [RP6502][Launch] then
+ * leads the written file, and the [Window][Manager] size is refreshed before
+ * ImGui's built-in [Window] handler writes it out. */
 void ui_ini_register(ui_ini_t *ini);
-/* The [Window][Manager] size in the current ImGui context's settings (load the
- * ini first); false if absent or implausible. */
+
+/* The [Window][Manager] size in the current ImGui context's settings, so the
+ * ini has to be loaded first. False when it is absent or implausible. */
 bool ui_ini_window_size(int *w, int *h);
 
 #ifdef __cplusplus
 }
 #endif
 
-/*-- IMPLEMENTATION ----------------------------------------------------------*/
 #ifdef CHIPS_UI_IMPL
 #include <string.h>
 #ifndef CHIPS_ASSERT
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "sokol/sokol_app.h" /* the [Window][Manager] refresh reads the live window size */
+#include "sokol/sokol_app.h"
 
-#define _UI_INI_MANAGER "Manager" /* the dummy [Window] entry's name */
+#define _UI_INI_MANAGER "Manager"
 
 static ui_ini_t *_ui_ini_self(ImGuiSettingsHandler *handler)
 {
@@ -71,7 +73,8 @@ static void _ui_ini_launch_clear(ui_ini_t *ini)
 static void _ui_ini_launch_line(ui_ini_t *ini, const char *line)
 {
     size_t n = strlen(line);
-    if (ini->launch_len + n + 2 > sizeof ini->launch) /* +'\n' +NUL */
+    /* The 2 is the newline this appends and the terminator. */
+    if (ini->launch_len + n + 2 > sizeof ini->launch)
         return;
     memcpy(ini->launch + ini->launch_len, line, n);
     ini->launch_len += (int)n;
@@ -101,23 +104,22 @@ static void _ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *handler, void
 static void _ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
     ui_ini_t *ini = _ui_ini_self(handler);
-    if (ini->launch_len) /* rp6502.py's block leads the file */
+    if (ini->launch_len)
     {
         buf->appendf("[%s][Launch]\n", handler->TypeName);
         buf->append(ini->launch, ini->launch + ini->launch_len);
         buf->append("\n");
     }
-    /* Refresh the dummy [Window][Manager] entry from the live window; ImGui's
-     * built-in [Window] handler, which runs after this one, writes it out. */
     if (sapp_isvalid())
     {
         ImGuiWindowSettings *s = ImGui::FindWindowSettingsByID(ImHashStr(_UI_INI_MANAGER));
         if (!s)
             s = ImGui::CreateNewWindowSettings(_UI_INI_MANAGER);
-        /* sapp_width/height are framebuffer (physical) px under high_dpi, but this
-         * is restored into sapp_desc, which is logical — store logical so the
-         * window doesn't grow by the DPI factor each session (dpi_scale is 1.0
-         * where high_dpi is off). */
+        /* sapp_width and sapp_height are framebuffer pixels under high_dpi,
+         * while the size is restored into sapp_desc, which is logical, so the
+         * logical size is what is stored. Storing the framebuffer size would
+         * grow the window by the DPI factor every session. dpi_scale is 1.0
+         * where high_dpi is off. */
         float d = sapp_dpi_scale();
         s->Size = ImVec2ih((short)(sapp_width() / d + 0.5f), (short)(sapp_height() / d + 0.5f));
     }
@@ -135,8 +137,8 @@ void ui_ini_register(ui_ini_t *ini)
     h.WriteAllFn = _ui_ini_writeall;
     h.UserData = ini;
     ImGui::AddSettingsHandler(&h);
-    /* AddSettingsHandler appends and the handler list is the write order; move
-     * this one (just appended) to the front, ahead of the built-ins. */
+    /* AddSettingsHandler appends, so the handler it just added is moved from
+     * the back of the list to the front, ahead of the built-ins. */
     ImGuiContext &g = *ImGui::GetCurrentContext();
     ImGuiSettingsHandler moved = g.SettingsHandlers.back();
     g.SettingsHandlers.pop_back();

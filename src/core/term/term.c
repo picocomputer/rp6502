@@ -7,6 +7,7 @@
 #include "core/term/color.h"
 #include "core/term/term.h"
 #include "core/sys/com.h"
+#include "core/sys/com_term.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
 #include "machine.h"
@@ -42,15 +43,12 @@
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16
-/* The longest answer term builds for a query. Every reply is snprintf'd and
- * dropped if it would not fit, so this bounds what a program can be told, not
- * what the console can hold. */
+/* The longest answer term builds for a query. DSR and DECRQM snprintf into a
+ * buffer this size and drop the reply if it would not fit, so this bounds what
+ * a program can be told, not what the console can hold. */
 #define TERM_REPLY_MAX 16
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
-
-// SGR-state-only flags (not stored per-cell): emit-time fg/bg transforms.
-// Held in cursor_state_t alongside bold/faint, not in sgr_attr.
 
 // A blink is a thing on the screen, so it keeps the screen's time: these are
 // frames, counted by vga_frame_count(), not microseconds. Every machine
@@ -100,10 +98,10 @@ typedef enum
 // screen_buf_t), and also reused as the storage type for DECSC and ?1049
 // snapshots so the field list is defined once.
 // fg_color_index sentinel: fg was set via SGR 38 (256-color or RGB) and the
-// recompute path should pull from user_fg_color instead of color_256[].
+// recompute path should pull from user_fg_color instead of color_256_term[].
 // bg_color_index sentinel: bg was set via SGR 48 or SGR 100-107; the
 // recompute path should pull from user_bg_color. (SGR 90-97 doesn't need a
-// sentinel — it stores the bright slot 8..15 directly, which color_256[]
+// sentinel — it stores the bright slot 8..15 directly, which color_256_term[]
 // resolves correctly. The bg side can't do that because ice_colors mode
 // reads bg_color_index + 8.)
 #define FG_COLOR_INDEX_EXTENDED 0xFF
@@ -205,8 +203,7 @@ static inline uint8_t term_buf_slot(uint8_t y_offset, uint8_t row)
 // Translate a logical row (0..height-1) into the start of its physical
 // cell row. Reads y_offset and row_idx[] without locking; the renderer
 // on Core 1 uses the same path. Worst case is one frame of visual tear
-// while a region scroll is mid-update — same severity as today's
-// y_offset++ race. No memory barrier required.
+// while a region scroll is mid-update. No memory barrier required.
 static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 {
     uint8_t slot = term_buf_slot(term->screen->y_offset, y);
@@ -215,7 +212,7 @@ static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 
 // Compute the effective fg/bg/attr a cell write should land with, given
 // the current SGR state. Applies emit-time REVERSE/CONCEAL toggles; render
-// bits (UL/STRIKE/OVERLINE/DBL_UL/BLINK/BLINK_FAST) flow through unchanged.
+// bits, meaning everything in TERM_ATTR_RENDER_MASK, flow through unchanged.
 // TERM_ATTR_DEC is the caller's responsibility -- only set for DEC glyph cells.
 // In ice_colors mode (DECSET ?33) both blink bits (TERM_ATTR_ANY_BLINK) are
 // suppressed at the cell level -- the bright bg is already baked into
@@ -252,8 +249,6 @@ static inline void term_emit_erase(const term_state_t *term, uint16_t *fg,
 }
 
 // Paint [start, end) of `row` with space glyphs at the given fg/bg/attr.
-// Used by every clear/erase/insert path; keep this the only place that
-// touches all five cell fields together.
 static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
                               uint16_t fg, uint16_t bg, uint16_t ul, uint8_t attr)
 {
@@ -300,8 +295,7 @@ static inline void term_refresh_cursor_ptr(term_state_t *term)
 }
 
 // Set a new cursor position, 0-indexed. x == term->width is legal and
-// places the cursor in the deferred-wrap parked state (one past row end);
-// CUP / RCP / DECRC / wrap-on glyph emit all route through here.
+// places the cursor in the deferred-wrap parked state (one past row end).
 static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
 {
     bool x_off_screen = false;
@@ -354,8 +348,8 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
 // the inactive one if the active is already clean. Invariant: cur->y is
 // never dirty on the active buffer (every code path that marks a row
 // dirty either avoids cur->y or follows up with term_clean_line on it),
-// so the cursor cell is never affected by this task and no unlit dance
-// is needed.
+// so the cursor cell is never affected by this task and it never has to
+// call term_cursor_restart_blink.
 static void term_clean_task(term_state_t *term)
 {
     if (term_clean_one_dirty(term->screen, term->width, term->height))
@@ -404,8 +398,7 @@ static void term_mark_rows_erase(term_state_t *term, uint8_t from, uint8_t to)
     term->screen->all_clean = false;
 }
 
-// Full screen clear + home cursor. Backs the C0 \f mapping; also used by
-// RIS. The name reflects the work done, not the dispatch source.
+// Full screen clear + home cursor. Backs the C0 \f mapping; also used by RIS.
 static void term_full_clear(term_state_t *term)
 {
     term_mark_rows_erase(term, 0, term->height);
@@ -628,10 +621,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 }
 
 // Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
-// resulting color through `color` (caller may pass a discard slot for 58)
-// and returns the number of *extra* params consumed beyond the introducer
-// itself. The caller then does `idx += returned; continue;` so the for-
-// loop's own idx++ advances past the introducer byte.
+// resulting color through `color` and returns the number of *extra* params
+// consumed beyond the introducer itself. The caller adds that to idx and
+// breaks, so the for-loop's own idx++ advances past the introducer byte.
 //   ;5;N         -> 2 extras (5, N)
 //   ;2;r;g;b     -> 4 extras
 //   :2::r:g:b    -> 5 extras (ITU/ISO 8613-6: empty colorspace slot)
@@ -723,8 +715,9 @@ static void term_update_bg_color(term_state_t *term)
 //   - bold && fg_color_index in 0..7 -> swap to the bright-palette slot
 //     (the bold-bright trick).
 //   - fg_color_index == TERM_FG_COLOR_INDEX with an OSC 10 override -> use
-//     the override (override wins over bold-bright).
-//   - otherwise -> color_256[fg_color_index]. SGR 90-97 stores the bright
+//     the override, but only while bold is clear: the bold-bright case above
+//     is tested first and index 7 is in its 0..7 range.
+//   - otherwise -> color_256_term[fg_color_index]. SGR 90-97 stores the bright
 //     slot index (8..15) directly so the lookup yields a bright color even
 //     without bold; this also means SGR 22 leaves bright colors alone.
 // Then if faint, halve each RGB channel via the scanvideo channel macros so
@@ -1346,9 +1339,10 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
     term_mark_rows_erase(term, top, (uint8_t)(top + n));
 }
 
-// Visually-empty test: a space, default background, and no rendered line
-// attributes (underline/strike/overline). A lazy-dirty row is judged from its
-// pending erase colors. Logical-row indexed (matches dirty[]/term_row_ptr).
+// Visually-empty test: a space, default background, and no attribute bits at
+// all -- blink and TERM_ATTR_DEC disqualify a row the same as underline does.
+// A lazy-dirty row is judged from its pending erase colors. Logical-row
+// indexed (matches dirty[]/term_row_ptr).
 static bool term_row_is_blank(const term_state_t *term, uint8_t y)
 {
     if (term->screen->dirty[y])
@@ -1465,8 +1459,10 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->cur->x == term->width)
     {
-        // Pending-wrap state. Only reachable with DECAWM on: the clamp at
-        // the end of this function keeps cur->x <= width-1 when wrap is off.
+        // Pending-wrap state. The clamp at the end of this function only
+        // keeps x from reaching width while wrap is off; an x already parked
+        // there survives DECRST ?7 and a saved-cursor restore, so this can
+        // run with DECAWM off.
         term_out_CR(term);
         term_out_LF(term);
     }
@@ -1620,8 +1616,8 @@ static void term_out_DL(term_state_t *term)
     term_set_cursor_position(term, 0, term->cur->y);
 }
 
-// Erase Pn characters from the cursor. Cursor doesn't move; wrap chain
-// is unchanged (this is a paint op, not a delete).
+// Erase Pn characters from the cursor. Cursor doesn't move (this is a
+// paint op, not a delete).
 static void term_out_ECH(term_state_t *term)
 {
     uint16_t n = term->csi_param[0];
@@ -1823,10 +1819,11 @@ static void term_out_EL(term_state_t *term)
     }
 }
 
-// Erase Display. ED 0/1/2 share the same parameter encoding as EL, so the
-// cases below pass through to term_out_EL without rewriting csi_param[0] --
-// ED 0 -> EL 0 (cursor to EOL), ED 1 -> EL 1 (SOL to cursor). The non-
-// cursor rows are lazy-erased via term_mark_rows_erase.
+// Erase Display. ED 0 and ED 1 share EL's parameter encoding, so they pass
+// through to term_out_EL without rewriting csi_param[0] -- ED 0 -> EL 0
+// (cursor to EOL), ED 1 -> EL 1 (SOL to cursor) -- and their non-cursor rows
+// are lazy-erased via term_mark_rows_erase. ED 2 marks every row, cur->y
+// included, and cleans the cursor row itself.
 static void term_out_ED(term_state_t *term)
 {
     switch (term->csi_param[0])
@@ -2630,6 +2627,244 @@ void term_RIS_no_clear(void)
 {
     term_out_RIS_no_clear(&term_40);
     term_out_RIS_no_clear(&term_80);
+}
+
+/* ---- savestate ----------------------------------------------------------
+ *
+ * A terminal is two screens of cells, a cursor state for each, two more saved
+ * cursors beside them, and the parser's own place in whatever escape sequence
+ * was arriving when the blob was taken.
+ *
+ * Written field by field. cursor_state_t has a byte of padding after its five
+ * uint8_t members, and a struct copy would put whatever is in it into the blob,
+ * where it would make two saves of one unchanged machine differ. */
+
+static void term_put_cursor(sst_cursor_t *c, const cursor_state_t *cs)
+{
+    sst_put_u8(c, cs->x);
+    sst_put_u8(c, cs->y);
+    sst_put_u8(c, cs->sgr_attr);
+    sst_put_u8(c, cs->fg_color_index);
+    sst_put_u8(c, cs->bg_color_index);
+    sst_put_u16(c, cs->fg_color);
+    sst_put_u16(c, cs->bg_color);
+    sst_put_u16(c, cs->user_fg_color);
+    sst_put_u16(c, cs->user_bg_color);
+    sst_put_u16(c, cs->ul_color);
+    sst_put_bool(c, cs->underline_color_set);
+    sst_put_bool(c, cs->bold);
+    sst_put_bool(c, cs->faint);
+    sst_put_bool(c, cs->reverse);
+    sst_put_bool(c, cs->conceal);
+    sst_put_bool(c, cs->origin_mode);
+    sst_put_bool(c, cs->line_wrap);
+    sst_put_u8(c, cs->g0_charset);
+    sst_put_u8(c, cs->g1_charset);
+    sst_put_bool(c, cs->gl_is_g1);
+}
+
+static void term_get_cursor(sst_cursor_t *c, cursor_state_t *cs)
+{
+    cs->x = sst_get_u8(c);
+    cs->y = sst_get_u8(c);
+    cs->sgr_attr = sst_get_u8(c);
+    cs->fg_color_index = sst_get_u8(c);
+    cs->bg_color_index = sst_get_u8(c);
+    cs->fg_color = sst_get_u16(c);
+    cs->bg_color = sst_get_u16(c);
+    cs->user_fg_color = sst_get_u16(c);
+    cs->user_bg_color = sst_get_u16(c);
+    cs->ul_color = sst_get_u16(c);
+    cs->underline_color_set = sst_get_bool(c);
+    cs->bold = sst_get_bool(c);
+    cs->faint = sst_get_bool(c);
+    cs->reverse = sst_get_bool(c);
+    cs->conceal = sst_get_bool(c);
+    cs->origin_mode = sst_get_bool(c);
+    cs->line_wrap = sst_get_bool(c);
+    cs->g0_charset = sst_get_u8(c);
+    cs->g1_charset = sst_get_u8(c);
+    cs->gl_is_g1 = sst_get_bool(c);
+}
+
+static void term_put_screen(sst_cursor_t *c, const screen_buf_t *b)
+{
+    term_put_cursor(c, &b->cs);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u8(c, b->row_idx[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_bool(c, b->dirty[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_fg_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_bg_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u16(c, b->erase_ul_color[i]);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u8(c, b->erase_attr[i]);
+    sst_put_u8(c, b->y_offset);
+    sst_put_bool(c, b->all_clean);
+    sst_put_u8(c, b->margin_top);
+    sst_put_u8(c, b->margin_bot);
+}
+
+static bool term_get_screen(sst_cursor_t *c, screen_buf_t *b)
+{
+    term_get_cursor(c, &b->cs);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->row_idx[i] = sst_get_u8(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->dirty[i] = sst_get_bool(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_fg_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_bg_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_ul_color[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->erase_attr[i] = sst_get_u8(c);
+    b->y_offset = sst_get_u8(c);
+    b->all_clean = sst_get_bool(c);
+    b->margin_top = sst_get_u8(c);
+    b->margin_bot = sst_get_u8(c);
+    /* Everything here indexes the cell array. row_idx is the scroll remap and
+     * y_offset is added to it before the lookup, so both are bounded. */
+    if (!sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT ||
+        b->margin_bot >= TERM_MAX_HEIGHT || b->margin_top > b->margin_bot)
+        return false;
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        if (b->row_idx[i] >= TERM_MAX_HEIGHT)
+            return false;
+    return true;
+}
+
+static void term_put_one(sst_cursor_t *c, const term_state_t *t)
+{
+    sst_put_u8(c, t->width);
+    sst_put_u8(c, t->height);
+    sst_put_bool(c, t->alt_active);
+    sst_put_bool(c, t->cursor_save_valid);
+    sst_put_u8(c, t->save_x);
+    sst_put_u8(c, t->save_y);
+    sst_put_bool(c, t->save_origin_mode);
+    sst_put_bool(c, t->cursor_enabled);
+    sst_put_u64(c, t->cursor_frame);
+    sst_put_bool(c, t->cursor_lit);
+    sst_put_u64(c, t->cell_blink_frame);
+    sst_put_u8(c, t->cell_blink_phase);
+    sst_put_u16(c, t->default_fg_color);
+    sst_put_u16(c, t->default_bg_color);
+    sst_put_u16(c, t->cursor_color);
+    sst_put_u8(c, (uint8_t)t->ansi_state);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        sst_put_u16(c, t->csi_param[i]);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        sst_put_u8(c, (uint8_t)t->csi_separator[i]);
+    sst_put_u8(c, t->csi_param_count);
+    sst_put_u8(c, t->csi_intermediate);
+    sst_put_bool(c, t->ice_colors);
+    sst_put_u8(c, t->cursor_style);
+    sst_put(c, t->tab_stops, TERM_TAB_BITMAP_BYTES);
+    sst_put_bool(c, t->decsc_valid);
+    term_put_cursor(c, &t->cursor_save);
+    term_put_cursor(c, &t->decsc);
+    term_put_screen(c, &t->bufs[0]);
+    term_put_screen(c, &t->bufs[1]);
+}
+
+static bool term_get_one(sst_cursor_t *c, term_state_t *t, uint8_t width)
+{
+    uint8_t w = sst_get_u8(c);
+    uint8_t h = sst_get_u8(c);
+    bool alt = sst_get_bool(c);
+    t->cursor_save_valid = sst_get_bool(c);
+    t->save_x = sst_get_u8(c);
+    t->save_y = sst_get_u8(c);
+    t->save_origin_mode = sst_get_bool(c);
+    t->cursor_enabled = sst_get_bool(c);
+    t->cursor_frame = (unsigned long)sst_get_u64(c);
+    t->cursor_lit = sst_get_bool(c);
+    t->cell_blink_frame = (unsigned long)sst_get_u64(c);
+    t->cell_blink_phase = sst_get_u8(c);
+    t->default_fg_color = sst_get_u16(c);
+    t->default_bg_color = sst_get_u16(c);
+    t->cursor_color = sst_get_u16(c);
+    t->ansi_state = (ansi_state_t)sst_get_u8(c);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        t->csi_param[i] = sst_get_u16(c);
+    for (int i = 0; i < TERM_CSI_PARAM_MAX_LEN; i++)
+        t->csi_separator[i] = (char)sst_get_u8(c);
+    t->csi_param_count = sst_get_u8(c);
+    t->csi_intermediate = sst_get_u8(c);
+    t->ice_colors = sst_get_bool(c);
+    t->cursor_style = sst_get_u8(c);
+    sst_get(c, t->tab_stops, TERM_TAB_BITMAP_BYTES);
+    t->decsc_valid = sst_get_bool(c);
+    term_get_cursor(c, &t->cursor_save);
+    term_get_cursor(c, &t->decsc);
+    if (!term_get_screen(c, &t->bufs[0]) || !term_get_screen(c, &t->bufs[1]))
+        return false;
+    /* A terminal is a different object at another width or height, and the
+     * alt screen only exists in a build that has one. */
+    if (!sst_ok(c) || w != width || h < 1 || h > TERM_MAX_HEIGHT)
+        return false;
+    if (alt && !t->bufs[1].mem)
+        return false;
+    /* Every saved cursor row, before anything indexes with one. csi_param[4]
+     * is bounded because csi_param doubles as the OSC sub-state, where slot
+     * four is an index into the runtime palette. */
+    if (t->bufs[0].cs.y >= TERM_MAX_HEIGHT || t->bufs[1].cs.y >= TERM_MAX_HEIGHT ||
+        t->cursor_save.y >= TERM_MAX_HEIGHT || t->decsc.y >= TERM_MAX_HEIGHT ||
+        t->save_y >= TERM_MAX_HEIGHT || t->csi_param[4] > 255)
+        return false;
+    t->height = h;
+    t->alt_active = alt;
+    t->screen = &t->bufs[alt ? 1 : 0];
+    t->cur = &t->screen->cs;
+    /* One past the last cell of a row is where a deferred wrap parks, so the
+     * cursor's own column is allowed to equal the width. */
+    if (t->cur->x > t->width)
+        return false;
+    t->ptr = term_row_ptr(t, t->cur->y) + t->cur->x;
+    return true;
+}
+
+void term_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u8(c, TERM_MAX_HEIGHT);
+    sst_put_bool(c, TERM_ALT_SCREEN ? true : false);
+    sst_put_u8(c, 2); /* how many terminals this machine has */
+    term_put_one(c, &term_40);
+    term_put_one(c, &term_80);
+    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
+    {
+        sst_put(c, term_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_put(c, term_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+    }
+    sst_put(c, color_256_term, sizeof color_256_term);
+}
+
+bool term_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t rows = sst_get_u8(c);
+    bool alt = sst_get_bool(c);
+    uint8_t count = sst_get_u8(c);
+    if (!sst_ok(c) || rows != TERM_MAX_HEIGHT ||
+        alt != (TERM_ALT_SCREEN ? true : false) || count != 2)
+        return false;
+    if (!term_get_one(c, &term_40, 40) || !term_get_one(c, &term_80, 80))
+        return false;
+    /* Never mem: the cell arrays are term_init's own statics and their
+     * addresses are already right. Only what is in them is the blob's. */
+    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
+    {
+        sst_get(c, term_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_get(c, term_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+    }
+    sst_get(c, color_256_term, sizeof color_256_term);
+    return sst_ok(c);
 }
 
 static term_state_t *term_visible(void)

@@ -28,15 +28,11 @@ typedef struct
     uint16_t xram_tile_ptr;
 } mode2_config_t;
 
-// Per-scanline, per-plane validated mode-2 OPTIONS word (bpp, tile size, x/y trim).
-// It is the single source of truth for the selector: mode2_render loads it with one
-// atomic access and derives tile_size and trim from the same word, so a read racing a
-// concurrent reprogram can never pair a tile_size with an out-of-range trim.
 static uint16_t mode2_options[VGA_PROG_MAX][SCANVIDEO_PLANE_COUNT];
 
-// tile_h is the on-screen tile height: the base tile_size when untrimmed, less
-// when Y-trimmed (then non-power-of-2, hence the modulo). *row is left holding the
-// row within the tile.
+// tile_h is the tile's on-screen height: tile_size, less any Y trim. A trimmed
+// height need not be a power of two, so the row within the tile needs a modulo
+// rather than a mask.
 static volatile const uint8_t *
 mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, int16_t tile_h, int16_t *row)
 {
@@ -120,10 +116,10 @@ mode2_get_tile_row_addr(mode2_config_t *config, int16_t bpp, int16_t tile_size,
     return (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
 }
 
-// Untrimmed emission: on-screen tiles align to data bytes, so each byte yields a
-// whole run of pixels (8 at 1bpp, 4 at 2bpp, ...) read from volatile xram once
-// rather than once per pixel. bpp/tile_size are compile-time, so each instantiation
-// folds to a single bpp's byte-walk.
+// On-screen tiles align with the data bytes, so one read of xram yields a whole
+// run of pixels: 8 at 1bpp, 4 at 2bpp, and so on. bpp and tile_size are
+// constants at every call, so each instantiation folds to one bit depth's byte
+// walk.
 static inline __attribute__((always_inline)) void
 mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 volatile const uint8_t *row_data, int16_t row,
@@ -249,9 +245,10 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
     }
 }
 
-// Trimmed emission. The effective tile is eff_w wide (< tile_size), so on-screen
-// tiles no longer align to data bytes and the byte-walk above can't be used;
-// pixels are read individually. Tile data is still stored at the full tile_size.
+// With an X trim the effective tile is eff_w pixels wide, so on-screen tiles no
+// longer align with the data bytes and the byte walk above cannot be used. The
+// tile data is still stored at the full tile_size. A Y trim alone leaves eff_w
+// == tile_size and still comes here.
 static inline __attribute__((always_inline)) void
 mode2_emit_trim(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 volatile const uint8_t *row_data, int16_t row, int16_t eff_w,
@@ -371,9 +368,6 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-// Single fill_fn for every mode-2 scanline. The whole selector (bpp, tile size, trim)
-// comes from one atomically-loaded options word, so tile_size and trim are always the
-// same validated generation; the switch keeps bpp/tile_size compile-time per branch.
 static bool
 mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
@@ -401,6 +395,27 @@ mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb
     default:
         return false;
     }
+}
+
+vga_fill_fn_t mode2_fill_fn(uint16_t attributes)
+{
+    return (attributes & 0xF000) ? NULL : mode2_render;
+}
+
+bool mode2_fill_attr(int16_t scanline, int16_t plane, uint16_t *attributes)
+{
+    if (scanline < 0 || scanline >= VGA_PROG_MAX ||
+        plane < 0 || plane >= SCANVIDEO_PLANE_COUNT)
+        return false;
+    *attributes = mode2_options[scanline][plane];
+    return true;
+}
+
+void mode2_set_options(int16_t scanline, int16_t plane, uint16_t options)
+{
+    if (scanline >= 0 && scanline < VGA_PROG_MAX &&
+        plane >= 0 && plane < SCANVIDEO_PLANE_COUNT)
+        mode2_options[scanline][plane] = options;
 }
 
 bool mode2_prog(uint16_t *xregs)

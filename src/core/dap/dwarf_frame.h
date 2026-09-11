@@ -3,11 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Minimal, self-contained DWARF .debug_frame (CFI) reader + unwinder for the
- * llvm-mos two-stack 6502 model. No LLVM dependency. llvm-mos emits real CFI
- * (CIE/FDE with expressions) that normalizes the hardware stack (0x0100-0x01FF)
- * and recovers the caller's PC, S, and soft-stack pointer RS0. This replaces the
- * heuristic hardware-stack scan + prologue-size chaining used before CFI existed.
+ * A DWARF .debug_frame reader and unwinder for the llvm-mos two-stack 6502
+ * model, in which a function has both the hardware stack at 0x0100 to 0x01FF and
+ * a soft stack addressed through RS0. The call frame information llvm-mos emits
+ * recovers the caller's PC, S, and RS0.
  */
 
 #ifndef _CORE_DAP_DWARF_FRAME_H_
@@ -18,30 +17,27 @@
 
 typedef struct dwarf_frame dwarf_frame_t;
 
-/* Load + parse .debug_frame from an ELF. NULL if absent/unusable. */
 dwarf_frame_t *dwarf_frame_load(const char *elf_path);
 void dwarf_frame_free(dwarf_frame_t *df);
 
-/* The result of unwinding one frame: the caller's register values + this frame's
- * CFA. s16 is the S register in the 0x0100|sp form the CFI expressions use. */
 typedef struct
 {
-    uint16_t pc;   /* caller PC (the return slot value; a call-site address) */
-    uint16_t s16;  /* caller S, as 0x0100 | sp */
-    uint16_t rs0;  /* caller soft-stack pointer (its frame base) */
-    uint16_t cfa;  /* this frame's canonical frame address */
+    /* JSR pushes the address of its own last operand byte, so this is one below
+     * the caller's resume address. */
+    uint16_t pc;
+    uint16_t s16; /* the caller's S, in the 0x0100 | sp form the CFI expressions use */
+    uint16_t rs0; /* the caller's soft stack pointer, which is its frame base */
+    uint16_t cfa;
     bool ok;
 } dwarf_unwind_t;
 
-/* Unwind one frame at pc, given the current frame's live registers: s16 =
- * 0x0100 | (6502 SP), rs0 = the soft-stack pointer value. readmem reads guest
- * memory (for return-address deref). ok=false if no FDE covers pc or a rule
- * can't be evaluated. */
+/* Unwinds one frame, given the live registers of the frame at pc. readmem reads
+ * guest memory, which a return address held in memory needs. */
 dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
                                 uint16_t s16, uint16_t rs0,
                                 uint8_t (*readmem)(uint16_t addr));
 
-/* True if any FDE covers pc (i.e. CFI-based unwinding is available here). */
+/* True when an FDE covers pc, so unwinding from there is possible. */
 bool dwarf_frame_has(const dwarf_frame_t *df, uint16_t pc);
 
 #endif /* _CORE_DAP_DWARF_FRAME_H_ */

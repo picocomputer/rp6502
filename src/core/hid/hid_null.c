@@ -3,14 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * core/hid/hid.h's host hooks, answered by a machine with no transport of
- * its own: the lock keys belong to the desktop's own keyboard, there is
- * nothing to enumerate at boot, and a remapped device is refilled by the
- * next thing the window hands us.
- *
- * Beside the transport rather than beside a driver table, which is where the
- * other two machines put them -- host/pico/ria/usb/usb.c and
- * host/pocket/sw/hid.c both answer these next to the bus they speak for.
+ * The core/hid/hid.h host functions on a machine that runs in software and has
+ * no HID transport of its own. The host owns the lock keys, nothing enumerates
+ * at boot, and every report the host hands over is forwarded.
  */
 
 #include "core/hid/hid.h"

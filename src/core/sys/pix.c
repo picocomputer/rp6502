@@ -3,16 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The PIX bus, for a machine whose PIX devices are all itself. On a Pico a
- * message crosses four wires to another chip and the answer comes back
- * later; here every device the bus would reach is the same binary, so a
- * delivery is a call and a handler's false is the NAK.
- *
- * Two such machines exist and they were answering identically -- the video
- * half is xreg1 on both, and both have one XRAM that the write has
- * already reached -- so there is nothing left below this to be per-machine.
- * A machine with a real bus (host/pico/ria/sys/pix.c) implements op 0x01
- * itself and links none of this.
+ * Op 0x01 on a machine whose PIX devices are all itself. pix_api_xreg calls
+ * pix_deliver instead of putting a message on a bus, and the false a handler
+ * returns becomes API_EINVAL. A machine with a real bus implements the op in
+ * host/pico/ria/sys/pix.c and links none of this.
  */
 
 #include "core/api/xreg.h"
@@ -25,7 +19,6 @@
 
 static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);
 
-/* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
 static uint16_t pix_word_at(int i)
 {
     uint16_t word;
@@ -40,16 +33,15 @@ bool pix_api_xreg(void)
     uint8_t address = xstack[XSTACK_SIZE - 3];
     int count = (int)((XSTACK_SIZE - xstack_ptr - 3) / 2);
     bool aligned = (xstack_ptr & 1) != 0;
-    xstack_ptr = XSTACK_SIZE; /* args consumed; nothing below reads xstack_ptr */
+    xstack_ptr = XSTACK_SIZE;
     if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
         device > 7 || channel > 15)
         return api_return_errno(API_EINVAL);
-    /* VGA control channel ($F) is RIA-private while VGA is connected (always,
-     * on a machine that is its own VGA), so a write NAKs. */
+    /* Channel $F is the VGA control channel, which core/api/xreg1.c answers
+     * for the machine itself, so a write by a program is refused. The RIA
+     * refuses it only while a VGA is connected; this machine is its own. */
     if (device == PIX_DEVICE_VGA && channel == 0xF)
         return api_return_errno(API_EACCES);
-    /* Device 0 is the RIA-local virtual xreg, never bussed: dispatch straight to
-     * xreg0 with the address held constant (last-wins). */
     if (device == PIX_DEVICE_RIA)
     {
         for (int i = count - 1; i >= 0; i--)
@@ -57,10 +49,10 @@ bool pix_api_xreg(void)
                 return api_return_errno(API_EINVAL);
         return api_return_ax(0);
     }
-    /* A VGA channel-0 write from address 0 must send the canvas word (address 0)
-     * first so it can't clear later mode programming; the rest follow high
-     * address -> low, landing each register after the parameters it consumes
-     * (e.g. the term mode word at address 1). */
+    /* A canvas write clears the mode programming that follows it, so a burst
+     * starting at VGA channel 0 address 0 delivers the canvas first. The rest
+     * go from the highest address down, because the mode write at address 1
+     * consumes the parameter registers above it. */
     bool canvas_first = (device == PIX_DEVICE_VGA && channel == 0 && address == 0 && count > 1);
     if (canvas_first && !pix_deliver(device, channel, address, pix_word_at(0)))
         return api_return_errno(API_EINVAL);
@@ -70,9 +62,8 @@ bool pix_api_xreg(void)
     return api_return_ax(0);
 }
 
-/* Where a message goes on a machine whose devices are all itself. Device 0 is
- * the shared XRAM, already written; the video half is a call; and 2-7 would
- * have gone over a bus that is not there. */
+/* Nothing but VGA channel 0 registers 0 and 1 is acknowledged even where a
+ * bus exists, so a message to the rest cannot fail. */
 static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
 {
     if (dev == PIX_DEVICE_VGA)
@@ -80,14 +71,15 @@ static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t wor
     return true;
 }
 
-/* One XRAM, so there is no bus to fill. Always ready: std_task retires its
- * forwarding count through this, and a false would park the drain. */
+/* There is no FIFO to fill, and std_task drains its forwarding count only
+ * while this is true, so a false would stall it forever. */
 bool pix_ready(void)
 {
     return true;
 }
 
-/* One XRAM, and the write that got here already landed in it. */
+/* std_task forwards a byte it read out of xram, and this machine has the one
+ * copy, so the byte is already where it was going. */
 void pix_send_xram(uint16_t addr, uint8_t data)
 {
     (void)addr;

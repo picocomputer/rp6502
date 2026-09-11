@@ -10,18 +10,20 @@
 #include "host/sokol/app/gamepad.h"
 #include <string.h>
 
-/* Frames between attempts to open the host's controllers. The web shell
- * watches its own gate every 250ms for the same reason: a program that has
- * mapped the block but plugged nothing in should not have us scanning the
- * host's devices every frame. */
+/* Frames between attempts to open the host's controllers. The counter is
+ * reloaded on the frame that attempts an open and decremented on each of the
+ * next fifteen, so attempts are sixteen frames apart, about 267 ms at 60 Hz.
+ * That is close to the 250 ms interval the web shell watches its own mapping
+ * on. A program that has mapped the block with nothing plugged in should not
+ * have the emulator scanning the host's devices every frame. */
 #define GAMEPAD_INPUT_RETRY 15
 
 static bool gamepad_input_opened;
 static int gamepad_input_retry;
 
 /* Which host controller each player is, 0 for none. Keyed on the backend's id
- * rather than its position so that unplugging player one leaves player two
- * where they were sitting. */
+ * rather than its position, so unplugging one controller does not renumber the
+ * remaining players' slots. */
 static uint64_t gamepad_input_player[GAMEPAD_PLAYERS];
 
 static void gamepad_input_release(void)
@@ -47,8 +49,6 @@ void gamepad_input_stop(void)
 
 void gamepad_input_task(void)
 {
-    /* Nothing reads a controller until a program asks for one, and the moment
-     * it stops asking we let go of them again. */
     if (!gamepad_is_mapped())
     {
         if (gamepad_input_opened)
@@ -72,7 +72,6 @@ void gamepad_input_task(void)
     gamepad_host_t gamepads[GAMEPAD_PLAYERS];
     int count = host_gamepad_poll(gamepads, GAMEPAD_PLAYERS);
 
-    /* Whoever left. Their record blanks; everyone else keeps their number. */
     for (int player = 0; player < GAMEPAD_PLAYERS; player++)
     {
         if (!gamepad_input_player[player])
@@ -106,8 +105,8 @@ void gamepad_input_task(void)
                 }
         if (player < 0)
             continue; /* more controllers than the machine has players */
-        /* A backend may only be sure of the labels after a poll or two,
-         * so what it claims is restated with every report. */
+        /* A backend may become sure of the face-button labels only after a
+         * poll or two, so what it claims is restated with every report. */
         gamepad_connect(player, true, gamepad->type, gamepad->sticks);
         gamepad_host_report(player, gamepad->dpad, gamepad->button0, gamepad->button1,
                             gamepad->lx, gamepad->ly, gamepad->rx, gamepad->ry, gamepad->lt, gamepad->rt);

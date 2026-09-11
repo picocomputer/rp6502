@@ -95,4 +95,10 @@
     VCP_STD_DRIVER, MID_STD_DRIVER,                  \
     ROM_STD_DRIVER, NFC_STD_DRIVER, FS_STD_DRIVER
 
+/* Where console input comes from, indexed by com_source_t; core/com/pick.c
+ * reads them. Keymap's queue is the keyboard and the UART is the wire. */
+#define RP6502_COM_SOURCES                     \
+    [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE
+
 #endif /* _HOST_DRIVERS_H_ */

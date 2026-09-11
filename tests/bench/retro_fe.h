@@ -161,7 +161,32 @@ typedef struct
     int16_t analog[FE_MAX_PORTS][8][FE_STATE_IDS];  /* sticks and triggers */
     int16_t pointer[8][FE_STATE_IDS];
     int16_t mouse[FE_STATE_IDS];
+    int16_t lightgun[FE_MAX_PORTS][FE_STATE_IDS];
     unsigned port_device[FE_MAX_PORTS];
+
+    /* What this frontend says it wants this frame: the AV-enable bitmask,
+     * defaulting to everything on the way a frontend without the call
+     * leaves it. */
+    int av_enable;
+    bool av_enable_asked;
+
+    /* What this frontend will say a savestate is for. The call is
+     * experimental, so a frontend is allowed to refuse it outright and a
+     * core has to cope: savestate_context_refused is that frontend. */
+    int savestate_context;
+    bool savestate_context_asked;
+    bool savestate_context_refused;
+
+    /* The quirks word the core last declared, and whether it declared one.
+     * A frontend keeps only the latest and reads it when netplay starts. */
+    uint64_t serialization_quirks;
+    bool serialization_quirks_set;
+
+    /* The content directory the frontend hands over, when it answers
+     * GET_GAME_INFO_EXT at all. */
+    const char *game_info_dir;
+    bool memory_maps_set;
+    unsigned memory_map_count;
 
     /* What we were handed back. */
     const void *frame;
@@ -244,6 +269,7 @@ static int16_t fe_input_state(unsigned port, unsigned device, unsigned index, un
     case RETRO_DEVICE_ANALOG: return fe.analog[port][index][id];
     case RETRO_DEVICE_POINTER: return fe.pointer[index][id];
     case RETRO_DEVICE_MOUSE: return fe.mouse[id];
+    case RETRO_DEVICE_LIGHTGUN: return fe.lightgun[port][id];
     default: return fe.input[port][index][id];
     }
 }
@@ -304,6 +330,45 @@ static bool fe_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
         fe.controller_info_set = true;
         return true;
+
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+        fe.av_enable_asked = true;
+        *(int *)data = fe.av_enable;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT:
+        fe.savestate_context_asked = true;
+        if (fe.savestate_context_refused)
+            return false;
+        *(int *)data = fe.savestate_context;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
+        fe.serialization_quirks = *(uint64_t *)data;
+        fe.serialization_quirks_set = true;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:
+    {
+        /* Plain assignment rather than a compound literal: this header is
+         * also compiled as C++ by test_load.cpp, where (T){...} is not a
+         * thing and designated initializers want C++20. */
+        static struct retro_game_info_ext ext;
+        if (!fe.game_info_dir)
+            return false;
+        memset(&ext, 0, sizeof ext);
+        ext.dir = fe.game_info_dir;
+        *(struct retro_game_info_ext **)data = &ext;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+    {
+        const struct retro_memory_map *m = (const struct retro_memory_map *)data;
+        fe.memory_maps_set = true;
+        fe.memory_map_count = m ? m->num_descriptors : 0;
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         fe.asked_for_bitmasks = true;
@@ -406,6 +471,9 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     fe.offer_bitmasks = offer_bitmasks;
     fe.message_version = 1;
     fe.max_users = -1; /* a frontend that will not say, unless a case does */
+    /* Everything on, which is what a frontend not skipping anything says. */
+    fe.av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    fe.savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
     fe.lib = fe_dl_open(RETRO_SO);
     if (!fe.lib)
     {

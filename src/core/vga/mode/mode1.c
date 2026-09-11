@@ -448,6 +448,77 @@ mode1_render_16bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, ui
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
+/* Every attribute this mode defines and the renderer it names is written here
+ * once. mode1_fill_fn and mode1_fill_valid both expand this list, so
+ * neither can drift from the other.
+ *
+ * A fabric build expands only the attribute column. Naming a renderer would
+ * keep mode1_get_font, and with it font8 and font16, which core/term/font.c
+ * defines and a fabric image does not compile. */
+#define MODE1_FILLS(F)              \
+    F(0, mode1_render_1bpp_8x8)     \
+    F(1, mode1_render_4bppr_8x8)    \
+    F(2, mode1_render_4bpp_8x8)     \
+    F(3, mode1_render_8bpp_8x8)     \
+    F(4, mode1_render_16bpp_8x8)    \
+    F(8, mode1_render_1bpp_8x16)    \
+    F(9, mode1_render_4bppr_8x16)   \
+    F(10, mode1_render_4bpp_8x16)   \
+    F(11, mode1_render_8bpp_8x16)   \
+    F(12, mode1_render_16bpp_8x16)
+
+bool mode1_fill_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE1_CASE(attr, fn) case attr:
+        MODE1_FILLS(MODE1_CASE)
+#undef MODE1_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
+vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE1_CASE(attr, fn) \
+    case attr:               \
+        return fn;
+        MODE1_FILLS(MODE1_CASE)
+#undef MODE1_CASE
+    default:
+        return NULL;
+    }
+}
+
+#endif
+
+#ifndef RP6502_VGA_FABRIC
+bool mode1_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 16; a++)
+        if (fn && mode1_fill_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+#endif
+
 bool mode1_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -460,44 +531,11 @@ bool mode1_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode1_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
-    switch (attributes)
-    {
-    case 0:
-        render_fn = mode1_render_1bpp_8x8;
-        break;
-    case 1:
-        render_fn = mode1_render_4bppr_8x8;
-        break;
-    case 2:
-        render_fn = mode1_render_4bpp_8x8;
-        break;
-    case 3:
-        render_fn = mode1_render_8bpp_8x8;
-        break;
-    case 4:
-        render_fn = mode1_render_16bpp_8x8;
-        break;
-    case 8:
-        render_fn = mode1_render_1bpp_8x16;
-        break;
-    case 9:
-        render_fn = mode1_render_4bppr_8x16;
-        break;
-    case 10:
-        render_fn = mode1_render_4bpp_8x16;
-        break;
-    case 11:
-        render_fn = mode1_render_8bpp_8x16;
-        break;
-    case 12:
-        render_fn = mode1_render_16bpp_8x16;
-        break;
-    default:
+    if (!mode1_fill_valid(attributes))
         return false;
-    };
 
-    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr,
+                         mode1_fill_fn(attributes));
 }
 
 #pragma GCC pop_options

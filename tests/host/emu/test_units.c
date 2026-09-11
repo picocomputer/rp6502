@@ -310,9 +310,11 @@ UTEST(keyboard, text_to_oem)
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    /* The decoder's stand-in for an unmappable character is DEL, which the
+     * line editor would take as a backspace; typed text says '?' instead. */
+    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
-    ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+    ASSERT_EQ(b[0], '?');
 }
 
 /* font_init rebuilds the glyph store and knows nothing about the active code
@@ -438,6 +440,97 @@ UTEST(cli, no_separator_no_rom_args)
     ASSERT_TRUE(o.rom_args == NULL);
     ASSERT_EQ(o.n_rom_args, 0);
     ASSERT_STREQ(o.rom, "rom.rp6502");
+}
+
+/* The batch product, the window-less run, and the pacing switch, which rides
+ * the clock option: 0 is no clock to pace against. */
+UTEST(cli, batch_headless_and_unpaced)
+{
+    cli_options o;
+    cli_options_init(&o);
+    char *argv[] = {"emu", "--crc", "--headless", "--phi2", "0", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(6, argv, &o), 0);
+    ASSERT_TRUE(o.crc);
+    ASSERT_TRUE(o.headless);
+    ASSERT_TRUE(o.unpaced);
+    ASSERT_EQ(o.phi2_khz, 0);
+
+    cli_options_init(&o);
+    char *khz[] = {"emu", "--phi2", "4000", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(4, khz, &o), 0);
+    ASSERT_FALSE(o.unpaced);
+    ASSERT_EQ(o.phi2_khz, 4000);
+}
+
+
+/* ---- host text to OEM, which is what a clipboard holds ---- */
+
+UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
+{
+    oem_run_t text = {0};
+    char out[32];
+    size_t taken = 0;
+    /* Every spelling of a newline is the CR a line editor ends a line on,
+     * and CRLF is one of them, not two. */
+    size_t n = oem_from_utf8_run(&text, "a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
+    ASSERT_EQ(taken, (size_t)7);
+    ASSERT_EQ(n, (size_t)6);
+    ASSERT_EQ(memcmp(out, "a\rb\rc\r", 6), 0);
+    /* A control byte the machine may want is not a character to drop: ESC,
+     * Ctrl-C and DEL all arrive. */
+    n = oem_from_utf8_run(&text, "\33[A\3\177", 6, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)6);
+    ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
+}
+
+UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
+{
+    oem_run_t text = {0};
+    char out[32];
+    size_t taken = 0;
+    /* 'é' is two bytes of UTF-8 and this read holds only the first. */
+    size_t n = oem_from_utf8_run(&text, "h\xc3", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(out[0], 'h');
+    ASSERT_EQ(taken, (size_t)1); /* the lead byte waits for its second */
+    n = oem_from_utf8_run(&text, "\xc3\xa9!", 3, false, out, sizeof out, &taken);
+    ASSERT_EQ(taken, (size_t)3);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
+    ASSERT_EQ(out[1], '!');
+    /* A return goes out the moment it arrives, because a terminal sends one
+     * per keystroke: a reader that waited to see whether a line feed follows
+     * would answer every Enter one key late. */
+    n = oem_from_utf8_run(&text, "x\r", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ(taken, (size_t)2);
+    ASSERT_EQ(out[1], '\r');
+    ASSERT_TRUE(text.after_cr);
+    /* The line feed that opens the next read is the other half of that one. */
+    n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(out[0], 'y');
+    ASSERT_FALSE(text.after_cr);
+    /* A line feed that opens a read on its own is a line end of its own. */
+    n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ(out[0], '\r');
+}
+
+UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
+{
+    oem_run_t text = {0};
+    char out[8];
+    size_t taken = 0;
+    /* U+4E2D is in no OEM code page here. The decoder's own stand-in is DEL,
+     * which a line editor would take as a backspace. */
+    size_t n = oem_from_utf8_run(&text, "\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)1);
+    ASSERT_EQ(out[0], '?');
+    /* And a full destination stops it without losing what it did not read. */
+    n = oem_from_utf8_run(&text, "abcd", 4, true, out, 2, &taken);
+    ASSERT_EQ(n, (size_t)2);
+    ASSERT_EQ(taken, (size_t)2);
 }
 
 UTEST_MAIN();

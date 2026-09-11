@@ -4,9 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// The original RP2040 RTC implementation by Brentward is here:
-// https://github.com/picocomputer/rp6502/blob/bd8e3197/src/core/api/clk.c
-
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/tim.h"
@@ -21,6 +18,22 @@ static uint64_t clk_start_us;
 void clk_run(void)
 {
     clk_start_us = host_clock_us();
+}
+
+void clk_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u64(c, clk_start_us);
+}
+
+bool clk_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint64_t at = sst_get_u64(c);
+    if (!sst_ok(c))
+        return false;
+    clk_start_us = at;
+    return true;
 }
 
 uint32_t clk_get_run(uint32_t us_per_tick)
@@ -45,8 +58,9 @@ bool clk_api_time_set(void)
     if (!api_pop_uint64_end(&u))
         return api_return_errno(API_EINVAL);
     struct timespec ts = {.tv_sec = (int64_t)u, .tv_nsec = 0};
-    /* EACCES, not ERANGE: only a machine that owns a real time-of-day clock
-     * may move it, and the others are refusing rather than failing. */
+    /* The errno is EACCES rather than ERANGE because a machine without a
+     * time-of-day clock of its own is refusing to move the clock, not failing
+     * to represent the value. */
     if (!tim_set_time(&ts))
         return api_return_errno(API_EACCES);
     return api_return_ax(0);
@@ -57,7 +71,7 @@ static bool clk_api_to_tm(bool local)
     uint64_t u;
     if (!api_pop_uint64_end(&u))
         return api_return_errno(API_EINVAL);
-    // Short pushes are unsigned; 8-byte pushes carry the sign.
+    // A short push is zero filled, so only a full eight-byte push is negative.
     time_t t = (int64_t)u;
     struct tm tm;
     if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)))
@@ -100,11 +114,13 @@ bool clk_api_mktime(void)
 bool clk_api_strftime(void)
 {
     const char *format = (char *)&xstack[xstack_ptr];
-    // Compose below the format so they never overlap.
+    // The result is composed below the format string so the two never overlap.
     size_t max = xstack_ptr;
-    // The guard byte backstops a missing terminator. Validate before
-    // advancing; core 1 serves 0xFFEC against xstack_ptr concurrently,
-    // so it must never be published past XSTACK_SIZE.
+    /* The byte at XSTACK_SIZE is always zero, so strlen stops even when the
+     * 6502 pushed no terminator. The length is checked before xstack_ptr
+     * moves, because the RIA serves the 6502's XSTACK register against
+     * xstack_ptr and would read past the array if it ever went above
+     * XSTACK_SIZE. */
     size_t format_size = strlen(format) + 1;
     if (format_size > XSTACK_SIZE - max)
         return api_return_errno(API_EINVAL);
@@ -120,13 +136,13 @@ bool clk_api_strftime(void)
     struct tm tm;
     clk_wire_to_tm(&w, &tm);
     size_t n = tim_strftime((char *)xstack, max, format, &tm);
-    // relocate buffer to top of xstack
+    // The 6502 pops from the top of the xstack, so the result moves there.
     xstack_ptr = XSTACK_SIZE - n;
     memmove(&xstack[xstack_ptr], xstack, n);
     return api_return_ax(n);
 }
 
-// Deprecated. Retained for binaries built with older SDKs.
+// Ops 0x0F-0x12 below are retained for binaries built with older SDKs.
 
 bool clk_api_clock(void)
 {

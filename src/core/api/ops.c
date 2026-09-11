@@ -3,17 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See ops.h.
- *
- * A machine that lacks an op does not leave a hole here; it leaves the thing
- * under the handler empty and the handler says ENOSYS for it. The Pocket has
- * no directories to enumerate, and its drive says so once, rather than this
- * file saying it fifteen times.
- *
- * A switch rather than a table of pointers: the emulator kept a table only so
- * its directory slots could be swapped at runtime, and nothing swaps any more.
- * Taking the address of every handler costs a kilobyte of firmware, because it
- * is what stops the compiler folding them in.
+ * A switch rather than a table of function pointers, because taking the
+ * address of every handler is what stops the compiler folding them in and
+ * costs about a kilobyte of firmware.
  */
 
 #include "core/api/ops.h"
@@ -26,9 +18,6 @@
 #include "core/sys/pix.h"
 #include "core/str/rln.h"
 
-/* 0x00 (ZXSTACK) and 0xFF (EXIT) are not here: they are answered where the
- * 6502 writes them, before anything is latched, because a machine's answer to
- * "stop" is its own. */
 bool ops_dispatch(uint8_t operation)
 {
     switch (operation)

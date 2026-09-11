@@ -8,7 +8,6 @@
 
 #include "core/api/xreg.h"
 #include "drivers.h"
-#include <stdio.h>
 
 #include "apf.h"
 #include "aud.h"
@@ -22,9 +21,9 @@
 #include "proc.h"
 #include "rom.h"
 #include "core/rom/rom.h"
-#include "sst.h"
 #include "vga.h"
 #include "vid.h"
+#include "wake.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
@@ -40,6 +39,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
+#include "core/sys/debug_log.h"
 #include "core/str/rln.h"
 #include "core/sys/pix.h"
 #include "core/vga/mode/mode1.h"
@@ -51,6 +51,22 @@
 
 
 #include <stdint.h>
+
+/* The fabric asks for a byte only when the 6502 has one outstanding, so
+ * nothing is ever staged ahead of a reader here. */
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+{
+    (void)buf;
+    (void)length;
+    (void)src;
+    return 0;
+}
+
+int com_rx_peek(com_source_t src)
+{
+    (void)src;
+    return -1;
+}
 
 bool ria_active(void)
 {
@@ -158,7 +174,7 @@ static void main_stage(void)
     if (ok)
         sys_run();
     else if (staged)
-        printf("rom: bad image\n");
+        RP6502_LOG(rom, ERROR, "bad image");
 }
 
 int main(void)
@@ -169,7 +185,7 @@ int main(void)
      * rather than starting it, and the restore that is coming will
      * replace everything a staged ROM would put here. Starting one
      * under it is a cold boot the user watches get rolled back. */
-    main_wake_pending = sst_pending();
+    main_wake_pending = wake_pending();
     /* Measured on hardware, this reads zero on every wake -- the host
      * writes the blob only after Reset Exit -- so the check here is
      * kept for the case where a blob does precede the boot, and the
@@ -222,7 +238,7 @@ int main(void)
          * The bit clears in fabric when the load lands, so this is a
          * question and not a latch: a program launched after a wake
          * still starts. */
-        bool wake = sst_pending();
+        bool wake = wake_pending();
         if (wake && !main_wake_pending)
             sys_stop();
         main_wake_pending = wake;

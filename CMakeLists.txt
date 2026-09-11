@@ -41,6 +41,14 @@ set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
 
 project(RP6502 C CXX ASM)
 
+# TinyUSB reads LOG inside pico_sdk_init(): a build that asked for the
+# tinyusb category at DEBUG wants the stack's own output with it.
+include(${RP6502_ROOT}/src/core/log.cmake)
+rp6502_log_level_of(tinyusb RP6502_TINYUSB_LEVEL)
+if(RP6502_TINYUSB_LEVEL STREQUAL "DEBUG" AND NOT DEFINED LOG)
+    set(LOG 3)
+endif()
+
 pico_sdk_init()
 
 add_subdirectory(${RP6502_ROOT}/src/host/pico pico)

@@ -23,12 +23,6 @@
 #include <strings.h>
 #include <stdio.h>
 
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_VGA)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 3
 // How long to wait before aborting version string
@@ -79,6 +73,14 @@ void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
 }
+/* Putting a page back rather than choosing one. This machine's font is
+ * elsewhere and the message is the same either way; only the terminal reset
+ * differs, and that one is core's. */
+void vga_load_code_page(uint16_t cp)
+{
+    vga_set_code_page(cp);
+}
+
 
 static inline void vga_pix_backchannel_enable(void)
 {

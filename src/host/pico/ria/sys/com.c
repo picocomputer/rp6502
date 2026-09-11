@@ -8,17 +8,9 @@
 #include "core/sys/ria.h"
 #include "core/str/oem.h"
 #include "core/aud/bel.h"
-#include "core/hid/keyboard.h"
-#include "core/hid/keymap.h"
-#include "core/ria/regs.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
-#include "ria-w/net/telnet.h"
 #include "ria/sys/vga.h"
-#include "ria-w/net/cyw.h"
-#include "ria-w/net/wifi.h"
-#include "ria/sys/cfg.h"
-#include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/com_telnet.h"
@@ -27,14 +19,7 @@
 #include <pico/stdlib.h>
 #include <pico/printf.h>
 #include <pico/stdio/driver.h>
-#include <hardware/sync.h>
 #include <stdio.h>
-
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 /* Two TX producers feed com_tx_fanout: stdio / std_tty_write on core 0
  * write to com_tx_core0_buf; act_loop on core 1 (6502 writes to 0xFFE1)
@@ -70,38 +55,45 @@ void com_write(char ch)
     com_tx_core0_head = next;
 }
 
+size_t com_stdout_write(const char *buf, size_t count)
+{
+    size_t i = 0;
+    for (; i < count && com_putchar_ready(); i++)
+        com_putchar(buf[i]);
+    return i;
+}
+
+size_t com_stderr_write(const char *buf, size_t count)
+{
+    return com_stdout_write(buf, count);
+}
+
 #define COM_UART_TX_BUF_SIZE 32
 static size_t com_uart_tx_tail;
 static size_t com_uart_tx_head;
 static uint8_t com_uart_tx_buf[COM_UART_TX_BUF_SIZE];
 
-// UART RX software ring. com_task drains the hw FIFO into this ring
-// every tick (so SIGINT scans and break detection keep working even
-// when nobody is reading). Consumers pull via com_uart_read. Sized
-// to absorb bursts that span several main-loop ticks at 115200 baud.
-#define COM_UART_RX_BUF_SIZE 64
+// The PL011 FIFO's shadow, sized to it. com_task pops the FIFO into it
+// every tick whether or not anyone reads: a byte left in the FIFO hides the
+// break flag behind it and the Ctrl-C in it, and with no flow control there
+// is no holding the far end, so type-ahead past this drops.
+#define COM_UART_RX_BUF_SIZE 32
 static size_t com_uart_rx_head;
 static size_t com_uart_rx_tail;
 static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
 
-// The RX handoff slot itself now lives in ria.c (ria_uart_rx_slot): act_loop on
-// core 1 reads it to serve 6502 0xFFE0/0xFFE2 reads; com_task offers into it from
-// the merge picker (one byte per tick when it's empty). We keep only the core-0
-// source tag here — the source that owns the currently-offered byte — so
-// per-source readers can recover a byte the picker offered when rln (rather than
-// the 6502) is the eventual consumer. act_loop never needs the tag.
+// The source that owns the one byte past the rings -- in the handoff slot or
+// the register window, both ria.c's -- so a reader by source can take it
+// back. Written and read on this core's main loop only; act_loop never needs
+// it.
 static com_source_t com_rx_char_src;
 
-// Single-byte recover from the cross-core handoff slot. Per-source readers call
-// this so a byte the merge picker offered to the 6502 isn't stranded when rln is
-// the active consumer instead.
-//
 // The length is not decoration: a read of zero bytes is a legal thing to ask
 // for -- the API's short-stack pop makes read(fd, buf, 0) an ordinary 6502
 // sequence -- and the buffer it hands down has no room at all. Recovering into
 // it would put a byte one past the caller's buffer, and the byte is consumed
-// either way, so it has to stay in the slot for a read that can take it.
-size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
+// either way, so it has to stay staged for a read that can take it.
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
 {
     uint8_t ch;
     if (length && com_rx_char_src == src && ria_uart_rx_reclaim(&ch))
@@ -112,13 +104,12 @@ size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
     return 0;
 }
 
-static bool com_bel_enabled = true;
+int com_rx_peek(com_source_t src)
+{
+    return com_rx_char_src == src ? ria_uart_rx_peek() : -1;
+}
 
-// Sticky-picker dwell window: once an RX source fires it locks out the
-// other sources for this many microseconds, so a single keystroke can't
-// slice a paste in half. Used by com_rx_pick across the three real
-// sources (keyboard, UART, telnet).
-#define COM_RX_IDLE_US 1000
+static bool com_bel_enabled = true;
 
 // Non-consuming peek at the next byte of an SPSC RX ring (head==tail empty;
 // the next byte sits one past tail). Returns the byte (0..255) or -1.
@@ -148,9 +139,9 @@ static void com_uart_drain_rx(void)
     }
 }
 
-static size_t com_uart_read(char *buf, size_t length)
+size_t com_uart_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
+    size_t count = 0;
     // Always pump the hw FIFO into the software ring so callers that
     // bypass com_task (e.g. vga_connect's blocking loop running only
     // mbuf_task) still see fresh bytes. Idempotent.
@@ -163,40 +154,19 @@ static size_t com_uart_read(char *buf, size_t length)
     return count;
 }
 
-static int com_uart_peek(void)
+int com_uart_peek(void)
 {
     com_uart_drain_rx();
     return com_ring_peek((const uint8_t *)com_uart_rx_buf, COM_UART_RX_BUF_SIZE,
                           com_uart_rx_head, com_uart_rx_tail);
 }
 
-// Local keyboard input. Steals the cross-core handoff slot if it was
-// tagged KEYBOARD, then reads from keymap_in_chars. No internal sticky
-// dwell — the outer com_rx_pick holds against the other sources at
-// the 1 ms grain.
-static size_t com_keyboard_read(char *buf, size_t length)
+// What is still in the hw FIFO was typed for the same program as what is in
+// the ring, so it goes too.
+void com_uart_clear(void)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_KEYBOARD);
-    if (count < length)
-        count += keymap_in_chars(&buf[count], length - count);
-    return count;
-}
-
-// Dispatch a read to the per-source reader. COM_SOURCE_ANY returns 0.
-static size_t com_read_source(com_source_t src, char *buf, size_t length)
-{
-    switch (src)
-    {
-    case COM_SOURCE_KEYBOARD:
-        return com_keyboard_read(buf, length);
-    case COM_SOURCE_UART:
-        return com_uart_read(buf, length);
-    case COM_SOURCE_TEL:
-        return com_telnet_read(buf, length);
-    case COM_SOURCE_ANY:
-        break;
-    }
-    return 0;
+    com_uart_drain_rx();
+    com_uart_rx_head = com_uart_rx_tail = 0;
 }
 
 static bool com_uart_tx_writable(void)
@@ -277,121 +247,6 @@ static void com_tx_fanout(void)
     }
 }
 
-// Sticky three-source multiplex: keyboard, UART, telnet. Whichever
-// fires first holds the lock until idle for 1ms, so a single tap on
-// one source can't slice a paste on another. Used by stdin and by
-// com_task's RX handoff refill. *src_out, when non-NULL, reports
-// which source produced the returned bytes so com_task can tag the
-// offered byte for later recovery by the matching per-source reader.
-static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
-{
-    static com_source_t source = COM_SOURCE_ANY;
-    static absolute_time_t idle_timer;
-
-    if (source != COM_SOURCE_ANY && time_reached(idle_timer))
-        source = COM_SOURCE_ANY;
-
-    if (source == COM_SOURCE_KEYBOARD || source == COM_SOURCE_ANY)
-    {
-        size_t i = com_keyboard_read(buf, length);
-        if (i)
-        {
-            source = COM_SOURCE_KEYBOARD;
-            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-            if (src_out)
-                *src_out = COM_SOURCE_KEYBOARD;
-            return i;
-        }
-        // Keyboard doesn't hold the lock when empty.
-        source = COM_SOURCE_ANY;
-    }
-
-    if (source == COM_SOURCE_UART || source == COM_SOURCE_ANY)
-    {
-        size_t i = com_uart_read(buf, length);
-        if (i)
-        {
-            source = COM_SOURCE_UART;
-            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-            if (src_out)
-                *src_out = COM_SOURCE_UART;
-            return i;
-        }
-    }
-
-    if (source == COM_SOURCE_TEL || source == COM_SOURCE_ANY)
-    {
-        size_t i = com_telnet_read(buf, length);
-        if (i)
-        {
-            source = COM_SOURCE_TEL;
-            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-            if (src_out)
-                *src_out = COM_SOURCE_TEL;
-            return i;
-        }
-    }
-
-    return 0;
-}
-
-// Single-byte reader.
-//
-// Explicit single-source pull (*src set on entry) reads only from that
-// source — used by rln to finish off in-flight ESC tails during a
-// deferred completion without consuming bytes from clean sources.
-//
-// Any-source pull (*src == COM_SOURCE_ANY on entry) picks the next
-// byte via the sticky-source RX picker; on a byte, *src is set to the
-// delivering source.
-int com_getchar(com_source_t *src)
-{
-    if (src && *src != COM_SOURCE_ANY)
-    {
-        char ch;
-        if (com_read_source(*src, &ch, 1))
-            return (unsigned char)ch;
-        *src = COM_SOURCE_ANY;
-        return PICO_ERROR_TIMEOUT;
-    }
-
-    char ch;
-    com_source_t picked;
-    if (com_rx_pick(&ch, 1, &picked))
-    {
-        if (src)
-            *src = picked;
-        return (unsigned char)ch;
-    }
-    if (src)
-        *src = COM_SOURCE_ANY;
-    return PICO_ERROR_TIMEOUT;
-}
-
-// Non-consuming 1-byte peek at a specific source. Mirrors com_getchar's
-// single-source path (recover slot, then the source FIFO) without advancing.
-// Only the tracked terminal sources (UART/TEL) are peekable; others report
-// none. rln uses this during a deferred completion to tell an in-flight
-// protocol reply (begins with ESC) from the next pasted line's typed bytes.
-int com_peekchar(com_source_t src)
-{
-    if (com_rx_char_src == src)
-    {
-        int ch = ria_uart_rx_peek();
-        if (ch >= 0)
-            return ch;
-    }
-    switch (src)
-    {
-    case COM_SOURCE_UART:
-        return com_uart_peek();
-    case COM_SOURCE_TEL:
-        return com_telnet_peek();
-    default:
-        return -1;
-    }
-}
-
 // One round of TX fanout + UART RX/TX pump + telnet pump. Used by the
 // stdio blocking loops so RX drain keeps up while stdout is busy; not
 // re-entrant from inside com_task (which calls the same primitives).
@@ -418,31 +273,6 @@ static void com_stdio_out_flush(void)
     while (com_tx_core0_head != com_tx_core0_tail)
         com_stdio_pump();
     com_uart_flush();
-}
-
-size_t com_stdin_read(char *buf, size_t length)
-{
-    size_t count = 0;
-
-    // Take char from RIA register. Only with somewhere to put it: a zero-byte
-    // read must leave the staged byte staged, not drop it on the floor -- and
-    // not write it past the end of a buffer that has no room.
-    if (count < length && (REGS(0xFFE0) & 0b01000000))
-    {
-        buf[count++] = REGS(0xFFE2);
-        REGS(0xFFE0) = 0;
-        REGS(0xFFE2) = 0;
-    }
-
-    // Pick up new chars via the sticky merge picker. A reader here sees a
-    // flat byte stream — the source tag is irrelevant. The per-source
-    // readers inside com_rx_pick recover the offered byte when tagged for
-    // their source, so any byte sitting in the handoff slot is delivered
-    // here without a separate drain.
-    if (count < length)
-        count += com_rx_pick(&buf[count], length - count, NULL);
-
-    return count;
 }
 
 /* The monitor and the startup purges still read through the SDK, which
@@ -475,8 +305,16 @@ void __in_flash("com_init") com_init(void)
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
 }
 
-// Reset per-program-start console state: the BEL alert returns to its default
-// (enabled) so a program that muted it doesn't leak the setting into the next.
+// Reset per-program-start console state: the BEL enable flag returns to its
+// default so a program that muted it doesn't leak the setting into the next.
+// The bell itself is untouched -- its queue is self-limiting and runs full
+// time.
+//
+// Type-ahead is deliberately not reset, the byte the picker staged into the
+// handoff slot included: it is console input until a 6502 reads it, and the
+// ring it came out of survives a program start too. What a ready bit already
+// committed to the outgoing program is in the register window, which api_run
+// clears.
 void com_run(void)
 {
     com_bel_enabled = true;
@@ -509,28 +347,12 @@ static void com_ensure_newline(void)
         putchar('\n');
 }
 
+// What was typed was meant for the program being interrupted. The byte past
+// the rings is ria.c's to drop, on its own break.
 void com_break(void)
 {
     com_ensure_newline();
-
-    // Drain hw FIFO first so any in-flight bytes land in the ring,
-    // then clear the ring.
-    com_uart_drain_rx();
-    com_uart_rx_head = com_uart_rx_tail = 0;
-
-    char scratch[16];
-    while (keymap_in_chars(scratch, sizeof scratch))
-        ;
-
-#ifdef RP6502_RIA_W
-    if (com_telnet_connected())
-        while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
-            ;
-    com_telnet_clear_rx();
-#endif
-
-    REGS(0xFFE0) = 0;
-    REGS(0xFFE2) = 0;
+    com_rx_clear();
 }
 
 void com_task(void)
@@ -549,21 +371,17 @@ void com_task(void)
     // so they don't need a pump here.
     com_uart_drain_rx();
 
-    // RX: refill the cross-core handoff slot (ria_uart_rx_slot, owned by ria.c).
-    // act_loop on core 1 only ever observes -1 or 0..255 and never reads
-    // com_rx_char_src. The __dmb() here is a core-0 compiler barrier (memory
-    // clobber) pinning the non-volatile com_rx_char_src write ahead of the slot
-    // store, so a per-source reader on core 0 can't see a fresh byte tagged with
-    // a stale src. One byte per tick — bounded enough that a tight rln drain on
-    // the per-source readers still wins most of the upstream bytes.
+    // RX: refill the cross-core handoff (ria_uart_rx_slot, owned by ria.c),
+    // only when nothing is staged in the slot or the latch. One byte per
+    // tick -- bounded enough that a tight rln drain on the per-source readers
+    // still wins most of the upstream bytes.
     if (ria_uart_rx_offer_ready())
     {
-        char ch;
-        com_source_t src;
-        if (com_rx_pick(&ch, 1, &src))
+        com_source_t src = COM_SOURCE_ANY;
+        int ch = com_getchar(&src);
+        if (ch >= 0)
         {
             com_rx_char_src = src;
-            __dmb();
             ria_uart_rx_offer((uint8_t)ch);
         }
     }

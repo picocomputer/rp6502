@@ -10,11 +10,18 @@
 # The exception: how many frames a script spends is the one thing a script
 # cannot check about itself, so that one is a C test around script.c.
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
-    SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c ${RP6502_SRC}/host/sokol/cli/png.c
+    SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
+        ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/streams.c
+        ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
 rp6502_add_script_test(poke FIXTURE gamepad.rp6502)
+
+# The machine written down and put back, through the verbs a driver on the
+# other end of a pipe would use. The blob lands in the test's own working
+# directory, which rp6502_add_script_test gives each script.
+rp6502_add_script_test(state FIXTURE gamepad.rp6502)
 
 # The command line, which had no test at all: the script suites reach cli.c
 # only through the options they happen to pass, so nothing was checking that a
@@ -33,11 +40,23 @@ foreach(_case
     "phi2;--phi2;fast"
     "scale;--scale;abc"
     "cp;--cp;4o7"
-    "frames_without_screenshot;--frames;10")
+    "frames_without_screenshot;--frames;10"
+    "headless_with_script;--headless;--script;-"
+    "headless_with_crc;--headless;--crc")
     list(POP_FRONT _case _name)
     rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_ROMS}/gamepad.rp6502)
     set_tests_properties(cli_${_name} PROPERTIES WILL_FAIL TRUE)
 endforeach()
+
+# The CRC batch product is eight hex digits and nothing else on stdout; CMake's
+# regex has no {n}, so they are spelled out. The clock at 0 is the pacing
+# switch, and a batch run must take it without complaint.
+rp6502_add_cli_test(crc --mute --seed 1 --fill 0 --crc --frames 10
+    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
+    "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
+rp6502_add_cli_test(phi2_zero --mute --seed 1 --fill 0 --phi2 0 --crc --frames 1
+    ${RP6502_TEST_ROMS}/gamepad.rp6502)
 
 # A run that repeats: the seed reaches the fill, and the fill is read in the
 # grammar the scripts and the docs use rather than C's, where 010 is eight.
@@ -62,11 +81,54 @@ endif()
 # No fixture: the claims are about the fan-outs, not about a program.
 rp6502_add_test(sys LIBS emu_core)
 
+# --- The savestate's framing: what a blob must be before it is believed ---
+# No fixture: every claim is about the header, the manifest and the trailer,
+# which are the machine's shape rather than any program's state.
+rp6502_add_test(sst LIBS emu_core FIXTURE adventure.rp6502)
+
+# --- Every mutable object the core owns, against what carries it ---
+# A static added to core is machine state the moment it is added, and nothing
+# else in the tree would notice that no chunk carries it. Measured from the
+# objects rather than grepped from the source: the scanner rebuilds each of
+# emu.cmake's units without LTO, which is what keeps a file-scope static in
+# the symbol table.
+#
+# GNU and ELF only, and that is not a portability gap to close. Clang's global
+# merge coalesces several statics into one __MergedGlobals symbol, so on that
+# toolchain there is nothing left to enumerate, and Mach-O and COFF each name
+# what survives differently again. This is a tripwire, and one platform
+# holding it is what a tripwire needs.
+if(CMAKE_EXPORT_COMPILE_COMMANDS
+   AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
+   AND NOT APPLE AND NOT WIN32)
+    add_test(NAME state_inventory
+        COMMAND ${CMAKE_COMMAND} -E env python3
+            ${RP6502_TESTS_DIR}/gen/state_inventory.py
+            ${CMAKE_BINARY_DIR}/compile_commands.json
+            ${RP6502_SRC}
+            ${RP6502_TESTS_DIR}/gen/state_inventory.txt)
+    set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
+endif()
+
 # --- Which way each of the roster's walks goes ---
 # No machine linked, on purpose: the roster beside the test is the only
 # drivers.h on the path, and sys.c is compiled in because the stop and break
-# fan-outs are static.
+# fan-outs are static. sst.c comes in the same way and for the same reason:
+# its five expansions of the ninth column are private to it, and two of the
+# three fake rows carry a chunk so the savestate walks can be seen too.
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
+
+# --- The console's input, with more than one source live at once ---
+rp6502_add_test(com LIBS emu_core)
+
+# --- The line editor: where a line ends, whichever way the far end spells it ---
+rp6502_add_test(rln LIBS emu_core)
+
+# --- The log: what a level lets through, and that a message is a printf ---
+# Its own host_log, which keeps what it was given; its own levels, whatever
+# the configuration's.
+rp6502_add_test(log SINK
+    DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 
 # --- aud_render: the device's buffer, filled from the registers ---
 rp6502_add_test(render LIBS emu_core)

@@ -3,7 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Forced include under MSVC (/FIcompat.h)
+ * Forced into every translation unit under MSVC with /FIcompat.h, so it has no
+ * include guard of its own.
  */
 
 #ifdef _MSC_VER

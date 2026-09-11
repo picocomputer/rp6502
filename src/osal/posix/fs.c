@@ -3,23 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Paths cross the seam in the guest's OEM code page. Convert to the host's
- * UTF-8 with oem_to_utf8() (core/str/oem.h) before every libc call, and
- * returned names/paths back with oem_from_utf8(). Fallible calls set errno,
- * which errmap.c turns into the api_errno the contract answers in.
+ * Paths arrive in the 6502's OEM code page and may carry this drive's name;
+ * path_to_utf8 in osal/posix/dir.h takes both off before every libc call.
  */
 
 #include "osal/fs.h"
+#include "osal/dir.h"
 #include "osal/os.h"
 #include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,10 +27,91 @@
 #include <time.h>
 #include <utime.h>
 
-/* ---- The std driver ------------------------------------------------------ */
+/* A descriptor is this host's own fd, so there is no pool of open files here.
+ * The OS cannot report the name a descriptor was opened by, and a savestate
+ * needs that name to open the same file again, so this table keeps it.
+ *
+ * There are seventeen slots because core/api/std.c allows STD_FD_MAX of 16
+ * open descriptors and the ROM image takes one more. Nothing frees a slot on
+ * close, so seventeen is only enough because fs_keep reuses the slot holding
+ * the same fd, and the OS hands a closed number straight back on the next
+ * open. The table is searched rather than indexed, because an fd number is
+ * the OS's and may be anything. The path is made absolute after the open
+ * succeeds, so realpath resolves a file that was just created, and a later
+ * chdir cannot move it. */
+#define FS_KEPT_MAX 17
+static struct
+{
+    int fd; /* the OS descriptor plus one, so 0 can mark a free slot */
+    uint8_t flags;
+    char path[API_PATH_MAX + 1];
+} fs_kept[FS_KEPT_MAX];
 
-/* A descriptor is this host's own fd. std.c hands back whatever open returned,
- * and the OS validates it on every call, so there is no pool here. */
+static void fs_keep(int fd, const char *path, uint8_t flags)
+{
+    char *abs = os_dir_realpath(path);
+    const char *keep = abs ? abs : path;
+    int slot = -1;
+    for (int i = 0; i < FS_KEPT_MAX; i++)
+        if (fs_kept[i].fd == fd + 1)
+        {
+            slot = i;
+            break;
+        }
+    for (int i = 0; slot < 0 && i < FS_KEPT_MAX; i++)
+        if (!fs_kept[i].fd)
+            slot = i;
+    if (slot >= 0 && strlen(keep) <= API_PATH_MAX)
+    {
+        fs_kept[slot].fd = fd + 1;
+        fs_kept[slot].flags = flags & (FS_RD | FS_WR);
+        strcpy(fs_kept[slot].path, keep);
+    }
+    free(abs);
+}
+
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    for (int i = 0; i < FS_KEPT_MAX; i++)
+        if (fs_kept[i].fd == desc + 1)
+        {
+            off_t at = lseek(desc, 0, SEEK_CUR);
+            if (at < 0 || at > INT32_MAX)
+                return false;
+            sst_put_str(c, fs_kept[i].path, FS_PATH_SLOT);
+            sst_put_u8(c, fs_kept[i].flags);
+            sst_put_i32(c, (int32_t)at);
+            return sst_ok(c);
+        }
+    return false;
+}
+
+int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+{
+    char path[FS_PATH_SLOT];
+    sst_get_str(c, path, FS_PATH_SLOT);
+    uint8_t flags = sst_get_u8(c);
+    int32_t pos = sst_get_i32(c);
+    if (!sst_ok(c))
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    /* The access bits only. CREAT, EXCL, TRUNC and APPEND already happened
+     * when the program opened the file, and repeating one would create or
+     * empty the very file this is trying to find again. */
+    int fd = fs_std_open(path, flags & (FS_RD | FS_WR), err);
+    if (fd < 0)
+        return -1;
+    if (lseek(fd, pos, SEEK_SET) < 0)
+    {
+        *err = errno_to_api(errno);
+        api_errno ignored;
+        fs_std_close(fd, &ignored);
+        return -1;
+    }
+    return fd;
+}
 
 bool fs_std_handles(const char *path)
 {
@@ -50,12 +130,22 @@ static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
         o |= O_CREAT;
     if ((flags & FS_CREAT) && (flags & FS_EXCL))
         o |= O_EXCL;
-    if ((flags & FS_TRUNC) && wr) /* only when opened for write */
+    if ((flags & FS_TRUNC) && wr)
         o |= O_TRUNC;
     int fd = open(u8, o, 0666);
     if (fd < 0)
-        *err = errno_to_api(errno); /* before the free, which may clobber it */
+        *err = errno_to_api(errno); /* before free(), which may set errno itself */
     free(u8);
+    /* POSIX lets O_RDONLY on a directory through, while Windows and FatFs both
+     * refuse it. Refusing here matches them and is better than handing back a
+     * descriptor whose every read fails. */
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode))
+    {
+        close(fd);
+        *err = API_EACCES; /* FR_DENIED, as the other machines spell it */
+        return -1;
+    }
     return fd;
 }
 
@@ -68,22 +158,20 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     {
         if (lseek(fd, 0, SEEK_END) < 0)
         {
-            /* Reporting success would hand back a descriptor positioned at the
-             * start of a file the program asked to append to. */
+            /* Reporting success would hand back a descriptor at the start of a
+             * file the program asked to append to. */
             *err = errno_to_api(errno);
             close(fd);
             return -1;
         }
     }
+    fs_keep(fd, path, flags);
     return fd;
 }
 
-/* The ROM descriptor: kept out of the range open(2) hands out so a program
- * can neither name it nor be given it. dup2 onto a descriptor above every
- * other -- the highest the process may hold -- is the cheapest way to say
- * that on POSIX. The loader resolves ":name" through its alias map before
- * this is called; nothing here spells a store, so the write combo has
- * nothing honest to create and refuses. */
+/* The loader has already resolved ":name" through its alias map, and this
+ * host has no store of its own to create one in, so the write combination is
+ * refused. */
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (flags != FS_RD)
@@ -94,6 +182,9 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
     int fd = fs_open_native(path, FS_RD, err);
     if (fd < 0)
         return -1;
+    /* Moved to the top of the descriptor space, which open() reaches only
+     * once everything below it is in use, so the ROM image stays out of the
+     * low numbers a program's own files get. */
     struct rlimit rl;
     int high = (getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY &&
                 rl.rlim_cur > 1)
@@ -104,13 +195,14 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         close(fd);
         fd = high;
     }
+    fs_keep(fd, path, FS_RD); /* the image's own name, for the savestate */
     return fd;
 }
 
 bool fs_rom_remove(const char *name, api_errno *err)
 {
     (void)name;
-    *err = API_EACCES; /* installs are references; there is nothing to delete */
+    *err = API_EACCES; /* an install here is a reference, so there is nothing to delete */
     return false;
 }
 
@@ -141,9 +233,9 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = errno_to_api(errno);
         return -1;
     }
-    /* The position comes back as a signed 32-bit value (0xFFFFFFFF is the
-     * error sentinel), so a target past 2GB-1 is refused before the pointer
-     * moves rather than landing somewhere unreportable. */
+    /* The position comes back as a signed 32-bit value, 0xFFFFFFFF being the
+     * error sentinel, so a target past 2GB-1 is refused before the pointer
+     * moves rather than landing somewhere that cannot be reported. */
     int64_t target = base + off;
     if (target < 0)
     {
@@ -155,8 +247,8 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = API_ERANGE;
         return -1;
     }
-    /* Measured with fstat, not a seek to the end: a seek that turns out to be
-     * impossible must leave the pointer where it was. */
+    /* Measured with fstat rather than a seek to the end, because a seek that
+     * turns out to be impossible has to leave the pointer where it was. */
     int64_t size = fs_size_of(desc);
     if (size < 0)
     {

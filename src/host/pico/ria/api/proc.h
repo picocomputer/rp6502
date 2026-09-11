@@ -20,6 +20,6 @@
 void proc_nfc(const uint8_t *data, size_t len);
 
 /* This machine's proc row; see core/sys/driver.h. */
-#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config)
+#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_API_PROC_H_ */

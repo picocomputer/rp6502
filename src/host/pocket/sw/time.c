@@ -79,6 +79,10 @@ void tim_init(void)
     tim_apply_tz();
 }
 
+/* Nothing to give back. This machine's clock is three numbers and a
+ * register, and the locale the desktop layers load does not exist here. */
+void tim_stop(void) {}
+
 /* The base is always the host's local reading, so a new offset re-derives
  * UTC from it. Nothing else can move the base: a program is refused. */
 void tim_set_tz_minutes(int32_t min)

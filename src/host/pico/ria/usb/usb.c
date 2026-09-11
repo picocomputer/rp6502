@@ -19,18 +19,13 @@
 #include "ria-w/ble/ble.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
+#include "core/sys/debug_log.h"
 #include <pico/time.h>
 #include <stdio.h>
 #include <string.h>
 #include <tusb.h>
 
 extern int hcd_free_ep_count(void);
-
-#if defined(DEBUG_USB) || defined(DEBUG_USB_USB)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 _Static_assert(CFG_TUH_HID <= 8, "usb_gamepad_led_pending bitmask is 8 bits");
 
@@ -92,7 +87,7 @@ void __in_flash("usb_init") usb_init(void)
     tusb_init(TUH_OPT_RHPORT, &rh_init);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
     usb_enum_kick();
-    DBG("USB: %lums INIT\n", to_ms_since_boot(get_absolute_time()));
+    RP6502_LOG(usb, INFO, "init");
 }
 
 void usb_task(void)
@@ -168,8 +163,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     uint16_t product_id;
     tuh_vid_pid_get(dev_addr, &vendor_id, &product_id);
 
-    DBG("USB: %lums HID dev=%d idx=%d protocol=%d desc_len=%d\n",
-        to_ms_since_boot(get_absolute_time()), dev_addr, idx, itf_protocol, desc_len);
+    RP6502_LOG(usb, INFO, "HID dev=%d idx=%d protocol=%d desc_len=%d",
+               dev_addr, idx, itf_protocol, desc_len);
 
     hid_parsed_t parsed;
     hid_parse(desc_report, desc_len, &parsed);
@@ -225,7 +220,7 @@ bool usb_boot_enumerating(void)
     if (time_reached(usb_enum_timeout))
     {
         usb_boot_enum_finished = true;
-        DBG("USB: %lums READY !!!\n", to_ms_since_boot(get_absolute_time()));
+        RP6502_LOG(usb, INFO, "boot enumeration done");
         return false;
     }
     return true;
@@ -374,8 +369,7 @@ void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
     if (eventid == HCD_EVENT_DEVICE_ATTACH)
     {
         usb_enum_kick();
-        DBG("USB: %lums ATTACH rhport=%u\n",
-            to_ms_since_boot(get_absolute_time()), rhport);
+        RP6502_LOG(usb, INFO, "attach rhport=%u", rhport);
     }
 }
 
@@ -384,8 +378,7 @@ void tuh_mount_cb(uint8_t daddr)
     tuh_bus_info_t bi;
     tuh_bus_info_get(daddr, &bi);
     usb_enum_kick();
-    DBG("USB: %lums MOUNT dev=%u hub=%u port=%u\n",
-        to_ms_since_boot(get_absolute_time()), daddr, bi.hub_addr, bi.hub_port);
+    RP6502_LOG(usb, INFO, "mount dev=%u hub=%u port=%u", daddr, bi.hub_addr, bi.hub_port);
 }
 
 void tuh_enum_descriptor_device_cb(uint8_t daddr, const tusb_desc_device_t *desc_device)
@@ -393,7 +386,7 @@ void tuh_enum_descriptor_device_cb(uint8_t daddr, const tusb_desc_device_t *desc
     (void)daddr;
     (void)desc_device;
     usb_enum_kick();
-    DBG("USB: %lums DESC DEVICE\n", to_ms_since_boot(get_absolute_time()));
+    RP6502_LOG(usb, DEBUG, "device descriptor");
 }
 
 bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
@@ -403,7 +396,7 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
     (void)cfg_index;
     (void)desc_config;
     usb_enum_kick();
-    DBG("USB: %lums DESC CONFIG\n", to_ms_since_boot(get_absolute_time()));
+    RP6502_LOG(usb, DEBUG, "configuration descriptor");
     return true;
 }
 

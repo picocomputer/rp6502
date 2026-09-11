@@ -14,6 +14,10 @@ include_guard(GLOBAL)
 # Captured here: inside a function body CMAKE_CURRENT_LIST_DIR is the caller's
 # file, not this one.
 set(RP6502_CORE_DIR ${CMAKE_CURRENT_LIST_DIR})
+
+# Found rather than named, because the interpreter is python.exe on Windows and
+# the libretro buildbot's MSVC runner is a machine we cannot inspect or fix.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 cmake_path(SET RP6502_VENDOR_DIR NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../vendor)
 
 # rp6502_gen_rsmp_coef(<target>) -> RSMP_COEF_H, RSMP_COEF_DIR
@@ -26,7 +30,7 @@ function(rp6502_gen_rsmp_coef target)
     set(gen ${RP6502_CORE_DIR}/gen/rsmp_coef_gen.py)
     set(out ${CMAKE_CURRENT_BINARY_DIR}/rsmp_coef.h)
     add_custom_command(OUTPUT ${out}
-        COMMAND ${CMAKE_COMMAND} -E env python3 ${gen} --emit-h ${out}
+        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out}
         DEPENDS ${gen}
         COMMENT "Generating the resampler coefficients"
         VERBATIM)
@@ -45,7 +49,7 @@ function(rp6502_gen_oemcp target)
     set(c ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
     set(h ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
     add_custom_command(OUTPUT ${c} ${h}
-        COMMAND ${CMAKE_COMMAND} -E env python3 ${gen}
+        COMMAND ${Python3_EXECUTABLE} ${gen}
             --ffunicode ${ff} --emit-c ${c} --emit-h ${h}
         DEPENDS ${gen} ${ff}
         COMMENT "Generating the OEM code page tables"
@@ -71,7 +75,7 @@ function(rp6502_gen_kbdlay target)
     set(c ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
     set(h ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
     add_custom_command(OUTPUT ${c} ${h}
-        COMMAND ${CMAKE_COMMAND} -E env python3 ${gen}
+        COMMAND ${Python3_EXECUTABLE} ${gen}
             --manifest ${KBDLAY_MANIFEST} --emit-c ${c} --emit-h ${h}
         DEPENDS ${gen} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
         COMMENT "Generating the keyboard layouts"

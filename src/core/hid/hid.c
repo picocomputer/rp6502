@@ -12,30 +12,20 @@
 #include "core/hid/tablet.h"
 #include "machine.h"
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_HID)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size >= 32)
         return (int32_t)raw_value;
 
-    // Check if the sign bit is set (MSB of the bit_size range)
     uint32_t sign_bit = 1UL << (bit_size - 1);
 
     if (raw_value & sign_bit)
     {
-        // Sign bit is set, extend with 1s
         uint32_t sign_extension = ~((1UL << bit_size) - 1);
         return (int32_t)(raw_value | sign_extension);
     }
     else
     {
-        // Sign bit is clear, just mask to ensure clean value
         uint32_t mask = (1UL << bit_size) - 1;
         return (int32_t)(raw_value & mask);
     }
@@ -53,8 +43,8 @@ uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t b
     if (end_byte >= report_len)
         return 0;
 
-    // Extract up to 5 bytes into a 64-bit value (a 32-bit field
-    // not aligned to a byte boundary can span 5 bytes)
+    /* A 32-bit field that does not start on a byte boundary spans five bytes,
+     * so five are gathered into a 64-bit value. */
     uint64_t value = 0;
     for (uint8_t i = 0; i < 5 && (start_byte + i) < report_len; ++i)
         value |= ((uint64_t)report[start_byte + i]) << (8 * i);
@@ -73,12 +63,10 @@ int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t 
 
 uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    // Handle reversal
     bool reversed = logical_min > logical_max;
     int32_t min = reversed ? logical_max : logical_min;
     int32_t max = reversed ? logical_min : logical_max;
 
-    // Extend sign as needed
     int32_t value;
     if (min < 0 && bit_size < 32)
         value = hid_extend_signed(raw_value, bit_size);
@@ -88,13 +76,14 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
     if (reversed)
         value = max + min - value;
 
-    // Clamp bad input
     if (value < min)
         value = min;
     if (value > max)
         value = max;
 
-    // Guard against overflow wrap when range spans the full int32 space
+    /* A range spanning the whole of int32 has more discrete values than an
+     * int32 can count, and is refused here rather than divided by what is
+     * left of the count. */
     int32_t discrete_values = max - min + 1;
     if (!discrete_values)
         return 0;
@@ -107,7 +96,6 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
     return hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
 }
 
-// Which drivers kept the device in each slot; 0 is a free slot.
 static uint8_t hid_claims[HID_MAX_SLOTS];
 
 uint8_t hid_slot_claims(int slot)

@@ -7,15 +7,6 @@
 #ifndef _OSAL_DIR_H_
 #define _OSAL_DIR_H_
 
-/* What a drive is, under the directory syscalls. FatFs answers with a FRESULT
- * and a host filesystem by setting errno; neither spelling appears here,
- * because a backend call reports the way std_driver_t's do -- false, and the
- * api_errno through the out parameter.
- *
- * What the 6502 asks of these is core/api/dir.h, which is written once for
- * every machine.
- */
-
 #include "core/api/api.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -55,14 +46,20 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err);
 bool drive_closedir(int des, api_errno *err);
 bool drive_rewinddir(int des, api_errno *err);
 bool drive_validate(int des, api_errno *err);
+
+/* drive_dir_path answers with an absolute path, because a savestate load
+ * restores the working directory separately and the guest may have moved it
+ * since. drive_reopendir does not restore the read position; core/api/dir.c
+ * winds the entry count it kept. */
+bool drive_dir_path(int des, char *buf, size_t size);
+bool drive_reopendir(int des, const char *path, api_errno *err);
 void oem_fs_code_page(uint16_t cp);
 
 char *os_dir_realpath(const char *path);
 
-/* A copy of a path this machine keeps until os_dir_path_drop. A host with a
- * heap copies; a board answers from static buffers sized for its filesystem,
- * NULL for a path that would not fit. proc holds two at most: what is running
- * and what to return to. */
+/* A copy of a path that stays valid until os_dir_path_drop. A board with no
+ * heap answers from static buffers and returns NULL for a path that will not
+ * fit one. */
 char *os_dir_path_hold(const char *path);
 void os_dir_path_drop(char *path);
 

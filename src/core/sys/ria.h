@@ -5,15 +5,8 @@
  */
 
 /* The bus between the 6502 and the machine, as everything above it needs to
- * see it: whether a transfer is in flight, and the SIGINT a Ctrl-C latches.
- * A machine with no such transfer answers false and never latches.
- *
- * Its own header because six translation units want nothing but these three
- * and were reaching them through the machine contract, which drags
- * core/api/std.h and core/api/api.h behind it. The implementation is
- * core/ria/ria.c on a software machine, host/pico/ria/sys/ria.c on the
- * firmware, and host/pocket/sw/main.c on a machine whose bus is fabric.
- */
+ * see it: whether the RIA is driving the bus itself, and the SIGINT a Ctrl-C
+ * latches. */
 
 #ifndef _CORE_SYS_RIA_H_
 #define _CORE_SYS_RIA_H_
@@ -25,10 +18,15 @@ extern "C"
 {
 #endif
 
-    // True while a memory transfer to or from the 6502 is in flight.
+    /* True while the RIA is driving the 6502 itself, which on a Pico is a
+     * chunked mbuf transfer in either direction or a compare: the run and stop
+     * fan-outs it borrows belong to the transfer rather than to a program, and
+     * the register window is the transfer's while it lasts. Always false on a
+     * machine that has no such transfer. */
     bool ria_active(void);
 
-    // Returns true once per latched SIGINT, then clears.
+    /* Consumes the flag rather than only reading it, so a caller that asks
+     * without meaning to act on it swallows the Ctrl-C. */
     bool ria_get_sigint(void);
     void ria_trigger_sigint(void);
 

@@ -3,14 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Device 0 of the XREG space, the RIA's own -- the one that never crosses a bus
- * even where there is one, because the registers it carries belong to the chip
- * the 6502 is talking to.
- *
- * Six rows, and every machine has all six: four human interface devices on
- * channel 0 and two sound chips on channel 1. The numbers are the 6502's ABI
- * and not any machine's choice, so they always had to agree; they were just
- * written out again per machine, in a different shape each time.
+ * Device 0 of the XREG space, the RIA's own. See xreg.h.
  */
 
 #include "core/sys/driver.h"
@@ -24,7 +17,9 @@
 
 bool xreg0(uint8_t channel, uint8_t address, uint16_t word)
 {
-    if (channel == 0) /* human interface devices -> XRAM report blocks */
+    /* On channel 0 the word is the XRAM address of the device's report
+     * block, or 0xFFFF to publish nothing. */
+    if (channel == 0)
     {
         bool ok;
         switch (address)
@@ -47,7 +42,7 @@ bool xreg0(uint8_t channel, uint8_t address, uint16_t word)
         hid_remapped();
         return ok;
     }
-    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
+    if (channel == 1)
     {
         if (address == 0)
             return psg_xreg(word);

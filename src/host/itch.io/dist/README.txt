@@ -40,7 +40,7 @@ script:
               sharp.
     db        Browser save database name. See "Saves and browser
               storage" below.
-    persist   false (default) don't save db; true keeps MSC0:/db/
+    persist   false (default) don't save db; true keeps /db/
               forever.
 
 
@@ -65,7 +65,7 @@ itch.io embed settings
 Saves and browser storage
 -------------------------
 
-With persist: true, anything your program writes to MSC0:/db/ lands in
+With persist: true, anything your program writes to /db/ lands in
 an IndexedDB database in the player's browser. This allows players to
 save games or high scores.
 
@@ -82,7 +82,7 @@ unrelated games that both ship game.rp6502 will collide. A unique db
 (say, yourname-yourgame) avoids that.
 
 Sharing on purpose. Give several of your pages the same db and their
-games share one MSC0: drive. This works *because* of the shared origin;
+games share one filesystem. This works *because* of the shared origin;
 if itch.io ever isolates games onto their own origins, cross-page
 sharing stops and existing saves effectively reset.
 

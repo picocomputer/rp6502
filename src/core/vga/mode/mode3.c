@@ -362,6 +362,74 @@ mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_
     return true;
 }
 
+/* Every attribute this mode defines and the renderer it names is written here
+ * once. mode3_fill_fn and mode3_fill_valid both expand this list, so
+ * neither can drift from the other.
+ *
+ * A fabric build expands only the attribute column. Nothing there calls these
+ * renderers, and that image has one 96 KB memory for text, stack and heap. */
+#define MODE3_FILLS(F) \
+    F(0, mode3_render_1bpp)          \
+    F(1, mode3_render_2bpp)          \
+    F(2, mode3_render_4bpp)          \
+    F(3, mode3_render_8bpp)          \
+    F(4, mode3_render_16bpp)         \
+    F(8, mode3_render_1bpp_reverse)  \
+    F(9, mode3_render_2bpp_reverse)  \
+    F(10, mode3_render_4bpp_reverse)
+
+bool mode3_fill_valid(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE3_CASE(attr, fn) case attr:
+        MODE3_FILLS(MODE3_CASE)
+#undef MODE3_CASE
+        return true;
+    default:
+        return false;
+    }
+}
+
+#ifdef RP6502_VGA_FABRIC
+
+vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#else
+
+vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
+{
+    switch (attributes)
+    {
+#define MODE3_CASE(attr, fn) \
+    case attr:                \
+        return fn;
+        MODE3_FILLS(MODE3_CASE)
+#undef MODE3_CASE
+    default:
+        return NULL;
+    }
+}
+
+#endif
+
+#ifndef RP6502_VGA_FABRIC
+bool mode3_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
+{
+    for (uint16_t a = 0; a < 16; a++)
+        if (fn && mode3_fill_fn(a) == fn)
+        {
+            *attributes = a;
+            return true;
+        }
+    return false;
+}
+#endif
+
 bool mode3_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -374,36 +442,9 @@ bool mode3_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
-    switch (attributes)
-    {
-    case 0:
-        render_fn = mode3_render_1bpp;
-        break;
-    case 1:
-        render_fn = mode3_render_2bpp;
-        break;
-    case 2:
-        render_fn = mode3_render_4bpp;
-        break;
-    case 3:
-        render_fn = mode3_render_8bpp;
-        break;
-    case 4:
-        render_fn = mode3_render_16bpp;
-        break;
-    case 8:
-        render_fn = mode3_render_1bpp_reverse;
-        break;
-    case 9:
-        render_fn = mode3_render_2bpp_reverse;
-        break;
-    case 10:
-        render_fn = mode3_render_4bpp_reverse;
-        break;
-    default:
+    if (!mode3_fill_valid(attributes))
         return false;
-    };
+    vga_fill_fn_t render_fn = mode3_fill_fn(attributes);
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }

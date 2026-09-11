@@ -29,6 +29,6 @@ bool proc_exec_take(void);
 
 /* This machine's proc row; see core/sys/driver.h. The chain's columns over
  * core/api/proc.c; the load is main.c's, after the stop. */
-#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config)
+#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _HOST_POCKET_SW_PROC_H_ */

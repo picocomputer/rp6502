@@ -6,60 +6,42 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/gamepad.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
 #include <string.h>
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_GAMEPAD)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-// If you're here to remap HID buttons on a new HID gamepad, create
-// a new gamepad_remap_ function and add it to gamepad_distill().
-
-// This is the report we generate for XRAM.
-// Direction bits: 0-up, 1-down, 2-left, 3-right
-// Feature bits 0x30 are the GAMEPAD_TYPE_ of the face button labels
-// Feature bit 0x40 is on when both analog sticks are present
-// Feature bit 0x80 is on when valid gamepad connected
+/* One player's XRAM report block. The dpad byte's low bits are directions,
+ * bit 0 up, bit 1 down, bit 2 left and bit 3 right. Its high bits are the
+ * features: 0x30 is the GAMEPAD_TYPE_ of the face button labels, 0x40 is set
+ * when both analog sticks are present, and 0x80 is set while a gamepad is
+ * connected. */
 typedef struct
 {
     uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
     uint8_t sticks;  // left (0x0F) and right (0xF0) sticks
-    uint8_t button0; // buttons
-    uint8_t button1; // buttons
-    int8_t lx;       // left analog-stick
-    int8_t ly;       // left analog-stick
-    int8_t rx;       // right analog-stick
-    int8_t ry;       // right analog-stick
-    uint8_t lt;      // analog left trigger
-    uint8_t rt;      // analog right trigger
+    uint8_t button0;
+    uint8_t button1;
+    int8_t lx;
+    int8_t ly;
+    int8_t rx;
+    int8_t ry;
+    uint8_t lt;
+    uint8_t rt;
 } gamepad_xram_t;
 
 
-// Deadzone is generous enough for moderately worn sticks.
-// This is only for the analog to digital conversions so
-// it doesn't need to be first-person shooter tight.
+/* The deadzone is only used to derive a digital direction or button press from
+ * an analog reading, so it can be generous enough for worn sticks rather than
+ * as tight as a first-person shooter wants. */
 #define GAMEPAD_DEADZONE 32
 
-// Room for button0 and button1 plus a dpad if needed.
-
-
-
-
-
-// Where in XRAM to place reports, 0xFFFF when disabled.
 static uint16_t gamepad_xram;
 
-/* The block as it stands, so a change to one field does not need the rest
- * decoded again -- and so a host that decodes its own controller has
- * somewhere to put what it decoded. */
+/* Each player's block as it stands, so that a change to one field leaves the
+ * rest of the report alone. */
 static gamepad_xram_t gamepad_reports[GAMEPAD_MAX_PLAYERS];
 
-// Parsed descriptor structure for fast report parsing.
 static gamepad_connection_t gamepad_connections[GAMEPAD_MAX_PLAYERS];
 
 static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int b1)
@@ -69,42 +51,39 @@ static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int 
     conn->button_offsets[b1] = temp;
 }
 
-// These are USB gamepads for the Classic, a remake of the PS1/PSOne.
+// The USB gamepads that came with the PlayStation Classic.
 static void gamepad_remap_playstation_classic(
     gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
-    DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    RP6502_LOG(hid, DEBUG, "Playstation Classic remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
     conn->features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION);
-    gamepad_swap_buttons(conn, 0, 2); // buttons
-    gamepad_swap_buttons(conn, 2, 3); // buttons
+    gamepad_swap_buttons(conn, 0, 2);
+    gamepad_swap_buttons(conn, 2, 3);
     gamepad_swap_buttons(conn, 4, 8); // l1/l2
     gamepad_swap_buttons(conn, 5, 9); // r1/r2
-    gamepad_swap_buttons(conn, 4, 6); // l1/bt
-    gamepad_swap_buttons(conn, 5, 7); // r1/st
+    gamepad_swap_buttons(conn, 4, 6);
+    gamepad_swap_buttons(conn, 5, 7);
 }
 
-// The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
-// It has different L1/R1/L2/R2 mappings for XInput and DInput, which we leave alone.
-// Sadly, remapping C/Z into the correct place would mean a confusing third mapping.
-// The barrier to a better map is that we can't detect an M30 using a USB Bluetooth adapter.
-// The wired DInput mode is unlike any other 8BitDo device so we fix it up here.
+/* The 8BitDo M30 is a Sega-style gamepad whose wired DInput mode reports
+ * buttons unlike any other 8BitDo device. Its L1, R1, L2 and R2 differ between
+ * XInput and DInput and are left as they arrive. */
 static void gamepad_remap_8bitdo_m30(
     gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8 || product_id != 0x5006)
         return;
-    DBG("8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
-    // Our analog trigger emulation conflicts
-    // with the M30's reversed analog triggers.
+    RP6502_LOG(hid, DEBUG, "8BitDo M30 remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
+    /* The M30's analog triggers read reversed, so its trigger fields are
+     * dropped and its L2 and R2 buttons stand in for them. */
     conn->rx_size = 0;
     conn->ry_size = 0;
-    // home is on 2 because reasons
+    // The M30 reports home on button 2.
     gamepad_swap_buttons(conn, 2, GAMEPAD_HOME_BUTTON);
 }
 
-// Sony DualShock 4 detection
 static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
@@ -164,7 +143,6 @@ static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
     return false;
 }
 
-// Sony DualSense 5 detection
 static bool gamepad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
@@ -197,7 +175,8 @@ static bool gamepad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
     return false;
 }
 
-// Sony DualShock 4 is HID but presents no descriptor
+// The DualShock 4's own report descriptor is not usable, so its report is
+// laid out here instead.
 static const gamepad_connection_t gamepad_desc_sony_ds4 = {
     .valid = true,
     .x_absolute = true,
@@ -239,7 +218,7 @@ static const gamepad_connection_t gamepad_desc_sony_ds4 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-// Sony DualSense 5 is HID but presents no descriptor
+// The DualSense's own report descriptor is not usable either.
 static const gamepad_connection_t gamepad_desc_sony_ds5 = {
     .valid = true,
     .x_absolute = true,
@@ -287,40 +266,39 @@ static void gamepad_distill(
 {
     conn->valid = false;
 
-    // Sony gamepads use a pre-computed descriptor.
-    // Some may report a descriptor, which we discard.
+    // A Sony controller's own descriptor, where it sends one, is discarded.
     if (gamepad_is_sony_ds4(vendor_id, product_id))
     {
         *conn = gamepad_desc_sony_ds4;
         conn->led_type = GAMEPAD_LED_DS4;
-        DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
+        RP6502_LOG(hid, DEBUG, "Detected Sony DS4 gamepad, using pre-computed descriptor");
     }
     else if (gamepad_is_sony_ds5(vendor_id, product_id))
     {
         *conn = gamepad_desc_sony_ds5;
         conn->led_type = GAMEPAD_LED_DS5;
-        DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
+        RP6502_LOG(hid, DEBUG, "Detected Sony DS5 gamepad, using pre-computed descriptor");
     }
     else
     {
         *conn = *desc;
 
-        // Add your gamepad override here.
         gamepad_remap_8bitdo_m30(conn, vendor_id, product_id);
         gamepad_remap_playstation_classic(conn, vendor_id, product_id);
     }
 
     if (!conn->valid)
     {
-        DBG("HID descriptor not a gamepad.\n");
+        RP6502_LOG(hid, ERROR, "descriptor not a gamepad");
         return;
     }
 
-    // A device we recognized by id has already labelled itself; otherwise the
-    // transport's claim stands, which is GAMEPAD_TYPE_UNKNOWN for generic HID.
+    /* A device recognized by its ids has already set its type; otherwise the
+     * transport's claim stands, which is GAMEPAD_TYPE_UNKNOWN for generic
+     * HID. */
     if (!(conn->features & GAMEPAD_FEAT_TYPE_MASK))
         conn->features |= GAMEPAD_FEAT_TYPE(button_type);
-    // Both sticks or neither: one stick is not "sticks".
+    // The sticks bit means both sticks, so all four axes have to be there.
     if (conn->x_size && conn->y_size && conn->z_size && conn->rz_size)
         conn->features |= GAMEPAD_FEAT_STICKS;
     conn->features |= GAMEPAD_FEAT_CONNECTED;
@@ -328,52 +306,44 @@ static void gamepad_distill(
 
 static uint8_t gamepad_encode_stick(int8_t x, int8_t y)
 {
-    // Deadzone check
     if (x >= -GAMEPAD_DEADZONE && x <= GAMEPAD_DEADZONE &&
         y >= -GAMEPAD_DEADZONE && y <= GAMEPAD_DEADZONE)
-        return 0; // No direction
+        return 0;
 
-    // Get absolute values
     int16_t abs_x = (x < 0) ? -x : x;
     int16_t abs_y = (y < 0) ? -y : y;
 
-    // Use a 2:1 ratio to distinguish cardinal from diagonal
+    // An axis at twice the other reads as that cardinal direction alone.
     if (abs_y >= (abs_x * 2))
-        return (y < 0) ? 1 : 2; // North : South
+        return (y < 0) ? 1 : 2;
     if (abs_x >= (abs_y * 2))
-        return (x < 0) ? 4 : 8; // West : East
+        return (x < 0) ? 4 : 8;
 
-    // Mixed movement - diagonal
     uint8_t result = 0;
-    // Vertical component
     if (y < 0)
-        result |= 1; // North
+        result |= 1;
     else
-        result |= 2; // South
-    // Horizontal component
+        result |= 2;
     if (x < 0)
-        result |= 4; // West
+        result |= 4;
     else
-        result |= 8; // East
+        result |= 8;
 
     return result;
 }
 
 static void gamepad_parse_report(int player, uint8_t const *data, uint16_t report_len, gamepad_xram_t *report)
 {
-    // Default empty gamepad report
     memset(report, 0, sizeof(gamepad_xram_t));
 
-    // Add feature bits to dpad
     gamepad_connection_t *conn = &gamepad_connections[player];
     if (conn->valid)
         report->dpad |= conn->features;
 
-    // A blank report was requested
+    // gamepad_reset_xram asks for a report of features alone by passing no data.
     if (report_len == 0)
         return;
 
-    // Extract analog sticks
     if (conn->x_size > 0)
     {
         uint32_t raw_x = hid_extract_bits(data, report_len, conn->x_offset, conn->x_size);
@@ -395,7 +365,6 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
         report->ry = hid_scale_analog_signed(raw_rz, conn->rz_size, conn->rz_min, conn->rz_max);
     }
 
-    // Extract triggers
     if (conn->rx_size > 0)
     {
         uint32_t raw_rx = hid_extract_bits(data, report_len, conn->rx_offset, conn->rx_size);
@@ -407,7 +376,6 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
         report->rt = hid_scale_analog(raw_ry, conn->ry_size, conn->ry_min, conn->ry_max);
     }
 
-    // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < GAMEPAD_MAX_BUTTONS; i++)
     {
@@ -419,10 +387,9 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
     report->button0 = buttons & 0xFF;
     report->button1 = (buttons & 0xFF00) >> 8;
 
-    // Extract D-pad/hat
     if (conn->hat_size == 4 && conn->hat_max - conn->hat_min == 7)
     {
-        // Convert HID hat format to individual direction bits
+        // A HID hat runs clockwise from north; these are the direction bits.
         static const uint8_t hat_to_gamepad[] = {1, 9, 8, 10, 2, 6, 4, 5};
         uint32_t raw_hat = hid_extract_bits(data, report_len, conn->hat_offset, conn->hat_size);
         unsigned index = raw_hat - conn->hat_min;
@@ -431,30 +398,29 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
     }
     else
     {
-        // Look for xbone-style discrete dpad buttons in 16-19
+        // An Xbox-style pad declares four discrete dpad buttons, 16 to 19.
         report->dpad |= (buttons & 0xF0000) >> 16;
     }
 
-    // Generate dpad values for sticks
     uint8_t stick_l = gamepad_encode_stick(report->lx, report->ly);
     uint8_t stick_r = gamepad_encode_stick(report->rx, report->ry);
     report->sticks = stick_l | (stick_r << 4);
 
-    // If L2/R2 buttons pressed without any analog movement
+    /* The analog triggers and the L2 and R2 buttons imply each other: a
+     * digital press with no analog reading is reported at full scale, and an
+     * analog reading past the deadzone asserts the button. */
     if ((buttons & (1 << 8)) && (report->lt == 0))
         report->lt = 255;
     if ((buttons & (1 << 9)) && (report->rt == 0))
         report->rt = 255;
 
-    // Inject Xbox One home button
     if (conn->home_pressed)
         report->button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
 
-    // If L2/R2 analog movement, ensure button press
     if (report->lt > GAMEPAD_DEADZONE)
-        report->button1 |= (1 << 0); // L2
+        report->button1 |= (1 << 0);
     if (report->rt > GAMEPAD_DEADZONE)
-        report->button1 |= (1 << 1); // R2
+        report->button1 |= (1 << 1);
 }
 
 void HOST_IN_FLASH("gamepad_init") gamepad_init(void)
@@ -475,10 +441,60 @@ static void gamepad_publish(int player)
            &gamepad_reports[player], sizeof(gamepad_xram_t));
 }
 
-// Provides first and final updates in xram
+void gamepad_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, gamepad_xram);
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+    {
+        const gamepad_xram_t *r = &gamepad_reports[p];
+        sst_put_u8(c, r->dpad);
+        sst_put_u8(c, r->sticks);
+        sst_put_u8(c, r->button0);
+        sst_put_u8(c, r->button1);
+        sst_put_u8(c, (uint8_t)r->lx);
+        sst_put_u8(c, (uint8_t)r->ly);
+        sst_put_u8(c, (uint8_t)r->rx);
+        sst_put_u8(c, (uint8_t)r->ry);
+        sst_put_u8(c, r->lt);
+        sst_put_u8(c, r->rt);
+    }
+}
+
+/* The XRAM address is assigned rather than passed to gamepad_xreg, because
+ * that would blank all four reports before the saved ones are put back. */
+bool gamepad_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    gamepad_xram_t in[GAMEPAD_MAX_PLAYERS];
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+    {
+        in[p].dpad = sst_get_u8(c);
+        in[p].sticks = sst_get_u8(c);
+        in[p].button0 = sst_get_u8(c);
+        in[p].button1 = sst_get_u8(c);
+        in[p].lx = (int8_t)sst_get_u8(c);
+        in[p].ly = (int8_t)sst_get_u8(c);
+        in[p].rx = (int8_t)sst_get_u8(c);
+        in[p].ry = (int8_t)sst_get_u8(c);
+        in[p].lt = sst_get_u8(c);
+        in[p].rt = sst_get_u8(c);
+    }
+    if (!sst_ok(c))
+        return false;
+    gamepad_xram = at;
+    memcpy(gamepad_reports, in, sizeof gamepad_reports);
+    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
+        gamepad_publish(p);
+    return true;
+}
+
+/* A report of nothing but the connection's feature bits, published when the
+ * block moves, at mount, and at unplug. */
 static void gamepad_reset_xram(int player)
 {
-    gamepad_parse_report(player, 0, 0, &gamepad_reports[player]); // get blank
+    gamepad_parse_report(player, 0, 0, &gamepad_reports[player]);
     gamepad_publish(player);
 }
 
@@ -496,9 +512,9 @@ bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connec
                                        uint16_t vendor_id, uint16_t product_id,
                                        uint8_t button_type)
 {
-    /* A Sony controller is recognized by its ids alone, because the
-     * descriptor it offers is wrong; anything else has to have been
-     * read as a gamepad already. */
+    /* A Sony controller is recognized by its ids alone, because the descriptor
+     * it offers is wrong. Anything else has to have been read as a gamepad
+     * already. */
     if (!desc->valid && !gamepad_is_sony_ds4(vendor_id, product_id) &&
         !gamepad_is_sony_ds5(vendor_id, product_id))
         return false;
@@ -516,10 +532,10 @@ bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connec
     }
     if (!conn)
     {
-        DBG("gamepad_mount: No available descriptor slots, max players reached\n");
+        RP6502_LOG(hid, ERROR, "no available gamepad slots, max players reached");
         return false;
     }
-    DBG("gamepad_mount: mounting player %d\n", player);
+    RP6502_LOG(hid, INFO, "mounting gamepad player %d", player);
 
     gamepad_distill(conn, desc, vendor_id, product_id, button_type);
     if (conn->valid)
@@ -531,7 +547,6 @@ bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connec
     return false;
 }
 
-// Useful for gamepads that indicate player number.
 int gamepad_get_player_num(int slot)
 {
     for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
@@ -564,7 +579,6 @@ void gamepad_report(int slot, uint8_t const *data, uint16_t len)
     {
         if (len == 0 || data[0] != conn->report_id)
             return;
-        // Skip report ID byte
         report_data = &data[1];
         report_data_len = len - 1;
     }
@@ -573,8 +587,6 @@ void gamepad_report(int slot, uint8_t const *data, uint16_t len)
     gamepad_publish(player);
 }
 
-// This is for XBox One/Series gamepads which send
-// the home button down a different path.
 void gamepad_home_button(int slot, bool pressed)
 {
     int player = gamepad_get_player_num(slot);
@@ -582,7 +594,6 @@ void gamepad_home_button(int slot, bool pressed)
         return;
     gamepad_connection_t *conn = &gamepad_connections[player];
 
-    // Inject out of band home button into reports
     conn->home_pressed = pressed;
 
     if (pressed)
@@ -592,9 +603,6 @@ void gamepad_home_button(int slot, bool pressed)
     gamepad_publish(player);
 }
 
-// Build LED output report for player indicator on Sony controllers.
-// Writes into buf which must be GAMEPAD_LED_REPORT_MAX bytes.
-// Sets report_id and report_len. Returns true if a LED report was written.
 _Static_assert(GAMEPAD_LED_REPORT_MAX >= 47, "GAMEPAD_LED_REPORT_MAX too small for DS5");
 _Static_assert(GAMEPAD_LED_REPORT_MAX >= 31, "GAMEPAD_LED_REPORT_MAX too small for DS4");
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
@@ -618,8 +626,9 @@ bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
     {
     case GAMEPAD_LED_DS5:
     {
-        // DualSense: player indicator LEDs + lightbar color
-        // Player LED patterns: P1=center, P2=inner pair, P3=three, P4=four
+        /* The DualSense has five player LEDs and a lightbar. The patterns
+         * light the centre for player 1, the inner pair for player 2, three
+         * for player 3 and four for player 4. */
         static const uint8_t ds5_player_leds[] = {0x04, 0x0A, 0x15, 0x1B};
         memset(buf, 0, 47);
         buf[1] = 0x14;                      // valid_flag1: player LEDs (0x10) + lightbar (0x04)
@@ -634,7 +643,7 @@ bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
     }
     case GAMEPAD_LED_DS4:
     {
-        // DualShock 4: lightbar color for player indication
+        // The DualShock 4 shows the player in its lightbar colour alone.
         memset(buf, 0, 31);
         buf[0] = 0xFF;                     // enable all features
         buf[5] = player_colors[player][0]; // R
@@ -654,7 +663,6 @@ bool gamepad_is_mapped(void)
     return gamepad_xram != 0xFFFF;
 }
 
-/* Where a flat button id sits in a report: which field, and which bit. */
 static bool gamepad_button_loc(gamepad_button_t button, int *field, uint8_t *mask)
 {
     enum { GAMEPAD_F_DPAD, GAMEPAD_F_BUTTON0, GAMEPAD_F_BUTTON1 };
@@ -728,9 +736,7 @@ void gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t butt
         return;
     gamepad_xram_t *report = &gamepad_reports[player];
 
-    /* The analog triggers and the L2/R2 buttons imply each other, the same
-     * way a parsed report makes them: a digital press with no analog reads
-     * full scale, and past-deadzone analog asserts the button. */
+    // The triggers and their buttons imply each other, as in a parsed report.
     if ((button1 & 0x01) && lt == 0)
         lt = 255;
     if ((button1 & 0x02) && rt == 0)

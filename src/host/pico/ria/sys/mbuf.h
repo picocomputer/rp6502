@@ -28,6 +28,6 @@ void mbuf_break(void);
 void mbuf_read(uint32_t timeout_ms, mbuf_read_callback_t callback, size_t size);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define MBUF_DRIVER DRIVER(nul_init, nul_task, mbuf_task, nul_run, nul_stop, mbuf_break, nul_config, nul_config)
+#define MBUF_DRIVER DRIVER(nul_init, nul_task, mbuf_task, nul_run, nul_stop, mbuf_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_MBUF_H_ */

@@ -114,3 +114,10 @@ if(COMMAND rp6502_add_machine_test)
     # The frame counter and the vsync interrupt against the raster.
     rp6502_add_machine_test(vsync TIMEOUT 120)
 endif()
+
+# The scanline program's renderers by name rather than by address, which is
+# what a savestate carries. Emulator only: a machine whose program lives in
+# fabric registers has no table of pointers to name.
+if(NOT COMMAND rp6502_add_machine_test AND NOT TARGET rp6502_libretro)
+    rp6502_add_test(progmap LIBS emu_core SOURCES test_progmap.c TIMEOUT 60)
+endif()

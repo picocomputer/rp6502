@@ -4,19 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* What the machine may ask of a console. Each machine writes its own driver --
- * a UART and CDC on the Pico, a ring the emulator fills, the APF bridge on a
- * Pocket -- and keeps its own pins, bring-up and servers. */
-
 #ifndef _CORE_SYS_COM_H_
 #define _CORE_SYS_COM_H_
 
 #include <stdarg.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
-/* Guarded the way the pico-sdk guards it, so whichever header arrives first
- * wins and the other skips. */
 #ifndef __printflike
 #ifdef __GNUC__
 #define __printflike(a, b) __attribute__((__format__(__printf__, a, b)))
@@ -25,7 +21,8 @@
 #endif
 #endif
 
-/* Where a byte came from, or which one to read. */
+/* The picker tries the sources in the order they are declared here, keyboard
+ * first. */
 typedef enum
 {
     COM_SOURCE_KEYBOARD,
@@ -35,58 +32,61 @@ typedef enum
     COM_SOURCE_ANY = COM_SOURCE_COUNT,
 } com_source_t;
 
-// Non-blocking 1-byte read. *src is in/out:
-//   - in COM_SOURCE_ANY: read from any active source via the sticky
-//     RX picker. On byte, *src is set to the source that delivered;
-//     on no byte, *src is reset to COM_SOURCE_ANY.
-//   - in specific source: read only from that source. Bytes on other
-//     sources are left in their FIFOs for a later reader. On no byte,
-//     *src is reset to COM_SOURCE_ANY.
-// Returns the byte (0..255), or negative when the requested source(s)
-// have none. Which negative is the machine's own business.
+typedef struct
+{
+    size_t (*read)(char *buf, size_t length);
+    int (*peek)(void);
+    void (*clear)(void);
+    uint32_t dwell_us;
+} com_source_driver_t;
+
+/* A source fed in bursts is empty between two chunks, so after a byte arrives
+ * that source keeps the reader for this long before the picker will try
+ * another one. */
+#define COM_WIRE_DWELL_US 1000
+
+/* After this long, a full ring is read into and the bytes dropped, so that a
+ * Ctrl-C typed behind the type-ahead is still seen. The rest of what was
+ * typed is lost. */
+#define COM_WIRE_HOLD_MS 5000
+
+void com_rx_clear(void);
+
+void com_rx_save(sst_cursor_t *c);
+bool com_rx_load(sst_cursor_t *c);
+
+/* Non-blocking 1-byte read, negative when there is none. *src is in and out:
+ * COM_SOURCE_ANY reads whatever the picker chooses and names it on the way
+ * out, a named source reads only that one and leaves the others queued. */
 int com_getchar(com_source_t *src);
 
-// Non-blocking 1-byte peek at a specific source (UART/TEL), without
-// consuming. Returns the byte (0..255), or negative when none is queued.
 int com_peekchar(com_source_t src);
 
-// Ensure putchar will not block even with a newline expansion
-bool com_putchar_ready(void);
+/* A machine whose 6502 reads the console through registers stages a byte there
+ * ahead of any reader, so a reader coming at the console another way has to
+ * take that byte back before the source's own row is read; otherwise the two
+ * arrive out of order. A length of zero leaves the byte staged. */
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src);
+int com_rx_peek(com_source_t src);
 
-// Ensure space for com_write()
 bool com_writable(void);
 
-// Bypasses newline expansion. Caller must have checked com_writable() first.
+/* Bypasses newline expansion and does not check for room. */
 void com_write(char ch);
 
-// Console TX with newline (CRLF) expansion.
+/* Console TX, a bare '\n' expanded to CRLF. The '\r' that suppresses the
+ * expansion may have come from an earlier call, because the last byte written
+ * is remembered across them; a buffer is not expanded independently of the one
+ * before it. */
 int com_putchar(int c);
 __printflike(1, 2) int com_printf(const char *fmt, ...);
 
-// The '\a' BEL alert
+size_t com_stdout_write(const char *buf, size_t count);
+size_t com_stderr_write(const char *buf, size_t count);
+
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* A terminal query's answer (DSR/CPR/DA), entering the console's input as
- * though it had been typed -- as the UART source, ahead of typed input, since
- * the program asked for it and is waiting. Dropped rather than truncated if it
- * does not fit, and dropped entirely where a real terminal is attached and
- * will answer the host's query itself. */
-void com_in_write_reply(const char *s, size_t n);
-
-/* The console's merged input, as the OS's raw console read (TTY:) takes it:
- * up to count bytes, however many are queued now, 0 when none. Not the line
- * editor's door -- that one is com_getchar, and rln owns the editing.
- *
- * A machine whose 6502 reads the console through registers of its own stages
- * a byte there before the program asks, and this reclaims it before draining
- * the rings, oldest first. Mixing the two is undefined by the machine's own
- * documentation, which is what licenses the steal -- and without it that byte
- * is stranded until the program happens to read the register. */
 size_t com_stdin_read(char *buf, size_t count);
-
-/* The sink term.c hands over at init; the console fans printf output to it
- * alongside its own. */
-void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 #endif /* _CORE_SYS_COM_H_ */

@@ -7,8 +7,6 @@
 #ifndef _CORE_VGA_MODE_H_
 #define _CORE_VGA_MODE_H_
 
-// Shared helpers for 1bpp/2bpp scanline renderers
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

@@ -5,6 +5,7 @@
  */
 
 #include "vga/main.h"
+#include "core/sys/com_term.h"
 #include "vga.pio.h"
 #include "vga/sys/com.h"
 #include "core/sys/xram.h"

@@ -47,7 +47,7 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     nfc_check_enabled, nfc_apply_enabled, STR_NFC, nfc_enabled_response, \
     STR_HELP_SET_NFC, NULL)
 #define NFC_DRIVER DRIVER(nfc_init, nul_task, nfc_task, nul_run, nul_stop, nul_break, \
-    NFC_CONFIG_ENABLED, nul_config)
+    NFC_CONFIG_ENABLED, nul_config, nul_sst)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. A stream: no seek, nothing to flush. */

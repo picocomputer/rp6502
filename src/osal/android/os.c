@@ -13,7 +13,6 @@
 uint32_t os_random(void)
 {
     uint64_t s;
-    /* Not getrandom(2): bionic gates it behind API 28. */
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
     if (fd >= 0)
     {

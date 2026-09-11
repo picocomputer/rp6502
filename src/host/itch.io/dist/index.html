@@ -132,7 +132,7 @@
         }],
         preRun: [function () {
           var M = Module;
-          // MSC0: is /db, made the cwd so program writes land there. With
+          // /db is made the cwd, so program writes land there. With
           // persist it's IDBFS, mirrored to an IndexedDB database named by
           // CONFIG.db — IDBFS names databases after the mountpoint, so wrap
           // getDB to substitute ours. Without persist it's plain memory and

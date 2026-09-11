@@ -26,7 +26,22 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
 std_rw_result fs_std_sync(int desc, api_errno *err);
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
-// File handle for ROM which the 6502 can not access dirfectly.
+/* Leaves no transfer in flight, which a savestate needs because it reads and
+ * writes the same memory a transfer is landing in. The host calls this before
+ * it saves and before it loads. The transfer is cancelled and reaped rather
+ * than allowed to finish, because finishing would advance the descriptor's
+ * offset past bytes the 6502 never received, and the read that is dispatched
+ * again after the load would start beyond them. A synchronous transport has
+ * nothing in flight to cancel. */
+void fs_std_settle(void);
+
+/* Save a descriptor and open it again, in core/api/std.h's shape. The name is
+ * made absolute when the file is opened, because both the guest and this core
+ * may chdir before the save. */
+#define FS_PATH_SLOT (API_PATH_MAX + 1)
+bool fs_std_ident(int desc, sst_cursor_t *c);
+int fs_std_reopen(sst_cursor_t *c, api_errno *err);
+
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);
 
@@ -39,6 +54,8 @@ bool fs_rom_remove(const char *name, api_errno *err);
         .write = fs_std_write,     \
         .sync = fs_std_sync,       \
         .lseek = fs_std_lseek,     \
+        .ident = fs_std_ident,     \
+        .reopen = fs_std_reopen,   \
     }
 
 #endif /* _OSAL_FS_H_ */

@@ -2,48 +2,38 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's end of the console wire. There is no wire: the terminal is
- * rendered in the same process, so the only thing here is the bring-up mirror
- * and the register-window byte the RIA model stages.
  */
 
 #include "core/com/tty.h"
-#include "core/str/oem.h"
-#include "core/ria/ria.h"
-
 #include "core/com/com.h"
+#include "core/sys/com.h"
+#include "core/sys/timer.h"
+#include "machine.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
+
+static void (*tty_tx)(const char *buf, int len);
+static size_t (*tty_rx)(char *buf, size_t max);
+static bool tty_stream;
+static bool tty_held;
+static timer_mach_t tty_hold;
+
+void tty_set_wire(void (*tx)(const char *buf, int len),
+                  size_t (*rx)(char *buf, size_t max), bool stream)
+{
+    tty_tx = tx;
+    tty_rx = rx;
+    tty_stream = stream;
+    tty_held = false;
+}
 
 void tty_write(const char *buf, int len)
 {
-    /* EMU_ECHO mirrors the terminal stream to the host's stderr, so a
-     * program's output is visible without rendering a frame. Host streams
-     * carry host encoding, so OEM bytes expand to UTF-8. */
-    static int echo = -1;
-    if (echo < 0)
-        echo = getenv("EMU_ECHO") ? 1 : 0;
-    if (!echo)
-        return;
-    for (int i = 0; i < len; i++)
-    {
-        char enc[3];
-        fwrite(enc, 1, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc), stderr);
-    }
+    if (tty_tx)
+        tty_tx(buf, len);
 }
 
-/* A read of $FFE0 pulls a byte into the $FFE2 latch to answer the ready bit;
- * this is where it comes back. */
-bool tty_reg_reclaim(char *out)
-{
-    return ria_reg_rx_reclaim(out);
-}
-
-/* A host libc has no cheap stream that reaches com_putchar, so this formats
- * into a buffer and hands the result to the shared translation. */
 int com_printf(const char *fmt, ...)
 {
     char buf[1024];
@@ -58,7 +48,38 @@ int com_printf(const char *fmt, ...)
     return n;
 }
 
-/* The console's task on a machine whose console is the terminal the walk
- * already reaches. The consoles with a transport of their own -- a UART, a
- * fabric bridge -- do real work here; see core/com/com.h. */
-void com_task(void) {}
+/* A stream wire is not read while the ring is full. A console wire is left for
+ * COM_WIRE_HOLD_MS and then read into the full ring, where the bytes are
+ * dropped, because a Ctrl-C typed behind the type-ahead has to be seen even
+ * though the rest of what was typed is lost. */
+void com_task(void)
+{
+    if (!tty_rx)
+        return;
+    char buf[COM_RING_SIZE];
+    size_t room = com_uart_free();
+    if (room)
+    {
+        tty_held = false;
+        size_t n = tty_rx(buf, room < sizeof buf ? room : sizeof buf);
+        if (!n)
+            return;
+        if (tty_stream)
+            com_stream_push(buf, n);
+        else
+            com_uart_push(buf, n);
+        return;
+    }
+    if (tty_stream)
+        return;
+    if (!tty_held)
+    {
+        tty_held = true;
+        tty_hold = timer_mach_in_ms(COM_WIRE_HOLD_MS);
+    }
+    if (!timer_mach_passed(tty_hold))
+        return;
+    size_t n = tty_rx(buf, sizeof buf);
+    if (n)
+        com_uart_push(buf, n);
+}

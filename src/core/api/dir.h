@@ -4,24 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The eighteen directory syscalls, as the 6502 makes them.
- *
- * What reaches it is the same on every machine -- the xstack a path arrives
- * on, the f_stat_t an entry leaves in, which errno a bad descriptor is -- so
- * it is written here once, over whatever drive a machine has. That drive is
- * osal/dir.h.
- *
- * The entry counter telldir and seekdir are about is this layer's. Both drives
- * kept one, both counted the same things, and a drive that skips "." and ".."
- * on its own gets the counting right by saying nothing about it.
- */
-
 #ifndef _CORE_API_DIR_H_
 #define _CORE_API_DIR_H_
 
 #include "osal/dir.h"
+#include "core/sys/sst.h"
 
-/* Machine events: a run starts with no directory open. */
 void dir_run(void);
 void dir_stop(void);
 
@@ -44,7 +32,13 @@ bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 bool dir_api_getfree(void);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, nul_config, nul_config)
+/* Eight entry counters of four bytes, then eight slots of an open flag and a
+ * path, then the working directory. */
+#define DIR_SST_SIZE (8 * 4 + 8 * (1 + API_PATH_MAX + 1) + API_PATH_MAX + 1)
+void dir_sst_save(sst_cursor_t *c, unsigned flags);
+bool dir_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, \
+    nul_config, nul_config, SST(DIR_, 1, DIR_SST_SIZE, dir_sst_save, dir_sst_load))
 
 #endif /* _CORE_API_DIR_H_ */

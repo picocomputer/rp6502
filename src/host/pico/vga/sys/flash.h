@@ -23,6 +23,6 @@ bool flash_request(uint16_t sector_index);
 void flash_task(void);
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define FLASH_DRIVER DRIVER(nul_init, flash_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+#define FLASH_DRIVER DRIVER(nul_init, flash_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _VGA_SYS_FLASH_H_ */

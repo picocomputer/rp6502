@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Windows window host: the Win32 WM resize seam and the sokol entry (entry_run
- * -> sapp_run with high_dpi for a native-resolution D3D11 backbuffer). The
- * render/frame/present pipeline is in host/sokol/app/app.c.
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -18,14 +14,13 @@
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "core/str/oem.h"
+#include "core/sys/debug_log.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
-#include "sokol/sokol_log.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
 
@@ -34,8 +29,9 @@ void host_window_resize(int w, int h)
     HWND hwnd = (HWND)sapp_win32_get_hwnd();
     if (!hwnd)
         return;
-    /* w,h are client (== framebuffer/physical) px; grow by this window's DPI
-     * frame and keep the top-left corner. */
+    /* w and h are client pixels, which are framebuffer pixels here, so the
+     * frame for this window's DPI is added to them. SWP_NOMOVE keeps the
+     * top-left corner where it is. */
     RECT r = {0, 0, w, h};
     AdjustWindowRectExForDpi(&r,
                              (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
@@ -47,8 +43,6 @@ void host_window_resize(int w, int h)
 
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 
-/* Held with no program until a .rp6502 is dropped: the core freezes the machine
- * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
 static bool waiting_for_rom;
 
 bool entry_wait_for_rom(void)
@@ -71,11 +65,13 @@ void host_window_menu_draw(void)
         prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
-/* True when the wide path survives UTF-16 -> OEM -> UTF-16 unchanged, i.e.
- * app_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
+/* True when the path survives UTF-16 to OEM and back unchanged, which is what
+ * app_boot_rom's conversion of its UTF-8 spelling has to do to it. */
 static bool wide_is_oem_lossless(const WCHAR *w)
 {
-    size_t n = wcslen(w) + 1; /* one OEM byte per unit, and one unit back */
+    /* oem_from_wide writes at most one byte per UTF-16 unit and oem_to_wide
+     * one unit per byte, so one length serves both buffers. */
+    size_t n = wcslen(w) + 1;
     char *oem = malloc(n);
     uint16_t *back = malloc(n * sizeof *back);
     bool same = false;
@@ -91,16 +87,16 @@ static bool wide_is_oem_lossless(const WCHAR *w)
 
 void host_window_files_dropped(void)
 {
-    /* sokol delivers the path as UTF-8 and app_boot_rom converts it to
-     * the guest's OEM code page; fall back to the 8.3 short name when the path
-     * has characters the active OEM code page can't hold. */
+    /* sokol delivers the path as UTF-8 and app_boot_rom converts it to the
+     * guest's OEM code page, so a path with characters that code page cannot
+     * hold falls back to its 8.3 short name. */
     const char *utf8 = sapp_get_dropped_file_path(0);
-    int wn = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0); /* asks its own size */
+    int wn = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
     WCHAR *wide = wn > 0 ? malloc((size_t)wn * sizeof *wide) : NULL;
     if (!wide || !MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wn))
     {
         free(wide);
-        fprintf(stderr, "rp6502-emu: cannot take the dropped path\n");
+        RP6502_LOG(emu, ERROR, "cannot take the dropped path");
         return;
     }
     if (wide_is_oem_lossless(wide))
@@ -110,8 +106,9 @@ void host_window_files_dropped(void)
             waiting_for_rom = false;
         return;
     }
-    /* A short name can be LONGER than the long name, so it is sized on its
-     * own; a too-small buffer returns the needed size, not 0. */
+    /* A short name can be longer than the long name it came from, so it is
+     * measured on its own. GetShortPathNameW returns the size it needs when
+     * the buffer is too small, rather than failing. */
     DWORD sn = GetShortPathNameW(wide, NULL, 0);
     WCHAR *shortw = sn ? malloc((size_t)sn * sizeof *shortw) : NULL;
     DWORD got = shortw ? GetShortPathNameW(wide, shortw, sn) : 0;
@@ -130,7 +127,7 @@ void host_window_files_dropped(void)
     free(shortw);
     if (!shortu8)
     {
-        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
+        RP6502_LOG(emu, ERROR, "dropped path not representable in the OEM code page");
         return;
     }
     bool booted = app_boot_rom(shortu8);
@@ -148,9 +145,9 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;
     app_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
-    /* D3D11 leaves the backbuffer at LOGICAL size unless high_dpi is requested,
-     * so a DPI-scaled display DWM-stretches (smears) the menu/canvas; ask for a
-     * native-resolution backbuffer. */
+    /* Without high_dpi the backbuffer stays at the logical size, and on a
+     * DPI-scaled display the desktop compositor stretches it, which smears the
+     * canvas. high_dpi asks for a backbuffer at the native resolution. */
     sapp_run(&(sapp_desc){
         .init_cb = app_init,
         .frame_cb = app_frame,
@@ -161,10 +158,10 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .high_dpi = true,
         .swap_interval = 1,
         .window_title = "Picocomputer 6502",
-        .enable_dragndrop = true, /* drop a .rp6502 to boot it */
-        .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */
+        .enable_dragndrop = true,
+        .enable_clipboard = true,
         .clipboard_size = 65536,
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     return app_exit_code();
 }

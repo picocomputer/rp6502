@@ -8,6 +8,7 @@
 #include "core/api/arg.h"
 #include "ria/api/proc.h"
 #include "core/aud/bel.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/sys.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
@@ -18,12 +19,6 @@
 #include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
-
-#if defined(DEBUG_API) || defined(DEBUG_API_PROC)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 /* This machine loads through a task-driven state machine; both of these are
  * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
@@ -49,11 +44,11 @@ bool proc_exec_inflight(void)
 void proc_nfc(const uint8_t *tag_data, size_t len)
 {
     char path[256];
-    DBG("proc_nfc(%zu bytes)\n", len);
+    RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
 
     if (!nfc_parse_text(tag_data, len, path, sizeof(path)))
         goto fail;
-    DBG("proc_nfc text %s\n", path);
+    RP6502_LOG(proc, DEBUG, "nfc text %s", path);
 
     const char *args = path;
     const char *first_arg = str_parse_string(&args);
@@ -112,7 +107,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Splice the on-disk basename so argv[0] preserves case.
     if (!path_correct_basename(path, sizeof(path)))
         goto fail;
-    DBG("proc_nfc argv[0] %s\n", path);
+    RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
 
     if (strcmp(path, proc_running()) == 0)
         goto already_running;

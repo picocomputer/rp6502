@@ -46,6 +46,6 @@ int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
     ble_check_enabled, ble_apply_enabled, STR_BLE, ble_enabled_response, \
     STR_HELP_SET_BLE, NULL)
 #define BLE_DRIVER DRIVER(ble_init, ble_task, nul_task, nul_run, nul_stop, nul_break, \
-    BLE_CONFIG_ENABLED, nul_config)
+    BLE_CONFIG_ENABLED, nul_config, nul_sst)
 
 #endif /* _RIA_W_BLE_BLE_H_ */

@@ -8,13 +8,14 @@
  * stopped reading. A board with no radio answers the same calls with
  * nothing.
  *
- * This is a source the console picks between, not the console: com.c owns
- * the picking, this owns the socket.
+ * This is a source the console picks between, not the console: core/com/pick.c
+ * owns the picking, this owns the socket.
  */
 
 #include "core/sys/ria.h"
 #include "ria/sys/com.h"
 #include "core/sys/config.h"
+#include "core/sys/debug_log.h"
 #include "ria/sys/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/vga.h"
@@ -23,32 +24,17 @@
 #include "core/str/str.h"
 #include "core/str/rln.h"
 #include "core/sys/driver.h"
+#include "core/sys/timer.h"
 #include "ria-w/net/wifi.h"
 #include <pico/stdlib.h>
-#include <stdio.h>
 #include <string.h>
-
-#if defined(DEBUG_SYS) || defined(DEBUG_SYS_COM)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 #ifndef RP6502_RIA_W
 
 bool com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
-size_t com_telnet_read(char *buf, size_t length)
-{
-    (void)buf;
-    (void)length;
-    return 0;
-}
-int com_telnet_peek(void) { return -1; }
 void com_telnet_pump(void) {}
 void com_telnet_task(void) {}
-bool com_telnet_connected(void) { return false; }
-void com_telnet_clear_rx(void) {}
 
 #else
 
@@ -72,18 +58,26 @@ static volatile size_t com_telnet_tx_head;
 static volatile size_t com_telnet_tx_tail;
 
 #define COM_TELNET_RX_BUF_SIZE 32
-// After this many milliseconds with a full ring and no consume,
-// com_telnet_drain_rx drops bytes instead of backpressuring the TCP peer.
-#define COM_TELNET_RX_OVERFLOW_MS 5000
 static char com_telnet_rx_buf[COM_TELNET_RX_BUF_SIZE];
 static size_t com_telnet_rx_head;
 static size_t com_telnet_rx_tail;
-static absolute_time_t com_telnet_rx_drop_after;
+/* The hold on a full ring, from the pass that first found no room: the TCP
+ * window keeps the peer's bytes meanwhile. */
+static bool com_telnet_rx_held;
+static timer_deadline_t com_telnet_rx_hold;
 
 void com_telnet_clear_rx(void)
 {
+    /* What the peer has already sent was typed for the program being
+     * interrupted, the same as what is in the ring. */
+    if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
+    {
+        char scratch[16];
+        while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
+            ;
+    }
     com_telnet_rx_head = com_telnet_rx_tail = 0;
-    com_telnet_rx_drop_after = make_timeout_time_ms(COM_TELNET_RX_OVERFLOW_MS);
+    com_telnet_rx_held = false;
 }
 
 static void com_telnet_clear_rings(void)
@@ -105,14 +99,12 @@ void com_telnet_tx_write(char ch)
 
 size_t com_telnet_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
+    size_t count = 0;
     while (count < length && com_telnet_rx_head != com_telnet_rx_tail)
     {
         com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;
         buf[count++] = com_telnet_rx_buf[com_telnet_rx_tail];
     }
-    if (count)
-        com_telnet_rx_drop_after = make_timeout_time_ms(COM_TELNET_RX_OVERFLOW_MS);
     return count;
 }
 
@@ -171,12 +163,12 @@ static void com_telnet_handle_auth(uint8_t ch)
             telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
             vga_set_tel_console_active(true);
-            DBG("NET TEL console authenticated\n");
+            RP6502_LOG(telnet, INFO, "console authenticated");
         }
         else
         {
             telnet_tx(NET_TELNET_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
-            DBG("NET TEL console auth failed\n");
+            RP6502_LOG(telnet, WARN, "console auth failed");
             com_telnet_state = COM_TELNET_STATE_LISTENING;
             telnet_close(NET_TELNET_DESC);
         }
@@ -190,12 +182,11 @@ static void com_telnet_handle_auth(uint8_t ch)
 
 static void com_telnet_drain_rx(void)
 {
-    // Default: limit read to ring buffer free space so decoded bytes
-    // always fit (decoded <= raw). If the ring has been full and the
-    // consumer has been idle for COM_TELNET_RX_OVERFLOW_MS, switch to
-    // drop-mode: drain a full scratch buffer from telnet_rx and discard,
-    // but still scan discarded bytes for Ctrl-C so a SIGINT during
-    // overflow is not lost.
+    // While the ring has room, read what fits (decoded <= raw). A full ring
+    // means nobody is reading: the peer is held for COM_WIRE_HOLD_MS, which
+    // its TCP window absorbs without loss, and then drained to drop, still
+    // scanning, so a Ctrl-C or an Interrupt Process behind the type-ahead is
+    // seen whether or not anyone will read the rest.
     uint16_t limit = COM_TELNET_RX_BUF_SIZE;
     bool drop_mode = false;
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
@@ -204,12 +195,20 @@ static void com_telnet_drain_rx(void)
         size_t free = COM_TELNET_RX_BUF_SIZE - 1 - used;
         if (free == 0)
         {
-            if (!time_reached(com_telnet_rx_drop_after))
+            if (!com_telnet_rx_held)
+            {
+                com_telnet_rx_held = true;
+                com_telnet_rx_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+            }
+            if (!timer_passed(com_telnet_rx_hold))
                 return;
             drop_mode = true;
         }
         else
+        {
+            com_telnet_rx_held = false;
             limit = (uint16_t)free;
+        }
     }
 
     char decoded[COM_TELNET_RX_BUF_SIZE];
@@ -264,7 +263,8 @@ static void com_telnet_teardown(com_telnet_state_t target)
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
         vga_set_tel_console_active(false);
-        rln_set_naws_size(0, 0); // drop stale telnet geometry
+        rln_set_naws_size(0, 0);               // drop stale telnet geometry
+        rln_forget_source(COM_SOURCE_TEL);     // and what that client's wire was mid-way through
     }
     if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE)
     {
@@ -284,7 +284,7 @@ static void com_telnet_on_disconnect(int desc)
 {
     if (com_telnet_state == COM_TELNET_STATE_AUTH || com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
-        DBG("NET TEL console disconnected\n");
+        RP6502_LOG(telnet, INFO, "console disconnected");
         com_telnet_teardown(COM_TELNET_STATE_LISTENING);
     }
     telnet_close(desc);
@@ -303,7 +303,7 @@ static bool com_telnet_on_accept(uint16_t port)
     com_telnet_auth_len = 0;
     com_telnet_clear_rings();
     com_telnet_state = COM_TELNET_STATE_AUTH;
-    DBG("NET TEL console accepted, awaiting auth\n");
+    RP6502_LOG(telnet, INFO, "console accepted, awaiting auth");
     return true;
 }
 
@@ -354,7 +354,7 @@ void com_telnet_task(void)
         {
             com_telnet_active_port = com_telnet_get_port();
             com_telnet_state = COM_TELNET_STATE_LISTENING;
-            DBG("NET TEL console listening on port %u\n", com_telnet_get_port());
+            RP6502_LOG(telnet, INFO, "console listening on port %u", com_telnet_get_port());
         }
         break;
     case COM_TELNET_STATE_AUTH:
@@ -364,11 +364,6 @@ void com_telnet_task(void)
     case COM_TELNET_STATE_LISTENING:
         break;
     }
-}
-
-bool com_telnet_connected(void)
-{
-    return com_telnet_state == COM_TELNET_STATE_CONNECTED;
 }
 
 #endif

@@ -7,19 +7,13 @@
 
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
+#include "core/sys/debug_log.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/telnet.h"
 #include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include <pico/stdlib.h>
 #include <string.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_TEL)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // Telnet protocol constants
 #define TEL_IAC 255
@@ -338,7 +332,7 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
         buf[pos++] = (char)TEL_SE;
         // Atomic: on failure the peer can resend TTYPE SEND.
         if (net_tx_all(desc, buf, pos))
-            DBG("NET TEL sent TTYPE IS %s\n", tc->ttype);
+            RP6502_LOG(telnet, DEBUG, "sent TTYPE IS %s", tc->ttype);
     }
 }
 
@@ -693,7 +687,7 @@ void telnet_negotiate(int desc, bool telnet_mode, const char *ttype)
     tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);    // DO SGA
     tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);     // WILL SGA
     tel_q_ask_us_enable(desc, tc, TEL_IDX_TTYPE);   // WILL TTYPE
-    DBG("NET TEL sent initial negotiation\n");
+    RP6502_LOG(telnet, DEBUG, "sent initial negotiation");
 }
 
 static void tel_negotiate_server(int desc)
@@ -706,7 +700,7 @@ static void tel_negotiate_server(int desc)
     tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);  // WILL ECHO
     tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);   // WILL SGA
     tel_q_ask_him_enable(desc, tc, TEL_IDX_NAWS); // DO NAWS
-    DBG("NET TEL server negotiation sent\n");
+    RP6502_LOG(telnet, DEBUG, "server negotiation sent");
 }
 
 bool telnet_listen(uint16_t port, net_accept_fn on_accept)

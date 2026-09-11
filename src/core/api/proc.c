@@ -3,15 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The launcher chain: which program is running, which one to return to
- * when it exits, and what it exited with. Every machine ran the same rules
- * -- a program registers itself, its children come back to it, and the
- * chain ends when the launcher itself stops -- and each had written them
- * out. What actually differs is how a machine starts the next program --
- * proc_exec_start for one the running program asked for, proc_exec_relaunch
- * for the launcher coming back -- and whether one is already on its way,
- * which is proc_exec_inflight. argv[0] names the program in every case, so
- * neither carries a path.
+ * See proc.h.
  */
 
 #include "core/api/proc.h"
@@ -22,8 +14,6 @@
 
 #include <string.h>
 
-/* argv[0] of the program running now, and of the one to come back to: copies
- * the drive keeps, NULL while there is none. */
 static char *proc_running_path;
 static char *proc_launcher_path;
 static int16_t proc_exit_code;
@@ -50,7 +40,17 @@ bool proc_has_launcher(void)
     return proc_launcher_path != NULL;
 }
 
-/* A program registers ITSELF -- its argv[0] -- as the one to return to. */
+const char *proc_launcher(void)
+{
+    return proc_launcher_path ? proc_launcher_path : "";
+}
+
+void proc_restore_paths(const char *running, const char *launcher)
+{
+    set_path(&proc_running_path, running);
+    set_path(&proc_launcher_path, launcher);
+}
+
 void proc_set_launcher(bool is_launcher)
 {
     set_path(&proc_launcher_path, is_launcher ? proc_running_path : NULL);
@@ -61,8 +61,6 @@ void proc_cancel_launcher(void)
     set_path(&proc_launcher_path, NULL);
 }
 
-/* True when what is running now is the launcher: the chain ends here
- * rather than re-running it forever. */
 bool proc_is_launcher(void)
 {
     return proc_launcher_path && proc_running_path &&
@@ -79,22 +77,18 @@ void proc_set_exit_code(int16_t code)
     proc_exit_code = code;
 }
 
-/* The code, then the stop -- the chain is the stop walk's to decide. */
 void proc_exit(int16_t exit_code)
 {
     proc_set_exit_code(exit_code);
     sys_stop();
 }
 
-/* A program stopped. Returns true when the launcher was asked for, meaning
- * the machine keeps running; false when the chain has ended and the caller
- * decides what a machine with nothing to run does. */
 bool proc_stop(void)
 {
     if (proc_exec_inflight())
     {
-        /* A load is already on its way -- the exiting program asked for it,
-         * or the user did. Do not clobber it with the launcher. */
+        /* A load the exiting program or the user already asked for is on its
+         * way, so the launcher must not be scheduled over it. */
         set_path(&proc_running_path, NULL);
         return true;
     }
@@ -111,15 +105,15 @@ bool proc_stop(void)
     return true;
 }
 
-/* op 0x08: the running program's argv, onto the xstack. */
 bool proc_api_argv(void)
 {
     return api_return_ax(arg_push_xstack());
 }
 
-/* op 0x09: replace the running program. The xstack holds the new argv;
- * argv[0] names the .rp6502. Committed once the argv parses -- a load error
- * surfaces on the console, because the program that asked is already gone. */
+/* op 0x09. The xstack holds the new argv, whose argv[0] names the .rp6502.
+ * The op succeeds as soon as the argv parses, because by the time a load can
+ * fail the program that asked for it is gone; the error goes to the
+ * console. */
 bool proc_api_exec(void)
 {
     if (!arg_pull_xstack())

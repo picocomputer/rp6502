@@ -8,13 +8,14 @@
  * com_telnet.c on the other, both halves of one module. Not to be confused with
  * net/telnet.h, which is the TCP layer this stands on.
  *
- * The telnet console, as the console sees it: one more source to read, peek
- * and write, plus the pump its TCP stack needs and a way to say whether
- * anyone is connected. What is configured about it -- the port, the key --
- * is com.h, because that is what the monitor and the settings store reach
- * for. A board with no radio answers all of these with nothing.
+ * The telnet console, as the console sees it: a row for the picker to read,
+ * peek and clear, the TX half the fan-out writes, and the pump its TCP stack
+ * needs. What is configured about it -- the port, the key -- is com.h,
+ * because that is what the monitor and the settings store reach for. A board
+ * with no radio does not roster the row, and answers the TX half with
+ * nothing.
  *
- * Private to sys/: com.c is the only caller. */
+ * Private to sys/ and the RIA-W's roster. */
 
 #ifndef _RIA_SYS_COM_TELNET_H_
 #define _RIA_SYS_COM_TELNET_H_
@@ -36,15 +37,12 @@ int com_telnet_peek(void);
 void com_telnet_pump(void);
 void com_telnet_task(void);
 
-/* Someone is attached: a break drains what they have already sent. */
-bool com_telnet_connected(void);
+/* Drop what is queued, and what a peer has already sent: the row's clear. */
 void com_telnet_clear_rx(void);
 
-/* The other direction: what com.c lends its telnet half. */
+#define COM_TELNET_SOURCE {.read = com_telnet_read, .peek = com_telnet_peek, .clear = com_telnet_clear_rx, .dwell_us = COM_WIRE_DWELL_US}
 
-/* Take back the byte the register window staged for this source, if any, and
- * only if the caller has room for it -- a zero-length read leaves it staged. */
-size_t com_recover_rx_char(char *buf, size_t length, com_source_t src);
+/* The other direction: what com.c lends its telnet half. */
 
 /* Non-consuming peek at an SPSC RX ring (head==tail empty; the next byte
  * sits one past tail). The byte, or -1. */

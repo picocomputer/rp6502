@@ -38,13 +38,6 @@
  * ROM_RECORD_MAX into it without being told how big it is. */
 _Static_assert(MBUF_SIZE >= ROM_RECORD_MAX, "mbuf is the RIA's record buffer");
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_ROM)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static enum {
     ROM_IDLE,
     ROM_HELPING,

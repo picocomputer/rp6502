@@ -8,12 +8,13 @@
 #include "core/ria/regs.h"
 #include <string.h>
 
-// Layout: offset[0], offset[1], ..., offset[n-1], {0,0}, str[0], ..., str[n-1].
-// Each offset is a little-endian uint16 into arg_buf pointing at its string. The
-// {0,0} pair terminates the offset table; strings follow immediately, packed with
-// no padding and in ascending offset order (so str[i] always precedes str[i+1]).
-// A plain static, so it survives a machine reset — EXEC's new argv must reach the
-// new program.
+/* An offset table followed by the strings it points at: offset[0] through
+ * offset[n-1], a terminating pair of zero bytes, then the strings packed with
+ * no padding. Each offset is a little-endian uint16 index into arg_buf, and
+ * the strings are in ascending offset order, so str[i] always precedes
+ * str[i+1].
+ *
+ * arg has no driver row, so no run or stop walk touches this buffer. */
 static uint8_t arg_buf[XSTACK_SIZE];
 
 static uint16_t arg_count(void)
@@ -27,6 +28,21 @@ static uint16_t arg_count(void)
 void arg_clear(void)
 {
     arg_buf[0] = arg_buf[1] = 0;
+}
+
+size_t arg_bytes(void)
+{
+    return sizeof arg_buf;
+}
+
+const uint8_t *arg_data(void)
+{
+    return arg_buf;
+}
+
+void arg_set_data(const uint8_t *buf)
+{
+    memcpy(arg_buf, buf, sizeof arg_buf);
 }
 
 static uint16_t arg_offset_read(uint16_t i)

@@ -67,6 +67,6 @@ static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, ui
 }
 
 /* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define PIX_DRIVER DRIVER(pix_init, nul_task, nul_task, nul_run, pix_stop, nul_break, nul_config, nul_config)
+#define PIX_DRIVER DRIVER(pix_init, nul_task, nul_task, nul_run, pix_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_PIX_H_ */

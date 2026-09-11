@@ -39,7 +39,7 @@
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
-#include "sw/sst.h"
+#include "sw/wake.h"
 #include "sw/bel.h"
 #include "sw/cfg.h"
 #include "sw/fs.h"
@@ -67,11 +67,20 @@
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \
-    DIR_DRIVER, API_DRIVER, SST_DRIVER,                 \
+    DIR_DRIVER, API_DRIVER, WAKE_DRIVER,                \
     CLK_DRIVER, PHI2_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+
+/* Where console input comes from, indexed by com_source_t; core/com/pick.c
+ * reads them. This machine has a layout engine, so its keyboard is keymap's
+ * own queue and core's keyboard ring is never referenced. No wire, but the
+ * UART row stays: it is where the terminal's answers to a program's queries
+ * arrive. */
+#define RP6502_COM_SOURCES                     \
+    [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
+    [COM_SOURCE_UART] = COM_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

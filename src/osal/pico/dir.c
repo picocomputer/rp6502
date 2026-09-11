@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drive: what core/api/dir.c asks a filesystem for, answered
- * by FatFs over its own DIR pool.
- *
- * FatFs and the API keep the same eight fields about an entry, because both
- * of them are FAT's -- but they are two structs, so stat_from_fatfs is where
- * one becomes the other. Every other machine builds the API's directly.
  */
 
 #include "osal/pico/errmap.h"
@@ -18,7 +11,6 @@
 #include <assert.h>
 #include <string.h>
 
-// Validate essential settings in ffconf.h
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_USE_CHMOD == 1);
@@ -26,14 +18,13 @@ static_assert(FF_FS_CRTIME == 1);
 static_assert(FF_USE_LABEL == 1);
 static_assert(FF_LFN_UNICODE == 0);
 
-/* The two names are sized the same on both sides, so a copy is a copy. */
 static_assert(FF_LFN_BUF == F_NAME_MAX);
 static_assert(FF_SFN_BUF == F_ALTNAME_MAX);
 
 static DIR dirs[DIR_MAX_OPEN];
 
-/* The two paths proc holds, at the length a FatFs path can be. An empty
- * first byte is a free slot. */
+/* core/api/proc.c holds at most two paths: what is running and what to
+ * return to. */
 static char paths[2][FF_LFN_BUF + 1];
 
 char *os_dir_path_hold(const char *path)
@@ -53,12 +44,6 @@ void os_dir_path_drop(char *path)
     path[0] = '\0';
 }
 
-/* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
-
-/* FatFs reports through a FRESULT, so every one of these is the same shape:
- * make the call, hand back what it said. */
-/* FatFs converts filenames through its own active page, so it is told. The
- * volume's names are the drive's business, which is why this lives here. */
 void oem_fs_code_page(uint16_t cp)
 {
     f_setcp(cp);
@@ -87,8 +72,6 @@ bool drive_validate(int des, api_errno *err)
     return true;
 }
 
-/* FatFs fills its own record; the API has its own, with the same eight fields
- * because both of them are FAT's. This is the one place they meet. */
 static void stat_from_fatfs(f_stat_t *info, const FILINFO *fno)
 {
     memcpy(info->fname, fno->fname, sizeof info->fname);
@@ -153,9 +136,24 @@ bool drive_unlink(const char *path, api_errno *err)
     return fat_ok(f_unlink((const TCHAR *)path), err);
 }
 
+/* FatFs refuses a rename onto a name already in use, while rename(2) and
+ * MoveFileEx replace the target, so the target is removed and the rename
+ * retried. FAT offers no way to do that atomically. A directory is left for
+ * FatFs to refuse, because rename(2) will not put a file where a directory
+ * is. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
-    return fat_ok(f_rename((const TCHAR *)oldname, (const TCHAR *)newname), err);
+    FRESULT fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    if (fr == FR_EXIST)
+    {
+        FILINFO fno;
+        fr = f_stat((const TCHAR *)newname, &fno);
+        if (fr == FR_OK && (fno.fattrib & AM_DIR))
+            fr = FR_EXIST;
+        else if (fr == FR_OK && (fr = f_unlink((const TCHAR *)newname)) == FR_OK)
+            fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    }
+    return fat_ok(fr, err);
 }
 
 bool drive_mkdir(const char *path, api_errno *err)
@@ -180,7 +178,7 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
-    /* f_utime reads only the four stamps out of what it is given. */
+    /* f_utime reads only fdate, ftime, crdate and crtime out of a FILINFO. */
     FILINFO fno = {.fdate = info->fdate,
                    .ftime = info->ftime,
                    .crdate = info->crdate,
@@ -200,7 +198,10 @@ bool drive_setlabel(const char *path, api_errno *err)
 
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
-    (void)size; /* f_getlabel writes at most 12 bytes, which is what it is given */
+    /* FF_FS_EXFAT is RP6502_EXFAT, which host/pico/CMakeLists.txt pins to 0.
+     * With it off, f_getlabel writes at most the 12 bytes core/api/dir.c
+     * passes. */
+    (void)size;
     DWORD vsn;
     return fat_ok(f_getlabel((const TCHAR *)path, (TCHAR *)label, &vsn), err);
 }
@@ -212,6 +213,7 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
     FATFS *fs;
     if (!fat_ok(f_getfree((const TCHAR *)path, &fre_clust, &fs), err))
         return false;
+    /* n_fatent counts entries 0 and 1, which are reserved and hold no data. */
     uint64_t tot = (uint64_t)(fs->n_fatent - 2) * fs->csize;
     uint64_t fre = (uint64_t)fre_clust * fs->csize;
     *tot_sect = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
@@ -219,3 +221,15 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
     return true;
 }
 
+bool drive_dir_path(int des, char *buf, size_t size)
+{
+    (void)des, (void)buf, (void)size;
+    return false;
+}
+
+bool drive_reopendir(int des, const char *path, api_errno *err)
+{
+    (void)des, (void)path;
+    *err = API_ENOSYS;
+    return false;
+}

@@ -1,19 +1,41 @@
-# One version string, three forms, shared by every tree that ships something.
+# One version string, shared by every tree that ships something.
 #
 #     Version 0.31                a tagged build, -DRP6502_VERSION=0.31
 #     CI 31666918326              an untagged CI build, -DRP6502_CI=<run id>
+#     GIT 3f9ab12                 built from a commit, -DRP6502_GIT=<short sha>
 #     Aug 12 2026 20:17:46 PDT    a developer's own build
 #
 # The firmware root and every machine root include this; src/host/pocket writes
-# the same three forms into core.json, without the "Version " prefix the Pocket
-# UI supplies itself.
+# the same string into core.json, without the "Version " prefix the Pocket UI
+# supplies itself.
 
 include_guard(GLOBAL)
+
+# A build that has no version to pass can take one from the tag on the commit
+# it is building. The libretro buildbot is why: it builds a branch rather than
+# a release, so the tag on that branch's tip is all that says which release the
+# core is. Off by default, so a developer sitting on a tagged commit does not
+# get a build that calls itself a release.
+option(RP6502_VERSION_FROM_GIT "Take the version from a tag on HEAD" OFF)
 
 # -DRP6502_VERSION=<v> (release builds) overrides an empty default
 set(RP6502_VERSION_VALUE "")
 if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
     set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
+elseif(RP6502_VERSION_FROM_GIT)
+    find_package(Git QUIET)
+    if(Git_FOUND)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_LIST_DIR}
+                describe --tags --exact-match HEAD
+            OUTPUT_VARIABLE _tag OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _rc ERROR_QUIET)
+        if(_rc EQUAL 0)
+            string(REGEX REPLACE "^v" "" RP6502_VERSION_VALUE "${_tag}")
+        endif()
+        unset(_tag)
+        unset(_rc)
+    endif()
 endif()
 
 # -DRP6502_CI=<run id> stamps untagged CI builds; never cached so a
@@ -24,15 +46,25 @@ if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
 endif()
 unset(RP6502_CI CACHE)
 
-# The three forms, decided once. Everything that wants one includes this --
+# -DRP6502_GIT=<short sha> is for a builder whose own run id leads nowhere a
+# reader can go. The libretro buildbot is the one: its pipeline numbers live on
+# a server most people cannot open, while the commit is in this repository.
+# Never cached, for the reason a run id is not.
+set(RP6502_GIT_VALUE "")
+if(DEFINED RP6502_GIT AND NOT RP6502_GIT STREQUAL "")
+    set(RP6502_GIT_VALUE "${RP6502_GIT}")
+endif()
+unset(RP6502_GIT CACHE)
+
+# The ladder, decided once. Everything that wants a stamp includes this --
 # the header generator below, the Pocket's core.json stamper, and this file
-# itself for the configure-time copies -- so a fourth spelling of the ladder
-# cannot drift away from the other three.
+# itself for the configure-time copies -- so no second copy of the ladder can
+# drift away from it.
 #
 #   _stamp       what the machine says it is
 #   _stamp_bare  the same, without the word a UI supplies itself. Only the
-#                tagged form differs; "CI <id>" and a timestamp read the same
-#                either way.
+#                tagged form differs; "CI <id>", "GIT <sha>" and a timestamp
+#                read the same either way.
 set(RP6502_STAMP_SCRIPT ${CMAKE_BINARY_DIR}/rp6502_version_stamp.cmake)
 file(WRITE ${RP6502_STAMP_SCRIPT} [[
 if(STAMP_VERSION)
@@ -40,6 +72,9 @@ if(STAMP_VERSION)
     set(_stamp "Version ${STAMP_VERSION}")
 elseif(STAMP_CI)
     set(_stamp_bare "CI ${STAMP_CI}")
+    set(_stamp "${_stamp_bare}")
+elseif(STAMP_GIT)
+    set(_stamp_bare "GIT ${STAMP_GIT}")
     set(_stamp "${_stamp_bare}")
 else()
     string(TIMESTAMP _stamp_bare "%b %d %Y %H:%M:%S %Z")
@@ -62,16 +97,18 @@ endif()
 ]])
 
 # Configure-time forms, for the one consumer that cannot read a generated
-# header: the Windows resource compiler. Same three forms, except a dev build
+# header: the Windows resource compiler. The same ladder, except a dev build
 # is stamped when it was configured rather than when it was built, which is as
 # close as a .rc can get.
 set(STAMP_VERSION "${RP6502_VERSION_VALUE}")
 set(STAMP_CI "${RP6502_CI_VALUE}")
+set(STAMP_GIT "${RP6502_GIT_VALUE}")
 include(${RP6502_STAMP_SCRIPT})
 set(RP6502_VERSION_STAMP "${_stamp}")
 set(RP6502_VERSION_BARE "${_stamp_bare}")
 unset(STAMP_VERSION)
 unset(STAMP_CI)
+unset(STAMP_GIT)
 unset(_stamp)
 unset(_stamp_bare)
 
@@ -123,6 +160,7 @@ function(rp6502_use_version_header tgt src)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${RP6502_GEN_VERSION_SCRIPT})
         return()
     endif()
@@ -172,11 +210,24 @@ function(rp6502_use_version_header tgt src)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${RP6502_GEN_VERSION_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
         VERBATIM
     )
 
-    set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${hdr})
+    # Ninja treats a byproduct as an output and orders the object after it.
+    # Make writes no rule for a byproduct at all, so an object that names the
+    # header there stops the build the moment it is reached before the target
+    # below has run, which is how the libretro buildbot reaches it: its
+    # templates build the core target by name rather than building all. The
+    # stamp is a real output on both, so Make waits on that instead. Depending
+    # on the target rather than the file would be a cycle, because the stamp is
+    # what the other objects come before.
+    if(CMAKE_GENERATOR MATCHES "Make")
+        set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${stamp})
+    else()
+        set_property(SOURCE ${_src} APPEND PROPERTY OBJECT_DEPENDS ${hdr})
+    endif()
     add_custom_target(${tgt}_version_header ALL DEPENDS ${stamp})
 endfunction()

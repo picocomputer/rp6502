@@ -3,100 +3,69 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's drive, as osal/dir.h asks for it: the directory syscalls
- * answered over Win32. The counterpart of osal/posix/dir.c.
+ * Win32 keeps everything an f_stat_t holds, so a find record is copied rather
+ * than reconstructed: FILE_ATTRIBUTE_READONLY, _HIDDEN, _SYSTEM, _DIRECTORY
+ * and _ARCHIVE are the FAT attribute bits with the values FAT gave them, and
+ * FileTimeToDosDateTime produces the FAT date and time.
  *
- * Windows keeps what the 6502 asks for. FILE_ATTRIBUTE_READONLY, _HIDDEN,
- * _SYSTEM, _DIRECTORY and _ARCHIVE are the FAT attribute bits, with the same
- * values FAT gave them, and FileTimeToDosDateTime is the FAT date and time --
- * so an f_stat_t is read off a find record rather than reconstructed, and
- * none of it is a guess. A find carries all of it, so a read costs no extra
- * call.
- *
- * There is no opendir/readdir on Win32: FindFirstFileW/FindNextFileW/FindClose
- * over an opaque heap struct.
- *
- * Paths cross spelled the way the 6502 spells them and in its OEM code page.
- * The drive prefix comes off with path_to_native() and the code page with
- * oem_to_wide() (core/str/oem.h) before every ...W call; returned names go
- * back with oem_from_wide().
+ * A path crosses in the 6502's OEM code page and is otherwise spelled the way
+ * Win32 wants it, because this host puts the drive letter in the path itself.
+ * Only the code page changes, and backslashes become slashes on the way out.
+ * A forward slash needs no conversion on the way in, because Win32 normalizes
+ * every path it is given and folds slashes to backslashes; that would stop if
+ * anything here emitted the \\?\ prefix, and nothing does.
  */
 
 #include "osal/dir.h"
 #include "core/str/oem.h"
-#include "core/str/path.h"
 #include "osal/os.h"
 #include "osal/windows/dir.h"
 #include "osal/windows/errmap.h"
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <wchar.h>
-#include <strings.h>
 #include <windows.h>
 
-#define DIR_NAME_MAX 256 /* an entry's name, not a path */
-
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too. */
 wchar_t *path_to_wide(const char *path, api_errno *err)
 {
-    size_t nsz = strlen(path) + 1;
-    char *native = malloc(nsz);
-    if (!native)
+    /* A leading ":" is the null drive, where installed ROMs live, and it has
+     * no native spelling. Win32 would read it as an alternate data stream and
+     * succeed, so it is refused before Win32 sees it. */
+    if (path[0] == ':')
     {
-        *err = API_ENOMEM;
+        *err = API_ENODEV;
         return NULL;
     }
-    if (!path_to_native(path, native, nsz))
+    /* A byte with no character in the code page would be substituted, and a
+     * substituted name is a different name. */
+    if (strlen(path) > API_PATH_MAX || !oem_maps_oem(path))
     {
-        free(native);
         *err = API_EINVAL;
         return NULL;
     }
-    size_t wcount = strlen(native) + 1; /* one unit per OEM byte */
+    size_t wcount = strlen(path) + 1; /* one UTF-16 unit per OEM byte */
     wchar_t *w = malloc(wcount * sizeof *w);
     if (w)
-    {
-        oem_to_wide(native, (uint16_t *)w, (int)wcount);
-        if (!w[0]) /* a path of no name reaches no file here */
-        {
-            free(w);
-            w = NULL;
-            *err = API_ENOENT;
-        }
-    }
+        oem_to_wide(path, (uint16_t *)w, (int)wcount);
     else
         *err = API_ENOMEM;
-    free(native);
     return w;
 }
 
-/* And back: what Win32 answered, slashed and spelled for the 6502. One length
- * answers for both steps -- one OEM byte per unit, and path_from_native
- * prepends at most a six-byte drive prefix. */
+/* One OEM byte per UTF-16 unit bounds the answer, so this allocation fits. */
 char *path_from_wide(const wchar_t *w, api_errno *err)
 {
-    size_t sz = wcslen(w) + 7;
-    char *native = malloc(sz), *out = malloc(sz);
-    if (native && out)
+    size_t sz = wcslen(w) + 1;
+    char *out = malloc(sz);
+    if (out)
     {
-        oem_from_wide((const uint16_t *)w, native, sz);
-        win_to_slash(native);
-        if (!path_from_native(native, out, sz))
-        {
-            free(out);
-            out = NULL;
-            *err = API_EINVAL; /* a name too long, as win_error_to_api spells it */
-        }
+        oem_from_wide((const uint16_t *)w, out, sz);
+        win_to_slash(out);
     }
     else
-    {
-        free(out);
-        out = NULL;
         *err = API_ENOMEM;
-    }
-    free(native);
     return out;
 }
 
@@ -107,23 +76,46 @@ void win_to_slash(char *p)
             *p = '/';
 }
 
-/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir.
- * Resolved against the cwd drive_getcwd answers for, which is why it is here.
- * No error channel: a caller has a path or it has nothing. */
+/* A path in full, resolved the way Win32 resolves one: a relative path against
+ * the process working directory, and a drive-relative one ("C:") against the
+ * directory Win32 remembers for that drive. The sizing call returns zero on
+ * failure and otherwise a count that includes the terminating null. */
+static wchar_t *win_full_path(const wchar_t *w, api_errno *err)
+{
+    DWORD n = GetFullPathNameW(w, 0, NULL, NULL);
+    if (!n)
+    {
+        *err = win_last_error_to_api();
+        return NULL;
+    }
+    wchar_t *full = malloc((size_t)n * sizeof *full);
+    if (!full)
+    {
+        *err = API_ENOMEM;
+        return NULL;
+    }
+    DWORD got = GetFullPathNameW(w, n, full, NULL);
+    if (!got || got >= n) /* the path grew between the two calls */
+    {
+        *err = got ? API_ENOMEM : win_last_error_to_api();
+        free(full);
+        return NULL;
+    }
+    return full;
+}
+
 char *os_dir_realpath(const char *path)
 {
     api_errno ignored;
     wchar_t *wpath = path_to_wide(path, &ignored);
     if (!wpath)
         return NULL;
-    /* Asked for its own length first: zero means failure, otherwise it counts
-     * the terminating null, which is exactly what the second call wants. */
-    DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
-    wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
-    DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
-    /* got >= n means it grew since the sizing call and asked again */
-    char *out = (got && got < n) ? path_from_wide(wfull, &ignored) : NULL;
-    free(wpath), free(wfull);
+    wchar_t *wfull = win_full_path(wpath, &ignored);
+    free(wpath);
+    if (!wfull)
+        return NULL;
+    char *out = path_from_wide(wfull, &ignored);
+    free(wfull);
     return out;
 }
 
@@ -137,7 +129,6 @@ void os_dir_path_drop(char *path)
     free(path);
 }
 
-/* Whatever Win32 last complained about, in the API's words. */
 static bool win_ok(BOOL ok, api_errno *err)
 {
     if (!ok)
@@ -145,36 +136,64 @@ static bool win_ok(BOOL ok, api_errno *err)
     return ok != FALSE;
 }
 
-/* ---- f_stat_t, straight off what Win32 keeps ----------------------------- */
-
-/* The FAT attribute bits the 6502 sees, which are the same bits Win32 uses --
- * masked so nothing Windows-only (COMPRESSED, REPARSE_POINT, ...) leaks into
+/* The mask keeps the five FAT attribute bits, which Win32 numbers the same,
+ * and drops the Windows-only ones, such as COMPRESSED and REPARSE_POINT, from
  * a field a program reads as FAT's. */
 #define FS_AM_MASK 0x37 /* RDO|HID|SYS|DIR|ARC */
 
-static void info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd, const char *name)
+/* A find reports UTC and FAT records local time, which is what this API
+ * carries, so the stamp is converted on the way. FileTimeToDosDateTime fails
+ * outside 1980 to 2107, the only years a FAT date can spell, and the stamp is
+ * clamped to that range rather than left as the zero this API reads as
+ * "no date". */
+static void fat_pack_time(const FILETIME *ft, uint16_t *fdate, uint16_t *ftime)
 {
-    snprintf(info->fname, sizeof(info->fname), "%s", name);
-    info->altname[0] = 0; /* the 8.3 name Win32 offers is not asked for here */
-    uint64_t size = ((uint64_t)fd->nFileSizeHigh << 32) | fd->nFileSizeLow;
-    info->fsize = size > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)size;
-    info->fattrib = (uint8_t)(fd->dwFileAttributes & FS_AM_MASK);
-    /* A find reports UTC; FAT records local time, which is what the API
-     * carries, so each stamp goes through the local conversion on the way. */
     FILETIME lft;
     WORD d = 0, t = 0;
-    if (FileTimeToLocalFileTime(&fd->ftLastWriteTime, &lft))
-        FileTimeToDosDateTime(&lft, &d, &t);
-    info->fdate = d;
-    info->ftime = t;
-    d = t = 0;
-    if (FileTimeToLocalFileTime(&fd->ftCreationTime, &lft))
-        FileTimeToDosDateTime(&lft, &d, &t);
-    info->crdate = d;
-    info->crtime = t;
+    if (FileTimeToLocalFileTime(ft, &lft) && FileTimeToDosDateTime(&lft, &d, &t))
+    {
+        *fdate = d;
+        *ftime = t;
+        return;
+    }
+    /* A FILETIME counts 100 ns units from 1601-01-01, so 1980-01-01 is 138426
+     * days on, and anything below that is too early. */
+    static const uint64_t fat_epoch = 119600064000000000ull; /* 1980-01-01 UTC */
+    uint64_t v = ((uint64_t)ft->dwHighDateTime << 32) | ft->dwLowDateTime;
+    if (v < fat_epoch)
+    {
+        *fdate = (1 << 5) | 1; /* 1980-01-01 */
+        *ftime = 0;
+    }
+    else
+    {
+        *fdate = (127 << 9) | (12 << 5) | 31; /* 2107-12-31 */
+        *ftime = (23 << 11) | (59 << 5) | 29;
+    }
 }
 
-/* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
+/* False when the entry's name has no spelling in the running code page,
+ * because a substituted name would let two entries arrive under one name and
+ * let a program hand back a name that opens neither. */
+static bool info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd)
+{
+    if (!oem_maps_wide((const uint16_t *)fd->cFileName))
+        return false;
+    oem_from_wide((const uint16_t *)fd->cFileName, info->fname, sizeof info->fname);
+    /* Win32 leaves cAlternateFileName empty when the long name is already an
+     * 8.3 name. */
+    oem_from_wide((const uint16_t *)fd->cAlternateFileName, info->altname,
+                  sizeof info->altname);
+    uint64_t size = ((uint64_t)fd->nFileSizeHigh << 32) | fd->nFileSizeLow;
+    /* A directory has size 0 on FAT. */
+    info->fsize = (fd->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 0
+                  : size > 0xFFFFFFFF                               ? 0xFFFFFFFF
+                                                                    : (uint32_t)size;
+    info->fattrib = (uint8_t)(fd->dwFileAttributes & FS_AM_MASK);
+    fat_pack_time(&fd->ftLastWriteTime, &info->fdate, &info->ftime);
+    fat_pack_time(&fd->ftCreationTime, &info->crdate, &info->crtime);
+    return true;
+}
 
 struct win_dir
 {
@@ -183,7 +202,8 @@ struct win_dir
     WIN32_FIND_DATAW fd;
     bool first; /* FindFirstFileW already yielded the first entry */
     bool alive;
-    wchar_t *pattern; /* owned, the FindFirstFile glob this slot rewinds to */
+    wchar_t *pattern;
+    char path[API_PATH_MAX + 1];
 };
 static struct win_dir dirs[DIR_MAX_OPEN];
 
@@ -207,44 +227,64 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     wchar_t *w = path_to_wide(path, err);
     if (!w)
         return false;
+    /* A find rather than GetFileAttributesEx, because only the find carries
+     * the entry's own name in the case the volume stores, with the 8.3 name
+     * beside it, which is what readdir reports and what stat has to agree
+     * with. FindFirstFileW refuses a trailing separator, so it comes off. */
+    size_t n = wcslen(w);
+    while (n > 1 && (w[n - 1] == L'\\' || w[n - 1] == L'/'))
+        w[--n] = 0;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(w, &fd);
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        FindClose(h);
+        free(w);
+        if (!info_from_find(info, &fd))
+        {
+            *err = API_EINVAL;
+            return false;
+        }
+        return true;
+    }
+    /* A root has no entry of its own to find. Only "/" reliably arrives here:
+     * the strip above leaves "C:/" as a bare "C:", which Win32 resolves against
+     * the directory it remembers for that drive. */
     WIN32_FILE_ATTRIBUTE_DATA fad;
     bool got = win_ok(GetFileAttributesExW(w, GetFileExInfoStandard, &fad), err);
     free(w);
     if (!got)
         return false;
-    /* The two records agree on every field this reads. */
-    WIN32_FIND_DATAW fd;
     memset(&fd, 0, sizeof fd);
+    /* A name still has to be reported, and it must not be the empty one
+     * readdir uses for end of directory. */
+    fd.cFileName[0] = L'/';
     fd.dwFileAttributes = fad.dwFileAttributes;
     fd.ftLastWriteTime = fad.ftLastWriteTime;
     fd.ftCreationTime = fad.ftCreationTime;
     fd.nFileSizeHigh = fad.nFileSizeHigh;
     fd.nFileSizeLow = fad.nFileSizeLow;
-    /* stat names a single entry; report its basename, not the whole path. */
-    info_from_find(info, &fd, path_basename(path));
+    info_from_find(info, &fd); /* "/" always maps, so this cannot fail */
     return true;
 }
 
-bool drive_opendir(const char *path, int *des, api_errno *err)
+static bool dir_open_into(int i, const char *path, api_errno *err)
 {
-    int i = 0;
-    for (; i < DIR_MAX_OPEN; i++)
-        if (!dirs[i].used)
-            break;
-    if (i == DIR_MAX_OPEN)
-    {
-        *err = API_EMFILE;
-        return false;
-    }
     struct win_dir *d = &dirs[i];
-    /* a directory of no name is the working directory */
-    wchar_t *base = path_to_wide(path_strip_drive(path)[0] ? path : ".", err);
+    wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
+    if (!rel)
+        return false;
+    /* win_full_path runs before the glob is built, because the pattern the
+     * slot keeps has to be absolute: drive_rewinddir would otherwise resolve it
+     * again against a working directory the program has since changed. */
+    wchar_t *base = win_full_path(rel, err);
+    free(rel);
     if (!base)
         return false;
     size_t n = wcslen(base);
-    while (n > 0 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
+    while (n > 1 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
         n--;
-    wchar_t *pattern = malloc((n + 3) * sizeof *pattern); /* + \\ * and the null */
+    wchar_t *pattern = malloc((n + 3) * sizeof *pattern); /* backslash, star, null */
     if (!pattern)
     {
         free(base);
@@ -263,15 +303,59 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
         free(pattern);
         return false;
     }
-    d->pattern = pattern; /* the slot was free, so closedir already released one */
+    d->pattern = pattern;
     d->used = true;
     d->first = true;
     d->alive = true;
+    d->path[0] = 0;
+    char *abs = os_dir_realpath(path);
+    if (abs)
+    {
+        if (strlen(abs) <= API_PATH_MAX)
+            strcpy(d->path, abs);
+        free(abs);
+    }
+    return true;
+}
+
+bool drive_opendir(const char *path, int *des, api_errno *err)
+{
+    int i = 0;
+    for (; i < DIR_MAX_OPEN; i++)
+        if (!dirs[i].used)
+            break;
+    if (i == DIR_MAX_OPEN)
+    {
+        *err = API_EMFILE;
+        return false;
+    }
+    if (!dir_open_into(i, path, err))
+        return false;
     *des = i;
     return true;
 }
 
-/* "." and ".." are not entries the 6502 sees. */
+bool drive_dir_path(int des, char *buf, size_t size)
+{
+    if (des < 0 || des >= DIR_MAX_OPEN || !dirs[des].used ||
+        !dirs[des].path[0] || strlen(dirs[des].path) >= size)
+        return false;
+    strcpy(buf, dirs[des].path);
+    return true;
+}
+
+bool drive_reopendir(int des, const char *path, api_errno *err)
+{
+    if (des < 0 || des >= DIR_MAX_OPEN)
+    {
+        *err = API_EINVAL;
+        return false;
+    }
+    if (dirs[des].used)
+        drive_closedir(des, err);
+    return dir_open_into(des, path, err);
+}
+
 bool drive_readdir(int des, f_stat_t *info, api_errno *err)
 {
     struct win_dir *d = &dirs[des];
@@ -289,7 +373,7 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
                 DWORD e = GetLastError();
                 if (e == ERROR_NO_MORE_FILES)
                 {
-                    memset(info, 0, sizeof(*info)); /* fname[0]==0 signals EOF */
+                    memset(info, 0, sizeof(*info)); /* an empty fname is the end */
                     return true;
                 }
                 *err = win_error_to_api(e);
@@ -297,11 +381,13 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
             }
         }
         d->first = false;
-        char name[DIR_NAME_MAX];
-        oem_from_wide((const uint16_t *)d->fd.cFileName, name, sizeof name);
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+        if (!info_from_find(info, &d->fd))
+        {
+            *err = API_EINVAL;
+            return false;
+        }
+        if (strcmp(info->fname, ".") == 0 || strcmp(info->fname, "..") == 0)
             continue;
-        info_from_find(info, &d->fd, name);
         return true;
     }
 }
@@ -345,10 +431,17 @@ bool drive_unlink(const char *path, api_errno *err)
     if (!ok)
     {
         DWORD e = GetLastError();
-        /* One call for both, the way the API asks: a directory refuses
-         * DeleteFile with an access complaint, and RemoveDirectory is what it
-         * wanted. */
-        ok = e == ERROR_ACCESS_DENIED && RemoveDirectoryW(w);
+        /* The API unlinks files and directories with one call. DeleteFileW
+         * refuses a directory with ERROR_ACCESS_DENIED, so that is the only
+         * error worth retrying as RemoveDirectoryW, and the retry's own error
+         * replaces it because ERROR_DIR_NOT_EMPTY is more use than a plain
+         * access refusal. */
+        if (e == ERROR_ACCESS_DENIED)
+        {
+            ok = RemoveDirectoryW(w);
+            if (!ok)
+                e = GetLastError();
+        }
         if (!ok)
             *err = win_error_to_api(e);
     }
@@ -387,42 +480,48 @@ bool drive_chdir(const char *path, api_errno *err)
     wchar_t *w = path_to_wide(path, err);
     if (!w)
         return false;
-    /* validates existence and dir-ness */
     bool ok = win_ok(SetCurrentDirectoryW(w), err);
     free(w);
     return ok;
 }
 
-/* The 6502 sees MSC0: (and the bare current drive); anything else is a
- * missing device. */
+/* The drives are Windows' own, so this is Windows' own change-drive:
+ * SetCurrentDirectoryW of a bare "X:", which is what cd /d and the CRT's
+ * _chdrive do. Win32 resolves a bare drive against the directory it remembers
+ * for that drive in the hidden "=X:" environment variable, and lands on the
+ * drive's root when it remembers none, which is the usual case for a process
+ * not started from cmd.exe.
+ *
+ * The letter is checked against the mounted set first, so a drive that is not
+ * there reports a missing device rather than a path error. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
-    if (drive[0] != ':') /* the null drive (installs) is not a cwd-able drive */
+    if (!drive[0])
+        return true;
+    char letter = drive[0];
+    bool named = isalpha((unsigned char)letter) &&
+                 (!drive[1] || (drive[1] == ':' && !drive[2]));
+    if (named && (GetLogicalDrives() & (1u << (toupper((unsigned char)letter) - 'A'))))
     {
-        char name[16];
-        size_t i = 0;
-        for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
-            name[i] = drive[i];
-        name[i] = 0;
-        if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
-            return true;
+        const wchar_t w[3] = {(wchar_t)letter, L':', 0};
+        return win_ok(SetCurrentDirectoryW(w), err);
     }
     *err = API_ENODEV;
     return false;
 }
 
-/* The attribute bits are Win32's own, so only the ones the API names are
- * touched and the rest of what Windows keeps is left alone. */
+/* The API's attribute bits are Win32's own bits, so the ones the mask does not
+ * name are left as Windows has them. */
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
-    if (!(mask & FS_AM_MASK))
-        return true;
     wchar_t *w = path_to_wide(path, err);
     if (!w)
         return false;
+    /* The path is resolved even when the mask names nothing this can change,
+     * because a chmod of something that is not there is still an error. */
     DWORD a = GetFileAttributesW(w);
     bool ok = win_ok(a != INVALID_FILE_ATTRIBUTES, err);
-    if (ok)
+    if (ok && (mask & FS_AM_MASK))
     {
         DWORD touched = mask & FS_AM_MASK & ~(DWORD)FILE_ATTRIBUTE_DIRECTORY;
         a = (a & ~touched) | (attr & touched);
@@ -434,17 +533,24 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
     return ok;
 }
 
-/* Set the modification time from the FAT date/time -- the same conversion
- * info_from_find does, run backwards. Windows can set the creation time the
- * API also carries, so it does. */
+static bool fat_to_filetime(uint16_t date, uint16_t time, FILETIME *ft, api_errno *err)
+{
+    FILETIME lft;
+    return win_ok(DosDateTimeToFileTime(date, time, &lft), err) &&
+           win_ok(LocalFileTimeToFileTime(&lft, ft), err);
+}
+
+/* A date of 0 is not a date, and the API leaves that stamp unchanged, which is
+ * also what f_utime does. SetFileTime asks for the same thing with NULL. */
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
     wchar_t *w = path_to_wide(path, err);
     if (!w)
         return false;
-    FILETIME lft, ft;
-    if (!win_ok(DosDateTimeToFileTime(info->fdate, info->ftime, &lft), err) ||
-        !win_ok(LocalFileTimeToFileTime(&lft, &ft), err))
+    FILETIME mft, cft;
+    bool ok = (!info->fdate || fat_to_filetime(info->fdate, info->ftime, &mft, err)) &&
+              (!info->crdate || fat_to_filetime(info->crdate, info->crtime, &cft, err));
+    if (!ok)
     {
         free(w);
         return false;
@@ -455,10 +561,11 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
     free(w);
     if (!opened)
         return false;
-    BOOL ok = SetFileTime(h, NULL, NULL, &ft);
+    BOOL set = SetFileTime(h, info->crdate ? &cft : NULL, NULL,
+                           info->fdate ? &mft : NULL);
     DWORD e = GetLastError();
     CloseHandle(h);
-    if (!ok)
+    if (!set)
     {
         *err = win_error_to_api(e);
         return false;
@@ -468,8 +575,6 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    /* Asked for its own length first: zero means failure, otherwise it counts
-     * the terminating null, which is what the second call wants. */
     DWORD n = GetCurrentDirectoryW(0, NULL);
     if (!n)
     {
@@ -483,59 +588,106 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
         return false;
     }
     DWORD got = GetCurrentDirectoryW(n, w);
-    if (!got || got >= n) /* grew since the sizing call: it asked again */
+    if (!got || got >= n) /* the directory changed between the two calls */
     {
         *err = got ? API_ENOMEM : win_last_error_to_api();
         free(w);
         return false;
     }
-    /* one OEM byte per unit, and path_from_native prepends at most six */
-    size_t sz = wcslen(w) + 7;
-    char *native = malloc(sz), *cwd = malloc(sz);
-    bool ok = native && cwd;
+    bool ok = oem_from_wide((const uint16_t *)w, buf, size) < size;
     if (ok)
-    {
-        oem_from_wide((const uint16_t *)w, native, sz);
-        win_to_slash(native);
-        ok = path_from_native(native, cwd, sz) &&
-             strlen(cwd) < size; /* did not fit: full-path-or-error */
-    }
-    if (ok)
-        strcpy(buf, cwd);
+        win_to_slash(buf);
     else
         *err = API_ENOMEM;
-    free(w), free(native), free(cwd);
+    free(w);
     return ok;
 }
 
-/* A Windows volume has a label, but it is not the FAT label the API means and
- * a program cannot act on the difference. Report an empty one and accept
- * (ignore) a set, so label-aware programs run rather than erroring -- these
- * are answers, not missing calls, which is why neither slot is left NULL. */
-bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
+static wchar_t *win_volume(const char *path, api_errno *err)
 {
-    (void)path, (void)size, (void)err;
-    label[0] = 0;
-    return true;
+    wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
+    if (!rel)
+        return NULL;
+    wchar_t *full = win_full_path(rel, err);
+    free(rel);
+    if (!full)
+        return NULL;
+    /* GetVolumePathNameW answers with a prefix of the path it is given, so the
+     * expanded path's own length is always room enough. */
+    size_t n = wcslen(full) + 1;
+    wchar_t *root = malloc(n * sizeof *root);
+    if (!root)
+    {
+        *err = API_ENOMEM;
+        free(full);
+        return NULL;
+    }
+    bool ok = win_ok(GetVolumePathNameW(full, root, (DWORD)n), err);
+    free(full);
+    if (!ok)
+    {
+        free(root);
+        return NULL;
+    }
+    return root;
 }
 
+/* On a FAT or exFAT volume this is the label FAT itself stores, so the same
+ * stick reads the same label on a Picocomputer. */
+bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
+{
+    wchar_t *root = win_volume(path, err);
+    if (!root)
+        return false;
+    wchar_t name[MAX_PATH + 1];
+    bool ok = win_ok(GetVolumeInformationW(root, name, MAX_PATH + 1, NULL, NULL,
+                                           NULL, NULL, 0),
+                     err);
+    free(root);
+    if (ok)
+        oem_from_wide((const uint16_t *)name, label, size);
+    return ok;
+}
+
+/* FatFs takes this argument as "[drive:]label", so the name is what follows
+ * the colon. */
 bool drive_setlabel(const char *path, api_errno *err)
 {
-    (void)path, (void)err;
-    return true;
+    const char *name = strchr(path, ':');
+    name = name ? name + 1 : path;
+    wchar_t *root = win_volume(path, err);
+    if (!root)
+        return false;
+    size_t n = strlen(name) + 1;
+    wchar_t *w = malloc(n * sizeof *w);
+    if (!w)
+    {
+        *err = API_ENOMEM;
+        free(root);
+        return false;
+    }
+    oem_to_wide(name, (uint16_t *)w, (int)n);
+    /* SetVolumeLabelW clears the label when it is given NULL. */
+    bool ok = win_ok(SetVolumeLabelW(root, w[0] ? w : NULL), err);
+    free(root), free(w);
+    return ok;
 }
 
 bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                           api_errno *err)
 {
-    /* A drive query names a drive, and no name is the one in use -- the same
-     * rule opendir follows, and what f_getfree does with "". */
-    wchar_t *w = path_to_wide(path[0] ? path : ".", err);
+    /* win_full_path settles a bare "C:" as that drive's own directory rather
+     * than its root, the way every other call here reads one. */
+    wchar_t *rel = path_to_wide(path[0] ? path : ".", err);
+    if (!rel)
+        return false;
+    wchar_t *w = win_full_path(rel, err);
+    free(rel);
     if (!w)
         return false;
-    /* Prefer the parent directory when path names a file. Truncated in place:
-     * the copy this used to make of itself was the fixed buffer's, not the
-     * algorithm's. */
+    /* GetDiskFreeSpaceExW wants a directory, so the last component comes off
+     * whatever it names. The parent is on the same volume, which is all this
+     * asks about. */
     wchar_t *slash = wcsrchr(w, L'\\');
     wchar_t *slash2 = wcsrchr(w, L'/');
     if (slash2 && (!slash || slash2 > slash))
@@ -554,7 +706,8 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
     return true;
 }
 
-/* A Windows filesystem takes filenames as UTF-16; there is no page to set. */
+/* A Windows filesystem takes filenames as UTF-16, so there is no code page to
+ * set. */
 void oem_fs_code_page(uint16_t cp)
 {
     (void)cp;

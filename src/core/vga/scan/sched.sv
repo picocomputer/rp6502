@@ -3,16 +3,19 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The fill scheduler: one engine for three planes. At line start it
- * reads the three fill slots, queues the enabled fills ascending, and
- * runs them through fill one at a time; a plane that does not run
- * simply never flips, and its scan bank is the eraser's zeros. A
- * 640-wide canvas has serial fill rate for two planes, a 320-wide for
- * three; the lowest-numbered fills win. A mode-0 slot runs no fill —
- * it marks the plane whose stream is the terminal engine's, the same
- * way the sprite stage is its own engine beside this one. The firmware
- * registers mode 0 exclusively, so the marker is a plain mask with no
- * defense against several.
+ * The fill scheduler, one engine for three planes. At line start it
+ * reads the three fill slots, queues the enabled fills in ascending
+ * plane order, and runs them through fill one at a time. A plane that
+ * does not run never flips its line buffer, so it scans out the zeros
+ * the erase side left there.
+ *
+ * A line is 1,600 clocks (timing.sv) and a fill spends about a clock a
+ * pixel, so there is serial fill rate for two planes on a 640-wide
+ * canvas and three on a 320-wide one.
+ *
+ * An enabled slot in mode 0 runs no fill. It marks the plane whose
+ * pixels come from the terminal engine instead; host/pocket/core/
+ * wiring.sv selects on sched_term.
  */
 
 module sched (
@@ -55,8 +58,9 @@ module sched (
     } state_t;
     state_t state /*verilator public_flat_rd*/;
 
-    /* The slot sweep: present plane 0,1,2 on consecutive clocks, latch
-     * each registered answer a clock behind, decide on the fifth. */
+    /* The slot sweep presents plane 0, 1 and 2 on consecutive clocks and
+     * latches each answer a clock behind, because the slot memory is
+     * registered, so the queue is decided on the fifth clock. */
     logic [2:0] rd_i;
     always_comb sched_p_plane = rd_i[1:0];
 
@@ -93,17 +97,14 @@ module sched (
     always_comb cur = q[q_i];
     logic [2:0] plane_pending /*verilator public_flat_rd*/;
 
-    /* The marker the compose sees updates with the bank flips: decided
-     * mid-render-line, taken at the next line_start, held with the
-     * banks otherwise. */
+    /* The marker compose sees is decided during this line's slot sweep
+     * and taken at the next line_start, so it changes on the same edge
+     * the line buffers flip banks. */
     logic [2:0] term_q, term_dec;
     logic term_armed;
     always_comb term_dec = {pl_term[2], pl_term[1], pl_term[0]};
     always_comb sched_term = term_q;
 
-    /* The done a shell sees is the engine's own edge, forwarded without
-     * a register: the flip must land on sub_done's clock or the h==799
-     * pixel-0 pre-read comes up stale. */
     always_comb begin
         sched_done = '0;
         if (state == SCH_RUN && e_done)
@@ -114,10 +115,10 @@ module sched (
     end
 
 `ifdef VERILATOR
-    /* Simulation only: VERILATOR is defined by the simulator and by
-     * nothing in the synthesis flow, so the fabric never sees the port.
-     * A machine reset costs the beam a frame, because the beam does not
-     * take one; this tells the stop below to expect it. */
+    /* The underrun check below arms at the first line 524 after reset,
+     * because timing.sv takes no reset: a machine reset lands somewhere
+     * inside a frame, and the fills it interrupts legitimately do not
+     * finish. */
     logic settled;
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n)
@@ -151,9 +152,6 @@ module sched (
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
 `ifdef VERILATOR
-        /* The stop waits one frame, which is what a reset costs a beam
-         * that does not take one — a frame of the black screen the
-         * machine boots to. */
         if (settled && h == 10'd799 && state != SCH_IDLE)
             $fatal(1, "fill underrun");
 `endif

@@ -16,16 +16,8 @@
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
 #include "core/sys/random.h"
-#include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_ATTR)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-// Attribute IDs
 #define ATTR_ERRNO_OPT 0x00
 #define ATTR_PHI2_KHZ 0x01
 #define ATTR_CODE_PAGE 0x02
@@ -88,7 +80,7 @@ bool attr_api_get(void)
     }
 }
 
-// int ria_attr_set(uint32_t attr, uint8_t attr_id);
+// int ria_attr_set(long val, unsigned char id);
 bool attr_api_set(void)
 {
     uint32_t value;
@@ -147,23 +139,18 @@ bool attr_api_set(void)
             return api_return_errno(API_EINVAL);
         rln_set_suppress_nl((uint8_t)value);
         break;
-    case ATTR_LRAND:      // Read only
-    case ATTR_EXIT_CODE:  // Read only
-    case ATTR_SIGINT:     // Read only
-    case ATTR_CLK_RUN_MS: // Read only
-    case ATTR_CLK_RUN_CS: // Read only
-    case ATTR_CLK_RUN_DS: // Read only
-    case ATTR_CLK_RUN_S:  // Read only
+    case ATTR_LRAND:
+    case ATTR_EXIT_CODE:
+    case ATTR_SIGINT:
+    case ATTR_CLK_RUN_MS:
+    case ATTR_CLK_RUN_CS:
+    case ATTR_CLK_RUN_DS:
+    case ATTR_CLK_RUN_S:
     default:
         return api_return_errno(API_EINVAL);
     }
     return api_return_ax(0);
 }
-
-/*
- * Legacy single-purpose handlers (opcodes 0x02-0x06).
- * Still dispatched from main.c; also reachable via the unified attribute API.
- */
 
 // int phi2(void)
 bool attr_api_phi2(void)
@@ -171,7 +158,7 @@ bool attr_api_phi2(void)
     return api_return_ax(phi2_get_khz_run());
 }
 
-// int codepage(unsigned cp) - set/get OEM code page
+// int code_page(int cp)
 bool attr_api_code_page(void)
 {
     uint16_t cp = API_AX;
@@ -180,13 +167,13 @@ bool attr_api_code_page(void)
     return api_return_ax(oem_get_code_page_run());
 }
 
-// long lrand(void) - get random number
+// long lrand(void)
 bool attr_api_lrand(void)
 {
     return api_return_axsreg(sys_random() & 0x7FFFFFFF);
 }
 
-// int errno_opt(unsigned char opt) - set errno mapping
+// RIA_OP_ERRNO_OPT 0x06. No C prototype; the C runtimes issue it in assembly.
 bool attr_api_errno_opt(void)
 {
     uint8_t opt = API_A;

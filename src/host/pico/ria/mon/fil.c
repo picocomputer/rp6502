@@ -19,12 +19,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_FIL)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 #define FIL_TIMEOUT_MS 500
 
 static enum {

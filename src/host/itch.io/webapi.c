@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Web (Emscripten) JS-callable bridges. The browser shell (html/index.html)
- * reaches the emulated HID devices through these EMSCRIPTEN_KEEPALIVE exports.
- * Kept in the executable (not emu_core) so the linker can't drop the object
- * before KEEPALIVE marks the symbols. Compiled only for the Emscripten host.
+ * No C code calls anything here; the page's index.html reaches the emulated
+ * HID devices through these exports. That is why this file is compiled into
+ * the executable rather than into emu_core: a static library member whose
+ * symbols nothing references is never pulled in, so the object would be gone
+ * before EMSCRIPTEN_KEEPALIVE could mark anything in it.
  */
 
 #include "core/hid/mouse.h"
@@ -15,24 +16,19 @@
 #include <emscripten.h>
 #include <stdint.h>
 
-/* The shell shows the mouse "click to capture" hint only once a program maps the
- * mouse; capture (pointer lock) and motion scaling ride the shared sokol path. */
 EMSCRIPTEN_KEEPALIVE int mouse_mapped(void)
 {
     return mouse_is_mapped() ? 1 : 0;
 }
 
-/* Same hint drops once a program maps the tablet (it takes the pointer without
- * capturing it). */
 EMSCRIPTEN_KEEPALIVE int tablet_mapped(void)
 {
     return tablet_is_mapped() ? 1 : 0;
 }
 
-/* The page's Gamepad-API poller only runs once gamepad_mapped() reports a program
- * pointed the report block at XRAM, so no gamepad access happens until a ROM asks.
- * gamepad_host writes one player's decoded state (the page computes the canonical
- * bit layout from the browser's "standard" mapping); gamepad_disconnect clears one. */
+/* The page polls the browser's Gamepad API only while this reports true, so it
+ * touches no controller until a program has mapped the report block into
+ * XRAM. */
 EMSCRIPTEN_KEEPALIVE int gamepad_mapped(void)
 {
     return gamepad_is_mapped() ? 1 : 0;

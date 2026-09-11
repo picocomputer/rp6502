@@ -4,27 +4,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The sprite stage's palette cache. Mode 5 reads its palette from XRAM
- * per opaque pixel, which is most of what a paletted sprite line costs.
+ * for every pixel, transparent ones included, because the alpha bit is
+ * in the color the lookup returns.
  *
- * The invariant: any sixteen colours at any contiguous XRAM location
- * must be conflict-free. A halfword-aligned palette spreads sixteen
- * colours across nine consecutive words, so eight sets of two ways with
- * one-word lines maps any run of sixteen or fewer words at most two deep
- * per set — nine compulsory misses a row, and it can never thrash. A
- * miss is exactly the old fetch, so the cache only removes trips.
+ * A 4bpp palette anywhere in XRAM has to be conflict-free. A
+ * halfword-aligned one spreads sixteen colors across nine consecutive
+ * words, and eight sets of two ways with one-word lines hold any run of
+ * nine words at most two deep in a set, so a sixteen-color sprite takes
+ * nine compulsory misses a row and cannot thrash. An 8bpp sprite ranging
+ * over more than sixteen words can. A miss costs the fetch it replaces,
+ * so the cache only ever removes trips.
  *
- * The fill modes deliberately do NOT use this: a 256-colour fill cycling
- * more colours than the cache holds would miss per pixel and blow a
- * deadline the fill contract says is deterministic.
+ * The fill modes deliberately do not use this. A 256-color fill cycling
+ * through more colors than the cache holds would miss on every pixel and
+ * blow the deadline the fill modes are contracted to meet.
  *
- * Tags and data are flops, the hit and both colors combinational, and
- * the builtin palettes resolve here so the consumer always gets a
- * finished color. The fill interposes ahead of the mode engine's own
- * fetches, which is free because the engine is stalled on the miss.
+ * The built-in palettes resolve here, so the consumer always gets a
+ * finished color.
  *
- * Coherence is by row, not by write: the flush empties the cache each
- * line, so a palette write lands by the next row. Dropping the per-write
- * snoop is what makes the cache this small.
+ * Coherence is by row rather than by write: flush empties the cache each
+ * line, so a palette write lands by the next row and there is no need to
+ * snoop writes.
  */
 
 module palcache
@@ -32,9 +32,7 @@ module palcache
 (
     input logic clk,
 
-    /* idx_b rides beside idx_a for mode 1's foreground/background pair.
-     * With xram clear the builtins answer and there is nothing to
-     * miss. */
+    /* With xram clear the built-in colors answer and nothing can miss. */
     input logic lookup,
     input logic xram,
     input logic one_bpp,
@@ -52,7 +50,8 @@ module palcache
     input logic fill_rdy,
     input logic [31:0] a_rdata,
 
-    /* Row boundary: empty the cache, ending any fill mid-flight. */
+    /* The row boundary. It empties the cache and ends any fill in
+     * flight. */
     input logic flush
 );
 
@@ -101,10 +100,11 @@ module palcache
     always_comb palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
 
-    /* A register stands between the tag compare and the channel: the
-     * lookup's arithmetic is a full-period cone already, and reaching
-     * the XRAM's address port in the same cycle puts two of them end to
-     * end. The miss pays a cycle it was spending stalled anyway. */
+    /* The request is registered rather than driven straight from the tag
+     * compare, because the lookup's address arithmetic already fills a
+     * clock and reaching the XRAM's address port in the same one would
+     * put the two in series. The miss pays a clock it was going to spend
+     * stalled anyway. */
     logic pending;
     logic [13:0] pend_wa;
     logic filling;
@@ -152,8 +152,9 @@ module palcache
         if (lookup && xram && need_b && hit_b)
             lru[set_b] <= hit_b0;
 
-        /* The flush outranks a landing fill: a word granted before
-         * the boundary must not resurrect after it. */
+        /* The flush is written last, so it outranks a fill landing on
+         * the same clock: a word granted before the row boundary must
+         * not validate a way after it. */
         if (flush) begin
             for (int s = 0; s < 8; s++) begin
                 valid[s][0] <= 1'b0;
@@ -164,8 +165,9 @@ module palcache
         end
     end
 
-    /* base[0] is validated clear before it arrives, and the halfword
-     * sums cannot carry into bit 15 of a 64 KB space. */
+    /* mode5 only sets xram for a halfword-aligned palette that fits
+     * inside the 64 KB of XRAM, so base[0] is clear and base/2 plus an
+     * index cannot reach bit 15. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_palcache;
     always_comb unused_palcache = ^{base[0], ha_a[15], ha_b[15]};

@@ -8,11 +8,6 @@
 #ifndef _CORE_STR_STR_H_
 #define _CORE_STR_STR_H_
 
-/*
- * String constants in flash and
- * miscellaneous string functions.
- */
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -21,29 +16,29 @@
 int str_xdigit_to_int(char ch);
 
 // Parse a string, optionally quoted with escape sequences.
-// Returns a pointer to static storage valid until the next str_* call.
-// Returns NULL if no token is present, a null byte is produced, or the
-// output would exceed 255 characters.
+// Returns a pointer to static storage, valid until the next call to this
+// function.
+// Returns NULL if no token is present, a quote is unclosed, a null byte is
+// produced, or the output would exceed 255 characters.
 const char *str_parse_string(const char **args);
 
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
+// One argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint8(const char **args, uint8_t *result);
-
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint16(const char **args, uint16_t *result);
-
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint32(const char **args, uint32_t *result);
 
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 
-// Case-insensitive equality of two OEM strings in the active code page (uses
-// FatFs code-page tables and up-case folding; strcasecmp folds only ASCII).
+// Case-insensitive equality of two OEM strings in the code page in force,
+// folded through the up-case tables in core/str/unicode.c. strcasecmp folds
+// only ASCII.
 bool str_oem_eq(const char *a, const char *b);
 
-// Format a byte count as a short human string ("119.1 GB", "1.44 MB", "512 KB").
-// Media under 5 MB is shown in KB/MB; larger media in decimal MB/GB/TB.
+// Format a byte count as a short human string ("119.1 GB", "1.44 MB",
+// "976.563 KB"). Below 5000000 bytes a KB is 1024 bytes and an MB is 1000 of
+// those KB, so a 1474560 byte floppy reads 1.44 MB; from 5000000 bytes up the
+// MB, GB, and TB are the decimal ones media are sold in.
 void str_size(uint64_t bytes, char *out, size_t out_size);
 
 // Non-localized string literals are in flash, or in RAM via XR().
@@ -54,7 +49,6 @@ void str_size(uint64_t bytes, char *out, size_t out_size);
 #undef X
 #undef XR
 
-// Provide length of non-localized string literals.
 #define X(name, value)                 \
     enum                               \
     {                                  \
@@ -82,21 +76,16 @@ enum str_loc_id
     STR_LOC_COUNT
 };
 
-// Active-locale string for a localized id.
 const char *S(int id);
 
-// Initialize the string module (establishes the build-default locale).
 void str_init(void);
 
-// Locale (UI language) selection.
 int str_locales_response(char *buf, size_t buf_size, int state, unsigned width);
 const char *str_get_locale_verbose(void);
 
-/* Stringize, for a row default that has to name the build's locale. */
 #define STR_XSTR1(x) #x
 #define STR_XSTR(x) STR_XSTR1(x)
 
-/* Two letters and a terminator, with room to spare. */
 #define STR_LOCALE_SIZE 8
 
 /* This driver's setting; see core/sys/config.h. str_get_locale and
@@ -105,11 +94,10 @@ bool str_check_locale(const char *in, char *out);
 void str_apply_locale(const char *name, bool changed);
 int str_locale_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define STR_CONFIG_LOCALE CONFIG_STR(M, str, locale, STR_LOCALE_SIZE, STR_XSTR(RP6502_LOCALE), \
     str_check_locale, str_apply_locale, STR_LOC, str_locale_response, \
     STR_HELP_SET_LOC, str_locales_response)
 #define STR_DRIVER DRIVER(str_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    STR_CONFIG_LOCALE, nul_config)
+    STR_CONFIG_LOCALE, nul_config, nul_sst)
 
 #endif /* _CORE_STR_STR_H_ */

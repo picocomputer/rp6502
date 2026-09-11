@@ -83,14 +83,14 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
-    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("/shell.rp6502", 0, NULL);
     ASSERT_FALSE(proc_has_launcher());
     proc_set_launcher(true);
     ASSERT_TRUE(proc_has_launcher());
     ASSERT_TRUE(proc_is_launcher());
 
     /* It execs a game (the reload calls proc_run): the game is not the launcher. */
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
@@ -131,7 +131,7 @@ UTEST(features, an_installed_name_round_trips_the_chain)
     ASSERT_TRUE(proc_is_launcher());
 
     /* A child by filesystem path; the launcher's spelling is what replays. */
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     proc_exit(0);
     sys_commit();
     ASSERT_TRUE(proc_exec_inflight());
@@ -151,13 +151,13 @@ UTEST(features, an_exec_is_not_the_child_exiting)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* running, which the stop needs */
 
-    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_argv("/shell.rp6502", 0, NULL);
     proc_set_launcher(true);
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_set_argv("/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
-    proc_set_argv("MSC0:/other.rp6502", 0, NULL);
+    proc_set_argv("/other.rp6502", 0, NULL);
     proc_exec_request(); /* op 0x09, machine still running */
     ASSERT_TRUE(proc_exec_inflight());
 
@@ -175,7 +175,7 @@ UTEST(features, empty_args_kept)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
-    ASSERT_TRUE(proc_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_TRUE(proc_set_argv("/a.rp6502", 3, args));
     ASSERT_FALSE(proc_api_argv()); /* false = op complete, not still working */
 
     const uint8_t *blob = &xstack[xstack_ptr];
@@ -251,6 +251,105 @@ UTEST(features, audio_disable)
     /* Play out the bell we rang: audio is a continuous stream (a reset never
      * silences it), so let it end here instead of bleeding into a later test. */
     emu_frames(60);
+}
+
+/* stderr is a stream of its own. It reaches the terminal beside stdout, so
+ * nobody at the screen has an error hidden from them, and the std tap sees
+ * each stream raw under its own descriptor, which is what a host with a
+ * stderr of its own takes. The raw register path is stdout too. */
+static char tap_term[64];
+static size_t tap_term_len;
+static char tap_std[2][64];
+static size_t tap_std_len[2];
+
+static void term_tap(const char *buf, int len)
+{
+    for (int i = 0; i < len && tap_term_len < sizeof tap_term - 1; i++)
+        tap_term[tap_term_len++] = buf[i];
+    tap_term[tap_term_len] = 0;
+}
+
+static void std_tap(int fd, const char *buf, int len)
+{
+    char *dst = tap_std[fd == 2];
+    size_t *n = &tap_std_len[fd == 2];
+    for (int i = 0; i < len && *n < sizeof tap_std[0] - 1; i++)
+        dst[(*n)++] = buf[i];
+    dst[*n] = 0;
+}
+
+static void taps_reset(void)
+{
+    tap_term_len = tap_std_len[0] = tap_std_len[1] = 0;
+    tap_term[0] = tap_std[0][0] = tap_std[1][0] = 0;
+}
+
+UTEST(features, stderr_is_its_own_stream)
+{
+    sys_stop();
+    sys_commit();
+    com_set_tx_tap(term_tap);
+    com_set_std_tap(std_tap);
+
+    taps_reset();
+    ASSERT_EQ(ssys_write(2, "err\n", 4), 4);
+    ASSERT_STREQ(tap_std[1], "err\n");
+    ASSERT_STREQ(tap_std[0], "");
+    ASSERT_STREQ(tap_term, "err\r\n");
+
+    taps_reset();
+    ASSERT_EQ(ssys_write(1, "out\n", 4), 4);
+    ASSERT_STREQ(tap_std[0], "out\n");
+    ASSERT_STREQ(tap_std[1], "");
+    ASSERT_STREQ(tap_term, "out\r\n");
+
+    taps_reset();
+    ria_reg_write(0xFFE1, '\n');
+    ASSERT_STREQ(tap_std[0], "\n");
+    ASSERT_STREQ(tap_term, "\n");
+
+    /* A BEL on stderr rings like one on stdout: it is on the terminal. */
+    com_set_bel(true);
+    ASSERT_EQ(ssys_write(2, "\a", 1), 1);
+    ASSERT_TRUE(rendered_audio(16));
+
+    com_set_tx_tap(NULL);
+    com_set_std_tap(NULL);
+}
+
+/* A read of nothing asks for nothing: it does not start a line read. */
+UTEST(features, zero_length_stdin_read_returns_at_once)
+{
+    sys_stop();
+    sys_commit();
+    char buf[1];
+    ASSERT_EQ(ssys_read(0, buf, 0), 0);
+    ASSERT_FALSE(std_stdin_waiting());
+}
+
+/* The host's stdin runs out under a read in progress: the read answers
+ * nothing, and so does every read after it. */
+UTEST(features, stdin_eof_ends_a_pending_read)
+{
+    sys_stop();
+    sys_commit();
+    uint16_t n = 8;
+    xstack_ptr = XSTACK_SIZE - 2;
+    memcpy(&xstack[xstack_ptr], &n, 2);
+    API_A = 0;
+    ASSERT_TRUE(std_api_read_xstack()); /* takes the request */
+    ASSERT_FALSE(std_stdin_waiting());
+    ASSERT_TRUE(std_api_read_xstack()); /* asks the line editor, which waits */
+    ASSERT_TRUE(std_stdin_waiting());
+    std_stdin_eof();
+    ASSERT_FALSE(std_stdin_waiting());
+    ASSERT_FALSE(std_api_read_xstack()); /* answered */
+    ASSERT_EQ(dsys_ax(), 0);
+    xstack_ptr = XSTACK_SIZE;
+
+    char buf[8];
+    ASSERT_EQ(ssys_read(0, buf, 8), 0);
+    ASSERT_FALSE(std_stdin_waiting());
 }
 
 UTEST_MAIN_EMU()

@@ -15,17 +15,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_OEM)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 
-// Resolve the code page to apply: the override if set, else the locale auto.
 static uint16_t oem_resolve(void)
 {
     return oem_get_code_page() ? oem_get_code_page() : oem_auto_cp;
@@ -34,7 +26,6 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-    // cp >= 900 are DBCS; allow SBCS only
     if (cp < 900 && unicode_has_page(cp))
     {
         oem_fs_code_page(cp);
@@ -44,13 +35,34 @@ static void oem_request_code_page(uint16_t cp)
         vga_set_code_page(oem_code_page_run);
 }
 
+void oem_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, oem_code_page_run);
+}
+
+bool oem_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t cp = sst_get_u16(c);
+    /* Zero is a valid saved value, because a machine whose resolved page the
+     * tables do not carry runs with no page at all. */
+    if (!sst_ok(c) || (cp != 0 && (cp >= 900 || !unicode_has_page(cp))))
+        return false;
+    oem_code_page_run = cp;
+    oem_fs_code_page(cp);
+    /* vga_load_code_page rather than vga_set_code_page, because choosing a
+     * page resets the terminal and the savestate has already put the
+     * terminal's cells back by the time this runs. */
+    vga_load_code_page(cp);
+    return true;
+}
+
 void HOST_IN_FLASH("oem_init") oem_init(void)
 {
     oem_apply_code_page(oem_get_code_page(), true);
-    /* The glyph store was rebuilt by font_init just above and has forgotten
-     * the page; oem_request_code_page only speaks when the number changes, so
-     * it would stay forgotten. On a machine whose font is another chip this is
-     * the PIX message that tells it, and this is where that message goes. */
+    /* oem_request_code_page calls vga_set_code_page only when the number
+     * changes, so the display is given a page here even when it did not. */
     vga_set_code_page(oem_code_page_run);
 }
 
@@ -65,9 +77,7 @@ void oem_set_code_page_run(uint16_t cp)
     oem_request_code_page(cp);
 }
 
-/* Zero is auto: track whatever the locale's default is. A page is carried
- * or it is not, and the table says which without applying anything -- the
- * same test oem_request_code_page makes before it speaks. */
+/* Zero is auto: follow the locale's default. */
 bool oem_check_code_page(uint16_t *v)
 {
     return *v == 0 || (*v < 900 && unicode_has_page(*v));
@@ -85,7 +95,6 @@ bool oem_is_auto(void)
     return oem_get_code_page() == 0;
 }
 
-/* SET's line for this row. Auto reports the page it landed on. */
 int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -119,12 +128,81 @@ unsigned char oem_from_utf8_next(const char **p)
     return unicode_from_utf8_next(p, oem_code_page_run);
 }
 
+static size_t oem_utf8_len(unsigned char lead)
+{
+    if ((lead & 0xe0) == 0xc0)
+        return 2;
+    if ((lead & 0xf0) == 0xe0)
+        return 3;
+    if ((lead & 0xf8) == 0xf0)
+        return 4;
+    return 1;
+}
+
+size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
+                         char *dst, size_t dstsz, size_t *taken)
+{
+    size_t in = 0, out = 0;
+    while (in < len && out < dstsz)
+    {
+        unsigned char c = (unsigned char)utf8[in];
+        bool paired = run->after_cr;
+        run->after_cr = false;
+        if (c == '\r' || c == '\n')
+        {
+            /* A carriage return is written at once rather than held to see
+             * whether a line feed follows, because the run carries state and
+             * not output: a held return would have nothing to flush it. */
+            if (c == '\n' && paired)
+            {
+                in++; /* the second half of a CRLF the last call cut */
+                continue;
+            }
+            dst[out++] = '\r';
+            in++;
+            if (c != '\r')
+                continue;
+            if (in < len)
+            {
+                if (utf8[in] == '\n')
+                    in++;
+            }
+            else
+                run->after_cr = true; /* its line feed may open the next call */
+            continue;
+        }
+        if (c < 0x80)
+        {
+            dst[out++] = (char)c;
+            in++;
+            continue;
+        }
+        size_t n = oem_utf8_len(c);
+        if (n > len - in)
+        {
+            if (!end)
+                break; /* the rest of the sequence has not arrived */
+            n = len - in;
+        }
+        char seq[5];
+        memcpy(seq, utf8 + in, n);
+        seq[n] = 0;
+        const char *p = seq;
+        unsigned char b = oem_from_utf8_next(&p);
+        dst[out++] = (char)(b && b != 0x7F ? b : '?');
+        in += n;
+    }
+    if (taken)
+        *taken = in;
+    return out;
+}
+
 int oem_to_utf8_char(unsigned char b, char *dst)
 {
     return unicode_to_utf8_char(b, oem_code_page_run, dst);
 }
 
-// Truncation never splits a sequence: once one doesn't fit, writing stops
+// Truncation never splits a sequence: once one does not fit, writing stops
 // but the needed length keeps counting.
 size_t oem_to_utf8(const char *s, char *dst, size_t dstsz)
 {
@@ -195,6 +273,37 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     while (w[len])
         len++;
     return oem_from_wide_n(w, len, dst, dstsz);
+}
+
+/* 0x7F is what the conversions put where a character had no spelling, and
+ * FatFs rejects 0x7F in a name outright, so a result of 0x7F means "no
+ * spelling" whichever way it got there. */
+#define OEM_NO_SPELLING 0x7F
+
+bool oem_maps_utf8(const char *u8)
+{
+    const char *p = u8;
+    while (*p)
+        if (oem_from_utf8_next(&p) == OEM_NO_SPELLING)
+            return false;
+    return true;
+}
+
+bool oem_maps_wide(const uint16_t *w)
+{
+    for (; *w; w++)
+        if (*w == OEM_NO_SPELLING ||
+            (*w >= 0x80 && !ff_uni2oem(*w, oem_code_page_run)))
+            return false;
+    return true;
+}
+
+bool oem_maps_oem(const char *s)
+{
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+        if (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run))
+            return false;
+    return true;
 }
 
 int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va)

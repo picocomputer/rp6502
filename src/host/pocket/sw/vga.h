@@ -16,10 +16,6 @@
  * shape. What only the fabric has.
  */
 
-int16_t vga_vsync_scanline(void);
-
-bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
-                    int16_t *scanline_end);
 /* Mode 0's registration: one instance globally — the previous entries
  * are swept wherever they survive, contiguous or not. */
 /* fill_fn is the renderer itself on a machine that renders in software.

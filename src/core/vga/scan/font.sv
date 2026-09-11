@@ -3,15 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The font store: four faces read a byte at a time. Nothing is built
- * into the bitstream — the store comes up blank and the firmware fills
- * it from the font asset, which is what lets seventeen code pages exist
- * without seventeen code pages of code memory. Blank is also what makes
- * a misaddressed store visible: an initial image would render a
- * terminal anyway and every frame test would pass.
+ * The font store, four faces read a byte at a time. Nothing is built
+ * into the bitstream: the store comes up blank and the firmware fills it
+ * from the font asset, which is how the seventeen code pages in
+ * core/term/font.c fit without seventeen code pages of program memory.
  *
- * Faces are row-major with the C's own stride, so the hardware image is
- * the C image. The read address carries the face in its top two bits:
+ * Faces are row-major with the same stride the C uses, so the hardware
+ * image is the C image. The read address carries the face in its top two
+ * bits:
  *
  *   0  font16    {2'b00, row[3:0], code[7:0]}         4096 B
  *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B
@@ -20,11 +19,7 @@
  *      dec8      {2'b11, 3'b001, 1'b0, row[2:0], idx[4:0]} above it
  *
  * Each face is a word wide with byte lanes because that is the shape a
- * block RAM holds cheaply — a byte-wide array of the same depth costs
- * the fabric more blocks than a word-wide one a quarter as deep. All
- * four are read every clock and the face chooses afterward: a face
- * folded into the address ahead of the lookup makes the address a mux
- * across the faces, which is logic rather than memory.
+ * block RAM holds cheaply.
  */
 
 module font (
@@ -33,9 +28,9 @@ module font (
     input logic [13:0] addr,
     output logic [7:0] font_bits,
 
-    /* The soft CPU's window, a whole word per write: byte lanes are
-     * what stops a dual-port RAM being inferred at all, and the
-     * firmware copies fonts in aligned runs anyway. */
+    /* The soft CPU's window, a whole word per write: byte lanes would
+     * stop a dual-port RAM being inferred at all, and the firmware
+     * copies fonts in aligned runs anyway. */
     input logic w_stb,
     input logic [13:0] w_addr,
     input logic [31:0] w_data
@@ -44,19 +39,12 @@ module font (
     logic [31:0] f16[1024] /*verilator public_flat_rd*/;
     logic [31:0] f8[512] /*verilator public_flat_rd*/;
     logic [31:0] ital[512] /*verilator public_flat_rd*/;
-    /* The smallest face by a long way, and nothing reads it while
-     * writing it. */
     (* ramstyle = "no_rw_check" *)
     logic [31:0] dec[256] /*verilator public_flat_rd*/;
 
-    /* A clock of its own, for hold rather than setup: the soft CPU's
-     * address reaches these arrays through nothing but wiring, so at the
-     * fast corner the data can arrive before the launching edge. Padding
-     * a route that short is something the fitter must rediscover every
-     * placement; a register ends it.
-     *
-     * Free here — nothing reads a face until the firmware has finished
-     * writing it. */
+    /* These capture the soft CPU's write on the machine clock; the two
+     * clocks rise together, and the hold check on that crossing is cut
+     * in host/pocket/quartus/pocket.sdc. */
     logic w_stb_q;
     logic [13:0] w_addr_q;
     logic [31:0] w_data_q;
@@ -110,7 +98,9 @@ module font (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_font;
-    always_comb unused_font = ^{w_addr[1:0], w_addr_q[1:0]};  /* the lanes carry it */
+    /* Writes are whole words, so the byte within the word selects
+     * nothing. */
+    always_comb unused_font = ^{w_addr[1:0], w_addr_q[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -6,19 +6,11 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/mouse.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
 #include <string.h>
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_MOUSE)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-
-// This is the report we generate for XRAM.
 static struct
 {
     uint8_t buttons;
@@ -27,7 +19,8 @@ static struct
     uint8_t wheel;
     uint8_t pan;
 } mouse_state;
-// Higher resolution x and y
+/* Raw device counts. The block carries these shifted down by one, so it
+ * advances one unit for every two counts the mouse reports. */
 static uint16_t mouse_x;
 static uint16_t mouse_y;
 
@@ -81,8 +74,8 @@ bool HOST_IN_FLASH("mouse_mount") mouse_mount(int slot, const mouse_connection_t
             continue;
         mouse_connections[i] = *desc;
         mouse_connections[i].slot = slot;
-        DBG("mouse_mount: slot=%d, report_id=%d, x=%d/%d rel=%d\n", slot,
-            desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
+        RP6502_LOG(hid, INFO, "mouse mount slot=%d, report_id=%d, x=%d/%d rel=%d", slot,
+                   desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
         return true;
     }
     return false;
@@ -93,7 +86,7 @@ bool mouse_umount(int slot)
     mouse_connection_t *conn = mouse_get_connection_by_slot(slot);
     if (conn == NULL)
         return false;
-    DBG("mouse_umount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
+    RP6502_LOG(hid, INFO, "mouse umount slot=%d, valid=%d, report_id=%d", slot, conn->valid, conn->report_id);
     conn->valid = false;
     uint8_t merged = 0;
     for (int i = 0; i < MOUSE_MAX_MICE; ++i)
@@ -118,12 +111,10 @@ void mouse_report(int slot, uint8_t const *data, size_t size)
     {
         if (report_data_len == 0 || report_data[0] != conn->report_id)
             return;
-        // Skip report ID byte
         report_data++;
         report_data_len--;
     }
 
-    // Extract button states
     uint8_t buttons = 0;
     for (int i = 0; i < 8; i++)
     {
@@ -142,7 +133,6 @@ void mouse_report(int slot, uint8_t const *data, size_t size)
             merged |= mouse_connections[i].buttons;
     mouse_state.buttons = merged;
 
-    // Extract movement data
     mouse_x += hid_extract_signed(report_data, report_data_len,
                                   conn->x_offset, conn->x_size);
     mouse_state.x = mouse_x >> 1;
@@ -165,27 +155,64 @@ bool mouse_is_mapped(void)
     return mouse_xram != 0xFFFF;
 }
 
-/* A host whose OS decodes its own pointer has no report to hand over,
- * so it moves the same counters a report would have. The block carries
- * half of what a mouse counts, so a host count -- which is already in
- * the block's units -- is doubled on the way in and arrives whole. */
-static float mouse_acc_x, mouse_acc_y;
+static int32_t mouse_acc_x, mouse_acc_y;
 
-void mouse_host_move(float dx, float dy)
+/* A host count is already in the block's units, and the counters behind the
+ * block run at twice that, so host motion is doubled on the way in. */
+void mouse_host_move(int32_t dx, int32_t dy)
 {
     mouse_acc_x += dx;
     mouse_acc_y += dy;
-    int ix = (int)mouse_acc_x; // truncate toward zero; keep the remainder
-    int iy = (int)mouse_acc_y;
+    int ix = mouse_acc_x / MOUSE_ONE;
+    int iy = mouse_acc_y / MOUSE_ONE;
     if (ix == 0 && iy == 0)
         return;
-    mouse_acc_x -= ix;
-    mouse_acc_y -= iy;
+    mouse_acc_x -= ix * MOUSE_ONE;
+    mouse_acc_y -= iy * MOUSE_ONE;
     mouse_x += (uint16_t)(ix * 2);
     mouse_y += (uint16_t)(iy * 2);
     mouse_state.x = mouse_x >> 1;
     mouse_state.y = mouse_y >> 1;
     mouse_write_xram();
+}
+
+void mouse_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, mouse_xram);
+    sst_put_u8(c, mouse_state.buttons);
+    sst_put_u8(c, mouse_state.x);
+    sst_put_u8(c, mouse_state.y);
+    sst_put_u8(c, mouse_state.wheel);
+    sst_put_u8(c, mouse_state.pan);
+    sst_put_u16(c, mouse_x);
+    sst_put_u16(c, mouse_y);
+    sst_put_i32(c, mouse_acc_x);
+    sst_put_i32(c, mouse_acc_y);
+}
+
+bool mouse_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    uint8_t b = sst_get_u8(c), x = sst_get_u8(c), y = sst_get_u8(c);
+    uint8_t w = sst_get_u8(c), p = sst_get_u8(c);
+    uint16_t mx = sst_get_u16(c), my = sst_get_u16(c);
+    int32_t ax = sst_get_i32(c), ay = sst_get_i32(c);
+    if (!sst_ok(c))
+        return false;
+    mouse_xram = at;
+    mouse_state.buttons = b;
+    mouse_state.x = x;
+    mouse_state.y = y;
+    mouse_state.wheel = w;
+    mouse_state.pan = p;
+    mouse_x = mx;
+    mouse_y = my;
+    mouse_acc_x = ax;
+    mouse_acc_y = ay;
+    mouse_write_xram();
+    return true;
 }
 
 void mouse_host_wheel(int dwheel, int dpan)

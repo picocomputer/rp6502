@@ -1,44 +1,52 @@
-# The Win32 seam, for the machines whose OS is one.
+# rp6502_osal_windows(<target> TRANSPORT overlapped|sync)
 #
-# rp6502_osal_windows(<target>)
+# The Win32 half of osal, shared by the desktop emulator and the libretro core.
+# The transport is the choice the POSIX build makes between fs_aio.c and
+# fs_sync.c, made with a define rather than a file because FILE_FLAG_OVERLAPPED
+# belongs to the handle and both arms live in fs.c. See its header for which
+# host takes which.
 #
-# The desktop emulator and the libretro core share every file here. Unlike the
-# POSIX seam there is no transport to choose: overlapped I/O is the kernel's
-# own, with no helper threads to outlive an unloaded library, and the
-# overlapped flag belongs to fs_std_open — so the transport could not leave
-# fs.c. See its header. Nothing collides with ff.h on Win32 either, so the
-# drive is one file rather than two.
-#
-# What is not here is what differs between machines rather than between
-# operating systems: the console attach and the argv encoding, which the
-# desktop answers in os_emu.c beside these and the libretro core does not
-# answer at all.
+# console.c is not listed, because only a host that owns a terminal links it
+# and it takes the console control handler and an atexit from the process to do
+# so. A host that wants it adds it itself.
 
 include_guard(GLOBAL)
 
 set(RP6502_OSAL_WINDOWS ${CMAKE_CURRENT_LIST_DIR})
 
 function(rp6502_osal_windows target)
+    cmake_parse_arguments(W "" "TRANSPORT" "" ${ARGN})
+    if(NOT W_TRANSPORT MATCHES "^(overlapped|sync)$")
+        message(FATAL_ERROR "rp6502_osal_windows(${target}): TRANSPORT is overlapped or sync")
+    endif()
+    if(W_TRANSPORT STREQUAL "sync")
+        target_compile_definitions(${target} PRIVATE RP6502_FS_SYNC)
+    endif()
     target_sources(${target} PRIVATE
         ${RP6502_OSAL_WINDOWS}/dir.c
         ${RP6502_OSAL_WINDOWS}/errmap.c
         ${RP6502_OSAL_WINDOWS}/fs.c
         ${RP6502_OSAL_WINDOWS}/os.c)
-    # CancelIoEx and SetFileInformationByHandle are Vista. PRIVATE, so a floor
-    # set for these files cannot hide newer APIs from the window and pad code
-    # that compiles into the emulator beside them.
+    # CancelIoEx and SetFileInformationByHandle in fs.c, and
+    # CreateWaitableTimerExW in os.c, are declared only when _WIN32_WINNT names
+    # Vista or later, so the floor cannot go below 0x0600. Nothing here needs
+    # Windows 7; 0x0601 is a margin above the real floor. PRIVATE, so this
+    # floor cannot hide newer APIs from the window and pad code compiled beside
+    # these files.
     target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0601)
     if(NOT MSVC)
         return()
     endif()
-    # What MSVC alone needs to compile the core beside this seam: shims
-    # including a <strings.h> it has no system header for, in their own
-    # directory because it goes on every consumer's include path and the host's
-    # own headers are not ours to publish. MinGW takes none of it.
+    # What MSVC alone needs to compile the shared sources, including a
+    # <strings.h> it has no system header for. Its own directory, because it
+    # goes on every consumer's include path and the host's own headers are not
+    # ours to publish. MinGW needs none of it.
     target_include_directories(${target} PUBLIC ${RP6502_OSAL_WINDOWS}/msvc)
-    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
-    # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
-    # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
+    # /Zc:preprocessor because core/sys/debug_log.h pastes a macro that expands
+    # to two arguments, which the traditional preprocessor keeps as one.
+    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h /Zc:preprocessor)
+    # Idioms in the shared sources that GCC and Clang accept: #pragma GCC is
+    # C4068, and returning a void expression from a void function is C4098.
     target_compile_options(${target} PRIVATE /wd4068 /wd4098)
     target_compile_definitions(${target} PUBLIC _CRT_SECURE_NO_WARNINGS)
 endfunction()

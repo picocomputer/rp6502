@@ -19,5 +19,9 @@
 /* The dock has four ports. */
 #define HID_MAX_SLOTS 4
 #define TERM_MAX_HEIGHT 30
+/* Each console ring, a power of two. The rings here only ever hold the
+ * terminal's replies, so the smallest one a reply fits in. */
+#define COM_RING_SIZE 64
+
 
 #endif /* _HOST_MACHINE_H_ */

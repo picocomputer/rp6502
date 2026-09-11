@@ -53,6 +53,6 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
     cyw_check_rf_country_code, cyw_apply_rf_country_code, STR_RFCC, \
     cyw_rf_country_code_response, STR_HELP_SET_RFCC, cyw_country_code_response)
 #define CYW_DRIVER DRIVER(cyw_init, cyw_task, nul_task, nul_run, nul_stop, nul_break, \
-    CYW_CONFIG_RF, CYW_CONFIG_RFCC)
+    CYW_CONFIG_RF, CYW_CONFIG_RFCC, nul_sst)
 
 #endif /* _RIA_W_NET_CYW_H_ */

@@ -1,6 +1,13 @@
 # What the Design Assistant finds today, and why each entry is still
 # here. Anything above these numbers fails the build; see
-# src/core/gen/drc_gate.py. Lower a line when a fix lands.
+# src/host/pocket/gen/drc_gate.py. Lower a line when a fix lands.
+#
+# The numbers are findings by name, not the structures the report
+# numbers: a register the fitter copied is one crossing however many
+# times the report lists it. The counts below were measured that way
+# from the point the D101 entry says so; the history above that point
+# is in structures, and reads the same because the two only differ
+# when a copy and its original are both listed.
 #
 # Every count and every attribution below was read out of the report
 # rather than reasoned about. The D101 entry used to claim the opposite
@@ -141,6 +148,21 @@ R101 2
 #       power-on and was dead for the other ninety asks of a session. A
 #       crossing the tool is happy with and the device is not is worth
 #       one line here.
+#
+#       Counted by name since the debug pin and the host log stopped
+#       taking the 6502's $FFE1 writes straight from the fabric. That
+#       change removed a port and a mux on the machine clock in front of
+#       two FIFOs whose crossings are the gray pointers under D102, and
+#       neither module is named under this rule -- but the structure
+#       count went to 718, and a fit of the same tree without the change
+#       said 717 with the same tools. The one name between the two lists
+#       was pocket_file_id[7]~DUPLICATE beside pocket_file_id[7]: the
+#       fitter's copy of one bit of a bus whose other sixteen are counted
+#       above, in a module the change does not touch -- bridgeaddr[6]
+#       again, one bus over -- and every other difference was a
+#       ~DUPLICATE tag moving from one bit of hold to another. So the
+#       gate folds a copy into the bit it copies now, and both fits say
+#       717. This is the number the warning above was asking for.
 D101 717
 #
 # D102  Multi-bit crossings that are synchronised but may land

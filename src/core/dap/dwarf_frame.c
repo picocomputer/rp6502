@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * DWARF .debug_frame reader + unwinder — see dwarf_frame.h. Parses CIE/FDE
- * entries, runs the CFI rule program to build the row covering a PC, and
- * evaluates the CFA / register-recovery rules (including the small DWARF
- * expressions llvm-mos emits to normalize the 6502 hardware stack). Defensive
- * against truncated input: a bad entry is skipped; a bad rule fails the unwind.
  */
 
 #include "core/dap/dwarf_frame.h"
@@ -17,13 +11,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* MOS soft-stack pointer register (MOSRegisterInfo.td Imag16RegsOffset). */
+/* The DWARF register number of the soft stack pointer, from Imag16RegsOffset in
+ * the llvm-mos MOSRegisterInfo.td. */
 #define DW_MOS_RS0 0x30000u
 
-/* Call-frame instructions (only the ones we parse). */
+/* CFA_advance_loc, CFA_offset and CFA_restore are opcodes in the top two bits
+ * of the byte, with their operand in the low six. The rest are whole bytes,
+ * with those two bits clear. */
 enum
 {
-    CFA_advance_loc = 0x40, /* high 2 bits */
+    CFA_advance_loc = 0x40,
     CFA_offset = 0x80,
     CFA_restore = 0xc0,
     CFA_nop = 0x00,
@@ -51,7 +48,6 @@ enum
     CFA_val_expression = 0x16,
 };
 
-/* DWARF expression opcodes used by the CFI expressions (fixed, tiny vocabulary). */
 enum
 {
     OP_deref = 0x06,
@@ -75,7 +71,7 @@ enum
 
 typedef struct
 {
-    uint32_t off;              /* offset of this CIE within .debug_frame */
+    uint32_t off; /* within .debug_frame, which is what an FDE's CIE_pointer holds */
     int64_t data_align;
     uint32_t code_align;
     uint32_t ra_column;
@@ -94,7 +90,7 @@ typedef struct
 
 struct dwarf_frame
 {
-    uint8_t *frame; /* a private copy of .debug_frame; insns point into it */
+    uint8_t *frame; /* a private copy, because the insns pointers outlive the ELF image */
     cie_t *cies;
     int ncies;
     fde_t *fdes;
@@ -102,7 +98,6 @@ struct dwarf_frame
     uint8_t addr_size;
 };
 
-/* ---- CFI row state ---- */
 enum
 {
     RULE_UNDEF = 0,
@@ -116,7 +111,7 @@ enum
 typedef struct
 {
     int type;
-    int64_t off; /* already multiplied by data_align where applicable */
+    int64_t off; /* in bytes, with the data alignment factor already applied */
     const uint8_t *expr;
     uint32_t elen;
     int reg;
@@ -125,31 +120,28 @@ typedef struct
 {
     int cfa_is_expr;
     uint64_t cfa_reg;
-    int64_t cfa_off; /* unfactored */
+    int64_t cfa_off; /* in bytes */
     const uint8_t *cfa_expr;
     uint32_t cfa_elen;
-    rule_t ra, s, rs0; /* only the columns we recover */
+    rule_t ra, s, rs0;
 } state_t;
 
-/* Which tracked rule (if any) a register column maps to. */
 static rule_t *slot_for(state_t *st, uint64_t reg, uint32_t ra_col)
 {
     if (reg == ra_col)
         return &st->ra;
-    if (reg == 4) /* S */
+    if (reg == 4) /* llvm-mos numbers the 6502 S register 4 */
         return &st->s;
     if (reg == DW_MOS_RS0)
         return &st->rs0;
-    return NULL; /* a column we don't need; parse but ignore its rule */
+    return NULL; /* a column this unwinder does not recover: parse and drop it */
 }
 
-/* Push one value; overflow of the tiny fixed eval stack fails the expression. */
 static void eval_push(uint32_t *st, int *sp, uint32_t v, bool *ok)
 {
     if (*sp < 32) st[(*sp)++] = v; else *ok = false;
 }
 
-/* Evaluate a DWARF expression to a 32-bit value using the live registers. */
 static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t rs0,
                           uint8_t (*rd)(uint16_t), bool *ok)
 {
@@ -207,9 +199,9 @@ static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t
     return (sp > 0) ? st[sp - 1] : (*ok = false, 0);
 }
 
-/* Run a CFI instruction stream into `st`, advancing `*loc` and stopping once it
- * would pass `target`. `init` (may be NULL) is the CIE-initial state used by the
- * restore opcodes. Uses a small remember/restore stack. */
+/* Runs the instructions into st, advancing loc and stopping once a row would
+ * begin past target. The restore opcodes copy from init, the row the CIE built,
+ * so init is NULL only while the CIE's own instructions are running. */
 static void run_insns(const uint8_t *insns, uint32_t len, state_t *st, const state_t *init,
                       uint32_t code_align, int64_t data_align, uint32_t ra_col,
                       uint32_t addr_size, uint32_t *loc, uint32_t target)
@@ -255,7 +247,7 @@ static void run_insns(const uint8_t *insns, uint32_t len, state_t *st, const sta
         case CFA_set_loc:
         {
             uint32_t a = (addr_size == 8) ? (uint32_t)dwarf_u64(&c) : dwarf_u32(&c);
-            if (a > target) { c.ok = false; } /* next row starts past pc; stop */
+            if (a > target) { c.ok = false; } /* the next row begins past pc */
             else *loc = a;
             break;
         }
@@ -299,7 +291,7 @@ static void run_insns(const uint8_t *insns, uint32_t len, state_t *st, const sta
             break;
         }
         default:
-            c.ok = false; /* unknown opcode: can't size operands safely */
+            c.ok = false; /* an unknown opcode cannot be skipped: its operands have no known size */
             break;
         }
     }
@@ -321,7 +313,6 @@ static const fde_t *find_fde(const dwarf_frame_t *df, uint16_t pc)
     return NULL;
 }
 
-/* Apply a recovered-register rule, given the frame's CFA and live regs. */
 static bool apply_rule(const rule_t *r, uint32_t cfa, uint16_t s16, uint16_t rs0,
                        uint8_t (*rd)(uint16_t), uint16_t cur, uint16_t *out)
 {
@@ -335,7 +326,7 @@ static bool apply_rule(const rule_t *r, uint32_t cfa, uint16_t s16, uint16_t rs0
     case RULE_REG:
         if (r->reg == 4) { *out = s16; return true; }
         if (r->reg == DW_MOS_RS0) { *out = rs0; return true; }
-        return false; /* value held in a register we don't track */
+        return false;
     case RULE_SAME: *out = cur; return true;
     case RULE_UNDEF:
     default: return false;
@@ -357,7 +348,9 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
     if (!cie)
         return u;
 
-    /* CIE-initial row, then FDE rows up to pc. */
+    /* The CIE program builds the initial row, running to its end because no
+     * address can pass a target of 0xffffffff, and the FDE program then advances
+     * that row to pc. */
     state_t init;
     memset(&init, 0, sizeof init);
     uint32_t loc = fde->initial_loc;
@@ -368,7 +361,6 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
     run_insns(fde->insns, fde->insns_len, &st, &init,
               cie->code_align, cie->data_align, cie->ra_column, df->addr_size, &loc, pc);
 
-    /* CFA. */
     bool ok = true;
     uint32_t cfa;
     if (st.cfa_is_expr)
@@ -378,17 +370,17 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
     else if (st.cfa_reg == DW_MOS_RS0)
         cfa = rs0 + (uint32_t)st.cfa_off;
     else
-        return u; /* CFA base is a register we don't track: fail the unwind */
+        return u;
     if (!ok)
         return u;
 
     uint16_t cpc, cs, crs;
     if (!apply_rule(&st.ra, cfa, s16, rs0, readmem, pc, &cpc))
-        return u; /* no return address: top of stack */
+        return u; /* no return address, so this is the outermost frame */
     if (!apply_rule(&st.s, cfa, s16, rs0, readmem, s16, &cs))
-        cs = s16; /* S unchanged if unspecified */
+        cs = s16; /* an unspecified register is unchanged */
     if (!apply_rule(&st.rs0, cfa, s16, rs0, readmem, rs0, &crs))
-        crs = rs0; /* soft SP unchanged if unspecified */
+        crs = rs0;
 
     u.pc = cpc;
     u.s16 = cs;
@@ -402,8 +394,6 @@ bool dwarf_frame_has(const dwarf_frame_t *df, uint16_t pc)
 {
     return df && find_fde(df, pc) != NULL;
 }
-
-/* ---- .debug_frame parse ---- */
 
 dwarf_frame_t *dwarf_frame_load(const char *elf_path)
 {
@@ -424,7 +414,7 @@ dwarf_frame_t *dwarf_frame_load(const char *elf_path)
     df->frame = malloc(fr_size);
     if (!df->frame) { free(df); elf_close(&im); return NULL; }
     memcpy(df->frame, im.buf + fr_off, fr_size);
-    df->addr_size = 4; /* MOS default; overridden per-CIE (v4+) below */
+    df->addr_size = 4; /* the MOS default, replaced below by a version 4 or later CIE */
     elf_close(&im);
 
     const uint8_t *base = df->frame;
@@ -435,14 +425,14 @@ dwarf_frame_t *dwarf_frame_load(const char *elf_path)
         uint32_t entry_off = (uint32_t)(ent - base);
         uint32_t length = dwarf_u32(&c);
         if (length == 0 || length == 0xffffffffu)
-            break; /* terminator / 64-bit DWARF: stop */
+            break; /* a zero length terminates the section and 0xffffffff means 64-bit DWARF */
         const uint8_t *ent_end = c.p + length;
         if (ent_end > c.end)
             ent_end = c.end;
         uint32_t id = dwarf_u32(&c);
         if (id == 0xffffffffu)
         {
-            /* CIE */
+            /* A CIE_id of 0xffffffff marks this entry a CIE rather than an FDE. */
             uint8_t version = dwarf_u8(&c);
             const char *aug = (const char *)c.p;
             while (c.p < ent_end && *c.p) c.p++;
@@ -455,7 +445,7 @@ dwarf_frame_t *dwarf_frame_load(const char *elf_path)
             uint32_t code_align = (uint32_t)dwarf_uleb(&c);
             int64_t data_align = dwarf_sleb(&c);
             uint32_t ra = (version >= 3) ? (uint32_t)dwarf_uleb(&c) : dwarf_u8(&c);
-            /* We only support the empty augmentation llvm-mos emits. */
+            /* Only the empty augmentation that llvm-mos emits is understood. */
             if (aug[0] != 0)
             {
                 c.p = ent_end;
@@ -474,7 +464,6 @@ dwarf_frame_t *dwarf_frame_load(const char *elf_path)
         }
         else
         {
-            /* FDE: id is the CIE_pointer (offset within .debug_frame). */
             uint32_t initial_loc = (df->addr_size == 8) ? (uint32_t)dwarf_u64(&c) : dwarf_u32(&c);
             uint32_t range = (df->addr_size == 8) ? (uint32_t)dwarf_u64(&c) : dwarf_u32(&c);
             fde_t *nf = realloc(df->fdes, (df->nfdes + 1) * sizeof(fde_t));

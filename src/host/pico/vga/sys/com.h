@@ -12,7 +12,7 @@
 /* COnsole Manifold
  */
 
-#include "core/sys/com.h"
+#include "core/sys/com_term.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -46,7 +46,6 @@ void com_set_uart_break(bool en);
 size_t com_in_free(void);
 bool com_in_empty(void);
 void com_in_write(char ch);
-void com_suppress_term_reply(bool suppress);
 
 // OUT is sourced here from UART
 // OUT is sourced from PIX $F:03
@@ -60,6 +59,6 @@ char com_out_read(void);
 /* This driver's row in a machine's driver list; see core/sys/driver.h. Its task is the interleave in main.c's walk, not a column: this
  * machine's console is drained after every other driver, which no single
  * pass over the list can say. */
-#define COM_DRIVER DRIVER(com_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
+#define COM_DRIVER DRIVER(com_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _VGA_SYS_COM_H_ */

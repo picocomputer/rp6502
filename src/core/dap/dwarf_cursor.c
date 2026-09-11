@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * See dwarf_cursor.h.
  */
 
 #include "core/dap/dwarf_cursor.h"
@@ -54,7 +52,9 @@ int64_t dwarf_sleb(dwarf_cur *c)
         if (!c->ok) break;
         v |= (int64_t)(b & 0x7f) << shift;
         shift += 7;
-        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
+        /* Shifting a 64-bit value by 64 or more is undefined, so a malformed
+         * LEB128 that never terminates stops here. */
+        if (shift > 63) break;
     } while (b & 0x80);
     if (shift < 64 && (b & 0x40))
         v |= -((int64_t)1 << shift);
@@ -66,6 +66,6 @@ const char *dwarf_cstr(dwarf_cur *c)
     while (c->p < c->end && *c->p)
         c->p++;
     if (c->p >= c->end) { c->ok = false; return ""; }
-    c->p++; /* skip NUL */
+    c->p++;
     return s;
 }

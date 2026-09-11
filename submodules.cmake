@@ -92,6 +92,16 @@ function(rp6502_submodule path)
             set(_why "git was not found")
         else()
             rp6502_submodule_fetch(${S_SUPER} ${path} "${S_SPARSE}")
+            # A blobless clone needs git 2.19 and sparse-checkout --no-cone
+            # needs 2.27. The libretro buildbot builds on images carrying 2.7
+            # and 2.25, where checking out the whole submodule costs less than
+            # a configure that stops.
+            if(S_SPARSE)
+                _rp6502_submodule_ready(_ok)
+                if(NOT _ok)
+                    rp6502_submodule_fetch(${S_SUPER} ${path} "")
+                endif()
+            endif()
         endif()
     endif()
 

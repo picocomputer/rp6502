@@ -5,11 +5,11 @@
  */
 
 #include "core/hid/layout.h"
-#include <stdio.h>
+#include "core/sys/debug_log.h"
 
 /* The image's header and record shape, as keyboard_layout_gen.py lays them
- * out. The header says where each record starts; a record's own fields
- * are fixed and are the offsets below. */
+ * out. The header says where each record starts, and the offsets below are
+ * fixed within a record. */
 #define LAYOUT_MAGIC 0x4C4Bu
 
 #define LAYOUT_OFF_NAME 0
@@ -28,10 +28,7 @@ bool layout_init(void)
     layout_checked = true;
     if (layout_word(0) != LAYOUT_MAGIC)
     {
-        /* Said here, where it is known, rather than by whoever called: a
-         * platform that links the database in never reaches this, and one
-         * that loads it wants to hear about it once, at boot. */
-        printf("keyboard: no layouts\n");
+        RP6502_LOG(keyboard, ERROR, "no layouts");
         layout_layouts = 0;
         return false;
     }
@@ -39,15 +36,16 @@ bool layout_init(void)
     return true;
 }
 
-/* A platform that links the database in never fails, so it is spared
- * having to say so at boot; the first lookup reads the header. */
+/* A platform that links the database in cannot fail to have one, so it leaves
+ * LAYOUT_DRIVER out of its roster and the first lookup reads the header
+ * instead. */
 static void layout_ready(void)
 {
     if (!layout_checked)
         layout_init();
 }
 
-// Word 0 of a layout's record, or 0 for a layout that is not there.
+// Where a layout's record starts, or 0 for a layout that is not there.
 static uint32_t layout_record(int idx)
 {
     layout_ready();

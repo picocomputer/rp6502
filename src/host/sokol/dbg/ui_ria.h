@@ -3,15 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RIA debug window — a chips-ui-style inspector beside ui_w65c02.h and
- * ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
- * bespoke: it shares the 6502 bus, so the window shows the RIA's own pins as last
- * decoded (ria_chip()->PINS) and a read-only view of the register file
- * ($FFE0-$FFFF) and the XSTACK SP.
+ * The RIA's debug window. The chip windows beside it are forks of upstream
+ * chips-ui widgets and the RIA has no upstream, so this one is written here: it
+ * shows the pins as ria_tick last decoded them, and a read-only view of the
+ * register file, the XSTACK pointer, the code page and PHI2.
  *
- * Header-only with the implementation under CHIPS_UI_IMPL, emitted by the single
- * TU that defines it (dbgui.cc), matching the chips-ui convention. ImGui is
- * assumed already included by that TU.
+ * This header carries its implementation under CHIPS_UI_IMPL, which one
+ * translation unit defines (dbgui.cc), following the chips-ui convention. That
+ * unit must have included ImGui already, because this file does not.
  */
 
 #pragma once
@@ -19,9 +18,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "chips/ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
-#include "chips/ui/ui_settings.h"   /* ui_settings_t */
-#include "core/ria/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_MMAP_* */
+#include "chips/ui/ui_chip.h"
+#include "chips/ui/ui_settings.h"
+#include "core/ria/ria.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -31,8 +30,8 @@ extern "C"
 typedef struct
 {
     const char *title;
-    int x, y, w, h; /* initial window geometry; 0 w/h -> default */
-    bool open;      /* initial open state */
+    int x, y, w, h; /* initial geometry; a 0 width or height takes the default */
+    bool open;
 } ui_ria_desc_t;
 
 typedef struct
@@ -54,24 +53,21 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 }
 #endif
 
-/*-- IMPLEMENTATION ----------------------------------------------------------*/
 #ifdef CHIPS_UI_IMPL
-#include <cstdio>  /* std::snprintf */
+#include <cstdio>
 #include <string.h>
 #ifndef CHIPS_ASSERT
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "core/ria/regs.h"     /* xstack_ptr */
-#include "core/wdc/sram.h"     /* sram */
+#include "core/ria/regs.h"
+#include "core/wdc/sram.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"      /* phi2_get_khz_run (Status) */
-#include "core/str/oem.h"      /* oem_get_code_page_run (Status) */
+#include "core/wdc/resb.h"
+#include "core/str/oem.h"
 
-/* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
- * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
- * are decoded off-chip into CS, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS in the RIA's own layout (RIA_PIN_*, core/ria/ria.h). */
+/* Five address lines select a register within the RIA's 32-byte window. A5
+ * through A15 are decoded off-chip into CS, so they never reach the RIA. */
 static const ui_chip_pin_t _ui_ria_pins[] = {
     {"D0", 0, RIA_PIN_D0 << 0}, {"D1", 1, RIA_PIN_D0 << 1},
     {"D2", 2, RIA_PIN_D0 << 2}, {"D3", 3, RIA_PIN_D0 << 3},
@@ -84,8 +80,8 @@ static const ui_chip_pin_t _ui_ria_pins[] = {
     {"A4", 17, RIA_PIN_A0 << 4},
 };
 
-/* The documented RIA register window ($FFE0-$FFFF, ria.rst). width 2 = a 16-bit
- * little-endian pair. */
+/* The documented RIA register window, $FFE0 to $FFFF (ria.rst). A width of 2
+ * is a little-endian 16-bit pair. */
 static const struct { uint16_t addr; const char *name; uint8_t width; } _ui_ria_regs[] = {
     {0xFFE0, "READY", 1}, {0xFFE1, "TX", 1}, {0xFFE2, "RX", 1}, {0xFFE3, "VSYNC", 1},
     {0xFFE4, "RW0", 1}, {0xFFE5, "STEP0", 1}, {0xFFE6, "ADDR0", 2},
@@ -118,8 +114,6 @@ void ui_ria_discard(ui_ria_t *win)
     win->valid = false;
 }
 
-/* A read-only inspector (edit registers via the Memory window if needed; the
- * xstack lives there too, as the Memory window's third layer). */
 void ui_ria_draw(ui_ria_t *win)
 {
     CHIPS_ASSERT(win && win->valid && win->title);
@@ -129,10 +123,10 @@ void ui_ria_draw(ui_ria_t *win)
     ImGui::SetNextWindowSize(ImVec2(win->init_w, win->init_h), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(win->title, &win->open))
     {
-        /* Pins: the bus as the RIA last saw it (ria_chip()->PINS) — ria_tick sets
-         * CS from its own decode and IRQ from ria_irq_asserted. RES is not a RIA
-         * input; overlay it while the machine holds the 6502 in reset (between a
-         * stop and the next run — resb_running(), not the debugger's mid-run pause). */
+        /* ria_tick writes every pin here except RES, which the RIA has no
+         * input for, so RES is overlaid while the machine holds the 6502 in
+         * reset. That is resb_running(), the hold between a stop and the next
+         * run, and not the debugger's mid-run pause. */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
         if (!resb_running())
             p |= RIA_PIN_RES;
@@ -142,10 +136,10 @@ void ui_ria_draw(ui_ria_t *win)
         ImGui::SameLine();
         ImGui::BeginChild("##ria_state", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
-        /* Internal latches the memory-mapped register file doesn't carry: the
-         * xstack pointer (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF])
-         * and the running code page / PHI2 (config settings with no bus register).
-         * The RIA's IRQ assertion shows on the IRQ pin (driven by ria_tick). */
+        /* Three values the memory-mapped register file does not carry. The
+         * xstack grows down from XSTACK_SIZE, so it is empty when the pointer
+         * is $200 and the live bytes are the ones from the pointer to $1FF.
+         * The code page and PHI2 are settings with no bus register. */
         if (ImGui::CollapsingHeader("Status", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("XSTACK SP:    $%03X", (unsigned)xstack_ptr);
@@ -155,10 +149,8 @@ void ui_ria_draw(ui_ria_t *win)
 
         if (ImGui::CollapsingHeader("Registers", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            /* The RIA register file is regs[] (no longer aliased into ram[]), and
-             * the window runs to $FFFF, so the vectors read from it too — the same
-             * bytes the CPU fetches. Rows match the VIA panel's
-             * "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
+            /* The register window runs to $FFFF, so the vectors are read out
+             * of regs[] as well, which is where the CPU fetches them from. */
             auto peek = [](uint16_t a) -> uint8_t {
                 return (a >= RIA_MMAP_LO) ? regs[a & 0x1F] : sram[a];
             };

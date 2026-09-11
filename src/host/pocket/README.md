@@ -420,15 +420,18 @@ with none registered, it says no too.
 
 ## The host's filesystem
 
-`MSC0:` is the card, and the drive writes. The drive prefix is
-stripped and the slash after it decides everything: a name that
-follows the colon directly is relative and the firmware spells it out
-against `/Saves/rp6502/common/`, while a name that starts with a slash
-is already absolute and travels untouched. `foo.txt` and
-`MSC0:foo.txt` are the same saved game;
-`MSC0:/Assets/rp6502/common/foo.txt` reaches the package's own folder,
-which is writable. A program's plain `open("game.save", ...)` lands in
-the same place on every platform.
+`FS:` is the card, and the drive writes. The name is stripped and the
+slash after it decides everything: a name that follows the colon
+directly is relative and the firmware spells it out against
+`/Saves/rp6502/common/`, while a name that starts with a slash is
+already absolute and travels untouched. `foo.txt` and `FS:foo.txt` are
+the same saved game; `FS:/Assets/rp6502/common/foo.txt` reaches the
+package's own folder, which is writable. A program's plain
+`open("game.save", ...)` lands in the same place on every platform.
+
+`FS:` is a name this drive answers to, not one it hands out. Nothing
+here puts it in front of a path, because a path on this card does not
+carry a device any more than a POSIX path does.
 
 **The host resolves nothing.** It looked for a while as though it kept
 a working directory at `/Saves/rp6502/common/`, and one run settled
@@ -438,9 +441,11 @@ host absolute or it does not arrive. The bench refuses a relative path
 outright so the firmware cannot quietly go back to hoping.
 
 getcwd is therefore entirely ours: it answers
-`MSC0:/Saves/rp6502/common/`, which is where relative names go, so
-appending a name to it opens the same file the bare name does. chdir
-errors whatever it names, even that directory.
+`/Saves/rp6502/common`, which is where relative names go, so appending
+a separator and a name opens the same file the bare name does. No
+trailing separator, because no other machine's getcwd has one and the
+ordinary way to build a path would then double it. chdir errors
+whatever it names, even that directory.
 **Two pinned folders, and they are not the same one.** This is the
 platform hack, written down here because nothing about it is
 guessable from the API. A machine with no working directory still has
@@ -758,17 +763,20 @@ drop counter showed 453 bytes of loss beyond the console text it
 swallowed, which is about what those lines weigh.
 
 
-The machine's console — the 6502's `$FFE1` writes and the soft CPU's own
-`com_printf`, interleaved — comes out two ways, both live in every
-bitstream.
+The soft CPU's log — the firmware's own lines, `ERROR rom: bad image`,
+never a program's output, which is the screen's — comes out two ways,
+both live in every bitstream. What the firmware says is decided when the
+tree is configured (`src/core/sys/debug_log.h`): a Release bitstream says
+nothing, a Debug one reports failures, and `-DRP6502_LOG_LEVEL=DEBUG` on
+either says everything.
 
 **Through the Pocket.** With debug logging switched on in the Pocket,
-target command 0x0152 carries four console bytes per entry, first byte in
-the top eight bits, so the 32-bit event id reads left to right as ASCII:
-`52503635` is `RP65`. A short word at the end of a burst is
+target command 0x0152 carries four bytes per entry, first byte in the
+top eight bits, so the 32-bit event id reads left to right as ASCII:
+`45525230` is `ERRO`. A short word at the end of a burst is
 left-justified and zero-filled. One entry is a round trip through the
-host, so the log lags and drops when the console outruns it; what it is
-for is the boot narration and the last line before a hang.
+host, so the log lags and drops when the lines outrun it; what it is for
+is the last line before a hang.
 
 **Through the debug pin.** `dbg_tx` is 115200 8N1, 1.8 V, on the 6515D
 breakout board. Same bytes, no host in the path — which is the point: it
@@ -827,16 +835,16 @@ console paths, so one build separates "is the video path alive" from
 
 The firmware boots silently — the narration that used to print here
 came out once the platform stopped needing bring-up — so the boot
-diagnostic is now the failures it still reports and the states the
-debug log shows:
+diagnostic is what a Debug bitstream (`-DCMAKE_BUILD_TYPE=Debug`, or
+`-DRP6502_LOG_LEVEL=ERROR` on the release preset) reports:
 
 | signal | what it says |
 | --- | --- |
-| *no 0x0152 traffic at all* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
-| `oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
-| `keyboard: no layouts` | the layout slot did not stage; keys that type a character type nothing |
-| `rom: bad image` | staging read back wrong — SDRAM, not the loader |
-| the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
+| *no 0x0152 traffic at all, at `-DRP6502_LOG_LEVEL=DEBUG`* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
+| `ERROR oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
+| `ERROR keyboard: no layouts` | the layout slot did not stage; keys that type a character type nothing |
+| `ERROR rom: bad image` | staging read back wrong — SDRAM, not the loader |
+| no failure reported | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
 From this directory, `cmake --preset release` then
 `cmake --build --preset release` assembles the card tree into

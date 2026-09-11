@@ -30,12 +30,6 @@
 #include <stdio.h>
 #include <pico.h>
 
-#if defined(DEBUG_MON) || defined(DEBUG_MON_SET)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
 /* The boot ROM has no row: it is not held in RAM, it is the last line of the
  * config file, and rom.c owns both halves of that. */
 static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
@@ -87,7 +81,7 @@ static void set_string(const char *args, bool (*set)(const char *),
 
 /* One parse function per row. The only thing that varies is the type, which
  * is what the row already says. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                     \
     {                                                                        \
@@ -133,7 +127,7 @@ void set_mon_set(const char *args)
                 return set_boot(args);
 /* A hidden row is one the machine keeps but no one may set, so it has no
  * arm here at all. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2) c1 c2
+#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, ...) \
     if (!strcasecmp(word, attr))                                       \
         return set_mon_##pfx##_##name(args);

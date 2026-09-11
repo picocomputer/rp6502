@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
 /* Main events
@@ -39,6 +40,14 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms);
 // keeping the normal (disabled) idle timeout.
 void rln_read_line_no_history(rln_read_callback_t callback);
 
+// Give up a read in progress: the callback never fires.
+void rln_read_cancel(void);
+
+// Finish a read early with whatever has been typed, firing the callback with
+// that partial line. Returns false when no read was in progress or nothing
+// had been typed.
+bool rln_read_flush(void);
+
 // 6502 applications may configure the max length
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);
@@ -62,6 +71,11 @@ void rln_set_term_height(uint16_t v);
 // rln_set_term_* override. (0,0) clears it; that and any mid-edit width
 // change reflow the current input line at the new effective width.
 void rln_set_naws_size(uint16_t w, uint16_t h);
+
+// Forget everything about a source, including the cpr_seen and line_end that
+// normally survive a read, because the next client on that source is a
+// different terminal. Takes a com_source_t.
+void rln_forget_source(unsigned src);
 
 // Terminal width. Priority: rln_set_term_width override if set, then the
 // telnet NAWS width, then the highest-priority terminal's CPR width (telnet
@@ -90,7 +104,24 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
-#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, nul_config, nul_config)
+/* The line being edited. std.c's stdin bridge points into it, and a savestate
+ * rebuilds that pointer by calling this rather than carrying it. */
+#define RLN_LINE_MAX 256
+const char *rln_line(void);
+
+/* The reader is a function pointer, so it is saved as a token. A software
+ * machine has exactly one, std.c's stdin bridge, and rebuilding it by calling
+ * rln_read_line would emit the whole handshake and wipe the line the blob
+ * just restored.
+ *
+ * The deadlines are machine time, so they are carried whole rather than
+ * re-armed. They mean the same thing in the machine that loads the blob as in
+ * the one that made it. */
+#define RLN_SST_SIZE 3629
+void rln_sst_save(sst_cursor_t *c, unsigned flags);
+bool rln_sst_load(sst_cursor_t *c, unsigned flags);
+
+#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, \
+    nul_config, nul_config, SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_STR_RLN_H_ */

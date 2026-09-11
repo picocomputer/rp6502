@@ -7,23 +7,28 @@
 #include "core/term/color.h"
 #include "core/vga/pixel_format.h"
 
-// ANSI black/white pair for 1bpp (index 0 transparent, index 1 opaque).
+// The ANSI black and white pair for 1bpp. Index 0 carries no alpha bit, so
+// it renders transparent; index 1 is opaque.
 
 const uint16_t color_2[2] = {
     SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),                              // 0  ANSI Black
     SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229), // 1  ANSI White
 };
 
+// The terminal resolves palette indices through its own copy of the palette
+// in RAM, because OSC 4 and OSC 104 change entries at run time. Colors are
+// resolved when a cell is written, so an OSC 4 does not recolor glyphs
+// already on screen.
+uint16_t color_256_term[256];
+
 // This is the ANSI color palette, not the web safe palette.
-// Note that (0)Black is transparent while (16)Grey0 is not.
+// Index 0, Black, carries no alpha bit and renders transparent; index 16,
+// Grey0, has the same RGB and is opaque.
 
 //    0-  7:  standard colors (ESC [ 30–37 m)
 //    8- 15:  high intensity colors (ESC [ 90–97 m)
 //   16-231:  6 × 6 × 6 cube (216 colors)
 //  232-255:  grayscale from dark to light in 24 steps
-
-// Terminal's RAM-resident palette; mutable so OSC 4 / OSC 104.
-uint16_t color_256_term[256];
 
 const uint16_t color_256[256] = {
     SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),                              // 0  Black

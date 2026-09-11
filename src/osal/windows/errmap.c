@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * See errno.h.
  */
 
 #include "osal/windows/errmap.h"
@@ -16,11 +14,13 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_PATH_NOT_FOUND:
     case ERROR_INVALID_NAME:
     case ERROR_NO_MORE_FILES:
+    case ERROR_DIRECTORY: /* a path leading through a file, FatFs FR_NO_PATH */
         return API_ENOENT;
     case ERROR_ACCESS_DENIED:
     case ERROR_SHARING_VIOLATION:
     case ERROR_LOCK_VIOLATION:
     case ERROR_WRITE_PROTECT:
+    case ERROR_DIR_NOT_EMPTY: /* FatFs FR_DENIED, which this API spells EACCES */
         return API_EACCES;
     case ERROR_ALREADY_EXISTS:
     case ERROR_FILE_EXISTS:
@@ -28,8 +28,6 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
         return API_ENOMEM;
-    case ERROR_DIRECTORY:
-    case ERROR_DIR_NOT_EMPTY:
     case ERROR_FILENAME_EXCED_RANGE:
     case ERROR_INVALID_PARAMETER:
     case ERROR_NEGATIVE_SEEK:
@@ -44,6 +42,7 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_NOT_READY:
     case ERROR_BAD_UNIT:
     case ERROR_INVALID_DRIVE:
+    case ERROR_NOT_SAME_DEVICE: /* a rename across volumes */
         return API_ENODEV;
     case ERROR_BUSY:
     case ERROR_PIPE_BUSY:

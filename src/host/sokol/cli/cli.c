@@ -13,7 +13,7 @@
 #include <string.h>
 #include <strings.h>
 #ifdef _WIN32
-#include "getopt.h" /* vendored wingetopt (MSVC has no getopt) */
+#include "getopt.h" /* vendored wingetopt; MSVC has no getopt */
 #else
 #include <getopt.h>
 #endif
@@ -27,7 +27,6 @@ void cli_options_init(cli_options *o)
     o->fill_random = true;
 }
 
-/* "RRGGBB" (optional leading '#') -> three 0-255 channels. */
 static bool parse_hex_color(const char *s, int *r, int *g, int *b)
 {
     if (*s == '#')
@@ -44,14 +43,9 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
     return true;
 }
 
-/* One number grammar for the whole command line, and it is the script's: $FF
- * and 0xFF are hex, anything else is decimal. strtol's base 0 would make "010"
- * eight, which is not what someone typing a byte count means.
- *
- * A number the emulator cannot read is an error rather than a default. This is
- * input, not code — and the option that shows why is --seed, which exists only
- * to make a run repeatable: `--seed $SEED` with SEED unset used to become zero
- * and report the run as reproducible on a seed nobody chose. */
+/* The script's number grammar for the whole command line: $FF and 0xFF are
+ * hex and everything else is decimal, because strtol's base 0 would read
+ * "010" as eight, which is not what someone typing a byte count means. */
 static bool cli_number(const char *s, long long *out)
 {
     int base = 10;
@@ -73,7 +67,6 @@ static bool cli_bad(const char *opt, const char *value)
     return false;
 }
 
-/* --fill: "random", or the byte every cell gets. */
 static bool parse_fill(const char *s, bool *random, uint8_t *value)
 {
     if (!strcasecmp(s, "random"))
@@ -89,20 +82,25 @@ static bool parse_fill(const char *s, bool *random, uint8_t *value)
     return true;
 }
 
-/* Long-option codes (>= 256 so they never collide with a short-option char). */
+/* Long-option codes, above 255 so they cannot collide with a short-option
+ * character. */
 enum
 {
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
+    OPT_CRC, OPT_HEADLESS, OPT_STDIN,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
+    {"crc",          no_argument,       NULL, OPT_CRC},
     {"frames",       required_argument, NULL, OPT_FRAMES},
     {"scale",        required_argument, NULL, OPT_SCALE},
     {"filter",       required_argument, NULL, OPT_FILTER},
     {"script",       required_argument, NULL, OPT_SCRIPT},
+    {"headless",     no_argument,       NULL, OPT_HEADLESS},
+    {"stdin",        no_argument,       NULL, OPT_STDIN},
     {"rom",          required_argument, NULL, OPT_ROM},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
     {"phi2",         required_argument, NULL, OPT_PHI2},
@@ -124,15 +122,22 @@ void cli_usage(FILE *out, const char *argv0)
             "usage: %s [rom.rp6502] [options] [-- <args...>]\n"
             "  --help                    print this and exit\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
-            "  --frames <n>              frames to run before screenshot (default 120)\n"
+            "  --crc                     render headlessly, print the canvas CRC-32 and exit\n"
+            "  --frames <n>              frames to run before the screenshot or crc (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
             "                            always headless: the script is the only clock\n"
+            "  --headless                no window and no picture: host stdin, stdout and\n"
+            "                            stderr are the program's; exits with its exit code\n"
+            "  --stdin                   host stdin is the machine's console, and a terminal\n"
+            "                            there is the console: keys raw, screen drawn on it,\n"
+            "                            Ctrl-\\ the way out. Implied by --headless\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
             "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
-            "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000)\n"
+            "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000);\n"
+            "                            0 runs unpaced, warping time\n"
             "  --cp <n>                  OEM code page (437/720/737/771/775/850/852/855/\n"
             "                            857/860-866/869, default 437)\n"
             "  --seed <n>                fixed RNG seed for reproducible runs\n"
@@ -153,9 +158,9 @@ void cli_usage(FILE *out, const char *argv0)
 }
 
 
-/* Reset getopt's global state so the parser starts clean each call. glibc/musl
- * re-init when optind is set to 0; the BSD-family getopt (and Windows/wingetopt,
- * macOS) needs optreset. */
+/* glibc and musl re-initialize getopt when optind is set to 0. The BSD-family
+ * getopt, which macOS, the BSDs and the vendored wingetopt all use, needs
+ * optreset instead. */
 static void getopt_reset(void)
 {
 #if defined(_WIN32) || defined(__APPLE__) || defined(__FreeBSD__) || \
@@ -169,11 +174,10 @@ static void getopt_reset(void)
 
 int cli_parse_args(int argc, char **argv, cli_options *o)
 {
-    /* Split at the first standalone "--" before getopt sees it: the tail is the
-     * ROM's argv[1..], never parsed as options. Truncating argc also confines
-     * getopt's in-place permutation to the head, so the second pass over the
-     * already-permuted real argv finds the separator and tail untouched.
-     * (A literal "--" option value needs the --opt=-- form.) */
+    /* The tail after a standalone "--" is the ROM's argv[1..]. getopt_long
+     * permutes argv in place, so argc is truncated at the separator to keep
+     * that tail where rom_args points. A literal "--" as an option value has
+     * to be written in the --opt=-- form. */
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "--"))
         {
@@ -183,14 +187,18 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             break;
         }
     getopt_reset();
-    opterr = 0; /* we print our own messages (the ':' optstring reports them) */
+    opterr = 0;
     int c;
+    /* The leading ':' in the optstring reports a missing value as ':', not '?' */
     while ((c = getopt_long(argc, argv, ":", longopts, NULL)) != -1)
     {
         switch (c)
         {
         case OPT_HELP: o->help = true; break;
         case OPT_SCREENSHOT: o->screenshot = optarg; break;
+        case OPT_CRC: o->crc = true; break;
+        case OPT_HEADLESS: o->headless = true; break;
+        case OPT_STDIN: o->console = true; break;
         case OPT_FRAMES:
         {
             long long v;
@@ -227,7 +235,6 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_ROM:
         {
             int max = (int)(sizeof(o->installs) / sizeof(o->installs[0]));
-            /* The one that vanished may be the one meant to boot. */
             if (o->n_installs == max)
             {
                 fprintf(stderr, "rp6502-emu: too many --rom (max %d)\n", max);
@@ -247,9 +254,11 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_PHI2:
         {
             long long v;
-            if (!cli_number(optarg, &v) || v < 1 || v > INT_MAX)
+            if (!cli_number(optarg, &v) || v < 0 || v > INT_MAX)
                 return cli_bad("--phi2", optarg), 2;
-            o->phi2_khz = (int)v; /* the range itself is cpu.c's to judge */
+            o->unpaced = v == 0;
+            if (v)
+                o->phi2_khz = (int)v; /* the caller range-checks */
             break;
         }
         case OPT_CP:
@@ -293,8 +302,11 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             return 2;
         }
     }
-    /* The lone positional is the ROM path; tolerate empty args (e.g. an unfilled
-     * launch.json input) by taking the first non-empty one. */
+    if (o->headless)
+        o->console = true;
+    /* The first non-empty positional is the ROM path. Empty words are skipped
+     * because a launcher can pass an unfilled input, such as a launch.json
+     * variable nobody answered, as an empty argument. */
     for (int i = optind; i < argc; i++)
         if (argv[i][0])
         {

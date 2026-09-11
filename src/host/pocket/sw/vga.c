@@ -31,11 +31,6 @@ uint8_t vga_get_display_type(void)
     return 1;
 }
 
-int16_t vga_vsync_scanline(void)
-{
-    return vga_highest_scanline;
-}
-
 /* The fabric renders, so it is told which mode before the planes arrive. */
 void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
@@ -53,11 +48,23 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
         *scanline_end - scanline_begin < 1)
         return false;
     if (*scanline_end > vga_highest_scanline)
-    {
         vga_highest_scanline = *scanline_end;
-        VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
-    }
     return true;
+}
+
+int16_t vga_prog_highest(void)
+{
+    return vga_highest_scanline;
+}
+
+/* The fabric paces the beam off a register, so it is told where vsync falls
+ * every time the answer could have moved: after a booking, and when a canvas
+ * change throws the bookings away. It takes the number verbatim -- there is
+ * no clamp in prog.sv -- so what goes out is the clamped one, and a reset
+ * writes the new canvas's bottom rather than zero. */
+static void vga_publish_vsync(void)
+{
+    VID_VSYNC_LINE = (uint32_t)vga_vsync_line();
 }
 
 /* The table is write-only from the bus, so the exclusive sweep's one bit
@@ -85,6 +92,7 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
         vga_mode0_mask[i >> 5] |= 1u << (i & 31);
     }
     vga_mode0_plane = plane;
+    vga_publish_vsync();
     return true;
 }
 
@@ -107,6 +115,7 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
     if (plane == vga_mode0_plane)
         for (int16_t i = scanline_begin; i < scanline_end; i++)
             vga_mode0_mask[i >> 5] &= ~(1u << (i & 31));
+    vga_publish_vsync();
     return true;
 }
 
@@ -126,6 +135,7 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
             | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
         VID_XPROG(i, plane, 3) = ((uint32_t)length << 16) | config_ptr;
     }
+    vga_publish_vsync();
     return true;
 }
 
@@ -141,6 +151,7 @@ void vga_canvas_reset(void)
     for (int16_t i = 0; i < 16; i++)
         vga_mode0_mask[i] = 0;
     vga_highest_scanline = 0;
+    vga_publish_vsync();
 }
 
 /* The fabric sizes the picture, so it is told. */
@@ -164,7 +175,7 @@ void vga_canvas_publish(vga_canvas_t canvas)
 void vga_restore(void)
 {
     VID_CANVAS = (uint32_t)vga_get_canvas();
-    VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
+    vga_publish_vsync();
 }
 
 /* One font store, and the glyphs in it are this page's. */
@@ -172,3 +183,11 @@ void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
 }
+/* Putting a page back rather than choosing one. This machine's font is
+ * elsewhere and the message is the same either way; only the terminal reset
+ * differs, and that one is core's. */
+void vga_load_code_page(uint16_t cp)
+{
+    vga_set_code_page(cp);
+}
+

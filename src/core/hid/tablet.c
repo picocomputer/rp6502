@@ -6,48 +6,42 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/tablet.h"
+#include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "machine.h"
 #include <string.h>
 
-#if defined(DEBUG_HID) || defined(DEBUG_HID_TABLET)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-
-/* XRAM report block, laid out in tablet.h. Every field is one byte, so each 6502 read is atomic; a
- * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
- * one non-zero, decoded first-non-zero-wins. An inactive contact reports flags=0;
- * X/Y are always kept within the canvas. wheel/pan are 8-bit wrapping
- * accumulators read like the mouse's (subtract the previous value). The ROM-owned
- * control byte leads the block so everything the firmware writes back — status,
- * wheel, pan, contacts — is one contiguous run. */
-/* A relative mouse reports device counts (mickeys) far finer than a canvas
- * pixel, so it is tracked in a fixed reference resolution at the legacy mouse
- * rate (mouse.c reports counts >>1) and then scaled to the canvas — so the ROM
- * gets absolute XY at a width-independent speed and needs no compensation. */
+/* The XRAM report block, whose offsets are in tablet.h. Every field is one
+ * byte, so each 6502 read is atomic. A coordinate too wide for one byte is
+ * delivered as a set of single-byte windows of which exactly one is non-zero,
+ * and the program decodes it by taking the first non-zero byte. An inactive
+ * contact is all zero, which is flags of 0 and no window set. The wheel and
+ * pan bytes are counters read by subtracting the value seen last, as the
+ * mouse's are. The program owns the control byte, and it leads the block so
+ * that everything the firmware writes back is one contiguous run. */
+/* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
+ * fixed reference resolution at the same rate mouse.c reports at and then
+ * scaled to the canvas. The program then reads an absolute position that moves
+ * at the same speed whatever the canvas width is. */
 #define TABLET_REF_WIDTH 640
 #define TABLET_REF_HEIGHT 480
-#define TABLET_MOUSE_DIV 2 /* counts per reference pixel; matches mouse.c's >>1 */
+#define TABLET_MOUSE_DIV 2 /* counts per reference pixel, matching mouse.c */
 
 static uint8_t tablet_state[TABLET_BLOCK_SIZE];
 static uint16_t tablet_xram;
 
-/* A machine that lends the ROM its own cursor says so in the status byte,
- * which a fresh mapping has to carry too. A Pico has no such cursor and
- * nothing here ever sets it. */
+/* Kept apart from the block because tablet_xreg blanks the block, and a
+ * machine that lends the program its own cursor has to say so again in the
+ * status byte of a block the program has just moved. */
 static bool tablet_host_cursor;
 
-/* Primary pointer, canvas space (what is written to XRAM). */
+/* The pointer in canvas pixels, which is what is written to XRAM. */
 static int16_t tablet_x;
 static int16_t tablet_y;
 
-/* Relative-mouse pointer in the TABLET_REF reference space, with the sub-count
- * remainder carried between reports so slow motion is not lost. */
+/* A relative mouse's pointer in the TABLET_REF space, with the fraction of a
+ * reference pixel carried between reports so that slow motion is not lost. */
 static int16_t tablet_ref_x;
 static int16_t tablet_ref_y;
 static int16_t tablet_sub_x;
@@ -64,7 +58,8 @@ static tablet_connection_t *tablet_get_connection_by_slot(int slot)
     return NULL;
 }
 
-/* X (0..764) -> three single-byte windows, exactly one non-zero. */
+/* X into three windows. A window byte carries 1 to 255, and 0 says the value
+ * is not in that window, so three of them span 0 to 764. */
 static void tablet_encode_x(uint8_t *d, int x)
 {
     if (x < 0)
@@ -80,7 +75,7 @@ static void tablet_encode_x(uint8_t *d, int x)
         d[2] = (uint8_t)(x - 509);
 }
 
-/* Y (0..509) -> two single-byte windows, exactly one non-zero. */
+/* Y into two windows, spanning 0 to 509. */
 static void tablet_encode_y(uint8_t *d, int y)
 {
     if (y < 0)
@@ -104,13 +99,14 @@ static void tablet_put_contact(int i, uint8_t flags, int x, int y)
 
 static void tablet_clear_contact(int i)
 {
-    tablet_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
+    memset(&tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE], 0, TABLET_CONTACT_SIZE);
 }
 
-/* Push everything the firmware owns — status, wheel, pan, contacts — to XRAM in
- * one memcpy; they run contiguously after the ROM-owned control byte at offset 0.
- * Each byte is atomic and the decode tolerates any interleaving, so no barrier
- * is needed. */
+/* Everything the firmware owns runs contiguously after the program's control
+ * byte, so one memcpy publishes all of it. A 6502 reading through the copy can
+ * see a contact half updated, or flags from one frame with coordinates from
+ * another; that costs one stale or blank frame, and the next report publishes
+ * the whole block again. */
 static void tablet_write_xram(void)
 {
     if (tablet_xram == 0xFFFF)
@@ -122,6 +118,32 @@ static void tablet_write_xram(void)
 void HOST_IN_FLASH("tablet_init") tablet_init(void)
 {
     tablet_stop();
+}
+
+/* The whole block is saved, control byte included, but a load publishes only
+ * from the status byte on, because the control byte is the program's. */
+void tablet_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, tablet_xram);
+    sst_put(c, tablet_state, sizeof tablet_state);
+    sst_put_bool(c, tablet_host_cursor);
+}
+
+bool tablet_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at = sst_get_u16(c);
+    uint8_t block[TABLET_BLOCK_SIZE];
+    sst_get(c, block, sizeof block);
+    bool cursor = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    tablet_xram = at;
+    memcpy(tablet_state, block, sizeof tablet_state);
+    tablet_host_cursor = cursor;
+    tablet_write_xram();
+    return true;
 }
 
 void tablet_stop(void)
@@ -139,7 +161,7 @@ bool tablet_xreg(uint16_t word)
         tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
     for (int i = 0; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
-    if (tablet_xram != 0xFFFF) /* one-time full write also seeds control=0 (ROM draws its own) */
+    if (tablet_xram != 0xFFFF) /* the one write that also seeds TABLET_CURSOR_OFF */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
     return true;
 }
@@ -154,8 +176,8 @@ bool HOST_IN_FLASH("tablet_mount") tablet_mount(int slot, const tablet_connectio
             continue;
         tablet_connections[i] = *desc;
         tablet_connections[i].slot = slot;
-        DBG("tablet_mount: slot=%d, x_rel=%d, tip=%d\n", slot, desc->x_relative,
-            desc->tip_offset != HID_ABSENT);
+        RP6502_LOG(hid, INFO, "tablet mount slot=%d, x_rel=%d, tip=%d", slot, desc->x_relative,
+                   desc->tip_offset != HID_ABSENT);
         return true;
     }
     return false;
@@ -167,8 +189,9 @@ bool tablet_umount(int slot)
     if (conn == NULL)
         return false;
     conn->valid = false;
-    // Release contact 0 once the last pointer is gone, so a press held at unplug
-    // does not stay latched. A surviving device refreshes it on its next report.
+    /* Contact 0 is released once the last pointer is gone, so that a button
+     * held at unplug does not stay down. A pointer that is still plugged in
+     * refreshes the contact on its next report. */
     for (int i = 0; i < TABLET_MAX_MICE; ++i)
         if (tablet_connections[i].valid)
             return true;
@@ -177,8 +200,7 @@ bool tablet_umount(int slot)
     return true;
 }
 
-/* Read an axis field, sign-extending when the device declares a signed range
- * (logical_min < 0), matching hid_scale_analog. */
+/* An axis whose declared logical minimum is below zero is signed. */
 static int32_t tablet_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
 {
     if (lmin < 0)
@@ -206,11 +228,8 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
     int cw, ch;
     vga_canvas_size(&cw, &ch);
 
-    // Position: integrate a relative mouse, scale an absolute digitizer.
     if (conn->x_relative)
     {
-        // Accumulate counts at the legacy rate into the reference space (carrying
-        // the sub-count remainder), then scale to the canvas.
         tablet_sub_x += (int16_t)hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
         tablet_sub_y += (int16_t)hid_extract_signed(report_data, report_data_len, conn->y_offset, conn->y_size);
         int sx = tablet_sub_x / TABLET_MOUSE_DIV;
@@ -227,8 +246,8 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
             tablet_ref_y = 0;
         else if (tablet_ref_y > TABLET_REF_HEIGHT - 1)
             tablet_ref_y = TABLET_REF_HEIGHT - 1;
-        // One isotropic gain (the width ratio) on both axes keeps motion
-        // pixel-square; the clamp below bounds the vertical extent.
+        /* The width ratio is applied to both axes, so that a diagonal stays
+         * at 45 degrees. The clamp below bounds the vertical extent. */
         tablet_x = (int16_t)((int32_t)tablet_ref_x * cw / TABLET_REF_WIDTH);
         tablet_y = (int16_t)((int32_t)tablet_ref_y * cw / TABLET_REF_WIDTH);
     }
@@ -252,9 +271,9 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
     else if (tablet_y > ch - 1)
         tablet_y = ch - 1;
 
-    // An absolute device set tablet_x/tablet_y directly; keep the relative-mouse
-    // reference in step so a later mouse continues from here instead of snapping
-    // back to a stale position.
+    /* An absolute device set tablet_x and tablet_y directly, so the reference
+     * space is put back in step with them. A mouse moved afterwards then
+     * carries on from here instead of snapping back to where it left off. */
     if (!conn->x_relative)
     {
         tablet_ref_x = (int16_t)((int32_t)tablet_x * TABLET_REF_WIDTH / cw);
@@ -262,7 +281,7 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
         tablet_sub_x = tablet_sub_y = 0;
     }
 
-    // Buttons: mouse buttons 1..5, plus a digitizer Tip Switch as the primary.
+    // A digitizer's Tip Switch is the primary button.
     uint8_t buttons = 0;
     for (int i = 0; i < 5; i++)
         if (conn->button_offsets[i] != 0xFFFF)
@@ -272,13 +291,12 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
         if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
             buttons |= TABLET_FLAG_LEFT;
 
-    // Hover: a mouse always tracks; an absolute pen tracks when In Range; a bare
-    // touchscreen (tip only, no In Range) does not.
+    /* A mouse always hovers. An absolute pen hovers while it is In Range, and
+     * a touchscreen that reports a tip and no In Range never hovers. */
     bool hover = conn->x_relative;
     if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
         hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
 
-    // Scroll: only a mouse carries these; a pen/touch has wheel_size 0 and is skipped.
     if (conn->wheel_size > 0)
         tablet_state[TABLET_OFF_WHEEL] += hid_extract_signed(report_data, report_data_len,
                                                              conn->wheel_offset, conn->wheel_size);
@@ -304,9 +322,9 @@ static void tablet_set_host_cursor(bool on)
         tablet_state[TABLET_OFF_STATUS] &= (uint8_t)~TABLET_STATUS_HOST_CURSOR;
 }
 
-void tablet_host_pointer(int x, int y, uint8_t buttons)
+void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
 {
-    tablet_set_host_cursor(true);
+    tablet_set_host_cursor(host_cursor);
     tablet_put_contact(0, (uint8_t)(buttons | TABLET_FLAG_HOVER), x, y);
     for (int i = 1; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);

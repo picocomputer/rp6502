@@ -11,16 +11,10 @@
 #include "core/hid/hid.h"
 #include "core/hid/gamepad.h"
 #include "ria/usb/xin.h"
+#include "core/sys/debug_log.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
 #include <string.h>
-
-#if defined(DEBUG_USB) || defined(DEBUG_USB_XIN)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // GIP init packet definition
 typedef struct
@@ -178,9 +172,9 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 {
     (void)rhport;
 
-    DBG("XInput: class=0x%02X sub=0x%02X proto=0x%02X itf=%d\n",
-        desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass,
-        desc_itf->bInterfaceProtocol, desc_itf->bInterfaceNumber);
+    RP6502_LOG(xinput, DEBUG, "class=0x%02X sub=0x%02X proto=0x%02X itf=%d",
+               desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass,
+               desc_itf->bInterfaceProtocol, desc_itf->bInterfaceNumber);
 
     // Walk descriptors to find endpoints and compute drv_len
     uint8_t const *p_desc = tu_desc_next(desc_itf);
@@ -198,12 +192,12 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
                 if (!ep_in_desc && tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_IN && packet_size >= 20)
                 {
                     ep_in_desc = desc_ep;
-                    DBG("XInput: IN endpoint 0x%02X, maxPacket=%d\n", desc_ep->bEndpointAddress, packet_size);
+                    RP6502_LOG(xinput, DEBUG, "IN endpoint 0x%02X, maxPacket=%d", desc_ep->bEndpointAddress, packet_size);
                 }
                 else if (!ep_out_desc && tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_OUT && packet_size >= 3)
                 {
                     ep_out_desc = desc_ep;
-                    DBG("XInput: OUT endpoint 0x%02X, maxPacket=%d\n", desc_ep->bEndpointAddress, packet_size);
+                    RP6502_LOG(xinput, DEBUG, "OUT endpoint 0x%02X, maxPacket=%d", desc_ep->bEndpointAddress, packet_size);
                 }
             }
         }
@@ -215,7 +209,7 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     // regardless of class, preventing HID from opening them and wasting ep slots.
     if (xin_find_index_by_dev_addr(dev_addr) >= 0)
     {
-        DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
+        RP6502_LOG(xinput, DEBUG, "consuming extra interface for dev_addr %d", dev_addr);
         return drv_len;
     }
 
@@ -233,26 +227,26 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     if (!is_xbox_one && !is_x360)
         return 0;
 
-    DBG("XInput: Detected %s controller interface\n",
-        is_xbox_one ? "Xbox One/Series" : "Xbox 360");
+    RP6502_LOG(xinput, INFO, "detected %s controller interface",
+               is_xbox_one ? "Xbox One/Series" : "Xbox 360");
 
     if (!ep_in_desc || !ep_out_desc)
     {
-        DBG("XInput: Missing endpoints (in=%p out=%p)\n", ep_in_desc, ep_out_desc);
+        RP6502_LOG(xinput, ERROR, "missing endpoints (in=%p out=%p)", ep_in_desc, ep_out_desc);
         return 0;
     }
 
     int idx = xin_find_free_index();
     if (idx < 0)
     {
-        DBG("XInput: No free device slots\n");
+        RP6502_LOG(xinput, WARN, "no free device slots");
         return 0;
     }
 
     if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
         !tuh_edpt_open(dev_addr, ep_out_desc))
     {
-        DBG("XInput: Failed to open endpoints\n");
+        RP6502_LOG(xinput, ERROR, "failed to open endpoints");
         return 0;
     }
 
@@ -271,7 +265,7 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
         (xin_devices[idx].slot = (int8_t)hid_mount(NULL, NULL, NULL, desc, vendor_id,
                                                    product_id, GAMEPAD_TYPE_WESTERN)) < 0)
     {
-        DBG("XInput: Failed to mount in gamepad system\n");
+        RP6502_LOG(xinput, ERROR, "failed to mount in gamepad system");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
         tuh_edpt_close(dev_addr, ep_out_desc->bEndpointAddress);
         memset(&xin_devices[idx], 0, sizeof(xin_device_t));
@@ -281,7 +275,7 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     xin_devices[idx].vid = vendor_id;
     xin_devices[idx].pid = product_id;
 
-    DBG("XInput: Claimed Xbox controller in index %d (VID=%04X PID=%04X)\n", idx, vendor_id, product_id);
+    RP6502_LOG(xinput, INFO, "claimed Xbox controller in index %d (VID=%04X PID=%04X)", idx, vendor_id, product_id);
     return drv_len;
 }
 
@@ -311,14 +305,14 @@ static bool xin_send_next_init(xin_device_t *device)
         if (tuh_edpt_xfer(&xfer))
         {
             device->gip_seq++;
-            DBG("XInput: Queued GIP init %d/%d (cmd=0x%02X, %d bytes, seq=%d) on EP 0x%02X\n",
-                device->init_seq, (int)GIP_INIT_PACKET_COUNT,
-                pkt->data[0], pkt->len, device->out_cmd[2], device->ep_out);
+            RP6502_LOG(xinput, DEBUG, "queued GIP init %d/%d (cmd=0x%02X, %d bytes, seq=%d) on EP 0x%02X",
+                       device->init_seq, (int)GIP_INIT_PACKET_COUNT,
+                       pkt->data[0], pkt->len, device->out_cmd[2], device->ep_out);
             return true;
         }
-        DBG("XInput: FAILED to queue GIP init %d - tuh_edpt_xfer returned false\n", device->init_seq - 1);
+        RP6502_LOG(xinput, WARN, "failed to queue GIP init %d - tuh_edpt_xfer returned false", device->init_seq - 1);
     }
-    DBG("XInput: GIP init sequence complete\n");
+    RP6502_LOG(xinput, INFO, "GIP init sequence complete");
     device->init_done = true;
     return false;
 }
@@ -327,9 +321,9 @@ static bool xin_send_next_init(xin_device_t *device)
 // an announce restarts init from the top (matches Linux xpad).
 static void xin_start_xbox_one(xin_device_t *device, int idx)
 {
-    DBG("XInput: Xbox One — queuing IN then starting GIP init\n");
+    RP6502_LOG(xinput, DEBUG, "Xbox One — queuing IN then starting GIP init");
     if (!xin_queue_in(device, idx))
-        DBG("XInput: FAILED to queue IN\n");
+        RP6502_LOG(xinput, ERROR, "failed to queue IN");
     xin_send_next_init(device);
 }
 
@@ -343,8 +337,8 @@ static void xin_audio_disable_cb(tuh_xfer_t *xfer)
     xin_device_t *device = &xin_devices[idx];
 
     if (xfer->result != XFER_RESULT_SUCCESS)
-        DBG("XInput: Audio interface disable failed (result=%d), continuing\n",
-            xfer->result);
+        RP6502_LOG(xinput, WARN, "audio interface disable failed (result=%d), continuing",
+                   xfer->result);
 
     xin_start_xbox_one(device, idx);
     usbh_driver_set_config_complete(xfer->daddr, device->itf_num);
@@ -361,7 +355,7 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     }
 
     xin_device_t *device = &xin_devices[idx];
-    DBG("XInput: set_config for dev_addr %d index %d\n", dev_addr, idx);
+    RP6502_LOG(xinput, DEBUG, "set_config for dev_addr %d index %d", dev_addr, idx);
 
     if (device->is_xbox_one)
     {
@@ -372,14 +366,14 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
                               xin_audio_disable_cb, (uintptr_t)idx))
             return true; // init continues in callback
         // Control transfer failed (no audio interface?) — proceed directly
-        DBG("XInput: Audio disable skipped, starting GIP init directly\n");
+        RP6502_LOG(xinput, DEBUG, "audio disable skipped, starting GIP init directly");
         xin_start_xbox_one(device, idx);
     }
     else
     {
         // Xbox 360: queue IN immediately, then send LED command
         if (!xin_queue_in(device, idx))
-            DBG("XInput: FAILED to queue IN for index %d\n", idx);
+            RP6502_LOG(xinput, ERROR, "failed to queue IN for index %d", idx);
 
         int pnum = gamepad_get_player_num(xin_devices[idx].slot);
         device->out_cmd[0] = 0x01;
@@ -393,7 +387,7 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
             .complete_cb = NULL,
             .user_data = (uintptr_t)idx};
         if (!tuh_edpt_xfer(&xfer))
-            DBG("XInput: Failed to send Xbox 360 LED cmd for index %d\n", idx);
+            RP6502_LOG(xinput, WARN, "failed to send Xbox 360 LED cmd for index %d", idx);
     }
 
     usbh_driver_set_config_complete(dev_addr, itf_num);
@@ -411,30 +405,30 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
     // OUT completion — send next init packet in sequence
     if (ep_addr == device->ep_out)
     {
-        DBG("XInput: OUT complete on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
+        RP6502_LOG(xinput, DEBUG, "OUT complete on EP 0x%02X, result=%d, %lu bytes", ep_addr, result, xferred_bytes);
         if (result == XFER_RESULT_SUCCESS && device->is_xbox_one && !device->init_done)
             xin_send_next_init(device);
         return true;
     }
 
     // IN completion
-    DBG("XInput: IN on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
+    RP6502_LOG(xinput, DEBUG, "IN on EP 0x%02X, result=%d, %lu bytes", ep_addr, result, xferred_bytes);
 
     if (result == XFER_RESULT_STALLED)
     {
         // Endpoint is halted; re-queuing would loop forever since only
         // CLEAR_FEATURE(ENDPOINT_HALT) can recover it. Stop polling and
         // let the controller drop/reconnect (matches Linux xpad behaviour).
-        DBG("XInput: EP 0x%02X STALLed, halting poll\n", ep_addr);
+        RP6502_LOG(xinput, WARN, "EP 0x%02X STALLed, halting poll", ep_addr);
         return true;
     }
 
     if (result != XFER_RESULT_SUCCESS)
     {
         // Transient RX timeout / data-seq error, not a halt — re-arm and keep polling.
-        DBG("XInput: IN transfer FAILED for index %d, result=%d, re-arming\n", idx, result);
+        RP6502_LOG(xinput, WARN, "IN transfer failed for index %d, result=%d, re-arming", idx, result);
         if (!xin_queue_in(device, idx))
-            DBG("XInput: FAILED to re-queue IN after error for index %d\n", idx);
+            RP6502_LOG(xinput, ERROR, "failed to re-queue IN after error for index %d", idx);
         return true;
     }
 
@@ -448,18 +442,18 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
     else
     {
         uint8_t gip_cmd = report[0];
-        DBG("XInput: GIP cmd=0x%02X opts=0x%02X seq=%d len_field=0x%02X\n",
-            gip_cmd,
-            xferred_bytes > 1 ? report[1] : 0,
-            xferred_bytes > 2 ? report[2] : 0,
-            xferred_bytes > 3 ? report[3] : 0);
+        RP6502_LOG(xinput, DEBUG, "GIP cmd=0x%02X opts=0x%02X seq=%d len_field=0x%02X",
+                   gip_cmd,
+                   xferred_bytes > 1 ? report[1] : 0,
+                   xferred_bytes > 2 ? report[2] : 0,
+                   xferred_bytes > 3 ? report[3] : 0);
 
         if (gip_cmd == 0x02 && xferred_bytes >= 4)
         {
             // GIP_CMD_ANNOUNCE — controller requesting (re-)initialization.
             // This happens when the controller resets or changes power state.
             // Re-run the full GIP init sequence (mirrors Linux xpad behavior).
-            DBG("XInput: GIP announce received, restarting init sequence\n");
+            RP6502_LOG(xinput, INFO, "GIP announce received, restarting init sequence");
             device->init_seq = 0;
             device->gip_seq = 0;
             device->init_done = false;
@@ -481,7 +475,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                 if (last_off < xferred_bytes)
                 {
                     uint8_t pressed = report[last_off] & 0x01;
-                    DBG("XInput: home button state: %d\n", pressed);
+                    RP6502_LOG(xinput, DEBUG, "home button state: %d", pressed);
                     gamepad_home_button(xin_devices[idx].slot, pressed);
                 }
             }
@@ -506,7 +500,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                     .complete_cb = NULL,
                     .user_data = (uintptr_t)idx};
                 if (!tuh_edpt_xfer(&ack_xfer))
-                    DBG("XInput: Failed to send home button ACK\n");
+                    RP6502_LOG(xinput, DEBUG, "failed to send home button ACK");
             }
         }
         else if (gip_cmd == 0x20)
@@ -516,12 +510,12 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
         }
         else
         {
-            DBG("XInput: Unhandled GIP cmd 0x%02X (%lu bytes)\n", gip_cmd, xferred_bytes);
+            RP6502_LOG(xinput, WARN, "unhandled GIP cmd 0x%02X (%lu bytes)", gip_cmd, xferred_bytes);
         }
     }
     // Restart the transfer to continue receiving reports
     if (!xin_queue_in(device, idx))
-        DBG("XInput: FAILED to re-queue IN for index %d\n", idx);
+        RP6502_LOG(xinput, ERROR, "failed to re-queue IN for index %d", idx);
     return true;
 }
 
@@ -531,7 +525,7 @@ void xin_class_driver_close(uint8_t dev_addr)
     if (idx < 0)
         return;
 
-    DBG("XInput: Closing Xbox controller from index %d\n", idx);
+    RP6502_LOG(xinput, INFO, "closing Xbox controller from index %d", idx);
 
     hid_umount(xin_devices[idx].slot);
 

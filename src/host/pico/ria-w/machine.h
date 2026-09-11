@@ -22,4 +22,5 @@
 #define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
 
+
 #endif /* _HOST_MACHINE_H_ */

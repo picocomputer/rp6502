@@ -17,27 +17,19 @@
 #include "ria/usb/usb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
+#include "core/sys/debug_log.h"
 #include "pico/aon_timer.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
 
-#if defined(DEBUG_USB) || defined(DEBUG_USB_MSC)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
+#define MSC_LOG_VOL(vol, LEVEL, fmt, ...) \
+    RP6502_LOG(msc, LEVEL, "vol %u: " fmt, (unsigned)(vol), ##__VA_ARGS__)
 
-#define DBG_VOL(vol, fmt, ...)                                \
-    DBG("MSC:%lums vol %u: " fmt,                             \
-        (unsigned long)to_ms_since_boot(get_absolute_time()), \
-        (unsigned)(vol),                                      \
-        ##__VA_ARGS__)
-
-#define DBG_CMD(vol, cmd, status)                                           \
-    DBG_VOL(vol, cmd " (status=0x%02x sk=0x%02x asc=0x%02x ascq=0x%02x)\n", \
-            (unsigned)(status),                                             \
-            msc_pdrv[vol].sense_key, msc_pdrv[vol].sense_asc, msc_pdrv[vol].sense_ascq)
+#define MSC_LOG_CMD(vol, cmd, status)                                                  \
+    MSC_LOG_VOL(vol, DEBUG, cmd " (status=0x%02x sk=0x%02x asc=0x%02x ascq=0x%02x)", \
+                (unsigned)(status),                                                    \
+                msc_pdrv[vol].sense_key, msc_pdrv[vol].sense_asc, msc_pdrv[vol].sense_ascq)
 
 #define TU_LOG_DRV(...) TU_LOG(CFG_TUH_LOG_LEVEL, __VA_ARGS__)
 
@@ -1187,7 +1179,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol,
     if (msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
         resp->response_data_format != 0)
         status = MSC_STATUS_PASSED;
-    DBG_CMD(vol, "INQUIRY", status);
+    MSC_LOG_CMD(vol, "INQUIRY", status);
     return status;
 }
 
@@ -1197,7 +1189,7 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "TUR", status);
+    MSC_LOG_CMD(vol, "TUR", status);
     return status;
 }
 
@@ -1223,7 +1215,7 @@ static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t hea
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "FORMAT UNIT", status);
+    MSC_LOG_CMD(vol, "FORMAT UNIT", status);
     return status;
 }
 
@@ -1233,7 +1225,7 @@ static msc_status_t msc_scsi_read_capacity10(uint8_t vol, scsi_read_capacity10_r
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
-    DBG_CMD(vol, "READ CAPACITY(10)", status);
+    MSC_LOG_CMD(vol, "READ CAPACITY(10)", status);
     return status;
 }
 
@@ -1247,7 +1239,7 @@ static msc_status_t msc_scsi_read_capacity16(uint8_t vol, scsi_read_capacity16_r
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity16_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
-    DBG_CMD(vol, "READ CAPACITY(16)", status);
+    MSC_LOG_CMD(vol, "READ CAPACITY(16)", status);
     return status;
 }
 
@@ -1265,7 +1257,7 @@ static msc_status_t msc_scsi_read16(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, (uint32_t)block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "READ(16)", status);
+    MSC_LOG_CMD(vol, "READ(16)", status);
     return status;
 }
 
@@ -1282,7 +1274,7 @@ static msc_status_t msc_scsi_write16(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, (uint32_t)block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "WRITE(16)", status);
+    MSC_LOG_CMD(vol, "WRITE(16)", status);
     return status;
 }
 #endif // FF_LBA64
@@ -1295,7 +1287,7 @@ static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, void *resp)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_format_capacity_data_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "READ FORMAT CAPACITIES", status);
+    MSC_LOG_CMD(vol, "READ FORMAT CAPACITIES", status);
     return status;
 }
 
@@ -1310,7 +1302,7 @@ static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint8_t page_code, scsi_mo
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense6_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
-    DBG_CMD(vol, "MODE SENSE(6)", status);
+    MSC_LOG_CMD(vol, "MODE SENSE(6)", status);
     return status;
 }
 
@@ -1326,7 +1318,7 @@ static msc_status_t msc_scsi_mode_sense10(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
-    DBG_CMD(vol, "MODE SENSE(10)", status);
+    MSC_LOG_CMD(vol, "MODE SENSE(10)", status);
     return status;
 }
 
@@ -1336,7 +1328,7 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "SYNC CACHE(10)", status);
+    MSC_LOG_CMD(vol, "SYNC CACHE(10)", status);
     return status;
 }
 
@@ -1360,7 +1352,7 @@ static msc_status_t msc_scsi_unmap(uint8_t vol, LBA_t lba, uint32_t block_count)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, &param, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "UNMAP", status);
+    MSC_LOG_CMD(vol, "UNMAP", status);
     return status;
 }
 
@@ -1375,7 +1367,7 @@ static msc_status_t msc_scsi_read10(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "READ(10)", status);
+    MSC_LOG_CMD(vol, "READ(10)", status);
     return status;
 }
 
@@ -1390,7 +1382,7 @@ static msc_status_t msc_scsi_write10(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "WRITE(10)", status);
+    MSC_LOG_CMD(vol, "WRITE(10)", status);
     return status;
 }
 
@@ -1441,9 +1433,9 @@ static bool msc_read_capacity(uint8_t vol)
         msc_pdrv[vol].block_count = last_lba64 + 1;
         msc_pdrv[vol].block_size = bsize16;
         msc_pdrv[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
-        DBG_VOL(vol, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d\n",
-                (unsigned long long)msc_pdrv[vol].block_count,
-                (unsigned long)bsize16, msc_pdrv[vol].lbpme);
+        MSC_LOG_VOL(vol, DEBUG, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d",
+                    (unsigned long long)msc_pdrv[vol].block_count,
+                    (unsigned long)bsize16, msc_pdrv[vol].lbpme);
         return true;
     }
 
@@ -1476,7 +1468,7 @@ static void msc_sense_write_protect(uint8_t vol)
         scsi_mode_sense6_resp_t ms6;
         if (msc_scsi_mode_sense6(vol, 0x3F, &ms6) == MSC_STATUS_PASSED)
         {
-            DBG_VOL(vol, "MODE SENSE(6) WP=%d\n", ms6.write_protected);
+            MSC_LOG_VOL(vol, DEBUG, "MODE SENSE(6) WP=%d", ms6.write_protected);
             msc_pdrv[vol].write_prot = ms6.write_protected;
         }
     }
@@ -1485,7 +1477,7 @@ static void msc_sense_write_protect(uint8_t vol)
         scsi_mode_sense10_resp_t ms10;
         if (msc_scsi_mode_sense10(vol, 0x3F, &ms10) == MSC_STATUS_PASSED)
         {
-            DBG_VOL(vol, "MODE SENSE(10) WP=%d\n", ms10.write_protected);
+            MSC_LOG_VOL(vol, DEBUG, "MODE SENSE(10) WP=%d", ms10.write_protected);
             msc_pdrv[vol].write_prot = ms10.write_protected;
         }
     }
@@ -1505,10 +1497,10 @@ static bool msc_probe_unmap(uint8_t vol)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(resp), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, &resp, MSC_SCSI_OP_TIMEOUT_MS);
-    DBG_CMD(vol, "INQUIRY VPD B2", status);
+    MSC_LOG_CMD(vol, "INQUIRY VPD B2", status);
     if (status != MSC_STATUS_PASSED || resp.page_code != 0xB2)
         return false;
-    DBG_VOL(vol, "VPD B2: LBPU=%d\n", resp.lbpu);
+    MSC_LOG_VOL(vol, DEBUG, "VPD B2: LBPU=%d", resp.lbpu);
     return resp.lbpu;
 }
 
@@ -1529,7 +1521,7 @@ static void msc_mount_cb(uint8_t dev_addr)
         uint8_t pdrv = msc_pdrv_alloc();
         if (pdrv == FF_VOLUMES)
         {
-            DBG("MSC mount: no free pdrv for dev %d LUN %d\n", dev_addr, lun);
+            RP6502_LOG(msc, WARN, "no free pdrv for dev %d LUN %d", dev_addr, lun);
             break;
         }
         msc_pdrv[pdrv].dev_addr = dev_addr;
@@ -1542,7 +1534,7 @@ static void msc_mount_cb(uint8_t dev_addr)
         TCHAR volstr[6];
         msc_vol_path(volstr, pdrv);
         f_mount(&msc_pdrv[pdrv].fatfs, volstr, 0);
-        DBG_VOL(pdrv, "registered dev_addr %d LUN %d\n", dev_addr, lun);
+        MSC_LOG_VOL(pdrv, INFO, "registered dev_addr %d LUN %d", dev_addr, lun);
     }
 }
 
@@ -1558,7 +1550,7 @@ static void msc_umount_cb(uint8_t dev_addr)
         f_unmount(volstr);
         memset(&msc_pdrv[pdrv], 0, sizeof(msc_pdrv[pdrv]));
         msc_mount_gen[pdrv]++;
-        DBG_VOL(pdrv, "unmounted (dev_addr %d)\n", dev_addr);
+        MSC_LOG_VOL(pdrv, INFO, "unmounted (dev_addr %d)", dev_addr);
     }
 }
 
@@ -1673,14 +1665,14 @@ DSTATUS disk_status(BYTE pdrv)
     uint8_t vol = pdrv;
     if (msc_pdrv[vol].status != msc_volume_mounted)
     {
-        DBG_VOL(vol, "disk_status, not mounted, status=%d\n", msc_pdrv[vol].status);
+        MSC_LOG_VOL(vol, DEBUG, "disk_status, not mounted, status=%d", msc_pdrv[vol].status);
         return STA_NOINIT;
     }
     // Test for removed media if we haven't used the drive in a while.
     if (msc_pdrv[vol].removable &&
         time_reached(delayed_by_ms(msc_pdrv[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
     {
-        DBG_VOL(vol, "disk_status, issuing TUR\n");
+        MSC_LOG_VOL(vol, DEBUG, "disk_status, issuing TUR");
         // Only a FAILED TUR signals removal; a TIMED_OUT TUR intentionally leaves
         // the drive present so a momentarily slow but working drive isn't dropped
         // (real I/O independently maps TIMED_OUT to RES_NOTRDY).
@@ -1710,7 +1702,7 @@ DSTATUS disk_status(BYTE pdrv)
 DSTATUS disk_initialize(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    DBG_VOL(vol, "disk_initialize, status=%d\n", msc_pdrv[vol].status);
+    MSC_LOG_VOL(vol, DEBUG, "disk_initialize, status=%d", msc_pdrv[vol].status);
 
     if (msc_pdrv[vol].status == msc_volume_registered ||
         msc_pdrv[vol].status == msc_volume_ejected)

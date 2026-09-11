@@ -32,6 +32,7 @@ extern "C"
 #include "core/wdc/resb.h"
 #include "core/wdc/sram.h"
 #include "core/dap/dap.h"
+#include "core/sys/debug_log.h"
 #include "core/dap/dwarf_line.h"
 #include "core/dap/dwarf_info.h"
 #include "core/dap/dwarf_frame.h"
@@ -305,11 +306,14 @@ const char *reason_str(int r)
     }
 }
 
+void out_flush();
+
 void send_stopped(int reason)
 {
     g_stop_gen++; /* a new stop: expandable-variable refs from the last one are stale */
     if (!g_session)
         return;
+    out_flush(); /* what the program said before it stopped, before the stop */
     dap::StoppedEvent ev;
     ev.reason = reason_str(reason);
     ev.threadId = 1;
@@ -331,24 +335,92 @@ void on_stopped(int reason, uint16_t pc)
     send_stopped(reason);
 }
 
-/* Program console output -> the Debug Console (also still shown in the window).
- * The bytes are in the active OEM code page; convert to UTF-8 so a high byte
- * (e.g. CP437 0x81 'ü') can't produce a malformed JSON OutputEvent. */
-void stdout_tap(const char *buf, int len)
+/* Program output -> the Debug Console: one OutputEvent per category per
+ * frame rather than one per byte. The buffer grows to its high-water mark
+ * and stays there. The taps feed it from the main thread; a log line can
+ * come from any, so the lock. */
+char *g_out_buf;
+size_t g_out_len, g_out_cap;
+const char *g_out_category = "stdout";
+std::mutex g_out_mutex;
+
+void out_flush_locked()
 {
-    if (!g_session)
+    if (g_out_len && g_session)
+    {
+        dap::OutputEvent ev;
+        ev.category = g_out_category;
+        ev.output = std::string(g_out_buf, g_out_len);
+        g_session->send(ev);
+    }
+    g_out_len = 0;
+}
+
+void out_flush()
+{
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_flush_locked();
+}
+
+void out_select_locked(const char *category)
+{
+    if (strcmp(g_out_category, category) != 0)
+    {
+        out_flush_locked();
+        g_out_category = category;
+    }
+}
+
+void out_reserve_locked(size_t len)
+{
+    if (g_out_len + len > g_out_cap)
+    {
+        size_t cap = g_out_cap ? g_out_cap : 4096;
+        while (cap < g_out_len + len)
+            cap *= 2;
+        g_out_buf = (char *)realloc(g_out_buf, cap);
+        g_out_cap = cap;
+    }
+}
+
+void out_append(const char *category, const char *utf8, size_t len)
+{
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_select_locked(category);
+    out_reserve_locked(len);
+    memcpy(g_out_buf + g_out_len, utf8, len);
+    g_out_len += len;
+}
+
+extern "C" void dap_log(int level, const char *category, const char *fmt, va_list ap)
+{
+    static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
+    va_list sizing;
+    va_copy(sizing, ap);
+    int text = vsnprintf(nullptr, 0, fmt, sizing);
+    va_end(sizing);
+    int head = snprintf(nullptr, 0, "%s %s: ", names[level], category);
+    if (text < 0 || head < 0)
         return;
-    std::string utf8;
-    utf8.reserve((size_t)len);
+    std::lock_guard<std::mutex> lock(g_out_mutex);
+    out_select_locked("stderr");
+    out_reserve_locked((size_t)head + (size_t)text + 2); /* both NULs, one overwritten by the newline */
+    g_out_len += (size_t)snprintf(g_out_buf + g_out_len, (size_t)head + 1, "%s %s: ", names[level], category);
+    g_out_len += (size_t)vsnprintf(g_out_buf + g_out_len, (size_t)text + 1, fmt, ap);
+    g_out_buf[g_out_len++] = '\n';
+}
+
+/* The program's own streams, raw bytes in the active OEM code page; the
+ * JSON wants UTF-8, or a high byte (CP437 0x81 'ü') makes a malformed
+ * OutputEvent. */
+void std_tap(int fd, const char *buf, int len)
+{
+    const char *category = fd == 2 ? "stderr" : "stdout";
     for (int i = 0; i < len; i++)
     {
         char enc[3];
-        utf8.append(enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
+        out_append(category, enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
     }
-    dap::OutputEvent ev;
-    ev.category = "stdout";
-    ev.output = std::move(utf8);
-    g_session->send(ev);
 }
 
 /* The inverse boundary: DAP JSON strings are UTF-8, the guest wants OEM. */
@@ -1378,10 +1450,8 @@ bool bp_filter(uint16_t pc)
     {
         if (g_session)
         {
-            dap::OutputEvent ev;
-            ev.category = "console";
-            ev.output = interp_log(m.logMessage, pc) + "\n";
-            g_session->send(ev);
+            std::string msg = interp_log(m.logMessage, pc) + "\n";
+            out_append("console", msg.data(), msg.size());
         }
         return false; /* logpoint: logged, keep running */
     }
@@ -1420,9 +1490,10 @@ extern "C" void dap_start(void)
     dbg_set_line_lookup(line_lookup);
     dbg_set_break_filter(bp_filter);
     dbg_set_watch_cb(dbg_watch_on_access);
-    com_set_tx_tap(stdout_tap);
+    com_set_std_tap(std_tap);
 
     g_session = dap::Session::create();
+    g_session->onError([](const char *msg) { RP6502_LOG(dap, ERROR, "%s", msg); });
 
     g_session->registerHandler([](const dap::InitializeRequest &) {
         dap::InitializeResponse r;
@@ -2206,6 +2277,7 @@ extern "C" void dap_start(void)
 
 extern "C" void dap_pump(void)
 {
+    out_flush();
     std::vector<std::function<void()>> work;
     {
         std::lock_guard<std::mutex> lk(g_mtx);
@@ -2248,7 +2320,7 @@ extern "C" void dap_pump(void)
     /* Program exit (once): either keep the session alive in a stopped state so
      * the final screen + machine state stay inspectable until the client
      * disconnects (stopOnExit, the default), or terminate the session. */
-    if (!g_terminated && g_launch_done && !resb_running() && !dbg_is_stopped())
+    if (!g_terminated && g_launch_done && proc_exited() && !dbg_is_stopped())
     {
         g_terminated = true;
         if (g_session)
@@ -2287,6 +2359,7 @@ extern "C" void dap_stop(void)
      * client seeing a dropped pipe. send() flushes (cppdap's File::write). Skip
      * when the client itself asked to disconnect (g_quit) or a TerminatedEvent
      * already went out. */
+    out_flush();
     if (g_session && !g_quit.load() && !g_term_sent)
     {
         g_session->send(dap::TerminatedEvent());

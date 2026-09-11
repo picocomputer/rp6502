@@ -10,10 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 
-// 8x8 and 8x16 fonts based on the IBM VGA typeface.
-// ASCII glyphs 0-127 are common to all code pages.
-// Code-page tables hold only glyphs 128-255.
-// Setting a code page builds the complete font in RAM.
+// The 8x8 and 8x16 fonts are based on the IBM VGA typeface. Glyphs 0-127 are
+// the same in every code page, so a code-page table holds only glyphs 128-255
+// and setting a code page assembles the complete font in RAM.
 
 uint8_t HOST_UNINITIALIZED_RAM(font8)[2048];
 uint8_t HOST_UNINITIALIZED_RAM(font16)[4096];
@@ -21,7 +20,6 @@ uint8_t HOST_UNINITIALIZED_RAM(font_dec_8)[8 * 32];
 uint8_t HOST_UNINITIALIZED_RAM(font_dec_16)[16 * 32];
 uint8_t HOST_UNINITIALIZED_RAM(italic16)[16 * 128];
 
-// Code page currently built into the high half (0 = blank/uninitialized).
 static uint16_t font_code_page;
 
 static const HOST_IN_FLASH("font_ascii_8") uint8_t FONT8_ASCII[] = {
@@ -3682,10 +3680,11 @@ static const HOST_IN_FLASH("font_cp869_16") uint8_t FONT16_CP869[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// DEC Special Graphics -> CP437 mapping. Sentinel DEC_MAP_BLANK leaves the
-// slot zeroed (no glyph available); DEC_MAP_ASCII marks codes sourced from
-// the ASCII low-half ROM rather than the CP437 high half. Indexed by
-// (dec_code - 0x5F); 0x20 entries for codes 0x5F..0x7E.
+// DEC Special Graphics mapped onto CP437. The table is indexed by
+// dec_code - 0x5F and holds 0x20 entries, one for each of the codes 0x5F
+// through 0x7E that the DEC charset defines. DEC_MAP_BLANK marks a code
+// CP437 has no glyph for and leaves the slot zeroed; DEC_MAP_ASCII marks one
+// taken from the ASCII low half rather than the CP437 high half.
 #define DEC_MAP_BLANK 0xFFFFu
 #define DEC_MAP_ASCII 0x10000u
 static const uint32_t dec_glyph_map[0x20] = {
@@ -3725,9 +3724,8 @@ static const uint32_t dec_glyph_map[0x20] = {
 
 static void font_build_dec_graphics(void)
 {
-    // Lay out font_dec_8 / font_dec_16 in the same row-major form as
-    // font8/font16 (one row of all glyphs at a time) so the renderer's
-    // scanline lookup matches the existing pattern.
+    // font_dec_8 and font_dec_16 are laid out like font8 and font16: one scan
+    // row of every glyph, then the next row.
     for (int row = 0; row < 16; row++)
     {
         for (int idx = 0; idx < 0x20; idx++)
@@ -3737,7 +3735,6 @@ static void font_build_dec_graphics(void)
             uint8_t v8 = 0;
             if (m == DEC_MAP_BLANK)
             {
-                // leave zero
             }
             else if (m & DEC_MAP_ASCII)
             {
@@ -3748,7 +3745,6 @@ static void font_build_dec_graphics(void)
             }
             else
             {
-                // CP437 high half: 0x80..0xFF stored at [row * 128 + (ch - 0x80)].
                 uint8_t ch = (uint8_t)(m & 0xFFu);
                 v16 = FONT16_CP437[row * 128 + (ch - 0x80)];
                 if (row < 8)
@@ -3775,8 +3771,9 @@ void font_init(void)
     }
     memcpy(italic16, FONT16_ASCII_ITALIC, sizeof(italic16));
     font_build_dec_graphics();
-    // The high half is now blank; clear the record so the load below isn't
-    // skipped when font_init runs again with a code page still set.
+    // font_init has just blanked the high half. Clearing font_code_page keeps the
+    // load below from being skipped as a no-op when font_init runs a second
+    // time with 437 already recorded.
     font_code_page = 0;
     font_set_code_page(437);
 }
@@ -3786,7 +3783,7 @@ uint16_t font_get_code_page(void)
     return font_code_page;
 }
 
-void font_set_code_page(uint16_t cp)
+static void font_code_page_to(uint16_t cp, bool ris)
 {
     const uint8_t *font8hi = NULL;
     const uint8_t *font16hi = NULL;
@@ -3869,7 +3866,8 @@ void font_set_code_page(uint16_t cp)
     if (font_code_page == cp)
         return;
     font_code_page = cp;
-    term_RIS();
+    if (ris)
+        term_RIS();
 
     if (!cp)
         for (int row = 0; row < 16; row++)
@@ -3885,4 +3883,16 @@ void font_set_code_page(uint16_t cp)
             if (row < 8)
                 memcpy(&font8[row * 256 + 128], &font8hi[row * 128], 128);
         }
+}
+
+/* Choosing a code page resets the terminal, because a screen of glyphs from
+ * one page cannot be read against another. */
+void font_set_code_page(uint16_t cp)
+{
+    font_code_page_to(cp, true);
+}
+
+void font_load_code_page(uint16_t cp)
+{
+    font_code_page_to(cp, false);
 }

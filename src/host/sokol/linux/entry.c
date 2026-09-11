@@ -2,29 +2,21 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Linux window host: the X11 WM seam (resize + aspect hint) and the sokol entry
- * (entry_run -> sapp_run). The render/frame/present pipeline is in
- * host/sokol/app/app.c.
  */
 
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
-#include "sokol/sokol_log.h"
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
-/* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
- * a one-shot resize when the canvas changes, and a PAspect size hint that asks
- * the window manager to keep that aspect during interactive resizes (we don't
- * fight the WM by snapping the size ourselves; the quad letterboxes whenever the
- * window ends up off-aspect anyway). Forward-declare the few Xlib bits we need
- * rather than pulling in <X11/Xlib.h> and its macro soup (Window is an XID =
- * unsigned long; X11 is already linked for the GL backend). */
+/* The few Xlib declarations this file needs are written out here instead of
+ * including <X11/Xlib.h>, so XSizeHints below has to match Xlib's own layout.
+ * X11 is already linked for the GL backend, and a Window is an XID, which is
+ * an unsigned long. */
 typedef struct _XDisplay Display;
 typedef struct
 {
@@ -35,7 +27,7 @@ typedef struct
     struct { int x, y; } min_aspect, max_aspect;
     int base_width, base_height, win_gravity;
 } XSizeHints;
-#define X_PASPECT (1L << 7) /* XSizeHints PAspect flag */
+#define X_PASPECT (1L << 7) /* PAspect, from <X11/Xutil.h> */
 extern int XResizeWindow(Display *, unsigned long, unsigned, unsigned);
 extern void XSetWMNormalHints(Display *, unsigned long, XSizeHints *);
 extern int XFlush(Display *);
@@ -51,7 +43,6 @@ void host_window_resize(int w, int h)
     }
 }
 
-/* Ask the WM to constrain interactive resizes to the canvas aspect (cw:ch). */
 void host_window_set_aspect_hint(int cw, int ch)
 {
     Display *dpy = (Display *)sapp_x11_get_display();
@@ -67,8 +58,6 @@ void host_window_set_aspect_hint(int cw, int ch)
     XFlush(dpy);
 }
 
-/* Held with no program until a .rp6502 is dropped: the core freezes the machine
- * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
 static bool waiting_for_rom;
 
 bool entry_wait_for_rom(void)
@@ -99,8 +88,8 @@ void host_window_files_dropped(void)
 
 void host_window_open_url(const char *url)
 {
-    /* Fire-and-forget xdg-open; double-fork so the grandchild reparents to init
-     * and leaves no zombie for us to reap. */
+    /* The child forks again and exits at once, so the grandchild that runs
+     * xdg-open is reparented to init and leaves no zombie to reap. */
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -128,10 +117,10 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .height = win_h,
         .swap_interval = 1,
         .window_title = "Picocomputer 6502",
-        .enable_dragndrop = true, /* drop a .rp6502 to boot it */
-        .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */
+        .enable_dragndrop = true,
+        .enable_clipboard = true,
         .clipboard_size = 65536,
-        .logger.func = slog_func,
+        .logger.func = app_log,
     });
     return app_exit_code();
 }

@@ -20,13 +20,6 @@
 #include <string.h>
 #include <strings.h>
 
-#if defined(DEBUG_API) || defined(DEBUG_API_STD)
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-// The stdio file descriptor pool.
 #define STD_FD_MAX 16
 #define STD_FD_STDIN 0
 #define STD_FD_STDOUT 1
@@ -43,10 +36,13 @@ typedef struct
     std_rw_result (*sync)(int, api_errno *);
     int (*lseek)(int, int8_t, int32_t, int32_t *, api_errno *);
     int desc;
+    /* Which row of std_driver_table opened it. The five pointers above are
+     * this build's own addresses, so a savestate writes down this index and
+     * rebuilds them from it. */
+    uint8_t driver;
 } std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
-// Active operation state.
 static std_fd_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
@@ -54,12 +50,13 @@ static uint16_t std_pos;
 static uint16_t std_xram_addr;
 static uint16_t std_xram_len;
 
-// Readline state for stdin.
 static bool std_rln_active;
 static const char *std_rln_buf;
 static bool std_rln_needs_nl;
 static size_t std_rln_pos;
 static size_t std_rln_len;
+static bool std_stdin_closed;
+static bool std_asked_console;
 
 static std_fd_t *std_validate_fd(int fd)
 {
@@ -78,18 +75,176 @@ static void std_rln_callback(bool timeout, const char *buf)
     std_rln_needs_nl = true;
 }
 
+/* Which of xstack and xram a transfer is landing in. A savestate has to
+ * record where the buffer started, because it cannot be worked back out: a
+ * read into xram advances std_xram_addr as std_task drains it, and a write
+ * into xram never records the address at all. */
+#define STD_BUF_NONE 0
+#define STD_BUF_XSTACK 1
+#define STD_BUF_XRAM 2
+
+void std_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        std_fd_t *f = &std_fd_pool[fd];
+        bool carried = f->is_open && fd >= STD_FD_FIRST_FREE;
+        sst_put_bool(c, carried);
+        if (!carried)
+            continue;
+        size_t count;
+        const std_driver_t *drivers = std_drivers(&count);
+        if (f->driver >= count || !drivers[f->driver].ident)
+        {
+            sst_fail(c);
+            return;
+        }
+        sst_put_u8(c, f->driver);
+        if (!drivers[f->driver].ident(f->desc, c))
+        {
+            sst_fail(c);
+            return;
+        }
+    }
+    uint8_t kind = STD_BUF_NONE;
+    uint16_t at = 0;
+    if (std_buf)
+    {
+        if (std_buf >= (char *)xstack && std_buf <= (char *)xstack + XSTACK_SIZE)
+        {
+            kind = STD_BUF_XSTACK;
+            at = (uint16_t)(std_buf - (char *)xstack);
+        }
+        else
+        {
+            kind = STD_BUF_XRAM;
+            at = (uint16_t)(std_buf - (char *)xram);
+        }
+    }
+    sst_put_u8(c, std_fd_active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
+    sst_put_u8(c, kind);
+    sst_put_u16(c, at);
+    sst_put_u16(c, std_size);
+    sst_put_u16(c, std_pos);
+    sst_put_u16(c, std_xram_addr);
+    sst_put_u16(c, std_xram_len);
+    sst_put_bool(c, std_rln_active);
+    sst_put_bool(c, std_rln_needs_nl);
+    sst_put_u16(c, (uint16_t)std_rln_pos);
+    sst_put_u16(c, (uint16_t)std_rln_len);
+    sst_put_bool(c, std_stdin_closed);
+    sst_put_bool(c, std_asked_console);
+}
+
+bool std_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+
+    /* What this machine has open is closed before the blob's descriptors take
+     * their places, because otherwise the host's own file handles leak. The
+     * console rows below STD_FD_FIRST_FREE belong to std_init and stay. */
+    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+        if (std_fd_pool[fd].is_open && std_fd_pool[fd].close)
+        {
+            api_errno ignored;
+            while (std_fd_pool[fd].close(std_fd_pool[fd].desc, &ignored) == STD_PENDING)
+                ;
+            std_fd_pool[fd].is_open = false;
+        }
+
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        bool carried = sst_get_bool(c);
+        if (!sst_ok(c))
+            return false;
+        if (!carried)
+            continue;
+        uint8_t row = sst_get_u8(c);
+        if (!sst_ok(c) || row >= count || !drivers[row].reopen)
+            return false;
+        api_errno err = API_EIO;
+        int desc = drivers[row].reopen(c, &err);
+        if (desc < 0 || !sst_ok(c))
+            return false;
+        std_fd_pool[fd].is_open = true;
+        std_fd_pool[fd].close = drivers[row].close;
+        std_fd_pool[fd].read = drivers[row].read;
+        std_fd_pool[fd].write = drivers[row].write;
+        std_fd_pool[fd].sync = drivers[row].sync;
+        std_fd_pool[fd].lseek = drivers[row].lseek;
+        std_fd_pool[fd].desc = desc;
+        std_fd_pool[fd].driver = row;
+    }
+
+    uint8_t active = sst_get_u8(c);
+    uint8_t kind = sst_get_u8(c);
+    uint16_t at = sst_get_u16(c);
+    uint16_t size = sst_get_u16(c), pos = sst_get_u16(c);
+    uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
+    bool rln_on = sst_get_bool(c), needs_nl = sst_get_bool(c);
+    uint16_t rpos = sst_get_u16(c), rlen = sst_get_u16(c);
+    bool closed = sst_get_bool(c), asked = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    /* An active descriptor must be one that is open, or the first re-dispatch
+     * after the load calls through a row whose handlers and desc name
+     * nothing. */
+    if (active != 0xFF && (active >= STD_FD_MAX || !std_fd_pool[active].is_open))
+        return false;
+    if (kind > STD_BUF_XRAM)
+        return false;
+    if (kind == STD_BUF_XSTACK && at > XSTACK_SIZE)
+        return false;
+    if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
+        return false;
+    if (pos > size || rpos > rlen || rlen >= RLN_LINE_MAX)
+        return false;
+
+    std_fd_active = (active == 0xFF) ? NULL : &std_fd_pool[active];
+    std_buf = (kind == STD_BUF_XSTACK) ? (char *)xstack + at
+              : (kind == STD_BUF_XRAM) ? (char *)xram + at
+                                       : NULL;
+    std_size = size;
+    std_pos = pos;
+    std_xram_addr = xaddr;
+    std_xram_len = xlen;
+    std_rln_active = rln_on;
+    std_rln_needs_nl = needs_nl;
+    std_rln_pos = rpos;
+    std_rln_len = rlen;
+    std_stdin_closed = closed;
+    std_asked_console = asked;
+    /* Not carried in the blob. It is either NULL or rln's line buffer, which
+     * is at a fixed address, and nothing reads it until a line arrives. */
+    std_rln_buf = rln_line();
+    return true;
+}
+
+rln_read_callback_t std_rln_reader(void)
+{
+    return std_rln_callback;
+}
+
 static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
     (void)desc;
     (void)err;
+    std_asked_console = true;
+    *bytes_read = 0;
+    if (count == 0)
+        return STD_OK;
     if (!std_rln_needs_nl && std_rln_pos >= std_rln_len)
     {
+        if (std_stdin_closed)
+            return STD_OK;
         if (!std_rln_active)
         {
             std_rln_active = true;
             rln_read_line(std_rln_callback);
         }
-        *bytes_read = 0;
         return STD_PENDING;
     }
     uint32_t i = 0;
@@ -108,11 +263,16 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    uint32_t i = 0;
-    for (; i < count && com_putchar_ready(); i++)
-        com_putchar(buf[i]);
-    *bytes_written = i;
-    return (i < count) ? STD_PENDING : STD_OK;
+    *bytes_written = (uint32_t)com_stdout_write(buf, count);
+    return (*bytes_written < count) ? STD_PENDING : STD_OK;
+}
+
+static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    *bytes_written = (uint32_t)com_stderr_write(buf, count);
+    return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
 static std_rw_result std_con_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
@@ -131,6 +291,7 @@ static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t 
 {
     (void)desc;
     (void)err;
+    std_asked_console = true;
     *bytes_read = (uint32_t)com_stdin_read(buf, count);
     return STD_OK;
 }
@@ -191,6 +352,7 @@ bool std_api_open(void)
             std_fd_pool[fd].sync = drivers[i].sync;
             std_fd_pool[fd].lseek = drivers[i].lseek;
             std_fd_pool[fd].desc = idx;
+            std_fd_pool[fd].driver = (uint8_t)i;
             return api_return_ax(fd);
         }
     }
@@ -208,7 +370,7 @@ bool std_api_close(void)
     api_errno err = API_EIO;
     std_rw_result result = f->close(f->desc, &err);
     if (result == STD_PENDING)
-        return api_working(); // driver draining on schedule, re-dispatched
+        return api_working();
     f->is_open = false;
     if (result == STD_ERROR)
         return api_return_errno(err);
@@ -230,7 +392,8 @@ bool std_api_read_xstack(void)
         std_fd_active = NULL;
         if (result == STD_ERROR)
             return api_return_errno(err);
-        // relocate buffer to top of xstack
+        // A short read leaves the data below the new stack pointer, and the
+        // 6502 pops from the top, so it moves up.
         xstack_ptr = XSTACK_SIZE - std_pos;
         if (std_pos != std_size)
             memmove(&xstack[xstack_ptr], std_buf, std_pos);
@@ -255,8 +418,8 @@ bool std_api_read_xram(void)
     {
         if (std_pos < std_size)
         {
-            // Read phase: request next chunk
-            // 2048 bytes is tuned for FatFs on MSC+BOT
+            // A chunk of 2048 bytes is tuned for FatFs over USB mass storage
+            // with the bulk-only transport.
             uint32_t chunk = std_size - std_pos;
             if (chunk > 2048)
                 chunk = 2048;
@@ -275,13 +438,15 @@ bool std_api_read_xram(void)
                 std_fd_active = NULL;
                 return api_return_errno(err);
             }
-            // Short read signals EOF for xram transfers (not applied to
-            // read_xstack, which returns whatever the driver handed back).
+            // A short read is end of file for an xram transfer. It is not
+            // for read_xstack, which returns whatever the driver handed back.
             if (bytes_read < chunk)
                 std_size = std_pos;
             return api_working();
         }
-        // All reads done — wait for PIX drain to complete
+        // The op does not return until std_task has forwarded every byte
+        // read, because a machine with a separate video device keeps its own
+        // copy of xram.
         if (std_xram_len > 0)
             return api_working();
         std_fd_active = NULL;
@@ -363,8 +528,8 @@ bool std_api_write_xram(void)
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
     std_buf = (char *)&xram[xram_addr];
-    // Writes must fit exactly; overrunning xram is a caller bug.
-    // (Reads clamp instead, matching POSIX read-up-to-N semantics.)
+    // A write that runs past the end of xram is refused. A read clamps to
+    // what fits instead, which is POSIX read-up-to-N.
     if (std_buf + std_size > (char *)xram + 0x10000)
         return api_return_errno(API_EINVAL);
     std_fd_active = fd;
@@ -382,7 +547,7 @@ bool std_api_syncfs(void)
     api_errno err = API_EIO;
     std_rw_result result = fd->sync(fd->desc, &err);
     if (result == STD_PENDING)
-        return api_working(); // driver draining on schedule, re-dispatched
+        return api_working();
     if (result == STD_ERROR)
         return api_return_errno(err);
     return api_return_ax(0);
@@ -438,6 +603,29 @@ bool std_api_lseek_llvm(void)
     return std_lseek_common(fd, whence, ofs);
 }
 
+bool std_stdin_waiting(void)
+{
+    return std_rln_active;
+}
+
+bool std_console_asked(void)
+{
+    return std_asked_console;
+}
+
+void std_stdin_eof(void)
+{
+    std_stdin_closed = true;
+    if (!std_rln_active)
+        return;
+    std_rln_active = false;
+    /* A last line that the input never terminated is still a line, so it is
+     * handed over before the read is given up; the next read is the one that
+     * answers nothing. */
+    if (!rln_read_flush())
+        rln_read_cancel();
+}
+
 void std_task(void)
 {
     while (std_xram_len && pix_ready())
@@ -455,7 +643,7 @@ void HOST_IN_FLASH("std_init") std_init(void)
     std_fd_pool[STD_FD_STDOUT].is_open = true;
     std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
     std_fd_pool[STD_FD_STDERR].is_open = true;
-    std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
+    std_fd_pool[STD_FD_STDERR].write = std_stderr_write;
     std_fd_pool[STD_FD_CON].is_open = true;
     std_fd_pool[STD_FD_CON].read = std_con_read;
     std_fd_pool[STD_FD_CON].write = std_con_write;
@@ -471,6 +659,8 @@ void std_stop(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
+    std_stdin_closed = false;
+    std_asked_console = false;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
     {
         if (!std_fd_pool[i].is_open)

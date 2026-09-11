@@ -46,7 +46,7 @@ api_errno fresult_to_api(unsigned fresult)
     case FR_TOO_MANY_OPEN_FILES:
         return API_EMFILE;
     default:
-        assert(false); // internal error
+        assert(false);
         return API_EIO;
     }
 }

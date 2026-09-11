@@ -9,6 +9,7 @@
 #include "ria-w/net/cmd.h"
 #include "ria-w/net/modem.h"
 #include "core/sys/config.h"
+#include "core/sys/debug_log.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/telnet.h"
@@ -17,14 +18,8 @@
 #include "ria/sys/com.h"
 #include "osal/pico/lfs.h"
 #include <pico/time.h>
-#include <stdlib.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_MODEM)
 #include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
+#include <stdlib.h>
 
 #define MODEM_ESCAPE_GUARD_TIME_US 1000000
 #define MODEM_ESCAPE_COUNT 3
@@ -326,7 +321,7 @@ const char *modem_read_phonebook_entry(unsigned index)
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", phonebook_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_close %s (%d)", phonebook_file, lfsresult);
     if (index)
         modem_phone_buf[0] = 0;
     return modem_phone_buf;
@@ -347,7 +342,7 @@ bool modem_write_phonebook_entry(const char *entry, unsigned index)
                                      &lfs_file_config);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", phone_tmp_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_opencfg %s for writing (%d)", phone_tmp_file, lfsresult);
         return false;
     }
     for (unsigned i = 0; i < MODEM_PHONEBOOK_ENTRIES; i++)
@@ -357,11 +352,11 @@ bool modem_write_phonebook_entry(const char *entry, unsigned index)
         else
             lfsresult = lfs_printf(&lfs_volume, &lfs_file, "%s\n", modem_read_phonebook_entry(i));
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", phone_tmp_file, lfsresult);
+            RP6502_LOG(modem, ERROR, "Unable to write %s contents (%d)", phone_tmp_file, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", phone_tmp_file, lfscloseresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_close %s (%d)", phone_tmp_file, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
         lfs_remove(&lfs_volume, phone_tmp_file);
@@ -370,13 +365,13 @@ bool modem_write_phonebook_entry(const char *entry, unsigned index)
     lfsresult = lfs_remove(&lfs_volume, phonebook_file);
     if (lfsresult < 0 && lfsresult != LFS_ERR_NOENT)
     {
-        DBG("?Unable to lfs_remove %s (%d)\n", phonebook_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_remove %s (%d)", phonebook_file, lfsresult);
         return false;
     }
     lfsresult = lfs_rename(&lfs_volume, phone_tmp_file, phonebook_file);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_rename (%d)\n", lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_rename (%d)", lfsresult);
         return false;
     }
     return true;
@@ -394,7 +389,7 @@ bool modem_write_settings(const modem_settings_t *settings)
                                      LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC,
                                      &lfs_file_config);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", settings_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_opencfg %s for writing (%d)", settings_file, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -424,11 +419,11 @@ bool modem_write_settings(const modem_settings_t *settings)
                                settings->listen_port,
                                settings->tty_type);
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", settings_file, lfsresult);
+            RP6502_LOG(modem, ERROR, "Unable to write %s contents (%d)", settings_file, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", settings_file, lfscloseresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_close %s (%d)", settings_file, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
         lfs_remove(&lfs_volume, settings_file);
@@ -452,7 +447,7 @@ bool modem_read_settings(modem_settings_t *settings)
     {
         if (lfsresult == LFS_ERR_NOENT)
             return true;
-        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", settings_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_opencfg %s for reading (%d)", settings_file, lfsresult);
         return false;
     }
     char line[MODEM_AT_COMMAND_LEN + 1];
@@ -531,7 +526,7 @@ bool modem_read_settings(modem_settings_t *settings)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_close %s (%d)\n", settings_file, lfsresult);
+        RP6502_LOG(modem, ERROR, "Unable to lfs_file_close %s (%d)", settings_file, lfsresult);
         return false;
     }
     return true;
@@ -627,7 +622,7 @@ static void modem_carrier_lost(void)
 {
     if (modem_conn->state == modem_state_on_hook)
         return;
-    DBG("NET MODEM carrier lost\n");
+    RP6502_LOG(modem, INFO, "carrier lost");
     // Remote FIN while DTE is in data mode: defer NO CARRIER until
     // modem_std_read has drained net's buffered pbufs. net is already in
     // net_state_closing and will self-close on drain.
@@ -737,7 +732,7 @@ static void modem_listen_update(void)
         return;
     if (wanted == com_telnet_get_port())
     {
-        DBG("NET MODEM %d listen_port conflicts with console, reset to 0\n", modem_desc());
+        RP6502_LOG(modem, WARN, "%d listen_port conflicts with console, reset to 0", modem_desc());
         modem_conn->settings.listen_port = 0;
         return;
     }
@@ -746,7 +741,7 @@ static void modem_listen_update(void)
     if (telnet_listen(wanted, modem_net_on_accept))
     {
         modem_conn->active_listen_port = wanted;
-        DBG("NET MODEM %d listening on port %u\n", modem_desc(), wanted);
+        RP6502_LOG(modem, INFO, "%d listening on port %u", modem_desc(), wanted);
     }
 }
 
@@ -825,7 +820,7 @@ void modem_task()
                     modem_conn->state = modem_state_dialing;
                 else
                 {
-                    DBG("NET MODEM dial failed after wifi ready\n");
+                    RP6502_LOG(modem, WARN, "dial failed after wifi ready");
                     modem_conn->state = modem_state_on_hook;
                     modem_conn->in_command_mode = true;
                     modem_set_response_fn_state(modem_response_code, 3); // NO CARRIER
@@ -833,7 +828,7 @@ void modem_task()
             }
             else if (!wifi_connecting())
             {
-                DBG("NET MODEM dial failed, wifi not connecting\n");
+                RP6502_LOG(modem, WARN, "dial failed, wifi not connecting");
                 modem_conn->state = modem_state_on_hook;
                 modem_conn->in_command_mode = true;
                 modem_set_response_fn_state(modem_response_code, 3); // NO CARRIER

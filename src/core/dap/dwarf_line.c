@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * DWARF .debug_line reader — see dwarf_line.h. Parses the ELF section table to
- * find .debug_line, then interprets the line-number program (the DWARF state
- * machine) into a flat, address-sorted row table. Defensive against truncated /
- * malformed input: any short read aborts that unit and returns what parsed.
  */
 
 #include "core/dap/dwarf_line.h"
@@ -17,11 +12,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ---- one emitted line-table row ---- */
 typedef struct
 {
     uint32_t addr;
-    const char *file; /* into dl->strs (NULL for a pure end-of-sequence marker) */
+    const char *file; /* NULL on an end-of-sequence marker */
     int line;
     bool end_seq;
 } dl_row;
@@ -33,11 +27,10 @@ typedef struct
     const char *name;
 } dl_func;
 
-/* an allocatable ELF section (.text/.data/.bss/.zp/...) for the memory-map view */
 typedef struct
 {
-    const char *name; /* into dl->strs */
-    uint16_t addr;    /* 6502 load address */
+    const char *name;
+    uint16_t addr;
     uint32_t size;
 } dl_section;
 
@@ -47,17 +40,14 @@ struct dwarf_line
 {
     dl_row *rows;
     size_t nrows;
-    char **strs; /* owned file-path + symbol-name strings */
+    char **strs;
     size_t nstrs;
-    dl_func *funcs; /* STT_FUNC symbols, sorted by addr */
+    dl_func *funcs; /* sorted by address, which dwarf_line_addr_to_func binary-searches */
     size_t nfuncs;
     dl_section sections[DL_MAX_SECTIONS];
     int nsections;
 };
 
-/* Byte cursor (dwarf_cur + dwarf_u8/dwarf_u16/dwarf_u32/dwarf_uleb/dwarf_sleb/dwarf_cstr) is in dwarf_cursor.c. */
-
-/* ---- growable string + row pools on the dwarf_line_t ---- */
 static const char *intern(dwarf_line_t *dl, const char *s)
 {
     char *dup = strdup(s ? s : "");
@@ -88,8 +78,9 @@ static const char *base_name(const char *p)
     return s ? s + 1 : p;
 }
 
-/* True if one path is a trailing path-component suffix of the other, so a client
- * absolute path matches a relative DWARF path yet a/util.c != b/util.c. */
+/* True when one path is a trailing run of whole components of the other, so
+ * that a client's absolute path matches a relative DWARF path while a/util.c
+ * still fails to match b/util.c. Either separator ends a component. */
 static bool path_suffix_match(const char *a, const char *b)
 {
     size_t i = strlen(a), j = strlen(b);
@@ -106,7 +97,6 @@ static bool path_suffix_match(const char *a, const char *b)
            (j == 0 || b[j - 1] == '/' || b[j - 1] == '\\');
 }
 
-/* DWARF line standard opcodes */
 enum
 {
     LNS_copy = 1,
@@ -129,7 +119,6 @@ enum
     LNE_define_file = 3,
 };
 
-/* DWARF5 line-header content-type codes (dir/file entry formats). */
 enum
 {
     DW_LNCT_path = 1,
@@ -138,7 +127,7 @@ enum
     DW_LNCT_size = 4,
     DW_LNCT_MD5 = 5,
 };
-/* The forms that appear in a v5 line-header dir/file table. */
+/* The DW_FORM codes that appear in a version 5 line header. */
 enum
 {
     LF_data2 = 0x05,
@@ -156,9 +145,9 @@ enum
     LF_strx2 = 0x26,
 };
 
-/* Read one v5 line-header form value. String forms return a pointer (into
- * .debug_line_str/.debug_str, which live in the still-mapped ELF image) via
- * *sout; numeric forms via *uout. strx* aren't resolved (paths use line_strp). */
+/* A string form returns a pointer into the ELF image, so it is only valid while
+ * the image is still open and must be interned before the image closes. The strx
+ * forms are left as indices because llvm-mos writes paths with line_strp. */
 static void lnct_read(dwarf_cur *c, uint16_t form,
                       const uint8_t *lstr, uint32_t lstr_size,
                       const uint8_t *str, uint32_t str_size,
@@ -205,13 +194,13 @@ static void lnct_read(dwarf_cur *c, uint16_t form,
         break;
     }
     default:
-        c->ok = false; /* unknown form: can't size the entry */
+        c->ok = false; /* an unknown form has no known size, so the entry cannot be skipped */
         break;
     }
 }
 
-/* Run the line-number program. files[] is indexed by the DWARF file register
- * directly (0-based, per DWARF5); unused slots are "". */
+/* DWARF5 numbers the file register from 0, so files[] is indexed by it
+ * directly. Unused slots hold the empty string. */
 static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
                              const char *const *files, uint8_t min_inst, uint8_t default_is_stmt,
                              int8_t line_base, uint8_t line_range, uint8_t opcode_base,
@@ -227,7 +216,7 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
         uint8_t op = dwarf_u8(c);
         if (op == 0)
         {
-            /* extended opcode */
+            /* An extended opcode: a length, then a sub-opcode. */
             uint64_t len = dwarf_uleb(c);
             if (len > (uint64_t)(unit_end - c->p)) { c->ok = false; break; }
             const uint8_t *next = c->p + len;
@@ -243,7 +232,7 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
             else if (sub == LNE_set_address)
             {
                 uint32_t a = 0;
-                int nb = (int)len - 1; /* address size = operand bytes */
+                int nb = (int)len - 1; /* the length less the sub-opcode byte is the address size */
                 for (int i = 0; i < nb; i++)
                 {
                     uint8_t b = dwarf_u8(c);
@@ -252,7 +241,7 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
                 }
                 address = a;
             }
-            /* LNE_define_file and any vendor opcodes: skip via next */
+            /* Any other extended opcode is skipped by its own length. */
             c->p = next;
         }
         else if (op < opcode_base)
@@ -292,7 +281,8 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
                 (void)dwarf_uleb(c);
                 break;
             default:
-                /* unknown standard opcode: skip its ULEB operands */
+                /* The header gave the operand count of every standard opcode,
+                 * so even an unknown one can be skipped. */
                 for (int i = 0; i < std_len[op]; i++)
                     (void)dwarf_uleb(c);
                 break;
@@ -300,7 +290,6 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
         }
         else
         {
-            /* special opcode */
             int adj = op - opcode_base;
             address += (uint32_t)((adj / line_range) * min_inst);
             line += line_base + (adj % line_range);
@@ -309,13 +298,12 @@ static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit
     }
 }
 
-/* Parse the v5 dir/file tables (form-coded) into files[] (0-based). dirs point
- * into the still-mapped ELF image; file full-paths are interned on dl. */
+/* The directory strings point into the ELF image, so each full file path is
+ * interned on dl before that image closes. */
 static void parse_v5_tables(dwarf_line_t *dl, dwarf_cur *c, const char **files,
                             const uint8_t *lstr, uint32_t lstr_size,
                             const uint8_t *str, uint32_t str_size)
 {
-    /* directory_entry_format + directories */
     const char *dirs[64];
     int ndirs = 0;
     uint8_t dfmt_n = dwarf_u8(c);
@@ -340,7 +328,6 @@ static void parse_v5_tables(dwarf_line_t *dl, dwarf_cur *c, const char **files,
         if (d < 64) dirs[ndirs++] = dp;
     }
 
-    /* file_name_entry_format + file_names (0-based) */
     uint8_t ffmt_n = dwarf_u8(c);
     uint16_t fct[16], ffm[16];
     for (int i = 0; i < ffmt_n; i++)
@@ -371,7 +358,6 @@ static void parse_v5_tables(dwarf_line_t *dl, dwarf_cur *c, const char **files,
     }
 }
 
-/* Parse one line-number program unit at [c->p, unit_end). DWARF5-only. */
 static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
                        const uint8_t *lstr, uint32_t lstr_size,
                        const uint8_t *str, uint32_t str_size)
@@ -381,15 +367,17 @@ static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
         files[i] = "";
 
     uint16_t version = dwarf_u16(c);
-    if (version != 5) /* DWARF5-only (llvm-mos debug fork) */
+    if (version != 5) /* version 5 is what the llvm-mos debug fork emits */
         return;
 
     (void)dwarf_u8(c); /* address_size */
     (void)dwarf_u8(c); /* segment_selector_size */
     uint32_t header_len = dwarf_u32(c);
     if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
-        return; /* header_length runs past the unit: corrupt prologue */
-    const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
+        return;
+    /* header_length is measured from just past its own field, so it lands on the
+     * first byte of the line-number program. */
+    const uint8_t *prog = c->p + header_len;
 
     uint8_t min_inst = dwarf_u8(c);
     (void)dwarf_u8(c); /* maximum_operations_per_instruction */
@@ -418,10 +406,11 @@ static int row_cmp(const void *a, const void *b)
     const dl_row *ra = (const dl_row *)a, *rb = (const dl_row *)b;
     if (ra->addr != rb->addr)
         return (ra->addr > rb->addr) - (ra->addr < rb->addr);
-    /* Same address: order an end-of-sequence marker BEFORE a real row so the
-     * "largest addr <= target" search lands on the real row that actually covers
-     * the address (the next sequence's start), not the previous sequence's end
-     * marker — deterministic regardless of qsort stability (Windows/musl). */
+    /* At one address an end-of-sequence marker sorts before a real row. The
+     * lookups take the last row with an address at or below the target, so they
+     * land on the row that covers the address rather than on the marker that
+     * ended the previous sequence. qsort is not stable, so this order has to be
+     * stated rather than assumed. */
     return (int)rb->end_seq - (int)ra->end_seq;
 }
 static int func_cmp(const void *a, const void *b)
@@ -430,7 +419,6 @@ static int func_cmp(const void *a, const void *b)
     return (x > y) - (x < y);
 }
 
-/* Parse .symtab STT_FUNC symbols into dl->funcs (names interned). */
 static void parse_symbols(dwarf_line_t *dl, const uint8_t *buf, long sz,
                           uint32_t sym_off, uint32_t sym_size,
                           uint32_t str_off, uint32_t str_size)
@@ -441,7 +429,7 @@ static void parse_symbols(dwarf_line_t *dl, const uint8_t *buf, long sz,
         (uint64_t)str_off + str_size > (uint64_t)sz)
         return;
     const char *strtab = (const char *)(buf + str_off);
-    for (uint32_t o = 0; o + 16 <= sym_size; o += 16) /* Elf32_Sym = 16 bytes */
+    for (uint32_t o = 0; o + 16 <= sym_size; o += 16) /* an Elf32_Sym is 16 bytes */
     {
         const uint8_t *s = buf + sym_off + o;
         uint32_t st_name = s[0] | (s[1] << 8) | (s[2] << 16) | ((uint32_t)s[3] << 24);
@@ -472,7 +460,8 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
     if (!elf_open(elf_path, &im))
         return NULL;
 
-    /* section header: name(0) type(4) flags(8) addr(12) offset(16) size(20)... */
+    /* The fields of a section header, by byte offset: name 0, type 4, flags 8,
+     * addr 12, offset 16, size 20. */
     uint32_t dl_off = 0, dl_size = 0;
     uint32_t sym_off = 0, sym_size = 0, str_off = 0, str_size = 0;
     uint32_t lstr_off = 0, lstr_size = 0, dstr_off = 0, dstr_size = 0;
@@ -486,8 +475,9 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         elf_close(&im);
         return NULL;
     }
-    /* A string table whose [off,off+size) runs past EOF would let a v5 path form
-     * dereference outside buf; neutralize it so those paths resolve to "". */
+    /* A string table that runs past the end of the file would let a version 5
+     * path form read outside the image, so drop it and let those paths resolve
+     * to the empty string. */
     if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)im.size)
         lstr_off = lstr_size = 0;
     if (dstr_off && (uint64_t)dstr_off + dstr_size > (uint64_t)im.size)
@@ -502,9 +492,8 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         return NULL;
     }
 
-    /* Allocatable sections (.text/.data/.bss/.zp/.noinit/...) for the memory-map
-     * view: name + 6502 load address + size. SHF_ALLOC (flags bit 1) with a
-     * non-zero size; names are interned since the image is freed below. */
+    /* The allocatable sections, which are those with SHF_ALLOC in flags bit 1.
+     * Their names are interned because the image is freed below. */
     for (int i = 0; i < elf_section_count(&im) && dl->nsections < DL_MAX_SECTIONS; i++)
     {
         uint32_t flags = elf_shdr_u32(&im, i, 8), saddr = elf_shdr_u32(&im, i, 12), ssize = elf_shdr_u32(&im, i, 20);
@@ -516,14 +505,13 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         dl->nsections++;
     }
 
-    /* Walk the (possibly multiple) units in .debug_line. */
     dwarf_cur c = {im.buf + dl_off, im.buf + dl_off + dl_size, true};
     while (c.p + 4 <= c.end && c.ok)
     {
         const uint8_t *unit_start = c.p;
         uint32_t unit_len = dwarf_u32(&c);
         if (unit_len == 0 || unit_len == 0xffffffffu)
-            break; /* 0 / 64-bit DWARF: stop */
+            break; /* a zero length terminates the section and 0xffffffff means 64-bit DWARF */
         const uint8_t *unit_end = unit_start + 4 + unit_len;
         if (unit_end > c.end)
             unit_end = c.end;
@@ -574,8 +562,8 @@ bool dwarf_line_addr_to_src(const dwarf_line_t *dl, uint16_t addr, const char **
 {
     if (!dl || dl->nrows == 0)
         return false;
-    /* Largest row with row.addr <= addr; valid only if that row is not an
-     * end-of-sequence marker (i.e. addr is inside a real [start,end) range). */
+    /* The last row at or below addr covers it, unless that row is the marker
+     * that ended a sequence, in which case addr is in no range at all. */
     size_t lo = 0, hi = dl->nrows, best = (size_t)-1;
     while (lo < hi)
     {
@@ -605,11 +593,11 @@ bool dwarf_line_src_to_addr(const dwarf_line_t *dl, const char *file, int line,
 {
     if (!dl || !file)
         return false;
-    /* Among rows at/after the requested line pick the smallest (line, then
-     * address) so a breakpoint binds to the next code line. Basename must match;
-     * a full path-suffix match is preferred (disambiguates same-named files),
-     * falling back to basename so a client absolute path still binds to the
-     * build-relative DWARF path. */
+    /* Of the rows at or after the requested line, the lowest line and then the
+     * lowest address wins, so a breakpoint on a blank line binds forward to the
+     * next line with code. A path suffix match is preferred because it tells two
+     * files of the same name apart, and a basename match is accepted so that a
+     * client's absolute path still binds to a build-relative DWARF path. */
     const char *want = base_name(file);
     bool sfound = false, bfound = false;
     int sline = 0, bline = 0;
@@ -644,8 +632,8 @@ const char *dwarf_line_addr_to_func(const dwarf_line_t *dl, uint16_t addr)
 {
     if (!dl || dl->nfuncs == 0)
         return NULL;
-    /* Largest function symbol with addr in [value, value+size) (or nearest
-     * preceding when size is 0). */
+    /* The last symbol at or below addr, accepted when addr falls within its
+     * size. A size of zero is unknown rather than empty, so it is accepted. */
     size_t lo = 0, hi = dl->nfuncs, best = (size_t)-1;
     while (lo < hi)
     {

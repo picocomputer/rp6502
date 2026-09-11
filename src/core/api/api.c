@@ -10,14 +10,8 @@
 #include "core/api/api.h"
 #include "core/wdc/resb.h"
 
-#if defined(DEBUG_API) || defined(DEBUG_API_API)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-// These are known to both cc65 and llvm-mos
+/* Both toolchains define these errno values, except EUNKNOWN at the end of
+ * the list, which is this OS's own catch-all number. */
 #define API_CC65_ENOENT 1
 #define API_LLVM_ENOENT 2
 #define API_CC65_ENOMEM 2
@@ -55,21 +49,19 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define API_CC65_EUNKNOWN 18
 #define API_LLVM_EUNKNOWN 85
 
-// llvm-mos supports these but cc65 doesn't
+// llvm-mos defines these but cc65 does not, so cc65 maps them to EUNKNOWN.
 #define API_CC65_EDOM API_CC65_EUNKNOWN
 #define API_LLVM_EDOM 33
 #define API_CC65_EILSEQ API_CC65_EUNKNOWN
 #define API_LLVM_EILSEQ 84
 
-// Selected runtime option
 #define API_ERRNO_OPT_NULL 0
 #define API_ERRNO_OPT_CC65 1
 #define API_ERRNO_OPT_LLVM 2
 
-// Logic to select the platform errno map.
-// The original plan was to default to 0 (don't change) until the
-// errno option is set. Unfortunately, old cc65-compiled binaries
-// use errno to detect stdio failures so we're defaulting to -1.
+// Until a program selects a map, every errno becomes -1, because old
+// cc65-compiled binaries read errno to detect a stdio failure and leaving it
+// unchanged would hide one.
 #define API_MAP(errno_name)                  \
     ((api_errno_opt == API_ERRNO_OPT_CC65)   \
          ? API_CC65_##errno_name             \
@@ -77,16 +69,14 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
          ? API_LLVM_##errno_name             \
          : -1)
 
-// API state
 static uint8_t api_errno_opt;
 static uint8_t api_active_op;
 
-// The 6502 requests an API op by writing API_OP and spinning on API_BUSY.
-// The op is latched in api_active_op and dispatched until the handler
-// returns false.
+// The op number is copied because the 6502 can write API_OP again while an op
+// is in flight. Ops 0x00 and 0xFF are never latched, because each machine
+// answers those itself where the 6502 writes them.
 void api_task(void)
 {
-    // Latch called op in case 6502 app misbehaves
     if (resb_running() && !ria_active() &&
         !api_active_op && API_BUSY)
     {
@@ -98,6 +88,25 @@ void api_task(void)
         api_active_op = 0;
 }
 
+void api_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u8(c, api_active_op);
+    sst_put_u8(c, api_errno_opt);
+}
+
+bool api_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t op = sst_get_u8(c);
+    uint8_t opt = sst_get_u8(c);
+    if (!sst_ok(c))
+        return false;
+    api_active_op = op;
+    api_errno_opt = opt;
+    return true;
+}
+
 void api_stop(void)
 {
     api_active_op = 0;
@@ -105,15 +114,14 @@ void api_stop(void)
 
 void api_run(void)
 {
-    /* A fast load borrows the run to cycle RESB; it is not a program start.
-     * None of what follows means anything to one, and the stub it drives the
-     * 6502 with lives on $FFF2-$FFF9 -- the same bytes as the released
-     * registers below. */
+    /* A fast load cycles RESB and so reaches api_run without a program
+     * starting. Nothing below applies to one, and the return registers written
+     * below overlap $FFF2-$FFF7 of the self-modifying stub the RIA is driving
+     * the 6502 with. */
     if (ria_active())
         return;
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // Clear the fastcall/RW register window (0xFFE0..0xFFEF),
-    // leaving the VSYNC frame counter alone — owned by vga.
+    // $FFE3 is skipped because it is the VSYNC frame counter, which vga owns.
     for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
         if (addr != 0xFFE3)
             REGS(addr) = 0;
@@ -185,8 +193,8 @@ uint16_t api_platform_errno(api_errno num)
     }
 }
 
-// Short values zero-fill or sign-extend. The MSB is always the last
-// stack byte because the stack must be empty after the pop.
+// The sign bit is in xstack[XSTACK_SIZE - 1] because this pop must empty the
+// stack, so that byte is the value's most significant.
 static bool api_pop_end(void *data, size_t size, bool sign)
 {
     size_t n = XSTACK_SIZE - xstack_ptr;

@@ -723,28 +723,27 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .sram_lb_n   ( sram_lb_n ),
     .dram_dq_in  ( dram_dq ),
 
-    // The scanout clock the scaler samples on, and the machine's own
-    // console, brought out for the debug pin and for nothing else.
+    // The scanout clock the scaler samples on, and the soft CPU's console
+    // port, brought out for the debug pin and the host log. The 6502's own
+    // port is the bench's; the firmware forwards what it says through its own.
     .pocket_core_ready     ( ),
-    .pocket_core_tx_data   ( con_tx_data ),
-    .pocket_core_tx_valid  ( con_tx_valid ),
+    .pocket_core_tx_data   ( ),
+    .pocket_core_tx_valid  ( ),
     .pocket_core_rv_tx_data  ( con_rv_data ),
     .pocket_core_rv_tx_valid ( con_rv_valid ),
     .pocket_core_rv_halted   ( )
 );
 
-/* Both consoles out the debug pin, on the host's clock so the channel
- * survives anything wrong with ours. */
-wire [7:0] con_tx_data, con_rv_data;
-wire con_tx_valid, con_rv_valid;
+/* The console port out the debug pin and the host log, on the host's clock
+ * so the channel survives anything wrong with ours. */
+wire [7:0] con_rv_data;
+wire con_rv_valid;
 
 wire dbglog_event, dbglog_done;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
     .clk_mach    ( clk_mach ),
-    .tx_data     ( con_tx_data ),
-    .tx_valid    ( con_tx_valid ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),
@@ -761,8 +760,6 @@ pocket_dbglog dbglog (
 pocket_dbg dbg (
     .clk_mach    ( clk_mach ),
     .rst_n       ( core_rst_n_sys ),
-    .tx_data     ( con_tx_data ),
-    .tx_valid    ( con_tx_valid ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),

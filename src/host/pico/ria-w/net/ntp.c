@@ -8,6 +8,7 @@
 
 #include "ria-w/net/ntp.h"
 #include "ria-w/net/wifi.h"
+#include "core/sys/debug_log.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -16,13 +17,6 @@
 #include <pico/aon_timer.h>
 #include <pico/time.h>
 #include <string.h>
-
-#if defined(DEBUG_NET) || defined(DEBUG_NET_NTP)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 #define NTP_MSG_LEN 48
 #define NTP_PORT 123
@@ -91,7 +85,7 @@ static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *a
     }
     else
     {
-        DBG("NET NTP DNS fail\n");
+        RP6502_LOG(ntp, WARN, "DNS fail");
         ntp_schedule_retry();
         ntp_state = ntp_state_dns_fail;
     }
@@ -132,7 +126,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
         struct timespec ts = {.tv_sec = (time_t)unix_time, .tv_nsec = 0};
         if (aon_timer_set_time(&ts))
         {
-            DBG("NET NTP success\n");
+            RP6502_LOG(ntp, INFO, "success");
             ntp_success_at_least_once = true;
             ntp_retry_count = 0;
             ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
@@ -140,7 +134,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
         }
         else
         {
-            DBG("NET NTP set time fail\n");
+            RP6502_LOG(ntp, ERROR, "set time fail");
             ntp_schedule_retry();
             ntp_state = ntp_state_set_time_fail;
         }
@@ -160,7 +154,7 @@ void ntp_task(void)
     switch (ntp_state)
     {
     case ntp_state_init:
-        DBG("NET NTP started\n");
+        RP6502_LOG(ntp, DEBUG, "started");
         if (!ntp_pcb)
             ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
@@ -204,7 +198,7 @@ void ntp_task(void)
     case ntp_state_dns_wait:
         if (time_reached(ntp_timeout_timer))
         {
-            DBG("NET NTP DNS timeout\n");
+            RP6502_LOG(ntp, WARN, "DNS timeout");
             ntp_schedule_retry();
             ntp_state = ntp_state_dns_fail;
         }
@@ -212,7 +206,7 @@ void ntp_task(void)
     case ntp_state_request_wait:
         if (time_reached(ntp_timeout_timer))
         {
-            DBG("NET NTP request timeout\n");
+            RP6502_LOG(ntp, WARN, "request timeout");
             ntp_schedule_retry();
             ntp_state = ntp_state_request_timeout;
         }

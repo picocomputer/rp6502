@@ -3,11 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Minimal, self-contained DWARF .debug_line reader: parses the line-number
- * program out of an llvm-mos ELF and answers address<->source-line queries for
- * the DAP adapter. No LLVM dependency. DWARF5 (32-bit), as emitted by the
- * llvm-mos debug fork for the rp6502 target; the addresses in the table are the
- * 6502 load addresses, i.e. the emulator's PC directly.
+ * A reader for the .debug_line section of an llvm-mos ELF. It understands only
+ * 32-bit DWARF5, which is what the llvm-mos debug fork emits. The addresses in
+ * the table are 6502 load addresses, so they compare directly against the PC.
  */
 
 #ifndef _CORE_DAP_DWARF_LINE_H_
@@ -18,39 +16,36 @@
 
 typedef struct dwarf_line dwarf_line_t;
 
-/* Load + parse .debug_line from an ELF. Returns NULL if the file can't be read
- * or carries no usable (DWARF5) line table. */
 dwarf_line_t *dwarf_line_load(const char *elf_path);
 void dwarf_line_free(dwarf_line_t *dl);
 
-/* addr -> the source location covering it: a stable full-path pointer (owned by
- * dl) + 1-based line. False if no row covers addr. */
+/* The file is the DWARF directory entry joined to the file name, so it is
+ * relative when that entry is. It is owned by dl, and the line is 1-based. */
 bool dwarf_line_addr_to_src(const dwarf_line_t *dl, uint16_t addr,
                             const char **file, int *line);
 
-/* (source file, 1-based line) -> the lowest code address at that line, or the
- * next code line at/after it (so a breakpoint on a blank line binds forward).
- * The file is matched by basename. *bound_line returns the line actually bound. */
+/* A line with no code binds forward to the next line that has some, so
+ * bound_line reports the line actually bound. A whole-component path suffix
+ * match wins over a basename-only one, which is what tells a/util.c from
+ * b/util.c. */
 bool dwarf_line_src_to_addr(const dwarf_line_t *dl, const char *file, int line,
                             uint16_t *addr, int *bound_line);
 
-/* The function symbol (.symtab STT_FUNC) enclosing addr, or NULL. Stable pointer
- * owned by dl. */
+/* The last .symtab STT_FUNC symbol at or below addr, owned by dl, or NULL. It
+ * is accepted when addr falls within the symbol's size, or when that size is
+ * zero, because zero means unknown rather than empty. */
 const char *dwarf_line_addr_to_func(const dwarf_line_t *dl, uint16_t addr);
 
-/* A function's entry address by name (.symtab STT_FUNC). False if not found. */
 bool dwarf_line_func_addr(const dwarf_line_t *dl, const char *name, uint16_t *addr);
 
-/* ---- allocatable ELF sections (.text/.data/.bss/.zp/...) ----
- * Each section's 6502 load address + size, for the memory-map view. */
+/* An allocatable ELF section, for the memory map view. */
 typedef struct
 {
-    const char *name; /* stable pointer owned by dl */
+    const char *name; /* owned by dl */
     uint16_t addr;
     uint32_t size;
 } dwarf_section_t;
 
-/* The SHF_ALLOC sections with a non-zero size. Returns count (<= max). */
 int dwarf_line_sections(const dwarf_line_t *dl, dwarf_section_t *out, int max);
 
 #endif /* _CORE_DAP_DWARF_LINE_H_ */
