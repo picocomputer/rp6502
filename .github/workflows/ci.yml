@@ -384,6 +384,11 @@ jobs:
   # rather than Ninja, which is what the buildbot's ios and tvos templates use,
   # and no deployment target, because the one their template names predates
   # what a current Xcode accepts.
+  #
+  # The two desktop entries carry the deployment targets the buildbot's osx
+  # templates set, 10.15 for arm64 and 10.13 for Intel. Without one, a core
+  # built on this runner records a floor of 15.0 and refuses to load in a
+  # RetroArch running on anything older.
   # ---------------------------------------------------------------------------
   libretro-apple:
     name: libretro-${{ matrix.target }}
@@ -393,9 +398,9 @@ jobs:
       matrix:
         include:
           - { target: macos-arm64,  gen: -GNinja, tests: 'ON',
-              extra: -DCMAKE_OSX_ARCHITECTURES=arm64 }
+              extra: -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 }
           - { target: macos-x86_64, gen: -GNinja, tests: 'OFF',
-              extra: -DCMAKE_OSX_ARCHITECTURES=x86_64 }
+              extra: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 }
           - { target: ios-arm64,    gen: '',      tests: 'OFF',
               extra: -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 }
           - { target: tvos-arm64,   gen: '',      tests: 'OFF',
@@ -563,6 +568,7 @@ jobs:
           cmake -S src/host/sokol -B build/sokol/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/sokol/macos/release
