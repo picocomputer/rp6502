@@ -326,6 +326,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common

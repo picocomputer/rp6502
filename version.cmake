@@ -1,7 +1,8 @@
-# One version string, three forms, shared by every tree that ships something.
+# One version string, four forms, shared by every tree that ships something.
 #
 #     Version 0.31                a tagged build, -DRP6502_VERSION=0.31
 #     CI 31666918326              an untagged CI build, -DRP6502_CI=<run id>
+#     GIT 3f9ab12                 built from a commit, -DRP6502_GIT=<short sha>
 #     Aug 12 2026 20:17:46 PDT    a developer's own build
 #
 # The firmware root and every machine root include this; src/host/pocket writes
@@ -45,6 +46,16 @@ if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
 endif()
 unset(RP6502_CI CACHE)
 
+# -DRP6502_GIT=<short sha> is for a builder whose own run id leads nowhere a
+# reader can go. The libretro buildbot is the one: its pipeline numbers live on
+# a server most people cannot open, while the commit is in this repository.
+# Never cached, for the reason a run id is not.
+set(RP6502_GIT_VALUE "")
+if(DEFINED RP6502_GIT AND NOT RP6502_GIT STREQUAL "")
+    set(RP6502_GIT_VALUE "${RP6502_GIT}")
+endif()
+unset(RP6502_GIT CACHE)
+
 # The three forms, decided once. Everything that wants one includes this --
 # the header generator below, the Pocket's core.json stamper, and this file
 # itself for the configure-time copies -- so a fourth spelling of the ladder
@@ -52,8 +63,8 @@ unset(RP6502_CI CACHE)
 #
 #   _stamp       what the machine says it is
 #   _stamp_bare  the same, without the word a UI supplies itself. Only the
-#                tagged form differs; "CI <id>" and a timestamp read the same
-#                either way.
+#                tagged form differs; "CI <id>", "GIT <sha>" and a timestamp
+#                read the same either way.
 set(RP6502_STAMP_SCRIPT ${CMAKE_BINARY_DIR}/rp6502_version_stamp.cmake)
 file(WRITE ${RP6502_STAMP_SCRIPT} [[
 if(STAMP_VERSION)
@@ -61,6 +72,9 @@ if(STAMP_VERSION)
     set(_stamp "Version ${STAMP_VERSION}")
 elseif(STAMP_CI)
     set(_stamp_bare "CI ${STAMP_CI}")
+    set(_stamp "${_stamp_bare}")
+elseif(STAMP_GIT)
+    set(_stamp_bare "GIT ${STAMP_GIT}")
     set(_stamp "${_stamp_bare}")
 else()
     string(TIMESTAMP _stamp_bare "%b %d %Y %H:%M:%S %Z")
@@ -88,11 +102,13 @@ endif()
 # close as a .rc can get.
 set(STAMP_VERSION "${RP6502_VERSION_VALUE}")
 set(STAMP_CI "${RP6502_CI_VALUE}")
+set(STAMP_GIT "${RP6502_GIT_VALUE}")
 include(${RP6502_STAMP_SCRIPT})
 set(RP6502_VERSION_STAMP "${_stamp}")
 set(RP6502_VERSION_BARE "${_stamp_bare}")
 unset(STAMP_VERSION)
 unset(STAMP_CI)
+unset(STAMP_GIT)
 unset(_stamp)
 unset(_stamp_bare)
 
@@ -144,6 +160,7 @@ function(rp6502_use_version_header tgt src)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${RP6502_GEN_VERSION_SCRIPT})
         return()
     endif()
@@ -193,6 +210,7 @@ function(rp6502_use_version_header tgt src)
             -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
             "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
             "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
             -P ${RP6502_GEN_VERSION_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
         VERBATIM

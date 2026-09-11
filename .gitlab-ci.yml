@@ -1,30 +1,11 @@
 # The libretro buildbot.
 #
-# Read on git.libretro.com, which mirrors this repository, and by nothing
-# here: GitHub Actions is .github/workflows/ci.yml. Their runners build the
-# core for the platforms their Core Downloader serves, which is how a person
-# on a handheld gets it without ever seeing this repository.
-#
-# The templates want a CMake root and a target named ${CORENAME}_libretro,
-# which is what src/host/libretro builds and why that target has that name.
-
 .core-defs:
   variables:
     CORENAME: rp6502
     CMAKE_SOURCE_ROOT: src/host/libretro
-    # A shallow fetch commonly arrives with no tags, and the version below is
-    # read from the tag on the commit being built.
     GIT_DEPTH: 0
-    # Submodules: the root fetches the two it reads when it configures, so a
-    # checkout with none still builds. STRICT makes a fetch that failed say
-    # so here rather than as a missing header later.
-    #
-    # A branch tip carrying no tag falls back to the commit rather than to
-    # $CI_PIPELINE_ID, because a scheduled pipeline rebuilds this branch daily
-    # whether or not anything changed. A stamp that changes with the pipeline
-    # changes the binary, and the Core Downloader decides a core is out of date
-    # by comparing a CRC32, so every installed copy would be replaced every day.
-    CORE_ARGS: -DRP6502_STRICT_SUBMODULES=ON -DRP6502_TESTS=OFF -DRP6502_VERSION_FROM_GIT=ON -DRP6502_CI=$CI_COMMIT_SHORT_SHA
+    CORE_ARGS: -DRP6502_STRICT_SUBMODULES=ON -DRP6502_TESTS=OFF -DRP6502_VERSION_FROM_GIT=ON -DRP6502_GIT=$CI_COMMIT_SHORT_SHA
 
 include:
   - project: 'libretro-infrastructure/ci-templates'
@@ -58,14 +39,10 @@ libretro-build-windows-x64:
     - .libretro-windows-msvc19-cmake-x86_64
     - .core-defs
   variables:
-    # The Visual Studio generator is multi-config, so the DLL lands under
-    # the configuration rather than at the build root.
     EXTRA_PATH: Release
 
 libretro-build-osx-x64:
   extends:
-    # osx-cmake-x86.yml holds both Intel jobs, and .libretro-osx-cmake-x86 is
-    # the 32-bit one.
     - .libretro-osx-cmake-x86_64
     - .core-defs
 
@@ -74,8 +51,6 @@ libretro-build-osx-arm64:
     - .libretro-osx-cmake-arm64
     - .core-defs
 
-# Phones, tablets and a television. A dylib built for macOS does not load on
-# any of them, so each is its own build with its own SDK.
 libretro-build-ios-arm64:
   extends:
     - .libretro-ios-cmake-arm64
@@ -86,9 +61,6 @@ libretro-build-tvos-arm64:
     - .libretro-tvos-cmake-arm64
     - .core-defs
 
-# Handhelds. The Anbernic-class devices run either a Linux CFW with a
-# 64-bit RetroArch or Android, so these are what reaches them. The x86_64 ABI
-# is there because RetroArch's 64-bit Android build ships it beside arm64.
 libretro-build-linux-aarch64:
   extends:
     - .libretro-linux-cmake-aarch64
