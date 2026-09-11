@@ -25,6 +25,10 @@ uint16_t opl_xaddr_get(void);
  * taking over. */
 void opl_park(void);
 
+/* Give the chip back, for a host that unloads the library it lives in. The
+ * mixer must not be running; aud_shutdown is what arranges that. */
+void opl_shutdown(void);
+
 /* The savestate leaves out the members this build never uses.
  * EMU8950_NO_RATECONV compiles out the rate converter, so the clock, the
  * rate, the three step fields and mix_out all stay at the zero OPL_reset's

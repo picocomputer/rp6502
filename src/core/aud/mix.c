@@ -83,6 +83,16 @@ void aud_stop(void)
     aud_dev = aud_dev_none;
 }
 
+/* For a host that unloads the library rather than ending the process. The
+ * device is dropped first, so no later render reaches an engine that has just
+ * given its memory back. */
+void aud_shutdown(void)
+{
+    aud_dev = aud_dev_none;
+    aud_probe = NULL;
+    opl_shutdown();
+}
+
 void aud_setup(aud_dev_t dev)
 {
     aud_dev = dev;

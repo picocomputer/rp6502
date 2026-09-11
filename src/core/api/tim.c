@@ -15,6 +15,11 @@ void tim_init(void)
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
+void tim_stop(void)
+{
+    os_locale_free();
+}
+
 bool tim_get_time(struct timespec *ts)
 {
     ts->tv_sec = time(NULL);

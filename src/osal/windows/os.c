@@ -92,6 +92,7 @@ bool os_gmtime(time_t t, struct tm *out)
 /* Nothing to load. No setlocale call anywhere moves the CRT out of the C
  * locale, so the strftime below answers in it. */
 void os_locale_reset(void) {}
+void os_locale_free(void) {}
 
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {

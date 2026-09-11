@@ -68,6 +68,18 @@ uint16_t opl_xaddr_get(void) { return opl_xaddr; }
 
 void opl_park(void) { opl_xaddr = 0xFFFF; }
 
+/* The chip is made on demand and given back only here, because a machine stop
+ * does not park the mixer and a host that pulls audio on its own thread can be
+ * inside opl_sample when one happens. aud_shutdown is the caller, and it runs
+ * where nothing else does. */
+void opl_shutdown(void)
+{
+    opl_xaddr = 0xFFFF;
+    opl_wave_base = NULL;
+    if (opl_emu8950)
+        OPL_delete(opl_emu8950), opl_emu8950 = NULL;
+}
+
 bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)

@@ -57,6 +57,14 @@ void os_locale_reset(void)
         g_locale = newlocale(LC_ALL_MASK, "", (locale_t)0);
 }
 
+/* A host that unloads this library takes the pointer with it, so the handle
+ * is given back when the machine stops rather than at exit. */
+void os_locale_free(void)
+{
+    if (g_locale)
+        freelocale(g_locale), g_locale = (locale_t)0;
+}
+
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return g_locale ? strftime_l(buf, max, fmt, tm, g_locale)

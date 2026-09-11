@@ -27,6 +27,10 @@
 void aud_init(void);
 void aud_stop(void);
 
+/* Drop the device and give back what the engines hold. For a host that unloads
+ * this library; a host that exits needs nothing. */
+void aud_shutdown(void);
+
 /* The device to mix, or none. psg_xreg and opl_xreg register themselves here
  * and aud_stop unregisters; the bell is not a device, every mixer adds it.
  * The engine is named rather than passed as a function pointer because a

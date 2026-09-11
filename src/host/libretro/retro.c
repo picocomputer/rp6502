@@ -74,13 +74,14 @@ static bool run_seed_taken;
  * buffer that grows to its high-water mark. The first call passes a null
  * buffer and a zero size, which vsnprintf is defined to treat as a
  * measurement. */
+static char *log_text;
+static size_t log_cap;
+
 void host_log(int level, const char *category, const char *fmt, ...)
 {
     static const enum retro_log_level levels[] = {
         RETRO_LOG_DEBUG, RETRO_LOG_ERROR, RETRO_LOG_WARN, RETRO_LOG_INFO, RETRO_LOG_DEBUG};
     static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
-    static char *text;
-    static size_t cap;
     va_list ap;
     va_start(ap, fmt);
     if (!log_cb)
@@ -93,17 +94,17 @@ void host_log(int level, const char *category, const char *fmt, ...)
     }
     va_list sizing;
     va_copy(sizing, ap);
-    int n = vsnprintf(text, cap, fmt, sizing);
+    int n = vsnprintf(log_text, log_cap, fmt, sizing);
     va_end(sizing);
-    if (n >= 0 && (size_t)n >= cap)
+    if (n >= 0 && (size_t)n >= log_cap)
     {
-        cap = (size_t)n + 1;
-        text = realloc(text, cap);
-        vsnprintf(text, cap, fmt, ap);
+        log_cap = (size_t)n + 1;
+        log_text = realloc(log_text, log_cap);
+        vsnprintf(log_text, log_cap, fmt, ap);
     }
     va_end(ap);
     if (n >= 0)
-        log_cb(levels[level], "%s: %s\n", category, text);
+        log_cb(levels[level], "%s: %s\n", category, log_text);
 }
 
 static const struct retro_core_option_v2_definition option_defs[] = {
@@ -332,6 +333,12 @@ void retro_deinit(void)
     run_seed_taken = false;
     input_reset();
     log_cb = NULL;
+    /* A frontend that unloads this library drops every pointer with it, so
+     * what the machine and this file hold is given back here rather than at
+     * exit. retro_run cannot be in flight: a frontend calls this after the
+     * game is unloaded, on the thread it calls everything else on. */
+    aud_shutdown();
+    free(log_text), log_text = NULL, log_cap = 0;
 }
 
 void retro_get_system_info(struct retro_system_info *info)
