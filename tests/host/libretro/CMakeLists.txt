@@ -69,11 +69,11 @@ rp6502_add_test(pointer
 # files are the only record of which those are, and they are written by hand.
 # PyYAML is not something a build of this tree otherwise needs, so a machine
 # without it runs the rest of the suite.
-execute_process(COMMAND python3 -c "import yaml"
+execute_process(COMMAND ${Python3_EXECUTABLE} -c "import yaml"
     RESULT_VARIABLE _have_yaml OUTPUT_QUIET ERROR_QUIET)
 if(_have_yaml EQUAL 0)
     add_test(NAME libretro_targets
-        COMMAND ${CMAKE_COMMAND} -E env python3
+        COMMAND ${Python3_EXECUTABLE}
             ${RP6502_TESTS_DIR}/gen/libretro_targets_gate.py
             --gitlab ${RP6502_ROOT}/.gitlab-ci.yml
             --github ${RP6502_ROOT}/.github/workflows/ci.yml)

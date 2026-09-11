@@ -6,14 +6,25 @@
  */
 
 #include "osal/os.h"
-#include <sys/random.h>
+#include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 
+// The device rather than getrandom(), because <sys/random.h> arrived in glibc
+// 2.25 and the libretro buildbot builds this core on Ubuntu Xenial, which has
+// 2.23. Reading the device needs no version test and is what the Android layer
+// beside this one already does.
 uint32_t os_random(void)
 {
     uint64_t s;
-    if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s)
-        return (uint32_t)(s ^ (s >> 32));
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0)
+    {
+        ssize_t got = read(fd, &s, sizeof s);
+        close(fd);
+        if (got == (ssize_t)sizeof s && s)
+            return (uint32_t)(s ^ (s >> 32));
+    }
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
     clock_gettime(CLOCK_REALTIME, &real);
