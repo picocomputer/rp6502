@@ -110,7 +110,7 @@ void __in_flash("aud_init") aud_init(void)
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
-void aud_stop(void)
+void aud_unregister(void)
 {
     aud_dev = aud_dev_none;
 }

@@ -89,7 +89,7 @@ bool opl_xreg(uint16_t word)
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         opl_xaddr = 0xFFFF;
-        aud_stop();
+        aud_unregister();
         return word == 0xFFFF;
     }
     /* emu8950 builds its shared tables inside OPL_new, which callocs the

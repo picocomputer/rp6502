@@ -78,7 +78,7 @@ void aud_init(void)
     aud_probe = NULL;
 }
 
-void aud_stop(void)
+void aud_unregister(void)
 {
     aud_dev = aud_dev_none;
 }

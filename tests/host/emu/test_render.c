@@ -38,7 +38,7 @@ UTEST(render, a_sink_frame_is_a_frame_of_calls_at_the_machine_rate)
      * last case left in it. */
     ASSERT_GT(g_out[799 * 2], g_out[400 * 2]);
     ASSERT_LT(g_out[799 * 2 + 1], g_out[400 * 2 + 1]);
-    aud_stop();
+    aud_unregister();
 }
 
 /* Nothing is made between calls. Frames of the machine make no sound on
@@ -51,7 +51,7 @@ UTEST(render, nothing_is_made_until_the_sink_asks)
     ASSERT_EQ(g_calls, 0);
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_GE(g_calls, 828);
-    aud_stop();
+    aud_unregister();
 }
 
 /* Under the debugger the machine makes nothing, and every sample is the
@@ -79,7 +79,7 @@ UTEST(render, a_held_machine_repeats_its_last_level)
     dbg_continue();
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_GT(g_calls, made);
-    aud_stop();
+    aud_unregister();
 }
 
 UTEST_MAIN_EMU();

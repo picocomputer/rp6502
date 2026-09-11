@@ -32,13 +32,13 @@ static uint16_t aud_opl_at = 0xFFFF;
  * session left them, so a host reset would come back still playing. */
 void aud_init(void)
 {
-    aud_stop();
+    aud_unregister();
     bel_init();
 }
 
 /* Free-running hardware, so without this the last sound plays forever.
  * The bell is the soft CPU's and rings through a program stop. */
-void aud_stop(void)
+void aud_unregister(void)
 {
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
@@ -123,7 +123,7 @@ bool psg_xreg(uint16_t word)
     if (word & 0x0001 || word > 0x10000 - 64 ||
         ((word >> 8) != ((word + 63) >> 8)))
     {
-        aud_stop();
+        aud_unregister();
         return word == 0xFFFF;
     }
     AUD_OPL_XADDR = 0xFFFF;
@@ -145,7 +145,7 @@ bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {
-        aud_stop();
+        aud_unregister();
         return word == 0xFFFF;
     }
     memset((void *)&XRAM_WIN[word], 0, 256);
