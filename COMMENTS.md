@@ -301,6 +301,7 @@ well defined for any nonzero basis. The keypad branch inside the sokol ASCII
 conversion helper could not be reached, because every keypad digit is handled
 by an explicit case that breaks before the label calling it.
 
+
 Do not write comments about mistakes. A mistake in half-finished code stops
 happening once the code is understood, and a comment recording it adds nothing
 for the next reader. This section is a note on method, not a template.
