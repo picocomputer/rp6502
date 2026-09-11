@@ -25,15 +25,16 @@
 #endif
 
 void aud_init(void);
-void aud_unregister(void);
+void aud_stop(void);
 
 /* Drop the device and give back what the engines hold. For a host that unloads
  * this library; a host that exits needs nothing. */
 void aud_shutdown(void);
 
 /* The device to mix, or none. psg_xreg and opl_xreg register themselves here
- * and aud_unregister drops whichever is there; the bell is not a device, so
- * every mixer adds it whatever this says.
+ * and aud_stop stops whichever is registered, which is one of them: taking
+ * either engine parks the other. The bell is not a device, so every mixer
+ * adds it whatever this says.
  * The engine is named rather than passed as a function pointer because a
  * savestate has to say which one is sounding in bytes another build will
  * read back.
@@ -121,7 +122,7 @@ int aud_viz_pos(void);
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_unregister, nul_break, \
+#define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, \
     nul_config, nul_config, SST(AUD_, 1, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

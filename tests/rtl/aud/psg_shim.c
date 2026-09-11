@@ -37,7 +37,7 @@ void aud_setup(aud_dev_t dev) { (void)dev; }
 void opl_park(void) {}
 aud_dev_t aud_device(void) { return aud_dev_none; }
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
-void aud_unregister(void) {}
+void aud_stop(void) {}
 
 void shim_init(void)
 {
