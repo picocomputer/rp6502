@@ -122,6 +122,16 @@ static bool uf2_is_abs_block(void)
 // uf2_first_target with stride uf2_payload_size. If future tooling emits
 // non-contiguous main firmware, name lookups through this helper can miss;
 // the write path does not depend on this helper.
+//
+// A range that would cross the end of a payload is refused here, and the
+// binary_info walk treats a refusal as "not this entry", so a field landing
+// within its own width of a payload end hides the program name and FLASH
+// rejects an image it should accept. Whether that happens is decided by link
+// addresses: a pico2_w image built from this tree on 2026-09-10 puts the
+// program name's id and value pair at payload offset 252, needing eight bytes
+// where four remain. The string read at the end of uf2_find_program_name has
+// the same shape and takes the next block's 32-byte header as name bytes.
+// Reading across payload boundaries is what fixes both.
 static int32_t uf2_addr_to_file_off(uint32_t stored_addr, uint32_t needed)
 {
     if (stored_addr < uf2_first_target)
