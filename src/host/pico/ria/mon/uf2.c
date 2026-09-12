@@ -30,11 +30,6 @@
 
 #define UF2_MAP_TABLE_MAX 10 // small arbitrary cap; picotool also uses one
 #define UF2_NAME_READ_MAX 32
-// Fault-detection ceiling for one $1:F:07, which programs a page and erases
-// its sector first when the page is not blank. Worst case in a SPI NOR
-// datasheet is a 400ms erase plus a 3ms program, and the VGA holds its reply
-// out of a 2ms window around each VSYNC. The success path returns as soon as
-// the reply arrives.
 #define UF2_VGA_ACK_TIMEOUT_MS 500
 
 static enum {

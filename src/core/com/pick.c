@@ -9,11 +9,7 @@
 #include "machine.h"
 #include "drivers.h"
 
-/* In RAM, not flash, because the monitor's FLASH command erases the flash
- * this machine is running from and the picker is walked between every block
- * it writes. A table of function pointers read while its sector is erased
- * reads as 0xFFFFFFFF and is then called. */
-static HOST_NOT_IN_FLASH("com_sources") const com_source_driver_t
+static const com_source_driver_t
     com_sources[COM_SOURCE_COUNT] = {RP6502_COM_SOURCES};
 
 static com_source_t com_rx_held = COM_SOURCE_ANY;
