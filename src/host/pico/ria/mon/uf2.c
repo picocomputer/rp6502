@@ -483,7 +483,7 @@ static void uf2_do_write(void)
     {
         uf2_build_page(uf2_page_idx);
         uint32_t offs = uf2_page_idx * FLASH_PAGE_SIZE;
-        const uint8_t *dest = (const uint8_t *)(XIP_BASE + offs);
+        const uint8_t *dest = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + offs);
         for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
             if (dest[i] != 0xFF)
             {

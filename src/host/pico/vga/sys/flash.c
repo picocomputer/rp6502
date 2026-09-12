@@ -34,7 +34,7 @@ void flash_task(void)
      * that asks, and video is core 1's plus core 0's ISRs, which keep
      * running. */
     const uint32_t offs = (uint32_t)flash_page * FLASH_PAGE_SIZE;
-    const uint8_t *dest = (const uint8_t *)(XIP_BASE + offs);
+    const uint8_t *dest = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + offs);
     const uint8_t *src = (const uint8_t *)xram;
 
     /* Programming only clears bits, so a page that still reads as erased takes
