@@ -13,13 +13,13 @@
 #include <string.h>
 
 static volatile bool flash_pending;
-static volatile uint16_t flash_sector;
+static volatile uint16_t flash_page;
 
-bool flash_request(uint16_t sector_index)
+bool flash_program_request(uint16_t page)
 {
-    if ((uint32_t)sector_index >= PICO_FLASH_SIZE_BYTES / FLASH_SECTOR_SIZE)
+    if ((uint32_t)page >= PICO_FLASH_SIZE_BYTES / FLASH_PAGE_SIZE)
         return false;
-    flash_sector = sector_index;
+    flash_page = page;
     flash_pending = true;
     return true;
 }
@@ -30,16 +30,20 @@ void flash_task(void)
         return;
     flash_pending = false;
 
-    /* This blocks every other task for tens of milliseconds, deliberately:
-     * a sector write is rare, the RIA is the only thing that asks for one,
-     * and video is core 1's plus core 0's ISRs, which keep running. */
-    const uint32_t flash_offs = (uint32_t)flash_sector * FLASH_SECTOR_SIZE;
+    const uint32_t offs = (uint32_t)flash_page * FLASH_PAGE_SIZE;
+    const uint8_t *dest = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + offs);
     const uint8_t *src = (const uint8_t *)xram;
 
-    flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    flash_range_program(flash_offs, src, FLASH_SECTOR_SIZE);
+    for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
+        if (dest[i] != 0xFF)
+        {
+            flash_range_erase(offs & ~(FLASH_SECTOR_SIZE - 1), FLASH_SECTOR_SIZE);
+            break;
+        }
 
-    if (memcmp((const void *)(XIP_BASE + flash_offs), src, FLASH_SECTOR_SIZE) == 0)
+    flash_range_program(offs, src, FLASH_PAGE_SIZE);
+
+    if (memcmp(dest, src, FLASH_PAGE_SIZE) == 0)
         ria_ack();
     else
         ria_nak();

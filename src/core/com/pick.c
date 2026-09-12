@@ -9,7 +9,7 @@
 #include "machine.h"
 #include "drivers.h"
 
-static HOST_IN_FLASH("com_sources") const com_source_driver_t
+static const com_source_driver_t
     com_sources[COM_SOURCE_COUNT] = {RP6502_COM_SOURCES};
 
 static com_source_t com_rx_held = COM_SOURCE_ANY;

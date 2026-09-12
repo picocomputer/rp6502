@@ -76,17 +76,15 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
     case 0x04: // BACKCHAN
         ria_backchan(word);
         return false;
-    case 0x05: // FLASH_SECTOR
-        /* A sector index times 4K reaches far past the flash; the SDK's
-         * hard_assert is not compiled out, so an unchecked one panics. */
-        if (!flash_request(word))
-            ria_nak();
-        return true;
     case 0x06: // REBOOT_OR_LOCKUP
         if (word == 0)
             watchdog_reboot(0, 0, 0);
         for (;;)
             tight_loop_contents();
+    case 0x07: // FLASH_PROGRAM
+        if (!flash_program_request(word))
+            ria_nak();
+        return true;
     }
     return false;
 }
