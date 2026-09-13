@@ -12,7 +12,7 @@ Pre-built firmware and executables:<br>
 https://github.com/picocomputer/rp6502/releases
 
 This project is for building emulation or firmware. For writing 6502 software, see
-[picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65), which
+[picocomputer/rp6502-sdk](https://github.com/picocomputer/rp6502-sdk), which
 builds with either cc65 or llvm-mos and gets its tools from `tools/` here.
 
 ## All Platforms
