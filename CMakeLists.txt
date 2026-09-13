@@ -39,7 +39,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 
 set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
 
-project(RP6502 C CXX ASM)
+project(rp6502-pico C CXX ASM)
 
 # TinyUSB reads LOG inside pico_sdk_init(): a build that asked for the
 # tinyusb category at DEBUG wants the stack's own output with it.

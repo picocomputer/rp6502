@@ -268,7 +268,7 @@
             // cmake-tools' launchTargetPath, not the Pico extension's. The
             // Pico one wraps this exact command and, on any failure to
             // resolve, silently substitutes build/<project()>.elf -- which
-            // here is build/RP6502.elf, a file no target has ever produced.
+            // here is build/rp6502-pico.elf, a file no target has ever produced.
             // The other raspberry-pi-pico commands below are fine; they read
             // the SDK install, not the launch target.
             "name": "Pico Debug (Cortex-Debug)",
