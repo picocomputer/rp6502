@@ -589,8 +589,8 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 
 /* The whole drive in one boot. Every check the ROM makes is one the
  * machine decides for itself, so the bench can hold it to the same
- * standard the card does: all forty-eight, or name the ones that
- * failed. A ROM shipped without this costs a bitstream and a photograph
+ * standard the card does: every check passes, or the ones that failed
+ * are named. A ROM shipped without this costs a bitstream and a photograph
  * to find a branch that went the wrong way. */
 static void run_fstest(int *utest_result)
 {
@@ -612,11 +612,12 @@ static void run_fstest(int *utest_result)
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* 48 checks, printed in hex. Anything less and the console names
-     * which ones on the BAD line. */
-    if (g_console.find("PASS 30/30") == std::string::npos)
+    /* The count is printed in hex, and fstest_rom_gen.py's passed() returns
+     * the line a full pass prints. Anything less and the console names which
+     * checks failed on the BAD line. */
+    if (g_console.find("PASS 38/38") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 30/30") != std::string::npos);
+    ASSERT_TRUE(g_console.find("PASS 38/38") != std::string::npos);
 }
 
 UTEST(pfile, the_whole_drive_conforms)

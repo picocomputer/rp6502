@@ -138,22 +138,32 @@ def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
     rom(name, canvas, [(1, attr, config_ptr, 0, 0, 0)], chunks)
 
 
+MODE2_TILES = 6
+
+
+def mode2_map(wt, ht):
+    return bytes((i * 5 + 2) % MODE2_TILES for i in range(wt * ht))
+
+
+def mode2_tiles(attr):
+    bpp = 1 << (attr & 3)
+    tile_size = 16 if attr & 8 else 8
+    mem_size = tile_size * bpp // 8 * tile_size
+    return bytes((t // mem_size * 31 + t % mem_size * 7 + 3) & 0xFF
+                 for t in range(MODE2_TILES * mem_size))
+
+
 def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
           pal_ptr=0x0200):
     bpp = 1 << (attr & 3)
-    tile_size = 16 if attr & 8 else 8
-    n_tiles = 6
     if not xram_pal:
         pal_ptr = 0xFFFF
     data_ptr = 0x0800
     tile_ptr = 0x4000
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, wt, ht, data_ptr, pal_ptr, tile_ptr)
-    tmap = bytes((i * 5 + 2) % n_tiles for i in range(wt * ht))
-    mem_size = tile_size * bpp // 8 * tile_size
-    tiles = bytes((t // mem_size * 31 + t % mem_size * 7 + 3) & 0xFF
-                  for t in range(n_tiles * mem_size))
-    chunks = [(0x0100, cfg), (data_ptr, tmap), (tile_ptr, tiles)]
+    chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht)),
+              (tile_ptr, mode2_tiles(attr))]
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                       for i in range(1 << bpp)))))
@@ -282,6 +292,30 @@ def composite(name):
          (0x0800, bm), (0x6000, tmap), (0x6100, tiles), (0x6800, cells)])
 
 
+def bands(name):
+    # Plane 0 is mode 2 down to line 224 with a mode 3 band written over
+    # lines 64 to 128, so its mode changes and changes back partway down.
+    # Mode 1 on plane 1 and mode 2 on plane 2 each fill a band that starts
+    # and ends inside the canvas. No program reaches the bottom of the
+    # canvas, so the vsync line is 224 rather than 240.
+    cfg2 = bytearray((0, 0)) + le16(-5, 0, 20, 14, 0x0600, 0xFFFF, 0x4000)
+    cfg3 = bytearray((0, 0)) + le16(60, 60, 160, 72, 0x8000, 0xFFFF)
+    cfg1 = bytearray((0, 0)) + le16(40, 100, 24, 10, 0x0800, 0xFFFF, 0xFFFF)
+    cfg4 = bytearray((0, 0)) + le16(170, 136, 8, 5, 0x0B00, 0xFFFF, 0x5000)
+    cells = bytearray()
+    for i in range(24 * 10):
+        cells.extend((ord("A") + i % 60, (i * 5 + 1) & 0xFF,
+                      (i * 11 + 2) & 0xFF))
+    rom(name, 1,
+        [(2, 8, 0x0100, 0, 0, 224), (3, 3, 0x0110, 0, 64, 128),
+         (1, 3, 0x0120, 1, 112, 176), (2, 10, 0x0130, 2, 144, 208)],
+        [(0x0100, cfg2), (0x0110, cfg3), (0x0120, cfg1), (0x0130, cfg4),
+         (0x0600, mode2_map(20, 14)), (0x0800, cells),
+         (0x0B00, mode2_map(8, 5)),
+         (0x4000, mode2_tiles(8)), (0x5000, mode2_tiles(10)),
+         (0x8000, bytes((i * 13 + 7) & 0xFF for i in range(160 * 72)))])
+
+
 mode3("mode3_8bpp", 3, 3, 8, 64, 64, 10, 20, True)
 mode3("mode3_1bpp", 1, 0, 1, 64, 48, 5, 7, False)
 mode3("mode3_4bppr", 2, 10, 4, 40, 30, 0, 0, False)
@@ -321,6 +355,7 @@ mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
 mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
 mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 composite("mode2_composite")
+bands("prog_bands")
 
 # Mode 5: a sprite-only plane (the zeroed claimed layer), sprites over a
 # fill on the same plane, sprites under a text plane above, and the big
@@ -431,8 +466,9 @@ stress("sprite_stress")
 
 # The review's dark paths: mode 5 at 1bpp and the big squares, halfword
 # descriptor arrays in every engine, the whole mode 4 log range with the
-# defined row of the 32-bit-wrap sizes, small and large affine squares,
-# and a slot built to lose its race so the overrun counter shows it.
+# defined row of the 32-bit-wrap sizes, a small affine square and a rotated
+# 128-pixel one whose image ends at the top of XRAM, and a slot built to
+# lose its race so the overrun counter shows it.
 mode5("mode5_1bpp128", 1, 32, 0, [
     (10, 40, 0, 0), (200, -30, 0, 0), (-60, 100, 0, None),
 ], desc_ptr=0x0102)
@@ -457,11 +493,12 @@ rom("mode4_sizes", 1, [(4, 0, 0x0102, 5, 0, 0, 0)],
 
 d = bytearray()
 d += le16(0x100, 0, 0, 0, 0x100, 0) + le16(30, 40, 0x1000)     + bytes((3, 0))
-d += le16(0x080, 0, 0, 0, 0x080, 0) + le16(100, 60, 0x4000)     + bytes((6, 0))
+d += le16(0x0DD, 0x080, 0, -0x080 & 0xFFFF, 0x0DD, 0x2000) \
+    + le16(170, 100, 0x8000) + bytes((7, 0))
 rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
     [(0x0102, d),
      (0x1000, le16(*(((t * 13 + 5) & 0xFFFF) for t in range(64)))),
-     (0x4000, le16(*(((t * 7 + 3) & 0xFFFF) for t in range(4096))))])
+     (0x8000, le16(*(((t * 5 + 11) & 0xFFFF) for t in range(16384))))])
 
 mode5("sprite_overrun", 1, 27, 0,
       [(i * 6, 40, 0, 0) for i in range(48)])

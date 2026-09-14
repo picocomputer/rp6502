@@ -12,9 +12,9 @@
  * talks to $FFxx, so zero page would save bytes nobody is counting and
  * cost a second spelling of every instruction.
  *
- * tests/gen/rp6502_rom.py is the same instruction set in Python. They are
- * two spellings of one machine, so a program written against either
- * reads the same.
+ * tests/gen/rp6502_asm.py is the Python assembler, and it carries almost
+ * every 65C02 instruction. tests/cpu/ria/test_asm.cpp checks that the
+ * instructions both assemblers carry encode to the same bytes.
  */
 
 #ifndef _TESTS_BENCH_TB_ASM_H_
@@ -40,6 +40,7 @@
 #define TB_API_CALL 0xFFF1
 #define TB_API_A 0xFFF4
 #define TB_API_X 0xFFF6
+#define TB_API_SREG 0xFFF8
 
 struct tb_asm
 {
@@ -72,6 +73,8 @@ struct tb_asm
     void jsr(uint16_t a) { abs(0x20, a); }
     void jmp(uint16_t a) { abs(0x4C, a); }
     void bit(uint16_t a) { abs(0x2C, a); }
+    void cmp_abs(uint16_t a) { abs(0xCD, a); }
+    void beq(int8_t d) { raw({0xF0, (uint8_t)d}); }
     void inx() { raw({0xE8}); }
     void dex() { raw({0xCA}); }
     void rts() { raw({0x60}); }

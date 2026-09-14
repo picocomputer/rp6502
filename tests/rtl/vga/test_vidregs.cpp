@@ -55,6 +55,14 @@ UTEST(vidregs, console_return_restores_vsync_line)
     ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 480);
 }
 
+/* No program in prog_bands reaches below line 224 of its 320x240 canvas, so
+ * the vsync line is 224 rather than the canvas's last scanline. */
+UTEST(vidregs, a_short_program_moves_the_vsync_line)
+{
+    ASSERT_TRUE(boot("prog_bands", 320 * 240));
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 224);
+}
+
 /* sprite_overrun is built on canvas 1 — 320x240, vidmodes.py. The picture is
  * still deterministic, so it is held to a CRC of its own; it is simply not
  * the emulator's. */

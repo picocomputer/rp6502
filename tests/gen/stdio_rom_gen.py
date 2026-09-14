@@ -19,11 +19,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rp6502_asm import (API_A, API_X, OP_READ_XSTACK, OP_WRITE_XSTACK, XSTACK,
-                        Asm)  # noqa: E402
+from rp6502_asm import (API_A, API_X, OP_EXIT, OP_READ_XSTACK, OP_WRITE_XSTACK,
+                        XSTACK, Asm)  # noqa: E402
 from rp6502_rom import image  # noqa: E402
 
-OP_EXIT = 0xFF
 EXIT_CODE = 3
 ERR = "err\n"
 EOF = "eof\n"

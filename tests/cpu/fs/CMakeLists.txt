@@ -7,12 +7,12 @@ rp6502_add_test(fs SOURCES test_fs.c ${RP6502_TB_HOSTOS} LIBS emu_core)
 rp6502_add_test(drive SOURCES test_drive.c ${RP6502_TB_HOSTOS}
     LIBS emu_core FIXTURE adventure.rp6502)
 
-# --- Directory enumeration integration (dir.rp6502: opendir/readdir/stat/getfree) ---
+# --- A program calling opendir, readdir, closedir, getlabel and getfree ---
 rp6502_add_test(dir SOURCES test_dir.c ${RP6502_TB_HOSTOS}
-    LIBS emu_core FIXTURE dir.rp6502 TIMEOUT 60)
+    LIBS emu_core DEFS DIR_ROM="${DIR_ROM}" DEPENDS dir_rom)
 
 # --- The conformance ROM on this machine too ---
-# The same forty-eight checks the Pocket's bench runs (tests/host/pocket,
+# The same checks the Pocket's bench runs (tests/host/pocket,
 # pfile.the_whole_drive_conforms), against a host-backed drive. Four of them
 # describe the platform rather than the filesystem and are expected to differ;
 # the generator says which, so this asserts that they are the only ones.

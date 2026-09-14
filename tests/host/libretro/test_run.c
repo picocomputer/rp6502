@@ -220,7 +220,7 @@ UTEST(run, the_pixels_are_where_the_pitch_says)
  * the raster behind it, and the frame after it comes back is whole. */
 UTEST(run, a_frontend_that_wants_no_video_still_gets_its_call)
 {
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
     fe_run(60);
     ASSERT_TRUE(fe.av_enable_asked);
 
@@ -245,7 +245,7 @@ UTEST(run, the_memory_map_reaches_the_frontend)
     fe_close();
     fe_open();
     ASSERT_FALSE(fe.memory_maps_set);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
     ASSERT_TRUE(fe.memory_maps_set);
     ASSERT_EQ(fe.memory_map_count, 2u);
     fe.unload_game();

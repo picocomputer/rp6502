@@ -5,10 +5,11 @@
  *
  * The op 0x01 and attribute probe program, as an image, written once.
  *
- * Thirty-one calls, each printing what it returned and the errno it left:
- * the xreg error paths, a canvas switch, a full mode 3 program, the sprite
- * slots, the PSG and OPL pointers through the soft CPU's validation, and the
- * ATR set including the bell mute.
+ * Most calls print what they returned and the errno they left. The calls
+ * cover the xreg error paths, a canvas switch, a full mode 3 program, the
+ * sprite slots, the PSG and OPL pointers through the soft CPU's validation,
+ * and the attributes, including the bell mute, the PHI2 clamp, LRAND and the
+ * RLN_LENGTH range.
  *
  * Two suites boot it. tests/cpu/ria holds the console stream it prints to the
  * bytes written down there, on whichever machine that tree built;
@@ -45,6 +46,11 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     auto opn_errno = [&](uint8_t op, uint8_t a) {
         p.call_a(op, a);
         p.put_errno();
+    };
+    auto differ = [&](uint16_t first) {
+        p.cmp_abs(first);
+        p.beq(2);
+        p.ldx(1);
     };
 
     /* ATTR_ERRNO_OPT first, because until a program picks a map every
@@ -145,13 +151,59 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 2);
     opn(0x0A, 2);
 
-    /* ATTR_EXIT_CODE and ATTR_SIGINT, which are reads a program makes about
-     * the run it is in: nothing has exited and nothing has interrupted, so
-     * both answer zero on a machine that keeps them at all. They are here
-     * because one machine used to answer EINVAL to the pair -- its attribute
-     * table was a copy that never grew the two entries. */
+    /* ATTR_EXIT_CODE and ATTR_SIGINT both read zero, because nothing has
+     * exited and nothing has interrupted the run. */
     opn(0x0A, 7);
     opn(0x0A, 8);
+
+    /* ATTR_PHI2_KHZ. The emulator and the Pocket firmware both clamp 9000 to
+     * PHI2_MAX_KHZ, which is also the default, so the last set puts back the
+     * rate the program started at. */
+    opn(0x0A, 1);
+    p.pushl(1000);
+    opn(0x0B, 1);
+    opn(0x0A, 1);
+    p.pushl(9000);
+    opn(0x0B, 1);
+    opn(0x0A, 1);
+
+    /* ATTR_LRAND. The program compares two draws and prints only whether they
+     * differ, because the emulator bench and the Pocket firmware seed the
+     * generator with different values. The generator has full period and its
+     * output function is a bijection, so two consecutive draws always differ
+     * before the 31-bit mask, and match after it only when bit 31 is their
+     * sole difference. */
+    p.call_a(0x0A, 4);
+    p.sta(0x0200);
+    p.stx(0x0201);
+    p.lda_abs(TB_API_SREG);
+    p.sta(0x0202);
+    p.lda_abs(TB_API_SREG + 1);
+    p.sta(0x0203);
+    p.put_errno();
+    p.call_a(0x0A, 4);
+    p.stx(0x0204);
+    p.ldx(0);
+    differ(0x0200);
+    p.lda_abs(0x0204);
+    differ(0x0201);
+    p.lda_abs(TB_API_SREG);
+    differ(0x0202);
+    p.lda_abs(TB_API_SREG + 1);
+    differ(0x0203);
+    p.put_x();
+    p.pushl(0);
+    opn(0x0B, 4);
+
+    /* ATTR_RLN_LENGTH */
+    opn(0x0A, 3);
+    p.pushl(0);
+    opn(0x0B, 3);
+    opn(0x0A, 3);
+    p.pushl(0x100);
+    opn(0x0B, 3);
+    p.pushl(254);
+    opn(0x0B, 3);
     p.stp();
 
     rom = tb_rom_image(TB_ORG, p.b);

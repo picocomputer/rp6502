@@ -9,7 +9,7 @@
 #
 # There are two assemblers because there are two places a program gets
 # built — a generator writing a file, a bench building one in memory. The
-# Python one carries the whole instruction set and a symbol table; the
+# Python one carries almost every 65C02 instruction and a symbol table; the
 # C++ one carries what a bench parameterizes at run time. Where they
 # overlap they are one encoding, and this is the only thing that says so.
 # It is not a program that runs; it is a program that encodes.
@@ -42,6 +42,9 @@ def build():
     p.inx()
     p.dex()
     p.bit_abs(0x0205)
+    p.cmp_abs(0x0207)
+    with p.branch("beq"):
+        p.ldx_imm(0x01)
     p.jsr_abs("top")
     p.jmp_abs("top")
     p.rts()

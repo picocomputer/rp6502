@@ -40,14 +40,41 @@ add_test(NAME rom_tool
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
 
-# --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
-rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)
+# --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, boot arguments,
+# the console canvas after a stop, teletype bell) ---
+rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502
+    DEFS EXEC_ROM="${EXEC_ROM}" ROMS_DIR="${RP6502_TEST_CORPUS}"
+    DEPENDS exec_rom)
 
 # --- Adventure integration (ROM-asset files + interactive stdin via rln) ---
 rp6502_add_test(adventure LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
 
-# --- Exec/argv (proc.c ops 0x08/0x09) + program loading by path ---
-rp6502_add_test(exec LIBS emu_core FIXTURE exec.rp6502 TIMEOUT 60)
+# Ops 0x08 and 0x09: a program that executes itself again with an argument,
+# on whichever machine this tree built.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(exec FIRMWARE
+            SOURCES test_exec.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            DEFS EXEC_ROM="${EXEC_ROM}"
+            DEPENDS exec_rom
+            TIMEOUT 900)
+    endif()
+elseif(TARGET rp6502_libretro)
+    rp6502_add_test(exec LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_exec.cpp ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS EXEC_ROM="${EXEC_ROM}"
+            RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS exec_rom rp6502_libretro
+        TIMEOUT 120)
+else()
+    rp6502_add_test(exec LIBS emu_core
+        SOURCES test_exec.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        DEFS EXEC_ROM="${EXEC_ROM}"
+        DEPENDS exec_rom
+        TIMEOUT 60)
+endif()
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
 rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_TB_HOSTOS}

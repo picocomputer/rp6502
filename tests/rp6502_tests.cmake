@@ -203,9 +203,6 @@ rp6502_test_rom(sleepasset_b_rom GEN ${RP6502_TESTS_DIR}/gen/sleepasset_rom_gen.
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the sleep asset probe ROM (B)")
 
-# The whole drive in one boot: forty-eight checks the machine decides
-# for itself. It runs here against the bench's host as well as on the
-# card, so a bug in the ROM is found before a photograph is.
 # argv[0] read back by the program it names. On the Pocket that string
 # can only have come from asking the host what the ROM slot is bound to,
 # so an empty argv here is that ask being thrown away.
@@ -216,12 +213,28 @@ rp6502_test_rom(argv_rom GEN ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the argv ROM")
 
+set(EXEC_ROM ${RP6502_TEST_ROM_DIR}/exec.rp6502)
+rp6502_test_rom(exec_rom GEN ${RP6502_TESTS_DIR}/gen/exec_rom_gen.py
+    ARGS --emit ${EXEC_ROM}
+    OUTPUTS ${EXEC_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the exec ROM")
+
+# The whole drive in one boot. It runs here against the bench's host as well
+# as on the card, so a bug in the ROM is found before a photograph is.
 set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)
 rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
     ARGS --emit ${FSTEST_ROM}
     OUTPUTS ${FSTEST_ROM}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the filesystem conformance ROM")
+
+set(DIR_ROM ${RP6502_TEST_ROM_DIR}/dir.rp6502)
+rp6502_test_rom(dir_rom GEN ${RP6502_TESTS_DIR}/gen/dir_rom_gen.py
+    ARGS --emit ${DIR_ROM}
+    OUTPUTS ${DIR_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the directory listing ROM")
 
 # The console read as a device. A program can open TTY: and read it raw,
 # with no line editor in between, and nothing was asking whether a byte
@@ -239,7 +252,9 @@ rp6502_test_rom(tty_rom GEN ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
 set(CON_ROM ${RP6502_TEST_ROM_DIR}/con.rp6502)
 rp6502_test_rom(con_rom GEN ${RP6502_TESTS_DIR}/gen/con_rom_gen.py
     ARGS --emit ${CON_ROM}
-    OUTPUTS ${CON_ROM})
+    OUTPUTS ${CON_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the console device ROM")
 
 set(STDIO_ROM ${RP6502_TEST_ROM_DIR}/stdio.rp6502)
 rp6502_test_rom(stdio_rom GEN ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
@@ -247,6 +262,20 @@ rp6502_test_rom(stdio_rom GEN ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
     OUTPUTS ${STDIO_ROM}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the standard streams ROM")
+
+set(KEYBOARD_ROM ${RP6502_TEST_ROM_DIR}/keyboard.rp6502)
+rp6502_test_rom(keyboard_rom GEN ${RP6502_TESTS_DIR}/gen/keyboard_rom_gen.py
+    ARGS --emit ${KEYBOARD_ROM}
+    OUTPUTS ${KEYBOARD_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the keyboard bitmap ROM")
+
+set(VSYNC_ROM ${RP6502_TEST_ROM_DIR}/vsync.rp6502)
+rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
+    ARGS --emit ${VSYNC_ROM}
+    OUTPUTS ${VSYNC_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the vsync interrupt ROM")
 
 # rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
 #                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]

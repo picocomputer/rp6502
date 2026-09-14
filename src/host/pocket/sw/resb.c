@@ -29,7 +29,7 @@ void resb_assert(void)
  * cells held. The vectors were written by the loader before this. */
 void resb_release(void)
 {
-    REGS_WIN[0x10] = 0; /* $FFF0 */
+    REGS_IRQ = 0;
     CPU_RESB = 1;
 }
 

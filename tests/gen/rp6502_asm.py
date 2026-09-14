@@ -46,6 +46,7 @@ RIA_READY = 0xFFE0
 RIA_TX = 0xFFE1
 RIA_RX = 0xFFE2
 RW0_DATA = 0xFFE4
+RW0_STEP = 0xFFE5
 RW0_ADDR = 0xFFE6
 XSTACK = 0xFFEC
 API_ERRNO = 0xFFED
@@ -57,19 +58,31 @@ API_X = 0xFFF6
 # The API ops a generated program reaches for. These are the machine's
 # numbers, not any one program's, which is why they are not in the
 # generator that happened to need them first.
+OP_ZXSTACK = 0x00
 OP_XREG = 0x01
+OP_ARGV = 0x08
+OP_EXEC = 0x09
+OP_ATTR_GET = 0x0A
 OP_OPEN = 0x14
 OP_CLOSE = 0x15
 OP_READ_XSTACK = 0x16
+OP_READ_XRAM = 0x17
 OP_WRITE_XSTACK = 0x18
+OP_WRITE_XRAM = 0x19
 OP_LSEEK = 0x1A
 OP_SYNCFS = 0x1E
+OP_OPENDIR = 0x20
+OP_READDIR = 0x21
+OP_CLOSEDIR = 0x22
 OP_CHDIR = 0x29
 OP_CHDRIVE = 0x2A
 OP_GETCWD = 0x2B
+OP_GETLABEL = 0x2D
+OP_GETFREE = 0x2E
 OP_GMTIME = 0x3A
 OP_LOCALTIME = 0x3B
 OP_TIME_GET = 0x3F
+OP_EXIT = 0xFF
 
 O_RDONLY = 0x01
 O_WRONLY = 0x02

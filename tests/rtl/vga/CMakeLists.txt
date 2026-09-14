@@ -9,6 +9,10 @@
 rp6502_add_machine_test(raster TRACE
     SOURCES test_raster.cpp ${RP6502_BENCH}/tb_core.cpp)
 
+# The frame counter and the vsync interrupt, timed in clocks against the
+# raster.
+rp6502_add_machine_test(vsync_rtl SOURCES test_vsync_rtl.cpp TIMEOUT 120)
+
 # The shared pixel tail against a golden model, before any mode front
 # stands on it: every depth, both bit orders, wrap-split, tile-shaped,
 # immediate and mixed segments, under a jittered grant line.

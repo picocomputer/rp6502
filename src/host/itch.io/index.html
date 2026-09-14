@@ -242,14 +242,11 @@
         // its filename, so a new test ROM shows up without editing this.
         var TITLES = {
           'adventure.rp6502': 'Adventure',
-          'mode2.rp6502': 'Mode 2 — tiled bitmap',
           'paint_mouse.rp6502': 'Paint — mouse',
           'paint_tablet.rp6502': 'Paint — tablet',
           'furelise.rp6502': 'Für Elise — PSG',
           'gamepad.rp6502': 'Gamepad tester',
           'rtc.rp6502': 'Clock / RTC',
-          'dir.rp6502': 'Directory',
-          'exec.rp6502': 'Exec / argv',
         };
         overlayTitle.textContent = 'Pick a ROM';
         overlayHint.innerHTML = '<div class="menu">' + window.ROMS.map(function (n) {

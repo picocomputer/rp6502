@@ -6,8 +6,9 @@
  * RW0/RW1 on whichever machine this tree built: the data ports read and write
  * XRAM at their address registers, post-incrementing by the signed step. One
  * generated 6502 program walks steps +1, -1, 0, +127; 16-bit wraparound both
- * ways; read-then-step ordering; and the post-api_run defaults (ADDR 0,
- * STEP 1) — printing every byte it reads back.
+ * ways; read-then-step ordering; writes through RW1 read back through RW0;
+ * and the post-api_run defaults (ADDR 0, STEP 1) — printing every byte it
+ * reads back.
  *
  * What it prints is the expectation, written down below. It used to be
  * written down AND compared against the emulator running inside the test,
@@ -15,8 +16,8 @@
  * machines answer the string and neither needs the other present.
  *
  * The whole stream is the expectation, not a tail of it. Both machines put
- * these thirteen bytes on the terminal and nothing else: the OS is silent
- * while a program runs, so a byte that should not be there fails here.
+ * these bytes on the terminal and nothing else: the OS is silent while a
+ * program runs, so a byte that should not be there fails here.
  */
 
 #include "mut.h"
@@ -41,6 +42,8 @@ UTEST(rw, steps_wraps_and_defaults)
     };
     auto set = [&](uint16_t reg, uint8_t v) { lda(v); sta(reg); };
     auto rw0 = [&](uint8_t v) { set(0xFFE4, v); };
+    auto rw1 = [&](uint8_t v) { set(0xFFE8, v); };
+    auto rd0 = [&]() { ldaa(0xFFE4); sta(0xFFE1); };
     auto rd1 = [&]() { ldaa(0xFFE8); sta(0xFFE1); };
 
     /* Post-api_run defaults: ADDR0=0, STEP0=1 — write "ABC" at 0,1,2. */
@@ -70,7 +73,16 @@ UTEST(rw, steps_wraps_and_defaults)
     rd1(); rd1(); rd1();
     /* Read-then-step ordering: reading RW0 at 2 must return 'C' first. */
     set(0xFFE5, 1); set(0xFFE6, 2); set(0xFFE7, 0);
-    ldaa(0xFFE4); sta(0xFFE1);
+    rd0();
+    /* RW1 writes 'D' and 'E' at $20, and RW0 reads them back. */
+    set(0xFFEA, 0x20); set(0xFFEB, 0); set(0xFFE9, 1);
+    rw1('D'); rw1('E');
+    set(0xFFE6, 0x20); set(0xFFE7, 0);
+    rd0(); rd0();
+    /* RW0's address is already $22 when RW1 writes 'F' there, so RW0 returns
+     * 'F' only if its byte is fetched again after the write. */
+    rw1('F');
+    rd0();
     p.push_back(0xDB); /* stp */
 
     static const uint8_t vectors[] = {0x00, 0x03};
@@ -90,7 +102,7 @@ UTEST(rw, steps_wraps_and_defaults)
     mut_console_start();
     ASSERT_TRUE(mut_boot(path));
 
-    static const char want[] = "ABCYXWZRRabcC";
+    static const char want[] = "ABCYXWZRRabcCDEF";
     size_t len;
     const char *out = mut_console(&len);
     ASSERT_EQ(len, sizeof want - 1);

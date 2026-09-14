@@ -5,19 +5,19 @@
 #
 # The video-mode corpus against its readers.
 #
-# tests/roms/vidmodes.py writes forty-seven ROMs. tests/cpu/vga/test_modes.c
-# boots nearly all of them on whichever machine its tree builds and holds each
-# frame to the CRC in its case; the one fixture the two machines disagree
-# about by design is asserted in tests/rtl/vga, where the machine that owns
-# that behaviour is.
+# tests/roms/vidmodes.py writes the corpus of ROMs.
+# tests/cpu/vga/test_modes.c boots nearly all of them on whichever machine its
+# tree builds and holds each frame to the CRC in its case; the one fixture the
+# two machines disagree about by design is asserted in tests/rtl/vga, where the
+# machine that owns that behaviour is.
 #
 # The suites name every file by hand, and they have to: the case names are not
 # the file names, because they name what they prove. Generating the lists
 # would take that away.
 #
 # So the names stay written by hand and this says whether they are all read by
-# something. A fixture added to the generator and to no suite is not a failure
-# anywhere — it is forty-six of forty-seven, quietly, forever.
+# something. A fixture added to the generator and to no suite fails no test,
+# so without this check nothing would ever report it.
 
 import argparse
 import re

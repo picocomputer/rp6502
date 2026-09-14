@@ -43,7 +43,8 @@ rp6502_add_test(input
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_ROMS}"
-    DEPENDS rp6502_libretro
+        KEYBOARD_ROM="${KEYBOARD_ROM}"
+    DEPENDS rp6502_libretro keyboard_rom
     TIMEOUT 60)
 
 # The settings, and the frontends old enough to need them spelled differently.

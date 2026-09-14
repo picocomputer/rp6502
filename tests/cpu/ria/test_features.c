@@ -3,10 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Direct (no-ROM-behavior) checks for the firmware-parity features the desktop
- * emulator grew: the $FFF0 SIGINT interrupt, the program launcher chain, and
- * the teletype bell. These drive the C interfaces straight rather than through
- * a 6502 program, so each contract is pinned without a bespoke test ROM.
+ * Checks for the features the desktop emulator shares with the firmware: the
+ * $FFF0 SIGINT interrupt, the program launcher chain, boot arguments, the
+ * console canvas after a stop, and the teletype bell. Most cases drive the C
+ * interfaces directly. The boot-argument and canvas cases boot a generated
+ * program, because each checks what a running program receives or leaves
+ * behind.
  */
 
 #include "core/sys/sys.h"
@@ -20,6 +22,8 @@
 #include "core/hid/vtkeys.h"
 #include "core/com/com.h"
 #include "core/ria/ria.h"
+#include "core/sys/xram.h"
+#include "core/wdc/resb.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>
@@ -189,6 +193,39 @@ UTEST(features, empty_args_kept)
     ASSERT_STREQ(argv1, "");
     ASSERT_STREQ(argv2, "x");
     ASSERT_STREQ(argv3, "");
+}
+
+/* exec.rp6502 starts with argc 2 here, so it writes 2 and argv[1] from $0001
+ * and leaves $0000 alone, which it writes only before executing itself again.
+ * PROC_UNCHAIN is needed because earlier cases leave a launcher registered
+ * that does not exist on disk, and relaunching it after this program exits
+ * would fail and set the exit code to 1. */
+UTEST(features, boot_args_reach_program)
+{
+    xram_set_fill(false, 0, 0);
+    char *args[] = {"Foo"};
+    ASSERT_TRUE(proc_boot(EXEC_ROM, 1, args, PROC_REFILL | PROC_UNCHAIN));
+    sys_commit();
+    emu_frames(20);
+
+    static const uint8_t want[] = {0, 2, 'F', 'o', 'o', 0};
+    ASSERT_EQ(memcmp((const uint8_t *)xram, want, sizeof want), 0);
+    ASSERT_EQ(proc_get_exit_code(), 0);
+    ASSERT_FALSE(resb_running());
+}
+
+/* A stop only marks the canvas for reset, and vga_task performs the reset
+ * during the next frame. */
+UTEST(features, stop_resets_canvas_to_console)
+{
+    ASSERT_TRUE(emu_restart(ROMS_DIR "/mode3_1bpp.rp6502"));
+    emu_frames(20);
+    ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240);
+
+    sys_stop();
+    sys_commit();
+    emu_frames(1);
+    ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }
 
 /* Run a frame and take it as the device would, until the machine makes a

@@ -1,4 +1,5 @@
-# Pointers and gamepads, each driven by the SDK demo that exercises it.
+# Pointers, gamepads and the keyboard. The pointer and gamepad tests run the SDK
+# demos that exercise those devices, and the rest run generated programs.
 
 # --- 6522 VIA timer IRQ + HID mouse, via the paint_mouse demo ---
 rp6502_add_test(paint_mouse LIBS emu_core FIXTURE paint_mouse.rp6502 TIMEOUT 60)
@@ -19,7 +20,7 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(gamepad FIXTURE gamepad.rp6502)
 
     # The HID bitmap a program polls, not the stdin stream.
-    rp6502_add_script_test(keyboard FIXTURE mode2.rp6502)
+    rp6502_add_script_test(keyboard ROM ${KEYBOARD_ROM} DEPENDS keyboard_rom)
 
     # Relative mouse, through the 6522 timer IRQ the paint demo runs its ISR on.
     rp6502_add_script_test(pointer FIXTURE paint_mouse.rp6502)
@@ -31,5 +32,6 @@ if(TARGET rp6502-emu)
     # silent. Each block's address register means nowhere until a program says
     # otherwise, and nowhere is the one address a driver cannot be allowed to
     # guess -- zero is XRAM a program is already using.
-    rp6502_add_script_test(unmapped FIXTURE mode2.rp6502)
+    rp6502_add_script_test(unmapped ROM ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502
+        DEPENDS rp6502_test_corpus)
 endif()

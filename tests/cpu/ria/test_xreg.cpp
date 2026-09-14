@@ -5,22 +5,21 @@
  *
  * Op 0x01 and the attribute API, on whichever machine this tree built.
  *
- * Thirty-one probes, each printing what the call returned and the errno it
- * left: the error paths — misaligned stack, bad device, the RIA-private VGA
- * control channel — a canvas switch and a full mode 3 program, the sprite
- * slots, the PSG and OPL pointers through the soft CPU's validation both
- * ways, and the ATR set, ATTR_BEL among it.
+ * Most probes print what the call returned and the errno it left. They cover
+ * the error paths — misaligned stack, bad device, the RIA-private VGA control
+ * channel — a canvas switch and a full mode 3 program, the sprite slots, the
+ * PSG and OPL pointers through the soft CPU's validation both ways, and the
+ * attributes, among them ATTR_BEL, ATTR_PHI2_KHZ, ATTR_LRAND and
+ * ATTR_RLN_LENGTH.
  *
  * The stream those probes print is the expectation, byte for byte, and an
  * array rather than a checksum on purpose: the whole value of the suite is
  * which errno each probe answered with, and a checksum would only say that
  * something moved.
  *
- * It used to say the same thing by running the emulator inside the test and
- * sliding one console along the other. What that could never carry is what
- * the program left in the fabric — the bell that struck once, the pointers
- * the audio devices took, the scanline program — and that is in
- * tests/rtl/ria, against the machine that has those registers.
+ * A console stream cannot show what the program left in the fabric's
+ * registers — the single bell strike, the PSG and OPL pointers, the scanline
+ * program — so tests/rtl/ria/test_xregs.cpp checks those.
  */
 
 #include "mut.h"
@@ -42,9 +41,10 @@ UTEST(xreg, dispatch_and_attributes)
     mut_console_start();
     ASSERT_TRUE(mut_boot(path));
 
-    /* Twenty-nine results at four bytes each, four errno-only ones at two,
-     * plus the two BEL characters. Set RP6502_BLESS_CRC to have a run print
-     * the stream in the form it is pasted back as. */
+    /* A result is four bytes, or two where only the errno is printed. The
+     * LRAND comparison prints one byte, and each BEL is one 0x07 byte. Set
+     * RP6502_BLESS_CRC to have a run print the stream in the form it is
+     * pasted back as. */
     static const uint8_t want[] = {
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0x03, 0x00, 0xFF, 0xFF, 0x07, 0x00, 0xFF, 0xFF, 0x07, 0x00,
@@ -56,7 +56,11 @@ UTEST(xreg, dispatch_and_attributes)
         0x07, 0xFF, 0xFF, 0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0x07, 0x00, 0x00,
         0x07, 0x00, 0x52, 0x03, 0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0x52, 0x03,
         0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0xB5, 0x01, 0x07, 0x00, 0x00, 0x00,
-        0x07, 0x00, 0x00, 0x00, 0x07, 0x00,
+        0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0x40, 0x1F, 0x07, 0x00, 0x00, 0x00,
+        0x07, 0x00, 0xE8, 0x03, 0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0x40, 0x1F,
+        0x07, 0x00, 0x07, 0x00, 0x01, 0xFF, 0xFF, 0x07, 0x00, 0xFE, 0x00, 0x07,
+        0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07, 0x00, 0xFF, 0xFF, 0x07,
+        0x00, 0x00, 0x00, 0x07, 0x00,
     };
     size_t len;
     const char *out = mut_console(&len);

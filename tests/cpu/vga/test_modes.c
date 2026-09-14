@@ -255,9 +255,9 @@ UTEST(mode4, log_range_halfword_descs_320x240)
     run_case(utest_result, "mode4_sizes", 0x6826275A, MUT_BUDGET_UNDER);
 }
 
-UTEST(mode4, affine_small_and_large_320x240)
+UTEST(mode4, affine_small_and_rotated_largest_320x240)
 {
-    run_case(utest_result, "mode4a_sizes", 0xBFD3E7B6, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_sizes", 0xFFA1B12B, MUT_BUDGET_NONE);
 }
 
 /* Mode 5 sprites: a sprite-only plane claiming a zeroed layer, sprites
@@ -332,6 +332,14 @@ UTEST(mode0, forty_column_320x180)
 UTEST(mode0, console_return_restores_vsync_line)
 {
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
+}
+
+/* Programs over part of the canvas: plane 0 goes from mode 2 to mode 3 and
+ * back partway down, and planes 1 and 2 hold bands that start and end inside
+ * the canvas. */
+UTEST(prog, bands_switch_modes_on_one_plane_320x240)
+{
+    run_case(utest_result, "prog_bands", 0xD2BCF38B, MUT_BUDGET_NONE);
 }
 
 MUT_MAIN()

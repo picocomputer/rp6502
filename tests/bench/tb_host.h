@@ -12,8 +12,9 @@
  * status that never clears.
  *
  * Only what the loader uses is modelled — the data table, a slot read
- * for exec's pull, and the name behind Get File. Open, write and flush
- * are the drive's, and tests/host/pocket has a fuller host for those.
+ * for exec's pull, the name behind Get File, and exec's staging Open of
+ * the ROM slot. Every other open, and every write and flush, comes from the
+ * drive, and tests/host/pocket has a fuller host for those.
  *
  * Commands complete in the cycle they are issued. Nothing here is trying
  * to be a timing model; pocket_file's own bench is where the deadlines
@@ -37,6 +38,11 @@
 
 /* get_dataslot_file_t: one 256-byte path, per Analogue's reference. */
 #define TB_HOST_GETFILE_STRUCT 256u
+
+/* Open File's parameter struct, which the firmware writes through the
+ * file window: a 256-byte path, then the flags and size words. */
+#define TB_HOST_FILE_WIN 0x1000u
+#define TB_HOST_OPEN_NAME 256u
 
 class tb_host
 {
@@ -64,6 +70,7 @@ private:
     std::string name_ = "/Assets/rp6502/common/test.rp6502";
     uint32_t id_ = 0, off_ = 0, len_ = 0, bridge_ = 0, result_ = 0;
     uint32_t err_ = 0;
+    uint8_t open_name_[TB_HOST_OPEN_NAME] = {};
 
     uint32_t slot_size(uint32_t slot) const
     {
@@ -106,8 +113,23 @@ private:
         case 0x08: len_ = data; break;
         case 0x0C: bridge_ = data; break;
         case 0x10: command(data & 7u); break;
-        default: break;
+        default:
+            /* fs_win_put packs the path into each word high byte first. */
+            if (addr >= TB_HOST_FILE_WIN
+                && addr < TB_HOST_FILE_WIN + TB_HOST_OPEN_NAME)
+                for (uint32_t i = 0; i < 4; i++)
+                    open_name_[addr - TB_HOST_FILE_WIN + i] =
+                        (uint8_t)(data >> (24 - 8 * i));
+            break;
         }
+    }
+
+    std::string open_name() const
+    {
+        size_t n = 0;
+        while (n < TB_HOST_OPEN_NAME && open_name_[n])
+            n++;
+        return std::string((const char *)open_name_, n);
     }
 
     uint32_t read(uint32_t addr) const
@@ -165,7 +187,10 @@ private:
                                i < s.size() ? (uint8_t)s[i] : 0);
             break;
         }
-        default: /* open, write, flush: the drive's, not the loader's */
+        case 3: /* OPEN: only the ROM slot, by the name it is already bound to */
+            err_ = (id_ == TB_HOST_SLOT_ROM && open_name() == name_) ? 0 : 3;
+            break;
+        default: /* WRITE, FLUSH: issued only by the drive */
             err_ = 5;
             break;
         }

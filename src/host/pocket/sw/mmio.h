@@ -179,6 +179,10 @@ static inline int32_t set_tz_minutes(void)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
+/* The low byte is the $FFF0 enable mask and the next byte holds the pending
+ * sources. A write to the $FFF0 cell in REGS_WIN changes neither, because that
+ * cell is a copy of the pending byte and is rewritten every clock. */
+#define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 /* Lets the PSG take a note-on from this firmware and not only from the

@@ -7,12 +7,11 @@
  * this file makes.
  *
  * A program gets built in two places — a generator writing a file, a
- * bench building one in memory — so there is a Python spelling in
- * tests/gen/rp6502_asm.py and a C++ one in tests/bench/tb_asm.h. They are
- * not the same assembler and no longer pretend to be: Python carries the
- * whole instruction set and a symbol table, C++ carries what a bench
- * parameterizes at run time. The same program is written in both here
- * and the encoded bytes have to match.
+ * bench building one in memory — so there are two assemblers. The Python
+ * one in tests/gen/rp6502_asm.py carries almost every 65C02 instruction and
+ * a symbol table. The C++ one in tests/bench/tb_asm.h carries only what a
+ * bench parameterizes at run time. The same program is written in both
+ * here and the encoded bytes have to match.
  *
  * The container is not compared any more. There is one writer of it now
  * — tools/rp6502.py, which the generators package through — and tb_rom.h
@@ -52,6 +51,9 @@ static tb_asm build()
     p.inx();
     p.dex();
     p.bit(0x0205);
+    p.cmp_abs(0x0207);
+    p.beq(2);
+    p.ldx(0x01);
     p.jsr(top);
     p.jmp(top);
     p.rts();

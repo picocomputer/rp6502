@@ -3,9 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The whole drive in one boot. Forty-eight checks the machine decides for
-# itself, printed as one row of dots, one line naming whatever failed,
-# and a count. Nothing here needs reading off against a table.
+# The whole drive in one boot. Every check is one the machine decides for
+# itself, and the results are printed as one row of dots, one line naming
+# whatever failed, and a count. Nothing here needs reading off against a
+# table.
 #
 # It exists because the alternative was a probe per question and a
 # photograph per probe. Every hard thing found in this platform so far
@@ -22,7 +23,8 @@
 # period past anything this test writes. A file that returns at the
 # right length full of the wrong bytes fails here.
 #
-# Leaves fs1.dat, fs2.dat, pfx.dat and s0..s7.dat in /Saves/rp6502/common/.
+# Leaves fs1.dat, fs2.dat, fs3.dat, pfx.dat and s0..s7.dat in
+# /Saves/rp6502/common/.
 
 import argparse
 import pathlib
@@ -34,10 +36,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rp6502_script  # noqa: E402
 from rp6502_asm import (API_A, OP_CHDIR, OP_CHDRIVE, OP_CLOSE, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
-                        OP_READ_XSTACK, OP_SYNCFS, OP_TIME_GET,
-                        OP_WRITE_XSTACK, O_APPEND, O_CREAT, O_EXCL, O_RDONLY,
-                        O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET,
-                        XSTACK, Asm, putc, puthex, putnib)
+                        OP_READ_XRAM, OP_READ_XSTACK, OP_SYNCFS, OP_TIME_GET,
+                        OP_WRITE_XRAM, OP_WRITE_XSTACK, O_APPEND, O_CREAT,
+                        O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, RW0_ADDR,
+                        RW0_DATA, SEEK_CUR, SEEK_END, SEEK_SET, XSTACK, Asm,
+                        putc, puthex, putnib)
 from rp6502_rom import image
 
 
@@ -64,12 +67,24 @@ TOTAL = CHUNK * CHUNKS
 
 NAME = "fs1.dat"
 NAME2 = "fs2.dat"
+NAME3 = "fs3.dat"
+
+# Each XRAM read asks for one chunk more than the file or the asset holds, so
+# the count it returns has to come from the drive.
+XCHUNKS = 5
+XLEN = CHUNK * XCHUNKS
+XWR = 0x1000
+XRD = 0x4000
+ASSET = "fstest.bin"
+ACHUNKS = 17    # 2176 bytes, more than the 2048 std.c reads at a time
+ALEN = CHUNK * ACHUNKS
+XROM = 0x6000
 
 # What a run leaves behind. The first checks are that a name is not there
 # and that an exclusive create takes one, so a second run against the same
 # directory answers differently unless these go first. The card the Pocket's
 # bench runs against is fresh every time; a working directory is not.
-CREATES = [NAME, NAME2, "pfx.dat"] + [f"s{i}.dat" for i in range(9)]
+CREATES = [NAME, NAME2, NAME3, "pfx.dat"] + [f"s{i}.dat" for i in range(9)]
 
 # One of the checks asks whether the timezone offset reaches the C library,
 # which it can only answer where there is an offset: on a machine set to UTC
@@ -88,6 +103,19 @@ CHECKS = 0
 
 # The checks that ask about the platform rather than about the filesystem.
 PLATFORM = []
+
+
+def payload(chunks):
+    """The payload from a starting value of 13, which is what xcheck
+    compares the asset against."""
+    out = bytearray()
+    val = 13
+    for _ in range(chunks):
+        for _ in range(CHUNK):
+            out.append(val)
+            val = (val + 7) & 0xFF
+        val = (val + 37) & 0xFF
+    return bytes(out)
 
 
 def build():
@@ -259,6 +287,52 @@ def build():
     p.lda_abs(BAD)
     p.rts()
 
+    # --- CNT chunks of the payload into XRAM from RW0's address ---
+    p.symbol("xfill")
+    p.ldx_imm(CHUNK)
+    p.symbol("xfill.top")
+    p.lda_abs(VAL)
+    p.sta_abs(RW0_DATA)
+    p.clc()
+    p.adc_imm(0x07)
+    p.sta_abs(VAL)
+    p.dex()
+    p.bne("xfill.top")
+    p.lda_abs(VAL)
+    p.clc()
+    p.adc_imm(37)
+    p.sta_abs(VAL)
+    p.dec_abs(CNT)
+    p.bne("xfill")
+    p.rts()
+
+    # --- CNT chunks of XRAM from RW0's address against the payload ---
+    p.symbol("xcheck")
+    p.store(BAD, 0)
+    p.symbol("xcheck.chunk")
+    p.ldx_imm(CHUNK)
+    p.symbol("xcheck.top")
+    p.lda_abs(RW0_DATA)
+    p.cmp_abs(VAL)
+    # BAD is set rather than counted, because a one-byte count of 256 wrong
+    # bytes would read as zero.
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.lda_abs(VAL)
+    p.clc()
+    p.adc_imm(0x07)
+    p.sta_abs(VAL)
+    p.dex()
+    p.bne("xcheck.top")
+    p.lda_abs(VAL)
+    p.clc()
+    p.adc_imm(37)
+    p.sta_abs(VAL)
+    p.dec_abs(CNT)
+    p.bne("xcheck.chunk")
+    p.lda_abs(BAD)
+    p.rts()
+
     # --- this machine's drive name, read off getcwd ---
     # A machine that puts a device in a path says so in the first thing
     # getcwd answers with: everything up to and including a colon, when the
@@ -337,6 +411,21 @@ def build():
         """Run a verdict routine and record it."""
         p.jsr_abs(sub)
         record(platform)
+
+    def expect16(v):
+        p.store(EXPL, v & 0xFF)
+        p.store(EXPH, v >> 8)
+
+    def rw0_at(addr):
+        p.store(RW0_ADDR, addr & 0xFF)
+        p.store(RW0_ADDR + 1, addr >> 8)
+
+    def xram_io(op, addr, size):
+        p.pushw(addr)
+        p.pushw(size)
+        p.lda_abs(FD)
+        p.sta_abs(API_A)
+        p.call(op)
 
     for a, v in ((PASSN, 0), (FAILN, 0), (TIDX, 1), (VAL, 13), (BAD, 0)):
         p.store(a, v)
@@ -761,6 +850,57 @@ def build():
     check("not_ff")
     p.jsr_abs("do_close")
 
+    # 49 write_xram sends the whole range
+    p.store(VAL, 13)
+    p.store(CNT, XCHUNKS)
+    rw0_at(XWR)
+    p.jsr_abs("xfill")
+    open_it(NAME3, O_WRONLY | O_CREAT | O_TRUNC)
+    expect16(XLEN)
+    xram_io(OP_WRITE_XRAM, XWR, XLEN)
+    check("eq16")
+    p.jsr_abs("do_close")
+
+    # 50 read_xram returns what the file holds
+    open_it(NAME3, O_RDONLY)
+    expect16(XLEN)
+    xram_io(OP_READ_XRAM, XRD, XLEN + CHUNK)
+    check("eq16")
+
+    # 51 and every byte of it lands in XRAM
+    p.store(VAL, 13)
+    p.store(CNT, XCHUNKS)
+    rw0_at(XRD)
+    check("xcheck")
+
+    # 52 read_xram at the end returns nothing
+    expect16(0)
+    xram_io(OP_READ_XRAM, XRD, CHUNK)
+    check("eq16")
+    p.jsr_abs("do_close")
+
+    # 53 an asset opens
+    open_it("ROM:" + ASSET, O_RDONLY)
+    p.lda_abs(FD)
+    check("not_ff")
+
+    # 54 read_xram returns the whole asset
+    expect16(ALEN)
+    xram_io(OP_READ_XRAM, XROM, ALEN + CHUNK)
+    check("eq16")
+
+    # 55 and every byte of it
+    p.store(VAL, 13)
+    p.store(CNT, ACHUNKS)
+    rw0_at(XROM)
+    check("xcheck")
+
+    # 56 read_xram at the end of the asset returns nothing
+    expect16(0)
+    xram_io(OP_READ_XRAM, XROM, CHUNK)
+    check("eq16")
+    p.jsr_abs("do_close")
+
     # --- the tally ---
     text("\r\nPASS ")
     p.lda_abs(PASSN)
@@ -829,7 +969,9 @@ def main():
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
     a = ap.parse_args()
     if a.emit:
-        n = image(build()).write(a.emit)
+        rom = image(build())
+        rom.add_asset(ASSET, payload(ACHUNKS))
+        n = rom.write(a.emit)
         print(f"fstest.rp6502 {n} bytes, {CHECKS} checks, {TOTAL} byte payload")
     if a.drive:
         return drive(a.emu, a.rom)

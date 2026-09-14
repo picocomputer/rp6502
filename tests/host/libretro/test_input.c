@@ -145,29 +145,24 @@ UTEST(input, the_core_asked_for_a_keyboard)
     ASSERT_TRUE(fe.keyboard.callback != NULL);
 }
 
-/* mode2.rp6502 polls the HID bitmap and leaves each of its two loops on a
- * press and release of any key, so reaching the end is the proof the program
- * saw the bits — the same proof tests/cpu/hid takes through the script
- * channel, taken here through the frontend's keyboard callback.
+/* keyboard.rp6502 polls the HID bitmap and exits after a key is pressed and
+ * released, so its exit is the evidence that the program read the bits. That
+ * is the same evidence tests/cpu/hid collects through the script channel,
+ * collected here through the frontend's keyboard callback.
  *
- * And a program that ends is a core that is finished, so this is where the
- * machine stopping reaches the frontend as well. */
+ * This host has no monitor to return to once the program exits, so this case
+ * also checks that the core asks the frontend to shut down. */
 UTEST(input, keys_reach_the_program_and_its_end_reaches_the_frontend)
 {
     memset(fe.input, 0, sizeof fe.input);
-    ASSERT_TRUE(fe_load(ROMS_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(KEYBOARD_ROM));
     fe_run(20);
     ASSERT_TRUE(fe.keyboard.callback != NULL);
     ASSERT_FALSE(fe.shutdown); /* still running */
 
-    for (int loop = 0; loop < 2; loop++)
-    {
-        fe.keyboard.callback(true, RETROK_SPACE, ' ', 0);
-        fe_run(5);
-        fe.keyboard.callback(false, RETROK_SPACE, ' ', 0);
-        fe_run(10);
-    }
-
+    fe.keyboard.callback(true, RETROK_SPACE, ' ', 0);
+    fe_run(5);
+    fe.keyboard.callback(false, RETROK_SPACE, ' ', 0);
     fe_run(10);
     ASSERT_TRUE(fe.shutdown);
     fe.unload_game();

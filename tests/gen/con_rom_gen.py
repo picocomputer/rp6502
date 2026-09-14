@@ -24,12 +24,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rp6502_asm import (API_A, API_X, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
-                        OP_WRITE_XSTACK, O_RDONLY, XSTACK, Asm)  # noqa: E402
+from rp6502_asm import (API_A, API_X, OP_ATTR_GET, OP_CLOSE, OP_EXIT, OP_OPEN,
+                        OP_READ_XSTACK, OP_WRITE_XSTACK, O_RDONLY, XSTACK,
+                        Asm)  # noqa: E402
 from rp6502_rom import image  # noqa: E402
 
-OP_EXIT = 0xFF
-OP_ATTR_GET = 0x0A
 ATTR_SIGINT = 0x08
 FD = 0x0200
 INPUT = "raw \x03 bytes."

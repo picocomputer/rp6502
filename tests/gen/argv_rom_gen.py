@@ -26,11 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rp6502_script  # noqa: E402
-from rp6502_asm import XSTACK, Asm, putc, putnib, puthex
+from rp6502_asm import OP_ARGV, XSTACK, Asm, putc, putnib, puthex
 from rp6502_rom import image
-
-# op 0x08: argv onto the xstack, its byte count back in AX.
-OP_ARGV = 0x08
 
 # argv's strings are NUL-separated in the buffer, and a separator has to
 # be seen to be counted.

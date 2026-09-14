@@ -489,6 +489,14 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
 
     ASSERT_TRUE(ssys_open("ROM:missing.txt", O_RD) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+
+    /* rom_read_asset is how the debugger's ROM Help viewer reads an asset. It
+     * keeps the last byte of the buffer for the NUL. */
+    ASSERT_EQ(rom_read_asset("r.txt", buf, sizeof buf), 3);
+    ASSERT_STREQ(buf, "abc");
+    ASSERT_EQ(rom_read_asset("r.txt", buf, 3), 2);
+    ASSERT_STREQ(buf, "ab");
+    ASSERT_EQ(rom_read_asset("missing.txt", buf, sizeof buf), -1);
 }
 
 /* An asset is named in the file's UTF-8 and a program's path is code page
