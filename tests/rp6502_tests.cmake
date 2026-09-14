@@ -220,6 +220,13 @@ rp6502_test_rom(exec_rom GEN ${RP6502_TESTS_DIR}/gen/exec_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the exec ROM")
 
+set(TIME_ROM ${RP6502_TEST_ROM_DIR}/time.rp6502)
+rp6502_test_rom(time_rom GEN ${RP6502_TESTS_DIR}/gen/time_rom_gen.py
+    ARGS --emit ${TIME_ROM}
+    OUTPUTS ${TIME_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the time ROM")
+
 # The whole drive in one boot. It runs here against the bench's host as well
 # as on the card, so a bug in the ROM is found before a photograph is.
 set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)

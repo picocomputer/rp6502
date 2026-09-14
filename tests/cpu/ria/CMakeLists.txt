@@ -78,7 +78,33 @@ endif()
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
 rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_TB_HOSTOS}
-    LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
+    LIBS emu_core DEFS ROMS_DIR="${RP6502_TEST_CORPUS}" TIMEOUT 60)
+
+# gmtime and strftime called by a program, on whichever machine this tree built.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(time FIRMWARE
+            SOURCES test_time.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            DEFS TIME_ROM="${TIME_ROM}"
+            DEPENDS time_rom
+            TIMEOUT 900)
+    endif()
+elseif(TARGET rp6502_libretro)
+    rp6502_add_test(time LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_time.cpp ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS TIME_ROM="${TIME_ROM}"
+            RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS time_rom rp6502_libretro
+        TIMEOUT 120)
+else()
+    rp6502_add_test(time LIBS emu_core
+        SOURCES test_time.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        DEFS TIME_ROM="${TIME_ROM}"
+        DEPENDS time_rom
+        TIMEOUT 60)
+endif()
 
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
 rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)

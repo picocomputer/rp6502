@@ -8,7 +8,6 @@
             "default": "adventure.rp6502",
             "options": [
                 "adventure.rp6502",
-                "rtc.rp6502",
                 "furelise.rp6502",
                 "paint_mouse.rp6502",
                 "paint_tablet.rp6502",

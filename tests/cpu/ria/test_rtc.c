@@ -3,12 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Integration test for the RIA clock/time API (clk.c). rtc.rp6502 prints the
- * current time plus two fixed timestamps through gmtime/localtime/strftime, so
- * with TZ pinned to UTC the fixed lines are deterministic and exercise the
- * whole syscall chain (ops 0x3A/0x3B/0x3D/0x3F). Two more tests drive strftime
- * directly to prove the UTF-8 -> OEM code-page conversion (FatFs ff_uni2oem)
- * and that %z reflects the host timezone offset.
+ * The RIA clock/time API (clk.c), driven from C. The strftime cases check the
+ * UTF-8 to OEM code-page conversion and that %z reflects the host timezone
+ * offset. test_time.cpp calls gmtime and strftime from a program.
  */
 
 #include "core/sys/config.h"
@@ -16,29 +13,12 @@
 #include "core/api/clk.h"
 #include "core/sys/sys.h"
 #include "core/str/oem.h"
-#include "core/com/com.h"
 #include "core/ria/regs.h"
-#include "core/wdc/resb.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-static char cap[1 << 16];
-static size_t cap_len;
-
-static void tap(const char *buf, int len)
-{
-    for (int i = 0; i < len && cap_len < sizeof(cap) - 1; i++)
-        cap[cap_len++] = buf[i];
-    cap[cap_len] = 0;
-}
-
-static void run_frames(int n)
-{
-    emu_frames((int)n);
-}
 
 /* The 18-byte wire tm the 6502 libc pushes: 9 int16 in struct-tm order. */
 struct wire_tm
@@ -63,26 +43,6 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
         out[i] = (char)xstack[xstack_ptr + i];
     out[i] = 0;
     return n;
-}
-
-/* With TZ=UTC the local lines equal the UTC lines, so the two fixed timestamps
- * (1-Jan-2025 and 1-Jul-2025, both noon UTC) render deterministically. */
-UTEST(rtc, prints_fixed_timestamps)
-{
-    host_setenv("TZ", "UTC");
-    tzset(); /* adopt the TZ live; sys_init's one tzset ran with the host default */
-    cap_len = 0;
-    cap[0] = 0;
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    com_set_tx_tap(tap);
-    run_frames(120);
-    com_set_tx_tap(NULL);
-
-    ASSERT_FALSE(resb_running()); /* program runs to completion */
-    ASSERT_TRUE(strstr(cap, "Jan") != NULL);
-    ASSERT_TRUE(strstr(cap, "Jul") != NULL);
-    ASSERT_TRUE(strstr(cap, "12:00:00 2025") != NULL);
-    ASSERT_TRUE(strstr(cap, "UTC") != NULL); /* the %Z timezone name */
 }
 
 /* strftime copies literal format bytes verbatim, so an embedded UTF-8 "é"
@@ -144,12 +104,12 @@ UTEST(rtc, stop_reverts_run_code_page)
     /* Stop once to shed whatever run page an earlier case left: a program's
      * own exit parks the drivers now, so a restart's stop finds nothing to
      * do and this case has to make its own starting point. */
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    ASSERT_TRUE(emu_restart(ROMS_DIR "/mode3_1bpp.rp6502"));
     sys_stop();
     sys_commit();
     const uint16_t resolved = oem_get_code_page_run(); /* the config's, or the locale's */
 
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    ASSERT_TRUE(emu_restart(ROMS_DIR "/mode3_1bpp.rp6502"));
     const uint16_t guest = resolved == 850 ? 437 : 850;
     oem_set_code_page_run(guest); /* a guest program changed the run page */
     ASSERT_EQ(oem_get_code_page_run(), guest);
