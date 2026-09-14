@@ -23,7 +23,6 @@
 #include "core/com/com.h"
 #include "core/ria/ria.h"
 #include "core/sys/xram.h"
-#include "core/wdc/resb.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>
@@ -162,7 +161,7 @@ UTEST(features, an_exec_is_not_the_child_exiting)
     ASSERT_TRUE(proc_has_launcher());
 
     proc_set_argv("/other.rp6502", 0, NULL);
-    proc_exec_request(); /* op 0x09, machine still running */
+    proc_exec_request(); /* op 0x09, which stops the machine */
     ASSERT_TRUE(proc_exec_inflight());
 
     /* Performing it leaves nothing queued behind. The image cannot load here,
@@ -211,7 +210,7 @@ UTEST(features, boot_args_reach_program)
     static const uint8_t want[] = {0, 2, 'F', 'o', 'o', 0};
     ASSERT_EQ(memcmp((const uint8_t *)xram, want, sizeof want), 0);
     ASSERT_EQ(proc_get_exit_code(), 0);
-    ASSERT_FALSE(resb_running());
+    ASSERT_FALSE(sys_running());
 }
 
 /* A stop only marks the canvas for reset, and vga_task performs the reset

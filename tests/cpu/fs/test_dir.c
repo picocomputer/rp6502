@@ -7,7 +7,7 @@
  */
 
 #include "core/com/com.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
 #include "osal/dir.h"
 #include "tb_hostos.h"
@@ -52,11 +52,11 @@ UTEST(dir, lists_directory)
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
-    for (int i = 0; i < 20 && resb_running(); i++)
+    for (int i = 0; i < 20 && sys_running(); i++)
         emu_frames(1);
     com_set_tx_tap(NULL);
 
-    ASSERT_FALSE(resb_running());
+    ASSERT_FALSE(sys_running());
     ASSERT_TRUE(strstr(cap, "opendir 00\r\n") != NULL);
     ASSERT_TRUE(strstr(cap, "alpha.txt 20 0005\r\n") != NULL);
     ASSERT_TRUE(strstr(cap, "beta.dat 20 0012\r\n") != NULL);

@@ -176,21 +176,18 @@ UTEST(sys, a_machine_that_could_not_have_existed_is_refused)
     ASSERT_TRUE(sys_active()); /* every refusal left it alone */
 }
 
-/* A running machine may or may not be holding RESB: an exec asks for the line
- * a pass before proc_exec_task performs the boot, so both readings are legal
- * and the latch has to carry which one it was rather than derive it. */
-UTEST(sys, a_running_machine_carries_the_line_it_holds)
+/* held follows the state, because the line only moves through a run or a
+ * stop: a stopped machine holds it and a running one does not. */
+UTEST(sys, the_header_bit_follows_the_state)
 {
     sys_run();
     sys_commit();
-    sys_latch_t held = {.state = 2, .breaking = false, .held = true};
-    sys_latch_t free_line = {.state = 2, .breaking = false, .held = false};
-    ASSERT_TRUE(sys_latch_apply(&held));
     sys_latch_t got;
     sys_latch_get(&got);
-    ASSERT_TRUE(got.held);
-    ASSERT_TRUE(sys_latch_apply(&free_line));
-    sys_latch_get(&got);
     ASSERT_FALSE(got.held);
-    ASSERT_TRUE(sys_active());
+    sys_latch_t stopped = {.state = 0, .breaking = false, .held = true};
+    ASSERT_TRUE(sys_latch_apply(&stopped));
+    sys_latch_get(&got);
+    ASSERT_TRUE(got.held);
+    ASSERT_FALSE(sys_active());
 }

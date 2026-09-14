@@ -14,7 +14,7 @@
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
 #include "core/sys/xram.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -112,7 +112,7 @@ UTEST(gamepad, connected_gamepad_renders)
     run(20);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Select") != NULL); /* P0 now prints its button row */
-    ASSERT_TRUE(resb_running());
+    ASSERT_TRUE(sys_running());
 }
 
 /* An unplugged controller is gated out: input on a gamepad whose connected bit is
@@ -133,7 +133,7 @@ UTEST(gamepad, disconnected_gamepad_ignored)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL);
     ASSERT_TRUE(strstr(cap, "Select") == NULL); /* the press was ignored */
-    ASSERT_TRUE(resb_running());
+    ASSERT_TRUE(sys_running());
 }
 
 UTEST_MAIN_EMU()

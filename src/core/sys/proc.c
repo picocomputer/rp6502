@@ -12,7 +12,6 @@
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "core/wdc/resb.h"
 #include "osal/dir.h"
 #include "osal/os.h"
 #include <stdlib.h>
@@ -57,7 +56,7 @@ void proc_exec_init(void)
 void proc_exec_request(void)
 {
     queued = true;
-    resb_assert();
+    sys_stop();
 }
 
 bool proc_set_argv(const char *rom, int argc, char *const *args)
@@ -120,7 +119,7 @@ bool proc_exec_inflight(void)
 
 bool proc_exited(void)
 {
-    return !resb_running() && !proc_exec_inflight();
+    return !sys_running() && !proc_exec_inflight();
 }
 
 void proc_exec_task(void)

@@ -26,7 +26,6 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
@@ -408,7 +407,7 @@ int main(int argc, char **argv)
             if (!png_write(o.screenshot, cw, ch, g_fb))
                 return 1;
             fprintf(stderr, "rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-                    o.screenshot, frames, resb_running() ? "running" : "halted", proc_get_exit_code());
+                    o.screenshot, frames, sys_running() ? "running" : "halted", proc_get_exit_code());
         }
         if (o.crc)
         {

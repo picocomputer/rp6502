@@ -45,6 +45,7 @@ void ria_init(void);
 void ria_task(void);
 void ria_run(void);
 void ria_stop(void);
+void ria_break(void);
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 // Trigger IRQ when enabled
@@ -59,24 +60,17 @@ bool ria_uart_rx_offer_ready(void);    // nothing staged, in the slot or the lat
 void ria_uart_rx_offer(uint8_t ch);    // hand a byte to the 6502
 int ria_uart_rx_peek(void);            // the staged byte, wherever it is (-1 if none)
 bool ria_uart_rx_reclaim(uint8_t *ch); // take back the staged byte, wherever it is
-void ria_uart_rx_clear(void);          // drop it: a break
 
-// Move data from the 6502 to mbuf.
-void ria_read_buf(uint16_t addr);
+/* A transfer between mbuf and 6502 memory, driven through a loop at $FFF0
+ * with sys stopped. The callback is called once, from ria_task, after any
+ * timeout or verify message has been printed. A write verifies itself before
+ * it reports. */
+typedef void (*ria_callback_t)(bool ok);
+void ria_read_buf(uint16_t addr, ria_callback_t callback);
+void ria_write_buf(uint16_t addr, ria_callback_t callback);
 
-// Move data from mbuf to the 6502.
-void ria_write_buf(uint16_t addr);
-
-// Verify the mbuf matches 6502 memory.
-void ria_verify_buf(uint16_t addr);
-
-// Prints a "?" error and returns true if last mbuf action failed.
-bool ria_handle_error(void);
-
-/* This driver's row in a machine's driver list; see core/sys/driver.h. Its position is init
- * order and nothing more: the transfer that ria_active() reports is closed by
- * ria_task, not by ria_stop, so no other driver's stop depends on where this
- * one sits. */
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, ria_uart_rx_clear, nul_config, nul_config, nul_sst)
+/* Its position is init order and nothing more: a transfer enters no run or
+ * stop hook, so no other driver's hook depends on where this one sits. */
+#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, ria_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_RIA_H_ */

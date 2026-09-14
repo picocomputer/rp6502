@@ -12,7 +12,7 @@
  */
 
 #include "core/hid/tablet.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "host/host.h"
 #include "core/vga/vga_emu.h"
 #include "emu_boot.h"
@@ -57,7 +57,7 @@ UTEST(paint_tablet, absolute_pointer_moves)
     run(20);
     ASSERT_NE(frame_crc(), still);
 
-    ASSERT_TRUE(resb_running());
+    ASSERT_TRUE(sys_running());
 }
 
 UTEST_MAIN_EMU()

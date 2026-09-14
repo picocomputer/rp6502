@@ -32,9 +32,3 @@ void resb_release(void)
     REGS_IRQ = 0;
     CPU_RESB = 1;
 }
-
-/* The register is {cpu_stp, resb_eff}; only the line is the ask. */
-bool resb_running(void)
-{
-    return CPU_RESB & 1;
-}

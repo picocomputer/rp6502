@@ -61,8 +61,6 @@ static bool resb_down;
 void resb_init(void) { resb_down = true; }
 void resb_assert(void) { resb_down = true; }
 void resb_release(void) { resb_down = false; }
-bool resb_running(void) { return !resb_down; }
-void resb_restore(bool down) { resb_down = down; }
 
 /* The stdio table sst.c folds into the manifest, because a descriptor's
  * driver index means nothing except against this list. A machine of nothing
@@ -199,13 +197,13 @@ UTEST(roster, the_task_columns_are_two_walks)
 UTEST(roster, the_reset_line_outlives_the_run_walk)
 {
     from_stopped();
-    ASSERT_FALSE(resb_running());
+    ASSERT_TRUE(resb_down);
     sys_run();
-    ASSERT_FALSE(resb_running()); /* the ask is not the doing */
+    ASSERT_TRUE(resb_down); /* a run is requested, not performed */
     sys_commit();
-    ASSERT_TRUE(resb_running());
+    ASSERT_FALSE(resb_down);
     sys_stop();
-    ASSERT_FALSE(resb_running()); /* inside the ask, ahead of the walk */
+    ASSERT_TRUE(resb_down); /* lowered inside sys_stop, ahead of the fan-out */
 }
 
 /* ---- the savestate walks ---- */

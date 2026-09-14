@@ -5,7 +5,6 @@
  */
 
 #include "core/sys/sys.h"
-#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "osal/pico/errmap.h"
 #include "core/str/oem.h"
@@ -44,7 +43,6 @@ static enum {
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
-    ROM_RIA_VERIFYING,
     ROM_RUNNING,
 } rom_state;
 static uint32_t rom_addr;
@@ -56,6 +54,11 @@ static rom_pump_t rom_pump = {.fd = -1};
 static uint32_t help_pos;
 static uint32_t help_end;
 
+
+static void rom_written(bool ok)
+{
+    rom_state = ok ? ROM_LOADING : ROM_IDLE;
+}
 
 static void rom_loading(void)
 {
@@ -97,7 +100,7 @@ static void rom_loading(void)
         else
         {
             rom_state = ROM_RIA_WRITING;
-            ria_write_buf(rom_addr);
+            ria_write_buf(rom_addr, rom_written);
         }
         return;
     }
@@ -563,18 +566,6 @@ void rom_mon_help(const char *args)
     }
 }
 
-static bool rom_action_can_proceed(void)
-{
-    if (ria_active())
-        return false;
-    if (ria_handle_error())
-    {
-        rom_state = ROM_IDLE;
-        return false;
-    }
-    return true;
-}
-
 static bool rom_xram_done(void)
 {
     while (rom_len && pix_ready())
@@ -603,23 +594,13 @@ void rom_task(void)
         break;
     case ROM_HELPING:
     case ROM_RUNNING:
+    case ROM_RIA_WRITING:
         break; // NOP
     case ROM_LOADING:
         rom_loading();
         break;
     case ROM_XRAM_WRITING:
         if (rom_xram_done())
-            rom_state = ROM_LOADING;
-        break;
-    case ROM_RIA_WRITING:
-        if (rom_action_can_proceed())
-        {
-            rom_state = ROM_RIA_VERIFYING;
-            ria_verify_buf(rom_addr);
-        }
-        break;
-    case ROM_RIA_VERIFYING:
-        if (rom_action_can_proceed())
             rom_state = ROM_LOADING;
         break;
     }

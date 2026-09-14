@@ -12,7 +12,6 @@
 #include "core/sys/sys.h"
 #include "core/wdc/sram.h"
 #include "host/host.h"
-#include "core/wdc/resb.h"
 #include "core/vga/vga_emu.h"
 #include "core/hid/vtkeys.h"
 #include "core/aud/mix.h"
@@ -145,7 +144,7 @@ UTEST(dbg, breakpoint_stops_at_entry)
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry);
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_BREAKPOINT);
-    ASSERT_TRUE(resb_running()); /* stopped, not exited */
+    ASSERT_TRUE(sys_running()); /* stopped, not exited */
 
     /* Held: while stopped, further frames do not advance the CPU. */
     emu_frames(1);
@@ -298,9 +297,9 @@ UTEST(dbg, continue_runs_to_exit)
 
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
     vtkeys_paste("no\nquit\nyes\n");
-    for (int i = 0; i < 600 && resb_running(); i++)
+    for (int i = 0; i < 600 && sys_running(); i++)
         emu_frames(1);
-    ASSERT_FALSE(resb_running());
+    ASSERT_FALSE(sys_running());
     ASSERT_FALSE(dbg_is_stopped());
 
     disarm();

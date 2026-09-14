@@ -33,7 +33,7 @@ void ria_trigger_vsync(void);
 /* These pins do not follow the CPU's layout. The five address lines select a
  * register within the RIA's window. Two of the bits are produced rather than
  * read: ria_tick sets CS from its own decode of the address, and the debug
- * overlay sets RES from resb_running(). */
+ * overlay sets RES from sys_running(). */
 #define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
 #define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
 #define RIA_PIN_RW (1ULL << 16)

@@ -44,6 +44,7 @@ static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int16_t rw_pos;
 static volatile int16_t rw_end;
+static ria_callback_t action_callback;
 
 #define RIA_IRQ_VSYNC 0x80
 #define RIA_IRQ_SIGINT 0x40
@@ -54,7 +55,7 @@ static volatile uint8_t sigint_pending; // 0 or RIA_IRQ_SIGINT; owner: core0 tas
 
 void ria_trigger_vsync(void)
 {
-    if (!ria_active())
+    if (action_state == action_state_idle)
     {
         vsync_pending = RIA_IRQ_VSYNC;
         __dmb();
@@ -69,7 +70,7 @@ void ria_trigger_vsync(void)
 void ria_trigger_sigint(void)
 {
     sigint_pending = RIA_IRQ_SIGINT;
-    if (!ria_active())
+    if (action_state == action_state_idle)
     {
         __dmb();
         REGS(0xFFF0) = vsync_pending | sigint_pending;
@@ -92,16 +93,30 @@ void ria_run(void)
     vsync_pending = 0;
     sigint_pending = 0;
     REGS(0xFFF0) = 0;
-    if (action_state == action_state_idle)
-        return;
-    action_result = RIA_ACTION_RESULT_NONE;
+}
+
+void ria_stop(void)
+{
+    irq_enabled = 0;
+    gpio_put(CPU_IRQB_PIN, true);
+}
+
+static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
+{
+    oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
+    return -1;
+}
+
+/* Runs the 6502 through a loop at $FFF0 with the reset vector pointed at it.
+ * The vector is saved here and restored by ria_action_close, which happens
+ * between the two halves of a write so the verify half compares the bytes
+ * above $FFF9 against what the write put there. */
+static void ria_action_start(void)
+{
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
-    action_watchdog_timer = make_timeout_time_us(resb_get_reset_us() +
-                                                 RIA_WATCHDOG_MS * 1000);
-    switch (action_state)
+    if (action_state == action_state_write)
     {
-    case action_state_write:
         // Self-modifying fast load
         // FFF0  A9 00     LDA #$00
         // FFF2  8D 00 00  STA $0000
@@ -113,9 +128,9 @@ void ria_run(void)
         REGS(0xFFF4) = rw_addr >> 8;
         REGS(0xFFF5) = 0x80;
         REGS(0xFFF6) = 0xF9;
-        break;
-    case action_state_read:
-    case action_state_verify:
+    }
+    else
+    {
         // Self-modifying fast load
         // FFF0  AD 00 00  LDA $0000
         // FFF3  8D FC FF  STA $FFFC/$FFFD
@@ -128,97 +143,97 @@ void ria_run(void)
         REGS(0xFFF5) = 0xFF;
         REGS(0xFFF6) = 0x80;
         REGS(0xFFF7) = 0xF8;
-        break;
-    default:
-        break;
+    }
+    action_watchdog_timer = make_timeout_time_us(resb_get_reset_us() +
+                                                 RIA_WATCHDOG_MS * 1000);
+    resb_release();
+}
+
+static void ria_action_close(void)
+{
+    action_state = action_state_idle;
+    if (saved_reset_vec >= 0)
+    {
+        REGSW(0xFFFC) = saved_reset_vec;
+        saved_reset_vec = -1;
     }
 }
 
-/* The 6502's side of a program stop. What is NOT here is closing a fast-load
- * transfer: the action machinery opened that one and closes it itself, in
- * ria_task, once the stop has committed. Otherwise this would have to run last
- * in the fan-out -- vga_stop, rln_stop and com_stop all read ria_active() to
- * tell a program stop from a transfer, and would see it change underneath
- * them depending on where this row sat. */
-void ria_stop(void)
+/* Ends a transfer from either core. The line goes down before the result is
+ * published, so ria_task never rewrites the registers while the 6502 can
+ * still fetch them. */
+static void ria_action_end(int32_t result)
 {
-    irq_enabled = 0;
-    gpio_put(CPU_IRQB_PIN, true);
+    resb_assert();
+    __dmb();
+    action_result = result;
 }
 
-bool ria_active(void)
+/* The verify half of a write: the bytes above $FFF9 are compared in place,
+ * the rest through the loop. With nothing left for the loop the result is
+ * set here and ria_task reports it on its next pass. */
+static void ria_verify_start(void)
 {
-    return action_state != action_state_idle;
+    action_state = action_state_verify;
+    action_result = RIA_ACTION_RESULT_NONE;
+    uint16_t addr = rw_addr;
+    uint16_t len = mbuf_len;
+    while (len && (addr + len > 0xFFFA))
+        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
+            action_result = addr + len;
+    while (len && (addr + len > 0xFF00))
+        --len;
+    if (action_result != RIA_ACTION_RESULT_NONE)
+        return;
+    if (!len)
+    {
+        action_result = RIA_ACTION_RESULT_FINISHED;
+        return;
+    }
+    rw_end = len;
+    rw_pos = 0;
+    ria_action_start();
 }
 
 void ria_task(void)
 {
-    /* Close a transfer whose stop has been performed. Here rather than in
-     * ria_stop so ria_active() holds one value for the whole fan-out: every
-     * stop that asks sees the transfer whole, and none sees it half closed.
-     *
-     * Ahead of the watchdog, because a stop asked for before the machine ever
-     * started skips the fan-out entirely (core/sys/sys.c) -- without this
-     * the transfer would never close, and the stale watchdog would fire a
-     * timeout at whatever ran next. */
-    if (ria_active() && !sys_active())
+    if (action_state == action_state_idle)
     {
-        action_state = action_state_idle;
-        if (saved_reset_vec >= 0)
-        {
-            REGSW(0xFFFC) = saved_reset_vec;
-            saved_reset_vec = -1;
-        }
-    }
-
-    /* Armed in ria_run, which the run fan-out reaches after the io column
-     * opened the transfer: until the run is asked for, the timer is the
-     * previous transfer's. */
-    if (ria_active() && resb_running() && action_result == RIA_ACTION_RESULT_NONE)
-    {
-        if (time_reached(action_watchdog_timer))
-        {
-            action_result = RIA_ACTION_RESULT_TIMEOUT;
-            sys_stop();
-        }
-    }
-
-    // Resync REGS(0xFFF0) and /IRQ with the pending flags. Heals any
-    // benign cross-core race between core0 triggers and core1's clear.
-    if (!ria_active())
-    {
+        // Resync REGS(0xFFF0) and /IRQ with the pending flags. Heals any
+        // benign cross-core race between core0 triggers and core1's clear.
         uint8_t live = vsync_pending | sigint_pending;
         REGS(0xFFF0) = live;
         gpio_put(CPU_IRQB_PIN, (live & irq_enabled) == 0);
+        return;
     }
-}
-
-static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
-{
-    oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
-    return -1;
-}
-
-bool ria_handle_error(void)
-{
-    switch (action_result)
+    if (action_result == RIA_ACTION_RESULT_NONE)
     {
-    case RIA_ACTION_RESULT_NONE:     // Ok, default at start
-    case RIA_ACTION_RESULT_FINISHED: // OK, explicitly ended
-        return false;
-    case RIA_ACTION_RESULT_TIMEOUT:
-        mon_add_response_utf8(S(STR_ERR_RIA_TIMEOUT));
-        break;
-    default:
-        mon_add_response_fn_state(ria_verify_error_response, action_result);
-        break;
+        if (time_reached(action_watchdog_timer))
+            ria_action_end(RIA_ACTION_RESULT_TIMEOUT);
+        return;
     }
-    return true;
+    if (action_state == action_state_write &&
+        action_result == RIA_ACTION_RESULT_FINISHED)
+    {
+        ria_action_close();
+        ria_verify_start();
+        return;
+    }
+    bool ok = action_result == RIA_ACTION_RESULT_FINISHED;
+    if (action_result == RIA_ACTION_RESULT_TIMEOUT)
+        mon_add_response_utf8(S(STR_ERR_RIA_TIMEOUT));
+    else if (!ok)
+        mon_add_response_fn_state(ria_verify_error_response, action_result);
+    ria_action_close();
+    ria_callback_t callback = action_callback;
+    action_callback = NULL;
+    callback(ok);
 }
 
-void ria_read_buf(uint16_t addr)
+void ria_read_buf(uint16_t addr, ria_callback_t callback)
 {
-    assert(!resb_running());
+    assert(!sys_active());
+    action_callback = callback;
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -229,38 +244,22 @@ void ria_read_buf(uint16_t addr)
             mbuf[len] = 0;
     while (len && (addr + len > 0xFF00))
         mbuf[--len] = 0;
-    if (!len)
-        return;
-    rw_addr = addr;
-    rw_end = len;
-    rw_pos = 0;
     action_state = action_state_read;
-    sys_run();
-}
-
-void ria_verify_buf(uint16_t addr)
-{
-    assert(!resb_running());
-    action_result = RIA_ACTION_RESULT_NONE;
-    // avoid forbidden areas
-    uint16_t len = mbuf_len;
-    while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
-            action_result = addr + len;
-    while (len && (addr + len > 0xFF00))
-        --len;
-    if (!len || action_result != RIA_ACTION_RESULT_NONE)
+    if (!len)
+    {
+        action_result = RIA_ACTION_RESULT_FINISHED;
         return;
+    }
     rw_addr = addr;
     rw_end = len;
     rw_pos = 0;
-    action_state = action_state_verify;
-    sys_run();
+    ria_action_start();
 }
 
-void ria_write_buf(uint16_t addr)
+void ria_write_buf(uint16_t addr, ria_callback_t callback)
 {
-    assert(!resb_running());
+    assert(!sys_active());
+    action_callback = callback;
     action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
@@ -269,14 +268,17 @@ void ria_write_buf(uint16_t addr)
             REGS(addr + len) = mbuf[len];
     while (len && (addr + len > 0xFF00))
         len--;
-    if (!len)
-        return;
     rw_addr = addr;
+    if (!len)
+    {
+        ria_verify_start();
+        return;
+    }
     rw_end = len;
     // First write doesn't always write because ???
     rw_pos = -1; // force a second write
     action_state = action_state_write;
-    sys_run();
+    ria_action_start();
 }
 
 // 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
@@ -373,11 +375,19 @@ bool ria_uart_rx_reclaim(uint8_t *ch)
 }
 
 // A break: the byte staged for the program being interrupted goes with it.
-void ria_uart_rx_clear(void)
+static void ria_uart_rx_clear(void)
 {
     ria_uart_rx_slot = -1;
     REGS(0xFFE0) = 0;
     REGS(0xFFE2) = 0;
+}
+
+/* A break lowers the line from core 0, which ends any transfer with it. */
+void ria_break(void)
+{
+    action_callback = NULL;
+    ria_action_close();
+    ria_uart_rx_clear();
 }
 
 #define CASE_READ(addr) (addr & 0x1F)
@@ -408,10 +418,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     if (action_state == action_state_write)
                     {
                         if (rw_pos == rw_end)
-                        {
-                            action_result = RIA_ACTION_RESULT_FINISHED;
-                            sys_stop();
-                        }
+                            ria_action_end(RIA_ACTION_RESULT_FINISHED);
                         else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
                             REGS(0xFFF1) = mbuf[rw_pos];
@@ -425,24 +432,17 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         REGSW(0xFFF1) += 1;
                         mbuf[rw_pos] = data;
                         if (++rw_pos == rw_end)
-                        {
-                            action_result = RIA_ACTION_RESULT_FINISHED;
-                            sys_stop();
-                        }
+                            ria_action_end(RIA_ACTION_RESULT_FINISHED);
                     }
                     break;
                 case CASE_WRITE(0xFFFC): // action verify
                     if (action_state == action_state_verify)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (mbuf[rw_pos] != data && action_result < 0)
-                            action_result = REGSW(0xFFF1) - 1;
-                        if (++rw_pos == rw_end)
-                        {
-                            if (action_result < 0)
-                                action_result = RIA_ACTION_RESULT_FINISHED;
-                            sys_stop();
-                        }
+                        if (mbuf[rw_pos] != data)
+                            ria_action_end(REGSW(0xFFF1) - 1);
+                        else if (++rw_pos == rw_end)
+                            ria_action_end(RIA_ACTION_RESULT_FINISHED);
                     }
                     break;
                 case CASE_WRITE(0xFFF0): // IRQ enable mask

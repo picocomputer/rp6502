@@ -45,9 +45,8 @@ void proc_exec_request(void);
 void proc_exec_init(void);
 void proc_exec_task(void);
 
-/* The program is gone and nothing is on its way: RESB low with no exec or
- * launcher relaunch queued. RESB alone is not enough, because it is also low
- * between the request for an exec and the load that performs it. */
+/* The program is gone and nothing is on its way: not running, with no exec
+ * or launcher relaunch queued. */
 bool proc_exited(void);
 
 /* This machine's proc row; see core/sys/driver.h. The exec is performed in the

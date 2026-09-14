@@ -68,11 +68,6 @@ int com_rx_peek(com_source_t src)
     return -1;
 }
 
-bool ria_active(void)
-{
-    return false;
-}
-
 /* No fabric path raises the 6502's IRQ for this, so a signal here is what a
  * program finds when it asks rather than something that interrupts it. The
  * latch still has to exist, or Ctrl-C is a keystroke that does nothing. */

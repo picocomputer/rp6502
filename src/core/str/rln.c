@@ -6,7 +6,6 @@
 
 #include "core/sys/timer.h"
 #include "machine.h"
-#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
@@ -1909,7 +1908,7 @@ void rln_run(void)
 {
     rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
-    if (rln_decscusr_ok && !ria_active())
+    if (rln_decscusr_ok)
         com_printf("\33[0 q");
 }
 
@@ -1918,8 +1917,7 @@ void rln_stop(void)
     if (rln_callback)
         rln_sync_cursor_to(rln_cursor_max());
     rln_init();
-    if (!ria_active())
-        rln_emit_mode_cursor();
+    rln_emit_mode_cursor();
 }
 
 void rln_break(void)

@@ -278,7 +278,6 @@ core/wdc/cpu.c cpu: the CPU chunk
 core/wdc/cpu.c cpu_dbg_cycle_cb: the CPU chunk
 core/wdc/cpu.c pins: the CPU chunk
 core/wdc/phi2.c khz_run: the PHI2 chunk
-core/wdc/resb.c held: the blob's latch
 core/wdc/sram.c sram: the SRAM chunk
 core/wdc/sram.c sram_fill_random: not carried: a session's fill setting
 core/wdc/sram.c sram_fill_seed: not carried: a session's fill setting

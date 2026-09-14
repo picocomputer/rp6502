@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/ria.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
@@ -364,16 +363,13 @@ void vga_run(void)
 {
     // It's normal to lose signal during Pico VGA development.
     // Attempt to restart when a 6502 program is run.
-    if (vga_state == VGA_CONNECTION_LOST && !ria_active())
+    if (vga_state == VGA_CONNECTION_LOST)
         vga_connect();
 }
 
 void vga_stop(void)
 {
-    // We want to reset only when program stops,
-    // otherwise video flickers after every ria job.
-    if (!ria_active())
-        vga_needs_reset = true;
+    vga_needs_reset = true;
 }
 
 void vga_break(void)

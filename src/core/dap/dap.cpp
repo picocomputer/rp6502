@@ -29,7 +29,7 @@ extern "C"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "core/wdc/sram.h"
 #include "core/dap/dap.h"
 #include "core/sys/debug_log.h"
@@ -2305,7 +2305,7 @@ extern "C" void dap_pump(void)
      * launch so the exit branch announces/terminates. proc_exec_inflight() excludes the
      * window between proc_exec_request() and its commit. */
     if (!g_launch_done && g_launch_requested && g_configured.load() &&
-        !g_reached_entry && !proc_exec_inflight() && !resb_running() && !dbg_is_stopped())
+        !g_reached_entry && !proc_exec_inflight() && !sys_running() && !dbg_is_stopped())
     {
         g_launch_done = true;
         if (g_session)
