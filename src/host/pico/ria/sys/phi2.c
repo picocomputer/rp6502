@@ -10,7 +10,6 @@
 #include "ria/sys/cfg.h"
 #include "ria/sys/phi2.h"
 #include "ria/sys/pix.h"
-#include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include <pico/stdlib.h>
 
@@ -43,9 +42,8 @@ static uint16_t phi2_quantize_khz(uint16_t freq_khz)
     return quantize(freq_khz, NULL, NULL);
 }
 
-/* The one place the divider moves, and the fan-out to everything that runs
- * off it: the two state machines that divide from the same clock, and the
- * reset hold, whose minimum is two PHI2 cycles of whatever the rate now is. */
+/* The one place the divider moves, and the fan-out to the two state machines
+ * that divide from the same clock. */
 static void change(uint16_t freq_khz)
 {
     uint16_t clkdiv_int;
@@ -54,7 +52,6 @@ static void change(uint16_t freq_khz)
     if (phi2_khz_run == new_khz)
         return;
     phi2_khz_run = new_khz;
-    resb_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
 }

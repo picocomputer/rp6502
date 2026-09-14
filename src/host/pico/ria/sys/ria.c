@@ -23,6 +23,7 @@
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
+#include <hardware/structs/bus_ctrl.h>
 #include <hardware/sync.h>
 
 #define RIA_WATCHDOG_MS 250
@@ -170,8 +171,10 @@ void ria_task(void)
         }
     }
 
-    // check on watchdog unless we explicitly ended or errored
-    if (ria_active() && action_result == RIA_ACTION_RESULT_NONE)
+    /* Armed in ria_run, which the run fan-out reaches after the io column
+     * opened the transfer: until the run is asked for, the timer is the
+     * previous transfer's. */
+    if (ria_active() && resb_running() && action_result == RIA_ACTION_RESULT_NONE)
     {
         if (time_reached(action_watchdog_timer))
         {
@@ -719,6 +722,12 @@ void __in_flash("ria_init") ria_init(void)
         hw_set_bits(&pio1->input_sync_bypass, 1u << i);
         hw_set_bits(&pio2->input_sync_bypass, 1u << i);
     }
+
+    /* A 6502 read is answered by two chained DMA transfers inside one PHI2
+     * cycle with no cycle to spare, so the DMA wins every contended
+     * arbitration against either core. */
+    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+                            BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
     // the inits
     ria_cs_rwb_pio_init();

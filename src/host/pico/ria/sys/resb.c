@@ -18,11 +18,7 @@
  * the pin is still low. */
 static volatile bool run_requested;
 
-/* Microseconds, not an absolute_time_t: resb_assert writes this from either
- * core and resb_task reads it on core 0, and a 64-bit store is two on this
- * part. A word is one, and the wrapping compare below is exact for any hold
- * shorter than half the 32-bit range -- this one is microseconds. */
-static volatile uint32_t deadline_us;
+static absolute_time_t hold_end;
 
 void __in_flash("resb_init") resb_init(void)
 {
@@ -39,22 +35,21 @@ void resb_assert(void)
     run_requested = false;
     __dmb();
     gpio_put(CPU_RESB_PIN, false);
-    deadline_us = time_us_32() + resb_get_reset_us();
 }
 
+/* The hold is timed from the ask, not from the assert that lowered the line:
+ * the line has been low at least that long already, and the ask is the only
+ * moment the hold is consulted. A stamp taken at the assert would be as old
+ * as the idle before the ask, and written from either core. */
 void resb_release(void)
 {
+    hold_end = make_timeout_time_us(resb_get_reset_us());
     run_requested = true;
 }
 
 bool resb_running(void)
 {
     return run_requested;
-}
-
-void resb_reclock(void)
-{
-    deadline_us = time_us_32() + resb_get_reset_us();
 }
 
 /* Two things happen while the line is low, and only ever one of them: either a
@@ -70,7 +65,7 @@ void resb_task(void)
     __dmb();
     if (run_requested)
     {
-        if ((int32_t)(time_us_32() - deadline_us) >= 0)
+        if (time_reached(hold_end))
             gpio_put(CPU_RESB_PIN, true);
     }
     else

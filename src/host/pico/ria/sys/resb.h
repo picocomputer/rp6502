@@ -16,9 +16,6 @@
  * because ria.c sizes the action watchdog with it. */
 uint32_t resb_get_reset_us(void);
 
-/* Restart the hold from now. From phi2.c, whose reclock invalidates it. */
-void resb_reclock(void);
-
 /* Raise the line once the hold has elapsed. A timer is per-pass work, which
  * is the one part of this that is a driver row. */
 void resb_task(void);
