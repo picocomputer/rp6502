@@ -28,7 +28,7 @@ int main(int argc, const char *const argv[])
     return rc;
 }
 
-#define GAMEPAD_XREG 0xFF00 /* where gamepad.rp6502 points the gamepad block */
+#define GAMEPAD_XREG 0xFF00 /* where gamepad_rom_gen.py points the block */
 #define GAMEPAD_RECORD 10   /* bytes per player */
 
 static const uint8_t *gamepad_record(int player)
@@ -48,7 +48,7 @@ static void start_gamepad_program(int *utest_result)
 {
     memset(fe.input, 0, sizeof fe.input);
     memset(fe.analog, 0, sizeof fe.analog);
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(GAMEPAD_ROM));
     fe_run(40);
 }
 
@@ -192,7 +192,7 @@ UTEST(input, typing_reaches_a_program_reading_the_console)
 {
     static uint32_t settled[640 * 480];
     memset(fe.input, 0, sizeof fe.input);
-    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(120); /* to the prompt */
     ASSERT_TRUE(fe.keyboard.callback != NULL);
 
@@ -274,7 +274,7 @@ UTEST(input, the_core_says_how_to_type_once)
     fe_open();
 
     ASSERT_EQ(fe.message_count, 0); /* nothing before content */
-    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     ASSERT_EQ(fe.message_count, 0); /* nothing at load either */
     fe_run(120);                    /* to the prompt, which reads the console */
     ASSERT_EQ(fe.message_count, 1);
@@ -282,7 +282,7 @@ UTEST(input, the_core_says_how_to_type_once)
 
     /* A second program is not a second lecture. */
     fe.unload_game();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
     fe.unload_game();
@@ -294,7 +294,7 @@ UTEST(input, a_program_that_never_asks_is_never_told)
 {
     fe_close();
     fe_open();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(GAMEPAD_ROM));
     fe_run(120);
     ASSERT_EQ(fe.message_count, 0);
     fe.unload_game();
@@ -306,7 +306,7 @@ UTEST(input, a_program_that_wants_only_the_tablet_is_never_told)
 {
     fe_close();
     fe_open();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(fe_load(TABLET_ROM));
     fe_run(120);
     ASSERT_EQ(fe.message_count, 0);
     fe.unload_game();
@@ -317,7 +317,7 @@ UTEST(input, a_program_that_wants_the_mouse_is_told)
 {
     fe_close();
     fe_open();
-    ASSERT_TRUE(fe_load(ROMS_DIR "/paint_mouse.rp6502"));
+    ASSERT_TRUE(fe_load(MOUSE_ROM));
     fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
@@ -332,7 +332,7 @@ UTEST(input, an_old_frontend_is_told_the_old_way)
     fe_open_as(2, true);
     fe.message_version = 0; /* only SET_MESSAGE */
 
-    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(120);
     ASSERT_EQ(fe.message_count, 1);
     ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
@@ -349,7 +349,7 @@ UTEST(input, an_old_frontend_is_told_the_old_way)
 UTEST(input, the_buttons_are_labelled_for_the_frontend)
 {
     ASSERT_TRUE(fe.controller_info_set);
-    ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(GAMEPAD_ROM));
     ASSERT_TRUE(fe.input_descriptors_set);
     fe.unload_game();
 }
@@ -360,7 +360,7 @@ UTEST(input, a_shifted_symbol_still_types)
 {
     static uint32_t settled[640 * 480];
     memset(fe.input, 0, sizeof fe.input);
-    ASSERT_TRUE(fe_load(ROMS_DIR "/adventure.rp6502"));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(120); /* to the prompt */
     ASSERT_TRUE(fe.keyboard.callback != NULL);
 

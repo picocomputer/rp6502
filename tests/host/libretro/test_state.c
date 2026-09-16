@@ -29,7 +29,6 @@ int main(int argc, const char *const argv[])
     return rc;
 }
 
-#define ROM(name) FIXTURES_DIR "/" name ".rp6502"
 
 /* Big enough for any blob this core makes; the cases check it is. */
 static uint8_t blob[1 << 20];
@@ -37,7 +36,7 @@ static uint8_t other[1 << 20];
 
 static void stand_up(int *utest_result)
 {
-    ASSERT_TRUE(fe_load(ROM("adventure")));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(20);
     ASSERT_LE(fe.serialize_size(), sizeof blob);
 }
@@ -127,11 +126,14 @@ UTEST(state, a_refused_blob_leaves_a_working_core)
 }
 
 /* Sound is the part a frontend notices first. A load that restarted the
- * engines would click once a frame under rewind. */
+ * engines would click once a frame under rewind. The PSG holds this note
+ * from a program that has stopped writing: the engine starts on a gate edge
+ * carried by the snoop, so the note only comes back if the engine's own
+ * state did. */
 UTEST(state, the_sound_comes_back)
 {
-    ASSERT_TRUE(fe_load(ROM("furelise")));
-    fe_run(120);
+    ASSERT_TRUE(fe_load(AUD_ROM_PSG));
+    fe_run(20);
     size_t n = fe.serialize_size();
     ASSERT_LE(n, sizeof blob);
     ASSERT_TRUE(fe.serialize(blob, n));
@@ -219,7 +221,7 @@ UTEST(state, a_blob_survives_unload_and_load)
     memcpy(at_save, fe.frame_copy, sizeof at_save);
 
     fe.unload_game();
-    ASSERT_TRUE(fe_load(ROM("adventure")));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     fe_run(3);
 
     ASSERT_TRUE(fe.unserialize(blob, n));
@@ -234,7 +236,7 @@ UTEST(state, a_blob_survives_unload_and_load)
 UTEST(state, no_quirks_are_claimed)
 {
     fe.serialization_quirks_set = false;
-    ASSERT_TRUE(fe_load(ROM("adventure")));
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
     ASSERT_TRUE(fe.serialization_quirks_set);
     ASSERT_EQ(fe.serialization_quirks, (uint64_t)0);
     fe.unload_game();

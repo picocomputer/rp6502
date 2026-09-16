@@ -19,6 +19,10 @@ set(RP6502_UTEST_DIR ${RP6502_VENDOR}/utest)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 
+# The one program here that no generator writes: a whole application, built by
+# cc65 from the SDK examples and copied in. tests/roms/README.md says how.
+set(ADVENTURE_ROM ${RP6502_TEST_ROMS}/adventure.rp6502)
+
 # The harness both sides share: mut.h and the machine it binds to, emu_boot.h
 # and the sys shims for the C tests, the tb_* benches for the RTL ones. Every
 # test gets it on the include path, because which of them a test needs is not
@@ -43,12 +47,13 @@ rp6502_gen_kbdlay(kbdlay)
 
 # The video-mode corpus is generated, not committed. Every byte of it comes
 # out of vidmodes.py, so a committed copy is only a second copy that can
-# disagree with its generator. What stays in roms/ is the cc65-built programs,
-# which have no generator and are reached by FIXTURE rather than from here.
+# disagree with its generator. The same goes for every program a test drives,
+# with one exception: adventure is a real application nobody generates, and
+# it is named below the way a generated ROM is.
 set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 if(NOT TARGET rp6502_test_corpus)
-    set(RP6502_CORPUS_GEN ${RP6502_TEST_ROMS}/vidmodes.py)
+    set(RP6502_CORPUS_GEN ${RP6502_TESTS_DIR}/gen/vidmodes.py)
     # It assembles and packages through tests/gen like every other ROM
     # generator, so a change there is a change to the corpus.
     set(RP6502_CORPUS_ASM
@@ -277,6 +282,23 @@ rp6502_test_rom(keyboard_rom GEN ${RP6502_TESTS_DIR}/gen/keyboard_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the keyboard bitmap ROM")
 
+# One device each: which device a program maps is itself a claim, since a
+# frontend withholds the mouse until one asks for it.
+set(MOUSE_ROM ${RP6502_TEST_ROM_DIR}/mouse.rp6502)
+set(TABLET_ROM ${RP6502_TEST_ROM_DIR}/tablet.rp6502)
+rp6502_test_rom(pointer_roms GEN ${RP6502_TESTS_DIR}/gen/pointer_rom_gen.py
+    ARGS --emit-mouse ${MOUSE_ROM} --emit-tablet ${TABLET_ROM}
+    OUTPUTS ${MOUSE_ROM} ${TABLET_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the pointing device ROMs")
+
+set(GAMEPAD_ROM ${RP6502_TEST_ROM_DIR}/gamepad.rp6502)
+rp6502_test_rom(gamepad_rom GEN ${RP6502_TESTS_DIR}/gen/gamepad_rom_gen.py
+    ARGS --emit ${GAMEPAD_ROM}
+    OUTPUTS ${GAMEPAD_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the gamepad records ROM")
+
 set(VSYNC_ROM ${RP6502_TEST_ROM_DIR}/vsync.rp6502)
 rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
     ARGS --emit ${VSYNC_ROM}
@@ -285,7 +307,7 @@ rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
     COMMENT "Generating the vsync interrupt ROM")
 
 # rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
-#                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]
+#                        [ARGS <emu arg>...]
 #                        [DEPENDS <target>...] [TIMEOUT <seconds>])
 #
 # A 6502 program and a script that watches it, as one CTest. The program makes
@@ -301,7 +323,7 @@ rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
 # milliseconds and the point is that it answers twenty questions; a case apiece
 # would boot twenty times to save nothing.
 function(rp6502_add_script_test name)
-    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;FIXTURE;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
+    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
     if(NOT TARGET rp6502-emu)
         message(FATAL_ERROR
             "rp6502_add_script_test(${name}) drives the shipped binary.\n"
@@ -323,9 +345,6 @@ function(rp6502_add_script_test name)
         if(NOT IS_ABSOLUTE ${S_SCRIPT})
             set(S_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/${S_SCRIPT})
         endif()
-    endif()
-    if(S_FIXTURE)
-        set(S_ROM ${RP6502_TEST_ROMS}/${S_FIXTURE})
     endif()
     if(NOT S_ROM)
         message(FATAL_ERROR "rp6502_add_script_test(${name}) names no program")
@@ -373,11 +392,11 @@ function(rp6502_add_script_test name)
 endfunction()
 
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
-#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT]
+#                        [ROM <file>] [TIMEOUT <seconds>] [SPLIT]
 #                        [DEPENDS <target> ...])
 #
 # Builds test_<name> from test_<name>.c unless SOURCES says otherwise, and
-# registers it as CTest <name>. FIXTURE becomes TEST_FIXTURE, the absolute path
+# registers it as CTest <name>. ROM becomes TEST_FIXTURE, the absolute path
 # a test opens — every test uses at most one. TEST_SCRATCH is where a test
 # writes throwaway files, so a run from any directory never litters the tree.
 # DEPENDS names a target the test needs built but does not link, which is what
@@ -390,7 +409,7 @@ endfunction()
 # second it would cost more in process starts than it saves, which is why it is
 # asked for rather than assumed.
 function(rp6502_add_test name)
-    cmake_parse_arguments(T "SPLIT;SINK" "FIXTURE;TIMEOUT"
+    cmake_parse_arguments(T "SPLIT;SINK" "ROM;TIMEOUT"
         "SOURCES;LIBS;INCLUDES;DEFS;LABELS;DEPENDS" ${ARGN})
 
     # What a test is about is the directory it lives in, and what it costs is
@@ -425,13 +444,14 @@ function(rp6502_add_test name)
         target_link_libraries(test_${name} PRIVATE ${T_LIBS})
     endif()
     list(APPEND T_DEFS TEST_SCRATCH="${CMAKE_CURRENT_BINARY_DIR}")
-    # A bare name is one of the committed programs in roms/; a name with a
-    # slash is relative to tests/, for fixtures that are not .rp6502 at all
-    # and belong beside the suite that reads them.
-    if(T_FIXTURE MATCHES "/")
-        list(APPEND T_DEFS TEST_FIXTURE="${RP6502_TESTS_DIR}/${T_FIXTURE}")
-    elseif(T_FIXTURE)
-        list(APPEND T_DEFS TEST_FIXTURE="${RP6502_TEST_ROMS}/${T_FIXTURE}")
+    # The one file a test opens, named the same way whether a generator wrote
+    # it or it is committed: a path. A relative one is beside the suite, for
+    # the fixtures that are not .rp6502 at all.
+    if(T_ROM)
+        if(NOT IS_ABSOLUTE ${T_ROM})
+            set(T_ROM ${RP6502_TESTS_DIR}/${T_ROM})
+        endif()
+        list(APPEND T_DEFS TEST_FIXTURE="${T_ROM}")
     endif()
     if(T_DEFS)
         target_compile_definitions(test_${name} PRIVATE ${T_DEFS})

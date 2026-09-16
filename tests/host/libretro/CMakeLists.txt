@@ -32,8 +32,8 @@ rp6502_add_test(run
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_CORPUS}"
-        FIXTURES_DIR="${RP6502_TEST_ROMS}"
         AUD_ROM_OPL="${AUD_ROM_OPL}"
+        AUD_ROM_PSG="${AUD_ROM_PSG}"
     DEPENDS rp6502_libretro aud_roms
     TIMEOUT 60)
 
@@ -42,9 +42,11 @@ rp6502_add_test(input
     SOURCES test_input.c
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
-    DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_ROMS}"
+    DEFS ${RP6502_RETRO_DEFS} ADVENTURE_ROM="${ADVENTURE_ROM}"
         KEYBOARD_ROM="${KEYBOARD_ROM}"
-    DEPENDS rp6502_libretro keyboard_rom
+        GAMEPAD_ROM="${GAMEPAD_ROM}"
+        MOUSE_ROM="${MOUSE_ROM}" TABLET_ROM="${TABLET_ROM}"
+    DEPENDS rp6502_libretro keyboard_rom gamepad_rom pointer_roms
     TIMEOUT 60)
 
 # The settings, and the frontends old enough to need them spelled differently.
@@ -53,8 +55,8 @@ rp6502_add_test(options
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_CORPUS}"
-        FIXTURES_DIR="${RP6502_TEST_ROMS}"
-    DEPENDS rp6502_libretro
+        GAMEPAD_ROM="${GAMEPAD_ROM}"
+    DEPENDS rp6502_libretro gamepad_rom
     TIMEOUT 60)
 
 # The two pointing devices, each reaching the block a program maps.
@@ -62,8 +64,9 @@ rp6502_add_test(pointer
     SOURCES test_pointer.c
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
-    DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
-    DEPENDS rp6502_libretro
+    DEFS ${RP6502_RETRO_DEFS}
+        MOUSE_ROM="${MOUSE_ROM}" TABLET_ROM="${TABLET_ROM}"
+    DEPENDS rp6502_libretro pointer_roms
     TIMEOUT 60)
 
 # The buildbot builds this core for platforms nothing here does, so the two CI
@@ -88,6 +91,7 @@ rp6502_add_test(state
     SOURCES test_state.c
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
-    DEFS ${RP6502_RETRO_DEFS} FIXTURES_DIR="${RP6502_TEST_ROMS}"
-    DEPENDS rp6502_libretro
+    DEFS ${RP6502_RETRO_DEFS} ADVENTURE_ROM="${ADVENTURE_ROM}"
+        AUD_ROM_PSG="${AUD_ROM_PSG}"
+    DEPENDS rp6502_libretro aud_roms
     TIMEOUT 120)

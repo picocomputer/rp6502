@@ -1,21 +1,40 @@
-# The relative mouse. paint_mouse.rp6502 maps the HID mouse block and arms a 6522
-# timer IRQ whose handler reads the counters and moves a pointer sprite. Held
-# still the frame is identical, so a changed canvas after host motion is the
-# whole chain: the mouse block, the VIA IRQ, and the program's ISR.
+# The relative mouse. pointer.rp6502 maps the mouse block and arms a 6522
+# timer interrupt whose handler reads the counters back through RW0 and
+# mirrors them, which is how an application must read a device that reports
+# motion as bytes that wrap. Three things are under test: the RIA publishes
+# the block, the 6502 takes the interrupt, and what the handler read is what
+# the RIA wrote. Each wait is on the mirror, which only advances when an
+# interrupt has been taken since the host reported.
 
-run 60
-mark
-run 20
-expect-same
+# Nothing has moved, and --fill 0 means a block nobody wrote reads zero.
+run 10
+peek xram:$FF00 $00 $00 $00 $00 $00
 
-mouse move 80 60
-run 20
-expect-changed
+# The interrupt is arriving. Timer 1 free-running at the widest period is
+# about 8 ms, so ten frames are twenty of them.
+peek xram:$FF55 $14
 
-# Held down, the same motion paints instead of only moving the pointer.
-mark
+# A button is the one byte a host can set without moving anything.
 mouse buttons 1
-mouse move -40 -30
-run 20
+wait xram:$FF50 $01
+peek xram:$FF00 $01 $00 $00 $00 $00
+
+# Motion lands in the counters, and the handler reads the same bytes back.
+mouse move 60 40
+wait xram:$FF51 $3C
+peek xram:$FF00 $01 $3C $28
+peek xram:$FF50 $01 $3C $28
+
+# Counters are relative: they accumulate rather than reporting a position.
+mouse move 60 40
+wait xram:$FF51 $78
+peek xram:$FF50 $01 $78 $50
+
+# The wheel and the pan are their own bytes and move nothing else.
+mouse wheel 3
+wait xram:$FF53 $03
+peek xram:$FF00 $01 $78 $50 $03 $00
+
 mouse buttons 0
-expect-changed
+wait xram:$FF50 $00
+peek xram:$FF50 $00 $78 $50 $03 $00

@@ -3,41 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Gamepad: the HID gamepad xreg + the 10-byte-per-player gamepad_xram_t mirror in
- * gamepad.c. The xram_mirror case pokes gamepad.c directly (no ROM). The ROM-driven
- * cases run the gamepad tester (gamepad.rp6502), which continuously prints each
- * player's state and labels an unplugged slot "Disconnected". Output is read
- * through the stdout tap rather than the framebuffer: the terminal carries a
- * ~1 Hz cursor blink, so a frame CRC would not be stable frame to frame.
+ * Gamepad: the HID gamepad xreg + the 10-byte-per-player gamepad_xram_t mirror
+ * in gamepad.c, poked directly with no ROM in the way. What a running program
+ * sees of the same block is gamepad.txt's business; what only C can reach is
+ * here — the xreg's bounds, and that gamepad_stop() unmaps.
  */
 
-#include "core/com/com.h"
 #include "core/hid/gamepad.h"
+#include "emu_boot.h"
 #include "core/sys/xram.h"
 #include "core/sys/sys.h"
-#include "emu_boot.h"
-#include <string.h>
-
-static char cap[1 << 16];
-static size_t cap_len;
-
-static void tap(const char *buf, int len)
-{
-    for (int i = 0; i < len && cap_len < sizeof(cap) - 1; i++)
-        cap[cap_len++] = buf[i];
-    cap[cap_len] = 0;
-}
-
-static void cap_reset(void)
-{
-    cap_len = 0;
-    cap[0] = 0;
-}
-
-static void run(int n)
-{
-    emu_frames((int)n);
-}
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
  * sync. Byte 0 carries the dpad (0x0F) plus the status bits, of which only
@@ -85,55 +60,6 @@ UTEST(gamepad, xram_mirror)
     gamepad_stop();
     gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78], 0xAB);
-}
-
-/* The tester maps the gamepad block and continuously redraws each player's state.
- * A connected gamepad prints its button row (which includes "Select"); an unplugged
- * slot prints "Disconnected" instead. */
-UTEST(gamepad, connected_gamepad_renders)
-{
-    gamepad_stop();
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    run(20); /* the ROM maps the gamepad block and draws four empty slots */
-
-    cap_reset();
-    com_set_tx_tap(tap);
-    run(20);
-    com_set_tx_tap(NULL);
-    ASSERT_TRUE(strstr(cap, "Disconnected") != NULL); /* all four unplugged */
-    ASSERT_TRUE(strstr(cap, "Select") == NULL);       /* no connected button row */
-
-    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
-    gamepad_hid_set(0, GAMEPAD_BTN_START, true);
-    run(10);
-
-    cap_reset();
-    com_set_tx_tap(tap);
-    run(20);
-    com_set_tx_tap(NULL);
-    ASSERT_TRUE(strstr(cap, "Select") != NULL); /* P0 now prints its button row */
-    ASSERT_TRUE(sys_running());
-}
-
-/* An unplugged controller is gated out: input on a gamepad whose connected bit is
- * clear never reaches XRAM, so the program keeps the slot "Disconnected". */
-UTEST(gamepad, disconnected_gamepad_ignored)
-{
-    gamepad_stop();
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    run(20);
-
-    /* No gamepad_connect: the press rides an unplugged controller. */
-    gamepad_hid_set(0, GAMEPAD_BTN_START, true);
-    run(20);
-
-    cap_reset();
-    com_set_tx_tap(tap);
-    run(20);
-    com_set_tx_tap(NULL);
-    ASSERT_TRUE(strstr(cap, "Disconnected") != NULL);
-    ASSERT_TRUE(strstr(cap, "Select") == NULL); /* the press was ignored */
-    ASSERT_TRUE(sys_running());
 }
 
 UTEST_MAIN_EMU()

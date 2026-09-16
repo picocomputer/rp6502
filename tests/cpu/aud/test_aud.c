@@ -14,7 +14,10 @@
  *
  * The measurement is the mixer's own tap of what it rendered: a sink frame
  * pulled after each machine frame, so a frame's number is what the machine
- * had made by the end of it.
+ * had made by the end of it. Two numbers come off that tap. The peak says
+ * a voice is at scale, which catches silence; the gated crossings say the
+ * level is moving and how fast, which catches a voice stuck at one level
+ * and puts a pitch on the one that isn't.
  */
 
 #include "core/aud/mix.h"
@@ -23,6 +26,19 @@
 
 static int g_pos;
 static float g_peak;
+
+/* The sink rate the frequency is measured against. Pinned rather than
+ * assumed, since a host is free to ask for another one. */
+#define SINK_RATE 48000
+
+/* A level has to pass this to count as a side of zero, so the noise either
+ * side of a crossing is not a cycle of its own. Well under one voice at
+ * scale, well over a quiet room. */
+#define GATE (512.0f / 32768.0f)
+
+static int g_cross;  /* full crossings: two to the cycle */
+static int g_span;   /* samples they were counted over */
+static int g_side;   /* which side of zero the level was last seen on */
 
 static void run_frame(void)
 {
@@ -38,6 +54,19 @@ static void run_frame(void)
         const float v = viz[i] < 0 ? -viz[i] : viz[i];
         if (v > g_peak)
             g_peak = v;
+        g_span++;
+        if (viz[i] > GATE)
+        {
+            if (g_side < 0)
+                g_cross++;
+            g_side = 1;
+        }
+        else if (viz[i] < -GATE)
+        {
+            if (g_side > 0)
+                g_cross++;
+            g_side = -1;
+        }
     }
     g_pos = pos;
 }
@@ -46,8 +75,26 @@ static bool load_rom(const char *rom)
 {
     if (!emu_restart(rom))
         return false;
+    aud_set_sink_rate(SINK_RATE);
     g_pos = aud_viz_pos();
     return true;
+}
+
+/* Start counting here, so an attack or a first frame of setup is not part
+ * of the pitch. */
+static void measure_from_here(void)
+{
+    g_cross = 0;
+    g_span = 0;
+    g_side = 0;
+}
+
+/* What the crossings say the voice is doing, in Hz. */
+static float measured_hz(void)
+{
+    if (g_span <= 0)
+        return 0.0f;
+    return (g_cross / 2.0f) * SINK_RATE / (float)g_span;
 }
 
 /* Frames until the engine is heard, or -1. Two is the budget; the load
@@ -83,6 +130,40 @@ UTEST(aud, psg_makes_a_noise)
     ASSERT_NE(at, -1);
     ASSERT_LT(at, 3);
     ASSERT_GT(g_peak, LOUD);
+}
+
+/* A peak alone cannot tell a voice from a level stuck away from zero, so
+ * this counts the crossings and turns them into the pitch the program asked
+ * for: aud_rom_gen.py writes 440 Hz, which the engine divides by three. A
+ * tenth either way is room for the gate and the frame the count starts on,
+ * and nowhere near the next note. */
+UTEST(aud, psg_oscillates)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_PSG));
+    ASSERT_NE(frames_to_sound(8), -1);
+    measure_from_here();
+    play_out(12);
+    ASSERT_GT(g_peak, LOUD);
+    ASSERT_GT(g_cross, 100);
+    const float hz = measured_hz();
+    ASSERT_GT(hz, 396.0f);
+    ASSERT_LT(hz, 484.0f);
+}
+
+/* The same claim for the other engine, without the pitch. aud_rom_gen.py
+ * keys block 4 with f-number 0x198, a fundamental near 310 Hz, but an FM
+ * voice with feedback is not a sine: its harmonics cross zero several times
+ * a cycle, so counted crossings measure the timbre, not the note. What is
+ * worth asserting is that the level keeps moving, which is what a stuck
+ * engine would fail. */
+UTEST(aud, opl_oscillates)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL));
+    ASSERT_NE(frames_to_sound(8), -1);
+    measure_from_here();
+    play_out(12);
+    ASSERT_GT(g_peak, LOUD);
+    ASSERT_GT(g_cross, 80);
 }
 
 /* The same note with the block written before the pointer: the whole

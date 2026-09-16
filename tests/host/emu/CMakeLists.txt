@@ -9,19 +9,19 @@
 
 # The exception: how many frames a script spends is the one thing a script
 # cannot check about itself, so that one is a C test around script.c.
-rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
+rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
         ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/streams.c
         ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
-rp6502_add_script_test(poke FIXTURE gamepad.rp6502)
+rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
 # The machine written down and put back, through the verbs a driver on the
 # other end of a pipe would use. The blob lands in the test's own working
 # directory, which rp6502_add_script_test gives each script.
-rp6502_add_script_test(state FIXTURE gamepad.rp6502)
+rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
 # The command line, which had no test at all: the script suites reach cli.c
 # only through the options they happen to pass, so nothing was checking that a
@@ -44,7 +44,7 @@ foreach(_case
     "headless_with_script;--headless;--script;-"
     "headless_with_crc;--headless;--crc")
     list(POP_FRONT _case _name)
-    rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
     set_tests_properties(cli_${_name} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 
@@ -52,18 +52,18 @@ endforeach()
 # regex has no {n}, so they are spelled out. The clock at 0 is the pacing
 # switch, and a batch run must take it without complaint.
 rp6502_add_cli_test(crc --mute --seed 1 --fill 0 --crc --frames 10
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
     "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
 rp6502_add_cli_test(phi2_zero --mute --seed 1 --fill 0 --phi2 0 --crc --frames 1
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 
 # A run that repeats: the seed reaches the fill, and the fill is read in the
 # grammar the scripts and the docs use rather than C's, where 010 is eight.
 add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
     --mute --seed 1 --fill 010
     --script ${CMAKE_CURRENT_LIST_DIR}/fill.txt
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")
 
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
@@ -71,7 +71,7 @@ set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")
 # loader and dispatch cases ride along in the same binary.
 rp6502_add_test(units
     SOURCES test_units.c ${RP6502_SRC}/host/sokol/cli/cli.c
-    LIBS emu_core FIXTURE adventure.rp6502)
+    LIBS emu_core ROM ${ADVENTURE_ROM})
 if(WIN32) # cli.c needs the same getopt the app uses
     target_link_libraries(test_units PRIVATE wingetopt)
     target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
@@ -84,7 +84,7 @@ rp6502_add_test(sys LIBS emu_core)
 # --- The savestate's framing: what a blob must be before it is believed ---
 # No fixture: every claim is about the header, the manifest and the trailer,
 # which are the machine's shape rather than any program's state.
-rp6502_add_test(sst LIBS emu_core FIXTURE adventure.rp6502)
+rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # --- Every mutable object the core owns, against what carries it ---
 # A static added to core is machine state the moment it is added, and nothing
@@ -145,7 +145,7 @@ rp6502_add_test(gamepad_input LIBS emu_core
 # .rp6502 — dwtest.elf is an llvm-mos build and cc65.dbg is plain text.
 
 # Debugger engine (dbg.c: run/stop/step + address breakpoints)
-rp6502_add_test(dbg LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
+rp6502_add_test(dbg LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
 
 # DWARF5 .debug_info + .debug_line reader coverage (dwarf_info.c /
 # dwarf_line.c) against dwtest.elf, an llvm-mos debug-fork -O0 -g build:
@@ -157,20 +157,20 @@ rp6502_add_test(dwarf5
     SOURCES test_dwarf5.c
         ${RP6502_SRC}/core/dap/dwarf_info.c ${RP6502_SRC}/core/dap/dwarf_line.c
         ${RP6502_SRC}/core/dap/dwarf_cursor.c ${RP6502_SRC}/core/dap/dwarf_elf.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
+    INCLUDES ${RP6502_SRC} ROM host/emu/dwtest.elf)
 
 # DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind.
 rp6502_add_test(dwarf_frame
     SOURCES test_dwarf_frame.c
         ${RP6502_SRC}/core/dap/dwarf_frame.c ${RP6502_SRC}/core/dap/dwarf_cursor.c
         ${RP6502_SRC}/core/dap/dwarf_elf.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
+    INCLUDES ${RP6502_SRC} ROM host/emu/dwtest.elf)
 
 # cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
 # Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain).
 rp6502_add_test(cc65dbg
     SOURCES test_cc65dbg.c ${RP6502_SRC}/core/dap/cc65dbg.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/cc65.dbg)
+    INCLUDES ${RP6502_SRC} ROM host/emu/cc65.dbg)
 
 # W65C02S disassembler (vendor/chips/util/w65c02dasm.h, driving the ui_dbg
 # disasm view). Header-only (CHIPS_UTIL_IMPL); no fixture/toolchain needed.

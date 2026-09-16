@@ -77,12 +77,14 @@ UTEST(run, a_second_of_frames_is_a_second_of_sound)
 
 /* A program that plays something is heard. The frame count alone would be
  * satisfied by handing over silence forever, which is what a conversion
- * that dropped the samples on the floor would do. */
+ * that dropped the samples on the floor would do. The PSG bring-up ROM
+ * sounds within a frame or two of boot, and it is the same note the
+ * emulator's own audio tests measure. */
 UTEST(run, a_program_that_plays_something_is_heard)
 {
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/furelise.rp6502"));
+    ASSERT_TRUE(fe_load(AUD_ROM_PSG));
     fe.audio_peak = 0;
-    fe_run(120);
+    fe_run(20);
     ASSERT_TRUE(fe.audio_peak > 0);
     /* And it is music rather than a buffer read as the wrong type: every
      * sample the machine makes is inside the range, so the loudest one is

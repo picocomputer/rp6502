@@ -5,7 +5,7 @@
 #
 # The video-mode corpus against its readers.
 #
-# tests/roms/vidmodes.py writes the corpus of ROMs.
+# tests/gen/vidmodes.py writes the corpus of ROMs.
 # tests/cpu/vga/test_modes.c boots nearly all of them on whichever machine its
 # tree builds and holds each frame to the CRC in its case; the one fixture the
 # two machines disagree about by design is asserted in tests/rtl/vga, where the

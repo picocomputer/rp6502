@@ -9,10 +9,12 @@
  * checks a waveform — psg's lockstep does that for the PSG, and the
  * OPL2 is a different implementation from emu8950 with no agreement to
  * hold it to. What these check is every link between a 6502 store and a
- * sample leaving the machine.
+ * sample leaving the machine: a peak far from zero, and a level that keeps
+ * crossing it, which is what a stuck engine would fail.
  *
- * This replaces a furelise playthrough that took eighty frames to reach
- * its first note and, for all that, only ever exercised the PSG. The
+ * This replaces a playthrough of the Fur Elise example, which took eighty
+ * frames to reach its first note and, for all that, only ever exercised the
+ * PSG. The
  * OPL2 reached hardware silent behind exactly that gap: the PSG re-reads
  * its whole config from XRAM every tick and needs the snoop only for
  * gate edges, so a working PSG says nothing about a snoop's ability to
@@ -45,6 +47,13 @@ static long g_valids;
 static long g_energy;
 static int g_peak;
 
+/* Crossings of zero, counted on the left channel with a gate either side so
+ * the noise around a crossing is not a cycle of its own. A peak says a level
+ * is far from zero; only this says it is still moving. */
+#define AUD_GATE 512
+static long g_cross;
+static int g_side;
+
 /* The platform clock with the codec tapped: every sample the machine
  * puts out is counted, so a frame's worth of them is what "heard" means
  * below. */
@@ -69,6 +78,19 @@ static void aud_clock()
             g_peak = dl;
         if (dr > g_peak)
             g_peak = dr;
+        const int l = (int)(int16_t)dut->wiring_aud_l;
+        if (l > AUD_GATE)
+        {
+            if (g_side < 0)
+                g_cross++;
+            g_side = 1;
+        }
+        else if (l < -AUD_GATE)
+        {
+            if (g_side > 0)
+                g_cross++;
+            g_side = -1;
+        }
     }
 }
 
@@ -91,6 +113,8 @@ static bool load_rom(const char *path)
     dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
     g_valids = g_energy = 0;
     g_peak = 0;
+    g_cross = 0;
+    g_side = 0;
     return true;
 }
 /* Frames until the engine is heard, or -1. Two is the budget; the load
@@ -121,6 +145,14 @@ UTEST(aud, psg_makes_a_noise)
      * ROM plays; 4096 leaves room without accepting a narrow one. */
     ASSERT_GT(g_peak, 4096);
     ASSERT_GT(g_valids, (long)0);
+    /* And still moving: three more frames of a voice near 310-440 Hz cross
+     * zero tens of times, where a stuck level crosses not at all. The count
+     * starts at the load, but the first sound can land late in a frame, so
+     * the frames that prove it are run here. */
+    run_frame();
+    run_frame();
+    run_frame();
+    ASSERT_GT(g_cross, (long)10);
 }
 
 /* The same note with the block written before the pointer. An engine
@@ -157,6 +189,14 @@ UTEST(aud, opl_makes_a_noise)
     ASSERT_LT(at, 3);
     ASSERT_GT(g_peak, 4096);
     ASSERT_GT(g_valids, (long)0);
+    /* And still moving: three more frames of a voice near 310-440 Hz cross
+     * zero tens of times, where a stuck level crosses not at all. The count
+     * starts at the load, but the first sound can land late in a frame, so
+     * the frames that prove it are run here. */
+    run_frame();
+    run_frame();
+    run_frame();
+    ASSERT_GT(g_cross, (long)10);
 }
 
 /* The bell is the soft CPU's, and it has to sound with no program holding

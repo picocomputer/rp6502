@@ -5,7 +5,7 @@ rp6502_add_test(fs SOURCES test_fs.c ${RP6502_TB_HOSTOS} LIBS emu_core)
 
 # --- Drive fs.c paths: the host-backed drive, ROM overlay, async POSIX-AIO ---
 rp6502_add_test(drive SOURCES test_drive.c ${RP6502_TB_HOSTOS}
-    LIBS emu_core FIXTURE adventure.rp6502)
+    LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # --- A program calling opendir, readdir, closedir, getlabel and getfree ---
 rp6502_add_test(dir SOURCES test_dir.c ${RP6502_TB_HOSTOS}

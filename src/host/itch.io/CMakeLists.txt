@@ -80,8 +80,7 @@ rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
 # There is one web output. build/itch.io/bundle is the shippable itch.io
 # sample, and the link writes rp6502.js and rp6502.wasm straight into it so
-# that the engine exists exactly once. The tester at src/host/itch.io/index.html
-# is served from the source tree and reads that same bundle.
+# that the engine exists exactly once.
 set_target_properties(rp6502-emu PROPERTIES
     OUTPUT_NAME rp6502
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bundle")
@@ -95,18 +94,3 @@ add_custom_target(web_bundle ALL
     VERBATIM)
 add_dependencies(web_bundle rp6502-emu)
 
-# The tester's ROM menu, written here rather than shipped in the page so that
-# a new test ROM appears without editing the page, and so that its absence is
-# how the page knows the web target has never been built. CONFIGURE_DEPENDS
-# re-runs cmake when the corpus changes.
-file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
-set(WEB_ROMS_JS "window.ROMS = [\n")
-foreach(_rom IN LISTS WEB_ROMS)
-    get_filename_component(_name "${_rom}" NAME)
-    string(APPEND WEB_ROMS_JS "  \"${_name}\",\n")
-endforeach()
-string(APPEND WEB_ROMS_JS "];\n")
-# The page has no other way to learn the version: the wasm answers --credits,
-# but only once it has been fetched and started.
-string(APPEND WEB_ROMS_JS "window.VERSION = \"${RP6502_VERSION_STAMP}\";\n")
-file(WRITE "${CMAKE_BINARY_DIR}/roms.js" "${WEB_ROMS_JS}")

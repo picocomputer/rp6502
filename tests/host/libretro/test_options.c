@@ -161,7 +161,7 @@ UTEST(options, a_frontend_without_bitmasks_still_has_gamepads)
 {
     fe_open_as(2, false);
     ASSERT_TRUE(fe.asked_for_bitmasks);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/gamepad.rp6502"));
+    ASSERT_TRUE(fe_load(GAMEPAD_ROM));
     fe_run(40);
     fe.input[0][0][RETRO_DEVICE_ID_JOYPAD_START] = 1;
     fe_run(20);

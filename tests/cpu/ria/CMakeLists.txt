@@ -42,12 +42,12 @@ set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
 
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, boot arguments,
 # the console canvas after a stop, teletype bell) ---
-rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502
+rp6502_add_test(features LIBS emu_core ROM ${ADVENTURE_ROM}
     DEFS EXEC_ROM="${EXEC_ROM}" ROMS_DIR="${RP6502_TEST_CORPUS}"
     DEPENDS exec_rom)
 
 # --- Adventure integration (ROM-asset files + interactive stdin via rln) ---
-rp6502_add_test(adventure LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
+rp6502_add_test(adventure LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
 
 # Ops 0x08 and 0x09: a program that executes itself again with an argument,
 # on whichever machine this tree built.
@@ -107,7 +107,7 @@ else()
 endif()
 
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
-rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
+rp6502_add_test(clock LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # --- OEM code page conversion (core/str/unicode.c) against the ffunicode.c it
 # replaces. The vendored file is compiled beside it with its entry points
@@ -208,5 +208,5 @@ if(TARGET rp6502-emu)
     # The ANSI keyboard against the line editor, through the shipped binary:
     # type and wait against a program that reads whole lines. test_adventure
     # above injects on stdin, so the two prove different halves of one path.
-    rp6502_add_script_test(adventure FIXTURE adventure.rp6502)
+    rp6502_add_script_test(adventure ROM ${ADVENTURE_ROM})
 endif()

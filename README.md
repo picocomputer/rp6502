@@ -140,13 +140,9 @@ the first time and needs no preset argument to find. Pressing F7 builds
 (`adventure.rp6502` by default) — see `src/host/itch.io/dist/README.txt` to retarget
 and deploy it.
 
-`src/host/itch.io/index.html` is the tester: a menu of every test ROM, run against
-that same bundle. It stays in the source tree, so serve the repository root
-rather than the build. Use the VS Code live preview extension
-`ms-vscode.live-server` and open `src/host/itch.io/index.html`, or a simple python
-server. Neither page works from a `file://` URL; the browser needs an HTTP
-origin to fetch a ROM or stream the wasm.
-`python3 -m http.server 8000` then http://localhost:8000/src/host/itch.io/index.html
+The bundle does not work from a `file://` URL; the browser needs an HTTP origin
+to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
+`build/itch.io/bundle` is enough to try it.
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
 into `build/pocket/package`; `pocket-bitstream`, `pocket-fit` and `synth` are

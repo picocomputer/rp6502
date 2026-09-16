@@ -48,12 +48,24 @@ RIA_RX = 0xFFE2
 RW0_DATA = 0xFFE4
 RW0_STEP = 0xFFE5
 RW0_ADDR = 0xFFE6
+RW1_DATA = 0xFFE8
+RW1_STEP = 0xFFE9
+RW1_ADDR = 0xFFEA
 XSTACK = 0xFFEC
 API_ERRNO = 0xFFED
 API_OP = 0xFFEF
 API_CALL = 0xFFF1
 API_A = 0xFFF4
 API_X = 0xFFF6
+
+# The 6522 VIA, in the order the part numbers its registers.
+VIA_T1_LO = 0xFFD4
+VIA_T1_HI = 0xFFD5
+VIA_T1L_LO = 0xFFD6
+VIA_T1L_HI = 0xFFD7
+VIA_ACR = 0xFFDB
+VIA_IFR = 0xFFDD
+VIA_IER = 0xFFDE
 
 # The API ops a generated program reaches for. These are the machine's
 # numbers, not any one program's, which is why they are not in the
