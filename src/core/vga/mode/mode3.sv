@@ -169,12 +169,10 @@ module mode3 (
                 end
                 S3_ADDR: begin
                     row_base <= {1'b0, cf_data} + row_off[16:0];
-                    /* Bitmap overrun, and 16bpp rejects an odd row. */
+                    /* Bitmap overrun. */
                     if (!blank
-                        && (35'(cf_height[14:0]) * 35'(sizeof_row)
-                            > 35'(17'h10000) - 35'({1'b0, cf_data})
-                            || (bpp_log == 3'd4
-                                && (cf_data[0] ^ row_off[0]))))
+                        && 35'(cf_height[14:0]) * 35'(sizeof_row)
+                            > 35'(17'h10000) - 35'({1'b0, cf_data}))
                         blank <= 1'b1;
                     /* The tail's plan: a blank line loads nothing.
                      * The pal_xram test folds the blank decision in
@@ -183,9 +181,7 @@ module mode3 (
                     mode3_pal_ptr <= cf_palette;
                     mode3_pal_xram <= !blank
                         && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                             > 35'(17'h10000) - 35'({1'b0, cf_data})
-                             || (bpp_log == 3'd4
-                                 && (cf_data[0] ^ row_off[0])))
+                             > 35'(17'h10000) - 35'({1'b0, cf_data}))
                         && !cf_palette[0]
                         && bpp_log != 3'd4
                         && {1'b0, cf_palette}

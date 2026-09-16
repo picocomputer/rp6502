@@ -89,10 +89,10 @@ def le16(*vals):
 
 
 def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
-          x_wrap=False, y_wrap=False, config_ptr=0x0100, pal_ptr=0x0200):
+          x_wrap=False, y_wrap=False, config_ptr=0x0100, pal_ptr=0x0200,
+          data_ptr=0x0800):
     if not xram_pal:
         pal_ptr = 0xFFFF
-    data_ptr = 0x0800
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, w, h, data_ptr, pal_ptr)
     bm = bytes((i * 13 + 7) & 0xFF
@@ -211,7 +211,7 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
 
 
 def mode4(name, canvas, plane, log_size, sprites,
-          extra_progs=(), extra_chunks=()):
+          extra_progs=(), extra_chunks=(), img_base=0x6000):
     # sprites: (x, y, image_index, has_metadata). Every image carries a
     # metadata block — a word per row, sparse spans on even rows and
     # continuous full rows on odd — read only by the sprites that ask.
@@ -220,7 +220,6 @@ def mode4(name, canvas, plane, log_size, sprites,
     # Above the mode-3 fills these fixtures stage at $2000, the
     # largest of which is 15,000 bytes: images at $4000 were being
     # overwritten by the bitmap that loaded after them.
-    img_base = 0x6000
     cfg = bytearray()
     for x, y, im, meta in sprites:
         cfg += le16(x, y, img_base + im * stride)
@@ -244,7 +243,7 @@ def mode4(name, canvas, plane, log_size, sprites,
 
 
 def mode4a(name, canvas, plane, log_size, sprites,
-           extra_progs=(), extra_chunks=()):
+           extra_progs=(), extra_chunks=(), img_base=0x6000):
     # sprites: (transform, x, y, image_index) — transform the six 8.8
     # matrix words {a00, a01, b0, a10, a11, b1}.
     size = 1 << log_size
@@ -252,7 +251,6 @@ def mode4a(name, canvas, plane, log_size, sprites,
     # Above the mode-3 fills these fixtures stage at $2000, the
     # largest of which is 15,000 bytes: images at $4000 were being
     # overwritten by the bitmap that loaded after them.
-    img_base = 0x6000
     cfg = bytearray()
     for tr, x, y, im in sprites:
         cfg += le16(*tr)
@@ -462,11 +460,24 @@ mode4a("mode4a_clip", 3, 0, 4, [
         (0x01A0, bytearray((0, 0)) + le16(10, 20, 120, 100, 0x2000, 0xFFFF)),
         (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(120 * 100))),
 ])
+# Odd data pointers. Every engine that reads more than a byte at a time
+# reads it where the program put it: the tail places a 16bpp pixel at any
+# byte, and the sprite engines take texels and the metadata word from an
+# odd image. None of this is recommended and all of it renders.
+mode3("mode3_16bpp_odd", 4, 4, 16, 32, 16, 100, 50, False, data_ptr=0x0801)
+mode4("mode4_odd", 1, 0, 3, [
+    (20, 30, 0, False), (120, 60, 1, True), (-4, 150, 0, True),
+], img_base=0x6001)
+mode4a("mode4a_odd", 1, 0, 4, [
+    ((0x0DD, 0x080, 0x300, -0x080 & 0xFFFF, 0x0DD, 0x200), 60, 60, 0),
+    ((0x100, 0, 0, 0, 0x100, 0), 180, 90, 1),
+], img_base=0x6001)
+
 stress("sprite_stress")
 
 # The review's dark paths: mode 5 at 1bpp and the big squares, halfword
-# descriptor arrays in every engine, the whole mode 4 log range with the
-# defined row of the 32-bit-wrap sizes, a small affine square and a rotated
+# descriptor arrays in every engine, the whole mode 4 log range including a
+# log past the largest square XRAM holds, a small affine square and a rotated
 # 128-pixel one whose image ends at the top of XRAM, and a slot built to
 # lose its race so the overrun counter shows it.
 mode5("mode5_1bpp128", 1, 32, 0, [

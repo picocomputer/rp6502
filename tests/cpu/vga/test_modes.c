@@ -210,6 +210,15 @@ UTEST(mode3, bpp8_wrap_bound_ptrs_320x240)
     run_case(utest_result, "mode3_wrap", 0x315F62CC, MUT_BUDGET_NONE);
 }
 
+/* An odd data pointer. The bitmap moves with the pointer, so the picture
+ * is the even fixture's exactly — which is the claim, since this plane
+ * used to come up dark. */
+
+UTEST(mode3, bpp16_odd_data_640x360)
+{
+    run_case(utest_result, "mode3_16bpp_odd", 0x4C6E85C8, MUT_BUDGET_NONE);
+}
+
 /* Mode 4 sprites: raw sixteen-bit squares with alpha-gated texels and
  * opacity metadata — narrowed sparse rows and continuous full rows —
  * from sprite-only, over-fill, and cross-plane slots, clipped off every
@@ -252,12 +261,26 @@ UTEST(mode4, affine_clips_over_fill_640x480)
 
 UTEST(mode4, log_range_halfword_descs_320x240)
 {
-    run_case(utest_result, "mode4_sizes", 0x6826275A, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode4_sizes", 0xBD73192F, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode4, affine_small_and_rotated_largest_320x240)
 {
     run_case(utest_result, "mode4a_sizes", 0xFFA1B12B, MUT_BUDGET_NONE);
+}
+
+/* Odd sprite images, one fixture per fetch path: the plain walk, the
+ * metadata word that inherits the image's low bits, and the affine pop
+ * whose texels land anywhere. */
+
+UTEST(mode4, odd_image_with_metadata_320x240)
+{
+    run_case(utest_result, "mode4_odd", 0x7E723099, MUT_BUDGET_NONE);
+}
+
+UTEST(mode4, affine_odd_image_320x240)
+{
+    run_case(utest_result, "mode4a_odd", 0x6C651640, MUT_BUDGET_NONE);
 }
 
 /* Mode 5 sprites: a sprite-only plane claiming a zeroed layer, sprites
