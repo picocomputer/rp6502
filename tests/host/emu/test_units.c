@@ -400,7 +400,7 @@ UTEST(cli, rom_args_with_install_form)
 {
     cli_options o;
     cli_options_init(&o);
-    char *argv[] = {"emu", "--rom", "x.rp6502", "--", "a"};
+    char *argv[] = {"emu", "--install", "x.rp6502", "--", "a"};
     ASSERT_EQ(cli_parse_args(5, argv, &o), 0);
     ASSERT_EQ(o.n_installs, 1);
     ASSERT_TRUE(o.rom == NULL);

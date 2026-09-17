@@ -158,7 +158,7 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}
 )
 target_compile_definitions(emu_core PUBLIC
-    ROM_ALIAS_MAX=16 # --rom's null drive; the docs promise sixteen
+    ROM_ALIAS_MAX=16 # --install's null drive; the docs promise sixteen
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN

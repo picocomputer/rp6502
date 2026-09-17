@@ -210,7 +210,7 @@ int main(int argc, char **argv)
         free(oem);
         if (!ok)
         {
-            fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
+            fprintf(stderr, "rp6502-emu: cannot install '%s'\n", o.installs[i]);
             return 1;
         }
     }

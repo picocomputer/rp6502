@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The drive backings beyond the plain host filesystem, exercised on the host:
- *   - installed ROMs on the null drive ":" (--rom): a .rp6502 reached as ":name",
+ *   - installed ROMs on the null drive ":" (--install): a .rp6502 reached as ":name",
  *     open/load only — resolved for boot/exec and openable read-only, separate
  *     from the filesystem, but never the cwd and never enumerated or stat'd.
  *   - the filesystem itself (no chroot): a relative path resolves the process
@@ -82,7 +82,7 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
 }
 
 
-/* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
+/* --install puts a .rp6502 on the null drive, reached as ":name". Like the
  * firmware, ONLY the boot/exec loader resolves it (rom_alias_resolve + rom_load);
  * a 6502 open(":name") is not special — it goes to the filesystem and fails.
  * Installs are separate from it (a same-named host file is untouched). */

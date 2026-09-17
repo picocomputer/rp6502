@@ -98,7 +98,7 @@
       var base = baseName(CONFIG.rom);
       var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
       var persist = CONFIG.persist === true;
-      var args = ['--rom', '/' + base];
+      var args = ['--install', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
 
