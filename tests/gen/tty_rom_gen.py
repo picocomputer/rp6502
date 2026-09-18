@@ -83,6 +83,30 @@ def drive(emu, rom):
     that the raw console read delivered it."""
     def body(e):
         e.cmd("run 10")  # let the program reach its poll loop
+        # A chord types no character, so the key command is the only way to
+        # send one, and a control byte is only writable in a string now that
+        # the escapes are C's. Both arrive as the byte a terminal sends and
+        # the program echoes it back raw.
+        e.cmd("key a+ctrl")
+        e.cmd('wait "\\x01"')
+        e.cmd('type "\\2"')
+        e.cmd('wait "\\x02"')
+        e.cmd('type "\\x41\\102"')
+        e.cmd('wait "AB"')
+        # A key named by a word types its character too. That needs the
+        # script's own US table, because this build links vtkeys.c and has no
+        # layout engine: its host resolves characters before a keystroke ever
+        # arrives, and a script has no host to ask.
+        e.cmd("key space")
+        e.cmd('wait " "')
+        e.cmd("key minus")
+        e.cmd('wait "-"')
+        e.cmd("key 3+shift")
+        e.cmd('wait "#"')
+        e.cmd("key kp5")
+        e.cmd('wait "5"')
+        e.cmd("key a+shift")
+        e.cmd('wait "A"')
         e.cmd(f'type "{TYPED}{END}"')
         e.cmd(f'wait "{TYPED}{END}"')
     return rp6502_script.drive(emu, rom, body)
