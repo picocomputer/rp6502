@@ -95,8 +95,8 @@ def drive(emu, rom):
         e.cmd('wait "AB"')
         # A key named by a word types its character too. That needs the
         # script's own US table, because this build links vtkeys.c and has no
-        # layout engine: its host resolves characters before a keystroke ever
-        # arrives, and a script has no host to ask.
+        # layout engine. Its host resolves characters before a keystroke
+        # arrives, and a script has no host.
         e.cmd("key space")
         e.cmd('wait " "')
         e.cmd("key minus")

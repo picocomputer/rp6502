@@ -262,8 +262,8 @@ static bool script_string(char **p, char *out, size_t outsz)
         char c = *s++;
         if (c == '\\' && *s)
             c = script_escape(&s);
-        /* Every path a string takes from here is a C string, so a NUL would
-         * end it early and send part of what was written. The command fails
+        /* The paths from here all use C strings, so a NUL would end one
+         * early and send part of what was written. The command fails
          * instead. */
         if (!c)
             return false;
@@ -803,15 +803,15 @@ bool script_command(const char *line)
             return true;
         /* vtkeys_key is false for a key that types a character, which the
          * window hosts deliver as a chord built from the character their own
-         * host resolved. A script has no host to ask, so the character comes
-         * from the table above. */
+         * host resolved. A script has no host, so the character comes from
+         * the table above. */
         char ch = shift ? shifted : plain;
         if (!ch)
             return script_error("'%s' sends nothing", name);
         if (ctrl && !alt)
         {
             /* Not vtkeys_ctrl_letter, which drops a key that has no control
-             * byte. A script that sends nothing has to hear about it. */
+             * byte. A key that sends nothing is an error instead. */
             char byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
             if (!byte)
                 return script_error("'%s' has no control byte", name);
