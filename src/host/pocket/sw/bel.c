@@ -3,13 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The console bell. The fabric holds the voice, a ninth channel of
- * psg; this side decides what it plays and when.
- *
- * The split is where the clocks are. A voice steps 48000 times a second,
- * which this processor cannot do — no interrupts, and it can sit inside
- * a file operation for milliseconds. The events it does own are 20 to
- * 800 ms apart, which a polled task handles.
+ * The bell's voice is psg.sv's ninth channel, since a voice steps 48000
+ * times a second and the soft CPU has no interrupts. The deadlines here
+ * fall 20 to 800 ms after a strike, so bel_task polls them.
  */
 
 #include "bel.h"
@@ -22,9 +18,6 @@
 static ria_bel_t bel_queue[BEL_QUEUE_SIZE];
 static uint8_t bel_head, bel_tail;
 static bool bel_active;
-/* Machine time, not real time: the bell runs on the clock its audio engine
- * does, which here is the fabric's. Zero means no deadline -- mtime is never
- * legitimately at absolute zero once the machine is up. */
 static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
 
 static uint64_t bel_in_ms(uint32_t ms)
@@ -37,8 +30,6 @@ static bool bel_due(uint64_t at)
     return at && (int64_t)(host_clock_us() - at) >= 0;
 }
 
-/* The pan is centre and the gate is its low bit; the fabric takes the
- * edge off the register. */
 static void bel_voice(const ria_bel_t *snd, bool gate)
 {
     AUD_BEL_LO = (uint32_t)snd->freq
@@ -49,8 +40,6 @@ static void bel_voice(const ria_bel_t *snd, bool gate)
                  | ((uint32_t)(gate ? 1u : 0u) << 16);
 }
 
-/* The voice keeps what the last session gated into it, so a host reset
- * would ring forever with nothing here counting down its release. */
 void bel_init(void)
 {
     AUD_BEL_LO = 0;
@@ -73,7 +62,7 @@ void bel_add(const ria_bel_t *sound)
 {
     uint8_t next = (bel_head + 1) % BEL_QUEUE_SIZE;
     if (next == bel_tail)
-        return; // Queue full, drop
+        return;
     bel_queue[bel_head] = *sound;
     bel_head = next;
     if (!bel_active)
@@ -85,8 +74,6 @@ void bel_task(void)
     if (!bel_active)
         return;
 
-    /* A restrike takes both sounds asking for one. Where the next does
-     * not, this one runs out its own life instead. */
     if (bel_due(bel_restrike_at))
     {
         uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
@@ -114,8 +101,6 @@ void bel_task(void)
         }
         else
         {
-            /* Zero rather than leave it in a release with nobody
-             * watching; a cleared word's release nibble is the shortest. */
             AUD_BEL_LO = 0;
             AUD_BEL_HI = 0;
             bel_restrike_at = 0;

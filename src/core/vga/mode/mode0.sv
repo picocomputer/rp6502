@@ -35,7 +35,7 @@ module mode0 (
 
     /* The savestate serializer, which owns the bus side while it has
      * the machine. It reads and writes whole words; the byte strobes
-     * belong to the machine's own writes. */
+     * apply only to the machine's own writes. */
     input logic sst_own,
     input logic [13:0] sst_addr,
     input logic sst_we,
@@ -297,10 +297,13 @@ module mode0 (
         end
     end
 
-    /* The C renderer's exact order: blink darkens unless the block
-     * cursor owns the cell, line rows force the stroke and take the
-     * underline colour, then the block cursor swaps in its own ground
-     * with the cell's background as ink. */
+    /* These steps run in the C renderer's order: a blinking cell's glyph
+     * is drawn in the background colour while its blink phase bit is set
+     * unless the block cursor is drawn on the cell, every pixel is set on
+     * a row where an overline, strike or underline is drawn, an underline
+     * row takes the underline colour, and then under the block cursor the
+     * glyph is drawn in the cell's background colour on the cursor
+     * colour. */
     logic cur_here, cur_block;
     logic [7:0] attr_r;
     logic [7:0] bits_res;
@@ -455,9 +458,10 @@ module mode0 (
         ? {wr_bank, 10'd0}
         : {!wr_bank, 10'(h + 10'd1)};
 
-    /* The buffer's output register carries nothing but the buffer: a
-     * branch handing it a constant makes the fabric read combinationally
-     * and mux, and the line buffer leaves memory. */
+    /* The buffer's output register is loaded from nothing but the
+     * buffer, because a branch handing it a constant turns the read into
+     * combinational logic and a mux in the fabric, and the line buffer
+     * then cannot be placed in block memory. */
     logic [15:0] lb_q;
     logic lb_blank;
     always_ff @(posedge clk) begin

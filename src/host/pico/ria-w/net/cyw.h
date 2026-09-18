@@ -33,7 +33,6 @@ bool cyw_check_rf_enable(uint8_t *v);
 void cyw_apply_rf_enable(uint8_t rf, bool changed);
 int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width);
 
-
 // Configuration setting RFCC
 bool cyw_check_rf_country_code(const char *in, char *out);
 void cyw_apply_rf_country_code(const char *rfcc, bool changed);
@@ -43,9 +42,6 @@ const char *cyw_get_rf_country_code_verbose(void);
 // List known country codes for help
 int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* Hardware, but after CFG in the driver list rather than among the bring-up rows
- * ahead of it: the country code is an argument to the radio's bring-up call,
- * so this cannot precede the config load. */
 #define CYW_CONFIG_RF CONFIG_INT(E, cyw, rf_enable, uint8_t, 1, \
     cyw_check_rf_enable, cyw_apply_rf_enable, STR_RF, cyw_rf_enable_response, \
     STR_HELP_SET_RF, NULL)

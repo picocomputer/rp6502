@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The pointer, absolute and relative.
- *
- * The machine has two pointing devices and a program maps whichever it
- * wants: the tablet is absolute and hovers, the mouse is relative and
- * counts. libretro has one abstraction for each, and the claims here are
- * that each reaches the block a program reads — which is what the frames
- * show, since both fixtures draw where they are pointed.
  */
 
 #include "retro_fe.h"
@@ -27,7 +19,6 @@ int main(int argc, const char *const argv[])
     return rc;
 }
 
-/* Somewhere on the canvas, in the [-0x7FFF, 0x7FFF] the pointer speaks. */
 static void point_at(float fx, float fy, bool pressed)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
@@ -37,89 +28,12 @@ static void point_at(float fx, float fy, bool pressed)
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_PRESSED] = pressed ? 1 : 0;
 }
 
-static void frame_copy(uint32_t *dst)
-{
-    memcpy(dst, fe.frame_copy, (size_t)fe.frame_w * fe.frame_h * sizeof(uint32_t));
-}
-
-static bool frame_differs(const uint32_t *other)
-{
-    return memcmp(other, fe.frame_copy,
-                  (size_t)fe.frame_w * fe.frame_h * sizeof(uint32_t)) != 0;
-}
-
-static uint32_t settled[640 * 480];
-
-/* paint_tablet.rp6502 decodes contact 0 and draws there, so a pointer that
- * moved is a picture that changed. */
-UTEST(pointer, an_absolute_pointer_reaches_the_tablet)
-{
-    memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tablet.rp6502"));
-    point_at(0.25f, 0.25f, true);
-    fe_run(60);
-    frame_copy(settled);
-
-    point_at(0.75f, 0.70f, true);
-    fe_run(30);
-    ASSERT_TRUE(frame_differs(settled));
-    fe.unload_game();
-}
-
-/* The contacts are touches and no host cursor is claimed, so the program
- * draws its own pointer. That matters because there is nothing here to draw
- * one for it: libretro gives a core no way to ask a frontend for a cursor,
- * and a program that hid its own on our word would be left with neither.
- *
- * The proof is that the pointer is visible at all — the case above moves it
- * and the picture follows, which only happens while the program is drawing
- * it. This one holds the other half: nothing pressed is nothing pointed at,
- * rather than a stale contact left behind. */
-UTEST(pointer, letting_go_ends_the_contact)
-{
-    memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tablet.rp6502"));
-    point_at(0.30f, 0.30f, true);
-    fe_run(60);
-    frame_copy(settled);
-
-    point_at(0.30f, 0.30f, false); /* lifted */
-    fe_run(20);
-    ASSERT_FALSE(frame_differs(settled)); /* the lift itself moves nothing */
-
-    /* Moving a lifted pointer paints nothing and moves nothing. */
-    point_at(0.80f, 0.75f, false);
-    fe_run(20);
-    ASSERT_FALSE(frame_differs(settled));
-    fe.unload_game();
-}
-
-/* paint_mouse.rp6502 reads the relative counters under a timer interrupt and
- * moves a sprite, so motion is a picture that changed and stillness is one
- * that did not. */
-UTEST(pointer, a_relative_pointer_reaches_the_mouse)
-{
-    memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_mouse.rp6502"));
-    fe_run(60);
-    frame_copy(settled);
-
-    fe_run(20);
-    ASSERT_FALSE(frame_differs(settled)); /* held still */
-
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 80;
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 60;
-    fe_run(2);
-    memset(fe.mouse, 0, sizeof fe.mouse); /* one poll's worth of motion */
-    fe_run(20);
-    ASSERT_TRUE(frame_differs(settled));
-    fe.unload_game();
-}
-
-/* Both paint fixtures map their block at 0xFFA0 (TABLET_INPUT and MOUSE_INPUT
- * in the examples). The tablet's contact 0 is four bytes in, flags first. */
-#define PAINT_XREG 0xFFA0
-#define TABLET_CONTACT0 (PAINT_XREG + 4)
+/* The mouse and tablet programs that tests/gen/pointer_rom_gen.py builds map
+ * their blocks at these addresses. The tablet's four-byte header comes before
+ * contact 0, whose flags are its first byte. */
+#define MOUSE_XREG 0xFF00
+#define TABLET_XREG 0xFF10
+#define TABLET_CONTACT0 (TABLET_XREG + 4)
 
 static const uint8_t *xram_at(unsigned addr)
 {
@@ -127,8 +41,75 @@ static const uint8_t *xram_at(unsigned addr)
     return xram ? xram + addr : NULL;
 }
 
-/* One index of the pointer, as a frontend that walks rather than counts
- * reports it: nothing else in the array is touched. */
+#define CONTACT_BYTES 6
+#define MOUSE_BYTES 5
+
+static uint8_t settled[CONTACT_BYTES];
+
+static void block_copy(uint8_t *dst, unsigned addr, int len)
+{
+    const uint8_t *src = xram_at(addr);
+    if (src)
+        memcpy(dst, src, (size_t)len);
+}
+
+static bool block_differs(const uint8_t *other, unsigned addr, int len)
+{
+    const uint8_t *now = xram_at(addr);
+    return now && memcmp(other, now, (size_t)len) != 0;
+}
+
+UTEST(pointer, an_absolute_pointer_reaches_the_tablet)
+{
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    ASSERT_TRUE(fe_load(TABLET_ROM));
+    point_at(0.25f, 0.25f, true);
+    fe_run(60);
+    block_copy(settled, TABLET_CONTACT0, CONTACT_BYTES);
+
+    point_at(0.75f, 0.70f, true);
+    fe_run(30);
+    ASSERT_TRUE(block_differs(settled, TABLET_CONTACT0, CONTACT_BYTES));
+    fe.unload_game();
+}
+
+UTEST(pointer, letting_go_ends_the_contact)
+{
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    ASSERT_TRUE(fe_load(TABLET_ROM));
+    point_at(0.30f, 0.30f, true);
+    fe_run(60);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01); /* tip down */
+
+    point_at(0.30f, 0.30f, false);
+    fe_run(20);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
+
+    point_at(0.80f, 0.75f, false);
+    fe_run(20);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
+    fe.unload_game();
+}
+
+UTEST(pointer, a_relative_pointer_reaches_the_mouse)
+{
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(fe_load(MOUSE_ROM));
+    fe_run(60);
+    block_copy(settled, MOUSE_XREG, MOUSE_BYTES);
+
+    fe_run(20);
+    ASSERT_FALSE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
+
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 80;
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 60;
+    fe_run(2);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe_run(20);
+    ASSERT_TRUE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
+    fe.unload_game();
+}
+
 static void finger_at(int i, float fx, float fy, bool pressed)
 {
     fe.pointer[i][RETRO_DEVICE_ID_POINTER_X] = (int16_t)((fx * 2.0f - 1.0f) * 0x7FFF);
@@ -136,9 +117,12 @@ static void finger_at(int i, float fx, float fy, bool pressed)
     fe.pointer[i][RETRO_DEVICE_ID_POINTER_PRESSED] = pressed ? 1 : 0;
 }
 
-/* The fixture booted far enough to map its block: the latch below is learned
- * only while a program is asking, and XRAM before that is the fill. */
-static bool paint_loaded(const char *rom)
+/* The core reads no pointer input until a program maps the mouse or tablet
+ * block into XRAM, so until then mouse motion is ignored and the block holds
+ * whatever XRAM was filled with at load. rom_loaded runs 60 frames so that
+ * the program has mapped its block before a case moves the mouse or reads
+ * the block. */
+static bool rom_loaded(const char *rom)
 {
     if (!fe_load(rom))
         return false;
@@ -146,7 +130,6 @@ static bool paint_loaded(const char *rom)
     return true;
 }
 
-/* A mouse the frontend has reported once: one poll of motion, then still. */
 static void a_mouse_has_moved(void)
 {
     memset(fe.mouse, 0, sizeof fe.mouse);
@@ -155,52 +138,44 @@ static void a_mouse_has_moved(void)
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 0;
 }
 
-/* RetroArch's desktop drivers never implement POINTER_COUNT; the header's
- * rule is to walk the index until PRESSED is 0, and a frontend that has shown
- * no mouse gets exactly that. This was the defect: with the count read first,
- * the walk never ran and the tablet never moved on any desktop. */
 UTEST(pointer, a_frontend_that_does_not_count_still_points)
 {
-    fe_close(); /* a session of its own: no mouse has been seen */
+    fe_close();
     fe_open();
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     finger_at(0, 0.25f, 0.25f, true);
     fe_run(60);
-    frame_copy(settled);
+    block_copy(settled, TABLET_CONTACT0, CONTACT_BYTES);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01); /* tip down, no hover */
 
     finger_at(0, 0.75f, 0.70f, true);
     fe_run(30);
-    ASSERT_TRUE(frame_differs(settled));
+    ASSERT_TRUE(block_differs(settled, TABLET_CONTACT0, CONTACT_BYTES));
     fe.unload_game();
 }
 
-/* A mouse hovers: once the frontend has shown one, its pointer is a contact
- * with nothing pressed, and the program's own cursor follows it. */
 UTEST(pointer, a_mouse_hovers_before_it_presses)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     a_mouse_has_moved();
     finger_at(0, 0.25f, 0.25f, false);
     fe_run(60);
-    frame_copy(settled);
+    block_copy(settled, TABLET_CONTACT0, CONTACT_BYTES);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80); /* hover, nothing pressed */
 
     finger_at(0, 0.75f, 0.70f, false);
     fe_run(30);
-    ASSERT_TRUE(frame_differs(settled));
+    ASSERT_TRUE(block_differs(settled, TABLET_CONTACT0, CONTACT_BYTES));
     fe.unload_game();
 }
 
-/* The pointer has one PRESSED bit; the mouse has three buttons, and they are
- * the ones a hovering mouse reports. A right button is RIGHT, not a tip. */
 UTEST(pointer, a_hovering_mouse_brings_its_own_buttons)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     a_mouse_has_moved();
     finger_at(0, 0.50f, 0.50f, false);
     fe.mouse[RETRO_DEVICE_ID_MOUSE_RIGHT] = 1;
@@ -215,25 +190,19 @@ UTEST(pointer, a_hovering_mouse_brings_its_own_buttons)
     fe.unload_game();
 }
 
-/* Off the game image the cursor is over the rest of the frontend: the tablet
- * has no contact there. */
 UTEST(pointer, a_pointer_off_the_image_is_no_contact)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     a_mouse_has_moved();
     finger_at(0, 0.50f, 0.50f, false);
     fe_run(5);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80);
-    frame_copy(settled);
 
-    /* No contact is six zero bytes -- no position, so the program's pointer
-     * stays where it was rather than going to (0,0). */
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
     fe_run(5);
     for (int i = 0; i < 6; i++)
         ASSERT_EQ(xram_at(TABLET_CONTACT0)[i], 0x00);
-    ASSERT_FALSE(frame_differs(settled));
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 0;
     fe_run(5);
@@ -241,20 +210,17 @@ UTEST(pointer, a_pointer_off_the_image_is_no_contact)
     fe.unload_game();
 }
 
-/* The mouse is relative and its OS cursor legitimately parks off the image
- * -- a letterbox is off the image -- so its motion always flows. Only its
- * buttons are muted there, as a release. */
 UTEST(pointer, off_the_image_the_mouse_moves_but_presses_nothing)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_mouse.rp6502"));
-    frame_copy(settled);
+    ASSERT_TRUE(rom_loaded(MOUSE_ROM));
+    block_copy(settled, MOUSE_XREG, MOUSE_BYTES);
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(PAINT_XREG)[0], 0x00); /* the button byte: released */
+    ASSERT_EQ(xram_at(MOUSE_XREG)[0], 0x00);
 
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 80;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 60;
@@ -262,91 +228,81 @@ UTEST(pointer, off_the_image_the_mouse_moves_but_presses_nothing)
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 0;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 0;
     fe_run(20);
-    ASSERT_TRUE(frame_differs(settled)); /* it still moved */
+    ASSERT_TRUE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 0;
     fe_run(5);
-    ASSERT_EQ(xram_at(PAINT_XREG)[0], 0x01); /* back over the image, the button is real */
+    ASSERT_EQ(xram_at(MOUSE_XREG)[0], 0x01);
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe.unload_game();
 }
 
-/* Two fingers are two contacts, walked in index order until one is not
- * pressed. Nothing exercised the second slot before this. */
 UTEST(pointer, two_fingers_are_two_contacts)
 {
-    fe_close(); /* a session of its own: no mouse has been seen */
+    fe_close();
     fe_open();
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     finger_at(0, 0.25f, 0.25f, true);
     finger_at(1, 0.75f, 0.75f, true);
     finger_at(2, 0.50f, 0.50f, false);
     fe_run(5);
     const uint8_t *c0 = xram_at(TABLET_CONTACT0);
     ASSERT_EQ(c0[0], 0x01);
-    ASSERT_EQ(c0[6], 0x01);  /* contact 1, six bytes on */
-    ASSERT_EQ(c0[12], 0x00); /* contact 2: not a finger */
-    /* Contact 1 is the second position, not a copy of the first. */
+    ASSERT_EQ(c0[6], 0x01);
+    ASSERT_EQ(c0[12], 0x00);
     ASSERT_NE(c0[7] | c0[8] << 8 | c0[9] << 16, c0[1] | c0[2] << 8 | c0[3] << 16);
     fe.unload_game();
 }
 
-/* The block's button byte, which the mouse fixture maps at PAINT_XREG. */
 #define MOUSE_BUTTONS 0
 
-/* Five buttons reach the machine, not three. The two side buttons are
- * BACKWARD and FORWARD in the mouse block, bits 3 and 4. */
+/* The two side buttons are BACKWARD and FORWARD in the mouse block, bits 3
+ * and 4. */
 UTEST(pointer, the_side_buttons_reach_the_machine)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_mouse.rp6502"));
+    ASSERT_TRUE(rom_loaded(MOUSE_ROM));
 
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x08);
+    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x08);
 
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 0;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_5] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x10);
+    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x10);
 
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe_run(5);
-    ASSERT_EQ(xram_at(PAINT_XREG)[MOUSE_BUTTONS], 0x00);
+    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x00);
     fe.unload_game();
 }
 
-/* Touch and the mouse take turns: a finger takes the tablet, keeps it while
- * the mouse moves under it, and gives it back once the touch ends and the
- * mouse moves again. */
 UTEST(pointer, a_finger_takes_the_tablet_from_the_mouse)
 {
     fe_close();
     fe_open();
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
 
     a_mouse_has_moved();
     finger_at(0, 0.30f, 0.30f, false);
     fe_run(5);
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80); /* the mouse, hovering */
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80);
 
-    /* A finger arrives: tip down, no hover, and it owns the block. */
     finger_at(0, 0.60f, 0.60f, true);
     fe_run(5);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01);
 
-    /* The mouse moving does not take it back while the touch is live. */
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 5;
     fe_run(2);
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 0;
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x01);
 
-    /* The touch ends and nothing is pointed at until the mouse moves. */
     finger_at(0, 0.60f, 0.60f, false);
     fe_run(5);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
@@ -356,32 +312,25 @@ UTEST(pointer, a_finger_takes_the_tablet_from_the_mouse)
     fe.unload_game();
 }
 
-/* x11 and udev report a contact per held mouse button, at the mouse's own
- * position. Those are not fingers: a right-click is RIGHT on a hovering
- * pointer, not a tip-down touch that would paint. */
 UTEST(pointer, a_held_button_is_not_a_finger)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     a_mouse_has_moved();
 
-    /* What those drivers send for a right-click: index 0 and index 1 both
-     * pressed, both at the cursor. */
     finger_at(0, 0.40f, 0.40f, true);
     finger_at(1, 0.40f, 0.40f, true);
     fe.mouse[RETRO_DEVICE_ID_MOUSE_RIGHT] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x82);      /* hover + RIGHT */
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[6], 0x00);      /* no second finger */
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x82); /* hover + RIGHT */
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[6], 0x00);
 
     memset(fe.mouse, 0, sizeof fe.mouse);
     memset(fe.pointer, 0, sizeof fe.pointer);
     fe.unload_game();
 }
 
-/* A lightgun is an absolute pointer with its own buttons, and -0x8000 on an
- * axis is the frontend saying it is off the screen. */
 UTEST(pointer, a_lightgun_points_at_the_tablet)
 {
     fe_close();
@@ -389,21 +338,21 @@ UTEST(pointer, a_lightgun_points_at_the_tablet)
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
     memset(fe.lightgun, 0, sizeof fe.lightgun);
-    ASSERT_TRUE(paint_loaded(FIXTURES_DIR "/paint_tablet.rp6502"));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
     fe.set_controller_port_device(0, RETRO_DEVICE_LIGHTGUN);
 
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = (int16_t)(0.25f * 0x7FFF);
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y] = (int16_t)(0.25f * 0x7FFF);
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_TRIGGER] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x81); /* hover + tip */
-    frame_copy(settled);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x81); /* hover + LEFT */
+    block_copy(settled, TABLET_CONTACT0, CONTACT_BYTES);
 
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = (int16_t)(0.70f * 0x7FFF);
     fe_run(20);
-    ASSERT_TRUE(frame_differs(settled));
+    ASSERT_TRUE(block_differs(settled, TABLET_CONTACT0, CONTACT_BYTES));
 
-    /* Off the screen: no contact, and the program's pointer stays put. */
+    /* libretro.h defines -0x8000 on a lightgun axis as out of bounds. */
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = -0x8000;
     fe_run(5);
     for (int i = 0; i < 6; i++)

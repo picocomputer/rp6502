@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The bargain retro_run strikes with a frontend.
- *
- * One video frame per call, input polled before it is read, and a second of
- * sound per second of frames. A frontend synchronises on all three, so none
- * of them is a detail — a core that hands over two frames or none has broken
- * the pacing it asked the frontend to do for it.
- *
- * The geometry claims are here too, and their numbers come from the corpus
- * manifest rather than from the machine: a machine agreeing with itself
- * about the wrong canvas is not evidence.
  */
 
 #include "core/aud/mix.h"
@@ -61,9 +50,6 @@ UTEST(run, the_gamepad_is_polled_before_it_is_read)
     fe.unload_game();
 }
 
-/* A second of frames is a second of sound, whether or not the program made
- * any: a frontend that syncs on audio waits for silence as much as for
- * music. */
 UTEST(run, a_second_of_frames_is_a_second_of_sound)
 {
     load(utest_result, ROM("mode3_8bpp"));
@@ -75,49 +61,38 @@ UTEST(run, a_second_of_frames_is_a_second_of_sound)
     fe.unload_game();
 }
 
-/* A program that plays something is heard. The frame count alone would be
- * satisfied by handing over silence forever, which is what a conversion
- * that dropped the samples on the floor would do. */
 UTEST(run, a_program_that_plays_something_is_heard)
 {
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/furelise.rp6502"));
+    ASSERT_TRUE(fe_load(AUD_ROM_PSG));
     fe.audio_peak = 0;
-    fe_run(120);
+    fe_run(20);
     ASSERT_TRUE(fe.audio_peak > 0);
-    /* And it is music rather than a buffer read as the wrong type: every
-     * sample the machine makes is inside the range, so the loudest one is
-     * too. */
     ASSERT_TRUE(fe.audio_peak <= 32767);
     fe.unload_game();
 }
 
-/* The OPL2 generates at 49716 Hz because a YM3812 does, and this core told
- * the frontend 48000. A second of frames still has to be a second of sound
- * at the rate that was declared, or everything plays sharp and a frontend
- * syncing on audio drags the machine off 60 Hz to keep up. */
 UTEST(run, a_device_at_its_own_rate_still_arrives_at_ours)
 {
     ASSERT_TRUE(fe_load(AUD_ROM_OPL));
     fe.audio_peak = 0;
-    fe_run(20); /* let the program reach its note */
+    fe_run(20);
     fe.audio_frames = 0;
     fe_run(60);
-    ASSERT_TRUE(fe.audio_peak > 0); /* it is really the OPL sounding */
+    ASSERT_TRUE(fe.audio_peak > 0);
 
-    /* The resampler's output length varies by a sample either way as its
-     * phase carries, so this is the rate and not an exact count. */
     ASSERT_TRUE(fe.audio_frames > (size_t)47900);
     ASSERT_TRUE(fe.audio_frames < (size_t)48100);
     fe.unload_game();
 }
 
-/* Silence is still handed over, at the same rate. */
 UTEST(run, a_silent_program_still_keeps_time)
 {
     ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
-    /* The resampler's history is twenty-four samples of whatever the last
-     * program was playing, and it rings down through the first frame after
-     * the stop. Half a millisecond of tail, and this asserts exact zero. */
+    /* The resampler's history holds 24 samples of whatever the previous
+     * program was playing, and only a cold boot clears it, so the first
+     * frame's audio still includes about half a millisecond of that sound.
+     * This case asserts exact silence, so it starts counting after that
+     * frame. */
     fe_run(1);
     fe.audio_peak = 0;
     fe.audio_frames = 0;
@@ -127,8 +102,6 @@ UTEST(run, a_silent_program_still_keeps_time)
     fe.unload_game();
 }
 
-/* Nothing is handed over outside retro_run. A frontend has not set up a
- * frame yet when it is loading content. */
 UTEST(run, nothing_is_handed_over_outside_a_run)
 {
     fe.video_calls = fe.audio_calls = fe.poll_calls = 0;
@@ -143,15 +116,13 @@ UTEST(run, nothing_is_handed_over_outside_a_run)
     fe.unload_game();
 }
 
-/* The frame handed over is the canvas the corpus says that program uses,
- * and the pitch is that canvas's own — not the largest one's. */
 UTEST(run, the_frame_is_the_canvas_the_corpus_names)
 {
     static const char *names[] = {
-        "mode3_8bpp",   /* 640x480 */
-        "mode3_1bpp",   /* 320x240 */
-        "mode3_4bppr",  /* 320x180 */
-        "mode3_16bpp",  /* 640x360 */
+        "mode3_8bpp",
+        "mode3_1bpp",
+        "mode3_4bppr",
+        "mode3_16bpp",
     };
     for (size_t i = 0; i < sizeof names / sizeof *names; i++)
     {
@@ -168,8 +139,6 @@ UTEST(run, the_frame_is_the_canvas_the_corpus_names)
     }
 }
 
-/* A canvas that is not the boot console is announced, because a frontend
- * sized its window from av_info and has no other way to hear. */
 UTEST(run, a_smaller_canvas_is_announced)
 {
     int w, h;
@@ -182,7 +151,6 @@ UTEST(run, a_smaller_canvas_is_announced)
     fe.unload_game();
 }
 
-/* And the frame never disagrees with what was announced. */
 UTEST(run, the_frame_never_disagrees_with_the_announcement)
 {
     ASSERT_TRUE(fe_load(ROM("mode3_4bppr")));
@@ -193,8 +161,6 @@ UTEST(run, the_frame_never_disagrees_with_the_announcement)
     fe.unload_game();
 }
 
-/* The canvas is said once, not once a frame: a frontend is entitled to
- * treat the call as news. */
 UTEST(run, a_settled_canvas_is_not_announced_again)
 {
     ASSERT_TRUE(fe_load(ROM("mode3_1bpp")));
@@ -205,7 +171,6 @@ UTEST(run, a_settled_canvas_is_not_announced_again)
     fe.unload_game();
 }
 
-/* The core says the machine has a display of its own aspect. */
 UTEST(run, the_pixels_are_where_the_pitch_says)
 {
     ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
@@ -215,12 +180,9 @@ UTEST(run, the_pixels_are_where_the_pitch_says)
     fe.unload_game();
 }
 
-/* A frontend discarding this frame's picture still gets its one video call —
- * the core guide requires exactly one per retro_run — but the machine skips
- * the raster behind it, and the frame after it comes back is whole. */
 UTEST(run, a_frontend_that_wants_no_video_still_gets_its_call)
 {
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
     fe_run(60);
     ASSERT_TRUE(fe.av_enable_asked);
 
@@ -228,24 +190,23 @@ UTEST(run, a_frontend_that_wants_no_video_still_gets_its_call)
     const size_t px = (size_t)fe.frame_w * fe.frame_h;
     memcpy(drawn, fe.frame_copy, px * sizeof(uint32_t));
 
-    fe.av_enable = RETRO_AV_ENABLE_AUDIO; /* video off */
+    fe.av_enable = RETRO_AV_ENABLE_AUDIO;
     int before = fe.video_calls;
     fe_run(10);
-    ASSERT_EQ(fe.video_calls - before, 10); /* still exactly one per frame */
+    ASSERT_EQ(fe.video_calls - before, 10);
 
     fe.av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
     fe_run(10);
-    ASSERT_EQ((size_t)fe.frame_w * fe.frame_h, px); /* and whole again */
+    ASSERT_EQ((size_t)fe.frame_w * fe.frame_h, px);
     fe.unload_game();
 }
 
-/* The two blocks a frontend can search for cheats, with addresses on them. */
 UTEST(run, the_memory_map_reaches_the_frontend)
 {
     fe_close();
     fe_open();
     ASSERT_FALSE(fe.memory_maps_set);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/mode2.rp6502"));
+    ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
     ASSERT_TRUE(fe.memory_maps_set);
     ASSERT_EQ(fe.memory_map_count, 2u);
     fe.unload_game();

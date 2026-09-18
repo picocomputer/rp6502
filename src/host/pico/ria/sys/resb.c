@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * RESB on the board, where the 6502 runs on real silicon beside core 1 and
- * the line has a minimum hold time.
  */
 
 #include "core/wdc/phi2.h"
@@ -14,15 +11,9 @@
 #include <pico/stdlib.h>
 #include <hardware/sync.h>
 
-/* The ask, which is what resb_running answers: true for the whole hold, while
- * the pin is still low. */
-static volatile bool run_requested;
+static volatile bool release_pending;
 
-/* Microseconds, not an absolute_time_t: resb_assert writes this from either
- * core and resb_task reads it on core 0, and a 64-bit store is two on this
- * part. A word is one, and the wrapping compare below is exact for any hold
- * shorter than half the 32-bit range -- this one is microseconds. */
-static volatile uint32_t deadline_us;
+static absolute_time_t hold_end;
 
 void __in_flash("resb_init") resb_init(void)
 {
@@ -33,44 +24,39 @@ void __in_flash("resb_init") resb_init(void)
 
 void resb_assert(void)
 {
-    /* Called from both cores (core 1 via act_loop). The DMB ensures
-     * run_requested=false is visible to core 0's resb_task before the GPIO
-     * change is, so the task cannot raise the line after this lowered it. */
-    run_requested = false;
+    /* resb_assert is called on both cores, on core 1 through act_loop. The
+     * barrier makes release_pending false visible to resb_task on core 0
+     * before RESB goes low, so resb_task cannot raise RESB after this call has
+     * lowered it. */
+    release_pending = false;
     __dmb();
     gpio_put(CPU_RESB_PIN, false);
-    deadline_us = time_us_32() + resb_get_reset_us();
 }
 
+/* The time RESB must stay low is measured from here rather than from
+ * resb_assert, because resb_assert also runs on core 1 while resb_task reads
+ * hold_end on core 0. resb_release runs only on core 0, so hold_end is written
+ * and read on the same core. RESB has been low at least since the assert, so
+ * measuring from the release never cuts that time short. */
 void resb_release(void)
 {
-    run_requested = true;
+    hold_end = make_timeout_time_us(resb_get_reset_us());
+    release_pending = true;
 }
 
-bool resb_running(void)
-{
-    return run_requested;
-}
-
-void resb_reclock(void)
-{
-    deadline_us = time_us_32() + resb_get_reset_us();
-}
-
-/* Two things happen while the line is low, and only ever one of them: either a
- * run is waiting out the hold, or nothing is coming and the clock a finished
- * program left behind goes back to the configured rate. The restore is here
- * rather than in the ask because the ask runs on core 1, which is live on the
- * state machines a reclock reprograms. */
+/* The PHI2 rate a program set is put back to the configured rate here rather
+ * than in resb_assert, because resb_assert also runs on core 1 and every other
+ * reclock runs on core 0 without a lock. */
 void resb_task(void)
 {
     if (gpio_get(CPU_RESB_PIN))
         return;
-    /* Acquire barrier pairs with the release DMB in resb_assert(). */
+    /* This barrier pairs with the one in resb_assert, so release_pending is
+     * read after the pin level. */
     __dmb();
-    if (run_requested)
+    if (release_pending)
     {
-        if ((int32_t)(time_us_32() - deadline_us) >= 0)
+        if (time_reached(hold_end))
             gpio_put(CPU_RESB_PIN, true);
     }
     else

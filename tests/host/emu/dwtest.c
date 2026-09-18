@@ -1,17 +1,16 @@
 /*
- * DWARF5 inspection fixture for the rp6502 emulator reader rewrite.
- * Exercises the location/type/unwind cases the reader must handle:
- *   - globals of several base types + an array + a struct instance
- *   - an enum type + pointer-typed globals (char * and Rect *)
- *   - a nested struct type (Point in Rect)
- *   - a function with parameters + locals (soft-stack fbreg locations)
- *   - a multi-frame call chain + a small recursion (CFI unwind + frame bases)
- * The committed dwtest.elf is the DWARF5 fixture for test_dwarf5 / test_dwarf_frame,
- * rebuilt with the llvm-mos debug fork (johnwbyrd, feature/debug/v*) as:
- *   mos-rp6502-clang -g -O0 dwtest.c -o dwtest.rp6502   # emits the sidecar dwtest.rp6502.elf
- *   cp dwtest.rp6502.elf dwtest.elf                     # the name the build references
- * Inspect: llvm-dwarfdump --all / --debug-frame dwtest.elf
- * If regenerated, the addresses asserted in test_dwarf5/test_dwarf_frame may shift.
+ * This file is the source of dwtest.elf, the DWARF 5 fixture that test_dwarf5
+ * and test_dwarf_frame read. The fixture is an -O0 -g build from johnwbyrd's
+ * llvm-mos fork, and its DW_AT_producer names the commit.
+ *
+ * test_dwarf5 uses line numbers from this file, so moving any line here, a
+ * comment line included, means rebuilding dwtest.elf and updating those
+ * line numbers and any asserted address that changes in the rebuild. In the
+ * fixture and in this file, line 81 is main's opening brace.
+ *
+ * Inspect the fixture with:
+ *   llvm-dwarfdump --all dwtest.elf
+ *   llvm-dwarfdump --debug-frame dwtest.elf
  */
 
 #include <stdint.h>
@@ -37,7 +36,7 @@ typedef enum
     BLUE = 7,
 } Color;
 
-/* globals: base types + array + aggregate (DW_OP_addr / DW_OP_addrx) */
+/* These globals are located by DW_OP_addrx through .debug_addr. */
 int8_t g_i8 = -7;
 uint8_t g_u8 = 200;
 int16_t g_i16 = -1234;
@@ -45,12 +44,12 @@ uint16_t g_u16 = 55000;
 char g_msg[8] = "hello";
 Rect g_rect = {{3, 4}, 20, 10, 'R'};
 
-/* enum + pointer types (DW_KIND_ENUM / DW_KIND_POINTER) */
+/* dwarf_info.c reports these as DW_KIND_ENUM and DW_KIND_POINTER types. */
 Color g_color = BLUE;
 char *g_ptr = &g_msg[0];
 Rect *g_rectp = &g_rect;
 
-/* leaf with params + locals (soft-stack frame, fbreg locations) */
+/* area's parameters and locals are DW_OP_fbreg locations on the soft stack. */
 static int16_t area(Point a, Point b)
 {
     int16_t dx = (int16_t)(b.x - a.x);
@@ -59,7 +58,7 @@ static int16_t area(Point a, Point b)
     return s;
 }
 
-/* one more frame so a backtrace has depth (CFI unwind) */
+/* measure calls area, so area has a caller frame for the unwinder. */
 static int16_t measure(Rect *r)
 {
     Point tl = r->origin;
@@ -69,7 +68,7 @@ static int16_t measure(Rect *r)
     return area(tl, br);
 }
 
-/* small recursion: distinct locals at each depth */
+/* sum_to recurses, so each depth has its own rest at a different address. */
 static uint16_t sum_to(uint16_t n)
 {
     if (n == 0)

@@ -9,7 +9,7 @@
 #include "core/wdc/sram.h"
 #include "core/ria/ria.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "core/wdc/via.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
@@ -149,7 +149,7 @@ static void run_until(uint64_t lines)
         /* Two loops rather than one with a per-cycle test, because PHI2 runs
          * at up to 8 MHz and the debug branch is worth keeping out of the
          * common path. */
-        while (ran < (uint64_t)n && resb_running())
+        while (ran < (uint64_t)n && sys_running())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
             ++ran;
@@ -157,7 +157,7 @@ static void run_until(uint64_t lines)
     }
     else
     {
-        while (ran < (uint64_t)n && resb_running() && !dbg_is_stopped())
+        while (ran < (uint64_t)n && sys_running() && !dbg_is_stopped())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
             ++ran;

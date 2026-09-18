@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The soft CPU's windows on the machine, as mapped in rp6502.sv and
- * soc.sv. Byte windows by design; the register cells are true words.
  */
 
 #ifndef _HOST_POCKET_SW_MMIO_H_
@@ -18,17 +15,9 @@
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
-/* Bit 16 flags that anything was said at all, because slot 0 is a real
- * id. Written to clear. */
 #define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
 #define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
-/* The id and length above cross on a toggle, so two announcements closer
- * together than that synchroniser is deep cancel each other. This count
- * cannot: watch it, and read the payload after it moves. */
 #define MMIO_UPD_N (*(volatile uint32_t *)0xF000004Cu)
-/* Four controller slots, three words each. State, not events. A mouse is
- * the exception, counting stamped delta reports in the same word another
- * slot puts buttons in; the type nibble says which. See apf.c. */
 #define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(0xF0000050u + (s) * 12u))
 #define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(0xF0000054u + (s) * 12u))
 #define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(0xF0000058u + (s) * 12u))
@@ -38,31 +27,16 @@
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
-/* data.json's list order, its slot ids, and these addresses climb
- * together and must be changed together; data.json is strict JSON and
- * cannot carry this comment. The ROM is first because a hot reload
- * writes the new image through the primary slot record. Get File's
- * scratch and the savestate blob are the two addresses here data.json
- * does not declare, since neither is a slot, and the layouts sit above
- * the scratch page so the slots stay in one ascending run. ROM_MAX is
- * data.json's size_maximum. stage_map_gate.py checks all of it. */
+/* These addresses must agree with the slots in data.json.
+ * stage_map_gate.py checks the ROM, savestate blob, asset and Get File
+ * addresses against it. ROM_MAX is the ROM slot's size_maximum. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
 #define ROM_MAX 0x03F00000u
-/* The savestate blob, in the gap the ROM's ceiling gave up for it. The
- * host writes a blob here as ordinary bridge writes before it asks for
- * the load, so it arrives in the staging store and the engine reads it
- * back through the window like any other staged image. Reads of this
- * range are the one thing the host takes out of the machine, and
- * nothing here answers them: the engine stops the machine and reads its
- * memories through its own bus, and pocket_sst holds one word ready
- * ahead of the host. The firmware carries none of it either way. */
 #define SST_BLOB_BRIDGE 0x03F00000u
 #define SST_BLOB ((volatile const uint8_t *)0x63F00000u)
 #define SST_BLOB_MAX 0x000A0000u
 #define SLOT_WIN_SIZE 0x8000u
-/* By descriptor, not by slot id: descriptor d is slot 1 + d, and its
- * window is the d'th above the ROM's ceiling. */
 #define SLOT_WIN(d) \
     ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE))
 #define SLOT_WIN_BRIDGE(d) (0x03FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE)
@@ -73,9 +47,11 @@
 #define GETFILE_BRIDGE 0x03FF1000u
 #define KBDLAY ((volatile const uint8_t *)0x63FF2000u)
 
-/* FILE_WIN is one port of a block RAM whose other port is the bridge's,
- * so it is word-wide and write-only. FILE_WIN_BASE is where the host
- * sees it, and must agree with pocket_file's WINDOW_BASE. */
+/* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
+ * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN
+ * back, and the write port has no byte enables, so each write stores a
+ * whole word. FILE_WIN_BASE is the bridge address of the same RAM and
+ * must match WINDOW_BASE in pocket_file.sv. */
 #define FILE_ID (*(volatile uint32_t *)0x80000000u)
 #define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
 #define FILE_LENGTH (*(volatile uint32_t *)0x80000008u)
@@ -84,37 +60,22 @@
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
 
-/* Sleep and savestates. This one word is the whole of what the firmware
- * has to do with them.
- *
- * Nothing here mentions a create, because there is nothing to say: the
- * engine stops the soft CPU along with the rest of the machine, so no
- * firmware is running while a blob is made, and none is needed -- the
- * host is answered in fabric and the machine has itself back when the
- * last word has been read.
- *
- * A restore is told afterwards, because by then the firmware is the one
- * the blob brought. SST_RESTORED says so, and clearing it is what lets
- * the 6502 run again, so whatever fabric no blob carries is put back
- * first.
- *
- * SST_BLOB_SEEN is sticky from the first bridge write into the blob
- * window. It is how a boot learns it is a wake before any command
- * arrives, and it means: do not start the ROM, one is coming. */
+/* SST_RESTORED is set when a savestate load finishes, whether or not the
+ * load succeeded, and SST_RESTORE_ERR is set beside it when the load
+ * failed. After a successful load the 6502 stays in reset until the
+ * firmware writes SST_RESTORED to SST_CTL, so the state that the blob does
+ * not contain is put back before that write. SST_BLOB_SEEN is set by a
+ * bridge write into the blob window and clears when the load finishes. */
 #define SST_CTL (*(volatile uint32_t *)0x80020000u)
 
 #define SST_RESTORED 0x01u
 #define SST_BLOB_SEEN 0x02u
-/* The host asked for a word the engine had not got to. It cannot
- * happen at the documented one-access-per-88-clocks; if it ever does,
- * the blob it took is short and the create answered an error. */
 #define SST_UNDERRUN 0x04u
 #define SST_RESTORE_ERR 0x08u
-/* The interact menu's persisted settings, read-only. The UTC offset
- * arrives in three pieces because a menu list holds sixteen options and
- * the offset spans twenty-seven whole hours. SET_KB is a position in
- * def/keyboard.def plus one, so zero is a menu that has said nothing.
- * RTC_EPOCH is local wall time, written once at boot by 0x0090. */
+/* The UTC offset comes from three interact menu entries because a menu
+ * list holds at most sixteen options and the offset spans twenty-seven
+ * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero
+ * means that the host has not written a layout to it. */
 #define SET_KB (*(volatile uint32_t *)0x80010000u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
@@ -122,8 +83,6 @@
 #define SET_TZ_MIN (*(volatile uint32_t *)0x80010014u)
 #define SET_TZ_WEST (*(volatile uint32_t *)0x80010018u)
 
-/* Minutes east of UTC. Defined once because the boot read and the menu
- * poll both need it and must not drift apart. */
 static inline int32_t set_tz_minutes(void)
 {
     int32_t m = (int32_t)((SET_TZ_HOUR & 0xFFu) * 60u + (SET_TZ_MIN & 0xFFu));
@@ -136,25 +95,23 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
-/* Answers with a name, landing wherever FILE_BRIDGE points. */
 #define FILE_OP_GETFILE 5u
-/* 0x0188 is documented but absent from core_bridge_cmd.v;
- * vendor/openfpga_rp6502 adds it. Result codes are not Open File's:
- * 0 written, 1 slot not defined, 7 the bridge's own deadline. The
- * bridge's deadline is deliberately shorter than ours, so a 7 arrives
- * as an ordinary answer and FILE_ST_TIMEOUT means the bridge stopped. */
+/* Flush, 0x0188, is missing from Analogue's core_bridge_cmd.v and is
+ * added in vendor/openfpga_rp6502. core_bridge_cmd ends a data slot
+ * command with result 7 when the host has not finished it within about
+ * 0.9 s, half of pocket_file's deadline, so FILE_ST_TIMEOUT after a write
+ * to FILE_CTL means that core_bridge_cmd itself has stopped.
+ * FILE_ST_TIMEOUT also reads set from the time the FPGA is configured
+ * until the first write to FILE_CTL. */
 #define FILE_OP_FLUSH 6u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu
 #define FILE_ST_TIMEOUT 0x10u
-/* The bridge reports a slot operation complete while its own queue is
- * still draining, so a read of what just arrived waits for this. */
+/* A slot operation can complete while the write FIFO in
+ * pocket_bridge.sv still holds writes for the staging store, so a read of
+ * the new data waits for this bit to clear. */
 #define FILE_ST_DRAIN 0x20u
-/* The host wrote into the response struct for this command. Get File
- * has no result code for "defined but nothing bound", so an answer of
- * ok with nothing written is legal and indistinguishable from a real
- * name -- except by this. */
 #define FILE_ST_WROTE 0x40u
 
 #define VID_ROW(i) (((volatile uint32_t *)0x50010000u)[i])
@@ -164,12 +121,10 @@ static inline int32_t set_tz_minutes(void)
 #define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
 
-/* Per line per plane: the fill slot's enable/mode/attr word and config
- * pointer, then the sprite slot's matching word and its count word. */
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
-/* Word at a time: byte lanes stop the fabric inferring a block RAM, so
- * every write is aligned and whole. One face per 4 KB. */
+/* The font RAM takes only whole, aligned word writes, because byte
+ * enables would keep a dual-port RAM from being inferred. */
 #define VID_FONT16 ((volatile uint32_t *)0x50040000u)
 #define VID_FONT8 ((volatile uint32_t *)0x50041000u)
 #define VID_ITALIC16 ((volatile uint32_t *)0x50042000u)
@@ -179,16 +134,18 @@ static inline int32_t set_tz_minutes(void)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
+/* The low byte is the $FFF0 enable mask and the next byte holds the pending
+ * sources. A write to the $FFF0 cell in REGS_WIN changes neither, because that
+ * cell is a copy of the pending byte and is rewritten every clock. */
+#define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
-/* Lets the PSG take a note-on from this firmware and not only from the
- * 6502, which is what a restore's replay of a channel block needs: the
- * gate bit rides in the same byte as the rest and the engine would
- * otherwise ignore it. Held over the replay and cleared after. */
+/* The PSG acts on the gate bit in a write to a channel block in XRAM only
+ * when the 6502 made the write, unless this is set. aud_restore sets it
+ * while it replays the channel blocks and clears it after, so a voice
+ * whose gate bit was set when the blob was made starts again. */
 #define AUD_PSG_REPLAY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-/* A channel block's seven bytes in order: freq, duty, vol_attack,
- * vol_decay, wave_release, pan_gate. */
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)

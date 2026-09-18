@@ -6,10 +6,10 @@
  * Mode 3, the linear bitmap of core/vga/mode/mode3.c: rows mapped with true
  * wraparound, the oracle's rejects (range, bitmap overrun, the 16bpp odd
  * row), and the line described to the shared pixel tail as segments. The
- * tail owns the fetching, slicing, palette and pixels; this front owns
- * the geometry. A wrapped bitmap is runs of the bitmap's width back to
- * back; a clipped one is a run with padding around it; a rejected line
- * is one padding segment.
+ * tail fetches, slices, looks up the palette and writes the pixels; this
+ * front computes the geometry. A wrapped bitmap is runs of the bitmap's
+ * width back to back; a clipped one is a run with padding around it; a
+ * rejected line is one padding segment.
  */
 
 module mode3 (
@@ -169,12 +169,10 @@ module mode3 (
                 end
                 S3_ADDR: begin
                     row_base <= {1'b0, cf_data} + row_off[16:0];
-                    /* Bitmap overrun, and 16bpp rejects an odd row. */
+                    /* Bitmap overrun. */
                     if (!blank
-                        && (35'(cf_height[14:0]) * 35'(sizeof_row)
-                            > 35'(17'h10000) - 35'({1'b0, cf_data})
-                            || (bpp_log == 3'd4
-                                && (cf_data[0] ^ row_off[0]))))
+                        && 35'(cf_height[14:0]) * 35'(sizeof_row)
+                            > 35'(17'h10000) - 35'({1'b0, cf_data}))
                         blank <= 1'b1;
                     /* The tail's plan: a blank line loads nothing.
                      * The pal_xram test folds the blank decision in
@@ -183,9 +181,7 @@ module mode3 (
                     mode3_pal_ptr <= cf_palette;
                     mode3_pal_xram <= !blank
                         && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                             > 35'(17'h10000) - 35'({1'b0, cf_data})
-                             || (bpp_log == 3'd4
-                                 && (cf_data[0] ^ row_off[0])))
+                             > 35'(17'h10000) - 35'({1'b0, cf_data}))
                         && !cf_palette[0]
                         && bpp_log != 3'd4
                         && {1'b0, cf_palette}

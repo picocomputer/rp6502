@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/ria.h"
 #include "core/api/ops.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 
 /* Both toolchains define these errno values, except EUNKNOWN at the end of
  * the list, which is this OS's own catch-all number. */
@@ -77,8 +76,7 @@ static uint8_t api_active_op;
 // answers those itself where the 6502 writes them.
 void api_task(void)
 {
-    if (resb_running() && !ria_active() &&
-        !api_active_op && API_BUSY)
+    if (sys_running() && !api_active_op && API_BUSY)
     {
         uint8_t op = API_OP;
         if (op != 0x00 && op != 0xFF)
@@ -114,14 +112,9 @@ void api_stop(void)
 
 void api_run(void)
 {
-    /* A fast load cycles RESB and so reaches api_run without a program
-     * starting. Nothing below applies to one, and the return registers written
-     * below overlap $FFF2-$FFF7 of the self-modifying stub the RIA is driving
-     * the 6502 with. */
-    if (ria_active())
-        return;
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // $FFE3 is skipped because it is the VSYNC frame counter, which vga owns.
+    // $FFE3 is skipped because it is the VSYNC frame counter, which is advanced
+    // on every vertical sync.
     for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
         if (addr != 0xFFE3)
             REGS(addr) = 0;

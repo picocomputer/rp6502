@@ -79,7 +79,7 @@ void sys_latch_get(sys_latch_t *latch)
 {
     latch->state = (uint8_t)sys_state;
     latch->breaking = sys_breaking;
-    latch->held = !resb_running();
+    latch->held = sys_state != running;
 }
 
 bool sys_latch_apply(const sys_latch_t *latch)
@@ -90,7 +90,6 @@ bool sys_latch_apply(const sys_latch_t *latch)
         return false;
     sys_state = latch->state;
     sys_breaking = latch->breaking;
-    resb_restore(latch->held);
     return true;
 }
 
@@ -116,6 +115,11 @@ void sys_stop(void)
 bool sys_active(void)
 {
     return sys_state != stopped;
+}
+
+bool sys_running(void)
+{
+    return sys_state == running;
 }
 
 void sys_break_request(void)

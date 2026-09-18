@@ -3,38 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The OPL resampler's polyphase coefficients, for src/core/aud/rsmp.c and for
-# src/core/aud/rsmp.sv, which has to reproduce that C sample for
-# sample. Standard library only, so this can run in the build rather than
-# committing three thousand numbers that a reader cannot check by eye.
+# tests/cpu/aud/test_rsmp.c resamples a test tone through rsmp.c from the
+# Pocket's 49704 Hz to 48000 Hz, fits a sine at the tone's frequency to the
+# output and subtracts it. The power of what is left, relative to the tone's
+# power, is in dB:
 #
-# The structure is a windowed-sinc fractional-delay interpolator: PHASES
-# rows of TAPS coefficients, row p realising a delay of p/PHASES of an input
-# sample, with a linear interpolation between adjacent rows for everything
-# in between. Row PHASES is stored too — it is row 0 shifted by one tap —
-# so the inner loop never has to special-case the wrap.
-#
-# Why this and not the Farrow it replaces. Both were measured at the
-# Pocket's 49704 -> 48000 through the integer path, in dB, lower better:
-#
-#     kHz            1      4      8     12     16     20
-#     farrow-10    -87    -86    -82    -70    -35    -14
-#     this         -85    -90    -89    -88    -89    -88
-#
-# Every one of those is the integer output floor rather than the filter, so
-# they are a statement about the ruler, not about how good this can get.
-# tests/cpu/aud/test_rsmp.c is that ruler and is the thing to re-run.
-#
-# The Farrow computes its coefficients from a polynomial in the phase, which
-# costs multiplies and buys nothing above the midband; this looks them up,
-# which costs memory the Cyclone V turned out to have. The 45 dB it wins at
-# 16-20 kHz is the last lossy stage left on a path that is otherwise 16 bits
-# end to end.
-#
-# PHASES is a cliff, not a knob. At 64 the error between adjacent rows
-# dominates everything the filter does and the whole thing measures -10 dB.
-# It fails catastrophically rather than gracefully, so a casual listen would
-# not catch a phase count set too low.
+#     kHz      1      4      8     12     16     20
+#     dB     -85    -90    -89    -88    -89    -88
 
 import argparse
 import math
@@ -43,16 +18,17 @@ PHASES = 128
 TAPS = 24
 Q = 17
 
-# Cutoff as a fraction of the input Nyquist, and the Kaiser shape. The
-# images this has to suppress sit at Fs_in - f, so passing 20 kHz at 49.7 kHz
-# means stopping 29.7 kHz: a transition from 0.80 to 1.20 of Nyquist. That
-# is what these two numbers buy, and 24 taps is what pays for it.
+# FC is the cutoff as a fraction of the input Nyquist frequency, and BETA is
+# the Kaiser window's shape parameter. A tone at frequency f has an image at
+# the input sample rate minus f that has to be suppressed, so passing 20 kHz
+# at 49.7 kHz means stopping 29.7 kHz, which is a transition band from 0.80
+# to 1.20 of the input Nyquist frequency. A Kaiser window with this BETA
+# needs 24 taps to make that transition.
 FC = 1.0
 BETA = 7.2
 
 
 def i0(x):
-    """Modified Bessel of the first kind, order zero."""
     s, t, k = 1.0, 1.0, 1
     while True:
         t *= (x / (2.0 * k)) ** 2
@@ -70,12 +46,9 @@ def sinc(x):
 
 
 def rows():
-    """PHASES+1 rows of TAPS, quantised to Q and summing to exactly 1 << Q.
-
-    hist[0] is the OLDEST sample, so tap i sits at offset 11 - i + mu from
-    the interpolation point, which lands between hist[11] and hist[12].
-    Getting that direction backwards makes a windowed sinc measure worse
-    than the Farrow it replaces, which cost an afternoon once already.
+    """hist[0] in rsmp.c is the oldest sample, so the interpolation point
+    lies 11 - i + mu input samples after tap i, between hist[11] and
+    hist[12].
     """
     half = TAPS / 2.0
     i0b = i0(BETA)
@@ -91,11 +64,10 @@ def rows():
             else:
                 w = i0(BETA * math.sqrt(1.0 - r * r)) / i0b
                 row.append(sinc(FC * tau) * w)
-        # Unity DC gain at every phase, constrained rather than fitted: a
-        # constant has to come through as itself or a held note develops a
-        # tremolo at the phase-wrap rate. Quantise, then put the whole
-        # residual on the largest tap, where it is smallest in relative
-        # terms.
+        # Every row has to sum to exactly 1 << Q so that a constant input
+        # comes out unchanged at every phase. The rounding residual goes on
+        # the largest tap because that tap changes by the smallest fraction
+        # of its value.
         scale = (1 << Q) / sum(row)
         q = [int(math.floor(c * scale + 0.5)) for c in row]
         big = max(range(TAPS), key=lambda k: abs(q[k]))
@@ -110,7 +82,8 @@ def check(rs):
         if sum(row) != (1 << Q):
             raise SystemExit(f"row {p} sums to {sum(row)}, wanted {1 << Q}")
         peak = max(peak, max(abs(c) for c in row))
-    # Row PHASES must be row 0 shifted by one tap, or the wrap is a step.
+    # Row PHASES has to be row 0 shifted by one tap, or the output jumps when
+    # the phase wraps and the history shifts by one sample.
     if rs[PHASES][1:] != rs[0][:-1]:
         raise SystemExit("row PHASES is not row 0 shifted; the wrap will click")
     return peak
@@ -124,19 +97,19 @@ def emit_h(path, rs):
 
 
 def emit_sv(path, rs, peak):
-    """Rows 0..PHASES/2 only. The rest are these read backwards.
+    """Only rows 0 to PHASES/2 are written, and rsmp.sv reads the rest
+    backwards.
 
     A windowed sinc is even in its argument, so row PHASES-p is row p
-    reversed -- exactly, after quantisation, because the DC residual lands
-    on mirrored taps. Row PHASES/2 is its own mirror and is the one row the
-    residual can make asymmetric, which costs nothing: it is stored, never
-    derived.
+    reversed. That holds exactly after quantisation because rows() puts the
+    rounding residual of mirrored rows on mirrored taps. Row PHASES/2 is the
+    mirror of itself and is the one row the residual can make asymmetric,
+    which does no harm because it is stored rather than derived.
 
-    This is not a tidiness argument. Measured on the 5CEBA4F23C8, the full
-    3096 entries take TEN M10K and the half takes FOUR: 3096 rounds up to a
-    depth of 4096, where a block is two bits wide, and 1560 rounds to 2048,
-    where it is five. Six blocks is the difference between leaving room for
-    term.c's alternate screen buffer and not.
+    On the 5CEBA4F23C8 the full 3096 entries take ten M10K blocks and the
+    half takes four. Each entry is 19 bits wide. 3096 entries round up to a
+    depth of 4096, where a block is two bits wide, and 1560 round up to 2048,
+    where a block is five bits wide.
     """
     width = max(2, peak.bit_length() + 1)
     half = PHASES // 2 + 1

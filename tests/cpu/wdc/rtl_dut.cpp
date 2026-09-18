@@ -49,7 +49,6 @@ static void rtl_begin(const dut_regs_t *regs)
     r->cpu__DOT__stop_flag = 0;
     r->cpu__DOT__nmi_prev = 0;
     r->cpu__DOT__res_seen = 0;
-    /* Stand at the opcode fetch, the way the vectors start. */
     dut->cpu_addr = regs->pc;
     dut->cpu_we = 0;
     r->cpu__DOT__cpu_sync = 1;

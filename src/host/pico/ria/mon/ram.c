@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/sys.h"
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
@@ -22,9 +21,7 @@
 
 static enum {
     RAM_IDLE,
-    RAM_READ,
-    RAM_WRITE,
-    RAM_VERIFY,
+    RAM_RIA,
     RAM_BINARY,
     RAM_XRAM,
 } ram_state;
@@ -35,15 +32,15 @@ static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
-// 16 bytes + ASCII fits in 74 cols (XRAM worst case). Below 74, drop to 8 bytes.
+// Sixteen bytes with their ASCII take 74 columns, or 75 with a five-digit XRAM
+// address.
 static size_t ram_chunk_size(void)
 {
     return rln_get_term_width() >= 74 ? 16 : 8;
 }
 
-// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
-// read and returns true; the state machine drives the next step. For XRAM,
-// returns false (data is already resident; caller can print without a fetch).
+static void ram_read_done(bool ok);
+
 static bool ram_start_read_chunk(void)
 {
     size_t chunk = ram_chunk_size();
@@ -52,8 +49,8 @@ static bool ram_start_read_chunk(void)
         mbuf_len = chunk;
     if (ram_rw_addr >= 0x10000)
         return false;
-    ria_read_buf(ram_rw_addr);
-    ram_state = RAM_READ;
+    ria_read_buf(ram_rw_addr, ram_read_done);
+    ram_state = RAM_RIA;
     return true;
 }
 
@@ -65,8 +62,9 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     size_t chunk = ram_chunk_size();
     int width = rln_get_term_width();
     bool with_ascii = width >= 40;
-    // 40-col display: collapse the addr-trailing space and the gutter's
-    // second space so 8 bytes + ASCII fits in exactly 40 cols.
+    // Eight bytes with their ASCII take 41 columns, or 42 with a five-digit
+    // XRAM address, so compact mode drops the space after the address and one
+    // gutter space to fit 40 columns.
     bool compact = with_ascii && width < 41;
     assert(mbuf_len <= chunk);
     sprintf(buf, compact ? "%04lX" : "%04lX ", ram_rw_addr);
@@ -81,9 +79,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     }
     if (with_ascii)
     {
-        // Pad to chunk_size's alignment level (8 bytes → 24-char hex field,
-        // 16 bytes → 49-char field with mid-split). Gutter is 2 spaces, or
-        // 1 space in compact mode.
         size_t hex_width = mbuf_len * 3 + (mbuf_len > 8 ? 1 : 0);
         size_t target = (chunk == 16) ? 49 : 24;
         for (size_t s = hex_width; s < target; s++)
@@ -111,27 +106,17 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     return 0;
 }
 
-static void ram_ria_read(void)
+static void ram_read_done(bool ok)
 {
     ram_state = RAM_IDLE;
-    if (ria_handle_error())
-        return;
-    mon_add_response_fn(ram_print_response);
+    if (ok)
+        mon_add_response_fn(ram_print_response);
 }
 
-static void ram_ria_write(void)
+static void ram_write_done(bool ok)
 {
+    (void)ok;
     ram_state = RAM_IDLE;
-    if (ria_handle_error())
-        return;
-    ram_state = RAM_VERIFY;
-    ria_verify_buf(ram_rw_addr);
-}
-
-static void ram_ria_verify(void)
-{
-    ram_state = RAM_IDLE;
-    ria_handle_error();
 }
 
 static void ram_begin_write(void)
@@ -148,8 +133,8 @@ static void ram_begin_write(void)
         }
         return;
     }
-    ria_write_buf(ram_rw_addr);
-    ram_state = RAM_WRITE;
+    ria_write_buf(ram_rw_addr, ram_write_done);
+    ram_state = RAM_RIA;
 }
 
 static void ram_intel_hex(const char *args)
@@ -350,8 +335,8 @@ static void ram_rx_mbuf(bool timeout)
     }
     else
     {
-        ram_state = RAM_WRITE;
-        ria_write_buf(ram_rw_addr);
+        ram_state = RAM_RIA;
+        ria_write_buf(ram_rw_addr, ram_write_done);
     }
 }
 
@@ -395,26 +380,8 @@ void ram_mon_binary(const char *args)
 
 void ram_task(void)
 {
-    if (sys_active())
-        return;
-    switch (ram_state)
-    {
-    case RAM_IDLE:
-    case RAM_BINARY:
-        break;
-    case RAM_READ:
-        ram_ria_read();
-        break;
-    case RAM_WRITE:
-        ram_ria_write();
-        break;
-    case RAM_VERIFY:
-        ram_ria_verify();
-        break;
-    case RAM_XRAM:
+    if (ram_state == RAM_XRAM)
         ram_xram();
-        break;
-    }
 }
 
 bool ram_active(void)

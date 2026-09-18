@@ -1,7 +1,3 @@
-// rp6502: the conditional instantiation below is written as a bare if/else
-// at module scope. SystemVerilog reads that as an implicit generate and
-// Vivado accepts it; Quartus does not, and stops at the `if`. Wrapped in
-// generate/endgenerate, which changes nothing about what is built.
 /*******************************************************************************
 #   +html+<pre>
 #

@@ -1,5 +1,4 @@
-# What find_package(cc65) lands on:
-#
+# Usage:
 #   set(CC65_TARGET_SYSTEM rp6502)
 #   find_package(cc65 REQUIRED)
 #

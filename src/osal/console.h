@@ -38,12 +38,12 @@ bool os_console_ended(void);
  * passed and nothing became ready. */
 bool os_console_wait(uint64_t ns);
 
-/* A break is the host asking the machine to stop from outside the program it
- * is running: Ctrl-Break at a Windows console, Ctrl-\ at a POSIX one, and a
- * hung-up stdout. This runs in a signal handler or on another thread, so it
- * only sets a flag and the thread that owns the machine stops it. A second
- * interrupt is the hard way out, for a machine too wedged to reach its own
- * teardown. */
+/* A break stops the machine from outside the program it is running, for
+ * example on Ctrl-Break at a Windows console, Ctrl-\ at a POSIX one, or a
+ * hung-up stdout. The signal handler and the console control handler only
+ * record the first break, because they run in a signal context or on another
+ * thread, and the thread that runs the machine stops it. A second interrupt is
+ * the hard way out, for a machine too wedged to reach its own teardown. */
 bool os_console_break_asked(void);
 void os_console_break_ask(void);
 

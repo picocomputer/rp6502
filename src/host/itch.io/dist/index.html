@@ -98,7 +98,7 @@
       var base = baseName(CONFIG.rom);
       var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
       var persist = CONFIG.persist === true;
-      var args = ['--rom', '/' + base];
+      var args = ['--install', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
 
@@ -123,10 +123,11 @@
           if (errTail.length > 12) errTail.shift();
         },
         postRun: [function () {
-          // When main() reaches the window, sokol owns the canvas as webgl2 and
-          // a 2d probe returns null; a non-null 2d context means startup bailed
-          // before rendering (bad option, install/load failure) with the reason
-          // on stderr. Probing post-mortem can't disturb anything.
+          // When startup gets as far as sapp_run, sokol creates a webgl2 context
+          // on the canvas and a 2d probe returns null; a non-null 2d context
+          // means startup bailed before rendering (bad option, install/load
+          // failure) with the reason on stderr. The probe runs in postRun, after
+          // main has returned, so it cannot disturb startup.
           if (canvas.getContext('2d'))
             fail('Emulator failed to start: ' + (errTail.join(' · ') || 'see the browser console'));
         }],

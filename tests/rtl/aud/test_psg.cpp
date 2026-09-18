@@ -3,29 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The PSG in lockstep: the vendored psg.c drives its handler sample by
- * sample over shim seams while the verilated psg runs the same
- * configs from the same XRAM image, gates injected at identical sample
- * indices on both sides — every stereo PWM pair must match exactly.
- * Covers all five waves across the channels, the envelope through
- * attack, decay, the sustain quirks, and release, pan extremes with
- * the truncating division and the mute, the halfword-aligned block,
- * and the gate queue's 32-per-sample drain and drop-when-full ring.
- * The bell is not here. It belongs to the machine now rather than to
- * this engine — one instance past the engine mux in rp6502.sv — and
- * test_aud rings it end to end.
- *
- * So do not ring one in this file. psg.c still mixes the bell, because
- * on the RP2350 and in the emulator the driver is the whole output
- * stage and there is nowhere else for it to go; psg does not,
- * because on the Pocket there is somewhere else. The two agree exactly
- * while the bell is silent, which is the only condition this lockstep
- * is valid under.
- * The hostile phases press where the plumbing bends: device-register
- * writes landing deep inside a walk, non-gate and wrong-page traffic
- * through the queue filters, the mute over a sounding channel, the
- * halfword block loaded to its seventeenth word, and an envelope sweep
- * that pins every table constant the song phases left dark.
+ * psg.sv mixes the bell into its output as a ninth voice and psg.c does
+ * not, so the two agree only while the bell is silent. Nothing in this
+ * file writes the bell's registers.
  */
 
 #include "Vpsg.h"
@@ -57,7 +37,6 @@ static void clock_cycle()
     dut->eval();
 }
 
-/* Gate edges waiting for the end of the RTL's walk; see xram_write. */
 static std::vector<std::pair<uint16_t, uint8_t>> held;
 
 static void snoop_dut(uint16_t addr, uint8_t val, bool host)
@@ -71,15 +50,12 @@ static void snoop_dut(uint16_t addr, uint8_t val, bool host)
     dut->q_host = 1;
 }
 
-/* psg_xreg's import, which is how a block programmed before the
- * pointer reaches an engine that only hears writes. The soft CPU reads
- * each byte and writes it back over itself; the firmware needs nothing
- * because it reads the block every sample. q_host low, so the pan_gate
- * bytes carry their gate bit without striking it — the firmware's ring
- * is discarded at the same moment and neither machine sounds.
- *
- * The shim's XRAM is not written: these bytes are already in it, and a
- * write there would queue snoops psg.c never sees on the RP2350. */
+/* The Pocket's psg_xreg loads the block into psg.sv by writing each byte
+ * over itself, because psg.sv takes the channel registers only from the
+ * XRAM writes it snoops. Those writes come from the soft CPU with q_host
+ * low, so they strike no gate. The shim's XRAM is not written, because a
+ * write there would queue gate writes for psg.c that never happen on the
+ * RP2350. */
 static void rtl_import(uint16_t base)
 {
     for (uint16_t i = 0; i < 64; i++)
@@ -94,25 +70,21 @@ static void rtl_xaddr(uint16_t word)
     dut->xaddr_wdata = word;
     clock_cycle();
     dut->xaddr_we = 0;
-    clock_cycle(); /* the reset applies at the boundary, one clock on */
+    clock_cycle();
     if (word != 0xFFFF)
         rtl_import(word);
 }
 
-/* One XRAM byte written by the "6502", in the two halves the firmware
- * takes it in. The byte itself is read live there, so it reaches this
- * engine's registers now, where a re-read would have found it — the
- * import's own path, which carries a byte and strikes nothing.
- *
- * The gate is the half that has to wait. The firmware replays its ring
- * after the envelope step, so a gate written now reaches the step one
- * sample from now; the RTL acts on the clock the write lands and would
- * reach this sample's step. Both are one step of a 24 kHz envelope and
- * neither is more right, but the waveform only compares if the two
- * models step the same envelope with the same gate. So the edge is held
- * to the end of the RTL's walk, where the firmware's replay sits, and a
- * pointer change discards what is held, because psg_xreg discards the
- * ring (psg.c:284). Where a gate lands is asserted on its own, below. */
+/* psg.sv applies a gate on the clock the write lands, but psg.c drains
+ * the write queue after the envelope step, so a gate changes psg.c's
+ * envelope one sample later than psg.sv's. xram_write therefore adds each
+ * byte to held and sends it to psg.sv at once with q_host low, so psg.sv
+ * stores the byte without striking a gate. release_snoop sends it again
+ * with q_host high after the sample has been compared, which is the point
+ * where psg.c drains the queue. rtl_xaddr and rtl_xaddr_mid_walk clear
+ * held, because psg_xreg discards the queue when it accepts a pointer. The
+ * clear changes nothing when the pointer is 0xFFFF, since psg.sv snoops no
+ * write while its pointer is 0xFFFF. */
 static void release_snoop()
 {
     for (auto &w : held)
@@ -127,7 +99,6 @@ static void xram_write(uint16_t addr, uint8_t val)
     held.emplace_back(addr, val);
 }
 
-/* Run both models for n samples, demanding exact agreement. */
 static long g_sample;
 static void run_lockstep(int *utest_result, int n)
 {
@@ -147,18 +118,19 @@ static void run_lockstep(int *utest_result, int n)
         ASSERT_EQ((int16_t)dut->psg_l, cl);
         ASSERT_EQ((int16_t)dut->psg_r, cr);
         g_sample++;
-        clock_cycle(); /* consume the strobe */
+        clock_cycle();
         release_snoop();
     }
 }
 
-/* Land a device-register write depth clocks into an in-flight walk —
- * where a torn reset would shear the sample — then finish that sample
- * on the old state, the ISR's own ordering. The caller runs psg_xreg
- * on the C side after this returns, completing the boundary. */
+/* A pointer write that lands while psg.sv computes a sample does not
+ * reset the eight channels before psg.sv next enters P_IDLE, so that
+ * sample finishes on the old state. The caller runs psg_xreg only after
+ * this function returns, so psg.c also finishes that sample on the old
+ * state. */
 static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
 {
-    held.clear(); /* psg_xreg drops the ring; the pointer paths must agree */
+    held.clear();
     while (dut->rootp->psg__DOT__state == 0)
         clock_cycle();
     for (int i = 0; i < depth; i++)
@@ -167,10 +139,11 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
     dut->xaddr_wdata = word;
     clock_cycle();
     dut->xaddr_we = 0;
-    /* The sample the write landed in is finished and compared before the
-     * import runs. The import is sixty-four clocks and the walk is barely
-     * more than that, so importing here would spend the strobe this
-     * sample ends on and pair the firmware's answer against the next one. */
+    /* The sample in progress is compared before the import, because the
+     * import takes 64 clocks and psg.sv spends 55 on a sample. psg_valid is
+     * high for one clock, so importing first would let this sample's pulse
+     * end before run_lockstep polls for it, and run_lockstep would compare
+     * psg.c's sample with psg.sv's next one. */
     run_lockstep(utest_result, 1);
     if (word != 0xFFFF)
         rtl_import(word);
@@ -195,29 +168,22 @@ UTEST(psg, lockstep_bit_exact)
     shim_init();
     bel_init();
 
-    /* The machine as aud_init leaves it: pointer parked, and the walk
-     * still running so the output stage keeps its sample tick. The bell
-     * used to ring here and this test swept it up for free; there is one
-     * bell for the machine now, past the engine mux, and test_bel holds
-     * it against bel.c on its own. */
     run_lockstep(utest_result, 200);
 
-    /* Every wave across the channels at a word-aligned block. */
     const uint16_t base = 0x8000;
     config(base, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);  /* sine */
     config(base, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);  /* square */
     config(base, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);    /* saw, left */
     config(base, 3, 431, 255, 0x93, 0x71, 0x39, 0x7E);   /* tri, right */
     config(base, 4, 9999, 180, 0x05, 0x55, 0x44, 0x81);  /* noise */
-    config(base, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);  /* sine, muted */
+    config(base, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);  /* square, muted */
     config(base, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);     /* bad wave 7 */
-    config(base, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);   /* square-ish */
+    config(base, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);   /* saw */
 
     ASSERT_TRUE(psg_xreg(base));
     rtl_xaddr(base);
     run_lockstep(utest_result, 50);
 
-    /* Gates up one by one — attack through decay into sustain. */
     for (int ch = 0; ch < 8; ch++)
     {
         xram_write((uint16_t)(base + ch * 8 + 6),
@@ -227,18 +193,12 @@ UTEST(psg, lockstep_bit_exact)
         run_lockstep(utest_result, 400);
     }
 
-    /* A bell under the full mix: mixed after the channel shift, it
-     * rides the handler switch and the reprogram below unbroken. */
     run_lockstep(utest_result, 3000);
 
-    /* Gates down: release to the floor. */
     for (int ch = 0; ch < 8; ch++)
         xram_write((uint16_t)(base + ch * 8 + 6), 0x00);
     run_lockstep(utest_result, 2000);
 
-    /* The halfword-aligned block, reprogrammed live: every offset in the
-     * window decodes off a base that is not word aligned, and gates land
-     * across the far channels. */
     const uint16_t base2 = 0x7002;
     config(base2, 0, 880, 255, 0x00, 0x00, 0x00, 0x01);
     config(base2, 1, 440, 128, 0x02, 0x30, 0x11, 0x20);
@@ -256,55 +216,40 @@ UTEST(psg, lockstep_bit_exact)
     xram_write((uint16_t)(base2 + 7 * 8 + 6), 0x31);
     run_lockstep(utest_result, 800);
 
-    /* A burst of gates on one channel, inside what the firmware's ring
-     * can hold and inside one sample's drain, so both models see every
-     * one of them. Past those bounds the firmware starts dropping and
-     * rate limiting and the RTL does not; that is asserted by itself in
-     * psg.no_write_is_dropped rather than compared here. */
+    /* Twenty writes are fewer than the 32 that psg_sample drains in one
+     * sample and the 255 that the queue holds, so psg.c applies every one
+     * of them, as psg.sv does. */
     for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 6), (uint8_t)(i & 1));
     run_lockstep(utest_result, 600);
 
-    /* The mute over a sounding channel: the flood left channel 0
-     * attacking at full volume; pan -64 with the gate edge must cut
-     * the mix while the release still carries real volume. */
     xram_write((uint16_t)(base2 + 6), 0x80);
     run_lockstep(utest_result, 200);
     xram_write((uint16_t)(base2 + 6), 0x01);
     run_lockstep(utest_result, 200);
 
-    /* Non-gate traffic through the live page: config bytes stream
-     * through the queue like the tracker's, burning drain budget but
-     * never gating; offset 70 passes the stride and fails the channel
-     * bound; a real gate rides the middle of the burst. */
     for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 8 + (i % 6)), (uint8_t)(i * 7));
+    /* The write to base2 + 0x46 is at the pan_gate offset of a channel past
+     * the block's eight, so psg.c and psg.sv both ignore it. */
     xram_write((uint16_t)(base2 + 0x46), 0x01);
     xram_write((uint16_t)(base2 + 2 * 8 + 6), 0x01);
     for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 24 + (i % 6)), (uint8_t)(i * 5));
     run_lockstep(utest_result, 300);
 
-    /* Every field of every channel, live, under a base that is not word
-     * aligned: an offset has to place a byte from an unaligned base as
-     * exactly as from an aligned one. */
     for (int ch = 0; ch < 8; ch++)
         for (int off = 0; off < 6; off++)
             xram_write((uint16_t)(base2 + ch * 8 + off),
                        (uint8_t)(0x11 * (ch + 1) + off));
     run_lockstep(utest_result, 300);
 
-    /* Near-miss pages: gates one page off either side must not
-     * enqueue; the real page still lands afterward. */
     xram_write((uint16_t)((base2 & 0xFF00) - 0x100 + 6), 0x01);
     xram_write((uint16_t)((base2 & 0xFF00) + 0x100 + 6), 0x00);
     run_lockstep(utest_result, 100);
     xram_write((uint16_t)(base2 + 6), 0x00);
     run_lockstep(utest_result, 200);
 
-    /* The attack-rate sweep: the nibbles the song phases never used,
-     * ramping toward full volume — a wrong table constant diverges
-     * within a sample. Duty boundaries 0 and 255 ride along. */
     config(base, 0, 900, 0, 0x04, 0x00, 0x06, 0x10);
     config(base, 1, 1800, 255, 0x06, 0x00, 0x18, 0xF0);
     config(base, 2, 2700, 0, 0x07, 0x00, 0x2D, 0x00);
@@ -322,9 +267,6 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 500);
 
-    /* The sustain-target and decay sweep: fast attacks to the top,
-     * then every unvisited volume level and decay rate, channel 5
-     * carrying the 8-second attack nibble. */
     config(base, 0, 900, 200, 0x00, 0x46, 0x00, 0x10);
     config(base, 1, 1800, 128, 0x00, 0x68, 0x10, 0xF0);
     config(base, 2, 2700, 200, 0x00, 0xAD, 0x20, 0x00);
@@ -340,16 +282,9 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 3200);
 
-    /* Device-register writes landing inside the walk: across the mix, at
-     * its seam, and through the generate — the pointer moves under them,
-     * and the reset it carries must still hold whole at the boundary.
-     *
-     * The walk is fifty-five clocks now that the phase is a multiply
-     * rather than nine divisions, so these are the depths that land in
-     * it. Past its end the two machines part company for reasons the
-     * oracle cannot arbitrate — the fabric applies the reset in the idle
-     * it is already standing in, the firmware at its next handler — and
-     * the sample that straddles the difference is nobody's bug. */
+    /* psg.sv spends 55 clocks on a sample, from entering P_MIX to leaving
+     * P_STEP, and each of these depths lands the pointer write inside that
+     * span. */
     static const int depths[] = {1, 5, 15, 30, 50};
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); i++)
     {
@@ -361,8 +296,6 @@ UTEST(psg, lockstep_bit_exact)
         run_lockstep(utest_result, 60);
     }
 
-    /* And into a bell-only walk: park the pointer, ring, then land the
-     * enable inside the short standing walk. */
     ASSERT_TRUE(psg_xreg(0xFFFF));
     rtl_xaddr(0xFFFF);
     run_lockstep(utest_result, 10);
@@ -371,14 +304,12 @@ UTEST(psg, lockstep_bit_exact)
     ASSERT_TRUE(psg_xreg(base));
     run_lockstep(utest_result, 600);
 
-    /* Reject parity: the pointer that fails leaves both silent. */
-    ASSERT_FALSE(psg_xreg(0x80F2)); /* block crosses its page */
+    ASSERT_FALSE(psg_xreg(0x80F2)); /* the block crosses into page 0x81 */
     rtl_xaddr(0xFFFF);
     ASSERT_TRUE(psg_xreg(0xFFFF));
     rtl_xaddr(0xFFFF);
 }
 
-/* Straight to the snoop, nothing held: what the 6502 actually does. */
 static void snoop_now(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
@@ -395,7 +326,6 @@ static int rtl_sample()
     return l;
 }
 
-/* The engine takes no reset, so a clean one is a fresh one. */
 static void rtl_reset()
 {
     held.clear();
@@ -414,7 +344,6 @@ static void rtl_reset()
         clock_cycle();
 }
 
-/* One channel at the fastest attack, silent until gated. */
 static void one_loud_channel(uint16_t base)
 {
     for (int ch = 1; ch < 8; ch++)
@@ -423,18 +352,9 @@ static void one_loud_channel(uint16_t base)
     rtl_xaddr(base);
 }
 
-/* The contract that removing the ring creates, and the one thing the
- * lockstep holds its snoops back to avoid: a write reaches the state it
- * names on the clock it lands. The firmware replays after its envelope
- * step and cannot, so there is nothing to compare against and the
- * machine's own behaviour is stated instead. Envelope state, not sound
- * — how long a gate takes to become audible is a question about attack
- * rates, and this is a question about when the write arrives. */
 #define ADSR_RELEASE 0
 #define ADSR_ATTACK 1
-/* P_STEP, the last member of state_t in psg.sv. Sequential, not the
- * one-hot Quartus re-encodes to; move it when the walk gains or loses a
- * state. */
+/* P_STEP is the sixth member of state_t in psg.sv, so its value is 5. */
 #define PSG_STATE_STEP 5
 
 UTEST(psg, gate_applies_on_the_clock_it_lands)
@@ -453,10 +373,9 @@ UTEST(psg, gate_applies_on_the_clock_it_lands)
     ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
 }
 
-/* And no bound on how many land. The firmware keeps 256 of them and
- * replays at most 32 a sample, so a burst past either is dropped or
- * deferred; nothing here holds a write long enough to lose one. The
- * last of them wins because it is last, not because it fitted. */
+/* The queue that feeds psg.c holds 255 writes, so psg.c would drop some
+ * of 600 writes made between two samples. psg.sv applies each write on the
+ * clock it lands, so the last write sets the state. */
 UTEST(psg, no_write_is_dropped)
 {
     shim_init();
@@ -465,7 +384,6 @@ UTEST(psg, no_write_is_dropped)
     one_loud_channel(base);
     rtl_sample();
 
-    /* Far past the ring, and past any one sample's replay. */
     for (int i = 0; i < 600; i++)
         snoop_now(base + 6, (uint8_t)(i & 1));
     ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
@@ -475,13 +393,9 @@ UTEST(psg, no_write_is_dropped)
     ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
 }
 
-/* The engine holds its registers in memory the walk reads as it goes,
- * so a write to the voice the cursor is standing on has to reach that
- * clock's own read — the same contract as the gate, and unforwarded it
- * is whatever the silicon does with a read of an array being written.
- * Wave 1 at duty 255 rails high whatever the phase is and wave 5 is
- * silent whatever the phase is, so what the step stored says which of
- * the two bytes it read. */
+/* Wave 1 at duty 255 is 32767 at every phase and wave 5 is 0 at every
+ * phase, so the sample stored in P_STEP shows which of the two
+ * wave_release values it was computed from. */
 UTEST(psg, a_write_reaches_the_step_it_lands_on)
 {
     shim_init();
@@ -491,8 +405,6 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
         config(base, ch, 0, 0, 0, 0, 0, 0);
     config(base, 0, 1000, 255, 0x0F, 0x00, 0x10, 0x00);
     rtl_xaddr(base);
-    /* The import lands inside whatever walk was in flight, so the block
-     * is whole from the next one. */
     rtl_sample();
     rtl_sample();
     ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
@@ -504,10 +416,6 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
     ASSERT_EQ(0, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
 }
 
-/* A block programmed before its pointer. Every byte of it arrives, by
- * the import the soft CPU runs, and not one of its gates strikes: the
- * firmware reads the same bytes live and throws its ring away, so
- * neither machine sounds until a gate is written again. */
 UTEST(psg, an_imported_block_carries_no_gate)
 {
     shim_init();
@@ -522,19 +430,15 @@ UTEST(psg, an_imported_block_carries_no_gate)
     for (int ch = 0; ch < 8; ch++)
         ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[ch]);
 
-    /* And they did arrive: a gate written now finds the imported wave. */
     snoop_now(base + 6, 0x01);
     ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
     ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
 }
 
-/* The phase increment the engine multiplies for and the oracle divides
- * for, over every frequency there is. The lockstep cannot stand in for
- * this: a constant that is wrong for a handful of frequencies is right
- * for all the ones a song happens to play, and the pairs this rejects
- * first fail at 53932 and 12307, which no test above ever sounds.
- *
- * Must match PHASE_MAGIC and PHASE_SHIFT in psg.sv. */
+/* The constants are PHASE_MAGIC and PHASE_SHIFT from psg.sv, and 144000
+ * is its PHASE_DIV. Every frequency is checked because the constant for a
+ * shift of 25, 24 or 23, rounded up, is right for most of them: it first
+ * fails at 53932 for a shift of 25 or 24 and at 12307 for a shift of 23. */
 UTEST(psg, the_phase_magic_is_a_division)
 {
     for (uint32_t f = 0; f < 65536; f++)

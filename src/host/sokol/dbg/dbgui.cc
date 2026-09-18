@@ -24,7 +24,7 @@ extern "C"
 #include "core/dap/dbg.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
@@ -277,7 +277,7 @@ static void draw_control(void)
     if (ImGui::Begin("Debug Control", &g_control_open))
     {
         const bool stopped = dbg_is_stopped();
-        if (!resb_running())
+        if (!sys_running())
             ImGui::Text("exited (code %d)", proc_get_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
@@ -295,7 +295,7 @@ static void draw_control(void)
             if (ImGui::Button("Step Over"))
                 dbg_step(DBG_STEP_LINE_OVER);
         }
-        else if (resb_running() && ImGui::Button("Pause"))
+        else if (sys_running() && ImGui::Button("Pause"))
             dbg_request_pause();
 
         ImGui::Separator();

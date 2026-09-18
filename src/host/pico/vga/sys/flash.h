@@ -7,9 +7,6 @@
 #ifndef _VGA_SYS_FLASH_H_
 #define _VGA_SYS_FLASH_H_
 
-/* Writing this board's own flash, which is how it is updated: the RIA stages a
- * page in xram over PIX, then asks for it to be programmed. */
-
 #include "core/sys/driver.h"
 
 #include <stdbool.h>

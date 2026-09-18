@@ -17,13 +17,12 @@ static Vwiring *tb_core_dut;
 static VerilatedFstC *tb_core_trace;
 static uint64_t tb_core_time;
 
-/* Verilator drives $time from this. */
 double sc_time_stamp() { return (double)tb_core_time; }
 
-/* The soft CPU's clock is half the machine's and rises with it, the way
- * the PLL makes it. Driving it as a divider registered off clk_sys
- * would put its edge after the machine's own — which is the bug that
- * kept the soft CPU at full rate, so the model has to be honest. */
+/* clk_rv is half the rate of clk_sys and rises in the same eval, as the PLL
+ * in pocket_pll.v makes it. A clk_rv registered off clk_sys would rise after
+ * the clk_sys registers had changed, so the soft CPU would capture their new
+ * values instead of the ones they held before the edge. */
 static int tb_core_rv_phase;
 
 static void tb_core_edge(int level)
@@ -31,9 +30,6 @@ static void tb_core_edge(int level)
     if (level)
         tb_core_rv_phase = !tb_core_rv_phase;
     tb_core_dut->clk_sys = level;
-    /* The machine's gated clock. Nothing here ever stops it -- these
-     * tests never save -- but the pin exists and a machine with no
-     * clock renders nothing. */
     tb_core_dut->clk_mach = level;
     tb_core_dut->clk_rv = level && tb_core_rv_phase;
     tb_core_dut->eval();

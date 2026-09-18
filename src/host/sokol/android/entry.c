@@ -46,7 +46,7 @@ void host_log(int level, const char *category, const char *fmt, ...)
 #define MAX_ROMS 64
 #define ROM_NAME_MAX 128
 
-/* The masks below are the gamepad report's own bit layout, spelled out in
+/* The masks below are the gamepad report's own bit layout, listed in
  * gamepad_button_loc (core/hid/gamepad.c). */
 static uint8_t g_android_button0 = 0;
 static uint8_t g_android_button1 = 0;

@@ -6,7 +6,6 @@
  */
 
 #include "core/api/xreg.h"
-#include "core/sys/ria.h"
 #include "core/ria/regs.h"
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
@@ -85,11 +84,7 @@ static bool vga_needs_reset;
 
 void vga_stop(void)
 {
-    /* ria_active() is a constant false here, so every stop resets. The test
-     * is the RIA firmware's, where a stop that only closes a transfer must
-     * not reset the console. */
-    if (!ria_active())
-        vga_needs_reset = true;
+    vga_needs_reset = true;
 }
 
 static void vga_render_scanline(int y);
@@ -301,8 +296,8 @@ void vga_task(void)
      * into an interrupt storm the program never lived through. */
     if (dbg_is_stopped())
         return;
-    /* The line is drawn from the machine as it stands before the cycles that
-     * belong to it have run, because the 6502 catches up to the beam
+    /* The line is drawn from the machine as it stands before the 6502 cycles
+     * for that scanline have run, because the 6502 catches up to the beam
      * afterwards, so a write it makes lands on a later line. */
     const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
     if (vga_scanout && line < vga_canvas_height())

@@ -27,8 +27,8 @@ bool tim_get_time(struct timespec *ts)
     return true;
 }
 
-/* The host owns its clock, so a program that asks to move it is refused
- * rather than given an offset only this machine would carry. */
+/* The time is read from the host's clock, so a program that asks to move it
+ * is refused rather than given an offset only this machine would apply. */
 bool tim_set_time(const struct timespec *ts)
 {
     (void)ts;
@@ -65,7 +65,7 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     char utf8[512];
     size_t un = os_strftime_local(utf8, sizeof utf8, format, &zoned);
     /* strftime returns 0 on overflow and leaves the buffer unspecified, so a
-     * terminator is forced before the UTF-8 walk below reads it. */
+     * terminator is forced before the UTF-8 conversion below reads it. */
     utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;
     size_t pos = 0;
     const char *p = utf8;

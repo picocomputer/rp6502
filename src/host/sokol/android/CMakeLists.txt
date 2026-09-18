@@ -84,8 +84,9 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
-# There is no main() and no SOKOL_NO_ENTRY here because NativeActivity owns
-# the entry point and calls the sokol_main in entry.c.
+# There is no main() and no SOKOL_NO_ENTRY here because NativeActivity calls
+# the ANativeActivity_onCreate that sokol_app.h defines, which calls the
+# sokol_main in entry.c.
 add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW}
     ${CMAKE_CURRENT_LIST_DIR}/entry.c
     ${CMAKE_CURRENT_LIST_DIR}/menu.c)

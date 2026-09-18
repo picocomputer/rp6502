@@ -4,11 +4,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Re-encode SingleStepTests JSON into the flat binary the conformance test
-# reads. Run by CMake into the build tree; nothing it produces is committed.
-#
-# Parsing a gigabyte of JSON per test run would dwarf the tests, and tests/wdc
-# has no C JSON parser to link. Both problems go away by encoding once.
+# The SingleStepTests wdc65c02 corpus is about a gigabyte of JSON, so it is
+# encoded once at build time into the flat binary that vec.c reads rather
+# than parsed by every test run.
 
 import argparse
 import json
@@ -24,8 +22,7 @@ def encode(src, out, count):
     tests = []
     for name in names:
         path = os.path.join(src, name)
-        # cb.json and db.json are zero length upstream: WAI and STP cannot be
-        # expressed as a self-contained instruction test.
+        # cb.json and db.json, the files for WAI and STP, are empty upstream.
         if os.path.getsize(path) == 0:
             continue
         opcode = int(os.path.splitext(name)[0], 16)

@@ -2,24 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The terminal end to end, on whichever machine this tree built. One 6502
- * program writes an ANSI banner a byte at a time through the RIA's ready bit
- * and TX register — plain text, the eight colours and their bright forms,
- * reverse video, underline — and the 640x480 console canvas it leaves is
- * held to the CRC written down below.
- *
- * That covers the whole text path at once: term.c's model, the mode 0
- * renderer each machine has its own of, the font store and the palette. It
- * used to cover it by rendering the same program on the emulator inside this
- * test and diffing pixels, which is why neither machine could be tested
- * without the other.
- *
- * Two things in the program are load-bearing and must survive edits. The
- * leading reset-and-clear erases the boot history, which is not the same on
- * both machines; and the cursor stays hidden with no blinking attribute
- * anywhere, because the blink phase runs off wall clock here and off mtime
- * there and the two will never agree.
  */
 
 #include "host/host.h"
@@ -32,11 +14,6 @@
 #include <string>
 #include <vector>
 
-/* rgb555_to_rgba8, byte for byte the emulator's (core/vga/vga.c). */
-
-/* The banner: reset SGR, clear, home, hide the cursor, then exercise
- * text, color, reverse, and underline. Printed under the $FFE0 ready
- * bit like every wire byte. */
 static const char banner[] =
     "\33[0m\33[2J\33[H\33[?25l"
     "RP6502 openFPGA\r\n"
@@ -68,10 +45,6 @@ UTEST(banner, ansi_banner_frame_640x480)
     tb_rom_record(rom, 0x0300, prog.data(), prog.size());
     tb_rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
-    /* The console canvas, which this program never changes. Written here
-     * rather than asked of the machine: a machine agreeing with itself about
-     * the wrong canvas is not evidence, and a frame of the wrong size cannot
-     * match the number below. */
     const int w = 640, h = 480;
     const size_t px = (size_t)w * (size_t)h;
 

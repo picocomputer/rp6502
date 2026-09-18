@@ -50,9 +50,6 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
     switch (addr)
     {
     case 0x00: // DISPLAY
-        /* Bounded before it is used: this indexes a view table and the view
-         * it picks decides a system clock, so a wild word is a dead board
-         * rather than a wrong picture. */
         if (word > vga_sxga)
         {
             ria_nak();
@@ -61,7 +58,7 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        term_RIS_no_clear(); // preserve-screen reset + cursor reflow
+        term_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE
@@ -102,10 +99,6 @@ static void pix_rx_sm_init(uint sm, uint offset, uint32_t channel_id)
     pio_sm_exec_wait_blocking(PIX_PIO, sm, pio_encode_out(pio_null, 32));
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
     pio_sm_init(PIX_PIO, sm, offset, &config);
-    /* Not enabled here: the RIA may already be streaming, and a word that
-     * lands before the DMA chain below is armed sits in a FIFO nothing
-     * drains -- an address without its data. pix_init enables both when the
-     * chain is ready. */
 }
 
 void pix_init(void)
@@ -147,7 +140,7 @@ void pix_init(void)
         1,
         false);
 
-    // DMA move the constructed pointer to the next DMA source
+    // DMA move the constructed pointer to the next DMA destination
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
     channel_config_set_high_priority(&addr_dma, true);
     channel_config_set_read_increment(&addr_dma, false);
@@ -188,7 +181,6 @@ void pix_init(void)
         1,
         true);
 
-    // The chain is armed; now the wire may talk.
     pio_sm_set_enabled(PIX_PIO, PIX_REGS_SM, true);
     pio_sm_set_enabled(PIX_PIO, PIX_XRAM_SM, true);
 }

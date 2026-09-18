@@ -3,19 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's clocks. The microsecond counter is the fabric's,
- * monotonic since power-on, read hi-lo-hi so a carry never shows a torn
- * value. Wall time starts from command 0x0090 at core boot: local time
- * as seconds since 1970, latched behind RTC_VALID. The Pocket knows
- * nothing of time zones, so the menu's UTC offset turns that local
- * reading into the UTC the API serves. DST is the user's job.
+ * MTIME is the soft CPU's microsecond counter. host_clock_us reads the high
+ * word, the low word and the high word again, so a carry between the reads
+ * never produces a torn value.
  *
- * The offset also becomes a POSIX TZ string, so localtime, mktime and
- * strftime's %z all agree. POSIX signs the offset westward, hence the
- * negation.
- *
- * A program cannot set it. The host owns this machine's time of day, and
- * there is nowhere to write one back to.
+ * Wall time comes from command 0x0090, which the host sends once at core
+ * boot with the local time in seconds since 1970 and which sets RTC_VALID.
+ * The command has no time zone field, so the UTC offset from the interact
+ * menu converts that local reading to the UTC the API returns.
  */
 
 #include "mmio.h"
@@ -42,23 +37,17 @@ uint64_t host_clock_us(void)
     return ((uint64_t)hi << 32) | lo;
 }
 
-/* Noon UTC keeps localtime on day 0 for any offset. */
 #define TIM_DEFAULT_EPOCH 43200
 
-static int32_t tim_tz_min;     /* minutes east of UTC, from the menu */
-static int64_t tim_local_boot; /* the host's local reading at boot */
-static int64_t tim_base_sec;   /* UTC at tim_base_us */
+static int32_t tim_tz_min;
+static int64_t tim_local_boot;
+static int64_t tim_base_sec;
 static uint64_t tim_base_us;
 
-/* The zone has no name, so it is spelled as its own offset in POSIX's
- * bracketed form, "<-0700>+7:00". The two halves disagree on sign and
- * both are right: inside the brackets is a name, written east positive;
- * outside is the POSIX offset, which is what must be added to local time
- * to reach UTC.
- *
- * The brackets are also what makes it parse at all — a plain name must
- * be three characters or more, and the C library enforces that by giving
- * up silently and leaving TZ unset. */
+/* Only an offset is set for the zone, so the zone's name in the TZ string is
+ * the offset in angle brackets, "<-0700>+7:00" for UTC-7. The name is written
+ * east positive. The offset after it is west positive, because a POSIX offset
+ * is the amount added to local time to get UTC, as in PST8 for UTC-8. */
 static void tim_apply_tz(void)
 {
     char tz[24];
@@ -79,12 +68,10 @@ void tim_init(void)
     tim_apply_tz();
 }
 
-/* Nothing to give back. This machine's clock is three numbers and a
- * register, and the locale the desktop layers load does not exist here. */
 void tim_stop(void) {}
 
-/* The base is always the host's local reading, so a new offset re-derives
- * UTC from it. Nothing else can move the base: a program is refused. */
+/* A program cannot set the time, so recomputing tim_base_sec from
+ * tim_local_boot when the offset changes discards nothing. */
 void tim_set_tz_minutes(int32_t min)
 {
     if (min == tim_tz_min)
@@ -102,9 +89,6 @@ bool tim_get_time(struct timespec *ts)
     return true;
 }
 
-/* The host wrote this machine's clock at boot and there is nowhere to write
- * one back. A program is refused rather than handed a base only this side
- * believes. */
 bool tim_set_time(const struct timespec *ts)
 {
     (void)ts;
@@ -133,26 +117,19 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     return strftime(dst, max, format, tm);
 }
 
-/* The fabric's mtime, which is also what host_clock_us reads. This machine has
- * one counter and answers both contracts from it. It stops only while the soft
- * CPU is halted at its debug port -- the savestate window -- where no code runs
- * to notice, and the engine jams the counter back on restore. */
+/* MTIME stops only while the soft CPU is halted at its debug port for a
+ * savestate, when no firmware runs, and a restore writes back the value it
+ * had when the blob was made. */
 uint64_t os_mono_ns(void)
 {
     return host_clock_us() * 1000;
 }
 
-/* The wall clock the host wrote is this machine's only entropy. With no clock
- * the seed is zero, which is an ordinary seed -- so a bench that wants both
- * machines on one stream can pin the oracle to it. */
 uint32_t os_random(void)
 {
     return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
 }
 
-/* Nothing overrides a board -- no command line, no fixture -- so the seed is
- * the clock's, read once and held: the host can set the clock later, and a
- * seed that moved with it would fill from one and print another. */
 static uint32_t seed;
 static bool seed_taken;
 

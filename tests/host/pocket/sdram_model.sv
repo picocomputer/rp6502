@@ -3,38 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * A behavioral 512 Mbit x16 SDR SDRAM for the bench: commands sampled
- * on the clock, per-bank open rows, CL2 read pipe, JEDEC wake order
- * enforced — precharge-all, two refreshes, mode register — and the
- * coarse timing floors a real chip cares about, failed loudly with
- * $fatal so a sloppy controller cannot pass by accident.
- *
- * THIS CHIP IS OURS, NOT THE BOARD'S — but it is no longer a guess.
- * Analogue names the part, AS4C32M16MSA-6BIN, and every floor below is
- * that datasheet at 50.4 MHz where a clock is 19.841 ns:
+ * This module is a behavioral model of the Pocket's SDRAM, an
+ * AS4C32M16MSA-6BIN, which is a 512 Mbit x16 SDR part. The timing limits
+ * are that datasheet's figures at 50.4 MHz, where a clock is 19.841 ns:
  *
  *   tRCD  18 ns    1 clk      tRAS min  48 ns     3 clk
  *   tRP   18 ns    1 clk      tRAS max 100 us  5040 clk
  *   tRC   60 ns    4 clk      tRFC      80 ns     5 clk
  *   tDPL   2 tCK   2 clk      tXSR      80 ns     5 clk
- *
- * Two of those are close calls that round the wrong way if you are
- * careless: tRC at 3 clk is 59.5 ns and misses 60 by half a nanosecond,
- * and tRFC at 4 clk misses 80 by the same.
- *
- * The refresh interval is NOT among them and is not checked here. It is
- * a ceiling rather than a floor — 8192 rows in 64 ms, so 393 clk fits
- * inside 7812.5 ns and 394 does not — and a ceiling cannot be caught the
- * way the floors are. Falling behind it by enough to lose data takes a
- * third of a second of simulated time, which no test in this suite runs
- * for, and any tighter bound would be this model inventing a rule the
- * datasheet does not state. The controller's rate is set at
- * pocket_sdram.sv REFRESH_EVERY and is reviewed there, not here.
- *
- * What is still ours is the behaviour around those numbers, and it can
- * still be wrong. This model has already been wrong once in a way that
- * mattered: it demanded auto-precharge on every access because that is
- * what our controller happened to do.
  */
 
 module sdram_model (
@@ -50,8 +26,6 @@ module sdram_model (
     input logic dq_oe,
     output logic [15:0] dq_out,
     output logic [31:0] sdram_model_refreshes,
-    /* Clocks spent in self refresh, so a test can prove the store
-     * actually goes to sleep rather than merely being allowed to. */
     output logic [31:0] sdram_model_sref_clocks
 );
 
@@ -60,30 +34,20 @@ module sdram_model (
     logic [12:0] row[4];
     logic row_open[4];
 
-    /* Wake order tracking. */
     logic saw_pall;
     logic [1:0] saw_ref;
     logic saw_mrs;
     logic saw_emrs;
 
-    /* Partial Array Self Refresh, and the reason it starts hostile.
-     * The extended mode register powers up in an UNKNOWN state — the
-     * datasheet says so and names no default — and PASR decides which
-     * banks survive a self refresh. A model that assumed "all banks"
-     * would let a controller that never programs the register pass
-     * here and rot its memory on hardware. So this starts at the least
-     * generous setting the encoding allows, and only an EMRS write
-     * opens it up.
-     *
-     * PASR governs SELF refresh alone; an auto refresh covers the whole
-     * array whatever it says. That is why this stayed harmless until
-     * the controller learned to sleep. */
+    /* PASR, Partial Array Self Refresh, sets how much of the array is
+     * refreshed during self refresh, while an auto refresh covers the
+     * whole array whatever PASR holds. The extended mode register has no
+     * power-up default, so pasr is reset to the smallest setting the
+     * encoding allows, and a self refresh entered before the extended
+     * mode register is written marks banks 1 to 3 as lost. */
     logic [2:0] pasr;
     logic bank_lost[4];
 
-    /* The floors above, counted in clocks. They only hold at 50.4 MHz:
-     * every one of them is a nanosecond figure divided by 19.841, so a
-     * different clock needs different numbers. */
     int since_act[4];
     int since_pre[4];
     int since_wr[4];
@@ -96,22 +60,14 @@ module sdram_model (
     logic [2:0] cmd;
     always_comb cmd = {ras_n, cas_n, we_n};
 
-    /* CL2 is what the chip does to itself; it is not what the controller
-     * sees. The chip runs on dram_clk, half a period behind clk_sys, and
-     * tAC plus the trip across the pads puts the answer past the clk_sys
-     * edge that CL2 alone would point at. So the answer stands one edge
-     * later than two, and it stands for one edge only — burst length is
-     * one, and the chip stops driving after it.
+    /* Read data is valid at the third edge after the READ is sampled,
+     * one edge later than CL2 alone, and that is the edge pocket_sdram
+     * captures on. It is valid at that edge only, since the burst length
+     * is one.
      *
-     * Both halves of that matter. Without the third register a controller
-     * that captures a clock early passes here and fails on hardware, which
-     * is what a real fit already had to be talked out of. Without the
-     * window a controller that captures late passes too, because a model
-     * that drives the last answer forever will agree with anything.
-     *
-     * dq_float is a changing value rather than 'x: the suite runs
-     * two-state, where 'x collapses to zero and would only be caught when
-     * the true data happened to be non-zero. */
+     * dq_float changes on every clock rather than being 'x, because
+     * Verilator is two-state and turns 'x into a constant that a capture
+     * on the wrong edge would match whenever the true data equalled it. */
     logic [15:0] rd_p0, rd_p1, rd_p2;
     logic rd_v0, rd_v1, rd_v2;
     logic [15:0] dq_float;
@@ -158,9 +114,6 @@ module sdram_model (
                 since_act[b] <= since_act[b] + 1;
                 since_pre[b] <= since_pre[b] + 1;
                 since_wr[b] <= since_wr[b] + 1;
-                /* A row may not be held past tRAS max. Nothing enforced
-                 * this while every access auto-precharged; keeping rows
-                 * open is what made it reachable. */
                 if (row_open[b] && since_act[b] > 5040)
                     $fatal(1, "sdram_model: tRAS max exceeded, bank %0d", b);
             end
@@ -171,14 +124,7 @@ module sdram_model (
 
             if (in_sref) begin
                 sdram_model_sref_clocks <= sdram_model_sref_clocks + 32'd1;
-                /* Asleep: the chip is refreshing itself and no command
-                 * is sampled. CKE going high is the only thing it sees,
-                 * and the array is good as of that moment. */
                 if (cke) begin
-                    /* "The SDRAM must remain in self refresh mode for a
-                     * minimum period equal to tRAS." Leaving sooner
-                     * aborts an internal refresh cycle in flight, and
-                     * nothing downstream would ever report it. */
                     if (since_sren < 3)
                         $fatal(1, "sdram_model: self refresh shorter than tRAS");
                     in_sref <= 1'b0;
@@ -186,15 +132,13 @@ module sdram_model (
                     since_ref <= 0;
                 end
             end else if (!cke) begin
-                /* The one legal reason to drop CKE here: an auto refresh
-                 * issued with it low is a self refresh entry. */
+                /* An AUTO REFRESH issued with CKE low is a self refresh
+                 * entry. */
                 if (cmd != 3'b001)
                     $fatal(1, "sdram_model: CKE low without self refresh entry");
                 for (int b = 0; b < 4; b++)
                     if (row_open[b])
                         $fatal(1, "sdram_model: self refresh with an open row");
-                /* Only what PASR covers is refreshed while asleep. The
-                 * rest is gone, and nothing tells the controller. */
                 for (int b = 0; b < 4; b++)
                     if (!(pasr == 3'b000                       /* all */
                           || (pasr == 3'b001 && b[1] == 1'b0)  /* half */
@@ -239,9 +183,6 @@ module sdram_model (
                         saw_ref <= saw_ref + 2'd1;
                     sdram_model_refreshes <= sdram_model_refreshes + 32'd1;
                 end
-                /* BA picks which register: 00 the base one, 10 the
-                 * extended one. Same command, and the old model knew
-                 * only about the first. */
                 3'b000:
                 if (ba == 2'b10) begin
                     if (a[11:8] != 4'b0000)
@@ -262,9 +203,6 @@ module sdram_model (
                 3'b011: begin  /* ACTIVE */
                     if (!saw_mrs)
                         $fatal(1, "sdram_model: ACT before init");
-                    /* The datasheet's wake ends with the extended mode
-                     * register, and it is not optional: unprogrammed,
-                     * both PASR and driver strength are undefined. */
                     if (!saw_emrs)
                         $fatal(1, "sdram_model: ACT before EMRS");
                     if (bank_lost[ba])
@@ -283,13 +221,6 @@ module sdram_model (
                     row_open[ba] <= 1'b1;
                     since_act[ba] <= 0;
                 end
-                /* A10 is the auto-precharge flag, not an obligation. A
-                 * controller that leaves it low keeps the row standing,
-                 * which is the entire reason a DRAM has rows. This model
-                 * used to $fatal unless it was set — that was our own
-                 * controller's habit written down as if the chip
-                 * required it, and it is exactly the kind of mistake a
-                 * mock we wrote ourselves is prone to. */
                 3'b101: begin  /* READ */
                     if (!row_open[ba])
                         $fatal(1, "sdram_model: READ on closed bank");

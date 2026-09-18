@@ -3,17 +3,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Generate w65c02's decode tables from the same source as the C emulation.
-#
-# The decode table, addressing modes and per-opcode cycle sequences are read
-# from vendor/chips/codegen/w65c02_gen.py rather than retyped. The RTL then
-# cannot disagree with the emulator about which opcode takes how many cycles,
-# and per-cycle lockstep is left to catch only what the two genuinely implement
-# differently.
-#
-# --report prints the action vocabulary the microcode has to cover, derived from
-# the C the generator emits.
 
 import argparse
 import importlib.util
@@ -27,8 +16,7 @@ CODEGEN = os.path.join(ROOT, 'vendor', 'chips', 'codegen')
 
 
 def load_gen():
-    """The vendored generator, loaded by path so its name cannot collide."""
-    sys.path.insert(0, CODEGEN)  # for the generator's own imports
+    sys.path.insert(0, CODEGEN)
     spec = importlib.util.spec_from_file_location(
         'w65c02_gen_vendored', os.path.join(CODEGEN, 'w65c02_gen.py'))
     mod = importlib.util.module_from_spec(spec)
@@ -38,7 +26,6 @@ def load_gen():
 
 
 def macro_args(src, name):
-    """Every argument list of macro `name` in src, paren-balanced."""
     out = []
     for m in re.finditer(r'\b%s\(' % re.escape(name), src):
         i = m.end()
@@ -55,7 +42,6 @@ def macro_args(src, name):
 
 
 def split_top(args):
-    """Split a macro argument list on top-level commas."""
     parts, depth, cur = [], 0, ''
     for ch in args:
         if ch == ',' and depth == 0:
@@ -72,27 +58,22 @@ def split_top(args):
 
 
 def strip_bus(src):
-    """What the cycle does to registers, with the bus statements removed."""
     for name in ('_SAD', '_SA', '_SD'):
         for a in macro_args(src, name):
             src = src.replace('%s(%s);' % (name, a), '')
             src = src.replace('%s(%s)' % (name, a), '')
     for tok in ('_WR();', '_FETCH();', 'c->IR++;', 'c->IR++'):
         src = src.replace(tok, '')
-    # collapse the shells left behind by removing the only statement in a branch
     src = re.sub(r'\{\s*\}', '', src)
     src = re.sub(r'else\s*(?=[};]|$)', '', src)
     src = re.sub(r'\s+', '', src)
     return src.strip(';')
 
 
-# Most of the operation tail is one shape repeated with a different register,
-# bit or flag — the things a microword carries as a field rather than a case.
-# Folding them shows how few distinct operations the datapath actually needs.
 FOLD = (
-    (r'>>\d\)&1', '>>BIT)&1'),                              # BBR/BBS bit select
-    (r'&=~0x[0-9A-F]{2}', '&=~BIT'),                        # RMB
-    (r'\|=0x[0-9A-F]{2}', '|=BIT'),                         # SMB
+    (r'>>\d\)&1', '>>BIT)&1'),
+    (r'&=~0x[0-9A-F]{2}', '&=~BIT'),
+    (r'\|=0x[0-9A-F]{2}', '|=BIT'),
     (r'_w65c02_(adc|sbc)\(', r'_w65c02_ADDSUB('),
     (r'_w65c02_(asl|lsr|rol|ror)\(', r'_w65c02_SHIFT('),
     (r'_w65c02_cmp\(c,c->[AXY],', '_w65c02_cmp(c,REG,'),
@@ -113,8 +94,6 @@ def fold_op(s):
 
 
 class Tick:
-    """The observable shape of one cycle, read out of the emitted C."""
-
     def __init__(self, src):
         self.src = src
         self.op = strip_bus(src)
@@ -128,9 +107,12 @@ class Tick:
         self.fetch = '_FETCH()' in src
         self.skip = 'c->IR++' in src
         self.conditional = 'if(' in src
-        # Statement order: a few cycles read through AD while replacing it
-        # (the BRK vector, JMP (abs,X), the zero-page pointer high bytes), so
-        # their address uses the value from before this cycle's operation.
+        # In a few cycles, the address of a pointer's high byte is computed
+        # from AD while the pointer's low byte is loaded into AD. The pointers
+        # are the vectors read by BRK, IRQ, NMI and reset, the JMP (abs,X)
+        # pointer and the pointer of the zero-page indirect modes. The address
+        # statement comes first in the C, so the address uses the value AD
+        # held before this cycle's operation.
         sa = min((src.find(m) for m in ('_SA(', '_SAD(') if m in src),
                  default=-1)
         ld = src.find('c->AD=_GD()')
@@ -139,7 +121,6 @@ class Tick:
 
     @property
     def holds_addr(self):
-        """No new address: the bus keeps what the previous cycle drove."""
         return not self.addrs and not self.fetch
 
 
@@ -149,57 +130,36 @@ def opcodes(gen):
         yield op, gen.DASM[op], [Tick(o.src[t]) for t in range(o.i)]
 
 
-# The address unit, as the whole instruction set actually uses it. Every
-# address is hi:lo, where lo is a source plus an offset and hi is either the
-# carry-corrected page or a page held from somewhere else.
-#
-#   lo   which register or bus value feeds the low byte
-#   off  what is added to it
-#   hi   where the high byte comes from: CARRY propagates from lo, otherwise the
-#        page is held (zero page, the stack page, a branch before fixup)
-#   post which register the cycle leaves incremented or decremented
-#
-# Spelling each of the emitted expressions out by hand keeps this honest: an
-# expression the map does not know is a hard error, so an upstream change to the
-# addressing cannot slip into the RTL unnoticed.
 LO = ('PC', 'AD', 'S', 'GD', 'ZERO', 'CONST_7F', 'HOLD')
 OFF = ('0', '1', 'X', 'Y', 'M1', 'M2')
 HI = ('CARRY', 'ZP', 'STACK', 'PC', 'AD', 'GD', 'ZERO', 'HOLD')
 POST = ('NONE', 'PC_INC', 'AD_INC', 'S_INC', 'S_DEC')
 
 ADDR_MAP = {
-    # program counter
     'c->PC': ('PC', '0', 'CARRY', 'NONE'),
     'c->PC++': ('PC', '0', 'CARRY', 'PC_INC'),
     '(c->PC-1)&0xFFFF': ('PC', 'M1', 'CARRY', 'NONE'),
     '(c->PC-2)&0xFFFF': ('PC', 'M2', 'CARRY', 'NONE'),
-    # the internal address register
     'c->AD': ('AD', '0', 'CARRY', 'NONE'),
     'c->AD++': ('AD', '0', 'CARRY', 'AD_INC'),
     'c->AD+c->X': ('AD', 'X', 'CARRY', 'NONE'),
     'c->AD+c->Y': ('AD', 'Y', 'CARRY', 'NONE'),
     '(c->AD+1)&0xFFFF': ('AD', '1', 'CARRY', 'NONE'),
-    # zero page: the high byte never carries
     '_GD()': ('GD', '0', 'ZP', 'NONE'),
     '(c->AD+1)&0xFF': ('AD', '1', 'ZP', 'NONE'),
     '(c->AD+c->X)&0x00FF': ('AD', 'X', 'ZP', 'NONE'),
     '(c->AD+c->Y)&0x00FF': ('AD', 'Y', 'ZP', 'NONE'),
-    # absolute, assembled from the byte just read and the one latched before it
     '(_GD()<<8)|c->AD': ('AD', '0', 'GD', 'NONE'),
-    # stack
     '0x0100|c->S': ('S', '0', 'STACK', 'NONE'),
     '0x0100|c->S++': ('S', '0', 'STACK', 'S_INC'),
     '0x0100|c->S--': ('S', '0', 'STACK', 'S_DEC'),
-    # a page held while the other half is recomputed: branch before fixup, and
-    # the JMP (abs) pointer that wraps inside its own page
     '(c->PC&0xFF00)|(c->AD&0x00FF)': ('AD', '0', 'PC', 'NONE'),
     '(c->AD&0xFF00)|((c->AD+1)&0x00FF)': ('AD', '1', 'AD', 'NONE'),
-    # ADC/SBC immediate have no effective address, so their decimal cycle
-    # reads whatever the part drives internally. Two distinct constants: the
-    # vectors show $007F for ADC and $0000 for SBC.
+    # ADC and SBC immediate have no effective address, so the extra cycle they
+    # take in decimal mode reads a fixed address, $007F for ADC and $0000 for
+    # SBC.
     '0x007F': ('CONST_7F', '0', 'ZERO', 'NONE'),
     '0x0000': ('ZERO', '0', 'ZERO', 'NONE'),
-    # the bus holds what the previous cycle drove
     '_GA()': ('HOLD', '0', 'HOLD', 'NONE'),
 }
 
@@ -216,13 +176,8 @@ DATA_MAP = {
 }
 
 
-# What the datapath does with registers, named. As with ADDR_MAP, every folded
-# operation the C emits must appear here or generation fails, so an upstream
-# change cannot reach the RTL unnoticed. Register, bit and flag selects are
-# fields decoded from the opcode, not separate operations.
 OP_MAP = {
     '': 'NONE',
-    # moving bytes around
     'c->AD=_GD()': 'AD_LOAD',
     'c->AD|=_GD()<<8': 'AD_HI',
     'c->AD|=_GD()<<8;if(((c->AD)^(c->AD+IDX))&0xFF00==0)': 'AD_HI_INDEX',
@@ -233,7 +188,6 @@ OP_MAP = {
     'c->PC=(_GD()<<8)|c->AD': 'PC_FROM_ABS',
     'c->PC=_GD()': 'PCL_FROM_BUS',
     'c->PC=(_GD()<<8)|(c->PC&0xFF)': 'PCH_FROM_BUS',
-    # arithmetic and logic
     'c->A LOGIC=_GD();_NZ(c->A)': 'LOGIC',
     '_w65c02_cmp(c,REG,_GD())': 'CMP',
     '_w65c02_bit(c,_GD())': 'BIT',
@@ -248,25 +202,21 @@ OP_MAP = {
     'c->X--;_NZ(c->X)': 'X_DEC',
     'c->Y++;_NZ(c->Y)': 'Y_INC',
     'c->Y--;_NZ(c->Y)': 'Y_DEC',
-    # the bit instructions
     'c->AD=(c->AD>>BIT)&1': 'BIT_SELECT',
     'c->AD&=~BIT': 'RMB',
     'c->AD|=BIT': 'SMB',
     'c->P&=~W65C02_ZF;if(0==(c->A&c->AD)){c->P|=W65C02_ZF;}c->AD|=c->A': 'TSB',
     'c->P&=~W65C02_ZF;if(0==(c->A&c->AD)){c->P|=W65C02_ZF;}c->AD&=~c->A': 'TRB',
-    # transfers
     'c->X=c->A;_NZ(c->X)': 'TAX',
     'c->Y=c->A;_NZ(c->Y)': 'TAY',
     'c->A=c->X;_NZ(c->A)': 'TXA',
     'c->A=c->Y;_NZ(c->A)': 'TYA',
     'c->X=c->S;_NZ(c->X)': 'TSX',
     'c->S=c->X': 'TXS',
-    # flags
     'c->P&=~W65C02_FLAG': 'FLAG_CLEAR',
     'c->P|=W65C02_FLAG': 'FLAG_SET',
     'c->P&=~W65C02_VF': 'CLV',
     'c->P=(_GD()|W65C02_XF)&~W65C02_BF': 'PULL_P',
-    # branches: compute the target, then fix the page up if it crossed
     'c->AD=c->PC+(int8_t)_GD();if((c->P&FLAG)!=VAL)': 'BRANCH_TEST',
     'c->AD=c->PC+(int8_t)_GD()': 'BRANCH_ALWAYS',
     'if((c->AD&0xFF00)==(c->PC&0xFF00)){c->PC=c->AD;}': 'BRANCH_FIXUP',
@@ -274,7 +224,6 @@ OP_MAP = {
         'BRANCH_FIXUP_PIP',
     'if(0==(uint8_t)c->AD){c->AD=c->PC+(int8_t)_GD();}': 'BBR_TEST',
     'if(0!=(uint8_t)c->AD){c->AD=c->PC+(int8_t)_GD();}': 'BBS_TEST',
-    # interrupt entry and the stalls
     'if(0==(c->brk_flags&(W65C02_BRK_IRQ|W65C02_BRK_NMI))){c->PC++;}'
     'if(0==(c->brk_flags&W65C02_BRK_RESET))': 'BRK_PUSH_PCH',
     'if(0==(c->brk_flags&W65C02_BRK_RESET))': 'BRK_PUSH',
@@ -286,18 +235,12 @@ OP_MAP = {
 }
 
 
-# Which register, logic function, shift, flag, branch sense or bit an operation
-# acts on. The C bakes these into each opcode's statement; the microword carries
-# them as a select so the datapath has one implementation of each operation.
-# Meaning depends on the op: SEL_A/X/Y for LOAD and CMP, SEL_OR/AND/EOR for
-# LOGIC, and so on. Branches encode flag and sense; the bit ops their bit index.
 SEL = ('NONE', 'A', 'X', 'Y', 'OR', 'AND', 'EOR', 'ADC', 'SBC',
        'ASL', 'LSR', 'ROL', 'ROR', 'C', 'I', 'D', 'INC', 'DEC',
        'B0', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7',
        'N_CLR', 'N_SET', 'V_CLR', 'V_SET', 'C_CLR', 'C_SET', 'Z_CLR', 'Z_SET')
 
 SEL_RULES = (
-    # (ops the rule serves, regex over the raw statement, sel from the match)
     (('LOAD',), r'c->([AXY])=_GD\(\)', lambda m: m.group(1)),
     (('CMP',), r'_w65c02_cmp\(c,c->([AXY]),', lambda m: m.group(1)),
     (('LOGIC',), r'c->A([|&^])=', lambda m: {'|': 'OR', '&': 'AND', '^': 'EOR'}[m.group(1)]),
@@ -331,7 +274,6 @@ def tick_sel(opname, raw):
 
 
 def check_vocabulary(gen):
-    """Every address and data expression the C emits must be one we model."""
     for name, (lo, off, hi, post) in ADDR_MAP.items():
         assert lo in LO and off in OFF and hi in HI and post in POST, name
 
@@ -348,8 +290,6 @@ def check_vocabulary(gen):
                 missing.append('$%02X %s t%d operation: %s'
                                % (op, mnem, i, fold_op(t.op)))
 
-    # And nothing modelled that the C no longer emits, so the maps stay a
-    # description of this instruction set rather than of its history.
     seen_a, seen_d, seen_o = set(), set(), set()
     for _, _, ts in opcodes(gen):
         for t in ts:
@@ -426,12 +366,6 @@ def bits(n):
 
 
 def emit(gen, out):
-    """The decode table as SystemVerilog, one entry per opcode and cycle.
-
-    Written as a case rather than an array so it synthesizes to logic: the FPGA
-    has no M10K blocks to spare for a CPU, and the machine's video and audio
-    paths need every one of them.
-    """
     ops = sorted(set(OP_MAP.values()))
     douts = sorted(set(DATA_MAP.values())) + ['NONE']
 
@@ -495,8 +429,6 @@ def emit(gen, out):
             a = tick.addrs[0] if tick.addrs else None
             x = tick.addrs[1] if len(tick.addrs) > 1 else None
             opname = OP_MAP[fold_op(tick.op)]
-            # Two addresses appear only where an indexed read decides between
-            # the target and a dummy; its index register rides in the primary.
             if x is not None:
                 assert opname == 'AD_HI_INDEX', tick.src
                 assert ADDR_MAP[a][1] in ('X', 'Y'), tick.src

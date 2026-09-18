@@ -3,12 +3,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The soft CPU's firmware, for the bitstream. Simulation loads it
-# through the testbench, straight into the verilated arrays, so nothing
-# in the build ever had to put it in the fabric — and for a long time
-# nothing did. The tightly-coupled memory is four byte-wide arrays, so
-# the image splits four ways, one file per lane, in the format
-# $readmemh wants.
+# The tightly coupled memory in soc.sv is four byte-wide arrays, one per
+# byte lane of a word. When Quartus maps the design, $readmemh initializes
+# array n from the file sw.n.
 
 import sys
 from pathlib import Path

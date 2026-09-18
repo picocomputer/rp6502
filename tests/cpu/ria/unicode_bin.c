@@ -2,20 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * unicode_word from the image on disk, which is the only copy a Pocket has.
- *
- * src/core/str/unicode.h calls this the one thing a port has to write, and
- * there are two ports: a machine that can afford five kilobytes of
- * flash links oemcp.c and reads an array, and a machine that cannot
- * stages oemcp.bin and reads a window. Both come out of one generator,
- * and until this file existed nothing compared them — so a generator
- * that emitted the two differently would have turned every accented
- * filename on a Pocket into mojibake with the whole suite still green.
- *
- * This is the same test_uni.c the linked table runs, over the staged
- * bytes instead. The image is read once and held, because the Pocket's
- * window is a store and not a stream.
  */
 
 #include "core/str/unicode.h"
@@ -37,9 +23,6 @@ static void unicode_bin_load(void)
         exit(1);
     }
     size_t n = fread(oemcp_image, 1, sizeof oemcp_image, f);
-    /* Exactly the image, and nothing after it: a short file means the
-     * generator and oemcp.h disagree about how big the tables are, which
-     * is the failure this whole file exists to catch. */
     if (n != sizeof oemcp_image || fgetc(f) != EOF)
     {
         fprintf(stderr, "unicode_bin: %s is %zu bytes, expected %zu\n",
@@ -50,8 +33,6 @@ static void unicode_bin_load(void)
     oemcp_loaded = 1;
 }
 
-/* Little-endian halfwords, which is how src/host/pocket/sw/unicode.c reads them out
- * of the staging window a byte at a time. */
 uint16_t unicode_word(uint32_t index)
 {
     if (!oemcp_loaded)

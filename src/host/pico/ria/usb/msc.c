@@ -33,15 +33,14 @@
 
 #define TU_LOG_DRV(...) TU_LOG(CFG_TUH_LOG_LEVEL, __VA_ARGS__)
 
-// Superset of msc_csw_status_t with an additional timeout value.
 typedef enum
 {
-    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
-    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
-    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
+    MSC_STATUS_PASSED,
+    MSC_STATUS_FAILED,
+    MSC_STATUS_PHASE_ERROR,
+    MSC_STATUS_TIMED_OUT,
 } msc_status_t;
-// msc_scsi_sync reads a device CSW status back as an msc_status_t; pin the alias.
+// msc_scsi_sync casts a CSW status to msc_status_t, so these values must match.
 static_assert((int)MSC_STATUS_PASSED == (int)MSC_CSW_STATUS_PASSED);
 static_assert((int)MSC_STATUS_FAILED == (int)MSC_CSW_STATUS_FAILED);
 static_assert((int)MSC_STATUS_PHASE_ERROR == (int)MSC_CSW_STATUS_PHASE_ERROR);
@@ -118,8 +117,6 @@ typedef enum
     msc_volume_ejected,
 } msc_volume_status_t;
 
-// One volume per device LUN: vol == pdrv == slot, named MSCn: (n == slot). All
-// media/geometry/sense state and the mounted FatFs object live here.
 typedef struct
 {
     msc_volume_status_t status;
@@ -142,9 +139,10 @@ typedef struct
 
 static msc_pdrv_t msc_pdrv[FF_VOLUMES];
 
-// Bumped on every register and unmount, so the disk tool can detect a slot that
-// was reused by a different device across a confirm prompt. Kept out of msc_pdrv
-// so it survives the slot's memset on unmount.
+// The mount generation of a slot is incremented each time msc_mount_cb registers
+// a volume in it and each time msc_umount_cb frees it, so mon/drive.c can detect
+// a slot that a different device reused during a confirmation prompt. It is kept
+// out of msc_pdrv because msc_umount_cb clears the slot with memset.
 static uint8_t msc_mount_gen[FF_VOLUMES];
 
 enum
@@ -170,29 +168,28 @@ typedef struct
     uint8_t itf_num;
     uint8_t ep_in;
     uint8_t ep_out;
-    uint8_t protocol; // MSC_PROTOCOL_BOT or MSC_PROTOCOL_CBI*
-    uint8_t subclass; // MSC_SUBCLASS_UFI, MSC_SUBCLASS_SFF, etc.
+    uint8_t protocol;
+    uint8_t subclass;
     uint8_t stage;
     uint8_t recovery_stage;
-    bool cancelling; // true while msc_cancel_inflight aborts EP0 (re-entry guard)
+    bool cancelling;
     void *buffer;
-    uint32_t data_xferred; // bytes moved in the last data phase (host-observed)
-    uint32_t cmd_xferred;  // data_xferred for the command's own data phase, before any autosense
-    uint8_t max_lun;       // highest LUN index on this device (0 = single LUN)
+    uint32_t data_xferred;
+    uint32_t cmd_xferred;
+    uint8_t max_lun;
 } msc_interface_t;
 
 typedef struct
 {
     TUH_EPBUF_TYPE_DEF(msc_cbw_t, cbw);
     TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
-    TUH_EPBUF_DEF(cbi_cmd, 12);    // CBI ADSC command buffer (UFI = 12 bytes)
-    TUH_EPBUF_DEF(max_lun_buf, 1); // GET_MAX_LUN response (1 byte)
+    TUH_EPBUF_DEF(cbi_cmd, 12);
+    TUH_EPBUF_DEF(max_lun_buf, 1);
 } msc_epbuf_t;
 
 static msc_interface_t msc_itf[CFG_TUH_DEVICE_MAX];
 CFG_TUH_MEM_SECTION static msc_epbuf_t msc_epbuf[CFG_TUH_DEVICE_MAX];
 
-// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
 static uint32_t msc_cbw_tag_counter = 0;
 
 TU_ATTR_ALWAYS_INLINE static inline msc_interface_t *msc_get_itf(uint8_t daddr)
@@ -210,15 +207,14 @@ TU_ATTR_ALWAYS_INLINE static inline bool msc_is_bot(msc_interface_t const *p_msc
     return p_msc->protocol == MSC_PROTOCOL_BOT;
 }
 
-// Resolve data endpoint from CBW direction.
 TU_ATTR_ALWAYS_INLINE static inline uint8_t msc_data_ep(msc_interface_t const *p_msc,
                                                         msc_cbw_t const *cbw)
 {
     return (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
 }
 
-// Synthesize a CSW status for msc_scsi_sync; residue is intentionally left
-// unset (only a real device CSW's residue is ever read).
+// msc_scsi_sync reads the status written here. The residue is left unset because
+// a residue is read only from a CSW that the device sent.
 static void msc_complete_command(uint8_t daddr, uint8_t csw_status)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
@@ -227,13 +223,10 @@ static void msc_complete_command(uint8_t daddr, uint8_t csw_status)
     epbuf->csw.status = csw_status;
 }
 
-// Submit data-phase transfer or complete with failure.
 static void msc_start_data_phase(uint8_t daddr)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
     msc_cbw_t const *cbw = &msc_get_epbuf(daddr)->cbw;
-    // Reject transfers that exceed the 16-bit USB transfer length.
-    // Callers must clamp transfer sizes before building the CBW.
     if (cbw->total_bytes > UINT16_MAX)
     {
         msc_complete_command(daddr, MSC_CSW_STATUS_FAILED);
@@ -285,11 +278,12 @@ static void msc_cancel_inflight(uint8_t dev_addr)
 {
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
 
-    // Abort any control transfer this driver has in-flight on EP0 (CBI ADSC, BOT
-    // reset/clear-halt, GET_MAX_LUN). For EP0 this is synchronous: it fires our
-    // in-flight complete_cb inline with XFER_RESULT_ABORTED. The cancelling flag
-    // makes that re-entry a no-op so it cannot advance recovery, re-mount volumes,
-    // or queue a fresh control transfer mid-cancel.
+    // tuh_edpt_abort_xfer on EP0 aborts the control transfer in flight to this
+    // device, if there is one, and calls its complete_cb synchronously with
+    // XFER_RESULT_ABORTED. msc_recovery_xfer_cb, msc_cbi_adsc_complete and
+    // msc_get_max_lun_complete_cb return early while cancelling is set, so an
+    // abort of one of their transfers does not advance recovery, complete the
+    // command or register volumes.
     p_msc->cancelling = true;
     tuh_edpt_abort_xfer(dev_addr, 0);
     p_msc->cancelling = false;
@@ -300,12 +294,11 @@ static void msc_cancel_inflight(uint8_t dev_addr)
     p_msc->stage = MSC_STAGE_IDLE;
 }
 
-// Send CLEAR_FEATURE(ENDPOINT_HALT) to ep_addr on daddr.
 static bool msc_clear_endpoint_halt(uint8_t daddr, uint8_t ep_addr,
                                     tuh_xfer_cb_t complete_cb, uintptr_t user_data)
 {
     if (tu_edpt_number(ep_addr) == 0)
-        return false; // EP0 cannot be halted (USB 2.0 §9.4.1)
+        return false;
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
             .recipient = TUSB_REQ_RCPT_ENDPOINT,
@@ -325,8 +318,6 @@ static bool msc_clear_endpoint_halt(uint8_t daddr, uint8_t ep_addr,
     return tuh_control_xfer(&xfer);
 }
 
-// Last-resort local clear so the transport does not remain wedged when a
-// CLEAR_FEATURE request can't be queued.
 static void msc_recovery_abort_to_idle(msc_interface_t *p_msc, uint8_t daddr)
 {
     uint8_t const rhport = usbh_get_rhport(daddr);
@@ -340,24 +331,19 @@ static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
     uint8_t const daddr = xfer->daddr;
     msc_interface_t *p_msc = msc_get_itf(daddr);
     if (p_msc->cancelling)
-        return; // re-entrant abort from msc_cancel_inflight; don't re-arm recovery
+        return;
 
     uint8_t const rhport = usbh_get_rhport(daddr);
 
-    // RESET/CLEAR_IN/CLEAR_OUT advance identically whether the prior request
-    // succeeded or stalled (on a stall the local clear-stall still lets the next
-    // step run); only the unexpected-stage fallback below depends on the result.
     switch (p_msc->recovery_stage)
     {
     case RECOVERY_RESET:
-        // Reset done; clear the IN halt next.
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in, msc_recovery_xfer_cb, 0))
             msc_recovery_abort_to_idle(p_msc, daddr);
         return;
 
     case RECOVERY_CLEAR_IN:
-        // IN done (or stall dropped locally); issue the device-level clear on ep_out.
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
         p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
         if (!msc_clear_endpoint_halt(daddr, p_msc->ep_out, msc_recovery_xfer_cb, 0))
@@ -376,8 +362,6 @@ static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
         break;
     }
 
-    // Unexpected stage: on failure (re)start the clear-halt sequence so the
-    // transport is never left wedged; on success there is nothing to do.
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
@@ -390,8 +374,6 @@ static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
     }
 }
 
-// Fall back to endpoint clear-halt recovery when a reset request cannot
-// be queued on EP0 (typically because the control pipe is busy).
 static void msc_recovery_start_clear_halts(uint8_t daddr)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
@@ -400,8 +382,6 @@ static void msc_recovery_start_clear_halts(uint8_t daddr)
         msc_recovery_abort_to_idle(p_msc, daddr);
 }
 
-// Start async reset recovery.  Stage must be IDLE.
-// msc_ready() returns false until recovery finishes.
 static void msc_start_recovery(uint8_t daddr)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
@@ -412,7 +392,6 @@ static void msc_start_recovery(uint8_t daddr)
 
     if (msc_is_bot(p_msc))
     {
-        // BOT: Bulk-Only Mass Storage Reset, then clear halts.
         tusb_control_request_t const request = {
             .bmRequestType_bit = {
                 .recipient = TUSB_REQ_RCPT_INTERFACE,
@@ -437,11 +416,10 @@ static void msc_start_recovery(uint8_t daddr)
         return;
     }
 
-    // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk endpoints.
     msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
-    tu_memclr(epbuf->cbi_cmd, 12); // UFI spec: reserved CDB bytes shall be 0x00
-    epbuf->cbi_cmd[0] = 0x1D;      // SEND_DIAGNOSTIC
-    epbuf->cbi_cmd[1] = 0x04;      // SelfTest=1
+    tu_memclr(epbuf->cbi_cmd, 12);
+    epbuf->cbi_cmd[0] = 0x1D; // SEND_DIAGNOSTIC
+    epbuf->cbi_cmd[1] = 0x04; // SelfTest=1
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
             .recipient = TUSB_REQ_RCPT_INTERFACE,
@@ -465,19 +443,14 @@ static void msc_start_recovery(uint8_t daddr)
     }
 }
 
-// Cancel any in-flight command and start async recovery, or
-// force-stop an ongoing recovery that has stalled.
 static void msc_abort(uint8_t daddr)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
     if (!p_msc->ep_in)
         return;
 
-    // If recovery is already in progress, force-stop it.
     if (p_msc->recovery_stage != RECOVERY_IDLE)
     {
-        // Cancel the in-flight recovery request and restart recovery from a
-        // clean state so we never return while transport may still be wedged.
         msc_cancel_inflight(daddr);
         p_msc->recovery_stage = RECOVERY_IDLE;
         msc_start_recovery(daddr);
@@ -497,7 +470,7 @@ static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
     msc_interface_t *p_msc = msc_get_itf(daddr);
     msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
     if (p_msc->cancelling)
-        return; // re-entrant abort from msc_cancel_inflight
+        return;
 
     if (XFER_RESULT_SUCCESS != xfer->result)
     {
@@ -505,7 +478,6 @@ static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
         return;
     }
 
-    // ADSC succeeded — run data phase if any, otherwise assume success (CB transport).
     if (epbuf->cbw.total_bytes && p_msc->buffer)
         msc_start_data_phase(daddr);
     else
@@ -520,10 +492,7 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
 
     epbuf->cbw = *cbw;
-    // Stamp signature and tag — callers don't need to set these.
     epbuf->cbw.signature = MSC_CBW_SIGNATURE;
-    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
-    // could confuse stale-CSW detection in edge cases.
     if (++msc_cbw_tag_counter == 0)
         ++msc_cbw_tag_counter;
     epbuf->cbw.tag = msc_cbw_tag_counter;
@@ -544,15 +513,14 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
         return true;
     }
 
-    // CBI: send CDB via ADSC (Accept Device-Specific Command) control request.
     tu_memclr(epbuf->cbi_cmd, 12);
     uint8_t cmd_len = cbw->cmd_len;
     if (cmd_len > 12)
         cmd_len = 12;
     memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
 
-    // UFI always requires exactly 12 bytes in the ADSC data stage regardless of
-    // the logical command length.  The buffer is already zero-padded to 12 bytes.
+    // A UFI command block in the ADSC data stage is always 12 bytes, so a
+    // shorter command is sent zero-padded.
     uint8_t adsc_len = (p_msc->subclass == MSC_SUBCLASS_UFI) ? 12 : cmd_len;
 
     tusb_control_request_t const request = {
@@ -589,8 +557,6 @@ bool __in_flash("msc_class_driver_init") msc_class_driver_init(void)
     return true;
 }
 
-// CBI (CB-only, interrupt endpoint unused) transfer-complete handler.
-// Command status is inferred from the data-phase outcome.
 static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
@@ -606,12 +572,12 @@ static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xfer
                                : MSC_CSW_STATUS_FAILED;
     msc_complete_command(dev_addr, status);
 
-    // A failed CB/CBI data phase is the device's normal "command failed, read my
-    // sense" signal; msc_scsi_command issues REQUEST SENSE next. On a STALL, clear
-    // the pipe at both HCD and device level so that REQUEST SENSE can run, but do
-    // NOT start SCSI reset recovery (SEND_DIAGNOSTIC): an intervening command on
-    // the nexus would discard the pending sense and mask the real failure. A
-    // genuine transport wedge is handled by msc_abort() on timeout instead.
+    // msc_scsi_command issues REQUEST SENSE after every CB or CBI command that
+    // completes. After a STALL the halts are cleared on the host and the device so
+    // that REQUEST SENSE can run. Reset recovery is not started because it sends
+    // SEND DIAGNOSTIC, and any command sent before REQUEST SENSE discards the
+    // pending sense data. A transport that stops responding after a command is
+    // submitted is reset by msc_abort when msc_scsi_sync times out.
     if (event == XFER_RESULT_STALLED)
     {
         hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, msc_data_ep(p_msc, cbw));
@@ -620,11 +586,6 @@ static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xfer
     return true;
 }
 
-// Callback following a device-level CLEAR_FEATURE(ENDPOINT_HALT) issued after a
-// BOT data-phase or CSW-phase STALL.
-// On success, queue CSW read; on failure, fail command and start recovery.
-//   user_data == 0: first-attempt CSW read (data-phase STALL, BOT §6.6.1)
-//   user_data == 1: retry CSW read         (CSW-phase STALL,  BOT §6.7.2)
 static void msc_bot_clear_for_csw_cb(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
@@ -646,7 +607,6 @@ static void msc_bot_clear_for_csw_cb(tuh_xfer_t *xfer)
     }
 }
 
-// BOT transfer-complete handler.
 static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
@@ -658,7 +618,7 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
     {
     case MSC_STAGE_CMD:
         if (ep_addr != p_msc->ep_out)
-            return true; // stale completion from a prior command
+            return true; // The completion is from an earlier command.
         if (event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
         {
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED);
@@ -673,14 +633,14 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
         TU_ATTR_FALLTHROUGH;
 
     case MSC_STAGE_DATA:
-        // A zero-length command falls through from CMD; msc_data_ep then resolves
-        // by the CBW dir bit. Every zero-length command this driver issues is
-        // DIR_OUT (TUR, SYNC CACHE), and BOT §5.1 ignores the dir bit when the
-        // length is 0, so this resolves to ep_out and the check passes.
+        // A command with no data phase falls through from MSC_STAGE_CMD on the
+        // ep_out completion. Every such command this driver sends, TEST UNIT READY
+        // and SYNCHRONIZE CACHE, has its direction set to OUT, so msc_data_ep
+        // returns ep_out and the check passes.
         if (ep_addr != msc_data_ep(p_msc, cbw))
-            return true; // stale completion from a prior command
-        // Record host-side data-phase length so disk_read()/disk_write() can
-        // reject a short transfer (total_bytes==0 falls through here from CMD).
+            return true; // The completion is from an earlier command.
+        // On a fall-through from MSC_STAGE_CMD, xferred_bytes is the length of the
+        // CBW, so the data length is recorded as 0.
         p_msc->data_xferred = cbw->total_bytes ? xferred_bytes : 0;
         if (event == XFER_RESULT_FAILED)
         {
@@ -713,7 +673,7 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
     case MSC_STAGE_STATUS_RETRY:
     {
         if (ep_addr != p_msc->ep_in)
-            return true; // stale completion from a prior command
+            return true; // The completion is from an earlier command.
         bool should_retry = false;
         if (p_msc->stage != MSC_STAGE_STATUS_RETRY)
         {
@@ -742,14 +702,12 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
             p_msc->stage = MSC_STAGE_STATUS_RETRY;
             if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
                 break;
-            // Could not queue the retry read — treat as a hard transport error.
             TU_LOG_DRV("  MSC BOT: CSW retry xfer failed\r\n");
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED);
             msc_start_recovery(dev_addr);
             break;
         }
 
-        // Validate CSW per BOT spec §6.3
         p_msc->stage = MSC_STAGE_IDLE;
         bool csw_valid = (event == XFER_RESULT_SUCCESS &&
                           xferred_bytes == sizeof(msc_csw_t) &&
@@ -759,16 +717,13 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
                           csw->data_residue <= cbw->total_bytes);
         if (!csw_valid)
         {
-            // BOT §5.3.3: invalid CSW requires reset recovery.
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED);
             msc_start_recovery(dev_addr);
         }
         else if (csw->status == MSC_CSW_STATUS_PHASE_ERROR)
         {
-            // BOT §6.7.2: phase error requires reset recovery.
-            // The raw device CSW (with PHASE_ERROR status) is preserved in
-            // epbuf->csw so that msc_scsi_sync() can return
-            // msc_status_phase_error to the caller.
+            // msc_complete_command is not called, so epbuf->csw keeps the device's
+            // PHASE_ERROR status for msc_scsi_sync to return after recovery.
             msc_start_recovery(dev_addr);
         }
         break;
@@ -792,8 +747,6 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 {
     (void)rhport;
 
-    // Per-device state holds a single MSC interface; decline any further one
-    // rather than clobbering the bound interface's endpoints.
     if (msc_get_itf(dev_addr)->ep_in)
         return 0;
 
@@ -806,7 +759,7 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     {
         TU_VERIFY(MSC_SUBCLASS_SCSI == desc_itf->bInterfaceSubClass, 0);
     }
-    else // CBI
+    else
     {
         TU_VERIFY(MSC_SUBCLASS_UFI == desc_itf->bInterfaceSubClass ||
                       MSC_SUBCLASS_SFF == desc_itf->bInterfaceSubClass,
@@ -818,10 +771,8 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     p_msc->subclass = desc_itf->bInterfaceSubClass;
     p_msc->max_lun = 0;
 
-    // Single walk over the interface's descriptors: accumulate the driver length
-    // and open the bulk endpoints. CBI interrupt endpoints are intentionally
-    // ignored — the CB path infers command status from the data-phase outcome,
-    // which avoids bInterval ms of latency per command.
+    // CBI interrupt endpoints are not opened because msc_scsi_command takes the
+    // status of a CB or CBI command from REQUEST SENSE.
     uint16_t drv_len = sizeof(tusb_desc_interface_t);
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *end = ((uint8_t const *)desc_itf) + max_len;
@@ -829,9 +780,6 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     while (ep_count < desc_itf->bNumEndpoints && p_desc < end)
     {
         uint8_t const len = ((tusb_desc_interface_t const *)p_desc)->bLength;
-        // Decline a zero-length or straddling descriptor before opening it,
-        // closing any bulk endpoints already opened so a malformed block can't
-        // leak them.
         if (len == 0 || (uint16_t)(drv_len + len) > max_len)
         {
             if (p_msc->ep_in)
@@ -869,20 +817,11 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 // but it does call the required tuh_task().
 static void msc_pump(void) { sys_task(); }
 
-// Wait for transport ready, submit command, and wait for completion.
-// No autosense — used directly for REQUEST SENSE itself.
-// Calls msc_pump() while spinning.
 static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
                                   const void *data, uint32_t timeout_ms)
 {
     uint32_t const start_ms = tusb_time_millis_api();
 
-    // Wait for transport ready AND successfully submit the command.
-    // CBI transport sends the CDB via an ADSC control transfer on the
-    // shared EPX.  If another control transfer is in-flight (e.g. hub
-    // Get Port Status), msc_scsi_submit() returns false even though
-    // the MSC layer is idle.  We must retry submission rather than
-    // failing the entire command.
     for (;;)
     {
         if (!msc_mounted(dev_addr))
@@ -894,10 +833,8 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             msc_pump();
             continue;
         }
-        // Cast away const: transport API uses void* for both directions.
         if (msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
             break;
-        // Submit failed (control pipe busy) — pump events and retry
         msc_pump();
     }
     while (!msc_ready(dev_addr))
@@ -911,10 +848,6 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
         }
         msc_pump();
     }
-    // CSW validation happens in msc_bot_xfer_cb: invalid CSWs are replaced with a
-    // synthesized FAILED status and reset recovery is started. A device-reported
-    // PHASE_ERROR is left intact so we can return it verbatim. Arrival here
-    // implies msc_ready() returned true, i.e., recovery has drained.
     return (msc_status_t)msc_csw_status(dev_addr);
 }
 
@@ -938,18 +871,17 @@ typedef struct TU_ATTR_PACKED
     uint16_t data_len; // big-endian
     uint8_t medium_type;
     uint8_t : 7;
-    bool write_protected : 1; // bit 7: write protect
-    uint8_t long_lba_byte;    // byte 4: bit 0 = LONGLBA; unused
+    bool write_protected : 1;
+    uint8_t long_lba_byte; // byte 4: bit 0 = LONGLBA; unused
     uint8_t reserved;
     uint16_t block_descriptor_len; // big-endian
 } scsi_mode_sense10_resp_t;
 TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
 
-// SBC-3 §5.15.2: READ CAPACITY(16) (SERVICE ACTION IN, opcode 0x9E, SA 0x10).
 typedef struct TU_ATTR_PACKED
 {
-    uint8_t cmd_code;       // 0x9E
-    uint8_t service_action; // 0x10
+    uint8_t cmd_code;
+    uint8_t service_action;
     uint8_t reserved1[8];
     uint32_t alloc_length; // big-endian
     uint8_t reserved2;
@@ -969,10 +901,9 @@ typedef struct TU_ATTR_PACKED
 } scsi_read_capacity16_resp_t;
 TU_VERIFY_STATIC(sizeof(scsi_read_capacity16_resp_t) == 32, "size is not correct");
 
-// SBC-3 §5.6: READ(16) (opcode 0x88)
 typedef struct TU_ATTR_PACKED
 {
-    uint8_t cmd_code; // 0x88
+    uint8_t cmd_code;
     uint8_t flags;
     uint32_t lba_hi;      // big-endian, bytes 2-5
     uint32_t lba_lo;      // big-endian, bytes 6-9
@@ -982,10 +913,9 @@ typedef struct TU_ATTR_PACKED
 } scsi_read16_t;
 TU_VERIFY_STATIC(sizeof(scsi_read16_t) == 16, "size is not correct");
 
-// SBC-3 §5.24: WRITE(16) (opcode 0x8A)
 typedef struct TU_ATTR_PACKED
 {
-    uint8_t cmd_code; // 0x8A
+    uint8_t cmd_code;
     uint8_t flags;
     uint32_t lba_hi;      // big-endian, bytes 2-5
     uint32_t lba_lo;      // big-endian, bytes 6-9
@@ -995,16 +925,13 @@ typedef struct TU_ATTR_PACKED
 } scsi_write16_t;
 TU_VERIFY_STATIC(sizeof(scsi_write16_t) == 16, "size is not correct");
 
-// SPC-4 §7.8.16: Logical Block Provisioning VPD page (page code 0xB2).
-// We only need the first 6 bytes.
 typedef struct TU_ATTR_PACKED
 {
     uint8_t peripheral_device_type : 5;
     uint8_t peripheral_qualifier : 3;
-    uint8_t page_code;    // 0xB2
+    uint8_t page_code;
     uint16_t page_length; // big-endian, min 0x0004
     uint8_t threshold_exponent;
-    // Byte 5 — bit 7 = LBPU, bit 6 = LBPWS, bit 5 = LBPWS10, bits 2:0 = LBPRZ
     uint8_t lbprz : 3;
     uint8_t : 2;
     bool lbpws10 : 1;
@@ -1013,10 +940,9 @@ typedef struct TU_ATTR_PACKED
 } scsi_vpd_lbp_t;
 TU_VERIFY_STATIC(sizeof(scsi_vpd_lbp_t) == 6, "size is not correct");
 
-// SBC-3 §5.25: UNMAP command (opcode 0x42)
 typedef struct TU_ATTR_PACKED
 {
-    uint8_t cmd_code; // 0x42
+    uint8_t cmd_code;
     uint8_t anchor : 1;
     uint8_t : 7;
     uint8_t reserved[4];
@@ -1027,7 +953,6 @@ typedef struct TU_ATTR_PACKED
 } scsi_unmap_t;
 TU_VERIFY_STATIC(sizeof(scsi_unmap_t) == 10, "size is not correct");
 
-// SBC-3 §5.25.2: UNMAP block descriptor
 typedef struct TU_ATTR_PACKED
 {
     uint32_t lba_hi;      // big-endian, upper 32 bits
@@ -1037,7 +962,6 @@ typedef struct TU_ATTR_PACKED
 } scsi_unmap_block_desc_t;
 TU_VERIFY_STATIC(sizeof(scsi_unmap_block_desc_t) == 16, "size is not correct");
 
-// SBC-3 §5.25.1: UNMAP parameter list header + one block descriptor
 typedef struct TU_ATTR_PACKED
 {
     uint16_t data_length;       // big-endian (total bytes - 2)
@@ -1047,8 +971,6 @@ typedef struct TU_ATTR_PACKED
 } scsi_unmap_param_t;
 TU_VERIFY_STATIC(sizeof(scsi_unmap_param_t) == 24, "size is not correct");
 
-// Initialize a CBW for a volume's LUN.
-// Signature and tag are stamped by msc_scsi_submit().
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint32_t total_bytes, uint8_t dir,
                                 uint8_t cmd_len, const void *cmd)
@@ -1061,11 +983,12 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
     memcpy(cbw->command, cmd, cmd_len);
 }
 
-// Remaining time until deadline, floored at MSC_SCSI_OP_TIMEOUT_MS. The floor is
-// deliberate: each SCSI phase (command, then autosense) gets a minimum slice even
-// when the deadline is nearly or already spent, so a slow-but-alive device is not
-// starved. A command's total time can thus exceed the caller's timeout_ms by up
-// to one OP_TIMEOUT per phase — timeout_ms is a soft per-phase floor, not a ceiling.
+// The remaining time is floored at MSC_SCSI_OP_TIMEOUT_MS, so a command and its
+// autosense each get at least that long even when the deadline is near or has
+// passed. The autosense is the REQUEST SENSE that msc_scsi_command sends after a
+// CB or CBI command completes or a BOT command returns FAILED. msc_scsi_command
+// can therefore return up to two MSC_SCSI_OP_TIMEOUT_MS after its timeout_ms has
+// elapsed.
 static uint32_t msc_remaining_timeout(absolute_time_t deadline)
 {
     int64_t remaining_ms = absolute_time_diff_us(get_absolute_time(), deadline) / 1000;
@@ -1079,15 +1002,13 @@ static void msc_clear_sense(uint8_t vol)
     msc_pdrv[vol].sense_ascq = 0;
 }
 
-// Core SCSI helper with autosense.
-// Transparently retries on UNIT ATTENTION.
 static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     uint8_t dev_addr = msc_pdrv[vol].dev_addr;
-    // Slot may have been freed by an unplug processed during a caller's pumped
-    // wait; dev_addr 0 would index msc_itf[-1]/msc_epbuf[-1].
+    // Events are pumped while an earlier command waits, so an unplug can free the
+    // slot before this call, and a dev_addr of 0 would index msc_itf[-1].
     if (dev_addr == 0)
         return MSC_STATUS_FAILED;
     msc_status_t status = MSC_STATUS_FAILED;
@@ -1095,8 +1016,8 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     {
         uint32_t attempt_timeout = msc_remaining_timeout(deadline);
         status = msc_scsi_sync(dev_addr, cbw, data, attempt_timeout);
-        // Capture this command's own data-phase length before the REQUEST SENSE
-        // below (autosense is itself a data phase that overwrites data_xferred).
+        // The command's data length is saved before REQUEST SENSE below, because
+        // the autosense data phase overwrites data_xferred.
         msc_get_itf(dev_addr)->cmd_xferred = msc_get_itf(dev_addr)->data_xferred;
         if (status == MSC_STATUS_TIMED_OUT)
             return status;
@@ -1105,7 +1026,9 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             msc_clear_sense(vol);
             return status;
         }
-        // Only BOT carries a CSW status; CBI/CB infer it from REQUEST SENSE below.
+        // A BOT command's PASSED status comes from the device's CSW. A CB or CBI
+        // command's PASSED status means only that its transfers succeeded, so its
+        // status is taken from REQUEST SENSE below.
         if (status == MSC_STATUS_PASSED && msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
         {
             msc_pdrv[vol].last_ok = get_absolute_time();
@@ -1137,8 +1060,6 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
         }
         if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         {
-            // CB: sense data is the only outcome indicator (no transport status).
-            // CBI: sense data overrides the interrupt status to handle recovered errors.
             if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
             {
                 status = MSC_STATUS_TIMED_OUT;
@@ -1156,7 +1077,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
         }
         if (status == MSC_STATUS_FAILED &&
             msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
-            msc_pdrv[vol].sense_asc != 0x28 && // surface media-change to disk_status
+            msc_pdrv[vol].sense_asc != 0x28 && // A media change is not retried so disk_status can detect it.
             !time_reached(deadline))
             continue;
         return status;
@@ -1174,8 +1095,8 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
-    // Per SPC-4 §6.4.1, INQUIRY is one of the few commands that executes in any
-    // device state and explicitly does not clear a UNIT ATTENTION condition.
+    // INQUIRY runs even when a UNIT ATTENTION is pending and does not clear it, so
+    // INQUIRY data that arrives with a UNIT ATTENTION is accepted.
     if (msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
         resp->response_data_format != 0)
         status = MSC_STATUS_PASSED;
@@ -1193,13 +1114,13 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     return status;
 }
 
-// FORMAT UNIT (opcode 0x04) for one track/head. The CDB is per the UFI spec:
-// byte 1 = 0x17 (FmtData=1, CmpList=0, Defect List Format=7), byte 2 = track,
-// byte 8 = parameter-list length (12). The parameter list is a defect-list header
-// (FOV | DCRT | STPF, defect-list length 8) plus an 8-byte format descriptor
-// carrying the medium geometry (a Formattable Descriptor from READ FORMAT
-// CAPACITIES). Per-track/head formatting and the head/side in header bit 0 are a
-// device-specific convention for legacy floppy drives, not part of the UFI spec.
+// FORMAT UNIT (opcode 0x04) is sent for one track and one head. In the CDB,
+// byte 1 is 0x17 (FmtData=1, CmpList=0, Defect List Format=7), byte 2 is the
+// track and byte 8 is the parameter list length of 12. The parameter list is a
+// defect list header, whose byte 1 holds 0xB0 (FOV=1, DCRT=1, STPF=1) with the
+// head in bit 0 and whose defect list length is 8, followed by an 8-byte format
+// descriptor that holds the block count, a reserved byte and the 3-byte block
+// length from msc_pdrv.
 static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t head)
 {
     uint8_t cmd[12] = {0x04, 0x17, track, 0x00, 0x00, 0x00,
@@ -1207,11 +1128,11 @@ static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t hea
     uint32_t blocks = (uint32_t)msc_pdrv[vol].block_count;
     uint32_t bsize = msc_pdrv[vol].block_size;
     uint8_t param[12] = {
-        0x00, (uint8_t)(0xB0 | head), 0x00, 0x08, // header: FOV|DCRT|STPF flags; side in bit 0
+        0x00, (uint8_t)(0xB0 | head), 0x00, 0x08,
         (uint8_t)(blocks >> 24), (uint8_t)(blocks >> 16),
-        (uint8_t)(blocks >> 8), (uint8_t)blocks,                        // format descriptor: number of blocks
-        0x00,                                                           // reserved
-        (uint8_t)(bsize >> 16), (uint8_t)(bsize >> 8), (uint8_t)bsize}; // block length
+        (uint8_t)(blocks >> 8), (uint8_t)blocks,
+        0x00,
+        (uint8_t)(bsize >> 16), (uint8_t)(bsize >> 8), (uint8_t)bsize};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_SCSI_RW_TIMEOUT_MS);
@@ -1386,20 +1307,14 @@ static msc_status_t msc_scsi_write10(uint8_t vol,
     return status;
 }
 
-// Read device capacity.
-// CBI: READ FORMAT CAPACITIES (UFI mandatory command).
-// BOT: READ CAPACITY(16) on SPC-3+ (needed for >2TB and LBPME);
-//      READ CAPACITY(10) on SPC-2 devices (mandatory SBC command).
-// Returns true on success, populating block_count and block_size.
 static bool msc_read_capacity(uint8_t vol)
 {
     uint8_t dev_addr = msc_pdrv[vol].dev_addr;
 
     if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
-        // CBI: READ FORMAT CAPACITIES. The capacity-descriptor type (a "no media"
-        // code of 11b) is not inspected: disk_initialize runs TUR first, so a
-        // no-media device never reaches here.
+        // The descriptor type is not checked for 11b (no media) because
+        // disk_initialize calls this only after TEST UNIT READY passes.
         scsi_read_format_capacity_data_t rfc = {0};
         if (msc_scsi_read_format_capacities(vol, &rfc) != MSC_STATUS_PASSED)
             return false;
@@ -1417,7 +1332,8 @@ static bool msc_read_capacity(uint8_t vol)
 
     if (msc_pdrv[vol].spc_version >= 0x05)
     {
-        // BOT SPC-3+: READ CAPACITY(16) — required for >2TB and LBPME.
+        // READ CAPACITY(16) is needed for a last LBA above 0xFFFFFFFF and for the
+        // LBPME bit.
         scsi_read_capacity16_resp_t cap16 = {0};
         if (msc_scsi_read_capacity16(vol, &cap16) != MSC_STATUS_PASSED)
             return false;
@@ -1428,7 +1344,7 @@ static bool msc_read_capacity(uint8_t vol)
             return false;
 #if !FF_LBA64
         if (last_lba64 > UINT32_MAX)
-            return false; // >2TB not supported without FF_LBA64
+            return false;
 #endif
         msc_pdrv[vol].block_count = last_lba64 + 1;
         msc_pdrv[vol].block_size = bsize16;
@@ -1439,13 +1355,12 @@ static bool msc_read_capacity(uint8_t vol)
         return true;
     }
 
-    // BOT SPC-2: READ CAPACITY(10) — mandatory SBC command.
     scsi_read_capacity10_resp_t cap10 = {0};
     if (msc_scsi_read_capacity10(vol, &cap10) != MSC_STATUS_PASSED)
         return false;
     uint32_t last_lba = tu_ntohl(cap10.last_lba);
     if (last_lba == 0xFFFFFFFF)
-        return false; // >2TB sentinel; device should have advertised SPC-3+
+        return false; // 0xFFFFFFFF means the last LBA is too large for READ CAPACITY(10).
     uint32_t bsize = tu_ntohl(cap10.block_size);
     if (bsize == 0 || (bsize & (bsize - 1)) != 0 || bsize > 4096)
         return false;
@@ -1454,12 +1369,9 @@ static bool msc_read_capacity(uint8_t vol)
     return true;
 }
 
-// Determine write protection via MODE SENSE.
-// CBI: MODE SENSE(10) (UFI mandatory command, opcode 0x5A).
-// BOT: MODE SENSE(6) (SBC mandatory command, opcode 0x1A).
-// Requests only the mode parameter header (all pages 0x3F, DBD=1) —
-// write_protected lives in the header regardless of which pages follow.
-// Non-fatal: defaults to not protected on failure.
+// MODE SENSE is sent for all pages (0x3F) with an allocation length that covers
+// only the mode parameter header, which holds the write-protect bit whatever
+// pages follow.
 static void msc_sense_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_pdrv[vol].dev_addr;
@@ -1483,7 +1395,6 @@ static void msc_sense_write_protect(uint8_t vol)
     }
 }
 
-// Probe VPD page B2 to check whether the device supports SCSI UNMAP.
 static bool msc_probe_unmap(uint8_t vol)
 {
     scsi_inquiry_t const cmd = {
@@ -1504,7 +1415,6 @@ static bool msc_probe_unmap(uint8_t vol)
     return resp.lbpu;
 }
 
-// Allocate a free physical-drive slot. Returns FF_VOLUMES if none.
 static uint8_t msc_pdrv_alloc(void)
 {
     for (uint8_t p = 0; p < FF_VOLUMES; p++)
@@ -1528,9 +1438,8 @@ static void msc_mount_cb(uint8_t dev_addr)
         msc_pdrv[pdrv].lun = lun;
         msc_pdrv[pdrv].status = msc_volume_registered;
         msc_mount_gen[pdrv]++;
-        // Lazy mount only (no disk I/O here); SCSI is unsafe in this USB
-        // callback. Bring-up (READ CAPACITY etc.) runs in disk_initialize on
-        // first FatFs access in the task tier.
+        // With opt 0, f_mount only registers the volume, and FatFs calls
+        // disk_initialize on the first access to it.
         TCHAR volstr[6];
         msc_vol_path(volstr, pdrv);
         f_mount(&msc_pdrv[pdrv].fatfs, volstr, 0);
@@ -1560,17 +1469,17 @@ static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
     msc_interface_t *p_msc = msc_get_itf(daddr);
     msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
     if (p_msc->cancelling)
-        return; // device torn down mid-enumeration; don't register volumes
+        return;
 
+    // A device with a single LUN may STALL GET_MAX_LUN, so a failed request leaves
+    // max_lun at 0.
     if (xfer->result == XFER_RESULT_SUCCESS)
     {
-        // Clamp to this driver's MSC_MAX_LUN_COUNT LUN pool.
         uint8_t ml = epbuf->max_lun_buf[0];
         if (ml >= MSC_MAX_LUN_COUNT)
             ml = MSC_MAX_LUN_COUNT - 1;
         p_msc->max_lun = ml;
     }
-    // else: STALL means no LUNs beyond 0; max_lun stays 0.
 
     p_msc->mounted = true;
     msc_mount_cb(daddr);
@@ -1582,7 +1491,6 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
     msc_interface_t *p_msc = msc_get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
 
-    // CBI/CB: single-LUN by spec, skip GET_MAX_LUN.
     if (!msc_is_bot(p_msc))
     {
         p_msc->mounted = true;
@@ -1591,7 +1499,6 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
         return true;
     }
 
-    // BOT: issue GET_MAX_LUN; completion fires msc_get_max_lun_complete_cb.
     msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
     epbuf->max_lun_buf[0] = 0;
     tusb_control_request_t const request = {
@@ -1612,7 +1519,6 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
         .user_data = 0};
     if (!tuh_control_xfer(&xfer))
     {
-        // Control pipe busy or error — proceed with LUN 0 only.
         p_msc->mounted = true;
         msc_mount_cb(daddr);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
@@ -1673,17 +1579,15 @@ DSTATUS disk_status(BYTE pdrv)
         time_reached(delayed_by_ms(msc_pdrv[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
     {
         MSC_LOG_VOL(vol, DEBUG, "disk_status, issuing TUR");
-        // Only a FAILED TUR signals removal; a TIMED_OUT TUR intentionally leaves
-        // the drive present so a momentarily slow but working drive isn't dropped
-        // (real I/O independently maps TIMED_OUT to RES_NOTRDY).
+        // A TUR that times out leaves the volume mounted so a slow drive is not
+        // dropped. A read or write that times out still returns RES_NOTRDY.
         if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED)
         {
             uint8_t asc = msc_pdrv[vol].sense_asc;
             if (asc == 0x3A || asc == 0x28) // MEDIUM NOT PRESENT or MAY HAVE CHANGED
             {
-                // Clear media state only. Device-level traits (removable,
-                // spc_version) are preserved so disk_initialize skips the
-                // re-INQUIRY on media re-insertion.
+                // The removable flag and spc_version are kept because
+                // disk_initialize does not repeat INQUIRY for an ejected volume.
                 msc_pdrv[vol].status = msc_volume_ejected;
                 msc_pdrv[vol].block_count = 0;
                 msc_pdrv[vol].block_size = 0;
@@ -1692,7 +1596,7 @@ DSTATUS disk_status(BYTE pdrv)
                 return STA_NOINIT;
             }
         }
-        // The TUR above pumps; a concurrent unplug may have freed the slot.
+        // Events are pumped during the TUR, so an unplug can free the slot.
         if (msc_pdrv[vol].status != msc_volume_mounted)
             return STA_NOINIT;
     }
@@ -1707,7 +1611,6 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (msc_pdrv[vol].status == msc_volume_registered ||
         msc_pdrv[vol].status == msc_volume_ejected)
     {
-        // ---- INQUIRY (first mount only) ----
         if (msc_pdrv[vol].status == msc_volume_registered)
         {
             scsi_inquiry_resp_t inq;
@@ -1717,12 +1620,10 @@ DSTATUS disk_initialize(BYTE pdrv)
             msc_pdrv[vol].spc_version = inq.version;
         }
 
-        // ---- TUR ----
-        // A just-inserted medium answers the first TUR with a media-change UNIT
-        // ATTENTION (ASC 0x28) that msc_scsi_command no longer auto-clears (so
-        // disk_status can observe a swap); the autosense REQUEST SENSE clears the
-        // condition, so a retry then succeeds. Likewise retry a spun-down drive
-        // (NOT READY) once.
+        // The first TUR after a medium is inserted fails with UNIT ATTENTION,
+        // ASC 0x28, which msc_scsi_command does not retry so that disk_status can
+        // detect a media change. The autosense REQUEST SENSE clears the
+        // condition, so a second TUR can pass.
         bool tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
         if (!tur_ok && (msc_pdrv[vol].sense_key == SCSI_SENSE_NOT_READY ||
                         msc_pdrv[vol].sense_asc == 0x28))
@@ -1732,12 +1633,9 @@ DSTATUS disk_initialize(BYTE pdrv)
             if (msc_pdrv[vol].removable)
                 msc_pdrv[vol].status = msc_volume_ejected;
         }
-        // ---- CAPACITY ----
         else if (msc_read_capacity(vol))
         {
-            // ---- WRITE PROTECTION ----
             msc_sense_write_protect(vol);
-            // ---- UNMAP SUPPORT ----
             if (!msc_pdrv[vol].write_prot &&
                 msc_protocol(msc_pdrv[vol].dev_addr) == MSC_PROTOCOL_BOT &&
                 msc_pdrv[vol].lbpme)
@@ -1778,8 +1676,8 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     uint8_t const dev_addr = msc_pdrv[vol].dev_addr;
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
-    // Clamp each transfer so total_bytes fits the USB host transfer
-    // length limit (uint16_t).
+    // usbh_edpt_xfer takes a 16-bit length, so each transfer is limited to
+    // UINT16_MAX bytes.
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
     while (count > 0)
     {
@@ -1824,8 +1722,8 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
             status = msc_scsi_write10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
-        // cmd_xferred is the host-sent byte count, which is always the full
-        // request on a write; the device's real shortfall is the CSW residue.
+        // On a write, cmd_xferred counts the bytes the host sent, so the CSW
+        // residue is also checked for bytes the device did not process.
         if (msc_get_itf(dev_addr)->cmd_xferred != (uint32_t)n * block_size)
             return RES_ERROR;
         if (msc_protocol(dev_addr) == MSC_PROTOCOL_BOT &&
@@ -1873,7 +1771,8 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         *((WORD *)buff) = (WORD)msc_pdrv[vol].block_size;
         return RES_OK;
     case GET_BLOCK_SIZE:
-        // 1 = erase block size unknown; FatFs treats as single-sector alignment.
+        // f_mkfs aligns its data area to this many sectors, so 1 means no
+        // alignment.
         *((DWORD *)buff) = 1;
         return RES_OK;
     case CTRL_TRIM:
@@ -1885,7 +1784,6 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         LBA_t end = rt[1];
         if (start > end)
             return RES_PARERR;
-        // UNMAP block descriptor block_count is 32-bit.
         if ((end - start) >= (LBA_t)UINT32_MAX)
             return RES_PARERR;
         msc_status_t status = msc_scsi_unmap(vol, start, (uint32_t)(end - start + 1));
@@ -1896,8 +1794,6 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
-// Remount after format/zero so the next access re-reads the new (or, after
-// zero, absent) filesystem.
 void msc_drive_reenumerate(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
@@ -1964,14 +1860,6 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
     return state + 1;
 }
 
-/* ---- Disk utility (mon/drive.c) support -------------------------------------
- * These resolve a logical volume (MSCn:) to its physical drive and expose
- * device/geometry/format primitives. All run in the FatFs-safe task tier.
- */
-
-// Map an "MSCn"/"MSCn:" name or the "n"/"n:" shortcut (case-insensitive) to a
-// logical volume index, or -1. The volume need not be in use; callers validate
-// with msc_drive_get_info.
 int msc_drive_vol_from_name(const char *name)
 {
     char buf[6];
@@ -1985,7 +1873,6 @@ int msc_drive_vol_from_name(const char *name)
     for (uint8_t v = 0; v < FF_VOLUMES; v++)
         if (strcasecmp(buf, VolumeStr[v]) == 0)
             return v;
-    // "n:"/"n" shortcut for MSCn (same as FatFs's numeric volume IDs).
     if (n == 1 && buf[0] >= '0' && buf[0] <= '9' && (buf[0] - '0') < FF_VOLUMES)
         return buf[0] - '0';
     return -1;
@@ -1999,8 +1886,6 @@ static bool msc_drive_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
     return true;
 }
 
-// Resolve a volume to its descriptor: media presence/geometry, device class,
-// mount generation, and the canonical "MSCn:" volume path.
 bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
 {
     uint8_t pdrv;
@@ -2008,13 +1893,13 @@ bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
         return false;
     if (disk_status(pdrv) == STA_NOINIT)
         disk_initialize(pdrv);
-    if (msc_pdrv[pdrv].dev_addr == 0) // freed/incomplete slot; msc_get_itf would index [-1]
+    if (msc_pdrv[pdrv].dev_addr == 0) // An unplug handled during the calls above can free the slot.
         return false;
     msc_interface_t *p_msc = msc_get_itf(msc_pdrv[pdrv].dev_addr);
     out->present = (msc_pdrv[pdrv].status == msc_volume_mounted);
     out->removable = msc_pdrv[pdrv].removable;
     out->write_prot = msc_pdrv[pdrv].write_prot;
-    out->is_floppy = !msc_is_bot(p_msc); // open() gates CBI<=>UFI/SFF, BOT<=>SCSI
+    out->is_floppy = !msc_is_bot(p_msc); // msc_class_driver_open accepts CB and CBI only with UFI or SFF.
     out->block_count = msc_pdrv[pdrv].block_count;
     out->block_size = msc_pdrv[pdrv].block_size;
     out->gen = msc_mount_gen[vol];

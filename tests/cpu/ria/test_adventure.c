@@ -2,20 +2,11 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Integration test for the second milestone: Colossal Cave Adventure. It
- * exercises everything the hello world test does not — ROM-asset files
- * (ROM:/advent*.txt) opened and read through the std file syscalls, and
- * interactive stdin driven through the vendored line editor (rln.c) from
- * injected keystrokes.
- *
- * Output is captured via the terminal tap rather than rendered, so the
- * assertions are on the program's actual text and survive font/term changes.
  */
 
 #include "core/hid/vtkeys.h"
 #include "core/com/com.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -46,8 +37,6 @@ static void run_frames(int n)
     emu_frames((int)n);
 }
 
-/* The intro banner prints before any input is read — proves the program
- * starts and stdout reaches the terminal. */
 UTEST(adventure, intro_banner)
 {
     ASSERT_TRUE(boot(NULL));
@@ -55,11 +44,9 @@ UTEST(adventure, intro_banner)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Colossal Cave Adventure") != NULL);
     ASSERT_TRUE(strstr(cap, "Would you like instructions?") != NULL);
-    ASSERT_TRUE(resb_running()); /* blocked on the first stdin read */
+    ASSERT_TRUE(sys_running());
 }
 
-/* Answering the first prompt requires a full stdin line read through rln; the
- * room description that follows is read from the ROM:/advent*.txt assets. */
 UTEST(adventure, opening_room)
 {
     ASSERT_TRUE(boot("no\n"));
@@ -67,18 +54,16 @@ UTEST(adventure, opening_room)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "standing at the end of a road") != NULL);
     ASSERT_TRUE(strstr(cap, "small brick") != NULL);
-    ASSERT_TRUE(resb_running());
+    ASSERT_TRUE(sys_running());
 }
 
-/* A second command proves the parser (which scans the asset vocabulary files)
- * and multi-line stdin both keep working past the first turn. */
 UTEST(adventure, parses_a_command)
 {
     ASSERT_TRUE(boot("no\ntake lamp\n"));
     run_frames(200);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "I see no lamp here") != NULL);
-    ASSERT_TRUE(resb_running());
+    ASSERT_TRUE(sys_running());
 }
 
 UTEST_MAIN_EMU()

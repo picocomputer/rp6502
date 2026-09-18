@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * core/sys/debug_log.h at the levels this test's CMake line set: WARN for
- * every category, DEBUG for the one named loud. host_log is this test's,
- * so the bench's stays out.
+ * The CMake line for this test sets the default level to WARN and the level
+ * of the category loud to DEBUG.
  */
 
 #include "core/sys/debug_log.h"
@@ -30,7 +29,6 @@ void host_log(int level, const char *category, const char *fmt, ...)
     va_end(ap);
 }
 
-/* A call above the level evaluates nothing, arguments included. */
 static int evaluated;
 
 static int count(void)

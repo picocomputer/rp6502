@@ -21,7 +21,6 @@
 
 void help_mon_help(const char *args);
 
-// Look up help by category word plus optional sub-key.
 const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn);
 
 // Test if help exists. Used to determine

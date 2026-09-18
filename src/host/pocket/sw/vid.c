@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's terminal view: mode0.c's role, over scanout hardware.
- * term.c owns the model; once per frame vid_task snapshots it into the
- * register shadows the raster latches at the next frame start. One frame
- * of latency, never a tear.
+ * vid_task copies term.c's view into the mode 0 register shadows at most once
+ * per frame. mode0.sv latches the shadows one line before each frame starts,
+ * so the row table, cursor and blink phase that the scanout uses change only
+ * between frames.
  */
 
 #include "core/api/xreg.h"
@@ -19,9 +19,8 @@
 
 #include <stdint.h>
 
-/* The window the terminal draws in, kept because the register it goes
- * to is written once here and read by nothing: after a wake there is
- * no way to ask the fabric what it used to be. */
+/* The blob does not contain VID_PROG, so the value written to it is kept
+ * here for vid_restore. */
 static uint32_t vid_prog_word;
 
 bool mode0_prog(uint16_t *xregs)
@@ -75,18 +74,10 @@ static void vid_publish(void)
     VID_BLINK = tv.blink_phase;
 }
 
-/* Set by vid_stop, performed by vid_task. It rides the savestate blob like
- * everything else in here, which is right: a machine snapped between the two
- * wakes still owing itself the restore. */
 static bool vid_needs_restore;
 
 void vid_task(void)
 {
-    /* Ahead of the frame gate on purpose. A stop commits at the end of a
-     * pass, so this is the first thing that runs afterwards, and a relaunch
-     * cannot be committed before the next pass -- which means the restore
-     * always lands before the next program's RESB goes up. Behind the gate it
-     * could slip a frame and arrive after the program had started drawing. */
     if (vid_needs_restore)
     {
         vid_needs_restore = false;
@@ -101,18 +92,11 @@ void vid_task(void)
     vid_publish();
 }
 
-/* The fabric's own count, which is the display's and not this firmware's --
- * it advances whether or not the task above ran. */
 unsigned long vga_frame_count(void)
 {
     return VID_FRAME;
 }
 
-/* The row table and the cursor would come back on their own at the
- * next frame, so this is only the window -- and then the view, so the
- * frame in between is not a screenful of row zero. */
-/* For the wake log: the window nothing can read back out of the
- * fabric. */
 uint32_t vid_prog_word_get(void)
 {
     return vid_prog_word;
@@ -124,12 +108,11 @@ void vid_restore(void)
     vid_publish();
 }
 
-/* The console's code page and display type, restored on the way out of a
- * program -- deferred to vid_task, which is where the RIA's vga_task puts the
- * same two writes behind the same kind of flag. Deferring is what frees this
- * driver's position in the list: the restore has to follow everything that could
- * still draw, and a stop hook can only promise that by being last. A task can
- * promise it from anywhere, because it runs after the whole fan-out. */
+/* The console's code page and display type are put back when a program
+ * stops. The two writes are deferred to vid_task so that they land after
+ * every other stop hook has run, which a stop hook itself could ensure only
+ * from the first row of the driver list, because stop hooks run in reverse
+ * order. */
 void vid_stop(void)
 {
     vid_needs_restore = true;

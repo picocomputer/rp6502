@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Bench top: the bridge feeding the staging store, the behavioral
- * chip behind it, the core_bridge_cmd signals played from C++.
  */
 
 module tb_pbridge (
@@ -19,8 +16,6 @@ module tb_pbridge (
     input logic reset_n,
     output logic [9:0] tb_pbridge_dt_addr,
     input logic [31:0] datatable_q,
-    /* Flat here and packed at the instance, the way core_top does it,
-     * so the C++ can drive one slot by name. */
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,

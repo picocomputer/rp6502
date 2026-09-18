@@ -58,7 +58,8 @@ bool keyboard_key_down(uint8_t keycode);
 uint8_t keyboard_get_leds(void);
 void keyboard_toggle_lock(uint8_t bit);
 
-/* The lock state as reported by a host that owns it, in KEYBOARD_LED_ bits. */
+/* A host that receives the lock state from its platform passes it here, in
+ * KEYBOARD_LED_ bits. */
 void keyboard_set_locks(uint8_t leds);
 
 void keyboard_hid_set(uint8_t keycode, bool down);
@@ -74,9 +75,6 @@ void keyboard_release_all(void);
  * any usage NumLock does not remap. */
 uint8_t keyboard_keypad_nav(uint8_t hid_usage);
 
-/* The xterm modifier parameter, the number in ESC[1;{mod}: 1 with nothing
- * held, plus 1 for shift, 2 for alt, 4 for ctrl and 8 for gui. A host whose
- * window manager owns the gui key passes false for it. */
 int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui);
 
 /* The escape sequence a key with no character of its own sends, written into

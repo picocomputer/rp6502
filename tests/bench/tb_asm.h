@@ -2,19 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Enough 65C02 to write a test program, and no more. What the benches
- * need is a few loads and stores, the xstack, the API trampoline and a
- * way to say something on the console; assembling anything else would
- * be a feature nothing asks for.
- *
- * Addressing is absolute throughout. A test ROM lives at $0300 and
- * talks to $FFxx, so zero page would save bytes nobody is counting and
- * cost a second spelling of every instruction.
- *
- * tests/gen/rp6502_rom.py is the same instruction set in Python. They are
- * two spellings of one machine, so a program written against either
- * reads the same.
  */
 
 #ifndef _TESTS_BENCH_TB_ASM_H_
@@ -25,10 +12,8 @@
 #include <initializer_list>
 #include <vector>
 
-/* Where a test ROM is loaded and started. */
 #define TB_ORG 0x0300
 
-/* The RIA register window, as the 6502 sees it. */
 #define TB_RIA_READY 0xFFE0
 #define TB_RIA_TX 0xFFE1
 #define TB_RIA_RX 0xFFE2
@@ -40,6 +25,7 @@
 #define TB_API_CALL 0xFFF1
 #define TB_API_A 0xFFF4
 #define TB_API_X 0xFFF6
+#define TB_API_SREG 0xFFF8
 
 struct tb_asm
 {
@@ -53,7 +39,6 @@ struct tb_asm
     }
     void text(const char *s) { raw(s, strlen(s) + 1); }
 
-    /* The address the next instruction will be assembled at. */
     uint16_t here() const { return (uint16_t)(TB_ORG + b.size()); }
 
     void abs(uint8_t op, uint16_t a)
@@ -72,6 +57,8 @@ struct tb_asm
     void jsr(uint16_t a) { abs(0x20, a); }
     void jmp(uint16_t a) { abs(0x4C, a); }
     void bit(uint16_t a) { abs(0x2C, a); }
+    void cmp_abs(uint16_t a) { abs(0xCD, a); }
+    void beq(int8_t d) { raw({0xF0, (uint8_t)d}); }
     void inx() { raw({0xE8}); }
     void dex() { raw({0xCA}); }
     void rts() { raw({0x60}); }
@@ -83,8 +70,10 @@ struct tb_asm
         sta(a);
     }
 
-    /* The xstack grows down, so the last byte pushed is the first the
-     * API pops — a word goes high byte first, a string backwards. */
+    /* The xstack grows down and the API reads each value from its lowest
+     * address up, so a multi-byte value is pushed high byte first to leave
+     * it little-endian, and a string is pushed backwards from its
+     * terminator to leave it in reading order. */
     void push(uint8_t v) { store(TB_XSTACK, v); }
     void pushw(uint16_t w)
     {
@@ -106,22 +95,17 @@ struct tb_asm
             push((uint8_t)s[n]);
     }
 
-    /* An API call: the op, then the trampoline the 6502 spins in. */
     void call(uint8_t op)
     {
         store(TB_API_OP, op);
         jsr(TB_API_CALL);
     }
-    /* With the attribute id, which every op that takes one puts in A. */
     void call_a(uint8_t op, uint8_t a)
     {
         store(TB_API_A, a);
         call(op);
     }
 
-    /* The console, unguarded: the return registers of a call that just
-     * finished are already in A and X, and nothing else is competing
-     * for the ring. */
     void put_a() { sta(TB_RIA_TX); }
     void put_x() { stx(TB_RIA_TX); }
     void put_ax()
@@ -137,8 +121,6 @@ struct tb_asm
         put_a();
     }
 
-    /* The console, under the ready bit — what a program printing more
-     * than a few bytes has to do. */
     void putc_a()
     {
         raw({0x48}); /* pha */
@@ -148,7 +130,6 @@ struct tb_asm
         sta(TB_RIA_TX);
     }
 
-    /* One XRAM byte through RW0, which is the port a device snoops. */
     void poke(uint16_t addr, uint8_t val)
     {
         store(TB_RW0_ADDR, (uint8_t)addr);
@@ -156,7 +137,6 @@ struct tb_asm
         store(TB_RW0_DATA, val);
     }
 
-    /* op 0x01, the xreg dispatch: device, channel, address, one word. */
     void xreg(uint8_t dev, uint8_t ch, uint8_t addr, uint16_t word)
     {
         push(dev);

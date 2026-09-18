@@ -32,8 +32,8 @@ _Static_assert(CFG_TUH_HID <= 8, "usb_gamepad_led_pending bitmask is 8 bits");
 static uint8_t usb_gamepad_led_pending;
 static uint8_t usb_gamepad_led_dev[CFG_TUH_HID];
 
-/* TinyUSB hands out one interface index across every device, so it is
- * what a mounted device is remembered by here. -1 is nothing mounted. */
+/* TinyUSB numbers HID interfaces with one index across all devices, so
+ * usb_hid_slot is indexed by that index alone. */
 static int8_t usb_hid_slot[CFG_TUH_HID];
 static uint8_t usb_hid_leds;
 static uint8_t usb_hid_leds_next_dev;
@@ -169,7 +169,6 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_parsed_t parsed;
     hid_parse(desc_report, desc_len, &parsed);
 
-    /* Generic HID says nothing about its labels; gamepad.c knows the Sony ids. */
     int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tablet, &parsed.gamepad,
                          vendor_id, product_id, GAMEPAD_TYPE_UNKNOWN);
     if (slot < 0)
@@ -188,7 +187,6 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     {
         ++usb_count_hid_gamepad;
 
-        // Defer player LED send — not safe during mount callback
         usb_gamepad_led_dev[idx] = dev_addr;
         usb_gamepad_led_pending |= (1u << idx);
     }
@@ -226,7 +224,6 @@ bool usb_boot_enumerating(void)
     return true;
 }
 
-// UTF-16 char count in a string descriptor, clamped to the buffer capacity.
 uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
 {
     const tusb_desc_string_t *desc = desc_buf;
@@ -236,27 +233,31 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     uint16_t max_ulen = (desc_buf_size - sizeof(tusb_desc_string_t)) / sizeof(uint16_t);
     if (ulen > max_ulen)
         ulen = max_ulen;
-    // Some devices over-report bLength and gamepad the string with NUL.
+    // Some devices report a bLength longer than the string and pad the rest
+    // with NUL characters.
     while (ulen > 0 && desc->utf16le[ulen - 1] == 0)
         ulen--;
     return ulen;
 }
 
-// Convert USB string descriptor to OEM for display.
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
 {
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
     if (ulen > USB_DESC_STRING_MAX_CHAR_LEN)
         ulen = USB_DESC_STRING_MAX_CHAR_LEN;
-    // The packed descriptor's utf16le member isn't alignment-safe to address.
+    // The utf16le member of the packed descriptor may be unaligned, so the
+    // characters are copied to an aligned array before a uint16_t pointer to
+    // them is passed on.
     uint16_t w[USB_DESC_STRING_MAX_CHAR_LEN];
     memcpy(w, (const uint8_t *)desc_buf + offsetof(tusb_desc_string_t, utf16le),
            ulen * sizeof(uint16_t));
     oem_from_wide_n(w, ulen, dest, dest_size);
 }
 
-// One fetch at a time; the pending flag holds the buffer until the
-// callback releases it, even across a timed-out wait.
+// Only one fetch runs at a time. Once a transfer starts, only
+// usb_string_fetch_cb clears usb_string_pending, even after usb_string_fetch
+// stops waiting, so the buffer is not reused while the transfer can still
+// write to it.
 static uint8_t usb_string_buf[USB_DESC_STRING_BUF_SIZE];
 static bool usb_string_pending;
 static xfer_result_t usb_string_result;
@@ -267,7 +268,6 @@ static void usb_string_fetch_cb(tuh_xfer_t *xfer)
     usb_string_pending = false;
 }
 
-// Pumps sys_task() while spinning, like msc_scsi_sync.
 static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
 {
     if (usb_string_pending)
@@ -286,7 +286,7 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
     while (usb_string_pending)
     {
         if (tusb_time_millis_api() - start_ms >= 250)
-            return NULL; // the callback still owns the buffer
+            return NULL;
         sys_task();
     }
     if (usb_string_result != XFER_RESULT_SUCCESS)
@@ -317,7 +317,6 @@ const void *usb_string_fetch_serial(uint8_t daddr)
     return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iSerialNumber));
 }
 
-// Convert a USB string descriptor to printable ASCII for hashing.
 static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t dest_size)
 {
     const tusb_desc_string_t *desc = desc_buf;
@@ -400,7 +399,6 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
     return true;
 }
 
-/* Two transports here; core/hid/keyboard.c asks for one. */
 void hid_set_leds(uint8_t leds)
 {
     usb_set_hid_leds(leds);
@@ -414,8 +412,6 @@ bool hid_boot_enumerating(void)
     return usb_boot_enumerating();
 }
 
-/* Devices report on their own schedule and a remapped block refills from the
- * next one, so there is nothing held here to send again. */
 void hid_remapped(void)
 {
 }

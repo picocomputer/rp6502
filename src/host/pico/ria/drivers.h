@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drivers: the ones it is made of and the order it comes up
- * in, and the ones it offers a program to open. Both are the same kind of
- * fact, so they are the same file.
- *
- * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
- * to pump, backward to tear down. core/api/std.c builds the table from the
- * stdio rows. The drive a path reaches is in neither list: osal/dir.h
- * names those calls and the host that is linked defines them.
  */
 
 #ifndef _HOST_DRIVERS_H_
@@ -37,7 +28,7 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
-#include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
+#include "core/rom/rom.h"
 #include "ria/mon/rom.h"
 #include "ria/sys/rp2350.h"
 #include "ria/sys/com.h"
@@ -57,21 +48,22 @@
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
 
-/* The first eight are the machine's bring-up, and the order is the fabric's:
- * the part's clock before anything divided from it is set up, the console
- * before anything prints, the banner before anything can queue an
- * error under it, the bus before the video that talks over it, and the
- * filesystem before the config it holds. The rest is init order and little
- * else -- usb second-to-last because its enumeration window times a keyboard
- * quirk and anything slow scheduled inside it stops the quirk firing, and phi2
- * after it because a reclock is exactly that kind of slow. phi2 must also come
- * after ria and pix, whose inits create the state machines it reprograms.
+/* RP2350 comes first so the system clock is set before any init computes a
+ * divider from it, and COM comes next so the console is up before anything
+ * prints. MON follows so the boot banner that mon_init queues comes before
+ * any error a later init queues. PIX comes before VGA because vga_init sends
+ * a PIX message, and LFS comes before CFG because cfg_init reads its file
+ * from the volume that lfs_init mounts. USB comes near the end because
+ * usb_init starts the boot enumeration window that keyboard_mount checks,
+ * and every init after usb_init runs before usb_task can mount a keyboard,
+ * so a slow init can use up the window first. PHI2 comes after RIA and PIX
+ * because phi2_init sets the clock dividers of state machines that ria_init
+ * and pix_init configure.
  *
- * The io_task column reads its order off this same list, and one rule is
- * load-bearing there: rom before vcp, nfc and api, with api the last row that
- * has one. api_task and nfc_task can arm an exec, and rom_task must not run
- * after the arming in the same pass. vcp before nfc, which opens the device
- * index vcp sets. */
+ * The io_task column runs in the same order. ROM must come before NFC and
+ * API, because nfc_task and api_task can start an exec that stops the
+ * running program, and rom_task must not start the load until sys_commit has
+ * performed that stop. */
 #define RP6502_MACH_DRIVERS                          \
     RP2350_DRIVER,                                   \
     COM_DRIVER, MON_DRIVER,                          \
@@ -89,14 +81,12 @@
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
     USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
-/* What a program may open, in the order open() tries them. The filesystem is
- * the catch-all, so it is last. */
+/* open() tries these in order, and FS_STD_DRIVER accepts every name, so it
+ * must be last. */
 #define RP6502_STD_DRIVERS                           \
     VCP_STD_DRIVER, MID_STD_DRIVER,                  \
     ROM_STD_DRIVER, NFC_STD_DRIVER, FS_STD_DRIVER
 
-/* Where console input comes from, indexed by com_source_t; core/com/pick.c
- * reads them. Keymap's queue is the keyboard and the UART is the wire. */
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
     [COM_SOURCE_UART] = COM_UART_SOURCE

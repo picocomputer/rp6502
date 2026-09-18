@@ -201,10 +201,6 @@ static void vga_scanvideo_switch(void)
     mutex_exit(&vga_scanline_mutex);
 }
 
-// Fires ria_vsync once per frame at the highest scanline touched by any program,
-// with a scanline-0 fallback if that threshold was never reached. Keyed on the
-// frame number because both cores render concurrently and may complete out of
-// order; the RIA edge-triggers VSYNC, so a second byte would be a phantom frame.
 static unsigned long vga_frames;
 
 static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
@@ -218,9 +214,14 @@ static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
         return;
     uint16_t frame = scanvideo_frame_number(scanline_id);
     if (scanline == 0 && scanline + 1 < highest)
-        // Fallback for a frame that never reached highest. The previous frame
-        // owns it; scanvideo skipped ahead before rendering its threshold line.
+        // scanvideo can skip past the previous frame's highest scanline, so
+        // that frame's VSYNC is sent when scanline 0 completes if it was not
+        // sent already.
         --frame;
+    // Both cores complete scanlines, so vga_vsync_frame_fired is exchanged
+    // atomically. Each call to ria_vsync sends the RIA a new frame number,
+    // and the RIA triggers a VSYNC for every new frame number, so a second
+    // call for one frame would trigger an extra VSYNC on the RIA.
     if (__atomic_exchange_n(&vga_vsync_frame_fired, frame, __ATOMIC_ACQ_REL) != frame)
     {
         __atomic_fetch_add(&vga_frames, 1, __ATOMIC_RELAXED);
@@ -228,8 +229,8 @@ static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
     }
 }
 
-/* Written by core 1 above, read by core 0's term task. Relaxed: a blink that
- * reads one frame stale blinks one frame late, which no eye has. */
+/* Relaxed ordering is enough because the terminal uses this count only to
+ * time its cursor and cell blinks, and no other data is published with it. */
 unsigned long vga_frame_count(void)
 {
     return __atomic_load_n(&vga_frames, __ATOMIC_RELAXED);
@@ -340,8 +341,6 @@ static void vga_reset_console_prog(void)
     main_prog(xregs_console);
 }
 
-/* Where the boot console is actually programmed: the reset below runs
- * because the zero-init canvas is already the console one. */
 void vga_set_display(vga_display_t display)
 {
     vga_display_selected = display;
@@ -352,7 +351,6 @@ void vga_set_display(vga_display_t display)
 
 // Also accepts NULL for reset to vga_canvas_console.
 // When xregs is non-NULL (pix xreg), sends ACK/NAK via backchannel.
-// The ACK goes out here, not after the switch vga_scanvideo_update queues.
 void vga_xreg_canvas(uint16_t *xregs)
 {
     vga_canvas_t canvas = xregs ? xregs[0] : vga_canvas_console;
@@ -371,10 +369,6 @@ void vga_xreg_canvas(uint16_t *xregs)
     case vga_canvas_320_180:
     case vga_canvas_640_480:
     case vga_canvas_640_360:
-        /* Before the selected view moves: until the switch lands, the beam
-         * still runs the current one, and a program written for the new
-         * canvas would be drawn against the old geometry. An empty program
-         * draws nothing, which is the right thing to show for one frame. */
         vga_prog_reset();
         vga_canvas_selected = canvas;
         vga_scanvideo_update();
@@ -424,9 +418,6 @@ bool vga_canvas_is_console(void)
 
 #pragma GCC pop_options
 
-/* Core 1's half of the scanout, started by main.c once every driver is up.
- * Both cores render: core 0 from vga_task, core 1 from here, serialized by
- * vga_scanline_mutex. */
 void vga_start_render_core(void)
 {
     multicore_launch_core1(vga_render_loop);

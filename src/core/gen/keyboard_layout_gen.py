@@ -2,31 +2,18 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The keyboard layouts, lifted out of src/core/def/keyboard_*.def.
-#
-# The def files stay the source of truth and stay the thing a
-# contributor edits; see def/keyboard.def. What changes is where the numbers
-# end up. As X macros they became seven [128][5] DWORD tables plus five
-# parallel lookup arrays — twenty kilobytes of flash that a machine with
-# no flash cannot have. The Pocket links its firmware into a 96 KB
-# tightly coupled memory and reads its bulk data out of a staging store,
-# so the layouts come here and become an asset like the fonts and the
-# code page tables.
-#
-# Same numbers, two outputs: a binary for the machine that stages it,
-# and a C array for the machine that can afford to link it in.
 
 import argparse
 import json
 import re
 from pathlib import Path
 
-MAGIC = 0x4C4B  # 'KL'
+MAGIC = 0x4C4B  # 'KL' as little-endian bytes
 
-# Buffer sizes a caller declares, NUL included. The record carries the
-# bytes without one, so a name that filled its field would come back
-# unterminated; the generator refuses that instead.
+# These are the buffer sizes a caller declares, NUL included. A record holds
+# each string padded with NULs to that size, and core/hid/layout.c writes a
+# NUL over the last byte it copies out, so a string that filled its field
+# would lose its last character.
 NAME_MAX = 8
 DESC_MAX = 32
 
@@ -43,10 +30,10 @@ OFF_D3N = OFF_D2N + 1
 OFF_KEYS = OFF_D3N + 1
 OFF_DEAD = OFF_KEYS + KEY_WORDS
 
-# keyboard.c caches the dead key tables as OEM characters in a fixed buffer.
-# Its overflow path throws the layout's dead keys away, which is a
-# silent loss of function; catching it here means it can only happen to
-# a layout nobody has built yet.
+# This is the size of the buffer in which core/hid/keymap.c caches the
+# dead key tables as OEM characters. When the tables overflow that
+# buffer, keymap.c drops the layout's dead keys and logs an error, so the
+# overflow is caught here when the layout is built.
 DEADKEY_CACHE_SIZE = 512
 
 ESCAPES = {"n": 0x0A, "r": 0x0D, "t": 0x09, "b": 0x08, "f": 0x0C,
@@ -55,7 +42,6 @@ ESCAPES = {"n": 0x0A, "r": 0x0D, "t": 0x09, "b": 0x08, "f": 0x0C,
 
 
 def strip_comments(src):
-    """Comments out, string and character literals intact."""
     out = []
     i, n = 0, len(src)
     while i < n:
@@ -85,7 +71,6 @@ def strip_comments(src):
 
 
 def split_args(text):
-    """Top level commas only; a literal may hold one, and '(' and ')'."""
     args, depth, start = [], 0, 0
     i, n = 0, len(text)
     while i < n:
@@ -112,7 +97,6 @@ def split_args(text):
 
 
 def find_calls(src, name):
-    """Every `name(...)` invocation, as its argument list."""
     calls = []
     for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", src):
         i, depth, n = m.end(), 1, len(src)
@@ -224,7 +208,6 @@ def parse_layout(path):
 
 
 def parse_manifest(manifest):
-    """The def/keyboard.def include list, which is the layout order."""
     src = strip_comments(Path(manifest).read_text(encoding="utf-8"))
     base = Path(manifest).parent
     names = re.findall(r'#\s*include\s+"core/def/(keyboard_[A-Za-z0-9_]+\.def)"', src)
@@ -242,10 +225,6 @@ def build(manifest):
     layouts = parse_manifest(manifest)
     n = len(layouts)
 
-    # An interact menu list holds sixteen options, and the Pocket's
-    # keyboard menu is one option per layout. That is the ceiling on
-    # this manifest, and it is worth failing here rather than in a JSON
-    # file the host silently rejects.
     if n > 16:
         raise SystemExit(f"keyboard_layout_gen: {n} layouts, and the Pocket's "
                          "keyboard menu holds sixteen")
@@ -315,10 +294,8 @@ def emit_h(path, words, layouts):
 
 
 def emit_c(path, words):
-    # Placed where the host puts cold tables: flash on a RIA, whose
-    # binary is copied to RAM at boot, and nothing anywhere else. The
-    # Pocket does not compile this file at all -- its copy lives in the
-    # staging store.
+    # A RIA's binary is copied to RAM at boot, so HOST_IN_FLASH is used to
+    # keep this table in flash on a RIA.
     out = [HEADER,
            '\n#include "kbdlay.h"\n#include "core/hid/layout.h"\n'
            '\n#include "machine.h"\n\n',
@@ -344,11 +321,10 @@ def emit_bin(path, words):
     Path(path).write_bytes(b)
 
 
-DEFAULT_LAYOUT = "US"  # keyboard.c falls back to this; the menu must agree
+DEFAULT_LAYOUT = "US"  # core/hid/keymap.c falls back to this layout.
 
 
 def check_interact(path, layouts):
-    """The menu picks a layout by position, so the two must agree."""
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     variables = doc["interact"]["variables"]
     want = [(i + 1, lay["name"]) for i, lay in enumerate(layouts)]
@@ -361,11 +337,8 @@ def check_interact(path, layouts):
         raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' options "
                          f"{got} do not match def/keyboard.def {want}")
 
-    # defaultval indexes the options array — it is not one of their
-    # values. Analogue's page does not say so and its own sample is the
-    # only evidence; a Pocket booted with the value there came up on the
-    # layout one past the intended one. What the default has to be is
-    # whatever keyboard.c falls back to when nothing has been chosen.
+    # The Pocket reads defaultval as an index into the options array, not as
+    # one of the option values.
     default = found[0]["defaultval"]
     if isinstance(default, str):
         raise SystemExit("keyboard_layout_gen: interact.json 'Keyboard' defaultval "

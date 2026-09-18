@@ -33,7 +33,6 @@ module mode4 (
     output logic mode4_done
 );
 
-    /* attr 1 is the affine walk over twenty-byte descriptors. */
     logic affine;
     always_comb affine = attr[0];
 
@@ -95,20 +94,9 @@ module mode4 (
      * register and the XRAM's address port. */
     logic [7:0] size;
     logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
-    logic [31:0] d_over;  /* the affine walk's out-of-square mask */
+    logic [31:0] d_over;  /* the affine path's out-of-square mask */
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
-    /* The oracle wraps byte_size in 32 bits, so a plain sprite with log
-     * 16..31 and no metadata wraps to zero and passes both guards. Its
-     * zero row is defined C; deeper rows read past XRAM on the host, and
-     * the RTL re-reads row zero instead. */
-    logic log_wrap;
-    always_comb log_wrap = !affine && !d_meta
-        && d_log >= 8'd16 && d_log < 8'd32;
-    logic signed [17:0] size_x_eff;
-    always_comb size_x_eff = log_wrap
-        ? 18'($signed({8'd0, cw})) - 18'(x_start)
-        : size_x0;
     logic [16:0] img_bytes;
     logic [17:0] byte_size;
     always_comb byte_size = {1'b0, img_bytes}
@@ -135,11 +123,21 @@ module mode4 (
     logic [16:0] meta_addr;
     always_comb meta_addr = {1'b0, d_sptr} + img_bytes[16:0]
         + {8'd0, tex_offs_y[6:0], 2'b00};
+    /* The row's metadata is a word at that address, and the image's low
+     * bits are its own, so off a word boundary it arrives in two. */
+    logic [2:0] meta_n;
+    always_comb meta_n = meta_addr[1:0] == 2'd0 ? 3'd1 : 3'd2;
+    logic [31:0] meta_lo;
+    logic meta_lo_v;
+    logic [31:0] meta_w;
+    always_comb meta_w = meta_addr[1:0] == 2'd0
+        ? a_rdata
+        : 32'({a_rdata, meta_lo} >> {meta_addr[1:0], 3'b000});
 
-    /* A word carries two texels, so the plain walk has a spare clock and
-     * spends it asking for the next word — crossing a word boundary
-     * without stopping. Only the plain path prefetches; the affine
-     * walk's addresses are not sequential. */
+    /* A word holds two texels, so the plain path has a spare clock and
+     * uses it to request the next word, which lets it cross a word
+     * boundary without stopping. Only the plain path prefetches, because
+     * the affine path's addresses are not sequential. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
@@ -179,9 +177,10 @@ module mode4 (
      * multiplies, every term wrapping mod 2^32 like the oracle's.
      *
      * (t << 8) * k and (t * k) << 8 agree on their low thirty-two bits,
-     * and the second is a 16x18 the fabric has a DSP for rather than a
-     * 32-square it must build. Twenty-four bits of each product survive
-     * the shift, so the slice is exact and not a rounding. */
+     * and the second is a 16x18 multiply that fits one DSP multiplier
+     * rather than a 32x32 multiply built from several. Twenty-four bits
+     * of each product survive the shift, so the slice is exact and not a
+     * rounding. */
     logic signed [17:0] kx;
     always_comb kx = 18'(tex_offs_x0) + size_x0;
     /* Registered, so the multiply and the sum after it are not one
@@ -220,9 +219,19 @@ module mode4 (
     end
     logic [31:0] hit_data;
     always_comb hit_data = dhit ? dcache : pre_data;
+    /* A texel is two bytes at a byte address, so a texel at byte 3 of a
+     * word takes its high byte from the next word. The plain path uses
+     * its prefetch of that word, and the affine path makes a separate
+     * fetch for it, since its addresses are not sequential. */
+    logic straddle;
+    always_comb straddle = cur_byte_addr[1:0] == 2'b11;
+    logic [13:0] hi_word;
+    always_comb hi_word = cur_byte_addr[15:2] + 14'd1;
+    logic hi_ok;
+    always_comb hi_ok = pre_v && pre_word == hi_word;
     logic [15:0] texel;
-    always_comb texel = cur_byte_addr[1] ? hit_data[31:16]
-                                         : hit_data[15:0];
+    always_comb texel = 16'({pre_data, hit_data}
+                            >> {cur_byte_addr[1:0], 3'b000});
     always_comb pre_next = (pre_hit ? pre_word : dcache_word) + 14'd1;
     always_comb pre_want = state == M4_PIX && hit_any && dcache_v
         && !pre_v && !pre_pend;
@@ -236,8 +245,8 @@ module mode4 (
              * grant's own clock is what spaces them. */
             M4_DESC: mode4_a_req = fw_i < fw_n && !gnt_d;
             M4_META: begin
-                mode4_a_req = fw_i == 3'd0;
-                mode4_a_addr = meta_addr[15:2];
+                mode4_a_req = fw_i < meta_n && !gnt_d;
+                mode4_a_addr = meta_addr[15:2] + {11'd0, fw_i};
             end
             M4_PIX: begin
                 /* A prefetch of this word may still be in flight, and a
@@ -259,6 +268,9 @@ module mode4 (
                 if (!af_over && !dhit) begin
                     mode4_a_req = fw_i == 3'd0;
                     mode4_a_addr = af_byte_addr[15:2];
+                end else if (!af_over && straddle && !hi_ok) begin
+                    mode4_a_req = fw_i == 3'd0;
+                    mode4_a_addr = hi_word;
                 end
             end
             default: ;
@@ -269,15 +281,15 @@ module mode4 (
         mode4_px_we = 1'b0;
         mode4_px_addr = dst;
         mode4_px_data = texel;
-        if (state == M4_PIX && hit_any && px_i < span_end)
+        if (state == M4_PIX && hit_any && px_i < span_end
+            && (!straddle || hi_ok))
             mode4_px_we = meta_cont || texel[5];
         else if (state == M4_APOP && !af_over && dhit
-                 && af_left != 17'd0)
+                 && af_left != 17'd0 && (!straddle || hi_ok))
             mode4_px_we = texel[5];
     end
 
     task automatic next_sprite();
-        /* Whatever was read ahead belonged to the sprite just finished. */
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
@@ -314,6 +326,8 @@ module mode4 (
         hi_hold = '0;
         hi_pend = 1'b0;
         fw_i = '0;
+        meta_lo = '0;
+        meta_lo_v = 1'b0;
         fw_n = '0;
         sh_c = '0;
         sh_n = '0;
@@ -398,22 +412,19 @@ module mode4 (
                 end
                 M4_JUDGE: begin
                     tex_x <= tex_offs_x0;
-                    span_end <= tex_offs_x0 + 17'(size_x_eff[16:0]);
+                    span_end <= tex_offs_x0 + 17'(size_x0[16:0]);
                     meta_cont <= 1'b0;
-                    row_texel <= log_wrap ? 17'd0
-                        : 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
+                    row_texel <= 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
                     px_i <= tex_offs_x0;
                     dst <= 10'(x_start);
                     fw_i <= '0;
-                    if (log_wrap
-                        ? (tex_offs_y < 0 || size_x_eff < 18'sd1)
-                        : (log_big
-                           || byte_size > 18'h10000
-                           || {2'b0, d_sptr} > 18'h10000 - byte_size
-                           || tex_offs_y < 0
-                           || tex_offs_y
-                               >= 17'($signed({9'd0, size}))
-                           || size_x0 < 18'sd1))
+                    meta_lo_v <= 1'b0;
+                    if (log_big
+                        || byte_size > 18'h10000
+                        || {2'b0, d_sptr} > 18'h10000 - byte_size
+                        || tex_offs_y < 0
+                        || tex_offs_y >= 17'($signed({9'd0, size}))
+                        || size_x0 < 18'sd1)
                         next_sprite();
                     else if (affine)
                         state <= M4_ASETUP;
@@ -445,26 +456,41 @@ module mode4 (
                             dcache_v <= 1'b1;
                             fw_i <= '0;
                         end
+                    end else if (straddle && !hi_ok) begin
+                        if (a_gnt) begin
+                            fw_i <= 3'd1;
+                            pre_word <= hi_word;
+                            pre_v <= 1'b0;
+                        end
+                        if (gnt_d) begin
+                            pre_data <= a_rdata;
+                            pre_v <= 1'b1;
+                            fw_i <= '0;
+                        end
                     end else
                         step_af();
                 end
                 M4_META: begin
                     if (a_gnt)
-                        fw_i <= 3'd1;
-                    if (gnt_d) begin
+                        fw_i <= fw_i + 3'd1;
+                    if (gnt_d && !meta_lo_v && meta_n == 3'd2) begin
+                        meta_lo <= a_rdata;
+                        meta_lo_v <= 1'b1;
+                    end else if (gnt_d) begin
                         /* Narrow to the row's opaque span. The pixel loop
                          * below skips when the span comes up empty. */
-                        if (17'($signed({2'd0, a_rdata[30:16]}))
+                        if (17'($signed({2'd0, meta_w[30:16]}))
                             > tex_x) begin
-                            tex_x <= 17'({2'd0, a_rdata[30:16]});
-                            px_i <= 17'({2'd0, a_rdata[30:16]});
+                            tex_x <= 17'({2'd0, meta_w[30:16]});
+                            px_i <= 17'({2'd0, meta_w[30:16]});
                             dst <= 10'(17'(d_x)
-                                       + 17'({2'd0, a_rdata[30:16]}));
+                                       + 17'({2'd0, meta_w[30:16]}));
                         end
-                        if (17'($signed({1'd0, a_rdata[15:0]}))
+                        if (17'($signed({1'd0, meta_w[15:0]}))
                             < span_end)
-                            span_end <= 17'({1'd0, a_rdata[15:0]});
-                        meta_cont <= a_rdata[31];
+                            span_end <= 17'({1'd0, meta_w[15:0]});
+                        meta_cont <= meta_w[31];
+                        meta_lo_v <= 1'b0;
                         fw_i <= '0;
                         state <= M4_PIX;
                     end
@@ -495,6 +521,8 @@ module mode4 (
                             dcache_v <= 1'b1;
                             fw_i <= '0;
                         end
+                    end else if (straddle && !hi_ok) begin
+                        /* pre_want has the fetch out already. */
                     end else begin
                         if (pre_hit) begin
                             dcache <= pre_data;
@@ -514,14 +542,11 @@ module mode4 (
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode4;
     always_comb unused_mode4 = ^{gather, daddr[16], daddr[1:0],
-                                     meta_addr[16], meta_addr[1:0],
-                                     tex_byte_addr[17:16],
-                                     tex_byte_addr[0], size_x0[17],
+                                     meta_addr[16],
+                                     tex_byte_addr[17:16], size_x0[17],
                                      img_bytes, tex_x, attr[15:1],
                                      cur_byte_addr[17:16],
-                                     cur_byte_addr[0],
-                                     af_byte_addr[17:16],
-                                     af_byte_addr[0], af_u, af_v};
+                                     af_byte_addr[17:16], af_u, af_v};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

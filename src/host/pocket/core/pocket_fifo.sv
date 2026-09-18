@@ -3,12 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * A small asynchronous FIFO for the platform seams: gray-coded
- * pointers, two-flop crossings, show-ahead read. The flags err on the
- * safe side of the synchronizer lag — full may hold a beat after the
- * reader drains, empty a beat after the writer lands — and a push
- * honored under !full can never overflow, a take under !empty never
- * reads air.
+ * The write side compares its pointer with the read pointer after two
+ * synchronizer flops, and the read side does the same with the write
+ * pointer, so the flags are pessimistic: full can stay set for a few
+ * write clocks after a read, and empty for a few read clocks after a
+ * write. A write accepted while full is clear therefore never
+ * overflows, and a take while empty is clear never reads an entry that
+ * has not been written.
  */
 
 module pocket_fifo #(
@@ -28,16 +29,11 @@ module pocket_fifo #(
 
     localparam int PW = DEPTH_LOG2 + 1;
 
-    /* These queues are four to sixteen words deep and the deepest is
-     * forty-one bits wide, which does not fit a block RAM's forty-bit
-     * mode. The read is asynchronous, which is what a LAB's memory does
-     * natively and a block cannot do at all. */
+    /* mem is read asynchronously, which an MLAB supports and an M10K
+     * block does not. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [WIDTH-1:0] mem[1 << DEPTH_LOG2];
 
-    /* Preserved: two flops in series with nothing between them are
-     * equivalent, and without a reset to tell them apart the fitter
-     * merges them and the crossing loses its synchroniser. */
     logic [PW-1:0] wptr, wptr_gray, rptr, rptr_gray;
     (* preserve *) logic [PW-1:0] rptr_gray_w1, rptr_gray_w2;
     (* preserve *) logic [PW-1:0] wptr_gray_r1, wptr_gray_r2;
@@ -74,8 +70,9 @@ module pocket_fifo #(
         wptr_gray_r2 <= wptr_gray_r1;
     end
 
-    /* Full: the write pointer has lapped the (synchronized) read
-     * pointer — gray codes differ only in the top two bits. */
+    /* The write pointer is one lap ahead of the synchronized read
+     * pointer when their gray codes differ in the top two bits and
+     * nowhere else. */
     always_comb pocket_fifo_full =
         wptr_gray == {~rptr_gray_w2[PW-1:PW-2], rptr_gray_w2[PW-3:0]};
     always_comb pocket_fifo_empty = rptr_gray == wptr_gray_r2;

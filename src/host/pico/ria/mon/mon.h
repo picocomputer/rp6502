@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "core/api/api.h" /* api_errno: the seam's error currency */
+#include "core/api/api.h"
 
 /* Main events
  */
@@ -24,21 +24,20 @@ void mon_init(void);
 void mon_stop(void);
 void mon_break(void);
 
-// A response generator. The renderer calls it with the slot's state and the
-// active wrap width; it snprintf()s the next chunk and returns the next state,
-// or a negative state when there is no more. It is only guaranteed 80 columns
-// plus a newline and null but may use the entire buffer. A call with a negative
-// state means the response is being cancelled, so close any open files.
+// mon_task calls a queued response generator with its current state and the
+// terminal width. The generator writes the next chunk into buf and returns the
+// next state, or a negative state when there is no more. The buffer is only
+// guaranteed to hold 80 columns plus a newline and a null, but a generator may
+// use the entire buffer. A call with a negative state means the response is
+// being cancelled, so the generator must close any files it has open.
 typedef int (*mon_response_fn)(char *buf, size_t size, int state, unsigned width);
 void mon_add_response_fn(mon_response_fn fn); // state 0
 void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_utf8(const char *utf8);
 void mon_add_response_lfs(int result);
 void mon_add_response_fatfs(int fresult);
-void mon_add_response_errno(api_errno err); /* the seam's answers */
+void mon_add_response_errno(api_errno err);
 
-// After queuing a preview, request a YES/no confirmation. cb() runs only if the
-// user types YES; Ctrl-C, break, or anything else cancels back to the prompt.
 typedef void (*mon_confirm_fn)(void);
 void mon_response_confirm(mon_confirm_fn cb);
 
@@ -46,7 +45,6 @@ void mon_response_confirm(mon_confirm_fn cb);
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_MON_MON_H_ */

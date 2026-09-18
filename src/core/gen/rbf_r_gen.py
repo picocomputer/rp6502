@@ -2,16 +2,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The Pocket loads its bitstream with each byte's bits reversed:
-# the packaged bitstream is the Quartus .rbf with every byte
-# bit-flipped, nothing more. Verified against the official core
-# template's shipped pair. Reversal is an involution, so running this
-# twice is identity.
-#
-# core.json names the file, and this core calls it core.bin. The
-# conventional name is bitstream.rbf_r; the loader reads whatever the
-# manifest says, and the reversal is about the bytes rather than the
-# name.
+# The Pocket loads its bitstream with the bits of each byte reversed,
+# so the packaged bitstream is the Quartus .rbf with every byte
+# bit-reversed.
 
 import sys
 

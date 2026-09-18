@@ -1,29 +1,8 @@
-# The machine, as a list of files.
-#
-# Whoever builds the machine needs this and none of them needs a simulator to
-# have it: the verilated model is built from this list, and so is every Quartus
-# project. Guarding it behind verilator_FOUND would mean no bitstream without
-# Verilator installed, which CI's bitstream runner does not have.
-
-# Guarded like assets.cmake and gen.cmake. Without it a second include
-# re-prepends tests/bench's lint waivers, which rp6502_verilate.cmake puts at
-# the front of this list and which are only applied when read first.
 include_guard(GLOBAL)
 
-# rp6502_submodule: three of the modules in this list are vendored, and a
-# vendored tree is fetched rather than committed.
 include(${RP6502_ROOT}/submodules.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
-# The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
-# distribution README. Our fixes shadow their originals by being named
-# first and the vendor copies dropped from the glob, so the submodule
-# stays untouched. The package has to lead; nothing else cares.
-#
-# Every file is listed rather than found on a search path, because
-# Quartus resolves .name port shorthand only against modules it has
-# already been given, and the OPL2's memory wrappers are written that
-# way. i2s is the dev board's audio out, and we have our own.
 set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
 set(OPL2_SOURCES
     ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
@@ -79,9 +58,6 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/prog.sv
     ${RP6502_SRC}/core/vga/mode/mode0.sv
     ${RP6502_SRC}/core/vga/scan/compose.sv)
-# Verilator elaborates while cmake configures, so an unresolved module here
-# is a configure error, not a build one. Nothing recursive: Hazard3 has six
-# submodules of its own and this tree reads none of them.
 rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
     WANTS "the soft CPU")
 set(RP6502_RTL_VERILATOR_ARGS

@@ -3,19 +3,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The raw console, fed from the host's stdin.
-#
-# tty_rom_gen.py asks whether a byte typed at the machine reaches a program
-# that opened TTY:, and drives it with the script channel's `type`. This asks
-# the other half of the same question: whether the host's own stdin reaches
-# that program. It could not before -- the feed watched the line editor, and
-# a raw reader never arms it -- so a program reading the console as a device
-# saw nothing a pipe sent it.
-#
-# The bytes come back on fd 1 rather than the terminal, so the claim is one
-# a shell can check. A 0x03 rides in the middle: on a pipe it is a byte like
-# the rest, echoed back and latching nothing, so the program also asks the
-# Ctrl-C latch on its way out and fails if anything was there.
+# INPUT contains a 0x03. The emulator reads stdin on a pipe as a stream, where
+# 0x03 is an ordinary byte that raises no SIGINT, so the SIGINT attribute is
+# still clear when the program reads it before exiting.
 
 import argparse
 import os
@@ -24,12 +14,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rp6502_asm import (API_A, API_X, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
-                        OP_WRITE_XSTACK, O_RDONLY, XSTACK, Asm)  # noqa: E402
+from rp6502_asm import (API_A, API_X, OP_ATTR_GET, OP_CLOSE, OP_EXIT, OP_OPEN,
+                        OP_READ_XSTACK, OP_WRITE_XSTACK, O_RDONLY, XSTACK,
+                        Asm)  # noqa: E402
 from rp6502_rom import image  # noqa: E402
 
-OP_EXIT = 0xFF
-OP_ATTR_GET = 0x0A
 ATTR_SIGINT = 0x08
 FD = 0x0200
 INPUT = "raw \x03 bytes."
@@ -46,8 +35,6 @@ def prog():
     p.call(OP_OPEN)
     p.sta_abs(FD)
 
-    # One byte a time, because a raw read answers with whatever is queued
-    # now and mostly that is nothing: the program is faster than the wire.
     p.symbol("poll")
     p.push(0)
     p.push(1)
@@ -66,8 +53,6 @@ def prog():
             p.lda_abs(FD)
             p.sta_abs(API_A)
             p.call(OP_CLOSE)
-            # The trampoline leaves the attribute in A: a Ctrl-C the pipe
-            # was never allowed to raise.
             p.call_a(OP_ATTR_GET, ATTR_SIGINT)
             p.tax()
             with p.branch("beq"):
@@ -84,7 +69,6 @@ def prog():
 
 
 def drive(emu, rom):
-    """Pipe the input in and read it back off fd 1."""
     env = {k: v for k, v in os.environ.items() if k != "EMU_ECHO"}
     r = subprocess.run(
         [str(emu), "--headless", "--phi2", "0", "--mute", "--seed", "1",

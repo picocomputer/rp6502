@@ -2,33 +2,14 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The machine and its adapters: everything between the APF shell and
- * rp6502 that is ours to own.
- *
- * The machine's reset is the bridge's run gate under the platform reset.
- * Adapters carrying live streams reset with the machine so a reload
- * re-arms them; the bridge, the store and the I2S engine stay up
- * throughout.
  */
 
 module pocket_core #(
     parameter TCM_INIT_FILE = ""
 ) (
-    /* The machine is stopped by taking its clocks away, which is not
-     * this module's to do. It says when it wants them gone and where it
-     * is safe to cut -- the 6502 in front of an instruction rather than
-     * inside one -- and whoever owns the clock tree does the rest. One
-     * control, at the source, instead of an enable in every subsystem
-     * that has one. */
     output logic pocket_core_stop_req,
-    /* Whether the machine's clocks are being delivered. Whoever owns
-     * the clock tree answers. */
     input logic mach_running,
 
-    /* The machine's clock, which stops. Every other clock here does
-     * not -- the soft CPU's included: it is halted at its debug port
-     * instead, so its clock keeps running. */
     input logic clk_mach,
     input logic clk_rv,
 
@@ -64,9 +45,6 @@ input logic clk_vid,
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
 
-    /* Sleep, which on this platform is a savestate. The command levels
-     * are edge-detected and acked in the fabric; everything after the
-     * ack is the firmware's. */
     input logic savestate_start,
     output logic pocket_core_savestate_start_ack,
     output logic pocket_core_savestate_start_busy,
@@ -77,28 +55,20 @@ input logic clk_vid,
     output logic pocket_core_savestate_load_busy,
     output logic pocket_core_savestate_load_ok,
     output logic pocket_core_savestate_load_err,
-    /* APF's four controller slots. A slot holds a gamepad, the dock's
-     * keyboard as six scan codes across joy and trig, the dock's mouse
-     * as a report counter and two movements, or nothing at all — and
-     * says which in the top nibble of its key word. The firmware asks;
-     * nothing between here and there cares. */
     input logic [3:0][31:0] cont_key,
     input logic [3:0][31:0] cont_joy,
     input logic [3:0][15:0] cont_trig,
 
-    /* The scaler. */
     output logic [23:0] pocket_core_rgb,
     output logic pocket_core_de,
     output logic pocket_core_skip,
     output logic pocket_core_vs,
     output logic pocket_core_hs,
 
-    /* The codec. */
     output logic pocket_core_mclk,
     output logic pocket_core_dac,
     output logic pocket_core_lrck,
 
-    /* The SDRAM pads. */
     output logic dram_cke,
     output logic [12:0] dram_a,
     output logic [1:0] dram_ba,
@@ -110,9 +80,6 @@ input logic clk_vid,
     output logic dram_dq_oe,
     input logic [15:0] dram_dq_in,
 
-    /* The board's own SRAM, which holds the 6502's 64 KB. No chip
-     * enable: Analogue's port list has none, so the board straps it
-     * low and the byte enables are the only deselect there is. */
     output logic [16:0] sram_a,
     output logic [15:0] sram_dq_out,
     output logic sram_dq_oe,
@@ -122,7 +89,6 @@ input logic clk_vid,
     output logic sram_ub_n,
     output logic sram_lb_n,
 
-    /* Status toward the shell, and the consoles for the bench. */
     output logic pocket_core_ready,
     output logic [7:0] pocket_core_tx_data,
     output logic pocket_core_tx_valid,
@@ -133,26 +99,6 @@ input logic clk_vid,
 
     logic run;
 
-    /* The machine's reset, asserted asynchronously and released
-     * synchronously, once for every clock it lands in.
-     *
-     * rst_n and run are levels the platform moves on its own clock, so
-     * the gate of them is combinational and can glitch. Worse is the
-     * release: this signal is the asynchronous reset of seven thousand
-     * nine hundred flops reached through a global network, and an
-     * unsynchronised release arrives at each of them at whatever moment
-     * the routing gives it. Blocks then leave reset in an order the
-     * fitter chose rather than one the design chose — a different order
-     * every fit, so a machine that starts wrong in a way no timing
-     * report can show and no zero-delay simulation can reproduce. The
-     * Design Assistant's rule R101 names it; nothing else in the flow
-     * looks.
-     *
-     * Three domains take it: clk_sys and clk_rv inside the machine, and
-     * clk_vid through the video block's own reset port. A release
-     * synchronised to one clock is still a race in the others, so each
-     * gets its own pair. The first stage is named _s1 so pocket.sdc's
-     * standing rule cuts the asynchronous arrival at it. */
     logic mrst_raw_n;
     always_comb mrst_raw_n = rst_n && run;
 
@@ -169,11 +115,6 @@ input logic clk_vid,
 
     logic slot_set;
     logic [7:0] upd_n;
-    /* The Pocket sends no key events; its keyboard arrives as a report
-     * and its pad as state. The machine's event mailbox stays for the
-     * testbenches, which is the only thing that fills it. */
-    /* The machine still offers its key mailbox; nothing on the Pocket
-     * fills it, so nothing here reads whether it is full. */
     logic key_pending;
     logic [3:0][31:0] cont_key_sys, cont_joy_sys;
     logic [3:0][15:0] cont_trig_sys;
@@ -226,7 +167,6 @@ input logic clk_vid,
         .pocket_bridge_rtc_valid(rtc_valid_sys)
     );
 
-    /* Staging: the machine's byte fetch against the halfword store. */
     logic stage_pend;
     logic [27:0] stage_addr;
     logic [15:0] stage_half;
@@ -267,18 +207,10 @@ input logic clk_vid,
     logic ram_a_we, ram_b_we /*verilator public_flat_rd*/,
         ram_b_stb /*verilator public_flat_rd*/,
         ram_b_stall /*verilator public_flat_rd*/, ram_hold;
-    /* machine_resb carries the machine's effective reset, which since
-     * the restore rework is resb AND the engine's reset hold -- a
-     * combinational term. It async-resets the 6502 and the VIA inside
-     * the machine and paces port A here synchronously; the lint that
-     * dislikes that mix is answered by construction: both sources are
-     * single flops and every orchestrated transition is monotonic. */
     /* verilator lint_off SYNCASYNCNET */
     logic machine_phi2_en, machine_resb;
     /* verilator lint_on SYNCASYNCNET */
 
-    /* The machine-clock enable, brought into this clock so port A's
-     * launch condition can be trusted while the machine is stopped. */
     (* preserve *) logic run_s1, run_s2;
     initial begin
         run_s1 = 1'b1;
@@ -289,19 +221,17 @@ input logic clk_vid,
         run_s2 <= run_s1;
     end
 
-    /* What the SRAM's port A is masked by, which is not the same
-     * question. It has to be high before the gate closes is too early
-     * -- that masks live 6502 accesses -- and low again before the
-     * clock returns, because the launch condition is phi2_en and the
-     * first enable after a resume is legal. Waiting for mach_running
-     * to come back is two or three clocks too late, and at eight
-     * megahertz the 6502 has a better than even chance of spending one
-     * of them, taking a cycle on a byte port A never went and got.
-     *
-     * So: the same shape the serializer uses for its own array mask.
-     * Up once the gate has actually closed -- the request alone leads
-     * it -- and down the instant the request goes, which is several of
-     * the host's clocks before the gate opens again. */
+    /* mach_gated masks SRAM port A while clk_mach, which is clk_sys
+     * through the clock gate in core_top, is stopped. It rises only once
+     * run_s2 has fallen after the gate closes, because masking on
+     * pocket_core_stop_req alone would drop 6502 accesses made before
+     * the gate closes. It falls as soon as pocket_core_stop_req drops,
+     * which is several clk_74a cycles before the gate reopens. Waiting
+     * for run_s2 to rise instead would keep port A masked for up to two
+     * clk_sys cycles after clk_mach returns. No port A access would be
+     * launched on a PHI2 enable in that window, so in the 6502 cycle
+     * that begins on that enable a read would return a stale byte and a
+     * write would be lost. */
     logic mach_gated;
     always_comb mach_gated = pocket_core_stop_req && !run_s2;
 
@@ -340,10 +270,6 @@ input logic clk_vid,
     logic [31:0] rtc_epoch_sys;
     logic rtc_valid_sys;
 
-    /* The platform window's second half is what the interact menu has
-     * set plus the host's clock, read-only: the machine polls it and
-     * applies what changed. Bit 16 picks it and bit 17 the savestate
-     * bridge; the file bridge owns everything below both. */
     logic [31:0] set_rdata;
     initial set_rdata = '0;
     always_ff @(posedge clk_sys) begin
@@ -377,8 +303,6 @@ input logic clk_vid,
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
-    /* The savestate engine holds the machine; nothing outside walks
-     * its state port directly. */
     logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
     logic sst_load, sst_load_done, sst_load_err;
     logic [17:0] sst_rd_idx;
@@ -470,10 +394,6 @@ input logic clk_vid,
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The file bridge keeps the platform reset, not the machine's: a
-     * command in flight belongs to the host, and a reboot that dropped
-     * it would leave the bridge waiting for a core that had forgotten
-     * it asked. */
     pocket_file file (
         .clk_sys(clk_sys),
         .stb(host_stb && !host_addr[16] && !host_addr[17]),
@@ -507,9 +427,6 @@ input logic clk_vid,
         .target_dataslot_err(target_dataslot_err)
     );
 
-    /* Like the file bridge, on the platform's reset rather than the
-     * machine's: a savestate belongs to the host, and a reboot that
-     * dropped one would leave the bridge waiting. */
     pocket_sst sst (
         .clk_sys(clk_sys),
         .stb(host_stb && host_addr[17]),
@@ -545,8 +462,6 @@ input logic clk_vid,
         .pocket_sst_load_err(pocket_core_savestate_load_err)
     );
 
-    /* Two things answer a bridge read, and the blob's window is decoded
-     * exactly rather than by the megabyte around it. */
     logic [31:0] file_rd_data;
     always_comb
         pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
@@ -566,9 +481,6 @@ input logic clk_vid,
         .pocket_video_hs(pocket_core_hs)
     );
 
-    /* The I2S keeps the platform reset: both FIFO sides stay one
-     * family, and a machine reset just stops the pushes — the shifter
-     * repeats the last sample, flat, until the reboot resumes. */
     pocket_i2s i2s (
         .clk_mach(clk_mach),
         .aud_l(aud_l),

@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's end of the console wire, and the port behind the debug pin
- * and the 0x0152 log. The screen is the terminal, so the wire carries
- * nothing; the port carries the machine's own lines and nothing a program
- * prints. Plus the stream picolibc wants before printf will link.
+ * tty_write is empty because console output on this machine goes only to the
+ * screen, and com_tx_write already sends it there through com_term_out.
+ * MMIO_CONSOLE is the port behind the debug pin and the Pocket's debug log,
+ * where its bytes arrive in target command 0x0152 events, and nothing a
+ * program prints is written to it.
  */
 
 #include "core/com/tty.h"
@@ -24,9 +25,6 @@ void tty_write(const char *buf, int len)
     (void)len;
 }
 
-/* picolibc wants a stream before printf will link. Pointing it at com_putchar
- * puts a plain printf through the same CRLF expansion, bell scan and terminal
- * tap as com_printf. */
 static int tty_stdio_putc(char c, FILE *f)
 {
     (void)f;
@@ -38,8 +36,8 @@ static FILE tty_stdio = FDEV_SETUP_STREAM(tty_stdio_putc, NULL, NULL,
 FILE *const stdout = &tty_stdio;
 FILE *const stderr = &tty_stdio;
 
-/* Streamed rather than buffered: the FILE above already reaches com_putchar,
- * and a 4 KB stack has no room for a formatting buffer. */
+/* com_printf formats straight to stdout instead of into a 1024-byte buffer
+ * as core/com/tty.c does, because the stack is only 4 KB. */
 int com_printf(const char *fmt, ...)
 {
     va_list va;

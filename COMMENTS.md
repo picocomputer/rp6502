@@ -100,7 +100,7 @@ format. Each of those has a real word.
 
 ### Words that are banned as the name of a mechanism
 
-The wire, the walk, the seam, the latch, the ask, the doing, the roster, and
+The wire, the walk, the latch, the ask, the doing, the roster, and
 the phrase "so it is told". Where one appears, name the thing the code calls
 it. Stages 1 through 3 left these behind and they were cleaned up afterward,
 so check for them rather than assuming an earlier stage caught them.
@@ -111,7 +111,6 @@ Counts still outstanding in the unfinished stages:
 |---|---|
 | the wire | 25 |
 | the walk | 21 |
-| the seam | 20 |
 | the latch | 12 |
 | the ask | 9 |
 | the roster | 7 |

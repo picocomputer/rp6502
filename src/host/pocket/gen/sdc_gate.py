@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
-"""Fail when a timing constraint can no longer match anything.
-
-Quartus does not treat an unmatched collection as an error. It prints
-"Ignored ... argument <targets> is an empty collection" and fits the design
-without the constraint, so a renamed module silently drops whatever
-set_multicycle_path or set_false_path was protecting it and the report still
-says timing closed. rp6502.sdc carries a comment about this having already
-happened.
-
-So: pull every literal name out of the .sdc filters and require each one to
-still appear somewhere in the RTL. This is a substring test, not an
-elaboration -- it cannot tell a filter that matches the wrong thing from one
-that matches the right thing. It only answers the question Quartus will not:
-is there anything here at all.
+"""Quartus does not treat an unmatched collection as an error. It prints a
+warning such as "Ignored set_multicycle_path at ...: Argument <to> is an empty
+collection" and fits the design without that constraint, so a constraint
+whose filter names a renamed module is dropped without failing the build.
 """
 
 import argparse
@@ -20,12 +10,12 @@ import re
 import sys
 from pathlib import Path
 
-# get_clocks names clocks, which are created by the .sdc itself rather than
-# declared in RTL, so it is not checkable this way and not checked.
 FILTER = re.compile(r"get_(?:registers|pins|ports)\s*\{([^}]*)\}")
 
-# A Quartus PLL tap: ic|pll|pll|general[2].gpll~PLL_OUTPUT_COUNTER|divclk.
-# The megafunction's internals are not ours and not in any file we read.
+# A tap into the Quartus PLL megafunction looks like
+# ic|pll|pll|general[2].gpll~PLL_OUTPUT_COUNTER|divclk, and its internal
+# names, such as gpll, PLL_OUTPUT_COUNTER and divclk, appear in no RTL that
+# the gate reads.
 VENDOR_TAP = re.compile(r"~|gpll|PLL_OUTPUT")
 
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -34,25 +24,16 @@ COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
 
 
 def code_only(text):
-    """Comments do not hold a design up. A module named only in prose would
-    otherwise keep a dead filter looking alive."""
     return COMMENT.sub(" ", text)
 
 
 def fragments(filter_text):
-    """The literal names a filter needs something to match."""
-    # A tap into a megafunction is vendor structure end to end, including the
-    # plain-looking last hop, so the whole filter is skipped rather than the
-    # one segment carrying the tilde.
     if VENDOR_TAP.search(filter_text):
         return
     for segment in filter_text.split("|"):
-        # entity:instance narrowing, [*] and [3:0] indices, and the wildcards
-        # themselves are structure rather than name.
         segment = segment.split(":")[0]
         segment = re.sub(r"\[[^\]]*\]", "", segment)
         for word in WORD.findall(segment):
-            # Two characters is a suffix convention (_s1, _t1), not a name.
             if len(word) > 2:
                 yield word
 
@@ -61,8 +42,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sdc", action="append", required=True, type=Path)
     ap.add_argument("--rtl", action="append", default=[], type=Path)
-    # The constraints also filter on vendored and board-top names, so the
-    # haystack is wider than the machine's own source list.
     ap.add_argument("--rtl-dir", action="append", default=[], type=Path)
     args = ap.parse_args()
 

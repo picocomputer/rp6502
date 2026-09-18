@@ -1,6 +1,6 @@
 # The emulator as a libretro core, for RetroArch and the launchers that embed
-# it. A frontend owns the window, the audio device, the input and the loop, so
-# this root takes emu_core and none of sokol.cmake.
+# it. A frontend provides the window, the audio device, the input and the loop,
+# so this root takes emu_core and none of sokol.cmake.
 
 cmake_minimum_required(VERSION 3.21)
 

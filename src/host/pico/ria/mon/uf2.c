@@ -28,15 +28,15 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UF2_MAP_TABLE_MAX 10 // small arbitrary cap; picotool also uses one
+#define UF2_MAP_TABLE_MAX 10
 #define UF2_NAME_READ_MAX 32
 #define UF2_VGA_ACK_TIMEOUT_MS 500
 
 static enum {
     UF2_IDLE,
-    UF2_VALIDATE,  // walk every block once, before anything is erased
-    UF2_IDENTIFY,  // read the program name, choose a target
-    UF2_WRITE,     // program this board's flash
+    UF2_VALIDATE,
+    UF2_IDENTIFY,
+    UF2_WRITE,
     UF2_REBOOT,
     UF2_FAILED,
     UF2_VGA_WRITE, // stage a page in VGA xram, then send $1:F:07
@@ -45,8 +45,6 @@ static enum {
     UF2_VGA_LOCKUP,  // $1:F:06 word=1 then spin RIA forever
 } uf2_state;
 
-// A block's first 32 bytes. Reading only these locates a block without
-// pulling the payload behind it.
 struct uf2_header
 {
     uint32_t magic_start0;
@@ -72,9 +70,6 @@ static uint32_t uf2_page_count;
 static int uf2_last_percent;
 static bool uf2_to_vga;
 
-// mbuf carries the 512-byte block being read and the 256-byte page built from
-// it, 768 of MBUF_SIZE. They are live at the same time and nothing else runs
-// while FLASH does. See src/host/pico/ria/sys/mbuf.h.
 #define UF2_BLOCK ((const struct uf2_block *)mbuf)
 #define UF2_PAGE (mbuf + 512)
 
@@ -94,9 +89,6 @@ static void uf2_invalid(void)
     mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
 }
 
-// Firmware for this chip, in main flash. A block of another family, which
-// includes the RP2350-E10 absolute block picotool writes first, is skipped
-// rather than refused. See check_abs_block in picotool's elf2uf2.cpp.
 static bool uf2_is_ours(const struct uf2_header *h)
 {
     return h->magic_start0 == UF2_MAGIC_START0 &&
@@ -106,8 +98,6 @@ static bool uf2_is_ours(const struct uf2_header *h)
            h->file_size == RP2350_ARM_S_FAMILY_ID;
 }
 
-// Read one block header by index. Every block has been walked by the time
-// this runs, so only the seek and the read can fail.
 static bool uf2_read_header(uint32_t block_no, struct uf2_header *h)
 {
     if (block_no >= uf2_num_blocks)
@@ -118,10 +108,6 @@ static bool uf2_read_header(uint32_t block_no, struct uf2_header *h)
     return f_read(&uf2_fil, h, sizeof *h, &br) == FR_OK && br == sizeof *h;
 }
 
-// File offset of a stored flash address, with the bytes left in its payload.
-// A linker emits blocks ascending by payload_size from the lowest address, so
-// the index that stride predicts is tried and then checked against the block
-// it lands on. A layout that stride does not describe falls back to a walk.
 static int32_t uf2_find_block(uint32_t addr, uint32_t *avail)
 {
     struct uf2_header h;
@@ -152,9 +138,6 @@ static int32_t uf2_find_block(uint32_t addr, uint32_t *avail)
     return -1;
 }
 
-// Read n bytes of the stored image from a flash address, block by block so a
-// range crossing the end of a payload still reads. Returns the count read,
-// which is short at the end of the image.
 static uint32_t uf2_read_addr(uint32_t addr, void *dest, uint32_t n)
 {
     uint8_t *out = dest;
@@ -186,8 +169,6 @@ struct uf2_map
     uint32_t dest_end;
 };
 
-// Read n bytes from a runtime pointer, resolving through the binary_info copy
-// table one chunk at a time so a range crossing a mapped region still reads.
 static uint32_t uf2_read_ptr(const struct uf2_map *map, int map_count,
                              uint32_t ptr, void *dest, uint32_t n)
 {
@@ -215,10 +196,6 @@ static uint32_t uf2_read_ptr(const struct uf2_map *map, int map_count,
     return got;
 }
 
-// Locate the program_name in binary_info, mirroring picotool's
-// find_binary_info, which reads 256 words from the image base on RP2350. This
-// clobbers mbuf, and on success the NUL-terminated string is left at its
-// start.
 static const char *uf2_find_program_name(void)
 {
     if (uf2_read_addr(uf2_low_addr, mbuf, MBUF_SIZE) != MBUF_SIZE)
@@ -304,10 +281,6 @@ static void uf2_progress(void)
     }
 }
 
-// Walk the file once: skip whatever is not ours to find the first block that
-// is, then check every block of the image parses and note how far it reaches.
-// One block per call, because a blocking pass over a megabyte would stall the
-// terminal, PIX and USB. Nothing is erased until this finishes.
 static void uf2_do_validate(void)
 {
     UINT br;
@@ -366,9 +339,6 @@ static void uf2_do_validate(void)
         uf2_state = UF2_IDENTIFY;
 }
 
-// Name the image and pick its target. The flash size is checked here because
-// the SDK answers an address past the part with an assert that does not
-// compile out, which would panic with nothing on screen.
 static void uf2_do_identify(void)
 {
     const char *name = uf2_find_program_name();
@@ -392,7 +362,9 @@ static void uf2_do_identify(void)
         return;
     }
 
-    // Only the VGA knows how much flash it has, and it naks a page past it.
+    // The flash size is checked only for a RIA image, because the VGA's flash
+    // size is not available here and the VGA rejects any page past the end of
+    // its flash.
     if (!uf2_to_vga && uf2_high_addr > PICO_FLASH_SIZE_BYTES)
     {
         RP6502_LOG(uf2, WARN, "image reaches 0x%08lX, flash is 0x%08X",
@@ -401,9 +373,10 @@ static void uf2_do_identify(void)
         return;
     }
 
-    // A page index is carried by a 16-bit PIX word, so that is as far as the
-    // VGA can be addressed. Without this the index would wrap onto a page that
-    // exists and the wrong one would be programmed.
+    // The page index is sent in a 16-bit PIX word, so no page past index
+    // UINT16_MAX can be addressed on the VGA. Without this check the index
+    // would wrap to a lower page, and the VGA would program that page if it
+    // lies inside the VGA's flash.
     if (uf2_to_vga && (uf2_high_addr - 1) / FLASH_PAGE_SIZE > UINT16_MAX)
     {
         RP6502_LOG(uf2, WARN, "image reaches 0x%08lX, past what a page index carries",
@@ -431,9 +404,6 @@ static void uf2_do_identify(void)
     uf2_state = uf2_to_vga ? UF2_VGA_WRITE : UF2_WRITE;
 }
 
-// Build one page of the block in mbuf, padded with 0xFF. Programming only
-// clears bits, so the padding writes nothing and a page assembled from more
-// than one block ends up the union of them.
 static void uf2_build_page(uint32_t page)
 {
     const struct uf2_block *b = UF2_BLOCK;
@@ -447,7 +417,6 @@ static void uf2_build_page(uint32_t page)
     memcpy(UF2_PAGE + (from - page_base), b->data + (from - base), to - from);
 }
 
-// Read the next block and count the pages its payload reaches into.
 static bool uf2_next_block(void)
 {
     UINT br;
@@ -515,7 +484,8 @@ static void uf2_do_vga_write(void)
     uf2_build_page(uf2_page_idx);
     for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
         pix_send_blocking(PIX_DEVICE_XRAM, 0, UF2_PAGE[i], (uint16_t)i);
-    // Armed before the request, because a reply is only kept while waiting.
+    // The wait begins before the request is sent, because pix_ack and pix_nak
+    // only record a reply while a wait is in progress.
     pix_wait_begin(UF2_VGA_ACK_TIMEOUT_MS);
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x07, (uint16_t)uf2_page_idx);
     uf2_state = UF2_VGA_WAIT;
@@ -585,8 +555,8 @@ void uf2_task(void)
     case UF2_VGA_SUCCESS:
         stdio_flush();
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x06, 0);
-        // The PIX FIFO has to drain and the VGA has to start its reboot
-        // before this board resets.
+        // The PIX FIFO must drain before the RIA resets, so that the VGA
+        // receives the reboot request.
         busy_wait_ms(50);
         watchdog_reboot(0, 0, 0);
         break;

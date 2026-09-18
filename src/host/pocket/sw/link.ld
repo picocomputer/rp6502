@@ -3,10 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Code first because the reset vector is address zero.
+ * The .text.init section is placed first because the Hazard3 reset
+ * vector is address zero.
  *
- * VIDCELLS length must match mode0.sv, and covers both screens, so
- * it moves with TERM_ALT_SCREEN in vga/term/term.h.
+ * The VIDCELLS length must match the 15360-word cell memory in mode0.sv,
+ * which holds 8-byte cells for up to 32 rows of the 40- and 80-column
+ * terminals, each with a primary and an alternate screen.
  */
 
 MEMORY
@@ -33,8 +35,8 @@ SECTIONS
         . = ALIGN(4);
     } > TCM
 
-    /* Claimed before the .bss glob below can take them. NOLOAD: BRAM
-     * powers up zero, nothing to copy or clear. */
+    /* This section comes before .bss because ld assigns each input
+     * section to the first pattern that matches it. */
     .vidcells (NOLOAD) : {
         *(.bss.term40_pri_mem*)
         *(.bss.term40_alt_mem*)
@@ -53,12 +55,9 @@ SECTIONS
 
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
 
-    /* The heap exists for setenv: the time zone rides the environment so
-     * localtime, mktime and strftime all read one offset. */
     __heap_start = __bss_end;
     __heap_end = __stack_top - 4K;
 
-    /* Hardware register cells, not memory. */
     PROVIDE(regs = 0x20000000);
     PROVIDE(xstack = 0x20000100);
     PROVIDE(xstack_ptr = 0x20000320);

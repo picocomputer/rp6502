@@ -2,19 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * rsmp against rsmp.c, sample for sample.
- *
- * test_rsmp measures whether the filter is any good; this measures whether
- * the two implementations of it agree. Two different questions, and only
- * the second one can be answered by comparison — neither side is the
- * other's reference, and nothing in this pair says the filter sounds right.
- *
- * The interesting part is the phase bookkeeping rather than the multiplies.
- * A resampler whose arithmetic is perfect and whose phase accumulator drifts
- * produces a stream that is the right length and the wrong content, and the
- * only thing that catches it is running both counters side by side for long
- * enough that a one-sample slip has somewhere to show.
  */
 
 #include "Vrsmp.h"
@@ -32,10 +19,10 @@ extern "C"
 
 UTEST_MAIN();
 
-/* The clock divisors, not the frequencies. rsmp_step just divides one by
- * the other in Q32, and 1050/1014 is the Pocket's ratio exactly where
- * 49704/48000 is only nearly — which is what rsmp is parameterised on,
- * so it is what this has to drive the C with. */
+/* The OPL makes a sample every 1014 clocks of 50.4 MHz and psg_tick fires
+ * every 1050. rsmp.sv computes its Q32 step from those two divisors, since
+ * 50.4 MHz / 1014 is not a whole number of hertz, and rsmp_step is given
+ * the same two numbers so that the C steps by exactly the same amount. */
 #define POCKET_IN 1050
 #define POCKET_OUT 1014
 #define POCKET_IN_HZ 49704
@@ -66,9 +53,9 @@ static void fresh()
         tick();
 }
 
-/* The C is not clamped — it answers at full width and lets the platform's
- * sink decide. The fabric IS the sink here, so the comparison clamps the C
- * the way rsmp does rather than pretending neither of them narrows. */
+/* rsmp_push writes its outputs at full width and rsmp.sv saturates to
+ * sixteen bits, so the C output is clamped the same way before it is
+ * compared. */
 static int16_t clamp16(int32_t v)
 {
     if (v < -32768)
@@ -78,14 +65,6 @@ static int16_t clamp16(int32_t v)
     return (int16_t)v;
 }
 
-/* Both cadences at once, the way the machine runs them: an OPL sample every
- * 1014 clk_sys and the mixer's tick every 1050, off the same clock.
- *
- * The RTL is pulled and the C is pushed, so there is no per-input count to
- * compare any more — an input and an output are simply different events. The
- * streams are still identical, because both walk the same phase against the
- * same taps in the same order, so the stream is what this compares.
- */
 static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
 {
     fresh();
@@ -95,8 +74,6 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
 
     std::vector<int16_t> cbuf, rbuf;
     long next_in = 0;
-    /* The tick starts a whole input behind, which is the slack the pull side
-     * needs: an output may never read further than the inputs have reached. */
     long next_step = POCKET_OUT;
     int in_i = 0;
 
@@ -129,8 +106,6 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
             rbuf.push_back((int16_t)dut->rsmp_out);
     }
 
-    /* The pull side trails the push side by whatever is still in the history
-     * when the clock stops, so the common prefix is what agrees. */
     const size_t n = rbuf.size() < cbuf.size() ? rbuf.size() : cbuf.size();
     for (size_t k = 0; k < n; k++)
     {
@@ -144,22 +119,16 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
     ASSERT_GT((long)n, (long)(n_in / 2));
 }
 
-/* Silence has to agree too: a filter with a stuck accumulator passes every
- * signal test and fails this one. */
 static int32_t gen_zero(int n) { (void)n; return 0; }
 
-/* A constant exercises the DC constraint on both sides at once. */
 static int32_t gen_dc(int n) { (void)n; return 9001; }
 
-/* Full-scale-ish so the sinc's overshoot reaches the clamp on both sides. */
 static int32_t gen_sine(int n)
 {
     static const double k = 2.0 * 3.14159265358979323846 * 6000.0 / POCKET_IN_HZ;
     return (int32_t)(31000.0 * __builtin_sin(k * n));
 }
 
-/* Alternating extremes: the worst case for the ringing, and the one that
- * finds a sign error in a mirrored row. */
 static int32_t gen_square(int n) { return (n / 7) & 1 ? 30000 : -30000; }
 
 UTEST(rsmp_rtl, silence_agrees)

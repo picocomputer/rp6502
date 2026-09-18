@@ -3,57 +3,29 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Fail the build when the Design Assistant finds something new. Timing
-# analysis answers one question — does every path make its clock — and a
-# design can pass it while an unsynchronised reset releases eight
-# thousand flops at whatever moment the routing decides, or a command
-# opcode crosses clock domains a bit at a time. Neither of those is a
-# path that misses; both are bitstreams that work on one fit and not the
-# next, which is the shape of failure this tree has now paid for three
-# times.
-#
-# Nothing here was ever run. quartus_drc ships with the tools, costs
-# seconds, and had 638 High findings waiting the first time it was
-# asked.
-#
-# A baseline rather than a threshold, because the existing findings are
-# not all bugs: gray-coded pointers are flagged by D102 because the tool
-# cannot know the encoding makes misalignment safe, and D101 counts the
-# clk_sys/clk_rv seam that the SDC declares synchronous on purpose. What
-# matters is that the set does not grow. A rule that climbs by one is a
-# new crossing somebody added without a synchroniser, and that is worth
-# a failed build.
-#
-# What is counted is names, not the structures the report numbers. The
-# fitter copies a register when placement wants one, and the report
-# lists the copy as a structure of its own -- pocket_file_id[7] and
-# pocket_file_id[7]~DUPLICATE are one crossing counted twice -- so the
-# structure count moved with placement and a change in one module
-# failed the gate for a copy the fitter made in another. A finding here
-# is the set of nodes the report lists for it with those copies folded
-# into the bits they copy, and a rule's number is how many different
-# findings that leaves. The baseline is in the same units.
-#
-# Lower the baseline when a fix lands. The file is the record of what is
-# known-bad and why, so an entry that no longer fires should go.
+# The fitter can duplicate a register, and the Design Assistant report can
+# list the copy, named with a ~DUPLICATE suffix, as a separate structure,
+# so pocket_file_id[7] and pocket_file_id[7]~DUPLICATE appear as two Rule
+# D101 structures for one clock-domain crossing.
 
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Information-only rules count fan-out and are not defects.
+# T101 and T102 are information-only rules that list nodes with high
+# fan-out, so their findings are not defects.
 IGNORED = ("T101", "T102")
 
-# A finding's first row names the rule; a structure's own nodes follow on
-# rows indented two spaces, one node in the second cell of each. The
-# enable table has the same first row with "On" where a node would be.
+# In the report, a finding's first row names the rule and may hold a node
+# in its second cell. The finding's other nodes follow on rows indented two
+# spaces, one node in the second cell of each. The table of enabled rules
+# uses the same first row with "On" in the second cell.
 RULE_ROW = re.compile(r"^;\s*Rule\s+(\w+):\s*(.*?)\s*;\s*([^;]*?)\s*;")
 NODE_ROW = re.compile(r"^;\s{2,}[^;]*;\s*([^;]*?)\s*;")
 
 
 def parse_summary(text: str) -> dict[str, int]:
-    """Rule id -> structure count, from the Design Assistant Summary."""
     found: dict[str, int] = {}
     for rule, count in re.findall(
             r"^;\s*-\s*Rule\s+(\w+)\s*;\s*(\d+)\s*;", text, re.M):
@@ -67,7 +39,6 @@ def fold(node: str) -> str:
 
 
 def parse_findings(text: str) -> dict[str, int]:
-    """Rule id -> how many different findings it lists, by name."""
     findings: dict[str, set[frozenset[str]]] = defaultdict(set)
     rule = None
     names: set[str] | None = None
@@ -125,13 +96,9 @@ def main() -> int:
 
     structures = parse_summary(text)
     named = parse_findings(text)
-    # A rule the summary counts but the detail does not list is scored on
-    # the count, which is all there is to read.
     found = {r: named.get(r, n) for r, n in structures.items()}
     allowed = parse_baseline(baseline.read_text()) if baseline.exists() else {}
 
-    # A Critical finding is never baselined. The tool reserves that
-    # severity for things that do not work rather than things that might.
     grew = [(r, n, allowed.get(r, 0)) for r, n in sorted(found.items())
             if n > allowed.get(r, 0)]
     shrank = [(r, n, allowed[r]) for r, n in sorted(found.items())

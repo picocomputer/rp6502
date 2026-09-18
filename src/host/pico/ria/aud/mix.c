@@ -14,7 +14,6 @@
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
 
-/* PWM pin/slice/channel mapping (firmware hardware; formerly in aud.h). */
 #define AUD_L_PIN 28
 #define AUD_R_PIN 27
 #define AUD_PWM_IRQ_PIN 14 /* No IO */
@@ -24,22 +23,16 @@
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
-/* The device to mix, or none. */
 static aud_dev_t aud_dev;
 
-/* The pair the last interrupt mixed, already narrowed to the PWM's ten
- * bits, for the next interrupt to write before it computes anything.
- * Centre to begin with, which is where aud_init parks the pins. */
 static uint16_t aud_level_l = AUD_PWM_CENTER;
 static uint16_t aud_level_r = AUD_PWM_CENTER;
 
-/* One sample per PWM wrap. The write comes first, so it lands at a fixed
- * offset from the interrupt whatever the generators cost after it; what it
- * writes is the pair the previous interrupt made. Then the mix: the device
- * if one is registered, the bell regardless, clamped, and narrowed --
- * sixteen bits to ten, and rounded, not floored, because a floor here is a
- * systematic half-LSB downward bias on every sample, which is DC, not
- * noise. This is the only narrowing on the path. */
+/* The levels computed by the previous interrupt are written first, so the
+ * write lands at a fixed offset from the interrupt however long the sample
+ * generators take after it. The narrowing from sixteen bits to ten rounds
+ * rather than floors, because a floor biases every sample down by half a
+ * step on average, which is a DC offset and not noise. */
 static void __isr __time_critical_func(aud_irq)(void)
 {
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, aud_level_l);
@@ -99,9 +92,9 @@ void __in_flash("aud_init") aud_init(void)
     sine_init();
     bel_init();
 
-    /* One interrupt at AUD_NATIVE_RATE, installed once. The wrap divides
-     * the part's clock -- 5149 realises 49718 Hz, 0.005% over -- and the
-     * carrier is a separate slice at 250 kHz that does not move with it. */
+    /* The IRQ slice has a period of 5149 system clocks, which is 49718 Hz and
+     * 0.005% above AUD_NATIVE_RATE. The L and R pins are on other slices, so
+     * their 250 kHz carrier does not change with the IRQ slice's period. */
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
     pwm_clear_irq(AUD_IRQ_SLICE);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);

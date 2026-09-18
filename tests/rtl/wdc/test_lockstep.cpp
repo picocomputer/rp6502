@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Interrupts, reset, RDY and the stalls, proven by lockstep: the C emulation
- * and the RTL run the same program under the same scripted pin activity, and
- * every cycle's bus must match. The SingleStepTests vectors leave all of this
- * uncovered, and Klaus covers only a quiet-pin reset.
  */
 
 #include "chips_dut.h"
@@ -39,8 +34,6 @@ static bool run(const lockstep_scen_t *scen)
 
 LOCKSTEP_SCENARIOS(LOCKSTEP)
 
-/* Deterministic pin fuzz: a small LFSR toggles IRQ, NMI and RDY over the
- * open-interrupt loop. Coverage of alignments no directed case picks. */
 UTEST(lockstep, pin_fuzz)
 {
     lockstep_scen_image(image, LOCKSTEP_FUZZ_ENTRY);

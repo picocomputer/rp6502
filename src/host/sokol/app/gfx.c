@@ -63,10 +63,9 @@ static int sharp_prescale(int cw, int ch, int aw, int ah)
     return f;
 }
 
-/* The debugger's menu bar and dockspace own the window layout when they are up:
- * panels dock beside the canvas and the central node letterboxes it, so the
- * window resizes freely with no aspect hint and no width re-fit, and its size
- * persists per debug session instead of tracking --scale. */
+/* When the debugger's menu bar and dockspace are up, panels dock beside the
+ * canvas and the canvas is letterboxed within the dockspace's central node, so
+ * the window resizes freely with no aspect hint and no width re-fit. */
 static bool overlay_active(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -285,9 +284,9 @@ void gfx_upload(bool new_frame)
                 ? sharp_prescale(cw, ch, frame_vp.width, frame_vp.height)
                 : 1;
     /* sfb_resize recreates its images only when the canvas or the prescale
-     * factor changed. The cliprect has to be spelled out because sfb_resize
-     * stores the raw desc value, so a zeroed rectangle on a resize that
-     * recreates would make a 0 by 0 image. */
+     * factor changed. The cliprect has to be given explicitly because
+     * sfb_resize stores the raw desc value, so a zeroed rectangle on a resize
+     * that recreates would make a 0 by 0 image. */
     bool recreated = sfb_resize(gfx.sfb, &(sfb_resize_desc){
         .width = cw,
         .height = ch,

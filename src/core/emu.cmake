@@ -1,18 +1,3 @@
-# emu_core: the machine as a library, for every host that runs it in software.
-#
-# What is here is what does not depend on which OS this is — the core's own
-# sources, the tables generated from them, and the facts that belong to a
-# compiler rather than a platform.
-#
-# A root names two things this file does not: the directory under src/osal that
-# answers osal/os.h, through that seam's own cmake or a line of its own; and its
-# own machine directory on emu_core's include path, for the drivers.h
-# core/sys/sys.c includes by bare name.
-#
-# RP6502_EMU_IPO  whether this build asked for link-time optimization, so a root
-#                 can hand it to everything it makes after emu_core. This file
-#                 has already given it to emu_core and to the caller's scope.
-
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
     WANTS "the emulated 6502 and 6522")
@@ -40,10 +25,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/gamepad.c
     ${RP6502_SRC}/core/hid/tablet.c
-    # Two HID layers: the device layer every machine has is above, and these
-    # are what a software machine answers where another has fabric or a
-    # firmware -- the host already produced the characters, so there is no
-    # layout engine here at all.
     ${RP6502_SRC}/core/hid/vtkeys.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
@@ -104,8 +85,6 @@ add_library(emu_core STATIC
     ${RP6502_VENDOR}/emu8950/emu8950.c
 )
 
-# The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit, so the
-# VGA renderers cast pointers to 32-bit ints. Silence that per-compiler on those files.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(
         ${RP6502_SRC}/core/vga/mode/mode1.c
@@ -119,11 +98,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing its
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)
-    # Clang rejects these outright, so GCC has to as well or the difference
-    # only shows up on a runner. PUBLIC: the app and the tests compile our C too.
     target_compile_options(emu_core PUBLIC
         $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
-    # Clang flags the shared firmware's one-arg static_assert(...) as a C23 extension.
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         target_compile_options(emu_core PRIVATE -Wno-c23-extensions)
     endif()
@@ -138,12 +114,10 @@ elseif(MSVC)
     )
 endif()
 
-# emu8950.c gates its whole body on USE_EMU8950_OPL
 set_source_files_properties(
     ${RP6502_VENDOR}/emu8950/emu8950.c
     PROPERTIES COMPILE_DEFINITIONS "USE_EMU8950_OPL=1"
 )
-# Vendored emu8950 redefines min/max that windows.h already provides.
 if(MSVC)
     set_source_files_properties(
         ${RP6502_VENDOR}/emu8950/emu8950.c
@@ -158,21 +132,16 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}
 )
 target_compile_definitions(emu_core PUBLIC
-    ROM_ALIAS_MAX=16 # --rom's null drive; the docs promise sixteen
+    ROM_ALIAS_MAX=16 # --install is documented as repeatable to sixteen.
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN
     PICO_PROGRAM_NAME="RP6502-EMU")
 include(${RP6502_SRC}/core/log.cmake)
 rp6502_log_definitions(emu_core PUBLIC)
-# MSVC has no separate libm; what it does need instead is in
-# src/osal/windows/windows.cmake, which is that seam's.
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 endif()
 
-# The link-time optimization this build asked for, given to emu_core and to the
-# scope that included this file -- every root wants both and all of them are
-# building the same library.
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

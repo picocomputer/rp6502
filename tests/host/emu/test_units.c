@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Unit tests for the pure-logic corners: CRC-32, the .rp6502 loader, the
- * xreg device/channel dispatch, the CLI parser, and the generator's seam.
  */
 
 #include "core/sys/config.h"
@@ -31,7 +28,7 @@
 
 UTEST(crc32, known_vectors)
 {
-    /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
+    /* 0xCBF43926 is the CRC-32/ISO-HDLC (zlib) check value for "123456789". */
     ASSERT_EQ(host_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
     ASSERT_EQ(host_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
@@ -40,8 +37,6 @@ UTEST(rom, loads)
 {
     memset(sram, 0, 0x10000);
     ASSERT_TRUE(rom_load(TEST_FIXTURE));
-    /* the loader places code at the $0200 entry and points the reset vector
-     * there ($FFFC/$FFFD -> $0200). */
     ASSERT_EQ(sram[0xFFFC], 0x00);
     ASSERT_EQ(sram[0xFFFD], 0x02);
     ASSERT_NE(sram[0x0200], 0x00);
@@ -52,11 +47,6 @@ UTEST(rom, rejects_missing_file)
     ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
 }
 
-/* The headerless form: the magic line and then bare records, with no #>
- * directory and no chunk length to bound them. Nothing writes it any more —
- * the generators went to the tool's format when it turned out theirs made
- * images the monitor would not load — so the loader's fallback is claimed
- * here rather than left to whichever fixture happened to still be in it. */
 UTEST(rom, loads_a_headerless_image)
 {
     static const char image[] =
@@ -78,9 +68,7 @@ UTEST(rom, loads_a_headerless_image)
     ASSERT_EQ(sram[0xFFFD], 0x03);
 }
 
-/* The format caps a record at 1024 bytes (the packer never writes more), and
- * the pump refuses what the packer cannot produce -- on every machine, which
- * this one stands in for. */
+/* ROM_RECORD_MAX caps a record at 1024 bytes, and this one is 1025. */
 UTEST(rom, rejects_a_record_over_the_format_cap)
 {
     char path[TEST_PATH_MAX];
@@ -92,7 +80,8 @@ UTEST(rom, rejects_a_record_over_the_format_cap)
     fprintf(f, "$00300 $%X $%X\n", (unsigned)sizeof big,
             (unsigned)host_crc32(0, big, sizeof big));
     fwrite(big, 1, sizeof big, f);
-    /* a reset vector so only the cap can be the refusal */
+    /* The reset vector is written so that the cap is the only reason the load
+     * can fail. */
     uint8_t vec[2] = {0x00, 0x03};
     fprintf(f, "$FFFC $2 $%X\n", (unsigned)host_crc32(0, vec, 2));
     fwrite(vec, 1, 2, f);
@@ -102,29 +91,23 @@ UTEST(rom, rejects_a_record_over_the_format_cap)
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(xreg0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(xreg0(0, 0, 0)); /* xreg_ria_keyboard(0x0000) */
     ASSERT_TRUE(xreg1(0, 0, 3)); /* VGA canvas 640x480 */
-    /* The control channel: CODE_PAGE is answered, and so is DISPLAY, which is
-     * not exercised here because it resets the machine. The rest are registers
-     * of a real VGA chip that a machine which is its own has no analog for. */
+    /* On channel 15, register 1 is CODE_PAGE and register 2 is not handled. */
     ASSERT_TRUE(xreg1(15, 1, 437));
     ASSERT_FALSE(xreg1(15, 2, 0));
-    ASSERT_TRUE(xreg1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(xreg1(5, 0, 0)); /* a write to channels 1-14 cannot fail */
 }
 
-/* The host gamepad bridge (web Gamepad API path): mapping gate + the report
- * encoding that mirrors the firmware (status bits, analog->digital sticks byte,
- * L2/R2 trigger<->button coupling). */
 UTEST(gamepad, host_report_encoding)
 {
     gamepad_stop();
-    ASSERT_FALSE(gamepad_is_mapped()); /* nothing touches input until a ROM maps it */
+    ASSERT_FALSE(gamepad_is_mapped());
 
     ASSERT_TRUE(xreg0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
     ASSERT_TRUE(gamepad_is_mapped());
-    ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
+    ASSERT_EQ(xram[0xFF00], 0x00);
 
-    /* Player 0: dpad up + A, left stick full north, host sure of nothing. */
     gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
     gamepad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 0], 0x81);          /* dpad up | connected */
@@ -133,8 +116,6 @@ UTEST(gamepad, host_report_encoding)
     ASSERT_EQ(xram[0xFF00 + 3], 0x00);          /* button1 */
     ASSERT_EQ(xram[0xFF00 + 5], (uint8_t)-127); /* ly passthrough */
 
-    /* Type and sticks are claims about the controller, made when it is
-     * plugged in, and they land in their own bits. */
     gamepad_connect(1, true, GAMEPAD_TYPE_PLAYSTATION, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xF0); /* connected | sticks | playstation */
     gamepad_connect(1, true, GAMEPAD_TYPE_EASTERN, false);
@@ -142,8 +123,6 @@ UTEST(gamepad, host_report_encoding)
     gamepad_connect(1, true, GAMEPAD_TYPE_WESTERN, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xD0); /* connected | sticks | western */
 
-    /* L2 button with no analog reads full-scale; analog past deadzone asserts
-     * the button — both couplings, like the firmware. */
     gamepad_connect(2, true, GAMEPAD_TYPE_UNKNOWN, false);
     gamepad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 20 + 8], 255);  /* lt forced to full */
@@ -152,19 +131,16 @@ UTEST(gamepad, host_report_encoding)
     gamepad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200);
     ASSERT_EQ(xram[0xFF00 + 30 + 3], 0x02); /* rt>deadzone asserts R2 */
 
-    /* Unplug blanks the record; unmapping clears the gate. */
     gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
     ASSERT_TRUE(xreg0(0, 2, 0xFFFF));
     ASSERT_FALSE(gamepad_is_mapped());
 }
 
-/* The tablet's mouse-format wheel/pan: header bytes +2/+3 are 8-bit wrapping
- * accumulators fed by host scroll, exactly like the mouse block. */
 UTEST(tablet, host_wheel_encoding)
 {
     tablet_stop();
-    ASSERT_FALSE(tablet_is_mapped()); /* nothing touches input until a ROM maps it */
+    ASSERT_FALSE(tablet_is_mapped());
 
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_is_mapped());
@@ -172,8 +148,8 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
 
     tablet_host_wheel(3, -2);
-    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);  /* wheel accumulates */
-    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2); /* pan accumulates (wraps) */
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2);
 
     tablet_host_wheel(-4, 5);
     ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
@@ -183,7 +159,6 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_FALSE(tablet_is_mapped());
 }
 
-/* Drain the keyboard com ring (what vtkeys_key/vtkeys_text push) into buf. */
 static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
@@ -196,8 +171,6 @@ static int keyboard_drain(char *buf, int max)
     return n;
 }
 
-/* The special-key ANSI the firmware (and xterm) emit, including the
- * ESC[1;{mod} modifier annotations. */
 UTEST(keyboard, ansi_sequences)
 {
     char b[32];
@@ -205,17 +178,17 @@ UTEST(keyboard, ansi_sequences)
     com_init();
     vtkeys_key(HID_KEY_ARROW_UP, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
-    ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
+    ASSERT_EQ(0, memcmp(b, "\33[A", 3));
 
     com_init();
     vtkeys_key(HID_KEY_F1, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
-    ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
+    ASSERT_EQ(0, memcmp(b, "\33OP", 3));
 
     com_init();
     vtkeys_key(HID_KEY_F5, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
-    ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
+    ASSERT_EQ(0, memcmp(b, "\33[15~", 5));
 
     com_init();
     vtkeys_key(HID_KEY_F12, false, false, false);
@@ -232,7 +205,7 @@ UTEST(keyboard, ansi_sequences)
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
-    /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
+    /* The xterm modifier parameter is 1 + shift + alt*2 + ctrl*4. */
     com_init();
     vtkeys_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
@@ -253,7 +226,6 @@ UTEST(keyboard, ansi_sequences)
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
-    /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
     vtkeys_key(HID_KEY_ENTER, false, false, false);
     vtkeys_key(HID_KEY_BACKSPACE, false, false, false);
@@ -262,10 +234,6 @@ UTEST(keyboard, ansi_sequences)
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
-/* Ctrl and Alt on the four keys that type a character of their own. The
- * console keymap defines no control form for Enter, Tab or Escape -- each is
- * already a C0 control -- so the key still types itself, while Alt is an ESC
- * prefix over whatever the other modifiers settled on. */
 UTEST(keyboard, ctrl_and_alt_on_control_keys)
 {
     char b[16];
@@ -284,8 +252,6 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
-    /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
-     * Ctrl already chose. */
     com_init();
     vtkeys_key(HID_KEY_BACKSPACE, false, false, true);
     vtkeys_key(HID_KEY_BACKSPACE, true, false, true);
@@ -293,14 +259,13 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
-/* Typed text is converted UTF-8 -> active OEM code page (default 437). */
 UTEST(keyboard, text_to_oem)
 {
     char b[32];
-    str_init(); /* apply the default locale: code page 437 */
+    str_init(); /* the default locale, EN, uses code page 437 */
 
     com_init();
-    vtkeys_text("Hi!"); /* ASCII passes through */
+    vtkeys_text("Hi!");
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
@@ -310,22 +275,19 @@ UTEST(keyboard, text_to_oem)
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    /* The decoder's stand-in for an unmappable character is DEL, which the
-     * line editor would take as a backspace; typed text says '?' instead. */
+    /* The decoder returns DEL for a character the code page lacks, and the
+     * line editor reads DEL as a backspace, so vtkeys_text queues '?'. */
     vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ(b[0], '?');
 }
 
-/* font_init rebuilds the glyph store and knows nothing about the active code
- * page, so oem_init has to tell it -- and therefore has to run after it. When
- * it ran before, --cp 850 (and every non-EN locale, and the libretro code page
- * option) converted bytes in one page and drew glyphs from another. */
+/* font_init rebuilds the glyph store for code page 437, and oem_init then
+ * loads the active code page's glyphs into it, so OEM_DRIVER has to come
+ * after FONT_DRIVER in the driver list. The case calls sys_init because it
+ * checks that order. */
 UTEST(oem, glyph_store_follows_the_run_page)
 {
-    /* Through the machine's real init, because the defect was the order
-     * inside it: font_init rebuilds the glyph store knowing nothing of the
-     * page, so oem_init has to follow it. */
     ASSERT_TRUE(oem_set_code_page(850));
     sys_init();
     ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
@@ -337,12 +299,9 @@ UTEST(oem, glyph_store_follows_the_run_page)
     ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
 }
 
-/* The oem string family: UTF-8 <-> OEM round-trip in the active code page,
- * snprintf-style overflow reporting, and the counted wide entry (the USB
- * string descriptor shape). */
 UTEST(oem, utf8_string_roundtrip)
 {
-    str_init(); /* apply the default locale: code page 437 */
+    str_init(); /* the default locale, EN, uses code page 437 */
 
     char oem[16], u8[16];
     ASSERT_EQ(oem_from_utf8("caf\xC3\xA9", oem, sizeof oem), (size_t)4);
@@ -350,40 +309,39 @@ UTEST(oem, utf8_string_roundtrip)
     ASSERT_EQ(oem_to_utf8(oem, u8, sizeof u8), (size_t)5);
     ASSERT_STREQ(u8, "caf\xC3\xA9");
 
-    /* unmappable codepoint and malformed lead byte -> 0x7F */
+    /* U+1F600 is not in code page 437, and 0xFF is not a UTF-8 lead byte, so
+     * each converts to 0x7F. */
     ASSERT_EQ(oem_from_utf8("\xF0\x9F\x98\x80", oem, sizeof oem), (size_t)1);
     ASSERT_EQ((unsigned char)oem[0], 0x7Fu);
     ASSERT_EQ(oem_from_utf8("\xFF", oem, sizeof oem), (size_t)1);
     ASSERT_EQ((unsigned char)oem[0], 0x7Fu);
 
-    /* overlong forms too: 0xC0 0xAF must not decode to '/' */
+    /* 0xC0 0xAF is an overlong '/', which decodes to 0x7F */
     ASSERT_EQ(oem_from_utf8("A\xC0\xAF", oem, sizeof oem), (size_t)2);
     ASSERT_EQ(oem[0], 'A');
     ASSERT_EQ((unsigned char)oem[1], 0x7Fu);
 
-    /* snprintf-style: the return is the untruncated length, and a sequence
-     * never splits — a 2-byte dst can't hold 'é' (2 UTF-8 bytes) plus the
-     * NUL, so none of it is written. */
+    /* As with snprintf, the return is the untruncated length. A sequence is
+     * never split, so a 2-byte dst, which cannot hold 'é' (two UTF-8 bytes)
+     * and the NUL, gets none of it. */
     ASSERT_EQ(oem_to_utf8("\x82", u8, 2), (size_t)2);
     ASSERT_EQ(u8[0], 0);
     ASSERT_EQ(oem_from_utf8("caf\xC3\xA9", oem, 3), (size_t)4);
     ASSERT_STREQ(oem, "ca");
 
-    /* counted UTF-16 (USB descriptors are not NUL-terminated) */
     uint16_t w[3] = {'a', 0x00E9, 0x2603}; /* 'a' 'é' snowman */
     ASSERT_EQ(oem_from_wide_n(w, 3, oem, sizeof oem), (size_t)3);
     ASSERT_EQ(oem[0], 'a');
     ASSERT_EQ((unsigned char)oem[1], 0x82u);
     ASSERT_EQ((unsigned char)oem[2], 0x7Fu);
 
-    /* the page drives the mapping: 'ã' is CP850 0xC6, absent from CP437 */
+    /* 'ã' is 0xC6 in CP850 and is absent from CP437 */
     oem_set_code_page_run(850);
     ASSERT_EQ(oem_from_utf8("\xC3\xA3", oem, sizeof oem), (size_t)1);
     ASSERT_EQ((unsigned char)oem[0], 0xC6u);
-    str_init(); /* back to the default 437 for later tests */
+    str_init();
 }
 
-/* Everything after "--" is the ROM's argv[1..], never parsed as options. */
 UTEST(cli, rom_args_after_separator)
 {
     cli_options o;
@@ -400,7 +358,7 @@ UTEST(cli, rom_args_with_install_form)
 {
     cli_options o;
     cli_options_init(&o);
-    char *argv[] = {"emu", "--rom", "x.rp6502", "--", "a"};
+    char *argv[] = {"emu", "--install", "x.rp6502", "--", "a"};
     ASSERT_EQ(cli_parse_args(5, argv, &o), 0);
     ASSERT_EQ(o.n_installs, 1);
     ASSERT_TRUE(o.rom == NULL);
@@ -408,8 +366,6 @@ UTEST(cli, rom_args_with_install_form)
     ASSERT_STREQ(o.rom_args[0], "a");
 }
 
-/* A bare "--" is presence (rom_args non-NULL, zero words): a later pass can
- * override an asset preset with "no args". */
 UTEST(cli, rom_args_bare_separator_and_passes)
 {
     cli_options o;
@@ -426,7 +382,7 @@ UTEST(cli, rom_args_bare_separator_and_passes)
     ASSERT_STREQ(o.rom, "rom.rp6502");
 
     char *plain[] = {"emu", "--mute"};
-    ASSERT_EQ(cli_parse_args(2, plain, &o), 0); /* no "--": earlier pass stands */
+    ASSERT_EQ(cli_parse_args(2, plain, &o), 0);
     ASSERT_TRUE(o.rom_args != NULL);
     ASSERT_EQ(o.n_rom_args, 0);
 }
@@ -442,8 +398,6 @@ UTEST(cli, no_separator_no_rom_args)
     ASSERT_STREQ(o.rom, "rom.rp6502");
 }
 
-/* The batch product, the window-less run, and the pacing switch, which rides
- * the clock option: 0 is no clock to pace against. */
 UTEST(cli, batch_headless_and_unpaced)
 {
     cli_options o;
@@ -462,22 +416,15 @@ UTEST(cli, batch_headless_and_unpaced)
     ASSERT_EQ(o.phi2_khz, 4000);
 }
 
-
-/* ---- host text to OEM, which is what a clipboard holds ---- */
-
 UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
 {
     oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
-    /* Every spelling of a newline is the CR a line editor ends a line on,
-     * and CRLF is one of them, not two. */
     size_t n = oem_from_utf8_run(&text, "a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
     ASSERT_EQ(taken, (size_t)7);
     ASSERT_EQ(n, (size_t)6);
     ASSERT_EQ(memcmp(out, "a\rb\rc\r", 6), 0);
-    /* A control byte the machine may want is not a character to drop: ESC,
-     * Ctrl-C and DEL all arrive. */
     n = oem_from_utf8_run(&text, "\33[A\3\177", 6, true, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)6);
     ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
@@ -488,30 +435,26 @@ UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
     oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
-    /* 'é' is two bytes of UTF-8 and this read holds only the first. */
     size_t n = oem_from_utf8_run(&text, "h\xc3", 2, false, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)1);
     ASSERT_EQ(out[0], 'h');
-    ASSERT_EQ(taken, (size_t)1); /* the lead byte waits for its second */
+    ASSERT_EQ(taken, (size_t)1); /* the lead byte is left for the next call */
     n = oem_from_utf8_run(&text, "\xc3\xa9!", 3, false, out, sizeof out, &taken);
     ASSERT_EQ(taken, (size_t)3);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
     ASSERT_EQ(out[1], '!');
-    /* A return goes out the moment it arrives, because a terminal sends one
-     * per keystroke: a reader that waited to see whether a line feed follows
-     * would answer every Enter one key late. */
     n = oem_from_utf8_run(&text, "x\r", 2, false, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ(taken, (size_t)2);
     ASSERT_EQ(out[1], '\r');
     ASSERT_TRUE(text.after_cr);
-    /* The line feed that opens the next read is the other half of that one. */
+    /* A line feed opening the next read completes the CRLF and is dropped. */
     n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)1);
     ASSERT_EQ(out[0], 'y');
     ASSERT_FALSE(text.after_cr);
-    /* A line feed that opens a read on its own is a line end of its own. */
+    /* With no CR before it, a line feed opening a read becomes CR. */
     n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ(out[0], '\r');
@@ -522,12 +465,9 @@ UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
     oem_run_t text = {0};
     char out[8];
     size_t taken = 0;
-    /* U+4E2D is in no OEM code page here. The decoder's own stand-in is DEL,
-     * which a line editor would take as a backspace. */
     size_t n = oem_from_utf8_run(&text, "\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)1);
     ASSERT_EQ(out[0], '?');
-    /* And a full destination stops it without losing what it did not read. */
     n = oem_from_utf8_run(&text, "abcd", 4, true, out, 2, &taken);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ(taken, (size_t)2);
@@ -535,12 +475,6 @@ UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
 
 UTEST_MAIN();
 
-/* ---- the generator and the seed it asks the machine for ------------------ */
-
-/* The contract says a machine answers the same seed every time, because one
- * run reads it for the stream, for the memory fill and for what it reports. A
- * machine that drew fresh entropy per call would fill from one and print
- * another. */
 UTEST(random, the_machines_seed_does_not_move)
 {
     uint32_t first = host_seed();
@@ -548,9 +482,6 @@ UTEST(random, the_machines_seed_does_not_move)
     ASSERT_EQ(first, host_seed());
 }
 
-/* One generator written once, so the same state gives the same stream --
- * which is the whole of what lets a seeded run be repeated, and what lets an
- * oracle be pinned across two machines. */
 UTEST(random, the_same_state_gives_the_same_stream)
 {
     uint32_t a = 0x6502C0DE, b = 0x6502C0DE;
@@ -559,9 +490,6 @@ UTEST(random, the_same_state_gives_the_same_stream)
     ASSERT_EQ(a, b);
 }
 
-/* Zero used to mean "unseeded" and was mapped to 1. It is an ordinary state
- * now -- the increment is odd, so the sequence walks away from it -- which
- * matters because a fixture may legitimately pin a seed of zero. */
 UTEST(random, zero_is_an_ordinary_state)
 {
     uint32_t z = 0;
@@ -573,9 +501,6 @@ UTEST(random, zero_is_an_ordinary_state)
         ASSERT_NE(seen[i], seen[0]);
 }
 
-/* A stream of one's own leaves the machine's alone: the fills draw 64 KB each
- * from their own state so a wipe cannot move what a seeded program's rand()
- * sees. */
 UTEST(random, a_private_stream_does_not_touch_the_machines)
 {
     uint32_t mine = 1;
@@ -583,5 +508,5 @@ UTEST(random, a_private_stream_does_not_touch_the_machines)
     for (int i = 0; i < 1000; i++)
         sys_random_step(&mine);
     uint32_t after = sys_random();
-    ASSERT_NE(before, after); /* the machine's stream moved by its own draws only */
+    ASSERT_NE(before, after);
 }

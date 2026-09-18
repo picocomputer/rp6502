@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's .rp6502 deposit: the pump is core's, reading the staged
- * image through the ROM descriptor, and the bytes land in the fabric --
- * SRAM under $FF00 and above $FFF9, the register cells for the vectors,
- * XRAM_WIN above. Same rules as every loader: a load never writes
- * $FF00-$FFF9, and both reset vector bytes must arrive or the image is
- * rejected.
  */
 
 #include "fs.h"

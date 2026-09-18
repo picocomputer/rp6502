@@ -1,12 +1,9 @@
 # The RP6502-VGA
 
-# The firmware's own sources; this file is the parts list, they are the parts.
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
 add_executable(rp6502-vga)
 target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
-    # This image formats no float at all; the pico printf carries
-    # _ftoa/_etoa unconditionally otherwise.
     PICO_PRINTF_SUPPORT_FLOAT=0
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
 )
@@ -26,17 +23,17 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
-    ${RP6502_ROOT}/src/host/pico  # the pico's own headers
-    ${VGA_SRC}                    # this machine: drivers.h and its sources
+    ${RP6502_ROOT}/src/host/pico
+    ${VGA_SRC}
     ${RP6502_ROOT}/src
-    ${RP6502_ROOT}/vendor         # host.c names littlefs's CRC; unlinked here
+    ${RP6502_ROOT}/vendor
 )
 
-# Core 1 renders continuously and never reads HOST_IN_FLASH data -- the glyph
-# tables it walks are the RAM copies font_init fills -- so XIP being down for
-# a sector write does not reach it. (PICO_FLASH_ASSUME_CORE1_SAFE would say
-# that to pico_flash; this target links hardware_flash and calls it directly,
-# so the invariant is stated here instead of asserted there.)
+# Core 1 keeps rendering while flash.c erases and programs flash with XIP
+# disabled. This is safe because the image is built with the copy_to_ram binary
+# type and runs from RAM, and core 1 reads none of the data kept in flash by
+# HOST_IN_FLASH or __in_flash. The glyph tables it reads are RAM copies that
+# font.c fills.
 
 target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c

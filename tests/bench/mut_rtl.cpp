@@ -2,18 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The machine under test, when it is the verilated RP6502.
- *
- * The model, the boot, and the frame capture — everything a suite would
- * otherwise have to know about Verilator. tb_machine.h is where the clocking
- * and the RGB555-to-RGBA8 conversion live; this is the lid on it.
- *
- * The render budget is here too, and it is the reason this seam has a measure
- * at all: what the engines spend against the beam is visible only from inside
- * the model, by watching the scheduler, the fill and the sprite stage line by
- * line. A C renderer has no such thing, answers NONE, and the suites skip the
- * claim rather than making one up.
  */
 
 #include "mut.h"
@@ -33,47 +21,29 @@ static Vwiring *dut;
 static std::vector<uint8_t> mut_rom;
 static uint32_t mut_fb[640 * 480];
 
-/* The terminal, which on this machine is the firmware's console line. The
- * 6502's own $FFE1 writes reach it too: the firmware drains that register and
- * re-emits the bytes through its own console (host/pocket/sw/com.c's UART_POP
- * loop into com_tx_write), which is what makes this the same stream the
- * emulator's single terminal sink carries. */
 static std::string mut_tap;
 
 #define FILL_STATE dut->rootp->wiring__DOT__fill__DOT__state
 #define SCHED_STATE dut->rootp->wiring__DOT__sched__DOT__state
 #define SCHED_PENDING dut->rootp->wiring__DOT__sched__DOT__plane_pending
 
-/* A scanline is 800 pixels at two clocks; the deadline is the last of
- * them, not the end of the line. */
+/* A scanline is 800 pixels of two clocks each. The sprite stage drops any
+ * line it has not finished when the pixel counter h is 799, so the deadline
+ * is the first clock of the last pixel rather than the end of the line. */
 static const long LINE_CLOCKS = 1600;
 static const long LINE_DEADLINE = 2 * 799;
 
-/* The sprite stage owns its three line buffers and never waits on a
- * fill or clears a bank (the buffers erase themselves behind the beam),
- * so it runs the whole line concurrent with the planes. The two shares
- * below overlap; they only couple through port A, where sprite fetches
- * now contend with fills instead of following them. */
 struct budget_t
 {
-    long worst;        /* most clocks any one line took, end to end */
+    long worst;
     int worst_line;
-    long planes_at_worst;  /* the planes' own finish on that line */
-    long sprite_at_worst;  /* the sprite stage's, concurrent not added */
-    long worst_planes;     /* the planes' own worst, any line */
-    /* Port A on the worst line: how many of those clocks actually
-     * carried a word, and whose it was. */
+    long planes_at_worst;
+    long sprite_at_worst;
+    long worst_planes;
     long grants_at_worst;
-    long grants_planes;    /* to requester 0, the one fill engine */
-    long grants_sprite;    /* to requester 1, the sprite stage */
-    /* The terminal renders every line whatever the canvas — mode0
-     * raises run at every line_start — and its cost is concurrent, not
-     * added. It still has to fit the line on its own. */
+    long grants_planes;
+    long grants_sprite;
     long worst_term;
-    /* Where the line's clocks go: each plane's resolution — its fill's
-     * finish on the shared engine, or the decision that skipped it —
-     * and the sprite stage's time by state. SP_IDLE=0 SLOT=1 PLAN=2
-     * RUN=3. */
     long plane_done[3];
     long sp_state[4];
     long lines;
@@ -85,9 +55,6 @@ static bool render_idle()
            && dut->rootp->wiring__DOT__sprite__DOT__state == 0;
 }
 
-/* One frame, watching every line. A line's cost is the clock at which
- * the last engine went idle, counted from the boundary — the engines
- * all start together at line_start, so that is the whole of it. */
 static void measure_frame(budget_t *b)
 {
     b->worst = 0;
@@ -105,7 +72,6 @@ static void measure_frame(budget_t *b)
         b->sp_state[i] = 0;
     b->lines = 0;
 
-    /* Start at a line boundary so the first count is whole. */
     uint16_t prev = dut->wiring_scanline;
     while (dut->wiring_scanline == prev)
         tb_clock(dut);
@@ -194,18 +160,10 @@ bool mut_boot(const char *rom)
     mut_rom.clear();
     if (!tb_rom_read(rom, mut_rom))
         return false;
-    /* A boot is a fresh machine rather than a reset pulse. RESB is the
-     * firmware's line and the platform's reset does not reach it by design
-     * — waking the real board is a reconfigure — so a machine that has
-     * already booted once would answer the next boot with the 6502 it is
-     * still holding released. This also brings its memories up zeroed, the
-     * way the board's block RAM does, which is what makes an expectation
-     * written down here the same number every run.
-     *
-     * A refused image leaves the 6502 in reset while the firmware goes on
-     * serving the console, which is a quiet machine by every other measure.
-     * Watching RESB is what tells the two apart, and it is what makes this
-     * verdict the same one the emulator's loader returns. */
+    /* The model is rebuilt rather than reset because rst_n does not clear
+     * resb. After a reset pulse resb would still be set from the previous
+     * boot, and ever_ran would be set on the first clock whether or not the
+     * new image loads. */
     dut->final();
     delete dut;
     dut = new Vwiring;
@@ -217,10 +175,6 @@ bool mut_boot(const char *rom)
         if (dut->wiring_rv_tx_valid)
             mut_tap.push_back((char)dut->wiring_rv_tx_data);
     });
-    /* The verdict is whether the 6502 was released, and only that. A machine
-     * still running when its budget ran out is a failed run rather than an
-     * answer about the image, so it is said out loud instead of being folded
-     * into a refusal the caller would believe. */
     if (!quiet)
         fprintf(stderr, "mut_boot: %s never settled\n", rom);
     return ever_ran;
@@ -246,8 +200,6 @@ const uint32_t *mut_frame(int w, int h)
     return mut_fb;
 }
 
-/* The frame the budget is taken from is a settled one, which is why a suite
- * calls this after its captures rather than off the back of the boot. */
 mut_budget_t mut_measure(const char *name)
 {
     budget_t b;
@@ -278,8 +230,6 @@ mut_budget_t mut_measure(const char *name)
                 name, b.lines);
         return MUT_BUDGET_NONE;
     }
-    /* Over means the sprite stage was seen to lose the race, not merely that
-     * the clocks ran long. */
     if (b.worst >= LINE_DEADLINE &&
         dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun > 0)
         return MUT_BUDGET_OVER;

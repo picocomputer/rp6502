@@ -2,19 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The bench playing the frontend.
- *
- * A libretro core answers to a frontend, so a suite that asks it anything
- * has to be one. This is the smallest frontend that can hold a core to its
- * contract: it loads the shipped .so, hands over the five callbacks, records
- * what the core asked of it, and lets a case say what a device is doing.
- *
- * It opens the artifact rather than linking its objects. The export list,
- * the version script and the load itself are things a suite should be able
- * to be wrong about, and none of them exist in a pile of objects.
- *
- * RETRO_SO is the path to the library, from the build.
  */
 
 #ifndef _TESTS_BENCH_RETRO_FE_H_
@@ -28,25 +15,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The frontend's loader. Windows spells dlopen differently, and this is the
- * one place in the test tree that opens a library, so the difference lives
- * here and nowhere else. LoadLibrary resolves every import as it loads,
- * which is the RTLD_NOW the other branch asks for, and local is the only
- * scope Windows has. */
 #ifdef _WIN32
 #include <windows.h>
 
 static void *fe_dl_open(const char *path)
 {
-    /* RETRO_SO is $<TARGET_FILE:...>: absolute, forward slashes, which
-     * LoadLibrary takes as readily as backslashes. */
     return (void *)LoadLibraryA(path);
 }
 
 static void *fe_dl_sym(void *lib, const char *name)
 {
-    /* Through void*, which Windows promises works and which keeps
-     * -Wcast-function-type off the typed fields FE_SYM writes. */
     return (void *)GetProcAddress((HMODULE)lib, name);
 }
 
@@ -96,7 +74,6 @@ typedef struct
 
 typedef struct
 {
-    /* The library and what it exports. */
     void *lib;
     void (*init)(void);
     void (*deinit)(void);
@@ -121,7 +98,6 @@ typedef struct
     size_t (*get_memory_size)(unsigned);
     unsigned (*get_region)(void);
 
-    /* What the core asked of us. */
     enum retro_pixel_format pixel_format;
     bool pixel_format_set;
     bool supports_no_game;
@@ -134,74 +110,56 @@ typedef struct
     int option_count;
     bool options_declared;
     int options_version_asked;
-    bool variables_declared; /* the pre-versions form, for an old frontend */
+    bool variables_declared;
     bool input_descriptors_set;
     bool controller_info_set;
     bool asked_for_bitmasks;
     int get_variable_calls;
-    char message[256];   /* the last thing the core asked us to show */
+    char message[256];
     int message_count;
 
-    /* What we answer when it asks. */
-    unsigned options_version; /* what this frontend claims to speak */
+    unsigned options_version;
     bool offer_bitmasks;
-    unsigned message_version; /* 0 = only the old SET_MESSAGE */
-    int max_users;            /* -1 = will not say */
+    unsigned message_version;
+    int max_users;
     char option_text[FE_MAX_OPTS][256];
     const char *option_value[FE_MAX_OPTS];
     bool variables_dirty;
     char save_dir[1024];
     bool have_save_dir;
 
-    /* What the devices are doing. A table per device, because their id
-     * spaces overlap: RETRO_DEVICE_ID_ANALOG_X is 0 and so is
-     * RETRO_DEVICE_ID_JOYPAD_B, and a stick deflected in one is not a
-     * button held in the other. */
-    int16_t input[FE_MAX_PORTS][8][FE_STATE_IDS];   /* joypad, by id */
-    int16_t analog[FE_MAX_PORTS][8][FE_STATE_IDS];  /* sticks and triggers */
+    int16_t input[FE_MAX_PORTS][8][FE_STATE_IDS];
+    int16_t analog[FE_MAX_PORTS][8][FE_STATE_IDS];
     int16_t pointer[8][FE_STATE_IDS];
     int16_t mouse[FE_STATE_IDS];
     int16_t lightgun[FE_MAX_PORTS][FE_STATE_IDS];
     unsigned port_device[FE_MAX_PORTS];
 
-    /* What this frontend says it wants this frame: the AV-enable bitmask,
-     * defaulting to everything on the way a frontend without the call
-     * leaves it. */
     int av_enable;
     bool av_enable_asked;
 
-    /* What this frontend will say a savestate is for. The call is
-     * experimental, so a frontend is allowed to refuse it outright and a
-     * core has to cope: savestate_context_refused is that frontend. */
     int savestate_context;
     bool savestate_context_asked;
     bool savestate_context_refused;
 
-    /* The quirks word the core last declared, and whether it declared one.
-     * A frontend keeps only the latest and reads it when netplay starts. */
     uint64_t serialization_quirks;
     bool serialization_quirks_set;
 
-    /* The content directory the frontend hands over, when it answers
-     * GET_GAME_INFO_EXT at all. */
     const char *game_info_dir;
     bool memory_maps_set;
     unsigned memory_map_count;
 
-    /* What we were handed back. */
     const void *frame;
     unsigned frame_w, frame_h;
     size_t frame_pitch;
     uint32_t frame_copy[640 * 480];
     int video_calls, poll_calls, state_calls, audio_calls, mask_reads;
-    int audio_peak; /* loudest sample handed over, to tell sound from silence */
+    int audio_peak;
     size_t audio_frames;
     bool state_read_before_poll;
 } fe_t;
 
 static fe_t fe;
-
-/* ---- the callbacks a core is given ---- */
 
 static void fe_video(const void *data, unsigned width, unsigned height, size_t pitch)
 {
@@ -250,9 +208,6 @@ static int16_t fe_input_state(unsigned port, unsigned device, unsigned index, un
         fe.state_read_before_poll = true;
     if (port >= FE_MAX_PORTS)
         return 0;
-    /* The whole pad at once, which is what a core asks for when the frontend
-     * offered bitmasks. Assembled from the same buttons a case set, so a
-     * suite says what is pressed once and both ways of reading agree. */
     if (device == RETRO_DEVICE_JOYPAD && id == RETRO_DEVICE_ID_JOYPAD_MASK)
     {
         fe.mask_reads++;
@@ -350,9 +305,6 @@ static bool fe_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:
     {
-        /* Plain assignment rather than a compound literal: this header is
-         * also compiled as C++ by test_load.cpp, where (T){...} is not a
-         * thing and designated initializers want C++20. */
         static struct retro_game_info_ext ext;
         if (!fe.game_info_dir)
             return false;
@@ -448,8 +400,6 @@ static bool fe_environment(unsigned cmd, void *data)
     }
 }
 
-/* ---- standing the core up ---- */
-
 #define FE_SYM(field, name)                                    \
     do                                                         \
     {                                                          \
@@ -461,17 +411,13 @@ static bool fe_environment(unsigned cmd, void *data)
         }                                                      \
     } while (0)
 
-/* Every entry point, resolved up front: a core missing one is not a core,
- * and finding that out here beats finding it out in whichever case ran
- * first. */
 static void fe_open_as(unsigned options_version, bool offer_bitmasks)
 {
     memset(&fe, 0, sizeof fe);
     fe.options_version = options_version;
     fe.offer_bitmasks = offer_bitmasks;
     fe.message_version = 1;
-    fe.max_users = -1; /* a frontend that will not say, unless a case does */
-    /* Everything on, which is what a frontend not skipping anything says. */
+    fe.max_users = -1;
     fe.av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
     fe.savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
     fe.lib = fe_dl_open(RETRO_SO);
@@ -503,8 +449,9 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     FE_SYM(get_memory_size, "retro_get_memory_size");
     FE_SYM(get_region, "retro_get_region");
 
-    /* The frontend's own order: environment first, because that is where a
-     * core declares what it needs, then the rest, then init. */
+    /* retro_set_environment is called before retro_init because libretro.h
+     * guarantees that order, and the core's retro_init makes environment
+     * calls. */
     fe.set_environment(fe_environment);
     fe.set_video_refresh(fe_video);
     fe.set_audio_sample(fe_audio_sample);
@@ -514,8 +461,6 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     fe.init();
 }
 
-/* The frontend a case gets unless it wants an older one: current core
- * options, and the input bitmask a modern frontend offers. */
 static void fe_open(void)
 {
     fe_open_as(2, true);
@@ -540,14 +485,12 @@ static bool fe_load(const char *path)
     return fe.load_game(&info);
 }
 
-/* Advance the core, and count what it does with the frame it was asked for. */
 static void fe_run(int frames)
 {
     for (int i = 0; i < frames; i++)
         fe.run();
 }
 
-/* A key down and up through the callback the core registered. */
 static void fe_key(unsigned keycode, uint32_t character, uint16_t mods)
 {
     if (!fe.keyboard_set || !fe.keyboard.callback)

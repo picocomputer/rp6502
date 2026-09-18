@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The scripted terminal session, as an image, written once.
- *
- * Two suites boot it. tests/cpu/vga holds the picture it leaves to a CRC on
- * whichever machine that tree built; tests/rtl/vga borrows the state it
- * scrolled into place to make a claim about the fabric's blink phase, which
- * only that machine has. Written here so the two cannot come to be booting
- * different programs.
- *
- * An indexed page reaches 255 bytes, so the printer chains: each block prints
- * its part and jumps to the next; the last one stops.
  */
 
 #ifndef _TESTS_CPU_VID_SESSION_PROG_H_
@@ -28,7 +17,6 @@
 static bool session_rom(std::vector<uint8_t> &rom)
 {
     std::string script = "\33[0m\33[2J\33[H\33[?25l";
-    /* Forty lines walk the scroll past the 30-row screen. */
     for (int i = 0; i < 40; i++)
     {
         char line[32];
@@ -37,18 +25,18 @@ static bool session_rom(std::vector<uint8_t> &rom)
     }
     /* A region scroll inside DECSTBM margins permutes row_idx. */
     script += "\33[5;10r\33[10;1H\nregion a\nregion b\nregion c\n\33[r";
-    /* Attributes, an underline color, DEC graphics, italic, an EL. */
     script += "\33[15;1H\33[1;33;44mbold yellow on blue\33[0m "
               "\33[7mreverse\33[0m \33[4;58;5;196mulcolor\33[0m "
               "\33[3mitalic\33[0m \33(0lqqk\33(B";
     script += "\33[16;1Hpartial line\33[8G\33[K";
-    /* Alt screen round trip: its content must not survive the return. */
     script += "\33[?1049h\33[2J\33[HALT SCREEN\33[?1049l";
-    /* A steady block cursor parked mid-screen renders on both sides. */
     script += "\33[20;5H\33[2 q\33[?25h";
 
-    /* An indexed page reaches 255 bytes, so the printer chains: each
-     * block prints its part and jumps to the next; the last one stops. */
+    /* Each part of the script is printed by a 6502 block that loads the part
+     * one byte at a time, indexed by the X register, until it loads the NUL
+     * that follows the part. X counts from 0 to 255, so X can index the NUL
+     * only when the part holds at most 255 bytes. Each block jumps to the
+     * next block, and the last block stops the CPU. */
     std::vector<std::string> parts;
     for (size_t at = 0; at < script.size(); at += 255)
         parts.push_back(script.substr(at, 255));
@@ -84,7 +72,7 @@ static bool session_rom(std::vector<uint8_t> &rom)
             b.push_back((uint8_t)(after >> 8));
         }
         if (b.size() != 22)
-            return false; /* the printer stub is a fixed 22 bytes */
+            return false;
         b.insert(b.end(), parts[p].begin(), parts[p].end());
         b.push_back(0);
         image.insert(image.end(), b.begin(), b.end());

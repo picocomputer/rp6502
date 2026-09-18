@@ -2,20 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Colour bars straight at the scaler, for the first bring-up of a board
- * that shows nothing. It stands in for the whole machine: if the bars
- * appear, then the PLL, the pin assignments, the bitstream's bit order
- * and the scaler handshake are all good and the fault is inside the
- * machine. If they do not, none of those are proven and the machine is
- * beside the point.
- *
- * The timing is pocket_video's, deliberately — vs a single clock at the
- * last pixel of the last line, hs a single clock at x == 2, and the
- * active window starting eight pixels in. The scaler wants pulses, not
- * the sync levels a VGA monitor would; a generator written the VGA way
- * is black for a reason that has nothing to do with what is being
- * tested.
  */
 
 module pocket_bars (
@@ -55,8 +41,6 @@ module pocket_bars (
     logic [9:0] px;
     always_comb px = x - 10'(X_DE0);
 
-    /* Eight bars across, and a moving line down the frame so a static
-     * picture can be told from a stuck one. */
     logic [2:0] bar;
     always_comb bar = 3'(px / 10'd80);
 

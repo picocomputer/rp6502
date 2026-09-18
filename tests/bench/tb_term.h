@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Reaching into the terminal's cell memory from a bench.
- *
- * The cells are four byte-lane arrays so the fabric can hold them in
- * memory at all; a whole cell is those lanes stacked. Shared rather
- * than copied because two benches want it and its shape has already
- * changed once.
  */
 
 #ifndef _TB_TERM_H_

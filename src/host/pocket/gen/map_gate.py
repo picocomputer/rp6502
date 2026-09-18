@@ -2,33 +2,16 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The fitter is not the place to learn the design is eight times the
-# chip. Synthesis already knows: a memory that falls out of BRAM
-# inference shows up in the map report as tens of thousands of phantom
-# registers, and the fitter then spends half an hour proving what one
-# number said before it started. This ran for real once -- a second
-# conditional write into an array un-inferred 200 kilobits of table,
-# the map said 219,059 registers, and the fitter ground for 28 minutes
-# on an 866% placement before failing.
-#
-# The bounds are sanity rails, not budgets: registers well above any
-# honest build of this design, and the device's own M10K count. Move
-# them when the design legitimately grows past them, in this file, with
-# the number that justified it.
 
 import argparse
 import re
 import sys
 from pathlib import Path
 
-# The largest honest register count this design has produced is ~15k.
-# Double it: growth is fine, an un-inferred memory is not -- the
-# smallest array in the machine would blow past this alone.
+# The design maps to about 15,000 registers, and this limit is twice that.
 MAX_REGISTERS = 30000
 
-# Cyclone V 5CEBA4: 308 M10K. The map's estimate exceeding the part is
-# certain death; the fitter only says it slower.
+# The Cyclone V 5CEBA4 has 308 M10K blocks.
 MAX_M10K = 308
 
 

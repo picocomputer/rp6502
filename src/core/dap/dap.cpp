@@ -29,7 +29,7 @@ extern "C"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "core/wdc/sram.h"
 #include "core/dap/dap.h"
 #include "core/sys/debug_log.h"
@@ -90,13 +90,6 @@ std::vector<std::function<void()>> g_queue; /* main-thread work */
 std::vector<uint16_t> g_instr_bps;          /* current instruction breakpoints (main thread) */
 std::vector<uint16_t> g_func_bps;           /* current function breakpoints (main thread) */
 
-/* The program's source map: DWARF (.debug_line + .debug_info, llvm-mos ELF) or
- * cc65 (.dbg). Exactly one toolchain is loaded per session; the helpers below
- * dispatch to whichever. g_dinfo is the variable/type half of the DWARF map.
- * g_src_mtx guards these three pointers and the memory they own: the launch lambda
- * frees+reloads them on the main thread while cppdap request handlers read them on
- * the reader thread. Main-thread readers (dbg.c stepping) don't take it — they
- * can't run concurrently with the same-thread writer, and read+read is safe. */
 std::mutex g_src_mtx;
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
@@ -635,12 +628,11 @@ void compute_frame_bases()
     }
 }
 
-/* CFI-driven unwind (llvm-mos .debug_frame): fills g_frames — src_pc, ip, and
- * soft-stack frame base — for every frame by evaluating the CIE/FDE rules. This
- * is exact where unwind_stack()+compute_frame_bases() were heuristic: the CFI
- * recovers each caller's PC and soft-stack pointer directly. A caller PC that
- * lands outside any known function stops the walk (never fabricate). Caller
- * holds g_src_mtx. */
+/* The CFI unwind is exact where unwind_stack() and compute_frame_bases() are
+ * heuristic, because evaluating the llvm-mos .debug_frame CIE/FDE rules yields
+ * each caller's PC and soft-stack pointer directly. A caller PC that lands
+ * outside any known function ends the unwind, so no frame is fabricated for
+ * it. This function is called with g_src_mtx held. */
 void unwind_stack_cfi(uint16_t pc0)
 {
     uint16_t pc = pc0;
@@ -2305,7 +2297,7 @@ extern "C" void dap_pump(void)
      * launch so the exit branch announces/terminates. proc_exec_inflight() excludes the
      * window between proc_exec_request() and its commit. */
     if (!g_launch_done && g_launch_requested && g_configured.load() &&
-        !g_reached_entry && !proc_exec_inflight() && !resb_running() && !dbg_is_stopped())
+        !g_reached_entry && !proc_exec_inflight() && !sys_running() && !dbg_is_stopped())
     {
         g_launch_done = true;
         if (g_session)

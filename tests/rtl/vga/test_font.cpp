@@ -2,24 +2,10 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The generated font ROM against the tables emu_core builds at runtime:
- * font_init lays out font16/font_dec_16/italic16 from the same source
- * arrays the generator parses, so every byte must agree after the
- * row-major to glyph-major re-index. Catches generator drift forever.
- *
- * No machine runs here. Both sides of every comparison are built from the
- * repository on this build: the generated headers by the same python the
- * fabric's packages come from, the runtime tables by emu_core's own
- * initializers. sys_init is called for exactly that — font_init fills
- * storage that is declared uninitialized, so without it these read whatever
- * was in it.
  */
 
 extern "C"
 {
-/* emu_boot.h is the emulator suites' C header and carries no linkage guard of
- * its own; every other consumer is C. */
 #include "core/sys/sys.h"
 }
 
@@ -35,10 +21,6 @@ extern "C"
 #include "core/aud/sine.h"
 
 
-/* The store is addressed the way font.c lays its tables out, so the
- * bitstream image and the firmware's are the same bytes in the same
- * order — which is what lets font_set_code_page's copies write the
- * store directly, and makes this a byte-for-byte comparison. */
 UTEST(font, generated_rom_matches_font_init)
 {
     for (int i = 0; i < 4096; i++)
@@ -71,6 +53,6 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    sys_init(); /* font_init and the rest of the table builders */
+    sys_init();
     return utest_main(argc, argv);
 }

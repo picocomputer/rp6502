@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The merged OPL2 LUT ROM against the generated tables, both ports on
- * every cycle. The generator parses the vendor's case arms and checks
- * them against their documented formulas, so agreement here is
- * agreement with the submodule: what this proves is the ROM module
- * itself — the halves land where the ports look, the exp port truncates
- * to ten bits, and both reads register on the same edge.
  */
 
 #include "Vopl2_lut_rom.h"
@@ -31,8 +24,6 @@ static void clock_cycle()
 
 UTEST(oplrom, every_word_on_both_ports)
 {
-    /* Walk the halves against each other: one port ascending, the
-     * other descending, so every cycle reads two unrelated words. */
     for (int i = 0; i < 256; i++)
     {
         dut->theta = i;
@@ -45,7 +36,6 @@ UTEST(oplrom, every_word_on_both_ports)
 
 UTEST(oplrom, same_index_both_ports)
 {
-    /* The same 8-bit index names different words per port. */
     for (int i = 0; i < 256; i++)
     {
         dut->theta = i;
@@ -60,8 +50,6 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vopl2_lut_rom;
-    /* Settle time zero first, so the initial load is not sharing an
-     * eval with the first read's edge. */
     dut->clk = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

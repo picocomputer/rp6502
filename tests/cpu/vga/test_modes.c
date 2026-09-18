@@ -2,29 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Every video mode, on whichever machine this tree builds.
- *
- * The ROMs are the corpus vidmodes.py generates; the manifest beside them
- * states each one's canvas. A case boots its ROM, waits for the picture to
- * settle, and checks the frame against the CRC written down beside it here.
- *
- * That expectation is the point. This suite used to exist twice — once
- * asserting the emulator drew something and settled, once rendering it in the
- * fabric and diffing against the emulator running inside the same test. The
- * second shape came from developing the RTL against a C oracle, and it left
- * neither machine able to be tested without the other. Neither is the oracle
- * now: both render, and both answer to the number in the case.
- *
- * Re-blessing a deliberate renderer change is editing the case that failed,
- * so the expectation and the claim it belongs to move in one diff. Set
- * RP6502_BLESS_CRC to have a run print every case's observed value in the
- * form it is pasted back as.
- *
- * The render budget rides along for the fixtures heavy enough to be worth
- * asking, because those are these fixtures and a second suite over them was a
- * second boot. A machine with no beam answers MUT_BUDGET_NONE and the claim
- * is skipped rather than invented.
  */
 
 #include "corpus.h"
@@ -38,8 +15,6 @@
 
 static uint32_t settled[640 * 480];
 
-/* One fixture end to end. The second frame is not redundant — it is what says
- * the picture settled rather than merely arrived once. */
 static void run_case(int *utest_result, const char *name, uint32_t expect,
                      mut_budget_t claim)
 {
@@ -68,11 +43,6 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
     if (claim != MUT_BUDGET_NONE && b != MUT_BUDGET_NONE)
         ASSERT_EQ((int)b, (int)claim);
 }
-
-/* Mode 1 character cells, one format at a time: bare glyphs, packed and
- * reversed nibble colors, byte-indexed colors, raw sixteen-bit colors —
- * through both font heights, the builtin ROM and an XRAM font, builtin
- * and XRAM palettes. */
 
 UTEST(mode1, bpp1_8x8_builtin_640x480)
 {
@@ -103,11 +73,6 @@ UTEST(mode1, bpp1_wrap_halfword_palette_320x240)
 {
     run_case(utest_result, "mode1_wrap", 0x67DD7684, MUT_BUDGET_NONE);
 }
-
-/* Mode 2 tile maps: every depth, both tile sizes, trimmed tiles,
- * wraparound, builtin and XRAM palettes — and the composite case
- * stacking a mode 3 base under mode 2 tiles and mode 1 cells across all
- * three planes. */
 
 UTEST(mode2, bpp1_8px_builtin_640x480)
 {
@@ -154,16 +119,10 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
     run_case(utest_result, "mode2_trimy", 0x70ABB716, MUT_BUDGET_NONE);
 }
 
-/* Mode 3 bitmaps, one canvas geometry and depth at a time. */
-
 UTEST(mode3, bpp8_xram_palette_640x480)
 {
     run_case(utest_result, "mode3_8bpp", 0x6B55D171, MUT_BUDGET_UNDER);
 }
-
-/* The serial canary: the wide canvas's two fills, both with the 8bpp
- * XRAM-palette prologue, back to back on the one engine — the tightest
- * legal line the machine can be asked for. */
 
 UTEST(mode3, two_bpp8_fills_serial_640x480)
 {
@@ -210,10 +169,12 @@ UTEST(mode3, bpp8_wrap_bound_ptrs_320x240)
     run_case(utest_result, "mode3_wrap", 0x315F62CC, MUT_BUDGET_NONE);
 }
 
-/* Mode 4 sprites: raw sixteen-bit squares with alpha-gated texels and
- * opacity metadata — narrowed sparse rows and continuous full rows —
- * from sprite-only, over-fill, and cross-plane slots, clipped off every
- * edge. */
+/* mode3_16bpp_odd is mode3_16bpp with its bitmap at the odd address $0801,
+ * so the two frames have the same CRC. */
+UTEST(mode3, bpp16_odd_data_640x360)
+{
+    run_case(utest_result, "mode3_16bpp_odd", 0x4C6E85C8, MUT_BUDGET_NONE);
+}
 
 UTEST(mode4, log3_sprite_only_320x240)
 {
@@ -252,19 +213,23 @@ UTEST(mode4, affine_clips_over_fill_640x480)
 
 UTEST(mode4, log_range_halfword_descs_320x240)
 {
-    run_case(utest_result, "mode4_sizes", 0x6826275A, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode4_sizes", 0xBD73192F, MUT_BUDGET_UNDER);
 }
 
-UTEST(mode4, affine_small_and_large_320x240)
+UTEST(mode4, affine_small_and_rotated_largest_320x240)
 {
-    run_case(utest_result, "mode4a_sizes", 0xBFD3E7B6, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_sizes", 0xFFA1B12B, MUT_BUDGET_NONE);
 }
 
-/* Mode 5 sprites: a sprite-only plane claiming a zeroed layer, sprites
- * over a fill on their own plane, sprites under a text plane above, and
- * the big squares from a non-zero plane on the 320x180 canvas —
- * clips off every edge, overlap, per-sprite palettes with the builtin
- * fallback and a halfword-aligned read. */
+UTEST(mode4, odd_image_with_metadata_320x240)
+{
+    run_case(utest_result, "mode4_odd", 0x7E723099, MUT_BUDGET_NONE);
+}
+
+UTEST(mode4, affine_odd_image_320x240)
+{
+    run_case(utest_result, "mode4a_odd", 0x6C651640, MUT_BUDGET_NONE);
+}
 
 UTEST(mode5, bpp8_8x8_sprite_only_320x240)
 {
@@ -301,11 +266,6 @@ UTEST(mode5, bpp4_256_640x480)
     run_case(utest_result, "mode5_4bpp256", 0xC38CE6F2, MUT_BUDGET_UNDER);
 }
 
-/* Mode 0 as a slot: the terminal over a mode-3 bitmap on plane 1 —
- * default-background cells transparent, inked cells opaque — pinned
- * pixel-exact on every canvas geometry. win240 and
- * win180 walk the 40-column 8x8 path, DEC graphics included. */
-
 UTEST(mode0, overlay_windowed_640x480)
 {
     run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_NONE);
@@ -326,12 +286,14 @@ UTEST(mode0, forty_column_320x180)
     run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_NONE);
 }
 
-/* The console canvas coming back after a mode-0 slot returns to it. The
- * fabric's own vsync shadow is checked in tests/rtl/vga, which is the only
- * machine that has one. */
 UTEST(mode0, console_return_restores_vsync_line)
 {
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
+}
+
+UTEST(prog, bands_switch_modes_on_one_plane_320x240)
+{
+    run_case(utest_result, "prog_bands", 0xD2BCF38B, MUT_BUDGET_NONE);
 }
 
 MUT_MAIN()

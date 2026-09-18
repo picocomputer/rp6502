@@ -348,7 +348,7 @@ mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
-    if (!row_data || (uint32_t)row_data & 1)
+    if (!row_data)
         return false;
     int16_t col = -config->x_pos_px;
     while (width)

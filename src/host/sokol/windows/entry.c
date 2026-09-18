@@ -65,8 +65,6 @@ void host_window_menu_draw(void)
         prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
-/* True when the path survives UTF-16 to OEM and back unchanged, which is what
- * app_boot_rom's conversion of its UTF-8 spelling has to do to it. */
 static bool wide_is_oem_lossless(const WCHAR *w)
 {
     /* oem_from_wide writes at most one byte per UTF-16 unit and oem_to_wide

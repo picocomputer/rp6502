@@ -9,8 +9,6 @@
 
 #include <stdalign.h>
 
-// The stack's output is the tinyusb category of the machine's log;
-// CFG_TUSB_DEBUG itself follows the build, see core/log.cmake.
 #define CFG_TUSB_DEBUG_PRINTF rp6502_log_tusb
 
 #define CFG_TUSB_RHPORT0_MODE OPT_MODE_HOST

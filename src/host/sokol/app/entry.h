@@ -17,14 +17,15 @@
 #include <stdint.h>
 
 /* Open a sokol window and run the machine until it closes. sys_init has already
- * been called; a ROM has not necessarily been booted, because the window that
- * entry_wait_for_rom asks for opens with nothing loaded. fb is the caller-owned
- * framebuffer that vga renders into and the window presents, and it must hold
- * the largest canvas. scale may be fractional, and have_scale marks an explicit
- * --scale, which beats the remembered debug-session window size. exit_on_halt
- * closes the window when the program exits instead of leaving its final output
- * up. Returns app_exit_code. Android has no entry_run, because there
- * NativeActivity owns the entry and sokol_main stands in for main. */
+ * been called; a ROM has not necessarily been booted, because the window opens
+ * with nothing loaded in two cases: under --dap, and after entry_wait_for_rom
+ * returns true. fb is the caller-owned framebuffer that vga renders into and
+ * the window presents, and it must hold the largest canvas. scale may be
+ * fractional, and have_scale marks an explicit --scale, which beats the saved
+ * debug-session window size. exit_on_halt closes the window when the program
+ * exits instead of leaving its final output up. Returns app_exit_code. Android
+ * has no entry_run, because there NativeActivity starts the app through
+ * sokol_app.h, which calls sokol_main in place of main. */
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt);
 
 /* No ROM was supplied. A platform that can still receive one by drag and drop
@@ -43,9 +44,9 @@ void host_window_set_aspect_hint(int cw, int ch);
 /* Per-platform setup, from the sokol init callback. */
 void host_window_init(void);
 
-/* True while a platform-owned overlay is up: the Android ROM menu, or a
- * desktop's drop-a-ROM prompt. The canvas is not drawn while it is, and a
- * halted program is not treated as a program exiting. */
+/* True while a platform overlay is up: the Android ROM menu, or a desktop's
+ * drop-a-ROM prompt. The canvas is not drawn while it is, and a halted program
+ * is not treated as a program exiting. */
 bool host_window_menu_active(void);
 
 /* Draw that overlay into the current swapchain pass. */
@@ -60,10 +61,10 @@ void host_window_files_dropped(void);
  * drop-a-ROM prompt. Desktop only. */
 void host_window_open_url(const char *url);
 
-/* One host controller, in the units gamepad_host_report takes, because the
- * scaling belongs where the ranges are known. A backend sets type only when it
- * is certain of the face-button labels, and sets sticks only when it found
- * both. */
+/* One host controller, in the units gamepad_host_report takes. Each backend
+ * does the scaling, because the range of each axis comes from the platform's
+ * controller API. A backend sets type only when it has identified the
+ * face-button labels, and sets sticks only when it found both. */
 typedef struct
 {
     uint64_t id; /* stable while plugged, so a player keeps its number */

@@ -3,18 +3,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The OPL2's two operator tables as one ROM. The vendored core carries
-# them as generated case statements in two modules — log-sine 256x12 and
-# exp 256x10 — and Quartus gives each its own M10K for a quarter of the
-# bits one block holds. The phase generator reads them on different
-# pipeline stages, so a single 512x12 store with two read ports carries
-# both in one block.
-#
-# The vendor's case arms are the source of truth: they are parsed and
-# re-emitted, so equality with the submodule is by construction. The
-# formulas documented in the vendor headers are recomputed as a
-# tripwire — a submodule update that changes either table fails this
-# generator instead of drifting the fabric.
+# The log-sine table (256x12) and the exp table (256x10) are emitted
+# as one 512x12 ROM. The phase generator reads the two at different
+# pipeline stages, so one M10K block with two read ports holds both.
 
 import argparse
 import math

@@ -117,10 +117,6 @@ int __wrap_iswspace(wint_t c)
     return c == ' ' || (c >= '\t' && c <= '\r');
 }
 
-/* Eliminates a second, complete formatting engine: newlib's strftime calls
- * sniprintf, which drags in _svfiprintf_r. Nothing we write calls it, so it
- * forwards to the one printf this firmware already has.
- * Enabled with -Wl,--wrap=sniprintf. */
 int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
 {
     va_list va;
@@ -132,10 +128,12 @@ int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
 
 void __in_flash("tim_init") tim_init(void)
 {
-    // Noon UTC keeps localtime on day 0 for any TZ offset.
+    // Noon UTC keeps localtime on 1 January 1970 for any TZ offset from UTC-12
+    // to just under UTC+12.
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    // cfg_init ran first; apply what it loaded now that aon_timer is up.
+    // cfg_init runs before tim_init, and loading the config file never calls
+    // tim_apply_time_zone, so the stored zone is applied here.
     tim_apply_time_zone(tim_get_time_zone(), true);
 }
 
@@ -164,10 +162,6 @@ bool tim_gmtime(time_t t, struct tm *out)
     return gmtime_r(&t, out) != NULL;
 }
 
-// Locale-aware strftime emitting code page text. Conversions newlib would
-// render in the C locale expand from the active locale, UTF-8 in flash
-// converted to the active code page; the rest pass through newlib one spec
-// at a time. Literal format bytes copy through verbatim.
 static bool tim_strftime_worker(char *dst, size_t *pos, size_t max,
                                 const char *format, const struct tm *tm,
                                 int depth)
@@ -318,9 +312,9 @@ int tim_tzdata_response(char *buf, size_t buf_size, int state, unsigned)
     return ((unsigned)state + 1 < rows) ? state + 1 : -1;
 }
 
-/* A city's short form is stored as the full table name, so "Tokyo" keeps as
- * "Asia/Tokyo". Anything the table does not know is a POSIX TZ string and is
- * kept exactly as typed -- the generated setter already bounded its length. */
+/* The config setter and loader copy the input into out before calling this,
+ * so a name that is not in the table is stored as typed and is used as a
+ * POSIX TZ string. */
 bool tim_check_time_zone(const char *in, char *out)
 {
     for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
@@ -336,7 +330,9 @@ bool tim_check_time_zone(const char *in, char *out)
     return true;
 }
 
-/* The index is derived state, not the setting: the stored name is. */
+/* The stored name is read instead of tz because the config setter passes tz
+ * as it was typed, and only the stored name has a short form such as "Tokyo"
+ * expanded to "Asia/Tokyo". */
 void tim_apply_time_zone(const char *tz, bool changed)
 {
     (void)tz;
@@ -353,7 +349,6 @@ void tim_apply_time_zone(const char *tz, bool changed)
     tzset();
 }
 
-/* SET's line for this row. */
 int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;

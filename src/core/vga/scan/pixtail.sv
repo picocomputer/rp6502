@@ -106,7 +106,7 @@ module pixtail
     logic [1:0] fifo_v;
     /* Only a segment's first word carries a bit offset. */
     logic [4:0] fifo_bit0[2];
-    logic fifo_seg1[2];            /* word belongs to the deck segment */
+    logic fifo_seg1[2];            /* word is part of the deck segment */
     logic [1:0] inflight;
     logic inflight_seg1[2];
     logic [4:0] inflight_bit0[2];
@@ -114,6 +114,12 @@ module pixtail
     logic [9:0] fetch_px_left;
     logic fetch_seg1;              /* fetcher is filling the deck */
     logic [4:0] fetch_bit0_next;
+    /* Where a segment's later words start, which is its origin modulo the
+     * pixel, and zero for every depth that divides a byte. It rides beside
+     * fetch_bit0_next rather than replacing the zero it falls to, because
+     * that zero is also what makes px_per_word_from count the pixel a word
+     * finishes for the word behind it. */
+    logic [4:0] fetch_phase;
     /* Aiming the fetcher is a standing condition rather than something
      * that happens when a segment is taken, because a deck segment taken
      * while the fetcher is busy still has to get its turn. */
@@ -154,8 +160,16 @@ module pixtail
             default: pix_idx = cur_byte;
         endcase
     end
+    /* Sixteen-bit color at any byte, which is the only pixel wide enough
+     * to reach past its word: byte 3 takes its high half from the word
+     * behind it. Everything narrower divides eight and cannot straddle. */
     logic [15:0] pix16;
-    always_comb pix16 = bit_in_word[4] ? fifo[0][31:16] : fifo[0][15:0];
+    always_comb pix16 = 16'({fifo[1], fifo[0]}
+                            >> {bit_in_word[4:3], 3'b000});
+    logic [5:0] bit_next;
+    always_comb bit_next = 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log};
+    logic straddle;
+    always_comb straddle = bit_next > 6'd32;
 
     logic [2:0] imm_bit;
     logic imm_on;
@@ -177,14 +191,13 @@ module pixtail
     always_comb begin
         emit_imm = state == T_RUN && cur_v && cur.imm;
         emit_xram = state == T_RUN && cur_v && !cur.imm && fifo_v[0]
-            && !fifo_seg1[0];
+            && !fifo_seg1[0] && (!straddle || fifo_v[1]);
         emit_now = emit_imm || emit_xram;
     end
 
     logic word_last;
     always_comb word_last = emit_xram
-        && (cur_left == 10'd1
-            || 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log} == 6'd32);
+        && (cur_left == 10'd1 || bit_next >= 6'd32);
 
     always_comb begin
         pixtail_px_we = emit_now;
@@ -224,6 +237,7 @@ module pixtail
         fetch_px_left = '0;
         fetch_seg1 = 1'b0;
         fetch_bit0_next = '0;
+        fetch_phase = '0;
         cur_fetched = 1'b0;
         deck_fetched = 1'b0;
         gnt_q = 1'b0;
@@ -309,12 +323,16 @@ module pixtail
                     if (aim_cur_now) begin
                         fetch_word <= 14'(cur.bits >> 5);
                         fetch_bit0_next <= 5'(cur.bits & 23'd31);
+                        fetch_phase <= 5'(cur.bits & 23'd31)
+                            & 5'((5'd1 << bpp_log) - 5'd1);
                         fetch_px_left <= cur.px;
                         fetch_seg1 <= 1'b0;
                         cur_fetched <= 1'b1;
                     end else if (aim_deck_now) begin
                         fetch_word <= 14'(deck.bits >> 5);
                         fetch_bit0_next <= 5'(deck.bits & 23'd31);
+                        fetch_phase <= 5'(deck.bits & 23'd31)
+                            & 5'((5'd1 << bpp_log) - 5'd1);
                         fetch_px_left <= deck.px;
                         fetch_seg1 <= 1'b1;
                         deck_fetched <= 1'b1;
@@ -379,11 +397,13 @@ module pixtail
                         inflight_bit0[0] <= inflight_bit0[1];
                         if (a_gnt) begin
                             inflight_seg1[1] <= fetch_seg1;
-                            inflight_bit0[1] <= fetch_bit0_next;
+                            inflight_bit0[1] <= fetch_bit0_next
+                                | fetch_phase;
                         end
                     end else if (a_gnt) begin
                         inflight_seg1[inflight[0]] <= fetch_seg1;
-                        inflight_bit0[inflight[0]] <= fetch_bit0_next;
+                        inflight_bit0[inflight[0]] <= fetch_bit0_next
+                            | fetch_phase;
                     end
 
                     if (emit_now) begin

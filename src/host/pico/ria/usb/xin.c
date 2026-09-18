@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * XInput controllers, as gamepads ria/hid can read. The protocol is not
- * HID and the controller describes nothing, so what its packet holds is
- * written out here rather than parsed.
  */
 
 #include "core/hid/hid.h"
@@ -78,9 +74,9 @@ typedef struct
     uint8_t gip_seq;           // GIP sequence byte for Xbox One OUT packets
     uint8_t init_seq;          // index into gip_init_packets
     bool init_done;            // true after GIP init sequence sent
-    int8_t slot;               // where ria/hid mounted it, -1 for nothing
+    int8_t slot;
     uint8_t report_buffer[64]; // XInput max 64 bytes
-    uint8_t out_cmd[16];       // OUT command buffer (persists for async DMA xfer)
+    uint8_t out_cmd[16];       // OUT command buffer (persists for async xfer)
     uint8_t ack_cmd[16];       // Separate buffer for home button ACK (independent of out_cmd)
 } xin_device_t;
 
@@ -90,13 +86,8 @@ static xin_device_t xin_devices[XIN_MAX_DEVICES];
 
 // clang-format off
 
-/* XInput is not HID: the controller sends a fixed packet and says nothing
- * about it, so where every field sits is known here rather than read.
- * Button numbers are the ones gamepad.c files at index n-1, so 1-16 land in
- * the two button bytes and 17-20 are read as the d-pad.
- *
- * Y and Rz are declared with their range inverted because the sticks
- * report north as positive and the report block wants it negative. */
+/* Y and Rz are declared with inverted ranges because the sticks report up as
+ * a positive value and the gamepad report uses a negative value for up. */
 
 static const gamepad_connection_t xin_xbox_360_desc = {
     .valid = true,
@@ -115,8 +106,6 @@ static const gamepad_connection_t xin_xbox_360_desc = {
         // d-pad up, down, left, right
         16, 17, 18, 19}};
 
-/* The Xbox One gamepads its report with a leading id byte of 0x20, so every
- * offset is eight bits further in and the triggers are ten bits wide. */
 static const gamepad_connection_t xin_xbox_one_desc = {
     .valid = true,
     .x_absolute = true,
@@ -317,8 +306,6 @@ static bool xin_send_next_init(xin_device_t *device)
     return false;
 }
 
-// Queue IN first so we catch a GIP_CMD_ANNOUNCE if the controller fires one;
-// an announce restarts init from the top (matches Linux xpad).
 static void xin_start_xbox_one(xin_device_t *device, int idx)
 {
     RP6502_LOG(xinput, DEBUG, "Xbox One — queuing IN then starting GIP init");
@@ -359,13 +346,11 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
 
     if (device->is_xbox_one)
     {
-        // Disable the audio interface — some controllers (e.g., PowerA
-        // 0x20d6:0x200e) won't report the guide button unless this is done.
-        // The callback continues with GIP init after the control transfer.
+        // Some controllers, such as the PowerA 0x20d6:0x200e, do not report
+        // the guide button until their audio interface is disabled.
         if (tuh_interface_set(dev_addr, 1 /*GIP_WIRED_INTF_AUDIO*/, 0,
                               xin_audio_disable_cb, (uintptr_t)idx))
             return true; // init continues in callback
-        // Control transfer failed (no audio interface?) — proceed directly
         RP6502_LOG(xinput, DEBUG, "audio disable skipped, starting GIP init directly");
         xin_start_xbox_one(device, idx);
     }
@@ -416,16 +401,15 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
 
     if (result == XFER_RESULT_STALLED)
     {
-        // Endpoint is halted; re-queuing would loop forever since only
-        // CLEAR_FEATURE(ENDPOINT_HALT) can recover it. Stop polling and
-        // let the controller drop/reconnect (matches Linux xpad behaviour).
+        // A halted endpoint returns a STALL handshake to every transfer until
+        // its halt is cleared, so queueing another transfer here would stall
+        // again without end. Polling stops until the controller is reconnected.
         RP6502_LOG(xinput, WARN, "EP 0x%02X STALLed, halting poll", ep_addr);
         return true;
     }
 
     if (result != XFER_RESULT_SUCCESS)
     {
-        // Transient RX timeout / data-seq error, not a halt — re-arm and keep polling.
         RP6502_LOG(xinput, WARN, "IN transfer failed for index %d, result=%d, re-arming", idx, result);
         if (!xin_queue_in(device, idx))
             RP6502_LOG(xinput, ERROR, "failed to re-queue IN after error for index %d", idx);
@@ -450,9 +434,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
 
         if (gip_cmd == 0x02 && xferred_bytes >= 4)
         {
-            // GIP_CMD_ANNOUNCE — controller requesting (re-)initialization.
-            // This happens when the controller resets or changes power state.
-            // Re-run the full GIP init sequence (mirrors Linux xpad behavior).
+            // GIP_CMD_ANNOUNCE
             RP6502_LOG(xinput, INFO, "GIP announce received, restarting init sequence");
             device->init_seq = 0;
             device->gip_seq = 0;
@@ -461,13 +443,14 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
         }
         else if (gip_cmd == 0x03)
         {
-            // GIP status/heartbeat report — expected and harmless; suppress noisy log.
+            // A GIP status report is ignored without logging a warning.
         }
         else if (gip_cmd == 0x07 && xferred_bytes > 4)
         {
-            // GIP_CMD_VIRTUAL_KEY — home button.
-            // Payload format: pairs of [state, 0x5B], len_field/2 pairs total.
-            // Only the final state in the burst matters for our use.
+            // GIP_CMD_VIRTUAL_KEY reports the home button. report[3] is the
+            // payload length, and the payload, which starts at report[4], is a
+            // list of two-byte pairs that each begin with a state byte. Only
+            // the state in the last pair is used.
             uint8_t num_pairs = report[3] / 2;
             if (num_pairs > 0)
             {
@@ -479,8 +462,6 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                     gamepad_home_button(xin_devices[idx].slot, pressed);
                 }
             }
-            // Courtesy ACK for the virtual-key report; the button was already
-            // delivered via gamepad_home_button, so a drop on a busy ep_out is fine.
             if ((report[1] & 0x10) && device->init_done)
             {
                 device->ack_cmd[0] = 0x01;      // GIP_CMD_ACK

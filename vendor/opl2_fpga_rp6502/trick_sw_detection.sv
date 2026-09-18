@@ -1,9 +1,3 @@
-// rp6502: this wrote host_reg_wr.bank_num, a field opl2_reg_wr_t lost when
-// the OPL3 superset was stripped out. It is dead either way -- host_if
-// only instantiates this under INSTANTIATE_TIMERS, which is 0 -- but
-// Quartus elaborates both arms of a generate for syntax where Vivado does
-// not. NUM_BANKS is 1, so every bank_num == 0 test was already true and
-// the assignment had nowhere to land.
 /*******************************************************************************
 #   +html+<pre>
 #

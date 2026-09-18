@@ -2,15 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The three standard streams, on a host that keeps them apart.
-#
-# Under --headless the emulator has no window: host stdin is the machine's
-# console and what the program writes to fd 1 and fd 2 lands on host stdout
-# and host stderr, apart. This program says one line on stderr, then reads
-# its input a byte at a time and echoes it to stdout, prints eof when a read
-# answers nothing, and exits with a code the shell can see -- so one run of
-# it is a claim about all three streams and the exit status at once.
 
 import argparse
 import os
@@ -19,25 +10,20 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rp6502_asm import (API_A, API_X, OP_READ_XSTACK, OP_WRITE_XSTACK, XSTACK,
-                        Asm)  # noqa: E402
+from rp6502_asm import (API_A, API_X, OP_EXIT, OP_READ_XSTACK, OP_WRITE_XSTACK,
+                        XSTACK, Asm)  # noqa: E402
 from rp6502_rom import image  # noqa: E402
 
-OP_EXIT = 0xFF
 EXIT_CODE = 3
 ERR = "err\n"
 EOF = "eof\n"
-# The console's wire carries what the far end sent, and what a terminal
-# sends for Enter is a return. Nothing between here and the machine
-# translates, so this is the machine's spelling rather than the host's.
 INPUT = "a\rbb\r"
-# What comes back is the line editor's: it hands a program the line and
-# then the newline, whichever key ended it.
+# core/api/std.c follows each line read from stdin with a newline, whether a
+# carriage return or a line feed ended the line in the input.
 OUTPUT = "a\nbb\n" + EOF
 
 
 def write_str(p, fd, s):
-    """A string to a descriptor through the xstack, which grows down."""
     for c in reversed(s.encode("latin-1")):
         p.push(c)
     p.call_a(OP_WRITE_XSTACK, fd)
@@ -47,9 +33,6 @@ def prog():
     p = Asm()
     write_str(p, 2, ERR)
 
-    # One byte per read: a cooked read hands out the line it holds a byte
-    # at a time, and a byte popped off the xstack goes straight back on it
-    # for the write. A read that answers nothing is the end of the input.
     p.symbol("next")
     p.push(0)
     p.push(1)
@@ -69,10 +52,8 @@ def prog():
 
 
 def drive(emu, rom):
-    """Run it headless with the input on a pipe and read all three back.
-
-    EMU_ECHO is the suite's terminal mirror onto stderr, which here would
-    land on top of the stream under test."""
+    """EMU_ECHO is removed because it mirrors the console onto stderr, which
+    is one of the streams under test."""
     env = {k: v for k, v in os.environ.items() if k != "EMU_ECHO"}
     r = subprocess.run(
         [str(emu), "--headless", "--phi2", "0", "--mute", "--seed", "1",

@@ -1,12 +1,3 @@
-# The machine through Quartus, for area and timing. No host in it and no board:
-# this is src/core alone with every port a virtual pin, and it exists to be
-# measured rather than programmed. Pads belong to whichever machine has them --
-# the Pocket's are in src/host/pocket/core.
-#
-# The source list is the verilated one, so the thing measured is the thing
-# tested, and the generated packages come from this build rather than a copy
-# that can drift.
-
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(SYNTH_DIR ${CMAKE_BINARY_DIR}/synth)
     set(SYNTH_QSF ${SYNTH_DIR}/rp6502.qsf)
@@ -19,22 +10,18 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # A shift register the fitter recognises becomes an M10K. Off
-        # here as it is on the Pocket, so this target measures the
-        # machine's own logic rather than a trade the fitter made.
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
-        # The Pocket brings the 6502's RAM in on the cart bus —
-        # EXT_RAM(1) at pocket_core.sv — and the BRAM fallback it
-        # replaces is sixty-odd blocks this device cannot also spend.
-        # Measure the machine the product builds.
+        # pocket_core.sv sets EXT_RAM, which moves the 6502's 64 KB out of
+        # 64 M10K blocks, one per kilobyte, and into the Pocket's SRAM
+        # chip, so this target sets it too.
         "set_parameter -name EXT_RAM 1"
-        # The machine's own ports outnumber the package's pins — the host
-        # window alone is a hundred of them — and this target exists to
-        # measure area, not to be bound to pads.
+        # The wiring module's ports total 950 bits, and the device has 224
+        # user pins.
         "set_instance_assignment -name VIRTUAL_PIN ON -to *"
-        # -to * means Quartus reports every node it declined to make a
-        # virtual pin, which hits its ten-thousand message cap and buries
-        # everything that means something.
+        # -to * also matches every internal node. Quartus ignores the
+        # assignment on each internal node and prints message 15720 for
+        # it, about 30,000 times for this design, which buries every other
+        # message.
         "set_global_assignment -name MESSAGE_DISABLE 15720")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")

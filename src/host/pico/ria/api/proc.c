@@ -20,9 +20,6 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 
-/* This machine loads through a task-driven state machine; both of these are
- * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
- * program first -- the relaunch is running inside a stop already. */
 void proc_exec_start(void)
 {
     sys_stop();
@@ -34,8 +31,6 @@ void proc_exec_relaunch(void)
     rom_exec();
 }
 
-/* A load already committed by proc_api_exec or proc_nfc must not be clobbered
- * by the launcher. */
 bool proc_exec_inflight(void)
 {
     return rom_active();
@@ -56,8 +51,6 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         goto fail;
     if (*first_arg == ':')
     {
-        /* An installed name: no drive to scan, no cwd to move, no case to
-         * correct. The open answers; a miss fails like any bad path. */
         rom_load_argv(first_arg, args);
         return;
     }
@@ -104,7 +97,8 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
             goto fail;
     }
 
-    // Splice the on-disk basename so argv[0] preserves case.
+    // rom_exec corrects the basename of argv[0] to the case stored on disk, so
+    // path is corrected too before the comparison with proc_running().
     if (!path_correct_basename(path, sizeof(path)))
         goto fail;
     RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
@@ -115,7 +109,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    sys_stop(); /* the walk behind it stops rln and mon */
+    sys_stop();
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;

@@ -3,21 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The PSG's sine table as a ROM. aud_init computes it at runtime with
-# libm — lround(-cos(2*pi*i/256) * 32767), phase 0 at the trough — so the
-# C header carries the same 256 words, and test_font holds this emission
-# entry for entry against the running table.
+# The sine table this script emits has to equal the one that sine_init in
+# src/core/aud/sine.c computes at run time, and tests/rtl/vga/test_font.cpp
+# compares the C header against that table entry for entry.
 #
-# The RTL takes all of them. A localparam array indexed by a register is a
-# mux of constants, and a quarter circle folded back out was the way to
-# make that mux small — sixty-five words instead of two hundred and
-# fifty-six, with the phase mirrored onto them. It was still logic. A
-# memory read with a registered address is none, so the whole circle now
-# rides in a block and the fold is gone; the words are the same words.
-#
-# Sixteen bits, not eight. At eight the entries quantised to +/-127 and put
-# a -49.9 dB floor under every sine the PSG and the bell can make; nothing
-# downstream can lift a floor set at the oscillator.
+# The entries are sixteen bits because at eight bits they would quantise
+# to +/-127, which would put a -49.9 dB floor under every sine the PSG
+# and the bell make.
 
 import argparse
 import math

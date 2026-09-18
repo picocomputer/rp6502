@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The pin scenarios, once, for the two suites that replay them: test_lockstep
- * runs them with the C and the RTL side by side, and test_w65c02_chips runs
- * them against chips alone with a recorded trace as the reference. The image
- * and the event scripts live here so the RTL comparison and the drift check
- * cannot come to be asking different questions.
- *
- * Neither the SingleStepTests corpus nor Klaus reaches any of this — they
- * leave the pins quiet — which is also why nothing here needs either of them.
  */
 
 #ifndef _TESTS_WDC_LOCKSTEP_SCEN_H_
@@ -26,7 +17,6 @@ extern "C"
 {
 #endif
 
-    /* The hand-assembled 64K image, with entry written into $FFFC. */
     void lockstep_scen_image(uint8_t *image, uint16_t entry);
 
     typedef struct
@@ -38,8 +28,6 @@ extern "C"
         size_t n_evs;
     } lockstep_scen_t;
 
-/* Every directed case, so both suites register the same names and a new one
- * is added in a single place. */
 #define LOCKSTEP_SCENARIOS(X)   \
     X(reset_only)               \
     X(irq_pulse)                \
@@ -61,14 +49,11 @@ extern "C"
     LOCKSTEP_SCENARIOS(LOCKSTEP_SCEN_DECL)
 #undef LOCKSTEP_SCEN_DECL
 
-/* The pin fuzz: IRQ, NMI and RDY toggled over the open-interrupt loop, from
- * a fixed seed so both suites drive the identical sequence. */
 #define LOCKSTEP_FUZZ_SEED 0xACE1
 #define LOCKSTEP_FUZZ_EVENTS 512
 #define LOCKSTEP_FUZZ_CYCLES 5000
 #define LOCKSTEP_FUZZ_ENTRY 0x0200
 
-    /* Fills evs[LOCKSTEP_FUZZ_EVENTS]. */
     void lockstep_scen_fuzz(lockstep_ev_t *evs);
 
 #ifdef __cplusplus

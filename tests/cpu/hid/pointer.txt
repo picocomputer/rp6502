@@ -1,21 +1,33 @@
-# The relative mouse. paint_mouse.rp6502 maps the HID mouse block and arms a 6522
-# timer IRQ whose handler reads the counters and moves a pointer sprite. Held
-# still the frame is identical, so a changed canvas after host motion is the
-# whole chain: the mouse block, the VIA IRQ, and the program's ISR.
+# mouse.rp6502 maps the mouse block at $FF00. Its 6522 timer interrupt copies
+# the block's five bytes to $FF50 and adds one to a count at $FF55. Each wait
+# is on the copy at $FF50, so it passes only after an interrupt has read the
+# new values.
 
-run 60
-mark
-run 20
-expect-same
+run 10
+peek xram:$FF00 $00 $00 $00 $00 $00
 
-mouse move 80 60
-run 20
-expect-changed
+# Timer 1 free-runs from $FFFF, so it interrupts about every 8 ms at the
+# default 8 MHz clock and ten 60 Hz frames hold twenty interrupts. The count
+# starts from zero because --fill 0 clears XRAM at boot.
+peek xram:$FF55 $14
 
-# Held down, the same motion paints instead of only moving the pointer.
-mark
 mouse buttons 1
-mouse move -40 -30
-run 20
+wait xram:$FF50 $01
+peek xram:$FF00 $01 $00 $00 $00 $00
+
+mouse move 60 40
+wait xram:$FF51 $3C
+peek xram:$FF00 $01 $3C $28
+peek xram:$FF50 $01 $3C $28
+
+mouse move 60 40
+wait xram:$FF51 $78
+peek xram:$FF50 $01 $78 $50
+
+mouse wheel 3
+wait xram:$FF53 $03
+peek xram:$FF00 $01 $78 $50 $03 $00
+
 mouse buttons 0
-expect-changed
+wait xram:$FF50 $00
+peek xram:$FF50 $00 $78 $50 $03 $00

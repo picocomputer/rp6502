@@ -45,8 +45,9 @@ void vga_canvas_reset(void);
 void vga_canvas_publish(vga_canvas_t canvas);
 
 /* The mode a program is about to be laid down for, announced before any of its
- * planes are booked. A machine whose fabric rasterizes needs this, because a
- * fill function pointer means nothing to it; a machine that rasterizes in
+ * planes are booked. A machine that rasterizes in the FPGA needs this, because
+ * its scanline table holds a mode number and vga_prog_fill and vga_prog_sprite
+ * identify the mode only by a function pointer; a machine that rasterizes in
  * software ignores it. */
 void vga_mode_begin(uint8_t mode, uint16_t attr);
 
@@ -85,8 +86,9 @@ static inline int16_t vga_vsync_line(void)
 }
 
 /* Book scanlines for a mode. fill_fn is the renderer itself where the machine
- * rasterizes in software; where the fabric rasterizes it is ignored, and the
- * mode announced by vga_mode_begin is written to the fabric instead. */
+ * rasterizes in software; where it rasterizes in the FPGA, fill_fn is ignored
+ * and the mode announced by vga_mode_begin is written to the scanline table
+ * instead. */
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
                    bool (*fill_fn)(int16_t plane_id,

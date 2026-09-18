@@ -2,37 +2,15 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c.
-#
-# That file is 1.36 MB of source and almost all of it is the DBCS pages
-# this repo excludes with FF_NO_DBCS. What is actually live is small:
-# seventeen 128-entry single-byte tables and the two compressed up-case
-# tables. The rest is a maze of FF_CODE_PAGE conditionals that are dead
-# for us, and three functions written to walk arrays that a preprocessor
-# may or may not have declared.
-#
-# So the data comes here and the logic goes to src/core/str/unicode.c. A
-# character mapping is a fact — CP437 byte 0x80 is U+00C7 wherever you
-# read it — and lifting the arrays out of the file that already ships
-# in this tree beats fetching the same numbers from a network at build
-# time.
-#
-# Two outputs, same numbers. The binary is for a machine that has to
-# keep them off-chip: the Pocket loads oemcp.bin into its staging store
-# beside fonts.bin and reads it a byte at a time through a window that
-# cannot do halfwords. The C array is for a machine with flash, where
-# an extra 6 KB is cheaper than an asset that can go missing.
 
 import argparse
 import re
 from pathlib import Path
 
-MAGIC = 0x4F43  # 'OC'
+MAGIC = 0x4F43  # 'O' in the high byte and 'C' in the low byte
 
-# Every page ffunicode.c carries below 900. Kept in this order because
-# it is the order the vendored cp_code[] uses, and a diff between the
-# two should stay readable.
+# These are all the single-byte code pages in ffunicode.c, in the
+# order of its cp_code[] array.
 PAGES = [437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862,
          863, 864, 865, 866, 869]
 
@@ -42,7 +20,6 @@ def parse_words(text):
 
 
 def extract_array(src, name):
-    """The body of `static const ... name[] = { ... };`, as words."""
     m = re.search(r"\b" + re.escape(name) + r"\s*\[\s*\]\s*=\s*\{(.*?)\}\s*;",
                   src, re.S)
     if not m:
@@ -60,8 +37,8 @@ def build(ffunicode):
             raise SystemExit(f"oem_table_gen: uc{cp} has {len(t)} entries")
         pages.append(t)
 
-    # The up-case tables end in an explicit zero terminator, which the
-    # walker relies on to stop. Keep it.
+    # The up-case tables end in a zero, which is kept because the loop in
+    # ff_wtoupper in core/str/unicode.c stops on it.
     cvt1 = extract_array(src, "cvt1")
     cvt2 = extract_array(src, "cvt2")
     for name, t in (("cvt1", cvt1), ("cvt2", cvt2)):
@@ -112,11 +89,8 @@ def emit_h(path, n, c1, c2, total):
 
 
 def emit_c(path, words):
-    # Placed where the host puts cold tables: on a RIA, whose binary is
-    # copied to RAM at boot, that is flash, and five kilobytes of the
-    # scarcest memory on the board turns on it. Every other machine
-    # answers HOST_IN_FLASH with nothing. The Pocket does not compile
-    # this file at all -- its copy lives in the staging store.
+    # A RIA's binary is copied to RAM at boot, so HOST_IN_FLASH is used
+    # to keep these five kilobytes in flash on a RIA.
     out = [HEADER,
            '\n#include "oemcp.h"\n#include "core/str/unicode.h"\n'
            '\n#include "machine.h"\n\n',
@@ -126,8 +100,6 @@ def emit_c(path, words):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         out.append(f"    {row},\n")
     out.append("};\n")
-    # The platform hook, for every platform that can afford to link the
-    # tables in. The Pocket writes its own and does not compile this.
     out.append("""
 uint16_t unicode_word(uint32_t index)
 {

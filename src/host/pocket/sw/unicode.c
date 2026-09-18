@@ -3,12 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The code page tables ride in the staging store beside the fonts,
- * because five kilobytes is more than the TCM can spare.
- *
- * The staging window is byte-wide by construction, so a word is two
- * reads and a shift. That is why src/core/str/unicode.c routes every table
- * access through this function instead of indexing an array.
+ * The code page tables are in the staging store, and the staging window is
+ * one byte wide, so each word of a table takes two reads.
  */
 
 #include "mmio.h"

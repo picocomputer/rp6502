@@ -5,20 +5,20 @@
  *
  * Two transports, chosen at build time the way osal/posix chooses between
  * fs_aio.c and fs_sync.c. Both live in this one file, because
- * FILE_FLAG_OVERLAPPED belongs to the handle rather than to the transfer.
- * Overlapped is the default: the transfer is started, the dispatcher is told
- * STD_PENDING, and a later dispatch reaps it. RP6502_FS_SYNC completes the
- * transfer before it answers.
+ * FILE_FLAG_OVERLAPPED is set on the handle rather than on the transfer.
+ * Overlapped is the default: the transfer is started, STD_PENDING is returned
+ * to the dispatcher, and a later dispatch reaps it. Under RP6502_FS_SYNC the
+ * transfer completes before the call returns.
  *
  * The choice is visible to the 6502, because a read that completes in a
  * different number of frames diverges the machine at the point a savestate was
  * loaded. A blob is therefore portable only between builds that took the same
- * transport. The libretro core takes the sync arm so that the frames a read
- * costs are its machine's own rather than the kernel's.
+ * transport. The libretro core takes the sync arm so that the number of frames
+ * a read costs does not depend on the kernel.
  *
  * Neither arm reads the handle's file pointer, because an overlapped handle
  * has none and the sync arm transfers at an explicit offset, so a descriptor
- * is an index into a table that carries the offset itself.
+ * is an index into a table that holds the offset itself.
  */
 
 #include "osal/fs.h"

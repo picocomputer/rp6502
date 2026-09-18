@@ -1,37 +1,12 @@
-# The submodules a build needs, fetched by the build that needs them. Each
-# consumer asks beside the line that reads it, so a tree pulls nothing another
-# tree wanted. Nothing recursive: hazard3 carries six of its own and this
-# repository reads none of them.
-#
-# The check is emptiness, not existence: an uninitialized submodule is an
-# empty directory, so EXISTS answers TRUE for the case this exists to catch.
-# SENTINEL is for when populated is not the same as ready.
-#
-# A populated tree never reaches git, which matters because the extension
-# configures on every CMakeLists save. A warm configure costs one stat each.
-
 include_guard(GLOBAL)
 
 option(RP6502_FETCH_SUBMODULES "Let CMake fetch missing submodules" ON)
 option(RP6502_STRICT_SUBMODULES "Optional submodules become required" OFF)
-# Shallow by default: imgui unshallowed is 566 MB and cppdap with its own json
-# 613 MB. Set 0 to bump a pin, which wants the history.
 set(RP6502_SUBMODULE_DEPTH "1" CACHE STRING "Submodule clone depth, 0 for all")
 
-# rp6502_submodule(<path> [SENTINEL <file>] [SPARSE <dir>] [SUPER <dir>]
-#                  [OPTIONAL] [TARGET <name>] [WANTS <text>] [RESULT <var>])
-#
-# <path> is relative to SUPER, which defaults to the repository root. SUPER is
-# also how a submodule of a submodule is asked for, so cppdap's json needs no
-# special case.
-#
-# SPARSE names the one directory to check out, and a submodule update cannot
-# do it: sparse checkout is configured inside the clone, which does not exist
-# yet. So that path clones without a checkout, narrows, then takes the commit
-# the gitlink already records.
-#
-# TARGET also offers the fetch as a build target, for refreshing without a
-# reconfigure.
+# An uninitialized submodule is an empty directory and EXISTS is TRUE for it,
+# so a submodule with no SENTINEL is checked by globbing its directory for
+# content.
 macro(_rp6502_submodule_ready out)
     if(S_SENTINEL)
         if(EXISTS ${_dir}/${S_SENTINEL})
@@ -56,8 +31,6 @@ function(rp6502_submodule path)
         set(S_SUPER ${RP6502_ROOT})
     endif()
     set(_dir ${S_SUPER}/${path})
-    # Offered whether or not it is needed, so the way to fetch or refresh it
-    # is the same command either way.
     if(S_TARGET AND NOT TARGET ${S_TARGET})
         add_custom_target(${S_TARGET}
             COMMAND ${CMAKE_COMMAND}
@@ -69,7 +42,6 @@ function(rp6502_submodule path)
             VERBATIM)
     endif()
 
-    # The only path a warm configure takes, and it spawns nothing.
     _rp6502_submodule_ready(_ok)
     if(_ok)
         set(${S_RESULT} TRUE PARENT_SCOPE)
@@ -92,10 +64,6 @@ function(rp6502_submodule path)
             set(_why "git was not found")
         else()
             rp6502_submodule_fetch(${S_SUPER} ${path} "${S_SPARSE}")
-            # A blobless clone needs git 2.19 and sparse-checkout --no-cone
-            # needs 2.27. The libretro buildbot builds on images carrying 2.7
-            # and 2.25, where checking out the whole submodule costs less than
-            # a configure that stops.
             if(S_SPARSE)
                 _rp6502_submodule_ready(_ok)
                 if(NOT _ok)
@@ -105,8 +73,9 @@ function(rp6502_submodule path)
         endif()
     endif()
 
-    # Believed by what it produced, not by what it returned: git exits clean
-    # having skipped a submodule whose update is none.
+    # Readiness is checked again instead of relying on git's exit status,
+    # because git submodule update exits with success when it skips a
+    # submodule whose submodule.<name>.update is none.
     _rp6502_submodule_ready(_ok)
     if(NOT _ok)
         set(_msg "${path} is absent")
@@ -126,9 +95,13 @@ function(rp6502_submodule path)
     set(${S_RESULT} ${_ok} PARENT_SCOPE)
 endfunction()
 
-# Two trees can configure cold at once and both would write .git/config. The
-# kernel releases the lock if a configure dies, so it cannot go stale, and a
-# timeout is not an error because the other process may have done the work.
+# Two build trees can be configured at the same time with submodules missing,
+# and both CMake processes would then run git in the same checkout. The lock
+# file is created in the checkout's .git directory, so no lock is taken where
+# .git is a file, as it is in a submodule such as vendor/cppdap or in a linked
+# worktree. The lock is released when the process holding it exits, even when
+# that process is killed, so it cannot go stale. A timeout is not treated as an
+# error because the other process may already have fetched the submodule.
 function(rp6502_submodule_fetch super path sparse)
     set(_lock ${super}/.git/rp6502-fetch.lock)
     if(IS_DIRECTORY ${super}/.git)
@@ -140,18 +113,15 @@ function(rp6502_submodule_fetch super path sparse)
     else()
         set(_depth "")
         if(NOT DEFINED RP6502_SUBMODULE_DEPTH)
-            set(RP6502_SUBMODULE_DEPTH "1")  # script mode has no cache
+            set(RP6502_SUBMODULE_DEPTH "1")
         endif()
         if(NOT RP6502_SUBMODULE_DEPTH STREQUAL "0")
             set(_depth --depth ${RP6502_SUBMODULE_DEPTH})
         endif()
-        # No --checkout: passing it would override a developer's
-        # submodule.<name>.update=none, which is the per-submodule opt-out.
         execute_process(
             COMMAND ${GIT_EXECUTABLE} -C ${super} submodule update --init
                 ${_depth} -- ${path}
             RESULT_VARIABLE _rc OUTPUT_QUIET ERROR_VARIABLE _err)
-        # A pin no branch tip reaches is what shallow reliably fails on.
         if(_rc AND _depth)
             execute_process(
                 COMMAND ${GIT_EXECUTABLE} -C ${super} submodule update --init
@@ -196,7 +166,6 @@ function(rp6502_submodule_sparse super path sparse)
         checkout ${_pin})
 endfunction()
 
-# Invoked as a script by a TARGET fetch, where none of the above has run.
 if(CMAKE_SCRIPT_MODE_FILE AND FETCH_PATH)
     find_package(Git REQUIRED)
     rp6502_submodule_fetch(${FETCH_SUPER} ${FETCH_PATH} "${FETCH_SPARSE}")

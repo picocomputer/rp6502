@@ -39,8 +39,9 @@ bool vga_run_frame(void);
 #define VGA_FRAME_NS (1000000000ull / VGA_HZ)
 #define VGA_SCANLINES 525 /* 640x480@60 total scanlines (480 visible + blanking) */
 
-/* The framebuffer the scanlines render into, which the app owns: RGBA8 at the
- * canvas width, large enough for the largest canvas. NULL skips pixel work. */
+/* The framebuffer the scanlines render into, which the caller owns: RGBA8 at
+ * the canvas width, large enough for the largest canvas. NULL skips pixel
+ * work. */
 void vga_set_framebuffer(uint32_t *fb);
 
 /* Whether to paint at all, on by default. Off skips the per-scanline render

@@ -11,10 +11,9 @@
 
 static uint8_t klaus_mem[0x10000];
 
-/* The images are assembled to start at the code segment, and their reset vector
- * points at a self-trap instead. Repointing it lets the CPU take its ordinary
- * reset sequence rather than needing a backdoor into PC, which matters because
- * the RTL has no backdoor. The reset vector is never read again. */
+/* Klaus Dormann's test images are assembled with their code at $0400, and
+ * each image's reset vector points at a trap that jumps to itself, since a
+ * reset during a test is an error. */
 #define KLAUS_ENTRY 0x0400
 
 bool klaus_run(const char *path, const dut_t *cpu, uint64_t max_cycles,
@@ -35,8 +34,9 @@ bool klaus_run(const char *path, const dut_t *cpu, uint64_t max_cycles,
 
     cpu->reset();
 
-    /* Pass and fail are both a jump to self, so the test is over when one
-     * opcode fetch repeats the address of the one before it. */
+    /* Both a pass and a failure end in an instruction that jumps or branches
+     * to itself, so the test is over when one opcode fetch repeats the
+     * address of the one before it. */
     uint32_t last_sync = 0xFFFFFFFF;
     for (uint64_t c = 0; c < max_cycles; c++)
     {

@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * SingleStepTests conformance for whichever 65C02 this tree built — the
- * emulator's C model, or w65c02.sv verilated. One suite, one corpus, and
- * neither implementation with a standard of its own is what keeps the two
- * from drifting apart.
  */
 
 #include "cpu_dut.h"
@@ -25,8 +20,9 @@ UTEST(vectors, all_opcodes)
     ASSERT_GT(r.passed, (size_t)0);
 }
 
-/* The 16 bit-test branches are read-only and take 5, 6 or 7 cycles with the
- * branch. */
+/* Opcodes $0F to $FF in steps of $10 are the 16 bit-test branches, BBR0-7
+ * and BBS0-7. Each reads zero page without writing and takes 5 cycles, 6 when
+ * the branch is taken and 7 when the taken branch crosses a page. */
 UTEST(vectors, bit_branches_never_write)
 {
     vec_result_t r;

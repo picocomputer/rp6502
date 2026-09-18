@@ -115,7 +115,6 @@ bool vec_run(const char *path, const dut_t *cpu, int only_opcode,
         if (only_opcode >= 0 && opcode != (uint8_t)only_opcode)
             continue;
 
-        /* Zero first: final lists stack bytes that initial never mentions. */
         memset(vec_mem, 0, sizeof vec_mem);
         for (uint16_t i = 0; i < initial.count; i++)
             vec_mem[initial.addr[i]] = initial.val[i];

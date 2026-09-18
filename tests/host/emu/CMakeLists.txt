@@ -1,32 +1,13 @@
-# The emulator as a program: its command line, its script channel, its
-# debugger, and the parts of it that are not the machine.
-#
-# What belongs here is a claim about this host's program rather than about the
-# RP6502 — the DAP and DWARF readers, the desktop gamepad policy above the
-# per-OS seam, the render that fills an audio device's buffer,
-# and the binary driven from outside. The scripts that pair with a subsystem
-# live with that subsystem in tests/cpu; what is left is about the program.
-
-# The exception: how many frames a script spends is the one thing a script
-# cannot check about itself, so that one is a C test around script.c.
-rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
+rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
         ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/streams.c
         ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
-# Writing memory the program reads, rather than driving it through the inputs.
-rp6502_add_script_test(poke FIXTURE gamepad.rp6502)
+rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
-# The machine written down and put back, through the verbs a driver on the
-# other end of a pipe would use. The blob lands in the test's own working
-# directory, which rp6502_add_script_test gives each script.
-rp6502_add_script_test(state FIXTURE gamepad.rp6502)
+rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
-# The command line, which had no test at all: the script suites reach cli.c
-# only through the options they happen to pass, so nothing was checking that a
-# number it cannot read is refused rather than quietly becoming a default.
-# Cheap enough that each one is its own name.
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
     set_tests_properties(cli_${name} PROPERTIES
@@ -44,60 +25,40 @@ foreach(_case
     "headless_with_script;--headless;--script;-"
     "headless_with_crc;--headless;--crc")
     list(POP_FRONT _case _name)
-    rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
     set_tests_properties(cli_${_name} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 
-# The CRC batch product is eight hex digits and nothing else on stdout; CMake's
-# regex has no {n}, so they are spelled out. The clock at 0 is the pacing
-# switch, and a batch run must take it without complaint.
+# CMake regular expressions have no {n} repetition, so the CRC's eight hex
+# digits are written out as eight character classes.
 rp6502_add_cli_test(crc --mute --seed 1 --fill 0 --crc --frames 10
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
     "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
 rp6502_add_cli_test(phi2_zero --mute --seed 1 --fill 0 --phi2 0 --crc --frames 1
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 
-# A run that repeats: the seed reaches the fill, and the fill is read in the
-# grammar the scripts and the docs use rather than C's, where 010 is eight.
 add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
     --mute --seed 1 --fill 010
     --script ${CMAKE_CURRENT_LIST_DIR}/fill.txt
-    ${RP6502_TEST_ROMS}/gamepad.rp6502)
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")
 
-# --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
-# Here rather than under cpu/ria because cli.c is this program's, and the
-# loader and dispatch cases ride along in the same binary.
 rp6502_add_test(units
     SOURCES test_units.c ${RP6502_SRC}/host/sokol/cli/cli.c
-    LIBS emu_core FIXTURE adventure.rp6502)
-if(WIN32) # cli.c needs the same getopt the app uses
+    LIBS emu_core ROM ${ADVENTURE_ROM})
+if(WIN32)
     target_link_libraries(test_units PRIVATE wingetopt)
     target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
 endif()
 
-# --- The latch: what a run and a stop asked before the same commit mean ---
-# No fixture: the claims are about the fan-outs, not about a program.
 rp6502_add_test(sys LIBS emu_core)
 
-# --- The savestate's framing: what a blob must be before it is believed ---
-# No fixture: every claim is about the header, the manifest and the trailer,
-# which are the machine's shape rather than any program's state.
-rp6502_add_test(sst LIBS emu_core FIXTURE adventure.rp6502)
+rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
-# --- Every mutable object the core owns, against what carries it ---
-# A static added to core is machine state the moment it is added, and nothing
-# else in the tree would notice that no chunk carries it. Measured from the
-# objects rather than grepped from the source: the scanner rebuilds each of
-# emu.cmake's units without LTO, which is what keeps a file-scope static in
-# the symbol table.
-#
-# GNU and ELF only, and that is not a portability gap to close. Clang's global
-# merge coalesces several statics into one __MergedGlobals symbol, so on that
-# toolchain there is nothing left to enumerate, and Mach-O and COFF each name
-# what survives differently again. This is a tripwire, and one platform
-# holding it is what a tripwire needs.
+# The state_inventory test runs only with GCC because Clang can merge
+# file-scope statics into one MergedGlobals symbol, which leaves nothing to
+# count.
 if(CMAKE_EXPORT_COMPILE_COMMANDS
    AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
    AND NOT APPLE AND NOT WIN32)
@@ -110,68 +71,36 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS
     set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
 endif()
 
-# --- Which way each of the roster's walks goes ---
-# No machine linked, on purpose: the roster beside the test is the only
-# drivers.h on the path, and sys.c is compiled in because the stop and break
-# fan-outs are static. sst.c comes in the same way and for the same reason:
-# its five expansions of the ninth column are private to it, and two of the
-# three fake rows carry a chunk so the savestate walks can be seen too.
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
-# --- The console's input, with more than one source live at once ---
 rp6502_add_test(com LIBS emu_core)
 
-# --- The line editor: where a line ends, whichever way the far end spells it ---
 rp6502_add_test(rln LIBS emu_core)
 
-# --- The log: what a level lets through, and that a message is a printf ---
-# Its own host_log, which keeps what it was given; its own levels, whatever
-# the configuration's.
 rp6502_add_test(log SINK
     DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 
-# --- aud_render: the device's buffer, filled from the registers ---
 rp6502_add_test(render LIBS emu_core)
 
-# --- The desktop gamepad policy, against a host that does as it is told ---
-# Reading a controller is per-OS code no runner has hardware for. Everything
-# above that seam is not, and the privacy gate and player numbering are the
-# parts worth being sure of.
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
 
-# --- The debugger: the engine, the DWARF and cc65 readers, the disassembler ---
-# Their fixtures live here rather than in roms/ because none of them is a
-# .rp6502 — dwtest.elf is an llvm-mos build and cc65.dbg is plain text.
+rp6502_add_test(dbg LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
 
-# Debugger engine (dbg.c: run/stop/step + address breakpoints)
-rp6502_add_test(dbg LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
-
-# DWARF5 .debug_info + .debug_line reader coverage (dwarf_info.c /
-# dwarf_line.c) against dwtest.elf, an llvm-mos debug-fork -O0 -g build:
-# base/array/struct/enum/pointer types, strx strings, DW_OP_addrx globals via
-# .debug_addr, v5 unit/line headers, frame base + fbreg locals, and the MOS
-# DWARF register numbering (frame_base = DW_OP_regx RS0 = 0x30000). Standalone:
-# the parser only needs libc and the fixture is committed (no toolchain).
 rp6502_add_test(dwarf5
     SOURCES test_dwarf5.c
         ${RP6502_SRC}/core/dap/dwarf_info.c ${RP6502_SRC}/core/dap/dwarf_line.c
         ${RP6502_SRC}/core/dap/dwarf_cursor.c ${RP6502_SRC}/core/dap/dwarf_elf.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
+    INCLUDES ${RP6502_SRC} ROM host/emu/dwtest.elf)
 
-# DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind.
 rp6502_add_test(dwarf_frame
     SOURCES test_dwarf_frame.c
         ${RP6502_SRC}/core/dap/dwarf_frame.c ${RP6502_SRC}/core/dap/dwarf_cursor.c
         ${RP6502_SRC}/core/dap/dwarf_elf.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
+    INCLUDES ${RP6502_SRC} ROM host/emu/dwtest.elf)
 
-# cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
-# Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain).
 rp6502_add_test(cc65dbg
     SOURCES test_cc65dbg.c ${RP6502_SRC}/core/dap/cc65dbg.c
-    INCLUDES ${RP6502_SRC} FIXTURE host/emu/cc65.dbg)
+    INCLUDES ${RP6502_SRC} ROM host/emu/cc65.dbg)
 
-# W65C02S disassembler (vendor/chips/util/w65c02dasm.h, driving the ui_dbg
-# disasm view). Header-only (CHIPS_UTIL_IMPL); no fixture/toolchain needed.
 rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})

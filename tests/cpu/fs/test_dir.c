@@ -2,26 +2,14 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Integration test for directory enumeration. dir.rp6502 (the SDK "dir"
- * example) prints the volume label, the cwd, a listing of the current
- * directory (f_opendir/f_readdir/f_closedir + per-entry size/attributes/date),
- * and the free space (f_getfree). Pointed at a temp directory with known
- * contents, it exercises the whole dir syscall path end to end.
- *
- * Output is captured via the terminal tap (like the adventure test) so the
- * assertions are on the program's real text.
  */
 
 #include "core/com/com.h"
-#include "osal/dir.h"
-#include "osal/fs.h"
-#include "osal/os.h"
-#include "tb_hostos.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "emu_boot.h"
+#include "osal/dir.h"
+#include "tb_hostos.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 static char cap[1 << 16];
@@ -36,7 +24,7 @@ static void tap(const char *buf, int len)
 
 static void write_file(const char *dir, const char *name, const char *data)
 {
-    char p[512];
+    char p[TEST_PATH_MAX + 16];
     snprintf(p, sizeof(p), "%s/%s", dir, name);
     FILE *f = fopen(p, "wb");
     if (f)
@@ -46,64 +34,35 @@ static void write_file(const char *dir, const char *name, const char *data)
     }
 }
 
-/* Setup goes through the drive, because that is now the only way in: these
- * are the backend's own slots, called the way core/api/dir.c calls them. */
-static bool drive_chdir_to(const char *path)
-{
-    api_errno err;
-    return drive_chdir(path, &err);
-}
-
-static bool drive_cwd(char *buf, size_t sz)
-{
-    api_errno err;
-    return drive_getcwd(buf, sz, &err);
-}
-
-static bool drive_mkdir_at(const char *path)
-{
-    api_errno err;
-    return drive_mkdir(path, &err);
-}
-
 UTEST(dir, lists_directory)
 {
-    char d[512];
+    char d[TEST_PATH_MAX];
     ASSERT_TRUE(host_make_tmpdir(d, sizeof(d)));
-    write_file(d, "alpha.txt", "hello");             /* 5 bytes */
-    write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
-    char sub[TEST_PATH_MAX];
+    write_file(d, "alpha.txt", "hello");
+    write_file(d, "beta.dat", "wider content here");
+    char sub[TEST_PATH_MAX + 16];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_TRUE(drive_mkdir_at(sub));
+    api_errno err;
+    ASSERT_TRUE(drive_mkdir(sub, &err));
+    ASSERT_TRUE(drive_chdir(d, &err));
 
-    ASSERT_TRUE(drive_chdir_to(d)); /* the program lists "" = the cwd */
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    ASSERT_TRUE(emu_restart(DIR_ROM));
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
-    for (int i = 0; i < 600 && resb_running(); i++)
+    for (int i = 0; i < 20 && sys_running(); i++)
         emu_frames(1);
     com_set_tx_tap(NULL);
 
-    ASSERT_FALSE(resb_running()); /* the program ran to completion */
-
-    /* The cwd (PATH line) and all three entries are listed. The cwd shows in
-     * the host's own spelling, which is what the drive answered with. */
-    char cwd[TEST_PATH_MAX];
-    ASSERT_TRUE(drive_cwd(cwd, sizeof(cwd)));
-    ASSERT_TRUE(strstr(cap, "PATH :") != NULL);
-    ASSERT_TRUE(strstr(cap, cwd) != NULL);
-    ASSERT_TRUE(strstr(cap, "alpha.txt") != NULL);
-    ASSERT_TRUE(strstr(cap, "beta.dat") != NULL);
-    ASSERT_TRUE(strstr(cap, "subdir") != NULL);
-
-    /* Attribute column: files are archive (----A), the directory is ---D-. */
-    ASSERT_TRUE(strstr(cap, "----A") != NULL);
-    ASSERT_TRUE(strstr(cap, "---D-") != NULL);
-
-    /* Free space line printed (f_getfree). */
-    ASSERT_TRUE(strstr(cap, "FREE:") != NULL);
-    ASSERT_TRUE(strstr(cap, "512 byte blocks") != NULL);
+    ASSERT_FALSE(sys_running());
+    ASSERT_TRUE(strstr(cap, "opendir 00\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "alpha.txt 20 0005\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "beta.dat 20 0012\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "subdir 10 0000\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "readdir 00\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "closedir 00\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "getlabel 00\r\n") != NULL);
+    ASSERT_TRUE(strstr(cap, "getfree 00\r\n") != NULL);
 }
 
 UTEST_MAIN_EMU()

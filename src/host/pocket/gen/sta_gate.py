@@ -2,29 +2,14 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Fail the build on negative slack. A bitstream that misses timing does
-# not announce itself: Quartus writes it out, the assembler is happy,
-# and the part runs until it is warm or unlucky. The one that nearly
-# shipped from this tree missed by 1.256 ns in a single module and was
-# caught by somebody looking, which is not a process.
-#
-# The number that matters is the worst across every corner, not the one
-# for the model the report happens to print first. This design has been
-# worse at 0 C than at 85 C, so reading one corner would have passed it.
 
 import re
 import sys
 from pathlib import Path
 
-# Recovery and removal are reported per corner too, and a design can
-# close setup while failing them; all five are the same question.
 COLUMNS = ("Setup", "Hold", "Recovery", "Removal", "Minimum Pulse Width")
 
 
-# The paths report is sta_paths.tcl's, written beside the signoff
-# numbers so a failure can say which register pair it was. A CI fit is
-# gone the moment the runner is; a slack with no name cannot be fixed.
 def print_paths(report: Path) -> None:
     if not report.exists():
         return

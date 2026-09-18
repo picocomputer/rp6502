@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The VIA under test, when it is the emulator's — chips/chips/m6522.h, which
- * is someone else's code this machine depends on.
- *
- * The wiring is core/wdc/via.c's, which is what this reproduces: CS1 asserted,
- * ports unwired, RW high to read.
  */
 
 #include "via_dut.h"

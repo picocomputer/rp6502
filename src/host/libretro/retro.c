@@ -53,7 +53,7 @@ static float audio_out[RETRO_AUD_FRAMES * 2];
 static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
 
 static char *loaded_rom;  /* the OEM code page, absolute; owned here */
-static char *loaded_path; /* as the frontend spelled it; owned here */
+static char *loaded_path; /* as the frontend passed it; owned here */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
@@ -742,8 +742,8 @@ size_t retro_get_memory_size(unsigned id)
 /* What the frontend is going to do with the blob it is asking for, in the two
  * facts this core can act on. GET_SAVESTATE_CONTEXT is marked experimental and a
  * frontend may not have it; RETRO_AV_ENABLE_FAST_SAVESTATES is the deprecated
- * spelling of that same-binary guarantee, so it answers when the newer call
- * does not. */
+ * flag for the same-binary guarantee of the two runahead contexts, so it is
+ * checked when the newer call returns false. */
 static unsigned savestate_flags(void)
 {
     enum retro_savestate_context ctx = RETRO_SAVESTATE_CONTEXT_NORMAL;
@@ -792,10 +792,10 @@ bool retro_unserialize(const void *data, size_t size)
             boot(loaded_rom);
         return false;
     }
-    /* Two things no savestate row can put back: shutdown_sent belongs to this
-     * file, and the frontend's devices belong to the frontend. Neither is done
-     * under either flag, because a same-session load has nothing to
-     * re-announce, and injecting this peer's idea of who is plugged in into a
+    /* Two things no savestate row can put back: shutdown_sent is kept in this
+     * file, and which devices are plugged in comes from the frontend. Neither
+     * is done under either flag, because a same-session load has nothing to
+     * re-announce, and injecting the devices plugged in on this peer into a
      * rolled-back netplay state is itself a desync. */
     if (!flags)
     {

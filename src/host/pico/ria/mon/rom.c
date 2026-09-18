@@ -5,7 +5,6 @@
  */
 
 #include "core/sys/sys.h"
-#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "osal/pico/errmap.h"
 #include "core/str/oem.h"
@@ -25,7 +24,7 @@
 #include "ria/sys/cfg.h"
 #include "osal/pico/lfs.h"
 #include "osal/fs.h"
-#include "core/rom/rom.h" /* the pump: the loader half of this file now reads through the seam */
+#include "core/rom/rom.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
@@ -34,8 +33,8 @@
 #include <ctype.h>
 #include <string.h>
 
-/* mbuf is the record buffer this file lends the pump, and the pump reads
- * ROM_RECORD_MAX into it without being told how big it is. */
+/* rom_pump_open and rom_pump_next take no buffer size and read up to
+ * ROM_RECORD_MAX bytes into mbuf. */
 _Static_assert(MBUF_SIZE >= ROM_RECORD_MAX, "mbuf is the RIA's record buffer");
 
 static enum {
@@ -44,18 +43,19 @@ static enum {
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
-    ROM_RIA_VERIFYING,
     ROM_RUNNING,
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-/* The loader's pump over the seam's ROM descriptor. fd -1 when no load is in
- * flight; the old handles below serve HELPING and INSTALL until they retire. */
 static rom_pump_t rom_pump = {.fd = -1};
-/* HELPING's own cursor over the adopted descriptor. */
 static uint32_t help_pos;
 static uint32_t help_end;
 
+
+static void rom_written(bool ok)
+{
+    rom_state = ok ? ROM_LOADING : ROM_IDLE;
+}
 
 static void rom_loading(void)
 {
@@ -64,7 +64,7 @@ static void rom_loading(void)
     switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
     {
     case ROM_PUMP_SKIP:
-        return; /* a blank line or a comment: one per pass, like a record */
+        return;
     case ROM_PUMP_ERROR:
         rom_state = ROM_IDLE;
         mon_add_response_errno(err);
@@ -74,8 +74,6 @@ static void rom_loading(void)
         {
             if (usb_boot_enumerating())
                 return;
-            /* The ROM: driver reads the running program's assets through
-             * the descriptor the load leaves behind. */
             rom_asset_adopt(rom_pump.fd, rom_pump.assets_start);
             rom_pump.fd = -1;
             rom_state = ROM_RUNNING;
@@ -88,7 +86,6 @@ static void rom_loading(void)
         }
         return;
     case ROM_PUMP_RECORD:
-        /* The record is staged in mbuf; the bus carries it from there. */
         rom_addr = rec.addr;
         rom_len = rec.len;
         mbuf_len = rec.len;
@@ -97,16 +94,12 @@ static void rom_loading(void)
         else
         {
             rom_state = ROM_RIA_WRITING;
-            ria_write_buf(rom_addr);
+            ria_write_buf(rom_addr, rom_written);
         }
         return;
     }
 }
 
-// Copy, uppercase, and validate an installed ROM name. len=0 means no length cap.
-// Pass dst=NULL to validate without copying.
-// ASCII letters only (digits allowed after the first char); rejects any byte >= 0x80
-// so installed names are always portable across code pages.
 static bool rom_copy_install_name(char *dst, const char *src, size_t len)
 {
     size_t i;
@@ -173,9 +166,6 @@ void rom_mon_install(const char *args)
     }
     // mon_command_exists and help_topic_exists nuke our string
     tok = str_parse_string(&args_start);
-    /* Validate by parsing the whole image -- a ROM must carry its reset
-     * vector to be installed -- then rewind and stream the copy through the
-     * seam's two descriptors: the pump's read side, INSTALL's one write. */
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
@@ -302,9 +292,11 @@ void rom_exec(void)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    /* The outgoing program's assets go with it. An exec runs inside the stop
-     * that ended it, so the idle task has not had its pass to let the ROM
-     * descriptor go, and the seam has only the one. */
+    /* An exec can run from a stop hook while sys_commit stops the previous
+     * program, or after sys_stop has set sys_state to stopping and before
+     * sys_commit runs the stop hooks, so that program's ROM descriptor can
+     * still be open. There is only one ROM read descriptor, so it is closed
+     * here before the open. */
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
@@ -357,8 +349,6 @@ bool rom_load_installed(const char *args)
     char name[LFS_NAME_MAX + 1];
     if (!rom_copy_install_name(name, tok, 0))
         return false;
-    /* At the prompt nothing holds the ROM descriptor, so the existence test
-     * is the open itself. */
     api_errno err;
     char probe[1 + LFS_NAME_MAX + 1];
     snprintf(probe, sizeof probe, ":%s", name);
@@ -382,11 +372,11 @@ static int rom_utf8_seq_len(unsigned char b0)
         return 3;
     if ((b0 & 0xF8) == 0xF0)
         return 4;
-    return 1; // invalid lead — oem_from_utf8_next returns 0x7F
+    return 1;
 }
 
-/* A read at help_pos on the adopted descriptor, clamped to what remains;
- * both stores answer synchronously here. */
+/* fs_std_read on this machine never returns STD_PENDING, because littlefs and
+ * FatFs both read synchronously, so one call is enough. */
 static bool help_read(uint32_t want, uint32_t *got)
 {
     api_errno err;
@@ -396,8 +386,6 @@ static bool help_read(uint32_t want, uint32_t *got)
     return fs_std_read(rom_asset_fd(), (char *)mbuf, want, got, &err) == STD_OK;
 }
 
-/* One text line at help_pos (CR/LF stripped) into mbuf; length, or -1 at
- * EOF. The classic format's comment scan. */
 static long help_gets(void)
 {
     uint32_t got = 0;
@@ -413,8 +401,6 @@ static long help_gets(void)
     return (long)i;
 }
 
-// state encoding: 0 = initial, 1 = streaming (last OEM byte != '\n'),
-// 2 = streaming (last OEM byte == '\n', no trailing newline needed at EOF).
 static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
@@ -469,8 +455,9 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
             }
             return -1;
         }
-        // Sentinel: if oem_from_utf8_next reads past p_end into this 0, it sees a
-        // non-continuation byte and returns 0x7F without UB.
+        // The zero after the data is not a UTF-8 continuation byte, so a
+        // sequence cut off at the end of the help asset decodes as 0x7F and
+        // leaves p at p_end.
         mbuf[got] = 0;
         size_t out = 0;
         const char *p = (const char *)mbuf;
@@ -479,10 +466,10 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
         {
             int seq = rom_utf8_seq_len((unsigned char)*p);
             if (p + seq > p_end && help_pos + got < help_end)
-                break; // partial glyph — re-read on next call
+                break;
             buf[out++] = (char)oem_from_utf8_next(&p);
         }
-        help_pos += got - (uint32_t)(p_end - p); /* leftover re-reads next call */
+        help_pos += got - (uint32_t)(p_end - p);
         buf[out] = 0;
         return (out && buf[out - 1] == '\n') ? 2 : 1;
     }
@@ -511,9 +498,6 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
     return state;
 }
 
-/* Open path for INFO and HELP <rom>: the pump validates the image and the
- * asset driver adopts the descriptor, exactly as a load does -- HELPING is a
- * load that stops after the directory. */
 static bool rom_help_open(const char *path)
 {
     rom_assets_reset();
@@ -525,8 +509,8 @@ static bool rom_help_open(const char *path)
         return false;
     }
     rom_asset_adopt(rom_pump.fd, rom_pump.assets_start);
-    help_pos = rom_pump.pos; /* classic: the line after the shebang */
-    rom_pump.fd = -1; /* the driver owns it now */
+    help_pos = rom_pump.pos;
+    rom_pump.fd = -1;
     return true;
 }
 
@@ -563,18 +547,6 @@ void rom_mon_help(const char *args)
     }
 }
 
-static bool rom_action_can_proceed(void)
-{
-    if (ria_active())
-        return false;
-    if (ria_handle_error())
-    {
-        rom_state = ROM_IDLE;
-        return false;
-    }
-    return true;
-}
-
 static bool rom_xram_done(void)
 {
     while (rom_len && pix_ready())
@@ -603,23 +575,13 @@ void rom_task(void)
         break;
     case ROM_HELPING:
     case ROM_RUNNING:
+    case ROM_RIA_WRITING:
         break; // NOP
     case ROM_LOADING:
         rom_loading();
         break;
     case ROM_XRAM_WRITING:
         if (rom_xram_done())
-            rom_state = ROM_LOADING;
-        break;
-    case ROM_RIA_WRITING:
-        if (rom_action_can_proceed())
-        {
-            rom_state = ROM_RIA_VERIFYING;
-            ria_verify_buf(rom_addr);
-        }
-        break;
-    case ROM_RIA_VERIFYING:
-        if (rom_action_can_proceed())
             rom_state = ROM_LOADING;
         break;
     }

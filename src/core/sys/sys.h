@@ -34,6 +34,10 @@ void sys_io_task(void);
  * or load a program into. */
 bool sys_active(void);
 
+/* True while a program can be running: from the commit of a run until the
+ * next stop is requested. */
+bool sys_running(void);
+
 void sys_run(void);
 void sys_stop(void);
 
@@ -61,20 +65,15 @@ bool sys_break(void);
  * none registered breaks to the monitor. */
 bool sys_break_to_launcher(void);
 
-/* A savestate carries the run state, which is sys.c's own static, and the
- * reset line, which is core/wdc/resb.c's. Neither belongs to a driver, so no
- * driver can answer for them.
- *
- * A load applies both before it loads the drivers, because the only other way
- * to put RESB down is resb_assert, which also resets the 6502, the 6522, the
- * parked bus and the run clock -- four things the blob carries. Applying them
+/* A savestate carries the run state, which is sys.c's own static and no
+ * driver's. A load applies it before it loads the drivers, and applying it
  * fans out to nothing, since each driver that follows gets its own state back
  * and a run or stop would undo that.
  *
  * state is the enum in sys.c, 0 to 3. sys_latch_apply takes only stopped and
  * running, because starting and stopping still owe every driver a call.
- * A stopped machine always holds the line. A running one may or may not,
- * because an exec asserts RESB one pass before proc_exec_task boots. */
+ * held follows the state, a stopped machine holding the line and a running
+ * one not; it is kept because it is a byte of the header. */
 typedef struct
 {
     uint8_t state;

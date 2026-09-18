@@ -29,10 +29,6 @@ bool sys_break_to_launcher(void)
     return true;
 }
 
-/* Everything is a device driver, and this is where they are notified of init,
- * task, run, stop and break. The walk comes from this machine's drivers.h; the
- * two task columns are pumped separately, because only one of them is safe to
- * call during blocking file IO. */
 int main(void)
 {
     sys_init();

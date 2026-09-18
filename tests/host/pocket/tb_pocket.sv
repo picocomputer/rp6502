@@ -2,14 +2,13 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Bench top: pocket_core with the behavioral SDRAM behind its pads.
  */
 
 module tb_pocket (
     input logic clk_74a,
     input logic clk_sys,
-    /* Half clk_sys and rising with it, as the PLL makes it. */
+    /* clk_rv runs at half the rate of clk_sys and rises with it, as the
+     * Pocket's PLL generates it. */
     input logic clk_rv,
     input logic clk_vid,
     input logic rst_n,
@@ -20,17 +19,13 @@ module tb_pocket (
     input logic [31:0] bridge_addr,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
-    /* The host naming a slot it touched, so a test can fire the event
-     * the bench used to have no way to produce. */
     input logic dataslot_update,
     input logic reset_n,
     output logic [9:0] tb_pocket_dt_addr,
     input logic [31:0] datatable_q,
-    /* The host's clock, as command 0x0090 would have latched it. */
     input logic [31:0] rtc_epoch,
     input logic rtc_valid,
 
-    /* The file bridge, played from the bench the way the host plays it. */
     output logic [31:0] tb_pocket_bridge_rd_data,
     output logic [31:0] tb_pocket_param_struct,
     output logic [31:0] tb_pocket_resp_struct,
@@ -46,12 +41,6 @@ module tb_pocket (
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
 
-    /* Sleep and the Memories menu. The bench plays the host on these
-     * the same way it plays it on the data slots. */
-    /* The machine's clocks are cut outside it, so the bench is what
-     * cuts them: it stops toggling when the core asks and the 6502 is
-     * in front of an instruction, which is what the clock control does
-     * on hardware. */
     output logic tb_pocket_stop_req,
 
     input logic savestate_start,
@@ -65,8 +54,6 @@ module tb_pocket (
     output logic tb_pocket_savestate_load_ok,
     output logic tb_pocket_savestate_load_err,
 
-    /* Flat here and packed at the instance, the way core_top does it,
-     * so the C++ can drive one slot by name. */
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,
@@ -108,12 +95,10 @@ module tb_pocket (
     logic [31:0] refreshes;
     logic [31:0] sref_clocks;
 
-    /* The clock gate, which on hardware is a clock control block at
-     * the source. The machine simply stops having a clock, all of it
-     * at once, wherever it happens to be -- atomic, so coherent. The
-     * enable is taken on the low half so the gated clock never
-     * shortens a period. The soft CPU's clock is not here: it keeps
-     * running and the core is halted at its debug port instead. */
+    /* On hardware this gate is an altclkctrl block, which registers its
+     * enable on the falling edge of clk_sys. en_sys follows the enable
+     * only while clk_sys is low, so no high phase of clk_mach is cut
+     * short. */
     logic mach_clk_en;
     initial mach_clk_en = 1'b1;
     always_ff @(posedge clk_74a or negedge arst_n) begin
@@ -208,7 +193,6 @@ module tb_pocket (
         .pocket_core_rv_halted(tb_pocket_rv_halted)
     );
 
-    /* The board's SRAM, holding the 6502's 64 KB. */
     wire [15:0] sram_dq;
     logic [16:0] sram_a;
     logic [15:0] sram_dq_out;

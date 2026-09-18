@@ -1,31 +1,15 @@
-# How each of the core's generated tables is made, for the machines that
-# compile one. What a machine does with the file is its own business; where it
-# lands is the caller's binary directory.
-#
-# The .sv and .bin forms of the same tables are core/assets.cmake's. Those are
-# staged into a fabric rather than compiled, and they are wanted by one tree,
-# so the two mechanisms stay apart.
-#
-# Each function takes the name of the target to hang the rule on, because a
-# tree that wants a table in two forms needs two names for them.
-
 include_guard(GLOBAL)
 
-# Captured here: inside a function body CMAKE_CURRENT_LIST_DIR is the caller's
-# file, not this one.
+# Inside a function body CMAKE_CURRENT_LIST_DIR names the directory of the
+# calling file, so this file's directory is captured when it is included.
 set(RP6502_CORE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
-# Found rather than named, because the interpreter is python.exe on Windows and
-# the libretro buildbot's MSVC runner is a machine we cannot inspect or fix.
+# The interpreter is found rather than named python3 because on Windows it is
+# python.exe, and the libretro buildbot runs the OEM code page and resampler
+# generators on Windows.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 cmake_path(SET RP6502_VENDOR_DIR NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../vendor)
 
-# rp6502_gen_rsmp_coef(<target>) -> RSMP_COEF_H, RSMP_COEF_DIR
-#
-# The OPL resampler's polyphase coefficients: three thousand numbers nobody can
-# check by eye, so they are built rather than committed. Standard library only
-# — a windowed sinc needs no solver — so this costs the build nothing but
-# python3, which it already needs.
 function(rp6502_gen_rsmp_coef target)
     set(gen ${RP6502_CORE_DIR}/gen/rsmp_coef_gen.py)
     set(out ${CMAKE_CURRENT_BINARY_DIR}/rsmp_coef.h)
@@ -39,10 +23,6 @@ function(rp6502_gen_rsmp_coef target)
     set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
-# rp6502_gen_oemcp(<target>) -> OEMCP_C, OEMCP_H, OEMCP_DIR
-#
-# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c so the logic
-# in core/str/unicode.c can be read without a preprocessor.
 function(rp6502_gen_oemcp target)
     set(gen ${RP6502_CORE_DIR}/gen/oem_table_gen.py)
     set(ff ${RP6502_VENDOR_DIR}/fatfs/ffunicode.c)
@@ -60,16 +40,9 @@ function(rp6502_gen_oemcp target)
     set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
-# The keyboard layouts, out of core/def/keyboard_*.def. The manifest names the
-# layouts and their order, so a menu that picks one by position and an image
-# that declares its own size are both held to it -- it is set here rather than
-# by each caller, so there is one answer to which file that is.
 set(KBDLAY_MANIFEST ${RP6502_CORE_DIR}/def/keyboard.def)
 file(GLOB KBDLAY_DEFS ${RP6502_CORE_DIR}/def/keyboard_*.def)
 
-# rp6502_gen_kbdlay(<target>) -> KBDLAY_C, KBDLAY_H, KBDLAY_DIR
-#
-# The layouts as one image core/hid/layout.c reads a word at a time.
 function(rp6502_gen_kbdlay target)
     set(gen ${RP6502_CORE_DIR}/gen/keyboard_layout_gen.py)
     set(c ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)

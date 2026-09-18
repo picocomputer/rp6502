@@ -1,13 +1,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Name the paths, every fit. The signoff report carries only worst-case
-# slack numbers, so a gate failure in CI was an anonymous number on a
-# machine whose placement cannot be reproduced here — the pair that
-# actually failed was gone before anyone could ask. This writes the
-# few worst paths per check per corner beside the report the gate
-# reads, and the gate prints them when it says no.
 
 project_open rp6502
 create_timing_netlist

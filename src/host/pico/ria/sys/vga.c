@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/ria.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
@@ -49,10 +48,8 @@ static uint8_t vga_vsync_frame;
 
 static int vga_vsync_alarm = -1;
 static uint vga_vsync_trap_offset;
-static bool vga_vsync_alarm_arms; // pending alarm arms the trap, else disarms
+static bool vga_vsync_alarm_arms;
 static volatile bool vga_vsync_trap_armed;
-// Set only by the trap ISR. The 6502 may write REGS(0xFFE3), so comparing
-// values alone can't tell us whether the fast path delivered this frame.
 static volatile bool vga_vsync_trap_fired;
 
 #define VGA_VERSION_MESSAGE_SIZE 64
@@ -73,9 +70,6 @@ void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
 }
-/* Putting a page back rather than choosing one. This machine's font is
- * elsewhere and the message is the same either way; only the terminal reset
- * differs, and that one is core's. */
 void vga_load_code_page(uint16_t cp)
 {
     vga_set_code_page(cp);
@@ -109,13 +103,12 @@ static void vga_vsync_trap_disarm(void)
     if (!vga_vsync_trap_armed)
         return;
     vga_vsync_trap_armed = false;
-    // Send the state machine back to its blocking pull. Core 0 only, so this
-    // never races another injection.
     pio_sm_exec(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM,
                 pio_encode_jmp(vga_vsync_trap_offset));
     pio_sm_clear_fifos(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM);
     pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
-    // A trip already pended would otherwise land as a phantom frame.
+    // A trap interrupt that is already pending would otherwise run the handler
+    // after the disarm and raise an extra VSYNC.
     irq_clear(VGA_VSYNC_TRAP_IRQ);
 }
 
@@ -126,7 +119,8 @@ static void vga_vsync_alarm_handler(uint alarm)
         vga_vsync_trap_disarm();
         return;
     }
-    // Never before the version string is done; those bytes would trip the trap.
+    // The trap is armed only after the version string phase ends, because the
+    // start bit of a version byte would trigger it.
     if (vga_state != VGA_CONNECTED && vga_state != VGA_NO_VERSION)
         return;
     vga_vsync_trap_fired = false;
@@ -135,11 +129,9 @@ static void vga_vsync_alarm_handler(uint alarm)
     pio_sm_put(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, 0);
     if (hardware_alarm_set_target(alarm, from_us_since_boot(
                                              time_us_64() + 2 * VGA_VSYNC_WINDOW_US)))
-        vga_vsync_trap_disarm(); // target already passed, don't stay armed
+        vga_vsync_trap_disarm();
 }
 
-// Arm the trap for the next VSYNC. Called as the byte for this one is handled,
-// back-dated to when the VGA put it on the wire.
 static void vga_vsync_reschedule(void)
 {
     if (vga_vsync_alarm < 0)
@@ -159,7 +151,10 @@ static void
     pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
     vga_vsync_trap_armed = false;
     vga_vsync_trap_fired = true;
-    // Speculative. The byte arrives 74us later and corrects us if we're wrong.
+    // The frame number written here is a guess. The backchannel byte for this
+    // VSYNC arrives about 74 us later, and when its frame number differs,
+    // vga_backchannel_command writes the corrected number and calls
+    // ria_trigger_vsync again.
     REGS(0xFFE3) = ++vga_vsync_frame;
     ria_trigger_vsync();
 }
@@ -177,7 +172,7 @@ static inline void vga_backchannel_command(uint8_t byte)
         {
             vga_vsync_trap_fired = false;
             if ((vga_vsync_frame & 0xF) == frame)
-                break; // fast path already delivered this frame
+                break;
         }
         if (frame < (vga_vsync_frame & 0xF))
             vga_vsync_frame += 0x10;
@@ -309,8 +304,6 @@ void __in_flash("vga_init") vga_init(void)
     irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
     irq_set_enabled(PIO1_IRQ_0, true);
 
-    // Start bit trap. Runs undivided; it does no bit timing and we want the
-    // edge on the pin to reach the 6502 as fast as the silicon allows.
     vga_vsync_trap_offset = pio_add_program(VGA_VSYNC_TRAP_PIO, &vga_vsync_trap_program);
     pio_sm_config tc = vga_vsync_trap_program_get_default_config(vga_vsync_trap_offset);
     sm_config_set_in_pins(&tc, VGA_BACKCHANNEL_PIN); // for WAIT
@@ -322,8 +315,9 @@ void __in_flash("vga_init") vga_init(void)
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
     vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
     hardware_alarm_set_callback((uint)vga_vsync_alarm, vga_vsync_alarm_handler);
-    // Same priority as the two backchannel handlers so none can preempt another
-    // and interleave with arming.
+    // The alarm has the same priority as the backchannel and trap interrupts,
+    // so none of the three handlers can preempt another in the middle of arming
+    // or disarming the trap.
     irq_set_priority(hardware_alarm_get_irq_num((uint)vga_vsync_alarm),
                      PICO_DEFAULT_IRQ_PRIORITY - 0x10);
 
@@ -364,16 +358,13 @@ void vga_run(void)
 {
     // It's normal to lose signal during Pico VGA development.
     // Attempt to restart when a 6502 program is run.
-    if (vga_state == VGA_CONNECTION_LOST && !ria_active())
+    if (vga_state == VGA_CONNECTION_LOST)
         vga_connect();
 }
 
 void vga_stop(void)
 {
-    // We want to reset only when program stops,
-    // otherwise video flickers after every ria job.
-    if (!ria_active())
-        vga_needs_reset = true;
+    vga_needs_reset = true;
 }
 
 void vga_break(void)
@@ -452,8 +443,6 @@ bool vga_check_display_type(uint8_t *v)
     return *v <= 2;
 }
 
-/* The VGA is told on the next task pass; a type that did not move needs no
- * canvas reset. */
 void vga_apply_display_type(uint8_t display_type, bool changed)
 {
     (void)display_type;
@@ -461,7 +450,6 @@ void vga_apply_display_type(uint8_t display_type, bool changed)
         vga_needs_reset = true;
 }
 
-/* SET's line for this row. */
 int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;

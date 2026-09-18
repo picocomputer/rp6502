@@ -21,15 +21,4 @@ void resb_assert(void);
 
 void resb_release(void);
 
-/* Whether a program is running or about to be, which is not the state of the
- * pin: a machine with a minimum reset hold time reports true for the whole
- * window, while the line is still low. */
-bool resb_running(void);
-
-/* Put the line back where a savestate found it. This is not resb_assert,
- * because that also resets the 6502, the 6522, the parked bus and the running
- * clock rate, all of which a blob carries and their own rows have already
- * restored. Only a load may call this. */
-void resb_restore(bool down);
-
 #endif /* _CORE_WDC_RESB_H_ */

@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The soft CPU's code memory, loaded the way the bitstream will load
- * it. The TCM is four byte-lane arrays because that is the only shape
- * the fabric will hold in block memory, so a firmware image spreads
- * across the lanes a byte at a time.
  */
 
 #ifndef _TESTS_FPGA_TB_TCM_H_

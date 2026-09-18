@@ -6,8 +6,7 @@ set(CC65_INTELLISENSE_ONLY_DEFINES __fastcall__ __cdecl__)
 # Skip toolchain config when invoked as a `cmake -P` wrapper script.
 if(NOT CMAKE_SCRIPT_MODE_FILE)
 
-# No default: a missing target reaches cl65 as a bare --target and fails
-# somewhere much less helpful than here.
+# Improve error condition.
 if(NOT CC65_TARGET_SYSTEM)
     message(FATAL_ERROR
         "cc65: CC65_TARGET_SYSTEM is not set. Set it before find_package(cc65).")
@@ -56,6 +55,7 @@ if(CC65_DEFINE_TARGET)
     add_compile_options("$<$<COMPILE_LANGUAGE:C>:SHELL:-D${CC65_DEFINE_TARGET}=>")
 endif()
 
+# Select the compiler.
 set(CMAKE_C_COMPILER ${CMAKE_COMMAND})
 set(CMAKE_C_COMPILER_ARG1 "-P ${CMAKE_CURRENT_LIST_FILE} -- ${CC65_C_COMPILER}")
 set(CC65_ASM_COMPILER "${CMAKE_ASM_COMPILER}" CACHE FILEPATH "Real cc65 ASM compiler")
@@ -75,8 +75,7 @@ set(CMAKE_C_FLAGS_RELEASE "-Oirs")
 set(CMAKE_C_LINK_EXECUTABLE "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> -m <TARGET>.map -Wl --dbgfile,<TARGET>.dbg <LINK_LIBRARIES>")
 set(CMAKE_C_COMPILER_FORCED TRUE)
 
-# cc65 has no C++. The language is enabled anyway so one project() line serves
-# both compilers, and a C++ source that reaches this compiler is the error.
+# Allows C++ in the project() but fails if you use it.
 set(CMAKE_CXX_COMPILER ${CMAKE_COMMAND})
 set(CMAKE_CXX_COMPILER_ARG1 "-P ${CMAKE_CURRENT_LIST_FILE} -- --no-cxx")
 set(CMAKE_CXX_COMPILER_ID "cc65" CACHE STRING "CXX compiler ID")

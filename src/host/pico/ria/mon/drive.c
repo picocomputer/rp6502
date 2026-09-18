@@ -21,14 +21,10 @@
 #include <string.h>
 #include <ctype.h>
 
-// RP6502 FF_MIN_GPT hook: definition for the runtime threshold the FatFs edits
-// reference (ffconf.h [1/3] macro + [2/3] declaration, ff.c [3/3]). The default
-// reproduces the stock threshold; drive_preview_mkfs and drive_do_mkfs force MBR or
-// GPT around f_mkfs(). The <=2^32 doc max (which the commented-out ff.c #error guarded)
-// holds for every value written to drive_gpt_threshold: the static_assert covers
-// the default, and the runtime writers only ever assign 0 (force GPT), (LBA_t)-1
-// (force MBR; intentionally above the max so GPT is never chosen), or restore the
-// default. Only the GPT-capable (exFAT/LBA64) build references it.
+// ffconf.h defines FF_MIN_GPT as a call to drive_min_gpt(). When f_mkfs
+// partitions a drive, it uses a GPT if the drive has at least
+// drive_gpt_threshold sectors and an MBR otherwise. DRIVE_GPT_DEFAULT is the
+// FatFs default for FF_MIN_GPT.
 #if FF_LBA64
 #define DRIVE_GPT_DEFAULT 0x10000000
 static_assert(DRIVE_GPT_DEFAULT <= 0x100000000ULL, "FF_MIN_GPT default out of range");
@@ -36,7 +32,6 @@ static LBA_t drive_gpt_threshold = DRIVE_GPT_DEFAULT;
 unsigned long long drive_min_gpt(void) { return drive_gpt_threshold; }
 #endif
 
-// On-disk layout for "disk format". AUTO resolves by device class/size.
 enum
 {
     DRIVE_LAYOUT_AUTO,
@@ -53,39 +48,36 @@ static enum {
     DRIVE_RUN_VERIFY,
 } drive_state;
 
-// Trailing preview lines the generator emits after the shared info block.
 enum
 {
-    DRIVE_PREVIEW_PLAIN, // info / verify: info block only
+    DRIVE_PREVIEW_PLAIN,
     DRIVE_PREVIEW_FORMAT,
     DRIVE_PREVIEW_ERASE,
 };
 
-// Operation context, valid from preview through completion.
-static uint8_t drive_vol;         // logical volume (MSCn:)
-static uint8_t drive_gen;         // mount generation captured at preview (TOCTOU guard)
-static char drive_path[6];        // "MSCn:" for FatFs calls
-static bool drive_is_floppy;      // format-only state (not set for erase/verify)
-static uint8_t drive_fs_req;      // requested FS: 0=auto, 1=FAT, 2=exFAT
-static bool drive_full;           // /full low-level format
-static uint32_t drive_au;         // allocation unit bytes (requested, then resolved)
-static uint8_t drive_fs_resolved; // resolved FS_FAT12/16/32/EXFAT for format
+static uint8_t drive_vol;
+static uint8_t drive_gen;
+static char drive_path[6];
+static bool drive_is_floppy;
+static uint8_t drive_fs_req;
+static bool drive_full;
+static uint32_t drive_au;
+static uint8_t drive_fs_resolved;
 static bool drive_has_label;
 static char drive_label_oem[12];
-static uint8_t drive_layout;     // DRIVE_LAYOUT_* for format
-static uint8_t drive_preview_op; // DRIVE_PREVIEW_* trailing lines for the generator
-static uint8_t drive_fmt_track;  // current track in the per-track format loop
-static uint8_t drive_fmt_head;   // current head in the per-track format loop
-static uint8_t drive_fmt_tracks; // track count for the loop
-static uint8_t drive_fmt_heads;  // head count for the loop
-static uint64_t drive_total;     // total sectors: erase/verify, and full-floppy format geometry
-static uint64_t drive_lba;       // current sector
+static uint8_t drive_layout;
+static uint8_t drive_preview_op;
+static uint8_t drive_fmt_track;
+static uint8_t drive_fmt_head;
+static uint8_t drive_fmt_tracks;
+static uint8_t drive_fmt_heads;
+static uint64_t drive_total;
+static uint64_t drive_lba;
 static int drive_last_pct;
-static uint32_t drive_bad;   // verify bad-sector count
-static uint32_t drive_pin_n; // verify: sectors in the failing chunk being pinpointed (0 = none)
-static uint32_t drive_pin_i; // verify: cursor within that chunk
+static uint32_t drive_bad;
+static uint32_t drive_pin_n;
+static uint32_t drive_pin_i;
 
-// Cached f_getfree result so the two VOL preview lines share one FAT scan.
 static struct
 {
     bool valid;
@@ -94,24 +86,20 @@ static struct
     DWORD nclst;
 } drive_free;
 
-// Label result captured synchronously, emitted by drive_label_response.
-static char drive_label_old[24]; // previous label (shown only on the change path)
-static char drive_label_cur[24]; // current or new label to display
-static bool drive_label_changed; // false: show current; true: old -> new
+static char drive_label_old[24];
+static char drive_label_cur[24];
+static bool drive_label_changed;
 
-// Parse an allocation-unit option like "/16k" or "/512". Returns false unless
-// it is a power of two from 512 bytes to 16 MiB. Rejects values that would
-// overflow before the range check rather than letting them wrap into range.
 static bool drive_parse_alloc(const char *tok, uint32_t *au)
 {
-    const char *p = tok + 1; // skip '/'
+    const char *p = tok + 1;
     if (!isdigit((unsigned char)*p))
         return false;
     uint32_t v = 0;
     while (isdigit((unsigned char)*p))
     {
         v = v * 10 + (uint32_t)(*p++ - '0');
-        if (v > 0x1000000) // already past the max; no suffix shrinks it
+        if (v > 0x1000000)
             return false;
     }
     if (*p == 'k' || *p == 'K')
@@ -151,8 +139,9 @@ static const char *drive_fs_name(BYTE fs_type)
     }
 }
 
-// True if the sector looks like a FAT/exFAT volume boot record (mirrors FatFs
-// check_fs). A bare 0x55AA is not enough — an MBR carries it too.
+// drive_is_fat_vbr repeats the tests that FatFs check_fs uses to recognize a
+// FAT or exFAT volume boot record. The 0x55AA signature alone does not identify
+// a volume boot record, because an MBR ends with the same signature.
 static bool drive_is_fat_vbr(const uint8_t *w)
 {
     uint16_t sign = (uint16_t)(w[510] | (w[511] << 8));
@@ -181,7 +170,6 @@ static bool drive_is_fat_vbr(const uint8_t *w)
            (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
 }
 
-// Scheme word for the current on-disk layout, or NULL if unknown.
 static const char *drive_scheme_word(void)
 {
     if (!msc_drive_read(drive_vol, mbuf, 0, 1))
@@ -193,12 +181,6 @@ static const char *drive_scheme_word(void)
     return NULL;
 }
 
-// Build the "<scheme> <filesystem> <cluster> <suffix> (<label>)" descriptor shared
-// by the VOL (current) and FMT (target) lines. scheme: word or NULL (omit).
-// fsname: the filesystem name (never NULL). au_bytes: cluster size in bytes
-// (printed as KB, or "512 B" for 512), 0 to omit when there is no filesystem.
-// suffix: extra word (Quick/Full) or NULL. label: in parens when non-empty (NULL/"" omits).
-// The `n >= size` guards stop a truncated segment from underflowing size - n.
 static void drive_fmt_desc(char *out, size_t size, const char *scheme, const char *fsname,
                            uint32_t au_bytes, const char *suffix, const char *label)
 {
@@ -226,16 +208,13 @@ static void drive_fmt_desc(char *out, size_t size, const char *scheme, const cha
         snprintf(out + n, size - n, " (%s)", label);
 }
 
-// Device/volume preview as a monitor response generator: one line per call (an
-// empty fill skips a line). drive_preview_op adds the warning / target lines.
-// Routed through the response queue so the \a alignment markers work.
 static int drive_preview_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state;
     switch (state)
     {
-    case 0: // DEV: device size (matches the status command) + inquiry strings
+    case 0:
     {
         char vendor[9], product[17], rev[5];
         if (msc_drive_inquiry_strings(drive_vol, vendor, product, rev))
@@ -256,16 +235,13 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
             oem_snprintf(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
-    case 2: // VOL: boot scheme, filesystem, cluster size, and volume label
+    case 2:
     {
         char desc[64], label[24];
         DWORD vsn;
         const char *scheme = drive_scheme_word();
         if (f_getlabel(drive_path, label, &vsn) != FR_OK)
             label[0] = '\0';
-        // One scan feeds this line's cluster size and the "used of total" line
-        // (case 3). Run it for every op so format and erase also show how much
-        // data is on the volume before the user confirms the wipe.
         DWORD nclst;
         FATFS *fs;
         drive_free.valid = false;
@@ -283,7 +259,7 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
         oem_snprintf(buf, size, S(STR_DISK_VOL_FMT), desc);
         return 3;
     }
-    case 3: // VOL: filesystem used of total, percent used (case 2's scan)
+    case 3:
     {
         if (drive_free.valid)
         {
@@ -296,13 +272,12 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
             str_size(totb, totbuf, sizeof(totbuf));
             oem_snprintf(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
         }
-        // INFO/VERIFY end here; format and erase continue to the warning.
         return drive_preview_op == DRIVE_PREVIEW_PLAIN ? -1 : 4;
     }
-    case 4: // confirm warning (format or erase)
+    case 4:
         oem_snprintf(buf, size, S(drive_preview_op == DRIVE_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
         return drive_preview_op == DRIVE_PREVIEW_FORMAT ? 5 : -1;
-    case 5: // FMT: target layout, filesystem, cluster size, quick/full, label
+    case 5:
     {
         const char *scheme = drive_layout == DRIVE_LAYOUT_SFD   ? STR_SFD
                              : drive_layout == DRIVE_LAYOUT_GPT ? STR_GPT
@@ -319,34 +294,29 @@ static int drive_preview_response(char *buf, size_t size, int state, unsigned)
     }
 }
 
-// RP6502 mkfs preview hook (paired with the call sites in fatfs/ff.c): f_mkfs
-// reports the FS type and cluster size it has chosen, captured here into
-// drive_fs_resolved/drive_au for the format preview. drive_previewing is set only around the
-// no-write preview run below, so a real format passes straight through.
+// f_mkfs in the vendored ff.c calls drive_mkfs_capture after it has chosen the
+// filesystem type and cluster size and before it trims or writes the drive. A
+// nonzero return makes f_mkfs stop there and return FR_OK.
 static bool drive_previewing;
 
 int drive_mkfs_capture(BYTE fsty, DWORD au_sectors)
 {
     if (!drive_previewing)
-        return 0; // real format: let f_mkfs proceed and write
+        return 0;
     drive_fs_resolved = fsty;
     drive_au = au_sectors * 512u;
-    return 1; // preview: stop f_mkfs right after it picked the geometry (FR_OK)
+    return 1;
 }
 
-// Ask f_mkfs which filesystem and cluster size it would build, without writing,
-// so the preview can never disagree with the actual format. The request maps to
-// f_mkfs's own selection (FM_ANY auto-picks exFAT past ~32 GiB, as before); the
-// capture hook stops it before any TRIM/write. Returns f_mkfs's result: FR_OK
-// with drive_fs_resolved/drive_au filled, or its own FR_MKFS_* / FR_* when unsatisfiable.
-// The layout (MBR/GPT/SFD) is forced the same way as drive_do_mkfs so sz_vol — and
-// thus the choice — matches the real run.
+// The layout is forced exactly as drive_do_mkfs forces it, because f_mkfs
+// chooses the filesystem type and cluster size from the volume size, and the
+// volume size depends on the layout.
 static FRESULT drive_preview_mkfs(void)
 {
     MKFS_PARM parm;
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
-    parm.au_size = drive_au; // user /Nk request (0: let f_mkfs choose)
+    parm.au_size = drive_au;
     parm.fmt = drive_fs_req == 2   ? FM_EXFAT
                : drive_fs_req == 1 ? (FM_FAT | FM_FAT32)
                                  : FM_ANY;
@@ -364,7 +334,6 @@ static FRESULT drive_preview_mkfs(void)
     return fr;
 }
 
-// Apply a volume label to drive_path's drive ("" clears it).
 static FRESULT drive_set_label(const char *label)
 {
     char arg[sizeof(drive_path) + sizeof(drive_label_oem)];
@@ -372,13 +341,12 @@ static FRESULT drive_set_label(const char *label)
     return f_setlabel(arg);
 }
 
-// Build the filesystem (and apply the label). Returns the FatFs result.
 static FRESULT drive_do_mkfs(void)
 {
     MKFS_PARM parm;
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
-    parm.au_size = drive_au; // resolved cluster size (bytes); always explicit
+    parm.au_size = drive_au;
     switch (drive_fs_resolved)
     {
     case FS_EXFAT:
@@ -387,16 +355,13 @@ static FRESULT drive_do_mkfs(void)
     case FS_FAT32:
         parm.fmt = FM_FAT32;
         break;
-    default: // FAT12 / FAT16
+    default:
         parm.fmt = FM_FAT;
         break;
     }
     if (drive_layout == DRIVE_LAYOUT_SFD)
-        parm.fmt |= FM_SFD; // superfloppy: no partition table
+        parm.fmt |= FM_SFD;
 #if FF_LBA64
-    // f_mkfs writes GPT when the drive is >= FF_MIN_GPT (drive_min_gpt()), else
-    // MBR. Force the chosen scheme; FM_SFD ignores it. (LBA_t)-1 intentionally
-    // exceeds the 2^32 doc max so GPT is never chosen.
     drive_gpt_threshold = (drive_layout == DRIVE_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
     FRESULT fr = f_mkfs(drive_path, &parm, mbuf, MBUF_SIZE);
@@ -408,32 +373,31 @@ static FRESULT drive_do_mkfs(void)
     return fr;
 }
 
-// Floppy track/head geometry for the per-track FORMAT UNIT loop, by sector count.
-// Single-sided 160 KB (320) and 180 KB (360) media have one head; every other
-// standard floppy has two. Tracks is 40 up to the 360 KB formats, else 80.
-// Heuristic keyed to standard capacities; a nonstandard count gives a best guess
-// (an out-of-range track just fails the format, no corruption).
+// The sector counts are those of the 5.25-inch floppy formats with 512-byte
+// sectors. The single-sided 160 KB (320) and 180 KB (360) formats have one
+// head, the double-sided 320 KB (640) and 360 KB (720) formats have two, and
+// all four have 40 tracks. The 1.2 MB 5.25-inch format and the 3.5-inch
+// formats of 720 KB and larger have two heads and 80 tracks.
 static void drive_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads)
 {
     *heads = (blocks == 320 || blocks == 360) ? 1 : 2;
     *tracks = (blocks <= 720) ? 40 : 80;
 }
 
-// One mon_response producer drives a whole run (format/erase/verify), one chunk
-// per call, emitting at most one line; progress redraws in place via \r, so
-// unchanged-percent ticks emit nothing. drive_state selects the phase. Ctrl-C
-// aborts via sys_break(), whose break_() resets the queue and owns drive IDLE.
+// The Ctrl-C branches leave drive_state alone because, after sys_break(),
+// sys_commit() calls every driver's break handler and drive_break() sets
+// DRIVE_IDLE.
 static int drive_run_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
-        return state; // response cancelled (break)
+        return state;
     switch (drive_state)
     {
     case DRIVE_RUN_FORMAT_UNIT:
-        if (ria_get_sigint()) // Ctrl-C stops the format between tracks
+        if (ria_get_sigint())
         {
             putchar('\n');
-            msc_drive_reenumerate(drive_vol); // partial low-level format; drop stale mount
+            msc_drive_reenumerate(drive_vol);
             sys_break();
             return -1;
         }
@@ -442,11 +406,11 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
             msc_drive_reenumerate(drive_vol);
             drive_state = DRIVE_IDLE;
-            if (drive_last_pct >= 0) // break from the in-place progress line
+            if (drive_last_pct >= 0)
                 snprintf(buf, size, "\n");
             return -1;
         }
-        if (++drive_fmt_head >= drive_fmt_heads) // this track/head done; advance
+        if (++drive_fmt_head >= drive_fmt_heads)
         {
             drive_fmt_head = 0;
             drive_fmt_track++;
@@ -462,7 +426,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             }
         }
         if (drive_fmt_track >= drive_fmt_tracks)
-            drive_state = DRIVE_RUN_MKFS; // mkfs emits the line break before its result
+            drive_state = DRIVE_RUN_MKFS;
         return 0;
 
     case DRIVE_RUN_MKFS:
@@ -470,8 +434,6 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         FRESULT fr = drive_do_mkfs();
         msc_drive_reenumerate(drive_vol);
         drive_state = DRIVE_IDLE;
-        // A per-track pass left the cursor on "\rFormat 100%"; break from it
-        // before the result. The quick path printed no progress.
         const char *nl = drive_last_pct >= 0 ? "\n" : "";
         if (fr == FR_OK)
             oem_snprintf(buf, size, "%s%s", nl, S(STR_DISK_DONE));
@@ -484,14 +446,14 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
     }
 
     case DRIVE_RUN_ERASE:
-        if (ria_get_sigint()) // Ctrl-C stops the erase
+        if (ria_get_sigint())
         {
             putchar('\n');
-            msc_drive_reenumerate(drive_vol); // sectors were zeroed; drop stale mount
+            msc_drive_reenumerate(drive_vol);
             sys_break();
             return -1;
         }
-        if (drive_lba >= drive_total) // all sectors zeroed; final progress already shown
+        if (drive_lba >= drive_total)
         {
             msc_drive_reenumerate(drive_vol);
             drive_state = DRIVE_IDLE;
@@ -499,11 +461,6 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
             return -1;
         }
         {
-            // Chunk is bounded by mbuf, the only scratch available; disk_write would
-            // accept more sectors per transfer, but a larger buffer is not affordable.
-            // mbuf was zeroed once in drive_run_erase and nothing dirties it between
-            // ticks, so it stays zero — no per-chunk memset. (512 B sectors only;
-            // drive_validate rejects anything else.)
             uint32_t per = MBUF_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
@@ -512,7 +469,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
                 mon_add_response_fatfs(FR_DISK_ERR);
                 msc_drive_reenumerate(drive_vol);
                 drive_state = DRIVE_IDLE;
-                snprintf(buf, size, "\n"); // break from the in-place progress line
+                snprintf(buf, size, "\n");
                 return -1;
             }
             drive_lba += n;
@@ -526,13 +483,13 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         return 0;
 
     case DRIVE_RUN_VERIFY:
-        if (ria_get_sigint()) // Ctrl-C stops the scan
+        if (ria_get_sigint())
         {
             putchar('\n');
             sys_break();
             return -1;
         }
-        if (drive_pin_n) // re-reading a failed chunk one sector at a time
+        if (drive_pin_n)
         {
             while (drive_pin_i < drive_pin_n)
             {
@@ -540,23 +497,23 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
                 if (!msc_drive_read(drive_vol, mbuf, lba, 1))
                 {
                     drive_bad++;
-                    buf[0] = '\r'; // overwrite the transient progress line
+                    buf[0] = '\r';
                     oem_snprintf(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
                     return 0;
                 }
             }
-            drive_lba += drive_pin_n; // chunk pinpointed; redraw progress, fall through
+            drive_lba += drive_pin_n;
             drive_pin_n = 0;
             drive_last_pct = -1;
         }
-        else if (drive_lba < drive_total) // scan the next chunk
+        else if (drive_lba < drive_total)
         {
-            uint32_t per = MBUF_SIZE / 512; // 512 B sectors only (see drive_validate)
+            uint32_t per = MBUF_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
             if (!msc_drive_read(drive_vol, mbuf, drive_lba, n))
             {
-                drive_pin_n = n; // pinpoint the bad sector(s) on the next calls
+                drive_pin_n = n;
                 drive_pin_i = 0;
                 return 0;
             }
@@ -586,14 +543,12 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
     }
 }
 
-// Re-validate the target at the moment of a destructive run, not just at preview.
-// A USB hot-swap during the confirm prompt frees the slot and a new device can
-// reuse it, so the captured generation must still match; media/write-protect can
-// also have changed. Queues the matching error and returns false on any mismatch.
+// A USB hot-swap during the confirmation prompt frees the slot, and a new
+// device can take the same slot, so the mount generation captured at preview
+// must still match. The media and the write protection can also change during
+// the prompt.
 static bool drive_run_revalidate(void)
 {
-    // A freed/reused slot always carries a bumped generation, so a failed
-    // get_info is itself a "device changed".
     msc_drive_info_t info;
     if (!msc_drive_get_info(drive_vol, &info) || info.gen != drive_gen)
     {
@@ -615,7 +570,7 @@ static bool drive_run_revalidate(void)
         mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));
         return false;
     }
-    if (info.write_prot) // both destructive runs (format, erase) need a writable target
+    if (info.write_prot)
     {
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
         return false;
@@ -633,7 +588,7 @@ static void drive_run_format(void)
     drive_last_pct = -1;
     drive_fmt_track = 0;
     drive_fmt_head = 0;
-    mon_add_response_utf8(S(STR_DISK_FORMATTING)); // banner before either pass
+    mon_add_response_utf8(S(STR_DISK_FORMATTING));
     if (drive_full && drive_is_floppy)
     {
         drive_floppy_geometry(drive_total, &drive_fmt_tracks, &drive_fmt_heads);
@@ -653,14 +608,12 @@ static void drive_run_erase(void)
     }
     drive_last_pct = -1;
     drive_lba = 0;
-    memset(mbuf, 0, MBUF_SIZE);                 // zero once; the chunk loop never dirties mbuf
-    mon_add_response_utf8(S(STR_DISK_ERASING)); // banner before the zero pass
+    memset(mbuf, 0, MBUF_SIZE);
+    mon_add_response_utf8(S(STR_DISK_ERASING));
     drive_state = DRIVE_RUN_ERASE;
     mon_add_response_fn(drive_run_response);
 }
 
-// Validate a resolved volume: fill *info and require present[, writable].
-// Sets drive_path and returns true, or queues the error and returns false.
 static bool drive_validate(uint8_t vol, msc_drive_info_t *info, bool need_writable)
 {
     if (!msc_drive_get_info(vol, info))
@@ -673,16 +626,17 @@ static bool drive_validate(uint8_t vol, msc_drive_info_t *info, bool need_writab
         mon_add_response_utf8(S(STR_ERR_NO_MEDIA));
         return false;
     }
-    // A present volume always has nonzero geometry; 0 sectors means a bogus or
-    // overflowed READ CAPACITY. Reject so the progress math never divides by 0.
+    // A block count of 0 is rejected because the verify progress calculation
+    // divides by it.
     if (info->block_count == 0)
     {
         mon_add_response_fatfs(FR_INVALID_DRIVE);
         return false;
     }
-    // 512-byte logical sectors only: FatFs is built FF_MAX_SS==512 and mbuf is
-    // the sole scratch for the raw erase/verify passes, so a larger sector
-    // cannot be buffered.
+    // Only 512-byte sectors are accepted because FatFs is built with FF_MIN_SS
+    // and FF_MAX_SS set to 512 and never queries the drive for its sector size.
+    // The erase and verify passes also transfer MBUF_SIZE / 512 sectors at a
+    // time through mbuf, so a larger sector would run past the end of mbuf.
     if (info->block_size != 512)
     {
         mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));
@@ -693,11 +647,10 @@ static bool drive_validate(uint8_t vol, msc_drive_info_t *info, bool need_writab
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
         return false;
     }
-    memcpy(drive_path, info->path, sizeof(drive_path)); // canonical "MSCn:" so "0:" and "MSC0:" agree
+    memcpy(drive_path, info->path, sizeof(drive_path));
     return true;
 }
 
-// If t names a drive and no drive is set yet (*vol < 0), store it; return true.
 static bool drive_match(const char *t, int *vol)
 {
     int v;
@@ -709,7 +662,6 @@ static bool drive_match(const char *t, int *vol)
     return false;
 }
 
-// Queue a disk subcommand's help (shown when its required drive is missing).
 static void drive_sub_help(const char *sub)
 {
     const char *prose = help_lookup(STR_DISK, sub, NULL);
@@ -717,8 +669,6 @@ static void drive_sub_help(const char *sub)
         mon_add_response_utf8(prose);
 }
 
-// Parse a drive-only argument list (info/erase/verify). Returns the volume, or
-// -1 after queueing sub's help (no drive) or an argument error (garbage/extra).
 static int drive_parse_only(const char *args, const char *sub)
 {
     int vol = -1;
@@ -746,8 +696,6 @@ static void drive_format(const char *args)
     drive_au = 0;
     drive_has_label = false;
     drive_layout = DRIVE_LAYOUT_AUTO;
-    // Tokens may appear in any order: a '/' token is a flag, the first token
-    // that names a volume is the drive, any other token is the label.
     int vol = -1;
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
@@ -766,7 +714,7 @@ static void drive_format(const char *args)
                  !strcasecmp(t, STR_OPT_MBR) ||
                  !strcasecmp(t, STR_OPT_GPT))
         {
-            if (drive_layout != DRIVE_LAYOUT_AUTO) // at most one layout flag
+            if (drive_layout != DRIVE_LAYOUT_AUTO)
             {
                 mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
                 return;
@@ -785,12 +733,9 @@ static void drive_format(const char *args)
         }
         else if (drive_match(t, &vol))
         {
-            // drive captured as a side effect
         }
         else if (!drive_has_label)
         {
-            // Volume label (OEM bytes from the terminal, as FatFs expects).
-            // An empty "" clears the label.
             snprintf(drive_label_oem, sizeof(drive_label_oem), "%s", t);
             drive_has_label = true;
         }
@@ -809,9 +754,9 @@ static void drive_format(const char *args)
     if (!drive_validate((uint8_t)vol, &info, true))
         return;
     drive_vol = (uint8_t)vol;
-    drive_gen = info.gen; // re-checked at YES against a hot-swap
+    drive_gen = info.gen;
     drive_is_floppy = info.is_floppy;
-    drive_total = info.block_count; // sector count for the per-track format geometry
+    drive_total = info.block_count;
     if (drive_full && !drive_is_floppy)
     {
         mon_add_response_utf8(S(STR_ERR_NOT_FORMATTABLE));
@@ -827,7 +772,7 @@ static void drive_format(const char *args)
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    if (drive_layout == DRIVE_LAYOUT_AUTO) // resolve by device class/size
+    if (drive_layout == DRIVE_LAYOUT_AUTO)
     {
         if (drive_is_floppy)
             drive_layout = DRIVE_LAYOUT_SFD;
@@ -838,10 +783,6 @@ static void drive_format(const char *args)
         else
             drive_layout = DRIVE_LAYOUT_MBR;
     }
-    // Ask f_mkfs itself which FS type and cluster size it would build, without
-    // writing, so the preview can never disagree with the actual format. The
-    // preview run clears the mounted FatFs object; remount to restore the VOL
-    // line, which reads the (unchanged) current filesystem.
     FRESULT fr = drive_preview_mkfs();
     msc_drive_reenumerate(drive_vol);
     if (fr != FR_OK)
@@ -863,7 +804,7 @@ static void drive_erase(const char *args)
     if (!drive_validate((uint8_t)vol, &info, true))
         return;
     drive_vol = (uint8_t)vol;
-    drive_gen = info.gen; // re-checked at YES against a hot-swap
+    drive_gen = info.gen;
     drive_total = info.block_count;
     drive_preview_op = DRIVE_PREVIEW_ERASE;
     mon_add_response_fn(drive_preview_response);
@@ -881,8 +822,7 @@ static void drive_verify(const char *args)
     drive_vol = (uint8_t)vol;
     drive_total = info.block_count;
     drive_preview_op = DRIVE_PREVIEW_PLAIN;
-    mon_add_response_fn(drive_preview_response); // info block first...
-    // ...then the read-only scan, queued behind it (no YES needed).
+    mon_add_response_fn(drive_preview_response);
     drive_lba = 0;
     drive_last_pct = -1;
     drive_bad = 0;
@@ -891,8 +831,6 @@ static void drive_verify(const char *args)
     mon_add_response_fn(drive_run_response);
 }
 
-// One-line label result through the response queue (width-aware, paged) instead
-// of a bare printf, like the rest of the monitor.
 static int drive_label_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
@@ -906,7 +844,6 @@ static int drive_label_response(char *buf, size_t size, int state, unsigned)
 
 static void drive_label(const char *args)
 {
-    // drive + optional label, in any order.
     int vol = -1;
     const char *newlabel = NULL;
     const char *t;
@@ -914,7 +851,6 @@ static void drive_label(const char *args)
     {
         if (drive_match(t, &vol))
         {
-            // drive captured as a side effect
         }
         else if (!newlabel)
             newlabel = t;
@@ -933,7 +869,7 @@ static void drive_label(const char *args)
     if (!drive_validate((uint8_t)vol, &info, false))
         return;
     DWORD vsn;
-    if (!newlabel) // show current
+    if (!newlabel)
     {
         FRESULT fr = f_getlabel(drive_path, drive_label_cur, &vsn);
         if (fr != FR_OK)
@@ -952,7 +888,6 @@ static void drive_label(const char *args)
     }
     if (f_getlabel(drive_path, drive_label_old, &vsn) != FR_OK)
         drive_label_old[0] = '\0';
-    // An empty "" label clears it.
     FRESULT fr = drive_set_label(newlabel);
     if (fr != FR_OK)
     {

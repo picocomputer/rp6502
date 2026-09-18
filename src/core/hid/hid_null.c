@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The core/hid/hid.h host functions on a machine that runs in software and has
- * no HID transport of its own. The host owns the lock keys, nothing enumerates
- * at boot, and every report the host hands over is forwarded.
+ * no HID transport of its own. No keyboard lock lights are set, nothing
+ * enumerates at boot, and every report the host hands over is forwarded.
  */
 
 #include "core/hid/hid.h"

@@ -163,8 +163,6 @@ static int str_sanitize_locale(const char *name)
     return found_index < 0 ? default_index : found_index;
 }
 
-/* The canonical spelling is what gets stored, so "en" is saved as "EN". A
- * name that is not a locale is rejected rather than sanitized. */
 bool str_check_locale(const char *in, char *out)
 {
     int i = str_sanitize_locale(in);

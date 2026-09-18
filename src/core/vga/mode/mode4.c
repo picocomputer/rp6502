@@ -238,6 +238,11 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
     const mode4_sprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
+        /* No square above 7 fits XRAM, and the arithmetic below leaves
+         * what C defines: 32 and up is an undefined shift, and 16..31
+         * wraps byte_size to zero, past both guards and off the end. */
+        if (sprites[i].log_size > 7)
+            continue;
         const unsigned px_size = 1u << sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sprites[i].has_opacity_metadata)
@@ -430,6 +435,11 @@ static void mode4_render_asprite(
     const mode4_asprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
+        /* No square above 7 fits XRAM, and the arithmetic below leaves
+         * what C defines: 32 and up is an undefined shift, and 16..31
+         * wraps byte_size to zero, past both guards and off the end. */
+        if (sprites[i].log_size > 7)
+            continue;
         const unsigned px_size = 1u << sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sprites[i].has_opacity_metadata)

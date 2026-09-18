@@ -9,8 +9,8 @@
  *
  * Four arrays, one per word of a slot pair, because a block RAM has two
  * ports and this table has four readers. Split by word each array has
- * one writer and one reader, which is what the fabric can build; kept
- * whole it becomes a quarter of a million registers.
+ * one writer and one reader, which fits a block RAM; kept whole it
+ * becomes a quarter of a million registers.
  *
  * The bus side reads by borrowing the render's own read ports rather
  * than by having any of its own. It is allowed to because the only
@@ -28,7 +28,7 @@
  * keeps its M3 cadence.
  *
  * Geometry decodes from the canvas: a width and a height, which is all
- * a canvas is. The scaler owns presentation.
+ * a canvas is. The Pocket's scaler handles presentation.
  */
 
 module prog (

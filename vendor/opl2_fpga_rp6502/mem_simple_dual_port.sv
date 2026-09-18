@@ -1,23 +1,3 @@
-// rp6502: no_rw_check on the storage array.
-//
-// These banks are tiny — 36 bits in one of them, 234 and 342 and 468 in
-// others — and Quartus was giving each a whole 10,240-bit M10K. Its own
-// report said why: "Unsupported Mixed Feed Through Setting", meaning it
-// will not put a memory in an MLAB while it must guarantee what a read
-// sees when the same address is written in the same cycle. Nothing here
-// reads and writes one address at once, so that guarantee costs four
-// blocks for nothing.
-//
-// Both tokens, and the second one is the point. no_rw_check alone was
-// tried first and moved Quartus's refusal from "Unsupported Mixed Feed
-// Through Setting" to "Latch Type Behaviour" — one blocker for another,
-// nothing freed. The two places in this tree where an array does reach
-// an MLAB spell it in full: vid_font.sv "no_rw_check, MLAB" and
-// ria_regs.sv "MLAB, no_rw_check".
-//
-// The change is invisible to Verilator — same RTL, different synthesis —
-// so the fit report is the only place it shows.
-
 /*******************************************************************************
 #   +html+<pre>
 #

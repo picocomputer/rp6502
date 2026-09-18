@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drivers: the ones it is made of and the order it comes up
- * in, and the ones it offers a program to open. Both are the same kind of
- * fact, so they are the same file.
- *
- * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
- * to pump, backward to tear down. core/api/std.c builds the table from the
- * stdio rows. The drive a path reaches is in neither list: osal/dir.h
- * names those calls and the host that is linked defines them.
  */
 
 #ifndef _HOST_DRIVERS_H_
@@ -37,7 +28,7 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
-#include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
+#include "core/rom/rom.h"
 #include "ria/mon/rom.h"
 #include "ria-w/ble/ble.h"
 #include "ria-w/net/cyw.h"
@@ -63,21 +54,24 @@
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
 
-/* The first nine are the machine's bring-up, and the order is the fabric's:
- * the part's clock before anything divided from it is set up, the console
- * before anything prints, the banner before anything can queue an
- * error under it, the bus before the video that talks over it, and the
- * filesystem before the config it holds. The rest is init order and little
- * else -- cyw before the three radio users, api before cpu so the registers
- * are released before RESB rises, usb second-to-last because its enumeration
- * window times a keyboard quirk and anything slow scheduled inside it stops
- * the quirk firing, cpu last.
+/* RP2350_DRIVER is first because later inits, such as vga_init, compute clock
+ * dividers from the system clock. MON_DRIVER comes before every driver whose
+ * init can queue a message, because in a release build the banner that
+ * mon_init queues clears the terminal and would erase a message queued ahead
+ * of it. PIX_DRIVER comes before VGA_DRIVER because vga_init sends over PIX,
+ * and LFS_DRIVER comes before CFG_DRIVER because cfg_init reads the config
+ * file from littlefs. USB_DRIVER comes near the end because every init after
+ * usb_init runs before usb_task can enumerate a device, so each one uses up
+ * part of the boot enumeration window that usb_init starts. keyboard_mount
+ * turns NumLock off only when a keyboard listed in
+ * keyboard_numlock_off_at_boot mounts inside that window.
  *
- * The io_task column reads its order off this same list, and one rule is
- * load-bearing there: rom before vcp, nfc and api, with api the last row that
- * has one. api_task and nfc_task can arm an exec, and rom_task must not run
- * after the arming in the same pass. vcp before nfc, which opens the device
- * index vcp sets. */
+ * sys_io_task calls the io_task column in this same order. ROM_DRIVER comes
+ * before NFC_DRIVER and API_DRIVER because nfc_task and api_task can call
+ * sys_stop and then start a ROM load. sys_active stays true until sys_commit
+ * runs the stop hooks at the end of the pass, so if rom_task ran later in the
+ * same pass, it could call ria_write_buf, which asserts that sys_active is
+ * false. */
 #define RP6502_MACH_DRIVERS                          \
     RP2350_DRIVER,                                   \
     COM_DRIVER, COM_TELNET_DRIVER, MON_DRIVER,       \
@@ -96,16 +90,13 @@
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
     USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
-/* What a program may open, in the order open() tries them. The filesystem is
- * the catch-all, so it is last. */
+/* std_api_open tries these rows in order, and fs_std_handles accepts every
+ * path, so FS_STD_DRIVER is last. */
 #define RP6502_STD_DRIVERS                           \
     MODEM_STD_DRIVER, VCP_STD_DRIVER,                \
     MID_STD_DRIVER, ROM_STD_DRIVER,                  \
     NFC_STD_DRIVER, FS_STD_DRIVER
 
-/* Where console input comes from, indexed by com_source_t; core/com/pick.c
- * reads them. Keymap's queue is the keyboard, the UART is the wire, and the
- * telnet session is the remote. */
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
     [COM_SOURCE_UART] = COM_UART_SOURCE,       \

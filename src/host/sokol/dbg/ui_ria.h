@@ -63,7 +63,7 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/wdc/phi2.h"
-#include "core/wdc/resb.h"
+#include "core/sys/sys.h"
 #include "core/str/oem.h"
 
 /* Five address lines select a register within the RIA's 32-byte window. A5
@@ -124,11 +124,10 @@ void ui_ria_draw(ui_ria_t *win)
     if (ImGui::Begin(win->title, &win->open))
     {
         /* ria_tick writes every pin here except RES, which the RIA has no
-         * input for, so RES is overlaid while the machine holds the 6502 in
-         * reset. That is resb_running(), the hold between a stop and the next
-         * run, and not the debugger's mid-run pause. */
+         * input for, so RES is overlaid while no program is running. The
+         * debugger's mid-run pause does not lower it. */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
-        if (!resb_running())
+        if (!sys_running())
             p |= RIA_PIN_RES;
         ImGui::BeginChild("##ria_pins", ImVec2(176, 0), ImGuiChildFlags_Borders);
         ui_chip_draw(&win->chip, p);

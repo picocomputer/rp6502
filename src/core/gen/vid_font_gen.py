@@ -2,20 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Builds the font asset from src/core/term/font.c. The glyphs are the video
-# device's memory, not the firmware's: nothing on the soft CPU reads a
-# glyph, it only moves them, so font.c's tables never need to be linked
-# into a 64 KB code memory that cannot hold seventeen code pages anyway.
-# They ship beside the core and reach the store by copy.
-#
-# The image replicates font_init exactly — ASCII low halves, the DEC
-# Special Graphics table built from dec_glyph_map, the italic face
-# verbatim — and then carries every code page's high halves after it, in
-# the same row-major order font_set_code_page's memcpys use. So the
-# firmware's copy is that memcpy with a different destination, and the
-# parity test can compare the asset against the tables emu_core builds at
-# runtime, where drift cannot hide.
 
 import argparse
 import re
@@ -27,7 +13,6 @@ FONT_C = Path(__file__).resolve().parents[3] / "src/core/term/font.c"
 DEC_MAP_BLANK = 0xFFFF
 DEC_MAP_ASCII = 0x10000
 
-# The store's four faces, in asset order: offset and length.
 OFF_FONT16 = 0x0000
 OFF_FONT8 = 0x1000
 OFF_ITALIC16 = 0x1800
@@ -35,8 +20,6 @@ OFF_DEC16 = 0x2000
 OFF_DEC8 = 0x2200
 OFF_PAGES = 0x2400
 
-# One code page: sixteen 128-byte rows of font16's high half, then eight
-# of font8's.
 PAGE_16 = 16 * 128
 PAGE_8 = 8 * 128
 PAGE_STRIDE = PAGE_16 + PAGE_8
@@ -76,7 +59,6 @@ def parse_dec_map(text):
 
 
 def code_pages(text):
-    """Every page font_set_code_page accepts, in font.c's own order."""
     pages = []
     for cp in re.findall(r"FONT16_CP(\d+)\b", text):
         cp = int(cp)
@@ -103,9 +85,9 @@ def build_tables():
             sys.exit(f"vid_font_gen: {name} has {len(arr)} bytes, want {want}")
     dec_map = parse_dec_map(text)
 
-    # font16 and font8, row-major with a 256-byte stride exactly as font.c
-    # keeps its live tables, high halves blank: this is the image at the
-    # end of font_init and before its font_set_code_page(437).
+    # font16 and font8 have a 256-byte stride and blank high halves, which
+    # matches the tables font_init in core/term/font.c has built just before
+    # it calls font_set_code_page(437).
     font16 = [0] * 4096
     for row in range(16):
         for code in range(128):
@@ -115,9 +97,8 @@ def build_tables():
         for code in range(128):
             font8[row * 256 + code] = ascii8[row * 128 + code]
 
-    # font_dec_16, row-major over the 0x5F..0x7E window, 32-byte stride.
-    # It draws from CP437 whatever page is loaded, the way font.c builds
-    # it before any code page is applied.
+    # font.c builds the DEC graphics from the CP437 glyphs whatever code
+    # page is loaded, so this does the same.
     dec16 = [0] * 512
     for row in range(16):
         for idx in range(0x20):
@@ -129,7 +110,6 @@ def build_tables():
             else:
                 dec16[row * 32 + idx] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
 
-    # font_dec_8, the same window over the 8-row faces.
     dec8 = [0] * 256
     for row in range(8):
         for idx in range(0x20):
@@ -141,7 +121,6 @@ def build_tables():
             else:
                 dec8[row * 32 + idx] = cp437_8[row * 128 + ((m & 0xFF) - 0x80)]
 
-    # italic16, row-major, 128-byte stride, low half only.
     italic16 = [0] * 2048
     for row in range(16):
         for code in range(128):
@@ -225,8 +204,9 @@ def main():
     if args.emit_asset_h:
         emit_firmware_header(args.emit_asset_h, pages)
     if args.emit_h:
-        # The 437 image the parity test wants: emu_core's font_init ends
-        # with that page applied, so the test compares like for like.
+        # font_init ends by applying code page 437, so the header that
+        # tests/rtl/vga/test_font.cpp compares against font_init's tables
+        # contains the 437 image.
         cp437 = pages.index(437)
         hi16, hi8 = highs[cp437]
         f16 = list(font16)

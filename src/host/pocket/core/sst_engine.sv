@@ -2,30 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * A savestate is the whole machine as a list of words, and this is the
- * thing that counts through it.
- *
- * The machine is stopped first — the soft CPU halted at its debug
- * port, then everything else by losing its clock at the source, all of
- * it on one edge — and after that nothing is running that could move a
- * byte underneath the count. The engine keeps the clock the machine
- * lost and reads every memory through its own port on the array,
- * beside the machine's frozen one. Nothing marshals anything; nothing
- * is copied twice.
- *
- * It is deliberately slow. A word is a cycle and sometimes four, and
- * anything with a wait is waited for. The only deadline anywhere is at
- * the far end, where the host may ask for the next word as soon as it
- * has taken this one, and one word held ready ahead of a sequential
- * reader covers that with room to spare.
- *
- * What is not in any array is fetched its own way: the state that
- * lives in flops — the 6502's registers, the VIA's timers and
- * pipelines, the regs window's corners — is captured while stopped and
- * jammed back on the machine's first clocked edge, and the soft CPU's
- * own registers come out through its debug port a few instructions at
- * a time, before the clock goes, because its clock never does.
  */
 
 module sst_engine #(
@@ -34,86 +10,54 @@ module sst_engine #(
     input logic clk_sys,
     input logic rst_n,
 
-    /* Held for as long as a savestate is being made, and asked for on
-     * the host's clock rather than this one, so it lands on two flops
-     * before anything acts on it. The read request beside it is the
-     * same signal and takes the same path. */
     input logic sst_save,
 
-    /* A load runs the other way and needs nothing from the host: the
-     * blob is already in the staging store, put there by the ordinary
-     * bridge writes that carried it, so the engine reads it back
-     * through the machine's own window and writes it where it goes. */
     input logic sst_load,
     output logic sst_engine_load_done,
-    /* Refused, and nothing written: the machine is exactly as it was. */
     output logic sst_engine_load_err,
 
-    /* The machine, stopped: the clock goes when the 6502 is in front
-     * of an instruction, and nothing else in it moves after that. */
-    /* Doing something, which is not the same as the machine being
-     * stopped: the soft CPU's registers come out before the clock goes
-     * and go back after it returns, and the debug port has to be this
-     * side's for all of it. */
     output logic sst_engine_busy,
     output logic sst_engine_freeze,
-    /* Whether the machine has a clock. It arrives from the host's
-     * clock domain and lands on two flops before anything acts on it.
-     * Cutting the clock is not instant and putting it back is not
-     * either; every wait below is on this synchronised copy. */
     input logic running,
 
-    /* The serializer owns every array while the machine is stopped:
-     * machine logic freezes wherever it was, and a write enable that
-     * froze high would otherwise re-fire into an array that kept its
-     * clock, every cycle, for the whole savestate. Benign on save --
-     * the same value lands on the same address -- and fatal on
-     * restore, where it would re-write stale bytes into memory just
-     * restored. This masks the machine side of every array port. */
+    /* sst_engine_arr_own masks the machine's side of the array ports.
+     * The machine's logic freezes wherever it was when its clock stops,
+     * and the arrays keep their clock, so a write enable that froze high
+     * would write again on every cycle. The mask falls one clk_sys cycle
+     * after sst_engine_freeze falls, which is several clk_74a cycles
+     * before the machine's clock returns. On a save, or on a load that
+     * fails its checks, a repeated write in those cycles stores the same
+     * value at the same address. On a restore it would write a stale
+     * value over restored memory, so sst_engine_hold_res is already high
+     * when the mask falls. It holds the 6502 in reset, which clears the
+     * 6502's write enable, and wiring.sv gates the XRAM write of the RW
+     * engine in regs.sv with it. */
     output logic sst_engine_arr_own,
 
-    /* Restore holds the 6502 and the VIA in reset from the first
-     * returned clock edge until the release, so the firmware can put
-     * back what no blob carries before the machine takes a cycle. */
     output logic sst_engine_hold_res,
     output logic sst_engine_dbg_halt,
     input logic dbg_halted,
 
-    /* Ready means the blob can be read; the word at rd_idx stands on
-     * sst_engine_rdata once sst_engine_rvalid is high, and holds until
-     * a different index is asked for. */
     output logic sst_engine_ready,
-    /* The index is data, and the toggle beside it is what says the data
-     * has stopped moving. Nothing here looks at rd_idx until three
-     * flops after that toggle changed -- a state machine that branched
-     * on the raw crossing could take a transition on a value made of
-     * bits from two different indices, which is a value that never
-     * existed on either side. */
+    /* rd_idx crosses from clk_74a with no synchronizer, and rd_t
+     * toggles beside it on every read the host makes from the blob
+     * window, including a repeat read of the same index. rd_idx is
+     * sampled into req_idx on the edge that moves the new toggle into
+     * idx_t3, two clk_sys edges after idx_t1 takes it, because a direct
+     * sample could mix bits from the old index and the new one. */
     input logic [17:0] rd_idx,
     input logic rd_t,
     output logic [31:0] sst_engine_rdata,
     output logic sst_engine_rvalid,
 
-    /* The staging store, where the host leaves a blob to be loaded. It
-     * is not the machine's -- it has its own clock and keeps it -- so
-     * this is a window onto the board rather than a bus master. A byte
-     * at a time, and it says when the byte is there. */
     output logic sst_engine_stage_pend,
     output logic [27:0] sst_engine_stage_addr,
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
-    /* Every array the machine keeps, reached directly. The bus above
-     * is machine logic and machine logic has no clock while a
-     * savestate is being made, so none of this can go through it. The
-     * arrays themselves keep their clock: their addresses come from
-     * logic that is standing still, so they do nothing until asked. */
     output logic [13:0] sst_engine_mem_addr,
     output logic [31:0] sst_engine_mem_wdata,
     output logic sst_engine_xram_we,
-    /* The 6502's RAM is off-chip on this board and answers when it is
-     * ready rather than the clock after, so it gets a select and a
-     * stall of its own. Its port is a byte wide, so a word costs four. */
     output logic sst_engine_sram_sel,
     output logic [15:0] sst_engine_sram_addr,
     output logic sst_engine_sram_we,
@@ -121,7 +65,6 @@ module sst_engine #(
     input logic [7:0] sram_rdata,
     input logic sram_stall,
 
-    /* The regs window, which answers combinationally. */
     output logic [7:0] sst_engine_regs_word,
     output logic sst_engine_regs_we,
     output logic [31:0] sst_engine_regs_wdata,
@@ -134,40 +77,28 @@ module sst_engine #(
     input logic [31:0] cell_rdata,
     input logic [31:0] xprog_rdata,
 
-    /* The soft CPU's memory, which is not on that bus. */
     output logic sst_engine_tcm_sel,
     output logic [14:0] sst_engine_tcm_addr,
     output logic sst_engine_tcm_we,
     output logic [31:0] sst_engine_tcm_wdata,
     input logic [31:0] tcm_rdata,
 
-    /* The flops: the machine's own, the 6502's and the VIA's. */
     output logic [1:0] sst_engine_st_sel,
     output logic [2:0] sst_engine_st_idx,
     input logic [31:0] st_rdata,
-    /* Written all at once, on the first edge the machine gets back.
-     * A jam spread over twelve edges would let the machine run through
-     * eleven of them, and the point of a restore is that it does not
-     * run at all until every register is its own again. */
     output logic sst_engine_st_jam,
-    /* The soft CPU's microsecond counter is in the machine's words but
-     * it is not a flop the jam can reach: it lives on the core's own
-     * half-rate clock, and the firmware reads it the moment it is let
-     * go. So it goes back on a level of its own, held from the last
-     * array written until the core resumes -- long enough for the
-     * slower clock, and over before any instruction can see the zero
-     * the reconfigure left. */
+    /* The soft CPU's mtime is written back on this level rather than
+     * on sst_engine_st_jam, because the soft CPU resumes in S_LD_DONE
+     * and the jam comes later, in S_LD_JAM. The level is held from
+     * S_LD_PUT_DONE through the register injection, which spans many
+     * clk_rv cycles, so mtime is written on a clk_rv edge before the
+     * soft CPU resumes. */
     output logic sst_engine_mtime_jam,
     output logic [31:0] sst_engine_jam_mach[4],
     output logic [31:0] sst_engine_jam_cpu[5],
     output logic [31:0] sst_engine_jam_via[7],
-    /* The regs window is half array and half flops; the flops go the
-     * same way as the rest, all at once when the clock is back. */
     output logic [31:0] sst_engine_jam_ria[12],
 
-    /* The soft CPU's registers, through its debug port. */
-    /* What the core reads back out of dmdata0 when a register is put
-     * in, and the release that starts it running again. */
     output logic [31:0] sst_engine_dbg_data0,
     output logic sst_engine_dbg_resume,
     output logic [31:0] sst_engine_dbg_instr,
@@ -178,20 +109,14 @@ module sst_engine #(
     input logic dbg_data0_wen
 );
 
-    /* The blob, in words. Nothing here is a size in bytes: the host
-     * reads words and every region is a whole number of them. */
     localparam int W_HDR = 16;
     localparam int W_STATE = 64;
     localparam int W_REGS = 256;
     localparam int W_SRAM = 16384;
     localparam int W_XRAM = 16384;
     localparam int W_CELLS = 15360;
-    /* The scanline program: two thousand entries of four words, which
-     * the render reads and nothing else could until now. */
+    /* The scanline program is 2048 entries of four words. */
     localparam int W_XPROG = 8192;
-    /* The soft CPU's memory, from the machine that instantiates it. A host
-     * file cannot reach core's tcm_pkg, and a second copy of the number is
-     * how a savestate silently stops matching the machine it came from. */
     localparam int W_TCM = TCM_WORDS;
     localparam int W_END = 4;
 
@@ -208,31 +133,12 @@ module sst_engine #(
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    /* Three, because the console queue is carried now. The version
-     * covers the whole restore contract and not only the map: the blob
-     * carries the firmware, so a change to what the firmware puts back
-     * on a wake invalidates an old blob exactly as much as a change to
-     * the layout does, and belongs here too. */
     localparam logic [31:0] SST_VERSION = 32'd3;
 
-    /* The blob, where the host left it: an offset into the staging
-     * store rather than an address in the machine, because the store is
-     * the board's and not the machine's. */
     localparam int A_STAGE_OFF = 32'h03F0_0000;
 
-    /* The one word of the regs window that cannot be read: word 16 is
-     * the console's outgoing byte and reading it takes it off the
-     * queue. A savestate that read it would eat a character every time
-     * one was made, so it is not read and not written. The queue itself
-     * is carried -- regs answers for it at words 20 to 24, which
-     * disturb nothing. */
     localparam int REGS_HOLE = 16;
 
-    /* The state page, in the order a restore has to put it back. What
-     * the machine is -- whether the 6502 is out of reset at all -- comes
-     * before what it holds, because registers jammed into a core that is
-     * still in reset are overwritten by the reset the next clock, so the
-     * machine's own words are the ones at zero. */
     localparam int ST_CPU = 4;
     localparam int ST_VIA = 9;
     localparam int ST_RV = 16;
@@ -240,20 +146,11 @@ module sst_engine #(
     localparam logic [1:0] SEL_CPU = 2'd1;
     localparam logic [1:0] SEL_VIA = 2'd2;
 
-    /* The soft CPU's state, once it has been asked for it: thirty-one
-     * registers and the program counter it will start from. */
+    /* rvreg[0] holds dpc, the program counter the core resumes from,
+     * and rvreg[1] to rvreg[31] hold x1 to x31. */
     localparam int RV_WORDS = 32;
     logic [31:0] rvreg[RV_WORDS];
-    /* The flops, held here until the machine has a clock to take them
-     * on. Four of the machine's own, five of the 6502's, seven of the
-     * VIA's. */
     logic [31:0] flopreg[ST_RV];
-    /* The regs window's flop half, in the window's own order: eight
-     * words of the shared file, the interrupt pair, the receive
-     * handshake and API pending, the console queue's pointers, and the
-     * stack pointer. The xstack guard is NOT here: its register lives
-     * in the window's array block on the unstopped clock, so a plain
-     * window write reaches it while the machine is frozen. */
     localparam int RIA_JAM = 12;
     logic [31:0] riareg[RIA_JAM];
     logic ria_flop;
@@ -263,9 +160,6 @@ module sst_engine #(
         if (off < 18'd8) ria_slot = 4'(off);
         else if (off == 18'd17) ria_slot = 4'd8;
         else if (off == 18'd18) ria_slot = 4'd9;
-        /* The console queue's pointers. Its sixteen bytes are an array
-         * on the memory clock and go back through the window with the
-         * xstack; only the read and write positions need the jam. */
         else if (off == 18'd20) ria_slot = 4'd10;
         else if (off == 18'd200) ria_slot = 4'd11;
         else begin
@@ -279,23 +173,23 @@ module sst_engine #(
     localparam logic [11:0] CSR_DPC = 12'h7B1;
     localparam logic [31:0] I_EBREAK = 32'h00100073;
 
-    /* csrw dmdata0, xN, which is csrrw with x0 for a destination: the
-     * register lands on the debug port and nothing is read back. */
+    /* This encodes csrw dmdata0, xN, which is csrrw with x0 as the
+     * destination. */
     function automatic logic [31:0] i_reg_out(input logic [4:0] n);
         return {CSR_DMDATA0, n, 3'b001, 5'd0, 7'b1110011};
     endfunction
-    /* csrr xN, dmdata0: what the engine put on the port lands in the
-     * register. csrrs with x0 for a source writes nothing back. */
+    /* This encodes csrr xN, dmdata0, which is csrrs with x0 as the
+     * source. The read returns the value on sst_engine_dbg_data0. */
     function automatic logic [31:0] i_reg_in(input logic [4:0] n);
         return {CSR_DMDATA0, 5'd0, 3'b010, n, 7'b1110011};
     endfunction
-    /* csrw csr, xN, which is csrrw with x0 for a destination. */
+    /* This encodes csrw csr, xN, which is csrrw with x0 as the
+     * destination. */
     function automatic logic [31:0] i_csr_write(input logic [11:0] csr,
                                                 input logic [4:0] n);
         return {csr, n, 3'b001, 5'd0, 7'b1110011};
     endfunction
-    /* csrr xN, csr, which is csrrs with x0 for a source: the CSR is
-     * read and not written. */
+    /* This encodes csrr xN, csr, which is csrrs with x0 as the source. */
     function automatic logic [31:0] i_csr_read(input logic [11:0] csr,
                                                input logic [4:0] n);
         return {csr, 5'd0, 3'b010, n, 7'b1110011};
@@ -338,19 +232,17 @@ module sst_engine #(
     } state_t;
     state_t state /*verilator public_flat_rd*/;
 
-    /* What the core last put on the debug port. Latched on the write
-     * enable, because the value only stands while that is asserted --
-     * by the time the ebreak says the instruction retired, the port is
-     * carrying nothing. */
+    /* data0_q captures dbg_data0 on dbg_data0_wen, because the value
+     * on dbg_data0 is valid only while the write enable is high and is
+     * gone by the time the ebreak is reported. */
     logic [31:0] data0_q;
 
-    /* The spill walks x1..x31 and then the program counter, which needs
-     * a register to travel through and uses the one just saved. */
+    /* The spill reads x1 to x31 before dpc, because dpc is read out
+     * through x31, which must already have been saved. */
     logic spill_dpc;
     logic [1:0] spill_step;
     logic [31:0] spill_instr;
 
-    /* A read in flight. */
     logic [17:0] hold_idx /*verilator public_flat_rd*/;
     logic [31:0] hold /*verilator public_flat_rd*/;
     logic hold_valid /*verilator public_flat_rd*/;
@@ -358,26 +250,19 @@ module sst_engine #(
     logic [23:0] acc;
     logic [17:0] off, dec_idx;
 
-    /* Both of these cross to the host's clock, so both are flops rather
-     * than the logic behind them. A comparator or an OR of state bits
-     * glitches while its inputs settle, and a synchroniser fed from a
-     * cone can latch a transient that was never a state the design was
-     * in -- which is what the Design Assistant means by data that is
-     * not correctly synchronised, as opposed to merely unsynchronised. */
+    /* ready_q, rvalid_q and done_q are flops because pocket_sst
+     * synchronizes them into clk_74a, and a synchronizer fed from a
+     * comparator or an OR of state bits can capture a glitch while
+     * those inputs settle. */
     logic ready_q, rvalid_q, done_q;
     always_comb begin
-        /* Not for the whole of a savestate. The soft CPU's registers
-         * come out through its debug port and go back the same way, and
-         * a core with no clock accepts no instructions -- so the clock
-         * is asked for only once they are out, and given back before
-         * they go in. In between there is nothing to run. */
         sst_engine_busy = state != S_IDLE;
         sst_engine_freeze = want_stop;
         sst_engine_arr_own = arr_own;
         sst_engine_hold_res = hold_res;
-        /* The halt request has to be away for a resume to take: the
-         * core treats a resume under a standing halt request as a halt.
-         * It drops for the resume states and stays down after. */
+        /* The halt request is low in the resume states and every state
+         * after them, because Hazard3 enters debug mode again at once
+         * if it resumes while a halt request is held. */
         sst_engine_dbg_halt = state != S_IDLE && state != S_RESUME
             && state != S_LD_DONE && state != S_LD_ACK
             && state != S_LD_JAM && state != S_LD_JAM2;
@@ -392,15 +277,10 @@ module sst_engine #(
             || state == S_SPILL_BRK || state == S_INJ_ARM
             || state == S_INJ_ISSUE || state == S_INJ_BRK_ARM
             || state == S_INJ_BRK;
-        /* The value stands on the port for as long as the instruction
-         * that reads it is in flight. */
         sst_engine_dbg_data0 = inj_val;
         sst_engine_dbg_resume = state == S_LD_DONE || state == S_RESUME;
     end
 
-    /* Where in its own array this word lives. There are no addresses
-     * here any more: each array has a port and an index of its own, so
-     * the only thing to work out is which one and how far in. */
     always_comb begin
         off = '0;
         dec_idx = ld_writing ? ld_idx : hold_idx;
@@ -412,21 +292,12 @@ module sst_engine #(
         else if (dec_idx >= 18'(B_REGS)) off = dec_idx - 18'(B_REGS);
     end
 
-    /* The decode is a flop, not a wire. Six eighteen-bit comparators
-     * and an adder stand between the index and the strobe, and the
-     * strobe goes on to pick a window in every memory the machine has;
-     * as one cone that is three nanoseconds past the clock. The engine
-     * has clocks to spare -- it is the slowest thing in the machine on
-     * purpose -- so it spends one letting the decode settle. */
     logic on_tcm;
     logic on_tcm_q;
     logic [17:0] off_q;
     logic [1:0] st_sel_q;
     logic [2:0] st_idx_q;
 
-    /* Which array, if any. The four with a port of their own are
-     * answered here; the regs window and the staging store still go
-     * through the machine's bus. */
     logic on_sram, on_xram, on_cell, on_xprog, on_regs;
     logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q, on_regs_q;
     logic ria_flop_q;
@@ -438,25 +309,23 @@ module sst_engine #(
         on_xprog = dec_idx >= 18'(B_XPROG) && dec_idx < 18'(B_TCM);
         on_arr_q = on_xram_q || on_cell_q || on_xprog_q;
 
-        /* The strobe drops for one cycle between bytes: the RAM
-         * controller latches its done flag until the strobe goes away,
-         * so a strobe held across a byte boundary reads the same byte
-         * four times -- and reads it timing-dependently, which is how
-         * the checksum pass and the host's copy came to disagree about
-         * the same frozen memory. */
+        /* The select drops for one cycle between bytes because it
+         * drives pocket_sram's b_stb, and pocket_sram holds b_done until
+         * b_stb drops. If the select were held, sram_stall would stay
+         * low after the first byte and no new access would be made, so
+         * a read would take the first byte four times and a write would
+         * store only the first byte. */
         sst_engine_sram_sel = on_sram_q && !sram_gap
             && (state == S_READ || state == S_LD_PUT);
         sst_engine_regs_word = off_q[7:0];
-        /* Only the array half is written here. The flop half cannot be
-         * written at all while the machine has no clock, so it waits
-         * for the jam. */
+        /* Words that regs.sv keeps in flops on the machine's clock are
+         * not written here, because that clock is stopped, so they are
+         * held in riareg for the jam. */
         sst_engine_regs_we = on_regs_q && state == S_LD_PUT && !ria_flop_q;
         sst_engine_regs_wdata = ld_word;
         sst_engine_sram_addr = 16'({off_q, 2'd0} + {18'd0, byte_n});
         sst_engine_sram_we = on_sram_q && state == S_LD_PUT;
         sst_engine_sram_wdata = ld_word[31 - {byte_n, 3'd0} -: 8];
-        /* SRAM is a byte port, so its word costs four; the rest take a
-         * whole word at a time. */
         sst_engine_mem_addr = on_xprog_q ? 14'(off_q >> 2) : off_q[13:0];
         sst_engine_mem_wdata = ld_word;
         sst_engine_xram_we = on_xram_q && state == S_LD_PUT;
@@ -479,10 +348,6 @@ module sst_engine #(
             + {26'd0, byte_n};
     end
 
-    /* The flops, which answer combinationally and need no access. Five
-     * words of 6502 and seven of VIA, and the soft CPU's registers after
-     * them -- those come from and go back through the debug port, so
-     * they only pass through here. */
     logic [31:0] state_word;
     logic on_flops;
     logic [17:0] st_off;
@@ -542,13 +407,9 @@ module sst_engine #(
         endcase
     end
 
-    /* Everything that is not a memory answers at once. */
     logic direct;
     logic [31:0] direct_word;
     always_comb begin
-        /* Everything that is not an array: the header, the flops and
-         * the trailer, plus the one word of the regs window that must
-         * not be read. */
         direct = !on_sram && !on_xram && !on_cell && !on_xprog
             && !on_regs && !on_tcm;
         direct_word = hold_idx < 18'(B_STATE) ? hdr_word
@@ -559,12 +420,9 @@ module sst_engine #(
     logic summing /*verilator public_flat_rd*/;
     logic [17:0] sum_idx /*verilator public_flat_rd*/;
 
-    /* A load walks the blob in order rather than being asked for words:
-     * four bytes out of the store, one word into whatever the index
-     * says, and on to the next. */
-    /* The inject walks the program counter first and the registers
-     * after, because the counter needs one to travel through and
-     * nothing may disturb a register once it is set. */
+    /* The injection writes dpc before x1 to x31, because dpc is loaded
+     * through x31, and x31 then has to be written again with its saved
+     * value. */
     logic [31:0] inj_val;
     logic inj_dpc;
     logic [1:0] inj_step;
@@ -572,27 +430,26 @@ module sst_engine #(
     logic [31:0] ld_word;
     logic ld_writing;
 
-    /* The blob is read twice: once to see whether it is one, and once
-     * to put it in. Nothing is written until the whole of it has been
-     * added up and the trailer agrees, because a restore that got
-     * halfway and found out is a machine that no longer exists. */
     logic want_stop, hold_res, arr_own, sram_gap;
     (* preserve *) logic running_s1, running_s2;
+    /* A load reads and checks the whole blob before it writes any of
+     * it, because a blob found bad partway through writing would leave
+     * the machine half overwritten. */
     logic ld_verify, ld_bad;
-    /* Where the blob begins inside what the host handed back, in
-     * words: zero for a naked blob, 149 for the header measured off a
-     * real device, and anything up to a page of tolerance for an OS
-     * that grows its wrapper. */
+    /* SCAN_CAP is the highest word offset searched for the blob. The
+     * OS header in front of the blob measures 596 bytes on a Pocket,
+     * which puts the blob at word 149, and 1023 words allows a header
+     * of about 4 KB. */
     localparam logic [9:0] SCAN_CAP = 10'd1023;
     logic [9:0] ld_off;
     logic ld_scan;
     logic [31:0] vsum /*verilator public_flat_rd*/;
-    /* Which word refused the blob, kept until the next load: the one
-     * question hardware bring-up will ask a refusal is "where". */
     logic [17:0] bad_idx /*verilator public_flat_rd*/;
     logic [31:0] bad_word /*verilator public_flat_rd*/;
 
-    /* Named _s1 so the platform's standing rule cuts the arrival. */
+    /* The first stages of these synchronizers are named _s1 so that
+     * they fall under the false path that pocket.sdc sets on every
+     * register whose name ends in _s1. */
     (* preserve *) logic save_s1, save_s2;
     logic save_req;
     always_comb save_req = save_s2;
@@ -685,20 +542,15 @@ module sst_engine #(
             idx_t1 <= rd_t;
             idx_t2 <= idx_t1;
             idx_t3 <= idx_t2;
-            /* A request is a thing that arrived, not a comparison
-             * that happens to be true: with nothing held yet, asking
-             * "is the held word the wrong one" is true of an index
-             * nobody has asked for. */
             if (req_new) begin
                 req_idx <= rd_idx;
                 req_pending <= 1'b1;
             end
             running_s1 <= running;
             running_s2 <= running_s1;
-            /* The serializer owns the arrays for exactly the span the
-             * machine has no clock. Not a cycle earlier: until the gate
-             * has actually closed the machine is still running, and
-             * masking a live write would drop it. */
+            /* arr_own rises only once running_s2 shows that the clock
+             * gate has closed, because the machine runs until then and
+             * masking its ports earlier would drop a live write. */
             arr_own <= want_stop && !running_s2;
             if (dbg_data0_wen) data0_q <= dbg_data0;
             case (state)
@@ -716,11 +568,6 @@ module sst_engine #(
                     else if (load_req) state <= S_LD_FREEZE;
                 end
 
-                /* Both halves of the machine, in either order; the
-                 * blob is not touched until both have stopped. */
-                /* The soft CPU first, with the machine still running:
-                 * its registers only come out through a port that
-                 * needs it clocked. */
                 S_FREEZE: state <= S_HALT;
                 S_HALT: begin
                     if (dbg_halted) begin
@@ -729,14 +576,15 @@ module sst_engine #(
                     end
                 end
 
-                /* One register per pass: put it on the port, then an
-                 * ebreak, which is the only thing that says the
-                 * instruction before it retired.
+                /* Each injected sequence ends with an ebreak, because
+                 * dbg_instr_caught_ebreak is how Hazard3 signals that the
+                 * sequence has finished.
                  *
-                 * Ready falling is what says the core took it. Letting
-                 * go the moment ready is seen instead drops every other
-                 * instruction, because the core runs on a slower clock
-                 * than this and half these cycles are not its. */
+                 * An instruction is held valid until dbg_instr_rdy
+                 * falls, which shows that the core has taken it. The
+                 * core samples the port only on clk_rv edges, at half
+                 * the rate of clk_sys, so dropping the valid as soon as
+                 * ready is high can miss the edge that takes it. */
                 S_SPILL_ARM: if (dbg_instr_rdy) state <= S_SPILL_ISSUE;
                 S_SPILL_ISSUE: if (!dbg_instr_rdy) state <= S_SPILL_TAKE;
                 S_SPILL_TAKE: begin
@@ -748,8 +596,6 @@ module sst_engine #(
                 S_SPILL_WAIT:
                 if (dbg_ebreak) begin
                     if (spill_step == 2'd0 && spill_dpc) begin
-                        /* The program counter travels through the
-                         * register that was just saved. */
                         spill_step <= 2'd1;
                         spill_instr <= i_reg_out(5'd31);
                         state <= S_SPILL_ARM;
@@ -776,8 +622,6 @@ module sst_engine #(
                     end
                 end
 
-                /* A load: stop the machine, then walk the blob out of
-                 * the store and into the machine a word at a time. */
                 S_LD_FREEZE: state <= S_LD_HALT;
                 S_LD_HALT:
                 if (dbg_halted && !running_s2) begin
@@ -792,18 +636,12 @@ module sst_engine #(
                     state <= S_LD_FETCH;
                 end else if (dbg_halted) want_stop <= 1'b1;
 
-                /* The gap cycle: the store's stall is a registered
-                 * answer about the LAST address, so the first cycle
-                 * after this side moves the address must not be
-                 * believed -- the stall has not heard the question
-                 * yet, and the byte standing there belongs to the
-                 * address before. */
-                /* The byte is taken in the same state that holds its
-                 * address out. The platform picks the byte lane off the
-                 * live address, and the moment this state is left the
-                 * address mux falls back to the machine's stale one --
-                 * a capture one state later reads the right halfword
-                 * through the wrong lane. */
+                /* The byte is captured in the state that drives its
+                 * address, because pocket_core picks the byte lane from
+                 * the live stage address, and once S_LD_FETCH is left,
+                 * wiring's address mux falls back to the soft CPU's last
+                 * bus address. A capture one state later could read the
+                 * right halfword through the wrong lane. */
                 S_LD_FETCH:
                 if (!stage_stall) begin
                     acc <= {acc[15:0], stage_rdata};
@@ -815,15 +653,10 @@ module sst_engine #(
                     end else byte_n <= byte_n + 2'd1;
                 end
 
-                /* The host does not hand the blob back naked: the file
-                 * it kept carries the OS's own header in front and a
-                 * thumbnail behind, measured off a real device at 596
-                 * and 52764 bytes with the blob whole in between. So
-                 * the blob is found rather than assumed: slide a word
-                 * at a time until three words in a row read magic,
-                 * version and length, and verify the whole of it from
-                 * there. Nothing shorter is trusted -- one magic word
-                 * could sit in a thumbnail. */
+                /* The Pocket OS writes back the whole file it saved,
+                 * which has the OS's header in front of the blob and a
+                 * thumbnail after it, so the blob's word offset from
+                 * A_STAGE_OFF is searched for rather than assumed. */
                 S_LD_SCAN:
                 if ((ld_idx == 18'd0 && ld_word != SST_MAGIC)
                     || (ld_idx == 18'd1 && ld_word != SST_VERSION)
@@ -846,9 +679,6 @@ module sst_engine #(
                     state <= S_LD_FETCH;
                 end
 
-                /* The same running sum the save wrote the blob with, so
-                 * a blob served out of order fails here rather than
-                 * being taken for the machine it is not. */
                 S_LD_CHK: begin
                     if (ld_idx < 18'(B_END))
                         vsum <= {vsum[30:0], vsum[31]} + ld_word;
@@ -863,9 +693,6 @@ module sst_engine #(
                             && ld_word != SST_END_MAGIC))
                         state <= S_LD_BAD;
                     else if (ld_idx == 18'(B_END + 2)) begin
-                        /* Whole and consistent. The state page first,
-                         * because the machine's own flops decide what
-                         * the rest of it means. */
                         ld_idx <= 18'(B_STATE);
                         ld_verify <= 1'b0;
                         ld_writing <= 1'b1;
@@ -876,15 +703,10 @@ module sst_engine #(
                     end
                 end
 
-                /* Not a blob this machine can use. Nothing has been
-                 * written, so letting the soft CPU go puts it back
-                 * exactly where the halt found it. */
-                /* Nothing was written; the machine gets its clock back
-                 * and the core resumes exactly where the halt found it.
-                 * The stop request MUST clear here: the resumed
-                 * firmware's first bus access needs the machine's glue
-                 * clocked, and it is the only thing that can clear the
-                 * load request this state's exit waits on. */
+                /* want_stop is cleared here because the resumed firmware
+                 * clears the load request that S_LD_ACK waits on, and it
+                 * does that with a write on the soft CPU's external bus,
+                 * which completes only while clk_mach runs. */
                 S_LD_BAD: begin
                     ld_bad <= 1'b1;
                     want_stop <= 1'b0;
@@ -895,17 +717,15 @@ module sst_engine #(
                 end
 
                 S_LD_PUT: begin
-                    /* The soft CPU's registers are not memory: they are
-                     * kept here until the walk is finished and then put
-                     * back through the debug port. */
                     if (ld_idx >= 18'(B_STATE + ST_RV)
                         && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
                         rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
                     if (on_flops)
                         flopreg[4'(ld_idx - 18'(B_STATE))] <= ld_word;
                     if (on_regs && ria_flop) riareg[ria_slot] <= ld_word;
-                    /* The TCM write is held out for four cycles the
-                     * same way, so the slower clock cannot miss it. */
+                    /* The TCM write is held for four clk_sys cycles,
+                     * which is two clk_rv cycles, so a clk_rv edge
+                     * takes it. */
                     if (on_tcm_q) begin
                         byte_n <= byte_n + 2'd1;
                         if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
@@ -932,17 +752,12 @@ module sst_engine #(
                     end
                 end
 
-                /* Every array is in. What is left cannot be done with
-                 * the machine stopped: the soft CPU's registers go back
-                 * through a port that needs its core answering, and the
-                 * flops need an edge to take their values on. So the
-                 * reset hold goes up while everything is still frozen
-                 * -- it is asynchronous and needs no clock -- and then
-                 * the clock comes back over a 6502 that is already in
-                 * reset, so no phantom cycle can touch a byte of what
-                 * was just written. The registers go in next, x31 first
-                 * and then x1 upward, the program counter through the
-                 * register put right along with the rest. */
+                /* hold_res rises on the same edge that want_stop falls,
+                 * while the machine is still stopped, because it drives
+                 * the asynchronous resets of the 6502 and the VIA and
+                 * needs no clock. The 6502 is therefore in reset when
+                 * the clock returns, so it takes no cycle that could
+                 * write over the restored memory. */
                 S_LD_PUT_DONE: begin
                     hold_res <= 1'b1;
                     want_stop <= 1'b0;
@@ -989,40 +804,29 @@ module sst_engine #(
                     end
                 end
 
-                /* Registers in; let the core go. It continues the
-                 * blob's firmware mid-instruction, sees the restored
-                 * bit, and puts back what no blob carries -- with the
-                 * 6502 still held in reset underneath it. */
                 S_LD_DONE: if (!dbg_halted) state <= S_LD_ACK;
 
-                /* The save's way out. Dropping the halt request is not
-                 * a resume -- the core sits halted until it is told to
-                 * go -- and the machine's clock is already on its way
-                 * back, so the two halves restart together. Found by
-                 * reading, not by the suite: the old test's assertions
-                 * were all satisfiable by a counter that never moved
-                 * again. */
+                /* Hazard3 stays halted when its halt request drops and
+                 * leaves debug mode only on a resume request, so
+                 * S_RESUME asserts sst_engine_dbg_resume. */
                 S_RESUME: if (!dbg_halted) state <= S_IDLE;
 
-                /* The firmware's release: clearing the restored bit is
-                 * the last thing its fixups do, so everything write-only
-                 * is back before the 6502 takes a cycle. Leaves on the
-                 * synchronised copy of the same signal it arrived on. A
-                 * refused load skips the jam -- nothing was written and
-                 * nothing may be. */
+                /* wake_task in the firmware clears the load request as
+                 * its last step, after it has put back the state that
+                 * the blob does not contain, so that state is in place
+                 * before S_LD_JAM clears hold_res. */
                 S_LD_ACK:
                 if (!load_req) state <= ld_bad ? S_IDLE : S_LD_JAM;
 
-                /* Two cycles, one jam each, and the order matters. The
-                 * first writes resb -- a plain flop on the machine
-                 * clock -- and drops the reset hold; the second lands
-                 * on the 6502 and the VIA with their asynchronous
-                 * resets already released, which is the only way to jam
-                 * a flop whose reset would otherwise dominate. Two
-                 * cycles is also one whole period of the soft CPU's
-                 * half-rate clock, so the one jam consumer over there
-                 * cannot miss the pulse. The flops that see both cycles
-                 * take the same words twice and are none the worse. */
+                /* The jam is held for two cycles. In the first, resb is
+                 * written and hold_res is cleared. In the second, the
+                 * 6502 and the VIA take their words only if the restored
+                 * resb is 1, because their asynchronous resets stay
+                 * asserted while resb is 0, and an asynchronous reset
+                 * takes priority over the jam. Two clk_sys cycles are
+                 * also one clk_rv period, so the soft CPU's phi2 register
+                 * takes the jam too. Flops that take the jam in both
+                 * cycles take the same words twice, which is harmless. */
                 S_LD_JAM: begin
                     hold_res <= 1'b0;
                     state <= S_LD_JAM2;
@@ -1034,16 +838,11 @@ module sst_engine #(
                         want_stop <= 1'b0;
                         state <= S_RESUME;
                     end
-                    /* The blob is added up before the host is told it
-                     * can be read, by walking it here. Adding it up as
-                     * the host reads instead would only work if the
-                     * host read every word once and in order, and
-                     * nothing says it does -- a reader entitled to ask
-                     * for any address would produce a trailer that
-                     * disagreed with the blob it had just taken. */
+                    /* The whole blob is summed before ready_q rises,
+                     * because the host may read words in any order and
+                     * more than once, and a sum taken as the host reads
+                     * would not match the blob it received. */
                     else if (summing && running_s2) begin
-                        /* Waiting for the clock to go before reading a
-                         * word of it. */
                     end else if (summing) begin
                         if (hold_valid) begin
                             sum <= {sum[30:0], sum[31]} + hold;
@@ -1073,28 +872,24 @@ module sst_engine #(
                     end
                 end
 
-                /* One clock for the decode to catch up with the index
-                 * that was just asked for. */
+                /* S_READ_ARM waits one clock because off_q and the
+                 * on_*_q flags are registered from hold_idx, which was
+                 * set on the clock before. */
                 S_READ_ARM: state <= S_READ;
 
-                /* Pend, wait for the window, take one strobe, and read
-                 * the answer the clock after. */
                 S_READ:
                 if (direct) begin
                     hold <= direct_word;
                     hold_valid <= 1'b1;
                     state <= S_READY;
                 end else if (on_arr_q) begin
-                    /* Address out now, word back the clock after --
-                     * every one of these arrays registers its read. */
+                    /* xram, mode0 and prog register their reads on
+                     * clk_sys, so the word is taken one clock later in
+                     * S_READ_WAIT. */
                     state <= S_READ_WAIT;
                 end else if (on_regs_q) begin
                     state <= S_READ_WAIT;
                 end else if (on_sram_q) begin
-                    /* Each byte captured exactly once, the whole word
-                     * finished here: a fourth byte that also passed
-                     * through acc came out duplicated, with the first
-                     * byte shifted off the far end. */
                     if (sram_gap) sram_gap <= 1'b0;
                     else if (!sram_stall) begin
                         if (byte_n == 2'd3) begin
@@ -1110,12 +905,12 @@ module sst_engine #(
                         end
                     end
                 end else if (on_tcm_q) begin
-                    /* The soft CPU's memory is on the soft CPU's own
-                     * clock, half this one and rising with it. The
-                     * address stands for four of these -- two of its
-                     * own -- before the word is believed, so the read
-                     * register has loaded from the address that was
-                     * issued and not the one being issued. */
+                    /* The TCM is clocked by clk_rv, which runs at half
+                     * the rate of clk_sys and rises with it. The address
+                     * is held for at least four clk_sys cycles, which is
+                     * two clk_rv cycles, before the word is taken, so
+                     * the TCM's registered read has loaded from this
+                     * address and not from the one before it. */
                     byte_n <= byte_n + 2'd1;
                     if (byte_n == 2'd3) state <= S_READ_WAIT;
                 end

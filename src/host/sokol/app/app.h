@@ -44,11 +44,12 @@ void app_set_break(bool (*asked)(void), void (*leave)(void));
 
 /* Boot a .rp6502, true on success. The path is host UTF-8 and is converted to
  * the guest's OEM code page here, so a platform passes what the OS handed it; a
- * spelling the code page cannot hold never boots, and a platform that has
- * another spelling (the Windows 8.3 name, say) should substitute it first.
- * Ignored while a DAP client owns the machine. A failed load leaves the machine
- * stopped, because rom_load streams records into live RAM before it can fail,
- * as on hardware where a failed LOAD leaves the CPU stopped in the monitor. */
+ * path with a character that has no byte in the code page never boots, and a
+ * platform that has another name for the file, such as the Windows 8.3 name,
+ * should substitute it first. It returns false without booting while a DAP
+ * client controls the machine. A failed load leaves the machine stopped,
+ * because rom_load streams records into live RAM before it can fail, as on
+ * hardware where a failed LOAD leaves the CPU stopped in the monitor. */
 bool app_boot_rom(const char *path);
 
 uint64_t app_machine_ns(void);

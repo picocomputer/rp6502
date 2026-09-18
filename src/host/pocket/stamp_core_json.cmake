@@ -1,5 +1,3 @@
-# The Pocket UI prints "Version " itself, so this takes the bare form that
-# version.cmake's stamp script decides. Analogue caps the field at 31 chars.
 include("${STAMP_SCRIPT}")
 set(_ver "${_stamp_bare}")
 string(LENGTH "${_ver}" _len)

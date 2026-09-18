@@ -74,11 +74,6 @@ static void ria_syscall(uint8_t op)
     }
 }
 
-bool ria_active(void)
-{
-    return false;
-}
-
 static uint8_t rw_read(int which)
 {
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);

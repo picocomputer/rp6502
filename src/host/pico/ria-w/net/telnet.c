@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
 #include "core/sys/debug_log.h"
@@ -37,7 +36,6 @@
 #define TEL_TTYPE_IS 0
 #define TEL_TTYPE_SEND 1
 
-// Tracked options — indexed into us[]/him[] state arrays.
 enum
 {
     TEL_IDX_BINARY,
@@ -50,7 +48,6 @@ enum
 static const uint8_t tel_opt_codes[TEL_OPT_COUNT] = {
     TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE, TEL_OPT_NAWS};
 
-// RFC 1143 Q-method per-option states.
 typedef enum
 {
     tel_q_no,
@@ -78,9 +75,8 @@ typedef struct
     tel_rx_state_t rx_state;
     uint8_t sb_buf[48];
     uint8_t sb_len;
-    uint8_t us[TEL_OPT_COUNT];  // our side (WILL/WONT)
-    uint8_t him[TEL_OPT_COUNT]; // remote side (DO/DONT)
-    // Retry bitmaps — one bit per option, at most one of the four set per opt.
+    uint8_t us[TEL_OPT_COUNT];
+    uint8_t him[TEL_OPT_COUNT];
     uint8_t pending_will;
     uint8_t pending_wont;
     uint8_t pending_do;
@@ -107,19 +103,17 @@ static int tel_opt_idx(uint8_t code)
     return -1;
 }
 
-// Policy: which options we accept when the peer asks us to enable.
 static bool tel_accept_us(const tel_conn_t *tc, int idx)
 {
     if (idx == TEL_IDX_ECHO)
-        return tc->is_server; // terminal must not echo; only server echoes
+        return tc->is_server;
     return idx == TEL_IDX_BINARY || idx == TEL_IDX_SGA || idx == TEL_IDX_TTYPE;
 }
 
-// Policy: which options we accept when the peer offers to enable.
 static bool tel_accept_him(const tel_conn_t *tc, int idx)
 {
     if (idx == TEL_IDX_NAWS)
-        return tc->is_server; // only the console server consumes client size
+        return tc->is_server;
     return idx == TEL_IDX_BINARY || idx == TEL_IDX_ECHO || idx == TEL_IDX_SGA;
 }
 
@@ -129,8 +123,6 @@ static bool tel_raw_send(int desc, uint8_t cmd, uint8_t opt)
     return net_tx_all(desc, buf, 3);
 }
 
-// Atomic IAC triple send. Clears any earlier pending command for this option,
-// then sets the appropriate pending bit on failure.
 static void tel_q_send(int desc, tel_conn_t *tc, uint8_t cmd, int idx)
 {
     uint8_t bit = (uint8_t)(1u << idx);
@@ -157,7 +149,6 @@ static void tel_q_send(int desc, tel_conn_t *tc, uint8_t cmd, int idx)
     }
 }
 
-// Retry any commands whose previous atomic send failed.
 static void tel_q_flush(int desc, tel_conn_t *tc)
 {
     uint8_t any = tc->pending_will | tc->pending_wont |
@@ -178,7 +169,6 @@ static void tel_q_flush(int desc, tel_conn_t *tc)
     }
 }
 
-// RFC 1143: peer sent WILL opt — drives our view of him[].
 static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
 {
     switch (tc->him[idx])
@@ -197,10 +187,10 @@ static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
     case tel_q_yes:
         break;
     case tel_q_wantno:
-        tc->him[idx] = tel_q_no; // error: DONT answered by WILL
+        tc->him[idx] = tel_q_no;
         break;
     case tel_q_wantno_op:
-        tc->him[idx] = tel_q_yes; // error: DONT answered by WILL
+        tc->him[idx] = tel_q_yes;
         break;
     case tel_q_wantyes:
         tc->him[idx] = tel_q_yes;
@@ -212,7 +202,6 @@ static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-// RFC 1143: peer sent WONT opt.
 static void tel_q_recv_wont(int desc, tel_conn_t *tc, int idx)
 {
     switch (tc->him[idx])
@@ -237,7 +226,6 @@ static void tel_q_recv_wont(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-// RFC 1143: peer sent DO opt — drives us[].
 static void tel_q_recv_do(int desc, tel_conn_t *tc, int idx)
 {
     switch (tc->us[idx])
@@ -256,10 +244,10 @@ static void tel_q_recv_do(int desc, tel_conn_t *tc, int idx)
     case tel_q_yes:
         break;
     case tel_q_wantno:
-        tc->us[idx] = tel_q_no; // error: WONT answered by DO
+        tc->us[idx] = tel_q_no;
         break;
     case tel_q_wantno_op:
-        tc->us[idx] = tel_q_yes; // error
+        tc->us[idx] = tel_q_yes;
         break;
     case tel_q_wantyes:
         tc->us[idx] = tel_q_yes;
@@ -271,7 +259,6 @@ static void tel_q_recv_do(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-// RFC 1143: peer sent DONT opt.
 static void tel_q_recv_dont(int desc, tel_conn_t *tc, int idx)
 {
     switch (tc->us[idx])
@@ -296,15 +283,10 @@ static void tel_q_recv_dont(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-// Respond to SB TTYPE SEND from the peer with our configured terminal
-// type. Only the outbound (client/modem) path sets tc->ttype; in server
-// mode tc->ttype is NULL and the block is skipped.
 static void tel_handle_sb(int desc, tel_conn_t *tc)
 {
     if (tc->sb_len < 1)
         return;
-    // NAWS: width then height, each 16-bit big-endian (RFC 1073). The SB
-    // collector already un-escaped IAC IAC, so sb_buf holds true bytes.
     if (tc->sb_buf[0] == TEL_OPT_NAWS && tc->sb_len >= 5)
     {
         tc->naws_w = (uint16_t)((tc->sb_buf[1] << 8) | tc->sb_buf[2]);
@@ -330,14 +312,11 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
         pos += ttype_len;
         buf[pos++] = (char)TEL_IAC;
         buf[pos++] = (char)TEL_SE;
-        // Atomic: on failure the peer can resend TTYPE SEND.
         if (net_tx_all(desc, buf, pos))
             RP6502_LOG(telnet, DEBUG, "sent TTYPE IS %s", tc->ttype);
     }
 }
 
-// Dispatch one received negotiation byte. idx<0 for unknown options: respond
-// with DONT/WONT without tracking state (peer can resend if lost).
 static void tel_dispatch_neg(int desc, tel_conn_t *tc, uint8_t cmd, uint8_t opt)
 {
     int idx = tel_opt_idx(opt);
@@ -481,11 +460,6 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
     }
 }
 
-// -- Telnet protocol API --
-
-// Decode up to `cap` bytes from the wire into `out`, driving the IAC state
-// machine. Shared by telnet_rx and the console-server drain path. Also opportunistic-
-// ally retries any failed-to-send negotiation commands.
 static uint16_t tel_decode(int desc, char *out, uint16_t cap)
 {
     tel_conn_t *tc = &tel_conns[desc];
@@ -514,8 +488,6 @@ uint16_t telnet_rx(int desc, char *buf, uint16_t len)
     return tel_decode(desc, buf, len);
 }
 
-// Hand back a fresh NAWS window size, consuming the pending flag. False
-// when nothing new arrived since the last call.
 bool telnet_get_naws(int desc, uint16_t *w, uint16_t *h)
 {
     tel_conn_t *tc = &tel_conns[desc];
@@ -527,17 +499,12 @@ bool telnet_get_naws(int desc, uint16_t *w, uint16_t *h)
     return true;
 }
 
-// Compute the wire size of a source byte during NVT TX encoding.
-// For CR in NVT mode, caller passes the next source byte (or -1 at end
-// of buffer) so we can distinguish CR-LF (1 byte) from bare CR-NUL (2).
 static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
 {
     if (byte == (uint8_t)TEL_IAC)
         return 2;
     if (byte == '\r' && !binary_tx && next >= 0 && next != '\n')
         return 2; // bare CR -> CR NUL
-    // next==-1 (end of buffer) counts as 1: a companion NUL, if needed,
-    // is accounted for against the next call's first byte.
     return 1;
 }
 
@@ -651,7 +618,6 @@ void telnet_close(int desc)
     tel_reset(desc);
 }
 
-// Local-initiated: ask to enable our side of this option.
 static void tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
 {
     if (tc->us[idx] == tel_q_no)
@@ -661,7 +627,6 @@ static void tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-// Local-initiated: ask to enable peer side of this option.
 static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
 {
     if (tc->him[idx] == tel_q_no)
@@ -680,13 +645,11 @@ void telnet_negotiate(int desc, bool telnet_mode, const char *ttype)
 
     tc->is_server = false;
     tc->ttype = ttype;
-    // Order matches the pre-refactor code: DO then WILL per option. Some
-    // peers (Synchronet) key initial behavior off the sequence.
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_BINARY); // DO BINARY
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_BINARY);  // WILL BINARY
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);    // DO SGA
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);     // WILL SGA
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_TTYPE);   // WILL TTYPE
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_BINARY);
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_BINARY);
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_TTYPE);
     RP6502_LOG(telnet, DEBUG, "sent initial negotiation");
 }
 
@@ -696,10 +659,10 @@ static void tel_negotiate_server(int desc)
     tc->telnet_mode = true;
     tc->is_server = true;
     tc->ttype = NULL;
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);  // DO SGA
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);  // WILL ECHO
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);   // WILL SGA
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_NAWS); // DO NAWS
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_NAWS);
     RP6502_LOG(telnet, DEBUG, "server negotiation sent");
 }
 
@@ -716,8 +679,6 @@ void telnet_listen_close(uint16_t port)
 bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
                 void (*on_close)(int))
 {
-    // Modem-emulator role: the retro machine is always the terminal, even
-    // when answering a call. Use client-side negotiation.
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
         return false;
@@ -725,8 +686,6 @@ bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
     return true;
 }
 
-// Sibling to telnet_accept, but with server-side negotiation — the retro
-// machine is hosting (console server role).
 bool telnet_accept_server(int desc, uint16_t port, void (*on_close)(int))
 {
     tel_reset(desc);

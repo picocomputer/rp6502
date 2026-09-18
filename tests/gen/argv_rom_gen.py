@@ -2,22 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# What did the machine say this program is called?
-#
-# argv[0] is not the program's own idea of anything: the loader puts it
-# there, and on the Pocket it can only come from asking the host what its
-# ROM slot is bound to. So printing it back is how a test sees whether
-# that ask worked, from the one side that cannot lie about it.
-#
-# It exists because the ask did not work. On hardware the host answered
-# with the right path every time and the firmware kept one answer in ten
-# -- Get File's response landed in the window, and the flag the firmware
-# trusted to say a response had landed stayed clear. A wake compares the
-# name it is running against the name the host reports, so an answer
-# thrown away there is a wake that restages a ROM it already holds.
-#
-# Empty brackets are the failure. A path between them is the fix.
 
 import argparse
 
@@ -26,14 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rp6502_script  # noqa: E402
-from rp6502_asm import XSTACK, Asm, putc, putnib, puthex
+from rp6502_asm import OP_ARGV, XSTACK, Asm, putc, putnib, puthex
 from rp6502_rom import image
 
-# op 0x08: argv onto the xstack, its byte count back in AX.
-OP_ARGV = 0x08
-
-# argv's strings are NUL-separated in the buffer, and a separator has to
-# be seen to be counted.
 BAR = ord("|")
 
 
@@ -46,9 +25,6 @@ def prog():
     p.say("argv[")
     p.call(OP_ARGV)
 
-    # The count comes back in AX. argv is smaller than a page here, so
-    # the low byte is the whole of it; a high byte that is not zero would
-    # mean something has gone wrong well before this ROM can say so.
     p.tax()
     p.beq("done")
     p.symbol("emit")
@@ -67,7 +43,6 @@ def prog():
 
 
 def drive(emu, rom):
-    """On a host that knows the path, the brackets are not empty."""
     def body(e):
         e.cmd('wait ".rp6502|"')
     return rp6502_script.drive(emu, rom, body)

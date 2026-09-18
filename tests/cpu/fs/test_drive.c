@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The drive backings beyond the plain host filesystem, exercised on the host:
- *   - installed ROMs on the null drive ":" (--rom): a .rp6502 reached as ":name",
- *     open/load only — resolved for boot/exec and openable read-only, separate
- *     from the filesystem, but never the cwd and never enumerated or stat'd.
- *   - the filesystem itself (no chroot): a relative path resolves the process
- *     cwd, an absolute one is the OS root, and ".." walks the real tree.
  */
 
 #include "core/api/dir.h"
@@ -31,10 +24,8 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the cwd, as the drive spells it */
+static char g_dir[256];
 
-/* Setup goes through the drive, because that is now the only way in: these
- * are the backend's own slots, called the way core/api/dir.c calls them. */
 static bool drive_chdir_to(const char *path)
 {
     api_errno err;
@@ -61,7 +52,6 @@ static bool fresh(void)
     std_stop();
     if (!drive_chdir_to(dir))
         return false;
-    /* g_dir mirrors the drive's own getcwd, so it holds on any host. */
     return drive_cwd(g_dir, sizeof(g_dir));
 }
 
@@ -82,60 +72,39 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
 }
 
 
-/* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
- * firmware, ONLY the boot/exec loader resolves it (rom_alias_resolve + rom_load);
- * a 6502 open(":name") is not special — it goes to the filesystem and fails.
- * Installs are separate from it (a same-named host file is untouched). */
 UTEST(drive, rom_resolve_and_load)
 {
     ASSERT_TRUE(fresh());
 
-    /* A real host file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" -> TEST_FIXTURE */
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE));
 
-    /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
     char second[TEST_PATH_MAX];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
     ASSERT_TRUE(rom_alias_insert(second));
 
-    /* The boot/exec loader resolves ":name" to the backing file — both installs,
-     * case-insensitively like the firmware. */
     ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), TEST_FIXTURE);
-    ASSERT_STREQ(rom_alias_resolve(":ADVENTURE.RP6502"), TEST_FIXTURE); /* case-insensitive */
+    ASSERT_STREQ(rom_alias_resolve(":ADVENTURE.RP6502"), TEST_FIXTURE);
     ASSERT_STREQ(rom_alias_resolve(":second.rp6502"), second);
-    /* An unaliased ":name" passes through -- the map is not a gate; the
-     * store (here: a host with none) answers at the open. It comes back as
-     * the caller's own pointer, which is the whole of "borrowed". */
     const char *unaliased = ":nope.rp6502";
     ASSERT_EQ(rom_alias_resolve(unaliased), unaliased);
     ASSERT_FALSE(rom_load(":nope.rp6502"));
 
-    /* The boot/exec loader streams the installed file. */
     ASSERT_TRUE(rom_load(":adventure.rp6502"));
 
-    /* A 6502 open(":name") is NOT a thing — like the firmware it goes to the
-     * filesystem,
-     * where a leading ":" is refused; the install never leaks to the host fs. */
     ASSERT_TRUE(ssys_open(":adventure.rp6502", O_RD) < 0);
     ASSERT_TRUE(ssys_open(":", O_RD) < 0);
 
-    /* The same basename on the filesystem is the real host file, untouched. */
     int f = ssys_open("adventure.rp6502", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
     ASSERT_EQ(ssys_read(f, buf, 8), 8);
-    ASSERT_EQ(memcmp(buf, "NOT THE ", 8), 0); /* the host file, never the install */
+    ASSERT_EQ(memcmp(buf, "NOT THE ", 8), 0);
     ssys_close(f);
 }
 
-/* The seam itself: fs_rom_open serves ":name" (the null drive) and paths (the
- * filesystem), colon-exclusive -- a miss is ENOENT, never a fall-through. The
- * write combo refuses on this machine (installs are references), anything
- * else is EINVAL, and the descriptor it returns is a C-side thing the 6502's
- * std API rejects as the invalid fd it would be. */
 UTEST(drive, fs_rom_open_is_the_one_way_in)
 {
     ASSERT_TRUE(fresh());
@@ -153,17 +122,13 @@ UTEST(drive, fs_rom_open_is_the_one_way_in)
     ASSERT_EQ(r, STD_OK);
     ASSERT_EQ(memcmp(magic, "#!RP6502", 8), 0);
 
-    /* The 6502 cannot use the ROM descriptor: it is not a guest fd. */
     ASSERT_TRUE(ssys_read(fd, magic, 1) < 0);
     ASSERT_TRUE(ssys_close(fd) < 0);
 
     fs_std_close(fd, &err);
 
-    /* The seam does not alias: rom_load resolves ":name" above it, and a
-     * colon reaching this host's open is just a name no file has. */
     ASSERT_TRUE(fs_rom_open(":adventure.rp6502", FS_RD, &err) < 0);
 
-    /* The write side: references have nothing to create; junk flags refuse. */
     ASSERT_TRUE(fs_rom_open(":new.rp6502", FS_WR | FS_CREAT | FS_EXCL, &err) < 0);
     ASSERT_EQ(err, API_EACCES);
     ASSERT_TRUE(fs_rom_open(TEST_FIXTURE, FS_WR, &err) < 0);
@@ -173,13 +138,10 @@ UTEST(drive, fs_rom_open_is_the_one_way_in)
 }
 
 
-/* The null drive is loader-only: never the cwd, never enumerated/stat'd/mutated.
- * Every op on a ":name" (or bare ":") refuses it cleanly, and ":" never aliases
- * a host path — not even with the drive's own name in front of it. */
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" */
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE));
 
     dsys_path(":adventure.rp6502");
     dir_api_stat();
@@ -190,7 +152,7 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     dsys_path(":adventure.rp6502");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
-    dsys_path(":"); /* not a cwd-able drive */
+    dsys_path(":");
     dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
@@ -199,8 +161,6 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     dsys_path(":sub");
     dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
-    /* The drive's own name in front of it must not alias the null drive onto a
-     * host path either -- the refusal is asked after the name comes off. */
     char aliased[64];
     snprintf(aliased, sizeof(aliased), "%s:adventure.rp6502", host_drive());
     dsys_path(aliased);
@@ -208,19 +168,16 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_EQ(dsys_ax(), -1);
 }
 
-/* The drive IS the native filesystem (no chroot): a relative path resolves the
- * process cwd, an absolute one is the OS root, and ".." walks the real tree. */
 UTEST(drive, mount_transparent_no_chroot)
 {
-    ASSERT_TRUE(fresh()); /* cwd = g_dir */
+    ASSERT_TRUE(fresh());
 
     char cwd[TEST_PATH_MAX], expect[TEST_PATH_MAX];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
+    msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
 
-    /* A relative drive path lands in the cwd (= g_dir). */
     char named[64];
     snprintf(named, sizeof(named), "%ssave.dat", host_drive());
     int f = ssys_open(named, O_WR | O_CREAT_ | O_TRUNC_);
@@ -228,12 +185,11 @@ UTEST(drive, mount_transparent_no_chroot)
     ssys_close(f);
     char hostprobe[512];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
-    FILE *hp = fopen(hostprobe, "rb"); /* behind the drive's back */
+    FILE *hp = fopen(hostprobe, "rb");
     ASSERT_TRUE(hp != NULL);
     if (hp)
         fclose(hp);
 
-    /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
     dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
@@ -245,8 +201,6 @@ UTEST(drive, mount_transparent_no_chroot)
     msc_expect(expect, sizeof(expect), "/sub");
     ASSERT_STREQ(cwd, expect);
 
-    /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
-     * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
@@ -259,13 +213,11 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_EQ(dsys_ax(), 0);
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    ASSERT_STRNE(cwd, expect); /* now above the launch dir */
+    ASSERT_STRNE(cwd, expect);
 }
 
-/* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer
- * completes and ssys_dispatch re-polls like the per-scanline RIA pump. Drive the xram
- * transfers (the read lands straight in xram[] and spans multiple 2048-byte chunks) and
- * check the bytes, that the fd offset tracks across reads, EOF, and lseek interop. */
+/* A 3000-byte read is larger than the 2048-byte chunk that std_api_read_xram
+ * reads at a time, so the first read of the 5000-byte file takes two chunks. */
 static void async_aio_body(int *utest_result)
 {
     char src[5000];
@@ -280,14 +232,11 @@ static void async_aio_body(int *utest_result)
 
     fd = ssys_open("async.dat", O_RD);
     ASSERT_TRUE(fd >= 0);
-    /* two sequential reads: the fd offset must advance across them */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 3000);
     ASSERT_EQ(memcmp((const uint8_t *)&xram[0x8000], src, 3000), 0);
-    ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000); /* short read at EOF */
+    ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000);
     ASSERT_EQ(memcmp((const uint8_t *)&xram[0x8000], src + 3000, 2000), 0);
-    /* EOF: a further read returns zero bytes */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 1000), 0);
-    /* lseek interoperates with the transfer's offset; xstack reads too */
     ASSERT_EQ(ssys_lseek(fd, 500, SEEK_SET), 500);
     char buf[16];
     ASSERT_EQ(ssys_read(fd, buf, 16), 16);
