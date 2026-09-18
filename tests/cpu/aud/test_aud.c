@@ -2,22 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Both audio engines end to end, on this machine: a program asks for the
- * device with xreg, pours its registers into the XRAM page through RW0,
- * and the machine makes a noise. The programs are the ones test_aud.cpp
- * boots on the fabric, so what sounds there and what sounds here cannot
- * drift apart. Nothing here checks a waveform; what these check is every
- * link between a 6502 store and a sample the machine made -- and that a
- * real program's opening burst, more writes in a few scanlines than the
- * queue holds, all reaches the chip before the sink asks.
- *
- * The measurement is the mixer's own tap of what it rendered: a sink frame
- * pulled after each machine frame, so a frame's number is what the machine
- * had made by the end of it. Two numbers come off that tap. The peak says
- * a voice is at scale, which catches silence; the gated crossings say the
- * level is moving and how fast, which catches a voice stuck at one level
- * and puts a pitch on the one that isn't.
  */
 
 #include "core/aud/mix.h"
@@ -27,18 +11,13 @@
 static int g_pos;
 static float g_peak;
 
-/* The sink rate the frequency is measured against. Pinned rather than
- * assumed, since a host is free to ask for another one. */
 #define SINK_RATE 48000
 
-/* A level has to pass this to count as a side of zero, so the noise either
- * side of a crossing is not a cycle of its own. Well under one voice at
- * scale, well over a quiet room. */
 #define GATE (512.0f / 32768.0f)
 
-static int g_cross;  /* full crossings: two to the cycle */
-static int g_span;   /* samples they were counted over */
-static int g_side;   /* which side of zero the level was last seen on */
+static int g_cross;
+static int g_span;
+static int g_side;
 
 static void run_frame(void)
 {
@@ -80,8 +59,6 @@ static bool load_rom(const char *rom)
     return true;
 }
 
-/* Start counting here, so an attack or a first frame of setup is not part
- * of the pitch. */
 static void measure_from_here(void)
 {
     g_cross = 0;
@@ -89,7 +66,6 @@ static void measure_from_here(void)
     g_side = 0;
 }
 
-/* What the crossings say the voice is doing, in Hz. */
 static float measured_hz(void)
 {
     if (g_span <= 0)
@@ -97,8 +73,6 @@ static float measured_hz(void)
     return (g_cross / 2.0f) * SINK_RATE / (float)g_span;
 }
 
-/* Frames until the engine is heard, or -1. Two is the budget; the load
- * and the program's own setup eat most of the first. */
 static int frames_to_sound(int limit)
 {
     for (int i = 0; i < limit; i++)
@@ -110,16 +84,15 @@ static int frames_to_sound(int limit)
     return -1;
 }
 
-/* Let a sound run its course. A frame of the machine makes no sound on its
- * own; the sink has to keep asking. */
 static void play_out(int frames)
 {
     while (frames-- > 0)
         run_frame();
 }
 
-/* One PSG channel at full volume, centred, is 16127 of 32767; a peak above
- * 4096 can only be a voice at scale. */
+/* One PSG channel at full volume with centred pan peaks at about
+ * 32767 * 63 / 128 = 16127, so a working PSG voice clears 4096 by a wide
+ * margin. */
 #define LOUD (4096.0f / 32768.0f)
 #define BELL (32.0f / 32768.0f)
 
@@ -132,11 +105,8 @@ UTEST(aud, psg_makes_a_noise)
     ASSERT_GT(g_peak, LOUD);
 }
 
-/* A peak alone cannot tell a voice from a level stuck away from zero, so
- * this counts the crossings and turns them into the pitch the program asked
- * for: aud_rom_gen.py writes 440 Hz, which the engine divides by three. A
- * tenth either way is room for the gate and the frame the count starts on,
- * and nowhere near the next note. */
+/* aud_rom_gen.py writes a freq of 1320, which the PSG divides by three, so
+ * the note is 440 Hz and the bounds are a tenth either side of it. */
 UTEST(aud, psg_oscillates)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PSG));
@@ -150,12 +120,6 @@ UTEST(aud, psg_oscillates)
     ASSERT_LT(hz, 484.0f);
 }
 
-/* The same claim for the other engine, without the pitch. aud_rom_gen.py
- * keys block 4 with f-number 0x198, a fundamental near 310 Hz, but an FM
- * voice with feedback is not a sine: its harmonics cross zero several times
- * a cycle, so counted crossings measure the timbre, not the note. What is
- * worth asserting is that the level keeps moving, which is what a stuck
- * engine would fail. */
 UTEST(aud, opl_oscillates)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL));
@@ -166,14 +130,17 @@ UTEST(aud, opl_oscillates)
     ASSERT_GT(g_cross, 80);
 }
 
-/* The same note with the block written before the pointer: the whole
- * structure has to arrive, and the gate written among it has to not
- * sound. The note starts on the gate written afterwards. */
+/* The gate in the block is written before xreg selects the PSG, so it
+ * does not start the note. psg_sample starts a note only on a gate write
+ * it takes from the queue, rw_write queues a write only when its address
+ * is on xram_queue_page, and psg_xreg empties the queue when it sets that
+ * page. The note starts on the gate written afterwards. */
 UTEST(aud, a_psg_block_programmed_before_its_pointer)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PSG_PRE));
     run_frame();
-    /* The program holds its own gate off for about five frames. */
+    /* The program writes the second gate about five frames after xreg, at
+     * the default 8 MHz. */
     for (int i = 0; i < 3; i++)
     {
         run_frame();
@@ -193,9 +160,6 @@ UTEST(aud, opl_makes_a_noise)
     ASSERT_GT(g_peak, LOUD);
 }
 
-/* A real program clears every register before it plays: 255 writes in a
- * few scanlines, then the note. The queue holds 255, so the note only
- * sounds if the machine drains as the program writes. */
 UTEST(aud, opl_sounds_after_a_clearing_burst)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_INIT));
@@ -205,19 +169,17 @@ UTEST(aud, opl_sounds_after_a_clearing_burst)
     ASSERT_GT(g_peak, LOUD);
 }
 
-/* The bell sounds with no program holding an engine at all -- the
- * console's own case. */
 UTEST(aud, the_bell_rings_with_no_program)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_BEL));
     const int at = frames_to_sound(4);
     ASSERT_NE(at, -1);
     ASSERT_GT(g_peak, BELL);
-    play_out(60); /* a bell rings through a program change; let it end */
+    /* emu_restart does not stop the 800 ms bell, so it is played out
+     * before the next test. */
+    play_out(60);
 }
 
-/* Nothing gates the mix: an OPL program holds an engine and the bell
- * sounds over it. */
 UTEST(aud, the_bell_rings_over_the_opl)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_BEL));
@@ -227,8 +189,6 @@ UTEST(aud, the_bell_rings_over_the_opl)
     play_out(60);
 }
 
-/* Exiting a program parks the engine: the stop hands the standing bell
- * back, and with nothing rung the machine makes exactly zero. */
 UTEST(aud, a_program_exit_goes_quiet)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_EXIT));
@@ -244,7 +204,7 @@ UTEST(aud, a_program_exit_goes_quiet)
         }
     }
     ASSERT_NE(stopped, -1);
-    run_frame(); /* the release already in flight */
+    run_frame();
     run_frame();
     ASSERT_EQ(g_peak, 0.0f);
 }

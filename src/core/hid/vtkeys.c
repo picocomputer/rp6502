@@ -29,8 +29,8 @@ void vtkeys_text(const char *utf8)
         return;
     const char *p = utf8;
     unsigned char oem;
-    /* The decoder returns DEL for a character the code page cannot spell, and
-     * the line editor would take that as a backspace. */
+    /* The decoder returns DEL for a character the code page cannot represent,
+     * and the line editor would take that as a backspace. */
     while ((oem = oem_from_utf8_next(&p)))
         com_keyboard_push_byte(oem == 0x7F ? '?' : oem);
 }
@@ -112,8 +112,6 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
         com_keyboard_push_byte((uint8_t)ch);
         return true;
     }
-    /* The gui bit is not passed, because a desktop's window manager owns
-     * that key. */
     char seq[16];
     size_t n = keyboard_vt_seq(seq, sizeof seq, hid_usage,
                       keyboard_vt_mod(shift, alt, ctrl, false));

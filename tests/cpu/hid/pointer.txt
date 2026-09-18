@@ -1,36 +1,29 @@
-# The relative mouse. pointer.rp6502 maps the mouse block and arms a 6522
-# timer interrupt whose handler reads the counters back through RW0 and
-# mirrors them, which is how an application must read a device that reports
-# motion as bytes that wrap. Three things are under test: the RIA publishes
-# the block, the 6502 takes the interrupt, and what the handler read is what
-# the RIA wrote. Each wait is on the mirror, which only advances when an
-# interrupt has been taken since the host reported.
+# mouse.rp6502 maps the mouse block at $FF00. Its 6522 timer interrupt copies
+# the block's five bytes to $FF50 and adds one to a count at $FF55. Each wait
+# is on the copy at $FF50, so it passes only after an interrupt has read the
+# new values.
 
-# Nothing has moved, and --fill 0 means a block nobody wrote reads zero.
 run 10
 peek xram:$FF00 $00 $00 $00 $00 $00
 
-# The interrupt is arriving. Timer 1 free-running at the widest period is
-# about 8 ms, so ten frames are twenty of them.
+# Timer 1 free-runs from $FFFF, so it interrupts about every 8 ms at the
+# default 8 MHz clock and ten 60 Hz frames hold twenty interrupts. The count
+# starts from zero because --fill 0 clears XRAM at boot.
 peek xram:$FF55 $14
 
-# A button is the one byte a host can set without moving anything.
 mouse buttons 1
 wait xram:$FF50 $01
 peek xram:$FF00 $01 $00 $00 $00 $00
 
-# Motion lands in the counters, and the handler reads the same bytes back.
 mouse move 60 40
 wait xram:$FF51 $3C
 peek xram:$FF00 $01 $3C $28
 peek xram:$FF50 $01 $3C $28
 
-# Counters are relative: they accumulate rather than reporting a position.
 mouse move 60 40
 wait xram:$FF51 $78
 peek xram:$FF50 $01 $78 $50
 
-# The wheel and the pan are their own bytes and move nothing else.
 mouse wheel 3
 wait xram:$FF53 $03
 peek xram:$FF00 $01 $78 $50 $03 $00

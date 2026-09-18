@@ -4,14 +4,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# The firmware build, and the file the Raspberry Pi Pico VS Code extension
-# owns: it reads the versions and the board out of this file by name, and
-# rewrites the marked block below when you switch SDK. What the firmware is
-# made of is in src/host/pico, which this ends by adding.
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
-# TinyUSB is asked for here because the SDK is handed PICO_TINYUSB_PATH below
-# and looks inside it during pico_sdk_init().
+# The TinyUSB submodule has to be present before pico_sdk_init(), because the
+# SDK reads the tree at PICO_TINYUSB_PATH during that call.
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/tinyusb
     SENTINEL src/portable/raspberrypi/rp2040/rp2040_usb.c
@@ -41,8 +37,8 @@ set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
 
 project(rp6502-pico C CXX ASM)
 
-# TinyUSB reads LOG inside pico_sdk_init(): a build that asked for the
-# tinyusb category at DEBUG wants the stack's own output with it.
+# TinyUSB's hw/bsp/rp2040/family.cmake sets CFG_TUSB_DEBUG from LOG when
+# pico_sdk_init() loads it, so LOG has to be set before that call.
 include(${RP6502_ROOT}/src/core/log.cmake)
 rp6502_log_level_of(tinyusb RP6502_TINYUSB_LEVEL)
 if(RP6502_TINYUSB_LEVEL STREQUAL "DEBUG" AND NOT DEFINED LOG)

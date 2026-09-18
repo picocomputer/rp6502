@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * SET, built from the same driver rows the settings themselves are. What is
- * hand-written here is what a row cannot say: the boot ROM, which is a
- * command routed through SET rather than a setting, and the order the bare
- * listing reads in -- roster order is bring-up order, which is not a UI.
  */
 
 #include "core/str/oem.h"
@@ -30,8 +25,6 @@
 #include <stdio.h>
 #include <pico.h>
 
-/* The boot ROM has no row: it is not held in RAM, it is the last line of the
- * config file, and rom.c owns both halves of that. */
 static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
@@ -59,9 +52,6 @@ static void set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-/* One token, with "-" as the way to clear a setting -- quoted, it is just a
- * dash. Shared by every string row so the spelling cannot drift between
- * them. */
 static void set_string(const char *args, bool (*set)(const char *),
                        int (*resp)(char *, size_t, int, unsigned))
 {
@@ -79,8 +69,6 @@ static void set_string(const char *args, bool (*set)(const char *),
     mon_add_response_fn(resp);
 }
 
-/* One parse function per row. The only thing that varies is the type, which
- * is what the row already says. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                     \
@@ -98,7 +86,6 @@ static void set_string(const char *args, bool (*set)(const char *),
     {                                                                       \
         set_string(args, pfx##_set_##name, resp);                           \
     }
-/* A list is not a token: SET KB US DE is one value with a space in it. */
 #define CONFIG_RAW(ltr, pfx, name, size, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                    \
     {                                                                       \
@@ -125,8 +112,6 @@ void set_mon_set(const char *args)
         {
             if (!strcasecmp(word, STR_BOOT))
                 return set_boot(args);
-/* A hidden row is one the machine keeps but no one may set, so it has no
- * arm here at all. */
 #define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, ...) \
     if (!strcasecmp(word, attr))                                       \
@@ -146,9 +131,6 @@ void set_mon_set(const char *args)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
 
-    /* The listing, in the order a person reads it. SSID prints the password's
-     * line and the port prints the key's, because setting one is always news
-     * about the other. */
     mon_add_response_fn(phi2_response);
     mon_add_response_fn(set_boot_response);
     mon_add_response_fn(tim_time_zone_response);

@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drive, as osal/dir.h asks for it -- which is almost
- * nothing. There are no directories on an APF data slot: a program opens a
- * name and the host binds a slot to it. Two of the seventeen calls can be
- * answered without a directory at all; the other fifteen say ENOSYS, each in
- * its own words, and the linker drops what the machine never reaches.
- *
- * The files themselves are next door in fs.c, which owns the slot pool and
- * the bridge this shares a drive letter with.
  */
 
 #include "fs.h"
@@ -19,8 +10,6 @@
 
 #include <string.h>
 
-/* The two paths proc holds. Short of the host's 256-byte field because this
- * is static RAM; an empty first byte is a free slot. */
 static char paths[2][128];
 
 char *os_dir_path_hold(const char *path)
@@ -40,12 +29,11 @@ void os_dir_path_drop(char *path)
     path[0] = '\0';
 }
 
-/* ---- What this drive can answer ------------------------------------------ */
-
-/* Synthetic: the host cannot be asked. This is where a relative name goes, so
- * a program that appends a separator and a name opens the same file the bare
- * name does. No drive in front of it and no separator behind it, which is what
- * every other machine's getcwd answers with. */
+/* This is FS_SAVES_PATH without its trailing slash. fs_std_open puts a
+ * relative name under FS_SAVES_PATH, so when a program appends a separator
+ * and a name to this path and opens the result, the path refers to the same
+ * file as the bare name. A relative name given to exec is put under
+ * FS_ASSETS_PATH instead, because rom_load opens it with fs_rom_open. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     static const char cwd[] = "/Saves/rp6502/common";
@@ -58,8 +46,6 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     return true;
 }
 
-/* FS: and the bare current drive; whatever the name leaves behind has to be
- * nothing, because "FS:junk" names no drive and neither does anything else. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
     if (!*fs_strip_drive(drive))
@@ -68,11 +54,6 @@ bool drive_chdrive(const char *drive, api_errno *err)
     return false;
 }
 
-/* ---- And what it cannot -------------------------------------------------- */
-
-/* One folder with no directories to walk and no metadata to read. These are
- * not stubs waiting to be filled: a data slot has nowhere to put a directory,
- * so ENOSYS is the true answer and not a placeholder for one. */
 static bool drive_enosys(api_errno *err)
 {
     *err = API_ENOSYS;
@@ -163,8 +144,6 @@ bool drive_rewinddir(int des, api_errno *err)
     return drive_enosys(err);
 }
 
-/* Nothing opens, so nothing is ever a valid descriptor -- and dir_stop walks
- * the pool asking, so this has to answer rather than refuse. */
 bool drive_validate(int des, api_errno *err)
 {
     (void)des;
@@ -172,8 +151,6 @@ bool drive_validate(int des, api_errno *err)
     return false;
 }
 
-/* A savestate is a software machine's, and neither of these two builds one.
- * The seam still has to be answered, because core/api/dir.c compiles here. */
 bool drive_dir_path(int des, char *buf, size_t size)
 {
     (void)des, (void)buf, (void)size;

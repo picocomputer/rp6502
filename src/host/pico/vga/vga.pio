@@ -40,8 +40,9 @@ out null 3
 
 
 ; Minimum 8n1 UART transmit program.
-; The stop bit trails the data so an idle SM starts the start
-; bit immediately. VSYNC latency is measured from the put.
+; The stop bit follows the data bits, so an idle state machine starts the
+; start bit on the PIO cycle after its pull takes the byte.
+; VGA_VSYNC_TRANSIT_US on the RIA includes that one-cycle delay.
 .program ria_backchannel_tx
 .side_set 1 opt
 

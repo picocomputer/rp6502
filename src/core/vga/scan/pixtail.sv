@@ -106,7 +106,7 @@ module pixtail
     logic [1:0] fifo_v;
     /* Only a segment's first word carries a bit offset. */
     logic [4:0] fifo_bit0[2];
-    logic fifo_seg1[2];            /* word belongs to the deck segment */
+    logic fifo_seg1[2];            /* word is part of the deck segment */
     logic [1:0] inflight;
     logic inflight_seg1[2];
     logic [4:0] inflight_bit0[2];

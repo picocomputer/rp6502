@@ -2,16 +2,13 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The helpers tb_hostos.h declares, on a POSIX host. The build picks
- * this file or its Windows sibling; neither carries the other's spelling.
  */
 
 #include "tb_hostos.h"
 
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h> /* mkdtemp: stdlib.h on glibc, here on macOS */
+#include <unistd.h>
 
 bool host_make_tmpdir(char *buf, size_t sz)
 {
@@ -28,8 +25,6 @@ void host_setenv(const char *name, const char *value)
     setenv(name, value, 1);
 }
 
-/* A POSIX path names no device, so the drive has a name only because chdrive
- * needs one. Prepending it is still legal, and that is what a test spells. */
 const char *host_drive(void)
 {
     return "FS:";

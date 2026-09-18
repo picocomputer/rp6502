@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Bench top: the controller against the behavioral chip, request
- * ports out to C++.
  */
 
 module tb_psdram (

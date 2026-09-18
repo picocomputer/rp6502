@@ -12,13 +12,13 @@
 #include "machine.h"
 #include <string.h>
 
-/* The XRAM report block, whose offsets are in tablet.h. Every field is one
+/* The offsets of the XRAM report block are in tablet.h. Every field is one
  * byte, so each 6502 read is atomic. A coordinate too wide for one byte is
  * delivered as a set of single-byte windows of which exactly one is non-zero,
  * and the program decodes it by taking the first non-zero byte. An inactive
  * contact is all zero, which is flags of 0 and no window set. The wheel and
- * pan bytes are counters read by subtracting the value seen last, as the
- * mouse's are. The program owns the control byte, and it leads the block so
+ * pan bytes are counters read by subtracting the previous value, as the
+ * mouse's are. The program sets the control byte, and it leads the block so
  * that everything the firmware writes back is one contiguous run. */
 /* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
  * fixed reference resolution at the same rate mouse.c reports at and then
@@ -102,11 +102,9 @@ static void tablet_clear_contact(int i)
     memset(&tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE], 0, TABLET_CONTACT_SIZE);
 }
 
-/* Everything the firmware owns runs contiguously after the program's control
- * byte, so one memcpy publishes all of it. A 6502 reading through the copy can
- * see a contact half updated, or flags from one frame with coordinates from
- * another; that costs one stale or blank frame, and the next report publishes
- * the whole block again. */
+/* A 6502 reading the block during this memcpy can get a contact half updated,
+ * or flags from one frame with coordinates from another; that costs one stale
+ * or blank frame, and the next report publishes the whole block again. */
 static void tablet_write_xram(void)
 {
     if (tablet_xram == 0xFFFF)

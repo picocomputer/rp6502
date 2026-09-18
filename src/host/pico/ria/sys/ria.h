@@ -20,10 +20,6 @@
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)  /* D0-D7 */
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10) /* A0-A4 */
 
-/* Two of the 6502's control pins, here because this is what drives them: the
- * write state machine side-sets PHI2, and the RIA's own interrupt sources are
- * the only thing this firmware puts on IRQB (the 6522 drives its own, wired-
- * OR on the board). */
 #define CPU_PHI2_PIN 21
 #define CPU_IRQB_PIN 22
 
@@ -51,26 +47,22 @@ void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 // Trigger IRQ when enabled
 void ria_trigger_vsync(void);
 
-// 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. The cross-core TX
-// ring and RX handoff slot live in ria.c (act_loop's core); com.c (core 0)
-// drains TX and feeds RX through these accessors.
-bool ria_uart_tx_dequeue(uint8_t *ch); // pop one 6502-TX byte (false if empty)
-bool ria_uart_tx_empty(void);          // 6502-TX ring drained?
-bool ria_uart_rx_offer_ready(void);    // nothing staged, in the slot or the latch
-void ria_uart_rx_offer(uint8_t ch);    // hand a byte to the 6502
-int ria_uart_rx_peek(void);            // the staged byte, wherever it is (-1 if none)
-bool ria_uart_rx_reclaim(uint8_t *ch); // take back the staged byte, wherever it is
+bool ria_uart_tx_dequeue(uint8_t *ch);
+bool ria_uart_tx_empty(void);
+bool ria_uart_rx_offer_ready(void);
+void ria_uart_rx_offer(uint8_t ch);
+int ria_uart_rx_peek(void);
+bool ria_uart_rx_reclaim(uint8_t *ch);
 
-/* A transfer between mbuf and 6502 memory, driven through a loop at $FFF0
- * with sys stopped. The callback is called once, from ria_task, after any
- * timeout or verify message has been printed. A write verifies itself before
- * it reports. */
+/* A transfer copies between mbuf and 6502 memory by resetting the 6502 into a
+ * loop at $FFF0, so it must be started while the machine is stopped. The
+ * callback is called from ria_task after any timeout or verify error has been
+ * queued, and a write that finishes is verified before its callback is
+ * called. A break closes the transfer without calling the callback. */
 typedef void (*ria_callback_t)(bool ok);
 void ria_read_buf(uint16_t addr, ria_callback_t callback);
 void ria_write_buf(uint16_t addr, ria_callback_t callback);
 
-/* Its position is init order and nothing more: a transfer enters no run or
- * stop hook, so no other driver's hook depends on where this one sits. */
 #define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, ria_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_SYS_RIA_H_ */

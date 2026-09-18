@@ -3,16 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * A load of the word a store just wrote. The AHB overlaps a store's data
- * phase with the next instruction's address phase, so the two reach the
- * TCM on the same edge, and an M10K told no_rw_check hands back what was
- * there before. Nothing else in this suite notices, because the firmware
- * happens to survive it and the compiler only emits the pair where the
- * stale value is discarded.
- *
- * The instructions below are not invented. sw a4,0(a5) / lw a3,0(a5) is
- * the pattern the toolchain already put in the shipped image, encoding
- * for encoding, and it will appear again the moment anyone touches the C.
+ * An AHB transfer's data phase overlaps the address phase of the transfer
+ * after it, so a load issued right after a store to the same word reads the
+ * TCM on the same clk_rv edge that the store writes it. A read of the TCM on
+ * that edge is not guaranteed to return the stored bytes, and in the
+ * Verilator model it returns the word from before the store. The load
+ * returns the stored bytes because the stored lanes are forwarded through
+ * tcm_fwd in soc.sv.
  */
 
 #include "Vwiring.h"
@@ -25,8 +22,6 @@
 
 static Vwiring *dut;
 static bool rv_phase;
-
-/* One call is one clk_sys period. clk_rv is half of it, rising with it. */
 
 static void tcm_poke(uint32_t byte_addr, uint32_t word)
 {
@@ -63,26 +58,19 @@ static void run_program(const uint32_t *prog, unsigned words)
 UTEST(tcm, load_after_store_sees_the_store)
 {
     /* lui a5,0x1; li a4,0x12345678; sw a4,0(a5); lw a3,0(a5);
-     * sw a3,4(a5); spin. The load is the instruction after the store and
-     * names the same address, which is the whole point. */
+     * sw a3,4(a5); spin. */
     static const uint32_t prog[] = {
         0x000017b7, 0x12345737, 0x67870713, 0x00e7a023,
         0x0007a683, 0x00d7a223, 0x0000006f,
     };
     run_program(prog, sizeof prog / sizeof *prog);
 
-    /* The store landed: without this the test would pass on a machine
-     * that never ran at all. */
     ASSERT_EQ(tcm_peek(0x1000), (uint32_t)0x12345678);
-    /* What the load actually returned. */
     ASSERT_EQ(tcm_peek(0x1004), (uint32_t)0x12345678);
 }
 
 UTEST(tcm, byte_store_then_byte_load)
 {
-    /* The same collision one lane wide, which is the 373c pair in the
-     * image: sb then lbu of the same address. A forward that ignores the
-     * write strobes would pass the word test and fail this one. */
     static const uint32_t prog[] = {
         0x000017b7,             /* lui  a5,0x1        */
         0x0a900713,             /* li   a4,0xa9       */

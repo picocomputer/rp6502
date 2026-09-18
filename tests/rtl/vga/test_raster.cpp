@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The 640x480@60 raster at the two-clock render tick: 1,600 clocks a
- * line, 525 lines a frame, syncs active-low in their exact windows — h
- * 656..751 of every line, v lines 490..491 — and de strobing once per
- * visible pixel, on its final tick.
  */
 
 #include "tb_core.h"
@@ -16,9 +11,8 @@ static const int TB_PX = 2;
 static const int TB_H_TOTAL = 800;
 static const int TB_V_TOTAL = 525;
 
-/* The beam takes no reset — it is not the 6502 or the 6522 — so where a
- * frame starts is decided at power-on and nowhere else. Every frame
- * comparison in the suite rests on that being the origin. */
+/* The timing module has no reset input, so the frame starts at the origin
+ * only because its counters power on at zero. */
 UTEST(rtl, power_on_starts_at_the_origin)
 {
     tb_core_init();
@@ -52,7 +46,6 @@ UTEST(rtl, frame_wraps_after_525_lines)
 UTEST(rtl, sync_and_de_windows_are_exact)
 {
     tb_core_init();
-    /* One full frame, every clock checked against the window math. */
     for (int v = 0; v < TB_V_TOTAL; v++)
         for (int h = 0; h < TB_H_TOTAL; h++)
             for (int tick = 0; tick < TB_PX; tick++)
@@ -67,7 +60,6 @@ UTEST(rtl, sync_and_de_windows_are_exact)
                 ASSERT_EQ(tb_core_de(), de);
                 tb_core_clocks(1);
             }
-    /* Exactly 1,680,000 clocks later the frame starts over. */
     ASSERT_EQ(tb_core_scanline(), 0);
     ASSERT_EQ(tb_core_h(), 0);
     tb_core_free();

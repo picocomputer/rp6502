@@ -3,24 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The core's clocks, all from the one VCO so they are edge aligned and
- * the crossings between them are ratios rather than domains.
- *
- *   74.25 MHz in, multiplied by 448 over 33, is 1008 MHz exactly
- *     / 20  ->   50.4 MHz   the machine
- *     / 40  ->   25.2 MHz   the beam, and the scaler's sample clock
- *     / 20  ->   50.4 MHz   phase shifted, out to the memory chip
- *     / 40  ->   25.2 MHz   a quarter period on, for the scaler
- *
- * 25.2 MHz rather than 25.175 is the machine's own choice, not a
- * rounding: the RP2350 runs the CEA variant of 640x480 at exactly sixty
- * frames, and the FPGA is the same machine.
- *
- * The memory's clock is shifted because the chip samples what the
- * controller launched, and on the same edge there is no setup at all.
- * Half a period puts the sample in the middle of the window, which is
- * the conventional starting point and the first thing to sweep on real
- * hardware — the trace lengths on the board are not in this file.
+ * The pixel clock is 25.2 MHz rather than 25.175 MHz because the RP2350
+ * runs its 640x480 mode at 25.2 MHz, which is exactly 60 frames per
+ * second over 800x525 pixels, and the FPGA reproduces the same timing.
  */
 
 `timescale 1 ps / 1 ps
@@ -28,30 +13,28 @@
 module pocket_pll (
     input  wire refclk,
     input  wire rst,
-    output wire clk_sys,   //  50.4 MHz
-    output wire clk_vid,   //  25.2 MHz
-    output wire clk_dram,  //  50.4 MHz, half a period late
-    output wire clk_vid_90,//  25.2 MHz, a quarter period late
-    /* The soft CPU's own clock. Half the machine's and rising with it,
-     * which is the whole point of taking it from here: a toggle in the
-     * fabric rises after the machine's registers have settled at the
-     * same edge, and a master clocked that late reads a ready the
-     * machine has not published yet.
-     *
-     * It asks for its own counter and Quartus merges it with the pixel
-     * clock's, the two being the same frequency and phase. Asking
-     * anyway says which of them the soft CPU is entitled to: the pixel
-     * clock's phase belongs to the scaler and may move for the scaler's
-     * reasons, and this one may not move at all. */
-    output wire clk_rv,    //  25.2 MHz, rising with clk_sys
+    output wire clk_sys,
+    output wire clk_vid,
+    output wire clk_dram,
+    output wire clk_vid_90,
+    /* clk_rv is half the rate of clk_sys and rises with it. It comes
+     * from the PLL rather than from a flip-flop dividing clk_sys,
+     * because a divided clock rises after the clk_sys registers have
+     * changed at the same edge, and the soft CPU would capture their new
+     * values instead of the ones they held before that edge. */
+    output wire clk_rv,
     output wire locked
 );
 
-    /* 180 degrees of a 50.4 MHz period. */
+    /* 9920 ps is 180 degrees of the 19841 ps period of 50.4 MHz. The
+     * shift puts each rising edge of the SDRAM's clock midway between
+     * the clk_sys edges that launch pocket_sdram's outputs. */
     localparam DRAM_SHIFT = "9920 ps";
-    /* 90 degrees of a 25.2 MHz period. The scaler launches our pixels
-     * on this one, so a copy of the pixel clock with no shift in it
-     * gives the sample no margin at all. */
+    /* 9921 ps is 90 degrees of the 39683 ps period of 25.2 MHz.
+     * apf_top.v sends the pixels to the scaler as DDR launched on
+     * clk_vid and drives the scaler's clock pin from clk_vid_90, so the
+     * shift puts each edge of that clock in the middle of a half-period
+     * data window. */
     localparam VID_SHIFT = "9921 ps";
 
     wire [4:0] outclk;

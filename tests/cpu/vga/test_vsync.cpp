@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The frame counter and the vsync interrupt, on whichever machine this tree
- * built. tests/gen/vsync_rom_gen.py writes the program, which records what
- * it read into XRAM at the offsets below and stops.
+ * tests/gen/vsync_rom_gen.py writes the program, which copies what it recorded
+ * to XRAM at the offsets below before it stops.
  */
 
 #include "mut.h"
@@ -40,8 +39,6 @@ UTEST(vsync, counter_and_interrupt)
     ASSERT_EQ(r[STAMPS + 2], (uint8_t)(r[STAMPS + 1] + 1));
     ASSERT_EQ(r[IN_IRQ], 0x80);
 
-    /* The vsync pending bit is still set while the enable is clear, but no
-     * interrupt is taken for it. */
     ASSERT_EQ(r[TAKEN], 3);
     ASSERT_EQ(r[DISABLED], 0x80);
 }

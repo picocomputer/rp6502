@@ -31,8 +31,8 @@ module linebuf (
     (* ramstyle = "no_rw_check" *)
     logic [15:0] b1[1024];
 
-    /* The fabric configures block RAM to zero, so an unfilled line reads
-     * as zeros on the first frame; simulation has to agree. */
+    /* Block RAM holds zeros once the FPGA is configured, so an unfilled
+     * line reads as zeros on the first frame; simulation has to agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 16'h0000;

@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * What this machine says about itself: the plain facts a unit can learn
- * without including anything else. drivers.h beside it is what the machine
- * is made of. Nothing here has a default anywhere -- a unit that uses one of
- * these includes this file or does not compile.
  */
 
 #ifndef _HOST_MACHINE_H_
@@ -16,11 +11,14 @@
 #define HOST_NOT_IN_FLASH(group)
 #define HOST_UNINITIALIZED_RAM(name) name
 
-/* The dock has four ports. */
+/* APF has four controller slots, and apf.c mounts at most one HID slot
+ * for each of them. */
 #define HID_MAX_SLOTS 4
 #define TERM_MAX_HEIGHT 30
-/* Each console ring, a power of two. The rings here only ever hold the
- * terminal's replies, so the smallest one a reply fits in. */
+/* Terminal replies are the only bytes pushed into the console rings on
+ * this machine. They come from reply_buf in core/com/com.c, which holds 32
+ * bytes, and a ring holds one byte less than its size, so 64 is the
+ * smallest power of two that takes a full reply_buf. */
 #define COM_RING_SIZE 64
 
 

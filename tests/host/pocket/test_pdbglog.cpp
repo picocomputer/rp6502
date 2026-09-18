@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The debug log, with the bench playing both the console and the host.
- * Console bytes must arrive four to an event and in order; a short word
- * must go out left-justified once the console falls quiet; a host
- * command must be picked off the bridge and put out whole, ahead of the
- * console and never inside one of its words.
- *
- * The log is allowed to drop when it is outrun. Every case here stays
- * inside the queue, so nothing dropped is nothing correct.
  */
 
 #include "Vpocket_dbglog.h"
@@ -21,11 +12,12 @@
 #include <string>
 #include <vector>
 
-/* Two unrelated periods, near the real 50.4 and 74.25 MHz ratio. */
+/* The 3:2 ratio of these periods is close to the ratio of clk_74a at
+ * 74.25 MHz to clk_mach at 50.4 MHz. */
 #define CON_PERIOD 3
 #define BRG_PERIOD 2
 
-/* The parameter the module defaults to; the quiet flush waits it out. */
+/* This is the default value of pocket_dbglog's FLUSH_TICKS. */
 #define FLUSH_TICKS 65536
 
 static Vpocket_dbglog *dut;
@@ -60,7 +52,6 @@ static void reset(int endian_little)
     dut->bridge_endian_little = endian_little;
     dut->bridge_addr = 0;
     dut->bridge_wr_data = 0;
-    /* The bridge holds done high between commands. */
     dut->target_debug_done = 1;
     dut->eval();
     for (int i = 0; i < 8; i++)
@@ -76,8 +67,6 @@ static void reset(int endian_little)
     dut->eval();
 }
 
-/* One unit of bench time. Inputs settle before whichever edge is due,
- * the way a registered neighbor would present them. */
 static void tick(void)
 {
     tsim++;
@@ -105,7 +94,6 @@ static void tick(void)
         dut->bridge_wr = 0;
         if (!writes.empty())
         {
-            /* A zero address is an idle bridge cycle, not a write. */
             if (writes.front().first)
             {
                 dut->bridge_addr = writes.front().first;
@@ -114,8 +102,6 @@ static void tick(void)
             }
             writes.pop_front();
         }
-        /* Play the bridge: an event is taken, then done falls while the
-         * command runs and rises again when it retires. */
         if (done_hold > 0 && --done_hold == 0)
             dut->target_debug_done = 1;
         dut->eval();
@@ -140,10 +126,10 @@ static void run(long units)
         tick();
 }
 
-/* Long enough for anything queued to drain, short of the quiet timer. */
+/* Six hundred units are enough to drain anything these tests queue, and
+ * they end long before FLUSH_TICKS bridge clocks of quiet have passed. */
 static void settle(void) { run(600); }
 
-/* Long enough for the quiet timer to expire and flush a short word. */
 static void settle_quiet(void) { run((long)FLUSH_TICKS * BRG_PERIOD + 2000); }
 
 static void say(const char *s)
@@ -158,9 +144,8 @@ static uint32_t swap32(uint32_t v)
            | ((v >> 24) & 0xFF);
 }
 
-/* The command register and its first parameter, as core_bridge_cmd
- * decodes them. The second address byte is a don't care there, so it is
- * a nonzero value here to prove this decode ignores it too. */
+/* core_bridge_cmd decodes F8xx00xx, so address bits 23:16 are nonzero
+ * here to check that pocket_dbglog ignores them too. */
 #define HOST_CMD_ADDR 0xF8590000u
 #define HOST_PARAM_ADDR 0xF8590020u
 
@@ -175,9 +160,8 @@ static void host_param(uint32_t p, int endian_little)
     writes.push_back({HOST_PARAM_ADDR, endian_little ? swap32(p) : p});
 }
 
-/* Bridge cycles with nothing on them. The host cannot start a command
- * until the last one has retired, so back-to-back command writes are
- * not a thing it can do, and a burst is spaced. */
+/* The host does not start a command until the previous one has
+ * finished, so command writes are never back to back. */
 static void host_idle(int cycles)
 {
     for (int i = 0; i < cycles; i++)
@@ -190,7 +174,6 @@ UTEST(pdbglog, console_packs_four_bytes_msb_first)
     say("RP65");
     settle();
     ASSERT_EQ(1u, (unsigned)events.size());
-    /* The hex of the event reads left to right as the text. */
     ASSERT_EQ(0x52503635u, events[0]);
 }
 
@@ -209,7 +192,6 @@ UTEST(pdbglog, short_word_flushes_left_justified)
     reset(0);
     say("ab");
     settle();
-    /* Nothing yet: a partial word waits for the quiet period. */
     ASSERT_EQ(0u, (unsigned)events.size());
     settle_quiet();
     ASSERT_EQ(1u, (unsigned)events.size());
@@ -219,7 +201,7 @@ UTEST(pdbglog, short_word_flushes_left_justified)
 UTEST(pdbglog, command_goes_out_whole)
 {
     reset(0);
-    host_command(0x0011, 0); /* Reset Exit: no parameter worth having */
+    host_command(0x0011, 0); /* Reset Exit, which takes no parameter */
     settle();
     ASSERT_EQ(1u, (unsigned)events.size());
     ASSERT_EQ(0xC0000011u, events[0]);
@@ -260,8 +242,8 @@ UTEST(pdbglog, other_families_send_no_parameter)
 UTEST(pdbglog, status_write_is_not_a_command)
 {
     reset(0);
-    /* The core writes this register back with "ok" and "busy" tags;
-     * only "CM" from the host starts a command. */
+    /* core_bridge_cmd starts a command only on a word whose top half is
+     * "CM", 0x434D, so these "ok" and "BU" words start nothing. */
     writes.push_back({HOST_CMD_ADDR, 0x6F6B0000u});
     writes.push_back({HOST_CMD_ADDR, 0x42550080u});
     settle();
@@ -283,14 +265,13 @@ UTEST(pdbglog, command_never_lands_inside_a_console_word)
 {
     reset(0);
     say("abcdef");
-    /* Arrives while the packer holds "ef" and wants two more bytes. */
+    /* After 120 units "ef" is a partial word, so the command arrives in
+     * the middle of a word. */
     run(120);
     host_command(0x008F, 0);
     settle();
     ASSERT_EQ(3u, (unsigned)events.size());
     ASSERT_EQ(0x61626364u, events[0]);
-    /* The half-packed word goes first, so the order the console and the
-     * host spoke in is the order the log reads in. */
     ASSERT_EQ(0x65660000u, events[1]);
     ASSERT_EQ(0xC000008Fu, events[2]);
 }

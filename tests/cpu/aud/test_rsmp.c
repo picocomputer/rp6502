@@ -2,25 +2,9 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The resampler, measured rather than asserted. "Proper resampling" is a
- * claim until something puts a number on the stopband, so that is what
- * most of this does: drive a sine through at a rate ratio that actually
- * ships, and measure how much energy lands anywhere except where it was
- * put.
- *
- * The rest pins the things a rewrite could quietly break — that the rate
- * is right rather than merely close, that a constant survives as itself,
- * that gain does not wobble with the fractional phase, and that a cold
- * filter does not click. Each one is written so the wrong answer looks
- * different from the right one rather than merely worse.
- *
- * rsmp.sv is held to this same C sample-for-sample elsewhere, the way
- * psg is held to psg.c. This file is about whether the arithmetic is
- * any good; that one is about whether the fabric copies it exactly.
  */
 
-#define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
+#define _USE_MATH_DEFINES
 
 #include "core/aud/rsmp.h"
 #include "utest.h"
@@ -29,12 +13,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define POCKET_IN 49704  /* 50.4 MHz / 1014, what the OPL2 core actually runs at */
-#define POCKET_OUT 48000 /* the I2S, exactly 50.4 MHz / 1050 */
+#define POCKET_IN 49704  /* The OPL2 core's sample rate is 50.4 MHz / 1014. */
+#define POCKET_OUT 48000 /* The output rate of rsmp.sv is 50.4 MHz / 1050. */
 
 UTEST_MAIN();
 
-/* Feed a generated input through and collect everything that comes out. */
 static int run(int32_t (*gen)(int n, void *), void *ctx, int n_in,
                uint32_t in_rate, uint32_t out_rate, int32_t *out, int max_out)
 {
@@ -69,13 +52,11 @@ static int32_t gen_dc(int n, void *ctx)
     return *(int32_t *)ctx;
 }
 
-/* The analysis window, and why the test tones are odd numbers. A
- * projection at a frequency that does not complete a whole number of
- * cycles in the window leaves leakage behind, and that leakage looks
- * exactly like distortion: a perfect float sine at 100 Hz measures -55 dB
- * this way, which is worse than anything the resampler actually does. So
- * every tone here is snapped to an exact bin of the window. Getting this
- * wrong cost an afternoon of blaming the filter for the ruler. */
+/* A tone that does not complete a whole number of cycles in the ANA-sample
+ * window leaks into the residual that residual_db measures, and the leakage
+ * is larger than the resampler's own error: an exact float sine at 100 Hz,
+ * analysed at 48 kHz, measures about -53 dB. bin_hz therefore snaps every
+ * test tone to an exact bin of the window. */
 #define ANA 32768
 #define SKIP 256
 
@@ -98,10 +79,6 @@ static double power_at(const int32_t *x, double hz, double rate)
     return (a * a + b * b) / 2.0;
 }
 
-/* Everything that is not the tone, in dB relative to it: fit the tone by
- * projection and subtract it. Subtracting its power from the total instead
- * differences two nearly-equal large numbers, goes negative on rounding,
- * and takes log10 with it. */
 static double residual_db(const int32_t *x, double hz, double rate)
 {
     double re = 0, im = 0;
@@ -124,9 +101,6 @@ static double residual_db(const int32_t *x, double hz, double rate)
 
 UTEST(rsmp, the_ratio_is_the_ratio)
 {
-    /* 175/169 exactly: both Pocket rates divide the same 50.4 MHz. If the
-     * step is even slightly off, a long run drifts and the count is wrong,
-     * which is the failure a short run cannot see. */
     ASSERT_EQ(rsmp_step(POCKET_OUT, POCKET_OUT), (uint64_t)1 << 32);
 
     static int32_t out[200000];
@@ -140,10 +114,6 @@ UTEST(rsmp, the_ratio_is_the_ratio)
 
 UTEST(rsmp, a_constant_survives_as_itself)
 {
-    /* Unity gain at every fractional phase. A row whose taps do not sum to
-     * one turns a steady tone into a rough one, and the roughness rides the
-     * phase so it is not a level error anyone would spot by eye. This is
-     * why the generator constrains the row sums rather than fitting them. */
     static int32_t out[8192];
     int32_t dc = 12345;
     const int n = run(gen_dc, &dc, 8192, POCKET_IN, POCKET_OUT, out, 8192);
@@ -154,8 +124,6 @@ UTEST(rsmp, a_constant_survives_as_itself)
 
 UTEST(rsmp, a_cold_filter_does_not_click)
 {
-    /* Priming the history flat is why. Five zeros behind the first sample
-     * would ring, and it would ring at the start of every sound. */
     static int32_t out[512];
     int32_t dc = 20000;
     const int n = run(gen_dc, &dc, 512, POCKET_IN, POCKET_OUT, out, 512);
@@ -166,12 +134,8 @@ UTEST(rsmp, a_cold_filter_does_not_click)
 
 UTEST(rsmp, a_tone_survives_the_pocket_ratio)
 {
-    /* Limits are what the filter measures with a few dB of margin, not
-     * round numbers picked in advance. Every one of these now sits on the
-     * integer output floor rather than on anything the filter does — which
-     * is the point of the polyphase sinc: the Farrow it replaced read -35
-     * at 16 kHz and -14 at 20 kHz, so the top of the band was the only
-     * place left on this path where the arithmetic was audible. */
+    /* Each limit is 4 to 5 dB above the residual this test measures for
+     * that tone. */
     static const struct
     {
         double hz, limit;
@@ -197,8 +161,6 @@ UTEST(rsmp, a_tone_survives_the_pocket_ratio)
 
 UTEST(rsmp, it_handles_the_rates_a_sound_card_hands_back)
 {
-    /* The emulator's ratio is whatever the OS gives, and 49716 into 44100
-     * is a 1.13x decimation — far harder than the Pocket's 3.5%. */
     static int32_t out[SKIP + ANA + 4096];
     const uint32_t rates[] = {44100, 48000, 96000};
     for (unsigned k = 0; k < sizeof rates / sizeof *rates; k++)
@@ -218,8 +180,6 @@ UTEST(rsmp, it_handles_the_rates_a_sound_card_hands_back)
 
 UTEST(rsmp, upsampling_is_the_same_machine)
 {
-    /* step below 1.0 makes one input yield several outputs, which is a
-     * different path through the loop and has its own way of going wrong. */
     static int32_t out[8192];
     int32_t dc = -4096;
     const int n = run(gen_dc, &dc, 2048, 24000, 96000, out, 8192);

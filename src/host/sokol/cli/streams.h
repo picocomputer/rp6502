@@ -21,9 +21,10 @@
  * stream. */
 bool streams_write(FILE *f, const char *buf, int len);
 
-/* Mirror the program's stdout to the host's. Not under --script, which owns
- * the host's stdout, nor --crc, whose value it prints there, nor where a
- * console terminal already carries those bytes to the same screen. */
+/* Mirror the program's stdout to the host's. This is not called under
+ * --script, which writes its own output to the host's stdout, under --crc,
+ * whose value is printed there, or where a console terminal already shows
+ * those bytes on the same screen. */
 void streams_mirror_stdout(void);
 
 void streams_stderr(const char *buf, int len);

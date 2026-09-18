@@ -76,11 +76,6 @@ module psg
         9'd61, 9'd50, 9'd40, 9'd31,
         9'd22, 9'd14, 9'd7, 9'd0
     };
-    /* RATE * ms / 1000 as the C does it, not RATE / 1000 * ms, which
-     * drops the part of the rate below a kilohertz. 64-bit intermediates:
-     * RATE times the longest release passes 2^31 above 89 kHz. Spelled
-     * out because Quartus will not take a function call in a localparam
-     * array initializer. */
     `define PSG_ENV_RAW(ms) \
         32'd16777216 / 32'((64'(RATE) * 64'd``ms) / 64'd1000)
     /* The shortest attack is the largest step either table holds. */
@@ -257,10 +252,6 @@ module psg
 
     logic [12:0] tickctr;
 
-    /* Rounded once: two truncations in series bias every sounding channel
-     * downward, which is DC, not noise. Carried in at the start of the
-     * walk, where it is a constant the accumulators load rather than an
-     * adder they feed. */
     localparam logic signed [26:0] MIX_ROUND = 27'sd64;
     logic signed [26:0] mix_l, mix_r;
     /* The oracle's int8 division truncates toward zero. Taken once per

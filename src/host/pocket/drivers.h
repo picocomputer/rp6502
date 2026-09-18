@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's drivers: the ones it is made of and the order it comes up
- * in, and the ones it offers a program to open. Both are the same kind of
- * fact, so they are the same file.
- *
- * src/host/pocket/sw/main.c walks the machine rows -- forward to bring up
- * and to pump, backward to tear down. core/api/std.c builds the table from
- * the stdio rows.
  */
 
 #ifndef _HOST_DRIVERS_H_
@@ -47,15 +39,9 @@
 #include "osal/fs.h"
 #include "core/rom/rom.h"
 
-/* aud before com, so the bell hardware is quiet before the byte path that
- * can ring it is armed. fs before std, so reversal puts fs_stop after
- * std_stop -- std's closes are what park a read. unicode and layout before
- * keymap, which asks them what layouts exist. vid after term, whose height
- * its canvas sets.
- *
- * apf before keymap is the task column's rule, not init's: apf_task delivers
- * the reports and keymap_task runs the repeat timer over them. bel takes no
- * init -- the bell is part of the mixer aud brings up and restores.
+/* VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
+ * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
+ * which calls term_set_height on the terminal state that term_init sets up.
  */
 #define RP6502_MACH_DRIVERS                             \
     CFG_DRIVER, PROC_DRIVER,                            \
@@ -70,15 +56,12 @@
     DIR_DRIVER, API_DRIVER, WAKE_DRIVER,                \
     CLK_DRIVER, PHI2_DRIVER
 
-/* What a program may open, in the order open() tries them. The filesystem is
- * the catch-all, so it is last. */
+/* open() tries these rows in order, and the filesystem row accepts every
+ * path, so it is last. */
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
 
-/* Where console input comes from, indexed by com_source_t; core/com/pick.c
- * reads them. This machine has a layout engine, so its keyboard is keymap's
- * own queue and core's keyboard ring is never referenced. No wire, but the
- * UART row stays: it is where the terminal's answers to a program's queries
- * arrive. */
+/* No serial line feeds the UART row on this machine, but the row stays
+ * because the terminal's replies to a program's queries arrive through it. */
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
     [COM_SOURCE_UART] = COM_UART_SOURCE

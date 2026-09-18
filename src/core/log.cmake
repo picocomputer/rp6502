@@ -1,11 +1,3 @@
-# The log level a build carries, as compile definitions; core/sys/debug_log.h
-# says what the macros do with them.
-#
-# RP6502_LOG_LEVEL   NONE, ERROR, WARN, INFO or DEBUG; empty takes the build
-#                    type's own, ERROR in Debug and NONE otherwise.
-# RP6502_LOG_LEVELS  category=level words, each raising or silencing one
-#                    category: "ntp=DEBUG;usb=INFO".
-
 include_guard(GLOBAL)
 
 set(RP6502_LOG_LEVEL "" CACHE STRING
@@ -21,7 +13,6 @@ function(rp6502_log_level_check name where)
     endif()
 endfunction()
 
-# The definitions as a list of -D flags, for a compiler run outside a target.
 function(rp6502_log_flags out)
     set(_flags)
     if(RP6502_LOG_LEVEL)
@@ -49,8 +40,6 @@ function(rp6502_log_definitions target scope)
     target_compile_definitions(${target} ${scope} ${_defs})
 endfunction()
 
-# What the tinyusb category was set to, or empty, so a root can hand TinyUSB's
-# own LOG the same answer.
 function(rp6502_log_level_of category out)
     set(_level "")
     if(RP6502_LOG_LEVEL)

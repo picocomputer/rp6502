@@ -25,22 +25,22 @@ void input_poll(retro_input_state_t state);
 /* What the frontend says is plugged into a port; RETRO_DEVICE_NONE unplugs. */
 void input_set_port_device(unsigned port, unsigned device);
 
-/* A savestate has just been put back, so what this host believes about the
- * frontend's devices has to be made to agree with the machine again.
+/* A savestate has just been put back, so this host's record of the frontend's
+ * devices has to be made to agree with the machine again.
  *
  * Marking every port live is not a claim that a pad is plugged in: it is what
- * makes the next input_poll announce a disconnect for every port this
- * frontend does not have, because that poll only announces a disconnect for a
- * port it already thought was connected. Without it, a blob saved with four
- * pads loads into a session with none and a program waits on players forever.
+ * makes the next input_poll announce a disconnect for every port this frontend
+ * does not have, because that poll only announces a disconnect for a port
+ * already marked live. Without it, a blob saved with four pads loads into a
+ * session with none and a program waits on players forever.
  *
  * The keyboard is released because keys arrive as events rather than being
- * polled, so the key-up that would have cleared a restored key belongs to a
- * session the machine is no longer in.
+ * polled, so a key that was held when the savestate was taken would otherwise
+ * stay down until the frontend next sends a key-up for it.
  *
  * Called only for a load with neither flag: runahead and rewind stay inside
  * one session with the frontend's devices unchanged, and a netplay rollback
- * must not have this peer's idea of who is plugged in injected into a state
+ * must not have the devices plugged in on this peer injected into a state
  * that came from the other peer. */
 void input_state_restored(void);
 

@@ -32,27 +32,28 @@ bool usb_boot_enumerating(void);
 /* USB string descriptors
  */
 
-// Fetch/conversion buffer: 2-byte header + 31 UTF-16 chars
 #define USB_DESC_STRING_BUF_SIZE 64
 #define USB_DESC_STRING_MAX_CHAR_LEN ((USB_DESC_STRING_BUF_SIZE - 2) / 2)
 
-// UTF-16 char count in a string descriptor, clamped to the buffer capacity.
 uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size);
 
-// Convert USB string descriptor to OEM for display.
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size);
 
-// Blocking fetches returning a shared USB_DESC_STRING_BUF_SIZE buffer.
+// These fetches call sys_task while they wait, for up to 250 ms. Each returns
+// the same static buffer of USB_DESC_STRING_BUF_SIZE bytes, so a result must
+// be used before the next fetch. A fetch returns NULL when it cannot start or
+// does not finish within 250 ms, and returns a zeroed buffer when the device
+// has no such string or the transfer fails.
 const void *usb_string_fetch_manufacturer(uint8_t daddr);
 const void *usb_string_fetch_product(uint8_t daddr);
 const void *usb_string_fetch_serial(uint8_t daddr);
 
-// Stable device identity fingerprint (VID/PID/bcdDevice + descriptor strings)
 bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
 
-/* Late on purpose. usb_init arms a 355 ms enumeration window that
- * keyboard_mount reads to decide the Raspberry Pi keyboard's NumLock quirk;
- * anything slow scheduled inside it makes the quirk stop firing. */
+/* USB_DRIVER comes late in the driver list because usb_init starts the 355 ms
+ * boot enumeration window, and keyboard_mount applies the NumLock quirk of the
+ * Raspberry Pi Keyboard only inside that window. A slow init after usb_init
+ * can use up the window before the keyboard mounts. */
 #define USB_DRIVER DRIVER(usb_init, usb_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _RIA_USB_USB_H_ */

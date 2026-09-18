@@ -2,25 +2,11 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# core/hid/usage.h against the vendored TinyUSB header.
-#
-# core/hid/keyboard.c is compiled for machines that mostly have no USB, so the
-# usage table it reads is the machine's own -- learning that Escape is 0x29
-# should not cost a Pocket a USB stack. But the RIA does have USB and its
-# drivers speak TinyUSB's spelling of the same specification, and two
-# spellings of one specification is exactly the arrangement that drifts.
-# So every constant core/hid/usage.h defines is compared against the
-# vendor's here, on the one build that has both.
-#
-# Only names usage.h defines are checked: it carries what keyboard.c uses, not
-# the whole usage table.
 
 import argparse
 import re
 from pathlib import Path
 
-# TinyUSB writes the bit flags as an enum with TU_BIT(n).
 TU_BIT = re.compile(r"TU_BIT\((\d+)\)")
 
 
@@ -33,7 +19,6 @@ def evaluate(text):
 
 
 def defines(src):
-    """Every #define and enumerator with a constant value."""
     out = {}
     for m in re.finditer(r"^\s*#\s*define\s+([A-Z][A-Z0-9_]*)\s+"
                          r"(0[xX][0-9A-Fa-f]+|\d+)\s*(?://.*)?$",

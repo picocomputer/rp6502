@@ -2,23 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The host a machine test does not otherwise have. rp6502 routes its 0x8
- * window out to rp6502_host_*, and a platform puts a file bridge there —
- * pocket_file on the Pocket. A bench that boots the firmware has to
- * answer the same registers, because the ROM is a slot: the loader asks
- * the data table how long the image is before parsing it out of the
- * store, and a bench that answers nothing leaves it spinning on a
- * status that never clears.
- *
- * Only what the loader uses is modelled — the data table, a slot read
- * for exec's pull, the name behind Get File, and exec's staging Open of
- * the ROM slot. Every other open, and every write and flush, comes from the
- * drive, and tests/host/pocket has a fuller host for those.
- *
- * Commands complete in the cycle they are issued. Nothing here is trying
- * to be a timing model; pocket_file's own bench is where the deadlines
- * and the drain live.
  */
 
 #ifndef _TESTS_FPGA_TB_HOST_H_
@@ -31,16 +14,15 @@
 #include <string>
 #include <vector>
 
-/* Slot ids, which data.json declares and msc.h mirrors. */
+/* The slot ids are declared in data.json. */
 #define TB_HOST_SLOT_ROM 0u
 #define TB_HOST_SLOT_FONTS 9u
 #define TB_HOST_SLOT_OEMCP 10u
 
-/* get_dataslot_file_t: one 256-byte path, per Analogue's reference. */
 #define TB_HOST_GETFILE_STRUCT 256u
 
-/* Open File's parameter struct, which the firmware writes through the
- * file window: a 256-byte path, then the flags and size words. */
+/* The firmware writes Open File's parameter struct through the file window
+ * at 0x1000: a 256-byte path, then the flags and size words. */
 #define TB_HOST_FILE_WIN 0x1000u
 #define TB_HOST_OPEN_NAME 256u
 
@@ -56,7 +38,6 @@ public:
         tb_stage_clear();
     }
 
-    /* One call per clk_sys edge, before eval. */
     template <class DUT> void tick(DUT *dut)
     {
         if (dut->wiring_host_stb && dut->wiring_host_we)
@@ -135,7 +116,7 @@ private:
     uint32_t read(uint32_t addr) const
     {
         if (addr == 0x10)
-            return err_ << 1; /* never busy, never draining */
+            return err_ << 1; /* the busy and drain bits are never set */
         if (addr == 0x14)
             return result_;
         return 0;
@@ -146,10 +127,10 @@ private:
         err_ = 0;
         switch (op)
         {
-        case 4: /* DT: pairs of id and size, laid out by id */
+        case 4: /* DT: word 2n is slot n's id and word 2n+1 is its size */
             result_ = (id_ & 1) ? slot_size(id_ >> 1) : (id_ >> 1);
             break;
-        case 1: /* READ into the slot's window */
+        case 1: /* READ */
         {
             uint32_t size;
             const uint8_t *p = slot_data(id_, &size);
@@ -165,21 +146,14 @@ private:
                 tb_stage_write(bridge_ + i, p[off_ + i]);
             break;
         }
-        case 5: /* GETFILE: the response struct, where BRIDGE points */
+        case 5: /* GETFILE */
         {
-            /* The whole 256 bytes, every time, blanked past the name --
-             * which is what the device does. Measured: a Get File on a
-             * bound slot leaves its path in the window, and a Get File
-             * on an unbound slot immediately after leaves the window
-             * empty. The host clears it rather than declining to write,
-             * so the window's own contents say whether a slot is bound
-             * and a reader needs nothing else to tell.
-             *
-             * Writing only the name plus its terminator, as this did,
-             * modelled a host that leaves the rest alone -- under which
-             * an unbound slot would answer with whatever the last ask
-             * left there, and a bench could never catch a reader that
-             * trusted it. */
+            /* The whole 256-byte response struct at bridge_ is written on
+             * every Get File because the Pocket does the same. Measurements
+             * on the device show that a Get File on a bound slot leaves its
+             * path in the struct, and a Get File on an unbound slot
+             * immediately after leaves an empty name there, so an empty
+             * name means an unbound slot. */
             const std::string &s = (id_ == TB_HOST_SLOT_ROM) ? name_
                                                              : empty_;
             for (size_t i = 0; i < TB_HOST_GETFILE_STRUCT; i++)
@@ -187,10 +161,10 @@ private:
                                i < s.size() ? (uint8_t)s[i] : 0);
             break;
         }
-        case 3: /* OPEN: only the ROM slot, by the name it is already bound to */
+        case 3: /* OPEN */
             err_ = (id_ == TB_HOST_SLOT_ROM && open_name() == name_) ? 0 : 3;
             break;
-        default: /* WRITE, FLUSH: issued only by the drive */
+        default: /* WRITE, FLUSH */
             err_ = 5;
             break;
         }
@@ -201,10 +175,6 @@ private:
 
 const std::string tb_host::empty_;
 
-/* One call per clk_sys edge, beside the staging read every clock loop
- * already does. The state is static because the loops are lambdas and a
- * host that was rebuilt each cycle would forget the window it just
- * filled. */
 template <class DUT>
 static void tb_host_tick(DUT *dut, const std::vector<uint8_t> &rom)
 {

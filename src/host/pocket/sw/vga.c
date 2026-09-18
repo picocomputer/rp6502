@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Both sides of the VGA contract on one machine, core/vga/vga.c's shape.
- * There is no g_prog array: the RTL scanline program is the storage, and
- * entries are published tagged with the mode and attribute the
- * dispatcher announced, because a fill-function pointer means nothing to
- * hardware.
  */
 
 #include "font.h"
@@ -31,7 +25,6 @@ uint8_t vga_get_display_type(void)
     return 1;
 }
 
-/* The fabric renders, so it is told which mode before the planes arrive. */
 void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
     vga_pub_mode = mode;
@@ -57,18 +50,20 @@ int16_t vga_prog_highest(void)
     return vga_highest_scanline;
 }
 
-/* The fabric paces the beam off a register, so it is told where vsync falls
- * every time the answer could have moved: after a booking, and when a canvas
- * change throws the bookings away. It takes the number verbatim -- there is
- * no clamp in prog.sv -- so what goes out is the clamped one, and a reset
- * writes the new canvas's bottom rather than zero. */
+/* The vsync pulse advances the RIA frame counter and sets the vsync
+ * interrupt pending, and VID_VSYNC_LINE is the scanline it fires on. prog.sv
+ * stores the line without a range check, so the value written is the one
+ * vga_vsync_line limits to the canvas, and it is written again after every
+ * booking and every canvas reset because either can change it. */
 static void vga_publish_vsync(void)
 {
     VID_VSYNC_LINE = (uint32_t)vga_vsync_line();
 }
 
-/* The table is write-only from the bus, so the exclusive sweep's one bit
- * per line lives here. */
+/* The soft CPU cannot read an entry back from the scanline table, so each
+ * line programmed by the last successful vga_prog_exclusive call has a bit
+ * here until a vga_prog_fill on the same plane replaces the line or
+ * vga_canvas_reset clears the table. */
 static uint32_t vga_mode0_mask[16];
 static int16_t vga_mode0_plane;
 
@@ -139,9 +134,6 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     return true;
 }
 
-/* The fabric holds the programming, so forgetting it is a sweep of the
- * scanline registers and the mode 0 masks -- and this machine's own record of
- * how far down the picture goes, which is not the shared table's. */
 void vga_canvas_reset(void)
 {
     for (int16_t i = 0; i < 512; i++)
@@ -154,38 +146,26 @@ void vga_canvas_reset(void)
     vga_publish_vsync();
 }
 
-/* The fabric sizes the picture, so it is told. */
 void vga_canvas_publish(vga_canvas_t canvas)
 {
     VID_CANVAS = canvas;
 }
 
-/* A wake reconfigures the part, so these two come back at their
- * power-on values -- console, and a vsync line of 480 -- while the
- * blob has brought back the scanline table they belong to and the
- * shadows above that say what they were. Not vga_canvas_select: that
- * sweeps the table, which is exactly what the blob just restored.
- *
- * The canvas is the whole picture. It is the scaler mode the raster
- * names at the end of every line, and it is also the width the fill
- * engines are given a line's worth of clocks to produce: a 320-wide
- * program woken onto a 640-wide canvas is asked for twice the pixels
- * in the same time, does not finish, and never flips its bank. That is
- * a black screen over a program that is still running. */
+/* The blob does not contain VID_CANVAS or VID_VSYNC_LINE, so after a
+ * restore they hold their power-on values or the values written before the
+ * restore. The blob does contain the scanline table and the firmware state
+ * both values come from. vga_canvas_select is not used here because it
+ * clears the scanline table the blob has just restored. */
 void vga_restore(void)
 {
     VID_CANVAS = (uint32_t)vga_get_canvas();
     vga_publish_vsync();
 }
 
-/* One font store, and the glyphs in it are this page's. */
 void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
 }
-/* Putting a page back rather than choosing one. This machine's font is
- * elsewhere and the message is the same either way; only the terminal reset
- * differs, and that one is core's. */
 void vga_load_code_page(uint16_t cp)
 {
     vga_set_code_page(cp);

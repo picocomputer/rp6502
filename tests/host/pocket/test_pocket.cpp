@@ -2,27 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The whole Pocket stack: the host streams a real .rp6502 over the
- * bridge into SDRAM, the run gate releases the machine, the firmware
- * loads the ROM through the stalled staging window, and the program
- * paints. The frame the scaler receives — decoded from vs/hs/de at
- * 25.2 MHz and unpacked from RGB888 — must be settled and match the
- * CRC written down beside each case, across every canvas geometry the
- * mapping owns. What the machine paints into that frame is checked in
- * tests/cpu/vga against these same ROMs, on both machines; what is
- * left here is the trip out through the scaler. The reload case
- * runs the host's mid-session order — Reset Enter, a new slot,
- * completion, Exit — with a button held through the whole load: the
- * scaler re-arms on the new machine's first frame and the held press
- * delivers itself the moment the rebooted firmware can hear it.
- *
- * THE HOST MODELLED HERE IS OURS, NOT ANALOGUE'S. The bridge's timing,
- * the order of a mid-session reload, and the data slot handshake were
- * reverse engineered from a real Pocket rather than read out of a
- * specification, because there is not one. Expect errors in it. The
- * frame half of this test is exact, but everything the bench does as
- * the host is a guess we have not been able to disprove.
  */
 
 #include "Vtb_pocket.h"
@@ -43,9 +22,6 @@
 #include <vector>
 
 static Vtb_pocket *dut;
-/* The host's id/size pairs, and the image behind the ROM slot. The host
- * pushes the whole image into the store at boot; the copy here answers
- * the slot reads an exec pull would make. */
 static uint32_t g_dt[64];
 static uint32_t dt_pipe[2];
 static std::vector<uint8_t> g_rom;
@@ -54,12 +30,10 @@ static int g_rd_prev, g_rd_hold;
 static long a_next, s_next;
 static long g_t, g_sys;
 
-/* Get File state, reset per power-on because the model outlives the
- * device it answers for. */
 static int g_gf_prev, g_gf_hold;
 
-/* clk_sys period 330 with clk_vid on every second rise; clk_74a at
- * period 224 — the true PLL family against the bridge clock. */
+/* The periods 330 and 224 give clk_sys and clk_74a the ratio of
+ * 50.4 MHz to 74.25 MHz. */
 static void tick()
 {
     long next = a_next < s_next ? a_next : s_next;
@@ -71,8 +45,6 @@ static void tick()
         dut->clk_sys = 1;
         if ((g_sys & 1) == 0)
         {
-            /* Both are half clk_sys and rise with it; the soft CPU's
-             * comes off the same PLL for exactly that reason. */
             dut->clk_vid = 1;
             dut->clk_rv = 1;
         }
@@ -87,14 +59,11 @@ static void tick()
     dut->eval();
     if (aedge)
     {
-        /* argv: the core asks for the ROM slot's name before it releases
-         * the 6502, and a command the host never retires costs it the
-         * bridge's whole deadline — 134 million clocks, which is not a
-         * test, it is a hang. These cases do not check the name, and
-         * the staging store answers zeros, which is the empty name a
-         * slot with nothing bound would give. The handshake is what has
-         * to happen: done falls so the core can prove its command was
-         * taken, then rises carrying the answer. */
+        /* The firmware issues Get File on the ROM slot before it
+         * releases the 6502, and pocket_file waits 2^27 clk_74a cycles
+         * for a command that is never completed, so the bench completes
+         * it. target_dataslot_done is dropped first because pocket_file
+         * waits for it to fall before it waits for it to rise. */
         int g = dut->tb_pocket_ds_getfile;
         if (g && !g_gf_prev)
         {
@@ -146,7 +115,6 @@ static void tick()
     dut->eval();
 }
 
-/* One clk_74a rising edge. */
 static void a_edge()
 {
     long t = a_next;
@@ -164,12 +132,6 @@ static bool load_firmware(const char *path)
         r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3, path);
 }
 
-/* The run is over when the 6502 has run, stopped, and a frame has
- * passed with no console byte — the same judgment tb_quiet makes for
- * the bare machine, spelled here against the assembled core's own port
- * names. Waiting for the firmware to speak instead, as this did, cost a
- * frame a case: the banner lands after the program is already done. Counts key
- * deliveries on the way when the caller wants them. */
 static bool run_until_quiet(long *presses = nullptr)
 {
     long frames = 0;
@@ -214,15 +176,6 @@ static bool run_until_quiet(long *presses = nullptr)
     return false;
 }
 
-/* Capture one full decoded frame off the scaler interface the way the
- * scaler latches it: sample on clk_vid rises, arm at a vs pulse, collect
- * pixels where de stands and skip does not, and read the end-of-line
- * word on the cycle after each de fall — rgb[23:13] carries the scaler
- * slot request there, rgb[2:0] the function code. The frame is over at
- * the next vs; the caller asserts the pixel count, because the count IS
- * the claim now: a canvas-native stream has exactly canvas-many pixels,
- * and a duplicated or shifted one shows up as the wrong total before
- * any color is compared. */
 static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
 {
     size_t at = 0;
@@ -239,16 +192,16 @@ static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
         if (dut->tb_pocket_vs)
         {
             if (started && at > 0)
-                break; /* the frame between two vs pulses */
+                break;
             at = 0;
             started = true;
             continue;
         }
         if (!started)
             continue;
-        /* The end-of-line word rides the FIRST de-low cycle — the spec's
-         * "after the DE falling edge" is this sample, not the one after
-         * it, and reading one late finds zeros that decode as slot 0. */
+        /* pocket_video puts the scaler slot in rgb[23:13] only on the
+         * first clk_vid cycle with de low and drives zeros after it, so a
+         * sample one cycle late decodes as slot 0. */
         if (de_q && !dut->tb_pocket_de && (dut->tb_pocket_rgb & 0x7) == 0)
             slot = (int)(dut->tb_pocket_rgb >> 13);
         de_q = dut->tb_pocket_de;
@@ -275,10 +228,6 @@ static std::vector<uint8_t> read_rom(const char *name)
     return rom;
 }
 
-/* One slot's bytes over the bridge. The slot's own bridge address is
- * where it lands in the SDRAM, which is the whole of the platform's
- * part in this: the font asset is a second slot and needs no more
- * hardware than a different address in data.json. */
 static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
 {
     for (size_t i = 0; i < data.size(); i += 4)
@@ -299,13 +248,11 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
     }
 }
 
-/* Host slot load, in the host's own order: the next request drops the
- * completion level, the whole image streams over the bridge to the
- * primary slot's address, the table says how long it is, completion
- * returns and stays. The copy kept in g_rom answers any exec pull
- * afterwards. A hot reload from the Core Settings menu was measured
- * doing exactly this sequence again mid-run — no 0x008A — so this one
- * function is boot and reload both. */
+/* A hot reload from the Core Settings menu was measured as a slot
+ * request write, the new image and its data table entry, and a second
+ * 0x008F, with no 0x008A data slot update. The request write clears
+ * dataslot_allcomplete and 0x008F sets it. host_load drives that
+ * sequence, so a hot reload is modelled as a second call to it. */
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
@@ -314,21 +261,15 @@ static void host_load(const std::vector<uint8_t> &rom)
     memset(g_dt, 0, sizeof g_dt);
     g_dt[0] = 0;
     g_dt[1] = (uint32_t)rom.size();
-    /* The drop has to be clocked before the rise, or the settle has no
-     * edge to fire on; the stream's clocks are that, and the wait keeps
-     * the guarantee even for an empty image. */
+    /* pocket_bridge posts the slot size on a rising edge of
+     * dataslot_allcomplete, so the low level has to be clocked in before
+     * it rises. These edges do that even for an empty image, which
+     * streams no words. */
     for (int i = 0; i < 40; i++)
         a_edge();
     dut->dataslot_allcomplete = 1;
 }
 
-/* Check the settled scaler frame against the CRC in the case. `wait` is
- * false when the caller already ran the machine to quiet — the judgment
- * can only be made once per run, since a finished machine and one that
- * has not started look alike from outside.
- *
- * Set RP6502_BLESS_CRC to have a run print each observed value in the
- * form it is pasted back as. */
 static void run_and_check(int *utest_result, const char *name,
                           uint32_t expect, bool wait = true)
 {
@@ -338,10 +279,6 @@ static void run_and_check(int *utest_result, const char *name,
     if (wait)
         ASSERT_TRUE(run_until_quiet());
 
-    /* Canvas-native: the stream is exactly ow x oh pixels. The old
-     * compare here re-implemented the duplication in C to expand a
-     * 320-wide picture up to 640x480 — the hardware stopped pretending,
-     * so the test stops compensating. */
     static uint32_t fb[640 * 480];
     int slot = -1;
     const size_t got = capture_frame(fb, sizeof fb / sizeof *fb, &slot);
@@ -366,9 +303,9 @@ static void power_on(int *utest_result)
 {
     a_next = 224;
     s_next = 330;
-    /* Genuinely powered on, not merely reset: the beam and the video
-     * path take no reset now, so a pulse leaves them mid-frame while
-     * everything else restarts. */
+    /* The DUT is rebuilt rather than reset because the timing and
+     * pocket_video modules have no reset, so a reset pulse would leave
+     * them mid-frame while the rest of the machine restarts. */
     if (dut)
     {
         dut->final();
@@ -381,12 +318,8 @@ static void power_on(int *utest_result)
     dut->reset_n = 0;
     dut->cont1_key = 0;
     dut->dataslot_allcomplete = 0;
-    /* Held high between commands, the way the host holds it: the fall is
-     * what proves a command was taken. */
     dut->target_dataslot_done = 1;
     g_gf_prev = g_gf_hold = 0;
-    /* The read handshake's edge memory too: a case that ended mid-strobe
-     * leaves the next one's first read looking like no edge at all. */
     g_rd_prev = g_rd_hold = 0;
     dt_pipe[0] = dt_pipe[1] = 0;
     for (int i = 0; i < 32; i++)
@@ -397,19 +330,16 @@ static void power_on(int *utest_result)
     while (!dut->tb_pocket_ready && guard++ < 60000)
         tick();
     ASSERT_TRUE(dut->tb_pocket_ready);
-    /* The core's own asset, loaded once before the machine runs and
-     * never reloaded. Written straight into the chip rather than
-     * streamed: sixty kilobytes over the bridge is six hundred thousand
-     * clocks a case, and the bridge's own path is proven by the ROM,
-     * which streams in every case. */
+    /* The fonts are written straight into the SDRAM model because
+     * streaming their 60 KB over the bridge costs about 600,000 clk_74a
+     * cycles a case, and the ROM already goes over the bridge in every
+     * case. */
     const std::vector<uint8_t> &fonts = tb_stage_fonts();
     auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
     for (size_t i = 0; i + 1 < fonts.size(); i += 2)
         chip[(TB_STAGE_FONT_BASE + i) >> 1] =
             (uint16_t)(fonts[i] | (fonts[i + 1] << 8));
 
-    /* The code page tables ride in on their own slot the same way, and
-     * go in the same way here. */
     const std::vector<uint8_t> &oemcp = tb_stage_oemcp();
     for (size_t i = 0; i + 1 < oemcp.size(); i += 2)
         chip[(TB_STAGE_OEMCP_BASE + i) >> 1] =
@@ -430,13 +360,6 @@ UTEST(pocket, canvas3_640x480)
 {
     run_case(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
-    /* The asset made the whole trip: the slot the host filled, the
-     * firmware's read of it, and the store the scanout reads. The face is
-     * built from the asset's pieces rather than copied out of one of them,
-     * so what is checked is the face — against the number below, the same
-     * way every other picture in the suite is checked. What that face has
-     * to be is tests/rtl/vga's, against the font.c the asset comes from;
-     * this is the trip. */
     auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__font__DOT__f16;
     static uint32_t face[1024];
     for (size_t i = 0; i < 1024; i++)
@@ -447,7 +370,6 @@ UTEST(pocket, canvas3_640x480)
     else
         ASSERT_EQ(fcrc, 0x0A77F72Cu);
 
-    /* The codec side is alive: LRCK ticks at audio rate. */
     int lrck_flips = 0;
     int lrck_q = dut->tb_pocket_lrck;
     for (int i = 0; i < 200000; i++)
@@ -486,8 +408,6 @@ UTEST(pocket, reload_with_a_button_held)
     dut->reset_n = 1;
     run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
-    /* The host reloads a different slot; a button goes down before
-     * the reset and stays down through the whole load. */
     dut->reset_n = 0;
     dut->cont1_key = 1u << 4; /* A */
     std::vector<uint8_t> second = read_rom("mode3_1bpp");
@@ -497,16 +417,12 @@ UTEST(pocket, reload_with_a_button_held)
 
     ASSERT_TRUE(run_until_quiet(nullptr));
 
-    /* The gamepad is state, so a button held across a reboot is simply
-     * still held on the other side — there is no delivery to count
-     * and no edge to miss while the machine was away. */
     ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 1u << 4);
     dut->cont1_key = 0;
     for (int i = 0; i < 4000; i++)
         tick();
     ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 0u);
 
-    /* And the scaler re-armed on the new machine's frame. */
     run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
 }
 
@@ -519,11 +435,6 @@ UTEST(pocket, hot_reload_without_a_reset)
     dut->reset_n = 1;
     run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
-    /* The Core Settings pick, as the debug log spells it: no Reset
-     * Enter, no 0x008A — the request write drops completion, the new
-     * image and the table entry arrive, and the closing
-     * access-all-complete is the only announcement the machine gets.
-     * The firmware has to notice off the posted size alone. */
     std::vector<uint8_t> second = read_rom("mode3_1bpp");
     ASSERT_TRUE(second.size() > 0);
     host_load(second);
@@ -544,29 +455,18 @@ int main(int argc, const char *const argv[])
     return rc;
 }
 
-/* --- The gamepad the dock holds, as the record a program reads --- *
- *
- * Everything else about a controller is proved on the other machine: the
- * script suite plugs gamepads into the emulator and reads the same ten bytes
- * back. Nothing did it here, so the dock's registers reached ria/hid and
- * were never asked what came out -- the one part of this path that is the
- * machine's rather than the transport's.
- *
- * The program is here rather than in a fixture because it is three
- * instructions: map the block and stay up. What it maps is what apf.c
- * fills, so the assertions are on XRAM and not on anything printed. */
 static std::vector<uint8_t> gamepad_mapper(uint16_t at)
 {
     tb_asm p;
-    /* xreg device 0 (the RIA's own devices), channel 0, address 2: the
-     * gamepad block, four ten-byte records from `at`. */
+    /* For xreg device 0, channel 0, address 2 the word is the XRAM
+     * address of the gamepad block, which holds four 10-byte records. */
     p.push(0);
     p.push(0);
     p.push(2);
     p.pushw(at);
     p.call(0x01);
     uint16_t here = p.here();
-    p.jmp(here); /* stay up: the gamepad is reported to a running machine */
+    p.jmp(here);
 
     std::vector<uint8_t> rom;
     const char magic[] = "#!RP6502\n";
@@ -577,7 +477,6 @@ static std::vector<uint8_t> gamepad_mapper(uint16_t at)
     return rom;
 }
 
-/* One byte of XRAM, which the fabric keeps as four byte lanes. */
 static uint8_t xram_at(uint16_t a)
 {
     auto *r = dut->rootp;
@@ -591,8 +490,6 @@ static uint8_t xram_at(uint16_t a)
     }
 }
 
-/* The machine keeps running: this one does not stop, so quiet is not the
- * signal and frames are counted instead. */
 static void run_frames(int n)
 {
     int prev = dut->tb_pocket_vs;
@@ -610,8 +507,8 @@ static void run_frames(int n)
 UTEST(pocket, the_gamepad_the_dock_holds_reaches_xram)
 {
     static const uint16_t AT = 0xFF00;
-    /* The dock's key word: the type nibble on top, then the buttons the
-     * Pocket's own face carries. apf.c reads exactly this. */
+    /* Bits 31:28 of a controller's key word are its type, and apf.c
+     * mounts type 2 as a gamepad. */
     static const uint32_t TYPE_PAD = 2u << 28;
 
     power_on(utest_result);
@@ -619,28 +516,22 @@ UTEST(pocket, the_gamepad_the_dock_holds_reaches_xram)
     dut->reset_n = 1;
     run_frames(10);
 
-    /* Nothing docked: a blank record, and the connected bit clear is the
-     * gate a program reads before anything else. */
     ASSERT_EQ((uint32_t)xram_at(AT), 0u);
 
-    /* Docked, with down and A held. */
+    /* Key bit 1 is down on the d-pad and key bit 4 is A. */
     dut->cont1_key = TYPE_PAD | (1u << 1) | (1u << 4);
     run_frames(10);
     ASSERT_EQ((uint32_t)(xram_at(AT) & 0x80), 0x80u);   /* connected */
     ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x02u);   /* dpad down */
     ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u); /* button0: A */
 
-    /* A release clears only what it named. */
     dut->cont1_key = TYPE_PAD | (1u << 4);
     run_frames(10);
     ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x00u);
     ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u);
 
-    /* Player 1 is a record of its own and nothing is in it. */
     ASSERT_EQ((uint32_t)xram_at(AT + 10), 0u);
 
-    /* Undocked blanks the whole record, which is how a program tells a
-     * gamepad that let go from one that left. */
     dut->cont1_key = 0;
     run_frames(20);
     for (int i = 0; i < 10; i++)

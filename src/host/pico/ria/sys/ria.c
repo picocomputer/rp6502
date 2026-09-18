@@ -49,9 +49,9 @@ static ria_callback_t action_callback;
 #define RIA_IRQ_VSYNC 0x80
 #define RIA_IRQ_SIGINT 0x40
 
-static volatile uint8_t irq_enabled;    // bit7=vsync, bit6=sigint mask
-static volatile uint8_t vsync_pending;  // 0 or RIA_IRQ_VSYNC; owner: core0 IRQ
-static volatile uint8_t sigint_pending; // 0 or RIA_IRQ_SIGINT; owner: core0 task
+static volatile uint8_t irq_enabled;
+static volatile uint8_t vsync_pending;
+static volatile uint8_t sigint_pending;
 
 void ria_trigger_vsync(void)
 {
@@ -65,8 +65,10 @@ void ria_trigger_vsync(void)
     }
 }
 
-// Latched whenever it happens. Only the publish waits out a transfer, during
-// which $FFF0 is the transfer stub's vector; ria_task publishes after.
+// sigint_pending is set even during a transfer, but $FFF0 is written only
+// when no transfer is running, because the loop that the 6502 runs for a
+// transfer is written at $FFF0. ria_task rewrites $FFF0 and IRQB from the
+// pending flags once the transfer ends.
 void ria_trigger_sigint(void)
 {
     sigint_pending = RIA_IRQ_SIGINT;
@@ -107,10 +109,9 @@ static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsi
     return -1;
 }
 
-/* Runs the 6502 through a loop at $FFF0 with the reset vector pointed at it.
- * The vector is saved here and restored by ria_action_close, which happens
- * between the two halves of a write so the verify half compares the bytes
- * above $FFF9 against what the write put there. */
+/* The reset vector is saved here and restored by ria_action_close. ria_task
+ * calls ria_action_close between the two halves of a write, so the verify half
+ * compares the bytes above $FFF9 against what the write put there. */
 static void ria_action_start(void)
 {
     saved_reset_vec = REGSW(0xFFFC);
@@ -159,9 +160,9 @@ static void ria_action_close(void)
     }
 }
 
-/* Ends a transfer from either core. The line goes down before the result is
- * published, so ria_task never rewrites the registers while the 6502 can
- * still fetch them. */
+/* A transfer is ended from either core. RESB goes low before the result is
+ * published, so ria_task never rewrites the loop or the reset vector while
+ * the 6502 can still fetch them. */
 static void ria_action_end(int32_t result)
 {
     resb_assert();
@@ -169,9 +170,6 @@ static void ria_action_end(int32_t result)
     action_result = result;
 }
 
-/* The verify half of a write: the bytes above $FFF9 are compared in place,
- * the rest through the loop. With nothing left for the loop the result is
- * set here and ria_task reports it on its next pass. */
 static void ria_verify_start(void)
 {
     action_state = action_state_verify;
@@ -199,8 +197,9 @@ void ria_task(void)
 {
     if (action_state == action_state_idle)
     {
-        // Resync REGS(0xFFF0) and /IRQ with the pending flags. Heals any
-        // benign cross-core race between core0 triggers and core1's clear.
+        // A trigger on core 0 can race the clear in act_loop on core 1 and
+        // leave $FFF0 or IRQB out of step with the pending flags, so both are
+        // rewritten from the flags on every idle pass.
         uint8_t live = vsync_pending | sigint_pending;
         REGS(0xFFF0) = live;
         gpio_put(CPU_IRQB_PIN, (live & irq_enabled) == 0);
@@ -281,14 +280,8 @@ void ria_write_buf(uint16_t addr, ria_callback_t callback)
     ria_action_start();
 }
 
-// 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
-// produces TX / consumes RX directly (these live here, in its translation unit,
-// so its hot path stays a plain memory access); com.c (core 0) drains TX and
-// feeds RX through the ria_uart_* accessors. Keeping the cross-core rings a ria
-// concern is what lets com.h stay platform-neutral.
-
-// act_loop's 6502 UART-TX ring: single producer (act_loop, core 1), single
-// consumer (com_tx_fanout via ria_uart_tx_dequeue, core 0).
+// The UART TX ring has a single producer, act_loop on core 1, and a single
+// consumer, com_tx_fanout on core 0 through ria_uart_tx_dequeue.
 #define RIA_UART_TX_BUF_SIZE 32
 static volatile uint8_t ria_uart_tx_buf[RIA_UART_TX_BUF_SIZE];
 static volatile size_t ria_uart_tx_head;
@@ -299,9 +292,8 @@ static inline bool ria_uart_tx_writable(void)
     return (((ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE) != ria_uart_tx_tail);
 }
 
-// Caller (act_loop) must have checked ria_uart_tx_writable() first. __dmb()
-// publishes the slot before the head so the core-0 reader can't observe a new
-// head with a stale slot.
+// The barrier publishes the slot before the head, so core 0 never reads a new
+// head while the slot still holds a stale byte.
 static inline void ria_uart_tx_write(uint8_t ch)
 {
     size_t next = (ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE;
@@ -310,8 +302,6 @@ static inline void ria_uart_tx_write(uint8_t ch)
     ria_uart_tx_head = next;
 }
 
-// core-0 (com_tx_fanout) pops one byte. The __dmb() finishes reading the slot
-// before publishing the tail advance, pairing with the producer DMB.
 bool ria_uart_tx_dequeue(uint8_t *ch)
 {
     if (ria_uart_tx_head == ria_uart_tx_tail)
@@ -325,17 +315,6 @@ bool ria_uart_tx_dequeue(uint8_t *ch)
 
 bool ria_uart_tx_empty(void) { return ria_uart_tx_head == ria_uart_tx_tail; }
 
-// 6502 UART-RX handoff: com_task (core 0) offers one byte into the slot;
-// act_loop (core 1) moves it into the $FFE2 latch when the 6502 polls $FFE0
-// and serves it from there. -1 => empty. The source tag stays on core 0 in
-// com.c (act_loop never needs it).
-//
-// At most one byte is ever past the console's rings, in the slot or in the
-// latch, and it is the one com.c's tag names. The offer waits on both, the
-// slot read first: act_loop fills the latch only from the slot, so a slot
-// seen empty pins the latch. Every reader that takes a byte back or looks at
-// one covers both places, so a program that polls $FFE0 once and leaves does
-// not strand what that poll committed.
 static volatile int ria_uart_rx_slot = -1;
 
 bool ria_uart_rx_offer_ready(void)
@@ -374,7 +353,6 @@ bool ria_uart_rx_reclaim(uint8_t *ch)
     return false;
 }
 
-// A break: the byte staged for the program being interrupted goes with it.
 static void ria_uart_rx_clear(void)
 {
     ria_uart_rx_slot = -1;
@@ -382,7 +360,8 @@ static void ria_uart_rx_clear(void)
     REGS(0xFFE2) = 0;
 }
 
-/* A break lowers the line from core 0, which ends any transfer with it. */
+/* sys_commit calls sys_stop, which lowers RESB, before it calls the break
+ * hooks, so the 6502 is held in reset when ria_break closes the transfer. */
 void ria_break(void)
 {
     action_callback = NULL;
@@ -471,9 +450,6 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     }
                     else if (data == 0xFF) // exit()
                     {
-                        // Captured before the stop, while A and X still hold
-                        // what the program exited with, for a launcher to read
-                        // back through ATTR_EXIT_CODE.
                         proc_exit((int16_t)API_AX);
                     }
                     break;
@@ -607,7 +583,6 @@ static void __in_flash("ria_write_pio_init") ria_write_pio_init(void)
     int addr_chan = dma_claim_unused_channel(true);
     int data_chan = dma_claim_unused_channel(true);
 
-    // DMA move the requested memory data to PIO for output
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
     channel_config_set_high_priority(&data_dma, true);
     channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_WRITE_PIO, RIA_WRITE_SM, false));
@@ -695,8 +670,9 @@ static void __in_flash("ria_act_pio_init") ria_act_pio_init(void)
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, true, true, 32);
     pio_sm_init(RIA_ACT_PIO, RIA_ACT_SM, offset, &config);
-    // The CS/RWB PIO triggers read events only on offsets where
-    // (addr & 0x1F) % 4 == 0. Register one extra watched read offset.
+    // The action program reports a read only at an offset that is a multiple
+    // of four or that equals the last value written to its TX FIFO, so the
+    // $FFE2 offset is written there.
     pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, 0xFFE2 & 0x1F); // UART Rx
     pio_sm_set_enabled(RIA_ACT_PIO, RIA_ACT_SM, true);
     multicore_launch_core1(act_loop);
@@ -723,9 +699,9 @@ void __in_flash("ria_init") ria_init(void)
         hw_set_bits(&pio2->input_sync_bypass, 1u << i);
     }
 
-    /* A 6502 read is answered by two chained DMA transfers inside one PHI2
-     * cycle with no cycle to spare, so the DMA wins every contended
-     * arbitration against either core. */
+    /* A 6502 read is served by two chained DMA transfers that must finish
+     * within one PHI2 cycle, so the DMA is given bus priority over both
+     * cores. */
     bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
                             BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 

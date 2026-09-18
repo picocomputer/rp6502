@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The platform FIFO under hostile clocking: writer and reader on
- * unrelated periods — fast-to-slow, slow-to-fast, and nearly equal —
- * with randomized bursts against a reference queue. Order and data
- * exact, a push honored under !full never lost, a take under !empty
- * never air, and the depth bound never exceeded.
  */
 
 #include "Vpocket_fifo.h"
@@ -18,7 +12,6 @@
 
 static Vpocket_fifo *dut;
 
-/* Deterministic xorshift, seeded per scenario. */
 static uint32_t rng_state;
 static uint32_t rng()
 {
@@ -36,8 +29,6 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
     uint32_t next_val = seed;
     long pushed = 0, popped = 0;
 
-    /* No reset on either side: both pointers power up at zero together,
-     * which is the only relationship this FIFO ever needs. */
     if (dut)
     {
         dut->final();
@@ -67,7 +58,6 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
         if (!wedge && !redge)
             continue;
 
-        /* Inputs settle before the edge, like registered neighbors. */
         if (wedge)
         {
             bool want = pushed < 4000 && (rng() & 3) != 0;
@@ -77,8 +67,8 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
         if (redge)
             dut->r_take = (rng() & 7) != 0;
 
-        /* The accepted-transaction bookkeeping reads the flags as the
-         * edge sees them. */
+        /* The flags and rdata are read before the edge, because the edge
+         * updates the pointers they are computed from. */
         bool w_acc = wedge && dut->w_stb && !dut->pocket_fifo_full;
         bool r_acc = redge && dut->r_take && !dut->pocket_fifo_empty;
         uint32_t r_seen = dut->pocket_fifo_rdata;
@@ -102,14 +92,14 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
 
         if (w_acc)
         {
-            ASSERT_LT((int)ref.size(), 8); /* never overflows the depth */
+            ASSERT_LT((int)ref.size(), 8);
             ref.push_back(next_val);
             next_val = next_val * 2654435761u + 1;
             pushed++;
         }
         if (r_acc)
         {
-            ASSERT_FALSE(ref.empty()); /* never reads air */
+            ASSERT_FALSE(ref.empty());
             ASSERT_EQ(r_seen, ref.front());
             ref.pop_front();
             popped++;
@@ -136,7 +126,9 @@ UTEST(fifo, nearly_equal_clocks)
 
 UTEST(fifo, true_pocket_ratio)
 {
-    /* 74.25 MHz against 50.4 MHz is 330:224 — periods 224 and 330. */
+    /* The FIFO in pocket_bridge is written at 74.25 MHz and read at
+     * 50.4 MHz. The ratio of 74.25 MHz to 50.4 MHz is 330:224, so the
+     * writer's period is 224 and the reader's is 330. */
     run_scenario(utest_result, 224, 330, 0xC0FFEE04u);
 }
 

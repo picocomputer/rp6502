@@ -22,8 +22,6 @@
 __in_flash("STATUS_NAME") static const char STATUS_NAME[] =
     RP6502_NAME "\n";
 
-/* What this board is, beyond the version every machine shares: the radio, and
- * the creator flag that hides a MAC and an SSID. */
 #ifdef RP6502_RIA_W
 #if RP6502_CREATOR
 #define STATUS_BADGE " W+"
@@ -38,8 +36,6 @@ __in_flash("STATUS_NAME") static const char STATUS_NAME[] =
 #endif
 #endif
 
-/* A responder rather than a queued string, because the stamp is version.c's to
- * know and only the board name and badge are this one's. */
 static int status_version_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;

@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-"""Every mutable file-scope object the machine owns, against what is written down.
-
-A savestate carries a driver's state because a row was written for it. Nothing
-makes anyone write that row: a new static in core is machine state the moment
-it is added, and a blob that does not carry it is a machine that comes back
-subtly wrong -- or, in netplay, two peers that diverge and never find out why.
-
-So the objects are counted rather than trusted. Each translation unit the
-emulator compiles is rebuilt here without link-time optimization, which is
-what keeps a file-scope static in the object's symbol table, and every symbol
-with storage that is not read-only is matched against the list beside this
-file. Read-only is excluded because a table nobody writes is not state.
-
-Adding one means adding a line to state_inventory.txt saying which chunk
-carries it, or why nothing has to.
-"""
 
 import json
 import os
@@ -28,7 +12,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def units(compdb, srcdir):
-    """The emulator core's translation units, with the command that builds each."""
     with open(compdb) as f:
         db = json.load(f)
     srcdir = os.path.normpath(srcdir)
@@ -38,7 +21,7 @@ def units(compdb, srcdir):
             continue
         src = os.path.normpath(entry["file"])
         if os.path.commonpath([src, srcdir]) != srcdir:
-            continue  # vendored: not this machine's state to answer for
+            continue
         out.append((src, shlex.split(entry["command"])))
     if not out:
         raise SystemExit("no emu_core units in %s: nothing was checked" % compdb)
@@ -46,7 +29,8 @@ def units(compdb, srcdir):
 
 
 def objects_in(src, cmd, tmp):
-    """Symbols with writable storage, from a non-LTO rebuild of one unit."""
+    """The unit is rebuilt without link-time optimization because nm lists
+    no file-scope static in an LTO object."""
     obj = os.path.join(tmp, re.sub(r"\W", "_", src) + ".o")
     keep = []
     skip_next = False
@@ -72,20 +56,14 @@ def objects_in(src, cmd, tmp):
         if len(parts) != 3:
             continue
         _, kind, name = parts
-        # b/B .bss, d/D .data, g/G small-data. Not r/R: a table nobody writes
-        # is derived, not state. Not t/T: those are code.
+        # nm marks .bss symbols b or B, .data symbols d or D, and initialized
+        # small-data symbols g or G.
         if kind not in "bBdDgG":
             continue
-        # A toolchain that coalesces statics has nothing left to count, and a
-        # count taken there would pass while saying nothing. Refuse rather
-        # than measure: the CMakeLists only registers this where it holds.
         if "MergedGlobals" in name:
             raise SystemExit(
                 "%s: this toolchain merges file-scope objects into %s, so they "
                 "cannot be counted one by one" % (src, name))
-        # A function-local static is that function's, not the file's, but it
-        # is still state a blob would have to carry; the compiler names it
-        # with the function, so it is kept and named that way.
         yield name
     os.unlink(obj)
 

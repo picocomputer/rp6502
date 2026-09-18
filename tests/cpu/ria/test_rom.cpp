@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The .rp6502 loader against staged memory: the testbench plays the
- * platform bridge — it fills the staging window with a ROM image, posts
- * the slot length, and answers the machine's staging reads, the way the
- * APF data slot will. The firmware parses the records, refuses to touch
- * $FF00-$FFF9, lands the vectors in the register cells, and releases the
- * 6502 into the staged program. The variants drive the platform's real
- * ports: the slot_set sideband instead of the register poke, and a slow
- * staging answer holding stage_stall the way SDRAM will.
  */
 
 #include "Vwiring.h"
@@ -27,10 +18,8 @@
 
 static Vwiring *dut;
 
-/* Build the two-record image every case stages. */
 static std::vector<uint8_t> make_rom()
 {
-    /* The staged program: print "RP" under the $FFE0 ready bit, STP. */
     static const uint8_t prog[] = {
         0xA2, 0x00,       /*       ldx #0     */
         0xBD, 0x14, 0x03, /* loop: lda msg,x  */
@@ -53,16 +42,12 @@ static std::vector<uint8_t> make_rom()
     return rom;
 }
 
-/* Boot the staged image and demand the printed proof. slot_by_port
- * posts the length through the sideband; stall_cycles answers staging
- * reads like a memory that needs that many clocks per byte. */
 static void run_staged(int *utest_result, bool slot_by_port,
                        int stall_cycles)
 {
     std::vector<uint8_t> rom = make_rom();
 
     tb_reset(dut);
-    /* Reset clears the slot register; the bridge posts it afterward. */
     if (slot_by_port)
     {
         dut->slot_len = (uint32_t)rom.size();
@@ -80,8 +65,6 @@ static void run_staged(int *utest_result, bool slot_by_port,
         uint32_t a = dut->wiring_stage_addr;
         if (stall_cycles && dut->wiring_stage_pend)
         {
-            /* The byte stands only when the stall drops, like a
-             * controller finishing its read. */
             if (stalled < stall_cycles)
             {
                 dut->stage_stall = 1;

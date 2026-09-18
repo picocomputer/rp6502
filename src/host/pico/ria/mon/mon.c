@@ -33,16 +33,8 @@
 #include <ctype.h>
 
 #define MON_RESPONSE_BUF_SIZE 128
-// 16 = longest response chain (set with no args queues 15) + 1 free-slot margin.
 #define MON_RESPONSE_FN_COUNT 16
-// Minimum column budget remaining after the indent for wrap-with-indent
-// to engage. If the BEL marker lands too close to the right edge the
-// indent is suppressed and wrapped lines fall back to column 0.
 #define MON_RESPONSE_INDENT_MIN_WRAP 20
-// Double-buffer the response stream: one is being drained while the other
-// stages the producer's next fill, so a word that crosses the fill
-// boundary can be looked ahead without copying or shrinking the buffer
-// the producer sees.
 static char mon_response_buf_a[MON_RESPONSE_BUF_SIZE];
 static char mon_response_buf_b[MON_RESPONSE_BUF_SIZE];
 static char *mon_response_cur = mon_response_buf_a;
@@ -52,7 +44,9 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-static int mon_more_rows_left = 23; // default 24-row screen less prompt; reset to term_height-1 before use
+// rln_get_term_height falls back to 24 rows when no other height is
+// available, and one row is kept for the prompt.
+static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
@@ -61,7 +55,7 @@ static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
-static mon_confirm_fn mon_confirm_cb; // pending YES/no confirmation action
+static mon_confirm_fn mon_confirm_cb;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -71,9 +65,6 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
-/* The two commands that restart something. They are the table's, not a
- * driver's: one reboots this chip, the other hands the 6502 back a machine it
- * already has. */
 static void mon_reboot(const char *args)
 {
     (void)args;
@@ -197,7 +188,7 @@ static void mon_confirm_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
-    if (mon_needs_read_line) // cancelled (Ctrl-C poke / break)
+    if (mon_needs_read_line)
     {
         mon_confirm_cb = NULL;
         return;
@@ -207,8 +198,6 @@ static void mon_confirm_enter(bool timeout, const char *buf)
     mon_needs_read_line = true;
     mon_confirm_fn cb = mon_confirm_cb;
     mon_confirm_cb = NULL;
-    // The typed token is OEM (active code page); the confirm word is UTF-8, so
-    // convert it to OEM, then compare with the code-page-aware str_oem_eq.
     char yes[16];
     oem_snprintf(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
     const char *tok = str_parse_string(&buf);
@@ -351,10 +340,6 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     {
         if (!mon_response_fn_list[i])
         {
-            // Suppress consecutive duplicates — no value in showing the same
-            // string twice in a row. Only against a still-active source: a spent
-            // slot (state < 0, output still draining) belongs to a self-requeuing
-            // responder (e.g. ram_print_response) whose next call must not dedup.
             if (i > 0 && fn == mon_response_fn_list[i - 1] && str == mon_response_str[i - 1] &&
                 mon_response_state[i - 1] >= 0)
                 return;
@@ -372,7 +357,6 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     mon_response_state[i] = 0;
 }
 
-// Reset a response slot to empty (state -1 marks a free slot).
 static void mon_clear_slot(int i)
 {
     mon_response_fn_list[i] = NULL;
@@ -436,8 +420,6 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
-/* The seam answers in api_errno; these are the ones its ROM half can say,
- * worded with the strings the two backends already print. */
 void mon_add_response_errno(api_errno err)
 {
     switch (err)
@@ -482,10 +464,6 @@ static void mon_more(void)
         break;
     default: // MON_MORE_WAIT, MON_MORE_WAIT_ESC, MON_MORE_WAIT_CSI
     {
-        // Non-blocking byte-driven drain: any keypress advances past
-        // --more--, but ESC-prefixed sequences (arrow keys, F-keys,
-        // Alt+key, anything keyboard.c emits via vt100/vt220) are consumed
-        // whole so their tail doesn't leak into the next prompt.
         int ch;
         while ((ch = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
         {
@@ -535,8 +513,6 @@ void mon_task(void)
         mon_break_response();
         return;
     }
-    // If cur is exhausted and next is loaded, swap pointers — no copy,
-    // so streaming can resume in the same tick.
     if (mon_response_pos == -1 && mon_response_next_loaded)
     {
         char *tmp = mon_response_cur;
@@ -545,8 +521,6 @@ void mon_task(void)
         mon_response_pos = 0;
         mon_response_next_loaded = false;
     }
-    // Prime the staged buffer whenever empty so the streaming lookahead
-    // can span the fill boundary. One producer call per tick.
     if (!mon_response_next_loaded && mon_response_state[0] >= 0)
     {
         mon_response_next[0] = 0;
@@ -555,8 +529,11 @@ void mon_task(void)
         mon_response_next_loaded = (mon_response_next[0] != 0);
         if (mon_response_state[0] < 0)
             mon_next_response();
-        // An async producer that yielded nothing (e.g. a WiFi scan still
-        // running) must not strand a prior response's tail buffered in cur.
+        // A response generator can return without writing anything, as
+        // wifi_scan_response does while a scan is in progress. mon_task then
+        // goes on to print the text still in mon_response_cur, since
+        // returning here would hold that text until the generator writes
+        // again.
         if (mon_response_next_loaded || mon_response_pos < 0)
             return;
     }
@@ -567,10 +544,12 @@ void mon_task(void)
         char c;
         while ((c = mon_response_cur[mon_response_pos]) && com_putchar_ready())
         {
-            // BEL marks the indent column for subsequent wraps; consume
-            // it silently and don't advance the column. Must run before
-            // the --more-- check so BEL never pauses. The indent_pending
-            // guard preserves indent emission ordering.
+            // A BEL byte in a response is not printed. It marks the column
+            // that wrapped lines are indented to, but wrapped lines are not
+            // indented when fewer than MON_RESPONSE_INDENT_MIN_WRAP columns
+            // remain after it. It is handled before the --more-- check
+            // because it takes no space on screen, and after any pending
+            // indent spaces so the recorded column includes them.
             if (mon_response_indent_pending == 0 && c == '\a')
             {
                 mon_response_indent =
@@ -580,17 +559,11 @@ void mon_task(void)
                 mon_response_pos++;
                 continue;
             }
-            // Any remaining path emits a printable byte or a newline. If
-            // we have no row left for it, pause first; we resume here
-            // when --more-- is dismissed.
             if (mon_more_rows_left <= 0)
             {
                 mon_more_state = MON_MORE_START;
                 break;
             }
-            // Emit one queued indent space per iteration after a
-            // paginator-injected wrap, so wrapped continuation lines
-            // resume at the column marked by the producer's BEL.
             if (mon_response_indent_pending > 0)
             {
                 putchar(' ');
@@ -598,10 +571,6 @@ void mon_task(void)
                 mon_response_col++;
                 continue;
             }
-            // Word wrap on space: peek the next word's length. The
-            // lookahead spans into the staged buffer when the word crosses
-            // the fill boundary, so the wrap decision is made on the full
-            // word without copying anything.
             if (!mon_response_width_aware && c == ' ')
             {
                 int n = mon_response_pos + 1;
@@ -628,25 +597,22 @@ void mon_task(void)
                     mon_response_col + 1 + next_word_len > width)
                 {
                     putchar('\n');
-                    mon_response_pos++; // drop the space
+                    mon_response_pos++;
                     mon_response_col = 0;
                     mon_response_indent_pending = mon_response_indent;
                     mon_more_rows_left--;
                     continue;
                 }
             }
-            // Hard newline injection for a glyph that would overflow the line —
-            // catches words longer than the line that the word-wrap branch above
-            // could not break. Bytes 0x20-0xFF are one SBCS OEM glyph each, so
-            // each counts one column. Suppressed once a producer emits a control
-            // byte (see the ladder below) whose width we can't track.
+            // Every OEM code page that unicode.c converts has one byte per
+            // glyph, so each byte from 0x20 to 0xFF counts as one column.
             if (!mon_response_width_aware && (unsigned char)c >= 0x20 && mon_response_col >= width)
             {
                 putchar('\n');
                 mon_response_col = 0;
                 mon_response_indent_pending = mon_response_indent;
                 mon_more_rows_left--;
-                continue; // re-loop without advancing pos
+                continue;
             }
             putchar(c);
             mon_response_pos++;
@@ -667,8 +633,9 @@ void mon_task(void)
             }
             else if ((unsigned char)c < 0x20)
             {
-                // A control byte (ESC sequence, tablet, ...) whose on-screen width we
-                // can't track; stop wrap/column injection for the rest of the chain.
+                // The screen width of output with a control byte in it, such
+                // as an escape sequence or a tab, cannot be counted from its
+                // bytes, so wrapping stops until the next prompt.
                 mon_response_width_aware = true;
             }
             else
@@ -705,7 +672,7 @@ void mon_task(void)
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
-            rln_read_line_no_history(mon_confirm_enter); // don't record YES/no
+            rln_read_line_no_history(mon_confirm_enter);
         else
             rln_read_line(mon_enter);
         return;
@@ -720,8 +687,9 @@ void mon_task(void)
     }
 }
 
-/* The startup banner, queued before anything else can queue an error: it opens
- * by clearing the terminal, so whatever went in ahead of it would be erased. */
+/* In a release build the startup banner begins by clearing the terminal, so
+ * it must be queued before any other driver can queue an error that it would
+ * erase. */
 void __in_flash("mon_init") mon_init(void)
 {
 #ifdef NDEBUG
@@ -739,13 +707,12 @@ void __in_flash("mon_init") mon_init(void)
 
 void mon_stop(void)
 {
-    // Graceful return to a fresh prompt; dismisses --more-- if shown.
     if (mon_more_state)
     {
         mon_needs_break = true;
         mon_more();
     }
-    mon_confirm_cb = NULL; // a break/stop cancels any pending confirmation
+    mon_confirm_cb = NULL;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
 }

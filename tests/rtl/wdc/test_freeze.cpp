@@ -2,25 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Stopping the 6502 and starting it again somewhere else.
- *
- * A savestate freezes the core at an instruction boundary, reads what it
- * is, and later writes that into a core which has just come out of
- * reset — a different core, after a reconfigure, with nothing carried
- * over. The claim is that the second one continues rather than starts:
- * every bus cycle from the boundary onward must be the cycle the
- * uninterrupted core would have driven.
- *
- * So each case runs the program twice from the same memory. The first
- * run is the reference. The second is frozen at the boundary, captured,
- * reset to nothing, restored, released — and the two traces are
- * compared cycle for cycle from the freeze to the end.
- *
- * The interrupt pipelines are why the state is five words and not the
- * six architectural registers: an IRQ detected the cycle before a freeze
- * is honoured two boundaries later, and a core restored without them
- * takes it at the wrong instruction or not at all.
  */
 
 #include "Vcpu.h"
@@ -80,8 +61,6 @@ static void make_dut(void)
     dut->eval();
 }
 
-/* One enabled cycle: the memory answers the address on the bus, and a
- * write lands in the same cycle. */
 static Cycle step(void)
 {
     Cycle c;
@@ -103,8 +82,6 @@ static Cycle step(void)
     return c;
 }
 
-/* A cycle with no clock at all — what a savestate does. Nothing may
- * move, and nothing here has to be told not to. */
 static void step_frozen(void)
 {
     dut->eval();
@@ -122,9 +99,6 @@ static void capture(uint32_t *st)
     dut->eval();
 }
 
-/* Every word on one edge. A restore lands with the clock already back,
- * so a jam spread over five would let the core run through four of
- * them. */
 static void restore(const uint32_t *st)
 {
     for (int i = 0; i < ST_WORDS; i++)
@@ -136,7 +110,6 @@ static void restore(const uint32_t *st)
     dut->eval();
 }
 
-/* $FFFC brings the core up here; the caller fills the rest. */
 static void load(uint16_t org, const std::vector<uint8_t> &code)
 {
     memset(mem, 0, sizeof mem);
@@ -144,13 +117,11 @@ static void load(uint16_t org, const std::vector<uint8_t> &code)
         mem[org + i] = code[i];
     mem[0xFFFC] = org & 0xFF;
     mem[0xFFFD] = org >> 8;
-    /* An IRQ handler that returns, for the case that takes one. */
     mem[0xFFFE] = 0x00;
     mem[0xFFFF] = 0x90;
     mem[0x9000] = 0x40; /* RTI */
 }
 
-/* Run from reset, recording every cycle. */
 static std::vector<Cycle> reference(int cycles)
 {
     make_dut();
@@ -160,20 +131,13 @@ static std::vector<Cycle> reference(int cycles)
     return t;
 }
 
-/* Run to the freeze point, hold at the next boundary, capture, throw the
- * core away, restore into a fresh one, and carry on. */
-/* Where the freeze is allowed to land, and where a case insists it
- * lands: a case that quietly froze somewhere else would pass while
- * testing nothing. */
 enum Land
 {
     LAND_ANY,
-    LAND_STALLED, /* already in WAI or STP */
+    LAND_STALLED,
 };
 
-/* irq_pulse fires for exactly one cycle and is gone again before the
- * restore, so the only thing that can carry it across is the pipeline. */
-static uint32_t frozen_pip; /* what the pipelines held at the capture */
+static uint32_t frozen_pip;
 
 static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
                                  int hold, int irq_pulse, Land land)
@@ -200,9 +164,6 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
             break;
         t.push_back(step());
     }
-    /* Reported rather than asserted here: a case that quietly froze
-     * somewhere other than where it meant to would otherwise pass while
-     * testing nothing. */
     *landed = i < cycles
         && (land != LAND_STALLED || dut->cpu_stp
             || dut->rootp->cpu__DOT__wait_flag);
@@ -212,12 +173,9 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
     frozen_pip = st[3];
     memcpy(mem_at_freeze, mem, sizeof mem);
 
-    /* The machine holds still for as long as the host takes. */
     for (int k = 0; k < hold; k++)
         step_frozen();
 
-    /* A different core: reset clears everything the state words carry,
-     * and the interrupt pin is long since low. */
     make_dut();
     memcpy(mem, mem_at_freeze, sizeof mem);
     restore(st);
@@ -240,10 +198,6 @@ static void compare(int *utest_result, const std::vector<Cycle> &a,
     }
 }
 
-/* Arithmetic, indexing, the stack and a read-modify-write, so the
- * restored core has registers, flags and a stack pointer to get wrong.
- * CLI first because reset leaves interrupts masked, and a program that
- * never unmasks them cannot be interrupted at all. */
 static const std::vector<uint8_t> BUSY = {
     0x58,             // CLI
     0xA9, 0x37,       // LDA #$37
@@ -288,12 +242,6 @@ UTEST(freeze, holding_longer_changes_nothing)
     }
 }
 
-/* The pipelines. An interrupt is a pulse on a pin that is low again
- * long before the core comes back, so the only thing that can carry it
- * across a freeze is irq_pip — and only while it is still in flight,
- * before a sync turns it into a BRK sequence. Where that window falls
- * depends on the instruction being executed, so the pulse is swept and
- * the cases that froze mid-flight are the ones that prove it. */
 UTEST(freeze, an_interrupt_still_in_the_pipeline_survives_the_freeze)
 {
     int in_flight = 0, taken = 0;
@@ -331,16 +279,10 @@ UTEST(freeze, an_interrupt_still_in_the_pipeline_survives_the_freeze)
             in_flight++;
         compare(utest_result, ref, got, 0);
     }
-    /* Both guards, or this case proved nothing: the sweep has to have
-     * actually interrupted the program somewhere, and it has to have
-     * frozen at least once with a detection still shifting. */
     ASSERT_TRUE(taken > 0);
     ASSERT_TRUE(in_flight > 0);
 }
 
-/* WAI never fetches again, so a freeze that waited for an opcode fetch
- * would wait forever; and a core restored without wait_flag would run
- * on instead of standing still. */
 UTEST(freeze, a_core_waiting_is_restored_still_waiting)
 {
     const std::vector<uint8_t> wai = {
@@ -358,7 +300,6 @@ UTEST(freeze, a_core_waiting_is_restored_still_waiting)
     compare(utest_result, ref, got, 0);
 }
 
-/* STP is the same shape and never comes back at all. */
 UTEST(freeze, a_stopped_core_is_restored_stopped)
 {
     const std::vector<uint8_t> stp = {

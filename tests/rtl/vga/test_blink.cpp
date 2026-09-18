@@ -3,19 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The cell blink, which is this machine's alone to be asked about.
- *
- * A blinking cell alternates between its glyph and its background on a timer
- * — TERM_BLINK_TICK_US, 166 ms a phase. Neither machine can be run that long
- * in simulation, and the two would not agree anyway: the phase advances off
- * wall clock in the emulator and off mtime in the soft CPU's firmware. So
- * this holds the fabric's phase register still by hand and asks what the
- * beam paints, which is a question only a machine with that register has.
- *
- * It boots the scripted session from tests/cpu/vga because it wants what that
- * script scrolled into place: a real cell to take a foreground from, a
- * background word, and a row the printer has already left alone. The picture
- * that session settles to is checked over there, on both machines.
+ * The terminal advances its blink phase every TERM_BLINK_TICK_FRAMES, which is
+ * 10 frames, and a TERM_ATTR_BLINK cell follows bit 1 of the phase, so the
+ * cell changes state every 20 frames. The test forces mode0's blink_shadow to
+ * the phase it checks instead of simulating those frames.
  */
 
 #include "Vwiring.h"
@@ -33,8 +24,8 @@
 
 static Vwiring *dut;
 
-/* The firmware keeps advancing its own phase, so a phase under test has to be
- * held down for the whole frame rather than merely written before it. */
+/* The firmware writes its own blink phase to blink_shadow once a frame, so a
+ * pinned phase is written again before every clock rather than once. */
 static int pinned_blink = -1;
 
 static void capture_frame(uint32_t *fb)
@@ -64,9 +55,8 @@ UTEST(blink, off_phase_blanks_the_glyph)
     ASSERT_TRUE(session_rom(rom));
     ASSERT_TRUE(tb_boot(dut, rom));
 
-    /* Write a blinking glyph into a blank row, taking its colours from cells
-     * the session left: {fg from a real cell, ATTR_BLINK, 'B'} over the same
-     * background. */
+    /* 0x0200 is TERM_ATTR_BLINK in the attribute byte, bits 15:8 of a
+     * cell's first word. */
     auto *r = dut->rootp;
     uint32_t base = r->wiring__DOT__mode0__DOT__row_shadow[25];
     uint32_t seed = term_cell(
@@ -78,10 +68,10 @@ UTEST(blink, off_phase_blanks_the_glyph)
 
     static uint32_t on[640 * 480], off[640 * 480];
     pinned_blink = 0;
-    capture_frame(on); /* latch */
+    capture_frame(on);
     capture_frame(on);
     pinned_blink = 2;
-    capture_frame(off); /* latch */
+    capture_frame(off);
     capture_frame(off);
     pinned_blink = -1;
 

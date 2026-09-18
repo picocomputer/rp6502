@@ -16,14 +16,12 @@
 #include <stdbool.h>
 
 #define NET_REM_DESCS 1
-// Each modem owns one listen port + one active connection; console owns the
-// same pair. So connections and listeners are 1:1 and the lwIP listen pool
-// (MEMP_NUM_TCP_PCB_LISTEN) is the binding constraint. MEMP_NUM_TCP_PCB is
-// sized larger to leave headroom for TIME_WAIT and accept-in-flight PCBs.
+// Each modem and the console telnet can hold one listener and one
+// connection, so the connection count is set to the lwIP listener pool
+// size.
 #define NET_MAX_CONNECTIONS MEMP_NUM_TCP_PCB_LISTEN
 #define NET_MAX_LISTENERS MEMP_NUM_TCP_PCB_LISTEN
 #define NET_MODEM_DESCS (NET_MAX_CONNECTIONS - NET_REM_DESCS)
-// The console's telnet gets the descriptor after the modems'.
 #define NET_TELNET_DESC NET_MODEM_DESCS
 #define NET_CONN_PBUF_DEPTH (TCP_WND / TCP_MSS + 1)
 

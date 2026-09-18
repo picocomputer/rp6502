@@ -33,7 +33,6 @@ module mode4 (
     output logic mode4_done
 );
 
-    /* attr 1 is the affine walk over twenty-byte descriptors. */
     logic affine;
     always_comb affine = attr[0];
 
@@ -95,7 +94,7 @@ module mode4 (
      * register and the XRAM's address port. */
     logic [7:0] size;
     logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
-    logic [31:0] d_over;  /* the affine walk's out-of-square mask */
+    logic [31:0] d_over;  /* the affine path's out-of-square mask */
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
     logic [16:0] img_bytes;
@@ -135,10 +134,10 @@ module mode4 (
         ? a_rdata
         : 32'({a_rdata, meta_lo} >> {meta_addr[1:0], 3'b000});
 
-    /* A word carries two texels, so the plain walk has a spare clock and
-     * spends it asking for the next word — crossing a word boundary
-     * without stopping. Only the plain path prefetches; the affine
-     * walk's addresses are not sequential. */
+    /* A word holds two texels, so the plain path has a spare clock and
+     * uses it to request the next word, which lets it cross a word
+     * boundary without stopping. Only the plain path prefetches, because
+     * the affine path's addresses are not sequential. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
@@ -178,9 +177,10 @@ module mode4 (
      * multiplies, every term wrapping mod 2^32 like the oracle's.
      *
      * (t << 8) * k and (t * k) << 8 agree on their low thirty-two bits,
-     * and the second is a 16x18 the fabric has a DSP for rather than a
-     * 32-square it must build. Twenty-four bits of each product survive
-     * the shift, so the slice is exact and not a rounding. */
+     * and the second is a 16x18 multiply that fits one DSP multiplier
+     * rather than a 32x32 multiply built from several. Twenty-four bits
+     * of each product survive the shift, so the slice is exact and not a
+     * rounding. */
     logic signed [17:0] kx;
     always_comb kx = 18'(tex_offs_x0) + size_x0;
     /* Registered, so the multiply and the sum after it are not one
@@ -219,10 +219,10 @@ module mode4 (
     end
     logic [31:0] hit_data;
     always_comb hit_data = dhit ? dcache : pre_data;
-    /* A texel is two bytes at a byte address, so byte 3 of a word takes
-     * its high half from the word behind it. The plain walk is already
-     * holding that word — its prefetch is one ahead — and the affine walk
-     * asks for it, since its addresses are not sequential. */
+    /* A texel is two bytes at a byte address, so a texel at byte 3 of a
+     * word takes its high byte from the next word. The plain path uses
+     * its prefetch of that word, and the affine path makes a separate
+     * fetch for it, since its addresses are not sequential. */
     logic straddle;
     always_comb straddle = cur_byte_addr[1:0] == 2'b11;
     logic [13:0] hi_word;
@@ -290,7 +290,6 @@ module mode4 (
     end
 
     task automatic next_sprite();
-        /* Whatever was read ahead belonged to the sprite just finished. */
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin

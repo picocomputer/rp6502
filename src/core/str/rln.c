@@ -29,8 +29,9 @@
 **   - No absolute Y cursor movement; no writes past rln_max_length.
 **   - The wrapping input is one logical line: rln writes it continuously
 **     and lets the terminal autowrap (the standard readline/linenoise
-**     model), so the terminal owns wrapping and resize reflow. rln keeps
-**     its own row model and relies on pending-wrap (xenl) at the margin.
+**     model), so the terminal does the wrapping and the resize reflow.
+**     rln keeps its own row model and relies on pending-wrap (xenl) at
+**     the margin.
 **   - rln owns only rln_max_length cells from the start of input, so
 **     no ICH/DCH unless rln owns the entire visible input region.
 **   - Dynamic resize (NAWS / CPR refinement) trusts the terminal to rewrap
@@ -80,10 +81,11 @@ _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
 #define RLN_COMPLETE_DEFER_MS 500
 
 // Per-input-source state: one instance per com source plus one for the
-// 6502 poke stream. Owns the ANSI parser and per-source CPR/DA2/defer
-// bookkeeping. buf[] doubles as in-flight cache (tail = in-progress
-// sequence) and deferred-typed buffer (head = completed sequences
-// awaiting edit phase). Bookkeeping fields are unused on rln_poke_source.
+// 6502 poke stream. Each instance holds the ANSI parser and per-source
+// CPR/DA2/defer bookkeeping. buf[] doubles as in-flight cache (tail =
+// in-progress sequence) and deferred-typed buffer (head = completed
+// sequences awaiting edit phase). Bookkeeping fields are unused on
+// rln_poke_source.
 typedef struct
 {
     rln_ansi_state_t state;

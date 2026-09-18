@@ -2,20 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# A .rp6502 that holds a file open and reads it a chunk at a time,
-# printing each chunk as it arrives. It exists for one question that
-# nothing else asks: whether a file that is open when the machine sleeps
-# is still open when it wakes.
-#
-# The card is the one thing a savestate cannot carry and cannot rebuild
-# from itself — the host's binding of a data slot to a file belongs to
-# the session the wake ended — so the interesting instant is a read that
-# lands after the resume against a slot the firmware had to bind again.
-# Reading in chunks is what puts one there wherever the sleep falls.
-#
-# The file is placed by whoever runs it: the Pocket's bench binds a card,
-# and --drive below lays one down.
 
 import argparse
 import pathlib
@@ -45,9 +31,6 @@ def prog():
     p.call(OP_OPEN)
     p.sta_abs(HANDLE)
 
-    # Read CHUNK bytes, print what came back, and go round until a read
-    # answers with none — which is the end of the file and nothing else,
-    # because a short read is still a read.
     p.symbol("loop")
     p.push(0)
     p.push(CHUNK)
@@ -55,7 +38,7 @@ def prog():
     p.sta_abs(API_A)
     p.call(OP_READ_XSTACK)
 
-    p.tax()  # bytes read
+    p.tax()
     with p.branch("beq"):
         p.symbol("inner")
         p.lda_abs(XSTACK)
@@ -75,21 +58,13 @@ def prog():
 
 
 def drive(emu, rom):
-    """The other half of this file: the program above, watched.
-
-    The Pocket's bench asks whether the file survives a sleep, and answers
-    it with a card the host binds. Here there is no card, so the driver
-    lays the file down itself -- which also closes the hole that made the
-    question askable at all: with nothing to open, the program reads none
-    and prints the same DONE it prints on success. The payload spans
-    several chunks, so the loop is walked rather than skipped."""
-    # No zero byte: the console capture a `wait` searches is a C string,
-    # so a NUL in the stream would hide everything printed after it.
+    # The payload has no zero byte because `wait` searches the console
+    # capture as a C string, and a zero byte would hide everything printed
+    # after it.
     payload = bytes(1 + (i * 7 + 11) % 0xFF for i in range(CHUNK * 5))
     pathlib.Path(NAME).write_bytes(payload)
 
     def body(e):
-        # The tail arrives only after every chunk before it did.
         e.cmd(f'wait "{DONE.decode().rstrip()}"')
     return rp6502_script.drive(emu, rom, body)
 

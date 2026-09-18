@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
-
 #include "ria-w/ble/ble.h"
 #include "machine.h"
 #include "core/sys/config.h"
@@ -38,9 +36,7 @@ static uint8_t ble_count_gamepad;
 // LED output report state for BLE keyboards
 static absolute_time_t ble_hid_leds_at;
 static uint8_t ble_hid_leds;
-/* Which connection and HID service instance is in each slot ria/hid gave
- * us, so a keyboard's LED report can be addressed back to it. cid 0 is a
- * free entry -- btstack never issues it. */
+
 static struct
 {
     uint16_t cid;
@@ -51,20 +47,11 @@ static struct
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
 
-// Shared descriptor storage for every BLE HID connection. btstack packs all
-// connected devices' report map(s) into this one pool; on overflow it silently
-// truncates (still reporting the connection as successful), so size it to hold
-// the report maps of MAX_NR_HIDS_HOSTS devices at once.
 static uint8_t hid_descriptor_storage[3 * 1024];
 
-// ble_connecting_handle tracks the LE handle from connection complete
-// through HIDS service setup. ble_retry_at fires the next scan or
-// whitelist attempt and also times out the in-progress connection.
 #define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
 static absolute_time_t ble_retry_at;
 static hci_con_handle_t ble_connecting_handle;
-// HIDS client id of the connection currently being set up (0 when none), used
-// to ignore service events from an abandoned device's still-live client.
 static uint16_t ble_connecting_cid;
 
 static const uint8_t __in_flash("ble_att_profile_data") ble_att_profile_data[] = {
@@ -119,8 +106,6 @@ static inline void ble_restart_reconnection(void)
     ble_retry_at = get_absolute_time();
 }
 
-// Abandon any in-progress connection and start looking for devices again,
-// scanning while pairing or reconnecting bonded devices otherwise.
 static void ble_begin_discovery(void)
 {
     if (ble_connecting_handle != HCI_CON_HANDLE_INVALID)
@@ -134,8 +119,6 @@ static void ble_begin_discovery(void)
         gap_start_scan();
     else
     {
-        // Stop any scan left running from pairing mode so we are not scanning
-        // and initiating at the same time.
         gap_stop_scan();
         ble_connect_with_whitelist();
     }
@@ -150,8 +133,6 @@ void ble_set_hid_leds(uint8_t leds)
     }
 }
 
-/* A combo device exposes more than one HID service, and each instance is
- * mounted as a device of its own, so it takes both to find one again. */
 static int ble_find_slot(uint16_t cid, uint8_t service_index)
 {
     for (int i = 0; i < HID_MAX_SLOTS; i++)
@@ -173,8 +154,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
         uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
         uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
         RP6502_LOG(ble, INFO, "HID service connected - Status: 0x%02x, CID: 0x%04x", status, cid);
-        // A hids client for an abandoned device can still emit this after we
-        // moved on, so only touch connection-setup state for the current cid.
         bool current = cid == ble_connecting_cid;
         if (status != ERROR_CODE_SUCCESS)
         {
@@ -188,7 +167,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
         }
         if (current)
             ble_restart_reconnection();
-        // A combo device exposes more than one HID service; mount each instance.
         uint8_t num_instances = gattservice_subevent_hid_service_connected_get_num_instances(packet);
         for (uint8_t si = 0; si < num_instances; si++)
         {
@@ -198,7 +176,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
                 continue;
             hid_parsed_t parsed;
             hid_parse(descriptor, descriptor_len, &parsed);
-            /* No vendor or product id over BLE, so nothing is ever certain. */
             int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tablet, &parsed.gamepad,
                                  0, 0, GAMEPAD_TYPE_UNKNOWN);
             if (slot < 0)
@@ -223,7 +200,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         RP6502_LOG(ble, INFO, "HID service disconnected - CID: 0x%04x", cid);
-        // The event carries no service index, so every instance's slot goes.
         for (int slot = 0; slot < HID_MAX_SLOTS; slot++)
         {
             if (ble_mounted[slot].cid != cid)
@@ -248,8 +224,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
         uint8_t report_id = gattservice_subevent_hid_report_get_report_id(packet);
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
-        // btstack prepends a report id byte even when the report map uses none;
-        // the parsers expect the raw report (no prefix) in that case.
         if (report_id == 0 && report_len > 0)
         {
             ++report;
@@ -261,8 +235,6 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
     }
 }
 
-// Start HIDS GATT discovery after encryption is established.
-// On failure, abandon this connection and try the next device.
 static void ble_start_hids_host(hci_con_handle_t con_handle)
 {
     uint8_t status = hids_host_connect(con_handle, ble_hids_host_handler,
@@ -291,8 +263,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             RP6502_LOG(ble, INFO, "Bluetooth LE Central ready and working!");
-            // Defer to ble_task's retry so discovery honors pairing vs.
-            // reconnect even if a pre-WORKING retry already ran.
             ble_retry_at = get_absolute_time();
         }
         break;
@@ -436,8 +406,6 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (status == ERROR_CODE_SUCCESS)
         {
             RP6502_LOG(ble, INFO, "Re-encryption complete");
-            // A bonded device found while pairing re-encrypts instead of
-            // pairing again, so this also ends pairing mode.
             ble_pairing = false;
             led_blink(false);
             if (handle == ble_connecting_handle)
@@ -623,8 +591,6 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-/* Pairing and the factory reset are things to do; the file keeps only off
- * or on. */
 bool ble_check_enabled(uint8_t *v)
 {
     if (*v > 2 && *v != 86)
@@ -633,7 +599,6 @@ bool ble_check_enabled(uint8_t *v)
     return true;
 }
 
-/* The raw request, so 2 still enters pairing and 86 still forgets. */
 void ble_apply_enabled(uint8_t ble, bool changed)
 {
     (void)changed;
@@ -645,7 +610,6 @@ void ble_init(void)
     ble_set_config(ble_get_enabled());
 }
 
-/* SET's line for this row. */
 int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;

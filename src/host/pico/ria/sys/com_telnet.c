@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The console over TCP: a listener, one session at a time, an optional key
- * to get past, and rings that drop rather than backpressure a peer that has
- * stopped reading. A board with no radio answers the same calls with
- * nothing.
- *
- * This is a source the console picks between, not the console: core/com/pick.c
- * owns the picking, this owns the socket.
  */
 
 #include "core/sys/ria.h"
@@ -61,15 +53,11 @@ static volatile size_t com_telnet_tx_tail;
 static char com_telnet_rx_buf[COM_TELNET_RX_BUF_SIZE];
 static size_t com_telnet_rx_head;
 static size_t com_telnet_rx_tail;
-/* The hold on a full ring, from the pass that first found no room: the TCP
- * window keeps the peer's bytes meanwhile. */
 static bool com_telnet_rx_held;
 static timer_deadline_t com_telnet_rx_hold;
 
 void com_telnet_clear_rx(void)
 {
-    /* What the peer has already sent was typed for the program being
-     * interrupted, the same as what is in the ring. */
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
         char scratch[16];
@@ -134,10 +122,6 @@ static void com_telnet_drain_tx(void)
     com_telnet_tx_tail = (com_telnet_tx_tail + sent) % COM_TELNET_TX_BUF_SIZE;
 }
 
-// Only drives lwIP via cyw_task() when the ring is full and the upstream
-// would otherwise stall — cyw_task synchronously fires
-// com_telnet_on_accept/on_disconnect callbacks and mutates com_telnet_state +
-// the rings, so callers must re-check state after return.
 void com_telnet_pump(void)
 {
     com_telnet_drain_tx();
@@ -182,11 +166,11 @@ static void com_telnet_handle_auth(uint8_t ch)
 
 static void com_telnet_drain_rx(void)
 {
-    // While the ring has room, read what fits (decoded <= raw). A full ring
-    // means nobody is reading: the peer is held for COM_WIRE_HOLD_MS, which
-    // its TCP window absorbs without loss, and then drained to drop, still
-    // scanning, so a Ctrl-C or an Interrupt Process behind the type-ahead is
-    // seen whether or not anyone will read the rest.
+    // A full ring loses nothing for COM_WIRE_HOLD_MS, because net_rx calls
+    // tcp_recved only for the bytes it returns, so TCP flow control holds back
+    // the peer while the connection is not read. After that, input is read and
+    // dropped but still decoded, so a Ctrl-C or a telnet Interrupt Process
+    // raises SIGINT.
     uint16_t limit = COM_TELNET_RX_BUF_SIZE;
     bool drop_mode = false;
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
@@ -234,8 +218,6 @@ static void com_telnet_drain_rx(void)
         }
     }
 
-    // NAWS arrives as a side effect of the telnet_rx decode above; relay any
-    // fresh size to rln, which reflows the line in place on a resize.
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
         uint16_t nw, nh;
@@ -249,11 +231,6 @@ static bool com_telnet_should_listen(void)
     return com_telnet_get_port() > 0 && com_telnet_get_key()[0] != 0 && wifi_ready();
 }
 
-// Unified teardown for both full shutdown (target=IDLE, closes the
-// listen socket and the session pcb via NET_TELNET_DESC) and peer-driven
-// disconnect (target=LISTENING, keeps the listener armed; the session
-// pcb close is done by the caller with its own desc). Both targets
-// clear the rings and assign the new state.
 static void com_telnet_teardown(com_telnet_state_t target)
 {
     bool was_session = (com_telnet_state == COM_TELNET_STATE_AUTH || com_telnet_state == COM_TELNET_STATE_CONNECTED);
@@ -263,8 +240,8 @@ static void com_telnet_teardown(com_telnet_state_t target)
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
         vga_set_tel_console_active(false);
-        rln_set_naws_size(0, 0);               // drop stale telnet geometry
-        rln_forget_source(COM_SOURCE_TEL);     // and what that client's wire was mid-way through
+        rln_set_naws_size(0, 0);
+        rln_forget_source(COM_SOURCE_TEL);
     }
     if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE)
     {
@@ -309,8 +286,6 @@ static bool com_telnet_on_accept(uint16_t port)
 
 
 
-/* The task re-derives from the stored value every pass, so there is
- * nothing to apply and every port number is legal. */
 int com_telnet_port_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;

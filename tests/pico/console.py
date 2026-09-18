@@ -2,23 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The console, on the board it was written for.
-#
-# Everything here is a claim the desktop suites cannot make: a real UART with
-# a hardware FIFO and a break line, a telnet session over the radio, the 6502
-# reading the console through its registers on the other core, and two
-# consoles typing at once. The board is driven through tools/rp6502.py, the
-# tool a developer uses, never through a path of this file's own. Every
-# program run here is assembled below and uploaded first, so nothing depends
-# on what the SD card happens to hold.
-#
-# It needs a board on a serial port and, for the two-console claims, the
-# telnet passkey. CI has neither; a desktop tree registers this only when
-# RP6502_DEVICE names the port.
-#
-#   python3 tests/pico/console.py --device /dev/ttyACM0 \
-#       --telnet 192.168.1.89 --key word
 
 import argparse
 import glob
@@ -40,11 +23,9 @@ from rp6502_rom import image  # noqa: E402
 
 OP_EXIT = 0xFF
 NAME = "console_test.rp6502"
-# core/sys/com.h's COM_WIRE_HOLD_MS: how long a full ring holds a wire whose
-# far end can keep its bytes before it is read to drop.
+# COM_WIRE_HOLD_S is COM_WIRE_HOLD_MS from core/sys/com.h, converted to seconds.
 COM_WIRE_HOLD_S = 5.0
-# The line editor's handshake: the prompt's cursor-position and device queries,
-# which a terminal answers and this file does not. Elided so an echo reads.
+# rln_read_line writes its terminal queries between \x1b[?25l and \x1b[?25h.
 HANDSHAKE = re.compile(rb"\x1b\[\?25l.*?\x1b\[\?25h", re.S)
 
 
@@ -59,7 +40,7 @@ class Board:
 
     def serial(self):
         con = fresh(Console(SerialDevice(self.device)))
-        con.held = False  # a UART FIFO cannot hold the far end
+        con.held = False  # the UART has no flow control, so a Ctrl-C is read at once
         return con
 
     def telnet_con(self):
@@ -67,15 +48,15 @@ class Board:
         if not (host and port.isdigit()):
             host, port = self.telnet, "23"
         con = fresh(Console(TelnetDevice(host, int(port), self.key)))
-        con.held = True  # a TCP window can
+        con.held = True  # telnet input is not read while its ring is full, for up to COM_WIRE_HOLD_MS
         return con
 
 
 def fresh(con):
-    """A console at the monitor with nothing pending. A break returns the
-    monitor but the line editor keeps what it knew about the wire -- the
-    half of a CR LF pair still owed -- so a printable clears that and a
-    DEL takes the printable back, leaving a clean gate and an empty line."""
+    """The line editor sets line_end to the CR or LF that ends a line, and a
+    break does not clear it, so a CR or LF sent first after the break can be
+    discarded as the second half of a CR and LF pair. The x clears line_end
+    and the DEL erases the x."""
     con.send_break()
     drain(con, 0.4)
     send(con, b"x\x7f", 0.3)
@@ -83,7 +64,6 @@ def fresh(con):
 
 
 def drain(con, secs):
-    """Everything the board says for secs, answering nothing."""
     out = b""
     end = time.monotonic() + secs
     while time.monotonic() < end:
@@ -112,9 +92,6 @@ def check(cond, msg):
 
 
 def flash(elf, device):
-    """The repo's own Flash task: openocd over the CMSIS-DAP probe on the RIA,
-    then wait for the console port to enumerate again. Command line only --
-    no build variable may reflash a board by accident."""
     found = sorted(glob.glob(os.path.expanduser("~/.pico-sdk/openocd/*/openocd")))
     if not found:
         raise SystemExit("no openocd under ~/.pico-sdk")
@@ -132,16 +109,14 @@ def flash(elf, device):
 
 
 def program(con, prog):
-    """Upload a program and run it, the way rp6502.py run does."""
     con.upload(io.BytesIO(image(prog).to_bytes()), NAME)
     con.load(NAME)
 
 
 def exits():
-    """Polls the console once and leaves, the way a C runtime's startup does.
-    The poll is the point: a read of $FFE0 moves the byte staged for the
-    6502 into $FFE2, and a program that then leaves without reading it has
-    committed a byte out of the console that the monitor must get back."""
+    """A read of $FFE0 moves a byte staged for the 6502, when there is one,
+    into $FFE2. Since the program exits without reading $FFE2, the monitor
+    gets that byte only through com_rx_reclaim."""
     p = Asm()
     p.bit_abs(0xFFE0)
     p.store(API_A, 0)
@@ -152,7 +127,6 @@ def exits():
 
 
 def loops():
-    """Runs and never reads the console."""
     p = Asm()
     p.symbol("loop")
     p.jmp_abs("loop")
@@ -160,8 +134,6 @@ def loops():
 
 
 def waits_for_sigint():
-    """Never touches $FFE0. Polls $FFF0 bit 6 and, when a Ctrl-C has been
-    latched, sends '@' and stops."""
     p = Asm()
     p.symbol("poll")
     p.bit_abs(0xFFF0)
@@ -173,8 +145,6 @@ def waits_for_sigint():
 
 
 def echoes():
-    """Reads the console through its registers: polls bit 6 of $FFE0 and
-    copies $FFE2 to $FFE1, which is what a program that skips the OS does."""
     p = Asm()
     p.symbol("poll")
     p.bit_abs(0xFFE0)
@@ -185,12 +155,7 @@ def echoes():
     return p
 
 
-# ---- one console ----------------------------------------------------------
-
-
 def line_ends(open_con):
-    """Either spelling ends a line, CR LF is one line end, and a blank line
-    between two of them survives."""
     cases = [
         ("CR", b"0000\r", 1),
         ("LF", b"0000\n", 1),
@@ -209,8 +174,6 @@ def line_ends(open_con):
 
 
 def type_ahead_survives_a_command(open_con):
-    """A command that runs the 6502 to read RAM does not eat what was typed
-    behind it."""
     con = open_con()
     try:
         out = send(con, b"0000\rABCDE\r", 1.6)
@@ -221,9 +184,6 @@ def type_ahead_survives_a_command(open_con):
 
 
 def type_ahead_survives_a_program_start(open_con):
-    """A program start does not eat what was typed behind it. A byte the
-    6502's first $FFE0 poll commits into $FFE2 has to reach the monitor's
-    line editor when the program leaves."""
     con = open_con()
     try:
         program(con, exits())
@@ -236,9 +196,6 @@ def type_ahead_survives_a_program_start(open_con):
 
 
 def a_break_reaches_a_program_that_never_reads(open_con):
-    """The break line is watched whether or not the program reads: the UART
-    FIFO is drained every pass, not only on a read, or a break in it would
-    never be seen. send_break raises if the monitor does not come back."""
     con = open_con()
     try:
         program(con, loops())
@@ -251,9 +208,6 @@ def a_break_reaches_a_program_that_never_reads(open_con):
 
 
 def a_ctrl_c_reaches_a_program_that_never_reads(open_con):
-    """A Ctrl-C typed behind type-ahead nobody is reading still latches: at
-    once on the UART, whose FIFO cannot hold the far end, and after the
-    hold on telnet, whose TCP window can."""
     con = open_con()
     try:
         program(con, waits_for_sigint())
@@ -270,8 +224,6 @@ def a_ctrl_c_reaches_a_program_that_never_reads(open_con):
 
 
 def a_register_reader_echoes_in_order(open_con):
-    """A program reading $FFE2 behind bit 6 of $FFE0 sees every byte, once,
-    in order, from the console the bytes were typed at."""
     con = open_con()
     try:
         program(con, echoes())
@@ -285,8 +237,6 @@ def a_register_reader_echoes_in_order(open_con):
 
 
 def a_large_upload_is_intact(open_con):
-    """Four kilobytes over the console, every chunk's CRC checked by the
-    monitor, across the line editor's own line ends."""
     con = open_con()
     try:
         data = bytes((i * 7 + (i >> 5)) & 0xFF for i in range(4096))
@@ -306,12 +256,7 @@ PER_CONSOLE = [
 ]
 
 
-# ---- two consoles ---------------------------------------------------------
-
-
 def two_sources_do_not_interleave(board):
-    """A burst on one console is not sliced by a burst on the other: the
-    picker holds a source until it has been dry for the dwell."""
     ser = board.serial()
     net = board.telnet_con()
     try:
@@ -337,8 +282,6 @@ def two_sources_do_not_interleave(board):
 
 
 def a_client_that_leaves_mid_crlf_owes_the_next_one_nothing(board):
-    """A telnet client that drops between the CR and the LF of its Enter
-    does not cost the next client its first Enter."""
     a = board.telnet_con()
     send(a, b"0000\r", 1.0)
     a.serial.close()
@@ -389,7 +332,7 @@ def main():
         try:
             run()
             print(f"ok    {name}")
-        except Exception as e:  # a claim that did not hold, or a board that did not answer
+        except Exception as e:
             failed += 1
             print(f"FAIL  {name}: {e}")
     return 1 if failed else 0

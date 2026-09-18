@@ -105,14 +105,9 @@ module afifo #(
 	// just short-hand for LGFIFO, and won't work any other way.
 	localparam	MSB = LGFIFO;
 	//
-	// rp6502: 64 entries of 9 bits is 576 bits, and Quartus was spending a
-	// whole 10,240-bit M10K on them. Its report said "Unsupported Mixed Feed
-	// Through Setting" — it will not use an MLAB while it must guarantee
-	// what a read sees when the same address is written in the same cycle.
-	// A gray-pointer FIFO never does that. Both tokens are needed; the
-	// vendor's own note above the LGFIFO(6) default says the depth was
-	// chosen to reach a block at all, which stops being a reason once the
-	// array is directed somewhere else.
+	// rp6502: no_rw_check is safe because the entry at rd_addr is written
+	// only while the FIFO is empty, and a read taken while it is empty sets
+	// o_rd_empty, so the data from that read is never used.
 	(* ramstyle = "no_rw_check, MLAB" *)
 	reg	[WIDTH-1:0]		mem	[(1<<LGFIFO)-1:0];
 	reg	[LGFIFO:0]		rd_addr, wr_addr,

@@ -2,22 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * chips/chips/w65c02.h on its own — held to a recorded bus trace.
- *
- * The corpora do the real work here: SingleStepTests and Klaus are external
- * evidence and say the CPU is right, not merely unchanged. But both arrive by
- * OPTIONAL submodule, so a checkout without them runs neither, and then
- * nothing in any tree touches the vendored CPU at all. This is the floor that
- * survives that: it needs no download, and it covers the pins the corpora
- * leave quiet, which is the half w65c02_gen.py is most likely to disturb.
- *
- * Same scenarios as test_lockstep, so the two cannot come to disagree about
- * what they are asking. Regenerate with
- *
- *     test_w65c02_chips --emit > tests/wdc/w65c02_golden.txt
- *
- * and read what moved before committing it.
  */
 
 #include "chips_dut.h"
@@ -36,9 +20,6 @@ static uint32_t crc32_up(uint32_t crc, uint8_t byte)
     return host_crc32(crc, &byte, 1);
 }
 
-/* One implementation over lockstep.c's memory rule: what the CPU drives, the
- * byte it sees, and the byte it writes back. lockstep.c compares this stream
- * between two CPUs; here it becomes the recording. */
 static uint32_t trace(const lockstep_scen_t *scen)
 {
     lockstep_scen_image(image, scen->entry);

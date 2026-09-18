@@ -3,13 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The frame counter and the vsync interrupt, for tests/cpu/vga/test_vsync.cpp.
-#
-# The program reads $FFE3 on three consecutive frames by polling. It then
-# enables the vsync interrupt, takes three interrupts, clears the enable,
-# waits two more frames, and reads $FFF0. What it recorded is copied to XRAM
-# from $0000 through RW0 before it stops, so the suite reads the results the
-# same way on every machine.
+# The results are copied to XRAM because the libretro test bench has no
+# console that a suite can read.
 
 import argparse
 import sys
@@ -23,8 +18,6 @@ RIA_VSYNC = 0xFFE3
 RIA_IRQ = 0xFFF0
 IRQ_VSYNC = 0x80
 
-# The program keeps its results in RAM while it runs, and test_vsync.cpp reads
-# them at the same offsets from XRAM.
 RES = 0x0200
 POLLED = RES
 TAKEN = RES + 3

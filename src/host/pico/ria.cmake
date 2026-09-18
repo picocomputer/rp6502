@@ -1,25 +1,10 @@
-# The RIA firmware, as a parts list. Both boards are made of these; a machine
-# beside this file sets RIA_TARGET, includes it, and then adds what its own
-# board has. The radio is a board, not a configuration, so nothing here knows
-# whether there is one -- see host/pico/ria-w.
-#
-# RIA_TARGET  the executable to build, named by the machine that includes this.
-
-# The firmware's own sources; this file is the parts list, they are the parts.
 set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
-# The seam that answers osal/os.h, osal/fs.h and osal/dir.h for this machine:
-# its own firmware, over littlefs on the RIA's flash.
 include(${RP6502_ROOT}/src/osal/pico/pico.cmake)
 
 include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_kbdlay(kbdlay)
 
-# core/hid/keyboard.c reads core/hid/usage.h, the specification's numbers, on
-# every machine. This one also has USB, whose drivers speak TinyUSB's
-# spelling of the same specification, and two spellings drift. The check
-# lives here because this is the tree that has TinyUSB: the machines that
-# need usage.h do not, which is the whole reason it exists.
 set(HID_USAGE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_usage.stamp)
 set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
 set(HID_VENDOR ${RP6502_ROOT}/vendor/tinyusb/src/class/hid/hid.h)
@@ -45,8 +30,9 @@ set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
-# Avoid 26KB of unicode and jis we don't need, and the second printf engine
-# newlib's strftime would otherwise drag in through sniprintf.
+# Avoid 26KB of unicode and jis we don't need. Newlib's strftime calls
+# sniprintf, which is wrapped to call vsnprintf so that newlib's printf
+# engine is not linked beside pico_printf.
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
     -Wl,--wrap=iswspace
     -Wl,-u,__wrap_iswspace
@@ -61,12 +47,11 @@ target_compile_options(${RIA_TARGET} PRIVATE
     $<$<CONFIG:Release>:-Os>
 )
 
-# A duplicated locale id in def/str_*.def would silently leave a hole
 set_source_files_properties(${RP6502_ROOT}/src/core/str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
 target_include_directories(${RIA_TARGET} PRIVATE
-    ${RP6502_ROOT}/src/host/pico  # the pico's own headers
-    ${CMAKE_CURRENT_SOURCE_DIR} # drivers.h, the machine's own
+    ${RP6502_ROOT}/src/host/pico
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RIA_SRC}
     ${RP6502_ROOT}/src
@@ -74,7 +59,6 @@ target_include_directories(${RIA_TARGET} PRIVATE
 )
 
 target_compile_definitions(${RIA_TARGET} PRIVATE
-    # Nothing in this firmware formats a float; sizes render with integer math.
     PICO_PRINTF_SUPPORT_FLOAT=0
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
     PICO_FLASH_ASSUME_CORE1_SAFE=1
@@ -170,8 +154,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/vendor/littlefs/lfs_util.c
 )
 
-# emu8950 is vendored verbatim; silence its host-GCC warnings rather than patch
-# upstream (unused args/function, sizeof in calloc's first argument).
 set_source_files_properties(
     ${RP6502_ROOT}/vendor/emu8950/emu8950.c
     PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-unused-function;-Wno-calloc-transposed-args"

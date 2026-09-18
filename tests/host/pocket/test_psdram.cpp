@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The staging controller soaked against the behavioral chip: a
- * sequential load the size the bridge streams, then randomized reads
- * and writes with read-after-write on the held halfword, the model's
- * $fatal protocol floors armed throughout, and the refresh cadence
- * counted against the wall clock at the end.
  */
 
 #include "Vtb_psdram.h"
@@ -78,8 +72,6 @@ UTEST(psdram, load_soak_and_refresh)
 
     std::map<uint32_t, uint16_t> ref;
 
-    /* The bridge's shape: a sequential stream across page and row
-     * boundaries, including a bank seam. */
     for (uint32_t i = 0; i < 3000; i++)
     {
         uint32_t a = 0x7FF400u + i; /* crosses rows within bank 0 */
@@ -88,7 +80,6 @@ UTEST(psdram, load_soak_and_refresh)
         ref[a] = v;
     }
 
-    /* Random traffic over sparse addresses in all four banks. */
     for (int i = 0; i < 4000; i++)
     {
         uint32_t a = rng() & 0x1FFFFFF;
@@ -107,44 +98,33 @@ UTEST(psdram, load_soak_and_refresh)
         }
     }
 
-    /* Read-after-write on the held halfword: the hold must drop. */
     uint32_t a = 0x123456u;
     wr(a, 0xAAAA);
     ASSERT_EQ(rd(a), 0xAAAA);
-    wr(a, 0x5555); /* invalidates the hold */
+    wr(a, 0x5555);
     ASSERT_EQ(rd(a), 0x5555);
 
-    /* Repeat fetch inside the hold costs nothing: rvalid immediate. */
     dut->rd_pend = 1;
     dut->rd_addr = a;
     dut->eval();
     ASSERT_TRUE(dut->tb_psdram_rvalid);
     dut->rd_pend = 0;
 
-    /* Sequential verify of the streamed block. */
     for (uint32_t i = 0; i < 3000; i += 37)
         ASSERT_EQ(rd(0x7FF400u + i), ref[0x7FF400u + i]);
 
-    /* Refresh cadence: at least one per 504 clocks on average
-     * (7.7 us at 50.4 MHz is one per 390). */
+    /* pocket_sdram refreshes once every 390 clocks, 7.7 us at 50.4 MHz,
+     * and the bound checked here is once every 504 clocks, 10 us. */
     long elapsed = g_clocks - soak_start;
     ASSERT_GT((long)dut->tb_psdram_refreshes, elapsed / 504);
 
-    /* Left alone, the store sleeps. This is the whole low-power case
-     * and it has to be asserted rather than assumed: the machine's
-     * pseudo-ROM is idle almost all the time, and awake it draws
-     * fifty times what self refresh does. */
     uint32_t slept_before = dut->tb_psdram_sref_clocks;
     uint32_t refreshed_before = dut->tb_psdram_refreshes;
     for (int i = 0; i < 4000; i++)
         clock_cycle();
     ASSERT_GT((long)(dut->tb_psdram_sref_clocks - slept_before), 3000L);
-    /* And it refreshes itself while it sleeps — the controller must not
-     * be issuing any, or it never really went under. */
     ASSERT_LT((long)(dut->tb_psdram_refreshes - refreshed_before), 3L);
 
-    /* Waking is the other half. The array survived, and the next access
-     * reads what was written before the nap. */
     ASSERT_EQ(rd(a), 0x5555);
     wr(a, 0x1234);
     ASSERT_EQ(rd(a), 0x1234);
@@ -160,13 +140,14 @@ static void idle_for(int n)
         clock_cycle();
 }
 
-/* Runs after load_soak_and_refresh, so the chip is already awake and
- * initialised; the controller has no reset port and must not be re-woken. */
+/* This test uses the SDRAM that load_soak_and_refresh initialised,
+ * because pocket_sdram has no reset and runs its power-up sequence only
+ * once. */
 UTEST(psdram, sporadic_asset_reads)
 {
     std::map<uint32_t, uint16_t> ref;
     const uint32_t rom = 0x000000u;  /* STAGE+0, bank 0: the ROM image */
-    const uint32_t oem = 0x1FE8000u; /* byte 0x3FD0000, bank 3: OEMCP */
+    const uint32_t oem = 0x1FE8000u; /* byte 0x3FD0000, bank 3 */
     for (uint32_t i = 0; i < 48; i++)
     {
         uint16_t v = (uint16_t)rng();
@@ -189,8 +170,6 @@ UTEST(psdram, sporadic_asset_reads)
         }
 }
 
-/* Per-trial self-calibration: idle until the chip is observed to go
- * under, then wait k more clocks and ask.  Immune to refresh phase. */
 UTEST(psdram, self_refresh_residency)
 {
     wr(0x000100u, 0x1111);
@@ -203,11 +182,9 @@ UTEST(psdram, self_refresh_residency)
         int guard = 0;
         while (dut->tb_psdram_sref_clocks == s0 && guard++ < 2000)
             idle_for(1);
-        ASSERT_LT(guard, 2000); /* it did go under */
+        ASSERT_LT(guard, 2000);
         if (k < 0)
         {
-            /* Re-run the same idle, stopping k clocks short of entry, so
-             * the ask lands in the entry window itself. */
             int e = guard;
             (void)rd(0x000100u);
             s0 = dut->tb_psdram_sref_clocks;
@@ -228,15 +205,9 @@ UTEST(psdram, self_refresh_residency)
         if (total > 0 && total < worst)
             worst = total;
     }
-    ASSERT_GE(worst, 3); /* tRAS min 48 ns is the floor a nap must clear */
+    ASSERT_GE(worst, 3); /* minimum self refresh is tRAS, 48 ns or 3 clocks */
 }
 
-/* A read the hold already answers is not a reason to stay awake, so the
- * store may sleep with rd_pend standing. What it must not do is treat
- * that same request as a reason to wake, because then it sleeps and wakes
- * on one signal forever, and every nap is shorter than the tRAS the chip
- * needs to finish an internal refresh — a residency the model checks but
- * only for naps it is actually given. */
 UTEST(psdram, held_read_vs_sleep)
 {
     const uint32_t a = 0x000100u;
@@ -244,7 +215,7 @@ UTEST(psdram, held_read_vs_sleep)
     ASSERT_EQ(rd(a), 0x1111);
 
     dut->rd_pend = 1;
-    dut->rd_addr = a; /* already held: rvalid stands, no fetch wanted */
+    dut->rd_addr = a;
     dut->eval();
     ASSERT_TRUE(dut->tb_psdram_rvalid);
 

@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Resolving a path the way the drive under it would: the CWD a relative path
- * is relative to, and the case a name is really stored in, are both questions
- * only FatFs can answer, and this machine is the one with a FatFs.
  */
 
 #include "sys/path.h"
@@ -16,9 +12,6 @@
 #include <ctype.h>
 #include <string.h>
 
-/* Its own scratch, so a caller may hand it a string it parsed and still not
- * have to think about whose buffer that was. The result is valid until the
- * next call. */
 static char path_buf[256];
 
 const char *path_abs(const char *path)
@@ -50,8 +43,9 @@ const char *path_abs(const char *path)
             return NULL;
         if (colon)
         {
-            // f_getcwd only reads the current drive: save it, hop to
-            // the target drive for its current directory, and hop back.
+            // f_getcwd reads only the current drive, so the target drive is
+            // made current for the call and the saved drive is restored
+            // afterward.
             const char *save_colon = strchr(path_buf, ':');
             if (!save_colon)
                 return NULL;
@@ -75,8 +69,6 @@ const char *path_abs(const char *path)
             segs_src++;
     }
 
-    // For relative paths start at the end of the CWD already in path_buf.
-    // For absolute paths start fresh after the drive prefix.
     size_t out;
     if (relative)
     {
@@ -89,7 +81,6 @@ const char *path_abs(const char *path)
         out = drive_len;
     }
 
-    // Write segments into path_buf, resolve . and ..
     const char *seg = segs_src;
     while (*seg)
     {
@@ -139,10 +130,8 @@ bool path_correct_basename(char *path, size_t path_size)
 {
     char fname[FF_LFN_BUF + 1];
     if (!path_lookup_basename(path, fname, sizeof fname))
-        return true; // lookup failed; leave the input case unchanged
+        return true;
 
-    // Find where the basename starts (after the last separator or drive
-    // colon), ignoring any trailing separators on path.
     size_t end = strlen(path);
     while (end > 0 && path_is_sep(path[end - 1]))
         end--;
@@ -167,15 +156,12 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
     if (out_size)
         out[0] = '\0';
 
-    // Trim trailing separators so "folder/" is treated like "folder".
     size_t end = strlen(path);
     while (end > 0 && path_is_sep(path[end - 1]))
         end--;
     if (end == 0)
         return false;
 
-    // Find basename. ':' caps the drive prefix; treat the byte after it
-    // as the start of the path so "X:foo" splits as parent "X:" + name "foo".
     size_t name_start = 0;
     const char *colon = strchr(path, ':');
     if (colon)
@@ -192,9 +178,9 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
     memcpy(name, path + name_start, name_len);
     name[name_len] = '\0';
 
-    // Build parent. Drop a trailing '/' or '\' unless we'd be left with
-    // a bare drive prefix ("X:") or the root separator alone ("/"), in
-    // which case f_opendir needs the separator kept.
+    // The parent keeps a trailing separator that follows a drive colon or
+    // stands alone, because f_opendir treats "X:" or an empty path as the
+    // current directory of the drive rather than its root.
     char parent[FF_LFN_BUF + 1];
     if (name_start == 0)
     {

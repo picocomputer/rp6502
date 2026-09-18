@@ -3,33 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The core's icon and the platform's banner. Analogue documents one
-# format for both, under "Image Format" in the packaging-a-core page:
-# sixteen bits a pixel, monochrome, brightness in the upper eight, the
-# whole raster stored rotated a quarter turn counter-clockwise. There is
-# no header and no magic, so a file is right only if it is exactly
-# width x height x 2 bytes long and every second byte is zero.
-#
-# --selftest re-encodes the two reference images that ship in the
-# core-template submodule and insists on byte equality, which is the
-# only real evidence that the rotation goes the way round it should.
-#
-# Both of those are a bright field with dark marks, so a picture drawn
-# on white converts straight -- and then arrives on the Pocket as a cow
-# on a black square. Analogue's "the icon color may be inverted in the
-# UI" is not a maybe, and it is not only the icon: the platform banner
-# comes out the same way. A file whose stored field is bright displays
-# dark. Both images want --invert, which is why the shipped art of other
-# cores stores a dark field for a white one.
-#
-# --at places the artwork's centre at a fraction of the width. The
-# platform banner is not centred: the stock cores set their device art a
-# little left of middle, and 0.37 is where they sit. Plain centring and
-# --left both look wrong beside them.
-#
-# This is run by hand when the artwork changes and its output is
-# committed, so PIL is a tool the author needs and not a thing the
-# firmware build depends on.
+# The Pocket's core icon and platform banner use one image format: two
+# bytes a pixel, brightness in the first byte and zero in the second, with
+# the whole raster stored rotated a quarter turn counter-clockwise. The
+# format has no header, so a file is exactly width x height x 2 bytes long.
 
 import sys
 from pathlib import Path
@@ -42,7 +19,6 @@ PLATFORM = (521, 165)
 
 
 def encode(gray: np.ndarray) -> bytes:
-    """gray is (height, width) uint8 brightness."""
     rot = np.rot90(gray, 1)
     out = np.zeros((rot.size, 2), dtype=np.uint8)
     out[:, 0] = rot.reshape(-1)
@@ -56,7 +32,6 @@ def decode(data: bytes, width: int, height: int) -> np.ndarray:
 
 def fit(src: Image.Image, width: int, height: int, invert: bool = False,
         left: bool = False, at: float | None = None) -> np.ndarray:
-    """Whole picture, aspect kept, on the field the marks sit on."""
     gray = src.convert("L")
     if invert:
         gray = Image.eval(gray, lambda v: 255 - v)

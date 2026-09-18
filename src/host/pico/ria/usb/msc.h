@@ -23,8 +23,7 @@
 
 int msc_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* Disk utility (mon/drive.c) support. A logical volume index (0..FF_VOLUMES-1)
- * identifies an MSCn: drive; these resolve it to its physical device.
+/* Disk utility (mon/drive.c) support.
  */
 
 typedef struct
@@ -32,21 +31,21 @@ typedef struct
     bool present;
     bool removable;
     bool write_prot;
-    bool is_floppy; // CBI/UFI/SFF floppy (vs BOT/SCSI flash)
+    bool is_floppy;
     uint64_t block_count;
     uint32_t block_size;
-    uint8_t gen;  // mount generation; changes when the slot is reused (TOCTOU guard)
-    char path[6]; // canonical "MSCn:" FatFs path for this volume
+    uint8_t gen;
+    char path[6];
 } msc_drive_info_t;
 
-int msc_drive_vol_from_name(const char *name); // "MSCn"/"MSCn:"/"n:" -> index, or -1
+int msc_drive_vol_from_name(const char *name);
 bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out);
 bool msc_drive_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);
 bool msc_drive_serial(uint8_t vol, char *dst, size_t dst_size);
 bool msc_drive_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);
 bool msc_drive_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count);
 bool msc_drive_format_track(uint8_t vol, uint8_t track, uint8_t head);
-void msc_drive_reenumerate(uint8_t pdrv); // remount after format/erase
+void msc_drive_reenumerate(uint8_t pdrv);
 
 /* TinyUSB host class-driver callbacks.
  */

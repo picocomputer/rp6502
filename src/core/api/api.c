@@ -113,7 +113,8 @@ void api_stop(void)
 void api_run(void)
 {
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // $FFE3 is skipped because it is the VSYNC frame counter, which vga owns.
+    // $FFE3 is skipped because it is the VSYNC frame counter, which is advanced
+    // on every vertical sync.
     for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
         if (addr != 0xFFE3)
             REGS(addr) = 0;

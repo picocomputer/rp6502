@@ -2,20 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * XRAM records through the staged loader, on whichever machine this tree
- * built.
- *
- * The rule is one line: a record below 0x10000 is RAM, at or above it is
- * XRAM, and one that crosses the boundary or runs off the top of XRAM is not
- * a record at all. What that rule is worth is where the bytes land, so the
- * accepted image is compared against the whole 64K written out here — every
- * byte of it, including the top one and every byte no record named.
- *
- * A refusal has to be asked what it left behind and not merely whether the
- * machine came up: the straddling record here is the one that would overwrite
- * the reset vector if it were taken, so a loader that took it hangs, and a
- * case that read only the boot's verdict would call that hang a refusal.
  */
 
 #include "mut.h"
@@ -28,7 +14,6 @@
 static const uint8_t prog_stp[] = {0xDB};
 static const uint8_t vectors[] = {0x00, 0x03};
 
-/* Enough of a program to reach STP, so an accepted image is one that ran. */
 static std::vector<uint8_t> rom_shell()
 {
     std::vector<uint8_t> rom;
@@ -41,7 +26,7 @@ static std::vector<uint8_t> rom_shell()
 
 UTEST(xram, records_land_where_the_rule_says)
 {
-    /* Patterns on both sides of the boundary, one ending on the last byte. */
+    /* The pat2 record ends on 0x1FFFF, the last byte of XRAM. */
     uint8_t pat1[256], pat2[255];
     for (int i = 0; i < 256; i++)
         pat1[i] = (uint8_t)(i * 7 + 1);
@@ -63,16 +48,12 @@ UTEST(xram, records_land_where_the_rule_says)
     ASSERT_EQ(memcmp(got, want, sizeof want), 0);
 }
 
-/* Every byte distinct from an untouched one, so the half of a taken record
- * that would reach XRAM is visible there. */
 static void junk_bytes(uint8_t *at, size_t len)
 {
     for (size_t i = 0; i < len; i++)
         at[i] = (uint8_t)(0xA5 ^ i);
 }
 
-/* A boot is a fresh machine on both, so XRAM a refusal did not write is the
- * zero it came up as. */
 static void xram_untouched(int *utest_result, uint32_t at, size_t len)
 {
     uint8_t got[0x20];

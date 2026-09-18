@@ -34,9 +34,6 @@
 
 /* A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
  * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
- *
- * Auto ProductID layout's Bitmap:
- *   [MSB]         HID | MSC | CDC          [LSB]
  */
 #define _PID_MAP(itf, n) ((CFG_TUD_##itf) << (n))
 #define USB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | \

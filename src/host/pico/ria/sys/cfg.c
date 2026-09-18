@@ -24,15 +24,9 @@
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 
-/* Configuration is a plain ASCII file on the LFS. The rows are the machine's
- * driver rows -- see core/sys/config.h -- and their order here follows from
- * the roster, which does not matter: a line is found by its letter, so a file
- * written by any build loads on any other. The letters C and R are retired.
- * e.g. */
+/* Configuration is a plain ASCII file on the LFS. e.g. */
 // +V1         | Version - Must be first
 // +P8000      | PHI2
-// +C0         | Caps (retired)
-// +R0         | RESB (retired)
 // +TUTC0      | Time Zone
 // +MEN        | Locale
 // +S437       | Code Page
@@ -49,13 +43,11 @@
 // +AsEkRiT    | Telnet Key
 // BASIC       | Boot ROM - Must be last
 
-/* Every setting, rendered. Called twice: once against the file to find out
- * whether anything actually changed, once to write it if something did. */
 struct cfg_sink
 {
     lfs_file_t *file;
     int error;
-    bool compare; /* reading the file alongside, not writing it */
+    bool compare;
     bool differs;
 };
 
@@ -79,8 +71,6 @@ static void cfg_sink_cb(char character, void *arg)
         sink->error = (int)result;
 }
 
-/* Every row, then the boot line -- which is not a row: it has no RAM, it is
- * the last line of the file. */
 static void cfg_emit(struct cfg_sink *sink, const char *opt_str)
 {
     config_render(cfg_sink_cb, sink);
@@ -111,11 +101,10 @@ static void cfg_save_with_boot_opt(const char *opt_str)
             mbuf[0] = 0;
         }
     }
-    /* Read it back against what we would write. An unchanged config leaves the
-     * file untouched -- and untouched means no flash write at all, because
-     * opening RDWR|CREAT on an existing file does not mark it dirty and
-     * lfs_file_close then has nothing to sync. Only the truncate below would,
-     * which is why it cannot happen before this. */
+    /* The file is compared before it is written, so an unchanged config
+     * causes no flash write. Opening an existing file with LFS_O_RDWR |
+     * LFS_O_CREAT does not mark it dirty, so lfs_file_close has nothing to
+     * sync unless the truncate below runs. */
     struct cfg_sink sink = {.file = &lfs_file, .compare = true};
     lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
     if (lfsresult >= 0)
@@ -124,7 +113,6 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         lfsresult = sink.error;
     if (lfsresult >= 0 && !sink.differs)
     {
-        /* Same bytes, but the file may still be longer than what we rendered. */
         char extra;
         if (lfs_file_read(&lfs_volume, &lfs_file, &extra, 1) == 1)
             sink.differs = true;
@@ -181,8 +169,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
 
 void __in_flash("cfg_init") cfg_init(void)
 {
-    /* The first thing on this machine to read the volume, so the first that
-     * can say the mount went wrong. */
     mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);
 }

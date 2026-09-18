@@ -3,28 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Two things a sleep used to take, asked for by one program.
-#
-# The first is issue 183: a file open when the machine sleeps, read
-# again when it wakes. The drive's slot belongs to the host and the host
-# is gone for the duration, so a program finds out what became of its
-# descriptor by being told its read failed.
-#
-# The second is issue 185: sixteen console bytes written and not yet
-# read. The RIA's TX queue is sixteen deep and the blob had a hole where
-# it should have been, so whatever stood in it when the machine stopped
-# went with the session.
-#
-# So this reads the file forever and counts out loud while it does. The
-# count is the console test: the numbers run without a gap, and a gap
-# after a wake is exactly what went missing, in units of the five bytes
-# each number costs. The file is the drive test: every chunk has to
-# begin where a chunk begins, and a read that fails or lands crooked
-# says so in a line of its own rather than in silence.
-#
-# The file it reads is --data's, which the card package ships as
-# probe.dat in Saves. tests/host/pocket builds the same pattern in the
-# bench, where the collision this catches actually reproduces.
+# The program prints a count so that console output lost across a sleep shows
+# as a gap in the count after a wake. Each number is five console bytes, so
+# the sixteen bytes that the RIA's TX queue in core/ria/regs.sv holds span at
+# most four numbers.
 
 import argparse
 import sys
@@ -38,18 +20,19 @@ from rp6502_rom import image
 NAME = "probe.dat"
 CHUNK = 16
 
-# The file is this, over and over, so a chunk that does not begin with
-# its first byte is a read that landed crooked.
+# UNIT is CHUNK bytes long, so each correct read begins with UNIT's first
+# byte.
 UNIT = b"0123456789ABCDEF"
 UNITS = 64
 
-# cc65's whence is its own: core/api/std.c translates 2=SET, 0=CUR, 1=END.
+# core/api/std.c maps cc65's whence values 2, 0 and 1 to SEEK_SET, SEEK_CUR
+# and SEEK_END.
 SEEK_SET_CC65 = 2
 
 FD = 0x0200
-LO = 0x0201   # the count, low byte
-HI = 0x0202   # the count, high byte
-HEAD = 0x0203  # the first byte of the chunk just read
+LO = 0x0201
+HI = 0x0202
+HEAD = 0x0203
 
 
 def payload():
@@ -91,7 +74,6 @@ def prog():
     p.store(HI, 0)
     p.say("counting, reading " + NAME + "\r\n")
 
-    # ---- one chunk ----
     p.symbol("loop")
     p.push(0)
     p.push(CHUNK)
@@ -99,7 +81,9 @@ def prog():
     p.sta_abs(API_A)
     p.call(OP_READ_XSTACK)
 
-    # api_return_ax: the count in A, its high byte in X, so -1 is X of $FF.
+    # A read returns its count with the low byte in A and the high byte in X.
+    # A count is at most 512, the size of the xstack, so X is $FF only when
+    # the read fails and returns -1.
     p.cpx_imm(0xFF)
     p.bne("read_ok")
     p.jsr_abs("say_readfail")
@@ -108,7 +92,6 @@ def prog():
     p.symbol("read_ok")
     p.tax()
     p.bne("have_bytes")
-    # Nothing, and no error: the end of the file. Round again.
     p.symbol("rewind")
     for _ in range(4):
         p.push(0)
@@ -118,8 +101,9 @@ def prog():
     p.call(OP_LSEEK)
     p.jmp_abs("loop")
 
-    # The head is the byte worth checking; the rest come off the stack
-    # because they were pushed, not because anyone looks at them.
+    # The rest of the chunk is popped, even though nothing uses it, because
+    # the next read fails with EINVAL when its arguments are pushed on top of
+    # bytes left on the xstack.
     p.symbol("have_bytes")
     p.lda_abs(XSTACK)
     p.sta_abs(HEAD)
@@ -136,7 +120,6 @@ def prog():
     p.beq("aligned")
     p.jsr_abs("say_crooked")
 
-    # ---- count out loud ----
     p.symbol("aligned")
     p.inc_abs(LO)
     p.bne("show")

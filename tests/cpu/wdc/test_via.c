@@ -2,31 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The 6522, on whichever machine this tree built — chips/chips/m6522.h in the
- * emulator, via.sv verilated in the fabric. Both answer via_dut.h, which is
- * the register interface the machine drives them through, so both answer this.
- *
- * Two kinds of evidence, because a recording alone says only that something
- * moved. The directed cases assert the 6522's documented behaviour outright,
- * so a failure names the rule; the traces cover everything else, including the
- * fuzz, where writing the expectation by hand is not possible.
- *
- * The recording is the expectation, and it is one recording. This used to be
- * two suites: this one holding the vendored chip to a trace, and a second
- * running the RTL against that chip cycle by cycle, live, inside the test.
- * That made the emulator's VIA the standard the fabric's was held to. Now
- * both are held to the same committed numbers, and either can be checked with
- * the other absent.
- *
- * Regenerating the traces accepts whatever changed, which is the point: it is
- * a commit, and the diff is the notification. Run
- *
- *     test_via --emit > tests/cpu/wdc/via_golden.txt
- *
- * and read what moved before committing it. Run it from the tree whose VIA
- * you mean to record; the numbers are the machine's, and the other machine
- * has to agree with them.
  */
 
 #include "via_dut.h"
@@ -38,7 +13,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* One op, for the directed cases. */
 static uint8_t rd(uint8_t rs)
 {
     via_op_t op = {VIA_OP_READ, rs, 0, 0};
@@ -70,16 +44,11 @@ static bool idle_until_irq(int limit)
     return false;
 }
 
-/* CRC-32, so a trace is a number small enough to commit and read. A byte at
- * a time, because a trace is produced a cycle at a time and never exists as a
- * buffer. */
 static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 {
     return host_crc32(crc, &byte, 1);
 }
 
-/* Every cycle contributes its read data and its IRQ level, which is exactly
- * what test_via compares against the RTL. */
 static uint32_t trace_script(const via_op_t *ops, size_t n_ops, uint64_t *cycles)
 {
     via_reset();
@@ -118,7 +87,6 @@ static uint32_t trace_fuzz(uint64_t *cycles)
     return crc;
 }
 
-/* The committed traces, read once. */
 #define GOLDEN_MAX 32
 static struct
 {
@@ -175,44 +143,40 @@ static bool golden_check(const char *name, uint32_t crc, uint64_t cycles,
     return false;
 }
 
-/* --- The documented behaviour, asserted rather than recorded --- */
-
 UTEST(via, t1_oneshot_interrupts_once)
 {
     via_reset();
-    wr(0xE, 0xC0); /* IER: enable T1 */
-    wr(0x4, 10);   /* T1 latch low */
-    wr(0x5, 0);    /* T1 high, starts the count */
+    wr(0xE, 0xC0);
+    wr(0x4, 10);
+    wr(0x5, 0);
     ASSERT_TRUE(idle_until_irq(64));
-    ASSERT_TRUE((rd(0xD) & 0x40) != 0); /* IFR T1 */
-    rd(0x4);                            /* reading T1CL clears it */
+    ASSERT_TRUE((rd(0xD) & 0x40) != 0);
+    rd(0x4); /* Reading T1CL clears the T1 interrupt flag. */
     ASSERT_TRUE((rd(0xD) & 0x40) == 0);
-    /* One-shot: it must not come back. */
     ASSERT_FALSE(idle_until_irq(64));
 }
 
 UTEST(via, t1_continuous_reloads)
 {
     via_reset();
-    wr(0xB, 0x40); /* ACR: continuous */
+    wr(0xB, 0x40);
     wr(0xE, 0xC0);
     wr(0x4, 6);
     wr(0x5, 0);
     ASSERT_TRUE(idle_until_irq(64));
-    rd(0x4); /* clear */
-    /* Continuous: the latch reloads and it fires again. */
+    rd(0x4);
     ASSERT_TRUE(idle_until_irq(64));
 }
 
 UTEST(via, t2_oneshot_does_not_reload)
 {
     via_reset();
-    wr(0xE, 0xA0); /* IER: enable T2 */
+    wr(0xE, 0xA0);
     wr(0x8, 8);
     wr(0x9, 0);
     ASSERT_TRUE(idle_until_irq(64));
-    ASSERT_TRUE((rd(0xD) & 0x20) != 0); /* IFR T2 */
-    rd(0x8);                            /* reading T2CL clears it */
+    ASSERT_TRUE((rd(0xD) & 0x20) != 0);
+    rd(0x8); /* Reading T2CL clears the T2 interrupt flag. */
     ASSERT_TRUE((rd(0xD) & 0x20) == 0);
     ASSERT_FALSE(idle_until_irq(64));
 }
@@ -220,13 +184,12 @@ UTEST(via, t2_oneshot_does_not_reload)
 UTEST(via, ier_masks_the_irq_line_not_the_flag)
 {
     via_reset();
-    wr(0xE, 0x40); /* IER: bit 7 clear, so this DISABLES T1 */
+    wr(0xE, 0x40); /* Bit 7 is clear, so this write disables T1's interrupt. */
     wr(0x4, 4);
     wr(0x5, 0);
-    /* The flag still sets; the line stays low. */
     ASSERT_FALSE(idle_until_irq(64));
     ASSERT_TRUE((rd(0xD) & 0x40) != 0);
-    ASSERT_TRUE((rd(0xD) & 0x80) == 0); /* no master */
+    ASSERT_TRUE((rd(0xD) & 0x80) == 0);
 }
 
 UTEST(via, ifr_is_write_to_clear)
@@ -244,10 +207,10 @@ UTEST(via, ifr_is_write_to_clear)
 UTEST(via, ier_readback_sets_bit7)
 {
     via_reset();
-    wr(0xE, 0xE0);                      /* set T1 + T2 */
-    ASSERT_TRUE((rd(0xE) & 0x80) != 0); /* reads back with bit 7 high */
+    wr(0xE, 0xE0);
+    ASSERT_TRUE((rd(0xE) & 0x80) != 0);
     ASSERT_TRUE((rd(0xE) & 0x60) == 0x60);
-    wr(0xE, 0x40); /* clear T1 only */
+    wr(0xE, 0x40);
     ASSERT_TRUE((rd(0xE) & 0x40) == 0);
     ASSERT_TRUE((rd(0xE) & 0x20) != 0);
 }
@@ -255,11 +218,10 @@ UTEST(via, ier_readback_sets_bit7)
 UTEST(via, t1_toggles_pb7)
 {
     via_reset();
-    wr(0x2, 0x80); /* DDRB: PB7 output */
-    wr(0xB, 0xC0); /* ACR: continuous + PB7 */
+    wr(0x2, 0x80);
+    wr(0xB, 0xC0);
     wr(0x4, 4);
     wr(0x5, 0);
-    /* Sample ORB across several reloads; PB7 must not sit still. */
     uint8_t seen = 0;
     via_op_t idle = {VIA_OP_IDLE, 0, 0, 0};
     for (int i = 0; i < 64; i++)
@@ -269,10 +231,8 @@ UTEST(via, t1_toggles_pb7)
         via_step(&idle, &data, &irq);
         seen |= (uint8_t)(rd(0x0) & 0x80) ? 2 : 1;
     }
-    ASSERT_EQ(3, seen); /* both levels observed */
+    ASSERT_EQ(3, seen);
 }
-
-/* --- Everything else, against the recording --- */
 
 #define VIA_TRACE(name)                                                     \
     UTEST(via, trace_##name)                                          \

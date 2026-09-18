@@ -4,12 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Turns a path as the 6502 spells it into one the libc calls take. It lives
- * with the directory calls because the drive name it takes off is the one
- * this drive answers to, and a relative path resolves against the working
- * directory drive_getcwd reports.
- */
-
 #ifndef _OSAL_POSIX_DIR_H_
 #define _OSAL_POSIX_DIR_H_
 

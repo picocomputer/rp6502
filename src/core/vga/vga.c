@@ -296,8 +296,8 @@ void vga_task(void)
      * into an interrupt storm the program never lived through. */
     if (dbg_is_stopped())
         return;
-    /* The line is drawn from the machine as it stands before the cycles that
-     * belong to it have run, because the 6502 catches up to the beam
+    /* The line is drawn from the machine as it stands before the 6502 cycles
+     * for that scanline have run, because the 6502 catches up to the beam
      * afterwards, so a write it makes lands on a later line. */
     const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
     if (vga_scanout && line < vga_canvas_height())

@@ -143,7 +143,7 @@ static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
     if (fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode))
     {
         close(fd);
-        *err = API_EACCES; /* FR_DENIED, as the other machines spell it */
+        *err = API_EACCES;
         return -1;
     }
     return fd;

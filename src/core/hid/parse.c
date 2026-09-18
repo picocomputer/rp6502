@@ -43,8 +43,9 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
     uint16_t report_id = 0xFFFF;
     uint16_t bit_pos = 0;
 
-    /* The Application Collection in scope and how deep inside it the walk is,
-     * so that a device nesting Physical collections still says what it is. */
+    /* app_depth is the collection depth at which the Application Collection
+     * opened, so the End Collection of a Physical collection nested inside it
+     * does not end the Application's scope. */
     uint32_t app_usage = HID_APP_NONE;
     uint16_t app_depth = 0;
     uint16_t depth = 0;

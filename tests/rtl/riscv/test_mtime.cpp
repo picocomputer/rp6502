@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The soft CPU's microsecond clock, which has now been wrong twice in
- * two different ways and both times reached hardware. Left at soc's
- * default 1/1 it ran fifty times fast; divided from clk_sys after the
- * counter moved to clk_rv it ran twice slow. Neither showed up in any
- * test, because nothing else in this suite waits on a real second — the
- * only witness was a cursor blinking at the wrong speed on a Pocket.
- *
- * So assert the rate directly. mtime_us is what host_clock_us returns, and
- * one microsecond is one microsecond of clk_sys wall time no matter
- * which clock the accumulator happens to be counting.
  */
 
 #include "Vwiring.h"
@@ -25,8 +14,6 @@
 
 static Vwiring *dut;
 static bool rv_phase;
-
-/* One call is one clk_sys period. clk_rv is half of it, rising with it. */
 
 static uint64_t mtime()
 {
@@ -41,8 +28,10 @@ UTEST(mtime, counts_real_microseconds)
     dut->rst_n = 1;
     ASSERT_EQ(mtime(), (uint64_t)0);
 
-    /* Ten milliseconds of clk_sys at 50.4 MHz. The accumulator is exact
-     * over any whole hundred microseconds, so this lands on the nose. */
+    /* One tb_clock call is one clk_sys period, so 504000 calls are ten
+     * milliseconds at the default 50.4 MHz. A hundred microseconds is
+     * 2520 clk_rv cycles, which add 25200 to the accumulator, exactly 100
+     * wraps at 252, so the count is exactly 10000. */
     for (int i = 0; i < 504000; i++)
         tb_clock(dut);
     ASSERT_EQ(mtime(), (uint64_t)10000);
@@ -50,9 +39,6 @@ UTEST(mtime, counts_real_microseconds)
 
 UTEST(mtime, is_monotonic_and_never_skips)
 {
-    /* A wrap that subtracts wrong drifts slowly and would still pass a
-     * rate check with a loose bound; stepping by exactly one, always,
-     * is the property the accumulator has to hold. */
     dut->rst_n = 0;
     tb_clock(dut);
     tb_clock(dut);
@@ -70,7 +56,6 @@ UTEST(mtime, is_monotonic_and_never_skips)
         prev = now;
         steps++;
     }
-    /* One millisecond of clk_sys is a thousand of them. */
     ASSERT_EQ(steps, 1000);
 }
 

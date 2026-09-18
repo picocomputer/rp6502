@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
-
 #include "ria-w/net/ntp.h"
 #include "ria-w/net/wifi.h"
 #include "core/sys/debug_log.h"
@@ -119,7 +117,9 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
         pbuf_copy_partial(p, seconds_buf, sizeof(seconds_buf), NTP_OFFSET_TX_TS);
         uint32_t secs_1900 = ((uint32_t)seconds_buf[0] << 24) | ((uint32_t)seconds_buf[1] << 16) |
                              ((uint32_t)seconds_buf[2] << 8) | seconds_buf[3];
-        // Era detection: cleared top bit means we're past the 2036 rollover.
+        // NTP seconds roll over in 2036. A value with the top bit clear would
+        // otherwise fall before 03:14:08 UTC on 20 January 1968, so it is
+        // taken to be after the rollover.
         int64_t unix_time = (secs_1900 & 0x80000000u)
                                 ? (int64_t)secs_1900 - NTP_DELTA
                                 : (int64_t)secs_1900 + ((int64_t)1 << 32) - NTP_DELTA;

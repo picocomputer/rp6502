@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * How this machine starts a program, which is the half of core/api/proc.h that
- * every machine answers differently. This one loads straight into sram[],
- * because it owns the RAM the 6502 runs out of.
+ * every machine implements differently. This one loads straight into sram[],
+ * because on this machine sram[] is the RAM the 6502 runs out of.
  */
 
 #ifndef _CORE_SYS_PROC_H_
@@ -49,11 +49,8 @@ void proc_exec_task(void);
  * or launcher relaunch queued. */
 bool proc_exited(void);
 
-/* This machine's proc row; see core/sys/driver.h. The exec is performed in the
- * io column because loading a ROM reads a file.
- *
- * The slot holds the queued flag, the exit code, the two paths of the chain and
- * the whole argv buffer: 1 + 2 + 256 + 256 + XSTACK_SIZE. */
+/* The savestate slot holds the queued flag, the exit code, the two paths of the
+ * chain and the whole argv buffer: 1 + 2 + 256 + 256 + XSTACK_SIZE. */
 #define PROC_SST_SIZE (515 + XSTACK_SIZE)
 #define PROC_PATH_SLOT 256
 void proc_sst_save(sst_cursor_t *c, unsigned flags);

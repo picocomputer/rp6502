@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
-
 #include "ria-w/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria-w/net/cyw.h"
@@ -168,7 +166,6 @@ bool cyw_check_rf_enable(uint8_t *v)
     return *v <= 1;
 }
 
-/* A full radio teardown, so only when it moved. */
 void cyw_apply_rf_enable(uint8_t rf, bool changed)
 {
     (void)rf;
@@ -176,7 +173,6 @@ void cyw_apply_rf_enable(uint8_t rf, bool changed)
         cyw_reset_radio();
 }
 
-/* SET's line for this row. */
 int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -186,8 +182,6 @@ int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width
     return -1;
 }
 
-/* Empty is worldwide; anything else must be a code the radio knows, and is
- * kept in the table's own spelling. */
 bool cyw_check_rf_country_code(const char *in, char *out)
 {
     int country = cyw_lookup_country(in);
@@ -207,7 +201,6 @@ void cyw_apply_rf_country_code(const char *rfcc, bool changed)
         cyw_reset_radio();
 }
 
-/* SET's line for this row. */
 int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -220,7 +213,6 @@ int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned
         oem_snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE, "", "", S(STR_WORLDWIDE));
     return -1;
 }
-
 
 const char *cyw_get_rf_country_code_verbose(void)
 {

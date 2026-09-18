@@ -187,9 +187,10 @@ static inline bool api_return_errno(api_errno errnum)
     return api_return_axsreg(-1);
 }
 
-/* The two bytes are the op the 6502 is parked on and the errno numbering it
- * asked for. The op is enough because a load re-dispatches the same call, and
- * how far that call had got is written down by the handler that owns it. */
+/* The two bytes are the op the 6502 is parked on and the errno numbering the
+ * running program selected. The op is enough because a load re-dispatches the
+ * same call, and how far that call had got is saved by the driver that
+ * implements it. */
 #define API_SST_SIZE 2
 void api_sst_save(sst_cursor_t *c, unsigned flags);
 bool api_sst_load(sst_cursor_t *c, unsigned flags);

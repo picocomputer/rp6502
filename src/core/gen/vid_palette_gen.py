@@ -2,11 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Generates the builtin palette ROMs from src/core/term/color.c: color_2 for
-# 1bpp and color_256 for everything else, exactly the tables the mode fills
-# fall back to when a config carries no XRAM palette. A C header rides
-# along for the parity test, the vid_font_gen pattern.
 
 import argparse
 import re
@@ -17,7 +12,8 @@ COLOR_C = Path(__file__).resolve().parents[3] / "src/core/term/color.c"
 
 
 def rgb8(r, g, b):
-    # SCANVIDEO_PIXEL_FROM_RGB8: R at bit 0, alpha bit 5, G bit 6, B bit 11.
+    # The shifts and ALPHA match SCANVIDEO_PIXEL_FROM_RGB8 and
+    # SCANVIDEO_ALPHA_MASK in src/core/vga/pixel_format.h.
     return ((b >> 3) << 11) | ((g >> 3) << 6) | (r >> 3)
 
 

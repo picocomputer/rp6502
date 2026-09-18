@@ -1,20 +1,3 @@
-# Every mutable file-scope object the emulator's core owns, and what carries it.
-#
-# tests/gen/state_inventory.py rebuilds each of emu.cmake's translation units
-# without link-time optimization and reads the symbols with writable storage
-# out of the objects, so this list is measured rather than remembered. A new
-# one that is not here fails the suite.
-#
-# The point is not the count. A static added to core is machine state the
-# moment it is added, and nothing else in the tree would notice that a blob
-# does not carry it: the program would come back subtly wrong, or two netplay
-# peers would diverge and never be told why. So each one says which chunk
-# carries it, or why nothing has to.
-#
-# Read-only objects are not here -- a table nobody writes is not state.
-#
-#   <file> <symbol>: <what carries it, or why nothing does>
-
 core/api/api.c api_active_op: the API chunk
 core/api/api.c api_errno_opt: the API chunk
 core/api/arg.c arg_buf: the PROC chunk, whose row reaches into this file for it

@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * A machine made of nothing, so that the order of the walks is the only thing
- * left to see. Three rows, each column of each row writing its own two letters
- * into a log the test reads back. Real rows do work; these only say they ran.
- *
- * Two of the three carry a chunk and the third does not, which is what lets
- * the savestate walks be seen the same way: that a row with nothing to say
- * contributes no bytes at all is as much a claim as the order of the rest.
- *
- * core/sys/sys.c finds this by bare name, the way every machine's roster is
- * found, because the test names this directory and links no other machine.
  */
 
 #ifndef _HOST_DRIVERS_H_
@@ -25,8 +14,6 @@ void a_init(void), a_task(void), a_io(void), a_run(void), a_stop(void), a_break(
 void b_init(void), b_task(void), b_io(void), b_run(void), b_stop(void), b_break(void);
 void c_init(void), c_task(void), c_io(void), c_run(void), c_stop(void), c_break(void);
 
-/* Two sizes that are not each other's, so a row handed the wrong slot reads
- * a boundary rather than a plausible number. */
 #define A_SST_SIZE 6
 #define C_SST_SIZE 3
 void a_sst_save(sst_cursor_t *c, unsigned flags);

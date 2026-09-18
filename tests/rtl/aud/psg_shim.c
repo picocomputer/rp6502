@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The seams psg.c stands on, provided flat so the lockstep test runs
- * the vendored DSP against the verilated engine with no mixer in
- * between: XRAM and its write-notify queue with the RW engine's push
- * (core/ria/ria.c's), and the registration a mixer would answer. The bell
- * is the real bel.c, linked whole. The rate is the build's: this test is
- * compiled with AUD_NATIVE_RATE at the model's 48000.
  */
 
 #include "psg_shim.h"
@@ -30,9 +23,6 @@ volatile uint8_t xram_queue[256][2];
 
 int16_t sine_table[256];
 
-/* psg_xreg registers itself and parks itself through these. There is no
- * mixer here to tell; the bench calls psg_sample directly, and the engine
- * the PSG parks when it takes the mix is not linked either. */
 void aud_setup(aud_dev_t dev) { (void)dev; }
 void opl_park(void) {}
 aud_dev_t aud_device(void) { return aud_dev_none; }

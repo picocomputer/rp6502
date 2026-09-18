@@ -3,10 +3,6 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# A program that maps the keyboard's HID bitmap into XRAM, polls it until a
-# key is pressed and released, and exits. It draws and prints nothing, so its
-# exit code is the only result a test can check.
-#
 # The exit code is 2 because the machine sets code 1 itself when an exec fails
 # to boot.
 

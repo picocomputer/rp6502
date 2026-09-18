@@ -38,9 +38,8 @@ bool oem_is_auto(void);
 
 void oem_locale_changed(uint16_t cp);
 
-/* OEM <-> Unicode conversion in the code page in force. A character the
- * conversion cannot spell becomes 0x7F on the OEM side and U+FFFD on the
- * Unicode side. */
+/* A character that the code page in force cannot represent becomes 0x7F when
+ * converted to OEM and U+FFFD when converted to Unicode. */
 
 unsigned char oem_from_codepoint(uint32_t cp);
 
@@ -54,16 +53,16 @@ typedef struct
     bool after_cr;
 } oem_run_t;
 
-/* A run of UTF-8 becomes OEM bytes. A character the code page cannot spell
+/* A run of UTF-8 becomes OEM bytes. A character the code page cannot represent
  * becomes '?' rather than the 0x7F the decoder returns, because the line
  * editor in core/str/rln.c reads 0x7F as a backspace. CR, LF, and CRLF each
  * become the single carriage return that ends a line, and every other control
  * byte passes through.
  *
  * The conversion stops on a full dst, and on a sequence the buffer does not
- * hold whole unless end says none is coming. *taken is what was read, so the
- * rest can be carried to the next call, and the return is the count
- * written. */
+ * hold whole unless end is true, which means no more input is coming. *taken
+ * is what was read, so the rest can be carried to the next call, and the
+ * return is the count written. */
 size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
                          char *dst, size_t dstsz, size_t *taken);
 

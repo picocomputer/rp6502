@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
-
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/wifi.h"
 #include "core/sys/config.h"
@@ -212,16 +210,13 @@ int wifi_status_response(char *buf, size_t buf_size, int state, unsigned)
     return state + 1;
 }
 
-// WiFi scan store: strongest unique AP per SSID. Overlaid on mbuf instead of a
-// static buffer; valid only across one monitor scan/render cycle (6502 halted,
-// async wifi_scan_cb the sole writer).
 #define WIFI_SCAN_MAX 24
 
 typedef struct
 {
     char ssid[33];
     int8_t rssi;
-    uint8_t auth; // scan auth bitmask: bit0 WEP, bit1 WPA, bit2 WPA2/RSN
+    uint8_t auth;
 } wifi_ap_t;
 
 _Static_assert(WIFI_SCAN_MAX * sizeof(wifi_ap_t) <= MBUF_SIZE,
@@ -232,7 +227,6 @@ static enum { WIFI_SCAN_IDLE,
               WIFI_SCAN_BUSY,
               WIFI_SCAN_DONE } wifi_scan_status;
 
-// Record the latest non-zero RSSI per unique SSID, in discovery order.
 static void wifi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
 {
     wifi_ap_t *aps = (wifi_ap_t *)mbuf;
@@ -262,7 +256,7 @@ static int wifi_scan_cb(void *env, const cyw43_ev_scan_result_t *r)
                r->rssi, r->auth_mode, r->ssid_len,
                (int)(r->ssid_len > 32 ? 32 : r->ssid_len), (const char *)r->ssid);
     if (r->ssid_len == 0)
-        return 0; // hidden network
+        return 0;
     char ssid[33];
     unsigned n = r->ssid_len > 32 ? 32 : r->ssid_len;
     for (unsigned k = 0; k < n; k++)
@@ -305,7 +299,6 @@ static bool wifi_scan_busy(void)
     return false;
 }
 
-// Sort by RSSI, strongest first.
 static void wifi_ap_sort(void)
 {
     wifi_ap_t *aps = (wifi_ap_t *)mbuf;
@@ -334,7 +327,7 @@ static void wifi_scan_format(unsigned i, char *buf, size_t size)
 
 int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    (void)width; // single column
+    (void)width;
     if (state < 0)
         return state;
     if (!cyw_get_rf_enable())
@@ -351,12 +344,12 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     }
     if (wifi_scan_busy())
     {
-        buf[0] = 0; // not ready; call again
+        buf[0] = 0;
         return 1;
     }
     unsigned i = (unsigned)state - 1;
     if (i == 0)
-        wifi_ap_sort(); // sort once, immediately before rendering the list
+        wifi_ap_sort();
     if (i >= wifi_ap_count)
     {
         if (i == 0)
@@ -380,9 +373,6 @@ bool wifi_connecting(void)
             wifi_retry_count < WIFI_RETRY_INITIAL_RETRIES);
 }
 
-
-/* A different network means the old password is not the password. Clearing
- * is a nested set, which config coalesces into one write. */
 void wifi_apply_ssid(const char *ssid, bool changed)
 {
     (void)ssid;
@@ -393,8 +383,6 @@ void wifi_apply_ssid(const char *ssid, bool changed)
     }
 }
 
-/* SET's line for this row, and the password's with it -- setting one is
- * always news about the other. */
 int wifi_ssid_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;
@@ -413,10 +401,6 @@ int wifi_ssid_response(char *buf, size_t buf_size, int state, unsigned width)
     return wifi_pass_response(buf, buf_size, 0, width);
 }
 
-
-
-/* Erasing a credential is always allowed; setting one needs a network to
- * belong to. */
 bool wifi_check_pass(const char *in, char *out)
 {
     (void)out;

@@ -1,42 +1,38 @@
-# The absolute pointer. pointer.rp6502 maps the tablet block, which the RIA
-# writes without the program's help — no capture and no interrupt, unlike the
-# mouse beside it. Each axis is a set of single-byte windows with exactly one
-# non-zero, so the byte that carries a coordinate says which window it came
-# from, and moving across the 254/255 edge is what exercises that encoding.
-#
-# The block is a four-byte header followed by eight contacts of six bytes:
-# flags, x0, x1, x2, y0, y1.
+# tablet.rp6502 maps the tablet block at $FF10. The block is a four-byte
+# header followed by eight contacts of six bytes: flags, x0, x1, x2, y0, y1.
+# Each axis is split across single-byte windows, and only the window that holds
+# the coordinate is non-zero.
 
 run 10
 peek xram:$FF14 $00 $00 $00 $00 $00 $00
 
-# A finger down is contact 0, tip bit set, both axes in the first window
-# where the value is the coordinate plus one.
+# A single touch is contact 0 with its flags set to $01, TABLET_FLAG_LEFT. A
+# coordinate up to 254 is in the first window, which holds the coordinate plus
+# one.
 tablet touch 60,60
 wait xram:$FF14 $01
 peek xram:$FF14 $01 $3D $00 $00 $3D $00
 
-# Past 254 the X moves to the second window and the first goes quiet.
+# A coordinate from 255 to 509 is in the second window, which holds the
+# coordinate minus 254.
 tablet touch 300,200
 wait xram:$FF16 $2E
 peek xram:$FF14 $01 $00 $2E $00 $C9 $00
 
-# Y has two windows of its own; 300 is the second.
 tablet touch 100,300
 wait xram:$FF18 $00
 peek xram:$FF14 $01 $65 $00 $00 $00 $2E
 
-# A hovering pointer is the same contact, and carries buttons with it.
+# A hovering pointer is also contact 0, and its flags are its button bitmap
+# with TABLET_FLAG_HOVER, $80, set.
 tablet at 100 100 1
 wait xram:$FF14 $81
 peek xram:$FF14 $81 $65 $00 $00 $65 $00
 
-# A cleared contact reports nothing at all.
 tablet clear
 wait xram:$FF14 $00
 peek xram:$FF14 $00 $00 $00 $00 $00 $00
 
-# Three fingers occupy three records, each six bytes apart.
 tablet touch 10,10 20,20 30,30
 wait xram:$FF14 $01
 peek xram:$FF14 $01 $0B $00 $00 $0B $00

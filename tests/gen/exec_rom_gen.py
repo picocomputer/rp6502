@@ -2,14 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# A program that executes itself again with one argument.
-#
-# Started with only argv[0], it writes 1 to XRAM $0000 and calls exec with
-# its own path and "Foo". Started with two arguments, it writes 2 to $0001
-# and argv[1] after it, then exits with 0. With any other argc it exits
-# with 1. The result is left in XRAM rather than printed because the
-# libretro core has no console a test can read.
 
 import argparse
 import sys

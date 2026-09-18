@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The RIA register window at $FFE0-$FFFF. The emulator defines the
- * semantics and this must match it — every read side effect below is
- * there because core/ria/ria.c has it, not because the fabric wants it.
+ * semantics and this must match it — every side effect of a 6502 read
+ * below is there because core/ria/ria.c has it.
  *
  * Read data is combinational from pre-tick state; side effects land at
  * the enabled edge.
  *
  * The cells at $FFE4/$FFE8 are staging mirrors the engine keeps loaded —
  * a background refresh when the port is free, an urgent restage after
- * every access — so the 6502's combinational read stays the emulator's.
+ * every access — so that a combinational 6502 read of either cell returns
+ * the byte the emulator's read returns.
  *
  * A write to $FFEF arms the BRA -2 block at $FFF1 in the same cycle the
  * op lands, so the 6502 can JSR into the trampoline immediately.
@@ -55,19 +56,20 @@ module regs (
     input logic [7:0] xr_rdata,
     input logic xr_cpu_want,
 
-    /* The RX ask is served exactly once and never remembered into a
-     * later byte's arrival, so the OS never commits a byte the console
-     * still wants. */
+    /* The RX request is cleared when the OS serves it, with a byte or
+     * with nothing, rather than held until a later byte arrives. A byte
+     * that arrives after the request is served is not offered to the
+     * 6502 until another 6502 read sets the request. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
 
-    /* The savestate serializer, which owns this window while it has the
-     * machine. Whole words both ways, and never a read: reading word 16
-     * takes the console's outgoing byte off the queue, so the blob has
-     * a hole there instead. */
+    /* The savestate serializer owns this window while the machine's
+     * clock is stopped. It reads and writes whole words and has no read
+     * strobe, because a strobed read of word 16 takes the console's
+     * outgoing byte off the queue. */
     input logic sst_own,
     input logic [7:0] sst_word,
     input logic sst_we,
@@ -78,7 +80,8 @@ module regs (
      * at all while it is stopped, so they arrive together on the first
      * edge it gets back. The order is the window's own: eight words of
      * the shared register file, then the interrupt pair, the receive
-     * handshake, the stack guard and the stack pointer. */
+     * handshake, the console queue's pointers and count, and the stack
+     * pointer. */
     input logic sst_jam,
     input logic [31:0] sst_jam_data[12],
     output logic [31:0] regs_b_rdata,
@@ -143,7 +146,7 @@ module regs (
     logic [7:0] xr_wr_byte;
     logic xr_fill_pend0, xr_fill_pend1;
     logic xr_bg_alt;
-    logic xr_cap0, xr_cap1;  // xr_rdata belongs to RW0/RW1 this clock
+    logic xr_cap0, xr_cap1;
 
     logic xr_bg_go, xr_issue_f0, xr_issue_f1;
     always_comb begin
@@ -512,8 +515,6 @@ module regs (
         end
     end
 
-    /* The push's data lands in the reset-free block above; only the
-     * pointer belongs here. */
     initial begin
         txf_w = 4'd0;
         txf_r = 4'd0;
@@ -606,8 +607,9 @@ module regs (
                 txf_r <= txf_r + 4'd1;
             txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
         end
-        /* An unanswered ask arms the request; a landed byte, whether
-         * pulled or offered, satisfies it. */
+        /* A read that tries to stage a byte and finds none sets the
+         * request; a byte that lands, whether pulled or offered, clears
+         * it. */
         if (en && cs && !we && !pull
             && ((rs == 5'h00 && (regs[0] & RX_READY) == 8'h00)
                 || rs == 5'h02))

@@ -124,8 +124,8 @@ static inline float to_f(int32_t v)
     return (float)v / 32768.0f;
 }
 
-/* One frame at AUD_NATIVE_RATE, clamped to sixteen bits as wiring.sv clamps
- * the fabric's own sum. */
+/* mix() writes one frame at AUD_NATIVE_RATE, clamped to sixteen bits as
+ * wiring.sv clamps the audio sum in the fabric. */
 static void mix(int32_t *left, int32_t *right)
 {
     int16_t l = 0, r = 0;

@@ -18,7 +18,7 @@
 #include <string.h>
 
 // The design philosophy here is to use AT+XXX? and AT+XXX=YYY
-// for everything modern like WiFi and telnet configuration.
+// for everything modern like WiFi configuration.
 // The traditional commands are then free to act like an actual
 // Hayes-like modem.
 
@@ -44,7 +44,6 @@ static bool cmd_dial(const char **s)
     {
         *s += 2;
         int num = cmd_parse_num(s);
-        // Hayes: bare ATDS= means entry 0.
         if (num < 0)
             num = 0;
         if (num >= MODEM_PHONEBOOK_ENTRIES || (*s)[0])
@@ -163,7 +162,6 @@ static int cmd_s_query_response(char *buf, size_t buf_size, int state, unsigned)
 static bool cmd_s_pointer(const char **s)
 {
     int num = cmd_parse_num(s);
-    // Hayes: bare ATS selects S0.
     if (num < 0)
         num = 0;
     switch (num)
@@ -193,7 +191,6 @@ static bool cmd_s_query(const char **s)
 static bool cmd_s_set(const char **s)
 {
     int num = cmd_parse_num(s);
-    // Hayes: bare ATS= writes 0.
     if (num < 0)
         num = 0;
     switch (modem_settings()->s_pointer)
@@ -233,7 +230,7 @@ static bool cmd_verbose(const char **s)
     return false;
 }
 
-// X0, X1
+// X0, X1, X2, X3, X4
 static bool cmd_progress(const char **s)
 {
     int value = cmd_parse_num(s);
@@ -395,9 +392,6 @@ static bool cmd_save_phonebook(const char **s)
     if ((*s)[0] == 0)
         return false;
     unsigned num = 0;
-    // Look for a digits-only prefix terminated by '=' (the slot+eq form).
-    // Fall through to the hayes-ism AT&Z5551212 (bare number into slot 0)
-    // when no such prefix is present.
     const char *p = *s;
     while (*p >= '0' && *p <= '9')
         p++;
@@ -438,8 +432,6 @@ static bool cmd_parse_amp(const char **s)
     return false;
 }
 
-// "!" — list a setting's choices (the same list the monitor's HELP SET <name>
-// shows, e.g. country codes or a WiFi scan), self-formatted to 80 columns.
 static bool cmd_help_response(const char *name)
 {
     mon_response_fn fn;

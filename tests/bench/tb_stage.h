@@ -2,16 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The staging store, as the platform presents it. The picked image is a
- * whole copy the host pushes to TB_STAGE_ROM_BASE; the fonts, the code
- * page tables and the keyboard layouts are whole files the host places
- * once and the machine reads at random; a descriptor's bytes arrive
- * through that slot's own 32 KB window, written by the host when it
- * performs a read.
- *
- * The assets are the core's own files, not fixtures, so they load once
- * and every test shares them.
  */
 
 #ifndef _TESTS_FPGA_TB_STAGE_H_
@@ -22,9 +12,8 @@
 #include <map>
 #include <vector>
 
-/* All of these must agree with the firmware's mmio.h and with data.json,
- * whose list order, slot ids, and addresses climb the SDRAM together —
- * the ROM first at the store's base, because it is the primary slot. */
+/* stage_map_gate.py checks these against the firmware's mmio.h and the
+ * Pocket core's data.json. */
 #define TB_STAGE_ROM_BASE 0x00000000u
 #define TB_STAGE_WIN_BASE 0x03FA0000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
@@ -32,7 +21,8 @@
 #define TB_STAGE_FONT_SIZE 0x0000F000u
 #define TB_STAGE_OEMCP_BASE 0x03FEF000u
 #define TB_STAGE_OEMCP_SIZE 0x00002000u
-/* Above Get File's scratch page at 0x03FF1000, which is not a slot. */
+/* The Get File scratch window at 0x03FF1000, which is not a data slot,
+ * lies between the code pages and this base. */
 #define TB_STAGE_KBDLAY_BASE 0x03FF2000u
 #define TB_STAGE_KBDLAY_SIZE 0x00004000u
 
@@ -70,8 +60,6 @@ static const std::vector<uint8_t> &tb_stage_kbdlay()
     return tb_stage_load(KBDLAY_BIN, v);
 }
 
-/* What the host has written into the windows. Sparse, because a test
- * touches a few kilobytes of a 288 KB span. */
 static std::map<uint32_t, uint8_t> &tb_stage_store()
 {
     static std::map<uint32_t, uint8_t> m;
@@ -88,9 +76,6 @@ static void tb_stage_clear()
     tb_stage_store().clear();
 }
 
-/* The rom argument is the image as the host's boot push left it, at
- * TB_STAGE_ROM_BASE. The store's writes shadow it, the way a reload or
- * an exec pull overwrites the image on hardware. */
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
 {
     std::map<uint32_t, uint8_t> &m = tb_stage_store();

@@ -1,11 +1,3 @@
-# The console on the board it was written for. A desktop tree adds this
-# directory only when RP6502_DEVICE names the RIA's console port; RP6502_TELNET
-# (host, or host:port) and RP6502_KEY add the second console. CI has no board
-# and never sets them.
-#
-#   cmake -DRP6502_DEVICE=/dev/ttyACM0 -DRP6502_TELNET=192.168.1.89 -DRP6502_KEY=word build/sokol
-#   ctest --test-dir build/sokol -R pico
-
 set(_args --device ${RP6502_DEVICE})
 if(RP6502_TELNET)
     list(APPEND _args --telnet ${RP6502_TELNET})

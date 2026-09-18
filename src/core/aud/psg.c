@@ -334,10 +334,10 @@ bool psg_sst_load(sst_cursor_t *c, unsigned flags)
 bool psg_xreg(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
-     * inherits the last one's envelopes. The fabric does the same: psg
-     * resets on any write to its pointer register, 0xFFFF included.
+     * inherits the last one's envelopes. psg.sv does the same: it resets
+     * on any write to its pointer register, 0xFFFF included.
      *
-     * Starting constants for the noise generator from
+     * The noise generator's starting constants come from
      * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
      */
     for (unsigned i = 0; i < PSG_CHANNELS; i++)

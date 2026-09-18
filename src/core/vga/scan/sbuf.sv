@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * One sprite slot's line buffer, as two ping-pong banks. The banks are
- * separate arrays so each infers as a simple dual port: the engine owns
- * the write bank's write port, the erase side owns the scan bank's, and
+ * separate arrays so each infers as a simple dual port: the engine drives
+ * the write bank's write port, the erase side drives the scan bank's, and
  * the roles swap with wr_bank. One array with both writers would need a
  * true dual port.
  *
@@ -38,8 +38,8 @@ module sbuf (
     (* ramstyle = "no_rw_check" *)
     logic [16:0] b1[1024];
 
-    /* The fabric configures block RAM to zero, so a bank reads as
-     * transparent on the first frame; simulation has to agree. */
+    /* Block RAM holds zeros once the FPGA is configured, so a bank reads
+     * as transparent on the first frame; simulation has to agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 17'd0;

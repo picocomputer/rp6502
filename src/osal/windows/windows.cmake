@@ -3,12 +3,12 @@
 # The Win32 half of osal, shared by the desktop emulator and the libretro core.
 # The transport is the choice the POSIX build makes between fs_aio.c and
 # fs_sync.c, made with a define rather than a file because FILE_FLAG_OVERLAPPED
-# belongs to the handle and both arms live in fs.c. See its header for which
+# is set on the handle and both arms live in fs.c. See its header for which
 # host takes which.
 #
-# console.c is not listed, because only a host that owns a terminal links it
-# and it takes the console control handler and an atexit from the process to do
-# so. A host that wants it adds it itself.
+# console.c is not listed, because it installs a console control handler and
+# an atexit handler for the whole process, so only a host that runs as its own
+# process links it. A host that uses it adds it itself.
 
 include_guard(GLOBAL)
 

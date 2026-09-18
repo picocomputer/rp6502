@@ -3,32 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's 48 kHz stereo to the Pocket's codec as I2S, timed the
- * way every shipped core times it: MCLK 12.288 MHz from a fractional
- * accumulator on 74.25, SCLK a quarter of that, LRCK at 48 kHz over 64
- * SCLK, sixteen bits MSB-first per channel with the right sample in the
- * LRCK-high slot. The machine already speaks signed sixteen at 48 kHz,
- * so nothing here converts.
- *
- * There is no elasticity: the FIFO only crosses clocks, and the reader
- * drains it into one register. A sample landing between frame reloads
- * is overwritten and a frame with nothing new repeats — so what feeds
- * this has to be periodic, which the machine's sample tick is.
+ * Each sample replaces latest as soon as it comes out of the FIFO, and
+ * the shifter loads latest once per LRCK frame, so a second sample
+ * within one frame overwrites the first and a frame with no new sample
+ * repeats the last one. The samples therefore have to arrive once per
+ * frame, at 48 kHz. aud_valid is the machine's psg_tick, which fires
+ * every 1050 clocks of 50.4 MHz.
  */
 
 module pocket_i2s (
-    /* The machine's domain, on the machine's clock: the savestate gate
-     * stops it, and the sample tick beside these words is a level the
-     * machine drives. Behind the gate, a tick frozen high by a stop
-     * would push the same sample until the queue was full of it; here
-     * the pushes simply stop, and the shifter repeats the last sample
-     * the way it does through any other silence. */
     input logic clk_mach,
     input logic signed [15:0] aud_l,
     input logic signed [15:0] aud_r,
     input logic aud_valid,
 
-    /* The Pocket's domain. */
     input logic clk_74a,
     input logic arst_n,
     output logic pocket_i2s_mclk,
@@ -36,11 +24,6 @@ module pocket_i2s (
     output logic pocket_i2s_lrck
 );
 
-    /* The machine hands over sixteen signed bits and the codec wants
-     * sixteen signed bits, so there is nothing to do. This used to take a
-     * ten-bit level, subtract its center and shift it up six, which put
-     * real signal in the top ten and zeros in the bottom six for the
-     * whole life of the core. */
     logic signed [15:0] s_l, s_r;
     always_comb begin
         s_l = aud_l;
@@ -64,7 +47,6 @@ module pocket_i2s (
         .pocket_fifo_rdata(fifo_word)
     );
 
-    /* The freshest sample stands ready for the next frame reload. */
     logic [31:0] latest;
     always_comb take = !fifo_empty;
     always_ff @(posedge clk_74a or negedge arst_n) begin
@@ -74,10 +56,11 @@ module pocket_i2s (
             latest <= fifo_word;
     end
 
-    /* MCLK by fractional accumulator: 4,096 into 12,375, the
-     * reference's 245,760 into 742,500 with the common sixty divided
-     * out — the identical toggle sequence, seven bits narrower.
-     * Toggles at 24.576 MHz for 12.288 average. */
+    /* 4096 / 12375 is the 245760 / 742500 of Analogue's reference
+     * core_top.v with the common factor of 60 divided out, so the toggle
+     * sequence is identical and the accumulator is seven bits narrower.
+     * MCLK toggles at 24.576 MHz on average, which makes it a 12.288 MHz
+     * clock. */
     logic [14:0] mclk_acc;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
@@ -91,7 +74,6 @@ module pocket_i2s (
         end
     end
 
-    /* SCLK = MCLK / 4, kept as a phase in this domain. */
     logic mclk_q;
     logic [1:0] sclk_div;
     logic sclk;
@@ -115,10 +97,9 @@ module pocket_i2s (
                 sclk_div <= sclk_div + 2'd1;
             sclk_q <= sclk;
             if (sclk_q && !sclk) begin
-                /* The falling edge launches the next bit: the sixteen
-                 * data bits one SCLK after the LRCK edge — the I2S
-                 * delay — and zeros through the dummy region where the
-                 * reference leaks its held shifter. */
+                /* The sixteen data bits start one SCLK after the LRCK
+                 * edge, as I2S requires, and the other sixteen bits of
+                 * each half are zero. */
                 pocket_i2s_dac <= bitcnt < 5'd16 ? shifter[31] : 1'b0;
                 bitcnt <= bitcnt + 5'd1;
                 if (bitcnt == 5'd31) begin

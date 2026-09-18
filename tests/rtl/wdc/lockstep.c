@@ -9,8 +9,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Each CPU runs against its own copy: a divergence must not let one side's
- * writes contaminate the other's view. */
 static uint8_t lockstep_mem[2][0x10000];
 
 typedef struct

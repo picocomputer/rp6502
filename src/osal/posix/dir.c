@@ -41,20 +41,20 @@ char *path_to_utf8(const char *path, api_errno *err)
 {
     const char *native = strip_drive(path);
     /* A leading ":" is the null drive, where installed ROMs live. It has no
-     * native spelling, so neither ":name" nor "FS::name" can name a real file.
-     * Asked after the strip, which is what refuses the second spelling. */
+     * equivalent in the host's path format, so neither ":name" nor "FS::name"
+     * can name a real file. */
     if (native[0] == ':')
     {
-        *err = API_ENODEV; /* FR_INVALID_DRIVE, as the Pico spells it */
+        *err = API_ENODEV; /* FR_INVALID_DRIVE maps to this on the Pico */
         return NULL;
     }
-    /* A byte the code page cannot spell would be substituted, and a
-     * substituted name is a different name, so this is refused as FatFs
-     * refuses it. Length is held to API_PATH_MAX, what the board holds, so a
-     * path that works on one machine works on the other. */
+    /* A byte with no character in the code page would be substituted, and a
+     * substituted name is a different name, so the path is refused with the
+     * same error FatFs returns for it. Length is held to API_PATH_MAX, what the
+     * board holds, so a path that works on one machine works on the other. */
     if (strlen(native) > API_PATH_MAX || !oem_maps_oem(native))
     {
-        *err = API_EINVAL; /* FR_INVALID_NAME, as the Pico spells it */
+        *err = API_EINVAL; /* FR_INVALID_NAME maps to this on the Pico */
         return NULL;
     }
     size_t usz = oem_to_utf8(native, NULL, 0) + 1;
@@ -119,7 +119,7 @@ static bool posix_ok(bool ok, api_errno *err)
  * bits of year from a 1980 epoch, and seconds in units of two. A year past
  * 2107 carries out of those seven bits and comes back as a believable date in
  * the 1980s, and one before 1980 goes negative, so both ends clamp to the
- * dates the field can spell. */
+ * dates the field can hold. */
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
@@ -160,10 +160,10 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 
 /* The creation time, where the filesystem keeps one. st_ctime is the inode
  * change time and is not a creation time, so it is not used; the API already
- * spells an unknown creation time as a zero date.
+ * uses a zero date for an unknown creation time.
  *
  * BSD and macOS keep it in struct stat as st_birthtime, while Linux has it
- * only through statx, which wants a directory descriptor and a name rather
+ * only through statx, which takes a directory descriptor and a name rather
  * than a stat already done. This takes both and uses whichever the host has. */
 static bool stat_birthtime(int dirfd, const char *name, const struct stat *st,
                            time_t *out)
@@ -383,7 +383,7 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
      * program handing that name back would open neither of them. */
     if (!oem_maps_utf8(u8name))
     {
-        *err = API_EINVAL; /* FR_INVALID_NAME, as the Pico spells it */
+        *err = API_EINVAL;
         return false;
     }
     char name[DIR_NAME_MAX];

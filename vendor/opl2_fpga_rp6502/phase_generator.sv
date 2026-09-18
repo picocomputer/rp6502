@@ -1,10 +1,3 @@
-// rp6502: the two operator tables read from one shared ROM.
-//
-// The only delta from the vendor file is below at the LUT instances:
-// opl2_log_sine_lut and opl2_exp_lut become one opl2_lut_rom with the
-// same two registered reads, so both tables live in one M10K instead
-// of half-filling two. Everything else is the vendor's, verbatim.
-
 /*******************************************************************************
 #   +html+<pre>
 #

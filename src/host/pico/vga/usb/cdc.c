@@ -47,9 +47,6 @@ void tud_suspend_cb(bool remote_wakeup_en)
     cdc_mark_not_ready();
 }
 
-// Successful TX is evidence the host is reading; treat as ready even if
-// DTR never asserted. cdc_is_ready() callers rely on this to avoid
-// duplicating ANSI replies that the host terminal will generate itself.
 void tud_cdc_tx_complete_cb(uint8_t itf)
 {
     (void)itf;
@@ -81,8 +78,6 @@ void cdc_task(void)
         com_set_uart_break(false);
     }
 
-    // Drain USB RX independently of TX so host input isn't stalled
-    // by a blocked UART TX path.
     if (tud_cdc_available())
     {
         size_t bufsize = com_in_free();
@@ -94,8 +89,9 @@ void cdc_task(void)
         }
     }
 
-    // TX stall recovery: disconnected, or both FIFOs full with no forward
-    // progress. Mark not ready (which purges com_out) to unblock com_out_chars().
+    // com_out is purged while the device is unmounted or suspended, while DTR
+    // is clear, and when both the CDC TX FIFO and com_out are full, because
+    // com_out_chars calls cdc_task in a loop until com_out has room.
     if (!tud_cdc_connected() ||
         (!tud_cdc_write_available() && com_out_full()))
     {

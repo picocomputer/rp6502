@@ -65,14 +65,12 @@ end else begin: real_dualport_noreset
 	`ifdef HAZARD3_REGFILE_RAM_STYLE_DISTRIBUTED
 	(* ram_style = "distributed" *)
 	`endif
-	// rp6502: the Altera equivalent of the two lines above. One write port
-	// and two reads is three ports against a two-port M10K, so Quartus
-	// duplicates the array — two whole 10,240-bit blocks holding 1,024 bits
-	// each, and its report blamed "Unsupported Mixed Feed Through Setting".
-	// Nothing here reads and writes one address in a cycle, so that
-	// guarantee was costing two blocks for nothing. Both tokens matter:
-	// no_rw_check alone only moves the refusal along. Measured on
-	// 5CEBA4F23C8 at 4 MLABs and 41 ALMs for the pair.
+	// rp6502: no_rw_check is safe because, when the array is read at the
+	// address that is written in the same cycle, hazard3_core uses
+	// xm_result, mw_result or zero as the operand instead of the array
+	// output, so the value the array returns for that read is never used.
+	// On the 5CEBA4F23C8, Quartus builds this array as two copies, one for
+	// each read port, in 4 MLABs, which is 40 ALMs, and it uses no M10K.
 	(* ramstyle = "no_rw_check, MLAB" *)
 	reg [W_DATA-1:0] mem [0:N_REGS-1];
 

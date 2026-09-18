@@ -20,7 +20,7 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_SHARING_VIOLATION:
     case ERROR_LOCK_VIOLATION:
     case ERROR_WRITE_PROTECT:
-    case ERROR_DIR_NOT_EMPTY: /* FatFs FR_DENIED, which this API spells EACCES */
+    case ERROR_DIR_NOT_EMPTY: /* FatFs FR_DENIED */
         return API_EACCES;
     case ERROR_ALREADY_EXISTS:
     case ERROR_FILE_EXISTS:

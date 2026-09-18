@@ -64,8 +64,6 @@ function(rp6502_emu_debugger tgt)
     target_include_directories(${tgt} PRIVATE ${RP6502_VENDOR}/imgui)
     target_compile_definitions(${tgt} PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_W65C02 UI_DASM_USE_W65C02)
     target_link_libraries(${tgt} PRIVATE cppdap)
-    # CHIPS_UI_IMPL and SOKOL_IMGUI_IMPL each emit an implementation, so each
-    # belongs to exactly one translation unit.
     set_source_files_properties(${RP6502_SOKOL}/dbg/imgui_impl.cc
         PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMGUI_IMPL")
     set_source_files_properties(${RP6502_SOKOL}/dbg/dbgui.cc

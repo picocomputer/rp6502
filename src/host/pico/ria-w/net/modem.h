@@ -52,7 +52,9 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
 std_rw_result modem_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
 /* Modem control interface.
- * Functions below operate on the current connection set by modem_set_conn().
+ * Functions below operate on the current connection set by modem_set_conn(),
+ * except modem_factory_settings, modem_conns_is_open and
+ * modem_conns_listen_port.
  */
 
 modem_settings_t *modem_settings(void);
@@ -78,11 +80,8 @@ bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define MODEM_DRIVER DRIVER(modem_init, modem_task, nul_task, nul_run, modem_stop, nul_break, nul_config, nul_config, nul_sst)
 
-/* This driver's stdio row: the std_driver_t initializer core/api/std.c
- * builds this machine's table from. A stream: no seek, nothing to flush. */
 #define MODEM_STD_DRIVER           \
     {                                 \
         .handles = modem_std_handles, \

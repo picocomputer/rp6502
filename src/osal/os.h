@@ -38,8 +38,8 @@ uint64_t os_mono_ns(void);
 
 void os_sleep_ns(uint64_t ns);
 
-/* Where an application's config file goes, in the host's native path spelling
- * and native path encoding rather than the OEM code page the drive speaks.
+/* Where an application's config file goes, in the host's native path format
+ * and native path encoding rather than the OEM code page the drive uses.
  * os_config_dir allocates and the caller frees; it is NULL when the host names
  * no such directory. os_ensure_parent_dir makes the directories that will hold
  * filepath. */

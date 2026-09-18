@@ -3,11 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The frame counter and the vsync interrupt, emulator semantics: $FFE3
- * increments once per frame, exactly 840,000 clocks apart; $FFF0 bit 7
- * enables the vsync IRQ, a read returns the pending sources and acks them
- * all. The program counts four frames by polling, then sleeps in WAI until
- * the interrupt delivers the fifth.
+ * $FFE3 increments once a frame, which is 840,000 clocks. Writing bit 7 of
+ * $FFF0 enables the vsync interrupt, and a read of $FFF0 returns the pending
+ * sources and acknowledges all of them.
  */
 
 #include "Vwiring.h"
@@ -22,8 +20,6 @@
 
 static Vwiring *dut;
 
-/* RESB is the OS's line and takes no reset, so a case that wants the
- * machine held starts a new one. */
 static void machine_reset()
 {
     if (dut)
@@ -96,25 +92,20 @@ UTEST(vsync_rtl, ffe3_counts_frames_and_fff0_interrupts)
 
     ASSERT_TRUE(r->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_EQ(out.size(), (size_t)6);
-    /* Four polled frames: consecutive counter values... */
     for (int i = 1; i < 4; i++)
         ASSERT_EQ((uint8_t)out[i], (uint8_t)((uint8_t)out[i - 1] + 1));
-    /* ...exactly one frame apart, within the poll loop's jitter. */
     for (int i = 1; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
         ASSERT_GT(delta, 840000 - 256);
         ASSERT_LT(delta, 840000 + 256);
     }
-    /* The interrupt: the handler read $FFF0 pending (bit 7) and acked. */
     ASSERT_EQ((uint8_t)out[4], 0x80);
     ASSERT_EQ((uint8_t)out[5], 'Q');
 }
 
 UTEST(vsync_rtl, movable_line_keeps_the_cadence)
 {
-    /* The vsync line is the highest programmed scanline once a mode
-     * shrinks the picture; moving it shifts the phase, never the rate. */
     static const uint8_t prog[] = {
         0xA0, 0x04,
         0xAE, 0xE3, 0xFF,
@@ -147,10 +138,9 @@ UTEST(vsync_rtl, movable_line_keeps_the_cadence)
     }
     ASSERT_TRUE(r->wiring__DOT__cpu__DOT__stop_flag);
     ASSERT_EQ(at.size(), (size_t)4);
-    /* The first interval spans the move: the shadow can only reach the
-     * scanout at a frame boundary, so the frame it lands in is short by
-     * however far the line travelled. The claim here is that the cadence
-     * holds once it has, which is every interval after. */
+    /* vsync_shadow is copied to vsync_q only at frame start, so the first
+     * interval is short by the 240 lines the vsync line moved up. Only the
+     * intervals after it are a full frame. */
     for (int i = 2; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
@@ -165,10 +155,6 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
-    /* Verilator seeds its edge detectors from the first eval, so a model
-     * first evaluated with a clock already high never sees that edge.
-     * clk_rv rises once in the two cycles reset is held, and losing it
-     * loses the soft CPU's asynchronous reset with it. */
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;

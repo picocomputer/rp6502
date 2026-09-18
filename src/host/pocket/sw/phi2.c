@@ -3,12 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * PHI2, which on this machine is one register. The accumulator in
- * the fabric accumulator is exact at every whole kilohertz, so what was asked for is
- * what runs and the run value is read back rather than shadowed.
- *
- * No configuration store behind the setting, and nothing off-machine
- * sets it, so set and load differ only in who clamped first.
+ * The phase accumulator in phi2.sv produces exactly the rate held in
+ * MMIO_PHI2, averaged over many periods, at every whole kilohertz, so
+ * phi2_get_khz_run returns the register unchanged.
  */
 
 #include "mmio.h"
@@ -34,8 +31,6 @@ bool phi2_check_khz(uint16_t *v)
     return *v >= PHI2_MIN_KHZ && *v <= PHI2_MAX_KHZ;
 }
 
-/* The accumulator in the fabric accumulator is exact at every whole kilohertz, so what
- * was asked for is what runs. */
 void phi2_apply_khz(uint16_t phi2_khz, bool changed)
 {
     (void)changed;

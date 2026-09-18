@@ -14,14 +14,9 @@
 #include <string.h>
 #include <stdio.h>
 
-/* The version answer, sent a byte a pass. Two segments because the board name
- * is this file's and the stamp is version.c's; version_tail is what follows
- * once version_pos runs out. */
 static const char *version_pos;
 static const char *version_tail;
 
-// One byte on the wire, start bit through stop bit. A transmission must not
-// straddle the window; its data bits carry edges the RIA would read as VSYNC.
 #define RIA_BACKCHAN_BYTE_US (11 * 1000000 / RIA_BACKCHAN_BAUDRATE)
 
 // ria_vsync runs on either core, ria_ack/ria_nak on core 0. Without this the
@@ -109,7 +104,7 @@ void ria_pre_reclock(void)
     // Wait for empty FIFO
     while (pio_sm_get_tx_fifo_level(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
         tight_loop_contents();
-    // Wait for shift register too (11 bit times, the trailing stop bit included)
+    // Wait for shift register too
     busy_wait_us_32(11 * 1000000 / RIA_BACKCHAN_BAUDRATE);
 }
 
@@ -134,8 +129,6 @@ void ria_backchan(uint16_t word)
         version_tail = version_string();
         break;
     case 2: // reply to identification request
-        /* STR_VGA1 is the RIA's half of this; spelled out because a board with
-         * no string table should not gain one for four bytes. */
         uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", sizeof "VGA1" - 1);
         break;
     }

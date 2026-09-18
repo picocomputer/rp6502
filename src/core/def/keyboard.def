@@ -1,11 +1,12 @@
-/* ADD A KEYBOARD LAYOUT - no C knowledge needed, and you never touch a .c/.h file.
+/* ADD A KEYBOARD LAYOUT - a contributor needs no C knowledge and changes no
+ * .c or .h file.
  *
  * 1. Copy the closest existing layout, e.g. def/keyboard_us.def,
  *    to a new def/keyboard_<name>.def.
  * 2. Add #include "core/def/keyboard_<name>.def" line below.
  * 3. Edit the new file:
- *      - Set XSUFFIX to a unique ALL_CAPS tag and edit the XBEGIN line: the
- *        short code users see (e.g. "FR") and the full name (e.g. "France").
+ *      - On the XBEGIN line, set the short code users see (e.g. "FR") and
+ *        the full name (e.g. "France").
  *      - Fill in each XKEY row with the character each key types:
  *          XKEY(hid_keycode, plain, shift, altgr, shift+altgr, caps_lock)
  *        Each character is a Unicode codepoint: an ASCII literal like 'a'
@@ -13,12 +14,12 @@
  *        Set caps_lock true only for letters, so Caps Lock shifts them.
  *      - Dead keys (optional): a key that prints nothing until the next
  *        key is pressed, then combines the two, e.g. ´ then e gives é.
- *        List them after the XKEY rows, all fields Unicode codepoints.
+ *        List them after the XKEY rows. Every XDEAD field is a Unicode
+ *        codepoint.
  *          XDEAD(dead, base, result)         // ´ + e  -> é
  *          XDEAD(dead1, dead2, base, result) // two accents, then base
- *        The dead key must also be a normal XKEY (it types its own symbol
- *        when not composing). Free behaviors: dead + Space emits the bare
- *        accent, dead + Backspace cancels, an unmatched pair types both.
+ *        The dead key must also be a normal XKEY, because composing starts
+ *        from the character that key types.
  * 4. Build and test with SET KB <layout>.
  */
 

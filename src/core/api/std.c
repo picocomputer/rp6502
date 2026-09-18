@@ -145,7 +145,7 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
 
     /* What this machine has open is closed before the blob's descriptors take
      * their places, because otherwise the host's own file handles leak. The
-     * console rows below STD_FD_FIRST_FREE belong to std_init and stay. */
+     * console rows below STD_FD_FIRST_FREE are opened by std_init and stay. */
     for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
         if (std_fd_pool[fd].is_open && std_fd_pool[fd].close)
         {

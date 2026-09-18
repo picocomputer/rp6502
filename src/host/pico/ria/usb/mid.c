@@ -14,14 +14,7 @@
 #include <string.h>
 #include <ctype.h>
 
-// De-frame one 4-byte USB-MIDI event packet to raw wire bytes; implemented in
-// the MIDI host override (vendor/tinyusb_rp6502/midi_host.c), which drops
-// padding/reserved packets and copes with running-status devices.
 extern uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out);
-
-// The std pipe carries SMF-style events both directions: a variable length
-// quantity delta time in ticks, then a raw wire MIDI message. Writes are
-// released to the device on schedule, reads are a timestamped recording.
 
 __in_flash("mid_string") static const char mid_string[] = "MIDI";
 static_assert(sizeof(mid_string) == 4 + 1);
@@ -44,19 +37,15 @@ typedef struct
 {
     bool mounted;
     bool opened;
-    uint8_t session; // bumped per mount, invalidates stale descriptors
+    uint8_t session;
     uint8_t daddr;
-    uint8_t itf;   // TinyUSB interface this cable lives on
-    uint8_t cable; // cable number within the interface
+    uint8_t itf;
+    uint8_t cable;
     bool has_rx;
     bool has_tx;
-    // Tick in ns is fixed point, not clock resolution: timestamps are 1 us
-    // quanta. Rounding the tick to us would skew tempo up to ~0.2% at high
-    // ppqn; rounding to ns stays under 1 ppm, below the 30 ppm crystal.
-    uint32_t tick_ns; // derived: tempo * 1000 / ppqn
-    uint32_t tempo;   // microseconds per quarter note
-    uint16_t ppqn;    // ticks per quarter note, fixed at open; 0 = raw passthrough
-    // RX
+    uint32_t tick_ns;
+    uint32_t tempo;
+    uint16_t ppqn;
     uint64_t rx_epoch_ns;
     uint16_t rx_head, rx_tail;
     uint64_t rx_ticks;
@@ -67,7 +56,6 @@ typedef struct
     bool rx_in_sysex;
     bool rx_ring_sysex;
     uint8_t rx_ring[MID_RING_SIZE];
-    // TX
     uint64_t tx_epoch_ns;
     uint16_t tx_head, tx_tail;
     uint64_t tx_ticks;
@@ -80,12 +68,12 @@ typedef struct
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
-    uint8_t tx_rt;     // realtime byte interrupting a message, emitted inline; 0 = none
-    uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
+    uint8_t tx_rt;
+    uint8_t tx_acc[3];
     uint8_t tx_acc_len;
-    bool tx_acc_eox;      // accumulator ends the sysex
-    bool tx_sysex_break;  // ended by a foreign status byte, reparse it
-    uint8_t tx_meta_type; // FF meta consumed locally, applied at its due time
+    bool tx_acc_eox;
+    bool tx_sysex_break;
+    uint8_t tx_meta_type;
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
     bool tx_meta;
@@ -99,13 +87,11 @@ static inline uint16_t mid_ring_free(uint16_t head, uint16_t tail)
     return (uint16_t)((MID_RING_SIZE - 1) - ((head - tail) & (MID_RING_SIZE - 1)));
 }
 
-// A zero division means no SMF framing or timing: wire bytes pass straight through.
 static inline bool mid_raw(const mid_t *conn)
 {
     return !conn->ppqn;
 }
 
-// Data byte count for a status byte, sysex handled separately.
 static uint8_t mid_msg_data_len(uint8_t status)
 {
     switch (status & 0xF0)
@@ -134,7 +120,6 @@ static uint8_t mid_msg_data_len(uint8_t status)
     return 0;
 }
 
-// Code Index Number for a complete non-sysex wire message.
 static uint8_t mid_msg_cin(uint8_t status)
 {
     if (status >= 0xF8)
@@ -148,7 +133,7 @@ static uint8_t mid_msg_cin(uint8_t status)
         return MIDI_CIN_SYSCOM_2BYTE;
     case 0xF2:
         return MIDI_CIN_SYSCOM_3BYTE;
-    default: // F6 Tune Request, stray F7
+    default:
         return MIDI_CIN_SYSEX_END_1BYTE;
     }
 }
@@ -181,15 +166,21 @@ static void mid_rx_push_sysex_end(mid_t *conn)
 {
     if (!conn->rx_ring_sysex)
         return;
-    mid_rx_push(conn, 0xF7); // space reserved while sysex is open
+    mid_rx_push(conn, 0xF7); // one ring byte is kept free for this F7
     conn->rx_ring_sysex = false;
 }
 
-// Push one delta-prefixed event, dropped whole when the ring is full.
-// Absolute tick anchoring keeps timing exact across drops.
+// An event that does not fit is dropped whole. The next event's delta then
+// includes the time of the dropped one, because each delta is the absolute
+// tick count since rx_epoch_ns less rx_ticks, and rx_ticks advances only when
+// an event is pushed. The exception is a dropped echo of an applied Set Tempo
+// meta, because mid_tx_apply_meta sets rx_epoch_ns to the echo's time and
+// rx_ticks to 0 even when the echo is dropped, so the next delta counts only
+// from that time.
 static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
 {
-    // No deltas inside sysex, they would be ambiguous with data bytes
+    // A realtime byte inside an open recorded sysex gets no delta, because a
+    // delta byte there could not be distinguished from sysex data.
     if (conn->rx_ring_sysex && len == 1 && msg[0] >= 0xF8)
     {
         if (mid_ring_free(conn->rx_head, conn->rx_tail) <= 1)
@@ -205,10 +196,7 @@ static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
         delta = total - conn->rx_ticks > 0x0FFFFFFF
                     ? 0x0FFFFFFF
                     : (uint32_t)(total - conn->rx_ticks);
-    uint16_t reserve = msg[0] == 0xF0 ? 1 : 0; // sysex keeps space for F7
-    // Interrupting an open recorded sysex spends one F7 to close it; only spend
-    // it if the whole event also fits, so a full ring drops the change whole
-    // rather than truncating with a phantom F7 the device never sent.
+    uint16_t reserve = msg[0] == 0xF0 ? 1 : 0;
     uint16_t close = conn->rx_ring_sysex ? 1 : 0;
     if (mid_ring_free(conn->rx_head, conn->rx_tail) < mid_vlq_len(delta) + len + reserve + close)
         return false;
@@ -227,13 +215,13 @@ static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
 {
     if (!conn->rx_ring_sysex)
         return;
-    if (mid_ring_free(conn->rx_head, conn->rx_tail) > 1) // keep F7 space
+    if (mid_ring_free(conn->rx_head, conn->rx_tail) > 1)
         mid_rx_push(conn, b);
 }
 
 static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
-    if (b == 0xFF) // System Reset: recorded as the FF FF escape
+    if (b == 0xFF) // System Reset is recorded as the escape FF FF
     {
         if (conn->rx_in_sysex)
         {
@@ -257,7 +245,7 @@ static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
             conn->rx_in_sysex = false;
             mid_rx_push_sysex_end(conn);
         }
-        conn->rx_status = 0; // EOX is system common: cancels running status
+        conn->rx_status = 0; // EOX is system common, so it cancels running status
         conn->rx_msg_len = 0;
         return;
     }
@@ -327,7 +315,6 @@ static mid_t *mid_find_port(uint8_t itf, uint8_t cable)
     return NULL;
 }
 
-// True while some open input cable on the interface has room to receive.
 static bool mid_itf_can_rx(uint8_t itf)
 {
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
@@ -340,9 +327,6 @@ static bool mid_itf_can_rx(uint8_t itf)
     return false;
 }
 
-// Sink one de-framed wire byte into its port. Raw mode buffers bytes straight
-// (dropping the tail when the ring is full); SMF mode runs them through the
-// timestamping wire parser.
 static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
     if (mid_raw(conn))
@@ -354,8 +338,6 @@ static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
         mid_rx_wire_byte(conn, t_ns, b);
 }
 
-// One interface FIFO carries every cable's packets; de-frame each and route the
-// wire bytes to their cable's port.
 static void mid_rx_pull_itf(uint8_t itf)
 {
     while (mid_itf_can_rx(itf))
@@ -369,7 +351,7 @@ static void mid_rx_pull_itf(uint8_t itf)
         {
             mid_t *conn = mid_find_port(itf, stage[i] >> 4);
             if (!conn || !conn->opened || !conn->has_rx)
-                continue; // closed or absent cable, drop
+                continue;
             uint8_t wire[3];
             uint8_t m = tuh_midi_frame(itf, &stage[i], wire);
             for (uint8_t j = 0; j < m; j++)
@@ -378,8 +360,9 @@ static void mid_rx_pull_itf(uint8_t itf)
     }
 }
 
-// Assemble one wire byte into tx_msg; sets tx_pending on a complete message.
-// Caller filters bytes that form no message and sets tx_status for new status.
+// Callers drop a data byte that would start a message while tx_status is 0,
+// because mid_msg_data_len returns 0 for a status of 0, so tx_msg_need would
+// wrap to 255 and later data bytes would be written past the end of tx_msg.
 static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
 {
     if (!conn->tx_msg_len)
@@ -407,8 +390,6 @@ static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
         conn->tx_pending = true;
 }
 
-// Parse the next delta-prefixed event from the TX ring. True when tx_msg
-// holds a complete unsent message with tx_due_ns computed.
 static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
 {
     while (!conn->tx_pending && conn->tx_state != MID_TX_SYSEX &&
@@ -430,7 +411,9 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
             if (conn->tx_idle)
             {
                 conn->tx_idle = false;
-                // Producer underrun: slip the timeline forward, never back
+                // When the ring ran empty before this event and the event is
+                // already late, tx_epoch_ns is moved forward so the event is
+                // due now and the events after it keep their spacing.
                 if (conn->tx_due_ns < now_ns)
                 {
                     conn->tx_epoch_ns += now_ns - conn->tx_due_ns;
@@ -443,7 +426,7 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
         }
         if (conn->tx_state == MID_TX_META_TYPE)
         {
-            if (b == 0xFF) // doubled escape: a wire System Reset
+            if (b == 0xFF) // FF FF is an escaped System Reset
             {
                 conn->tx_status = 0;
                 conn->tx_msg[0] = 0xFF;
@@ -482,16 +465,17 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
         }
         if (b >= 0xF8 && b != 0xFF && conn->tx_msg_len)
         {
-            // Realtime interrupts an in-progress message: hand it to the run
-            // loop to emit inline and keep the partial for its remaining bytes.
+            // A realtime byte can arrive between the bytes of a message. It is
+            // left in tx_rt for mid_tx_run to send next, and the partial
+            // message stays in tx_msg to collect its remaining bytes.
             conn->tx_rt = b;
             break;
         }
         if (conn->tx_msg_len && b >= 0x80)
-            conn->tx_msg_len = 0; // malformed, drop the partial message
+            conn->tx_msg_len = 0;
         if (!conn->tx_msg_len)
         {
-            if (b == 0xFF) // meta event: consumed locally, never sent
+            if (b == 0xFF)
             {
                 conn->tx_state = MID_TX_META_TYPE;
                 continue;
@@ -511,7 +495,7 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                 }
             }
             else if (b == 0xF0 || (b >= 0xF1 && b <= 0xF7))
-                conn->tx_status = 0; // system common (incl. stray F7) cancels it
+                conn->tx_status = 0;
             else if (b < 0xF0)
                 conn->tx_status = b;
         }
@@ -520,8 +504,8 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
     return conn->tx_pending;
 }
 
-// Queue one 4-byte event packet, false when the endpoint FIFO is full.
-// The FIFO only ever holds whole packets, so writes are 4 or 0.
+// The endpoint FIFO only ever holds whole packets, so a write stores 4 bytes
+// or none.
 static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
 {
     uint8_t pkt[4] = {(uint8_t)((conn->cable << 4) | cin), 0, 0, 0};
@@ -530,8 +514,6 @@ static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t
     return tuh_midi_packet_write_n(conn->itf, pkt, 4) == 4;
 }
 
-// Apply a TX-stream meta locally (never sent to the device) and echo it on
-// the RX recording, value zeroed when rejected and nothing was applied.
 static void mid_tx_apply_meta(mid_t *conn)
 {
     uint64_t t_ns = conn->tx_due_ns;
@@ -546,22 +528,27 @@ static void mid_tx_apply_meta(mid_t *conn)
         uint64_t tick = tempo ? ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn : 0;
         if (!tick || tick > UINT32_MAX)
             tempo = 0;
-        // Echo first, under the old timescale, so the marker lands at the
-        // correct recorded time and a full ring rejects the whole change.
+        // The Set Tempo meta is echoed to the RX ring, with a tempo of 0 when
+        // the new tempo is rejected. The echo is pushed before the new tempo
+        // is applied below, because that step sets rx_epoch_ns to the echo's
+        // time and rx_ticks to 0, so an echo pushed after it would always get
+        // a delta of 0.
         bool device_sysex = conn->rx_ring_sysex && conn->rx_in_sysex;
         bool pushed = mid_rx_push_event(
             conn, t_ns,
             (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
                               (uint8_t)(tempo >> 8), (uint8_t)tempo},
             6);
-        if (device_sysex && pushed) // resume the interrupted device sysex fragment
+        // Pushing the echo closes the open recorded sysex with an F7, so an F0
+        // is pushed after it, when it fits, to reopen the sysex for the rest of
+        // the device's data.
+        if (device_sysex && pushed)
             mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xF0}, 1);
-        // Apply the tempo even if the echo did not fit: the marker is best-effort,
-        // but dropping the rate change derails the timeline (and a cable with no
-        // RX reader, whose ring never drains, would then never rebase at all).
+        // The tempo is applied even when the echo does not fit, because echoes
+        // fill the RX ring of a cable that is never read, and tempo changes on
+        // that cable would otherwise stop once its ring is full.
         if (tempo)
         {
-            // Rebase both timelines so the new rate begins cleanly here
             conn->tempo = tempo;
             conn->tick_ns = (uint32_t)tick;
             conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
@@ -570,12 +557,10 @@ static void mid_tx_apply_meta(mid_t *conn)
         break;
     }
     default:
-        break; // unknown meta (standard SMF metas included): swallowed
+        break;
     }
 }
 
-// Queue the accumulated sysex bytes as one USB packet, clearing the
-// accumulator. False when the endpoint FIFO is full and the caller retries.
 static bool mid_tx_flush_acc(mid_t *conn)
 {
     uint8_t cin = conn->tx_acc_eox
@@ -587,10 +572,6 @@ static bool mid_tx_flush_acc(mid_t *conn)
     return true;
 }
 
-// Raw mode TX: forward the wire stream straight through, packetizing by
-// status. Real-time bytes pass inline even mid-message or mid-sysex. A
-// status byte that cuts a sysex short still needs an F7 to form a valid USB
-// end packet; only a clean close stays silent.
 static bool mid_tx_run_raw(mid_t *conn)
 {
     bool wrote = false;
@@ -630,7 +611,8 @@ static bool mid_tx_run_raw(mid_t *conn)
         {
             if (b >= 0x80 && b != 0xF7)
             {
-                // Status ends the sysex; close the USB packet and reparse b
+                // A status byte ends the sysex, so an F7 is added to make a
+                // SysEx-end packet and b is parsed again after the flush.
                 conn->tx_acc[conn->tx_acc_len++] = 0xF7;
                 conn->tx_acc_eox = true;
                 continue;
@@ -643,7 +625,7 @@ static bool mid_tx_run_raw(mid_t *conn)
         }
         conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
         if (conn->tx_msg_len && b >= 0x80)
-            conn->tx_msg_len = 0; // new status mid-message, drop the partial
+            conn->tx_msg_len = 0;
         if (!conn->tx_msg_len)
         {
             if (b == 0xF0)
@@ -658,7 +640,7 @@ static bool mid_tx_run_raw(mid_t *conn)
             if (b < 0x80)
             {
                 if (!conn->tx_status)
-                    continue; // data with no running status, drop
+                    continue;
             }
             else if (b >= 0xF0)
                 conn->tx_status = 0; // system common cancels running status
@@ -669,7 +651,6 @@ static bool mid_tx_run_raw(mid_t *conn)
     }
 }
 
-// True when a packet was queued and the interface needs a flush.
 static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
@@ -678,7 +659,7 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
     bool wrote = false;
     for (;;)
     {
-        if (conn->tx_rt) // a realtime that interrupted a message: emit it first
+        if (conn->tx_rt)
         {
             if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &conn->tx_rt, 1))
                 return wrote;
@@ -705,13 +686,12 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
                 }
                 if (conn->tx_head == conn->tx_tail)
                 {
-                    conn->tx_idle = true; // producer underrun, even mid-sysex
+                    conn->tx_idle = true;
                     return wrote;
                 }
                 uint8_t b = conn->tx_ring[conn->tx_tail];
                 if (b >= 0xF8)
                 {
-                    // Realtime passes through as its own packet
                     if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &b, 1))
                         return wrote;
                     wrote = true;
@@ -720,7 +700,6 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
                 }
                 if (b >= 0x80 && b != 0xF7)
                 {
-                    // New status mid-sysex, terminate and start next event
                     conn->tx_acc[conn->tx_acc_len++] = 0xF7;
                     conn->tx_acc_eox = true;
                     conn->tx_sysex_break = true;
@@ -735,7 +714,7 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
         }
         if (!mid_tx_parse(conn, now_ns))
         {
-            if (conn->tx_rt) // parse handed back a realtime; loop to emit it
+            if (conn->tx_rt)
                 continue;
             conn->tx_idle = true;
             return wrote;
@@ -751,7 +730,6 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
         }
         if (conn->tx_msg[0] == 0xF0)
         {
-            // Sysex seeds the accumulator; packets form at 3 bytes or EOX
             conn->tx_acc[0] = 0xF0;
             conn->tx_acc_len = 1;
             conn->tx_acc_eox = false;
@@ -841,9 +819,6 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // A division (ticks per quarter note) after the colon selects the timed
-    // SMF stream, e.g. "MIDIn:480". An absent or zero division opens the raw
-    // wire stream, zero being meaningless as a division.
     uint32_t ppqn = 0;
     for (const char *p = &name[6]; *p; p++)
     {
@@ -861,8 +836,9 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     }
     bool raw = !ppqn;
 
-    // Stale RX accumulates unless an open input cable keeps the interface
-    // drained; if none is, flush it so this cable starts clean.
+    // mid_rx_pull_itf reads an interface only while one of its input cables is
+    // open, so old packets can be waiting in its RX FIFO. They are discarded
+    // here unless another input cable on the same interface is open.
     bool itf_idle = true;
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
         if (i != idx && mid_mounts[i].mounted && mid_mounts[i].opened &&
@@ -878,7 +854,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     uint64_t now_ns = time_us_64() * 1000;
     conn->tempo = MID_DEFAULT_TEMPO;
     conn->ppqn = (uint16_t)ppqn;
-    conn->tick_ns = raw ? 0 // raw leaves ppqn 0; timing unused, would divide by zero
+    conn->tick_ns = raw ? 0
                         : (uint32_t)(((uint64_t)MID_DEFAULT_TEMPO * 1000 + ppqn / 2) / ppqn);
     conn->rx_epoch_ns = now_ns;
     conn->rx_head = conn->rx_tail = 0;
@@ -909,8 +885,9 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     return (conn->session << 4) | idx;
 }
 
-// The descriptor carries the mount session so a stale fd held across
-// unplug/replug cannot alias whoever reuses the slot.
+// A descriptor holds the mount session above the slot index, so a descriptor
+// kept across an unplug does not resolve to the next device mounted in that
+// slot.
 static mid_t *mid_desc_conn(int desc)
 {
     int idx = desc & 0xF;
@@ -919,23 +896,16 @@ static mid_t *mid_desc_conn(int desc)
     return &mid_mounts[idx];
 }
 
-// True while queued TX still has a packet to release: ring bytes, a parsed
-// message, or a sysex packet a full FIFO has not yet taken.
 static bool mid_tx_draining(const mid_t *conn)
 {
     return conn->tx_head != conn->tx_tail || conn->tx_pending ||
            conn->tx_acc_eox || conn->tx_acc_len == 3;
 }
 
-// Flush a trailing F7 so the device is not left mid-sysex, then close. Raw
-// streams inject nothing, so they close without it.
 static void mid_close_finalize(mid_t *conn)
 {
     if (!mid_raw(conn) && conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
     {
-        // Don't strand the 1-2 sysex bytes still buffered below a full packet:
-        // append the F7 and flush them as one SYSEX_END packet. An already-empty
-        // accumulator just needs the lone F7 terminator.
         if (conn->tx_acc_len > 0 && conn->tx_acc_len < 3 && !conn->tx_acc_eox)
         {
             conn->tx_acc[conn->tx_acc_len++] = 0xF7;
@@ -953,10 +923,6 @@ static void mid_close_finalize(mid_t *conn)
     conn->opened = false;
 }
 
-// Shared close/sync gate. STD_ERROR for a stale descriptor; STD_PENDING
-// while the queued tail is still playing out on schedule; STD_OK once it has
-// drained, the cable is input-only, or it unplugged mid-drain (nothing left
-// to send). The resolved connection is returned for the caller to finalize.
 static std_rw_result mid_drain_gate(int desc, mid_t **conn, api_errno *err)
 {
     *conn = mid_desc_conn(desc);
@@ -1044,7 +1010,7 @@ void tuh_midi_mount_cb(uint8_t itf, const tuh_midi_mount_cb_t *mount_cb_data)
                 break;
             }
         if (slot == CFG_TUH_MIDI)
-            break; // no free port; remaining cables are dropped
+            break;
         mid_t *conn = &mid_mounts[slot];
         uint8_t session = (uint8_t)(conn->session + 1);
         memset(conn, 0, sizeof(*conn));
@@ -1071,8 +1037,6 @@ void tuh_midi_umount_cb(uint8_t itf)
         }
 }
 
-// Forced teardown when the 6502 stops: drop any undrained TX tail and free
-// the cable (the graceful on-schedule drain happens on close while running).
 void mid_stop(void)
 {
     for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)

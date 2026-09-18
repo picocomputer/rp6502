@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The machine boots and a program talks through the RIA's bare UART: hello
- * out of $FFE1 under the $FFE0 ready bit, and an echo pulled in through the
- * $FFE2 latch. Programs load the way the RIA loads them — bytes into RAM,
- * a reset vector into the register cells, then release the reset.
  */
 
 #include "Vwiring.h"
@@ -20,8 +15,8 @@
 
 static Vwiring *dut;
 
-/* RESB is the OS's line and takes no reset, so a case that wants the
- * machine held starts a new one. */
+/* rst_n does not reset resb, which drives the 6502's reset, so each case
+ * builds a new model instead of reusing the last one. */
 static void machine_reset()
 {
     if (dut)
@@ -37,11 +32,10 @@ static void machine_reset()
     tb_clock(dut);
     tb_clock(dut);
     dut->rst_n = 1;
-    /* These tests bypass the firmware boot; run the 6502 directly. */
     dut->rootp->wiring__DOT__resb = 1;
 }
 
-/* Load bytes into SRAM and point the reset vector at entry. */
+/* Register cells 0x1C and 0x1D are the reset vector at $FFFC. */
 static void load(uint16_t org, const uint8_t *bytes, size_t n, uint16_t entry)
 {
     auto *r = dut->rootp;
@@ -53,7 +47,6 @@ static void load(uint16_t org, const uint8_t *bytes, size_t n, uint16_t entry)
     r->wiring__DOT__ria__DOT__regs[0x1D] = entry >> 8;
 }
 
-/* Run until STP or the budget runs out, collecting TX bytes. */
 static std::string run(uint64_t max_clocks)
 {
     std::string out;
@@ -128,25 +121,9 @@ UTEST(hello, echoes_through_the_latch)
     ASSERT_STREQ(out.c_str(), "Q");
 }
 
-/* Ready may only lie in one direction. When $FFE0 reports the transmitter
- * ready, a byte written to $FFE1 has to leave; that is the whole contract
- * and the only failure that can hurt a program.
- *
- * What it deliberately does not assert is *when* the bit becomes visible.
- * The RIA updates the cell in the handler that runs after the 6502's read,
- * so its first cold read is clear; the fabric computes the flags during the
- * read, so its first read already carries them. Both are honest — neither
- * ever claims ready when it is not — and a test that pinned either shape
- * would be enforcing a platform's quirk rather than finding a problem. An
- * earlier version did exactly that and failed the moment the fabric stopped
- * seeding the cell from reset.
- *
- * That ready does eventually set is worth testing too, and
- * prints_through_the_uart already does it the way a 6502 must: bit $FFE0 /
- * bpl wait before every store, throwing away as many reads as it takes. If
- * the bit never set, that test would spin out its budget and fail. So the
- * pair is safety here and liveness there, and a test that wants to assert
- * ready becomes set should retry rather than read once. */
+/* The first read of $FFE0 is not required to show the transmitter ready,
+ * because the Pico RIA updates that bit after the read has returned, while
+ * the FPGA computes it during the read. */
 UTEST(hello, ready_never_claims_more_than_it_can_do)
 {
     /* lda $FFE0; sta $00; lda #'Z'; sta $FFE1; stp */
@@ -173,10 +150,12 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
-    /* Verilator seeds its edge detectors from the first eval, so a model
-     * first evaluated with a clock already high never sees that edge.
-     * clk_rv rises once in the two cycles reset is held, and losing it
-     * loses the soft CPU's asynchronous reset with it. */
+    /* Verilator seeds its edge detectors from the first eval, so a clock that
+     * is already high at the first eval has no rising edge. machine_reset
+     * builds each case's model with the same first eval, and clk_rv rises
+     * once in the two cycles that machine_reset holds rst_n low. Without that
+     * edge the soft CPU's asynchronous reset is never applied, because rst_n
+     * is already low at the first eval and so has no falling edge. */
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;

@@ -26,13 +26,12 @@ typedef struct
 {
     bool mounted;
     bool opened;
-    bool nfc_checked; // hashed against the current NFC device hash
+    bool nfc_checked;
     uint8_t daddr;
 } vcp_t;
 static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
-// NFC device tracking: identity hash binds one specific CDC device.
 static int vcp_nfc_device_idx = -1;
 
 __in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
@@ -300,7 +299,6 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
     return STD_OK;
 }
 
-// In the FatFs task tier: hash building blocks on USB string fetches.
 void vcp_task(void)
 {
     if (!vcp_get_nfc_device_hash()[0] || vcp_nfc_device_idx >= 0)
@@ -310,11 +308,11 @@ void vcp_task(void)
         {
             char hash[VCP_NFC_HASH_SIZE];
             if (!usb_device_id_hash(vcp_mounts[i].daddr, hash, sizeof(hash)))
-                return; // fetch refused, retry next pass
+                return;
             vcp_mounts[i].nfc_checked = true;
             if (strcmp(hash, vcp_get_nfc_device_hash()) == 0)
                 vcp_nfc_device_idx = i;
-            return; // one device per pass
+            return;
         }
 }
 
@@ -348,31 +346,23 @@ void tuh_cdc_umount_cb(uint8_t idx)
 }
 
 
-/* The setting is the device's identity hash; the name is only how a person
- * asks for it. Reading the USB tree to build one is a read, and it can be
- * refused mid-enumeration -- nfc.c retries.
- *
- * Two callers, and they hand over different things. nfc.c names a port and
- * wants the hash of whatever is plugged into it. The config file hands back
- * the hash it stored, and a check that rejects its own rendering loses the
- * setting on every boot: no hash, so vcp_task never matches, so the reader
- * never binds and no port is marked NFC. A port name is the only input that
- * needs converting, and nothing else can look like one -- a hash opens
- * "%04X:" and neither V nor P is a hex digit. */
+/* vcp_check_nfc_device_hash is given a port name such as "VCP0:" from nfc.c,
+ * the stored hash when the config file is read, or an empty string from
+ * either. Only a port name is converted, to the hash of the device mounted on
+ * that port. A stored hash cannot be taken for a port name, because a hash
+ * begins with four hex digits and V is not a hex digit. */
 bool vcp_check_nfc_device_hash(const char *in, char *out)
 {
     if (!in[0])
         return true;
     if (!vcp_std_handles(in))
-        return true; /* already a hash; out holds the caller's copy of it */
+        return true; /* The caller has already copied the stored hash to out. */
     uint8_t idx = in[3] - '0';
     if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
         return false;
     return usb_device_id_hash(vcp_mounts[idx].daddr, out, VCP_NFC_HASH_SIZE);
 }
 
-/* Drop the binding and let vcp_task find it again by hashing what is
- * mounted -- the same thing loading the file used to arrange. */
 void vcp_apply_nfc_device_hash(const char *hash, bool changed)
 {
     (void)hash;

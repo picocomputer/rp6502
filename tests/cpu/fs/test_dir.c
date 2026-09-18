@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The ROM this runs is built by tests/gen/dir_rom_gen.py.
  */
 
 #include "core/com/com.h"

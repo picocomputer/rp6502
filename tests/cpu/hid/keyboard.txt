@@ -1,7 +1,5 @@
-# The direct keyboard: the 256-bit HID bitmap in XRAM, not the stdin stream.
-# keyboard.rp6502 maps the bitmap, polls it until a key is pressed and
-# released, and then exits with code 2. It prints nothing, so the exit is the
-# evidence that the program read the bits.
+# keyboard.rp6502 polls the keyboard bitmap in XRAM and exits with code 2 once
+# a key has been pressed and released.
 
 run 20
 press space

@@ -19,18 +19,16 @@ static void init(void)
 #define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
-    /* Last, and not inside vga_init where it used to live: core 1 renders
-     * the terminal, and until everything above has run there is no terminal
-     * to render -- the screen pointer is null and the glyph tables are
+    /* Core 1 renders scanlines with vga_render_scanline, so it must not start
+     * before ria_init, term_init, font_init and vga_init have run. Until then,
+     * ria_lock is null, mutex_init has not run on vga_scanline_mutex, the
+     * terminal's screen pointer is null and the glyph tables are
      * uninitialized RAM. */
     vga_start_render_core();
 }
 
-/* com_task after every driver, which is why this machine expands the walk
- * itself. The UART is this firmware's whole reason to exist and its FIFO is
- * 32 bytes; a driver that takes its time would overrun it. Both columns,
- * because the terminal's row is core's and carries term_task in the io one --
- * there is no file IO here to split them apart. */
+/* com_task runs after every driver's task because the UART's RX FIFO holds
+ * only 32 bytes and overruns if a slow driver delays the next call. */
 static void task(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) t(); iot(); com_task();

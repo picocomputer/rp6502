@@ -490,8 +490,6 @@ module cpu
         endcase
     end
 
-    // The cycle ends here on a conditional operation whose condition failed;
-    // fetch and skip belong to the condition holding.
     logic do_fetch, do_skip;
     always_comb begin
         do_fetch = cw.fetch && !cond_fail;

@@ -2,19 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * pocket_video against a replayed machine: the testbench emits the
- * beam's exact cadence — one de strobe per two system clocks, 640 per
- * line across 1,600 clocks, 480 lines then blanking, a frame pulse at
- * each origin — and decodes the scaler-side raster it gets back. Every
- * frame must carry one vs, a hs on all 525 lines never coincident with
- * vs, exactly 640x480 de pixels whose RGB888 replicate the RGB555
- * pattern, and black everywhere outside the window.
- *
- * THE SCALER MODELLED HERE IS OURS. What Analogue's video input will
- * accept is described in prose and not in a waveform, so the raster
- * this bench decodes is our reading of it, taken from other cores.
- * Expect errors; the display is the arbiter.
  */
 
 #include "Vpocket_video.h"
@@ -48,7 +35,6 @@ UTEST(pvideo, raster_and_pixels_exact)
         delete dut;
     }
     dut = new Vpocket_video;
-    /* The machine has its clock: this bench replays a running one. */
     dut->run = 1;
     dut->clk_mach = 0;
     dut->clk_vid = 0;
@@ -62,11 +48,11 @@ UTEST(pvideo, raster_and_pixels_exact)
         dut->clk_vid = 0;
         dut->eval();
     }
-    dut->vid_canvas = 0; /* console: full 640x480 */
+    dut->vid_canvas = 0; /* vga_canvas_console */
 
     long got_px = 0, want_px = 0;
     int vs_count = 0, hs_count = 0;
-    int rx = -1, ry = -1; /* decoded raster position, from vs/hs */
+    int rx = -1, ry = -1;
     long de_run = 0;
     bool started = false;
 
@@ -76,7 +62,6 @@ UTEST(pvideo, raster_and_pixels_exact)
         {
             for (int c = 0; c < 1600; c++)
             {
-                /* Machine side, one clk_mach. */
                 dut->vid_frame = line == 0 && c == 0;
                 bool de = line < 480 && c < 1280 && (c & 1) == 1;
                 dut->vid_de = de;
@@ -87,7 +72,6 @@ UTEST(pvideo, raster_and_pixels_exact)
                     dut->clk_vid = 1;
                 dut->eval();
 
-                /* Scaler side, sampled on its rising edge. */
                 if ((c & 1) == 0)
                 {
                     if (dut->pocket_video_vs)
@@ -115,8 +99,6 @@ UTEST(pvideo, raster_and_pixels_exact)
                         ASSERT_GE(px, 0);
                         ASSERT_LT(px, 640);
                         ASSERT_LT(py, 480);
-                        /* The frame index of this pixel: the reader
-                         * lags the writer by under a line. */
                         int pf = (int)(got_px / (640L * 480));
                         ASSERT_EQ(dut->pocket_video_rgb,
                                   rgb888(pattern(pf, px, py)));
@@ -144,23 +126,12 @@ UTEST(pvideo, raster_and_pixels_exact)
     }
     ASSERT_TRUE(started);
 
-    /* Three frames in, the reader trails by less than a frame. */
     ASSERT_EQ(want_px, 3L * 640 * 480);
     ASSERT_GT(got_px, 2L * 640 * 480);
     ASSERT_EQ(vs_count, 3);
     ASSERT_GE(hs_count, 2 * 525);
 }
 
-/* A 320x180 canvas, decoded the way the scaler latches it. The machine
- * emits the canvas natively — 320 de strobes on each of the first 180
- * lines, nothing anywhere else — so the bench feeds exactly that, and
- * this stage is pure clock alignment: each row goes out in the same
- * 800-clock slot the machine sends it, 320 pixels over 320 clocks,
- * then porch to the next slot's hs. skip stays zero: nothing
- * duplicated exists to skip. The end-of-line word names scaler slot 3
- * after every row. The counts are the claim: a duplicated or shifted
- * pixel reaching the scaler breaks the totals before any color is
- * compared. */
 UTEST(pvideo, canvas_native_de_skip_and_slot)
 {
     if (dut)
@@ -169,7 +140,6 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         delete dut;
     }
     dut = new Vpocket_video;
-    /* The machine has its clock: this bench replays a running one. */
     dut->run = 1;
     dut->clk_mach = 0;
     dut->clk_vid = 0;
@@ -183,7 +153,7 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         dut->clk_vid = 0;
         dut->eval();
     }
-    dut->vid_canvas = 2; /* vga_320_180 */
+    dut->vid_canvas = 2; /* vga_canvas_320_180 */
 
     long latched = 0, endlines = 0;
     int rx = -1, ry = -1;
@@ -196,8 +166,6 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
             for (int c = 0; c < 1600; c++)
             {
                 dut->vid_frame = line == 0 && c == 0;
-                /* The machine's native de: the canvas's rows from the
-                 * top, 320 strobes back to back. */
                 bool row = line < 180;
                 bool de = row && c < 640 && (c & 1) == 1;
                 dut->vid_de = de;
@@ -225,12 +193,10 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                     {
                         int px = rx - 9;
                         int py = ry;
-                        /* Same slot the machine sends it. */
                         bool dump = py < 180;
                         bool win = px >= 0 && px < 320 && py < 480;
                         ASSERT_EQ(dut->pocket_video_de, win && dump);
                         ASSERT_EQ(dut->pocket_video_skip, 0);
-                        /* One hs per slot. */
                         if (rx == 3)
                             ASSERT_TRUE(dut->pocket_video_hs);
                         if (dut->pocket_video_de)
@@ -242,7 +208,9 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                         }
                         else if (de_q)
                         {
-                            /* The cycle after de falls: the slot word. */
+                            /* On the first cycle after de falls, rgb holds
+                             * the scaler slot in bits 23:13, and the 320x180
+                             * entry in video.json's scaler_modes is slot 3. */
                             ASSERT_EQ(dut->pocket_video_rgb,
                                       (uint32_t)3 << 13);
                             endlines++;
@@ -263,7 +231,6 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         }
     }
     ASSERT_TRUE(started);
-    /* Two-plus full frames of 320x180, one slot word per active line. */
     ASSERT_GT(latched, 2L * 320 * 180);
     ASSERT_GT(endlines, 2L * 180);
 }

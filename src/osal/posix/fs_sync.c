@@ -5,8 +5,9 @@
  *
  * The read, write, close and settle of the POSIX file driver, done
  * synchronously. STD_PENDING is permitted by the contract but never required,
- * so completing before answering is a legal answer to what fs_aio.c spreads
- * over several scanlines, and settle has nothing in flight to cancel.
+ * so a transfer that fs_aio.c spreads over several scanlines may instead
+ * complete before the call returns, and settle has nothing in flight to
+ * cancel.
  *
  * A host that lives inside another program's process takes this one, because
  * glibc's POSIX AIO is a pool of helper threads: a frontend that unloads the

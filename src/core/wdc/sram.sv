@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 6502's 64 KB, one true-dual-port BRAM. Port A belongs to the CPU; port
- * B is the soft CPU's, for program loading and the OS's ram reads. Reads are
- * synchronous, one clock behind the address — the machine runs PHI2 at least
- * two system clocks wide, so data is ready well before the CPU samples.
+ * The 6502's 64 KB, one true-dual-port BRAM. Port A is connected to the CPU
+ * and port B to the soft CPU, for program loading and the OS's ram reads.
+ * Reads are synchronous, one clock behind the address — the machine runs
+ * PHI2 at least two system clocks wide, so data is ready well before the
+ * CPU samples.
  *
  * The clock is the ungated one. A stopped machine's logic holds both
  * addresses and both write enables still, so the array does nothing;

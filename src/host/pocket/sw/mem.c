@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The regs symbol, the xstack and its pointer are hardware behind the OS
- * window, placed by the linker script.
  */
 
 #include "core/sys/xram.h"
@@ -12,8 +9,9 @@
 
 volatile uint8_t *const xram = (uint8_t *)0x30000000u;
 
-/* Link-time code generation emits calls to these after it has decided
- * what to keep, so they must outlive their callers. */
+/* Link-time code generation emits calls to memcpy and memset after
+ * unreferenced functions have been discarded, so the used attribute keeps
+ * both in the image. */
 __attribute__((used)) void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = dst;

@@ -2,12 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# A program that lists the working directory through the directory ops, then
-# calls getlabel and getfree. It prints each entry as its name followed by its
-# attribute byte and the low 16 bits of its size, both in hex. After each call
-# it prints the op's name and the X the call returned, which is 00 on success
-# and FF on an error.
 
 import argparse
 import sys

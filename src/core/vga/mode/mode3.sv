@@ -6,10 +6,10 @@
  * Mode 3, the linear bitmap of core/vga/mode/mode3.c: rows mapped with true
  * wraparound, the oracle's rejects (range, bitmap overrun, the 16bpp odd
  * row), and the line described to the shared pixel tail as segments. The
- * tail owns the fetching, slicing, palette and pixels; this front owns
- * the geometry. A wrapped bitmap is runs of the bitmap's width back to
- * back; a clipped one is a run with padding around it; a rejected line
- * is one padding segment.
+ * tail fetches, slices, looks up the palette and writes the pixels; this
+ * front computes the geometry. A wrapped bitmap is runs of the bitmap's
+ * width back to back; a clipped one is a run with padding around it; a
+ * rejected line is one padding segment.
  */
 
 module mode3 (

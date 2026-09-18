@@ -18,10 +18,12 @@ bool mode5_prog(uint16_t *xregs);
  * asking for the renderer, because a fabric build has no renderer to name. */
 bool mode5_sprite_valid(uint16_t attributes);
 
-/* The renderer an attribute names, and the attribute a renderer came from. A
- * savestate stores the attribute rather than the function address, because the
- * address belongs to the build that saved it. mode5_sprite_fn returns NULL in a
- * fabric build and the reverse is not compiled. */
+/* mode5_sprite_fn returns the renderer an attribute names, and
+ * mode5_sprite_attr finds the attribute that names a renderer. A savestate
+ * stores the attribute rather than the function address, because the function
+ * can be at a different address in the build that loads it. mode5_sprite_fn
+ * returns NULL in a fabric build, and mode5_sprite_attr is not compiled
+ * there. */
 vga_sprite_fn_t mode5_sprite_fn(uint16_t attributes);
 #ifndef RP6502_VGA_FABRIC
 bool mode5_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes);

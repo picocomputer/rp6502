@@ -8,8 +8,8 @@
  * and _ARCHIVE are the FAT attribute bits with the values FAT gave them, and
  * FileTimeToDosDateTime produces the FAT date and time.
  *
- * A path crosses in the 6502's OEM code page and is otherwise spelled the way
- * Win32 wants it, because this host puts the drive letter in the path itself.
+ * A path crosses in the 6502's OEM code page and is otherwise in Win32's path
+ * format, because this host puts the drive letter in the path itself.
  * Only the code page changes, and backslashes become slashes on the way out.
  * A forward slash needs no conversion on the way in, because Win32 normalizes
  * every path it is given and folds slashes to backslashes; that would stop if
@@ -31,8 +31,9 @@
 wchar_t *path_to_wide(const char *path, api_errno *err)
 {
     /* A leading ":" is the null drive, where installed ROMs live, and it has
-     * no native spelling. Win32 would read it as an alternate data stream and
-     * succeed, so it is refused before Win32 sees it. */
+     * no equivalent in the host's path format. Win32 would read it as an
+     * alternate data stream and succeed, so it is refused before any Win32
+     * call. */
     if (path[0] == ':')
     {
         *err = API_ENODEV;
@@ -142,8 +143,8 @@ static bool win_ok(BOOL ok, api_errno *err)
 #define FS_AM_MASK 0x37 /* RDO|HID|SYS|DIR|ARC */
 
 /* A find reports UTC and FAT records local time, which is what this API
- * carries, so the stamp is converted on the way. FileTimeToDosDateTime fails
- * outside 1980 to 2107, the only years a FAT date can spell, and the stamp is
+ * uses, so the stamp is converted on the way. FileTimeToDosDateTime fails
+ * outside 1980 to 2107, the only years a FAT date can hold, and the stamp is
  * clamped to that range rather than left as the zero this API reads as
  * "no date". */
 static void fat_pack_time(const FILETIME *ft, uint16_t *fdate, uint16_t *ftime)
@@ -172,9 +173,9 @@ static void fat_pack_time(const FILETIME *ft, uint16_t *fdate, uint16_t *ftime)
     }
 }
 
-/* False when the entry's name has no spelling in the running code page,
- * because a substituted name would let two entries arrive under one name and
- * let a program hand back a name that opens neither. */
+/* False when the entry's name has a U+007F or a character with no byte in the
+ * running code page. Both convert to 0x7F, so two entries could be listed under
+ * one name, and a program that opens that name could open neither of them. */
 static bool info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd)
 {
     if (!oem_maps_wide((const uint16_t *)fd->cFileName))

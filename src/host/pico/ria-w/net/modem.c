@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
-
 #include "ria-w/net/cmd.h"
 #include "ria-w/net/modem.h"
 #include "core/sys/config.h"
@@ -29,8 +27,7 @@
 
 #define MODEM_RESPONSE_BUF_SIZE 128
 
-// Single queued response, rendered without word-wrap: the responders self-format
-// and emit explicit newlines. 82 = 80 columns + newline + null.
+// resp_buf holds 80 columns plus a newline and a null terminator.
 #define MODEM_RESPONSE_WIDTH 80
 #define MODEM_RESPONSE_RENDER_SIZE (MODEM_RESPONSE_WIDTH + 2)
 
@@ -53,15 +50,15 @@ typedef struct
     modem_settings_t settings;
     char cmd_buf[MODEM_AT_COMMAND_LEN + 1];
     size_t cmd_buf_len;
-    char response_buf[MODEM_RESPONSE_BUF_SIZE]; // raw character-echo ring
+    char response_buf[MODEM_RESPONSE_BUF_SIZE];
     size_t response_buf_head;
     size_t response_buf_tail;
-    modem_response_fn resp_fn; // single queued response source
-    int resp_state;          // <0 when no active generator
+    modem_response_fn resp_fn;
+    int resp_state;
     char resp_buf[MODEM_RESPONSE_RENDER_SIZE];
     size_t resp_len;
     size_t resp_pos;
-    bool resp_prev_cr; // modem_sink: a CR was just emitted (suppress the lone-LF CR)
+    bool resp_prev_cr;
     bool parse_active;
     const char *parse_str;
     bool parse_result;
@@ -115,8 +112,6 @@ static inline bool modem_response_buf_full(void)
     return ((modem_conn->response_buf_head + 1) % MODEM_RESPONSE_BUF_SIZE) == modem_conn->response_buf_tail;
 }
 
-// A response is in progress while the generator is live or the render buffer
-// still holds undrained bytes.
 static bool modem_resp_busy(void)
 {
     return modem_conn->resp_state >= 0 || modem_conn->resp_pos < modem_conn->resp_len;
@@ -223,8 +218,6 @@ static int modem_tx_command_mode(char ch)
 
 static void modem_tx_escape_observer(char ch)
 {
-    // S2 disabled: clear any stale count so re-enabling doesn't fire on a
-    // partial old sequence.
     if (modem_conn->settings.esc_char >= 128)
     {
         modem_conn->escape_count = 0;
@@ -249,11 +242,11 @@ static int modem_response_code(char *buf, size_t buf_size, int code, unsigned wi
 {
     (void)width;
     if (code < 0)
-        return code; // cancelled before consumption
+        return code;
     assert((unsigned)code < sizeof(MODEM_RESPONSES) / sizeof(char *));
-    // X register result code availability bitmasks.
-    // X0: 0-4, X1: 0-5, X2: 0-6, X3: 0-5 & 7, X4: 0-7.
-    // Code 8 (NO ANSWER) is always available (@ dial modifier).
+    // Bit n of each mask is set when result code n is allowed at that X level:
+    // X0 allows codes 0-4, X1 0-5, X2 0-6, X3 0-5 and 7, X4 0-7, and every
+    // level allows code 8.
     static const uint16_t x_mask[] = {
         0x011F, // X0
         0x013F, // X1
@@ -282,7 +275,7 @@ static int modem_response_code(char *buf, size_t buf_size, int code, unsigned wi
 
 void modem_factory_settings(modem_settings_t *settings)
 {
-    settings->s_pointer = 0;   // selected S-register; transient
+    settings->s_pointer = 0;
     settings->echo = 1;        // E1
     settings->quiet = 0;       // Q0
     settings->verbose = 1;     // V1
@@ -568,9 +561,6 @@ bool modem_dial(const char *s)
 
 bool modem_connect(void)
 {
-    // ATO on an already-established connection: just re-enter data mode.
-    // No CONNECT response — otherwise a later async tcp_connect completion
-    // would emit a second CONNECT.
     if (modem_conn->state == modem_state_connected)
     {
         modem_conn->in_command_mode = false;
@@ -623,9 +613,10 @@ static void modem_carrier_lost(void)
     if (modem_conn->state == modem_state_on_hook)
         return;
     RP6502_LOG(modem, INFO, "carrier lost");
-    // Remote FIN while DTE is in data mode: defer NO CARRIER until
-    // modem_std_read has drained net's buffered pbufs. net is already in
-    // net_state_closing and will self-close on drain.
+    // When the peer closes the connection while the modem is in data mode, net
+    // can still hold received data that has not been read. NO CARRIER is
+    // deferred until modem_std_read has read that data, because hanging up now
+    // would free it unread.
     if (modem_conn->state == modem_state_connected && !modem_conn->in_command_mode)
     {
         modem_conn->state = modem_state_disconnecting;
@@ -674,7 +665,6 @@ bool modem_answer(void)
                     modem_conn->settings.net_mode != 0, modem_conn->settings.tty_type,
                     modem_net_on_close))
     {
-        // Call gone — answered elsewhere or remote hung up
         modem_conn->state = modem_state_on_hook;
         modem_conn->in_command_mode = true;
         modem_conn->ring_count = 0;
@@ -695,7 +685,6 @@ bool modem_answer(void)
 
 static bool modem_net_on_accept(uint16_t port)
 {
-    // Only one modem takes the call; the rest stay on-hook.
     for (int i = 0; i < NET_MODEM_DESCS; i++)
     {
         if (!modem_conns[i].is_open)
@@ -791,7 +780,6 @@ void modem_task()
         {
             if (!telnet_has_pending(modem_conn->settings.listen_port))
             {
-                // Call gone (answered elsewhere or remote hung up)
                 modem_conn->state = modem_state_on_hook;
                 modem_conn->in_command_mode = true;
                 modem_conn->ring_count = 0;
@@ -878,10 +866,6 @@ void modem_stop(void)
         modem_conn_stop(&modem_conns[i]);
 }
 
-// Output stage for the response renderer: maps a canonical '\n' to the
-// configured S3/S4 CR-LF (inserting CR before a lone LF, idempotent after an
-// explicit '\r', honoring the high-bit disable) and writes into the active
-// read. Returns false at the read's count so the render pauses.
 static char *modem_sink_buf;
 static uint32_t modem_sink_count;
 static uint32_t modem_sink_pos;
@@ -1012,7 +996,6 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
     uint32_t pos = 0;
     for (;;)
     {
-        // Drain the raw character-echo ring first.
         if (!modem_response_buf_empty())
         {
             while (pos < count && !modem_response_buf_empty())
@@ -1023,14 +1006,10 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
             if (pos >= count)
                 break;
         }
-        // Render the queued response, S3/S4-translated. Responders self-format
-        // to MODEM_RESPONSE_WIDTH and emit explicit newlines, so no word-wrap.
         if (modem_resp_busy())
         {
             if (pos >= count)
                 break;
-            // Refill the chunk when drained; an empty chunk with a live state is
-            // an async await (e.g. a scan still running) — resume on a later read.
             if (modem_conn->resp_pos >= modem_conn->resp_len)
             {
                 modem_conn->resp_buf[0] = 0;
@@ -1043,8 +1022,8 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
                 if (modem_conn->resp_len == 0)
                 {
                     if (modem_conn->resp_state >= 0)
-                        break; // nothing yet; resume later
-                    continue;  // generator done with no output
+                        break;
+                    continue;
                 }
             }
             modem_sink_buf = buf;
@@ -1058,7 +1037,7 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
             }
             pos = modem_sink_pos;
             if (modem_conn->resp_pos < modem_conn->resp_len)
-                break; // read buffer full; resume mid-chunk on a later read
+                break;
             continue;
         }
         // Read from the telephone connection in data mode.
@@ -1068,7 +1047,6 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
             pos += got;
             if (got == 0 && modem_conn->state == modem_state_disconnecting)
             {
-                // Buffered RX drained after remote FIN; emit NO CARRIER now.
                 modem_finalize_carrier_lost();
                 continue;
             }
@@ -1106,8 +1084,6 @@ std_rw_result modem_std_write(int desc, const char *buf, uint32_t count, uint32_
     }
     if (modem_conn->state != modem_state_connected)
     {
-        // DTE flow control: no transport (dial in progress, carrier draining).
-        // Mirrors a real modem holding CTS low.
         *bytes_written = 0;
         return STD_OK;
     }

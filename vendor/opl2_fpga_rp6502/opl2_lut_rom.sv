@@ -1,18 +1,9 @@
-// rp6502: the log-sine and exp tables share one block.
-//
-// The vendored core carries these as two generated case-statement
-// modules, 256x12 and 256x10, and Quartus gives each its own M10K for a
-// quarter of the bits one block holds. The phase generator reads them
-// at different pipeline stages — the exp address is computed from the
-// log-sine output — so one 512x12 store with two synchronous read
-// ports carries both: log-sine in the low half, exp in the high. Two
-// reads of one array is a dual-port ROM, one block at this width.
-//
-// The contents come from opl2_lut_gen.py, which parses the vendor case
-// arms and recomputes the documented formulas as a tripwire, so the
-// words here are the submodule's by construction. The read is
-// registered with no enable and no reset, exactly like the modules it
-// replaces.
+// rp6502: the log-sine table (256x12) and the exp table (256x10) share one
+// 512x12 array, which Quartus builds as one true dual-port M10K. The array
+// has two read ports because the phase generator reads the two tables at
+// different pipeline stages. Both reads are registered with no enable and
+// no reset, as in the vendor's opl2_log_sine_lut and opl2_exp_lut, so
+// replacing those two modules leaves the pipeline timing unchanged.
 
 module opl2_lut_rom
     import opl2_lut_pkg::*;

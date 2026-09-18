@@ -2,19 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The keyboard layout database against def/keyboard_*.def.
- *
- * The def files are what a contributor edits and what keyboard.c used to
- * include directly, as X macros expanding to flash tables. They now go
- * through a Python generator instead, which is a second reader of a
- * format only a preprocessor understood — so this file includes the
- * same manifest the same way and compares every code point, every caps
- * lock flag and every dead key against what layout.c reads back.
- *
- * A layout that types the wrong character is not something a machine
- * notices, and on a Pocket the tables are an asset that a build can
- * quietly leave stale. This is what says otherwise.
  */
 
 #include "core/hid/layout.h"
@@ -24,7 +11,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The manifest builds its tables here the way keyboard.c once did. */
 #define XDEAD_PICK(_1, _2, _3, _4, NAME, ...) NAME
 #define XDEAD(...) XDEAD_PICK(__VA_ARGS__, XDEAD3, XDEAD2, , )(__VA_ARGS__)
 
@@ -64,8 +50,6 @@ static const uint32_t ref_keys[REF_COUNT][128][5] = {
 #undef XDEAD3
 #undef XEND
 
-/* Sized to the longest layout rather than counted per layout, and
- * terminated the way the tables keyboard.c walked were. */
 #define REF_DEAD_MAX 128
 
 #define XBEGIN(code, desc) {
@@ -100,9 +84,6 @@ static const uint32_t ref_dead3[REF_COUNT][REF_DEAD_MAX][4] = {
 #undef XDEAD3
 #undef XEND
 
-/* Every mismatch is reported rather than the first, because one wrong column
- * in a generator is a hundred and twenty-seven of them and the pattern is the
- * diagnosis. Capped, for the same reason. */
 #define FAIL(...)                            \
     do                                       \
     {                                        \
@@ -194,8 +175,6 @@ UTEST(layout, every_layout_matches_its_def)
 
 }
 
-/* A layout that is not there reads empty rather than reading something else:
- * this is what a machine whose asset failed to load does with every key. */
 UTEST(layout, a_layout_out_of_range_reads_empty)
 {
     ASSERT_TRUE(layout_init());

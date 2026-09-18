@@ -40,28 +40,24 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 
 void vcp_load_nfc_device_hash(const char *str);
 const char *vcp_get_nfc_device_hash(void);
-// False when the device identity hash couldn't be built; retryable.
 int vcp_nfc_open(void);
 
-/* The device identity hash, long enough for the vendor/product/serial
- * triple usb_device_id_hash builds. */
+/* A hash from usb_device_id_hash is at most 110 characters: 15 for the VID,
+ * PID and bcdDevice fields, each four hex digits and a colon, then up to 31
+ * for each of the three descriptor strings with a colon between each pair. */
 #define VCP_NFC_HASH_SIZE 128
 
 bool vcp_check_nfc_device_hash(const char *in, char *out);
 void vcp_apply_nfc_device_hash(const char *hash, bool changed);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. Building a device hash blocks on USB string fetches, which pump the task
- * column -- so this belongs in the column that is never re-entered. Before
- * NFC, which opens the device index this sets. */
-/* The file keeps it, but no one may set it from SET: the machine manages
- * this one, and nfc.c is what asks. */
+/* vcp_task is in the io_task column of VCP_DRIVER because building a device
+ * hash waits on USB string fetches that call sys_task, and the io_task column
+ * is never re-entered. */
 #define VCP_CONFIG_NFC_HASH CONFIG_HIDDEN(H, vcp, nfc_device_hash, VCP_NFC_HASH_SIZE, "", \
     vcp_check_nfc_device_hash, vcp_apply_nfc_device_hash)
 #define VCP_DRIVER DRIVER(nul_init, nul_task, vcp_task, nul_run, nul_stop, nul_break, \
     VCP_CONFIG_NFC_HASH, nul_config, nul_sst)
 
-/* This driver's stdio row: the std_driver_t initializer core/api/std.c
- * builds this machine's table from. A stream: no seek, nothing to flush. */
 #define VCP_STD_DRIVER           \
     {                               \
         .handles = vcp_std_handles, \

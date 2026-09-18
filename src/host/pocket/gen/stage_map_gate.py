@@ -2,38 +2,23 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The staging store's map lives in three files that cannot reference
-# each other. data.json tells the host where to write each slot; mmio.h
-# tells the firmware where to read it; tb_stage.h tells the bench where
-# to play the host. They are the same map, and strict JSON cannot carry
-# the comment that says so.
-#
-# A disagreement here does not fail to build and does not fail loudly:
-# the host writes an image where the firmware is not looking, and the
-# machine comes up with a blank screen or a ROM that will not parse. A
-# bench that drifts is worse, because it agrees with itself and passes.
-# So the map is checked rather than maintained by hand.
 
 import argparse
 import json
 import re
 from pathlib import Path
 
-# The window the soft CPU reads the staging store through. Bridge
-# addresses are what the host is given; these are the same bytes.
+# This is STAGE in mmio.h, the soft CPU's address for bridge address 0 of
+# the staging store.
 STAGE_BASE = 0x60000000
 
-# Slot ids that are windows for open files, in descriptor order.
 FILE_SLOT_FIRST = 1
 FILE_SLOT_COUNT = 8
 
-# The named assets, by slot id and by the pointer mmio.h gives them.
 ASSET_SLOTS = {9: "FONTS", 10: "OEMCP", 11: "KBDLAY"}
 
 
 def defines(path: Path) -> dict:
-    """Every #define in mmio.h whose body holds one integer literal."""
     out = {}
     pat = re.compile(r"^#define\s+(\w+)\b(.*)$")
     num = re.compile(r"0[xX][0-9a-fA-F]+|\b\d+\b")
@@ -75,13 +60,9 @@ def main() -> int:
     def addr(slot_id):
         return int(ds[slot_id]["address"], 0)
 
-    # The ROM owns everything below its ceiling, and the ceiling is what
-    # msc_stage_rom refuses to exceed.
     want("slot 0 address", addr(0), mm["ROM_BRIDGE"])
     want("slot 0 size_maximum", int(ds[0]["size_maximum"], 0), mm["ROM_MAX"])
 
-    # The blob is the gap between the ROM's ceiling and the first file
-    # window. Both edges, so neither can move alone.
     want("savestate blob base", mm["ROM_MAX"], mm["SST_BLOB_BRIDGE"])
     want("savestate blob ceiling",
          mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"],
@@ -89,8 +70,6 @@ def main() -> int:
     want("savestate blob window",
          mm["SST_BLOB"], STAGE_BASE + mm["SST_BLOB_BRIDGE"])
 
-    # Descriptor d is slot 1 + d, and its window is the d'th above the
-    # blob. The stride is one constant on both sides.
     for d in range(FILE_SLOT_COUNT):
         base = addr(FILE_SLOT_FIRST) + d * mm["SLOT_WIN_SIZE"]
         want(f"file slot {FILE_SLOT_FIRST + d} address",
@@ -100,13 +79,9 @@ def main() -> int:
         want(f"slot {slot_id} ({ds[slot_id]['name']}) address",
              addr(slot_id), mm[name] - STAGE_BASE)
 
-    # Get File's answer lands in a scratch that is not a slot, so
-    # nothing but this check keeps a slot from being grown over it.
     want("Get File scratch window",
          mm["GETFILE_WIN"], STAGE_BASE + mm["GETFILE_BRIDGE"])
 
-    # Ascending, and no slot overlapping the next. The asset slots
-    # declare an exact size; the file windows take the stride.
     climb = sorted(ds)
     for lo, hi in zip(climb, climb[1:]):
         span = (int(ds[lo]["size_exact"], 0) if "size_exact" in ds[lo]
@@ -126,8 +101,6 @@ def main() -> int:
             bad.append(f"slot {slot_id} covers the Get File scratch at "
                        f"{scratch:#010x}")
 
-    # The bench plays the host, so its copy of the map has to be the
-    # same map or the tests agree with themselves and prove nothing.
     if a.bench:
         tb = defines(Path(a.bench))
         want("bench ROM base", tb["TB_STAGE_ROM_BASE"], mm["ROM_BRIDGE"])
@@ -140,27 +113,16 @@ def main() -> int:
                    "KBDLAY": "KBDLAY"}[name]
             want(f"bench {tag.lower()} base",
                  tb[f"TB_STAGE_{tag}_BASE"], addr(slot_id))
-            # The bench reserves a rounded window; it may not be smaller
-            # than the file the host will put there.
             exact = int(ds[slot_id]["size_exact"], 0)
             if tb[f"TB_STAGE_{tag}_SIZE"] < exact:
                 bad.append(f"bench {tag.lower()} window "
                            f"{tb[f'TB_STAGE_{tag}_SIZE']:#x} is under "
                            f"slot {slot_id}'s {exact:#x}")
 
-    # The blob's length is written down in three places that cannot
-    # reference each other either: the engine counts the words, the
-    # bridge needs the last one to know the host has finished reading,
-    # and the host is told a size in bytes. A disagreement is a machine
-    # that never starts again after a state is taken, or a blob the
-    # host stops reading one word early.
     words = None
     if a.engine:
         src = Path(a.engine).read_text(encoding="utf-8")
         parts = dict(re.findall(r"localparam int (W_\w+) = (\w+);", src))
-        # A width may name a parameter rather than a literal, so that the
-        # number lives in one place. Resolve those from the package that
-        # holds them; an unresolved name is left alone and reported below.
         if a.tcm:
             pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
                                   Path(a.tcm).read_text(encoding="utf-8")))
@@ -188,9 +150,11 @@ def main() -> int:
             bad.append("core_top has no savestate size")
         else:
             want("host blob size", int(m.group(1)), words * 4)
-            # Not the blob's size: the OS hands the blob back wrapped
-            # in its own file header and thumbnail, so the load budget
-            # is the whole window and the engine finds the magic.
+            # The host writes a saved state back with the Pocket OS's header
+            # in front of the blob and a thumbnail after it, so the maximum
+            # load size is the whole blob window and sst_engine searches the
+            # first 1024 word offsets of that window for the start of the
+            # blob.
             want("host max load size", int(m2.group(1)),
                  mm["SST_BLOB_MAX"])
         if words * 4 > mm["SST_BLOB_MAX"]:

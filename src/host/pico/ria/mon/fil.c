@@ -37,18 +37,19 @@ static_assert(2 * (FF_LFN_BUF + 1) <= XSTACK_SIZE);
 static FRESULT fil_resolve_dst(const char *src, const char *dst,
                                char *out, size_t out_sz)
 {
-    // Use f_opendir rather than f_stat to detect the directory case;
-    // f_stat returns FR_INVALID_NAME for "." and "..".
+    // f_stat returns FR_INVALID_NAME for a path with no final name, such as
+    // "0:" or "/", and for a "." or ".." with no directory entry, as in a FAT
+    // root directory or anywhere on exFAT. f_opendir accepts all of these, so
+    // it is used to detect a directory.
     DIR dir;
     if (f_opendir(&dir, dst) == FR_OK)
     {
         f_closedir(&dir);
-        // Use src's on-disk basename so case is preserved.
         char fname[FF_LFN_BUF + 1];
         if (!path_lookup_basename(src, fname, sizeof fname))
             return FR_NO_FILE;
-        // Skip the joiner if dst already ends in a separator or a drive
-        // colon; "0:name" must stay relative to that drive's directory.
+        // No separator is added after a drive colon, because FatFs resolves
+        // "0:name" in that drive's current directory and "0:/name" in its root.
         size_t dst_len = strlen(dst);
         char dst_end = dst_len ? dst[dst_len - 1] : '\0';
         const char *sep = (path_is_sep(dst_end) || dst_end == ':') ? "" : "/";
@@ -57,8 +58,6 @@ static FRESULT fil_resolve_dst(const char *src, const char *dst,
             return FR_INVALID_NAME;
         return FR_OK;
     }
-    // dst doesn't resolve to a directory; pass it through. The caller's
-    // f_open / f_rename will report any real error.
     size_t len = strlen(dst);
     if (len + 1 > out_sz)
         return FR_INVALID_NAME;
@@ -81,11 +80,6 @@ bool fil_drive_exists(const char *args)
     return result != FR_INVALID_DRIVE;
 }
 
-// Emit one terminal-width slice of src per call so a long path wraps
-// across lines instead of overrunning the terminal or the response
-// buffer. The slice width is the current terminal width, capped at
-// buf_size - 2 to leave room for the appended newline and null. Returns
-// the next state, or -1 once src is exhausted.
 static int fil_paginate(char *buf, size_t buf_size, int state, const char *src)
 {
     size_t width = rln_get_term_width();
@@ -117,14 +111,12 @@ static int fil_cwd_response(char *buf, size_t buf_size, int state, unsigned)
     return fil_paginate(buf, buf_size, state, cwd);
 }
 
-// Print the directory being listed by DIR/LS. fil_mon_dir leaves its
-// resolved absolute path in mbuf for us to paginate.
 static int fil_dir_path_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;
     char *path = (char *)mbuf;
-    if (!path[0]) // resolution failed; skip the header, list anyway
+    if (!path[0])
         return -1;
     return fil_paginate(buf, buf_size, state, path);
 }
@@ -212,7 +204,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state, unsigne
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
         return 0;
-    // 7-char fixed prefix (" <DIR> ", "%6u ", or "%3u.%u%c ") before the name.
+    // Each prefix, " <DIR> ", "%6u " or "%3u.%u%c ", is 7 characters wide.
     int name_max = (int)rln_get_term_width() - 7;
     if (name_max > (int)buf_size - 9)
         name_max = (int)buf_size - 9;
@@ -255,7 +247,6 @@ void fil_mon_dir(const char *args)
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    // Stage the path in mbuf, which is where the header response reads it.
     const char *target = raw ? raw : ".";
     memcpy(mbuf, target, strlen(target) + 1);
 
@@ -264,9 +255,6 @@ void fil_mon_dir(const char *args)
     if (FR_OK != fresult)
         return;
 
-    // Resolve to the absolute path of the dir being listed, back into mbuf,
-    // then fix the basename to the case stored on disk: path_abs keeps
-    // segments as typed, whereas f_getcwd reconstructs them from disk.
     const char *abs = path_abs((char *)mbuf);
     if (abs)
     {

@@ -15,8 +15,6 @@ static size_t com_in_head;
 static size_t com_in_tail;
 static char com_in_buf[COM_IN_BUF_SIZE];
 
-// Pending term reply, drained into com_in by com_task at a clean
-// stream boundary so we never splice into an in-flight CDC sequence.
 static char com_in_reply_buf[COM_IN_BUF_SIZE - 1];
 static size_t com_in_reply_len;
 
@@ -47,11 +45,6 @@ void com_in_write(char ch)
     com_in_buf[com_in_head] = ch;
 }
 
-// Queue a term-sourced reply for delivery to RIA via com_in.
-// Held in a pending slot so com_task can promote the whole reply
-// atomically when com_in is empty, avoiding splicing into an
-// in-flight CDC byte stream. If a USB terminal is connected it
-// will answer the host's queries itself, so we defer to it.
 void com_in_write_reply(const char *s, size_t n)
 {
     if (com_term_reply_suppressed || cdc_is_ready())
@@ -115,10 +108,6 @@ void com_init(void)
     stdio_set_driver_enabled(&stdio_driver, true);
 }
 
-/* term.c's sink. On this machine printf already fans to every enabled
- * stdio driver, so the terminal becomes one of them and the SDK does the
- * newline translation -- which is what the other machines' com.c do by
- * hand in com_crlf_write. */
 void com_set_term_out(void (*out_chars)(const char *buf, int len))
 {
     static stdio_driver_t term_driver = {.crlf_enabled = true};
@@ -126,16 +115,14 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
     stdio_set_driver_enabled(&term_driver, out_chars != NULL);
 }
 
-/* uart_init below resets the whole peripheral, so anything the hardware is
- * still holding has to be taken out first and put back after. */
+/* uart_init in com_post_reclock resets the UART, which empties both FIFOs
+ * and clears a break in progress. */
 static bool com_reclock_break;
 
 void com_pre_reclock(void)
 {
-    // RX still in the FIFO is a byte the host sent; uart_init would drop it.
     while (uart_is_readable(COM_UART_INTERFACE))
         putchar_raw(uart_getc(COM_UART_INTERFACE));
-    // LCR_H.BRK drives TXD low indefinitely, keeping BUSY set forever.
     com_reclock_break = uart_get_hw(COM_UART_INTERFACE)->lcr_h & UART_UARTLCR_H_BRK_BITS;
     if (com_reclock_break)
         return;
@@ -145,8 +132,6 @@ void com_pre_reclock(void)
 void com_post_reclock(void)
 {
     uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
-    // A break the host is still holding outlives the reclock, or cdc_task
-    // would go on timing a break the wire no longer carries.
     if (com_reclock_break)
         uart_set_break(COM_UART_INTERFACE, true);
 }
@@ -158,7 +143,6 @@ void com_set_uart_break(bool en)
 
 void com_task(void)
 {
-    // Promote any pending term reply at a clean boundary.
     if (com_in_reply_len && com_in_empty())
     {
         for (size_t i = 0; i < com_in_reply_len; i++)

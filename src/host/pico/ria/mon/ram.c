@@ -32,15 +32,13 @@ static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
-// 16 bytes + ASCII fits in 74 cols (XRAM worst case). Below 74, drop to 8 bytes.
+// Sixteen bytes with their ASCII take 74 columns, or 75 with a five-digit XRAM
+// address.
 static size_t ram_chunk_size(void)
 {
     return rln_get_term_width() >= 74 ? 16 : 8;
 }
 
-// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
-// read and returns true; the state machine drives the next step. For XRAM,
-// returns false (data is already resident; caller can print without a fetch).
 static void ram_read_done(bool ok);
 
 static bool ram_start_read_chunk(void)
@@ -64,8 +62,9 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     size_t chunk = ram_chunk_size();
     int width = rln_get_term_width();
     bool with_ascii = width >= 40;
-    // 40-col display: collapse the addr-trailing space and the gutter's
-    // second space so 8 bytes + ASCII fits in exactly 40 cols.
+    // Eight bytes with their ASCII take 41 columns, or 42 with a five-digit
+    // XRAM address, so compact mode drops the space after the address and one
+    // gutter space to fit 40 columns.
     bool compact = with_ascii && width < 41;
     assert(mbuf_len <= chunk);
     sprintf(buf, compact ? "%04lX" : "%04lX ", ram_rw_addr);
@@ -80,9 +79,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     }
     if (with_ascii)
     {
-        // Pad to chunk_size's alignment level (8 bytes → 24-char hex field,
-        // 16 bytes → 49-char field with mid-split). Gutter is 2 spaces, or
-        // 1 space in compact mode.
         size_t hex_width = mbuf_len * 3 + (mbuf_len > 8 ? 1 : 0);
         size_t target = (chunk == 16) ? 49 : 24;
         for (size_t s = hex_width; s < target; s++)

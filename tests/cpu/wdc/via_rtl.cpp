@@ -3,11 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The VIA under test, when it is the fabric's — via.sv verilated.
- *
- * The register interface is the same one the machine drives, so the cycle
- * below is the RTL half of what used to be a lockstep against chips: assert
- * the bus, evaluate to get the read data the cycle presents, then clock.
+ * via_data is combinational from the state before the clock edge, and a
+ * read's side effects land on the edge, so via_step sets the bus inputs,
+ * evaluates the model and samples the read data before it clocks.
  */
 
 #include "via_dut.h"

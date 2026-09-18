@@ -32,8 +32,6 @@ bool rom_active(void);
  */
 
 void rom_mon_load(const char *args);
-/* The load below LOAD's argument gate: argv0 verbatim plus parsed args.
- * NFC feeds installed names through here; the open answers for them. */
 void rom_load_argv(const char *argv0, const char *args);
 void rom_mon_info(const char *args);
 void rom_mon_install(const char *args);
@@ -51,7 +49,6 @@ int rom_installed_response(char *buf, size_t buf_size, int state, unsigned width
 
 // Configuration setting BOOT
 // No loader because this isn't stored in RAM
-// Accepts the full argument string (may include args after the ROM name).
 bool rom_set_boot(const char *args);
 const char *rom_get_boot(void); // uses mbuf
 
@@ -61,7 +58,6 @@ const char *rom_get_boot(void); // uses mbuf
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 
-/* This driver's row in a machine's driver list; see core/sys/driver.h. */
 #define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break, nul_config, nul_config, nul_sst)
 
 

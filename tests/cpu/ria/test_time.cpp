@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * gmtime and strftime called by a program, on whichever machine this tree
- * built. tests/gen/time_rom_gen.py writes the program, which leaves the
- * length strftime returned at XRAM $0000 and the formatted text after it.
+ * tests/gen/time_rom_gen.py writes the program, which leaves the length
+ * strftime returned at XRAM $0000 and the formatted text after it.
  */
 
 #include "mut.h"

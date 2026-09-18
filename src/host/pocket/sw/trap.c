@@ -3,14 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Misaligned load/store emulation. The shared firmware does unaligned
- * halfword access to the register window — REGSW($FFF1) and API_ERRNO at
- * $FFED sit at odd offsets — which ARM shrugs at and RISC-V traps on.
- * Hazard3 has no hardware misalign path, so this splits the access into
- * bytes; the register window's byte lanes make that exact.
- *
- * Handles RV32 LH/LHU/LW/SH/SW and compressed C.LW/C.SW. Anything else
- * is a real bug, and spinning beats corrupting state.
+ * The shared firmware writes API_ERRNO as a halfword at $FFED, an odd offset
+ * in the register window, and Hazard3 raises an exception on a misaligned
+ * load or store instead of performing it. trap_dispatch then performs the
+ * access one byte at a time, which gives the same result because the
+ * register window takes byte reads and writes.
  *
  * Hazard3 hardwires mtval to zero, so the faulting address is recomputed
  * from the instruction's base register and immediate.
@@ -18,7 +15,6 @@
 
 #include <stdint.h>
 
-/* The simulator's console is the only debugger this machine has. */
 #define TRAP_CONSOLE (*(volatile uint32_t *)0xF0000000u)
 
 static void trap_hex(uint32_t v)
@@ -39,7 +35,6 @@ static void trap_spin(uint32_t cause, uint32_t epc, uint32_t addr)
         ;
 }
 
-/* picolibc's assert lands here; narrate and spin, same as a trap. */
 void __assert_func(const char *file, int line, const char *func,
                    const char *expr)
 {
@@ -54,7 +49,7 @@ void __assert_func(const char *file, int line, const char *func,
         ;
 }
 
-/* Saved x1..x31 in order, laid down by the entry stub in crt0. */
+/* _trap_entry in crt0.S stores x1 through x31 here in order. */
 typedef struct
 {
     uint32_t x[31];
@@ -92,7 +87,7 @@ void trap_dispatch(trap_frame_t *frame)
     __asm__ volatile("csrr %0, mepc" : "=r"(epc));
     uint32_t addr = 0;
 
-    /* 4 load misaligned, 6 store misaligned; all else spins visibly. */
+    /* mcause 4 is a misaligned load and 6 is a misaligned store. */
     if (cause != 4 && cause != 6)
         trap_spin(cause, epc, 0);
 
@@ -101,7 +96,7 @@ void trap_dispatch(trap_frame_t *frame)
 
     if ((lo & 3) == 3)
     {
-        /* 32-bit form: funct3 picks the width and sign. */
+        /* An instruction with both low bits set is 32 bits long. */
         uint32_t insn = lo | ((uint32_t)(*(const uint16_t *)(epc + 2)) << 16);
         uint32_t funct3 = (insn >> 12) & 7;
         uint32_t base = reg_get(frame, (insn >> 15) & 31);
@@ -134,7 +129,8 @@ void trap_dispatch(trap_frame_t *frame)
     }
     else
     {
-        /* Compressed: C.LW and C.SW reach x8-x15 only. */
+        /* C.LW and C.SW name their registers in three bits, which select
+         * x8 through x15. */
         uint32_t op = lo & 3;
         uint32_t funct3 = (lo >> 13) & 7;
         uint32_t cbase = reg_get(frame, 8 + ((lo >> 7) & 7));

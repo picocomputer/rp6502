@@ -3,10 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# A program that converts a fixed instant with gmtime and formats the result
-# with strftime. It writes the length strftime returned to XRAM $0000 and the
-# formatted bytes after it, then stops. The result is left in XRAM because the
-# libretro core has no console a test can read.
+# The result is left in XRAM because the libretro test bench has no console
+# that a suite can read.
 
 import argparse
 import sys
@@ -38,8 +36,8 @@ def prog():
     p.cpx_imm(TM_SIZE)
     p.bne("pop")
 
-    # strftime pops the struct in the order gmtime pushed it, so it goes back
-    # last byte first.
+    # strftime reads the struct in the layout gmtime pushed it in, so the
+    # bytes are pushed back last byte first.
     p.symbol("push")
     p.dex()
     p.lda_abx(TM)

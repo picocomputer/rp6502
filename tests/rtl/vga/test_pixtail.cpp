@@ -2,16 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * pixtail against a golden model, pixel for pixel, before any mode
- * front is allowed to stand on it. The tail is where every pixel-exact
- * detail of the fill modes will live — the slicer in every depth and
- * both bit orders, the palette snapshot, the segment handovers — so it
- * gets the lockstep treatment first, driven harder than the machine
- * drives it: the XRAM grant line is jittered so words arrive early,
- * late, and back to back, and segments are offered in every shape the
- * three fronts will produce. What the modes' fixtures later prove is
- * equivalence; what this proves is the tail itself.
  */
 
 #include "Vpixtail.h"
@@ -28,7 +18,6 @@ UTEST_STATE();
 
 static Vpixtail *dut;
 
-/* Deterministic jitter for the grant line. */
 static uint32_t g_rng = 0x12345678;
 static uint32_t rnd()
 {
@@ -38,7 +27,6 @@ static uint32_t rnd()
     return g_rng;
 }
 
-/* The bench's XRAM. */
 static uint8_t xram[0x10000];
 static uint32_t xram32(uint16_t word_addr)
 {
@@ -47,18 +35,15 @@ static uint32_t xram32(uint16_t word_addr)
         | ((uint32_t)xram[at + 2] << 16) | ((uint32_t)xram[at + 3] << 24);
 }
 
-/* One segment, the way a front describes it. */
 struct seg
 {
     bool imm;
-    uint32_t bits;   /* xram: origin in bits */
-    uint8_t ibits;   /* immediate: the row */
-    uint16_t fg, bg; /* immediate: colors */
+    uint32_t bits;
+    uint8_t ibits;
+    uint16_t fg, bg;
     int px;
 };
 
-/* palram's answer, from the snapshot the tail is expected to have
- * loaded: entry i lives at halfword (ptr >> 1) + i. */
 static uint16_t pal_entry(uint16_t ptr, bool pal_xram, int bpp_log,
                           uint8_t idx)
 {
@@ -68,9 +53,6 @@ static uint16_t pal_entry(uint16_t ptr, bool pal_xram, int bpp_log,
     return (uint16_t)(xram[ha * 2] | (xram[ha * 2 + 1] << 8));
 }
 
-/* The golden line: the RTL's slicer semantics, byte-lane order and all,
- * mirrored rather than reformulated so a mismatch is a bug and not a
- * modeling choice. */
 static void golden(const std::vector<seg> &segs, int bpp_log, bool rev,
                    uint16_t pal_ptr, bool pal_xram, int cw, uint16_t *out)
 {
@@ -116,8 +98,6 @@ static void golden(const std::vector<seg> &segs, int bpp_log, bool rev,
     }
 }
 
-/* Drive one line through the tail and capture what it writes. Returns
- * pixels captured; asserts are the caller's. The grant line jitters. */
 struct capture
 {
     uint16_t data[640];
@@ -127,9 +107,6 @@ struct capture
     int pal_loads;
 };
 
-/* When nonzero, the feeder is starved: each next segment is offered
- * only this many cycles after the previous take, so valid's rising
- * edge sweeps across every phase of a segment's last pixel. */
 static int g_feed_delay = 0;
 
 static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
@@ -138,8 +115,6 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
     memset(c, 0, sizeof *c);
     int feed_hold = 0;
 
-    /* The bench's palram: loaded by the tail's own protocol, so a wrong
-     * load shows up as wrong colors, not as a bench assumption. */
     static uint16_t palram[256];
     memset(palram, 0xEE, sizeof palram);
 
@@ -162,7 +137,6 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
 
     for (long t = 0; t < 20000 && !c->done; t++)
     {
-        /* Present the next segment whenever the tail can take one. */
         if (si < segs.size() && feed_hold == 0)
         {
             const seg &s = segs[si];
@@ -177,15 +151,14 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         else
             dut->seg_valid = 0;
 
-        /* Data lands the cycle after its grant, like the machine. */
+        /* Read data arrives on the clock after its grant, as it does from
+         * XRAM in the machine. */
         dut->a_rdy = gnt_q;
         if (gnt_q)
             dut->a_rdata = xram32(gnt_addr_q);
 
         dut->eval();
 
-        /* Grant with jitter: never two answers outstanding, sometimes
-         * back to back, sometimes a dry spell. */
         bool gnt_now = false;
         if (dut->pixtail_a_req && gap == 0)
         {
@@ -208,7 +181,6 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
                 fprintf(stderr, "t%ld TAKE seg%zu\n", t, si);
         }
 
-        /* Palram model: capture the load, answer the lookup. */
         if (dut->pixtail_pal_ld)
         {
             uint16_t w = dut->pixtail_pal_w;
@@ -271,7 +243,8 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
     }
 }
 
-/* The tail takes no reset, so a fresh one is a newly powered one. */
+/* pixtail has no reset input, so each test builds a new model to start
+ * from power-on state. */
 static void fresh()
 {
     if (dut)
@@ -348,10 +321,8 @@ UTEST(pixtail, wrap_split_segments)
 {
     fresh();
     fill_xram();
-    /* A 100-px-wide wrapped bitmap: 640 = 6 full runs + 40. Odd width
-     * lands every segment at a new bit phase. */
     std::vector<seg> s;
-    uint32_t base = 0x3001u * 8 + 4; /* deliberately unaligned */
+    uint32_t base = 0x3001u * 8 + 4;
     int left = 640;
     while (left > 0)
     {
@@ -367,14 +338,12 @@ UTEST(pixtail, tile_shaped_segments)
 {
     fresh();
     fill_xram();
-    /* Eighty 8-px slices from scattered origins — mode 2's line. */
     std::vector<seg> s;
     for (int i = 0; i < 80; i++)
         s.push_back({false,
                      (uint32_t)((0x4000 + (i * 37 % 512) * 16) * 8), 0, 0,
                      0, 8});
     check_line(utest_result, s, 2, false, 0xA000, true, 640);
-    /* And trimmed: 5-px slices, the divider's world. */
     std::vector<seg> t;
     for (int i = 0; i < 128; i++)
         t.push_back({false,
@@ -387,14 +356,12 @@ UTEST(pixtail, immediate_cells_and_padding)
 {
     fresh();
     fill_xram();
-    /* Mode 1's line: eighty font rows with resolved colors. */
     std::vector<seg> s;
     for (int i = 0; i < 80; i++)
         s.push_back({true, 0, (uint8_t)rnd(), (uint16_t)rnd(),
                      (uint16_t)rnd(), 8});
     check_line(utest_result, s, 0, false, 0, false, 640);
 
-    /* Out-of-window padding around a bitmap: pad + xram + pad. */
     std::vector<seg> m = {
         {true, 0, 0, 0, 0, 100},
         {false, 0x6000u * 8, 0, 0, 0, 400},
@@ -403,12 +370,6 @@ UTEST(pixtail, immediate_cells_and_padding)
     check_line(utest_result, m, 3, false, 0xB000, true, 640);
 }
 
-/* Address-stamped raw16: every halfword holds its own address, so any
- * mispairing of segments to fetched words names its source in the diff
- * instead of leaving a puzzle. Five-pixel segments at sixteen bits are
- * the sharpest corner: every segment spans two words and discards half
- * of the second, so shifts, promotions and re-aims pile onto adjacent
- * cycles. */
 UTEST(pixtail, address_stamped_short_segments)
 {
     fresh();
@@ -424,13 +385,6 @@ UTEST(pixtail, address_stamped_short_segments)
     check_line(utest_result, s, 4, false, 0, false, 640);
 }
 
-/* The starved feeder: a front that delivers its next segment barely in
- * time, or barely late, at every phase around a segment's last pixel.
- * The phase that offers a segment on the exact edge the current one
- * finishes with the deck empty once made the take vanish — taken by
- * the handshake, never emitted — and only a starved front can produce
- * that alignment, which is why the always-ready feeder above never
- * did. */
 UTEST(pixtail, starved_feeder_alignment_sweep)
 {
     fresh();
@@ -457,8 +411,6 @@ UTEST(pixtail, mixed_and_narrow_and_reused)
 {
     fresh();
     fill_xram();
-    /* Immediate and xram interleaved, on a 320 canvas, twice in a row —
-     * the second line proves the state fully re-arms. */
     std::vector<seg> s = {
         {true, 0, 0xA5, 0x1234, 0x5678, 8},
         {false, 0x7000u * 8, 0, 0, 0, 150},

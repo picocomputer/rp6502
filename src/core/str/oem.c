@@ -275,9 +275,9 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     return oem_from_wide_n(w, len, dst, dstsz);
 }
 
-/* 0x7F is what the conversions put where a character had no spelling, and
- * FatFs rejects 0x7F in a name outright, so a result of 0x7F means "no
- * spelling" whichever way it got there. */
+/* 0x7F is what the conversions put where a character does not map, and FatFs
+ * rejects 0x7F in a name outright, so a result of 0x7F is treated as a
+ * character that does not map whichever way it got there. */
 #define OEM_NO_SPELLING 0x7F
 
 bool oem_maps_utf8(const char *u8)

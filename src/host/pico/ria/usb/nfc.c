@@ -17,7 +17,6 @@
 #include <string.h>
 #include <pico/time.h>
 
-// NFC API command opcodes (written by 6502)
 #define NFC_CMD_WRITE 0x01
 #define NFC_CMD_CANCEL 0x02
 #define NFC_CMD_READ 0x03
@@ -25,7 +24,6 @@
 #define NFC_CMD_SUCCESS2 0x05
 #define NFC_CMD_ERROR 0x06
 
-// NFC API response types (read by 6502)
 #define NFC_RESP_READ 0x01
 #define NFC_RESP_WRITE 0x02
 #define NFC_RESP_NO_READER 0x03
@@ -33,22 +31,21 @@
 #define NFC_RESP_CARD_INSERTED 0x05
 #define NFC_RESP_CARD_READY 0x06
 
-// Settings values accepted by nfc_set_enabled / nfc_apply_cfg
 #define NFC_CFG_OFF 0
 #define NFC_CFG_ON 1
 #define NFC_CFG_SCAN 2
 #define NFC_CFG_FORGET 86
 
-// Tag read buffer spanning NTAG216 pages 0-221 (UID/lock/CC + NDEF area), 4 bytes/page
+// NFC_TAG_BUF_SIZE is the size of pages 0 to 221 of an NTAG216 at 4 bytes
+// per page, which are the UID, lock and capability container (CC) pages and
+// the NDEF data area.
 #define NFC_TAG_BUF_SIZE 888
 
-// Timeouts
 #define NFC_ACK_TIMEOUT_MS 50
 #define NFC_RESPONSE_TIMEOUT_MS 100
 #define NFC_POLL_INTERVAL_MS 200
 #define NFC_RETRY_INTERVAL_MS 2000
 
-// PN532 command codes
 #define PN532_PREAMBLE 0x00
 #define PN532_STARTCODE1 0x00
 #define PN532_STARTCODE2 0xFF
@@ -65,7 +62,6 @@
 #define PN532_MAX_FRAME_SIZE 64
 #define PN532_WAKEUP_SIZE 16
 
-// NDEF Type 2 Tag commands (NTAG/Mifare Ultralight)
 #define NDEF_READ_CMD 0x30
 #define NDEF_WRITE_CMD 0xA2
 #define NDEF_TLV_NULL 0x00
@@ -123,10 +119,11 @@ static enum {
     NFC_DETECT_REMOVAL_RX,
     NFC_TAG_WRITE_TX,
     NFC_TAG_WRITE_ACK,
-    NFC_TAG_WRITE_RX, // keep last: the _Static_assert below counts from it
+    // NFC_TAG_WRITE_RX must stay the last state, because the _Static_assert
+    // below takes the number of states from it.
+    NFC_TAG_WRITE_RX,
 } nfc_state;
 
-// nfc_state_names is indexed by nfc_state in the transition log; keep the two in lockstep.
 _Static_assert(sizeof(nfc_state_names) / sizeof(*nfc_state_names) == NFC_TAG_WRITE_RX + 1,
                "nfc_state_names out of sync with nfc_state enum");
 
@@ -135,7 +132,6 @@ static uint8_t nfc_scan_idx;
 static absolute_time_t nfc_timeout;
 static bool nfc_card_inserted;
 
-// Transport layer: non-blocking TX/RX with position tracking.
 static uint8_t nfc_tx_buf[PN532_WAKEUP_SIZE + PN532_MAX_FRAME_SIZE];
 static size_t nfc_tx_len;
 static size_t nfc_ack_end;
@@ -143,22 +139,19 @@ static size_t nfc_tx_pos;
 static uint8_t nfc_rx_buf[PN532_MAX_FRAME_SIZE];
 static size_t nfc_rx_pos;
 
-// Tag data read state, up to NTAG216 size
 static uint8_t nfc_tag_page;
 static uint8_t nfc_tag_buf[NFC_TAG_BUF_SIZE];
 static size_t nfc_tag_len;
 static bool nfc_tag_ready;
 
-// 6502 API state
 static bool nfc_api_open;
 static uint8_t nfc_last_status;
 static uint8_t nfc_read_buf[3 + NFC_TAG_BUF_SIZE]; // NFC_RESP_READ + len + raw tag data
 static size_t nfc_read_len;
-static size_t nfc_read_pos; // drain position through opcode + len + payload
+static size_t nfc_read_pos;
 static bool nfc_read_requested;
 static bool nfc_write_response;
 
-// Write staging
 static uint8_t nfc_write_buf[NFC_TAG_BUF_SIZE];
 static size_t nfc_write_count;
 static size_t nfc_write_expected;
@@ -190,8 +183,6 @@ static void nfc_goto(int new_state, uint32_t ms)
     nfc_timeout = make_timeout_time_ms(ms);
 }
 
-// Build a PN532 frame into TX buffer and reset TX position.
-// All callers pass fixed small payloads that fit nfc_tx_buf by construction.
 static void nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
 {
     nfc_tx_buf[0] = 0x55;
@@ -217,8 +208,6 @@ static void nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
     nfc_tx_pos = 0;
 }
 
-// Non-blocking send. Returns: 1 = complete, 0 = pending, -1 = error.
-// Call repeatedly from the same state until complete or error.
 static int nfc_send(void)
 {
     if (nfc_tx_pos >= nfc_tx_len)
@@ -235,7 +224,6 @@ static int nfc_send(void)
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }
 
-// Non-blocking receive. Appends to RX buffer. Returns bytes read this call.
 static uint32_t nfc_recv(void)
 {
     if (nfc_rx_pos >= sizeof(nfc_rx_buf))
@@ -248,9 +236,6 @@ static uint32_t nfc_recv(void)
     return bytes_read;
 }
 
-// Check if we received the 6-byte ACK frame anywhere in the buffer.
-// Tolerates arbitrary leading bytes (spurious preamble, USB framing).
-// Sets nfc_ack_end to the buffer position immediately after the ACK.
 static bool nfc_check_ack(void)
 {
     static const uint8_t ack[PN532_ACK_FRAME_SIZE] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
@@ -266,10 +251,6 @@ static bool nfc_check_ack(void)
     return false;
 }
 
-// Parse a response frame after ACK. Returns pointer to response data
-// (after TFI+cmd_response) or NULL if incomplete/invalid.
-// nfc_ack_end must have been set by a successful nfc_check_ack() call.
-// cmd is the command that was sent; the response byte must equal cmd+1.
 static const uint8_t *nfc_parse_response(uint8_t cmd, size_t *resp_len)
 {
     if (nfc_rx_pos < nfc_ack_end + 7)
@@ -356,7 +337,6 @@ static void nfc_begin_receive(int ack_state)
 
 static void nfc_start_tx(int tx_state)
 {
-    // Drain stale FIFO bytes before issuing a new command.
     uint32_t drained = 0;
     api_errno err;
     vcp_std_read(nfc_desc, (char *)nfc_rx_buf, sizeof(nfc_rx_buf), &drained, &err);
@@ -370,8 +350,6 @@ static void nfc_scan_close(void)
     nfc_goto(NFC_SCAN_CLOSE, 0);
 }
 
-// Drive the in-flight TX frame: advance to ack_state once sent, or call
-// on_fail if the link dropped or the send stalled past its deadline.
 static void nfc_tx_step(int ack_state, void (*on_fail)(void))
 {
     int rc = nfc_send();
@@ -381,8 +359,6 @@ static void nfc_tx_step(int ack_state, void (*on_fail)(void))
         nfc_begin_receive(ack_state);
 }
 
-// Wait for the PN532 ACK frame: advance to rx_state once seen, or call
-// on_fail on timeout.
 static void nfc_ack_step(int rx_state, void (*on_fail)(void))
 {
     nfc_recv();
@@ -415,14 +391,12 @@ static void nfc_apply_cfg(uint8_t val)
         break;
     case NFC_CFG_FORGET:
         nfc_close_device();
-        vcp_set_nfc_device_hash(""); /* saves for itself; empty is idempotent */
+        vcp_set_nfc_device_hash("");
         nfc_goto(NFC_OFF, 0);
         break;
     }
 }
 
-/* SCAN and FORGET are things to do, not things to keep: the file only ever
- * holds off or on. */
 bool nfc_check_enabled(uint8_t *v)
 {
     if (*v > NFC_CFG_SCAN && *v != NFC_CFG_FORGET)
@@ -431,7 +405,6 @@ bool nfc_check_enabled(uint8_t *v)
     return true;
 }
 
-/* The raw request, so a scan asked for while already on still scans. */
 void nfc_apply_enabled(uint8_t val, bool changed)
 {
     (void)changed;
@@ -444,7 +417,6 @@ void nfc_init(void)
         nfc_apply_cfg(NFC_CFG_ON);
 }
 
-/* SET's line for this row. */
 int nfc_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)state;
@@ -455,17 +427,15 @@ int nfc_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
     return -1;
 }
 
-// Parse tag data and extract the first Well Known Text record
-// into buf (NUL-terminated). Returns false if no text record is found.
 bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size)
 {
-    // Pages 0-3 (16 bytes) are UID/lock/CC; user data starts at page 4
+    // Pages 0 to 3 hold the UID, lock and CC bytes, so user data starts at
+    // page 4, 16 bytes in.
     if (len <= 16)
         return false;
     tag_data += 16;
     len -= 16;
 
-    // Walk TLV blocks to find the NDEF Message TLV (type 0x03)
     const uint8_t *msg = NULL;
     size_t msg_len = 0;
     size_t pos = 0;
@@ -503,7 +473,6 @@ bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_s
     if (!msg)
         return false;
 
-    // Find the first NDEF Well Known Type "T" (text) record
     size_t rpos = 0;
     while (rpos < msg_len)
     {
@@ -624,13 +593,12 @@ void nfc_task(void)
         {
             char name[8];
             nfc_vcp_name(name, sizeof(name));
-            if (vcp_set_nfc_device_hash(name)) /* saves the hash itself */
+            if (vcp_set_nfc_device_hash(name))
             {
                 nfc_success();
                 nfc_start_tx(NFC_SAM_TX);
                 break;
             }
-            // Hash fetch couldn't run, retry until the probe timeout
         }
         if (time_reached(nfc_timeout))
             nfc_scan_close();
@@ -699,8 +667,6 @@ void nfc_task(void)
         {
             if (resp_len >= 1 && resp[0] > 0)
             {
-                // Fresh card: reset the read accumulator and start reading.
-                // (tag_ready/write_failed were cleared on the way through IDLE.)
                 nfc_tag_page = 0;
                 nfc_tag_len = 0;
                 nfc_card_inserted = true;
@@ -741,7 +707,6 @@ void nfc_task(void)
                 size_t data_len = resp_len - 1;
                 const uint8_t *data = resp + 1;
 
-                // Blank page ends the read (assumes NDEF data is contiguous from page 4)
                 bool blank = true;
                 for (size_t i = 0; i < data_len; i++)
                     if (data[i])
@@ -767,11 +732,9 @@ void nfc_task(void)
                         break;
                     }
 
-                // CC[2] at tag_buf[14] encodes the NDEF data area size in
-                // 8-byte blocks; last readable page = 4 + CC[2]*2 - 1. NTAG
-                // READ wraps past the last page, so stop once the next read's
-                // FIRST page would fall past the area (using the last page of
-                // the next 4-page window would skip a trailing partial page).
+                // Byte 2 of the CC, at nfc_tag_buf[14], gives the size of the
+                // NDEF data area in 8-byte blocks, so the last page of the
+                // area is 4 + CC[2] * 2 - 1.
                 unsigned last_page = (nfc_tag_len >= 15 && nfc_tag_buf[14] > 0)
                                          ? (unsigned)(4 + nfc_tag_buf[14] * 2 - 1)
                                          : 3;
@@ -800,8 +763,6 @@ void nfc_task(void)
         {
             if (nfc_write_armed && !nfc_write_failed)
             {
-                // Pre-check the write targets the user area (page 4+) and fits
-                // the NDEF data area declared by CC[2] (tag_buf[14], 8-byte blocks).
                 size_t tag_capacity = (nfc_tag_len >= 15) ? (size_t)nfc_tag_buf[14] * 8 : 0;
                 size_t start_offset = (size_t)(nfc_write_start_page - 4) * 4;
                 if (nfc_write_start_page < 4 || tag_capacity == 0 ||
@@ -905,8 +866,6 @@ void nfc_task(void)
     }
 }
 
-// --- 6502 std driver interface ---
-
 bool nfc_std_handles(const char *name)
 {
     return strcasecmp(name, STR_NFC_COLON) == 0;
@@ -956,7 +915,6 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
 
         if (nfc_write_accumulating)
         {
-            // Streaming NFC_CMD_WRITE: page, len_lo, len_hi, then payload
             switch (nfc_write_cmd_pos)
             {
             case 0:
@@ -973,13 +931,14 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
                 nfc_write_cmd_pos = 3;
                 if (nfc_write_expected == 0)
                 {
-                    // Zero-length write is a no-op: complete it now without
-                    // arming, so no zeroed page is flushed to the card.
+                    // A zero-length write completes here without being armed,
+                    // because an armed write sends at least one page and would
+                    // write a page of zeros to the card.
                     nfc_write_accumulating = false;
                     nfc_write_response = true;
                 }
                 else if (nfc_write_expected > NFC_TAG_BUF_SIZE)
-                    bel_add(&bel_nfc_fail); // keep draining to stay in sync; don't arm
+                    bel_add(&bel_nfc_fail);
                 break;
             default:
                 if (nfc_write_count < NFC_TAG_BUF_SIZE)
@@ -1033,9 +992,8 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
     (void)err;
     uint32_t pos = 0;
 
-    // Build read payload on first call after CMD_READ. The NFC_RESP_READ
-    // opcode is the first buffer byte so it drains uniformly and cannot be
-    // lost if this build call happens to arrive with count == 0.
+    // NFC_RESP_READ is stored as the first byte of nfc_read_buf, so it is not
+    // lost when the call that builds the reply has a count of zero.
     if (nfc_read_requested && nfc_read_len == 0)
     {
         nfc_read_requested = false;
@@ -1057,7 +1015,6 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
         nfc_read_pos = 0;
     }
 
-    // Drain payload (covers both continuation and freshly-built response)
     if (nfc_read_len > 0)
     {
         while (pos < count && nfc_read_pos < nfc_read_len)
@@ -1071,7 +1028,6 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
         return STD_OK;
     }
 
-    // Write complete
     if (nfc_write_response)
     {
         if (count > 0)
@@ -1083,7 +1039,6 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
         return STD_OK;
     }
 
-    // Status byte: emit once on change (including after open)
     uint8_t status;
     if (nfc_desc < 0)
         status = NFC_RESP_NO_READER;

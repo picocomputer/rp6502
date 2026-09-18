@@ -8,8 +8,6 @@
 #include <hardware/clocks.h>
 #include <hardware/vreg.h>
 
-/* The boost SYS_RP2350_KHZ is tested at. Nothing else asks what voltage the
- * part is running on, so nothing else is told. */
 #define SYS_RP2350_VREG VREG_VOLTAGE_1_15
 
 void rp2350_init(void)

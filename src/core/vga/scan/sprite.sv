@@ -161,10 +161,10 @@ module sprite (
     logic run4;
 
     /* The cache's fill preempts mode 5's own requests. A palette lookup
-     * only happens while the index word is in hand, which is exactly when
-     * mode 5 asks to prefetch the next one, so a grant arriving while the
-     * cache is asking belongs to the cache and mode 5's a_gnt is masked
-     * to say so. */
+     * only happens while the index word is in hand, which is also the only
+     * time mode 5 requests a prefetch of the next one, so a grant arriving
+     * while pc_req is set goes to the cache and mode 5's a_gnt is
+     * masked. */
     always_comb begin
         sprite_a_req = state == SP_RUN
             && (run4 ? m4_a_req : (pc_req || m5_a_req));

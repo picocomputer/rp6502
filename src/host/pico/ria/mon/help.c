@@ -20,7 +20,7 @@
 typedef struct
 {
     const char *const cmd;
-    int prose; // localized string id for S()
+    int prose;
     mon_response_fn extra_fn;
 } help_entry_t;
 
@@ -61,10 +61,10 @@ __in_flash("help_commands") static const help_entry_t HELP_COMMANDS[] = {
 };
 static const size_t HELP_COMMANDS_COUNT = sizeof HELP_COMMANDS / sizeof *HELP_COMMANDS;
 
-/* HELP SET <attr>, from the same rows SET itself is built from. An if-chain
- * rather than a table because a walked row may not emit a top-level comma,
- * which a brace initializer is made of. BOOT is hand-written for the same
- * reason it is in set.c: it has no row. */
+/* The config rows expand inside the arguments of DRIVERS_FORWARD, which takes
+ * every top-level comma as an argument separator, so the lookup is an if-chain
+ * and not a table initializer. BOOT has no row and is checked by hand, as it
+ * is in set.c. */
 static const char *help_find_setting(const char *key, mon_response_fn *fn)
 {
     if (!strcasecmp(key, STR_BOOT))
@@ -123,7 +123,6 @@ const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
         *fn = NULL;
     if (!word)
         return NULL;
-    // SET and DISK are the only commands with a second level of help.
     if (sub)
     {
         if (!strcasecmp(word, STR_SET))
@@ -132,15 +131,13 @@ const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
             return help_find(HELP_DISK, HELP_DISK_COUNT, sub, fn);
         return NULL;
     }
-    // ABOUT and CREDITS share the non-localized credits help.
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
         return STR_HELP_ABOUT;
     return help_find(HELP_COMMANDS, HELP_COMMANDS_COUNT, word, fn);
 }
 
-// Split a help query into its command word and optional SET/DISK sub-key. word
-// is copied out because str_parse_string reuses one shared buffer, so parsing
-// the sub-key would otherwise clobber word.
+// str_parse_string returns static storage that its next call overwrites, so
+// word is copied before the sub-key is parsed.
 static void help_split(const char *args, char *word, size_t word_size, const char **sub)
 {
     const char *tok = str_parse_string(&args);
@@ -171,7 +168,6 @@ void help_mon_help(const char *args)
     }
     mon_add_response_utf8(prose);
 #ifdef RP6502_RIA_W
-    // Radio builds continue the settings summary and the credits with a _W block.
     if (!sub && !strcasecmp(word, STR_SET))
         mon_add_response_utf8(S(STR_HELP_SET_W));
     else if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))

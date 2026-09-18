@@ -3,18 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * src/core/str/unicode.c against the file it replaces, exhaustively.
- *
- * ffunicode.c is compiled beside it with its three entry points renamed,
- * so both implementations are in one process and every input either
- * agrees or the test says which one did not. That is the whole argument
- * for having rewritten it: the tables were lifted, the logic was
- * retyped, and neither is worth trusting on inspection.
- *
- * Every input means every input. Seventeen code pages by every byte,
- * seventeen code pages by every code point in the BMP, and the up-case
- * map over the whole of Unicode — about two million comparisons, which
- * costs a fraction of a second and settles the question completely.
+ * ffunicode.c is compiled into this test with its three entry points renamed
+ * to the ref_ functions declared below, so src/core/str/unicode.c and the
+ * file it replaces are compared in one process. The cases make about two
+ * million comparisons and take a fraction of a second.
  */
 
 #include "core/str/unicode.h"
@@ -27,8 +19,6 @@ uint16_t ref_oem2uni(uint16_t oem, uint16_t cp);
 uint16_t ref_uni2oem(uint32_t uni, uint16_t cp);
 uint32_t ref_wtoupper(uint32_t uni);
 
-/* The pages the image carries, read out of the image itself so this
- * does not become a second list to keep in step. */
 static uint16_t page_at(unsigned i) { return unicode_word(4 + i); }
 
 UTEST_MAIN();
@@ -59,8 +49,6 @@ UTEST(unicode, every_code_point_of_every_page_converts_back_the_same)
     }
 }
 
-/* A page nobody declared has to fail the same way, since ff.c reads the
- * zero as "no such character" rather than as a character. */
 UTEST(unicode, an_unknown_code_page_converts_to_nothing)
 {
     for (uint32_t u = 0x80; u <= 0xFFFF; u += 97)

@@ -2,11 +2,11 @@
 #
 # fs.c is the file driver without its read, write, close and settle, which are
 # a file of their own because there is more than one right answer: fs_aio.c for
-# a machine that owns its process, fs_sync.c for one running inside someone
-# else's. The libretro core takes sync because a frontend unloads it and
-# glibc's AIO helper threads would be left holding a buffer inside a library
-# that is going away; the browser and Android take it because they have no
-# POSIX AIO at all.
+# a machine that runs as its own process, fs_sync.c for one running inside
+# another program's process. The libretro core takes sync because a frontend
+# unloads it and glibc's AIO helper threads would be left holding a buffer
+# inside a library that is going away; the browser and Android take it because
+# they have no POSIX AIO at all.
 
 include_guard(GLOBAL)
 

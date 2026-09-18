@@ -57,7 +57,6 @@ static const uint scanline_dma_ch[SCANVIDEO_PLANE_COUNT] = {
 
 #define video_pio pio0
 
-// Convenience macro for PIO program offset constants
 #define PIO_OFFSET(x) composable_offset_##x
 
 #define PIO_WAIT_IRQ4 pio_encode_wait_irq(1, false, 4)
@@ -66,7 +65,7 @@ static uint8_t video_program_load_offset;
 
 // --- video timing stuff
 
-// 4 possible instructions; index into program below
+// These values index the instructions of video_htiming_states in scanvideo.pio.
 enum
 {
     SET_IRQ_0 = 0u,
@@ -108,7 +107,6 @@ static full_scanline_buffer_t scanline_buffers[SCANVIDEO_SCANLINE_BUFFER_COUNT];
 static uint32_t scanline_data[SCANVIDEO_PLANE_COUNT][SCANVIDEO_SCANLINE_BUFFER_COUNT][SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 
 // This state is sensitive as it is accessed by either core, and multiple IRQ handlers which may be re-entrant
-// Nothing in here should be touched except when protected by the appropriate spin lock.
 static struct
 {
     struct
@@ -154,7 +152,6 @@ static uint32_t _missing_scanline_overlay[] = {
     COMPOSABLE_EOL_SKIP_ALIGN,
 };
 
-// Missing scanline: debug color (blue by default) on base plane, empty overlays
 #ifndef SCANVIDEO_MISSING_SCANLINE_COLOR
 #define SCANVIDEO_MISSING_SCANLINE_COLOR SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255)
 #endif
@@ -164,7 +161,6 @@ static uint32_t _missing_scanline_data[] = {
     0u | (COMPOSABLE_EOL_ALIGN << 16u)};
 static full_scanline_buffer_t _missing_scanline_buffer;
 
-// Blank scanline: black on base plane, empty overlays
 static uint32_t _blank_scanline_data[] = {
     COMPOSABLE_RAW_1P | (0 << 16),
     COMPOSABLE_EOL_SKIP_ALIGN,
@@ -310,7 +306,7 @@ inline static void free_local_free_list_irqs_enabled(full_scanline_buffer_t *loc
     }
 }
 
-// Caller must own scanline_state_spin_lock
+// The caller must hold shared_state.scanline.lock.
 inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs_disabled(
     full_scanline_buffer_t **local_free_list)
 {
@@ -492,7 +488,6 @@ static inline void __not_in_flash_func(recover_pio_sms_and_dma_blank)(int *buffe
 static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
 {
 
-    // Offset scanlines: DMA blank data, skip scanline state advancement
     if (active_scanline_number < v_content_start || active_scanline_number >= v_content_end)
     {
         int buffers_to_free_count = 0;
@@ -511,7 +506,6 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
         return;
     }
 
-    // Content scanlines: normal path
     full_scanline_buffer_t *local_free_list = NULL;
     int buffers_to_free_count = 0;
     uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
@@ -1057,11 +1051,11 @@ static void scanvideo_timing_enable(bool enable)
 
 static void scanvideo_teardown(void)
 {
-    // First: the timing SM and its IRQs, before the program and the DMA they
-    // drive are taken away underneath them.
+    // scanvideo_timing_enable(false) runs first because the PIO IRQ handler
+    // starts scanline DMA transfers and the state machines execute the program
+    // that pio_clear_instruction_memory erases.
     scanvideo_timing_enable(false);
 
-    // Abort and unclaim DMA channels
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         dma_channel_abort(scanline_dma_ch[i]);
@@ -1069,7 +1063,6 @@ static void scanvideo_teardown(void)
             dma_channel_unclaim(scanline_dma_ch[i]);
     }
 
-    // Clear PIO instruction memory
     pio_clear_instruction_memory(video_pio);
 
     for (int sm = 0; sm < 4; sm++)
@@ -1084,7 +1077,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
 
     if (timing_changed)
     {
-        // Full teardown + setup + enable for timing changes and first call.
         if (!first_call)
             scanvideo_teardown();
         scanvideo_setup(mode);
@@ -1092,12 +1084,11 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
         return;
     }
 
-    // Same timing: keep timing SM (SM3) running so the monitor stays in sync.
-    // Disable scanline and DMA IRQs to freeze scanline processing.
-    // PIO0_IRQ_1 (timing FIFO top-up) stays enabled.
+    // With the same timing, the timing state machine keeps running so the sync
+    // signals continue and the monitor does not lose sync. PIO0_IRQ_1 stays
+    // enabled because its handler keeps that state machine's TX FIFO filled.
     irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), false);
 
-    // Abort scanline DMA and stop scanline SMs
     uint32_t sm_mask = 0;
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
@@ -1106,7 +1097,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     }
     pio_set_sm_mask_enabled(video_pio, sm_mask, false);
 
-    // Update mode state
     video_mode = *mode;
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
@@ -1114,14 +1104,12 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
 
     ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
 
-    // Re-adapt PIO program for new x_scale and reload in-place
     uint16_t instructions[32];
     copy_program(&composable_program, instructions, count_of(instructions));
     composable_adapt_for_mode(mode, instructions);
     for (uint i = 0; i < composable_program.length; i++)
         video_pio->instr_mem[video_program_load_offset + i] = instructions[i];
 
-    // Reset shared state, advancing to the next frame
     uint32_t next_frame = (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
     init_shared_state();
     shared_state.scanline.next_scanline_id = next_frame;
@@ -1132,16 +1120,15 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     init_scanline_buffers();
     init_static_scanline_buffers();
 
-    // Reset file-scope state not covered by shared_state memset
     scanvideo_set_scanline_repeat_fn(NULL);
 
-    // Force remaining scanlines to blank until vblank resets to 0
+    // With active_scanline_number at v_content_end, the rest of this frame is
+    // blank until the vblank IRQ resets it to 0.
     active_scanline_number = v_content_end;
     vblank_scanline_number = 0;
     display_scanline_pos = v_content_end;
     generation_allowed = true;
 
-    // Re-init and restart scanline SMs
     uint jmp = video_program_load_offset + pio_encode_jmp(PIO_OFFSET(entry_point));
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
         setup_sm(scanline_sm[i], video_program_load_offset);
@@ -1150,7 +1137,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
         pio_sm_exec(video_pio, scanline_sm[i], jmp);
     pio_set_sm_mask_enabled(video_pio, sm_mask, true);
 
-    // Re-enable IRQs
     irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), true);
 }
 

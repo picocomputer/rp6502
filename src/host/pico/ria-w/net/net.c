@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-
 #include "ria-w/net/modem.h"
 #include "ria-w/net/net.h"
 #include "core/sys/debug_log.h"
@@ -13,9 +12,9 @@
 #include <lwip/dns.h>
 #include <string.h>
 
-// Keepalive timing: detect silent peer disappearance (NAT drop, router
-// reboot, client Wi-Fi loss) in ~90 s so net_err → net_close →
-// on_close can recover state instead of wedging forever on tcp_sndbuf=0.
+// Keepalive detects a peer that disappeared without closing, such as after a
+// NAT drop or a router reboot, in about 90 s: 60 s idle, then three probes
+// 10 s apart.
 #define NET_KEEP_IDLE_MS 60000
 #define NET_KEEP_INTVL_MS 10000
 #define NET_KEEP_CNT 3
@@ -49,12 +48,11 @@ typedef struct
 
 static net_conn_t net_conns[NET_MAX_CONNECTIONS];
 
-// Per-lookup context passed as the DNS callback arg. lwIP has no cancel API,
-// so a resolution can complete after the caller has moved on to a new
-// connection on the same descriptor. The ctx must be immutable for the
-// callback's lifetime, so we allocate one from a pool per lookup and free it
-// when the callback fires. The gen snapshot then lets a stale callback tell
-// "this lookup is mine" from "descriptor was reused".
+// net_close does not cancel a DNS lookup, so a lookup can finish after its
+// descriptor has been closed and opened again. Each lookup therefore gets a
+// context from this pool that is freed when the callback runs, and the
+// callback drops a result whose gen no longer matches the descriptor's
+// dns_gen.
 #define NET_DNS_CTX_POOL (NET_MAX_CONNECTIONS * 2)
 typedef struct
 {
@@ -121,10 +119,6 @@ static void net_drain(net_conn_t *nc)
     nc->pbuf_pos = 0;
 }
 
-// Detach all callbacks from pcb and close or abort it. Returns true if
-// tcp_abort was invoked (either directly for an unconnected pcb, or as a
-// fallback after tcp_close refused). Callers inside a tcp callback must
-// translate a true return into ERR_ABRT.
 static bool net_pcb_teardown(struct tcp_pcb *pcb, bool connected)
 {
     tcp_arg(pcb, NULL);
@@ -229,16 +223,12 @@ uint16_t net_tx(int desc, const char *buf, uint16_t len)
         }
         if (err == ERR_MEM)
             return 0;
-        // ERR_CONN/ERR_CLSD/ERR_ABRT/ERR_RST and any unclassified err_t:
-        // treat as terminal. Retrying an unknown error can spin.
         RP6502_LOG(net, WARN, "tcp_write err %d, closing", err);
         net_close(desc);
     }
     return 0;
 }
 
-// All-or-nothing send. Use when partial writes would corrupt a framed message
-// (IAC triples, subnegotiation). Returns true if the whole buffer was queued.
 bool net_tx_all(int desc, const char *buf, uint16_t len)
 {
     net_conn_t *nc = &net_conns[desc];
@@ -263,9 +253,6 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
 {
     net_conn_t *nc = (net_conn_t *)arg;
     int desc = net_desc(nc);
-    // Docs promise err == ERR_OK today but reserve the right to change that.
-    // Treat any non-OK as a terminal condition: free pbuf (contract: we own
-    // it once we return ERR_OK) and tear down inline.
     if (err != ERR_OK)
     {
         RP6502_LOG(net, WARN, "net_recv err %d", err);
@@ -283,12 +270,12 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
         nc->state = net_state_closing;
         if (nc->on_close)
             nc->on_close(desc);
-        // on_close may have called net_close, which would have already torn
-        // down tpcb. Detect that and bail.
+        // on_close can call net_close, which tears down tpcb, so the state and
+        // pcb are checked after on_close returns.
         if (nc->state != net_state_closing || nc->pcb != tpcb)
             return ERR_OK;
         if (nc->pbuf_head != nc->pbuf_tail)
-            return ERR_OK; // defer close until net_rx drains the ring
+            return ERR_OK;
         nc->pcb = NULL;
         nc->state = net_state_closed;
         return net_pcb_teardown(tpcb, true) ? ERR_ABRT : ERR_OK;
@@ -311,9 +298,6 @@ static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     net_conn_t *nc = (net_conn_t *)arg;
     int desc = net_desc(nc);
     (void)tpcb;
-    // Docs annotate err as "always ERR_OK currently ;-) @todo!" — connect
-    // failures currently arrive via the err callback. Future-proof: if err
-    // ever carries a real error, close cleanly instead of asserting.
     if (err != ERR_OK)
     {
         RP6502_LOG(net, WARN, "net_connected err %d", err);
@@ -345,10 +329,7 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     net_conn_t *nc = ctx->nc;
     uint16_t gen = ctx->gen;
     (void)name;
-    // ctx is one-shot; free before doing anything else so a recursive
-    // close / new open can reuse the slot safely.
     net_dns_ctx_free(ctx);
-    // Drop stale callbacks from a previous net_open on this descriptor.
     if (gen != nc->dns_gen || nc->state != net_state_dns_lookup)
     {
         RP6502_LOG(net, DEBUG, "DNS stale callback dropped");
@@ -425,9 +406,6 @@ static net_listener_t *net_find_listener(uint16_t port)
     return NULL;
 }
 
-// Fires if the pending pcb is aborted by lwIP (e.g. remote RST) before the
-// user calls net_accept. lwIP has already freed the pcb, so we just drop our
-// dangling pointer.
 static void net_pending_err(void *arg, err_t err)
 {
     net_listener_t *nl = (net_listener_t *)arg;
@@ -447,8 +425,6 @@ static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
         return ERR_ABRT;
     }
     nl->pending_pcb = newpcb;
-    // Register a safety err callback so a RST arriving before net_accept
-    // doesn't leave us with a dangling pending_pcb.
     tcp_arg(newpcb, nl);
     tcp_err(newpcb, net_pending_err);
     bool handled = nl->on_accept ? nl->on_accept(nl->port) : false;
@@ -551,7 +527,6 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int))
     nl->pending_pcb = NULL;
     nc->state = net_state_connected;
     nc->on_close = on_close;
-    // Re-arm callbacks from the listener's safety wiring onto this conn.
     tcp_arg(nc->pcb, nc);
     tcp_nagle_disable(nc->pcb);
     tcp_err(nc->pcb, net_err);

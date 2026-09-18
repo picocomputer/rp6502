@@ -2,20 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * A scripted terminal session, on whichever machine this tree built: forty
- * lines of scrolling past the screen, a DECSTBM region scroll that permutes
- * the row map, lazy EL clears, the SGR set with an SGR 58 underline colour,
- * DEC Special Graphics, italic, an alt-screen round trip whose content must
- * not survive the return, and a steady block cursor parked mid-screen.
- *
- * The picture it settles to is held to the CRC below. It used to be held to
- * the emulator rendering the same script inside this test.
- *
- * The blink phase is not here. It runs off wall clock on one machine and off
- * mtime on the other, so it is not a thing the two can be asked together;
- * tests/rtl/vga makes that claim against the machine that has a phase
- * register to hold still.
  */
 
 #include "host/host.h"
@@ -30,7 +16,6 @@
 
 UTEST(session, scripted_terminal_frame_640x480)
 {
-    /* The console canvas, which this script never changes. */
     const int w = 640, h = 480;
     const size_t px = (size_t)w * (size_t)h;
 

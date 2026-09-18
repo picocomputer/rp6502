@@ -180,8 +180,6 @@ module mode1 (
         pal_bg = pal_qb;
     end
 
-    /* The font byte comes either from XRAM or from the store the soft CPU
-     * owns, and F_FONT sequences both channels. */
     logic [7:0] font_gather;
     always_comb mode1_f_addr = fh16
         ? {2'b00, scanrow, g_glyph}

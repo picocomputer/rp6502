@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The emulator's CPU (vendor/chips w65c02.h) as a dut_t, so the suites in this
- * directory can hold it to the same evidence as the FPGA core's w65c02.sv.
- *
- * Standalone by necessity: CHIPS_IMPL lives here, so nothing that links this
- * can also link emu_core, which carries its own copy and wires the CPU to the
- * RP6502 bus rather than the flat memory the suites assume.
  */
 
 #define CHIPS_IMPL
@@ -19,11 +12,11 @@
 static w65c02_t cpu;
 static uint64_t pins;
 
-/* Scripted pin levels, reapplied every tick. The model clears RES in its
- * returned mask when interrupt entry starts, but a pin is a level the
- * harness owns; holding it high must keep resetting, as it does in RTL.
- * Power-on reset is the exception: init plants RES for exactly one SYNC, so
- * it rides along as a one-shot rather than a level. */
+/* The pin levels are reapplied on every tick. w65c02_tick clears RES in the
+ * pin mask it returns when a reset sequence starts, but a RES pin held active
+ * has to keep resetting the CPU, as it does in the RTL. The RES bit that
+ * w65c02_init sets starts a single reset, so chips_reset applies it to the
+ * first tick only and chips_begin discards it. */
 static uint64_t pin_levels;
 static uint64_t pin_once;
 
@@ -36,8 +29,6 @@ static void chips_begin(const dut_regs_t *regs)
     cpu.X = regs->x;
     cpu.Y = regs->y;
     cpu.P = regs->p;
-    /* w65c02_init leaves RES pending; the vectors start mid-stream with the
-     * CPU about to fetch an opcode, so enter at SYNC instead of a reset. */
     cpu.brk_flags = 0;
     cpu.irq_pip = 0;
     cpu.nmi_pip = 0;

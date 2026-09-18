@@ -1,15 +1,3 @@
-# The firmware the machine's soft CPU runs: this board's, cross-compiled for
-# the Hazard3 in the fabric beside it. Every tree that boots the machine needs
-# it, so it is here rather than inside the bitstream recipe.
-#
-# Toolchain per README: apt install gcc-riscv64-unknown-elf.
-#
-# RP6502_SOFT_CPU   the RISC-V toolchain is present, so anything that needs a
-#                   booted soft CPU can be registered.
-# RP6502_SW_TTY     the tty.c that answers the console wire, for a tree that
-#                   boots this firmware somewhere else. The Pocket's own
-#                   unless set.
-
 include(${RP6502_SRC}/core/assets.cmake)
 include(${RP6502_SRC}/core/log.cmake)
 if(NOT RP6502_SW_TTY)
@@ -22,24 +10,10 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
     set(SW_SRC ${CMAKE_CURRENT_LIST_DIR}/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
-    # The firmware's own headers carry the hardware's addresses, so a window
-    # that moves has to rebuild the image that writes to it; the rest are here
-    # because this image compiles core sources. Broader than the include list
-    # needs, which costs one gcc run and nothing re-verilates behind it.
-    # CONFIGURE_DEPENDS because a plain GLOB is evaluated once: a new header
-    # would go untracked, and a deleted one leaves ninja demanding a file no
-    # rule can produce.
-    # The .def files are headers by another name: this image compiles
-    # core/str/str.c, which includes core/def/str_sys.def, so editing one has
-    # to relink sw.bin. Only this build needs saying -- the RIA and the
-    # emulator get it from gcc depfiles.
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/core/def/*.def
         ${CMAKE_CURRENT_LIST_DIR}/*.h)
-    # The seams this image is built against: what an OS answers and what a
-    # host owes. Not recursive, because the answers below them belong to other
-    # machines and this one compiles its own.
     file(GLOB SW_SEAMS CONFIGURE_DEPENDS
         ${RP6502_SRC}/osal/*.h
         ${RP6502_SRC}/host/*.h)
@@ -73,10 +47,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c
         ${RP6502_SRC}/core/str/unicode.c
-        # The real HID drivers, told by apf.c what the dock holds. No
-        # descriptor ever reaches this machine, so core/hid/parse.c is
-        # not here. The layouts are an asset, so layout.c reads them rather
-        # than linking twenty kilobytes of table into a 96 KB memory.
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
@@ -99,42 +69,18 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     rp6502_log_flags(SW_LOG_FLAGS)
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-            # Prologues and epilogues become calls into libgcc's
-            # __riscv_save_N/__riscv_restore_N instead of a run of
-            # stores. Kilobytes of text for a few cycles a call, and the
-            # whole firmware shares one TCM with the stack and the heap,
-            # so text is the scarce thing here, not cycles.
             -msave-restore
             -Os -ffreestanding -nostartfiles
-            # Integer-only printf AND scanf. Both halves are load-bearing:
-            # the specs turns this one option into a --defsym for each, and
-            # scanf is reachable -- strftime calls tzset, which parses the
-            # TZ string with sscanf. Without the scanf defsym that resolves
-            # to the double implementation and drags in ryu float parsing.
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
-            # -flto turns a missing prototype into a miscompile of
-            # unrelated code, and this line carried no -W at all.
             -Werror=implicit-function-declaration
             -I ${CMAKE_CURRENT_LIST_DIR}
             -I ${RP6502_SRC}
             -I ${RP6502_ASSETS}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
-            # vendored ffconf.h tests it with #if; the other two roots
-            # pass it and this one was relying on undefined-is-zero.
             -DRP6502_EXFAT=0
-            # str.h's row default and str.c's fallback both stringize this;
-            # undefined, the default becomes the macro's own name, too long
-            # for the field and left unterminated.
             -DRP6502_LOCALE=EN
-            # The scanline program lives in fabric registers and the fabric
-            # rasterizes, so the mode files' software renderers are named by
-            # nothing here. Without this the tile modes name core's font,
-            # which is not the font this machine draws with.
             -DRP6502_VGA_FABRIC
-            # 64 bytes of table rather than 1024. This image shares a 96 KB
-            # memory with its stack and heap, and its CRC is a cold path:
-            # nothing here makes a savestate, the fabric does.
             -DRP6502_CRC32_SMALL
             ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments

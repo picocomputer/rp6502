@@ -3,57 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 6502's 64 KB, on the Pocket's own SRAM chip instead of block
- * memory. AS6C2016-55BIN: 128K x 16, asynchronous, 55 ns. Only 64 KB of
- * the chip is addressed and only its low byte lane, for the reasons
- * below.
- *
- * The 64 KB it takes off the fabric is block memory the rest of the
- * machine gets to keep, and it is a better fit for this job than the
- * SDRAM could ever be. The 6502 gets 119 ns per access at 8 MHz — six
- * clocks at the accumulator's tightest — and this part answers in 55 ns
- * every time. No rows, no refresh, no banks, no pattern that defeats it.
- * The SDRAM is fast on average and slow when it is unlucky, which is
- * the wrong shape for a machine whose contract is that the clock you
- * asked for is the clock you get.
- *
- * BYTE WIDE, NOT HALFWORD. The chip is 16 bits and only the low lane is
- * used: A0-A15 carry the 6502's address directly, A16 is tied low, LB#
- * is always asserted and UB# never is. Reading halfwords and holding
- * the odd byte — which is what the SDRAM controller does — buys nothing
- * here, because there is no per-access overhead to amortise. tAA is
- * 55 ns for one byte or two, so the byte you saved costs the same as
- * the byte you fetched. It would have bought a couple of milliamps and
- * cost a hold register, a comparator and two invalidation paths.
- *
- * NO CHIP ENABLE. Analogue's port list has none, so the board ties it
- * low and this part can never be deselected. WE# is therefore the only
- * interlock against a write, and it is registered with a known power-on
- * state for that reason: a glitch on it is a write to whatever address
- * happens to be standing, and nothing downstream would ever know.
- *
- * ONE PORT, TWO MASTERS. Block memory gave the soft CPU a second port
- * for free and this does not. The 6502 owns the chip while it runs; the
- * soft CPU's window is served when it is halted, which is when the only
- * two users of that window exist — the loader writing an image, and the
- * boot program's read-back. If it is asked for while the 6502 runs, the
- * machine is held for a cycle rather than deadlocked.
+ * The Pocket's SRAM is an AS6C2016-55BIN, a 128K x 16 asynchronous part
+ * with an address access time, tAA, of 55 ns. Analogue's port list has no
+ * chip enable for it, so the part is always selected, only the byte
+ * enables can deselect it, and WE# low while LB# or UB# is low is always
+ * a write.
  */
 
 module pocket_sram (
     input logic clk,
 
-    /* The 6502's advance, before this module's own hold is applied. */
-    /* Whether the machine has its clock. phi2_en and everything else
-     * port A is launched from is machine logic: when the machine's
-     * clock is cut those signals freeze wherever they were, and a
-     * pulse frozen high would launch the same access -- including the
-     * same write -- every few cycles of this clock, which does not
-     * stop. Port B belongs to the serializer and stays live. */
+    /* run drops once the machine's clock has stopped and rises again
+     * before that clock returns. The PHI2 enable is registered in machine
+     * logic, which freezes when its clock stops, while clk keeps running,
+     * so without run an enable frozen high would keep launching port A
+     * accesses, writes included, for as long as the machine is stopped. */
     input logic run,
-    /* A restore's one forced port-A fetch: the jam put a new machine
-     * into the flops, and the read its pipeline had in flight belongs
-     * to the old one. */
     input logic refill,
     input logic phi2_en,
     input logic cpu_run,
@@ -69,8 +34,6 @@ module pocket_sram (
     input logic b_stb,
     output logic [7:0] pocket_sram_b_rdata,
     output logic pocket_sram_b_stall,
-    /* Suppresses the next phi2_en so a soft CPU access cannot land on
-     * top of the 6502's. */
     output logic pocket_sram_hold,
 
     output logic [16:0] pocket_sram_a,
@@ -83,34 +46,18 @@ module pocket_sram (
     output logic pocket_sram_lb_n
 );
 
-    /* Four clocks, 79.4 ns, against tAA's 55. The parts are a launch
-     * register into the pad, the chip's own access, and the pad back
-     * into a capture register; the board contributes almost nothing
-     * because the chip sits as close to the die as it can be put.
+    /* An access takes four clocks, 79.4 ns, against a tAA of 55 ns, and
+     * the 24.4 ns left over covers the pad crossings out and back. Three
+     * clocks would be 59.5 ns and leave 4.5 ns for both crossings.
      *
-     * Three clocks is arithmetically impossible — 59.5 ns of budget
-     * against 55 ns of tAA leaves nothing for either pad crossing — and
-     * five does not fit the 6502, which samples on the sixth.
-     *
-     * The address comes from w65c02's pre-registration bus, so the launch
-     * happens ON the enable rather than a clock after it. Taking the
-     * registered address instead cost a whole clock at both ends: it
-     * fetched the previous cycle's byte, and once that was fixed it left
-     * the byte arriving on the fifth clock with only the sixth to reach
-     * the CPU's address cone — which the fitter measured 0.604 ns short
-     * of. Launching on the enable gives the chip four clocks and the
-     * cone two. */
+     * Except while refill is high during a savestate restore, port A's
+     * address is cpu_next_addr, the value cpu_addr takes at the PHI2
+     * enable edge, so the access launches on that edge. The byte is then
+     * captured on the fourth clock and read by the 6502 on the sixth at
+     * the earliest, which gives that path the two clocks that wiring.sdc
+     * grants it. */
     localparam int PH_LAST = 3;
 
-    /* Both ports run the same four clocks, because the chip is the same
-     * chip either way. Port B was twice as long for a while, which was
-     * never about the SRAM: the address register is shared, the 6502's
-     * path into it is a multicycle that the SDC grants four clocks, and
-     * a shared register takes the loosest constraint written against it,
-     * so the soft CPU's ordinary logic inherited a grant it had not
-     * earned. Doubling its access hid that. The SDC now says the true
-     * thing about each path separately, so there is nothing left to hide
-     * from and the port is as long as tAA needs. */
     logic [1:0] ph;
     logic busy_a, busy_b, b_done;
     logic serving_we;
@@ -125,8 +72,6 @@ module pocket_sram (
         pocket_sram_dq_out = '0;
         pocket_sram_dq_oe = 1'b0;
         pocket_sram_oe_n = 1'b1;
-        /* The one that matters at power-on: the board holds CE# low, so
-         * a WE# that came up asserted would be writing already. */
         pocket_sram_we_n = 1'b1;
         pocket_sram_ub_n = 1'b1;
         pocket_sram_lb_n = 1'b1;
@@ -134,37 +79,28 @@ module pocket_sram (
         pocket_sram_b_rdata = '0;
     end
 
-    /* The stall lifts on a registered done rather than on the terminal
-     * phase itself, which is what makes the byte reliably older than the
-     * strobe that collects it. Lifting combinationally in the same clock
-     * that captured the byte handed back the PREVIOUS access's data —
-     * every soft CPU read one behind, which a bench ladder caught by
-     * writing A5 then 3C and reading back 3C twice.
-     *
-     * Nothing waits on this port: it serves the loader and the boot
-     * read-back, both with the 6502 halted. A spare clock is free here
-     * and an off-by-one is not. */
     always_comb begin
+        /* pocket_sram_b_stall ends when b_done is set, on the same edge
+         * that loads pocket_sram_b_rdata, so a port B requester samples
+         * pocket_sram_b_rdata no earlier than the edge after that one. If
+         * the stall ended while ph was PH_LAST, the requester would
+         * sample pocket_sram_b_rdata on the edge that loads it and take
+         * the previous access's byte. */
         pocket_sram_b_stall = b_stb && !b_done;
-        /* busy_a holds the 6502 off too. Port A takes four clocks to
-         * answer and the restore's refill launches one of them with the
-         * machine's clock already back; without this the next enable
-         * lands before the byte does and the restored core consumes the
-         * one the old session left. It costs nothing while running: the
-         * 6502's enables are at least six clocks apart at its fastest,
-         * and the window is four. */
+        /* pocket_sram_hold includes busy_a because refill can launch a
+         * port A access after the machine's clock is back. The access
+         * takes four clocks, so without busy_a a PHI2 enable could
+         * arrive before the byte, and the restored 6502 would take its
+         * first cycle on the byte fetched before the restore. busy_a
+         * never suppresses an enable during normal running, because PHI2
+         * enables are at least six clocks apart and busy_a lasts four. */
         pocket_sram_hold = busy_a || busy_b || (b_stb && !busy_a);
     end
 
     always_ff @(posedge clk) begin
-        /* The done flag lives until the soft CPU takes its answer away. */
         if (!b_stb)
             b_done <= 1'b0;
 
-        /* Defaults: the bus released, no write, the part deselected by
-         * its byte enables. Deselecting with LB#/UB# rather than OE# is
-         * what the datasheet's second standby row allows, and with CE#
-         * strapped low it is the only standby there is. */
         pocket_sram_dq_oe <= 1'b0;
         pocket_sram_oe_n <= 1'b1;
         pocket_sram_we_n <= 1'b1;
@@ -185,7 +121,6 @@ module pocket_sram (
                 ph <= ph + 2'd1;
                 pocket_sram_dq_oe <= serving_we;
                 pocket_sram_oe_n <= serving_we;
-                /* tWP wants 45 ns; three clocks is 59.5. */
                 pocket_sram_we_n <= !(serving_we && ph < 2'(PH_LAST));
             end
         end else if ((refill || (phi2_en && cpu_run && run))

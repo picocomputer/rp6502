@@ -1,10 +1,7 @@
-// rp6502: two changes. $ceil is not synthesizable -- the author's own
-// comment says to set CLK_DIV_COUNT by hand -- and the clock is ours
-// rather than the design's native 12.727 MHz. Fmax measured 91.65 MHz on
-// this part, so the core runs directly on clk_sys and the machine gains no
-// second clock domain to cross. 50.4e6/1014 puts the sample rate at
-// 49,704 Hz against the 49,715.9 the chip specifies: 0.024% flat, where
-// clocking it at clk_sys/4 would have been a full 1% and audible.
+// rp6502: the OPL2 runs on the machine clock, 50.4 MHz, so that no clock
+// domain crossing is needed between it and the machine. With CLK_DIV_COUNT
+// at 1014 the sample rate is 50.4e6/1014 = 49,704 Hz, which is 0.024%
+// below the 49,715.9 Hz of the original OPL2 chip.
 /*******************************************************************************
 #   +html+<pre>
 #
@@ -59,14 +56,14 @@ package opl2_pkg;
      * give us a 49.7148KHz sample clock. We don't have to worry about clock
      * domain crossings.
      */
-    localparam CLK_FREQ = 50.4e6; // rp6502: clk_sys, not the design's native 12.727 MHz
+    localparam CLK_FREQ = 50.4e6;
     localparam DAC_OUTPUT_WIDTH = 24;
     localparam INSTANTIATE_TIMERS = 0; // set to 1 to use timers, 0 to save area
     localparam NUM_LEDS = 4; // connected to kon bank 0 starting at 0
     localparam INSTANTIATE_SAMPLE_SYNC_TO_DAC_CLK = 0;
 
     localparam DESIRED_SAMPLE_FREQ = 49.7159e3;
-    localparam CLK_DIV_COUNT = 1014; // rp6502: ceil(50.4e6/49715.9); $ceil is not synthesizable
+    localparam CLK_DIV_COUNT = 1014; // rp6502: 1014 is ceil(50.4e6/49715.9).
     localparam ACTUAL_SAMPLE_FREQ = CLK_FREQ/CLK_DIV_COUNT;
 
     localparam NUM_REG_PER_BANK = 'hF6;

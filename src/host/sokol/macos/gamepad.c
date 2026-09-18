@@ -29,8 +29,6 @@ static uint64_t gamepad_macos_id(GCController *controller)
 
 static uint8_t gamepad_macos_type(GCController *controller)
 {
-    /* productCategory is a display string, so only the spellings Apple
-     * documents are read and anything else stays unknown. */
     NSString *category = controller.productCategory;
     if (!category)
         return GAMEPAD_TYPE_UNKNOWN;

@@ -2,19 +2,6 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# The two CI files against each other.
-#
-# .gitlab-ci.yml is what the libretro buildbot runs, and what it builds is what
-# the Core Downloader serves. .github/workflows/ci.yml is where we find out a
-# platform stopped compiling. A target in one file and not the other is either
-# a platform nobody here builds or a platform we build for nobody, and neither
-# file says so on its own.
-#
-# GitLab names a target by the ci-template each job extends and GitHub names it
-# in the matrix, so the two sides are compared through the table below. A job
-# extending a libretro template that is not in the table stops this test, which
-# is what happens the first time a platform is added.
 
 import argparse
 import sys
@@ -41,7 +28,6 @@ def load(path):
 
 
 def gitlab_targets(path):
-    """Every job that extends a libretro build template, by target."""
     found = {}
     for job, body in load(path).items():
         if job.startswith(".") or not isinstance(body, dict):
@@ -57,7 +43,6 @@ def gitlab_targets(path):
 
 
 def github_targets(path):
-    """Every target named by a libretro job's matrix."""
     found = {}
     for job, body in load(path)["jobs"].items():
         if not job.startswith("libretro"):
@@ -78,8 +63,6 @@ def main():
     buildbot = gitlab_targets(a.gitlab)
     actions = github_targets(a.github)
 
-    # A file that parsed but yielded nothing is a rename or a rewrite, not an
-    # agreement, and two empty sets are equal.
     for path, found in ((a.gitlab, buildbot), (a.github, actions)):
         if not found:
             print(f"{path}: no libretro targets found", file=sys.stderr)

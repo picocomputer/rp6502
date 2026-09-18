@@ -312,17 +312,17 @@ void app_frame(void)
 bool app_boot_rom(const char *path)
 {
 #ifdef EMU_WITH_DEBUGGER
-    /* A DAP client owns the run state. A plain --debug session does not, so a
-     * ROM dropped on it boots. */
+    /* A DAP client controls the run state. A plain --debug session has no DAP
+     * client, so a ROM dropped on it boots. */
     if (dap_is_active())
         return false;
 #endif
     /* The host hands a UTF-8 path and the machine works in the guest's OEM code
-     * page. A character the code page cannot spell becomes 0x7F, which names no
-     * file, so an unrepresentable path is refused here before the machine is
-     * touched rather than halting the running program on a failed load.
-     * oem_from_utf8 writes one OEM byte per UTF-8 sequence, so the UTF-8 length
-     * always holds the result. */
+     * page. A character that has no byte in the code page becomes 0x7F, which
+     * names no file, so an unrepresentable path is refused here before the
+     * machine is touched rather than halting the running program on a failed
+     * load. oem_from_utf8 writes one OEM byte per UTF-8 sequence, so the UTF-8
+     * length always holds the result. */
     size_t osz = strlen(path) + 1;
     char *oem = malloc(osz);
     if (!oem)

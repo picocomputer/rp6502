@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The bench's end of the Pocket's console wire: a program's console and the
- * machine's own lines both go to the port the bench reads, one word poked at
- * the fabric per byte. Plus the stream picolibc wants before printf will link.
  */
 
 #include "core/com/tty.h"
@@ -25,9 +21,6 @@ void tty_write(const char *buf, int len)
     }
 }
 
-/* picolibc wants a stream before printf will link. Pointing it at com_putchar
- * puts a plain printf through the same CRLF expansion, bell scan and terminal
- * tap as com_printf. */
 static int tty_stdio_putc(char c, FILE *f)
 {
     (void)f;
@@ -39,8 +32,8 @@ static FILE tty_stdio = FDEV_SETUP_STREAM(tty_stdio_putc, NULL, NULL,
 FILE *const stdout = &tty_stdio;
 FILE *const stderr = &tty_stdio;
 
-/* Streamed rather than buffered: the FILE above already reaches com_putchar,
- * and a 4 KB stack has no room for a formatting buffer. */
+/* com_printf formats straight to stdout instead of into a 1024-byte buffer
+ * as core/com/tty.c does, because the stack is only 4 KB. */
 int com_printf(const char *fmt, ...)
 {
     va_list va;

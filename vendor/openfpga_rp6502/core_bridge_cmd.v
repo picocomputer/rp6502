@@ -2,24 +2,14 @@
 // bridge host/target command handler
 // 2022 Analogue
 //
-//
-// rp6502: two changes from Analogue's file.
-//
-// 1. Target command 0x0152, Debug Event Log, which upstream does not carry.
-//    target_debug_done retires with the same shape as target_dataslot_done,
-//    so a producer can pace itself against it.
-//
-// 2. Every command now writes the whole of target_0 rather than its low
-//    half. Upstream sets target_0[15:0] at TARG_ST_IDLE and leaves the
-//    previous command's "ok" (0x6F6B) standing in [31:16] for one clk_74a
-//    cycle. The host polls asynchronously; if a poll lands in that window
-//    it reads "ok" beside a new command code, does not recognise "cm", and
-//    never starts the operation -- and the FSM then waits for a result that
-//    will not come. Non-deterministic, and likelier the more commands are
-//    issued. Diagnosed by thinkelastic/PocketQuake, whose src/fpga/
-//    dataslot.md tracks it down from an intermittent hang; the fix here is
-//    theirs. Writing 0x0000 first is safe because it matches none of
-//    "cm"/"bu"/"ok", so the host ignores it and sees a clean transition.
+// rp6502: when a data slot command or target command 0x0152 is dispatched,
+// all of target_0 is written in TARG_ST_IDLE, with 0x0000 in the upper
+// half, and "cm" (0x636D) is written there one cycle later. Since the host
+// reads target_0 at any cycle, a write of the lower half alone would leave
+// the previous command's upper half, normally "ok" (0x6F6B), beside the new
+// command code for that cycle, which marks the new command as finished.
+// 0x0000 matches none of "cm", "bu" and "ok", so it marks no state of the
+// handshake.
 //
 
 // mapped to 0xF8xxxxxx on bridge
@@ -108,14 +98,11 @@ input   wire    [31:0]  target_dataslot_slotoffset,
 input   wire    [31:0]  target_dataslot_bridgeaddr,
 input   wire    [31:0]  target_dataslot_length,
 
-// rp6502: target command 0x0152, Debug Event Log. The upstream file
-// carries the four data-slot commands only. Rising edge triggered like
-// its siblings. target_debug_done goes high when the command retires
-// and stays high until the next one is dispatched, the same level-held
-// shape as target_dataslot_done - so a producer pacing itself against
-// it must wait for the fall before believing the rise. It always
-// retires: an unanswered command times out below rather than parking
-// the state machine that also serves the data slots.
+// rp6502: target_debug_done rises when a 0x0152 command finishes or times
+// out, and it stays high until it is cleared in TARG_ST_DEBUGEVENT for the
+// next 0x0152 command, as target_dataslot_done does for the data slot
+// commands, so a producer that paces itself against it waits for the fall
+// before it waits for the rise.
 input   wire            target_debug_event,
 input   wire    [31:0]  target_debug_id,
 output  reg             target_debug_done,
@@ -220,22 +207,21 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     reg             target_dataslot_openfile_1, target_dataslot_openfile_queue;
     reg             target_dataslot_flush_1, target_dataslot_flush_queue;
     reg             target_debug_event_1, target_debug_event_queue;
-    // A host that does not answer 0x0152 must not take the data slot
-    // commands down with it - this state machine serves both, and a
-    // core that cannot load a ROM is worse than one that cannot log.
+    // A 0x0152 command that the host does not finish times out, because
+    // this state machine also dispatches the data slot commands, and they
+    // wait in their queues until it returns to TARG_ST_IDLE.
     reg     [23:0]  target_debug_timeout;
-    // And a host that does not answer a data slot command must not take
-    // the session down: this host has never answered 0x0188, and without
-    // a deadline here one flush parks WAITRESULT_DSO forever. 2^26 clocks
-    // is about 0.9 s at 74.25 MHz - HALF pocket_file's deadline, and the
-    // ordering is the point. This side is the one parked, so it has to
-    // be the one that gives up first: retiring into a downstream still
-    // waiting hands the answer to someone. The other way round - which
-    // this counter was, at 2^28 against pocket_file's 2^27 - the
-    // downstream quits first, this state stays parked, and the next
-    // command adopts this one's late answer and then executes at the
-    // host unheard. Result code 7 marks the difference from a host that
-    // answered.
+    // A data slot command that the host does not finish times out after
+    // 2^26 clocks, about 0.9 s at 74.25 MHz, with result 7. The Pocket does
+    // not reply to Flush, 0x0188, so every flush ends in this timeout.
+    // 2^26 clocks is half of the 2^27-clock deadline in pocket_file, and
+    // this module has to time out first, because pocket_file waits for
+    // target_dataslot_done to fall before it waits for the rise. If
+    // pocket_file timed out first, target_dataslot_done could still be low
+    // when pocket_file started its next command, and pocket_file would take
+    // this command's late result as the result of that one. The next
+    // command would then be sent to the host only after pocket_file had
+    // stopped waiting for it.
     reg     [25:0]  target_dso_timeout;
     
     
@@ -614,7 +600,7 @@ always @(posedge clk) begin
     TARG_ST_WAITRESULT_DBG: begin
         target_debug_timeout <= target_debug_timeout + 1'b1;
         if(target_0[31:16] == 16'h6F6B || &target_debug_timeout) begin
-            // about 226ms at 74.25MHz
+            // The timeout is 2^24 clocks, about 226 ms at 74.25 MHz.
             target_debug_done <= 1;
             tstate <= TARG_ST_IDLE;
         end
@@ -644,12 +630,8 @@ always @(posedge clk) begin
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;
         end else if(&target_dso_timeout) begin
-            // about 0.9s at 74.25MHz - the host never picked it up.
-            // Take the sign down too: a mailbox left reading 'cm' is a
-            // command the host discovers anew on every poll until the
-            // next dispatch overwrites it - measured at thousands of
-            // discoveries in two seconds against Pocket OS 2_6's
-            // unanswered 0x0188.
+            // target_0 is cleared because "cm" (0x636D) in its upper half
+            // marks a command as pending for the host.
             target_0 <= 32'h0;
             target_dataslot_err <= 3'd7;
             target_dataslot_done <= 1;
