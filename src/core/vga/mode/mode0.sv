@@ -208,6 +208,12 @@ module mode0 (
             linebuf[{lb_bank, lb_addr}] <= lb_data;
     logic wr_bank;
     logic [9:0] t;  // the target line
+    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
+     * graphics spans two lines of timing, as in sched.sv. */
+    logic dbl;
+    always_comb dbl = cw == 10'd320;
+    logic [9:0] v_next;
+    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
     logic t_active;
     logic [8:0] term_line;
     logic [4:0] logical_row;
@@ -363,7 +369,7 @@ module mode0 (
         lb_we <= 1'b0;
         if (line_start) begin
             wr_bank <= !wr_bank;
-            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            t <= dbl ? {1'b0, v_next[9:1]} : v_next;
             run <= 1'b1;
             rescol <= '0;
             px <= '0;

@@ -300,8 +300,10 @@ void vga_task(void)
      * for that scanline have run, because the 6502 catches up to the beam
      * afterwards, so a write it makes lands on a later line. */
     const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
-    if (vga_scanout && line < vga_canvas_height())
-        vga_render_scanline(line);
+    const int16_t y_scale = vga_canvas_y_scale();
+    const int16_t row = line / y_scale;
+    if (vga_scanout && line % y_scale == 0 && row < vga_canvas_height())
+        vga_render_scanline(row);
     beam_n++;
     if (!vsynced && line + 1 >= vga_vsync_line())
     {

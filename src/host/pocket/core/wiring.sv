@@ -1079,7 +1079,15 @@ module wiring
         wiring_aud_valid = psg_tick;
     end
 
-    always_comb vid_de = vid_de_full && vid_h < vid_cw && vid_v < vid_ch;
+    /* A 320 wide canvas spans two lines of timing per row of graphics, so
+     * the row is handed to the scaler on the first line of the pair and the
+     * second is blanked. The scaler still receives ch rows; what changed is
+     * that the beam now takes the whole frame to cross the canvas. */
+    logic vid_dbl;
+    always_comb vid_dbl = vid_cw == 10'd320;
+    always_comb vid_de = vid_de_full && vid_h < vid_cw
+        && (vid_dbl ? !vid_v[0] && vid_v < {vid_ch[8:0], 1'b0}
+                    : vid_v < vid_ch);
 
     logic [15:0] c_pix[3];
     always_comb

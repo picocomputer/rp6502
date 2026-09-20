@@ -854,7 +854,9 @@ UTEST(psleep, the_raster_registers_come_back)
     uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
     uint32_t vsync_pre = (uint32_t)MEM(prog__DOT__vsync_shadow);
     ASSERT_EQ(1u, canvas_pre);
-    ASSERT_EQ(240u, vsync_pre);
+    /* 320x240 spans two lines of timing a row, and the register counts
+     * lines of timing. */
+    ASSERT_EQ(480u, vsync_pre);
     ASSERT_NE(0u, prog_pre);
 
     uint64_t mtime_pre = (uint64_t)MEM(soc__DOT__mtime_us);

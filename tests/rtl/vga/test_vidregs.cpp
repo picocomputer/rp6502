@@ -39,11 +39,13 @@ UTEST(vidregs, console_return_restores_vsync_line)
 }
 
 /* The highest scanline end in prog_bands' programs is 224 on its 320x240
- * canvas, so the vsync line is 224 rather than the canvas height of 240. */
+ * canvas, so the vsync line is 224 rows rather than the canvas height of 240.
+ * The register counts lines of timing, and a 320 wide canvas spans two of
+ * them per row of graphics, so that is 448. */
 UTEST(vidregs, a_short_program_moves_the_vsync_line)
 {
     ASSERT_TRUE(boot("prog_bands", 320 * 240));
-    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 224);
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 448);
 }
 
 /* The sprite stage stops drawing a line whose sprites are not finished when

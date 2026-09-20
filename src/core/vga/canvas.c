@@ -91,6 +91,15 @@ int16_t vga_canvas_width(void)
     return canvas_w;
 }
 
+/* A 320 wide canvas is scanned out with its lines doubled, so one row of
+ * graphics spans two lines of timing and the beam stays in step with the
+ * 6502. The canvas sits at the top of the frame and the porch takes up the
+ * slack, rather than modelling the letterbox the 4:3 views letterbox with. */
+int16_t vga_canvas_y_scale(void)
+{
+    return canvas_w == 320 ? 2 : 1;
+}
+
 void vga_canvas_size(int *w, int *h)
 {
     *w = canvas_w;

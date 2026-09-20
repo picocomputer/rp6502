@@ -47,6 +47,16 @@ module sched (
 );
 
     logic [9:0] t /*verilator public_flat_rd*/;
+    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
+     * graphics spans two lines of timing and the beam keeps step with the
+     * 6502. The row is rendered again on the second line rather than held,
+     * because the scan side erases the buffer behind the beam and leaves
+     * nothing to re-scan. */
+    logic dbl;
+    always_comb dbl = cw == 10'd320;
+    logic [9:0] v_next;
+    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
+
     logic render_now;
     always_comb render_now = t < ch;
     logic [8:0] t_row;
@@ -156,7 +166,7 @@ module sched (
             $fatal(1, "fill underrun");
 `endif
         if (line_start) begin
-            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            t <= dbl ? {1'b0, v_next[9:1]} : v_next;
             rd_i <= '0;
             plane_pending <= '0;
             if (term_armed)
