@@ -153,7 +153,7 @@ module mode4 (
         + {(17'(row_texel) + 17'(px_i[15:0])), 1'b0};
 
     /* The affine accumulators, the SIO interpolator's arithmetic: the
-     * first sample sits one past the span and the scan runs backward,
+     * first sample is the span's last column and the scan runs backward,
      * subtracting a00 and a10 in wrapping thirty-two bits — the exact
      * uint32 stream the oracle's software interpolator produces. */
     logic signed [31:0] af_a00, af_a10;
@@ -173,7 +173,7 @@ module mode4 (
             + (18'({11'd0, vi}) << (d_log[2:0] + 4'd1));
     end
 
-    /* The span's first sample, one past its end — four fixed-point
+    /* The span's first sample, its last column — four fixed-point
      * multiplies, every term wrapping mod 2^32 like the oracle's.
      *
      * (t << 8) * k and (t * k) << 8 agree on their low thirty-two bits,
@@ -182,7 +182,7 @@ module mode4 (
      * of each product survive the shift, so the slice is exact and not a
      * rounding. */
     logic signed [17:0] kx;
-    always_comb kx = 18'(tex_offs_x0) + size_x0;
+    always_comb kx = 18'(tex_offs_x0) + size_x0 - 18'sd1;
     /* Registered, so the multiply and the sum after it are not one
      * clock's work. Together in one hop this was the longest path in the
      * machine: a size bit through the width adder, a 24-bit multiply,

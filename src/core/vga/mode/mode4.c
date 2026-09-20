@@ -288,18 +288,17 @@ static inline uintptr_t sw_interp_pop_full(void)
 
 // The blit walks the span from its right end backward, and each step is the
 // negated first column of the matrix. A pop reads the accumulator before
-// stepping it, so the seed at tex_offs_x + size_x samples one column right of
-// the pixel each write lands on.
+// stepping it, so the seed is the span's last column rather than one past it.
 static inline void setup_interp_affine(
     intersect_t isct,
     const affine_transform_t atrans)
 {
     int32_t x0 =
-        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
+        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
         mul_fp1616(atrans[1], isct.tex_offs_y * AF_ONE) +
         atrans[2];
     int32_t y0 =
-        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
+        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
         mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
         atrans[5];
 #if PICO_ON_DEVICE

@@ -151,9 +151,8 @@ void tablet_stop(void)
 
 bool tablet_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - TABLET_BLOCK_SIZE)
-        return false;
-    tablet_xram = word;
+    bool mapped = word <= 0x10000 - TABLET_BLOCK_SIZE;
+    tablet_xram = mapped ? word : 0xFFFF;
     memset(tablet_state, 0, sizeof(tablet_state));
     if (tablet_host_cursor)
         tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
@@ -161,7 +160,7 @@ bool tablet_xreg(uint16_t word)
         tablet_clear_contact(i);
     if (tablet_xram != 0xFFFF) /* the one write that also seeds TABLET_CURSOR_OFF */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
-    return true;
+    return mapped || word == 0xFFFF;
 }
 
 bool HOST_IN_FLASH("tablet_mount") tablet_mount(int slot, const tablet_connection_t *desc)

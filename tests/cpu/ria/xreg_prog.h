@@ -65,6 +65,12 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     /* An extra byte misaligns the xstack, so the call fails with EINVAL. */
     push(1); push(0); push(0); pushw(0); push(0xAA);
     op1();
+    /* A program starts on the console canvas, which is not programmable.
+     * Modes 1 through 5 are refused there by vga_prog_fill and
+     * vga_prog_sprite; mode 0 is the one that would otherwise slip through
+     * vga_prog_exclusive, which is what builds the console itself. */
+    push(1); push(0); push(1); pushw(0); pushw(0);
+    op1();
     /* Canvas 1 is 320x240. */
     push(1); push(0); push(0); pushw(1);
     op1();
@@ -89,6 +95,22 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(1); push(0); push(1);
     pushw(5); pushw(10); pushw(0x3000); pushw(2); pushw(2);
     pushw(0); pushw(0);
+    op1();
+
+    /* Mode 0 puts the console on a plane of a graphics canvas, which is
+     * allowed, so the refusal above is the console canvas and not mode 0.
+     * Plane 1 holds sprites here and no fill, so this disturbs nothing the
+     * machine tests read back. */
+    push(1); push(0); push(1); pushw(0); pushw(1);
+    op1();
+
+    /* Device 0, channel 0 maps the keyboard at address 0 and the mouse at
+     * address 1, so a two-word burst at address 0 sets both. */
+    push(0); push(0); push(0); pushw(0x1000); pushw(0x1100);
+    op1();
+    /* The address advances across a burst, so two words at address 3 reach
+     * address 4, which channel 0 does not have. */
+    push(0); push(0); push(3); pushw(0x1200); pushw(0x1300);
     op1();
 
     /* Device 0, channel 1, register 0 is the PSG pointer. */

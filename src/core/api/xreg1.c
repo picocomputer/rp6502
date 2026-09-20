@@ -61,6 +61,12 @@ bool xreg1(uint8_t channel, uint8_t address, uint16_t word)
         }
         if (address == 1) /* MODE */
         {
+            /* The console canvas is not programmable. */
+            if (vga_canvas_is_console())
+            {
+                xregs_clear();
+                return false;
+            }
             vga_mode_begin((uint8_t)word, xregs[2]);
             bool ok = vga_mode_prog(word, xregs);
             xregs_clear();

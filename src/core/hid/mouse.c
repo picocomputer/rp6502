@@ -57,11 +57,10 @@ static void mouse_write_xram(void)
 
 bool mouse_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(mouse_state))
-        return false;
-    mouse_xram = word;
+    bool mapped = word <= 0x10000 - sizeof(mouse_state);
+    mouse_xram = mapped ? word : 0xFFFF;
     mouse_write_xram();
-    return true;
+    return mapped || word == 0xFFFF;
 }
 
 bool HOST_IN_FLASH("mouse_mount") mouse_mount(int slot, const mouse_connection_t *desc)

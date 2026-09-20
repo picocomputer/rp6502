@@ -17,13 +17,22 @@
 #include "core/sys/xram.h"
 #include <string.h>
 
-static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);
+static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t address, uint16_t word);
 
 static uint16_t pix_word_at(int i)
 {
     uint16_t word;
     memcpy(&word, &xstack[XSTACK_SIZE - 5 - 2 * i], sizeof(word));
     return word;
+}
+
+/* The mode register at VGA channel 0 address 1 consumes every register above
+ * it, so it is the one key register in the machine that takes arguments. */
+static int pix_arg_count(uint8_t dev, uint8_t channel, uint8_t address, int remaining)
+{
+    if (dev == PIX_DEVICE_VGA && channel == 0 && address == 1)
+        return remaining;
+    return 0;
 }
 
 bool pix_api_xreg(void)
@@ -42,32 +51,31 @@ bool pix_api_xreg(void)
      * refuses it only while a VGA is connected; this machine is its own. */
     if (device == PIX_DEVICE_VGA && channel == 0xF)
         return api_return_errno(API_EACCES);
-    if (device == PIX_DEVICE_RIA)
+    /* A burst is a run of key registers, written in order. A key register that
+     * takes arguments has them written first, from the highest address down,
+     * because writing the key register consumes them. A key register that
+     * fails aborts the burst and leaves the machine in an unknown state. */
+    for (int i = 0; i < count;)
     {
-        for (int i = count - 1; i >= 0; i--)
-            if (!xreg0(channel, address, pix_word_at(i)))
+        int args = pix_arg_count(device, channel, (uint8_t)(address + i), count - i - 1);
+        for (int j = i + args; j > i; j--)
+            if (!pix_deliver(device, channel, (uint8_t)(address + j), pix_word_at(j)))
                 return api_return_errno(API_EINVAL);
-        return api_return_ax(0);
-    }
-    /* A canvas write clears the mode programming that follows it, so a burst
-     * starting at VGA channel 0 address 0 delivers the canvas first. The rest
-     * go from the highest address down, because the mode write at address 1
-     * consumes the parameter registers above it. */
-    bool canvas_first = (device == PIX_DEVICE_VGA && channel == 0 && address == 0 && count > 1);
-    if (canvas_first && !pix_deliver(device, channel, address, pix_word_at(0)))
-        return api_return_errno(API_EINVAL);
-    for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
         if (!pix_deliver(device, channel, (uint8_t)(address + i), pix_word_at(i)))
             return api_return_errno(API_EINVAL);
+        i += args + 1;
+    }
     return api_return_ax(0);
 }
 
-/* Nothing but VGA channel 0 registers 0 and 1 is acknowledged even where a
- * bus exists, so a message to the rest cannot fail. */
-static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
+/* Devices 2 through 6 are open for user expansion and this machine has none,
+ * so a message to one cannot fail. */
+static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t address, uint16_t word)
 {
+    if (dev == PIX_DEVICE_RIA)
+        return xreg0(channel, address, word);
     if (dev == PIX_DEVICE_VGA)
-        return xreg1(channel, byte, word);
+        return xreg1(channel, address, word);
     return true;
 }
 

@@ -35,10 +35,14 @@ static bool pix_ch0_xreg(uint8_t addr, uint16_t word)
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 1: // MODE
-        if (main_prog(xregs))
-            ria_ack();
-        else
+        // The console canvas is not programmable. Modes 1 through 5 are
+        // refused by vga_prog_fill and vga_prog_sprite, but mode 0 runs
+        // through vga_prog_exclusive, which builds the terminal itself and
+        // so cannot refuse the console.
+        if (vga_canvas_is_console() || !main_prog(xregs))
             ria_nak();
+        else
+            ria_ack();
         memset(xregs, 0, sizeof(xregs));
         return true;
     }

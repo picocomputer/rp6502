@@ -303,11 +303,10 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
 
 bool keyboard_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(keyboard_keys))
-        return false;
-    keyboard_xram = word;
+    bool mapped = word <= 0x10000 - sizeof(keyboard_keys);
+    keyboard_xram = mapped ? word : 0xFFFF;
     keyboard_publish();
-    return true;
+    return mapped || word == 0xFFFF;
 }
 
 bool keyboard_is_mapped(void)

@@ -132,16 +132,21 @@ def mode2_tiles(attr):
 
 
 def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
-          pal_ptr=0x0200):
+          pal_ptr=0x0200, tile_ptr=0x4000):
     bpp = 1 << (attr & 3)
     if not xram_pal:
         pal_ptr = 0xFFFF
     data_ptr = 0x0800
-    tile_ptr = 0x4000
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, wt, ht, data_ptr, pal_ptr, tile_ptr)
-    chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht)),
-              (tile_ptr, mode2_tiles(attr))]
+    tiles = mode2_tiles(attr)
+    chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht))]
+    # A tile set that runs off the end of XRAM continues at the start, which
+    # is what the renderer and mode2.sv both do with the address.
+    head = min(len(tiles), 0x10000 - tile_ptr)
+    chunks.append((tile_ptr, tiles[:head]))
+    if head < len(tiles):
+        chunks.append((0, tiles[head:]))
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                       for i in range(1 << bpp)))))
@@ -316,6 +321,11 @@ mode2("mode2_16trim", 1, 0x359, 10, 6, 4, 2, False, False, True,
 mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
 mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
 mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
+# A tile pointer high enough that the last tiles are addressed past the end of
+# XRAM. The renderer masks the byte address to 16 bits so the read wraps to the
+# start, which is what mode2.sv does, and never reads past the array.
+mode2("mode2_tilewrap", 1, 0x002, 20, 10, 5, 5, False, False, True,
+      tile_ptr=0xFF80)
 composite("mode2_composite")
 bands("prog_bands")
 
@@ -368,6 +378,16 @@ mode4("mode4_32", 3, 1, 5, [
 mode4("mode4_64", 2, 2, 6, [(-30, 60, 0, False), (270, 120, 0, True)])
 mode4a("mode4a_id", 1, 0, 4, [
     ((0x100, 0, 0, 0, 0x100, 0), 40, 50, 0),
+])
+# A pair for test_modes' affine_identity_matches_plain. The identity matrix
+# maps the sprite onto the image 1:1, so the affine blit has to land every
+# texel where the plain blit does. Both generators build image 0 from the
+# same formula, and the plain sprite reads no metadata.
+mode4a("mode4a_same", 1, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), 40, 50, 0),
+])
+mode4("mode4_same", 1, 0, 4, [
+    (40, 50, 0, False),
 ])
 mode4a("mode4a_rot", 1, 0, 5, [
     ((0x0DD, 0x080, 0x300, -0x080 & 0xFFFF, 0x0DD, 0x200), 60, 60, 0),
