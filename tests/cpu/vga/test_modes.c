@@ -121,11 +121,11 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
 
 /* The tile pointer is not checked when the mode is programmed, because mode 2
  * does not require a full tile set in XRAM. The last tiles here are addressed
- * past the end, so this pins the wrap the renderer and mode2.sv share and
- * keeps the renderer off the far side of the array. */
-UTEST(mode2, tile_pointer_wraps_320x240)
+ * past the end, so this pins the tile both the renderer and mode2.sv leave
+ * transparent black, and keeps the renderer off the far side of the array. */
+UTEST(mode2, tile_off_the_end_320x240)
 {
-    run_case(utest_result, "mode2_tilewrap", 0x1916CD05, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode2_tileoob", 0xD03C4762, MUT_BUDGET_NONE);
 }
 
 UTEST(mode3, bpp8_xram_palette_640x480)

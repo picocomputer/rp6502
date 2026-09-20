@@ -116,6 +116,20 @@ mode2_get_tile_row_addr(mode2_config_t *config, int16_t bpp, int16_t tile_size,
     return (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
 }
 
+// Mode 2 does not require a full tile set in XRAM.
+static inline __attribute__((always_inline)) void
+mode2_skip_tile(uint16_t **rgb, int16_t *col, int16_t fill_cols,
+                int16_t *width, int16_t tile_size)
+{
+    int16_t skip = tile_size - (*col & (tile_size - 1));
+    if (skip > fill_cols)
+        skip = fill_cols;
+    memset(*rgb, 0, sizeof(uint16_t) * skip);
+    *rgb += skip;
+    *col += skip;
+    *width += fill_cols - skip;
+}
+
 // On-screen tiles align with the data bytes, so one read of xram yields a whole
 // run of pixels: 8 at 1bpp, 4 at 2bpp, and so on. bpp and tile_size are
 // constants at every call, so each instantiation folds to one bit depth's byte
@@ -125,6 +139,7 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 volatile const uint8_t *row_data, int16_t row,
                 const uint16_t *pal, int16_t tile_size, int16_t bpp)
 {
+    const uint32_t tile_hi = 0x10000 - (uint32_t)tile_size * bpp / 8;
     int16_t col = -config->x_pos_px;
     if (bpp == 1)
     {
@@ -133,6 +148,8 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
             uint16_t index;
             uint32_t tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+            if (tile_mem > tile_hi)
+                goto skip_1;
             uint8_t bits = xram[tile_mem + index];
             int16_t start = col & 7;
             int16_t part = 8 - start;
@@ -142,7 +159,11 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             col += part;
             mode_emit_head_1bpp(&rgb, bits, pal, start, part);
             if (++index == tile_size / 8)
+            {
                 tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+                if (tile_mem > tile_hi)
+                    goto skip_1;
+            }
             bits = xram[tile_mem + index];
             while (fill_cols > 7)
             {
@@ -151,11 +172,18 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 fill_cols -= 8;
                 col += 8;
                 if (++index == tile_size / 8)
+                {
                     tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+                    if (tile_mem > tile_hi)
+                        goto skip_1;
+                }
                 bits = xram[tile_mem + index];
             }
             col += fill_cols;
             mode_emit_tail_1bpp(&rgb, bits, pal, fill_cols);
+            continue;
+        skip_1:
+            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
         }
     }
     else if (bpp == 2)
@@ -165,6 +193,8 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
             uint16_t index;
             uint32_t tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+            if (tile_mem > tile_hi)
+                goto skip_2;
             uint8_t bits = xram[tile_mem + index];
             int16_t start = col & 3;
             int16_t part = 4 - start;
@@ -174,7 +204,11 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             col += part;
             mode_emit_head_2bpp(&rgb, bits, pal, start, part);
             if (++index == tile_size / 4)
+            {
                 tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+                if (tile_mem > tile_hi)
+                    goto skip_2;
+            }
             bits = xram[tile_mem + index];
             while (fill_cols > 3)
             {
@@ -185,11 +219,18 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 fill_cols -= 4;
                 col += 4;
                 if (++index == tile_size / 4)
+                {
                     tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+                    if (tile_mem > tile_hi)
+                        goto skip_2;
+                }
                 bits = xram[tile_mem + index];
             }
             col += fill_cols;
             mode_emit_tail_2bpp(&rgb, bits, pal, fill_cols);
+            continue;
+        skip_2:
+            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
         }
     }
     else if (bpp == 4)
@@ -199,6 +240,8 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
             uint16_t index;
             uint32_t tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+            if (tile_mem > tile_hi)
+                goto skip_4;
             uint8_t bits = xram[tile_mem + index];
             if (col & 1)
             {
@@ -206,7 +249,11 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 col++;
                 fill_cols--;
                 if (++index == tile_size / 2)
+                {
                     tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+                    if (tile_mem > tile_hi)
+                        goto skip_4;
+                }
                 bits = xram[tile_mem + index];
             }
             while (fill_cols > 1)
@@ -216,12 +263,19 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 fill_cols -= 2;
                 col += 2;
                 if (++index == tile_size / 2)
+                {
                     tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+                    if (tile_mem > tile_hi)
+                        goto skip_4;
+                }
                 bits = xram[tile_mem + index];
             }
             col += fill_cols;
             if (fill_cols == 1)
                 *rgb++ = pal[bits >> 4];
+            continue;
+        skip_4:
+            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
         }
     }
     else
@@ -231,6 +285,8 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
             int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
             uint16_t index;
             uint32_t tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
+            if (tile_mem > tile_hi)
+                goto skip_8;
             uint8_t bits = xram[tile_mem + index];
             while (fill_cols > 0)
             {
@@ -238,9 +294,16 @@ mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 fill_cols -= 1;
                 col += 1;
                 if (++index == tile_size)
+                {
                     tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
+                    if (tile_mem > tile_hi)
+                        goto skip_8;
+                }
                 bits = xram[tile_mem + index];
             }
+            continue;
+        skip_8:
+            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
         }
     }
 }
@@ -257,6 +320,7 @@ mode2_emit_trim(mode2_config_t *config, uint16_t *rgb, int16_t width,
     const uint32_t row_size = (uint32_t)tile_size * bpp / 8;
     const uint32_t mem_size = row_size * tile_size;
     const uint32_t row_off = (uint32_t)config->xram_tile_ptr + row_size * row;
+    const uint32_t tile_hi = 0x10000 - row_size;
     int16_t col = -config->x_pos_px;
     while (width)
     {
@@ -270,6 +334,12 @@ mode2_emit_trim(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 run = fill_cols;
             col += run;
             fill_cols -= run;
+            if (tile_mem > tile_hi)
+            {
+                memset(rgb, 0, sizeof(uint16_t) * run);
+                rgb += run;
+                continue;
+            }
             for (int16_t px = col_in_tile; px < col_in_tile + run; px++)
             {
                 uint8_t idx;

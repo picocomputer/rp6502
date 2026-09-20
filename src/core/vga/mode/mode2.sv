@@ -155,6 +155,12 @@ module mode2 (
         + 18'(18'({9'd0, mem_size}) * 18'({10'd0, tile_id}))
         + 18'(18'({13'd0, row_size}) * 18'({14'd0, r_row}));
 
+    /* Mode 2 does not require a full tile set in XRAM, so a tile id can name
+     * a row that runs off the end of it. That tile is not drawn. */
+    logic tile_oob;
+    always_comb tile_oob =
+        (19'({1'b0, tile_row_addr}) + 19'({14'd0, row_size})) > 19'h10000;
+
     logic [20:0] pad_left;
     always_comb pad_left = 21'(-col);
     logic [20:0] run_w;
@@ -175,16 +181,20 @@ module mode2 (
                     mode2_seg_px = pad_left[9:0];
             end else if (mstate == M_HAVE) begin
                 /* This tile's slice, bounded by the tile, the window
-                 * and the line, whichever ends first. */
+                 * and the line, whichever ends first. An out of range
+                 * tile keeps the span and leaves the immediate default,
+                 * so its columns are transparent black. */
                 mode2_seg_valid = 1'b1;
-                mode2_seg_imm = 1'b0;
-                mode2_seg_bits = {4'd0, tile_row_addr[15:0], 3'b000}
-                    + (23'({19'd0, tcol}) << bpp_log);
                 mode2_seg_px = {5'd0, tile_px};
                 if ({11'd0, px_rem} < {16'd0, tile_px})
                     mode2_seg_px = px_rem;
                 if (run_w < {11'd0, mode2_seg_px})
                     mode2_seg_px = run_w[9:0];
+                if (!tile_oob) begin
+                    mode2_seg_imm = 1'b0;
+                    mode2_seg_bits = {4'd0, tile_row_addr[15:0], 3'b000}
+                        + (23'({19'd0, tcol}) << bpp_log);
+                end
             end
         end
     end

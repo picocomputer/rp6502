@@ -141,8 +141,8 @@ def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
         + le16(x, y, wt, ht, data_ptr, pal_ptr, tile_ptr)
     tiles = mode2_tiles(attr)
     chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht))]
-    # A tile set that runs off the end of XRAM continues at the start, which
-    # is what the renderer and mode2.sv both do with the address.
+    # A tile set may run off the end of XRAM. The tiles that do are never
+    # read, so only the part that fits is written.
     head = min(len(tiles), 0x10000 - tile_ptr)
     chunks.append((tile_ptr, tiles[:head]))
     if head < len(tiles):
@@ -322,9 +322,9 @@ mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
 mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
 mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 # A tile pointer high enough that the last tiles are addressed past the end of
-# XRAM. The renderer masks the byte address to 16 bits so the read wraps to the
-# start, which is what mode2.sv does, and never reads past the array.
-mode2("mode2_tilewrap", 1, 0x002, 20, 10, 5, 5, False, False, True,
+# XRAM. Those tiles are not drawn, in the renderer and in mode2.sv alike, and
+# the renderer never reads past the array.
+mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
       tile_ptr=0xFF80)
 composite("mode2_composite")
 bands("prog_bands")
