@@ -32,8 +32,11 @@
  * where a switch on a nibble costs an indirect one per nibble. */
 typedef uint32_t mode_word_t __attribute__((aligned(1), may_alias));
 
+/* MSVC defines neither macro. */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "a pixel pair packs the left pixel in the low half");
+#endif
 
 static inline __attribute__((always_inline)) uint32_t
 mode_pack2(uint16_t left, uint16_t right)
