@@ -72,22 +72,39 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
             (const uint8_t *)&xram[sprites[i].xram_sprite_ptr + tex_y * bytes_per_row];
         uint16_t *dst = rgb + x_start;
 
-        for (int16_t px = tex_x; px < tex_x + size_x; px++)
+        // Walking the source byte in a register costs one fetch per byte.
+        // Deriving each pixel's address from its column instead costs a shift
+        // and, because the column is signed, a division fixup as well.
+        if (bpp == 8)
         {
-            uint8_t idx;
-            if (bpp == 1)
-                idx = (row_data[px / 8] >> (7 - (px & 7))) & 0x01;
-            else if (bpp == 2)
-                idx = (row_data[px / 4] >> (6 - 2 * (px & 3))) & 0x03;
-            else if (bpp == 4)
-                idx = (px & 1) ? (row_data[px / 2] & 0x0F) : (row_data[px / 2] >> 4);
-            else
-                idx = row_data[px];
-
-            uint16_t color = palette[idx];
-            if (color & (1 << 5))
-                *dst = color;
-            dst++;
+            const uint8_t *src = row_data + (unsigned)tex_x;
+            for (int16_t n = size_x; n; n--, dst++)
+            {
+                const uint16_t color = palette[*src++];
+                if (color & (1 << 5))
+                    *dst = color;
+            }
+        }
+        else
+        {
+            const unsigned ppb = 8 / bpp;
+            const unsigned phase = (unsigned)tex_x % ppb;
+            const uint8_t *src = row_data + (unsigned)tex_x / ppb;
+            unsigned left = ppb - phase;
+            uint8_t bits = (uint8_t)(*src++ << (phase * bpp));
+            for (int16_t n = size_x; n; n--, dst++)
+            {
+                if (left == 0)
+                {
+                    bits = *src++;
+                    left = ppb;
+                }
+                const uint16_t color = palette[bits >> (8 - bpp)];
+                if (color & (1 << 5))
+                    *dst = color;
+                bits = (uint8_t)(bits << bpp);
+                left--;
+            }
         }
     }
 }

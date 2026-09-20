@@ -60,7 +60,7 @@ typedef struct
     uint16_t bg_color;
 } mode1_16bpp_data_t;
 
-static volatile const uint8_t *
+static const uint8_t *
 mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
@@ -78,27 +78,27 @@ mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_
     const uint32_t sizeof_bitmap = (uint32_t)config->height_chars * sizeof_row;
     if (sizeof_bitmap > (uint32_t)(0x10000 - config->xram_data_ptr))
         return NULL;
-    volatile const uint8_t *rv = &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
+    const uint8_t *rv = (const uint8_t *)&xram[config->xram_data_ptr + *row / font_height * sizeof_row];
     *row &= font_height - 1;
     return rv;
 }
 
-static volatile const uint16_t *
+static const uint16_t *
 mode1_get_palette(mode1_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
         config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (1 << bpp))
-        return (uint16_t *)&xram[config->xram_palette_ptr];
+        return (const uint16_t *)&xram[config->xram_palette_ptr];
     if (bpp == 1)
         return color_2;
     return color_256;
 }
 
-static volatile const uint8_t *
+static const uint8_t *
 mode1_get_font(mode1_config_t *config, int16_t font_height)
 {
     if (config->xram_font_ptr <= 0x10000 - 256 * font_height)
-        return &xram[config->xram_font_ptr];
+        return (const uint8_t *)&xram[config->xram_font_ptr];
     if (font_height == 8)
         return font8;
     return font16;
@@ -147,19 +147,21 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 {
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
-    volatile const mode1_1bpp_data_t *row_data =
+    const mode1_1bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_1bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
-    volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    const uint16_t *palette = mode1_get_palette(config, 1);
+    const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
     uint16_t colors[2] = {palette[0], palette[1]};
+    MODE_TABLE(pair, 4);
+    mode_pair_set(pair, colors[0], colors[1]);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
-        volatile const mode1_1bpp_data_t *data = &row_data[col / 8];
+        const mode1_1bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         int16_t start = col & 7;
         int16_t part = 8 - start;
@@ -174,7 +176,7 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, glyph, colors[0], colors[1]);
+            mode_render_1bpp(rgb, glyph, pair);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -204,25 +206,23 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 {
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
-    volatile const mode1_4bpp_data_t *row_data =
+    const mode1_4bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 4);
-    volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
-    uint16_t pal[16];
-    for (int i = 0; i < 16; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode1_get_palette(config, 4);
+    const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    MODE_TABLE(pair, 4);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
-        volatile const mode1_4bpp_data_t *data = &row_data[col / 8];
+        const mode1_4bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         uint16_t colors[2] = {
-            pal[data->bg_fg_index >> 4],
-            pal[data->bg_fg_index & 0xF]};
+            palette[data->bg_fg_index >> 4],
+            palette[data->bg_fg_index & 0xF]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
         if (part > width_px - col)
@@ -236,13 +236,14 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, glyph, pal[data->bg_fg_index >> 4], pal[data->bg_fg_index & 0xF]);
+            mode_pair_set(pair, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            mode_render_1bpp(rgb, glyph, pair);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
-        colors[0] = pal[data->bg_fg_index >> 4];
-        colors[1] = pal[data->bg_fg_index & 0xF];
+        colors[0] = palette[data->bg_fg_index >> 4];
+        colors[1] = palette[data->bg_fg_index & 0xF];
         mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
@@ -268,25 +269,23 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
 {
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
-    volatile const mode1_4bppr_data_t *row_data =
+    const mode1_4bppr_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bppr_data_t), font_height, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 4);
-    volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
-    uint16_t pal[16];
-    for (int i = 0; i < 16; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode1_get_palette(config, 4);
+    const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    MODE_TABLE(pair, 4);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
-        volatile const mode1_4bppr_data_t *data = &row_data[col / 8];
+        const mode1_4bppr_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         uint16_t colors[2] = {
-            pal[data->fg_bg_index & 0xF],
-            pal[data->fg_bg_index >> 4]};
+            palette[data->fg_bg_index & 0xF],
+            palette[data->fg_bg_index >> 4]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
         if (part > width_px - col)
@@ -300,13 +299,14 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, glyph, pal[data->fg_bg_index & 0xF], pal[data->fg_bg_index >> 4]);
+            mode_pair_set(pair, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            mode_render_1bpp(rgb, glyph, pair);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
-        colors[0] = pal[data->fg_bg_index & 0xF];
-        colors[1] = pal[data->fg_bg_index >> 4];
+        colors[0] = palette[data->fg_bg_index & 0xF];
+        colors[1] = palette[data->fg_bg_index >> 4];
         mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
@@ -332,25 +332,23 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 {
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
-    volatile const mode1_8bpp_data_t *row_data =
+    const mode1_8bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 8);
-    volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
-    uint16_t pal[256];
-    for (int i = 0; i < 256; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode1_get_palette(config, 8);
+    const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    MODE_TABLE(pair, 4);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
-        volatile const mode1_8bpp_data_t *data = &row_data[col / 8];
+        const mode1_8bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         uint16_t colors[2] = {
-            pal[data->bg_index],
-            pal[data->fg_index]};
+            palette[data->bg_index],
+            palette[data->fg_index]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
         if (part > width_px - col)
@@ -364,13 +362,14 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, glyph, pal[data->bg_index], pal[data->fg_index]);
+            mode_pair_set(pair, palette[data->bg_index], palette[data->fg_index]);
+            mode_render_1bpp(rgb, glyph, pair);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
         }
-        colors[0] = pal[data->bg_index];
-        colors[1] = pal[data->fg_index];
+        colors[0] = palette[data->bg_index];
+        colors[1] = palette[data->fg_index];
         mode_emit_tail_1bpp(&rgb, glyph, colors, fill_cols);
     }
     return true;
@@ -396,17 +395,18 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 {
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
-    volatile const mode1_16bpp_data_t *row_data =
+    const mode1_16bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
-    volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
+    MODE_TABLE(pair, 4);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
-        volatile const mode1_16bpp_data_t *data = &row_data[col / 8];
+        const mode1_16bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         uint16_t colors[2] = {data->bg_color, data->fg_color};
         int16_t start = col & 7;
@@ -422,7 +422,8 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
+            mode_pair_set(pair, data->bg_color, data->fg_color);
+            mode_render_1bpp(rgb, glyph, pair);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];

@@ -6,6 +6,7 @@
  */
 
 #include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include <assert.h>
@@ -128,18 +129,16 @@ static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, unsigned le
     }
     if (dst <= dst_start)
         return;
+    // Texels are opaque here, so the run moves a pixel pair at a time. Walking
+    // backwards keeps GCC from merging the halfword copies itself.
     do
     {
         dst -= 8;
         src -= 8;
-        dst[0] = src[0];
-        dst[1] = src[1];
-        dst[2] = src[2];
-        dst[3] = src[3];
-        dst[4] = src[4];
-        dst[5] = src[5];
-        dst[6] = src[6];
-        dst[7] = src[7];
+        ((mode_word_t *)dst)[0] = ((const mode_word_t *)src)[0];
+        ((mode_word_t *)dst)[1] = ((const mode_word_t *)src)[1];
+        ((mode_word_t *)dst)[2] = ((const mode_word_t *)src)[2];
+        ((mode_word_t *)dst)[3] = ((const mode_word_t *)src)[3];
     } while (dst > dst_start);
 }
 
