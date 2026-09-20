@@ -9,6 +9,8 @@
 #include "core/aud/psg.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
+#include "core/sys/ria.h"
+#include "ria/sys/ria.h"
 #include "ria/sys/rp2350.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
@@ -25,6 +27,22 @@
 
 static aud_dev_t aud_dev;
 
+/* Everything the RW engine left since the last interrupt, which is a dozen
+ * writes from a 6502 in a tight store loop and nothing at all the rest of the
+ * time. It runs before the sample so that a write takes effect on the sample
+ * it arrived for, as it does in the fabric. */
+static void aud_drain(void)
+{
+    uint8_t loc, val;
+    while (ria_aud_next(&loc, &val))
+        switch (aud_dev)
+        {
+        case aud_dev_psg: psg_xram_write(loc, val); break;
+        case aud_dev_opl: opl_xram_write(loc, val); break;
+        case aud_dev_none: break;
+        }
+}
+
 static uint16_t aud_level_l = AUD_PWM_CENTER;
 static uint16_t aud_level_r = AUD_PWM_CENTER;
 
@@ -39,6 +57,7 @@ static void __isr __time_critical_func(aud_irq)(void)
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, aud_level_r);
     pwm_clear_irq(AUD_IRQ_SLICE);
 
+    aud_drain();
     int16_t l = 0, r = 0;
     switch (aud_dev)
     {
@@ -106,11 +125,29 @@ void __in_flash("aud_init") aud_init(void)
 void aud_stop(void)
 {
     aud_dev = aud_dev_none;
+    ria_aud_watch(0xFFFF);
 }
 
 void aud_setup(aud_dev_t dev)
 {
     aud_dev = dev;
 }
+
+/* Core1 queues rather than calling aud_xram_write, so the only thing that ever
+ * reaches an engine here is aud_irq, and holding the engines still means
+ * holding that off. Nothing on this side of the lock runs per write; it is
+ * taken to reset a chip, which silences it anyway. */
+void aud_engine_lock(void)
+{
+    irq_set_enabled(PWM_IRQ_WRAP_0, false);
+    /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
+     * own, so without these the interrupt can still be taken after it
+     * returns, which is the one thing this is here to stop. Letting go needs
+     * no barrier: the interrupt coming back late costs nothing. */
+    __dsb();
+    __isb();
+}
+
+void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
 
 aud_dev_t aud_device(void) { return aud_dev; }

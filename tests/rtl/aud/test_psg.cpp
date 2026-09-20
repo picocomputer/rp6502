@@ -22,8 +22,6 @@ extern "C"
 
 #include <cstdio>
 #include <cstring>
-#include <utility>
-#include <vector>
 
 extern "C" bool psg_xreg(uint16_t word);
 
@@ -36,8 +34,6 @@ static void clock_cycle()
     dut->clk = 1;
     dut->eval();
 }
-
-static std::vector<std::pair<uint16_t, uint8_t>> held;
 
 static void snoop_dut(uint16_t addr, uint8_t val, bool host)
 {
@@ -54,7 +50,7 @@ static void snoop_dut(uint16_t addr, uint8_t val, bool host)
  * over itself, because psg.sv takes the channel registers only from the
  * XRAM writes it snoops. Those writes come from the soft CPU with q_host
  * low, so they strike no gate. The shim's XRAM is not written, because a
- * write there would queue gate writes for psg.c that never happen on the
+ * write there would strike gates on psg.c that never happen on the
  * RP2350. */
 static void rtl_import(uint16_t base)
 {
@@ -65,7 +61,6 @@ static void rtl_import(uint16_t base)
 
 static void rtl_xaddr(uint16_t word)
 {
-    held.clear();
     dut->xaddr_we = 1;
     dut->xaddr_wdata = word;
     clock_cycle();
@@ -75,28 +70,13 @@ static void rtl_xaddr(uint16_t word)
         rtl_import(word);
 }
 
-/* psg.sv applies a gate on the clock the write lands, but psg.c drains
- * the write queue after the envelope step, so a gate changes psg.c's
- * envelope one sample later than psg.sv's. xram_write therefore adds each
- * byte to held and sends it to psg.sv at once with q_host low, so psg.sv
- * stores the byte without striking a gate. release_snoop sends it again
- * with q_host high after the sample has been compared, which is the point
- * where psg.c drains the queue. rtl_xaddr and rtl_xaddr_mid_walk clear
- * held, because psg_xreg discards the queue when it accepts a pointer. The
- * clear changes nothing when the pointer is 0xFFFF, since psg.sv snoops no
- * write while its pointer is 0xFFFF. */
-static void release_snoop()
-{
-    for (auto &w : held)
-        snoop_dut(w.first, w.second, true);
-    held.clear();
-}
-
+/* Both models strike the gate on the write. psg.sv does it on the clock the
+ * write lands, and the shim hands the byte straight to psg_xram_write, which
+ * is what the RW engine does on every machine but the Pico. */
 static void xram_write(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
-    snoop_dut(addr, val, false);
-    held.emplace_back(addr, val);
+    snoop_dut(addr, val, true);
 }
 
 static long g_sample;
@@ -119,7 +99,6 @@ static void run_lockstep(int *utest_result, int n)
         ASSERT_EQ((int16_t)dut->psg_r, cr);
         g_sample++;
         clock_cycle();
-        release_snoop();
     }
 }
 
@@ -130,7 +109,6 @@ static void run_lockstep(int *utest_result, int n)
  * state. */
 static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
 {
-    held.clear();
     while (dut->rootp->psg__DOT__state == 0)
         clock_cycle();
     for (int i = 0; i < depth; i++)
@@ -216,9 +194,8 @@ UTEST(psg, lockstep_bit_exact)
     xram_write((uint16_t)(base2 + 7 * 8 + 6), 0x31);
     run_lockstep(utest_result, 800);
 
-    /* Twenty writes are fewer than the 32 that psg_sample drains in one
-     * sample and the 255 that the queue holds, so psg.c applies every one
-     * of them, as psg.sv does. */
+    /* Twenty gate writes between two samples, which both models settle on
+     * the last of. */
     for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 6), (uint8_t)(i & 1));
     run_lockstep(utest_result, 600);
@@ -328,7 +305,6 @@ static int rtl_sample()
 
 static void rtl_reset()
 {
-    held.clear();
     if (dut)
     {
         dut->final();
@@ -373,9 +349,8 @@ UTEST(psg, gate_applies_on_the_clock_it_lands)
     ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[0]);
 }
 
-/* The queue that feeds psg.c holds 255 writes, so psg.c would drop some
- * of 600 writes made between two samples. psg.sv applies each write on the
- * clock it lands, so the last write sets the state. */
+/* Six hundred writes between two samples. Neither model buffers them, so
+ * the last one sets the state however many came before it. */
 UTEST(psg, no_write_is_dropped)
 {
     shim_init();

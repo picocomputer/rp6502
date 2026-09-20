@@ -131,10 +131,9 @@ UTEST(aud, opl_oscillates)
 }
 
 /* The gate in the block is written before xreg selects the PSG, so it
- * does not start the note. psg_sample starts a note only on a gate write
- * it takes from the queue, rw_write queues a write only when its address
- * is on xram_queue_page, and psg_xreg empties the queue when it sets that
- * page. The note starts on the gate written afterwards. */
+ * does not start the note. A note starts only on a gate write the RW engine
+ * reported, and it reports nothing until psg_xreg names the page. The note
+ * starts on the gate written afterwards. */
 UTEST(aud, a_psg_block_programmed_before_its_pointer)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PSG_PRE));

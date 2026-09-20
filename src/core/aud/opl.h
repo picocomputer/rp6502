@@ -16,6 +16,11 @@ int16_t opl_sample(void);
 
 void opl_stereo(int16_t *left, int16_t *right);
 
+/* One write the RW engine landed on this engine's page, the low byte of its
+ * address and its value. Reached through aud_xram_write, which holds the
+ * engine lock. */
+void opl_xram_write(uint8_t reg, uint8_t val);
+
 bool opl_xreg(uint16_t word);
 
 /* Where this engine's register page sits in XRAM, 0xFFFF for parked. */

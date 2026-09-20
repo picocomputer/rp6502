@@ -23,13 +23,4 @@ extern volatile uint8_t regs[];
 extern uint8_t xstack[];
 extern volatile size_t xstack_ptr;
 
-/* An audio device names one page of XRAM to watch. A write that the RW engine
- * lands on that page is queued as (low byte, value) for the device to drain
- * while it samples; a write arriving on a full queue lands in XRAM
- * unreported. */
-extern volatile uint8_t xram_queue_page;
-extern volatile uint8_t xram_queue_head;
-extern volatile uint8_t xram_queue_tail;
-extern volatile uint8_t xram_queue[256][2];
-
 #endif /* _CORE_RIA_REGS_H_ */

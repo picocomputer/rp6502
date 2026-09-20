@@ -27,6 +27,7 @@ core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init
 core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/mix.c aud_dev: the AUD chunk
+core/aud/mix.c aud_engine_held: not carried: held only across a sample or a write, never across a walk
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c g_enabled: not carried: --mute is a session setting
 core/aud/mix.c g_last_l: the AUD chunk
@@ -122,16 +123,12 @@ core/hid/vtkeys.c vtkeys_paste_len: not carried: every load cancels the paste, s
 core/hid/vtkeys.c vtkeys_paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
 core/hid/vtkeys.c vtkeys_paste_run: not carried: every load cancels the paste, so there is nothing left to carry
 core/ria/regs.c regs: the RIA chunk
-core/ria/regs.c xram_queue: the RIA chunk
-core/ria/regs.c xram_queue_head: the RIA chunk
-core/ria/regs.c xram_queue_page: the RIA chunk
-core/ria/regs.c xram_queue_tail: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk
-core/ria/ria.c queue.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/ria/ria.c ria: the RIA chunk
+core/ria/ria.c ria_aud_page: not carried: aud_sst_load asks for it again from the engine the AUD chunk names
 core/ria/ria.c ria_uart_rx_src: the RIA chunk
-core/ria/ria.c stack.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/ria/ria.c stack.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting
 core/rom/asset.c g_rom_generation: the ASET chunk
 core/rom/asset.c rom_assets_start: the ASET chunk

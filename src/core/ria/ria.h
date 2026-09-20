@@ -69,10 +69,9 @@ void ria_break(void);
 #endif
 
 /* PINS, the two interrupt bytes and the latched RX source, then the register
- * file, the xstack and its pointer, then the write queue's page, head and tail
- * and the whole queue behind them:
- * 8 + 1 + 1 + 1 + 32 + 513 + 2 + 1 + 1 + 1 + 512 */
-#define RIA_SST_SIZE 1073
+ * file, the xstack and its pointer:
+ * 8 + 1 + 1 + 1 + 32 + 513 + 2 */
+#define RIA_SST_SIZE 558
 void ria_sst_save(sst_cursor_t *c, unsigned flags);
 bool ria_sst_load(sst_cursor_t *c, unsigned flags);
 

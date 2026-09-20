@@ -5,7 +5,7 @@
 
 import argparse
 
-from rp6502_asm import API_OP, RIA_TX, RW0_ADDR, RW0_DATA, Asm
+from rp6502_asm import API_OP, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, Asm
 from rp6502_rom import image
 
 
@@ -131,10 +131,12 @@ def opl_exit_prog():
 
 
 def opl_init_prog():
-    """The note comes after a burst of 255 stores through RW0. opl_sample
-    in opl.c takes RW0 and RW1 writes to the OPL's XRAM page from a queue
-    that holds 255 entries, so the eleven writes of the note are dropped
-    unless the queue drains while the program writes."""
+    """The note comes after a preamble of about 2,300 stores onto the OPL's
+    page: the whole register file cleared, then register 1 written over and
+    over. Every one of them reaches the chip where the program makes it, so
+    the eleven writes of the note that follows sound. A machine that buffered
+    them instead would have to hold the lot, and the eleven would be the ones
+    it lost."""
     p = Prog()
     page = 0xF000
     p.xreg(0, 1, 1, page)
@@ -147,6 +149,23 @@ def opl_init_prog():
     p.sta_abs(RW0_DATA)
     p.dex()
     p.bne(clear)
+    # A step of zero holds the address on one register, so the burst stays on
+    # the page however long it runs.
+    p.store(RW0_STEP, 0x00)
+    p.store(RW0_ADDR, 0x01)
+    p.store(RW0_ADDR + 1, page >> 8)
+    out, inner = p.local("burst"), p.local("burst")
+    p.lda_imm(0)
+    p.ldy_imm(8)
+    p.symbol(out)
+    p.ldx_imm(0xFF)
+    p.symbol(inner)
+    p.sta_abs(RW0_DATA)
+    p.dex()
+    p.bne(inner)
+    p.dey()
+    p.bne(out)
+    p.store(RW0_STEP, 0x01)
     for reg, val in (
         (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
         (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
