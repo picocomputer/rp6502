@@ -2,6 +2,11 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The staging store. Its clients are the soft CPU and the savestate
+ * engine, never the 6502, and the floor they need is full-speed USB,
+ * 1.5 MB/s. An access is ten clocks and more, so a clock spent here to
+ * take arithmetic off a path costs nothing that matters.
  */
 
 module pocket_sdram #(
@@ -60,8 +65,8 @@ module pocket_sdram #(
 
     typedef enum logic [4:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS, S_EMRS,
-        S_IDLE, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT, S_READ,
-        S_WRITE, S_SREF_ENT, S_SREF, S_WAIT
+        S_IDLE, S_OPEN, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT,
+        S_READ, S_WRITE, S_SREF_ENT, S_SREF, S_WAIT
     } state_t;
     state_t state, after;
 
@@ -87,17 +92,16 @@ module pocket_sdram #(
     always_comb any_active = bank_active[0] || bank_active[1]
                           || bank_active[2] || bank_active[3];
 
+    /* Decided from the registered address a clock after the request is
+     * taken, because the request's address arrives half a clock old
+     * from the soft CPU's sampler and the row compare does not fit in
+     * the half that is left. */
     logic [1:0] req_bank;
     logic [12:0] req_row;
     logic req_hit, req_needs_pre;
     always_comb begin
-        if (rd_pend && !pocket_sdram_rvalid) begin
-            req_bank = rd_addr[24:23];
-            req_row  = rd_addr[22:10];
-        end else begin
-            req_bank = w_addr[24:23];
-            req_row  = w_addr[22:10];
-        end
+        req_bank = op_addr[24:23];
+        req_row  = op_addr[22:10];
         req_hit = bank_active[req_bank] && row_open[req_bank] == req_row;
         req_needs_pre = bank_active[req_bank] && !req_hit;
     end
@@ -207,8 +211,7 @@ module pocket_sdram #(
                     idle_cnt <= '0;
                     op_is_read <= 1'b1;
                     op_addr <= rd_addr;
-                    state <= req_hit ? S_READ
-                           : (req_needs_pre ? S_PRE : S_ACT);
+                    state <= S_OPEN;
                 end else if (w_avail) begin
                     idle_cnt <= '0;
                     op_is_read <= 1'b0;
@@ -221,8 +224,7 @@ module pocket_sdram #(
                      * new data instead of returning the old. */
                     if (held_valid && held_addr == w_addr)
                         held_valid <= 1'b0;
-                    state <= req_hit ? S_WRITE
-                           : (req_needs_pre ? S_PRE : S_ACT);
+                    state <= S_OPEN;
                 end else begin
                     if (!rd_pend && !w_avail)
                         idle_cnt <= idle_cnt + 10'd1;
@@ -234,6 +236,9 @@ module pocket_sdram #(
                         state <= S_SREF_ENT;
                 end
             end
+            S_OPEN:
+                state <= req_hit ? (op_is_read ? S_READ : S_WRITE)
+                       : (req_needs_pre ? S_PRE : S_ACT);
             S_PALL_R: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
                 dram_a <= 13'h400; /* A10: all banks */

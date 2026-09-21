@@ -53,8 +53,10 @@ D101 717
 #       may land misaligned:
 #
 #         17  the level buses from D101, on their pocket_bridge flops
-#          7  the Gray-coded pointers of the pocket_fifo queues in
-#             pocket_bridge, pocket_dbg, pocket_dbglog and pocket_i2s
+#          8  the Gray-coded pointers of the pocket_fifo queues in
+#             pocket_bridge, pocket_dbg, pocket_dbglog and pocket_i2s,
+#             which the report lists as seven or eight depending on
+#             which of them the fitter copies
 #          1  pocket_bridge's upd_g_74, a Gray-coded count of slot
 #             updates
 #          1  pocket_file's r_op
@@ -63,7 +65,7 @@ D101 717
 #       A Gray-coded pointer or count changes one bit per step, so a
 #       sample taken during a change reads the old value or the new one.
 #       D101 gives the argument for the level buses and for r_op.
-D102 27
+D102 28
 #
 # D103  The three findings are the bits of r_op, pocket_file's command
 #       opcode, which is decoded on clk_74a into the read, write,
