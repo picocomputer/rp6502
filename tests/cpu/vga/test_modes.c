@@ -148,6 +148,27 @@ UTEST(mode1, three_bpp8_8x8_text_planes_640x480)
     run_case(utest_result, "text_three640", 0x982FCF90, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode3, three_bpp16_fills_serial_640x480)
+{
+    run_case(utest_result, "fill_three640_16bpp", 0xCECCF650, MUT_BUDGET_UNDER);
+}
+
+/* Fill and sprites have a clock budget each, but one XRAM port between them,
+ * and three 16bpp fills ask that port for a word almost every clock. */
+UTEST(mode4, sprites_over_three_bpp16_fills_640x480)
+{
+    run_case(utest_result, "fill_three640_16bpp_spr", 0xFE3BF35C,
+             MUT_BUDGET_NONE);
+}
+
+/* The odd bitmap's words start eight bits into a pixel and the even one's do
+ * not, so this pins that the fill tail carries no bit phase from one plane
+ * into the next. */
+UTEST(mode3, two_bpp16_planes_of_opposite_byte_parity_640x480)
+{
+    run_case(utest_result, "mode3_16parity", 0x4BEB0F74, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode3, bpp16_odd_data_wrap_640x360)
 {
     run_case(utest_result, "mode3_16odd_wrap", 0xFA27DA4F, MUT_BUDGET_NONE);

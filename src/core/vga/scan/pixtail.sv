@@ -109,11 +109,15 @@ module pixtail
 
     /* The fetch bookkeeping follows the segment being fetched, which may
      * be the deck rather than the one being emitted. */
-    logic [31:0] fifo[2];
-    logic [1:0] fifo_v;
+    /* Three words deep, because sixteen-bit color is the one depth whose
+     * pixel pair is a whole word: to land a pair every clock it needs one
+     * word emitting, one ready behind it and one still in flight. Every
+     * narrower depth spends several clocks on a word and never fills it. */
+    logic [31:0] fifo[3];
+    logic [2:0] fifo_v;
     /* Only a segment's first word carries a bit offset. */
-    logic [4:0] fifo_bit0[2];
-    logic fifo_seg1[2];            /* word is part of the deck segment */
+    logic [4:0] fifo_bit0[3];
+    logic fifo_seg1[3];            /* word is part of the deck segment */
     logic [1:0] inflight;
     logic inflight_seg1[2];
     logic [4:0] inflight_bit0[2];
@@ -132,6 +136,9 @@ module pixtail
      * while the fetcher is busy still has to get its turn. */
     logic cur_fetched, deck_fetched;
     logic gnt_q;
+
+    logic inflight_at;
+    always_comb inflight_at = 1'(inflight - (gnt_q ? 2'd1 : 2'd0));
 
     logic [5:0] px_per_word_from;
     always_comb px_per_word_from =
@@ -246,7 +253,8 @@ module pixtail
                 pixtail_a_addr = pal_ptr[15:2] + {5'd0, pal_n};
             end
             T_RUN: pixtail_a_req = fetch_px_left != 10'd0
-                && 3'(fifo_v) + 3'(inflight) < 3'd2;
+                && inflight < 2'd2
+                && 3'(fifo_n) + 3'(inflight) < 3'd3;
             default: ;
         endcase
     end
@@ -274,10 +282,12 @@ module pixtail
         px = '0;
         cur_left = '0;
         pixtail_done = 1'b0;
-        for (int i = 0; i < 2; i++) begin
+        for (int i = 0; i < 3; i++) begin
             fifo[i] = '0;
             fifo_bit0[i] = '0;
             fifo_seg1[i] = 1'b0;
+        end
+        for (int i = 0; i < 2; i++) begin
             inflight_seg1[i] = 1'b0;
             inflight_bit0[i] = '0;
         end
@@ -375,63 +385,35 @@ module pixtail
                         fetch_bit0_next <= '0;
                     end
 
-                    /* Whenever fifo[0] receives a word, bit_in_word
-                     * loads that word's own offset. Only a segment's
-                     * first word has a nonzero one, so promotion needs
-                     * no special case. */
-                    if (word_shift) begin
-                        if (keep_1) begin
-                            fifo[0] <= fifo[1];
-                            fifo_bit0[0] <= fifo_bit0[1];
-                            fifo_seg1[0] <= fifo_seg1[1] && !cur_done;
-                            bit_in_word <= bit_after > 6'd32 && !cur_done
-                                ? bit_after[4:0] : fifo_bit0[1];
-                            if (gnt_q) begin
-                                fifo[1] <= a_rdata;
-                                fifo_bit0[1] <= inflight_bit0[0];
-                                fifo_seg1[1] <= inflight_seg1[0]
-                                    && !cur_done;
-                            end
-                            fifo_v <= {gnt_q, 1'b1};
-                        end else begin
-                            if (gnt_q) begin
-                                fifo[0] <= a_rdata;
-                                fifo_bit0[0] <= inflight_bit0[0];
-                                fifo_seg1[0] <= inflight_seg1[0]
-                                    && !cur_done;
-                                bit_in_word <= inflight_bit0[0];
-                            end
-                            fifo_v <= {1'b0, gnt_q};
-                        end
-                    end else if (gnt_q) begin
-                        if (!fifo_v[0]) begin
-                            fifo[0] <= a_rdata;
-                            fifo_bit0[0] <= inflight_bit0[0];
-                            fifo_seg1[0] <= inflight_seg1[0]
-                                && !cur_done;
-                            bit_in_word <= inflight_bit0[0];
-                        end else begin
-                            fifo[1] <= a_rdata;
-                            fifo_bit0[1] <= inflight_bit0[0];
-                            fifo_seg1[1] <= inflight_seg1[0]
-                                && !cur_done;
-                        end
-                        fifo_v <= {fifo_v[0], 1'b1};
+                    for (int i = 0; i < 3; i++) begin
+                        fifo[i] <= fifo_nx[i];
+                        fifo_bit0[i] <= fifo_bit0_nx[i];
+                        fifo_seg1[i] <= fifo_seg1_nx[i];
                     end
+                    fifo_v <= fifo_v_nx;
+                    /* Whenever fifo[0] receives a word, bit_in_word
+                     * loads that word's own offset, or the offset a pixel
+                     * straddling into it carried. Only a segment's first
+                     * word has a nonzero one of its own, so promotion
+                     * needs no special case. */
+                    if (fifo_v_nx[0] && (word_shift || !fifo_v[0]))
+                        bit_in_word <= word_shift && bit_after > 6'd32
+                            && !cur_done
+                            ? bit_after[4:0] : fifo_bit0_nx[0];
 
                     inflight <= inflight + (a_gnt ? 2'd1 : 2'd0)
                         - (gnt_q ? 2'd1 : 2'd0);
                     if (gnt_q) begin
                         inflight_seg1[0] <= inflight_seg1[1];
                         inflight_bit0[0] <= inflight_bit0[1];
-                        if (a_gnt) begin
-                            inflight_seg1[1] <= fetch_seg1;
-                            inflight_bit0[1] <= fetch_bit0_next
-                                | fetch_phase;
-                        end
-                    end else if (a_gnt) begin
-                        inflight_seg1[inflight[0]] <= fetch_seg1;
-                        inflight_bit0[inflight[0]] <= fetch_bit0_next
+                    end
+                    /* Behind the words still in flight, which is one fewer
+                     * where a word returns on this clock; that one has left
+                     * the queue and its slot is the new word's. The write
+                     * below the shift so the two agree on that slot. */
+                    if (a_gnt) begin
+                        inflight_seg1[inflight_at] <= fetch_seg1;
+                        inflight_bit0[inflight_at] <= fetch_bit0_next
                             | fetch_phase;
                     end
 
@@ -454,10 +436,10 @@ module pixtail
                             deck_v <= 1'b0;
                             deck_fetched <= 1'b0;
                             imm_bit <= '0;
-                            for (int i = 0; i < 2; i++) begin
+                            for (int i = 0; i < 3; i++)
                                 fifo_seg1[i] <= 1'b0;
+                            for (int i = 0; i < 2; i++)
                                 inflight_seg1[i] <= 1'b0;
-                            end
                             fetch_seg1 <= 1'b0;
                         end
                         if (px_after == cw) begin
@@ -483,6 +465,47 @@ module pixtail
      * the shift drops it rather than handing it to the next. */
     logic keep_1;
     always_comb keep_1 = fifo_v[1] && (fifo_seg1[1] || !cur_done);
+    /* How many words leave the head this clock: the one just emitted, and
+     * with it the dead word behind it where there is one. */
+    logic [1:0] drop;
+    always_comb begin
+        drop = 2'd0;
+        if (word_shift)
+            drop = keep_1 || !fifo_v[1] ? 2'd1 : 2'd2;
+    end
+
+    logic [1:0] fifo_n;
+    always_comb fifo_n = 2'(fifo_v[0]) + 2'(fifo_v[1]) + 2'(fifo_v[2]);
+    logic [2:0] fifo_v_sh;
+    always_comb fifo_v_sh = fifo_v >> drop;
+    /* A word arriving joins the end of what the drop leaves behind. */
+    logic [1:0] fifo_at;
+    always_comb fifo_at = 2'(fifo_v_sh[0]) + 2'(fifo_v_sh[1])
+        + 2'(fifo_v_sh[2]);
+    logic [31:0] fifo_nx[3];
+    logic [4:0] fifo_bit0_nx[3];
+    logic fifo_seg1_nx[3];
+    logic [2:0] fifo_v_nx;
+    always_comb begin
+        for (int i = 0; i < 3; i++) begin
+            fifo_nx[i] = fifo[i];
+            fifo_bit0_nx[i] = fifo_bit0[i];
+            fifo_seg1_nx[i] = fifo_seg1[i] && !cur_done;
+            for (int j = 1; j < 3; j++)
+                if (j == i + int'(drop)) begin
+                    fifo_nx[i] = fifo[j];
+                    fifo_bit0_nx[i] = fifo_bit0[j];
+                    fifo_seg1_nx[i] = fifo_seg1[j] && !cur_done;
+                end
+        end
+        fifo_v_nx = fifo_v_sh;
+        if (gnt_q) begin
+            fifo_nx[fifo_at] = a_rdata;
+            fifo_bit0_nx[fifo_at] = inflight_bit0[0];
+            fifo_seg1_nx[fifo_at] = inflight_seg1[0] && !cur_done;
+            fifo_v_nx[fifo_at] = 1'b1;
+        end
+    end
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pixtail;

@@ -573,6 +573,56 @@ rom("text_three640", 3,
 mode3("mode3_16odd_wrap", 4, 4, 16, 32, 16, -10, 50, False, x_wrap=True,
       data_ptr=0x0801)
 
+# Two 16bpp bitmaps on one line whose data pointers differ in byte parity. A
+# 16bpp bitmap at an odd byte is the only fill whose words start part way into
+# a pixel, so this is the only way one plane can leave a bit phase behind for
+# the next plane to inherit.
+cfg_odd = bytearray((0, 1)) + le16(0, 0, 640, 16, 0x0801, 0xFFFF)
+cfg_even = bytearray((0, 1)) + le16(0, 0, 640, 16, 0x8000, 0xFFFF)
+rom("mode3_16parity", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0180, 1, 0, 0)],
+    [(0x0100, cfg_odd), (0x0180, cfg_even),
+     (0x0801, bytes((i * 13 + 7) & 0xFF for i in range(640 * 16 * 2))),
+     (0x8000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 16 * 2)))])
+
+# Three full-width 16bpp bitmaps on one line, the most expensive fill a 640
+# wide canvas can be asked for: every pixel is its own halfword, so a pair of
+# them is a whole word and the line leans on XRAM as hard as it can.
+cfg16 = [bytearray((0, 1)) + le16(0, 0, 640, 8, base, 0xFFFF)
+         for base in (0x1000, 0x4000, 0x7000)]
+rom("fill_three640_16bpp", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0140, 1, 0, 0),
+     (3, 4, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg16[0]), (0x0140, cfg16[1]), (0x0180, cfg16[2]),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 8 * 2))),
+     (0x4000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 8 * 2))),
+     (0x7000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 8 * 2)))])
+
+# The same three 16bpp planes with a stack of sprites over them. Fill and
+# sprites are separate engines, but they read through the same XRAM port, and
+# a 16bpp fill is the one that wants a word every clock, so this is where the
+# port itself is the limit rather than either engine.
+spr = bytearray()
+for i in range(16):
+    spr += le16(i * 38, 100, 0xA000 + (i % 4) * 576) + bytes((4, 0))
+spr_img = []
+for im in range(4):
+    img = le16(*(((im * 47 + t * 13 + 5) & 0xFFFF) for t in range(16 * 16)))
+    meta = bytearray()
+    for r in range(16):
+        meta += ((1 << 31) | 16 if r & 1
+                 else (2 << 16) | 14).to_bytes(4, "little")
+    spr_img.append((0xA000 + im * 576, img + meta))
+rom("fill_three640_16bpp_spr", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0140, 1, 0, 0),
+     (3, 4, 0x0180, 2, 0, 0), (4, 0, 0x0200, 16, 2, 0, 0)],
+    [(0x0100, cfg16[0]), (0x0140, cfg16[1]), (0x0180, cfg16[2]),
+     (0x0200, spr),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 8 * 2))),
+     (0x4000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 8 * 2))),
+     (0x7000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 8 * 2)))]
+    + spr_img)
+
 if ARGS.emit_manifest:
     ARGS.emit_manifest.write_text(
         "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

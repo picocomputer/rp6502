@@ -70,27 +70,6 @@ set_false_path -hold \
     -from [get_registers {*|opl:*|reset_sync:*|r2}] \
     -to [get_registers {*|opl:*|afifo:*}]
 
-# soc loads dph_addr and dph_strb only while hready is high, and hready
-# is the inverse of soc_bus_pend, so neither register changes on a clk_rv
-# edge at which soc_bus_pend is high. wiring and pocket_core use them on
-# clk_sys only under soc_bus_pend or a strobe derived from it, so no
-# clk_sys capture that is used falls on an edge where they change.
-set_false_path -hold \
-    -from [get_registers {*soc*|dph_addr[*]}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_false_path -hold \
-    -from [get_registers {*soc*|dph_strb[*]}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-
-# In hazard3_cpu_1port.v, bus_active_dph_i, bus_active_dph_d and
-# bus_active_dph_s are loaded outside reset only while hready is high,
-# the same condition under which soc loads dph_addr. bus_active_dph_s
-# selects the source of hwdata, which wiring and pocket_core also use on
-# clk_sys only under soc_bus_pend or a strobe derived from it.
-set_false_path -hold \
-    -from [get_registers {*hazard3_cpu_1port*|bus_active_dph_*}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-
 # pocket_file's command parameters and r_op are read on clk_74a only
 # after go_t has passed two synchronizer flops, and r_op changes on the
 # same clk_sys edge that flips go_t. Each path is bounded to one clk_74a
