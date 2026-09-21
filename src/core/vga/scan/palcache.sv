@@ -71,19 +71,29 @@ module palcache
     always_comb set_a = wa_a[2:0];
     always_comb set_b = wa_b[2:0];
 
+    /* The word landing this clock answers a lookup for it at once, so a
+     * miss costs its round trip and nothing more. */
+    logic filling;
+    logic [13:0] fill_wa;
+    logic land, land_a, land_b;
     logic hit_a0, hit_a1, hit_b0, hit_b1, hit_a, hit_b;
     always_comb begin
+        land = filling && fill_rdy;
+        land_a = land && fill_wa == wa_a;
+        land_b = land && fill_wa == wa_b;
         hit_a0 = valid[set_a][0] && tag[set_a][0] == wa_a[13:3];
         hit_a1 = valid[set_a][1] && tag[set_a][1] == wa_a[13:3];
         hit_b0 = valid[set_b][0] && tag[set_b][0] == wa_b[13:3];
         hit_b1 = valid[set_b][1] && tag[set_b][1] == wa_b[13:3];
-        hit_a = hit_a0 || hit_a1;
-        hit_b = hit_b0 || hit_b1;
+        hit_a = hit_a0 || hit_a1 || land_a;
+        hit_b = hit_b0 || hit_b1 || land_b;
     end
 
     logic [31:0] word_a, word_b;
-    always_comb word_a = hit_a0 ? line[set_a][0] : line[set_a][1];
-    always_comb word_b = hit_b0 ? line[set_b][0] : line[set_b][1];
+    always_comb word_a = hit_a0 ? line[set_a][0]
+        : hit_a1 ? line[set_a][1] : a_rdata;
+    always_comb word_b = hit_b0 ? line[set_b][0]
+        : hit_b1 ? line[set_b][1] : a_rdata;
 
     always_comb begin
         if (xram) begin
@@ -100,21 +110,14 @@ module palcache
     always_comb palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
 
-    /* The request is registered rather than driven straight from the tag
-     * compare, because the lookup's address arithmetic already fills a
-     * clock and reaching the XRAM's address port in the same one would
-     * put the two in series. The miss pays a clock it was going to spend
-     * stalled anyway. */
-    logic pending;
-    logic [13:0] pend_wa;
-    logic filling;
-    logic [13:0] fill_wa;
+    /* The request comes straight off the compare, one word in flight,
+     * and the clock a word lands the other index may ask for its own. */
     logic miss_now;
-    always_comb miss_now = lookup && xram && !filling && !pending
+    always_comb miss_now = lookup && xram && (!filling || land)
         && (!hit_a || (need_b && !hit_b));
     always_comb begin
-        palcache_req = pending;
-        palcache_addr = pend_wa;
+        palcache_req = miss_now;
+        palcache_addr = !hit_a ? wa_a : wa_b;
     end
 
     initial begin
@@ -123,33 +126,26 @@ module palcache
             valid[s][1] = 1'b0;
             lru[s] = 1'b0;
         end
-        pending = 1'b0;
-        pend_wa = '0;
         filling = 1'b0;
         fill_wa = '0;
     end
     always_ff @(posedge clk) begin
-        if (miss_now) begin
-            pending <= 1'b1;
-            pend_wa <= !hit_a ? wa_a : wa_b;
-        end
-        if (pending && fill_gnt) begin
-            pending <= 1'b0;
-            filling <= 1'b1;
-            fill_wa <= pend_wa;
-        end
-        if (filling && fill_rdy) begin
+        if (land) begin
             filling <= 1'b0;
             line[fill_wa[2:0]][lru[fill_wa[2:0]]] <= a_rdata;
             tag[fill_wa[2:0]][lru[fill_wa[2:0]]] <= fill_wa[13:3];
             valid[fill_wa[2:0]][lru[fill_wa[2:0]]] <= 1'b1;
             lru[fill_wa[2:0]] <= !lru[fill_wa[2:0]];
         end
+        if (miss_now && fill_gnt) begin
+            filling <= 1'b1;
+            fill_wa <= palcache_addr;
+        end
 
-        /* Touch on hit so the resident way survives. */
-        if (lookup && xram && hit_a)
+        /* Touch on a resident hit so that way survives. */
+        if (lookup && xram && (hit_a0 || hit_a1))
             lru[set_a] <= hit_a0;
-        if (lookup && xram && need_b && hit_b)
+        if (lookup && xram && need_b && (hit_b0 || hit_b1))
             lru[set_b] <= hit_b0;
 
         /* The flush is written last, so it outranks a fill landing on
@@ -160,7 +156,6 @@ module palcache
                 valid[s][0] <= 1'b0;
                 valid[s][1] <= 1'b0;
             end
-            pending <= 1'b0;
             filling <= 1'b0;
         end
     end

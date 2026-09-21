@@ -478,8 +478,19 @@ mode5("sprite_overrun", 1, 27, 0,
 # row, for what the rest of the list costs.
 mode5("mode5_onrow", 1, 9, 0, [(30, 40, 0, 0)])
 mode5("mode5_onrow2", 1, 9, 0, [(30, 40, 0, 0), (60, 40, 0, 0)])
+mode5("mode5_on32", 1, 17, 0, [(30, 40, 0, 0)])
+mode5("mode5_on32x2", 1, 17, 0, [(30, 40, 0, 0), (80, 40, 0, 0)])
 mode4("mode4_onrow", 1, 0, 4, [(30, 40, 0, False)])
 mode4("mode4_onrow2", 1, 0, 4, [(30, 40, 0, False), (60, 40, 0, False)])
+mode4("mode4_on8", 1, 0, 3, [(30, 40, 0, False)])
+mode4("mode4_on8x2", 1, 0, 3, [(30, 40, 0, False), (60, 40, 0, False)])
+mode4a("mode4a_onrow2", 1, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), 30, 40, 0),
+    ((0x100, 0, 0, 0, 0x100, 0), 60, 40, 0),
+])
+mode4a("mode4a_offrow", 1, 0, 4,
+       [((0x100, 0, 0, 0, 0x100, 0), 30, 40, 0)]
+       + [((0x100, 0, 0, 0, 0x100, 0), i * 3, -100, 0) for i in range(200)])
 mode5("mode5_offrow", 1, 9, 0,
       [(30, 40, 0, 0)] + [(i * 3, -100, 0, 0) for i in range(200)],
       desc_ptr=0x0800)

@@ -57,7 +57,7 @@ UTEST(vidregs, sprite_overrun_counts_lost_races)
     ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
     /* What was painted before the row ran out: a 320 wide row has two lines
      * of timing, so the cut lands a line later than it would on one. */
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x5C11C868u);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x5852B147u);
 }
 
 /* A 320 wide row has two lines of timing. This stack of sprites needs more

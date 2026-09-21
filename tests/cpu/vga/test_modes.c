@@ -351,6 +351,16 @@ UTEST(mode5, two_sprites_on_a_row_320x240)
     run_case(utest_result, "mode5_onrow2", 0x2BE392C6, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode5, one_32x32_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5_on32", 0x4657EB9D, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, two_32x32_on_a_row_320x240)
+{
+    run_case(utest_result, "mode5_on32x2", 0x8923899F, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode5, long_list_one_on_the_row_320x240)
 {
     run_case(utest_result, "mode5_offrow", 0x25D8DF03, MUT_BUDGET_UNDER);
@@ -364,6 +374,26 @@ UTEST(mode4, one_sprite_on_its_row_320x240)
 UTEST(mode4, two_sprites_on_a_row_320x240)
 {
     run_case(utest_result, "mode4_onrow2", 0x2D69C35B, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, one_8x8_on_its_row_320x240)
+{
+    run_case(utest_result, "mode4_on8", 0xAFB60952, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_8x8_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4_on8x2", 0x1F8FBC05, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_affine_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4a_onrow2", 0x2D69C35B, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, long_affine_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode4a_offrow", 0x465A87A3, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode4, long_list_one_on_the_row_320x240)
