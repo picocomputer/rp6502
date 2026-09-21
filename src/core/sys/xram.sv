@@ -21,9 +21,11 @@ module xram (
     /* The system clock, port B's. */
     input logic clk,
 
-    /* Port A's clock is the machine's doubled and shifted by three
-     * quarters of its own period, so its edges land 7.4 and 17.4 ns after
-     * each machine edge, both clear of it. clk_ph is a machine-rate clock
+    /* Port A's clock is the machine's doubled and shifted by 9.0 ns, so
+     * its edges land 9.0 and 18.9 ns after each machine edge, both clear
+     * of it: the registered addresses have 9.0 ns to reach the block, and
+     * the words 10.9 ns to reach the machine's registers from the edge
+     * they come out on, which is where the margins balance. clk_ph is a machine-rate clock
      * shifted to be low across the first of those edges and high across
      * the second; it is taken as data, and tells the two apart. */
     input logic clk_a2,

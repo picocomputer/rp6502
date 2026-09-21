@@ -218,9 +218,11 @@ module mode5
     always_comb pop = emit && word_done;
     always_comb dpop = state == M5_DECODE && dsc_v;
 
-    /* The row's words come first; the list fills in behind. The pops
-     * this clock are not counted, so a queue is never asked to hold
-     * more than it has room for. */
+    /* The row's words come first; the list fills in behind. The row
+     * queue's pop this clock is not counted, so it is never asked to
+     * hold more than it has room for; the list queue's is, since a
+     * descriptor leaves two words at once and the list would otherwise
+     * wait a clock on every other one. */
     logic pix_land, desc_land, pix_req, desc_req, req_is_desc;
     always_comb begin
         pix_land = gnt_d && !tag2;
@@ -228,7 +230,8 @@ module mode5
         pix_req = state == M5_PIX && fetch_more
             && qn + {2'd0, pix_land} + {2'd0, gnt_d1 && !tag1} < 3'd4;
         desc_req = state != M5_IDLE && dfp <= dend
-            && dqn + {2'd0, desc_land} + {2'd0, gnt_d1 && tag1} < 3'd4;
+            && dqn + {2'd0, desc_land} + {2'd0, gnt_d1 && tag1}
+               - (dpop ? 3'd2 : 3'd0) < 3'd4;
         req_is_desc = !pix_req && desc_req;
         mode5_a_req = pix_req || desc_req;
         mode5_a_addr = pix_req ? fetch_word : dfp;
@@ -236,14 +239,18 @@ module mode5
 
     /* The write lands only where the color carries alpha, and only when the
      * cache has answered. A miss stalls the pixel but does not make the scan
-     * wrong. Builtin palettes always hit. */
+     * wrong. Builtin palettes always hit. The colors come a clock after
+     * the lookup, so the write is a clock behind the pixel, and a sprite's
+     * last pair is written while the next sprite is decoded. */
+    logic wr_v, wr_pair;
+    logic [9:0] wr_dst;
     always_comb begin
         mode5_px_we = 2'b00;
-        mode5_px_addr = dst;
+        mode5_px_addr = wr_dst;
         mode5_px_data = {pal_qb, pal_qa};
-        if (emit) begin
+        if (wr_v) begin
             mode5_px_we[0] = pal_qa[5];
-            mode5_px_we[1] = pair_ok && pal_qb[5];
+            mode5_px_we[1] = wr_pair && pal_qb[5];
         end
     end
 
@@ -300,6 +307,9 @@ module mode5
         pb_v = 1'b0;
         px_i = '0;
         dst = '0;
+        wr_v = 1'b0;
+        wr_pair = 1'b0;
+        wr_dst = '0;
         bpp_log = '0;
         size = '0;
         bytes_per_row = '0;
@@ -311,6 +321,9 @@ module mode5
         gnt_d <= gnt_d1;
         tag1 <= req_is_desc;
         tag2 <= tag1;
+        wr_v <= emit && !abort_i;
+        wr_pair <= pair_ok;
+        wr_dst <= dst;
         mode5_done <= 1'b0;
         if (abort_i) begin
             /* sprite.sv has already counted this lost line; drop it. */

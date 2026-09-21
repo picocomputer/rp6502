@@ -20,7 +20,7 @@ if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
     create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
         [get_ports clk_rv]
     # XRAM's port clock and its phase reference, as pocket_pll.v shifts them.
-    create_clock -name clk_a2 -period 9.921 -waveform {7.440 12.401} \
+    create_clock -name clk_a2 -period 9.921 -waveform {8.990 13.951} \
         [get_ports clk_a2]
     create_clock -name clk_ph -period 19.841 -waveform {12.400 22.321} \
         [get_ports clk_ph]

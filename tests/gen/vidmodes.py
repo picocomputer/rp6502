@@ -472,7 +472,7 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
      (0x8000, le16(*(((t * 5 + 11) & 0xFFFF) for t in range(16384))))])
 
 mode5("sprite_overrun", 1, 27, 0,
-      [(i * 6, 40, 0, 0) for i in range(48)])
+      [(i * 3, 40, 0, 0) for i in range(100)], desc_ptr=0x0800)
 
 # One sprite alone on its row, and a long list with one sprite on the
 # row, for what the rest of the list costs.
@@ -497,14 +497,13 @@ mode5("mode5_offrow", 1, 9, 0,
 mode4("mode4_offrow", 1, 0, 4,
       [(30, 40, 0, False)] + [(i * 3, -100, 0, False) for i in range(200)])
 
-# The same stack cut to ten. These 8bpp images cycle through the palette, so
-# nearly every pixel misses the cache and the engine runs at port A's ceiling,
-# about 3.4 clocks a pixel: seven such sprites fill one line's 1,600 clocks
-# and fourteen fill the two a 320 wide row has. Ten need more than one line
-# and fewer than two; the 48 above need more than two. Between them they
-# bracket the row's budget.
+# The same stack cut to sixty. A 64-pixel 8bpp sprite is 37 clocks once its
+# palette is cached, and these images cycle through all 128 words of it,
+# 384 clocks once a row: sixty need more than one line's 1,600 clocks and
+# fewer than the two a 320 wide row has, and the hundred above need more
+# than two. Between them they bracket the row's budget.
 mode5("sprite_pair", 1, 27, 0,
-      [(i * 6, 40, 0, 0) for i in range(10)])
+      [(i * 5, 40, 0, 0) for i in range(60)])
 
 # The text hides the cursor because a blinking cursor would make the frame
 # a suite compares depend on when it is captured.

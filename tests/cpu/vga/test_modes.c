@@ -438,7 +438,7 @@ UTEST(prog, bands_switch_modes_on_one_plane_320x240)
  * row's total against 3,198. */
 UTEST(mode5, a_320_row_spends_two_lines_of_sprites)
 {
-    run_case(utest_result, "sprite_pair", 0x837EAB90, MUT_BUDGET_UNDER);
+    run_case(utest_result, "sprite_pair", 0x7C667FB3, MUT_BUDGET_UNDER);
 }
 
 MUT_MAIN()
