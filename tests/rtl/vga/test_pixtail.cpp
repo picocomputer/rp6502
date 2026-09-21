@@ -119,8 +119,8 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
     memset(palram, 0xEE, sizeof palram);
 
     size_t si = 0;
-    bool gnt_q = false;
-    uint16_t gnt_addr = 0, gnt_addr_q = 0;
+    bool gnt_q = false, gnt_q2 = false;
+    uint16_t gnt_addr = 0, gnt_addr_q = 0, gnt_addr_q2 = 0;
     int gap = 0;
 
     dut->start = 1;
@@ -151,11 +151,11 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         else
             dut->seg_valid = 0;
 
-        /* Read data arrives on the clock after its grant, as it does from
-         * XRAM in the machine. */
-        dut->a_rdy = gnt_q;
-        if (gnt_q)
-            dut->a_rdata = xram32(gnt_addr_q);
+        /* Read data arrives two clocks after its grant, as it does from
+         * XRAM's render port in the machine. */
+        dut->a_rdy = gnt_q2;
+        if (gnt_q2)
+            dut->a_rdata = xram32(gnt_addr_q2);
 
         dut->eval();
 
@@ -238,6 +238,8 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
             c->done = true;
 
         dut->clk = 1; dut->eval();
+        gnt_q2 = gnt_q;
+        gnt_addr_q2 = gnt_addr_q;
         gnt_q = gnt_now;
         gnt_addr_q = gnt_addr;
         dut->clk = 0; dut->eval();

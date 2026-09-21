@@ -135,7 +135,7 @@ module pixtail
      * that happens when a segment is taken, because a deck segment taken
      * while the fetcher is busy still has to get its turn. */
     logic cur_fetched, deck_fetched;
-    logic gnt_q;
+    logic gnt_q1, gnt_q;
 
     logic inflight_at;
     always_comb inflight_at = 1'(inflight - (gnt_q ? 2'd1 : 2'd0));
@@ -252,9 +252,12 @@ module pixtail
                 pixtail_a_req = !pal_skip && pal_n < pal_fetch;
                 pixtail_a_addr = pal_ptr[15:2] + {5'd0, pal_n};
             end
+            /* Three words in the system at most, counting the one that
+             * lands and the ones that go this clock, which at two clocks
+             * of latency is what keeps a word a clock coming. */
             T_RUN: pixtail_a_req = fetch_px_left != 10'd0
-                && inflight < 2'd2
-                && 3'(fifo_n) + 3'(inflight) < 3'd3;
+                && (inflight < 2'd2 || gnt_q)
+                && 3'(fifo_n) - 3'(drop) + 3'(inflight) < 3'd3;
             default: ;
         endcase
     end
@@ -276,6 +279,7 @@ module pixtail
         fetch_phase = '0;
         cur_fetched = 1'b0;
         deck_fetched = 1'b0;
+        gnt_q1 = 1'b0;
         gnt_q = 1'b0;
         bit_in_word = '0;
         imm_bit = '0;
@@ -293,7 +297,8 @@ module pixtail
         end
     end
     always_ff @(posedge clk) begin
-        gnt_q <= a_gnt;
+        gnt_q1 <= a_gnt;
+        gnt_q <= gnt_q1;
         pixtail_done <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR

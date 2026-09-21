@@ -84,6 +84,20 @@ module soc
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
+    /* The core makes its data0 write from a register through its CSR
+     * path, and the falling edge that takes it in wiring is half a
+     * system clock on, so it is registered here first. */
+    logic [31:0] dbg_data0_w;
+    logic dbg_data0_wen_w;
+    initial begin
+        soc_dbg_data0 = '0;
+        soc_dbg_data0_wen = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        soc_dbg_data0 <= dbg_data0_w;
+        soc_dbg_data0_wen <= dbg_data0_wen_w;
+    end
+
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
@@ -121,8 +135,8 @@ module soc
         .dbg_halted(soc_dbg_halted),
         .dbg_running(),
         .dbg_data0_rdata(sst_dbg_data0),
-        .dbg_data0_wdata(soc_dbg_data0),
-        .dbg_data0_wen(soc_dbg_data0_wen),
+        .dbg_data0_wdata(dbg_data0_w),
+        .dbg_data0_wen(dbg_data0_wen_w),
         .dbg_instr_data(sst_dbg_instr),
         .dbg_instr_data_vld(sst_dbg_instr_vld),
         .dbg_instr_data_rdy(soc_dbg_instr_rdy),

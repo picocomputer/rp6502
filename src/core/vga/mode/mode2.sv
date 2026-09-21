@@ -142,9 +142,17 @@ module mode2 (
     } mstate_t;
     mstate_t mstate;
     logic [7:0] tile_id;
-    logic gnt_d;
+    logic gnt_d1, gnt_d;
     logic [16:0] map_addr;
     always_comb map_addr = row_base + {2'd0, tile};
+    /* The last map word fetched, which holds four tile ids: the next
+     * three tiles along a row are in it already, and only the fourth
+     * goes back to XRAM. */
+    logic map_v;
+    logic [13:0] map_wq;
+    logic [31:0] map_q;
+    logic map_hit;
+    always_comb map_hit = map_v && map_wq == map_addr[15:2];
     always_comb begin
         mode2_a_req = state == S2_SEG && mstate == M_REQ;
         mode2_a_addr = map_addr[15:2];
@@ -218,14 +226,19 @@ module mode2 (
         div_rem = '0;
         div_i = '0;
         div_den = '0;
+        gnt_d1 = 1'b0;
         gnt_d = 1'b0;
+        map_v = 1'b0;
+        map_wq = '0;
+        map_q = '0;
         mode2_tl_start = 1'b0;
         mode2_pal_ptr = '0;
         mode2_pal_xram = 1'b0;
         mode2_bpp = '0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
+        gnt_d1 <= a_gnt;
+        gnt_d <= gnt_d1;
         mode2_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
@@ -240,6 +253,7 @@ module mode2 (
             win_w_s <= $signed({{5{width_px[15]}}, width_px});
             height_px_s <= $signed({{5{height_px[15]}}, height_px});
             blank <= 1'b0;
+            map_v <= 1'b0;
             state <= S2_WRAP;
         end else begin
             case (state)
@@ -328,13 +342,22 @@ module mode2 (
                 end
                 S2_SEG: begin
                     case (mstate)
-                        M_IDLE: if (!blank && col < win_w_s)
-                            mstate <= M_REQ;
+                        M_IDLE: if (!blank && col < win_w_s) begin
+                            if (map_hit) begin
+                                tile_id <= map_q[
+                                    {map_addr[1:0], 3'b000}+:8];
+                                mstate <= M_HAVE;
+                            end else
+                                mstate <= M_REQ;
+                        end
                         M_REQ: if (a_gnt)
                             mstate <= M_WAIT;
                         M_WAIT: if (gnt_d) begin
                             tile_id <= a_rdata[
                                 {map_addr[1:0], 3'b000}+:8];
+                            map_q <= a_rdata;
+                            map_wq <= map_addr[15:2];
+                            map_v <= 1'b1;
                             mstate <= M_HAVE;
                         end
                         default: ;

@@ -341,6 +341,36 @@ UTEST(mode5, bpp4_256_640x480)
     run_case(utest_result, "mode5_4bpp256", 0xC38CE6F2, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode5, one_sprite_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5_onrow", 0x25D8DF03, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, two_sprites_on_a_row_320x240)
+{
+    run_case(utest_result, "mode5_onrow2", 0x2BE392C6, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, long_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode5_offrow", 0x25D8DF03, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, one_sprite_on_its_row_320x240)
+{
+    run_case(utest_result, "mode4_onrow", 0x465A87A3, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_sprites_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4_onrow2", 0x2D69C35B, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, long_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode4_offrow", 0x465A87A3, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode0, overlay_windowed_640x480)
 {
     run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_NONE);

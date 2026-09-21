@@ -84,23 +84,28 @@ module sprite (
     logic m5_start;
     logic m5_a_req;
     logic [13:0] m5_a_addr;
-    logic m5_px_we;
+    logic [1:0] m5_px_we;
     logic [9:0] m5_px_addr;
-    logic [15:0] m5_px_data;
+    logic [31:0] m5_px_data;
     logic m5_done;
 
-    logic pal_lookup, pal_xram, pal_one_bpp;
+    logic pal_lookup, pal_xram, pal_one_bpp, pal_need_b;
     logic [15:0] pal_base;
-    logic [7:0] pal_idx;
+    logic [7:0] pal_idx, pal_idx_b;
     logic pal_hit;
-    logic [15:0] pal_q;
+    logic [15:0] pal_qa, pal_qb;
     logic pc_req;
     logic [13:0] pc_addr;
-    logic pc_gnt, pc_rdy;
-    initial pc_rdy = 1'b0;
-    always_ff @(posedge clk)
-        pc_rdy <= pc_gnt;
-    /* verilator lint_off PINCONNECTEMPTY */
+    /* XRAM answers the sprite stage two clocks after a grant. */
+    logic pc_gnt, pc_rdy1, pc_rdy;
+    initial begin
+        pc_rdy1 = 1'b0;
+        pc_rdy = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        pc_rdy1 <= pc_gnt;
+        pc_rdy <= pc_rdy1;
+    end
     palcache palcache (
         .clk(clk),
         .lookup(pal_lookup),
@@ -108,10 +113,10 @@ module sprite (
         .one_bpp(pal_one_bpp),
         .base(pal_base),
         .idx_a(pal_idx),
-        .idx_b(8'd0),
-        .need_b(1'b0),
-        .palcache_qa(pal_q),
-        .palcache_qb(),
+        .idx_b(pal_idx_b),
+        .need_b(pal_need_b),
+        .palcache_qa(pal_qa),
+        .palcache_qb(pal_qb),
         .palcache_hit(pal_hit),
         .palcache_req(pc_req),
         .palcache_addr(pc_addr),
@@ -120,7 +125,6 @@ module sprite (
         .a_rdata(a_rdata),
         .flush(row_start)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
 
     mode5 mode5 (
         .clk(clk),
@@ -143,16 +147,19 @@ module sprite (
         .mode5_pal_one_bpp(pal_one_bpp),
         .mode5_pal_base(pal_base),
         .mode5_pal_idx(pal_idx),
+        .mode5_pal_idx_b(pal_idx_b),
+        .mode5_pal_need_b(pal_need_b),
         .pal_hit(pal_hit),
-        .pal_q(pal_q),
+        .pal_qa(pal_qa),
+        .pal_qb(pal_qb),
         .mode5_done(m5_done)
     );
     logic m4_start;
     logic m4_a_req;
     logic [13:0] m4_a_addr;
-    logic m4_px_we;
+    logic [1:0] m4_px_we;
     logic [9:0] m4_px_addr;
-    logic [15:0] m4_px_data;
+    logic [31:0] m4_px_data;
     logic m4_done;
     mode4 mode4 (
         .clk(clk),
@@ -214,13 +221,17 @@ module sprite (
     logic sb_we;
     always_comb sb_we = !px_last;
 
-    logic eng_we;
+    logic [1:0] eng_we;
     logic [9:0] eng_addr;
-    logic [16:0] eng_data;
+    logic [31:0] eng_px;
+    logic [33:0] eng_data;
     always_comb begin
-        eng_we = state == SP_RUN && (run4 ? m4_px_we : m5_px_we);
+        eng_we = run4 ? m4_px_we : m5_px_we;
+        if (state != SP_RUN)
+            eng_we = 2'b00;
         eng_addr = run4 ? m4_px_addr : m5_px_addr;
-        eng_data = {1'b1, run4 ? m4_px_data : m5_px_data};
+        eng_px = run4 ? m4_px_data : m5_px_data;
+        eng_data = {1'b1, eng_px[31:16], 1'b1, eng_px[15:0]};
     end
 
     genvar gi;
@@ -229,7 +240,7 @@ module sprite (
             sbuf sbuf (
                 .clk(clk),
                 .wr_bank(wr_bank),
-                .a_we(eng_we && p == 2'(gi)),
+                .a_we(eng_we & {2{p == 2'(gi)}}),
                 .a_addr(eng_addr),
                 .a_data(eng_data),
                 .sc_we(sb_we),

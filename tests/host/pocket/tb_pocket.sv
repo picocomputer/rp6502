@@ -10,6 +10,8 @@ module tb_pocket (
     /* clk_rv runs at half the rate of clk_sys and rises with it, as the
      * Pocket's PLL generates it. */
     input logic clk_rv,
+    input logic clk_a2,
+    input logic clk_ph,
     input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
@@ -114,6 +116,8 @@ module tb_pocket (
         .mach_running(mach_clk_en),
         .clk_mach(clk_mach),
         .clk_rv(clk_rv),
+        .clk_a2(clk_a2),
+        .clk_ph(clk_ph),
         .pocket_core_stop_req(tb_pocket_stop_req),
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),

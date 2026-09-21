@@ -143,14 +143,13 @@ static void measure_frame(budget_t *b)
             spst[dut->rootp->wiring__DOT__sprite__DOT__state & 3]++;
             if (dut->rootp->wiring__DOT__mode0__DOT__run)
                 term_until = clocks;
-            if (dut->rootp->wiring__DOT__a_any)
             {
-                grants++;
-                unsigned sel = dut->rootp->wiring__DOT__a_sel;
-                if (sel == 0)
+                unsigned req = dut->rootp->wiring__DOT__ma_req;
+                if (req & 1)
                     g_planes++;
-                else if (sel == 1)
+                if (req & 2)
                     g_sprite++;
+                grants += (req & 1) + (req >> 1);
             }
         }
         b->lines++;
@@ -289,11 +288,11 @@ mut_budget_t mut_measure(const char *name)
            b.planes_at_worst, b.sprite_at_worst,
            b.worst, b.deadline_at_worst, b.worst * 100 / b.deadline_at_worst,
            b.worst >= b.deadline_at_worst ? "  OVER" : "");
-    printf("  %-18s   port A carried %4ld words in those %4ld clocks"
-           " (%2ld%% busy) — planes %4ld, sprites %4ld\n",
-           name, b.grants_at_worst, b.worst,
-           b.worst ? b.grants_at_worst * 100 / b.worst : 0,
-           b.grants_planes, b.grants_sprite);
+    printf("  %-18s   XRAM slots in those %4ld clocks: fill %4ld words"
+           " (%2ld%%), sprites %4ld words (%2ld%%)\n",
+           name, b.worst, b.grants_planes,
+           b.worst ? b.grants_planes * 100 / b.worst : 0, b.grants_sprite,
+           b.worst ? b.grants_sprite * 100 / b.worst : 0);
     printf("  %-18s   terminal %4ld clocks a line, every line, "
            "concurrent with all of it\n", name, b.worst_term);
     printf("  %-18s   planes done at %4ld %4ld %4ld  |  sprite stage: "

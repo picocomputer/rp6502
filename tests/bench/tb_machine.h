@@ -26,10 +26,20 @@ template <typename Dut> static void tb_clock(Dut *dut)
     dut->clk_rv = rv_phase;
     dut->clk_mach = en;
     dut->clk_sys = 1;
+    dut->clk_a2 = 0;
     dut->eval();
+    /* XRAM's port clock rises twice in each machine clock, clear of both
+     * of its edges, and clk_ph tells the port which rise is which. */
     dut->clk_rv = 0;
     dut->clk_mach = 0;
     dut->clk_sys = 0;
+    dut->clk_ph = 0;
+    dut->clk_a2 = 1;
+    dut->eval();
+    dut->clk_a2 = 0;
+    dut->eval();
+    dut->clk_ph = 1;
+    dut->clk_a2 = 1;
     dut->eval();
 }
 

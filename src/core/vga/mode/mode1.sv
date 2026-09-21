@@ -140,7 +140,8 @@ module mode1 (
     logic [95:0] gather;           // up to three words, lane-aligned below
     logic [1:0] cell_lane;         // the cell's byte offset in its word
     logic gw_v;                    // gather holds a cell not yet taken
-    logic gnt_d, gnt_w_d, gnt_f_d;
+    /* XRAM returns a word two clocks after the grant; the font store, one. */
+    logic gnt_d1, gnt_d, gnt_w_d1, gnt_w_d, gnt_f_d1, gnt_f_d;
 
     typedef enum logic [1:0] {
         F_IDLE, F_FONT, F_HOLD
@@ -190,10 +191,13 @@ module mode1 (
         && !font_xram && !f_sent;
 
     /* Both stages fetch from XRAM when the font is there. The font stage
-     * is ahead in the pipe, so it goes first. */
-    logic w_want, f_want, gnt_w, gnt_f;
+     * is ahead in the pipe, so it goes first. The word stage asks for a
+     * cell's first word on the clock it takes the cell, so the round
+     * trip does not sit in series with the take. */
+    logic w_take, w_want, f_want, gnt_w, gnt_f;
     always_comb begin
-        w_want = state == S1_SEG && wstate == W_WORDS && fw_i < fw_n;
+        w_want = state == S1_SEG
+            && ((wstate == W_WORDS && fw_i < fw_n) || w_take);
         f_want = state == S1_SEG && fstate == F_FONT && font_xram
             && !f_sent;
         gnt_f = a_gnt && f_want;
@@ -217,6 +221,9 @@ module mode1 (
 
     logic signed [17:0] win_w;
     always_comb win_w = $signed({{2{width_px[15]}}, width_px});
+    always_comb w_take = state == S1_SEG && wstate == W_IDLE && !blank
+        && (!gw_v || f_take)
+        && $signed(18'(fetch_col) <<< 3) < win_w;
 
     always_comb begin
         mode1_a_req = 1'b0;
@@ -233,7 +240,9 @@ module mode1 (
                     mode1_a_addr = font_line_addr[15:2];
                 end else if (w_want) begin
                     mode1_a_req = 1'b1;
-                    mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
+                    mode1_a_addr = wstate == W_IDLE
+                        ? cell_fetch_addr[15:2]
+                        : cell_addr[15:2] + {12'd0, fw_i};
                 end
             end
             default: ;
@@ -303,8 +312,11 @@ module mode1 (
         fw_n = '0;
         gather = '0;
         gw_v = 1'b0;
+        gnt_d1 = 1'b0;
         gnt_d = 1'b0;
+        gnt_w_d1 = 1'b0;
         gnt_w_d = 1'b0;
+        gnt_f_d1 = 1'b0;
         gnt_f_d = 1'b0;
         f_gnt_d = 1'b0;
         wstate = W_IDLE;
@@ -322,9 +334,12 @@ module mode1 (
         mode1_tl_start = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
-        gnt_w_d <= gnt_w;
-        gnt_f_d <= gnt_f;
+        gnt_d1 <= a_gnt;
+        gnt_d <= gnt_d1;
+        gnt_w_d1 <= gnt_w;
+        gnt_w_d <= gnt_w_d1;
+        gnt_f_d1 <= gnt_f;
+        gnt_f_d <= gnt_f_d1;
         f_gnt_d <= f_gnt;
         mode1_tl_start <= 1'b0;
         if (abort_i) begin
@@ -422,12 +437,10 @@ module mode1 (
                 S1_SEG: begin
                     case (wstate)
                         W_IDLE: begin
-                            if (!blank && (!gw_v || f_take)
-                                && $signed(18'(fetch_col) <<< 3)
-                                   < win_w) begin
+                            if (w_take) begin
                                 cell_addr <= cell_fetch_addr;
                                 cell_lane <= cell_fetch_addr[1:0];
-                                fw_i <= '0;
+                                fw_i <= gnt_w ? 2'd1 : 2'd0;
                                 fw_c <= '0;
                                 fw_n <= 2'((4'(cell_fetch_addr[1:0])
                                      + {1'd0, cell_size} + 4'd3) >> 2);

@@ -474,6 +474,18 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
 mode5("sprite_overrun", 1, 27, 0,
       [(i * 6, 40, 0, 0) for i in range(48)])
 
+# One sprite alone on its row, and a long list with one sprite on the
+# row, for what the rest of the list costs.
+mode5("mode5_onrow", 1, 9, 0, [(30, 40, 0, 0)])
+mode5("mode5_onrow2", 1, 9, 0, [(30, 40, 0, 0), (60, 40, 0, 0)])
+mode4("mode4_onrow", 1, 0, 4, [(30, 40, 0, False)])
+mode4("mode4_onrow2", 1, 0, 4, [(30, 40, 0, False), (60, 40, 0, False)])
+mode5("mode5_offrow", 1, 9, 0,
+      [(30, 40, 0, 0)] + [(i * 3, -100, 0, 0) for i in range(200)],
+      desc_ptr=0x0800)
+mode4("mode4_offrow", 1, 0, 4,
+      [(30, 40, 0, False)] + [(i * 3, -100, 0, False) for i in range(200)])
+
 # The same stack cut to ten. These 8bpp images cycle through the palette, so
 # nearly every pixel misses the cache and the engine runs at port A's ceiling,
 # about 3.4 clocks a pixel: seven such sprites fill one line's 1,600 clocks

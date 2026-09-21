@@ -18,6 +18,10 @@ module wiring
      * put its edge after the clk_sys edge, and the soft CPU would then
      * sample signals that had already changed on that clk_sys edge. */
     input logic clk_rv,
+    /* XRAM's render port runs at twice clk_sys; xram.sv says how, and
+     * why clk_ph rides with it. */
+    input logic clk_a2,
+    input logic clk_ph,
     input logic rst_n,
 
     output logic [7:0] wiring_tx_data,
@@ -273,7 +277,7 @@ module wiring
         .sst_engine_cell_we(eng_cell_we),
         .sst_engine_xprog_we(eng_xprog_we),
         .sst_engine_xprog_word(eng_xprog_word),
-        .xram_rdata(xram_a_rdata),
+        .xram_rdata(xram_sst_rdata),
         .cell_rdata(eng_cell_rdata),
         .xprog_rdata(eng_xprog_rdata),
         .sst_engine_tcm_sel(eng_tcm_sel),
@@ -749,7 +753,7 @@ module wiring
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
-    logic [31:0] xram_a_rdata;
+    logic [31:0] xram_f_rdata, xram_s_rdata, xram_sst_rdata;
     logic [1:0] mf_req;
     logic [13:0] mf_addr[2];
     logic f_rotor, f_sel;
@@ -781,26 +785,12 @@ module wiring
         .w_data(soc_wdata)
     );
 
-    logic [1:0] ma_req;
+    /* The fill and the sprite stage each own a slot on XRAM's render
+     * port, a word every clock, so a request is always taken: the port
+     * reads whatever address each presents, and the word is on that
+     * reader's data port two clocks after. */
+    logic [1:0] ma_req /*verilator public_flat_rd*/;
     logic [13:0] ma_addr[2];
-    logic a_rotor, a_sel;
-    logic a_any;
-    always_comb begin
-        a_sel = a_rotor;
-        a_any = 1'b0;
-        for (int i = 0; i < 2; i++) begin
-            logic cand;
-            cand = a_rotor ^ 1'(i);
-            if (!a_any && ma_req[cand]) begin
-                a_sel = cand;
-                a_any = 1'b1;
-            end
-        end
-    end
-    initial a_rotor = 1'd0;
-    always_ff @(posedge clk_mach)
-        if (a_any)
-            a_rotor <= a_sel + 1'd1;
 
     logic xram_owed;
     initial xram_owed = 1'b0;
@@ -871,12 +861,17 @@ module wiring
     end
     xram xram (
         .clk(clk_sys),
+        .clk_a2(clk_a2),
+        .clk_ph(clk_ph),
+        .f_addr(ma_addr[0]),
+        .xram_f_rdata(xram_f_rdata),
+        .s_addr(ma_addr[1]),
+        .xram_s_rdata(xram_s_rdata),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_xram_we),
         .sst_wdata(eng_mem_wdata),
-        .a_addr(ma_addr[a_sel]),
-        .xram_a_rdata(xram_a_rdata),
+        .xram_sst_rdata(xram_sst_rdata),
         .b_addr(xw_addr),
         .b_wdata(xw_wdata),
         .b_we(xw_we),
@@ -1001,8 +996,8 @@ module wiring
         .cw(vid_cw),
         .fill_a_req(ma_req[0]),
         .fill_a_addr(ma_addr[0]),
-        .a_gnt(a_any && a_sel == 1'd0),
-        .a_rdata(xram_a_rdata),
+        .a_gnt(ma_req[0]),
+        .a_rdata(xram_f_rdata),
         .fill_f_req(mf_req[0]),
         .fill_f_addr(mf_addr[0]),
         .f_gnt(f_any && f_sel == 1'd0),
@@ -1046,8 +1041,8 @@ module wiring
         .sprite_overrun(),
         .sprite_a_req(ma_req[1]),
         .sprite_a_addr(ma_addr[1]),
-        .a_gnt(a_any && a_sel == 1'd1),
-        .a_rdata(xram_a_rdata)
+        .a_gnt(ma_req[1]),
+        .a_rdata(xram_s_rdata)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 

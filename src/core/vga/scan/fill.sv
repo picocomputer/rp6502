@@ -28,8 +28,8 @@ module fill (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* a_gnt means the address was taken; the word arrives on a_rdata the
-     * next clock. */
+    /* a_gnt means the address was taken; the word arrives on a_rdata two
+     * clocks later. */
     output logic fill_a_req,
     output logic [13:0] fill_a_addr,
     input logic a_gnt,
@@ -65,7 +65,7 @@ module fill (
     logic [127:0] cfgw;
     logic [15:0] hi_hold;
     logic hi_pend;
-    logic gnt_d;
+    logic gnt_d1, gnt_d;
     logic [15:0] sh_in;
     always_comb sh_in = gnt_d ? a_rdata[15:0] : hi_hold;
 
@@ -355,9 +355,10 @@ module fill (
 
     always_comb begin
         if (state == F_CFG) begin
-            /* Only one word is in flight, because the half held back has
-             * to shift before the next word's low half arrives. */
-            fill_a_req = cfg_i < cfg_n && !gnt_d;
+            /* One word is asked for every other clock, because the half
+             * held back has to shift before the next word's low half
+             * arrives. */
+            fill_a_req = cfg_i < cfg_n && !gnt_d1;
             fill_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin
             fill_a_req = state == F_MODE && sub_a_req;
@@ -387,10 +388,12 @@ module fill (
         m3_start = 1'b0;
         m2_start = 1'b0;
         m1_start = 1'b0;
+        gnt_d1 = 1'b0;
         gnt_d = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
+        gnt_d1 <= a_gnt;
+        gnt_d <= gnt_d1;
         m3_start <= 1'b0;
         m2_start <= 1'b0;
         m1_start <= 1'b0;

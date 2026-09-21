@@ -12,6 +12,8 @@ module pocket_core #(
 
     input logic clk_mach,
     input logic clk_rv,
+    input logic clk_a2,
+    input logic clk_ph,
 
     input logic clk_74a,
     input logic clk_sys,
@@ -337,6 +339,8 @@ input logic clk_vid,
         .wiring_sst_rvalid(sst_word_valid),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
+        .clk_a2(clk_a2),
+        .clk_ph(clk_ph),
         .rst_n(mrst_sys_n),
         .wiring_tx_data(pocket_core_tx_data),
         .wiring_tx_valid(pocket_core_tx_valid),
