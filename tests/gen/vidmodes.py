@@ -474,6 +474,15 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
 mode5("sprite_overrun", 1, 27, 0,
       [(i * 6, 40, 0, 0) for i in range(48)])
 
+# The same stack cut to ten. These 8bpp images cycle through the palette, so
+# nearly every pixel misses the cache and the engine runs at port A's ceiling,
+# about 3.4 clocks a pixel: seven such sprites fill one line's 1,600 clocks
+# and fourteen fill the two a 320 wide row has. Ten need more than one line
+# and fewer than two; the 48 above need more than two. Between them they
+# bracket the row's budget.
+mode5("sprite_pair", 1, 27, 0,
+      [(i * 6, 40, 0, 0) for i in range(10)])
+
 # The text hides the cursor because a blinking cursor would make the frame
 # a suite compares depend on when it is captured.
 MODE0_SAY = ("\33[0m\33[2J\33[H\33[?25l"

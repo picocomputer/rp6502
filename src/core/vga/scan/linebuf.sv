@@ -17,6 +17,8 @@ module linebuf (
     input logic [9:0] h,
     input logic px_last,
     input logic line_start,
+    input logic flip_ok,
+    input logic next_ok,
 
     input logic px_we,
     input logic [9:0] px_addr,
@@ -75,8 +77,8 @@ module linebuf (
     logic rd_bank;
     always_comb begin
         rd_addr = h == 10'd799 ? 10'd0 : h + 10'd1;
-        rd_bank = h == 10'd799 ? (flip_next ? wr_bank : !wr_bank)
-                               : !wr_bank;
+        rd_bank = h == 10'd799 && next_ok ? (flip_next ? wr_bank : !wr_bank)
+                                         : !wr_bank;
     end
     logic [15:0] q0, q1;
     logic q_sel;
@@ -98,7 +100,7 @@ module linebuf (
         flip_next = 1'b0;
     end
     always_ff @(posedge clk) begin
-        if (line_start) begin
+        if (line_start && flip_ok) begin
             if (flip_next)
                 wr_bank <= !wr_bank;
             flip_next <= 1'b0;

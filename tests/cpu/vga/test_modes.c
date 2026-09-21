@@ -335,4 +335,14 @@ UTEST(prog, bands_switch_modes_on_one_plane_320x240)
     run_case(utest_result, "prog_bands", 0xD2BCF38B, MUT_BUDGET_NONE);
 }
 
+/* 20 sprites of 64x64 at 8bpp stacked on one row of a 320 wide canvas. Their
+ * images cycle through the palette, so the cache misses and a sprite costs
+ * about a hundred clocks: more than one line, fewer than the two a 320 row
+ * has. The bench measures the pair as one unit, so the printed worst is the
+ * row's total against 3,198. */
+UTEST(mode5, a_320_row_spends_two_lines_of_sprites)
+{
+    run_case(utest_result, "sprite_pair", 0x837EAB90, MUT_BUDGET_UNDER);
+}
+
 MUT_MAIN()

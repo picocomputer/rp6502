@@ -135,7 +135,7 @@ module pocket_video (
     end
     always_ff @(posedge clk_vid) begin
         if (checked && run_v2 && locked && take && fifo_empty)
-            $error("pocket_video: pixel fifo underflow");
+            $error("pocket_video: pixel fifo underflow at y=%0d x=%0d", y, x);
     end
 `endif
 

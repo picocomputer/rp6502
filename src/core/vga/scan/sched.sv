@@ -11,7 +11,9 @@
  *
  * A line is 1,600 clocks (timing.sv) and a fill spends about a clock a
  * pixel, so there is serial fill rate for two planes on a 640-wide
- * canvas and three on a 320-wide one.
+ * canvas. A 320-wide canvas pairs its lines, one row of graphics to two
+ * lines of timing, so a row there has 3,200 clocks and all three planes
+ * fit with room to spare.
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
  * pixels come from the terminal engine instead; host/pocket/core/
@@ -56,6 +58,13 @@ module sched (
     always_comb dbl = cw == 10'd320;
     logic [9:0] v_next;
     always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
+    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
+     * is started on the even line and has the whole pair to finish in, and
+     * is handed over on the even line after. Line 524 is the pair's second
+     * line, not a start, and 523 is a start, not an end. */
+    logic pair_start, pair_end;
+    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
+    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
 
     logic render_now;
     always_comb render_now = t < ch;
@@ -162,17 +171,20 @@ module sched (
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
 `ifdef VERILATOR
-        if (settled && h == 10'd799 && state != SCH_IDLE)
+        if (settled && h == 10'd799 && pair_end && state != SCH_IDLE)
             $fatal(1, "fill underrun");
 `endif
         if (line_start) begin
-            t <= dbl ? {1'b0, v_next[9:1]} : v_next;
-            rd_i <= '0;
-            plane_pending <= '0;
-            if (term_armed)
-                term_q <= term_dec;
-            term_armed <= 1'b0;
-            state <= SCH_READ;
+            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
+                     : v_next;
+            if (pair_start) begin
+                rd_i <= '0;
+                plane_pending <= '0;
+                if (term_armed)
+                    term_q <= term_dec;
+                term_armed <= 1'b0;
+                state <= SCH_READ;
+            end
         end else begin
             case (state)
                 SCH_IDLE: ;

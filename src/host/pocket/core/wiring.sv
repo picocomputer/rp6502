@@ -945,7 +945,7 @@ module wiring
     );
     fill fill (
         .clk(clk_mach),
-        .line_start(vid_line_start),
+        .row_start(vid_row_start),
         .start(fl_start),
         .mode(fl_mode),
         .attr_i(fl_attr),
@@ -973,6 +973,8 @@ module wiring
                 .h(vid_h),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
+                .flip_ok(vid_flip_ok),
+                .next_ok(vid_next_ok),
                 .px_we(m_px_we[gi]),
                 .px_addr(fl_px_addr),
                 .px_data(fl_px_data),
@@ -1085,6 +1087,16 @@ module wiring
      * that the beam now takes the whole frame to cross the canvas. */
     logic vid_dbl;
     always_comb vid_dbl = vid_cw == 10'd320;
+    /* A line buffer flips where a pair starts, and next_ok says the line
+     * about to start is one; both as sched.sv pairs them. */
+    logic vid_flip_ok, vid_next_ok;
+    always_comb vid_flip_ok = !vid_dbl
+        || (!vid_v[0] && vid_v != 10'd524) || vid_v == 10'd523;
+    always_comb vid_next_ok = !vid_dbl
+        || (vid_v[0] && vid_v != 10'd523) || vid_v == 10'd524;
+    /* A row of graphics starts where a pair does. */
+    logic vid_row_start;
+    always_comb vid_row_start = vid_line_start && vid_flip_ok;
     always_comb vid_de = vid_de_full && vid_h < vid_cw
         && (vid_dbl ? !vid_v[0] && vid_v < {vid_ch[8:0], 1'b0}
                     : vid_v < vid_ch);

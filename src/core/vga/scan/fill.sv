@@ -16,7 +16,9 @@
 
 module fill (
     input logic clk,
-    input logic line_start,
+    /* The start of a row of graphics. On a 320 wide canvas that is every
+     * other line of timing, and a fill has the whole pair to finish in. */
+    input logic row_start,
 
     input logic start,
     input logic [2:0] mode,
@@ -151,7 +153,7 @@ module fill (
     mode1 mode1 (
         .clk(clk),
         .start(m1_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[127:0]),
         .t_row(t_row),
@@ -184,7 +186,7 @@ module fill (
     mode2 mode2 (
         .clk(clk),
         .start(m2_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[127:0]),
         .t_row(t_row),
@@ -206,7 +208,7 @@ module fill (
     mode3 mode3 (
         .clk(clk),
         .start(m3_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[111:0]),
         .t_row(t_row),
@@ -283,7 +285,7 @@ module fill (
     pixtail pixtail (
         .clk(clk),
         .start(tf_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .cw(cw),
         .pal_ptr(tf_pal_ptr),
         .pal_xram(tf_pal_xram),
@@ -387,7 +389,7 @@ module fill (
         m3_start <= 1'b0;
         m2_start <= 1'b0;
         m1_start <= 1'b0;
-        if (line_start)
+        if (row_start)
             state <= F_IDLE;
         else if (start) begin
             attr <= attr_i;

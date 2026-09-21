@@ -48,6 +48,18 @@ module sprite (
     always_comb dbl = cw == 10'd320;
     logic [9:0] v_next;
     always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
+    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
+     * is started on the even line and has the whole pair to finish in, and
+     * is handed over on the even line after. Line 524 is the pair's second
+     * line, not a start, and 523 is a start, not an end. */
+    logic pair_start, pair_end;
+    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
+    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
+    /* The engines and the palette cache work a row at a time, so they are
+     * aborted and flushed where a row starts, not on the second line of a
+     * pair, which would drop a pass that legitimately runs into it. */
+    logic row_start;
+    always_comb row_start = line_start && pair_start;
 
     logic render_now;
     always_comb render_now = t < ch;
@@ -106,14 +118,14 @@ module sprite (
         .fill_gnt(pc_gnt),
         .fill_rdy(pc_rdy),
         .a_rdata(a_rdata),
-        .flush(line_start)
+        .flush(row_start)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
     mode5 mode5 (
         .clk(clk),
         .start(m5_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .attr(slot_entry[p][15:0]),
         .cfg(slot_cfg[p][15:0]),
         .length(slot_cfg[p][31:16]),
@@ -145,7 +157,7 @@ module sprite (
     mode4 mode4 (
         .clk(clk),
         .start(m4_start),
-        .abort_i(line_start),
+        .abort_i(row_start),
         .attr(slot_entry[p][15:0]),
         .cfg(slot_cfg[p][15:0]),
         .length(slot_cfg[p][31:16]),
@@ -196,7 +208,7 @@ module sprite (
      * rather than stopping at cw, so a switch to a narrower canvas
      * cannot strand pixels. */
     logic [10:0] sb_rd;
-    always_comb sb_rd = h == 10'd799
+    always_comb sb_rd = h == 10'd799 && pair_end
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}
         : {!wr_bank, h + 10'd1};
     logic sb_we;
@@ -262,20 +274,25 @@ module sprite (
     always_ff @(posedge clk) begin
         m4_start <= 1'b0;
         m5_start <= 1'b0;
-        if (h == 10'd799 && state != SP_IDLE) begin
-            /* Count the lost line once and drop it; the engines abort
-             * at the next line_start. */
+        if (h == 10'd799 && pair_end && state != SP_IDLE) begin
+            /* Count the lost row once and drop it; the engines abort at
+             * the next row start. */
             sprite_overrun <= sprite_overrun
                 + 16'd1;
             state <= SP_IDLE;
         end else if (line_start) begin
-            t <= dbl ? {1'b0, v_next[9:1]} : v_next;
-            if (flip_next)
-                wr_bank <= !wr_bank;
-            flip_next <= 1'b0;
-            s_n <= '0;
-            s_cap_v <= 1'b0;
-            state <= SP_SLOT;
+            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
+                     : v_next;
+            if (pair_start) begin
+                if (flip_next)
+                    wr_bank <= !wr_bank;
+                flip_next <= 1'b0;
+            end
+            if (pair_start) begin
+                s_n <= '0;
+                s_cap_v <= 1'b0;
+                state <= SP_SLOT;
+            end
         end else begin
             case (state)
                 SP_IDLE: ;
