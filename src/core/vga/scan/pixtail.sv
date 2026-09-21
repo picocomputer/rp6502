@@ -13,6 +13,9 @@
  * 3 wraparound ends one segment and starts the next; transparent padding
  * is an immediate segment of zeros, so blank and out-of-window lines need
  * no special case.
+ *
+ * Up to two pixels leave a clock, neighbours, and linebuf.sv lands the
+ * pair in one write. The palette answers both through its two ports.
  */
 
 module pixtail
@@ -52,13 +55,17 @@ module pixtail
     output logic [7:0] pixtail_pal_w,
     output logic [8:0] pixtail_pal_words,
     output logic [7:0] pixtail_pal_idx,
+    output logic [7:0] pixtail_pal_idx1,
     output logic pixtail_pal_xram,
     output logic pixtail_pal_one_bpp,
     input logic [15:0] pal_q,
+    input logic [15:0] pal_q1,
 
-    output logic pixtail_px_we,
+    /* px_data[15:0] lands at px_addr under px_we[0], px_data[31:16] at
+     * px_addr + 1 under px_we[1]. */
+    output logic [1:0] pixtail_px_we,
     output logic [9:0] pixtail_px_addr,
-    output logic [15:0] pixtail_px_data,
+    output logic [31:0] pixtail_px_data,
 
     output logic pixtail_done
 );
@@ -143,37 +150,48 @@ module pixtail
     end
 
     logic [4:0] bit_in_word;
-    logic [7:0] cur_byte;
+    /* The second pixel of a pair starts a pixel on from the first, which
+     * can be in the word behind fifo[0]; bit_end is where the pixel after
+     * the pair would start. */
+    logic [5:0] bit_next, bit_end;
+    always_comb bit_next = 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log};
+    always_comb bit_end = 6'(bit_in_word) + {5'd1 << bpp_log, 1'b0};
+    logic [63:0] fifo_pair;
+    always_comb fifo_pair = {fifo[1], fifo[0]};
+    logic [7:0] cur_byte, byte_1;
     always_comb cur_byte = fifo[0][{bit_in_word[4:3], 3'b000}+:8];
-    logic [7:0] pix_idx;
-    always_comb begin
-        case (bpp_log)
-            3'd0: pix_idx = {7'd0, reversed
-                ? cur_byte[bit_in_word[2:0]]
-                : cur_byte[3'd7 - bit_in_word[2:0]]};
-            3'd1: pix_idx = {6'd0, reversed
-                ? cur_byte[{bit_in_word[2:1], 1'b0}+:2]
-                : cur_byte[{2'd3 - bit_in_word[2:1], 1'b0}+:2]};
-            3'd2: pix_idx = {4'd0, reversed
-                ? cur_byte[{bit_in_word[2], 2'b00}+:4]
-                : cur_byte[{!bit_in_word[2], 2'b00}+:4]};
-            default: pix_idx = cur_byte;
+    always_comb byte_1 = fifo_pair[{bit_next[5:3], 3'b000}+:8];
+    function automatic logic [7:0] sub_idx(input logic [7:0] b,
+                                           input logic [2:0] at,
+                                           input logic [2:0] depth,
+                                           input logic rev);
+        case (depth)
+            3'd0: sub_idx = {7'd0, rev ? b[at] : b[3'd7 - at]};
+            3'd1: sub_idx = {6'd0, rev ? b[{at[2:1], 1'b0}+:2]
+                                     : b[{2'd3 - at[2:1], 1'b0}+:2]};
+            3'd2: sub_idx = {4'd0, rev ? b[{at[2], 2'b00}+:4]
+                                     : b[{!at[2], 2'b00}+:4]};
+            default: sub_idx = b;
         endcase
-    end
+    endfunction
+    logic [7:0] pix_idx, pix_idx1;
+    always_comb pix_idx = sub_idx(cur_byte, bit_in_word[2:0], bpp_log,
+                                  reversed);
+    always_comb pix_idx1 = sub_idx(byte_1, bit_next[2:0], bpp_log,
+                                   reversed);
     /* Sixteen-bit color at any byte, which is the only pixel wide enough
      * to reach past its word: byte 3 takes its high half from the word
      * behind it. Everything narrower divides eight and cannot straddle. */
-    logic [15:0] pix16;
-    always_comb pix16 = 16'({fifo[1], fifo[0]}
-                            >> {bit_in_word[4:3], 3'b000});
-    logic [5:0] bit_next;
-    always_comb bit_next = 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log};
+    logic [15:0] pix16, pix16_1;
+    always_comb pix16 = 16'(fifo_pair >> {bit_in_word[4:3], 3'b000});
+    always_comb pix16_1 = 16'(fifo_pair >> {bit_next[5:3], 3'b000});
     logic straddle;
     always_comb straddle = bit_next > 6'd32;
 
     logic [2:0] imm_bit;
-    logic imm_on;
+    logic imm_on, imm_on1;
     always_comb imm_on = cur.ibits[3'd7 - imm_bit];
+    always_comb imm_on1 = cur.ibits[3'd6 - imm_bit];
 
     always_comb begin
         pixtail_pal_ld = !abort_i && !start && state == T_PAL
@@ -181,32 +199,42 @@ module pixtail
         pixtail_pal_w = pal_w;
         pixtail_pal_words = pal_words;
         pixtail_pal_idx = pix_idx;
+        pixtail_pal_idx1 = pix_idx1;
         pixtail_pal_xram = pal_xram;
         pixtail_pal_one_bpp = bpp_log == 3'd0;
     end
 
     logic [9:0] px;
     logic [9:0] cur_left;
-    logic emit_imm, emit_xram, emit_now;
+    logic emit_imm, emit_xram, emit_now, emit_pair;
     always_comb begin
         emit_imm = state == T_RUN && cur_v && cur.imm;
         emit_xram = state == T_RUN && cur_v && !cur.imm && fifo_v[0]
             && !fifo_seg1[0] && (!straddle || fifo_v[1]);
         emit_now = emit_imm || emit_xram;
+        /* The second goes too when the segment has one and, for an xram
+         * segment, the fifo holds every bit of it. */
+        emit_pair = emit_now && cur_left != 10'd1
+            && (emit_imm || bit_end <= 6'd32 || fifo_v[1]);
     end
+    logic [5:0] bit_after;
+    always_comb bit_after = emit_pair ? bit_end : bit_next;
+    logic [9:0] px_after;
+    always_comb px_after = px + 10'd1 + {9'd0, emit_pair};
 
     logic word_last;
-    always_comb word_last = emit_xram
-        && (cur_left == 10'd1 || bit_next >= 6'd32);
+    always_comb word_last = emit_xram && (cur_done || bit_after >= 6'd32);
 
     always_comb begin
-        pixtail_px_we = emit_now;
+        pixtail_px_we = {emit_pair, emit_now};
         pixtail_px_addr = px;
-        pixtail_px_data = 16'h0000;
+        pixtail_px_data = 32'h0000_0000;
         if (emit_imm)
-            pixtail_px_data = imm_on ? cur.fg : cur.bg;
+            pixtail_px_data = {imm_on1 ? cur.fg : cur.bg,
+                               imm_on ? cur.fg : cur.bg};
         else if (emit_xram)
-            pixtail_px_data = bpp_log == 3'd4 ? pix16 : pal_q;
+            pixtail_px_data = bpp_log == 3'd4 ? {pix16_1, pix16}
+                                              : {pal_q1, pal_q};
     end
 
     always_comb begin
@@ -352,11 +380,12 @@ module pixtail
                      * first word has a nonzero one, so promotion needs
                      * no special case. */
                     if (word_shift) begin
-                        if (fifo_v[1]) begin
+                        if (keep_1) begin
                             fifo[0] <= fifo[1];
                             fifo_bit0[0] <= fifo_bit0[1];
                             fifo_seg1[0] <= fifo_seg1[1] && !cur_done;
-                            bit_in_word <= fifo_bit0[1];
+                            bit_in_word <= bit_after > 6'd32 && !cur_done
+                                ? bit_after[4:0] : fifo_bit0[1];
                             if (gnt_q) begin
                                 fifo[1] <= a_rdata;
                                 fifo_bit0[1] <= inflight_bit0[0];
@@ -407,13 +436,12 @@ module pixtail
                     end
 
                     if (emit_now) begin
-                        px <= px + 10'd1;
-                        cur_left <= cur_left - 10'd1;
+                        px <= px_after;
+                        cur_left <= cur_left - 10'd1 - {9'd0, emit_pair};
                         if (emit_imm)
-                            imm_bit <= imm_bit + 3'd1;
+                            imm_bit <= imm_bit + 3'd1 + {2'd0, emit_pair};
                         else if (!word_shift)
-                            bit_in_word <= bit_in_word
-                                + (5'd1 << bpp_log);
+                            bit_in_word <= bit_after[4:0];
                         if (cur_done) begin
                             /* The deck's words are already arriving
                              * behind cur's, so every word marked as the
@@ -432,7 +460,7 @@ module pixtail
                             end
                             fetch_seg1 <= 1'b0;
                         end
-                        if (px == cw - 10'd1) begin
+                        if (px_after == cw) begin
                             state <= T_IDLE;
                             cur_v <= 1'b0;
                             deck_v <= 1'b0;
@@ -446,9 +474,15 @@ module pixtail
     end
 
     logic cur_done;
-    always_comb cur_done = emit_now && cur_left == 10'd1;
+    always_comb cur_done = emit_now
+        && cur_left == 10'd1 + {9'd0, emit_pair};
     logic word_shift;
     always_comb word_shift = word_last;
+    /* A segment whose last pixel reaches into the word behind it leaves
+     * that word in the fifo as it ends. It is the finished segment's, so
+     * the shift drops it rather than handing it to the next. */
+    logic keep_1;
+    always_comb keep_1 = fifo_v[1] && (fifo_seg1[1] || !cur_done);
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pixtail;

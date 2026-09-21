@@ -9,11 +9,10 @@
  * does not run never flips its line buffer, so it scans out the zeros
  * the erase side left there.
  *
- * A line is 1,600 clocks (timing.sv) and a fill spends about a clock a
- * pixel, so there is serial fill rate for two planes on a 640-wide
- * canvas. A 320-wide canvas pairs its lines, one row of graphics to two
- * lines of timing, so a row there has 3,200 clocks and all three planes
- * fit with room to spare.
+ * A line is 1,600 clocks (timing.sv) and a fill lands two pixels a
+ * clock, so three planes fit serially on a 640-wide canvas. A 320-wide
+ * canvas pairs its lines, one row of graphics to two lines of timing, so
+ * a row there has 3,200 clocks and room to spare.
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
  * pixels come from the terminal engine instead; host/pocket/core/
@@ -41,9 +40,9 @@ module sched (
     output logic [15:0] sched_e_attr,
     output logic [15:0] sched_e_config,
     input logic e_done,
-    input logic e_px_we,
+    input logic [1:0] e_px_we,
 
-    output logic [2:0] sched_px_we,
+    output logic [1:0] sched_px_we[3],
     output logic [2:0] sched_done,
     output logic [2:0] sched_term
 );
@@ -102,8 +101,6 @@ module sched (
                 dec_q[dec_n] = 2'(i);
                 dec_n = dec_n + 2'd1;
             end
-        if (cw == 10'd640 && dec_n == 2'd3)
-            dec_n = 2'd2;
         dec_run = '0;
         for (int i = 0; i < 3; i++)
             if (2'(i) < dec_n)
@@ -128,9 +125,10 @@ module sched (
         sched_done = '0;
         if (state == SCH_RUN && e_done)
             sched_done[cur] = 1'b1;
-        sched_px_we = '0;
-        if (state == SCH_RUN && e_px_we)
-            sched_px_we[cur] = 1'b1;
+        for (int i = 0; i < 3; i++)
+            sched_px_we[i] = 2'b00;
+        if (state == SCH_RUN)
+            sched_px_we[cur] = e_px_we;
     end
 
 `ifdef VERILATOR

@@ -198,17 +198,16 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
                 palram[(wa_o & 127) * 2 + 1] = wd_o;
             c->pal_loads++;
         }
-        {
-            uint8_t idx = dut->pixtail_pal_idx;
-            uint16_t q;
+        /* Both palette ports answer in the same clock, as palram does. */
+        auto look = [&](uint8_t idx) -> uint16_t {
             if (pal_xram)
-                q = palram[idx];
-            else if (bpp_log == 0)
-                q = VID_COLOR_2[idx & 1];
-            else
-                q = VID_COLOR_256[idx];
-            dut->pal_q = q;
-        }
+                return palram[idx];
+            if (bpp_log == 0)
+                return VID_COLOR_2[idx & 1];
+            return VID_COLOR_256[idx];
+        };
+        dut->pal_q = look(dut->pixtail_pal_idx);
+        dut->pal_q1 = look(dut->pixtail_pal_idx1);
         dut->eval();
 
         if (dut->pixtail_seg_take && si < segs.size())
@@ -219,17 +218,19 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         else if (feed_hold > 0)
             feed_hold--;
 
-        if (dut->pixtail_px_we)
+        /* The pair: lane 0 at px_addr, lane 1 at px_addr + 1. */
+        for (int lane = 0; lane < 2; lane++)
         {
+            if (!(dut->pixtail_px_we & (1 << lane)))
+                continue;
+            int at = dut->pixtail_px_addr + lane;
+            uint16_t px = (uint16_t)(dut->pixtail_px_data >> (16 * lane));
             if (getenv("PIXTAIL_TRACE") && t < 400)
-                fprintf(stderr, "t%ld PX %d = %04X\n", t,
-                        (int)dut->pixtail_px_addr,
-                        (int)dut->pixtail_px_data);
-            int at = dut->pixtail_px_addr;
+                fprintf(stderr, "t%ld PX %d = %04X\n", t, at, px);
             if (at < 640 && !c->wrote[at])
             {
                 c->wrote[at] = true;
-                c->data[at] = dut->pixtail_px_data;
+                c->data[at] = px;
                 c->n++;
             }
         }

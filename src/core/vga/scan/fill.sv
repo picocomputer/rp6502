@@ -40,9 +40,10 @@ module fill (
     input logic f_gnt,
     input logic [7:0] f_data,
 
-    output logic fill_px_we,
+    /* A pair a clock, as pixtail.sv emits and linebuf.sv lands it. */
+    output logic [1:0] fill_px_we,
     output logic [9:0] fill_px_addr,
-    output logic [15:0] fill_px_data,
+    output logic [31:0] fill_px_data,
 
     output logic fill_done
 );
@@ -83,11 +84,11 @@ module fill (
     logic tl_pal_ld;
     logic [7:0] tl_pal_w;
     logic [8:0] tl_pal_words;
-    logic [7:0] tl_pal_idx;
+    logic [7:0] tl_pal_idx, tl_pal_idx1;
     logic tl_pal_xram, tl_pal_one_bpp;
-    logic tl_px_we;
+    logic [1:0] tl_px_we;
     logic [9:0] tl_px_addr;
-    logic [15:0] tl_px_data;
+    logic [31:0] tl_px_data;
     logic tl_done;
     logic m1_start;
     logic m1_a_req;
@@ -116,7 +117,7 @@ module fill (
     logic m1_pal_one_bpp;
     logic [15:0] pal_qa, pal_qb;
     logic pal_ld, pal_xram, pal_one_bpp;
-    logic [7:0] pal_w, pal_idx_a;
+    logic [7:0] pal_w, pal_idx_a, pal_idx_b;
     logic [8:0] pal_words;
     always_comb begin
         if (mode_q == 3'd1) begin
@@ -124,6 +125,7 @@ module fill (
             pal_w = m1_pal_w;
             pal_words = m1_pal_words;
             pal_idx_a = m1_pal_idx_a;
+            pal_idx_b = m1_pal_idx_b;
             pal_xram = m1_pal_xram;
             pal_one_bpp = m1_pal_one_bpp;
         end else begin
@@ -131,6 +133,7 @@ module fill (
             pal_w = tl_pal_w;
             pal_words = tl_pal_words;
             pal_idx_a = tl_pal_idx;
+            pal_idx_b = tl_pal_idx1;
             pal_xram = tl_pal_xram;
             pal_one_bpp = tl_pal_one_bpp;
         end
@@ -145,7 +148,7 @@ module fill (
         .xram(pal_xram),
         .one_bpp(pal_one_bpp),
         .idx_a(pal_idx_a),
-        .idx_b(m1_pal_idx_b),
+        .idx_b(pal_idx_b),
         .palram_qa(pal_qa),
         .palram_qb(pal_qb)
     );
@@ -308,9 +311,11 @@ module fill (
         .pixtail_pal_w(tl_pal_w),
         .pixtail_pal_words(tl_pal_words),
         .pixtail_pal_idx(tl_pal_idx),
+        .pixtail_pal_idx1(tl_pal_idx1),
         .pixtail_pal_xram(tl_pal_xram),
         .pixtail_pal_one_bpp(tl_pal_one_bpp),
         .pal_q(pal_qa),
+        .pal_q1(pal_qb),
         .pixtail_px_we(tl_px_we),
         .pixtail_px_addr(tl_px_addr),
         .pixtail_px_data(tl_px_data),
@@ -319,9 +324,9 @@ module fill (
 
     logic sub_a_req;
     logic [13:0] sub_a_addr;
-    logic sub_px_we;
+    logic [1:0] sub_px_we;
     logic [9:0] sub_px_addr;
-    logic [15:0] sub_px_data;
+    logic [31:0] sub_px_data;
     logic sub_done;
     always_comb begin
         if (mode_q == 3'd1) begin
@@ -361,7 +366,7 @@ module fill (
     end
 
     always_comb begin
-        fill_px_we = state == F_MODE && sub_px_we;
+        fill_px_we = state == F_MODE ? sub_px_we : 2'b00;
         fill_px_addr = sub_px_addr;
         fill_px_data = sub_px_data;
         fill_done = state == F_MODE && sub_done;

@@ -138,6 +138,21 @@ UTEST(mode3, two_bpp8_fills_serial_640x480)
     run_case(utest_result, "fill_heavy640", 0x42E2D810, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode3, three_bpp8_fills_serial_640x480)
+{
+    run_case(utest_result, "fill_three640", 0x6ABDA34F, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode1, three_bpp8_8x8_text_planes_640x480)
+{
+    run_case(utest_result, "text_three640", 0x982FCF90, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode3, bpp16_odd_data_wrap_640x360)
+{
+    run_case(utest_result, "mode3_16odd_wrap", 0xFA27DA4F, MUT_BUDGET_NONE);
+}
+
 UTEST(mode3, bpp1_builtin_320x240)
 {
     run_case(utest_result, "mode3_1bpp", 0x4EA78B8D, MUT_BUDGET_NONE);

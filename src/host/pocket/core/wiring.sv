@@ -915,10 +915,10 @@ module wiring
     logic [2:0] fl_mode;
     logic [15:0] fl_attr, fl_config;
     logic fl_done;
-    logic fl_px_we;
+    logic [1:0] fl_px_we;
     logic [9:0] fl_px_addr;
-    logic [15:0] fl_px_data;
-    logic [2:0] m_px_we;
+    logic [31:0] fl_px_data;
+    logic [1:0] m_px_we[3];
     logic [2:0] m_done;
     logic [2:0] sched_term;
     sched sched (

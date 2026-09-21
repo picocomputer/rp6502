@@ -528,6 +528,51 @@ rom("fill_heavy640", 3,
      (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
      (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])
 
+# Three full-width 8bpp fills with XRAM palettes, the heaviest serial fill a
+# 640-wide line can ask for: 128 palette words and 640 pixels apiece.
+cfg_a = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x1000, 0x0200)
+cfg_b = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x3800, 0x0400)
+cfg_c = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x6000, 0x0600)
+rom("fill_three640", 3,
+    [(3, 3, 0x0100, 0, 0, 0), (3, 3, 0x0140, 1, 0, 0),
+     (3, 3, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b), (0x0180, cfg_c),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 16))),
+     (0x3800, bytes((i * 11 + 3) & 0xFF for i in range(640 * 16))),
+     (0x6000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 16))),
+     (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
+     (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
+                     for i in range(256))))])
+
+# Three 80-column 8bpp text planes with XRAM palettes, every cell of every
+# plane on the line: the fill the pico's three-plane test runs.
+def text_cells(w, h, k):
+    cells = bytearray()
+    for i in range(w * h):
+        cells.extend((ord("A") + i % 60, (i * 5 + 1 + k) & 0xFF,
+                      (i * 11 + 2 + k) & 0xFF))
+    return cells
+cfg_a = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1000, 0x0200, 0xFFFF)
+cfg_b = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1400, 0x0400, 0xFFFF)
+cfg_c = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1800, 0x0600, 0xFFFF)
+rom("text_three640", 3,
+    [(1, 3, 0x0100, 0, 0, 0), (1, 3, 0x0140, 1, 0, 0),
+     (1, 3, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b), (0x0180, cfg_c),
+     (0x1000, text_cells(80, 4, 0)), (0x1400, text_cells(80, 4, 7)),
+     (0x1800, text_cells(80, 4, 13)),
+     (0x0200, le16(*((0x0020 | (i * 2657 + 5)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
+     (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
+                     for i in range(256))))])
+
+# Sixteen-bit pixels at an odd byte, so every other pixel straddles a word,
+# and a wrap every 32 pixels, so each segment ends on a straddle and the
+# next segment starts right behind it.
+mode3("mode3_16odd_wrap", 4, 4, 16, 32, 16, -10, 50, False, x_wrap=True,
+      data_ptr=0x0801)
+
 if ARGS.emit_manifest:
     ARGS.emit_manifest.write_text(
         "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))
