@@ -57,7 +57,7 @@ UTEST(vidregs, sprite_overrun_cuts_the_row)
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
     /* What was painted before the row ran out: a 320 wide row has two lines
      * of timing, so the cut lands a line later than it would on one. */
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x9C17336Au);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xD1033AE3u);
 }
 
 /* A hundred doubled and flipped custom sprites on one row, past what its two
@@ -66,7 +66,7 @@ UTEST(vidregs, sprite_overrun_cuts_the_row)
 UTEST(vidregs, custom_sprite_overrun_cuts_the_row)
 {
     ASSERT_TRUE(boot("mode5c_overrun", 320 * 240));
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xABE8FE51u);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xDF872245u);
 }
 
 UTEST_STATE();

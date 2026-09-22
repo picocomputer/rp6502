@@ -59,13 +59,13 @@ module sprite (
     } state_t;
     state_t state;
 
-    /* The three sprite slots, read at line start: an index goes out each
-     * clock and the word answers on the next. */
-    logic [31:0] slot_entry[3];
-    logic [31:0] slot_cfg[3];
-    logic [2:0] s_n, s_cap;
-    logic s_cap_v;
-    always_comb sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
+    /* The sprite slot of the plane being drawn, read as the plane is
+     * planned: an index goes out each clock and the word answers on the
+     * next, the entry then the config. */
+    logic [31:0] slot_entry;
+    logic [31:0] slot_cfg;
+    logic s_cfg;
+    always_comb sprite_s_idx = {t_row, p, 1'b1, s_cfg};
 
     logic [1:0] p;
 
@@ -118,7 +118,7 @@ module sprite (
         .clk(clk),
         .start(m5_start),
         .abort_i(row_start),
-        .attr(slot_entry[p][15:0]),
+        .attr(slot_entry[15:0]),
         .t_row(t_row),
         .cw(cw),
         .mode5_a_req(m5_a_req),
@@ -169,7 +169,7 @@ module sprite (
         .clk(clk),
         .start(m4_start),
         .abort_i(row_start),
-        .attr(slot_entry[p][15:0]),
+        .attr(slot_entry[15:0]),
         .t_row(t_row),
         .cw(cw),
         .mode4_a_req(m4_a_req),
@@ -203,12 +203,11 @@ module sprite (
     );
 
     logic sp_is4;
-    always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
+    always_comb sp_is4 = slot_entry[18:16] == 3'd4;
 
-    /* Latched when the plane is planned, because sp_is4 reads
-     * slot_entry[p][18:16] through a three-way mux, which would
-     * otherwise stand in both the pixel port's data path and the XRAM
-     * arbitration for a bit that cannot change while the engine runs. */
+    /* Latched when the plane is planned, so the engine select that
+     * stands in both the pixel port's data path and the XRAM arbitration
+     * is a register rather than a compare. */
     logic run4;
 
     /* One descriptor list queue and one row word queue for the two
@@ -220,12 +219,12 @@ module sprite (
     logic wide;
     logic [16:0] list_end;
     always_comb begin
-        n_dsc = slot_cfg[p][28:16];
-        wide = run4 && slot_entry[p][0];
-        list_end = {1'b0, slot_cfg[p][15:0]}
+        n_dsc = slot_cfg[28:16];
+        wide = run4 && slot_entry[0];
+        list_end = {1'b0, slot_cfg[15:0]}
             + (wide ? {n_dsc, 4'b0} : {1'b0, n_dsc, 3'b0})
             + (run4 ? (wide ? {2'b0, n_dsc, 2'b0} : 17'd0)
-                    : (slot_entry[p][5:3] == 3'd7 ? {3'b0, n_dsc, 1'b0}
+                    : (slot_entry[5:3] == 3'd7 ? {3'b0, n_dsc, 1'b0}
                                                   : 17'd0))
             - 17'd1;
     end
@@ -238,9 +237,9 @@ module sprite (
     listq listq (
         .clk(clk),
         .start(m4_start || m5_start),
-        .cfg(slot_cfg[p][15:0]),
+        .cfg(slot_cfg[15:0]),
         .last(list_end[15:2]),
-        .length(slot_cfg[p][29:16]),
+        .length(slot_cfg[29:16]),
         .active(run4 ? m4_lq_active : m5_lq_active),
         .size(run4 ? m4_lq_size : m5_lq_size),
         .pop(run4 ? m4_lq_pop : m5_lq_pop),
@@ -290,9 +289,6 @@ module sprite (
         pc_gnt = pc_req && state == SP_RUN && !run4;
     end
 
-    logic sp_en;
-    always_comb sp_en = slot_entry[p][31]
-        && (slot_entry[p][18:16] == 3'd5 || sp_is4);
 
     logic wr_bank;
     logic flip_next;
@@ -344,21 +340,15 @@ module sprite (
             state <= SP_IDLE;
         else begin
             p <= p + 2'd1;
-            state <= SP_PLAN;
+            state <= SP_SLOT;
         end
     endtask
 
     initial begin
         state = SP_IDLE;
-        slot_entry[0] = '0;
-        slot_entry[1] = '0;
-        slot_entry[2] = '0;
-        slot_cfg[0] = '0;
-        slot_cfg[1] = '0;
-        slot_cfg[2] = '0;
-        s_n = '0;
-        s_cap = '0;
-        s_cap_v = 1'b0;
+        slot_entry = '0;
+        slot_cfg = '0;
+        s_cfg = 1'b0;
         p = '0;
         m4_start = 1'b0;
         m5_start = 1'b0;
@@ -378,8 +368,8 @@ module sprite (
             if (flip_next)
                 wr_bank <= !wr_bank;
             flip_next <= 1'b0;
-            s_n <= '0;
-            s_cap_v <= 1'b0;
+            p <= '0;
+            s_cfg <= 1'b0;
             state <= SP_SLOT;
         end else begin
             case (state)
@@ -389,24 +379,24 @@ module sprite (
                         state <= SP_IDLE;
                     else begin
                         flip_next <= 1'b1;
-                        if (s_n < 3'd6)
-                            s_n <= s_n + 3'd1;
-                        s_cap <= s_n;
-                        s_cap_v <= s_n < 3'd6;
-                        if (s_cap_v) begin
-                            if (s_cap[0])
-                                slot_cfg[s_cap[2:1]] <= s_data;
-                            else
-                                slot_entry[s_cap[2:1]] <= s_data;
-                            if (s_cap == 3'd5) begin
-                                p <= '0;
+                        s_cfg <= !s_cfg;
+                        /* A plane with no sprites is passed over on the
+                         * clock its entry answers. */
+                        if (s_cfg) begin
+                            slot_entry <= s_data;
+                            if (s_data[31] && (s_data[18:16] == 3'd4
+                                               || s_data[18:16] == 3'd5))
                                 state <= SP_PLAN;
-                            end
+                            else
+                                next_plane();
                         end
                     end
                 end
+                /* The config answers on this clock, so the empty list is
+                 * judged from it as it is latched. */
                 SP_PLAN: begin
-                    if (!sp_en || slot_cfg[p][31:16] == 16'd0)
+                    slot_cfg <= s_data;
+                    if (s_data[31:16] == 16'd0)
                         next_plane();
                     else begin
                         run4 <= sp_is4;
@@ -427,9 +417,7 @@ module sprite (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sprite;
-    always_comb unused_sprite = ^{slot_entry[0][30:19],
-                                      slot_entry[1][30:19],
-                                      slot_entry[2][30:19],
+    always_comb unused_sprite = ^{slot_entry[31:19], slot_cfg[31:30],
                                       list_end[16], list_end[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
