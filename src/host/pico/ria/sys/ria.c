@@ -456,7 +456,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFEF): // OS function call
                     API_OP = data;       // get ahead of DMA
                     api_set_regs_blocked();
-                    if (data == 0x00) // zxstack()
+                    if (data == 0x00) // ria_drop()
                     {
                         API_STACK = 0;
                         xstack_ptr = XSTACK_SIZE;

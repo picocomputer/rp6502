@@ -55,7 +55,7 @@ static void ria_syscall(uint8_t op)
     api_set_regs_blocked();
     switch (op)
     {
-    case 0x00: /* ZXSTACK */
+    case 0x00: /* DROP_XSTACK */
         xstack_ptr = XSTACK_SIZE;
         (void)api_return_ax(0);
         return;

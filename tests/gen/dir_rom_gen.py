@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rp6502_asm import (API_A, API_X, OP_CLOSEDIR, OP_EXIT, OP_GETFREE,
-                        OP_GETLABEL, OP_OPENDIR, OP_READDIR, OP_ZXSTACK,
+from rp6502_asm import (API_A, API_X, OP_CLOSEDIR, OP_DROP_XSTACK, OP_EXIT,
+                        OP_GETFREE, OP_GETLABEL, OP_OPENDIR, OP_READDIR,
                         XSTACK, Asm, putc, puthex, puthex16,
                         putnib)  # noqa: E402
 from rp6502_rom import image  # noqa: E402
@@ -52,7 +52,7 @@ def prog():
     p.symbol("next")
     # readdir pushes its 282 bytes onto whatever the 512 byte xstack still
     # holds, so the unread part of the previous entry is cleared first.
-    p.call(OP_ZXSTACK)
+    p.call(OP_DROP_XSTACK)
     p.lda_abs(DES)
     p.sta_abs(API_A)
     p.call(OP_READDIR)
