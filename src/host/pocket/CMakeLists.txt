@@ -14,7 +14,6 @@ set(RP6502_LOG_LEVEL ERROR CACHE STRING
 include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)

@@ -145,9 +145,9 @@ to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
 `build/itch.io/bundle` is enough to try it.
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
-into `build/pocket/package`; `pocket-bitstream`, `pocket-fit` and `synth` are
-targets in the build-target selector if you want to stop earlier or just
-measure. It needs Quartus and `gcc-riscv64-unknown-elf` and nothing else.
+into `build/pocket/package`; `pocket-bitstream` and `pocket-fit` are targets
+in the build-target selector if you want to stop earlier. It needs Quartus and
+`gcc-riscv64-unknown-elf` and nothing else.
 
 ## Testing
 
