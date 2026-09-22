@@ -112,10 +112,14 @@ module mode2
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
     /* The map overruns XRAM; the oracle's reject, folded where the
-     * plan latches because it lands on that same edge. */
+     * plan latches because it lands on that same edge. The limit is at
+     * most $10000, so any bit above 16 overruns whatever it is and only
+     * the low bits reach the comparator. */
+    logic [29:0] map_bytes;
+    always_comb map_bytes = 30'(cf_height[14:0]) * 30'(cf_width[14:0]);
     logic overrun;
-    always_comb overrun = 35'(cf_height[14:0]) * 35'(cf_width[14:0])
-        > 35'(17'h10000) - 35'({1'b0, cf_data});
+    always_comb overrun = |map_bytes[29:17]
+        || map_bytes[16:0] > 17'(17'h10000 - {1'b0, cf_data});
 
     /* The restoring divider for trimmed geometry: twenty steps resolve a
      * quotient the shift path cannot. */
@@ -166,10 +170,20 @@ module mode2
         + 18'(18'({13'd0, row_size}) * 18'({14'd0, r_row}));
 
     /* Mode 2 does not require a full tile set in XRAM, so a tile id can name
-     * a row that runs off the end of it. That tile is not drawn. */
+     * a row that runs off the end of it. That tile is not drawn. row_size
+     * takes one of five values, so the address the row may not pass is one
+     * of five constants and the sum needs no adder. */
+    logic [17:0] tile_limit;
+    always_comb
+        case (row_size)
+            5'd1: tile_limit = 18'h0FFFF;
+            5'd2: tile_limit = 18'h0FFFE;
+            5'd4: tile_limit = 18'h0FFFC;
+            5'd8: tile_limit = 18'h0FFF8;
+            default: tile_limit = 18'h0FFF0;
+        endcase
     logic tile_oob;
-    always_comb tile_oob =
-        (19'({1'b0, tile_row_addr}) + 19'({14'd0, row_size})) > 19'h10000;
+    always_comb tile_oob = tile_row_addr > tile_limit;
 
     logic [20:0] pad_left;
     always_comb pad_left = 21'(-col);

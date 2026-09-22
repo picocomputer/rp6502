@@ -74,6 +74,16 @@ module mode3
     logic signed [16:0] row;
     logic [19:0] sizeof_row;
     logic [19:0] row_off;
+    /* The bitmap overruns XRAM; the oracle's reject, named once because
+     * both the blank decision and the palette plan ask it on the same
+     * edge. The product is compared against a limit of at most $10000,
+     * so anything above bit 16 overruns whatever the limit is, and only
+     * the low bits need the comparator. */
+    logic [34:0] bitmap_bytes;
+    always_comb bitmap_bytes = 35'(cf_height[14:0]) * 35'(sizeof_row);
+    logic overrun;
+    always_comb overrun = |bitmap_bytes[34:17]
+        || bitmap_bytes[16:0] > 17'(17'h10000 - {1'b0, cf_data});
     logic [16:0] row_base;
     logic signed [16:0] col;
     logic [9:0] px_rem;
@@ -171,19 +181,14 @@ module mode3
                 end
                 S3_ADDR: begin
                     row_base <= {1'b0, cf_data} + row_off[16:0];
-                    /* Bitmap overrun. */
-                    if (!blank
-                        && 35'(cf_height[14:0]) * 35'(sizeof_row)
-                            > 35'(17'h10000) - 35'({1'b0, cf_data}))
+                    if (!blank && overrun)
                         blank <= 1'b1;
                     /* The tail's plan: a blank line loads nothing.
                      * The pal_xram test folds the blank decision in
                      * combinationally, since blank may land on this
                      * same edge. */
                     mode3_pal_ptr <= cf_palette;
-                    mode3_pal_xram <= !blank
-                        && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                             > 35'(17'h10000) - 35'({1'b0, cf_data}))
+                    mode3_pal_xram <= !blank && !overrun
                         && !cf_palette[0]
                         && bpp_log != 3'd4
                         && pal_fits(cf_palette, bpp_log[1:0]);

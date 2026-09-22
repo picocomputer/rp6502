@@ -131,9 +131,14 @@ module mode1
     always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
     logic [7:0] pal_w;
 
+    /* The font fits below the top of XRAM, and a font is 2 or 4 KB, so
+     * the pointer clears the limit unless it lands in that last block:
+     * the bits above the block all ones and something inside it set.
+     * The built-in font's $FFFF sentinel fails that test, as it must. */
     logic font_xram;
-    always_comb font_xram = {1'b0, cf_font}
-        <= 17'h10000 - (fh16 ? 17'd4096 : 17'd2048);
+    always_comb font_xram = fh16
+        ? !(&cf_font[15:12] && |cf_font[11:0])
+        : !(&cf_font[15:11] && |cf_font[10:0]);
 
     /* The cell prefetcher, two stages deep: the word stage gathers a
      * cell's bytes (up to three words) while the font stage fetches the
@@ -551,10 +556,14 @@ module mode1
     always_comb height_px_s = $signed({{2{height_px[15]}}, height_px});
 
     /* The grid overruns XRAM; the oracle's reject, folded where the
-     * plan latches because it lands on that same edge. */
+     * plan latches because it lands on that same edge. The limit is at
+     * most $10000, so any bit above 16 overruns whatever it is and only
+     * the low bits reach the comparator. */
+    logic [34:0] grid_bytes;
+    always_comb grid_bytes = 35'(cf_hchars[14:0]) * 35'(sizeof_row);
     logic overrun;
-    always_comb overrun = 35'(cf_hchars[14:0]) * 35'(sizeof_row)
-        > 35'(17'h10000) - 35'({1'b0, cf_data});
+    always_comb overrun = |grid_bytes[34:17]
+        || grid_bytes[16:0] > 17'(17'h10000 - {1'b0, cf_data});
 
     logic [15:0] fetch_col;
     logic [16:0] cell_fetch_addr;
