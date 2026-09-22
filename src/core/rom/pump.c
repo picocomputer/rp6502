@@ -101,13 +101,24 @@ bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err
     return rom_pump_open_fd(p, fd, buf, err);
 }
 
+/* Any shebang naming rp6502 heads a ROM, so a file made executable with
+ * "#!/usr/bin/env rp6502-emu" loads as readily as one headed "#!RP6502". */
+static bool shebang_ok(const char *line)
+{
+    if (line[0] != '#' || line[1] != '!')
+        return false;
+    for (const char *p = line + 2; *p; p++)
+        if (!strncasecmp(p, "rp6502", 6))
+            return true;
+    return false;
+}
+
 bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
 {
     memset(p, 0, sizeof *p);
     p->fd = fd;
     char *line = (char *)buf;
-    if (pump_gets(p, line, ROM_RECORD_MAX, err) < 0 ||
-        strncasecmp(line, "#!RP6502", 8) != 0)
+    if (pump_gets(p, line, ROM_RECORD_MAX, err) < 0 || !shebang_ok(line))
     {
         rom_pump_close(p);
         *err = API_ENOEXEC;
