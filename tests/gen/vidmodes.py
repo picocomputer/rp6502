@@ -754,6 +754,8 @@ mode5c("mode5c_hflip_on32", 1, 0, [(32, 32, 4)],
        [(30, 40, 0, 0, MODE5_HFLIP)])
 mode5c("mode5c_onrow2", 1, 0, [(32, 32, 4)],
        [(30, 40, 0, 0, 0), (80, 40, 0, 0, 0)])
+mode5c("mode5c_onrow", 1, 0, [(16, 16, 4)], [(30, 40, 0, 0, 0)],
+       desc_ptr=0x0800)
 mode5c("mode5c_offrow", 1, 0, [(16, 16, 4)],
        [(30, 40, 0, 0, 0)] + [(i * 3, -100, 0, 0, 0) for i in range(200)],
        desc_ptr=0x0800)

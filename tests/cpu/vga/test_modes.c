@@ -565,6 +565,13 @@ UTEST(mode5c, two_32x32_on_a_row_320x240)
     run_case(utest_result, "mode5c_onrow2", 0x3E98F993, MUT_BUDGET_UNDER);
 }
 
+/* One drawn sprite alone, and the same sprite behind a list of two hundred
+ * that are off the row: the pair measures what an entry costs to walk. */
+UTEST(mode5c, one_16x16_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5c_onrow", 0xAFEE1EAB, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode5c, long_list_one_on_the_row_320x240)
 {
     run_case(utest_result, "mode5c_offrow", 0xAFEE1EAB, MUT_BUDGET_UNDER);
