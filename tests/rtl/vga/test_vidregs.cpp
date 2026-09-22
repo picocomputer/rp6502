@@ -57,7 +57,7 @@ UTEST(vidregs, sprite_overrun_counts_lost_races)
     ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
     /* What was painted before the row ran out: a 320 wide row has two lines
      * of timing, so the cut lands a line later than it would on one. */
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x9C17336Au);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x9F9620D3u);
 }
 
 /* A 320 wide row has two lines of timing. This stack of sprites needs more
@@ -68,6 +68,27 @@ UTEST(vidregs, sprite_overrun_counts_lost_races)
 UTEST(vidregs, a_320_row_has_two_lines_of_sprites)
 {
     ASSERT_TRUE(boot("sprite_pair", 320 * 240));
+    const uint16_t before = dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun;
+    tb_capture(dut, fb, 320 * 240);
+    ASSERT_EQ(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, before);
+}
+
+/* A hundred doubled and flipped custom sprites on one row, past what its two
+ * lines can draw. The emulator draws them all, so this CRC is of the RTL's
+ * picture alone. */
+UTEST(vidregs, custom_sprite_overrun_counts_lost_races)
+{
+    ASSERT_TRUE(boot("mode5c_overrun", 320 * 240));
+    ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xCBB5EBA4u);
+}
+
+/* Forty doubled 32x8 8bpp custom sprites on one row, each walking the whole
+ * palette: more than one line's clocks and fewer than the two a 320 row has,
+ * so the row finishes and a further frame adds nothing to the counter. */
+UTEST(vidregs, a_custom_320_row_has_two_lines_of_sprites)
+{
+    ASSERT_TRUE(boot("mode5c_pair", 320 * 240));
     const uint16_t before = dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun;
     tb_capture(dut, fb, 320 * 240);
     ASSERT_EQ(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, before);

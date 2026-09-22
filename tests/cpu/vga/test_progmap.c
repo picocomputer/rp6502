@@ -43,7 +43,7 @@ static const struct
     {5, 24}, {5, 25}, {5, 26}, {5, 27},
     {5, 32}, {5, 33}, {5, 34}, {5, 35},
     {5, 40}, {5, 41}, {5, 42}, {5, 43},
-    {5, 48}, {5, 49},
+    {5, 48}, {5, 49}, {5, 56},
 };
 
 #define FILL_COUNT (sizeof fills / sizeof fills[0])
@@ -95,6 +95,21 @@ UTEST(progmap, mode_two_classes_come_back_by_row)
         mode2_set_options((int16_t)i, 0, 0);
 }
 
+UTEST(progmap, every_custom_attribute_is_the_canonical_one)
+{
+    vga_sprite_fn_t custom = vga_mode_sprite_fn(5, 56);
+    ASSERT_TRUE(custom != NULL);
+    for (unsigned a = 57; a <= 63; a++)
+    {
+        ASSERT_TRUE(vga_mode_sprite_fn(5, (uint16_t)a) == custom);
+        uint8_t mode = VGA_MODE_NONE;
+        uint16_t attr = 0xFFFF;
+        ASSERT_TRUE(vga_mode_sprite_id(vga_mode_sprite_fn(5, (uint16_t)a), &mode, &attr));
+        ASSERT_EQ((int)mode, 5);
+        ASSERT_EQ((int)attr, 56);
+    }
+}
+
 UTEST(progmap, an_empty_row_is_a_mode)
 {
     uint8_t mode = 0;
@@ -143,6 +158,7 @@ UTEST(progmap, a_renderer_that_is_not_there_is_refused)
     ASSERT_TRUE(vga_mode_fill_fn(3, 11) == NULL);
     ASSERT_TRUE(vga_mode_fill_fn(2, 0x1000) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(5, 50) == NULL);
+    ASSERT_TRUE(vga_mode_sprite_fn(5, 64) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(4, 2) == NULL);
 }
 

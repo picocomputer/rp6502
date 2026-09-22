@@ -44,6 +44,41 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
         ASSERT_EQ((int)b, (int)claim);
 }
 
+static void frames_match(int *utest_result, const char *a, const char *b)
+{
+    int w, h, bw, bh;
+    ASSERT_TRUE(corpus_size(a, &w, &h));
+    ASSERT_TRUE(corpus_size(b, &bw, &bh));
+    ASSERT_EQ(w, bw);
+    ASSERT_EQ(h, bh);
+    const size_t px = (size_t)w * (size_t)h;
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, a);
+    ASSERT_TRUE(mut_boot(path));
+    memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
+
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, b);
+    ASSERT_TRUE(mut_boot(path));
+    const uint32_t *other = mut_frame(w, h);
+    for (size_t i = 0; i < px; i++)
+        if (settled[i] != other[i])
+        {
+            fprintf(stderr, "%s/%s differ at %zu,%zu: %08X vs %08X\n",
+                    a, b, i % (size_t)w, i / (size_t)w, settled[i], other[i]);
+            ASSERT_EQ(settled[i], other[i]);
+        }
+}
+
+/* The reference frame is pinned by CRC and the frame under test has to match
+ * it pixel for pixel, which names the first pixel that is off. */
+static void run_pair(int *utest_result, const char *name, const char *ref,
+                     uint32_t ref_crc)
+{
+    run_case(utest_result, ref, ref_crc, MUT_BUDGET_NONE);
+    frames_match(utest_result, name, ref);
+}
+
 UTEST(mode1, bpp1_8x8_builtin_640x480)
 {
     run_case(utest_result, "mode1_1bpp8x8", 0x8D4B4FCA, MUT_BUDGET_NONE);
@@ -249,31 +284,11 @@ UTEST(mode4, affine_identity_320x240)
 /* The identity matrix maps the sprite onto its image 1:1, so an affine blit
  * has to put every texel where the plain blit puts it. A seed one column off
  * drops image column 0 and blanks the sprite's right edge, which a CRC alone
- * would not name. */
+ * would not name. mode4_same has mode4a_id's CRC: mode4a_same is that fixture
+ * again, and the plain frame matches it. */
 UTEST(mode4, affine_identity_matches_plain)
 {
-    int w, h, pw, ph;
-    ASSERT_TRUE(corpus_size("mode4a_same", &w, &h));
-    ASSERT_TRUE(corpus_size("mode4_same", &pw, &ph));
-    ASSERT_EQ(w, pw);
-    ASSERT_EQ(h, ph);
-    const size_t px = (size_t)w * (size_t)h;
-
-    char path[256];
-    snprintf(path, sizeof(path), "%s/mode4a_same.rp6502", ROMS_DIR);
-    ASSERT_TRUE(mut_boot(path));
-    memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
-
-    snprintf(path, sizeof(path), "%s/mode4_same.rp6502", ROMS_DIR);
-    ASSERT_TRUE(mut_boot(path));
-    const uint32_t *plain = mut_frame(w, h);
-    for (size_t i = 0; i < px; i++)
-        if (settled[i] != plain[i])
-        {
-            fprintf(stderr, "affine/plain differ at %zu,%zu: %08X vs %08X\n",
-                    i % (size_t)w, i / (size_t)w, settled[i], plain[i]);
-            ASSERT_EQ(settled[i], plain[i]);
-        }
+    run_pair(utest_result, "mode4a_same", "mode4_same", 0x37028F77);
 }
 
 UTEST(mode4, affine_rotate_scale_320x240)
@@ -439,6 +454,132 @@ UTEST(prog, bands_switch_modes_on_one_plane_320x240)
 UTEST(mode5, a_320_row_spends_two_lines_of_sprites)
 {
     run_case(utest_result, "sprite_pair", 0x7C667FB3, MUT_BUDGET_UNDER);
+}
+
+/* Custom mode 5 sprites. A pair's reference draws the same picture from
+ * images transformed by the generator, with the sprite flags clear. */
+UTEST(mode5c, seven_depths_and_widths_320x240)
+{
+    run_case(utest_result, "mode5c_depths", 0x070C9FE9, MUT_BUDGET_NONE);
+}
+
+UTEST(mode5c, hflip_matches_flipped_images_320x240)
+{
+    run_pair(utest_result, "mode5c_hflip", "mode5c_hflip_ref", 0x1906479F);
+}
+
+UTEST(mode5c, vflip_matches_flipped_images_320x240)
+{
+    run_pair(utest_result, "mode5c_vflip", "mode5c_vflip_ref", 0x08C28F14);
+}
+
+UTEST(mode5c, hdbl_matches_doubled_images_320x240)
+{
+    run_pair(utest_result, "mode5c_hdbl", "mode5c_hdbl_ref", 0xA8158FB6);
+}
+
+UTEST(mode5c, vdbl_matches_doubled_images_320x240)
+{
+    run_pair(utest_result, "mode5c_vdbl", "mode5c_vdbl_ref", 0xB3BCB9D4);
+}
+
+UTEST(mode5c, all_four_flags_match_transformed_images_320x240)
+{
+    run_pair(utest_result, "mode5c_all4", "mode5c_all4_ref", 0x69581384);
+}
+
+UTEST(mode5c, clipped_at_every_edge_with_every_flag_320x240)
+{
+    run_pair(utest_result, "mode5c_clip", "mode5c_clip_ref", 0xB1434199);
+}
+
+UTEST(mode5c, doubled_at_the_right_edge_over_fill_640x480)
+{
+    run_pair(utest_result, "mode5c_clip640", "mode5c_clip640_ref",
+             0x8860D382);
+}
+
+UTEST(mode5c, mixed_depths_and_flags_320x240)
+{
+    run_case(utest_result, "mode5c_half_even", 0x64113D45, MUT_BUDGET_NONE);
+}
+
+/* mode5c_half is mode5c_half_even with its descriptors at the halfword
+ * address $0102, so the two frames are the same. */
+UTEST(mode5c, halfword_descs_match_word_descs_320x240)
+{
+    run_pair(utest_result, "mode5c_half", "mode5c_half_even", 0x64113D45);
+}
+
+UTEST(mode5c, palette_pointers_at_the_limit_of_each_depth_320x240)
+{
+    run_case(utest_result, "mode5c_pal", 0xCDBD8BDC, MUT_BUDGET_NONE);
+}
+
+UTEST(mode5c, smallest_largest_and_doubled_sizes_320x240)
+{
+    run_case(utest_result, "mode5c_size", 0x32BA5443, MUT_BUDGET_NONE);
+}
+
+/* The same 16x16 4bpp scene in the fixed and the custom form: the images are
+ * the same bytes at the same addresses. */
+UTEST(mode5c, custom_matches_fixed_size_320x240)
+{
+    run_pair(utest_result, "mode5c_same", "mode5_same", 0xF439C3C2);
+}
+
+UTEST(mode5c, custom_plane_over_fixed_plane_320x240)
+{
+    run_case(utest_result, "mode5c_planes", 0x81454F57, MUT_BUDGET_NONE);
+}
+
+UTEST(mode5c, eleven_sprites_a_row_320x240)
+{
+    run_case(utest_result, "mode5c_full", 0xADF88D47, MUT_BUDGET_NONE);
+}
+
+/* mode5c_full2 is mode5c_full with its descriptors at $0102. */
+UTEST(mode5c, eleven_sprites_a_row_halfword_descs_320x240)
+{
+    run_pair(utest_result, "mode5c_full2", "mode5c_full", 0xADF88D47);
+}
+
+UTEST(mode5c, one_32x32_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5c_on32", 0x333F4807, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5c, one_doubled_16x32_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5c_hdbl_on32", 0x92390CBE, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5c, one_flipped_32x32_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5c_hflip_on32", 0x106DC6FF,
+             MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5c, two_32x32_on_a_row_320x240)
+{
+    run_case(utest_result, "mode5c_onrow2", 0x3E98F993, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5c, long_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode5c_offrow", 0xAFEE1EAB, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5c, stack_of_flipped_and_doubled_320x240)
+{
+    run_case(utest_result, "mode5c_stack", 0x3CE4296B, MUT_BUDGET_UNDER);
+}
+
+/* Forty doubled 32x8 8bpp sprites on one row, each walking the whole palette:
+ * more than one line's clocks and fewer than the two a 320 row has. */
+UTEST(mode5c, a_320_row_spends_two_lines_of_doubled_sprites)
+{
+    run_case(utest_result, "mode5c_pair", 0xD7941DC1, MUT_BUDGET_UNDER);
 }
 
 MUT_MAIN()
