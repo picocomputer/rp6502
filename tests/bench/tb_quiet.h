@@ -44,7 +44,10 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
         /* Two quiet frames are required because main_stage clears the
          * staging length before sys_commit releases the 6502. At a frame
          * edge between the two, the load has finished and the 6502 is
-         * still in reset, which is also the state a rejected image leaves. */
+         * still in reset, which is also the state a rejected image leaves.
+         * The second frame also covers the firmware still redrawing the
+         * console after the last byte reached it, which on a 320 wide
+         * canvas runs to three frames past the 6502's stop. */
         if (!pending && (ran || had_image) && stopped && !moved)
         {
             if (++quiet_frames >= 2)

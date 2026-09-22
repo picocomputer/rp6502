@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The fill engine, one for all three planes: the mode 1, 2 and 3
- * subengines, the shared pixel tail, and the palette, dispatched a plane
- * at a time by sched. Running the fills serially is safe because a mode
- * that reads the palette reloads it first. The subengine owns the XRAM
- * channel and the pixel port until it reports done.
+ * subengines, the row mapper and pixel tail they share, and the palette,
+ * dispatched a plane at a time by sched. Running the fills serially is
+ * safe because a mode that reads the palette reloads it first. The
+ * subengine owns the XRAM channel and the pixel port until it reports
+ * done.
  *
  * A line a mode rejects, blank or out of range, is emitted as a full
  * line of zeros, which compose reads as black on plane 0 and as
@@ -75,9 +76,8 @@ module fill (
     logic m3_pal_xram;
     logic [2:0] m3_bpp;
     logic m3_reversed;
-    logic m3_seg_valid, m3_seg_imm;
+    logic m3_seg_imm;
     logic [22:0] m3_seg_bits;
-    logic [9:0] m3_seg_px;
     logic tl_take;
     logic tl_a_req;
     logic [13:0] tl_a_addr;
@@ -94,10 +94,8 @@ module fill (
     logic m1_a_req;
     logic [13:0] m1_a_addr;
     logic m1_tl_start;
-    logic m1_seg_valid;
     logic [7:0] m1_seg_ibits;
     logic [15:0] m1_seg_fg, m1_seg_bg;
-    logic [9:0] m1_seg_px;
     logic m2_start;
     logic m2_a_req;
     logic [13:0] m2_a_addr;
@@ -105,9 +103,90 @@ module fill (
     logic [15:0] m2_pal_ptr;
     logic m2_pal_xram;
     logic [2:0] m2_bpp;
-    logic m2_seg_valid, m2_seg_imm;
+    logic m2_seg_imm;
     logic [22:0] m2_seg_bits;
-    logic [9:0] m2_seg_px;
+
+    /* One row mapper for the three modes, which never run at once: each
+     * names its window and follows the walk, and the one the plane is in
+     * is heard. */
+    logic [15:0] m1_win_w, m1_win_h, m2_win_w, m2_win_h, m3_win_w, m3_win_h;
+    logic [19:0] m1_sizeof_row, m2_sizeof_row, m3_sizeof_row;
+    logic m1_addr, m2_addr, m3_addr, m1_seg_on, m2_seg_on, m3_seg_on;
+    logic [14:0] m1_data_row, m2_data_row, m3_data_row;
+    logic m1_run_ready, m2_run_ready;
+    logic [9:0] m1_run_max, m2_run_max;
+    logic [15:0] rm_win_w, rm_win_h;
+    logic [19:0] rm_sizeof_row;
+    logic rm_addr, rm_seg_on, rm_run_ready;
+    logic [14:0] rm_data_row;
+    logic [9:0] rm_run_max;
+    always_comb begin
+        if (mode_q == 3'd1) begin
+            rm_win_w = m1_win_w;
+            rm_win_h = m1_win_h;
+            rm_sizeof_row = m1_sizeof_row;
+            rm_addr = m1_addr;
+            rm_data_row = m1_data_row;
+            rm_seg_on = m1_seg_on;
+            rm_run_ready = m1_run_ready;
+            rm_run_max = m1_run_max;
+        end else if (mode_q == 3'd2) begin
+            rm_win_w = m2_win_w;
+            rm_win_h = m2_win_h;
+            rm_sizeof_row = m2_sizeof_row;
+            rm_addr = m2_addr;
+            rm_data_row = m2_data_row;
+            rm_seg_on = m2_seg_on;
+            rm_run_ready = m2_run_ready;
+            rm_run_max = m2_run_max;
+        end else begin
+            /* A bitmap's run is one segment, bounded by the line. */
+            rm_win_w = m3_win_w;
+            rm_win_h = m3_win_h;
+            rm_sizeof_row = m3_sizeof_row;
+            rm_addr = m3_addr;
+            rm_data_row = m3_data_row;
+            rm_seg_on = m3_seg_on;
+            rm_run_ready = 1'b1;
+            rm_run_max = cw;
+        end
+    end
+    logic rm_settle, rm_reject, rm_blank, rm_overrun;
+    logic signed [16:0] rm_row, rm_col;
+    logic [16:0] rm_row_base;
+    logic rm_seg_valid;
+    logic [9:0] rm_seg_px;
+    logic rm_run, rm_right, rm_wrap, rm_end;
+    rowmap rowmap (
+        .clk(clk),
+        .start(m1_start || m2_start || m3_start),
+        .abort_i(row_start),
+        .cfgw(cfgw[95:0]),
+        .t_row(t_row),
+        .cw(cw),
+        .win_w(rm_win_w),
+        .win_h(rm_win_h),
+        .sizeof_row(rm_sizeof_row),
+        .rowmap_settle(rm_settle),
+        .rowmap_reject(rm_reject),
+        .rowmap_row(rm_row),
+        .rowmap_col(rm_col),
+        .rowmap_blank(rm_blank),
+        .rowmap_overrun(rm_overrun),
+        .addr(rm_addr),
+        .data_row(rm_data_row),
+        .rowmap_row_base(rm_row_base),
+        .seg_on(rm_seg_on),
+        .run_ready(rm_run_ready),
+        .run_max(rm_run_max),
+        .seg_take(tl_take),
+        .rowmap_seg_valid(rm_seg_valid),
+        .rowmap_seg_px(rm_seg_px),
+        .rowmap_run(rm_run),
+        .rowmap_right(rm_right),
+        .rowmap_wrap(rm_wrap),
+        .rowmap_end(rm_end)
+    );
 
     logic m1_pal_ld;
     logic [7:0] m1_pal_w;
@@ -159,8 +238,23 @@ module fill (
         .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[127:0]),
-        .t_row(t_row),
-        .cw(cw),
+        .mode1_win_w(m1_win_w),
+        .mode1_win_h(m1_win_h),
+        .mode1_sizeof_row(m1_sizeof_row),
+        .mode1_addr(m1_addr),
+        .mode1_data_row(m1_data_row),
+        .mode1_seg_on(m1_seg_on),
+        .mode1_run_ready(m1_run_ready),
+        .mode1_run_max(m1_run_max),
+        .rm_settle(rm_settle),
+        .rm_row(rm_row),
+        .rm_col(rm_col),
+        .rm_row_base(rm_row_base),
+        .rm_blank(rm_blank),
+        .rm_overrun(rm_overrun),
+        .rm_run(rm_run),
+        .rm_wrap(rm_wrap),
+        .rm_end(rm_end),
         .mode1_a_req(m1_a_req),
         .mode1_a_addr(m1_a_addr),
         .a_gnt(a_gnt),
@@ -179,11 +273,9 @@ module fill (
         .pal_qa(pal_qa),
         .pal_qb(pal_qb),
         .mode1_tl_start(m1_tl_start),
-        .mode1_seg_valid(m1_seg_valid),
         .mode1_seg_ibits(m1_seg_ibits),
         .mode1_seg_fg(m1_seg_fg),
         .mode1_seg_bg(m1_seg_bg),
-        .mode1_seg_px(m1_seg_px),
         .seg_take(tl_take)
     );
     mode2 mode2 (
@@ -192,8 +284,25 @@ module fill (
         .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[127:0]),
-        .t_row(t_row),
-        .cw(cw),
+        .mode2_win_w(m2_win_w),
+        .mode2_win_h(m2_win_h),
+        .mode2_sizeof_row(m2_sizeof_row),
+        .mode2_addr(m2_addr),
+        .mode2_data_row(m2_data_row),
+        .mode2_seg_on(m2_seg_on),
+        .mode2_run_ready(m2_run_ready),
+        .mode2_run_max(m2_run_max),
+        .rm_settle(rm_settle),
+        .rm_reject(rm_reject),
+        .rm_row(rm_row),
+        .rm_col(rm_col),
+        .rm_row_base(rm_row_base),
+        .rm_blank(rm_blank),
+        .rm_overrun(rm_overrun),
+        .rm_run(rm_run),
+        .rm_right(rm_right),
+        .rm_wrap(rm_wrap),
+        .rm_end(rm_end),
         .mode2_a_req(m2_a_req),
         .mode2_a_addr(m2_a_addr),
         .a_gnt(a_gnt && m2_a_req),
@@ -202,10 +311,8 @@ module fill (
         .mode2_pal_ptr(m2_pal_ptr),
         .mode2_pal_xram(m2_pal_xram),
         .mode2_bpp(m2_bpp),
-        .mode2_seg_valid(m2_seg_valid),
         .mode2_seg_imm(m2_seg_imm),
         .mode2_seg_bits(m2_seg_bits),
-        .mode2_seg_px(m2_seg_px),
         .seg_take(tl_take)
     );
     mode3 mode3 (
@@ -214,18 +321,27 @@ module fill (
         .abort_i(row_start),
         .attr(attr),
         .cfgw(cfgw[111:0]),
-        .t_row(t_row),
-        .cw(cw),
+        .mode3_win_w(m3_win_w),
+        .mode3_win_h(m3_win_h),
+        .mode3_sizeof_row(m3_sizeof_row),
+        .mode3_addr(m3_addr),
+        .mode3_data_row(m3_data_row),
+        .mode3_seg_on(m3_seg_on),
+        .rm_settle(rm_settle),
+        .rm_row(rm_row),
+        .rm_col(rm_col),
+        .rm_row_base(rm_row_base),
+        .rm_blank(rm_blank),
+        .rm_overrun(rm_overrun),
+        .rm_run(rm_run),
+        .rm_end(rm_end),
         .mode3_tl_start(m3_tl_start),
         .mode3_pal_ptr(m3_pal_ptr),
         .mode3_pal_xram(m3_pal_xram),
         .mode3_bpp(m3_bpp),
         .mode3_reversed(m3_reversed),
-        .mode3_seg_valid(m3_seg_valid),
         .mode3_seg_imm(m3_seg_imm),
-        .mode3_seg_bits(m3_seg_bits),
-        .mode3_seg_px(m3_seg_px),
-        .seg_take(tl_take)
+        .mode3_seg_bits(m3_seg_bits)
     );
 
     /* The tail is granted only the clocks the front end is not asking
@@ -238,11 +354,10 @@ module fill (
     logic tf_pal_xram;
     logic [2:0] tf_bpp;
     logic tf_reversed;
-    logic tf_seg_valid, tf_seg_imm;
+    logic tf_seg_imm;
     logic [22:0] tf_seg_bits;
     logic [7:0] tf_seg_ibits;
     logic [15:0] tf_seg_fg, tf_seg_bg;
-    logic [9:0] tf_seg_px;
     always_comb begin
         if (mode_q == 3'd1) begin
             tf_start = m1_tl_start;
@@ -250,39 +365,33 @@ module fill (
             tf_pal_xram = 1'b0;
             tf_bpp = 3'd0;
             tf_reversed = 1'b0;
-            tf_seg_valid = m1_seg_valid;
             tf_seg_imm = 1'b1;
             tf_seg_bits = 23'd0;
             tf_seg_ibits = m1_seg_ibits;
             tf_seg_fg = m1_seg_fg;
             tf_seg_bg = m1_seg_bg;
-            tf_seg_px = m1_seg_px;
         end else if (mode_q == 3'd2) begin
             tf_start = m2_tl_start;
             tf_pal_ptr = m2_pal_ptr;
             tf_pal_xram = m2_pal_xram;
             tf_bpp = m2_bpp;
             tf_reversed = 1'b0;
-            tf_seg_valid = m2_seg_valid;
             tf_seg_imm = m2_seg_imm;
             tf_seg_bits = m2_seg_bits;
             tf_seg_ibits = 8'd0;
             tf_seg_fg = 16'd0;
             tf_seg_bg = 16'd0;
-            tf_seg_px = m2_seg_px;
         end else begin
             tf_start = m3_tl_start;
             tf_pal_ptr = m3_pal_ptr;
             tf_pal_xram = m3_pal_xram;
             tf_bpp = m3_bpp;
             tf_reversed = m3_reversed;
-            tf_seg_valid = m3_seg_valid;
             tf_seg_imm = m3_seg_imm;
             tf_seg_bits = m3_seg_bits;
             tf_seg_ibits = 8'd0;
             tf_seg_fg = 16'd0;
             tf_seg_bg = 16'd0;
-            tf_seg_px = m3_seg_px;
         end
     end
     pixtail pixtail (
@@ -294,13 +403,13 @@ module fill (
         .pal_xram(tf_pal_xram),
         .bpp_log(tf_bpp),
         .reversed(tf_reversed),
-        .seg_valid(tf_seg_valid),
+        .seg_valid(rm_seg_valid),
         .seg_imm(tf_seg_imm),
         .seg_bits(tf_seg_bits),
         .seg_ibits(tf_seg_ibits),
         .seg_fg(tf_seg_fg),
         .seg_bg(tf_seg_bg),
-        .seg_px(tf_seg_px),
+        .seg_px(rm_seg_px),
         .pixtail_seg_take(tl_take),
         .pixtail_a_req(tl_a_req),
         .pixtail_a_addr(tl_a_addr),

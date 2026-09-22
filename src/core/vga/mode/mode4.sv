@@ -26,6 +26,38 @@ module mode4 (
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
+    /* The descriptor list queue sprite.sv shares between the engines:
+     * what it needs from this one, and the descriptor at its head. */
+    output logic [13:0] mode4_lq_last,
+    output logic mode4_lq_active,
+    output logic [3:0] mode4_lq_size,
+    output logic mode4_lq_pop,
+    output logic [3:0] mode4_lq_cap,
+    output logic mode4_lq_pop_room,
+    output logic mode4_lq_gnt,
+    output logic mode4_lq_land,
+    output logic mode4_lq_flight,
+    input logic lq_req,
+    input logic [13:0] lq_addr,
+    input logic [159:0] lq_dsc,
+    input logic lq_v,
+
+    /* The row word queue sprite.sv shares between the engines: what it
+     * needs from this one, and the words it holds. */
+    output logic mode4_rq_run,
+    output logic [13:0] mode4_rq_first,
+    output logic [13:0] mode4_rq_last,
+    output logic mode4_rq_want,
+    output logic mode4_rq_pop,
+    output logic mode4_rq_pop_room,
+    output logic mode4_rq_land,
+    output logic mode4_rq_flight,
+    input logic rq_req,
+    input logic [13:0] rq_addr,
+    input logic [31:0] rq_q0,
+    input logic [31:0] rq_q1,
+    input logic [2:0] rq_n,
+
     output logic [1:0] mode4_px_we,
     output logic [9:0] mode4_px_addr,
     output logic [31:0] mode4_px_data,
@@ -51,22 +83,18 @@ module mode4 (
     logic gnt_d1, gnt_d, tag1, tag2;
 
     /* The list streams in ahead of the sprites through its own queue,
-     * a word asked for whenever the row leaves the slot free and the
-     * queue and the two clocks in flight can take one, up to the last
-     * descriptor's word. A descriptor is read out of the queue's first
-     * words and popped whole, so a list on a halfword boundary differs
-     * only in where the window starts. */
-    logic [31:0] dq[8];
-    logic [3:0] dqn;
-    logic [13:0] dfp, dend;
-    logic [2:0] dw;   /* words to a descriptor */
-    always_comb dw = affine ? 3'd5 : 3'd2;
-    logic [191:0] dwin;
-    always_comb dwin = {dq[5], dq[4], dq[3], dq[2], dq[1], dq[0]};
-    logic [159:0] dsc;
-    always_comb dsc = cfg[1] ? dwin[175:16] : dwin[159:0];
-    logic dsc_v;
-    always_comb dsc_v = dqn >= {1'b0, dw} + {3'd0, cfg[1]};
+     * which holds eight words for this engine. */
+    always_comb begin
+        mode4_lq_last = list_end[15:2];
+        mode4_lq_active = state != M4_IDLE;
+        mode4_lq_size = affine ? 4'd10 : 4'd4;
+        mode4_lq_pop = dpop;
+        mode4_lq_cap = 4'd8;
+        mode4_lq_pop_room = 1'b0;
+        mode4_lq_gnt = req_is_desc && a_gnt;
+        mode4_lq_land = desc_land;
+        mode4_lq_flight = gnt_d1 && tag1;
+    end
     logic [16:0] list_end;
     always_comb list_end = {1'b0, cfg}
         + (affine ? 17'(17'(length[12:0]) * 17'd20)
@@ -77,7 +105,7 @@ module mode4 (
      * fields, so the two kinds differ only in where the common fields
      * start. */
     logic [63:0] dsc_c;
-    always_comb dsc_c = affine ? dsc[159:96] : dsc[63:0];
+    always_comb dsc_c = affine ? lq_dsc[159:96] : lq_dsc[63:0];
     logic signed [15:0] dc_x, dc_y;
     logic [15:0] dc_sptr;
     logic [7:0] dc_log;
@@ -85,7 +113,7 @@ module mode4 (
     logic signed [15:0] dc_t[6];
     always_comb begin
         for (int j = 0; j < 6; j++)
-            dc_t[j] = dsc[16 * j+:16];
+            dc_t[j] = lq_dsc[16 * j+:16];
         dc_x = dsc_c[15:0];
         dc_y = dsc_c[31:16];
         dc_sptr = dsc_c[47:32];
@@ -151,15 +179,6 @@ module mode4 (
      * clock the port leaves. */
     logic [31:0] meta_q;
 
-    /* The plain path streams the row's words through a short queue,
-     * asked for whenever the queue and the two clocks in flight can
-     * take one, up to the last texel's word: the head is the word the
-     * texel is in, and a pair of texels is four bytes, so every pair
-     * pops a word whatever the row's alignment. */
-    logic [31:0] q[4];
-    logic [2:0] qn;
-    logic [13:0] fp;    /* the next word to ask for, once one has been */
-    logic fp_v;
     logic signed [16:0] px_i;
     logic [9:0] dst;
 
@@ -170,10 +189,20 @@ module mode4 (
     logic [17:0] end_byte;
     always_comb end_byte = {1'b0, d_sptr}
         + {(17'(row_texel) + 17'(span_end[15:0])), 1'b0} - 18'd1;
-    logic [13:0] fetch_word;
-    always_comb fetch_word = fp_v ? fp : tex_byte_addr[15:2];
-    logic fetch_more;
-    always_comb fetch_more = !fp_v || fp <= end_byte[15:2];
+
+    /* The plain path streams the row's words through the queue. A pair of
+     * texels is four bytes, so every pair pops a word whatever the row's
+     * alignment. */
+    always_comb begin
+        mode4_rq_run = state == M4_PIX;
+        mode4_rq_first = tex_byte_addr[15:2];
+        mode4_rq_last = end_byte[15:2];
+        mode4_rq_want = left > 17'sd0;
+        mode4_rq_pop = pop;
+        mode4_rq_pop_room = pop;
+        mode4_rq_land = eng_land;
+        mode4_rq_flight = gnt_d1 && !tag1;
+    end
 
     /* A texel at byte 3 of a word, or the second of a pair past byte
      * 0, takes bytes from the next word too. */
@@ -184,13 +213,13 @@ module mode4 (
     logic need2, q_ok, emit, emit_pair, pop;
     always_comb begin
         need2 = tex_o == 2'd3 || (tex_o != 2'd0 && left > 17'sd1);
-        q_ok = need2 ? qn >= 3'd2 : qn != 3'd0;
+        q_ok = need2 ? rq_n >= 3'd2 : rq_n != 3'd0;
         emit = state == M4_PIX && q_ok && left > 17'sd0;
         emit_pair = emit && left > 17'sd1;
         pop = emit_pair;
     end
     logic [31:0] pair;
-    always_comb pair = 32'({q[1], q[0]} >> {tex_o, 3'b000});
+    always_comb pair = 32'({rq_q1, rq_q0} >> {tex_o, 3'b000});
 
     /* The affine accumulators, the SIO interpolator's arithmetic: the
      * first sample is the span's last column and the scan runs backward,
@@ -275,37 +304,31 @@ module mode4 (
         : 16'(af_word >> {af_o, 3'b000});
 
     /* The row's words come first; the list fills in behind. */
-    logic eng_req, eng_gnt, eng_land, desc_req, desc_land, req_is_desc;
+    logic eng_req, eng_gnt, eng_land, desc_land, req_is_desc;
     logic dpop;
     logic [13:0] eng_addr;
     always_comb begin
         eng_land = gnt_d && !tag2;
         desc_land = gnt_d && tag2;
-        dpop = state == M4_DECODE && dsc_v;
+        dpop = state == M4_DECODE && lq_v;
         eng_req = 1'b0;
-        eng_addr = fetch_word;
+        eng_addr = rq_addr;
         case (state)
             M4_META: begin
                 eng_req = fw_i < meta_n;
                 eng_addr = meta_addr[15:2] + {11'd0, fw_i};
             end
-            /* Nothing is asked for on the way out of a row, because a
-             * word landing after it would be taken for the next row. */
             M4_PIX:
-                eng_req = fetch_more && left > 17'sd0
-                    && qn + {2'd0, eng_land} + {2'd0, gnt_d1 && !tag1}
-                       - {2'd0, pop} < 3'd4;
+                eng_req = rq_req;
             M4_APOP: begin
                 eng_req = af_fetch;
                 eng_addr = af_hi ? af_hi_word : af_byte_addr[15:2];
             end
             default: ;
         endcase
-        desc_req = state != M4_IDLE && dfp <= dend
-            && dqn + {3'd0, desc_land} + {3'd0, gnt_d1 && tag1} < 4'd8;
-        req_is_desc = !eng_req && desc_req;
-        mode4_a_req = eng_req || desc_req;
-        mode4_a_addr = eng_req ? eng_addr : dfp;
+        req_is_desc = !eng_req && lq_req;
+        mode4_a_req = eng_req || lq_req;
+        mode4_a_addr = eng_req ? eng_addr : lq_addr;
         eng_gnt = eng_req && a_gnt;
     end
 
@@ -324,8 +347,6 @@ module mode4 (
     end
 
     task automatic next_sprite();
-        qn <= '0;
-        fp_v <= 1'b0;
         if (idx + 16'd1 == length) begin
             mode4_done <= 1'b1;
             state <= M4_IDLE;
@@ -345,11 +366,6 @@ module mode4 (
     initial begin
         state = M4_IDLE;
         idx = '0;
-        for (int j = 0; j < 8; j++)
-            dq[j] = '0;
-        dqn = '0;
-        dfp = '0;
-        dend = '0;
         tag1 = 1'b0;
         tag2 = 1'b0;
         d_x = '0;
@@ -373,11 +389,6 @@ module mode4 (
         span_end = '0;
         meta_cont = 1'b0;
         row_texel = '0;
-        for (int j = 0; j < 4; j++)
-            q[j] = '0;
-        qn = '0;
-        fp = '0;
-        fp_v = 1'b0;
         px_i = '0;
         dst = '0;
         af_u = '0;
@@ -422,41 +433,16 @@ module mode4 (
             state <= M4_IDLE;
         end else if (start) begin
             idx <= '0;
-            qn <= '0;
-            fp_v <= 1'b0;
             af_hi <= 1'b0;
-            dqn <= '0;
-            dfp <= cfg[15:2];
-            dend <= list_end[15:2];
             if (length == 16'd0) begin
                 mode4_done <= 1'b1;
                 state <= M4_IDLE;
             end else
                 state <= M4_DECODE;
         end else begin
-            if (req_is_desc && a_gnt)
-                dfp <= dfp + 14'd1;
-            if (dpop) begin
-                if (affine) begin
-                    dq[0] <= dq[5];
-                    dq[1] <= dq[6];
-                    dq[2] <= dq[7];
-                end else begin
-                    dq[0] <= dq[2];
-                    dq[1] <= dq[3];
-                    dq[2] <= dq[4];
-                    dq[3] <= dq[5];
-                    dq[4] <= dq[6];
-                    dq[5] <= dq[7];
-                end
-            end
-            if (desc_land && state != M4_IDLE)
-                dq[3'(dpop ? dqn - {1'b0, dw} : dqn)] <= a_rdata;
-            dqn <= dqn + {3'd0, desc_land && state != M4_IDLE}
-                - (dpop ? {1'b0, dw} : 4'd0);
             case (state)
                 M4_IDLE: ;
-                M4_DECODE: if (dsc_v) begin
+                M4_DECODE: if (lq_v) begin
                     d_x <= dc_x;
                     d_y <= dc_y;
                     d_sptr <= dc_sptr;
@@ -547,18 +533,6 @@ module mode4 (
                     state <= M4_PIX;
                 end
                 M4_PIX: begin
-                    if (eng_gnt) begin
-                        fp <= fetch_word + 14'd1;
-                        fp_v <= 1'b1;
-                    end
-                    if (pop) begin
-                        q[0] <= q[1];
-                        q[1] <= q[2];
-                        q[2] <= q[3];
-                    end
-                    if (eng_land)
-                        q[2'(pop ? qn - 3'd1 : qn)] <= a_rdata;
-                    qn <= qn + {2'd0, eng_land} - {2'd0, pop};
                     if (left <= 17'sd0)
                         next_sprite();
                     else if (emit) begin
@@ -577,7 +551,7 @@ module mode4 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode4;
-    always_comb unused_mode4 = ^{dwin[191:176], list_end[16],
+    always_comb unused_mode4 = ^{list_end[16],
                                      list_end[1:0], length[15:13],
                                      meta_addr[16],
                                      tex_byte_addr[17:16], size_x0[17],

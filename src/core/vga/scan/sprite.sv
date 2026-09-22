@@ -125,7 +125,31 @@ module sprite (
         .mode5_a_req(m5_a_req),
         .mode5_a_addr(m5_a_addr),
         .a_gnt(a_gnt && !pc_req),
-        .a_rdata(a_rdata),
+        .mode5_lq_last(m5_lq_last),
+        .mode5_lq_active(m5_lq_active),
+        .mode5_lq_size(m5_lq_size),
+        .mode5_lq_pop(m5_lq_pop),
+        .mode5_lq_cap(m5_lq_cap),
+        .mode5_lq_pop_room(m5_lq_pop_room),
+        .mode5_lq_gnt(m5_lq_gnt),
+        .mode5_lq_land(m5_lq_land),
+        .mode5_lq_flight(m5_lq_flight),
+        .lq_req(lq_req),
+        .lq_addr(lq_addr),
+        .lq_dsc(lq_dsc[79:0]),
+        .lq_v(lq_v),
+        .mode5_rq_run(m5_rq_run),
+        .mode5_rq_first(m5_rq_first),
+        .mode5_rq_last(m5_rq_last),
+        .mode5_rq_want(m5_rq_want),
+        .mode5_rq_pop(m5_rq_pop),
+        .mode5_rq_pop_room(m5_rq_pop_room),
+        .mode5_rq_land(m5_rq_land),
+        .mode5_rq_flight(m5_rq_flight),
+        .rq_req(rq_req),
+        .rq_addr(rq_addr),
+        .rq_q0(rq_q0),
+        .rq_n(rq_n),
         .mode5_px_we(m5_px_we),
         .mode5_px_addr(m5_px_addr),
         .mode5_px_data(m5_px_data),
@@ -161,6 +185,32 @@ module sprite (
         .mode4_a_addr(m4_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
+        .mode4_lq_last(m4_lq_last),
+        .mode4_lq_active(m4_lq_active),
+        .mode4_lq_size(m4_lq_size),
+        .mode4_lq_pop(m4_lq_pop),
+        .mode4_lq_cap(m4_lq_cap),
+        .mode4_lq_pop_room(m4_lq_pop_room),
+        .mode4_lq_gnt(m4_lq_gnt),
+        .mode4_lq_land(m4_lq_land),
+        .mode4_lq_flight(m4_lq_flight),
+        .lq_req(lq_req),
+        .lq_addr(lq_addr),
+        .lq_dsc(lq_dsc),
+        .lq_v(lq_v),
+        .mode4_rq_run(m4_rq_run),
+        .mode4_rq_first(m4_rq_first),
+        .mode4_rq_last(m4_rq_last),
+        .mode4_rq_want(m4_rq_want),
+        .mode4_rq_pop(m4_rq_pop),
+        .mode4_rq_pop_room(m4_rq_pop_room),
+        .mode4_rq_land(m4_rq_land),
+        .mode4_rq_flight(m4_rq_flight),
+        .rq_req(rq_req),
+        .rq_addr(rq_addr),
+        .rq_q0(rq_q0),
+        .rq_q1(rq_q1),
+        .rq_n(rq_n),
         .mode4_px_we(m4_px_we),
         .mode4_px_addr(m4_px_addr),
         .mode4_px_data(m4_px_data),
@@ -175,6 +225,66 @@ module sprite (
      * otherwise stand in both the pixel port's data path and the XRAM
      * arbitration for a bit that cannot change while the engine runs. */
     logic run4;
+
+    /* One descriptor list queue and one row word queue for the two
+     * engines, which never run at once. */
+    logic [13:0] m4_lq_last, m5_lq_last;
+    logic m4_lq_active, m4_lq_pop, m4_lq_pop_room, m4_lq_gnt;
+    logic m4_lq_land, m4_lq_flight;
+    logic m5_lq_active, m5_lq_pop, m5_lq_pop_room, m5_lq_gnt;
+    logic m5_lq_land, m5_lq_flight;
+    logic [3:0] m4_lq_size, m4_lq_cap, m5_lq_size, m5_lq_cap;
+    logic lq_req, lq_v;
+    logic [13:0] lq_addr;
+    logic [159:0] lq_dsc;
+    listq listq (
+        .clk(clk),
+        .start(m4_start || m5_start),
+        .cfg(slot_cfg[p][15:0]),
+        .last(run4 ? m4_lq_last : m5_lq_last),
+        .active(run4 ? m4_lq_active : m5_lq_active),
+        .size(run4 ? m4_lq_size : m5_lq_size),
+        .pop(run4 ? m4_lq_pop : m5_lq_pop),
+        .cap(run4 ? m4_lq_cap : m5_lq_cap),
+        .pop_room(run4 ? m4_lq_pop_room : m5_lq_pop_room),
+        .gnt(run4 ? m4_lq_gnt : m5_lq_gnt),
+        .land(run4 ? m4_lq_land : m5_lq_land),
+        .flight(run4 ? m4_lq_flight : m5_lq_flight),
+        .a_rdata(a_rdata),
+        .listq_req(lq_req),
+        .listq_addr(lq_addr),
+        .listq_dsc(lq_dsc),
+        .listq_v(lq_v)
+    );
+
+    logic m4_rq_run, m4_rq_want, m4_rq_pop, m4_rq_pop_room;
+    logic m4_rq_land, m4_rq_flight;
+    logic [13:0] m4_rq_first, m4_rq_last;
+    logic m5_rq_run, m5_rq_want, m5_rq_pop, m5_rq_pop_room;
+    logic m5_rq_land, m5_rq_flight;
+    logic [13:0] m5_rq_first, m5_rq_last;
+    logic rq_req;
+    logic [13:0] rq_addr;
+    logic [31:0] rq_q0, rq_q1;
+    logic [2:0] rq_n;
+    rowq rowq (
+        .clk(clk),
+        .run(run4 ? m4_rq_run : m5_rq_run),
+        .first(run4 ? m4_rq_first : m5_rq_first),
+        .last(run4 ? m4_rq_last : m5_rq_last),
+        .want(run4 ? m4_rq_want : m5_rq_want),
+        .pop(run4 ? m4_rq_pop : m5_rq_pop),
+        .pop_room(run4 ? m4_rq_pop_room : m5_rq_pop_room),
+        .gnt(a_gnt && (run4 || !pc_req)),
+        .land(run4 ? m4_rq_land : m5_rq_land),
+        .flight(run4 ? m4_rq_flight : m5_rq_flight),
+        .a_rdata(a_rdata),
+        .rowq_req(rq_req),
+        .rowq_addr(rq_addr),
+        .rowq_q0(rq_q0),
+        .rowq_q1(rq_q1),
+        .rowq_n(rq_n)
+    );
 
     /* The cache's fill preempts mode 5's own requests. A palette lookup
      * only happens while the index word is in hand, which is also the only

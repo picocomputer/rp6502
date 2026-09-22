@@ -14,6 +14,24 @@
 #include <string.h>
 
 static uint32_t settled[640 * 480];
+static uint32_t trial[640 * 480];
+
+/* A frame is taken once two in a row agree rather than at a fixed distance
+ * from the boot, because the console goes on redrawing for a few frames after
+ * the last byte reaches it. A scene that is already still costs two frames. */
+static bool settle(uint32_t *dst, int w, int h)
+{
+    const size_t bytes = (size_t)w * (size_t)h * sizeof(uint32_t);
+    const uint32_t *frame = mut_frame(w, h);
+    for (int i = 0; i < 8; i++)
+    {
+        memcpy(dst, frame, bytes);
+        frame = mut_frame(w, h);
+        if (memcmp(dst, frame, bytes) == 0)
+            return true;
+    }
+    return false;
+}
 
 static void run_case(int *utest_result, const char *name, uint32_t expect,
                      mut_budget_t claim)
@@ -26,8 +44,7 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
     snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
     ASSERT_TRUE(mut_boot(path));
 
-    memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
-    ASSERT_EQ(memcmp(settled, mut_frame(w, h), px * sizeof(uint32_t)), 0);
+    ASSERT_TRUE(settle(settled, w, h));
 
     uint32_t got = host_crc32(0, settled, px * sizeof(uint32_t));
     if (getenv("RP6502_BLESS_CRC"))
@@ -44,39 +61,33 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
         ASSERT_EQ((int)b, (int)claim);
 }
 
-static void frames_match(int *utest_result, const char *a, const char *b)
-{
-    int w, h, bw, bh;
-    ASSERT_TRUE(corpus_size(a, &w, &h));
-    ASSERT_TRUE(corpus_size(b, &bw, &bh));
-    ASSERT_EQ(w, bw);
-    ASSERT_EQ(h, bh);
-    const size_t px = (size_t)w * (size_t)h;
-
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, a);
-    ASSERT_TRUE(mut_boot(path));
-    memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
-
-    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, b);
-    ASSERT_TRUE(mut_boot(path));
-    const uint32_t *other = mut_frame(w, h);
-    for (size_t i = 0; i < px; i++)
-        if (settled[i] != other[i])
-        {
-            fprintf(stderr, "%s/%s differ at %zu,%zu: %08X vs %08X\n",
-                    a, b, i % (size_t)w, i / (size_t)w, settled[i], other[i]);
-            ASSERT_EQ(settled[i], other[i]);
-        }
-}
-
 /* The reference frame is pinned by CRC and the frame under test has to match
- * it pixel for pixel, which names the first pixel that is off. */
+ * it pixel for pixel, which names the first pixel that is off. run_case leaves
+ * the reference's frame in settled, so only the frame under test boots here. */
 static void run_pair(int *utest_result, const char *name, const char *ref,
                      uint32_t ref_crc)
 {
     run_case(utest_result, ref, ref_crc, MUT_BUDGET_NONE);
-    frames_match(utest_result, name, ref);
+    if (*utest_result != UTEST_TEST_PASSED)
+        return;
+    int w, h, nw, nh;
+    ASSERT_TRUE(corpus_size(ref, &w, &h));
+    ASSERT_TRUE(corpus_size(name, &nw, &nh));
+    ASSERT_EQ(w, nw);
+    ASSERT_EQ(h, nh);
+    const size_t px = (size_t)w * (size_t)h;
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    ASSERT_TRUE(settle(trial, w, h));
+    for (size_t i = 0; i < px; i++)
+        if (trial[i] != settled[i])
+        {
+            fprintf(stderr, "%s/%s differ at %zu,%zu: %08X vs %08X\n",
+                    name, ref, i % (size_t)w, i / (size_t)w, trial[i], settled[i]);
+            ASSERT_EQ(trial[i], settled[i]);
+        }
 }
 
 UTEST(mode1, bpp1_8x8_builtin_640x480)

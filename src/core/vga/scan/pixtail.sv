@@ -174,24 +174,11 @@ module pixtail
     logic [7:0] cur_byte, byte_1;
     always_comb cur_byte = fifo[0][{bit_in_word[4:3], 3'b000}+:8];
     always_comb byte_1 = fifo_pair[{bit_next[5:3], 3'b000}+:8];
-    function automatic logic [7:0] sub_idx(input logic [7:0] b,
-                                           input logic [2:0] at,
-                                           input logic [2:0] depth,
-                                           input logic rev);
-        case (depth)
-            3'd0: sub_idx = {7'd0, rev ? b[at] : b[3'd7 - at]};
-            3'd1: sub_idx = {6'd0, rev ? b[{at[2:1], 1'b0}+:2]
-                                     : b[{2'd3 - at[2:1], 1'b0}+:2]};
-            3'd2: sub_idx = {4'd0, rev ? b[{at[2], 2'b00}+:4]
-                                     : b[{!at[2], 2'b00}+:4]};
-            default: sub_idx = b;
-        endcase
-    endfunction
     logic [7:0] pix_idx, pix_idx1;
-    always_comb pix_idx = sub_idx(cur_byte, bit_in_word[2:0], bpp_log,
-                                  reversed);
-    always_comb pix_idx1 = sub_idx(byte_1, bit_next[2:0], bpp_log,
-                                   reversed);
+    always_comb pix_idx = mode::sub_idx(cur_byte, bit_in_word[2:0],
+                                        bpp_log, reversed);
+    always_comb pix_idx1 = mode::sub_idx(byte_1, bit_next[2:0],
+                                         bpp_log, reversed);
     /* Sixteen-bit color at any byte, which is the only pixel wide enough
      * to reach past its word: byte 3 takes its high half from the word
      * behind it. Everything narrower divides eight and cannot straddle. */

@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 1, the character cells of core/vga/mode/mode1.c: rows mapped with
- * true wraparound, the oracle's rejects, the cell gather, the font fetch
- * from XRAM or the builtin store, and each cell's two colors resolved
- * through the plane's palette. A font row is a 1bpp bitmap and a cell's
+ * Mode 1, the character cells of core/vga/mode/mode1.c: the cell gather,
+ * the font fetch from XRAM or the builtin store, and each cell's two
+ * colors resolved through the plane's palette, in the line the shared row
+ * mapper places. A font row is a 1bpp bitmap and a cell's
  * fg/bg is a two-entry palette, so every cell reaches the shared pixel
  * tail as one immediate segment.
  *
@@ -15,7 +15,7 @@
  */
 
 module mode1
-    import pal_range_pkg::*;
+    import mode::*;
 (
     input logic clk,
 
@@ -23,8 +23,26 @@ module mode1
     input logic abort_i,
     input logic [15:0] attr,
     input logic [127:0] cfgw,
-    input logic [8:0] t_row,
-    input logic [9:0] cw,
+
+    /* What the shared row mapper needs from this mode, and its view of
+     * the line in return. */
+    output logic [15:0] mode1_win_w,
+    output logic [15:0] mode1_win_h,
+    output logic [19:0] mode1_sizeof_row,
+    output logic mode1_addr,
+    output logic [14:0] mode1_data_row,
+    output logic mode1_seg_on,
+    output logic mode1_run_ready,
+    output logic [9:0] mode1_run_max,
+    input logic rm_settle,
+    input logic signed [16:0] rm_row,
+    input logic signed [16:0] rm_col,
+    input logic [16:0] rm_row_base,
+    input logic rm_blank,
+    input logic rm_overrun,
+    input logic rm_run,
+    input logic rm_wrap,
+    input logic rm_end,
 
     output logic mode1_a_req,
     output logic [13:0] mode1_a_addr,
@@ -50,25 +68,17 @@ module mode1
     input logic [15:0] pal_qb,
 
     output logic mode1_tl_start,
-    output logic mode1_seg_valid,
     output logic [7:0] mode1_seg_ibits,
     output logic [15:0] mode1_seg_fg,
     output logic [15:0] mode1_seg_bg,
-    output logic [9:0] mode1_seg_px,
     input logic seg_take
 );
 
-    logic cf_x_wrap, cf_y_wrap;
-    logic signed [15:0] cf_x_pos, cf_y_pos, cf_wchars, cf_hchars;
-    logic [15:0] cf_data, cf_palette, cf_font;
+    logic signed [15:0] cf_wchars, cf_hchars;
+    logic [15:0] cf_palette, cf_font;
     always_comb begin
-        cf_x_wrap = cfgw[7:0] != 8'h00;
-        cf_y_wrap = cfgw[15:8] != 8'h00;
-        cf_x_pos = cfgw[31:16];
-        cf_y_pos = cfgw[47:32];
         cf_wchars = cfgw[63:48];
         cf_hchars = cfgw[79:64];
-        cf_data = cfgw[95:80];
         cf_palette = cfgw[111:96];
         cf_font = cfgw[127:112];
     end
@@ -91,27 +101,17 @@ module mode1
         endcase
     end
     /* The oracle computes these in int16, overflow and all. */
-    logic [15:0] width_px;
+    logic [15:0] width_px, height_px;
     always_comb width_px = 16'(cf_wchars) << 3;
+    always_comb height_px = 16'(cf_hchars) << (fh16 ? 4'd4 : 4'd3);
 
     typedef enum logic [2:0] {
         S1_IDLE, S1_WRAP, S1_ADDR, S1_PAL, S1_SEG
     } state_t;
     state_t state;
 
-    logic signed [16:0] row;
     logic [3:0] scanrow;
     logic [19:0] sizeof_row;
-    logic [19:0] row_off;
-    logic [16:0] row_base;
-    logic signed [16:0] col;
-    logic [9:0] px_rem;
-    logic blank;
-
-    /* int16 like the oracle: ±32768 wraps before the fold sees it. */
-    logic [15:0] row16, col16;
-    always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
-    always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
     /* The store is the plane's, in palram; this front reloads every
      * entry it will index before it serves a cell. */
@@ -235,9 +235,9 @@ module mode1
 
     logic signed [17:0] win_w;
     always_comb win_w = $signed({{2{width_px[15]}}, width_px});
-    always_comb w_take = state == S1_SEG && wstate == W_IDLE && !blank
+    always_comb w_take = state == S1_SEG && wstate == W_IDLE && !rm_blank
         && (!gw_v || f_take)
-        && $signed(18'(fetch_col) <<< 3) < win_w;
+        && $signed({3'd0, fetch_col, 3'b000}) < win_w;
 
     always_comb begin
         mode1_a_req = 1'b0;
@@ -266,55 +266,33 @@ module mode1
     always_comb font_line_addr = {1'b0, cf_font}
         + {5'd0, scanrow, 8'd0} + {9'd0, gf_glyph};
 
-    /* The next segment, from where col stands. The entry cell may start
-     * mid-glyph, so the row is shifted left to put its first visible pixel on
-     * bit 7, which pixtail.sv emits first. Every cell after it is aligned. */
-    logic [16:0] pad_left;
-    always_comb pad_left = 17'(-col);
-    logic [17:0] run_w;
-    always_comb run_w = 18'(win_w - 18'(col));
+    /* The next cell of the run, from where the walk stands. The entry cell
+     * may start mid-glyph, so the row is shifted left to put its first
+     * visible pixel on bit 7, which pixtail.sv emits first. Every cell
+     * after it is aligned. */
     logic [3:0] cell_px;
-    always_comb cell_px = 4'd8 - {1'b0, col[2:0]};
+    always_comb cell_px = 4'd8 - {1'b0, rm_col[2:0]};
     always_comb begin
-        mode1_seg_valid = 1'b0;
-        mode1_seg_ibits = 8'd0;
-        mode1_seg_fg = 16'd0;
-        mode1_seg_bg = 16'd0;
-        mode1_seg_px = px_rem;
-        if (state == S1_SEG && px_rem != 10'd0) begin
-            if (blank || 18'(col) >= win_w && col >= 0) begin
-                mode1_seg_valid = 1'b1;
-            end else if (col < 0) begin
-                mode1_seg_valid = 1'b1;
-                if (pad_left < {7'd0, px_rem})
-                    mode1_seg_px = pad_left[9:0];
-            end else if (nxt_v) begin
-                /* This cell, bounded by the cell, the window and the
-                 * line, whichever ends first. */
-                mode1_seg_valid = 1'b1;
-                mode1_seg_ibits = 8'(nxt_bits << col[2:0]);
-                mode1_seg_fg = nxt_fg;
-                mode1_seg_bg = nxt_bg;
-                mode1_seg_px = {6'd0, cell_px};
-                if (px_rem < {6'd0, cell_px})
-                    mode1_seg_px = px_rem;
-                if (run_w < {8'd0, mode1_seg_px})
-                    mode1_seg_px = run_w[9:0];
-            end
-        end
+        mode1_win_w = width_px;
+        mode1_win_h = height_px;
+        mode1_sizeof_row = sizeof_row;
+        mode1_addr = state == S1_ADDR;
+        mode1_data_row = fh16 ? {4'd0, rm_row[14:4]} : {3'd0, rm_row[14:3]};
+        mode1_seg_on = state == S1_SEG;
+        mode1_run_ready = nxt_v;
+        mode1_run_max = {6'd0, cell_px};
+    end
+    always_comb begin
+        mode1_seg_ibits = rm_run ? 8'(nxt_bits << rm_col[2:0]) : 8'd0;
+        mode1_seg_fg = rm_run ? nxt_fg : 16'd0;
+        mode1_seg_bg = rm_run ? nxt_bg : 16'd0;
     end
 
     initial begin
         state = S1_IDLE;
         fstate = F_IDLE;
-        row = '0;
         scanrow = '0;
         sizeof_row = '0;
-        row_off = '0;
-        row_base = '0;
-        col = '0;
-        px_rem = '0;
-        blank = 1'b0;
         pal_xram = 1'b0;
         pal_n = '0;
         pal_w = '0;
@@ -366,11 +344,8 @@ module mode1
             gw_v <= 1'b0;
             fstate <= F_IDLE;
         end else if (start) begin
-            row <= $signed({row16[15], row16});
             sizeof_row <= 20'(17'(cf_wchars[15:0])
                               * {14'd0, cell_size});
-            col <= $signed({col16[15], col16});
-            blank <= 1'b0;
             nxt_v <= 1'b0;
             wstate <= W_IDLE;
             gw_v <= 1'b0;
@@ -380,42 +355,14 @@ module mode1
         end else begin
             case (state)
                 S1_IDLE: ;
-                S1_WRAP: begin
-                    /* The oracle rejects on the int16 height, not the
-                     * char count. */
-                    if (cf_wchars < 16'sd1 || height_px_s < 18'sd1)
-                    begin
-                        blank <= 1'b1;
+                S1_WRAP:
+                    if (rm_settle) begin
+                        scanrow <= fh16 ? rm_row[3:0] : {1'b0, rm_row[2:0]};
                         state <= S1_ADDR;
                     end
-                    else if (cf_y_wrap && row < 0)
-                        row <= 17'(18'(row) + height_px_s);
-                    else if (cf_y_wrap && 18'(row) >= height_px_s)
-                        row <= 17'(18'(row) - height_px_s);
-                    else if (cf_x_wrap && col < 0)
-                        col <= 17'(18'(col) + win_w);
-                    else if (cf_x_wrap && 18'(col) >= win_w)
-                        col <= 17'(18'(col) - win_w);
-                    else if (row < 0 || 18'(row) >= height_px_s)
-                    begin
-                        blank <= 1'b1;
-                        state <= S1_ADDR;
-                    end
-                    else begin
-                        row_off <= 20'((37'(row[15:0])
-                                        >> (fh16 ? 4 : 3))
-                                       * 37'(sizeof_row));
-                        scanrow <= fh16 ? row[3:0] : {1'b0, row[2:0]};
-                        state <= S1_ADDR;
-                    end
-                end
                 S1_ADDR: begin
-                    row_base <= {1'b0, cf_data} + row_off[16:0];
-                    if (overrun)
-                        blank <= 1'b1;
                     mode1_tl_start <= 1'b1;
-                    px_rem <= cw;
-                    if (blank || overrun)
+                    if (rm_blank || rm_overrun)
                         state <= S1_SEG;
                     else begin
                         pal_xram <= pal_bpp != 4'd0 && !cf_palette[0]
@@ -429,7 +376,7 @@ module mode1
                     if (!pal_xram || pal_bpp == 4'd0) begin
                         state <= S1_SEG;
                         fstate <= F_IDLE;
-                        fetch_col <= col < 0 ? 16'd0 : col[15:0] >> 3;
+                        fetch_col <= rm_col < 0 ? 12'd0 : rm_col[14:3];
                     end else begin
                         if (a_gnt)
                             pal_n <= pal_n + 9'd1;
@@ -439,8 +386,8 @@ module mode1
                             begin
                                 state <= S1_SEG;
                                 fstate <= F_IDLE;
-                                fetch_col <= col < 0
-                                    ? 16'd0 : col[15:0] >> 3;
+                                fetch_col <= rm_col < 0
+                                    ? 12'd0 : rm_col[14:3];
                                 pal_w <= '0;
                             end
                         end
@@ -473,7 +420,7 @@ module mode1
                                 fw_c <= fw_c + 2'd1;
                                 if (fw_c + 2'd1 == fw_n) begin
                                     gw_v <= 1'b1;
-                                    fetch_col <= fetch_col + 16'd1;
+                                    fetch_col <= fetch_col + 12'd1;
                                     wstate <= W_IDLE;
                                 end
                             end
@@ -520,28 +467,15 @@ module mode1
                         end
                     endcase
 
-
-                    if (seg_take) begin
-                        px_rem <= px_rem - mode1_seg_px;
-                        if (px_rem == mode1_seg_px)
-                            state <= S1_IDLE;
-                        if (!blank && col < 0)
-                            col <= col
-                                + $signed({7'd0, mode1_seg_px});
-                        else if (!blank && 18'(col) < win_w) begin
-                            nxt_v <= 1'b0;
-                            if (cf_x_wrap
-                                && 18'(col) + 18'({8'd0,
-                                                   mode1_seg_px})
-                                    == win_w) begin
-                                col <= '0;
-                                fetch_col <= '0;
-                                wstate <= W_IDLE;
-                                gw_v <= 1'b0;
-                                fstate <= F_IDLE;
-                            end else
-                                col <= col + $signed(
-                                    {7'd0, mode1_seg_px});
+                    if (rm_end)
+                        state <= S1_IDLE;
+                    if (seg_take && rm_run) begin
+                        nxt_v <= 1'b0;
+                        if (rm_wrap) begin
+                            fetch_col <= '0;
+                            wstate <= W_IDLE;
+                            gw_v <= 1'b0;
+                            fstate <= F_IDLE;
                         end
                     end
                 end
@@ -550,36 +484,23 @@ module mode1
         end
     end
 
-    logic [15:0] height_px;
-    always_comb height_px = 16'(cf_hchars) << (fh16 ? 4'd4 : 4'd3);
-    logic signed [17:0] height_px_s;
-    always_comb height_px_s = $signed({{2{height_px[15]}}, height_px});
-
-    /* The grid overruns XRAM; the oracle's reject, folded where the
-     * plan latches because it lands on that same edge. The limit is at
-     * most $10000, so any bit above 16 overruns whatever it is and only
-     * the low bits reach the comparator. */
-    logic [34:0] grid_bytes;
-    always_comb grid_bytes = 35'(cf_hchars[14:0]) * 35'(sizeof_row);
-    logic overrun;
-    always_comb overrun = |grid_bytes[34:17]
-        || grid_bytes[16:0] > 17'(17'h10000 - {1'b0, cf_data});
-
-    logic [15:0] fetch_col;
+    /* The cell the word stage fetches next, under 4096 because a row is
+     * at most 32760 pixels, an int16 width that is a multiple of 8. */
+    logic [11:0] fetch_col;
     logic [16:0] cell_fetch_addr;
-    always_comb cell_fetch_addr = row_base
-        + 17'(fetch_col * 16'({13'd0, cell_size}));
+    always_comb cell_fetch_addr = rm_row_base
+        + 17'(fetch_col * {9'd0, cell_size});
     logic [1:0] font_line_byte;
     always_comb font_line_byte = font_line_addr[1:0];
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode1;
     always_comb unused_mode1 = ^{cfgw, attr[15:4], sizeof_row,
-                                     row_off[19:17], gather,
+                                     gather,
                                      win_w[17], cell_addr[16],
                                      cell_addr[1:0],
                                      font_line_addr[16],
-                                     pad_left[16:10], run_w[17:10]};
+                                     rm_row[16:15], rm_col[15]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
