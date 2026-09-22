@@ -48,7 +48,6 @@ module pixtail
     output logic pixtail_a_req,
     output logic [13:0] pixtail_a_addr,
     input logic a_gnt,
-    input logic a_rdy,
     input logic [31:0] a_rdata,
 
     output logic pixtail_pal_ld,
@@ -80,7 +79,14 @@ module pixtail
      * alignment, never on the image. The fill modes are contracted to be
      * deterministic that way. */
     logic [8:0] pal_words;
-    always_comb pal_words = 9'd1 << ((5'd1 << bpp_log) - 5'd1);
+    always_comb
+        case (bpp_log)
+            3'd0: pal_words = 9'd1;
+            3'd1: pal_words = 9'd2;
+            3'd2: pal_words = 9'd8;
+            3'd3: pal_words = 9'd128;
+            default: pal_words = 9'd0;   /* raw color indexes nothing */
+        endcase
     logic [8:0] pal_fetch;
     always_comb pal_fetch = pal_words + {8'd0, pal_ptr[1]};
     logic [8:0] pal_n;
@@ -514,8 +520,7 @@ module pixtail
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pixtail;
-    always_comb unused_pixtail = ^{a_rdy, cur.bits, cur.px,
-                                       pal_ptr[0]};
+    always_comb unused_pixtail = ^{cur.bits, cur.px, pal_ptr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

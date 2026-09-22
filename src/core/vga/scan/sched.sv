@@ -30,6 +30,16 @@ module sched (
     input logic [9:0] cw,
     input logic [9:0] ch,
 
+    /* The row map, which every stage pairs lines by. It lives here
+     * because this is the one instance that walks the frame's rows, and
+     * mode0.sv, scan/sprite.sv and the top level all read it rather than
+     * deriving it again. */
+    output logic [9:0] sched_t,
+    output logic sched_dbl,
+    output logic sched_pair_start,
+    output logic sched_pair_end,
+    output logic sched_render_now,
+
     output logic [8:0] sched_p_line,
     output logic [1:0] sched_p_plane,
     input logic [31:0] p_entry,
@@ -55,6 +65,7 @@ module sched (
      * nothing to re-scan. */
     logic dbl;
     always_comb dbl = cw == 10'd320;
+    always_comb sched_dbl = dbl;
     logic [9:0] v_next;
     always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
     /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
@@ -64,9 +75,13 @@ module sched (
     logic pair_start, pair_end;
     always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
     always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
+    always_comb sched_pair_start = pair_start;
+    always_comb sched_pair_end = pair_end;
+    always_comb sched_t = t;
 
     logic render_now;
     always_comb render_now = t < ch;
+    always_comb sched_render_now = render_now;
     logic [8:0] t_row;
     always_comb t_row = t[8:0];
     always_comb sched_p_line = t_row;

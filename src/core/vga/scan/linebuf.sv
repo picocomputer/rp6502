@@ -18,7 +18,13 @@
 module linebuf (
     input logic clk,
 
-    input logic [9:0] h,
+    /* The beam's derived columns, computed once at the top level because
+     * all three planes share them: the erase runs a pixel behind the
+     * beam, and the read for the next pixel wraps at the line's end. */
+    input logic [9:0] sc_addr,
+    input logic [9:0] rd_addr,
+    input logic h_last,
+
     input logic px_last,
     input logic line_start,
     input logic flip_ok,
@@ -77,13 +83,10 @@ module linebuf (
         end
     end
 
-    /* The erase, a pixel behind the beam. */
-    logic [9:0] sc_px;
     logic se_we, so_we;
     always_comb begin
-        sc_px = h - 10'd1;
-        se_we = !px_last && !sc_px[0];
-        so_we = !px_last && sc_px[0];
+        se_we = !px_last && !sc_addr[0];
+        so_we = !px_last && sc_addr[0];
     end
 
     logic b0e_we, b0o_we, b1e_we, b1o_we;
@@ -91,16 +94,16 @@ module linebuf (
     logic [15:0] b0e_data, b0o_data, b1e_data, b1o_data;
     always_comb begin
         b0e_we = wr_bank ? se_we : fe_we;
-        b0e_addr = wr_bank ? sc_px[9:1] : fe_addr;
+        b0e_addr = wr_bank ? sc_addr[9:1] : fe_addr;
         b0e_data = wr_bank ? 16'h0000 : fe_data;
         b0o_we = wr_bank ? so_we : fo_we;
-        b0o_addr = wr_bank ? sc_px[9:1] : fo_addr;
+        b0o_addr = wr_bank ? sc_addr[9:1] : fo_addr;
         b0o_data = wr_bank ? 16'h0000 : fo_data;
         b1e_we = wr_bank ? fe_we : se_we;
-        b1e_addr = wr_bank ? fe_addr : sc_px[9:1];
+        b1e_addr = wr_bank ? fe_addr : sc_addr[9:1];
         b1e_data = wr_bank ? fe_data : 16'h0000;
         b1o_we = wr_bank ? fo_we : so_we;
-        b1o_addr = wr_bank ? fo_addr : sc_px[9:1];
+        b1o_addr = wr_bank ? fo_addr : sc_addr[9:1];
         b1o_data = wr_bank ? fo_data : 16'h0000;
     end
     always_ff @(posedge clk)
@@ -120,13 +123,9 @@ module linebuf (
      * from the bank that will be scanned then: the bank flip is on
      * h==0's first clock, so only the pixel-0 read at the end of h==799
      * has to take the bank the flip is about to make the scan bank. */
-    logic [9:0] rd_addr;
     logic rd_bank;
-    always_comb begin
-        rd_addr = h == 10'd799 ? 10'd0 : h + 10'd1;
-        rd_bank = h == 10'd799 && next_ok ? (flip_next ? wr_bank : !wr_bank)
-                                         : !wr_bank;
-    end
+    always_comb rd_bank = h_last && next_ok ? (flip_next ? wr_bank : !wr_bank)
+                                            : !wr_bank;
     logic [15:0] q0e, q0o, q1e, q1o;
     logic q_sel, q_odd;
     initial begin

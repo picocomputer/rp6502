@@ -919,6 +919,21 @@ module wiring
         .prog_b_rdata(prog_b_rdata)
     );
 
+    /* The beam's derived columns, computed once for all three line
+     * buffers: the erase a pixel behind the beam, and the read for the
+     * next pixel, which wraps at the line's end. */
+    logic vid_h_last;
+    logic [9:0] vid_sc_addr, vid_rd_addr;
+    always_comb begin
+        vid_h_last = vid_h == 10'd799;
+        vid_sc_addr = vid_h - 10'd1;
+        vid_rd_addr = vid_h_last ? 10'd0 : vid_h + 10'd1;
+    end
+
+    /* The row map, derived once in sched.sv and read by every stage. */
+    logic [9:0] sched_t;
+    logic sched_dbl, sched_pair_start, sched_pair_end, sched_render_now;
+
     logic [15:0] mode0_pix;
     mode0 mode0 (
         .clk(clk_mach),
@@ -929,6 +944,9 @@ module wiring
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .cw(vid_cw),
+        .t(sched_t),
+        .pair_start(sched_pair_start),
+        .pair_end(sched_pair_end),
         .mode0_pix(mode0_pix),
         .mode0_f_req(mf_req[1]),
         .mode0_f_addr(mf_addr[1]),
@@ -971,6 +989,11 @@ module wiring
         .line_start(vid_line_start),
         .cw(vid_cw),
         .ch(vid_ch),
+        .sched_t(sched_t),
+        .sched_dbl(sched_dbl),
+        .sched_pair_start(sched_pair_start),
+        .sched_pair_end(sched_pair_end),
+        .sched_render_now(sched_render_now),
         .sched_p_line(sched_p_line),
         .sched_p_plane(sched_p_plane),
         .p_entry(pm_entry),
@@ -1012,7 +1035,9 @@ module wiring
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             linebuf linebuf (
                 .clk(clk_mach),
-                .h(vid_h),
+                .sc_addr(vid_sc_addr),
+                .rd_addr(vid_rd_addr),
+                .h_last(vid_h_last),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
                 .flip_ok(vid_flip_ok),
@@ -1026,25 +1051,26 @@ module wiring
         end
     endgenerate
 
-    /* verilator lint_off PINCONNECTEMPTY */
     sprite sprite (
         .clk(clk_mach),
-        .v(vid_v),
-        .h(vid_h),
+        .sc_addr(vid_sc_addr),
+        .rd_addr(vid_rd_addr),
+        .h_last(vid_h_last),
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .cw(vid_cw),
-        .ch(vid_ch),
+        .t_row(sched_t[8:0]),
+        .render_now(sched_render_now),
+        .pair_start(sched_pair_start),
+        .pair_end(sched_pair_end),
         .sprite_s_idx(sp_s_idx),
         .s_data(sp_s_data),
         .sprite_pix(sp_pix),
-        .sprite_overrun(),
         .sprite_a_req(ma_req[1]),
         .sprite_a_addr(ma_addr[1]),
         .a_gnt(ma_req[1]),
         .a_rdata(xram_s_rdata)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
 
     logic aud_we;
     always_comb aud_we = soc_stb && soc_we && soc_sel_aud;
@@ -1127,18 +1153,13 @@ module wiring
      * the row is handed to the scaler on the first line of the pair and the
      * second is blanked. The scaler still receives ch rows; what changed is
      * that the beam now takes the whole frame to cross the canvas. */
-    logic vid_dbl;
-    always_comb vid_dbl = vid_cw == 10'd320;
     /* A line buffer flips where a pair starts, and next_ok says the line
-     * about to start is one; both as sched.sv pairs them. */
-    logic vid_flip_ok, vid_next_ok;
-    always_comb vid_flip_ok = !vid_dbl
-        || (!vid_v[0] && vid_v != 10'd524) || vid_v == 10'd523;
-    always_comb vid_next_ok = !vid_dbl
-        || (vid_v[0] && vid_v != 10'd523) || vid_v == 10'd524;
-    /* A row of graphics starts where a pair does. */
-    logic vid_row_start;
-    always_comb vid_row_start = vid_line_start && vid_flip_ok;
+     * about to start is one; a row of graphics starts where a pair does. */
+    logic vid_dbl, vid_flip_ok, vid_next_ok, vid_row_start;
+    always_comb vid_dbl = sched_dbl;
+    always_comb vid_flip_ok = sched_pair_start;
+    always_comb vid_next_ok = sched_pair_end;
+    always_comb vid_row_start = vid_line_start && sched_pair_start;
     always_comb vid_de = vid_de_full && vid_h < vid_cw
         && (vid_dbl ? !vid_v[0] && vid_v < {vid_ch[8:0], 1'b0}
                     : vid_v < vid_ch);

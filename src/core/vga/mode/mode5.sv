@@ -12,7 +12,9 @@
  * only where its alpha bit is set.
  */
 
-module mode5 (
+module mode5
+    import pal_range_pkg::*;
+(
     input logic clk,
 
     input logic start,
@@ -459,10 +461,7 @@ module mode5 (
                     dst <= d_hflip ? x_top : (d_x < 0 ? 10'd0 : d_x[9:0]);
                     lead <= d_hdbl && a_cut[0];
                     tail <= d_hdbl && b_cut[0];
-                    pal_xram <= !d_pptr[0]
-                        && {1'b0, d_pptr}
-                            <= 17'h10000
-                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                    pal_xram <= !d_pptr[0] && pal_fits(d_pptr, bpp_log);
                     row_addr <= {1'b0, d_sptr}
                         + 17'(17'({8'd0, row_sel})
                               * 17'({7'd0, bytes_per_row}));

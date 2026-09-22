@@ -26,6 +26,12 @@ module mode0 (
     input logic px_last,
     input logic line_start,
     input logic [9:0] cw,
+
+    /* The row map, from sched.sv, which pairs the lines of a 320 wide
+     * canvas so a row of graphics spans two of them. */
+    input logic [9:0] t,
+    input logic pair_start,
+    input logic pair_end,
     output logic [15:0] mode0_pix,
 
     output logic mode0_f_req,
@@ -207,20 +213,6 @@ module mode0 (
         if (lb_we)
             linebuf[{lb_bank, lb_addr}] <= lb_data;
     logic wr_bank;
-    logic [9:0] t;  // the target line
-    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
-     * graphics spans two lines of timing, as in sched.sv. */
-    logic dbl;
-    always_comb dbl = cw == 10'd320;
-    logic [9:0] v_next;
-    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
-    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
-     * is started on the even line and has the whole pair to finish in, and
-     * is handed over on the even line after. Line 524 is the pair's second
-     * line, not a start, and 523 is a start, not an end. */
-    logic pair_start, pair_end;
-    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
-    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
     logic t_active;
     logic [8:0] term_line;
     logic [4:0] logical_row;
@@ -239,7 +231,6 @@ module mode0 (
     logic [31:0] w0_n, w1_n;
     logic [13:0] fetch_word;
     logic [31:0] fetch_q;
-    logic [7:0] bits;
     logic [15:0] fg_r, bg_r;
     logic [7:0] shreg;
 
@@ -349,13 +340,10 @@ module mode0 (
         end
     end
 
-    logic cur_bar;
-    always_comb cur_bar = cur_here && (cur_style == 3'd5 || cur_style == 3'd6);
 
     initial begin
         wr_bank = 1'b0;
         run = 1'b0;
-        t = '0;
         t_active = 1'b0;
         term_line = '0;
         cur_hit = 1'b0;
@@ -367,7 +355,6 @@ module mode0 (
         w0_n = '0;
         w1_n = '0;
         fetch_word = '0;
-        bits = '0;
         fg_r = '0;
         bg_r = '0;
         shreg = '0;
@@ -377,8 +364,6 @@ module mode0 (
         if (line_start) begin
             if (pair_start)
                 wr_bank <= !wr_bank;
-            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
-                     : v_next;
             if (pair_start) begin
                 run <= 1'b1;
                 rescol <= '0;
@@ -420,7 +405,6 @@ module mode0 (
                     step <= 4'd5;
                 end
                 4'd5: begin
-                    bits <= bits_res;
                     fg_r <= fg_res;
                     bg_r <= bg_res;
                     shreg <= bits_res;
@@ -444,7 +428,6 @@ module mode0 (
                         3'd1: w1_n <= fetch_q;
                         3'd6: fetch_word <= fetch_word + 14'd1;
                         3'd7: begin
-                            bits <= bits_res;
                             fg_r <= fg_res;
                             bg_r <= bg_res;
                             shreg <= bits_res;
@@ -492,7 +475,7 @@ module mode0 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode0;
-    always_comb unused_mode0 = ^{b_addr[1:0], bits, cur_bar,
+    always_comb unused_mode0 = ^{b_addr[1:0],
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

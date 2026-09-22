@@ -12,7 +12,9 @@
  * rejected line is one padding segment.
  */
 
-module mode3 (
+module mode3
+    import pal_range_pkg::*;
+(
     input logic clk,
 
     /* One line of work: start when the config view is valid; abort_i is
@@ -184,9 +186,7 @@ module mode3 (
                              > 35'(17'h10000) - 35'({1'b0, cf_data}))
                         && !cf_palette[0]
                         && bpp_log != 3'd4
-                        && {1'b0, cf_palette}
-                            <= 17'h10000
-                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                        && pal_fits(cf_palette, bpp_log[1:0]);
                     mode3_bpp <= bpp_log;
                     mode3_reversed <= reversed;
                     mode3_tl_start <= 1'b1;

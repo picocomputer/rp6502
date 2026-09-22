@@ -14,7 +14,9 @@
  * before the tail sees them; the tail's own palette machinery idles.
  */
 
-module mode1 (
+module mode1
+    import pal_range_pkg::*;
+(
     input logic clk,
 
     input logic start,
@@ -76,15 +78,16 @@ module mode1 (
     logic [2:0] fmt;
     logic [2:0] cell_size;
     logic [3:0] pal_bpp;  // palette depth; 0 = raw colors
+    logic [1:0] pal_log;  // and its logarithm, for the range test
     always_comb begin
         fh16 = attr[3];
         fmt = attr[2:0];
         case (fmt)
-            3'd0: begin cell_size = 3'd1; pal_bpp = 4'd1; end
-            3'd1: begin cell_size = 3'd2; pal_bpp = 4'd4; end
-            3'd2: begin cell_size = 3'd2; pal_bpp = 4'd4; end
-            3'd3: begin cell_size = 3'd3; pal_bpp = 4'd8; end
-            default: begin cell_size = 3'd6; pal_bpp = 4'd0; end
+            3'd0: begin cell_size = 3'd1; pal_bpp = 4'd1; pal_log = 2'd0; end
+            3'd1: begin cell_size = 3'd2; pal_bpp = 4'd4; pal_log = 2'd2; end
+            3'd2: begin cell_size = 3'd2; pal_bpp = 4'd4; pal_log = 2'd2; end
+            3'd3: begin cell_size = 3'd3; pal_bpp = 4'd8; pal_log = 2'd3; end
+            default: begin cell_size = 3'd6; pal_bpp = 4'd0; pal_log = 2'd0; end
         endcase
     end
     /* The oracle computes these in int16, overflow and all. */
@@ -115,7 +118,13 @@ module mode1 (
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
-    always_comb pal_words = 9'd1 << (pal_bpp - 4'd1);
+    always_comb
+        case (pal_bpp)
+            4'd1: pal_words = 9'd1;
+            4'd4: pal_words = 9'd8;
+            4'd8: pal_words = 9'd128;
+            default: pal_words = 9'd0;   /* raw color indexes nothing */
+        endcase
     /* A halfword-aligned palette straddles one more word, entry 0 in the
      * first word's high half. */
     logic [8:0] pal_fetch;
@@ -405,9 +414,7 @@ module mode1 (
                         state <= S1_SEG;
                     else begin
                         pal_xram <= pal_bpp != 4'd0 && !cf_palette[0]
-                            && {1'b0, cf_palette}
-                                <= 17'h10000
-                                    - (17'd2 << {13'd0, pal_bpp});
+                            && pal_fits(cf_palette, pal_log);
                         pal_n <= '0;
                         pal_w <= '0;
                         state <= S1_PAL;

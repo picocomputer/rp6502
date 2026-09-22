@@ -65,8 +65,7 @@ module prog (
     output logic [31:0] prog_sst_rdata,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
-     * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
-     * overrun count. */
+     * then bit 15 the registers — 0 canvas, 1 vsync line. */
     input logic b_stb,
     input logic b_we,
     input logic [15:0] b_addr,

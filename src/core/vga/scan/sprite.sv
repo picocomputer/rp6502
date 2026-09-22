@@ -15,22 +15,31 @@
 module sprite (
     input logic clk,
 
-    input logic [9:0] v,
-    input logic [9:0] h,
+    /* The beam's derived columns, computed once at the top level because
+     * the line buffers of every plane share them. */
+    input logic [9:0] sc_addr,
+    input logic [9:0] rd_addr,
+    input logic h_last,
+
     input logic px_last,
     input logic line_start,
 
     input logic [9:0] cw,
-    input logic [9:0] ch,
+
+    /* The row map, from sched.sv: a 320 wide canvas is scanned out with
+     * its lines doubled, so a row of graphics spans two lines of timing
+     * and the beam keeps step with the 6502. The row is rendered again on
+     * the second line rather than held, because the scan side erases the
+     * buffer behind the beam and leaves nothing to re-scan. */
+    input logic [8:0] t_row,
+    input logic render_now,
+    input logic pair_start,
+    input logic pair_end,
 
     output logic [12:0] sprite_s_idx,
     input logic [31:0] s_data,
 
     output logic [16:0] sprite_pix[3],
-
-    /* Counts the lines whose sprites did not finish before the end of
-     * the line. Such a line shows whatever was painted. */
-    output logic [15:0] sprite_overrun /*verilator public_flat_rd*/,
 
     output logic sprite_a_req,
     output logic [13:0] sprite_a_addr,
@@ -38,33 +47,11 @@ module sprite (
     input logic [31:0] a_rdata
 );
 
-    logic [9:0] t;
-    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
-     * graphics spans two lines of timing and the beam keeps step with the
-     * 6502. The row is rendered again on the second line rather than held,
-     * because the scan side erases the buffer behind the beam and leaves
-     * nothing to re-scan. */
-    logic dbl;
-    always_comb dbl = cw == 10'd320;
-    logic [9:0] v_next;
-    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
-    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
-     * is started on the even line and has the whole pair to finish in, and
-     * is handed over on the even line after. Line 524 is the pair's second
-     * line, not a start, and 523 is a start, not an end. */
-    logic pair_start, pair_end;
-    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
-    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
     /* The engines and the palette cache work a row at a time, so they are
      * aborted and flushed where a row starts, not on the second line of a
      * pair, which would drop a pass that legitimately runs into it. */
     logic row_start;
     always_comb row_start = line_start && pair_start;
-
-    logic render_now;
-    always_comb render_now = t < ch;
-    logic [8:0] t_row;
-    always_comb t_row = t[8:0];
 
     typedef enum logic [1:0] {
         SP_IDLE, SP_SLOT, SP_PLAN, SP_RUN
@@ -215,9 +202,9 @@ module sprite (
      * rather than stopping at cw, so a switch to a narrower canvas
      * cannot strand pixels. */
     logic [10:0] sb_rd;
-    always_comb sb_rd = h == 10'd799 && pair_end
+    always_comb sb_rd = h_last && pair_end
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}
-        : {!wr_bank, h + 10'd1};
+        : {!wr_bank, rd_addr};
     logic sb_we;
     always_comb sb_we = !px_last;
 
@@ -244,7 +231,7 @@ module sprite (
                 .a_addr(eng_addr),
                 .a_data(eng_data),
                 .sc_we(sb_we),
-                .sc_addr(h - 10'd1),
+                .sc_addr(sc_addr),
                 .rd_en(px_last),
                 .rd_addr(sb_rd[9:0]),
                 .rd_bank(sb_rd[10]),
@@ -264,7 +251,6 @@ module sprite (
 
     initial begin
         state = SP_IDLE;
-        t = '0;
         slot_entry[0] = '0;
         slot_entry[1] = '0;
         slot_entry[2] = '0;
@@ -280,20 +266,16 @@ module sprite (
         run4 = 1'b0;
         wr_bank = 1'b0;
         flip_next = 1'b0;
-        sprite_overrun = '0;
     end
     always_ff @(posedge clk) begin
         m4_start <= 1'b0;
         m5_start <= 1'b0;
-        if (h == 10'd799 && pair_end && state != SP_IDLE) begin
-            /* Count the lost row once and drop it; the engines abort at
-             * the next row start. */
-            sprite_overrun <= sprite_overrun
-                + 16'd1;
+        if (h_last && pair_end && state != SP_IDLE) begin
+            /* The row did not finish in its line; drop it, and the
+             * engines abort at the next row start. What it painted
+             * before the deadline is what shows. */
             state <= SP_IDLE;
         end else if (line_start) begin
-            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
-                     : v_next;
             if (pair_start) begin
                 if (flip_next)
                     wr_bank <= !wr_bank;
@@ -350,7 +332,7 @@ module sprite (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sprite;
-    always_comb unused_sprite = ^{t[9], slot_entry[0][30:19],
+    always_comb unused_sprite = ^{slot_entry[0][30:19],
                                       slot_entry[1][30:19],
                                       slot_entry[2][30:19]};
     /* verilator lint_on UNUSEDSIGNAL */

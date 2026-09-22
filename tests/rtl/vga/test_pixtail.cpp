@@ -153,7 +153,6 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
 
         /* Read data arrives two clocks after its grant, as it does from
          * XRAM's render port in the machine. */
-        dut->a_rdy = gnt_q2;
         if (gnt_q2)
             dut->a_rdata = xram32(gnt_addr_q2);
 

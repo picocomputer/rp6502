@@ -305,7 +305,6 @@ module fill (
         .pixtail_a_req(tl_a_req),
         .pixtail_a_addr(tl_a_addr),
         .a_gnt(a_gnt && mode_q != 3'd1 && !m2_a_req),
-        .a_rdy(1'b0),
         .a_rdata(a_rdata),
         .pixtail_pal_ld(tl_pal_ld),
         .pixtail_pal_w(tl_pal_w),

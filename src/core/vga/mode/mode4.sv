@@ -481,7 +481,6 @@ module mode4 (
                     fw_i <= '0;
                     meta_lo_v <= 1'b0;
                     if (log_big
-                        || byte_size > 18'h10000
                         || {2'b0, d_sptr} > 18'h10000 - byte_size
                         || tex_offs_y < 0
                         || tex_offs_y >= 17'($signed({9'd0, size}))

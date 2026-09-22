@@ -15,7 +15,9 @@
  * byte hides under the current tile's pixels.
  */
 
-module mode2 (
+module mode2
+    import pal_range_pkg::*;
+(
     input logic clk,
 
     input logic start,
@@ -307,9 +309,7 @@ module mode2 (
                     mode2_pal_ptr <= cf_palette;
                     mode2_pal_xram <= !blank && !overrun
                         && !cf_palette[0]
-                        && {1'b0, cf_palette}
-                            <= 17'h10000
-                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                        && pal_fits(cf_palette, bpp_log);
                     mode2_bpp <= {1'b0, bpp_log};
                     mode2_tl_start <= 1'b1;
                     px_rem <= cw;
