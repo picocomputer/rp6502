@@ -9,9 +9,10 @@
  * does not run never flips its line buffer, so it scans out the zeros
  * the erase side left there.
  *
- * A line is 1,600 clocks (timing.sv) and a fill spends about a clock a
- * pixel, so there is serial fill rate for two planes on a 640-wide
- * canvas and three on a 320-wide one.
+ * A line is 1,600 clocks (timing.sv) and a fill lands two pixels a
+ * clock, so three planes fit serially on a 640-wide canvas. A 320-wide
+ * canvas pairs its lines, one row of graphics to two lines of timing, so
+ * a row there has 3,200 clocks and room to spare.
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
  * pixels come from the terminal engine instead; host/pocket/core/
@@ -39,14 +40,31 @@ module sched (
     output logic [15:0] sched_e_attr,
     output logic [15:0] sched_e_config,
     input logic e_done,
-    input logic e_px_we,
+    input logic [1:0] e_px_we,
 
-    output logic [2:0] sched_px_we,
+    output logic [1:0] sched_px_we[3],
     output logic [2:0] sched_done,
     output logic [2:0] sched_term
 );
 
     logic [9:0] t /*verilator public_flat_rd*/;
+    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
+     * graphics spans two lines of timing and the beam keeps step with the
+     * 6502. The row is rendered again on the second line rather than held,
+     * because the scan side erases the buffer behind the beam and leaves
+     * nothing to re-scan. */
+    logic dbl;
+    always_comb dbl = cw == 10'd320;
+    logic [9:0] v_next;
+    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
+    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
+     * is started on the even line and has the whole pair to finish in, and
+     * is handed over on the even line after. Line 524 is the pair's second
+     * line, not a start, and 523 is a start, not an end. */
+    logic pair_start, pair_end;
+    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
+    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
+
     logic render_now;
     always_comb render_now = t < ch;
     logic [8:0] t_row;
@@ -83,8 +101,6 @@ module sched (
                 dec_q[dec_n] = 2'(i);
                 dec_n = dec_n + 2'd1;
             end
-        if (cw == 10'd640 && dec_n == 2'd3)
-            dec_n = 2'd2;
         dec_run = '0;
         for (int i = 0; i < 3; i++)
             if (2'(i) < dec_n)
@@ -109,9 +125,10 @@ module sched (
         sched_done = '0;
         if (state == SCH_RUN && e_done)
             sched_done[cur] = 1'b1;
-        sched_px_we = '0;
-        if (state == SCH_RUN && e_px_we)
-            sched_px_we[cur] = 1'b1;
+        for (int i = 0; i < 3; i++)
+            sched_px_we[i] = 2'b00;
+        if (state == SCH_RUN)
+            sched_px_we[cur] = e_px_we;
     end
 
 `ifdef VERILATOR
@@ -152,17 +169,20 @@ module sched (
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
 `ifdef VERILATOR
-        if (settled && h == 10'd799 && state != SCH_IDLE)
+        if (settled && h == 10'd799 && pair_end && state != SCH_IDLE)
             $fatal(1, "fill underrun");
 `endif
         if (line_start) begin
-            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
-            rd_i <= '0;
-            plane_pending <= '0;
-            if (term_armed)
-                term_q <= term_dec;
-            term_armed <= 1'b0;
-            state <= SCH_READ;
+            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
+                     : v_next;
+            if (pair_start) begin
+                rd_i <= '0;
+                plane_pending <= '0;
+                if (term_armed)
+                    term_q <= term_dec;
+                term_armed <= 1'b0;
+                state <= SCH_READ;
+            end
         end else begin
             case (state)
                 SCH_IDLE: ;

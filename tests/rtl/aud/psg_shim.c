@@ -9,17 +9,14 @@
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
-#include "core/ria/regs.h"
+#include "core/sys/ria.h"
 #include "core/sys/xram.h"
 
 #include "aud_sine_tables.h"
 
 static uint8_t xram_backing[0x10000];
 volatile uint8_t *const xram = xram_backing;
-volatile uint8_t xram_queue_page;
-volatile uint8_t xram_queue_head;
-volatile uint8_t xram_queue_tail;
-volatile uint8_t xram_queue[256][2];
+static uint16_t shim_watch = 0xFFFF;
 
 int16_t sine_table[256];
 
@@ -28,6 +25,13 @@ void opl_park(void) {}
 aud_dev_t aud_device(void) { return aud_dev_none; }
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
 void aud_stop(void) {}
+void aud_engine_lock(void) {}
+void aud_engine_unlock(void) {}
+
+void ria_aud_watch(uint16_t xaddr)
+{
+    shim_watch = xaddr == 0xFFFF ? 0xFFFF : (uint16_t)(xaddr & 0xFF00);
+}
 
 void shim_init(void)
 {
@@ -43,16 +47,8 @@ void shim_sample(int16_t *l, int16_t *r)
 void shim_xram_write(uint16_t addr, uint8_t val)
 {
     xram_backing[addr] = val;
-    if (xram_queue_page == (uint8_t)(addr >> 8))
-    {
-        uint8_t next = (uint8_t)(xram_queue_head + 1);
-        if (next != xram_queue_tail)
-        {
-            xram_queue[next][0] = (uint8_t)addr;
-            xram_queue[next][1] = val;
-            xram_queue_head = next;
-        }
-    }
+    if ((addr & 0xFF00) == shim_watch)
+        psg_xram_write((uint8_t)addr, val);
 }
 
 uint8_t shim_xram_read(uint16_t addr)

@@ -32,10 +32,25 @@ static void tb_core_edge(int level)
     tb_core_dut->clk_sys = level;
     tb_core_dut->clk_mach = level;
     tb_core_dut->clk_rv = level && tb_core_rv_phase;
+    tb_core_dut->clk_a2 = 0;
     tb_core_dut->eval();
     if (tb_core_trace)
         tb_core_trace->dump(tb_core_time);
     tb_core_time++;
+    /* XRAM's port clock rises twice in a machine clock, after each of
+     * its edges; clk_ph tells the port which rise is which. */
+    if (!level)
+        for (int ph = 0; ph < 2; ph++)
+        {
+            tb_core_dut->clk_ph = ph;
+            tb_core_dut->clk_a2 = 1;
+            tb_core_dut->eval();
+            if (tb_core_trace)
+                tb_core_trace->dump(tb_core_time);
+            tb_core_time++;
+            tb_core_dut->clk_a2 = 0;
+            tb_core_dut->eval();
+        }
 }
 
 void tb_core_args(int argc, const char *const argv[])
@@ -60,6 +75,8 @@ void tb_core_init()
     tb_core_dut->clk_sys = 0;
     tb_core_dut->clk_mach = 0;
     tb_core_dut->clk_rv = 0;
+    tb_core_dut->clk_a2 = 0;
+    tb_core_dut->clk_ph = 0;
     tb_core_dut->rst_n = 0;
     tb_core_dut->mach_running = 1;
     tb_core_dut->eval();

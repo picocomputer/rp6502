@@ -369,6 +369,20 @@ void ria_break(void)
     ria_uart_rx_clear();
 }
 
+volatile uint8_t ria_aud_head;
+volatile uint8_t ria_aud_tail;
+volatile uint8_t ria_aud_ring[RIA_AUD_RING_SIZE][2];
+
+static volatile uint32_t ria_aud_page = 0xFFFF;
+
+void ria_aud_watch(uint16_t xaddr)
+{
+    ria_aud_page = 0xFFFF;
+    ria_aud_tail = ria_aud_head;
+    if (xaddr != 0xFFFF)
+        ria_aud_page = (uint32_t)(xaddr & 0xFF00);
+}
+
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
 #define RIA_RW0 REGS(0xFFE4)
@@ -442,7 +456,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFEF): // OS function call
                     API_OP = data;       // get ahead of DMA
                     api_set_regs_blocked();
-                    if (data == 0x00) // zxstack()
+                    if (data == 0x00) // ria_drop()
                     {
                         API_STACK = 0;
                         xstack_ptr = XSTACK_SIZE;
@@ -466,14 +480,18 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    if (xram_queue_page == REGS(0xFFEB))
+                    if ((RIA_ADDR1 & 0xFF00) == ria_aud_page)
                     {
-                        uint8_t next = xram_queue_head + 1;
-                        if (next != xram_queue_tail)
+                        uint8_t next = (ria_aud_head + 1) & (RIA_AUD_RING_SIZE - 1);
+                        if (next != ria_aud_tail)
                         {
-                            xram_queue[next][0] = REGS(0xFFEA);
-                            xram_queue[next][1] = data;
-                            xram_queue_head = next;
+                            ria_aud_ring[next][0] = REGS(0xFFEA);
+                            ria_aud_ring[next][1] = data;
+                            /* The drain pairs an acquire barrier with this
+                             * one, so the entry has to be written before the
+                             * head that publishes it. */
+                            __dmb();
+                            ria_aud_head = next;
                         }
                     }
                     __attribute__((fallthrough));
@@ -483,14 +501,18 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    if (xram_queue_page == REGS(0xFFE7))
+                    if ((RIA_ADDR0 & 0xFF00) == ria_aud_page)
                     {
-                        uint8_t next = xram_queue_head + 1;
-                        if (next != xram_queue_tail)
+                        uint8_t next = (ria_aud_head + 1) & (RIA_AUD_RING_SIZE - 1);
+                        if (next != ria_aud_tail)
                         {
-                            xram_queue[next][0] = REGS(0xFFE6);
-                            xram_queue[next][1] = data;
-                            xram_queue_head = next;
+                            ria_aud_ring[next][0] = REGS(0xFFE6);
+                            ria_aud_ring[next][1] = data;
+                            /* The drain pairs an acquire barrier with this
+                             * one, so the entry has to be written before the
+                             * head that publishes it. */
+                            __dmb();
+                            ria_aud_head = next;
                         }
                     }
                     __attribute__((fallthrough));

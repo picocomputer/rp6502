@@ -6,6 +6,7 @@
  */
 
 #include "core/vga/mode/mode4.h"
+#include "core/vga/mode/mode.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include <assert.h>
@@ -128,18 +129,16 @@ static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, unsigned le
     }
     if (dst <= dst_start)
         return;
+    // Texels are opaque here, so the run moves a pixel pair at a time. Walking
+    // backwards keeps GCC from merging the halfword copies itself.
     do
     {
         dst -= 8;
         src -= 8;
-        dst[0] = src[0];
-        dst[1] = src[1];
-        dst[2] = src[2];
-        dst[3] = src[3];
-        dst[4] = src[4];
-        dst[5] = src[5];
-        dst[6] = src[6];
-        dst[7] = src[7];
+        ((mode_word_t *)dst)[0] = ((const mode_word_t *)src)[0];
+        ((mode_word_t *)dst)[1] = ((const mode_word_t *)src)[1];
+        ((mode_word_t *)dst)[2] = ((const mode_word_t *)src)[2];
+        ((mode_word_t *)dst)[3] = ((const mode_word_t *)src)[3];
     } while (dst > dst_start);
 }
 
@@ -288,18 +287,17 @@ static inline uintptr_t sw_interp_pop_full(void)
 
 // The blit walks the span from its right end backward, and each step is the
 // negated first column of the matrix. A pop reads the accumulator before
-// stepping it, so the seed at tex_offs_x + size_x samples one column right of
-// the pixel each write lands on.
+// stepping it, so the seed is the span's last column rather than one past it.
 static inline void setup_interp_affine(
     intersect_t isct,
     const affine_transform_t atrans)
 {
     int32_t x0 =
-        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
+        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
         mul_fp1616(atrans[1], isct.tex_offs_y * AF_ONE) +
         atrans[2];
     int32_t y0 =
-        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
+        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
         mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
         atrans[5];
 #if PICO_ON_DEVICE

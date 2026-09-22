@@ -29,6 +29,11 @@ static int g_rd_prev, g_rd_hold;
 
 static long a_next, s_next;
 static long g_t, g_sys;
+/* XRAM's port clock rises 124 and 289 units after each clk_sys edge, which
+ * is 7.4 and 17.4 ns, and clk_ph is low across the first and high across
+ * the second. */
+static long a2_next = 124;
+static int a2_ph;
 
 static int g_gf_prev, g_gf_hold;
 
@@ -37,9 +42,17 @@ static int g_gf_prev, g_gf_hold;
 static void tick()
 {
     long next = a_next < s_next ? a_next : s_next;
+    if (a2_next < next)
+        next = a2_next;
     g_t = next;
     bool sedge = next == s_next;
     bool aedge = next == a_next;
+    bool a2edge = next == a2_next;
+    if (a2edge)
+    {
+        dut->clk_ph = a2_ph;
+        dut->clk_a2 = 1;
+    }
     if (sedge)
     {
         dut->clk_sys = 1;
@@ -111,6 +124,12 @@ static void tick()
     {
         dut->clk_74a = 0;
         a_next += 224;
+    }
+    if (a2edge)
+    {
+        dut->clk_a2 = 0;
+        a2_next += 165;
+        a2_ph ^= 1;
     }
     dut->eval();
 }

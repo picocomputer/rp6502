@@ -35,6 +35,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
     const uint8_t logical_row = (uint8_t)(scanline_id / 8);
     const term_data_t *cell = term_view_row(logical_row);
     uint16_t *const rgb_line = rgb;
+    MODE_TABLE(pair, 4);
     for (int i = 0; i < 40; i++, cell++)
     {
         uint8_t attr = cell->attributes;
@@ -54,7 +55,8 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
                     fg = cell->ul_color;
             }
         }
-        mode_render_1bpp(rgb, bits, bg, fg);
+        mode_pair_set(pair, bg, fg);
+        mode_render_1bpp(rgb, bits, pair);
         rgb += 8;
     }
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
@@ -76,12 +78,16 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
             cx = (uint8_t)(40 - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
         const uint16_t cursor_color = tv.cursor_color;
+        MODE_TABLE(cpair, 4);
         switch (wrap_pending ? 1u : tv.cursor_style)
         {
         case 3:
         case 4: // underline
             if (scanrow == 7)
-                mode_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+            {
+                mode_pair_set(cpair, cursor_color, cursor_color);
+                mode_render_1bpp(crgb, 0xFF, cpair);
+            }
             break;
         case 5:
         case 6: // bar
@@ -96,7 +102,8 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
                 cbits = font_line_dec[(cp->font_code - 0x5F) & 31];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            mode_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            mode_pair_set(cpair, cursor_color, cp->bg_color);
+            mode_render_1bpp(crgb, cbits, cpair);
             break;
         }
         }
@@ -124,6 +131,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
     const uint8_t logical_row = (uint8_t)(scanline_id / 16);
     const term_data_t *cell = term_view_row(logical_row);
     uint16_t *const rgb_line = rgb;
+    MODE_TABLE(pair, 4);
     for (int i = 0; i < 80; i++, cell++)
     {
         uint8_t attr = cell->attributes;
@@ -145,7 +153,8 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
                     fg = cell->ul_color;
             }
         }
-        mode_render_1bpp(rgb, bits, bg, fg);
+        mode_pair_set(pair, bg, fg);
+        mode_render_1bpp(rgb, bits, pair);
         rgb += 8;
     }
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
@@ -167,12 +176,16 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
             cx = (uint8_t)(80 - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
         const uint16_t cursor_color = tv.cursor_color;
+        MODE_TABLE(cpair, 4);
         switch (wrap_pending ? 1u : tv.cursor_style)
         {
         case 3:
         case 4: // underline
             if (scanrow == 14 || scanrow == 15)
-                mode_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+            {
+                mode_pair_set(cpair, cursor_color, cursor_color);
+                mode_render_1bpp(crgb, 0xFF, cpair);
+            }
             break;
         case 5:
         case 6: // bar
@@ -190,7 +203,8 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
                 cbits = italic_line[cp->font_code];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            mode_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            mode_pair_set(cpair, cursor_color, cp->bg_color);
+            mode_render_1bpp(crgb, cbits, cpair);
             break;
         }
         }

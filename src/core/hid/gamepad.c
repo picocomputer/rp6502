@@ -500,12 +500,11 @@ static void gamepad_reset_xram(int player)
 
 bool gamepad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - (sizeof(gamepad_xram_t)) * GAMEPAD_MAX_PLAYERS)
-        return false;
-    gamepad_xram = word;
+    bool mapped = word <= 0x10000 - sizeof(gamepad_xram_t) * GAMEPAD_MAX_PLAYERS;
+    gamepad_xram = mapped ? word : 0xFFFF;
     for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
         gamepad_reset_xram(i);
-    return true;
+    return mapped || word == 0xFFFF;
 }
 
 bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connection_t *desc,

@@ -39,11 +39,13 @@ UTEST(vidregs, console_return_restores_vsync_line)
 }
 
 /* The highest scanline end in prog_bands' programs is 224 on its 320x240
- * canvas, so the vsync line is 224 rather than the canvas height of 240. */
+ * canvas, so the vsync line is 224 rows rather than the canvas height of 240.
+ * The register counts lines of timing, and a 320 wide canvas spans two of
+ * them per row of graphics, so that is 448. */
 UTEST(vidregs, a_short_program_moves_the_vsync_line)
 {
     ASSERT_TRUE(boot("prog_bands", 320 * 240));
-    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 224);
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 448);
 }
 
 /* The sprite stage stops drawing a line whose sprites are not finished when
@@ -53,7 +55,22 @@ UTEST(vidregs, sprite_overrun_counts_lost_races)
 {
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
     ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xA34E970Cu);
+    /* What was painted before the row ran out: a 320 wide row has two lines
+     * of timing, so the cut lands a line later than it would on one. */
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x9C17336Au);
+}
+
+/* A 320 wide row has two lines of timing. This stack of sprites needs more
+ * than one line's clocks and fewer than two, so it finishes; the 48-sprite
+ * stack above needs more than two and does not. Between them they bracket
+ * the row's budget. The overrun counter is never cleared, so what counts is
+ * that a further frame adds nothing to it. */
+UTEST(vidregs, a_320_row_has_two_lines_of_sprites)
+{
+    ASSERT_TRUE(boot("sprite_pair", 320 * 240));
+    const uint16_t before = dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun;
+    tb_capture(dut, fb, 320 * 240);
+    ASSERT_EQ(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, before);
 }
 
 UTEST_STATE();

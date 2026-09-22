@@ -132,16 +132,21 @@ def mode2_tiles(attr):
 
 
 def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
-          pal_ptr=0x0200):
+          pal_ptr=0x0200, tile_ptr=0x4000):
     bpp = 1 << (attr & 3)
     if not xram_pal:
         pal_ptr = 0xFFFF
     data_ptr = 0x0800
-    tile_ptr = 0x4000
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, wt, ht, data_ptr, pal_ptr, tile_ptr)
-    chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht)),
-              (tile_ptr, mode2_tiles(attr))]
+    tiles = mode2_tiles(attr)
+    chunks = [(0x0100, cfg), (data_ptr, mode2_map(wt, ht))]
+    # A tile set may run off the end of XRAM. The tiles that do are never
+    # read, so only the part that fits is written.
+    head = min(len(tiles), 0x10000 - tile_ptr)
+    chunks.append((tile_ptr, tiles[:head]))
+    if head < len(tiles):
+        chunks.append((0, tiles[head:]))
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                       for i in range(1 << bpp)))))
@@ -316,6 +321,11 @@ mode2("mode2_16trim", 1, 0x359, 10, 6, 4, 2, False, False, True,
 mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
 mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
 mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
+# A tile pointer high enough that the last tiles are addressed past the end of
+# XRAM. Those tiles are not drawn, in the renderer and in mode2.sv alike, and
+# the renderer never reads past the array.
+mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
+      tile_ptr=0xFF80)
 composite("mode2_composite")
 bands("prog_bands")
 
@@ -368,6 +378,16 @@ mode4("mode4_32", 3, 1, 5, [
 mode4("mode4_64", 2, 2, 6, [(-30, 60, 0, False), (270, 120, 0, True)])
 mode4a("mode4a_id", 1, 0, 4, [
     ((0x100, 0, 0, 0, 0x100, 0), 40, 50, 0),
+])
+# A pair for test_modes' affine_identity_matches_plain. The identity matrix
+# maps the sprite onto the image 1:1, so the affine blit has to land every
+# texel where the plain blit does. Both generators build image 0 from the
+# same formula, and the plain sprite reads no metadata.
+mode4a("mode4a_same", 1, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), 40, 50, 0),
+])
+mode4("mode4_same", 1, 0, 4, [
+    (40, 50, 0, False),
 ])
 mode4a("mode4a_rot", 1, 0, 5, [
     ((0x0DD, 0x080, 0x300, -0x080 & 0xFFFF, 0x0DD, 0x200), 60, 60, 0),
@@ -452,7 +472,38 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
      (0x8000, le16(*(((t * 5 + 11) & 0xFFFF) for t in range(16384))))])
 
 mode5("sprite_overrun", 1, 27, 0,
-      [(i * 6, 40, 0, 0) for i in range(48)])
+      [(i * 3, 40, 0, 0) for i in range(100)], desc_ptr=0x0800)
+
+# One sprite alone on its row, and a long list with one sprite on the
+# row, for what the rest of the list costs.
+mode5("mode5_onrow", 1, 9, 0, [(30, 40, 0, 0)])
+mode5("mode5_onrow2", 1, 9, 0, [(30, 40, 0, 0), (60, 40, 0, 0)])
+mode5("mode5_on32", 1, 17, 0, [(30, 40, 0, 0)])
+mode5("mode5_on32x2", 1, 17, 0, [(30, 40, 0, 0), (80, 40, 0, 0)])
+mode4("mode4_onrow", 1, 0, 4, [(30, 40, 0, False)])
+mode4("mode4_onrow2", 1, 0, 4, [(30, 40, 0, False), (60, 40, 0, False)])
+mode4("mode4_on8", 1, 0, 3, [(30, 40, 0, False)])
+mode4("mode4_on8x2", 1, 0, 3, [(30, 40, 0, False), (60, 40, 0, False)])
+mode4a("mode4a_onrow2", 1, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), 30, 40, 0),
+    ((0x100, 0, 0, 0, 0x100, 0), 60, 40, 0),
+])
+mode4a("mode4a_offrow", 1, 0, 4,
+       [((0x100, 0, 0, 0, 0x100, 0), 30, 40, 0)]
+       + [((0x100, 0, 0, 0, 0x100, 0), i * 3, -100, 0) for i in range(200)])
+mode5("mode5_offrow", 1, 9, 0,
+      [(30, 40, 0, 0)] + [(i * 3, -100, 0, 0) for i in range(200)],
+      desc_ptr=0x0800)
+mode4("mode4_offrow", 1, 0, 4,
+      [(30, 40, 0, False)] + [(i * 3, -100, 0, False) for i in range(200)])
+
+# The same stack cut to sixty. A 64-pixel 8bpp sprite is 37 clocks once its
+# palette is cached, and these images cycle through all 128 words of it,
+# 384 clocks once a row: sixty need more than one line's 1,600 clocks and
+# fewer than the two a 320 wide row has, and the hundred above need more
+# than two. Between them they bracket the row's budget.
+mode5("sprite_pair", 1, 27, 0,
+      [(i * 5, 40, 0, 0) for i in range(60)])
 
 # The text hides the cursor because a blinking cursor would make the frame
 # a suite compares depend on when it is captured.
@@ -498,6 +549,101 @@ rom("fill_heavy640", 3,
      (0x1800, bytes((i * 11 + 3) & 0xFF for i in range(64 * 64))),
      (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
      (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])
+
+# Three full-width 8bpp fills with XRAM palettes, the heaviest serial fill a
+# 640-wide line can ask for: 128 palette words and 640 pixels apiece.
+cfg_a = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x1000, 0x0200)
+cfg_b = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x3800, 0x0400)
+cfg_c = bytearray((0, 0)) + le16(0, 0, 640, 16, 0x6000, 0x0600)
+rom("fill_three640", 3,
+    [(3, 3, 0x0100, 0, 0, 0), (3, 3, 0x0140, 1, 0, 0),
+     (3, 3, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b), (0x0180, cfg_c),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 16))),
+     (0x3800, bytes((i * 11 + 3) & 0xFF for i in range(640 * 16))),
+     (0x6000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 16))),
+     (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
+     (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
+                     for i in range(256))))])
+
+# Three 80-column 8bpp text planes with XRAM palettes, every cell of every
+# plane on the line: the fill the pico's three-plane test runs.
+def text_cells(w, h, k):
+    cells = bytearray()
+    for i in range(w * h):
+        cells.extend((ord("A") + i % 60, (i * 5 + 1 + k) & 0xFF,
+                      (i * 11 + 2 + k) & 0xFF))
+    return cells
+cfg_a = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1000, 0x0200, 0xFFFF)
+cfg_b = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1400, 0x0400, 0xFFFF)
+cfg_c = bytearray((0, 0)) + le16(0, 0, 80, 4, 0x1800, 0x0600, 0xFFFF)
+rom("text_three640", 3,
+    [(1, 3, 0x0100, 0, 0, 0), (1, 3, 0x0140, 1, 0, 0),
+     (1, 3, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b), (0x0180, cfg_c),
+     (0x1000, text_cells(80, 4, 0)), (0x1400, text_cells(80, 4, 7)),
+     (0x1800, text_cells(80, 4, 13)),
+     (0x0200, le16(*((0x0020 | (i * 2657 + 5)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
+     (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
+                     for i in range(256))))])
+
+# Sixteen-bit pixels at an odd byte, so every other pixel straddles a word,
+# and a wrap every 32 pixels, so each segment ends on a straddle and the
+# next segment starts right behind it.
+mode3("mode3_16odd_wrap", 4, 4, 16, 32, 16, -10, 50, False, x_wrap=True,
+      data_ptr=0x0801)
+
+# Two 16bpp bitmaps on one line whose data pointers differ in byte parity. A
+# 16bpp bitmap at an odd byte is the only fill whose words start part way into
+# a pixel, so this is the only way one plane can leave a bit phase behind for
+# the next plane to inherit.
+cfg_odd = bytearray((0, 1)) + le16(0, 0, 640, 16, 0x0801, 0xFFFF)
+cfg_even = bytearray((0, 1)) + le16(0, 0, 640, 16, 0x8000, 0xFFFF)
+rom("mode3_16parity", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0180, 1, 0, 0)],
+    [(0x0100, cfg_odd), (0x0180, cfg_even),
+     (0x0801, bytes((i * 13 + 7) & 0xFF for i in range(640 * 16 * 2))),
+     (0x8000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 16 * 2)))])
+
+# Three full-width 16bpp bitmaps on one line, the most expensive fill a 640
+# wide canvas can be asked for: every pixel is its own halfword, so a pair of
+# them is a whole word and the line leans on XRAM as hard as it can.
+cfg16 = [bytearray((0, 1)) + le16(0, 0, 640, 8, base, 0xFFFF)
+         for base in (0x1000, 0x4000, 0x7000)]
+rom("fill_three640_16bpp", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0140, 1, 0, 0),
+     (3, 4, 0x0180, 2, 0, 0)],
+    [(0x0100, cfg16[0]), (0x0140, cfg16[1]), (0x0180, cfg16[2]),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 8 * 2))),
+     (0x4000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 8 * 2))),
+     (0x7000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 8 * 2)))])
+
+# The same three 16bpp planes with a stack of sprites over them. Fill and
+# sprites are separate engines, but they read through the same XRAM port, and
+# a 16bpp fill is the one that wants a word every clock, so this is where the
+# port itself is the limit rather than either engine.
+spr = bytearray()
+for i in range(16):
+    spr += le16(i * 38, 100, 0xA000 + (i % 4) * 576) + bytes((4, 0))
+spr_img = []
+for im in range(4):
+    img = le16(*(((im * 47 + t * 13 + 5) & 0xFFFF) for t in range(16 * 16)))
+    meta = bytearray()
+    for r in range(16):
+        meta += ((1 << 31) | 16 if r & 1
+                 else (2 << 16) | 14).to_bytes(4, "little")
+    spr_img.append((0xA000 + im * 576, img + meta))
+rom("fill_three640_16bpp_spr", 3,
+    [(3, 4, 0x0100, 0, 0, 0), (3, 4, 0x0140, 1, 0, 0),
+     (3, 4, 0x0180, 2, 0, 0), (4, 0, 0x0200, 16, 2, 0, 0)],
+    [(0x0100, cfg16[0]), (0x0140, cfg16[1]), (0x0180, cfg16[2]),
+     (0x0200, spr),
+     (0x1000, bytes((i * 13 + 7) & 0xFF for i in range(640 * 8 * 2))),
+     (0x4000, bytes((i * 11 + 3) & 0xFF for i in range(640 * 8 * 2))),
+     (0x7000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 8 * 2)))]
+    + spr_img)
 
 if ARGS.emit_manifest:
     ARGS.emit_manifest.write_text(

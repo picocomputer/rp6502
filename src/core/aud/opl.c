@@ -7,10 +7,9 @@
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
-#include "core/ria/regs.h"
+#include "core/sys/ria.h"
 #include "core/sys/xram.h"
 #include <assert.h>
-#include <stdatomic.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -41,26 +40,19 @@ int16_t opl_sample(void)
         s = AUD_SAMPLE_MIN;
     if (s > AUD_SAMPLE_MAX)
         s = AUD_SAMPLE_MAX;
-
-    /* The XRAM page mirrors the chip's register file, so the low byte of a
-     * queued write's address is the register number. */
-    uint8_t max_work = 8;
-    while (max_work-- && xram_queue_tail != xram_queue_head)
-    {
-        /* Pairs with the release fence in ria.c: the entry is written
-         * before the head that publishes it, and read after. */
-        atomic_thread_fence(memory_order_acquire);
-        uint8_t tail = ++xram_queue_tail;
-        OPL_writeReg(opl_emu8950,
-                     xram_queue[tail][0],
-                     xram_queue[tail][1]);
-    }
     return (int16_t)s;
 }
 
 void opl_stereo(int16_t *left, int16_t *right)
 {
     *left = *right = opl_sample();
+}
+
+/* The XRAM page mirrors the chip's register file, so the low byte of the
+ * write's address is the register number. */
+void opl_xram_write(uint8_t reg, uint8_t val)
+{
+    OPL_writeReg(opl_emu8950, reg, val);
 }
 #pragma GCC pop_options
 
@@ -86,10 +78,12 @@ bool opl_xreg(uint16_t word)
     {
         /* Giving up the engine resets the chip and hands the mix back, so
          * a stopped program's last chord does not hold. */
+        aud_engine_lock();
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         opl_xaddr = 0xFFFF;
         aud_stop();
+        aud_engine_unlock();
         return word == 0xFFFF;
     }
     /* emu8950 builds its shared tables inside OPL_new, which callocs the
@@ -99,15 +93,23 @@ bool opl_xreg(uint16_t word)
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, AUD_NATIVE_RATE);
     assert(opl_emu8950); // OPL_new returns NULL only when its calloc fails
+    /* The whole handover is behind the lock the engines are stepped under, so
+     * the mix never runs against half of it -- see psg_park for the half that
+     * would read past the end of XRAM. */
+    aud_engine_lock();
     OPL_reset(opl_emu8950);
     opl_wave_base = opl_emu8950->slot[0].wav_or_table;
     opl_xaddr = word;
-    xram_queue_page = word >> 8;
     memset((uint8_t *)&xram[word], 0, 256);
-    xram_queue_tail = xram_queue_head;
     /* One engine sounds at a time; see psg_xreg. */
     psg_park();
     aud_setup(aud_dev_opl);
+    /* Watching is what arms the reporting, so it is asked for after the
+     * device those reports go to, and inside the lock: on the Pico it is
+     * also what drops whatever the RW engine queued for the engine being
+     * put away, which must not reach this one. */
+    ria_aud_watch(word);
+    aud_engine_unlock();
     return true;
 }
 

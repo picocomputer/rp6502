@@ -12,6 +12,7 @@
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
 #include "core/dap/dbg.h"
+#include "core/sys/ria.h"
 #include <string.h>
 
 /* What the sink runs at until it says otherwise. libretro declares 48000 to
@@ -81,6 +82,7 @@ void aud_init(void)
 void aud_stop(void)
 {
     aud_dev = aud_dev_none;
+    ria_aud_watch(0xFFFF);
 }
 
 /* For a host that unloads the library rather than ending the process. The
@@ -89,6 +91,7 @@ void aud_stop(void)
 void aud_shutdown(void)
 {
     aud_dev = aud_dev_none;
+    ria_aud_watch(0xFFFF);
     aud_probe = NULL;
     opl_shutdown();
 }
@@ -105,6 +108,31 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right))
 {
     aud_dev = aud_dev_none;
     aud_probe = sample;
+}
+
+static atomic_flag aud_engine_held = ATOMIC_FLAG_INIT;
+
+void aud_engine_lock(void)
+{
+    while (atomic_flag_test_and_set_explicit(&aud_engine_held, memory_order_acquire))
+        ;
+}
+
+void aud_engine_unlock(void)
+{
+    atomic_flag_clear_explicit(&aud_engine_held, memory_order_release);
+}
+
+void aud_xram_write(uint16_t addr, uint8_t val)
+{
+    aud_engine_lock();
+    switch (aud_dev)
+    {
+    case aud_dev_psg: psg_xram_write((uint8_t)addr, val); break;
+    case aud_dev_opl: opl_xram_write((uint8_t)addr, val); break;
+    case aud_dev_none: break;
+    }
+    aud_engine_unlock();
 }
 
 void aud_set_sink_rate(uint32_t rate)
@@ -129,6 +157,7 @@ static inline float to_f(int32_t v)
 static void mix(int32_t *left, int32_t *right)
 {
     int16_t l = 0, r = 0;
+    aud_engine_lock();
     if (aud_probe)
         aud_probe(&l, &r);
     else
@@ -138,6 +167,8 @@ static void mix(int32_t *left, int32_t *right)
         case aud_dev_opl: opl_stereo(&l, &r); break;
         case aud_dev_none: break;
         }
+    aud_engine_unlock();
+    /* The bell is outside the lock: nothing programs it through XRAM. */
     const int32_t bel = bel_sample();
     int32_t sl = l + bel;
     int32_t sr = r + bel;
@@ -275,6 +306,12 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
 
     aud_dev = (aud_dev_t)dev;
     aud_probe = NULL;
+    /* What the RW engine watches is not carried: this row loads after the
+     * engines' own, so it is the one place that knows both which engine is
+     * sounding and where that engine's block ended up. */
+    ria_aud_watch(aud_dev == aud_dev_psg   ? psg_xaddr_get()
+                  : aud_dev == aud_dev_opl ? opl_xaddr_get()
+                                           : 0xFFFF);
     g_rs_l = l;
     g_rs_r = r;
     memcpy(g_pend_l, pl, sizeof g_pend_l);

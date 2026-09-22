@@ -12,6 +12,8 @@ module pocket_core #(
 
     input logic clk_mach,
     input logic clk_rv,
+    input logic clk_a2,
+    input logic clk_ph,
 
     input logic clk_74a,
     input logic clk_sys,
@@ -171,12 +173,8 @@ input logic clk_vid,
     logic [27:0] stage_addr;
     logic [15:0] stage_half;
     logic stage_rvalid;
-    logic [7:0] stage_rdata;
     logic stage_stall;
-    always_comb begin
-        stage_rdata = stage_addr[0] ? stage_half[15:8] : stage_half[7:0];
-        stage_stall = stage_pend && !stage_rvalid;
-    end
+    always_comb stage_stall = stage_pend && !stage_rvalid;
 
     pocket_sdram sdram (
         .clk(clk_sys),
@@ -341,6 +339,8 @@ input logic clk_vid,
         .wiring_sst_rvalid(sst_word_valid),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
+        .clk_a2(clk_a2),
+        .clk_ph(clk_ph),
         .rst_n(mrst_sys_n),
         .wiring_tx_data(pocket_core_tx_data),
         .wiring_tx_valid(pocket_core_tx_valid),
@@ -354,7 +354,7 @@ input logic clk_vid,
         .wiring_stage_addr(stage_addr),
         .wiring_stage_pend(stage_pend),
         .stage_stall(stage_stall),
-        .stage_rdata(stage_rdata),
+        .stage_half(stage_half),
         .wiring_host_addr(host_addr),
         .wiring_host_stb(host_stb),
         .wiring_host_we(host_we),
@@ -498,7 +498,7 @@ input logic clk_vid,
     always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
-                                       stage_addr[27:26]};
+                                       stage_addr[27:26], stage_addr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -382,6 +382,12 @@ function(rp6502_executable name)
         VERBATIM
     )
     add_custom_target(${name}_rp6502 ALL DEPENDS "${rom_file}")
+    # A layout that fails its checks must not produce a ROM.
+    get_directory_property(xram_checks RP6502_XRAM_CHECKS)
+    if (xram_checks)
+        add_dependencies(${name}_rp6502 ${xram_checks})
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY RP6502_ROM_TARGETS "${name}_rp6502")
     # Mark that rp6502_executable has been called for this target
     set_property(TARGET ${name} PROPERTY RP6502_EXECUTABLE_CALLED TRUE)
 endfunction()
@@ -391,23 +397,74 @@ endfunction()
 # RP6502 Asset ROM
 # ^^^^^^^^^^^^^^^^
 #
-#  rp6502_asset(<name> address in_file)
+#  rp6502_asset(<name> <address> <in_file>)
 #
 # If the address is numeric, the in_file will be loaded into
 # RAM ($0-FFFF) or XRAM ($10000-1FFFF) when the ROM is loaded.
 # Non-numeric addresses become filenames that can be opened
 # with "ROM:filename" from a micro filesystem in the ROM.
-# A name defined by rp6502_xram() is the XRAM address it stands for.
+# Writing the address as RAM(<x>) or XRAM(<x>) checks that it is in range,
+# and XRAM() sets the bit that tells XRAM from RAM, so an offset from
+# rp6502_xram() loads into XRAM. Inside the parentheses, <x> is a number
+# or the name of a CMake variable.
 #
-function(rp6502_asset name addr in_file)
+function(rp6502_asset name)
     get_target_property(executable_called ${name} RP6502_EXECUTABLE_CALLED)
     if (executable_called)
         message(FATAL_ERROR
             "rp6502_asset(${name} ...) must be registered BEFORE calling rp6502_executable()."
         )
     endif()
-    if (DEFINED ${addr})
-        set(addr "${${addr}}")
+    # CMake gives every parenthesis to a command as an argument of its own,
+    # so RAM(<x>) arrives here as four arguments and nothing named RAM or
+    # XRAM is ever defined.
+    set(args ${ARGN})
+    list(LENGTH args argc)
+    list(GET args 0 addr)
+    if (addr STREQUAL "RAM" OR addr STREQUAL "XRAM")
+        set(form "${addr}")
+        if (NOT argc EQUAL 5)
+            message(FATAL_ERROR "rp6502_asset(${name} ${form}(<address>) <in_file>)")
+        endif()
+        list(GET args 1 opened)
+        list(GET args 3 closed)
+        if (NOT opened STREQUAL "(" OR NOT closed STREQUAL ")")
+            message(FATAL_ERROR "rp6502_asset(${name} ${form}(<address>) <in_file>)")
+        endif()
+        list(GET args 2 value)
+        if (DEFINED ${value})
+            set(value "${${value}}")
+        endif()
+        set(written "${value}")
+        # A leading $ is how a 6502 program writes hex, which rp6502.py
+        # takes as well.
+        string(REGEX REPLACE "^\\$" "0x" value "${value}")
+        if (NOT value MATCHES "^[-+]?(0[xX][0-9a-fA-F]+|[0-9]+)$")
+            message(FATAL_ERROR
+                "rp6502_asset(${name} ${form}(...)): ${written} is not a number.")
+        endif()
+        if (form STREQUAL "RAM")
+            set(limit 65535)
+            set(ends "0xFFFF")
+        else()
+            set(limit 131071)
+            set(ends "0x1FFFF")
+        endif()
+        math(EXPR value "(${value})")
+        if (value LESS 0 OR value GREATER ${limit})
+            message(FATAL_ERROR
+                "rp6502_asset(${name} ${form}(...)): ${written} is outside ${form}, which ends at ${ends}.")
+        endif()
+        if (form STREQUAL "XRAM")
+            math(EXPR value "${value} | 0x10000")
+        endif()
+        math(EXPR addr "${value}" OUTPUT_FORMAT HEXADECIMAL)
+        list(GET args 4 in_file)
+    else()
+        if (NOT argc EQUAL 2)
+            message(FATAL_ERROR "rp6502_asset(<name> <address> <in_file>)")
+        endif()
+        list(GET args 1 in_file)
     endif()
     get_filename_component(src_file "${in_file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     file(RELATIVE_PATH rel_path "${CMAKE_SOURCE_DIR}" "${src_file}")
@@ -434,148 +491,284 @@ function(rp6502_asset name addr in_file)
     )
 endfunction()
 
-# Give CMake the XRAM addresses a header defines.
+# Give CMake the addresses a header defines.
 #
 # RP6502 XRAM Layout
 # ^^^^^^^^^^^^^^^^^^
 #
 #  rp6502_xram(<header> <regex> [<unaligned_regex>])
 #
-# Reads ``#define NAME offsetof(...)`` lines from ``<header>`` whose NAME
-# matches ``<regex>`` and sets each NAME as a variable holding the XRAM
-# address it stands for. The names then work as rp6502_asset() addresses.
+# Reads the ``#define`` lines of ``<header>`` whose name matches
+# ``<regex>`` and sets each name as a variable holding the value the
+# header computes. The names then work as rp6502_asset() addresses.
 # Names matching ``<unaligned_regex>`` are exempt from 16-bit alignment.
+# A commented out define, a define with no value, and a function-like
+# macro are all skipped.
+#
+# The layout is checked while the project builds rather than while it
+# configures, so a header that will not compile still leaves a configured
+# project behind, and every problem is reported by the compiler against
+# the line in the header.
 #
 function(rp6502_xram header regex)
     set(unaligned "${ARGV2}")
     get_filename_component(header_file "${header}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     get_filename_component(header_name "${header_file}" NAME)
+    get_filename_component(header_dir "${header_file}" DIRECTORY)
     get_filename_component(stem "${header_file}" NAME_WE)
+    get_directory_property(rom_targets RP6502_ROM_TARGETS)
+    if (rom_targets)
+        message(FATAL_ERROR
+            "rp6502_xram(${header}) must be registered BEFORE calling rp6502_executable()."
+        )
+    endif()
     # Editing the layout has to configure again, since these values are read
     # at configure time.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${header_file}")
 
-    file(READ "${header_file}" text)
-    # A definition may continue onto the next line.
-    string(REGEX REPLACE "\\\\[ \t]*\r?\n" " " text "${text}")
-    # CMake's ^ is the start of the input, not of a line, so each definition is
-    # found with the newline ahead of it.
-    string(REGEX MATCHALL
-        "\n[ \t]*#[ \t]*define[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+offsetof[ \t]*\\([^,]+,"
-        defines "\n${text}")
+    # Read the header a line at a time. file(STRINGS), and every idiom that
+    # escapes the text and splits it, join a line ending in a backslash to
+    # the line after it, which moves every line number that follows.
+    # Nothing here reads comments or conditionals, because each name is
+    # written out under an #ifdef and the preprocessor settles what exists.
+    file(READ "${header_file}" rest)
+    string(REPLACE "\r\n" "\n" rest "${rest}")
     set(names)
-    set(types)
-    foreach(define IN LISTS defines)
-        string(REGEX MATCH
-            "define[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+offsetof[ \t]*\\(([^,]+),"
-            ignored "${define}")
-        set(name "${CMAKE_MATCH_1}")
-        string(STRIP "${CMAKE_MATCH_2}" type)
-        if (name MATCHES "^(${regex})$")
-            list(APPEND names "${name}")
-            list(APPEND types "${type}")
+    set(lines)
+    set(values)
+    set(lineno 0)
+    set(pending "")
+    set(pending_line 0)
+    while(TRUE)
+        string(FIND "${rest}" "\n" pos)
+        if (pos LESS 0)
+            set(line "${rest}")
+            set(rest "")
+            set(last TRUE)
+        else()
+            string(SUBSTRING "${rest}" 0 ${pos} line)
+            math(EXPR pos "${pos}+1")
+            string(SUBSTRING "${rest}" ${pos} -1 rest)
+            set(last FALSE)
         endif()
-    endforeach()
-    set(distinct_types ${types})
-    if (distinct_types)
-        list(REMOVE_DUPLICATES distinct_types)
-    endif()
+        math(EXPR lineno "${lineno}+1")
 
-    # A program that prints the addresses. Everything is unsigned long, so
-    # neither compiler's 16 bit size_t truncates what it prints or compares.
-    # Included by name with -I below, because cc65 cannot find a quoted
-    # include given as an absolute path.
-    set(stub "#include <stdio.h>\n#include \"${header_name}\"\n\nint main(void)\n{\n")
-    list(LENGTH distinct_types type_count)
-    if (type_count)
-        string(APPEND stub "    int too_large[${type_count}] = {0};\n")
-    endif()
-    string(APPEND stub "    int bad = 0;\n\n")
-    foreach(name type IN ZIP_LISTS names types)
-        list(FIND distinct_types "${type}" type_index)
-        string(APPEND stub
-            "    printf(\"${name} 0x%lX\\n\", 0x10000UL + (unsigned long)${name});\n"
-            "    if ((unsigned long)${name} >= (unsigned long)sizeof(${type}))\n"
-            "        too_large[${type_index}] = 1;\n")
-        if (NOT unaligned OR NOT name MATCHES "^(${unaligned})$")
-            string(APPEND stub
-                "    if ((unsigned long)${name} & 1UL)\n"
-                "    {\n"
-                "        printf(\"${header_name}: ${name} is unaligned at $%lX.\"\n"
-                "               \" To allow, use the [<unaligned_regex>]\"\n"
-                "               \" in rp6502_xram.\\n\", (unsigned long)${name});\n"
-                "        bad = 1;\n"
-                "    }\n")
+        # A continued definition is read under the number of its first line.
+        if (pending STREQUAL "")
+            set(cur "${line}")
+            set(cur_line ${lineno})
+        else()
+            set(cur "${pending}${line}")
+            set(cur_line ${pending_line})
+        endif()
+        if (cur MATCHES "\\\\$")
+            string(REGEX REPLACE "\\\\$" " " pending "${cur}")
+            set(pending_line ${cur_line})
+        else()
+            set(pending "")
+            if (cur MATCHES "^[ \t]*#[ \t]*define[ \t]+([A-Za-z_][A-Za-z0-9_]*)([^A-Za-z0-9_(].*)$")
+                set(name "${CMAKE_MATCH_1}")
+                string(STRIP "${CMAKE_MATCH_2}" value)
+                # An include guard has no value and only integers are carried.
+                if (NOT value STREQUAL "" AND NOT value MATCHES "^[\"']"
+                        AND name MATCHES "^(${regex})$")
+                    list(APPEND names "${name}")
+                    list(APPEND lines "${cur_line}")
+                    list(APPEND values "${value}")
+                endif()
+            endif()
+        endif()
+        if (last)
+            break()
+        endif()
+    endwhile()
+
+    # Every structure an offsetof names is probed below, whatever else is
+    # written around it, and the first name that uses one carries its line.
+    set(probes)
+    set(probe_lines)
+    set(probe_guards)
+    foreach(name value line IN ZIP_LISTS names values lines)
+        if (value MATCHES "offsetof[ \t]*\\(([^,]+),")
+            string(STRIP "${CMAKE_MATCH_1}" type)
+            list(FIND probes "${type}" index)
+            if (index LESS 0)
+                list(APPEND probes "${type}")
+                list(APPEND probe_lines "${line}")
+                list(APPEND probe_guards "defined(${name})")
+            else()
+                # Any one of them being defined is enough to probe with.
+                list(GET probe_guards ${index} guard)
+                list(REMOVE_AT probe_guards ${index})
+                list(INSERT probe_guards ${index} "${guard} || defined(${name})")
+            endif()
         endif()
     endforeach()
-    foreach(type IN LISTS distinct_types)
-        list(FIND distinct_types "${type}" type_index)
-        # The words cc65 uses when it rejects the same layout itself.
-        string(APPEND stub
-            "    if (too_large[${type_index}])\n"
-            "    {\n"
-            "        printf(\"${header_name}: Error: Size of '${type}'\"\n"
-            "               \" is too large\\n\");\n"
-            "        bad = 1;\n"
-            "    }\n")
-    endforeach()
-    string(APPEND stub "\n    return bad;\n}\n")
+
     set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${stem}.xram")
-    file(WRITE "${dir}/stub.c" "${stub}")
+    string(REPLACE "\\" "/" header_c "${header_file}")
 
-    # cc65's CMAKE_C_COMPILER is a wrapper around cl65 for the IDE.
-    set(compiler "${CMAKE_C_COMPILER}")
-    if (CC65_C_COMPILER)
-        set(compiler "${CC65_C_COMPILER}")
+    # A program that prints the values. Everything is unsigned long, so
+    # neither compiler's 16 bit size_t truncates what it prints. Included by
+    # name with -I below, because cc65 cannot find a quoted include given as
+    # an absolute path.
+    set(stub "#include <stdio.h>\n#include \"${header_name}\"\n\nint main(void)\n{\n")
+    foreach(name line IN ZIP_LISTS names lines)
+        string(APPEND stub
+            "#ifdef ${name}\n"
+            "#line ${line} \"${header_c}\"\n"
+            "    printf(\"${name} 0x%lX\\n\", (unsigned long)${name});\n"
+            "#endif\n")
+    endforeach()
+    string(APPEND stub "    return 0;\n}\n")
+    file(WRITE "${dir}/xram_stub.c" "${stub}")
+
+    # A program of assertions, compiled but never run, so the compiler
+    # reports a bad layout against the line in the header. Every name gets a
+    # line of its own, since a name with no assertion would let a define
+    # that will not compile through. Each declaration is one line, because
+    # cc65 reports the line it finished reading rather than the one it
+    # started on.
+    set(check "#include <stddef.h>\n#include \"${header_name}\"\n\n")
+    string(APPEND check
+        "/* size_t is 16 bits, so a structure larger than 64K wraps instead of\n"
+        "   being refused. An array of one is refused outright, because the\n"
+        "   size of an array is checked against the largest object the target\n"
+        "   allows and not against the truncated sizeof. */\n")
+    # The leading underscore is the namespace C keeps for file scope, which
+    # is the one place a name here cannot collide with the header's own.
+    foreach(type line guard IN ZIP_LISTS probes probe_lines probe_guards)
+        string(MAKE_C_IDENTIFIER "${type}" probe)
+        string(APPEND check
+            "\n#if ${guard}\n#line ${line} \"${header_c}\"\n"
+            "extern ${type} _xram_fits_${probe}[1];\n#endif\n")
+    endforeach()
+    # An offset and arithmetic between offsets are size_t, so 16 bits, and
+    # can never trip this. A number that does not fit is a long and does.
+    foreach(name line IN ZIP_LISTS names lines)
+        string(APPEND check
+            "\n#ifdef ${name}\n#line ${line} \"${header_c}\"\n"
+            "_Static_assert((${name}) < 0x10000L,"
+            " \"${name} overflows 16 bits.\");\n")
+        if (NOT unaligned OR NOT name MATCHES "^(${unaligned})$")
+            string(APPEND check
+                "#line ${line} \"${header_c}\"\n"
+                "_Static_assert(!((${name}) & 1), \"${name} is unaligned."
+                " To allow, use the [<unaligned_regex>] in rp6502_xram.\");\n")
+        endif()
+        string(APPEND check "#endif\n")
+    endforeach()
+    file(WRITE "${dir}/xram_check.c" "${check}")
+
+    # cc65's CMAKE_C_COMPILER is a wrapper around cl65 that puts diagnostics
+    # in the form an IDE matches, so both programs are built through it.
+    set(compiler_args)
+    if (CMAKE_C_COMPILER_ARG1)
+        separate_arguments(compiler_args NATIVE_COMMAND "${CMAKE_C_COMPILER_ARG1}")
     endif()
-    get_filename_component(header_dir "${header_file}" DIRECTORY)
     separate_arguments(flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+
+    set(failed FALSE)
     execute_process(
-        COMMAND "${compiler}" ${flags} -I "${header_dir}"
-                -o "${dir}/stub" "${dir}/stub.c"
+        COMMAND "${CMAKE_C_COMPILER}" ${compiler_args} ${flags} -I "${header_dir}"
+                -o "${dir}/xram_stub" "${dir}/xram_stub.c"
         WORKING_DIRECTORY "${dir}"
         RESULT_VARIABLE result
         OUTPUT_VARIABLE output
         ERROR_VARIABLE output
     )
     if (NOT result EQUAL 0)
-        message(FATAL_ERROR "rp6502_xram(${header})\n${output}")
+        set(failed TRUE)
     endif()
 
-    rp6502_default_address(load_addr)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    execute_process(
-        COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
-                -a "${load_addr}" -r "${load_addr}"
-                -o "${dir}/stub.rp6502" create "${dir}/stub"
-        RESULT_VARIABLE result
-        OUTPUT_VARIABLE output
-        ERROR_VARIABLE output
-    )
-    if (NOT result EQUAL 0)
-        message(FATAL_ERROR "rp6502_xram(${header})\n${output}")
+    if (NOT failed)
+        rp6502_default_address(load_addr)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
+                    -a "${load_addr}" -r "${load_addr}"
+                    -o "${dir}/xram_stub.rp6502" create "${dir}/xram_stub"
+            RESULT_VARIABLE result
+            OUTPUT_VARIABLE output
+            ERROR_VARIABLE output
+        )
+        if (NOT result EQUAL 0)
+            set(failed TRUE)
+        endif()
     endif()
 
-    execute_process(
-        COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
-                -c "${RP6502_PROJECT_DIR}/.rp6502"
-                execute "${dir}/stub.rp6502"
-        TIMEOUT 60
-        RESULT_VARIABLE result
-        OUTPUT_VARIABLE output
-        ERROR_VARIABLE output
-    )
-    if (NOT result EQUAL 0)
-        message(FATAL_ERROR "rp6502_xram(${header})\n${output}")
+    if (NOT failed)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
+                    -c "${RP6502_PROJECT_DIR}/.rp6502"
+                    execute "${dir}/xram_stub.rp6502"
+            TIMEOUT 60
+            RESULT_VARIABLE result
+            OUTPUT_VARIABLE output
+            ERROR_VARIABLE output
+        )
+        if (NOT result EQUAL 0)
+            set(failed TRUE)
+        endif()
     endif()
 
+    # A failure here is the header's, and the build reports it in full, so
+    # the configure finishes with every address at zero rather than leaving
+    # the project unconfigured.
     string(REPLACE "\r" "" output "${output}")
     foreach(name IN LISTS names)
-        if (NOT output MATCHES "(^|\n)${name} (0x[0-9A-Fa-f]+)")
-            message(FATAL_ERROR "rp6502_xram(${header}) found no address for ${name}\n${output}")
+        if (failed)
+            set(${name} 0 PARENT_SCOPE)
+        elseif (output MATCHES "(^|\n)${name} (0x[0-9A-Fa-f]+)")
+            # Out of range is zeroed, so it reaches rp6502_asset() as nothing
+            # while the build reports it against the header.
+            set(found "${CMAKE_MATCH_2}")
+            math(EXPR numeric "${found}")
+            if (numeric GREATER 65535)
+                set(found 0)
+            endif()
+            set(${name} "${found}" PARENT_SCOPE)
+        else()
+            # The preprocessor skipped it, so it is not a name at all.
+            unset(${name} PARENT_SCOPE)
         endif()
-        set(${name} "${CMAKE_MATCH_2}" PARENT_SCOPE)
     endforeach()
+    # A header that will not compile is reported by the compile below, but a
+    # tool that did not run leaves a header that compiles and every address
+    # at zero, which would otherwise build a ROM that loads everything over
+    # the start of XRAM. So the reason is carried to the build and fails it.
+    set(unread)
+    if (failed)
+        message(STATUS "rp6502_xram(${header}) read no addresses; the build reports why.")
+        file(WRITE "${dir}/xram_unread.txt"
+            "rp6502_xram(${header}) read no addresses, so every name is zero.\n${output}\n")
+        set(unread
+            COMMAND "${CMAKE_COMMAND}" -E cat "${dir}/xram_unread.txt"
+            COMMAND "${CMAKE_COMMAND}" -E false)
+    endif()
+
+    # Target names are global, and one header can be shared by two
+    # directories, so the name carries where it was called from.
+    file(RELATIVE_PATH id "${CMAKE_SOURCE_DIR}" "${header_file}")
+    if (id MATCHES "^\\.\\.")
+        set(id "${header_file}")
+    endif()
+    string(MAKE_C_IDENTIFIER "${id}" id)
+    string(MD5 hash "${CMAKE_CURRENT_BINARY_DIR}|${header_file}")
+    string(SUBSTRING "${hash}" 0 8 hash)
+    set(target "rp6502_xram_${id}_${hash}")
+    add_custom_command(
+        OUTPUT "${dir}/xram_check.stamp"
+        DEPENDS "${header_file}" "${dir}/xram_check.c"
+        COMMAND "${CMAKE_C_COMPILER}" ${compiler_args} ${flags} -I "${header_dir}"
+                -c -o "${dir}/xram_check.o" "${dir}/xram_check.c"
+        ${unread}
+        COMMAND "${CMAKE_COMMAND}" -E touch "${dir}/xram_check.stamp"
+        COMMENT "Checking ${header_name}"
+        VERBATIM
+    )
+    add_custom_target(${target} ALL DEPENDS "${dir}/xram_check.stamp")
+    set_property(DIRECTORY APPEND PROPERTY RP6502_XRAM_CHECKS "${target}")
 endfunction()
 
 # Declare files as byproducts of building <target>.

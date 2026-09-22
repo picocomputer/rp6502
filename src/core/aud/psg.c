@@ -8,7 +8,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
-#include "core/ria/regs.h"
+#include "core/sys/ria.h"
 #include "core/sys/xram.h"
 #include <stdatomic.h>
 #include <stddef.h>
@@ -244,34 +244,24 @@ void psg_sample(int16_t *left, int16_t *right)
             break;
         }
     }
+}
 
-    /* Drain the writes the RW engine queued on this page. Only the gate
-     * bit of pan_gate has to be caught as it happens, because it starts and
-     * releases a note; every other byte is read from XRAM by the mix above,
-     * where a change simply takes effect on the next sample. */
-    uint8_t max_work = 32;
-    while (max_work-- && xram_queue_tail != xram_queue_head)
-    {
-        /* Pairs with the release fence in ria.c: the entry is written
-         * before the head that publishes it, and read after. */
-        atomic_thread_fence(memory_order_acquire);
-        uint8_t tail = ++xram_queue_tail;
-        uint8_t loc = xram_queue[tail][0];
-        uint8_t val = xram_queue[tail][1];
-        uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
-        uint16_t offset = xaddr - psg_xaddr;
-        if ((offset % sizeof(struct psg_channel)) == offsetof(struct psg_channel, pan_gate))
-        {
-            unsigned i = offset / sizeof(struct psg_channel);
-            if (i < PSG_CHANNELS)
-            {
-                if (!(val & 0x01) && psg_channel_state[i].adsr != release)
-                    psg_channel_state[i].adsr = release;
-                if ((val & 0x01) && psg_channel_state[i].adsr == release)
-                    psg_channel_state[i].adsr = attack;
-            }
-        }
-    }
+/* Only the gate bit of pan_gate has to be caught as it happens, because it
+ * starts and releases a note; every other byte is read from XRAM by the mix,
+ * where a change simply takes effect on the next sample. */
+void psg_xram_write(uint8_t loc, uint8_t val)
+{
+    uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
+    uint16_t offset = xaddr - psg_xaddr;
+    if ((offset % sizeof(struct psg_channel)) != offsetof(struct psg_channel, pan_gate))
+        return;
+    unsigned i = offset / sizeof(struct psg_channel);
+    if (i >= PSG_CHANNELS)
+        return;
+    if (!(val & 0x01) && psg_channel_state[i].adsr != release)
+        psg_channel_state[i].adsr = release;
+    if ((val & 0x01) && psg_channel_state[i].adsr == release)
+        psg_channel_state[i].adsr = attack;
 }
 #pragma GCC pop_options
 
@@ -340,6 +330,7 @@ bool psg_xreg(uint16_t word)
      * The noise generator's starting constants come from
      * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
      */
+    aud_engine_lock();
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         psg_channel_state[i].noise1 = 0x67452301;
@@ -358,14 +349,19 @@ bool psg_xreg(uint16_t word)
          * on reading the 64-byte channel block at 0xFFFF, which runs 63
          * bytes past the end of XRAM. */
         aud_stop();
+        aud_engine_unlock();
         return word == 0xFFFF;
     }
     psg_xaddr = word;
-    xram_queue_page = word >> 8;
-    xram_queue_tail = xram_queue_head;
     /* Taking the PSG releases the OPL's pointer, since aud_dev names one
      * device and only that one is mixed. */
     opl_park();
     aud_setup(aud_dev_psg);
+    /* Watching is what arms the reporting, so it is asked for after the
+     * device those reports go to, and inside the lock: on the Pico it is
+     * also what drops whatever the RW engine queued for the engine being
+     * put away, which must not reach this one. */
+    ria_aud_watch(word);
+    aud_engine_unlock();
     return true;
 }

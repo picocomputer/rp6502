@@ -54,7 +54,9 @@ D101 717
 #
 #         17  the level buses from D101, on their pocket_bridge flops
 #          8  the Gray-coded pointers of the pocket_fifo queues in
-#             pocket_bridge, pocket_dbg, pocket_dbglog and pocket_i2s
+#             pocket_bridge, pocket_dbg, pocket_dbglog and pocket_i2s,
+#             which the report lists as seven or eight depending on
+#             which of them the fitter copies
 #          1  pocket_bridge's upd_g_74, a Gray-coded count of slot
 #             updates
 #          1  pocket_file's r_op
@@ -73,8 +75,17 @@ D102 28
 D103 3
 #
 # C104  clk_74a drives the PLL's reference input, which the report lists
-#       as a non-clock port.
-C104 1
+#       as a non-clock port. The PLL also makes clk_ph, a clk_sys-rate
+#       output shifted so that it is low across the first edge of clk_a2
+#       after clk_sys's and high across the second, and xram.sv samples
+#       it as data into ph on clk_a2 to tell the two edges apart. The
+#       phase is the PLL's, and the path from the clk_ph net into ph is
+#       timed as any other data path.
+C104 2
+#
+# S104  ph in xram.sv, from the same clk_ph sampling: its clock, clk_a2,
+#       and its data, clk_ph, are two outputs of one PLL.
+S104 1
 #
 # R102  bridge_spiss, the bridge's SPI select pin, is used directly as
 #       the asynchronous reset of rx_byte_done and rx_latch_idx, two of

@@ -1034,7 +1034,7 @@ class ROM:
             # Decode first line as cp850 because binary garbage can
             # raise here before our better message gets to the user.
             command = f.readline().decode("cp850")
-            if not re.match(f"^#!{SCRIPT_NAME}\\r?\\n$", command, re.IGNORECASE):
+            if not re.match(f"^#!.*{SCRIPT_NAME}", command, re.IGNORECASE):
                 raise ROMException(f"Invalid ROM file: {file}")
             while True:
                 line = f.readline()

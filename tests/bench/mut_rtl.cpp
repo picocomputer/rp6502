@@ -29,13 +29,22 @@ static std::string mut_tap;
 
 /* A scanline is 800 pixels of two clocks each. The sprite stage drops any
  * line it has not finished when the pixel counter h is 799, so the deadline
- * is the first clock of the last pixel rather than the end of the line. */
+ * is the first clock of the last pixel rather than the end of the line.
+ *
+ * On a 320 wide canvas two consecutive lines carry one row of graphics: they
+ * share sched.t, and a fill or sprite pass started on the first may run into
+ * the second. Such a pair is measured as one unit against twice the deadline,
+ * which is what the fabric enforces. */
 static const long LINE_CLOCKS = 1600;
 static const long LINE_DEADLINE = 2 * 799;
+#define SCHED_T dut->rootp->wiring__DOT__sched__DOT__t
+#define VID_CW dut->rootp->wiring__DOT__vid_cw
 
 struct budget_t
 {
     long worst;
+    long deadline_at_worst;
+    long lines_at_worst;
     int worst_line;
     long planes_at_worst;
     long sprite_at_worst;
@@ -58,6 +67,8 @@ static bool render_idle()
 static void measure_frame(budget_t *b)
 {
     b->worst = 0;
+    b->deadline_at_worst = LINE_DEADLINE;
+    b->lines_at_worst = 1;
     b->worst_line = -1;
     b->planes_at_worst = 0;
     b->sprite_at_worst = 0;
@@ -76,6 +87,39 @@ static void measure_frame(budget_t *b)
     while (dut->wiring_scanline == prev)
         tb_clock(dut);
 
+    /* A line is held here until the next one says whether it is the second
+     * half of the same row: sched.t is read at the end of a line, once
+     * line_start has set it, and two lines with one t are one row. */
+    struct { bool valid; uint16_t t; int line; long clocks, busy, planes,
+             sprite, term, grants, g_planes, g_sprite; long pdone[3];
+             long spst[4]; } pend = {};
+    auto rank = [&](int line, int lines, long clocks_total, long busy,
+                    long planes, long sprite, long term, long grants,
+                    long g_planes, long g_sprite, const long *pdone,
+                    const long *spst) {
+        const long deadline = LINE_DEADLINE + (lines - 1) * LINE_CLOCKS;
+        (void)clocks_total;
+        if (term > b->worst_term)
+            b->worst_term = term;
+        if (planes > b->worst_planes)
+            b->worst_planes = planes;
+        if (busy * b->deadline_at_worst > b->worst * deadline)
+        {
+            b->worst = busy;
+            b->deadline_at_worst = deadline;
+            b->lines_at_worst = lines;
+            b->worst_line = line;
+            b->planes_at_worst = planes;
+            b->sprite_at_worst = sprite;
+            b->grants_at_worst = grants;
+            b->grants_planes = g_planes;
+            b->grants_sprite = g_sprite;
+            for (int i = 0; i < 3; i++)
+                b->plane_done[i] = pdone[i];
+            for (int i = 0; i < 4; i++)
+                b->sp_state[i] = spst[i];
+        }
+    };
     for (int line = 0; line < 525; line++)
     {
         prev = dut->wiring_scanline;
@@ -99,36 +143,67 @@ static void measure_frame(budget_t *b)
             spst[dut->rootp->wiring__DOT__sprite__DOT__state & 3]++;
             if (dut->rootp->wiring__DOT__mode0__DOT__run)
                 term_until = clocks;
-            if (dut->rootp->wiring__DOT__a_any)
             {
-                grants++;
-                unsigned sel = dut->rootp->wiring__DOT__a_sel;
-                if (sel == 0)
+                unsigned req = dut->rootp->wiring__DOT__ma_req;
+                if (req & 1)
                     g_planes++;
-                else if (sel == 1)
+                if (req & 2)
                     g_sprite++;
+                grants += (req & 1) + (req >> 1);
             }
         }
         b->lines++;
-        if (term_until > b->worst_term)
-            b->worst_term = term_until;
-        if (planes_until > b->worst_planes)
-            b->worst_planes = planes_until;
-        if (busy_until > b->worst)
+        const uint16_t t_now = SCHED_T;
+        if (pend.valid && VID_CW == 320 && t_now == pend.t)
         {
-            b->worst = busy_until;
-            b->worst_line = (int)prev;
-            b->planes_at_worst = planes_until;
-            b->sprite_at_worst = sprite_until;
-            b->grants_at_worst = grants;
-            b->grants_planes = g_planes;
-            b->grants_sprite = g_sprite;
+            /* Second line of the row: a pass that ran to the end of the
+             * first line continued into this one, otherwise this line only
+             * idled. Either way it is one row against two lines' deadline. */
+            const bool ran_on = pend.busy == pend.clocks;
+            const long busy = ran_on ? pend.clocks + busy_until : pend.busy;
+            const long planes = pend.planes == pend.clocks
+                ? pend.clocks + planes_until : pend.planes;
+            const long sprite = pend.sprite == pend.clocks
+                ? pend.clocks + sprite_until : pend.sprite;
+            const long term = pend.term > term_until ? pend.term : term_until;
+            const long gr = pend.grants + grants;
+            const long gp = pend.g_planes + g_planes;
+            const long gs = pend.g_sprite + g_sprite;
+            long pd[3], ss[4];
             for (int i = 0; i < 3; i++)
-                b->plane_done[i] = pdone[i];
+                pd[i] = pend.pdone[i] == pend.clocks ? pend.clocks + pdone[i]
+                                                     : pend.pdone[i];
             for (int i = 0; i < 4; i++)
-                b->sp_state[i] = spst[i];
+                ss[i] = pend.spst[i] + spst[i];
+            rank(pend.line, 2, pend.clocks + clocks, busy, planes, sprite,
+                 term, gr, gp, gs, pd, ss);
+            pend.valid = false;
+            continue;
         }
+        if (pend.valid)
+            rank(pend.line, 1, pend.clocks, pend.busy, pend.planes,
+                 pend.sprite, pend.term, pend.grants, pend.g_planes,
+                 pend.g_sprite, pend.pdone, pend.spst);
+        pend.valid = true;
+        pend.t = t_now;
+        pend.line = (int)prev;
+        pend.clocks = clocks;
+        pend.busy = busy_until;
+        pend.planes = planes_until;
+        pend.sprite = sprite_until;
+        pend.term = term_until;
+        pend.grants = grants;
+        pend.g_planes = g_planes;
+        pend.g_sprite = g_sprite;
+        for (int i = 0; i < 3; i++)
+            pend.pdone[i] = pdone[i];
+        for (int i = 0; i < 4; i++)
+            pend.spst[i] = spst[i];
     }
+    if (pend.valid)
+        rank(pend.line, 1, pend.clocks, pend.busy, pend.planes, pend.sprite,
+             pend.term, pend.grants, pend.g_planes, pend.g_sprite,
+             pend.pdone, pend.spst);
 }
 
 void mut_init(int argc, const char *const argv[])
@@ -204,18 +279,20 @@ mut_budget_t mut_measure(const char *name)
 {
     budget_t b;
     measure_frame(&b);
-    printf("  %-18s worst %4ld of %ld (%2ld%%) on line %3d"
+    printf("  %-18s worst %4ld of %ld (%2ld%%) on line %3d (%d line%s)"
            "  =  planes %4ld, sprites %4ld, concurrent"
            "   |  against the deadline %4ld/%ld = %3ld%%%s\n",
-           name, b.worst, LINE_CLOCKS, b.worst * 100 / LINE_CLOCKS,
-           b.worst_line, b.planes_at_worst, b.sprite_at_worst,
-           b.worst, LINE_DEADLINE, b.worst * 100 / LINE_DEADLINE,
-           b.worst >= LINE_DEADLINE ? "  OVER" : "");
-    printf("  %-18s   port A carried %4ld words in those %4ld clocks"
-           " (%2ld%% busy) — planes %4ld, sprites %4ld\n",
-           name, b.grants_at_worst, b.worst,
-           b.worst ? b.grants_at_worst * 100 / b.worst : 0,
-           b.grants_planes, b.grants_sprite);
+           name, b.worst, LINE_CLOCKS * b.lines_at_worst,
+           b.worst * 100 / (LINE_CLOCKS * b.lines_at_worst),
+           b.worst_line, b.lines_at_worst, b.lines_at_worst == 1 ? "" : "s",
+           b.planes_at_worst, b.sprite_at_worst,
+           b.worst, b.deadline_at_worst, b.worst * 100 / b.deadline_at_worst,
+           b.worst >= b.deadline_at_worst ? "  OVER" : "");
+    printf("  %-18s   XRAM slots in those %4ld clocks: fill %4ld words"
+           " (%2ld%%), sprites %4ld words (%2ld%%)\n",
+           name, b.worst, b.grants_planes,
+           b.worst ? b.grants_planes * 100 / b.worst : 0, b.grants_sprite,
+           b.worst ? b.grants_sprite * 100 / b.worst : 0);
     printf("  %-18s   terminal %4ld clocks a line, every line, "
            "concurrent with all of it\n", name, b.worst_term);
     printf("  %-18s   planes done at %4ld %4ld %4ld  |  sprite stage: "
@@ -230,8 +307,8 @@ mut_budget_t mut_measure(const char *name)
                 name, b.lines);
         return MUT_BUDGET_NONE;
     }
-    if (b.worst >= LINE_DEADLINE &&
+    if (b.worst >= b.deadline_at_worst &&
         dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun > 0)
         return MUT_BUDGET_OVER;
-    return b.worst < LINE_DEADLINE ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
+    return b.worst < b.deadline_at_worst ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
 }

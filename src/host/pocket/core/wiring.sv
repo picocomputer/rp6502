@@ -18,6 +18,10 @@ module wiring
      * put its edge after the clk_sys edge, and the soft CPU would then
      * sample signals that had already changed on that clk_sys edge. */
     input logic clk_rv,
+    /* XRAM's render port runs at twice clk_sys; xram.sv says how, and
+     * why clk_ph rides with it. */
+    input logic clk_a2,
+    input logic clk_ph,
     input logic rst_n,
 
     output logic [7:0] wiring_tx_data,
@@ -31,16 +35,16 @@ module wiring
     output logic wiring_rv_halted,
     output logic [31:0] wiring_rv_exit_code,
 
-    /* stage_rdata has to hold the byte for wiring_stage_addr in any
+    /* stage_half has to hold the halfword at wiring_stage_addr in any
      * cycle where wiring_stage_pend is high and stage_stall is low, so a
-     * slow platform holds stage_stall high until the byte is there. The
-     * byte also has to stay on stage_rdata after wiring_stage_pend
-     * drops, because the soft CPU reads it one clk_rv cycle after its
-     * request stops pending. */
+     * slow platform holds stage_stall high until it is there. It also
+     * has to stay on stage_half after wiring_stage_pend drops, because
+     * the soft CPU reads its byte one clk_rv cycle after its request
+     * stops pending. */
     output logic [27:0] wiring_stage_addr,
     output logic wiring_stage_pend,
     input logic stage_stall,
-    input logic [7:0] stage_rdata,
+    input logic [15:0] stage_half,
 
     input logic mach_running,
     output logic wiring_sst_stop_req,
@@ -128,9 +132,6 @@ module wiring
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    always_comb soc_rdy = !(soc_sel_xram && xr_busy)
-        && !(soc_sel_stage && stage_stall)
-        && !(soc_sel_sram && ram_b_stall);
 
     /* When the 6502's RAM is off-chip, both ports share one SRAM chip,
      * so ram_hold suppresses a PHI2 enable while the chip is serving an
@@ -276,7 +277,7 @@ module wiring
         .sst_engine_cell_we(eng_cell_we),
         .sst_engine_xprog_we(eng_xprog_we),
         .sst_engine_xprog_word(eng_xprog_word),
-        .xram_rdata(xram_a_rdata),
+        .xram_rdata(xram_sst_rdata),
         .cell_rdata(eng_cell_rdata),
         .xprog_rdata(eng_xprog_rdata),
         .sst_engine_tcm_sel(eng_tcm_sel),
@@ -389,70 +390,112 @@ module wiring
         .st_jam_data(eng_jam_via)
     );
 
-    /* clk_rv runs at half the rate of clk_sys. While clk_mach is
-     * running, the strobe and the console valid from soc, which can stay
-     * high for more than one clk_sys cycle, are narrowed to one here, and
-     * slot_set and key_set are stretched by one clk_mach cycle so that a
-     * clk_rv edge samples them. */
-    logic soc_stb_raw, soc_stb_n, soc_stb_q;
-    logic rv_tx_valid_raw, rv_tx_valid_q;
+    /* Everything the soft CPU drives into the machine is taken on the
+     * falling edge of clk_sys first. clk_rv and clk_sys rise together, so
+     * the soft CPU's outputs change just after a rising edge, and a
+     * register taking one on that same edge would race it: the outcome
+     * would depend on the skew between the two clock trees, change from
+     * one fit to the next, and never show in simulation. By the falling
+     * edge they have been stable for half a period, and that half period
+     * is the relationship the analyzer checks. The one thing formed from
+     * the raw outputs is the ready the soft CPU reads back, because that
+     * path ends in the soft CPU's own clock and has the whole of it.
+     *
+     * The console valid, which can stay high for more than one clk_sys
+     * cycle, is narrowed to one on the way, and slot_set and key_set are
+     * stretched by one clk_mach cycle so that a clk_rv edge samples
+     * them. */
+    logic rv_tx_valid_raw, rv_tx_valid_n, rv_tx_valid_q;
+    logic [7:0] rv_tx_data;
     logic slot_set_q, key_set_q;
-
-    /* soc_stb_raw is sampled on the falling edge of clk_sys. clk_rv and
-     * clk_sys rise together, so soc_stb_raw changes just after a rising
-     * edge. If it were sampled on that rising edge, skew between the two
-     * clock networks could let the flop holding the previous value take
-     * the new value on the same edge, so soc_stb would be 1 && !1 and
-     * the access would be lost. The outcome depends on the skew, so it
-     * can change from one fit to the next and never shows in simulation.
-     * By the falling edge, soc_stb_raw has been stable for half a
-     * period. */
-    initial soc_stb_n = 1'b0;
+    logic soc_stb, soc_we, soc_pend;
+    logic rv_bus_pend, rv_bus_we;
+    logic [31:0] rv_bus_addr, rv_bus_wdata;
+    logic [3:0] rv_bus_wstrb;
+    logic [15:0] rv_phi2_khz;
+    logic [63:0] rv_mtime;
+    logic [31:0] rv_tcm_rdata, rv_dbg_data0, rv_exit_code;
+    logic rv_dbg_halted, rv_dbg_data0_wen, rv_dbg_instr_rdy, rv_dbg_ebreak,
+        rv_dbg_fault, rv_halted, rv_key_pending;
+    initial begin
+        soc_pend = 1'b0;
+        soc_we = 1'b0;
+        soc_addr = '0;
+        soc_wdata = '0;
+        soc_wstrb = '0;
+        rv_tx_valid_n = 1'b0;
+        wiring_rv_tx_data = '0;
+        phi2_khz = 16'd8000;
+        mtime = '0;
+        wiring_sst_dbg_halted = 1'b0;
+        wiring_sst_dbg_data0 = '0;
+        wiring_sst_dbg_data0_wen = 1'b0;
+        wiring_sst_dbg_instr_rdy = 1'b0;
+        wiring_sst_dbg_ebreak = 1'b0;
+        wiring_sst_dbg_fault = 1'b0;
+        wiring_sst_tcm_rdata = '0;
+        wiring_rv_halted = 1'b0;
+        wiring_rv_exit_code = '0;
+        wiring_key_pending = 1'b0;
+    end
     always_ff @(negedge clk_sys) begin
-        soc_stb_n <= soc_stb_raw;
+        soc_pend <= rv_bus_pend;
+        soc_we <= rv_bus_we;
+        soc_addr <= rv_bus_addr;
+        soc_wdata <= rv_bus_wdata;
+        soc_wstrb <= rv_bus_wstrb;
+        rv_tx_valid_n <= rv_tx_valid_raw;
+        wiring_rv_tx_data <= rv_tx_data;
+        phi2_khz <= rv_phi2_khz;
+        mtime <= rv_mtime;
+        wiring_sst_dbg_halted <= rv_dbg_halted;
+        wiring_sst_dbg_data0 <= rv_dbg_data0;
+        wiring_sst_dbg_data0_wen <= rv_dbg_data0_wen;
+        wiring_sst_dbg_instr_rdy <= rv_dbg_instr_rdy;
+        wiring_sst_dbg_ebreak <= rv_dbg_ebreak;
+        wiring_sst_dbg_fault <= rv_dbg_fault;
+        wiring_sst_tcm_rdata <= rv_tcm_rdata;
+        wiring_rv_halted <= rv_halted;
+        wiring_rv_exit_code <= rv_exit_code;
+        wiring_key_pending <= rv_key_pending;
     end
     initial begin
-        soc_stb_q = 1'b0;
         rv_tx_valid_q = 1'b0;
         slot_set_q = 1'b0;
         key_set_q = 1'b0;
     end
     always_ff @(posedge clk_mach) begin
-        soc_stb_q <= soc_stb_n;
-        rv_tx_valid_q <= rv_tx_valid_raw;
+        rv_tx_valid_q <= rv_tx_valid_n;
         slot_set_q <= slot_set;
         key_set_q <= key_set;
     end
-    always_comb wiring_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
+    always_comb wiring_rv_tx_valid = rv_tx_valid_n && !rv_tx_valid_q;
 
-    logic soc_stb, soc_we, soc_pend;
-    logic rv_bus_pend, rv_bus_we;
-    logic [31:0] rv_bus_addr, rv_bus_wdata;
-    logic [3:0] rv_bus_wstrb;
-    always_comb begin
-        soc_pend = rv_bus_pend;
-        soc_stb = soc_stb_n && !soc_stb_q;
-        soc_we = rv_bus_we;
-        soc_addr = rv_bus_addr;
-        soc_wdata = rv_bus_wdata;
-        soc_wstrb = rv_bus_wstrb;
-    end
-
-    /* soc_taken stays high until soc_pend drops, because the soft CPU
-     * samples it only on clk_rv edges, which are every second clk_sys
-     * edge. */
-    logic soc_taken;
+    /* An access is taken on the first clk_mach edge that finds it pending
+     * and its target able to finish it: XRAM once its port is free, the
+     * SRAM and the staging store once they hold the byte, everything
+     * else at once. That decision is the machine's, made from the sampled
+     * request on its own edge, so it can never run ahead of the stalls
+     * it depends on. soc_stb is the request while it waits, one clock for
+     * the targets that never stall. soc_taken then stays high until
+     * soc_pend drops, because the soft CPU samples it only on clk_rv
+     * edges, which are every second clk_sys edge. */
+    logic soc_taken, soc_take;
     initial soc_taken = 1'b0;
+    always_comb soc_stb = soc_pend && !soc_taken;
+    always_comb soc_take = soc_stb
+        && (soc_sel_xram ? xram_go
+            : soc_sel_sram ? !ram_b_stall
+            : soc_sel_stage ? !stage_stall : 1'b1);
     always_ff @(posedge clk_mach) begin
         if (!soc_pend)
             soc_taken <= 1'b0;
-        else if (soc_sel_xram ? xram_go : soc_stb)
+        else if (soc_take)
             soc_taken <= 1'b1;
     end
     logic [31:0] soc_addr, soc_wdata;
     logic [3:0] soc_wstrb;
     logic [31:0] soc_rdata;
-    logic soc_rdy;
 
     /* mtime_acc is clocked by clk_rv, so the rate here is RV_KHZ and not
      * SYS_KHZ. At the default 50.4 MHz clk_sys, a microsecond is 25.2
@@ -465,33 +508,33 @@ module wiring
     ) soc (
         .clk(clk_rv),
         .rst_n(rst_n),
-        .soc_phi2_khz(phi2_khz),
+        .soc_phi2_khz(rv_phi2_khz),
         .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
         .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),
-        .soc_dbg_halted(wiring_sst_dbg_halted),
+        .soc_dbg_halted(rv_dbg_halted),
         .sst_dbg_data0(eng_own ? eng_dbg_data0 : sst_dbg_data0),
-        .soc_dbg_data0(wiring_sst_dbg_data0),
-        .soc_dbg_data0_wen(wiring_sst_dbg_data0_wen),
+        .soc_dbg_data0(rv_dbg_data0),
+        .soc_dbg_data0_wen(rv_dbg_data0_wen),
         .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
         .sst_dbg_instr_vld(eng_own ? eng_dbg_vld : sst_dbg_instr_vld),
-        .soc_dbg_instr_rdy(wiring_sst_dbg_instr_rdy),
-        .soc_dbg_ebreak(wiring_sst_dbg_ebreak),
-        .soc_dbg_fault(wiring_sst_dbg_fault),
+        .soc_dbg_instr_rdy(rv_dbg_instr_rdy),
+        .soc_dbg_ebreak(rv_dbg_ebreak),
+        .soc_dbg_fault(rv_dbg_fault),
         .sst_phi2_we(eng_st_jam),
         .sst_phi2_wdata(eng_jam_mach[1][15:0]),
-        .soc_mtime(mtime),
+        .soc_mtime(rv_mtime),
         .sst_mtime_we(eng_mtime_jam),
         .sst_mtime_wdata({eng_jam_mach[3], eng_jam_mach[2]}),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
         .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
-        .soc_tcm_rdata(wiring_sst_tcm_rdata),
-        .soc_tx_data(wiring_rv_tx_data),
+        .soc_tcm_rdata(rv_tcm_rdata),
+        .soc_tx_data(rv_tx_data),
         .soc_tx_valid(rv_tx_valid_raw),
-        .soc_halted(wiring_rv_halted),
-        .soc_exit_code(wiring_rv_exit_code),
+        .soc_halted(rv_halted),
+        .soc_exit_code(rv_exit_code),
         .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
         .upd_n(upd_n),
@@ -500,11 +543,9 @@ module wiring
         .cont_joy(cont_joy),
         .cont_trig(cont_trig),
         .key_code(key_code),
-        .soc_key_pending(wiring_key_pending),
-        .bus_rdy(soc_rdy),
+        .soc_key_pending(rv_key_pending),
         .bus_taken(soc_taken),
         .soc_bus_pend(rv_bus_pend),
-        .soc_bus_stb(soc_stb_raw),
         .soc_bus_we(rv_bus_we),
         .soc_bus_addr(rv_bus_addr),
         .soc_bus_wdata(rv_bus_wdata),
@@ -561,6 +602,16 @@ module wiring
         wiring_stage_addr = eng_stage_pend ? eng_stage_addr
             : ((soc_pend && soc_sel_stage) ? soc_addr[27:0] : stage_addr_q);
     end
+    /* The byte is picked out of the halfword by a registered address, the
+     * engine's own or the one the soft CPU's strobe captured, never the
+     * live one: that is the copy taken on the falling edge, and a path
+     * from it into the soft CPU's load data would have half a period
+     * where this one has the whole. The strobe lands a clock before the
+     * soft CPU can read, so stage_addr_q is right by then. */
+    logic [7:0] stage_rdata;
+    always_comb stage_rdata = (eng_stage_pend ? eng_stage_addr[0]
+                                              : stage_addr_q[0])
+        ? stage_half[15:8] : stage_half[7:0];
 
     logic api_pending;
     logic soc_ctl_api, soc_prog;
@@ -702,7 +753,7 @@ module wiring
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
-    logic [31:0] xram_a_rdata;
+    logic [31:0] xram_f_rdata, xram_s_rdata, xram_sst_rdata;
     logic [1:0] mf_req;
     logic [13:0] mf_addr[2];
     logic f_rotor, f_sel;
@@ -734,26 +785,12 @@ module wiring
         .w_data(soc_wdata)
     );
 
-    logic [1:0] ma_req;
+    /* The fill and the sprite stage each own a slot on XRAM's render
+     * port, a word every clock, so a request is always taken: the port
+     * reads whatever address each presents, and the word is on that
+     * reader's data port two clocks after. */
+    logic [1:0] ma_req /*verilator public_flat_rd*/;
     logic [13:0] ma_addr[2];
-    logic a_rotor, a_sel;
-    logic a_any;
-    always_comb begin
-        a_sel = a_rotor;
-        a_any = 1'b0;
-        for (int i = 0; i < 2; i++) begin
-            logic cand;
-            cand = a_rotor ^ 1'(i);
-            if (!a_any && ma_req[cand]) begin
-                a_sel = cand;
-                a_any = 1'b1;
-            end
-        end
-    end
-    initial a_rotor = 1'd0;
-    always_ff @(posedge clk_mach)
-        if (a_any)
-            a_rotor <= a_sel + 1'd1;
 
     logic xram_owed;
     initial xram_owed = 1'b0;
@@ -824,12 +861,17 @@ module wiring
     end
     xram xram (
         .clk(clk_sys),
+        .clk_a2(clk_a2),
+        .clk_ph(clk_ph),
+        .f_addr(ma_addr[0]),
+        .xram_f_rdata(xram_f_rdata),
+        .s_addr(ma_addr[1]),
+        .xram_s_rdata(xram_s_rdata),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_xram_we),
         .sst_wdata(eng_mem_wdata),
-        .a_addr(ma_addr[a_sel]),
-        .xram_a_rdata(xram_a_rdata),
+        .xram_sst_rdata(xram_sst_rdata),
         .b_addr(xw_addr),
         .b_wdata(xw_wdata),
         .b_we(xw_we),
@@ -915,10 +957,10 @@ module wiring
     logic [2:0] fl_mode;
     logic [15:0] fl_attr, fl_config;
     logic fl_done;
-    logic fl_px_we;
+    logic [1:0] fl_px_we;
     logic [9:0] fl_px_addr;
-    logic [15:0] fl_px_data;
-    logic [2:0] m_px_we;
+    logic [31:0] fl_px_data;
+    logic [1:0] m_px_we[3];
     logic [2:0] m_done;
     logic [2:0] sched_term;
     sched sched (
@@ -945,7 +987,7 @@ module wiring
     );
     fill fill (
         .clk(clk_mach),
-        .line_start(vid_line_start),
+        .row_start(vid_row_start),
         .start(fl_start),
         .mode(fl_mode),
         .attr_i(fl_attr),
@@ -954,8 +996,8 @@ module wiring
         .cw(vid_cw),
         .fill_a_req(ma_req[0]),
         .fill_a_addr(ma_addr[0]),
-        .a_gnt(a_any && a_sel == 1'd0),
-        .a_rdata(xram_a_rdata),
+        .a_gnt(ma_req[0]),
+        .a_rdata(xram_f_rdata),
         .fill_f_req(mf_req[0]),
         .fill_f_addr(mf_addr[0]),
         .f_gnt(f_any && f_sel == 1'd0),
@@ -973,6 +1015,8 @@ module wiring
                 .h(vid_h),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
+                .flip_ok(vid_flip_ok),
+                .next_ok(vid_next_ok),
                 .px_we(m_px_we[gi]),
                 .px_addr(fl_px_addr),
                 .px_data(fl_px_data),
@@ -997,8 +1041,8 @@ module wiring
         .sprite_overrun(),
         .sprite_a_req(ma_req[1]),
         .sprite_a_addr(ma_addr[1]),
-        .a_gnt(a_any && a_sel == 1'd1),
-        .a_rdata(xram_a_rdata)
+        .a_gnt(ma_req[1]),
+        .a_rdata(xram_s_rdata)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
@@ -1079,7 +1123,25 @@ module wiring
         wiring_aud_valid = psg_tick;
     end
 
-    always_comb vid_de = vid_de_full && vid_h < vid_cw && vid_v < vid_ch;
+    /* A 320 wide canvas spans two lines of timing per row of graphics, so
+     * the row is handed to the scaler on the first line of the pair and the
+     * second is blanked. The scaler still receives ch rows; what changed is
+     * that the beam now takes the whole frame to cross the canvas. */
+    logic vid_dbl;
+    always_comb vid_dbl = vid_cw == 10'd320;
+    /* A line buffer flips where a pair starts, and next_ok says the line
+     * about to start is one; both as sched.sv pairs them. */
+    logic vid_flip_ok, vid_next_ok;
+    always_comb vid_flip_ok = !vid_dbl
+        || (!vid_v[0] && vid_v != 10'd524) || vid_v == 10'd523;
+    always_comb vid_next_ok = !vid_dbl
+        || (vid_v[0] && vid_v != 10'd523) || vid_v == 10'd524;
+    /* A row of graphics starts where a pair does. */
+    logic vid_row_start;
+    always_comb vid_row_start = vid_line_start && vid_flip_ok;
+    always_comb vid_de = vid_de_full && vid_h < vid_cw
+        && (vid_dbl ? !vid_v[0] && vid_v < {vid_ch[8:0], 1'b0}
+                    : vid_v < vid_ch);
 
     logic [15:0] c_pix[3];
     always_comb

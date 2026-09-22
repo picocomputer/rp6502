@@ -23,6 +23,13 @@ module pocket_pll (
      * changed at the same edge, and the soft CPU would capture their new
      * values instead of the ones they held before that edge. */
     output wire clk_rv,
+    /* clk_a2 clocks XRAM's render port at twice clk_sys, shifted so that
+     * both of its edges fall clear of the clk_sys edges the machine's
+     * registers change on. clk_ph is clk_sys shifted to be low across the
+     * first of those edges and high across the second; xram.sv samples
+     * it as data to tell them apart. */
+    output wire clk_a2,
+    output wire clk_ph,
     output wire locked
 );
 
@@ -36,19 +43,29 @@ module pocket_pll (
      * shift puts each edge of that clock in the middle of a half-period
      * data window. */
     localparam VID_SHIFT = "9921 ps";
+    /* A phase shift is a whole number of eighths of the VCO's 827 ps
+     * period, 103.3 ps. 8990 ps, 87 of them, puts clk_a2's edges 9.0 and
+     * 18.9 ns after each clk_sys edge, where XRAM's registered addresses
+     * and its outgoing words have equal margins. 12400 ps of clk_sys's
+     * period puts clk_ph's rise 6.5 ns before the second of those edges
+     * and its fall 6.5 ns before the first. */
+    localparam A2_SHIFT = "8990 ps";
+    localparam PH_SHIFT = "12400 ps";
 
-    wire [4:0] outclk;
+    wire [6:0] outclk;
     assign clk_sys  = outclk[0];
     assign clk_vid  = outclk[1];
     assign clk_dram = outclk[2];
     assign clk_vid_90 = outclk[3];
     assign clk_rv   = outclk[4];
+    assign clk_a2   = outclk[5];
+    assign clk_ph   = outclk[6];
 
     altera_pll #(
         .fractional_vco_multiplier("true"),
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
-        .number_of_clocks(5),
+        .number_of_clocks(7),
         .output_clock_frequency0("50.400000 MHz"),
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
@@ -64,6 +81,12 @@ module pocket_pll (
         .output_clock_frequency4("25.200000 MHz"),
         .phase_shift4("0 ps"),
         .duty_cycle4(50),
+        .output_clock_frequency5("100.800000 MHz"),
+        .phase_shift5(A2_SHIFT),
+        .duty_cycle5(50),
+        .output_clock_frequency6("50.400000 MHz"),
+        .phase_shift6(PH_SHIFT),
+        .duty_cycle6(50),
         .pll_type("General"),
         .pll_subtype("General")
     ) pll (

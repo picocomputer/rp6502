@@ -126,17 +126,30 @@ module mode1 (
     always_comb font_xram = {1'b0, cf_font}
         <= 17'h10000 - (fh16 ? 17'd4096 : 17'd2048);
 
-    /* The cell prefetcher: while the tail emits, the next cell's bytes
-     * (up to three words) and its font byte gather here. */
-    typedef enum logic [2:0] {
-        F_IDLE, F_W, F_FONT, F_READY
-    } fstate_t;
-    fstate_t fstate;
+    /* The cell prefetcher, two stages deep: the word stage gathers a
+     * cell's bytes (up to three words) while the font stage fetches the
+     * glyph row of the cell before it, so a cell costs the longer fetch
+     * rather than the two in series. The tail lands eight pixels in four
+     * clocks, and a stage keeps up with that. */
+    typedef enum logic [0:0] {
+        W_IDLE, W_WORDS
+    } wstate_t;
+    wstate_t wstate;
     logic [16:0] cell_addr;   // byte address of the cell being fetched
     logic [1:0] fw_i, fw_c, fw_n;  // word issue/capture counts
     logic [95:0] gather;           // up to three words, lane-aligned below
     logic [1:0] cell_lane;         // the cell's byte offset in its word
-    logic gnt_d;
+    logic gw_v;                    // gather holds a cell not yet taken
+    /* XRAM returns a word two clocks after the grant; the font store, one. */
+    logic gnt_d1, gnt_d, gnt_w_d1, gnt_w_d, gnt_f_d1, gnt_f_d;
+
+    typedef enum logic [1:0] {
+        F_IDLE, F_FONT, F_HOLD
+    } fstate_t;
+    fstate_t fstate;
+    logic f_sent;
+    logic [7:0] gf_glyph, gf_b1, gf_b2, gf_bits;
+    logic [15:0] gf_fg16, gf_bg16;
 
     logic nxt_v;
     logic [7:0] nxt_bits;
@@ -144,15 +157,6 @@ module mode1 (
 
     logic [47:0] gview;
     always_comb gview = 48'(gather >> {cell_lane, 3'b000});
-    logic [7:0] g_glyph, g_b1, g_b2;
-    logic [15:0] g_fg16, g_bg16;
-    always_comb begin
-        g_glyph = gview[7:0];
-        g_b1 = gview[15:8];
-        g_b2 = gview[23:16];
-        g_fg16 = gview[31:16];
-        g_bg16 = gview[47:32];
-    end
 
     logic pal_ld;
     always_comb pal_ld = !abort_i && !start && state == S1_PAL
@@ -172,20 +176,33 @@ module mode1 (
     always_comb begin
         case (fmt)
             3'd0: begin fg_idx = 8'd1; bg_idx = 8'd0; end
-            3'd1: begin fg_idx = {4'd0, g_b1[7:4]}; bg_idx = {4'd0, g_b1[3:0]}; end
-            3'd2: begin fg_idx = {4'd0, g_b1[3:0]}; bg_idx = {4'd0, g_b1[7:4]}; end
-            default: begin fg_idx = g_b1; bg_idx = g_b2; end
+            3'd1: begin fg_idx = {4'd0, gf_b1[7:4]}; bg_idx = {4'd0, gf_b1[3:0]}; end
+            3'd2: begin fg_idx = {4'd0, gf_b1[3:0]}; bg_idx = {4'd0, gf_b1[7:4]}; end
+            default: begin fg_idx = gf_b1; bg_idx = gf_b2; end
         endcase
         pal_fg = pal_qa;
         pal_bg = pal_qb;
     end
 
-    logic [7:0] font_gather;
     always_comb mode1_f_addr = fh16
-        ? {2'b00, scanrow, g_glyph}
-        : {2'b01, 1'b0, scanrow[2:0], g_glyph};
+        ? {2'b00, scanrow, gf_glyph}
+        : {2'b01, 1'b0, scanrow[2:0], gf_glyph};
     always_comb mode1_f_req = state == S1_SEG && fstate == F_FONT
-        && !font_xram && fw_i == 2'd0;
+        && !font_xram && !f_sent;
+
+    /* Both stages fetch from XRAM when the font is there. The font stage
+     * is ahead in the pipe, so it goes first. The word stage asks for a
+     * cell's first word on the clock it takes the cell, so the round
+     * trip does not sit in series with the take. */
+    logic w_take, w_want, f_want, gnt_w, gnt_f;
+    always_comb begin
+        w_want = state == S1_SEG
+            && ((wstate == W_WORDS && fw_i < fw_n) || w_take);
+        f_want = state == S1_SEG && fstate == F_FONT && font_xram
+            && !f_sent;
+        gnt_f = a_gnt && f_want;
+        gnt_w = a_gnt && !f_want && w_want;
+    end
 
     /* One channel or the other; font_xram holds for the whole line, so
      * the choice cannot move across a grant. */
@@ -193,15 +210,20 @@ module mode1 (
     logic fnt_gnt, fnt_gnt_d;
     logic [7:0] fnt_byte;
     always_comb begin
-        fnt_gnt = font_xram ? a_gnt : f_gnt;
-        fnt_gnt_d = font_xram ? gnt_d : f_gnt_d;
+        fnt_gnt = font_xram ? gnt_f : f_gnt;
+        fnt_gnt_d = font_xram ? gnt_f_d : f_gnt_d;
         fnt_byte = font_xram
             ? a_rdata[{font_line_byte, 3'b000}+:8]
             : f_data;
     end
+    logic f_take;
+    always_comb f_take = state == S1_SEG && fstate == F_IDLE && gw_v;
 
     logic signed [17:0] win_w;
     always_comb win_w = $signed({{2{width_px[15]}}, width_px});
+    always_comb w_take = state == S1_SEG && wstate == W_IDLE && !blank
+        && (!gw_v || f_take)
+        && $signed(18'(fetch_col) <<< 3) < win_w;
 
     always_comb begin
         mode1_a_req = 1'b0;
@@ -213,12 +235,14 @@ module mode1 (
                 mode1_a_addr = cf_palette[15:2] + {5'd0, pal_n};
             end
             S1_SEG: begin
-                if (fstate == F_W) begin
-                    mode1_a_req = fw_i < fw_n;
-                    mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
-                end else if (fstate == F_FONT) begin
-                    mode1_a_req = fw_i == 2'd0;
+                if (f_want) begin
+                    mode1_a_req = 1'b1;
                     mode1_a_addr = font_line_addr[15:2];
+                end else if (w_want) begin
+                    mode1_a_req = 1'b1;
+                    mode1_a_addr = wstate == W_IDLE
+                        ? cell_fetch_addr[15:2]
+                        : cell_addr[15:2] + {12'd0, fw_i};
                 end
             end
             default: ;
@@ -226,7 +250,7 @@ module mode1 (
     end
     logic [16:0] font_line_addr;
     always_comb font_line_addr = {1'b0, cf_font}
-        + {5'd0, scanrow, 8'd0} + {9'd0, g_glyph};
+        + {5'd0, scanrow, 8'd0} + {9'd0, gf_glyph};
 
     /* The next segment, from where col stands. The entry cell may start
      * mid-glyph, so the row is shifted left to put its first visible pixel on
@@ -287,17 +311,35 @@ module mode1 (
         fw_c = '0;
         fw_n = '0;
         gather = '0;
+        gw_v = 1'b0;
+        gnt_d1 = 1'b0;
         gnt_d = 1'b0;
+        gnt_w_d1 = 1'b0;
+        gnt_w_d = 1'b0;
+        gnt_f_d1 = 1'b0;
+        gnt_f_d = 1'b0;
         f_gnt_d = 1'b0;
+        wstate = W_IDLE;
+        f_sent = 1'b0;
+        gf_glyph = '0;
+        gf_b1 = '0;
+        gf_b2 = '0;
+        gf_bits = '0;
+        gf_fg16 = '0;
+        gf_bg16 = '0;
         nxt_v = 1'b0;
         nxt_bits = '0;
         nxt_fg = '0;
         nxt_bg = '0;
-        font_gather = '0;
         mode1_tl_start = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
+        gnt_d1 <= a_gnt;
+        gnt_d <= gnt_d1;
+        gnt_w_d1 <= gnt_w;
+        gnt_w_d <= gnt_w_d1;
+        gnt_f_d1 <= gnt_f;
+        gnt_f_d <= gnt_f_d1;
         f_gnt_d <= f_gnt;
         mode1_tl_start <= 1'b0;
         if (abort_i) begin
@@ -306,6 +348,8 @@ module mode1 (
                 $fatal(1, "mode1 underrun");
 `endif
             state <= S1_IDLE;
+            wstate <= W_IDLE;
+            gw_v <= 1'b0;
             fstate <= F_IDLE;
         end else if (start) begin
             row <= $signed({row16[15], row16});
@@ -314,6 +358,8 @@ module mode1 (
             col <= $signed({col16[15], col16});
             blank <= 1'b0;
             nxt_v <= 1'b0;
+            wstate <= W_IDLE;
+            gw_v <= 1'b0;
             fstate <= F_IDLE;
             state <= S1_WRAP;
             fetch_col <= '0;
@@ -389,25 +435,23 @@ module mode1 (
                     end
                 end
                 S1_SEG: begin
-                    case (fstate)
-                        F_IDLE: begin
-                            if (!blank && !nxt_v
-                                && $signed(18'(fetch_col) <<< 3)
-                                   < win_w) begin
+                    case (wstate)
+                        W_IDLE: begin
+                            if (w_take) begin
                                 cell_addr <= cell_fetch_addr;
                                 cell_lane <= cell_fetch_addr[1:0];
-                                fw_i <= '0;
+                                fw_i <= gnt_w ? 2'd1 : 2'd0;
                                 fw_c <= '0;
                                 fw_n <= 2'((4'(cell_fetch_addr[1:0])
                                      + {1'd0, cell_size} + 4'd3) >> 2);
                                 gather <= '0;
-                                fstate <= F_W;
+                                wstate <= W_WORDS;
                             end
                         end
-                        F_W: begin
-                            if (a_gnt)
+                        default: begin
+                            if (gnt_w)
                                 fw_i <= fw_i + 2'd1;
-                            if (gnt_d) begin
+                            if (gnt_w_d) begin
                                 case (fw_c)
                                     2'd0: gather[31:0] <= a_rdata;
                                     2'd1: gather[63:32] <= a_rdata;
@@ -416,31 +460,54 @@ module mode1 (
                                 endcase
                                 fw_c <= fw_c + 2'd1;
                                 if (fw_c + 2'd1 == fw_n) begin
-                                    fw_i <= '0;
-                                    fstate <= F_FONT;
+                                    gw_v <= 1'b1;
+                                    fetch_col <= fetch_col + 16'd1;
+                                    wstate <= W_IDLE;
                                 end
+                            end
+                        end
+                    endcase
+
+                    case (fstate)
+                        F_IDLE: begin
+                            if (f_take) begin
+                                gf_glyph <= gview[7:0];
+                                gf_b1 <= gview[15:8];
+                                gf_b2 <= gview[23:16];
+                                gf_fg16 <= gview[31:16];
+                                gf_bg16 <= gview[47:32];
+                                gw_v <= 1'b0;
+                                f_sent <= 1'b0;
+                                fstate <= F_FONT;
                             end
                         end
                         F_FONT: begin
                             if (fnt_gnt)
-                                fw_i <= 2'd1;
+                                f_sent <= 1'b1;
                             if (fnt_gnt_d) begin
-                                font_gather <= fnt_byte;
-                                fstate <= F_READY;
+                                if (!nxt_v) begin
+                                    nxt_bits <= fnt_byte;
+                                    nxt_fg <= fmt == 3'd4 ? gf_fg16 : pal_fg;
+                                    nxt_bg <= fmt == 3'd4 ? gf_bg16 : pal_bg;
+                                    nxt_v <= 1'b1;
+                                    fstate <= F_IDLE;
+                                end else begin
+                                    gf_bits <= fnt_byte;
+                                    fstate <= F_HOLD;
+                                end
                             end
                         end
-                        F_READY: begin
+                        default: begin
                             if (!nxt_v) begin
-                                nxt_bits <= font_gather;
-                                nxt_fg <= fmt == 3'd4 ? g_fg16 : pal_fg;
-                                nxt_bg <= fmt == 3'd4 ? g_bg16 : pal_bg;
+                                nxt_bits <= gf_bits;
+                                nxt_fg <= fmt == 3'd4 ? gf_fg16 : pal_fg;
+                                nxt_bg <= fmt == 3'd4 ? gf_bg16 : pal_bg;
                                 nxt_v <= 1'b1;
-                                fetch_col <= fetch_col + 16'd1;
                                 fstate <= F_IDLE;
                             end
                         end
-                        default: fstate <= F_IDLE;
                     endcase
+
 
                     if (seg_take) begin
                         px_rem <= px_rem - mode1_seg_px;
@@ -457,6 +524,8 @@ module mode1 (
                                     == win_w) begin
                                 col <= '0;
                                 fetch_col <= '0;
+                                wstate <= W_IDLE;
+                                gw_v <= 1'b0;
                                 fstate <= F_IDLE;
                             end else
                                 col <= col + $signed(

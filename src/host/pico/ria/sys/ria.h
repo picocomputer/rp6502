@@ -33,6 +33,27 @@
 #define RIA_ACT_SM 0
 
 #include "core/sys/driver.h"
+#include <hardware/sync.h>
+
+/* 8 MHz 6502 and 49716 Hz audio is at most 40 */
+#define RIA_AUD_RING_SIZE 64
+extern volatile uint8_t ria_aud_head;
+extern volatile uint8_t ria_aud_tail;
+extern volatile uint8_t ria_aud_ring[RIA_AUD_RING_SIZE][2];
+
+static inline bool ria_aud_next(uint8_t *loc, uint8_t *val)
+{
+    if (ria_aud_tail == ria_aud_head)
+        return false;
+    /* Pairs with the release barrier in act_loop: the entry is written before
+     * the head that publishes it, and read after. */
+    __dmb();
+    uint8_t tail = (ria_aud_tail + 1) & (RIA_AUD_RING_SIZE - 1);
+    ria_aud_tail = tail;
+    *loc = ria_aud_ring[tail][0];
+    *val = ria_aud_ring[tail][1];
+    return true;
+}
 
 /* Main events
  */

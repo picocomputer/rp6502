@@ -26,7 +26,7 @@ typedef struct
     uint16_t xram_palette_ptr;
 } mode3_config_t;
 
-static volatile const uint8_t *
+static const uint8_t *
 mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
 {
     int16_t row = scanline_id - config->y_pos_px;
@@ -44,15 +44,15 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
     const int32_t sizeof_bitmap = (int32_t)height * sizeof_row;
     if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
         return NULL;
-    return &xram[config->xram_data_ptr + row * sizeof_row];
+    return (const uint8_t *)&xram[config->xram_data_ptr + row * sizeof_row];
 }
 
-static volatile const uint16_t *
+static const uint16_t *
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
         config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (1 << bpp))
-        return (uint16_t *)&xram[config->xram_palette_ptr];
+        return (const uint16_t *)&xram[config->xram_palette_ptr];
     if (bpp == 1)
         return color_2;
     return color_256;
@@ -99,17 +99,19 @@ mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 1);
+    const uint16_t *palette = mode3_get_palette(config, 1);
     uint16_t pal[2] = {palette[0], palette[1]};
+    MODE_TABLE(pair, 4);
+    mode_pair_set(pair, pal[0], pal[1]);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 8];
+        const uint8_t *data = &row_data[col / 8];
         int16_t start = col & 7;
         int16_t part = 8 - start;
         if (part > width_px - col)
@@ -122,7 +124,7 @@ mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp(rgb, *data++, pal[0], pal[1]);
+            mode_render_1bpp(rgb, *data++, pair);
             rgb += 8;
             fill_cols -= 8;
         }
@@ -136,17 +138,19 @@ mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 1);
+    const uint16_t *palette = mode3_get_palette(config, 1);
     uint16_t pal[2] = {palette[0], palette[1]};
+    MODE_TABLE(pair, 4);
+    mode_pair_set_reverse(pair, pal[0], pal[1]);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 8];
+        const uint8_t *data = &row_data[col / 8];
         int16_t start = col & 7;
         int16_t part = 8 - start;
         if (part > width_px - col)
@@ -159,7 +163,7 @@ mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
         col += fill_cols;
         while (fill_cols > 7)
         {
-            mode_render_1bpp_reverse(rgb, *data++, pal[0], pal[1]);
+            mode_render_1bpp_reverse(rgb, *data++, pair);
             rgb += 8;
             fill_cols -= 8;
         }
@@ -173,17 +177,19 @@ mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 2);
+    const uint16_t *palette = mode3_get_palette(config, 2);
     uint16_t pal[4] = {palette[0], palette[1], palette[2], palette[3]};
+    MODE_TABLE(quad, 16);
+    mode_quad_set(quad, pal);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 4];
+        const uint8_t *data = &row_data[col / 4];
         int16_t start = col & 3;
         int16_t part = 4 - start;
         if (part > width_px - col)
@@ -196,10 +202,8 @@ mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
         col += fill_cols;
         while (fill_cols > 3)
         {
-            *rgb++ = pal[(*data & 0xC0) >> 6];
-            *rgb++ = pal[(*data & 0x30) >> 4];
-            *rgb++ = pal[(*data & 0x0C) >> 2];
-            *rgb++ = pal[*data++ & 0x03];
+            mode_render_2bpp(rgb, *data++, quad);
+            rgb += 4;
             fill_cols -= 4;
         }
         mode_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
@@ -212,17 +216,19 @@ mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 2);
+    const uint16_t *palette = mode3_get_palette(config, 2);
     uint16_t pal[4] = {palette[0], palette[1], palette[2], palette[3]};
+    MODE_TABLE(quad, 16);
+    mode_quad_set_reverse(quad, pal);
     int16_t col = -config->x_pos_px;
     int16_t width_px = config->width_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 4];
+        const uint8_t *data = &row_data[col / 4];
         int16_t start = col & 3;
         int16_t part = 4 - start;
         if (part > width_px - col)
@@ -235,10 +241,8 @@ mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
         col += fill_cols;
         while (fill_cols > 3)
         {
-            *rgb++ = pal[*data & 0x03];
-            *rgb++ = pal[(*data & 0x0C) >> 2];
-            *rgb++ = pal[(*data & 0x30) >> 4];
-            *rgb++ = pal[(*data++ & 0xC0) >> 6];
+            mode_render_2bpp_reverse(rgb, *data++, quad);
+            rgb += 4;
             fill_cols -= 4;
         }
         mode_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
@@ -251,33 +255,27 @@ mode3_render_4bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 4);
-    uint16_t pal[16];
-    for (int i = 0; i < 16; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode3_get_palette(config, 4);
     int16_t col = -config->x_pos_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 2];
+        const uint8_t *data = &row_data[col / 2];
         if (col & 1)
         {
-            *rgb++ = pal[*data++ & 0xF];
+            *rgb++ = palette[*data++ & 0xF];
             col++;
             fill_cols--;
         }
         col += fill_cols;
-        while (fill_cols > 1)
-        {
-            *rgb++ = pal[*data >> 4];
-            *rgb++ = pal[*data++ & 0xF];
-            fill_cols -= 2;
-        }
-        if (fill_cols == 1)
-            *rgb++ = pal[*data >> 4];
+        const uint8_t *const end = data + (fill_cols >> 1);
+        for (; data < end; rgb += 2, data++)
+            *(mode_word_t *)rgb = mode_pack2(palette[*data >> 4], palette[*data & 0xF]);
+        if (fill_cols & 1)
+            *rgb++ = palette[*data >> 4];
     }
     return true;
 }
@@ -287,33 +285,27 @@ mode3_render_4bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, 
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 4);
-    uint16_t pal[16];
-    for (int i = 0; i < 16; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode3_get_palette(config, 4);
     int16_t col = -config->x_pos_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 2];
+        const uint8_t *data = &row_data[col / 2];
         if (col & 1)
         {
-            *rgb++ = pal[*data++ >> 4];
+            *rgb++ = palette[*data++ >> 4];
             col++;
             fill_cols--;
         }
         col += fill_cols;
-        while (fill_cols > 1)
-        {
-            *rgb++ = pal[*data & 0xF];
-            *rgb++ = pal[*data++ >> 4];
-            fill_cols -= 2;
-        }
-        if (fill_cols == 1)
-            *rgb++ = pal[*data & 0xF];
+        const uint8_t *const end = data + (fill_cols >> 1);
+        for (; data < end; rgb += 2, data++)
+            *(mode_word_t *)rgb = mode_pack2(palette[*data & 0xF], palette[*data >> 4]);
+        if (fill_cols & 1)
+            *rgb++ = palette[*data & 0xF];
     }
     return true;
 }
@@ -323,21 +315,28 @@ mode3_render_8bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 8);
-    uint16_t pal[256];
-    for (int i = 0; i < 256; i++)
-        pal[i] = palette[i];
+    const uint16_t *palette = mode3_get_palette(config, 8);
     int16_t col = -config->x_pos_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col];
+        const uint8_t *data = &row_data[col];
         col += fill_cols;
-        for (; fill_cols; fill_cols--)
-            *rgb++ = pal[*data++];
+        if (fill_cols && ((uintptr_t)rgb & 2))
+        {
+            *rgb++ = palette[*data++];
+            fill_cols--;
+        }
+        // Counting the run out on the pointer keeps the loop off fill_cols,
+        // whose int16_t arithmetic costs a uxth and an sxth every pass.
+        const uint8_t *const end = data + (fill_cols & ~1);
+        for (; data < end; rgb += 2, data += 2)
+            *(mode_word_t *)rgb = mode_pack2(palette[data[0]], palette[data[1]]);
+        if (fill_cols & 1)
+            *rgb++ = palette[*data];
     }
     return true;
 }
@@ -347,14 +346,14 @@ mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_
 {
     (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
+    const uint16_t *row_data = (const uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
     if (!row_data)
         return false;
     int16_t col = -config->x_pos_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        volatile const uint16_t *data = &row_data[col];
+        const uint16_t *data = &row_data[col];
         col += fill_cols;
         for (; fill_cols; fill_cols--)
             *rgb++ = *data++;

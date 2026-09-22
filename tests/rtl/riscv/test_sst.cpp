@@ -53,8 +53,9 @@ static void clk(void)
 {
     if (dut->wiring_stage_pend)
     {
-        uint32_t a = dut->wiring_stage_addr;
-        dut->stage_rdata = a < g_stage.size() ? g_stage[a] : 0;
+        uint32_t a = dut->wiring_stage_addr & ~1u;
+        dut->stage_half = (uint16_t)((a < g_stage.size() ? g_stage[a] : 0)
+            | ((a + 1 < g_stage.size() ? g_stage[a + 1] : 0) << 8));
     }
     dut->stage_stall = 0;
     dut->eval();
@@ -156,7 +157,7 @@ static void power_on(void)
     dut->sst_tcm_we = 0;
     dut->sst_load = 0;
     dut->stage_stall = 0;
-    dut->stage_rdata = 0;
+    dut->stage_half = 0;
     dut->eval();
     for (uint32_t i = 0; i < COUNTER.size(); i++)
         tcm_put(i, COUNTER[i]);

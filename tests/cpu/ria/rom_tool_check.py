@@ -54,6 +54,23 @@ def check(scratch):
     if again.data != rom.data:
         fail("a merged image did not reproduce the original")
 
+    body = path.read_bytes().split(b"\n", 1)[1]
+    env_path = Path(scratch) / "rom_tool_env.rp6502"
+    env_path.write_bytes(b"#!/usr/bin/env rp6502-emu\r\n" + body)
+    env = t.ROM()
+    env.add_rom_file(str(env_path))
+    if env.data != rom.data:
+        fail("an executable shebang naming rp6502 was not read as a ROM")
+
+    sh_path = Path(scratch) / "rom_tool_sh.rp6502"
+    sh_path.write_bytes(b"#!/bin/sh\r\n" + body)
+    try:
+        t.ROM().add_rom_file(str(sh_path))
+    except t.ROMException:
+        pass
+    else:
+        fail("a shebang not naming rp6502 was accepted")
+
     addr, data = rom.next_rom_data(0)
     while data is not None:
         if len(data) > MBUF_SIZE:

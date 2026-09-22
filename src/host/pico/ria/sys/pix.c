@@ -185,23 +185,22 @@ bool pix_api_xreg(void)
         return api_return_errno(API_EACCES);
     }
 
-    // Local PIX device $0
+    // Local PIX device $0. Every register here is a key register with no
+    // argument, so the burst is written in order. api_pop_uint16 yields the
+    // highest address first, so the words are indexed instead of popped.
     if (pix_device == PIX_DEVICE_RIA)
     {
-        for (; pix_send_count; pix_send_count--)
+        for (uint32_t i = 0; i < pix_send_count; i++)
         {
-            uint16_t data = 0;
-            if (!api_pop_uint16(&data))
-            {
-                pix_send_count = 0;
-                return api_return_errno(API_EINVAL);
-            }
-            if (!xreg0(pix_channel, pix_addr, data))
+            uint16_t data;
+            memcpy(&data, &xstack[XSTACK_SIZE - 5 - 2 * i], sizeof(data));
+            if (!xreg0(pix_channel, (uint8_t)(pix_addr + i), data))
             {
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);
             }
         }
+        pix_send_count = 0;
         xstack_ptr = XSTACK_SIZE;
         return api_return_ax(0);
     }

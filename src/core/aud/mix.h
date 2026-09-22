@@ -54,6 +54,20 @@ aud_dev_t aud_device(void);
  * names it. */
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
+/* A 6502 write the RW engine saw on the watched page, applied to whichever
+ * engine is sounding. ria_aud_watch is what arms this. A software machine
+ * calls it where the write happens rather than leaving the write somewhere
+ * for the mixer to find, because a buffer between the two would have to be
+ * deep enough for a whole frame of a program's preamble. */
+void aud_xram_write(uint16_t addr, uint8_t val);
+
+/* Held across one sample by the thread that generates and across one write by
+ * the thread that programs, so the engines are never stepped and written at
+ * once. Both sides are microseconds, so this spins rather than sleeping; a
+ * machine whose sink shares its thread never contends at all. */
+void aud_engine_lock(void);
+void aud_engine_unlock(void);
+
 /* Full scale of the shared sample path, sixteen bits, which is what the
  * Pocket's I2S wants. The RP2350's PWM is narrower and narrows in its own
  * mixer.

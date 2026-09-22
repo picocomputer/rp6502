@@ -68,6 +68,33 @@ UTEST(rom, loads_a_headerless_image)
     ASSERT_EQ(sram[0xFFFD], 0x03);
 }
 
+/* Any shebang naming rp6502 heads a ROM; one that names something else does
+ * not. */
+UTEST(rom, takes_any_shebang_naming_rp6502)
+{
+    static const char records[] =
+        "$00300 $4 $06EE5D17\n" "\xA9\x2A\xDB\xEA"
+        "$0FFFC $2 $D8D04345\n" "\x00\x03";
+    char path[TEST_PATH_MAX];
+    snprintf(path, sizeof path, "%s/shebang.rp6502", TEST_SCRATCH);
+
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    fputs("#!/usr/bin/env rp6502-emu\n", f);
+    ASSERT_EQ(fwrite(records, 1, sizeof records - 1, f), sizeof records - 1);
+    fclose(f);
+    memset(sram, 0, 0x10000);
+    ASSERT_TRUE(rom_load(path));
+    ASSERT_EQ(sram[0x0300], 0xA9);
+
+    f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    fputs("#!/bin/sh\n", f);
+    ASSERT_EQ(fwrite(records, 1, sizeof records - 1, f), sizeof records - 1);
+    fclose(f);
+    ASSERT_FALSE(rom_load(path));
+}
+
 /* ROM_RECORD_MAX caps a record at 1024 bytes, and this one is 1025. */
 UTEST(rom, rejects_a_record_over_the_format_cap)
 {

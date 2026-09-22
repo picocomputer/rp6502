@@ -4,38 +4,47 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The 64 KB XRAM, one true-dual-port BRAM organized as words. Port A is
- * the render side's, read-only, one word per clock full-time — on hardware
- * it lives in the render domain, and the mixed pacing is why the array is
- * 32 bits wide. Port B is the system side's byte lane: the RW engine and
- * the soft CPU behind their arbiter. Reads are synchronous, one clock
- * behind the address, the sram discipline.
+ * the render side's, read-only, and it serves two readers, the fill and
+ * the sprite stage, a word each every machine clock: its clock runs at
+ * twice the machine's, and each reader owns one of the two edges, so
+ * neither ever waits for the other. Port B is the system side's byte
+ * lane: the RW engine and the soft CPU behind their arbiter, and the
+ * savestate serializer, which reads and writes whole words through it.
  *
- * The clock is the ungated one. When the machine is stopped its clock
- * is taken away, but the array is not part of the machine's logic --
- * its addresses and its write enable come from logic that is stopped,
- * so they stand still and it does nothing. That is what lets the
- * savestate serializer borrow a port: it takes the render's side, which
- * is going nowhere, rather than asking a block RAM for a third.
+ * Both clocks are the ungated ones. When the machine is stopped its
+ * clock is taken away, but the array is not part of the machine's logic:
+ * its addresses and its write enable come from logic that is stopped, so
+ * they stand still and it does nothing.
  */
 
 module xram (
+    /* The system clock, port B's. */
     input logic clk,
 
-    input logic [13:0] a_addr,
-    output logic [31:0] xram_a_rdata,
+    /* Port A's clock is the machine's doubled and shifted by 9.0 ns, so
+     * its edges land 9.0 and 18.9 ns after each machine edge, both clear
+     * of it: the registered addresses have 9.0 ns to reach the block, and
+     * the words 10.9 ns to reach the machine's registers from the edge
+     * they come out on, which is where the margins balance. clk_ph is a machine-rate clock
+     * shifted to be low across the first of those edges and high across
+     * the second; it is taken as data, and tells the two apart. */
+    input logic clk_a2,
+    input logic clk_ph,
+    input logic [13:0] f_addr,
+    output logic [31:0] xram_f_rdata,
+    input logic [13:0] s_addr,
+    output logic [31:0] xram_s_rdata,
 
     input logic [15:0] b_addr,
     input logic [7:0] b_wdata,
     input logic b_we,
     output logic [7:0] xram_b_rdata,
 
-    /* The serializer, which owns both ports while it has the machine:
-     * a word out of the render's side and a word in through the byte
-     * side, all four lanes at once. */
     input logic sst_own,
     input logic [13:0] sst_addr,
     input logic sst_we,
-    input logic [31:0] sst_wdata
+    input logic [31:0] sst_wdata,
+    output logic [31:0] xram_sst_rdata
 );
 
     /* One array per byte lane. The byte side writes a lane at a time,
@@ -50,10 +59,39 @@ module xram (
     (* ramstyle = "no_rw_check" *)
     logic [7:0] mem3[16384] /*verilator public_flat_rw*/;
 
-    logic [13:0] a_a;
-    always_comb a_a = sst_own ? sst_addr : a_addr;
+    /* Port A reads on every edge, the sprite stage's address on the
+     * first after the machine's and the fill's on the second. Both are
+     * registered on the machine's edge first, because the arithmetic
+     * that makes each of them fills a machine clock by itself. Each
+     * word is kept in this clock's registers until the first edge of
+     * the next machine clock, so the machine reads both on the edge
+     * after that and never on one where they change: a reader has its
+     * word two clocks after it presents an address. */
+    logic ph;
+    logic [13:0] f_addr_q, s_addr_q, a_a;
+    logic [31:0] a_q, s_raw;
+    always_comb a_a = ph ? s_addr_q : f_addr_q;
+    initial begin
+        ph = 1'b0;
+        f_addr_q = '0;
+        s_addr_q = '0;
+        a_q = '0;
+        s_raw = '0;
+        xram_f_rdata = '0;
+        xram_s_rdata = '0;
+    end
     always_ff @(posedge clk) begin
-        xram_a_rdata <= {mem3[a_a], mem2[a_a], mem1[a_a], mem0[a_a]};
+        f_addr_q <= f_addr;
+        s_addr_q <= s_addr;
+    end
+    always_ff @(posedge clk_a2) begin
+        ph <= clk_ph;
+        a_q <= {mem3[a_a], mem2[a_a], mem1[a_a], mem0[a_a]};
+        if (ph) begin
+            xram_f_rdata <= a_q;
+            xram_s_rdata <= s_raw;
+        end else
+            s_raw <= a_q;
     end
 
     logic [13:0] b_word;
@@ -79,5 +117,6 @@ module xram (
         b_lane <= b_sel;
     end
     always_comb xram_b_rdata = b_q[8*b_lane+:8];
+    always_comb xram_sst_rdata = b_q;
 
 endmodule

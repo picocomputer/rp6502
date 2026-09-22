@@ -315,7 +315,8 @@ static void hid_fill_mou(mouse_connection_t *mouse, const hid_field_t *f)
 {
     if (f->usage_page == 0x09)
     {
-        if (f->usage >= 1 && f->usage <= 8 && !mouse->button_offsets[f->usage - 1])
+        if (f->usage >= 1 && f->usage <= 8 &&
+            mouse->button_offsets[f->usage - 1] == HID_ABSENT)
             mouse->button_offsets[f->usage - 1] = f->bit_pos;
         return;
     }
@@ -433,6 +434,8 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
 void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
 {
     memset(out, 0, sizeof(*out));
+    for (int i = 0; i < 8; i++)
+        out->mouse.button_offsets[i] = HID_ABSENT;
     for (int i = 0; i < 5; i++)
         out->tablet.button_offsets[i] = HID_ABSENT;
     out->tablet.tip_offset = HID_ABSENT;

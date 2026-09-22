@@ -208,6 +208,19 @@ module mode0 (
             linebuf[{lb_bank, lb_addr}] <= lb_data;
     logic wr_bank;
     logic [9:0] t;  // the target line
+    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
+     * graphics spans two lines of timing, as in sched.sv. */
+    logic dbl;
+    always_comb dbl = cw == 10'd320;
+    logic [9:0] v_next;
+    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
+    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
+     * is started on the even line and has the whole pair to finish in, and
+     * is handed over on the even line after. Line 524 is the pair's second
+     * line, not a start, and 523 is a start, not an end. */
+    logic pair_start, pair_end;
+    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
+    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
     logic t_active;
     logic [8:0] term_line;
     logic [4:0] logical_row;
@@ -362,12 +375,16 @@ module mode0 (
     always_ff @(posedge clk) begin
         lb_we <= 1'b0;
         if (line_start) begin
-            wr_bank <= !wr_bank;
-            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
-            run <= 1'b1;
-            rescol <= '0;
-            px <= '0;
-            step <= '0;
+            if (pair_start)
+                wr_bank <= !wr_bank;
+            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
+                     : v_next;
+            if (pair_start) begin
+                run <= 1'b1;
+                rescol <= '0;
+                px <= '0;
+                step <= '0;
+            end
         end else if (run && step == 4'd0) begin
             t_active <= prog_q[31] && t >= prog_q[9:0]
                 && t < prog_q[25:16];
@@ -455,7 +472,7 @@ module mode0 (
      * label. */
     logic [10:0] lb_rd;
     always_comb lb_rd = h == 10'd799
-        ? {wr_bank, 10'd0}
+        ? {pair_end ? wr_bank : !wr_bank, 10'd0}
         : {!wr_bank, 10'(h + 10'd1)};
 
     /* The buffer's output register is loaded from nothing but the

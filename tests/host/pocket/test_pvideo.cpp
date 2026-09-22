@@ -166,11 +166,11 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
             for (int c = 0; c < 1600; c++)
             {
                 dut->vid_frame = line == 0 && c == 0;
-                bool row = line < 180;
+                bool row = !(line & 1) && line < 360;
                 bool de = row && c < 640 && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
-                    dut->vid_pixel = pattern(f, c >> 1, line);
+                    dut->vid_pixel = pattern(f, c >> 1, line >> 1);
                 dut->clk_mach = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
@@ -193,17 +193,20 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                     {
                         int px = rx - 9;
                         int py = ry;
-                        bool dump = py < 180;
+                        bool dump = !(py & 1) && py < 360;
                         bool win = px >= 0 && px < 320 && py < 480;
                         ASSERT_EQ(dut->pocket_video_de, win && dump);
                         ASSERT_EQ(dut->pocket_video_skip, 0);
+                        /* HS delimits a scanline, so the lines in between
+                         * the handed-over rows carry none. */
                         if (rx == 3)
-                            ASSERT_TRUE(dut->pocket_video_hs);
+                            ASSERT_EQ(dut->pocket_video_hs,
+                                      !((py & 1) && py < 360));
                         if (dut->pocket_video_de)
                         {
                             int pf = (int)(latched / (320L * 180));
                             ASSERT_EQ(dut->pocket_video_rgb,
-                                      rgb888(pattern(pf, px, py)));
+                                      rgb888(pattern(pf, px, py >> 1)));
                             latched++;
                         }
                         else if (de_q)

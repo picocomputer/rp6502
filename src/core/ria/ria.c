@@ -12,8 +12,8 @@
 #include "core/sys/xram.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
+#include "core/aud/mix.h"
 #include "core/ria/ria.h"
-#include <stdatomic.h>
 #include <string.h>
 
 static ria_t ria;
@@ -55,7 +55,7 @@ static void ria_syscall(uint8_t op)
     api_set_regs_blocked();
     switch (op)
     {
-    case 0x00: /* ZXSTACK */
+    case 0x00: /* DROP_XSTACK */
         xstack_ptr = XSTACK_SIZE;
         (void)api_return_ax(0);
         return;
@@ -87,24 +87,22 @@ static uint8_t rw_read(int which)
     return v;
 }
 
+/* The page rides in the high byte so that the parked 0xFFFF matches no write,
+ * an address having been masked to its page before the compare. */
+static volatile uint16_t ria_aud_page = 0xFFFF;
+
+void ria_aud_watch(uint16_t xaddr)
+{
+    ria_aud_page = xaddr == 0xFFFF ? 0xFFFF : (uint16_t)(xaddr & 0xFF00);
+}
+
 static void rw_write(int which, uint8_t data)
 {
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);
     int8_t step = (int8_t)(which ? regs[0x09] : regs[0x05]);
     xram[addr] = data;
-    if (xram_queue_page == (uint8_t)(addr >> 8))
-    {
-        uint8_t next = (uint8_t)(xram_queue_head + 1);
-        if (next != xram_queue_tail)
-        {
-            xram_queue[next][0] = (uint8_t)addr;
-            xram_queue[next][1] = data;
-            /* The drain pairs an acquire fence with this one, so the entry
-             * has to be written before the head that publishes it. */
-            atomic_thread_fence(memory_order_release);
-            xram_queue_head = next;
-        }
-    }
+    if ((addr & 0xFF00) == ria_aud_page)
+        aud_xram_write(addr, data);
     addr = (uint16_t)(addr + step);
     if (which)
         REGSW(0xFFEA) = addr;
@@ -201,9 +199,9 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* regs and the queue are declared volatile, so they are copied a byte at a time
- * through the volatile lvalue. A memcpy would read them through a plain pointer,
- * which is undefined. */
+/* regs is declared volatile, so it is copied a byte at a time through the
+ * volatile lvalue. A memcpy would read it through a plain pointer, which is
+ * undefined. */
 void ria_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -215,14 +213,6 @@ void ria_sst_save(sst_cursor_t *c, unsigned flags)
         sst_put_u8(c, regs[i]);
     sst_put(c, xstack, XSTACK_SIZE + 1);
     sst_put_u16(c, (uint16_t)xstack_ptr);
-    sst_put_u8(c, xram_queue_page);
-    sst_put_u8(c, xram_queue_head);
-    sst_put_u8(c, xram_queue_tail);
-    for (int i = 0; i < 256; i++)
-    {
-        sst_put_u8(c, xram_queue[i][0]);
-        sst_put_u8(c, xram_queue[i][1]);
-    }
 }
 
 bool ria_sst_load(sst_cursor_t *c, unsigned flags)
@@ -238,13 +228,6 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     static uint8_t stack[XSTACK_SIZE + 1];
     sst_get(c, stack, sizeof stack);
     uint16_t ptr = sst_get_u16(c);
-    uint8_t page = sst_get_u8(c), head = sst_get_u8(c), tail = sst_get_u8(c);
-    static uint8_t queue[256][2];
-    for (int i = 0; i < 256; i++)
-    {
-        queue[i][0] = sst_get_u8(c);
-        queue[i][1] = sst_get_u8(c);
-    }
     if (!sst_ok(c))
         return false;
     if (ptr > XSTACK_SIZE || src >= COM_SOURCE_COUNT)
@@ -257,14 +240,6 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
         regs[i] = cells[i];
     memcpy(xstack, stack, sizeof stack);
     xstack_ptr = ptr;
-    xram_queue_page = page;
-    xram_queue_head = head;
-    xram_queue_tail = tail;
-    for (int i = 0; i < 256; i++)
-    {
-        xram_queue[i][0] = queue[i][0];
-        xram_queue[i][1] = queue[i][1];
-    }
     return true;
 }
 

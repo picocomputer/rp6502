@@ -58,7 +58,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)223385);
+    ASSERT_EQ(sst_size(), (size_t)222870);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -297,13 +297,12 @@ UTEST(sst, a_graphics_mode_comes_back)
     (void)blank;
 }
 
+/* What rw_write does, without a 6502 to do it. Every caller writes the block
+ * the sounding engine was given, so there is no page to test. */
 static void aud_poke(uint16_t at, uint8_t val)
 {
     xram[at] = val;
-    uint8_t next = (uint8_t)(xram_queue_head + 1);
-    xram_queue[next][0] = (uint8_t)at;
-    xram_queue[next][1] = val;
-    xram_queue_head = next;
+    aud_xram_write(at, val);
 }
 
 static void aud_note(uint16_t at)
@@ -316,7 +315,7 @@ static void aud_note(uint16_t at)
     xram[at + 3] = 0x04; /* full volume (the table descends), attack rate 4 */
     xram[at + 4] = 0x28; /* sustain two steps down, decay rate 8 */
     xram[at + 5] = 0x08; /* sine, release rate 8 */
-    xram[at + 6] = 0x00; /* psg_sample starts a note only from a queued write */
+    xram[at + 6] = 0x00; /* psg_sample starts a note only from a reported write */
 }
 
 static void aud_pull(float *dst, int frames)

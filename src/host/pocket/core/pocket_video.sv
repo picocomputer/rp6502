@@ -60,9 +60,16 @@ module pocket_video (
             : cv == CV_320_180 ? 10'd180
             : cv == CV_640_360 ? 10'd360 : 10'(V_ACTIVE);
     endfunction
+    /* A 320 wide canvas spans two lines of timing per row of graphics, so
+     * the writer hands one row over every other line and the reader has to
+     * take them at the same cadence or it outruns the FIFO. The scaler still
+     * receives cv_ch rows either way. */
     function automatic logic cv_row_sel(input logic [2:0] cv,
                                         input logic [9:0] line);
-        cv_row_sel = line < cv_ch(cv);
+        logic [9:0] lines;
+        lines = cv_w320(cv) ? 10'(cv_ch(cv) << 1) : cv_ch(cv);
+        cv_row_sel = cv_w320(cv) ? !line[0] && line < lines
+                                 : line < lines;
     endfunction
 
     /* sof_arm tags the frame's first pixel. vid_frame is high only on a
@@ -128,7 +135,7 @@ module pocket_video (
     end
     always_ff @(posedge clk_vid) begin
         if (checked && run_v2 && locked && take && fifo_empty)
-            $error("pocket_video: pixel fifo underflow");
+            $error("pocket_video: pixel fifo underflow at y=%0d x=%0d", y, x);
     end
 `endif
 
@@ -186,6 +193,14 @@ module pocket_video (
         b8 = {fifo_pixel[15:11], fifo_pixel[15:13]};
     end
 
+    /* HS delimits a scanline and the scaler counts rows by it, so a line
+     * that carries no scanline must carry no HS either. A 320 wide canvas
+     * hands a row over every other line of timing; without this the rows
+     * land on every second row of the scaler's frame. */
+    logic hs_gap;
+    always_comb hs_gap = cv_w320(canvas) && y[0]
+        && y < 10'(cv_ch(canvas) << 1);
+
     logic relock;
     always_comb relock = run_v2 && !locked && !fifo_empty && fifo_sof;
 
@@ -220,7 +235,7 @@ module pocket_video (
 
         pocket_video_vs <= relock || (raster && x == 10'(H_TOTAL - 1)
                                       && y == 10'(V_TOTAL - 1));
-        pocket_video_hs <= raster && x == 10'd2;
+        pocket_video_hs <= raster && x == 10'd2 && !hs_gap;
         pocket_video_de <= de_sel;
         pocket_video_rgb <= de_sel ? (locked ? {r8, g8, b8} : 24'h0)
             : endline_now ? {11'(slot), 13'd0}

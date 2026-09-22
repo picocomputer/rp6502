@@ -119,6 +119,15 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
     run_case(utest_result, "mode2_trimy", 0x70ABB716, MUT_BUDGET_NONE);
 }
 
+/* The tile pointer is not checked when the mode is programmed, because mode 2
+ * does not require a full tile set in XRAM. The last tiles here are addressed
+ * past the end, so this pins the tile both the renderer and mode2.sv leave
+ * transparent black, and keeps the renderer off the far side of the array. */
+UTEST(mode2, tile_off_the_end_320x240)
+{
+    run_case(utest_result, "mode2_tileoob", 0xD03C4762, MUT_BUDGET_NONE);
+}
+
 UTEST(mode3, bpp8_xram_palette_640x480)
 {
     run_case(utest_result, "mode3_8bpp", 0x6B55D171, MUT_BUDGET_UNDER);
@@ -127,6 +136,42 @@ UTEST(mode3, bpp8_xram_palette_640x480)
 UTEST(mode3, two_bpp8_fills_serial_640x480)
 {
     run_case(utest_result, "fill_heavy640", 0x42E2D810, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode3, three_bpp8_fills_serial_640x480)
+{
+    run_case(utest_result, "fill_three640", 0x6ABDA34F, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode1, three_bpp8_8x8_text_planes_640x480)
+{
+    run_case(utest_result, "text_three640", 0x982FCF90, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode3, three_bpp16_fills_serial_640x480)
+{
+    run_case(utest_result, "fill_three640_16bpp", 0xCECCF650, MUT_BUDGET_UNDER);
+}
+
+/* Fill and sprites have a clock budget each, but one XRAM port between them,
+ * and three 16bpp fills ask that port for a word almost every clock. */
+UTEST(mode4, sprites_over_three_bpp16_fills_640x480)
+{
+    run_case(utest_result, "fill_three640_16bpp_spr", 0xFE3BF35C,
+             MUT_BUDGET_NONE);
+}
+
+/* The odd bitmap's words start eight bits into a pixel and the even one's do
+ * not, so this pins that the fill tail carries no bit phase from one plane
+ * into the next. */
+UTEST(mode3, two_bpp16_planes_of_opposite_byte_parity_640x480)
+{
+    run_case(utest_result, "mode3_16parity", 0x4BEB0F74, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode3, bpp16_odd_data_wrap_640x360)
+{
+    run_case(utest_result, "mode3_16odd_wrap", 0xFA27DA4F, MUT_BUDGET_NONE);
 }
 
 UTEST(mode3, bpp1_builtin_320x240)
@@ -198,17 +243,47 @@ UTEST(mode4, log6_plane2_320x180)
 
 UTEST(mode4, affine_identity_320x240)
 {
-    run_case(utest_result, "mode4a_id", 0x8BF4D7AA, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_id", 0x37028F77, MUT_BUDGET_NONE);
+}
+
+/* The identity matrix maps the sprite onto its image 1:1, so an affine blit
+ * has to put every texel where the plain blit puts it. A seed one column off
+ * drops image column 0 and blanks the sprite's right edge, which a CRC alone
+ * would not name. */
+UTEST(mode4, affine_identity_matches_plain)
+{
+    int w, h, pw, ph;
+    ASSERT_TRUE(corpus_size("mode4a_same", &w, &h));
+    ASSERT_TRUE(corpus_size("mode4_same", &pw, &ph));
+    ASSERT_EQ(w, pw);
+    ASSERT_EQ(h, ph);
+    const size_t px = (size_t)w * (size_t)h;
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/mode4a_same.rp6502", ROMS_DIR);
+    ASSERT_TRUE(mut_boot(path));
+    memcpy(settled, mut_frame(w, h), px * sizeof(uint32_t));
+
+    snprintf(path, sizeof(path), "%s/mode4_same.rp6502", ROMS_DIR);
+    ASSERT_TRUE(mut_boot(path));
+    const uint32_t *plain = mut_frame(w, h);
+    for (size_t i = 0; i < px; i++)
+        if (settled[i] != plain[i])
+        {
+            fprintf(stderr, "affine/plain differ at %zu,%zu: %08X vs %08X\n",
+                    i % (size_t)w, i / (size_t)w, settled[i], plain[i]);
+            ASSERT_EQ(settled[i], plain[i]);
+        }
 }
 
 UTEST(mode4, affine_rotate_scale_320x240)
 {
-    run_case(utest_result, "mode4a_rot", 0x3A9DC1C9, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_rot", 0x3AB82A3C, MUT_BUDGET_NONE);
 }
 
 UTEST(mode4, affine_clips_over_fill_640x480)
 {
-    run_case(utest_result, "mode4a_clip", 0x960EBF4F, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode4a_clip", 0xE7650D4E, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode4, log_range_halfword_descs_320x240)
@@ -218,7 +293,7 @@ UTEST(mode4, log_range_halfword_descs_320x240)
 
 UTEST(mode4, affine_small_and_rotated_largest_320x240)
 {
-    run_case(utest_result, "mode4a_sizes", 0xFFA1B12B, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_sizes", 0x9B917685, MUT_BUDGET_NONE);
 }
 
 UTEST(mode4, odd_image_with_metadata_320x240)
@@ -228,7 +303,7 @@ UTEST(mode4, odd_image_with_metadata_320x240)
 
 UTEST(mode4, affine_odd_image_320x240)
 {
-    run_case(utest_result, "mode4a_odd", 0x6C651640, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode4a_odd", 0x63349B0F, MUT_BUDGET_NONE);
 }
 
 UTEST(mode5, bpp8_8x8_sprite_only_320x240)
@@ -266,6 +341,66 @@ UTEST(mode5, bpp4_256_640x480)
     run_case(utest_result, "mode5_4bpp256", 0xC38CE6F2, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode5, one_sprite_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5_onrow", 0x25D8DF03, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, two_sprites_on_a_row_320x240)
+{
+    run_case(utest_result, "mode5_onrow2", 0x2BE392C6, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, one_32x32_on_its_row_320x240)
+{
+    run_case(utest_result, "mode5_on32", 0x4657EB9D, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, two_32x32_on_a_row_320x240)
+{
+    run_case(utest_result, "mode5_on32x2", 0x8923899F, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode5, long_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode5_offrow", 0x25D8DF03, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, one_sprite_on_its_row_320x240)
+{
+    run_case(utest_result, "mode4_onrow", 0x465A87A3, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_sprites_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4_onrow2", 0x2D69C35B, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, one_8x8_on_its_row_320x240)
+{
+    run_case(utest_result, "mode4_on8", 0xAFB60952, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_8x8_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4_on8x2", 0x1F8FBC05, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, two_affine_on_a_row_320x240)
+{
+    run_case(utest_result, "mode4a_onrow2", 0x2D69C35B, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, long_affine_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode4a_offrow", 0x465A87A3, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode4, long_list_one_on_the_row_320x240)
+{
+    run_case(utest_result, "mode4_offrow", 0x465A87A3, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode0, overlay_windowed_640x480)
 {
     run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_NONE);
@@ -294,6 +429,16 @@ UTEST(mode0, console_return_restores_vsync_line)
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)
 {
     run_case(utest_result, "prog_bands", 0xD2BCF38B, MUT_BUDGET_NONE);
+}
+
+/* 20 sprites of 64x64 at 8bpp stacked on one row of a 320 wide canvas. Their
+ * images cycle through the palette, so the cache misses and a sprite costs
+ * about a hundred clocks: more than one line, fewer than the two a 320 row
+ * has. The bench measures the pair as one unit, so the printed worst is the
+ * row's total against 3,198. */
+UTEST(mode5, a_320_row_spends_two_lines_of_sprites)
+{
+    run_case(utest_result, "sprite_pair", 0x7C667FB3, MUT_BUDGET_UNDER);
 }
 
 MUT_MAIN()

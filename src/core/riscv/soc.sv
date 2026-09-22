@@ -56,17 +56,13 @@ module soc
     output logic soc_halted,
     output logic [31:0] soc_exit_code,
 
-    input logic bus_rdy,
-    /* bus_taken is set by wiring rather than derived here from bus_rdy.
-     * wiring samples soc_bus_stb on a falling edge of clk_sys and takes
-     * the access on the next rising edge of clk_mach, which is clk_sys
-     * behind a clock gate. clk runs at half the rate of clk_sys, so that
-     * edge can lie between two rising edges of clk, and bus_rdy can
-     * change on it. bus_rdy sampled here could then be low for an access
-     * that wiring has already taken, and the access would happen twice. */
+    /* wiring sets bus_taken on its own clock, on the first edge that
+     * finds the access pending and its target able to finish it, and
+     * holds it until soc_bus_pend drops. Nothing else about the access
+     * comes back: the data phase ends one clk cycle after the request is
+     * withdrawn, and by then the target has the word. */
     input logic bus_taken,
     output logic soc_bus_pend,
-    output logic soc_bus_stb,
     output logic soc_bus_we,
     output logic [31:0] soc_bus_addr,
     output logic [31:0] soc_bus_wdata,
@@ -88,6 +84,20 @@ module soc
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
+    /* The core makes its data0 write from a register through its CSR
+     * path, and the falling edge that takes it in wiring is half a
+     * system clock on, so it is registered here first. */
+    logic [31:0] dbg_data0_w;
+    logic dbg_data0_wen_w;
+    initial begin
+        soc_dbg_data0 = '0;
+        soc_dbg_data0_wen = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        soc_dbg_data0 <= dbg_data0_w;
+        soc_dbg_data0_wen <= dbg_data0_wen_w;
+    end
+
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
@@ -125,8 +135,8 @@ module soc
         .dbg_halted(soc_dbg_halted),
         .dbg_running(),
         .dbg_data0_rdata(sst_dbg_data0),
-        .dbg_data0_wdata(soc_dbg_data0),
-        .dbg_data0_wen(soc_dbg_data0_wen),
+        .dbg_data0_wdata(dbg_data0_w),
+        .dbg_data0_wen(dbg_data0_wen_w),
         .dbg_instr_data(sst_dbg_instr),
         .dbg_instr_data_vld(sst_dbg_instr_vld),
         .dbg_instr_data_rdy(soc_dbg_instr_rdy),
@@ -249,13 +259,10 @@ module soc
 
     always_comb soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
-        soc_bus_stb = soc_bus_pend && bus_rdy;
-        /* soc_bus_we is not qualified with soc_bus_stb, because when
-         * wiring is built with EXT_RAM set, pocket_sram captures the
-         * write enable when it starts a port B access, and
-         * pocket_sram_b_stall holds bus_rdy low at that point. A
-         * qualified soc_bus_we would be low there, so the write would be
-         * performed as a read and lost. */
+        /* soc_bus_we holds for the whole request, because when wiring is
+         * built with EXT_RAM set, pocket_sram captures the write enable
+         * when it starts a port B access, which is before the access is
+         * taken. */
         soc_bus_we = dph_write;
         soc_bus_addr = dph_addr;
         soc_bus_wdata = hwdata;

@@ -11,410 +11,108 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-static inline __attribute__((always_inline)) void
-mode_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+/* GCC folds the index scaling into the load, ldr rN,[rBase,rIdx,lsl #2], only
+ * while the table base is a register it holds. Left an sp-relative local it
+ * spends an extra add per pixel pair, four more instructions on every cell of
+ * every scanline. Nothing is emitted for the asm; it only stops the base being
+ * rematerialized from sp. */
+#if defined(__GNUC__) && defined(__arm__)
+#define MODE_PIN(name) __asm__("" : "+r"(name))
+#else
+#define MODE_PIN(name) ((void)0)
+#endif
+
+#define MODE_TABLE(name, n)          \
+    uint32_t name##_storage[n];      \
+    uint32_t *name = name##_storage; \
+    MODE_PIN(name)
+
+/* A scanline buffer word is two pixels, the left one in the low half. Expanding
+ * through a table of the four ways a pixel pair can land costs no branches,
+ * where a switch on a nibble costs an indirect one per nibble. */
+typedef uint32_t mode_word_t __attribute__((aligned(1), may_alias));
+
+/* MSVC defines neither macro. */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+_Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+               "a pixel pair packs the left pixel in the low half");
+#endif
+
+static inline __attribute__((always_inline)) uint32_t
+mode_pack2(uint16_t left, uint16_t right)
 {
-    switch (bits >> 4)
-    {
-    case 0:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 1:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 2:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 3:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 4:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 5:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 6:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 7:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 8:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 9:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 10:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 11:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 12:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 13:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 14:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 15:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    }
-    switch (bits & 0xF)
-    {
-    case 0:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 1:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 2:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 3:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 4:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 5:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 6:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 7:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 8:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 9:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 10:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 11:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 12:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 13:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 14:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 15:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    }
+    return (uint32_t)left | ((uint32_t)right << 16);
+}
+
+/* Indexed by two glyph bits, the left pixel's bit the higher of the two. */
+static inline __attribute__((always_inline)) void
+mode_pair_set(uint32_t *pair, uint16_t bg, uint16_t fg)
+{
+    pair[0] = mode_pack2(bg, bg);
+    pair[1] = mode_pack2(bg, fg);
+    pair[2] = mode_pack2(fg, bg);
+    pair[3] = mode_pack2(fg, fg);
+}
+
+/* Reversing the bit order within the byte only swaps the mixed entries. */
+static inline __attribute__((always_inline)) void
+mode_pair_set_reverse(uint32_t *pair, uint16_t bg, uint16_t fg)
+{
+    pair[0] = mode_pack2(bg, bg);
+    pair[1] = mode_pack2(fg, bg);
+    pair[2] = mode_pack2(bg, fg);
+    pair[3] = mode_pack2(fg, fg);
 }
 
 static inline __attribute__((always_inline)) void
-mode_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+mode_render_1bpp(uint16_t *buf, uint8_t bits, const uint32_t *pair)
 {
-    switch (bits & 0xF)
-    {
-    case 0:
-        buf[3] = bg;
-        buf[2] = bg;
-        buf[1] = bg;
-        buf[0] = bg;
-        break;
-    case 1:
-        buf[3] = bg;
-        buf[2] = bg;
-        buf[1] = bg;
-        buf[0] = fg;
-        break;
-    case 2:
-        buf[3] = bg;
-        buf[2] = bg;
-        buf[1] = fg;
-        buf[0] = bg;
-        break;
-    case 3:
-        buf[3] = bg;
-        buf[2] = bg;
-        buf[1] = fg;
-        buf[0] = fg;
-        break;
-    case 4:
-        buf[3] = bg;
-        buf[2] = fg;
-        buf[1] = bg;
-        buf[0] = bg;
-        break;
-    case 5:
-        buf[3] = bg;
-        buf[2] = fg;
-        buf[1] = bg;
-        buf[0] = fg;
-        break;
-    case 6:
-        buf[3] = bg;
-        buf[2] = fg;
-        buf[1] = fg;
-        buf[0] = bg;
-        break;
-    case 7:
-        buf[3] = bg;
-        buf[2] = fg;
-        buf[1] = fg;
-        buf[0] = fg;
-        break;
-    case 8:
-        buf[3] = fg;
-        buf[2] = bg;
-        buf[1] = bg;
-        buf[0] = bg;
-        break;
-    case 9:
-        buf[3] = fg;
-        buf[2] = bg;
-        buf[1] = bg;
-        buf[0] = fg;
-        break;
-    case 10:
-        buf[3] = fg;
-        buf[2] = bg;
-        buf[1] = fg;
-        buf[0] = bg;
-        break;
-    case 11:
-        buf[3] = fg;
-        buf[2] = bg;
-        buf[1] = fg;
-        buf[0] = fg;
-        break;
-    case 12:
-        buf[3] = fg;
-        buf[2] = fg;
-        buf[1] = bg;
-        buf[0] = bg;
-        break;
-    case 13:
-        buf[3] = fg;
-        buf[2] = fg;
-        buf[1] = bg;
-        buf[0] = fg;
-        break;
-    case 14:
-        buf[3] = fg;
-        buf[2] = fg;
-        buf[1] = fg;
-        buf[0] = bg;
-        break;
-    case 15:
-        buf[3] = fg;
-        buf[2] = fg;
-        buf[1] = fg;
-        buf[0] = fg;
-        break;
-    }
-    switch (bits >> 4)
-    {
-    case 0:
-        buf[7] = bg;
-        buf[6] = bg;
-        buf[5] = bg;
-        buf[4] = bg;
-        break;
-    case 1:
-        buf[7] = bg;
-        buf[6] = bg;
-        buf[5] = bg;
-        buf[4] = fg;
-        break;
-    case 2:
-        buf[7] = bg;
-        buf[6] = bg;
-        buf[5] = fg;
-        buf[4] = bg;
-        break;
-    case 3:
-        buf[7] = bg;
-        buf[6] = bg;
-        buf[5] = fg;
-        buf[4] = fg;
-        break;
-    case 4:
-        buf[7] = bg;
-        buf[6] = fg;
-        buf[5] = bg;
-        buf[4] = bg;
-        break;
-    case 5:
-        buf[7] = bg;
-        buf[6] = fg;
-        buf[5] = bg;
-        buf[4] = fg;
-        break;
-    case 6:
-        buf[7] = bg;
-        buf[6] = fg;
-        buf[5] = fg;
-        buf[4] = bg;
-        break;
-    case 7:
-        buf[7] = bg;
-        buf[6] = fg;
-        buf[5] = fg;
-        buf[4] = fg;
-        break;
-    case 8:
-        buf[7] = fg;
-        buf[6] = bg;
-        buf[5] = bg;
-        buf[4] = bg;
-        break;
-    case 9:
-        buf[7] = fg;
-        buf[6] = bg;
-        buf[5] = bg;
-        buf[4] = fg;
-        break;
-    case 10:
-        buf[7] = fg;
-        buf[6] = bg;
-        buf[5] = fg;
-        buf[4] = bg;
-        break;
-    case 11:
-        buf[7] = fg;
-        buf[6] = bg;
-        buf[5] = fg;
-        buf[4] = fg;
-        break;
-    case 12:
-        buf[7] = fg;
-        buf[6] = fg;
-        buf[5] = bg;
-        buf[4] = bg;
-        break;
-    case 13:
-        buf[7] = fg;
-        buf[6] = fg;
-        buf[5] = bg;
-        buf[4] = fg;
-        break;
-    case 14:
-        buf[7] = fg;
-        buf[6] = fg;
-        buf[5] = fg;
-        buf[4] = bg;
-        break;
-    case 15:
-        buf[7] = fg;
-        buf[6] = fg;
-        buf[5] = fg;
-        buf[4] = fg;
-        break;
-    }
+    mode_word_t *w = (mode_word_t *)buf;
+    w[0] = pair[bits >> 6];
+    w[1] = pair[(bits >> 4) & 3];
+    w[2] = pair[(bits >> 2) & 3];
+    w[3] = pair[bits & 3];
+}
+
+static inline __attribute__((always_inline)) void
+mode_render_1bpp_reverse(uint16_t *buf, uint8_t bits, const uint32_t *pair)
+{
+    mode_word_t *w = (mode_word_t *)buf;
+    w[0] = pair[bits & 3];
+    w[1] = pair[(bits >> 2) & 3];
+    w[2] = pair[(bits >> 4) & 3];
+    w[3] = pair[bits >> 6];
+}
+
+/* A 2bpp nibble is a whole pixel pair, so one byte is two words. */
+static inline __attribute__((always_inline)) void
+mode_quad_set(uint32_t *quad, const uint16_t *pal)
+{
+    for (int i = 0; i < 16; i++)
+        quad[i] = mode_pack2(pal[i >> 2], pal[i & 3]);
+}
+
+static inline __attribute__((always_inline)) void
+mode_quad_set_reverse(uint32_t *quad, const uint16_t *pal)
+{
+    for (int i = 0; i < 16; i++)
+        quad[i] = mode_pack2(pal[i & 3], pal[i >> 2]);
+}
+
+static inline __attribute__((always_inline)) void
+mode_render_2bpp(uint16_t *buf, uint8_t bits, const uint32_t *quad)
+{
+    mode_word_t *w = (mode_word_t *)buf;
+    w[0] = quad[bits >> 4];
+    w[1] = quad[bits & 0x0F];
+}
+
+static inline __attribute__((always_inline)) void
+mode_render_2bpp_reverse(uint16_t *buf, uint8_t bits, const uint32_t *quad)
+{
+    mode_word_t *w = (mode_word_t *)buf;
+    w[0] = quad[bits & 0x0F];
+    w[1] = quad[bits >> 4];
 }
 
 static inline __attribute__((always_inline)) void

@@ -19,12 +19,27 @@ if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
     create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
     create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
         [get_ports clk_rv]
+    # XRAM's port clock and its phase reference, as pocket_pll.v shifts them.
+    create_clock -name clk_a2 -period 9.921 -waveform {8.990 13.951} \
+        [get_ports clk_a2]
+    create_clock -name clk_ph -period 19.841 -waveform {12.400 22.321} \
+        [get_ports clk_ph]
 
     set_false_path -from [all_inputs] -to [all_registers]
     set_false_path -from [all_registers] -to [all_outputs]
 }
 
 derive_clock_uncertainty
+
+# XRAM's port A data registers are on clk_a2 but take a word only on the
+# first of its two edges after the machine's, the one xram.sv's ph gate
+# names, so what the machine's registers read was launched 12.4 ns before
+# their edge and not 2.5. The hold check stays on the edges the data
+# really moves on.
+set_multicycle_path -setup -start -from [get_registers \
+    {*xram:xram|xram_f_rdata[*] *xram:xram|xram_s_rdata[*]}] 2
+set_multicycle_path -hold  -start -from [get_registers \
+    {*xram:xram|xram_f_rdata[*] *xram:xram|xram_s_rdata[*]}] 1
 
 set_multicycle_path -setup -from [get_registers {*cpu:*}] 4
 set_multicycle_path -hold  -from [get_registers {*cpu:*}] 3

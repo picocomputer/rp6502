@@ -76,6 +76,16 @@ static void tb_stage_clear()
     tb_stage_store().clear();
 }
 
+static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr);
+
+/* The machine takes the staging store a halfword at a time and picks the
+ * byte itself. */
+static uint16_t tb_stage_half(const std::vector<uint8_t> &rom, uint32_t addr)
+{
+    addr &= ~1u;
+    return (uint16_t)(tb_stage(rom, addr) | (tb_stage(rom, addr + 1) << 8));
+}
+
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
 {
     std::map<uint32_t, uint8_t> &m = tb_stage_store();

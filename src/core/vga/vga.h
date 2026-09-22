@@ -31,6 +31,7 @@ uint8_t vga_get_display_type(void);
 void vga_canvas_size(int *w, int *h);
 int16_t vga_canvas_height(void);
 int16_t vga_canvas_width(void);
+int16_t vga_canvas_y_scale(void);
 
 bool vga_canvas_is_console(void);
 
@@ -80,9 +81,10 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end
 static inline int16_t vga_vsync_line(void)
 {
     int16_t highest = vga_prog_highest();
-    if (highest > 0 && highest <= vga_canvas_height())
-        return highest;
-    return vga_canvas_height();
+    if (!(highest > 0 && highest <= vga_canvas_height()))
+        highest = vga_canvas_height();
+    /* In lines of timing, which is what the beam counts. */
+    return highest * vga_canvas_y_scale();
 }
 
 /* Book scanlines for a mode. fill_fn is the renderer itself where the machine
