@@ -16,8 +16,6 @@ module mode4 (
     input logic start,
     input logic abort_i,
     input logic [15:0] attr,
-    input logic [15:0] cfg,
-    input logic [15:0] length,
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
@@ -28,19 +26,15 @@ module mode4 (
 
     /* The descriptor list queue sprite.sv shares between the engines:
      * what it needs from this one, and the descriptor at its head. */
-    output logic [13:0] mode4_lq_last,
     output logic mode4_lq_active,
     output logic [3:0] mode4_lq_size,
     output logic mode4_lq_pop,
-    output logic [3:0] mode4_lq_cap,
-    output logic mode4_lq_pop_room,
     output logic mode4_lq_gnt,
-    output logic mode4_lq_land,
-    output logic mode4_lq_flight,
     input logic lq_req,
     input logic [13:0] lq_addr,
     input logic [159:0] lq_dsc,
     input logic lq_v,
+    input logic lq_end,
 
     /* The row word queue sprite.sv shares between the engines: what it
      * needs from this one, and the words it holds. */
@@ -50,8 +44,6 @@ module mode4 (
     output logic mode4_rq_want,
     output logic mode4_rq_pop,
     output logic mode4_rq_pop_room,
-    output logic mode4_rq_land,
-    output logic mode4_rq_flight,
     input logic rq_req,
     input logic [13:0] rq_addr,
     input logic [31:0] rq_q0,
@@ -74,32 +66,20 @@ module mode4 (
     } state_t;
     state_t state;
 
-    logic [15:0] idx;
     logic [2:0] fw_i;
 
-    /* XRAM answers the sprite stage two clocks after a grant, and each
-     * grant is remembered as the list's or the row's so the word goes
-     * where it was asked for. */
-    logic gnt_d1, gnt_d, tag1, tag2;
+    /* XRAM answers the sprite stage two clocks after a grant. These follow
+     * the engine's own metadata and affine words; the queues follow
+     * theirs. */
+    logic eng_d1, eng_d2;
 
-    /* The list streams in ahead of the sprites through its own queue,
-     * which holds eight words for this engine. */
+    /* The list streams in ahead of the sprites through its own queue. */
     always_comb begin
-        mode4_lq_last = list_end[15:2];
         mode4_lq_active = state != M4_IDLE;
         mode4_lq_size = affine ? 4'd10 : 4'd4;
         mode4_lq_pop = dpop;
-        mode4_lq_cap = 4'd8;
-        mode4_lq_pop_room = 1'b0;
         mode4_lq_gnt = req_is_desc && a_gnt;
-        mode4_lq_land = desc_land;
-        mode4_lq_flight = gnt_d1 && tag1;
     end
-    logic [16:0] list_end;
-    always_comb list_end = {1'b0, cfg}
-        + (affine ? 17'(17'(length[12:0]) * 17'd20)
-                  : {1'b0, length[12:0], 3'b000})
-        - 17'd1;
 
     /* mode4_asprite_t is transform[6] followed by mode4_sprite_t's own
      * fields, so the two kinds differ only in where the common fields
@@ -135,20 +115,19 @@ module mode4 (
      * register and the XRAM's address port. */
     logic [7:0] size;
     logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
-    logic [31:0] d_over;  /* the affine path's out-of-square mask */
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
     logic [16:0] img_bytes;
-    logic [17:0] byte_size;
-    always_comb byte_size = {1'b0, img_bytes}
-        + (d_meta ? 18'({size, 2'b00}) : 18'd0);
 
     logic signed [16:0] tex_offs_y;
     always_comb tex_offs_y = 17'($signed({8'd0, t_row}) - 17'(d_y));
     logic signed [16:0] x_start;
     always_comb x_start = d_x < 0 ? 17'sd0 : 17'(d_x);
-    logic signed [16:0] tex_offs_x0;
-    always_comb tex_offs_x0 = x_start - 17'(d_x);
+    /* A drawn sprite is at most 128 wide, so the columns cut off its left
+     * edge, the span and the affine walk fit eight bits. The span's start
+     * can come from the row's metadata, anywhere in fifteen. */
+    logic [6:0] tex_offs_x0;
+    always_comb tex_offs_x0 = d_x < 0 ? 7'(-d_x[6:0]) : 7'd0;
     logic signed [17:0] span_rhs;
     always_comb span_rhs = 18'(d_x) + 18'($signed({10'd0, size}));
     logic signed [17:0] size_x0;
@@ -157,38 +136,42 @@ module mode4 (
                                              : 18'($signed({8'd0, cw})))
         - 18'(x_start);
 
-    logic signed [16:0] tex_x, span_end;
+    logic [7:0] span_end;
     logic meta_cont;
     logic [16:0] row_texel;  /* texel index of the row's first column */
 
+    /* The row's metadata is a word at that address, and the image's low
+     * bits are its own, so off a word boundary it arrives in two. The
+     * second word's address is the first's plus three bytes, which the
+     * adder's free low bits carry. */
     logic [16:0] meta_addr;
     always_comb meta_addr = {1'b0, d_sptr} + img_bytes[16:0]
-        + {8'd0, tex_offs_y[6:0], 2'b00};
-    /* The row's metadata is a word at that address, and the image's low
-     * bits are its own, so off a word boundary it arrives in two. */
+        + {8'd0, tex_offs_y[6:0], fw_i[0], fw_i[0]};
+    logic [1:0] meta_o;
+    always_comb meta_o = d_sptr[1:0] + img_bytes[1:0];
     logic [2:0] meta_n;
-    always_comb meta_n = meta_addr[1:0] == 2'd0 ? 3'd1 : 3'd2;
+    always_comb meta_n = meta_o == 2'd0 ? 3'd1 : 3'd2;
     logic [31:0] meta_lo;
     logic meta_lo_v;
     logic [31:0] meta_w;
-    always_comb meta_w = meta_addr[1:0] == 2'd0
+    always_comb meta_w = meta_o == 2'd0
         ? a_rdata
-        : 32'({a_rdata, meta_lo} >> {meta_addr[1:0], 3'b000});
+        : 32'({a_rdata, meta_lo} >> {meta_o, 3'b000});
     /* Registered before the span arithmetic, which would otherwise run
      * from the XRAM's data port through two adders in the part of a
      * clock the port leaves. */
     logic [31:0] meta_q;
 
-    logic signed [16:0] px_i;
+    logic [14:0] px_i;
     logic [9:0] dst;
 
     logic [17:0] tex_byte_addr;
     always_comb tex_byte_addr = {1'b0, d_sptr}
-        + {(17'(row_texel) + 17'(px_i[15:0])), 1'b0};
+        + {(17'(row_texel) + 17'(px_i)), 1'b0};
     /* The last texel's high byte. */
     logic [17:0] end_byte;
     always_comb end_byte = {1'b0, d_sptr}
-        + {(17'(row_texel) + 17'(span_end[15:0])), 1'b0} - 18'd1;
+        + {(17'(row_texel) + 17'(span_end)), 1'b0} - 18'd1;
 
     /* The plain path streams the row's words through the queue. A pair of
      * texels is four bytes, so every pair pops a word whatever the row's
@@ -197,25 +180,23 @@ module mode4 (
         mode4_rq_run = state == M4_PIX;
         mode4_rq_first = tex_byte_addr[15:2];
         mode4_rq_last = end_byte[15:2];
-        mode4_rq_want = left > 17'sd0;
+        mode4_rq_want = left > 16'sd0;
         mode4_rq_pop = pop;
         mode4_rq_pop_room = pop;
-        mode4_rq_land = eng_land;
-        mode4_rq_flight = gnt_d1 && !tag1;
     end
 
     /* A texel at byte 3 of a word, or the second of a pair past byte
      * 0, takes bytes from the next word too. */
     logic [1:0] tex_o;
     always_comb tex_o = tex_byte_addr[1:0];
-    logic signed [16:0] left;
-    always_comb left = span_end - px_i;
+    logic signed [15:0] left;
+    always_comb left = $signed({8'd0, span_end}) - $signed({1'b0, px_i});
     logic need2, q_ok, emit, emit_pair, pop;
     always_comb begin
-        need2 = tex_o == 2'd3 || (tex_o != 2'd0 && left > 17'sd1);
+        need2 = tex_o == 2'd3 || (tex_o != 2'd0 && left > 16'sd1);
         q_ok = need2 ? rq_n >= 3'd2 : rq_n != 3'd0;
-        emit = state == M4_PIX && q_ok && left > 17'sd0;
-        emit_pair = emit && left > 17'sd1;
+        emit = state == M4_PIX && q_ok && left > 16'sd0;
+        emit_pair = emit && left > 16'sd1;
         pop = emit_pair;
     end
     logic [31:0] pair;
@@ -229,16 +210,17 @@ module mode4 (
     always_comb af_a00 = {{8{d_t[0][15]}}, d_t[0], 8'd0};
     always_comb af_a10 = {{8{d_t[3][15]}}, d_t[3], 8'd0};
     logic [31:0] af_u, af_v;
-    logic [16:0] af_left;   /* pops remaining */
+    logic [7:0] af_left;    /* pops remaining */
     logic af_over;
-    always_comb af_over = ((af_u | af_v) & d_over) != 32'd0;
+    always_comb af_over = ((af_u[31:16] | af_v[31:16])
+                           & {9'h1FF, ~d_mask}) != 16'd0;
     logic [17:0] af_byte_addr;
     always_comb begin
         logic [6:0] ui, vi;
         ui = af_u[22:16] & d_mask;
         vi = af_v[22:16] & d_mask;
         af_byte_addr = {2'b0, d_sptr}
-            + {10'd0, ui, 1'b0}
+            + {10'd0, ui, af_hi}
             + (18'({11'd0, vi}) << (d_log[2:0] + 4'd1));
     end
 
@@ -251,7 +233,7 @@ module mode4 (
      * of each product survive the shift, so the slice is exact and not a
      * rounding. */
     logic signed [17:0] kx;
-    always_comb kx = 18'(tex_offs_x0) + size_x0 - 18'sd1;
+    always_comb kx = $signed({11'd0, tex_offs_x0}) + size_x0 - 18'sd1;
     /* Registered, so the multiply and the sum after it are not one
      * clock's work. Together in one hop this was the longest path in the
      * machine: a size bit through the width adder, a 24-bit multiply,
@@ -275,13 +257,13 @@ module mode4 (
      * sample inside the square asks for its word, or its two when the
      * texel straddles one, and the word lands two clocks on with the
      * column's place and byte carried beside the grant. */
-    logic af_hi;   /* the straddle's second word is the one being asked for */
+    /* The straddle's second word is the one being asked for. It is the
+     * first's plus a byte, which the texel address's free low bit adds. */
+    logic af_hi;
     logic af_straddle;
     always_comb af_straddle = af_byte_addr[1:0] == 2'b11;
-    logic [13:0] af_hi_word;
-    always_comb af_hi_word = af_byte_addr[15:2] + 14'd1;
     logic af_fetch;
-    always_comb af_fetch = state == M4_APOP && af_left != 17'd0 && !af_over;
+    always_comb af_fetch = state == M4_APOP && af_left != 8'd0 && !af_over;
     logic [9:0] m_dst1, m_dst2;
     logic [1:0] m_o1, m_o2;
     logic m_hi1, m_hi2;
@@ -296,33 +278,30 @@ module mode4 (
      * the port leaves. */
     logic [31:0] af_word;
     logic [9:0] af_dst;
-    logic [1:0] af_o;
-    logic af_hi_q, af_wv;
+    logic [1:0] af_s;   /* the texel's byte in {af_word, lo_byte} */
+    logic af_wv;
     logic [15:0] af_texel;
-    always_comb af_texel = af_hi_q
-        ? {af_word[7:0], lo_byte}
-        : 16'(af_word >> {af_o, 3'b000});
+    always_comb af_texel = 16'({af_word, lo_byte} >> {af_s, 3'b000});
 
     /* The row's words come first; the list fills in behind. */
-    logic eng_req, eng_gnt, eng_land, desc_land, req_is_desc;
+    logic eng_req, eng_gnt, eng_land, req_is_desc;
     logic dpop;
     logic [13:0] eng_addr;
     always_comb begin
-        eng_land = gnt_d && !tag2;
-        desc_land = gnt_d && tag2;
+        eng_land = eng_d2;
         dpop = state == M4_DECODE && lq_v;
         eng_req = 1'b0;
         eng_addr = rq_addr;
         case (state)
             M4_META: begin
                 eng_req = fw_i < meta_n;
-                eng_addr = meta_addr[15:2] + {11'd0, fw_i};
+                eng_addr = meta_addr[15:2];
             end
             M4_PIX:
                 eng_req = rq_req;
             M4_APOP: begin
                 eng_req = af_fetch;
-                eng_addr = af_hi ? af_hi_word : af_byte_addr[15:2];
+                eng_addr = af_byte_addr[15:2];
             end
             default: ;
         endcase
@@ -332,42 +311,32 @@ module mode4 (
         eng_gnt = eng_req && a_gnt;
     end
 
+    /* An affine texel is written only outside the plain path's pixel
+     * state, and never as the pair's second. */
     always_comb begin
-        mode4_px_we = 2'b00;
-        mode4_px_addr = dst;
-        mode4_px_data = pair;
-        if (state == M4_PIX) begin
-            mode4_px_we[0] = emit && (meta_cont || pair[5]);
-            mode4_px_we[1] = emit_pair && (meta_cont || pair[21]);
-        end else if (af_wv) begin
-            mode4_px_addr = af_dst;
-            mode4_px_data = {16'd0, af_texel};
-            mode4_px_we[0] = af_texel[5];
-        end
+        mode4_px_we[0] = af_wv ? af_texel[5] : emit && (meta_cont || pair[5]);
+        mode4_px_we[1] = emit_pair && (meta_cont || pair[21]);
+        mode4_px_addr = af_wv ? af_dst : dst;
+        mode4_px_data = {pair[31:16], af_wv ? af_texel : pair[15:0]};
     end
 
     task automatic next_sprite();
-        if (idx + 16'd1 == length) begin
+        if (lq_end) begin
             mode4_done <= 1'b1;
             state <= M4_IDLE;
-        end else begin
-            idx <= idx + 16'd1;
+        end else
             state <= M4_DECODE;
-        end
     endtask
 
     task automatic step_af();
         af_u <= af_u - 32'(af_a00);
         af_v <= af_v - 32'(af_a10);
         dst <= dst - 10'd1;
-        af_left <= af_left - 17'd1;
+        af_left <= af_left - 8'd1;
     endtask
 
     initial begin
         state = M4_IDLE;
-        idx = '0;
-        tag1 = 1'b0;
-        tag2 = 1'b0;
         d_x = '0;
         d_y = '0;
         d_sptr = '0;
@@ -376,16 +345,14 @@ module mode4 (
         size = '0;
         img_bytes = '0;
         d_mask = '0;
-        d_over = '0;
         for (int j = 0; j < 6; j++)
             d_t[j] = '0;
         fw_i = '0;
         meta_lo = '0;
         meta_lo_v = 1'b0;
         meta_q = '0;
-        gnt_d1 = 1'b0;
-        gnt_d = 1'b0;
-        tex_x = '0;
+        eng_d1 = 1'b0;
+        eng_d2 = 1'b0;
         span_end = '0;
         meta_cont = 1'b0;
         row_texel = '0;
@@ -404,16 +371,13 @@ module mode4 (
         lo_byte = '0;
         af_word = '0;
         af_dst = '0;
-        af_o = '0;
-        af_hi_q = 1'b0;
+        af_s = '0;
         af_wv = 1'b0;
         mode4_done = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d1 <= a_gnt;
-        gnt_d <= gnt_d1;
-        tag1 <= req_is_desc;
-        tag2 <= tag1;
+        eng_d1 <= eng_gnt;
+        eng_d2 <= eng_d1;
         m_dst1 <= dst;
         m_o1 <= af_byte_addr[1:0];
         m_hi1 <= af_hi;
@@ -425,20 +389,14 @@ module mode4 (
         af_wv <= af_land && !af_lo_land;
         af_word <= a_rdata;
         af_dst <= m_dst2;
-        af_o <= m_o2;
-        af_hi_q <= m_hi2;
+        af_s <= m_hi2 ? 2'd0 : m_o2 + 2'd1;
         mode4_done <= 1'b0;
         if (abort_i) begin
             /* sprite.sv has already counted this lost line; drop it. */
             state <= M4_IDLE;
         end else if (start) begin
-            idx <= '0;
             af_hi <= 1'b0;
-            if (length == 16'd0) begin
-                mode4_done <= 1'b1;
-                state <= M4_IDLE;
-            end else
-                state <= M4_DECODE;
+            state <= M4_DECODE;
         end else begin
             case (state)
                 M4_IDLE: ;
@@ -452,24 +410,24 @@ module mode4 (
                         ? 8'(8'd1 << dc_log[2:0]) : 8'd0;
                     img_bytes <= 17'(17'd2 << {13'd0, dc_log[2:0], 1'b0});
                     d_mask <= 7'((8'd1 << dc_log[2:0]) - 8'd1);
-                    d_over <= 32'hFFFF0000 << dc_log[2:0];
                     for (int j = 0; j < 6; j++)
                         d_t[j] <= dc_t[j];
                     state <= M4_JUDGE;
                 end
                 M4_JUDGE: begin
-                    tex_x <= tex_offs_x0;
-                    span_end <= tex_offs_x0 + 17'(size_x0[16:0]);
+                    span_end <= {1'b0, tex_offs_x0} + size_x0[7:0];
                     meta_cont <= 1'b0;
                     row_texel <= 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
-                    px_i <= tex_offs_x0;
+                    px_i <= {8'd0, tex_offs_x0};
                     dst <= 10'(x_start);
                     fw_i <= '0;
                     meta_lo_v <= 1'b0;
                     if (log_big
-                        || {2'b0, d_sptr} > 18'h10000 - byte_size
-                        || tex_offs_y < 0
-                        || tex_offs_y >= 17'($signed({9'd0, size}))
+                        || {1'b0, d_sptr} + img_bytes
+                           + (d_meta ? 17'({size, 2'b00}) : 17'd0)
+                           > 17'h10000
+                        || |tex_offs_y[16:7]
+                        || |(tex_offs_y[6:0] & ~d_mask)
                         || size_x0 < 18'sd1)
                         next_sprite();
                     else if (affine)
@@ -482,13 +440,13 @@ module mode4 (
                 M4_ASETUP: begin
                     af_u <= 32'(af_u0);
                     af_v <= 32'(af_v0);
-                    af_left <= 17'(size_x0[16:0]);
+                    af_left <= size_x0[7:0];
                     dst <= 10'(x_start + size_x0[16:0] - 17'sd1);
                     af_hi <= 1'b0;
                     state <= M4_APOP;
                 end
                 M4_APOP: begin
-                    if (af_left == 17'd0)
+                    if (af_left == 8'd0)
                         state <= M4_ADRAIN;
                     else if (af_over)
                         step_af();
@@ -504,7 +462,7 @@ module mode4 (
                 /* The last words asked for land here, and the last
                  * texel is written the clock after it lands. */
                 M4_ADRAIN:
-                    if (!eng_land && !(gnt_d1 && !tag1))
+                    if (!eng_d2 && !eng_d1)
                         next_sprite();
                 M4_META: begin
                     if (eng_gnt)
@@ -522,24 +480,23 @@ module mode4 (
                 M4_META2: begin
                     /* Narrow to the row's opaque span. The pixel loop
                      * below skips when the span comes up empty. */
-                    if (17'($signed({2'd0, meta_q[30:16]})) > tex_x) begin
-                        tex_x <= 17'({2'd0, meta_q[30:16]});
-                        px_i <= 17'({2'd0, meta_q[30:16]});
+                    if (meta_q[30:16] > px_i) begin
+                        px_i <= meta_q[30:16];
                         dst <= 10'(17'(d_x) + 17'({2'd0, meta_q[30:16]}));
                     end
-                    if (17'($signed({1'd0, meta_q[15:0]})) < span_end)
-                        span_end <= 17'({1'd0, meta_q[15:0]});
+                    if (meta_q[15:0] < {8'd0, span_end})
+                        span_end <= meta_q[7:0];
                     meta_cont <= meta_q[31];
                     state <= M4_PIX;
                 end
                 M4_PIX: begin
-                    if (left <= 17'sd0)
+                    if (left <= 16'sd0)
                         next_sprite();
                     else if (emit) begin
-                        if (left <= 17'sd2)
+                        if (left <= 16'sd2)
                             next_sprite();
                         else begin
-                            px_i <= px_i + 17'sd2;
+                            px_i <= px_i + 15'd2;
                             dst <= dst + 10'd2;
                         end
                     end
@@ -551,12 +508,10 @@ module mode4 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode4;
-    always_comb unused_mode4 = ^{list_end[16],
-                                     list_end[1:0], length[15:13],
-                                     meta_addr[16],
+    always_comb unused_mode4 = ^{meta_addr[16], meta_addr[1:0],
                                      tex_byte_addr[17:16], size_x0[17],
                                      end_byte[17:16], end_byte[1:0],
-                                     img_bytes, tex_x, attr[15:1],
+                                     img_bytes, attr[15:1],
                                      af_byte_addr[17:16], af_u, af_v};
     /* verilator lint_on UNUSEDSIGNAL */
 

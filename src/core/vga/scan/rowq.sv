@@ -26,8 +26,6 @@ module rowq (
     input logic pop_room,
 
     input logic gnt,
-    input logic land,
-    input logic flight,
     input logic [31:0] a_rdata,
 
     output logic rowq_req,
@@ -41,6 +39,8 @@ module rowq (
     logic [2:0] qn;
     logic [13:0] fp;    /* the next word to ask for, once one has been */
     logic fp_v;
+    /* XRAM answers two clocks after a grant. */
+    logic flight, land;
 
     always_comb begin
         rowq_addr = fp_v ? fp : first;
@@ -57,8 +57,12 @@ module rowq (
         qn = '0;
         fp = '0;
         fp_v = 1'b0;
+        flight = 1'b0;
+        land = 1'b0;
     end
     always_ff @(posedge clk) begin
+        flight <= rowq_req && gnt;
+        land <= flight;
         if (!run) begin
             qn <= '0;
             fp_v <= 1'b0;

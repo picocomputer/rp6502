@@ -614,14 +614,13 @@ module wiring
         ? stage_half[15:8] : stage_half[7:0];
 
     logic api_pending;
-    logic soc_ctl_api, soc_prog;
+    logic soc_ctl_api;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
     logic [2:0] soc_rsel;
     initial begin
         soc_rsel = 3'd0;
         soc_ctl_api = 1'b0;
-        soc_prog = 1'b0;
         stage_addr_q = '0;
     end
     always_ff @(posedge clk_mach) begin
@@ -633,7 +632,6 @@ module wiring
                 : (soc_sel_xram ? 3'd5
                 : (soc_sel_host ? 3'd6 : 3'd0)))));
             soc_ctl_api <= soc_addr[2];
-            soc_prog <= soc_addr[17];
             stage_addr_q <= soc_addr[27:0];
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge
@@ -660,8 +658,7 @@ module wiring
             default: soc_rbyte = sram_b_rdata;
         endcase
         soc_rdata = soc_rsel == 3'd1 ? regs_b_q
-            : (soc_rsel == 3'd4
-               ? (soc_prog ? prog_b_rdata : vid_b_rdata)
+            : (soc_rsel == 3'd4 ? vid_b_rdata
                : (soc_rsel == 3'd6 ? host_rdata : {4{soc_rbyte}}));
     end
 
@@ -861,6 +858,7 @@ module wiring
     end
     xram xram (
         .clk(clk_sys),
+        .clk_mach(clk_mach),
         .clk_a2(clk_a2),
         .clk_ph(clk_ph),
         .f_addr(ma_addr[0]),
@@ -878,7 +876,6 @@ module wiring
         .xram_b_rdata(xram_b_rdata)
     );
 
-    logic [31:0] prog_b_rdata;
     logic [2:0] vid_canvas;
     always_comb wiring_vid_canvas = vid_canvas;
     logic [9:0] vid_cw, vid_ch;
@@ -915,13 +912,12 @@ module wiring
                && soc_addr[17]),
         .b_we(soc_we),
         .b_addr(soc_addr[15:0]),
-        .b_wdata(soc_wdata),
-        .prog_b_rdata(prog_b_rdata)
+        .b_wdata(soc_wdata)
     );
 
-    /* The beam's derived columns, computed once for all three line
-     * buffers: the erase a pixel behind the beam, and the read for the
-     * next pixel, which wraps at the line's end. */
+    /* The beam's derived columns, computed once for the line buffers:
+     * the sprite buffers' erase a pixel behind the beam, and the read for
+     * the next pixel, which wraps at the line's end. */
     logic vid_h_last;
     logic [9:0] vid_sc_addr, vid_rd_addr;
     always_comb begin
@@ -1035,7 +1031,6 @@ module wiring
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             linebuf linebuf (
                 .clk(clk_mach),
-                .sc_addr(vid_sc_addr),
                 .rd_addr(vid_rd_addr),
                 .h_last(vid_h_last),
                 .px_last(vid_px_last),
@@ -1068,7 +1063,6 @@ module wiring
         .sprite_pix(sp_pix),
         .sprite_a_req(ma_req[1]),
         .sprite_a_addr(ma_addr[1]),
-        .a_gnt(ma_req[1]),
         .a_rdata(xram_s_rdata)
     );
 

@@ -13,10 +13,11 @@
  * land two pixels a clock: the two are neighbours, so they are of
  * opposite parity and never meet at one array's write port.
  *
- * Bit 16 marks a pixel as written; the erase side clears it. sprite.sv
- * drives that side a pixel behind the one being displayed, so a bank is
- * already zero when it comes back to write duty and there is no clear
- * pass and no filled flag.
+ * Bit 16 marks a pixel as written; the erase side clears it and leaves
+ * the color, which nothing reads unmarked. sprite.sv drives that side a
+ * pixel behind the one being displayed, so a bank is already unmarked
+ * when it comes back to write duty and there is no clear pass and no
+ * filled flag.
  */
 
 module sbuf (
@@ -24,11 +25,11 @@ module sbuf (
 
     input logic wr_bank,
 
-    /* a_data[16:0] lands at a_addr under a_we[0] and a_data[33:17] at
+    /* a_data[15:0] lands at a_addr under a_we[0] and a_data[31:16] at
      * a_addr + 1 under a_we[1]. */
     input logic [1:0] a_we,
     input logic [9:0] a_addr,
-    input logic [33:0] a_data,
+    input logic [31:0] a_data,
 
     input logic sc_we,
     input logic [9:0] sc_addr,
@@ -61,22 +62,22 @@ module sbuf (
     /* The engine's two pixels, sorted by parity. */
     logic ae_we, ao_we;
     logic [8:0] ae_addr, ao_addr;
-    logic [16:0] ae_data, ao_data;
+    logic [15:0] ae_data, ao_data;
     always_comb begin
         if (a_addr[0]) begin
             ao_we = a_we[0];
             ao_addr = a_addr[9:1];
-            ao_data = a_data[16:0];
+            ao_data = a_data[15:0];
             ae_we = a_we[1];
             ae_addr = a_addr[9:1] + 9'd1;
-            ae_data = a_data[33:17];
+            ae_data = a_data[31:16];
         end else begin
             ae_we = a_we[0];
             ae_addr = a_addr[9:1];
-            ae_data = a_data[16:0];
+            ae_data = a_data[15:0];
             ao_we = a_we[1];
             ao_addr = a_addr[9:1];
-            ao_data = a_data[33:17];
+            ao_data = a_data[31:16];
         end
     end
 
@@ -92,16 +93,16 @@ module sbuf (
     always_comb begin
         b0e_we = wr_bank ? se_we : ae_we;
         b0e_addr = wr_bank ? sc_addr[9:1] : ae_addr;
-        b0e_data = wr_bank ? 17'd0 : ae_data;
+        b0e_data = {!wr_bank, ae_data};
         b0o_we = wr_bank ? so_we : ao_we;
         b0o_addr = wr_bank ? sc_addr[9:1] : ao_addr;
-        b0o_data = wr_bank ? 17'd0 : ao_data;
+        b0o_data = {!wr_bank, ao_data};
         b1e_we = wr_bank ? ae_we : se_we;
         b1e_addr = wr_bank ? ae_addr : sc_addr[9:1];
-        b1e_data = wr_bank ? ae_data : 17'd0;
+        b1e_data = {wr_bank, ae_data};
         b1o_we = wr_bank ? ao_we : so_we;
         b1o_addr = wr_bank ? ao_addr : sc_addr[9:1];
-        b1o_data = wr_bank ? ao_data : 17'd0;
+        b1o_data = {wr_bank, ao_data};
     end
 
     always_ff @(posedge clk)

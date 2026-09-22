@@ -22,10 +22,11 @@ module rowmap (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* The window in pixels, in int16 like the oracle and taken at start,
-     * and the bytes in one row of the plane's data. */
-    input logic [15:0] win_w,
-    input logic [15:0] win_h,
+    /* The window in pixels is the config's width and height times these,
+     * in int16 like the oracle and taken at start; and the bytes in one
+     * row of the plane's data. */
+    input logic [4:0] win_wf,
+    input logic [4:0] win_hf,
     input logic [19:0] sizeof_row,
 
     /* The fold ends on the clock rowmap_settle is high, with the row and
@@ -93,14 +94,17 @@ module rowmap (
      * beam's deadline bounds the pathological ones. The oracle rejects on
      * the int16 height, not the count of rows it is made of. */
     logic rejected, y_lo, y_hi, x_lo, x_hi;
+    logic signed [16:0] row_up;   /* the fold's step down, whose sign says
+                                   * the row is inside */
     always_comb begin
+        row_up = row - h_s;
         rejected = cf_width < 16'sd1 || h_s < 17'sd1;
         y_lo = cf_y_wrap && row < 0;
-        y_hi = cf_y_wrap && row >= h_s;
+        y_hi = cf_y_wrap && !row_up[16];
         x_lo = cf_x_wrap && col < 0;
         x_hi = cf_x_wrap && col >= w_s;
         rowmap_settle = fold && (rejected || !(y_lo || y_hi || x_lo || x_hi));
-        rowmap_reject = rejected || row < 0 || row >= h_s;
+        rowmap_reject = rejected || row < 0 || !row_up[16];
         rowmap_row = row;
         rowmap_col = col;
         rowmap_blank = blank;
@@ -148,8 +152,8 @@ module rowmap (
         else if (start) begin
             row <= 17'($signed(row16));
             col <= 17'($signed(col16));
-            w_s <= 17'($signed(win_w));
-            h_s <= 17'($signed(win_h));
+            w_s <= 17'($signed(16'(cfgw[63:48] * {11'd0, win_wf})));
+            h_s <= 17'($signed(16'(cfgw[79:64] * {11'd0, win_hf})));
             blank <= 1'b0;
             fold <= 1'b1;
         end else if (fold) begin
@@ -159,7 +163,7 @@ module rowmap (
             end else if (y_lo)
                 row <= row + h_s;
             else if (y_hi)
-                row <= row - h_s;
+                row <= row_up;
             else if (x_lo)
                 col <= col + w_s;
             else
@@ -185,7 +189,7 @@ module rowmap (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_rowmap;
-    always_comb unused_rowmap = ^{cfgw[79], pad_left[16:10], run_w[16:10]};
+    always_comb unused_rowmap = ^{pad_left[16:10], run_w[16:10]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

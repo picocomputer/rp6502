@@ -20,8 +20,6 @@ module mode5
     input logic start,
     input logic abort_i,
     input logic [15:0] attr,
-    input logic [15:0] cfg,
-    input logic [15:0] length,
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
@@ -31,19 +29,15 @@ module mode5
 
     /* The descriptor list queue sprite.sv shares between the engines:
      * what it needs from this one, and the descriptor at its head. */
-    output logic [13:0] mode5_lq_last,
     output logic mode5_lq_active,
     output logic [3:0] mode5_lq_size,
     output logic mode5_lq_pop,
-    output logic [3:0] mode5_lq_cap,
-    output logic mode5_lq_pop_room,
     output logic mode5_lq_gnt,
-    output logic mode5_lq_land,
-    output logic mode5_lq_flight,
     input logic lq_req,
     input logic [13:0] lq_addr,
     input logic [79:0] lq_dsc,
     input logic lq_v,
+    input logic lq_end,
 
     /* The row word queue sprite.sv shares between the engines: what it
      * needs from this one, and the words it holds. */
@@ -53,8 +47,6 @@ module mode5
     output logic mode5_rq_want,
     output logic mode5_rq_pop,
     output logic mode5_rq_pop_room,
-    output logic mode5_rq_land,
-    output logic mode5_rq_flight,
     input logic rq_req,
     input logic [13:0] rq_addr,
     input logic [31:0] rq_q0,
@@ -93,40 +85,19 @@ module mode5
     logic [7:0] n4_attr;    /* the fixed size in 4-pixel units */
     logic [1:0] bpp_attr;
 
-    typedef enum logic [2:0] {
-        M5_IDLE, M5_DECODE, M5_CLIP, M5_JUDGE, M5_PIX
+    typedef enum logic [1:0] {
+        M5_IDLE, M5_DECODE, M5_CLIP, M5_PIX
     } state_t;
     state_t state;
 
-    logic [15:0] idx;
-
-    /* XRAM answers the sprite stage two clocks after a grant, and each
-     * grant is remembered as the list's or the row's so the word goes
-     * to the right queue. */
-    logic gnt_d1, gnt_d, tag1, tag2;
-
     /* The list streams in ahead of the sprites through its own queue. A
-     * custom descriptor is ten bytes, so its window alternates halves.
-     * The queue holds five words for this engine, and a pop counts as
-     * room, since a descriptor leaves two or three words at once and the
-     * list would otherwise wait a clock on every other one. */
+     * custom descriptor is ten bytes, so its window alternates halves. */
     always_comb begin
-        mode5_lq_last = list_end[15:2];
         mode5_lq_active = state != M5_IDLE;
         mode5_lq_size = custom ? 4'd5 : 4'd4;
         mode5_lq_pop = dpop;
-        mode5_lq_cap = 4'd5;
-        mode5_lq_pop_room = 1'b1;
         mode5_lq_gnt = req_is_desc && a_gnt;
-        mode5_lq_land = gnt_d && tag2;
-        mode5_lq_flight = gnt_d1 && tag1;
     end
-    logic [16:0] list_end;
-    always_comb list_end = {1'b0, cfg}
-        + (custom_w ? {1'b0, length[12:0], 3'b000}
-                          + {3'b000, length[12:0], 1'b0}
-                    : {1'b0, length[12:0], 3'b000})
-        - 17'd1;
 
     /* The descriptor's size and depth, or the plane's. */
     logic [7:0] dec_n4w, dec_n4h;
@@ -145,7 +116,6 @@ module mode5
     logic [1:0] bpp_log;
     logic [9:0] bytes_per_row;  /* a row starts on a byte */
     logic d_hflip, d_vflip, d_hdbl, d_vdbl;
-    logic [16:0] data_size;
 
     logic [15:0] tex_y;
     always_comb tex_y = {7'd0, t_row} - 16'(d_y);
@@ -167,9 +137,15 @@ module mode5
     always_comb x_fc = x_f - cw_s;
     logic [8:0] row_sel;
     logic [9:0] lo, hi, x_top;
+    logic [16:0] data_size;
     logic [9:0] a_cut, b_cut;
     logic [8:0] a_img, b_img;
     always_comb begin
+        row_sel = d_vflip ? 9'(d_h + ~row) : row[8:0];
+        lo = d_x < 0 ? 10'(-d_x) : 10'd0;
+        hi = x_fc > 17'sd0 ? 10'(x_fc) : 10'd0;
+        x_top = (x_fc > 17'sd0 ? cw : 10'(x_f)) - 10'd1;
+        data_size = 17'(17'({7'd0, d_h}) * 17'({7'd0, bytes_per_row}));
         a_cut = d_hflip ? hi : lo;
         b_cut = d_hflip ? lo : hi;
         a_img = 9'(a_cut >> d_hdbl);
@@ -193,7 +169,6 @@ module mode5
      * the palette. It is taken from the adder as the row starts, in the
      * clocks the first word takes to arrive. */
     logic [1:0] pb;
-    logic pb_v;
     logic [16:0] end_byte;
     always_comb end_byte = row_addr
         + {5'd0, 12'({3'd0, px_end} << bpp_log) >> 3};
@@ -209,8 +184,6 @@ module mode5
         mode5_rq_want = 1'b1;
         mode5_rq_pop = pop;
         mode5_rq_pop_room = 1'b0;
-        mode5_rq_land = gnt_d && !tag2;
-        mode5_rq_flight = gnt_d1 && !tag1;
     end
     logic q_v;
     always_comb q_v = rq_n != 3'd0;
@@ -267,7 +240,7 @@ module mode5
     end
 
     logic emit, pop, dpop;
-    always_comb emit = state == M5_PIX && q_v && pb_v && pal_hit;
+    always_comb emit = state == M5_PIX && q_v && pal_hit;
     always_comb pop = emit && word_done;
     always_comb dpop = state == M5_DECODE && lq_v;
 
@@ -286,12 +259,12 @@ module mode5
      * last pair is written while the next sprite is decoded. A flipped
      * sprite walks the canvas downward, so its pair lands a pixel below
      * dst with the two colors swapped. */
-    logic wr_v, wr_pair, wr_flip;
+    logic wr_v, wr_pair;
     logic [9:0] wr_dst;
     logic [15:0] lo_c, hi_c;
     always_comb begin
-        lo_c = (wr_flip && wr_pair) ? pal_qb : pal_qa;
-        hi_c = wr_flip ? pal_qa : pal_qb;
+        lo_c = (d_hflip && wr_pair) ? pal_qb : pal_qa;
+        hi_c = d_hflip ? pal_qa : pal_qb;
         mode5_px_we = 2'b00;
         mode5_px_addr = wr_dst;
         mode5_px_data = {hi_c, lo_c};
@@ -302,14 +275,11 @@ module mode5
     end
 
     task automatic next_sprite();
-        pb_v <= 1'b0;
-        if (idx + 16'd1 == length) begin
+        if (lq_end) begin
             mode5_done <= 1'b1;
             state <= M5_IDLE;
-        end else begin
-            idx <= idx + 16'd1;
+        end else
             state <= M5_DECODE;
-        end
     endtask
 
     task automatic step_pixel();
@@ -327,11 +297,6 @@ module mode5
 
     initial begin
         state = M5_IDLE;
-        idx = '0;
-        gnt_d1 = 1'b0;
-        gnt_d = 1'b0;
-        tag1 = 1'b0;
-        tag2 = 1'b0;
         custom = 1'b0;
         n4_attr = '0;
         bpp_attr = '0;
@@ -347,50 +312,32 @@ module mode5
         d_vflip = 1'b0;
         d_hdbl = 1'b0;
         d_vdbl = 1'b0;
-        data_size = '0;
-        row_sel = '0;
-        lo = '0;
-        hi = '0;
-        x_top = '0;
         px_end = '0;
         pal_xram = 1'b0;
         row_addr = '0;
         pb = '0;
-        pb_v = 1'b0;
         px_i = '0;
         dst = '0;
         lead = 1'b0;
         tail = 1'b0;
         wr_v = 1'b0;
         wr_pair = 1'b0;
-        wr_flip = 1'b0;
         wr_dst = '0;
         mode5_done = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d1 <= a_gnt;
-        gnt_d <= gnt_d1;
-        tag1 <= req_is_desc;
-        tag2 <= tag1;
         wr_v <= emit && !abort_i;
         wr_pair <= two;
-        wr_flip <= d_hflip;
         wr_dst <= (d_hflip && two) ? dst - 10'd1 : dst;
         mode5_done <= 1'b0;
         if (abort_i) begin
             /* sprite.sv has already counted this lost line; drop it. */
             state <= M5_IDLE;
         end else if (start) begin
-            idx <= '0;
-            pb_v <= 1'b0;
             custom <= custom_w;
             n4_attr <= 8'(8'd2 << attr[5:3]);
             bpp_attr <= attr[1:0];
-            if (length == 16'd0) begin
-                mode5_done <= 1'b1;
-                state <= M5_IDLE;
-            end else
-                state <= M5_DECODE;
+            state <= M5_DECODE;
         end else begin
             case (state)
                 M5_IDLE: ;
@@ -412,20 +359,6 @@ module mode5
                         state <= M5_CLIP;
                     end
                 M5_CLIP: begin
-                    row_sel <= d_vflip ? 9'(d_h - 10'd1 - row) : row[8:0];
-                    lo <= d_x < 0 ? 10'(-d_x) : 10'd0;
-                    hi <= x_fc > 17'sd0 ? 10'(x_fc) : 10'd0;
-                    x_top <= x_fc > 17'sd0 ? cw - 10'd1 : 10'(x_f - 17'sd1);
-                    data_size <= 17'(17'({7'd0, d_h})
-                                     * 17'({7'd0, bytes_per_row}));
-                    if (tex_y >= {5'd0, h_dbl}
-                        || x_f <= 17'sd0
-                        || 17'(d_x) >= cw_s)
-                        next_sprite();
-                    else
-                        state <= M5_JUDGE;
-                end
-                M5_JUDGE: begin
                     px_i <= a_img;
                     px_end <= 9'(d_w - 10'd1) - b_img;
                     dst <= d_hflip ? x_top : (d_x < 0 ? 10'd0 : d_x[9:0]);
@@ -435,16 +368,17 @@ module mode5
                     row_addr <= {1'b0, d_sptr}
                         + 17'(17'({8'd0, row_sel})
                               * 17'({7'd0, bytes_per_row}));
-                    if ({1'b0, d_sptr} > 17'h10000 - data_size)
+                    if (tex_y >= {5'd0, h_dbl}
+                        || x_f <= 17'sd0
+                        || 17'(d_x) >= cw_s
+                        || {1'b0, d_sptr} + data_size > 17'h10000)
                         next_sprite();
                     else
                         state <= M5_PIX;
                 end
                 M5_PIX: begin
-                    if (!pb_v) begin
+                    if (!q_v)
                         pb <= pix_byte_addr[1:0];
-                        pb_v <= 1'b1;
-                    end
                     if (emit)
                         step_pixel();
                     /* else: the cache is filling on this channel, or
@@ -458,11 +392,8 @@ module mode5
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode5;
     always_comb unused_mode5 = ^{attr[15:6], attr[2], lq_dsc[75:74],
-                                     list_end[16], list_end[1:0],
-                                     length[15:13],
                                      pix_byte_addr[16], bit_off_jj[2:0],
-                                     end_byte[16], end_byte[1:0],
-                                     idx[15:13]};
+                                     end_byte[16], end_byte[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

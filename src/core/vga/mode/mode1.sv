@@ -14,9 +14,7 @@
  * before the tail sees them; the tail's own palette machinery idles.
  */
 
-module mode1
-    import mode::*;
-(
+module mode1 (
     input logic clk,
 
     input logic start,
@@ -26,8 +24,8 @@ module mode1
 
     /* What the shared row mapper needs from this mode, and its view of
      * the line in return. */
-    output logic [15:0] mode1_win_w,
-    output logic [15:0] mode1_win_h,
+    output logic [4:0] mode1_win_wf,
+    output logic [4:0] mode1_win_hf,
     output logic [19:0] mode1_sizeof_row,
     output logic mode1_addr,
     output logic [14:0] mode1_data_row,
@@ -54,32 +52,27 @@ module mode1
     input logic f_gnt,
     input logic [7:0] f_data,
 
-    /* The plane's palette, still this front's: cells resolve their
-     * colors here, and a cell wants its foreground and background at
-     * once, so both read ports are its. */
-    output logic mode1_pal_ld,
-    output logic [7:0] mode1_pal_w,
-    output logic [8:0] mode1_pal_words,
+    /* The plane's palette, which the pixel tail loads at the palette's
+     * depth before the first cell. Cells resolve their colors here, and
+     * a cell wants its foreground and background at once, so both read
+     * ports are its. */
+    output logic [2:0] mode1_bpp,
+    input logic pal_done,
     output logic [7:0] mode1_pal_idx_a,
     output logic [7:0] mode1_pal_idx_b,
-    output logic mode1_pal_xram,
-    output logic mode1_pal_one_bpp,
     input logic [15:0] pal_qa,
     input logic [15:0] pal_qb,
 
-    output logic mode1_tl_start,
     output logic [7:0] mode1_seg_ibits,
     output logic [15:0] mode1_seg_fg,
     output logic [15:0] mode1_seg_bg,
     input logic seg_take
 );
 
-    logic signed [15:0] cf_wchars, cf_hchars;
-    logic [15:0] cf_palette, cf_font;
+    logic signed [15:0] cf_wchars;
+    logic [15:0] cf_font;
     always_comb begin
         cf_wchars = cfgw[63:48];
-        cf_hchars = cfgw[79:64];
-        cf_palette = cfgw[111:96];
         cf_font = cfgw[127:112];
     end
 
@@ -87,23 +80,21 @@ module mode1
     logic fh16;
     logic [2:0] fmt;
     logic [2:0] cell_size;
-    logic [3:0] pal_bpp;  // palette depth; 0 = raw colors
-    logic [1:0] pal_log;  // and its logarithm, for the range test
     always_comb begin
         fh16 = attr[3];
         fmt = attr[2:0];
+        /* The palette's depth as a logarithm; 4 is raw color. */
         case (fmt)
-            3'd0: begin cell_size = 3'd1; pal_bpp = 4'd1; pal_log = 2'd0; end
-            3'd1: begin cell_size = 3'd2; pal_bpp = 4'd4; pal_log = 2'd2; end
-            3'd2: begin cell_size = 3'd2; pal_bpp = 4'd4; pal_log = 2'd2; end
-            3'd3: begin cell_size = 3'd3; pal_bpp = 4'd8; pal_log = 2'd3; end
-            default: begin cell_size = 3'd6; pal_bpp = 4'd0; pal_log = 2'd0; end
+            3'd0: begin cell_size = 3'd1; mode1_bpp = 3'd0; end
+            3'd1: begin cell_size = 3'd2; mode1_bpp = 3'd2; end
+            3'd2: begin cell_size = 3'd2; mode1_bpp = 3'd2; end
+            3'd3: begin cell_size = 3'd3; mode1_bpp = 3'd3; end
+            default: begin cell_size = 3'd6; mode1_bpp = 3'd4; end
         endcase
     end
     /* The oracle computes these in int16, overflow and all. */
-    logic [15:0] width_px, height_px;
+    logic [15:0] width_px;
     always_comb width_px = 16'(cf_wchars) << 3;
-    always_comb height_px = 16'(cf_hchars) << (fh16 ? 4'd4 : 4'd3);
 
     typedef enum logic [2:0] {
         S1_IDLE, S1_WRAP, S1_ADDR, S1_PAL, S1_SEG
@@ -112,24 +103,6 @@ module mode1
 
     logic [3:0] scanrow;
     logic [19:0] sizeof_row;
-
-    /* The store is the plane's, in palram; this front reloads every
-     * entry it will index before it serves a cell. */
-    logic pal_xram;
-    logic [8:0] pal_n;
-    logic [8:0] pal_words;
-    always_comb
-        case (pal_bpp)
-            4'd1: pal_words = 9'd1;
-            4'd4: pal_words = 9'd8;
-            4'd8: pal_words = 9'd128;
-            default: pal_words = 9'd0;   /* raw color indexes nothing */
-        endcase
-    /* A halfword-aligned palette straddles one more word, entry 0 in the
-     * first word's high half. */
-    logic [8:0] pal_fetch;
-    always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
-    logic [7:0] pal_w;
 
     /* The font fits below the top of XRAM, and a font is 2 or 4 KB, so
      * the pointer clears the limit unless it lands in that last block:
@@ -155,7 +128,7 @@ module mode1
     logic [1:0] cell_lane;         // the cell's byte offset in its word
     logic gw_v;                    // gather holds a cell not yet taken
     /* XRAM returns a word two clocks after the grant; the font store, one. */
-    logic gnt_d1, gnt_d, gnt_w_d1, gnt_w_d, gnt_f_d1, gnt_f_d;
+    logic gnt_w_d1, gnt_w_d, gnt_f_d1, gnt_f_d;
 
     typedef enum logic [1:0] {
         F_IDLE, F_FONT, F_HOLD
@@ -172,17 +145,9 @@ module mode1
     logic [47:0] gview;
     always_comb gview = 48'(gather >> {cell_lane, 3'b000});
 
-    logic pal_ld;
-    always_comb pal_ld = !abort_i && !start && state == S1_PAL
-        && pal_xram && pal_bpp != 4'd0 && gnt_d;
     always_comb begin
-        mode1_pal_ld = pal_ld;
-        mode1_pal_w = pal_w;
-        mode1_pal_words = pal_words;
         mode1_pal_idx_a = fg_idx;
         mode1_pal_idx_b = bg_idx;
-        mode1_pal_xram = pal_xram;
-        mode1_pal_one_bpp = pal_bpp == 4'd1;
     end
 
     logic [15:0] pal_fg, pal_bg;
@@ -243,11 +208,6 @@ module mode1
         mode1_a_req = 1'b0;
         mode1_a_addr = cell_addr[15:2] + {12'd0, fw_i};
         case (state)
-            S1_PAL: begin
-                mode1_a_req = pal_xram && pal_bpp != 4'd0
-                    && pal_n < pal_fetch;
-                mode1_a_addr = cf_palette[15:2] + {5'd0, pal_n};
-            end
             S1_SEG: begin
                 if (f_want) begin
                     mode1_a_req = 1'b1;
@@ -273,8 +233,8 @@ module mode1
     logic [3:0] cell_px;
     always_comb cell_px = 4'd8 - {1'b0, rm_col[2:0]};
     always_comb begin
-        mode1_win_w = width_px;
-        mode1_win_h = height_px;
+        mode1_win_wf = 5'd8;
+        mode1_win_hf = fh16 ? 5'd16 : 5'd8;
         mode1_sizeof_row = sizeof_row;
         mode1_addr = state == S1_ADDR;
         mode1_data_row = fh16 ? {4'd0, rm_row[14:4]} : {3'd0, rm_row[14:3]};
@@ -293,9 +253,6 @@ module mode1
         fstate = F_IDLE;
         scanrow = '0;
         sizeof_row = '0;
-        pal_xram = 1'b0;
-        pal_n = '0;
-        pal_w = '0;
         cell_addr = '0;
         cell_lane = '0;
         fetch_col = '0;
@@ -304,8 +261,6 @@ module mode1
         fw_n = '0;
         gather = '0;
         gw_v = 1'b0;
-        gnt_d1 = 1'b0;
-        gnt_d = 1'b0;
         gnt_w_d1 = 1'b0;
         gnt_w_d = 1'b0;
         gnt_f_d1 = 1'b0;
@@ -323,17 +278,13 @@ module mode1
         nxt_bits = '0;
         nxt_fg = '0;
         nxt_bg = '0;
-        mode1_tl_start = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d1 <= a_gnt;
-        gnt_d <= gnt_d1;
         gnt_w_d1 <= gnt_w;
         gnt_w_d <= gnt_w_d1;
         gnt_f_d1 <= gnt_f;
         gnt_f_d <= gnt_f_d1;
         f_gnt_d <= f_gnt;
-        mode1_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state != S1_IDLE && state != S1_SEG)
@@ -360,39 +311,14 @@ module mode1
                         scanrow <= fh16 ? rm_row[3:0] : {1'b0, rm_row[2:0]};
                         state <= S1_ADDR;
                     end
-                S1_ADDR: begin
-                    mode1_tl_start <= 1'b1;
-                    if (rm_blank || rm_overrun)
-                        state <= S1_SEG;
-                    else begin
-                        pal_xram <= pal_bpp != 4'd0 && !cf_palette[0]
-                            && pal_fits(cf_palette, pal_log);
-                        pal_n <= '0;
-                        pal_w <= '0;
-                        state <= S1_PAL;
-                    end
-                end
-                S1_PAL: begin
-                    if (!pal_xram || pal_bpp == 4'd0) begin
+                S1_ADDR:
+                    state <= rm_blank || rm_overrun ? S1_SEG : S1_PAL;
+                S1_PAL:
+                    if (pal_done) begin
                         state <= S1_SEG;
                         fstate <= F_IDLE;
                         fetch_col <= rm_col < 0 ? 12'd0 : rm_col[14:3];
-                    end else begin
-                        if (a_gnt)
-                            pal_n <= pal_n + 9'd1;
-                        if (gnt_d) begin
-                            pal_w <= pal_w + 8'd1;
-                            if ({1'b0, pal_w} == pal_fetch - 9'd1)
-                            begin
-                                state <= S1_SEG;
-                                fstate <= F_IDLE;
-                                fetch_col <= rm_col < 0
-                                    ? 12'd0 : rm_col[14:3];
-                                pal_w <= '0;
-                            end
-                        end
                     end
-                end
                 S1_SEG: begin
                     case (wstate)
                         W_IDLE: begin

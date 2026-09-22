@@ -15,9 +15,7 @@
  * byte hides under the current tile's pixels.
  */
 
-module mode2
-    import mode::*;
-(
+module mode2 (
     input logic clk,
 
     input logic start,
@@ -27,8 +25,8 @@ module mode2
 
     /* What the shared row mapper needs from this mode, and its view of
      * the line in return. */
-    output logic [15:0] mode2_win_w,
-    output logic [15:0] mode2_win_h,
+    output logic [4:0] mode2_win_wf,
+    output logic [4:0] mode2_win_hf,
     output logic [19:0] mode2_sizeof_row,
     output logic mode2_addr,
     output logic [14:0] mode2_data_row,
@@ -54,21 +52,16 @@ module mode2
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    output logic mode2_tl_start,
-    output logic [15:0] mode2_pal_ptr,
-    output logic mode2_pal_xram,
     output logic [2:0] mode2_bpp,
     output logic mode2_seg_imm,
     output logic [22:0] mode2_seg_bits,
     input logic seg_take
 );
 
-    logic signed [15:0] cf_width, cf_height;
-    logic [15:0] cf_palette, cf_tile;
+    logic signed [15:0] cf_width;
+    logic [15:0] cf_tile;
     always_comb begin
         cf_width = cfgw[63:48];
-        cf_height = cfgw[79:64];
-        cf_palette = cfgw[111:96];
         cf_tile = cfgw[127:112];
     end
 
@@ -94,12 +87,6 @@ module mode2
         mem_size = 9'({4'd0, row_size} << (tile16 ? 4 : 3));
     end
 
-    /* The oracle computes these in int16, overflow and all. */
-    logic [15:0] width_px, height_px;
-    always_comb begin
-        width_px = 16'(16'(cf_width) * 16'({11'd0, eff_w}));
-        height_px = 16'(16'(cf_height) * 16'({11'd0, tile_h}));
-    end
 
     typedef enum logic [2:0] {
         S2_IDLE, S2_WRAP, S2_DIVY, S2_ADDR, S2_DIVX, S2_SEG
@@ -183,14 +170,15 @@ module mode2
     logic [4:0] tile_px;
     always_comb tile_px = eff_w - {1'b0, tcol};
     always_comb begin
-        mode2_win_w = width_px;
-        mode2_win_h = height_px;
+        mode2_win_wf = eff_w;
+        mode2_win_hf = tile_h;
         mode2_sizeof_row = {5'd0, cf_width[14:0]};
         mode2_addr = state == S2_ADDR;
         mode2_data_row = q_row;
         mode2_seg_on = state == S2_SEG;
         mode2_run_ready = mstate == M_HAVE;
         mode2_run_max = {5'd0, tile_px};
+        mode2_bpp = {1'b0, bpp_log};
     end
     always_comb begin
         mode2_seg_imm = !rm_run || tile_oob;
@@ -216,15 +204,10 @@ module mode2
         map_v = 1'b0;
         map_wq = '0;
         map_q = '0;
-        mode2_tl_start = 1'b0;
-        mode2_pal_ptr = '0;
-        mode2_pal_xram = 1'b0;
-        mode2_bpp = '0;
     end
     always_ff @(posedge clk) begin
         gnt_d1 <= a_gnt;
         gnt_d <= gnt_d1;
-        mode2_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state != S2_IDLE && state != S2_SEG)
@@ -261,12 +244,6 @@ module mode2
                     end
                 end
                 S2_ADDR: begin
-                    mode2_pal_ptr <= cf_palette;
-                    mode2_pal_xram <= !rm_blank && !rm_overrun
-                        && !cf_palette[0]
-                        && pal_fits(cf_palette, bpp_log);
-                    mode2_bpp <= {1'b0, bpp_log};
-                    mode2_tl_start <= 1'b1;
                     mstate <= M_IDLE;
                     if (rm_blank || rm_overrun || rm_col < 17'sd1) begin
                         tile <= '0;
@@ -333,7 +310,7 @@ module mode2
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode2;
-    always_comb unused_mode2 = ^{cfgw, attr[15:12], attr[2],
+    always_comb unused_mode2 = ^{cfgw, cf_width[15], attr[15:12], attr[2],
                                      rm_row[16:15], div_rem[5:4],
                                      map_addr[16], tile_row_addr[17:16]};
     /* verilator lint_on UNUSEDSIGNAL */

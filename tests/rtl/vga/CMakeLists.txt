@@ -22,6 +22,11 @@ rp6502_add_machine_test(vidregs FIRMWARE
     DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
     TIMEOUT 900)
 
+rp6502_add_machine_test(vidstop FIRMWARE
+    SOURCES test_vidstop.cpp
+    DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+    TIMEOUT 900)
+
 rp6502_add_machine_test(fontstore FIRMWARE
     SOURCES test_fontstore.cpp
     TIMEOUT 900)

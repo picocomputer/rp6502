@@ -12,9 +12,7 @@
  * it; a rejected line is one padding segment.
  */
 
-module mode3
-    import mode::*;
-(
+module mode3 (
     input logic clk,
 
     /* One line of work: start when the config view is valid; abort_i is
@@ -26,8 +24,8 @@ module mode3
 
     /* What the shared row mapper needs from this mode, and its view of
      * the line in return. */
-    output logic [15:0] mode3_win_w,
-    output logic [15:0] mode3_win_h,
+    output logic [4:0] mode3_win_wf,
+    output logic [4:0] mode3_win_hf,
     output logic [19:0] mode3_sizeof_row,
     output logic mode3_addr,
     output logic [14:0] mode3_data_row,
@@ -36,27 +34,17 @@ module mode3
     input logic signed [16:0] rm_row,
     input logic signed [16:0] rm_col,
     input logic [16:0] rm_row_base,
-    input logic rm_blank,
-    input logic rm_overrun,
     input logic rm_run,
     input logic rm_end,
 
-    output logic mode3_tl_start,
-    output logic [15:0] mode3_pal_ptr,
-    output logic mode3_pal_xram,
     output logic [2:0] mode3_bpp,
     output logic mode3_reversed,
     output logic mode3_seg_imm,
     output logic [22:0] mode3_seg_bits
 );
 
-    logic signed [15:0] cf_width, cf_height;
-    logic [15:0] cf_palette;
-    always_comb begin
-        cf_width = cfgw[63:48];
-        cf_height = cfgw[79:64];
-        cf_palette = cfgw[111:96];
-    end
+    logic signed [15:0] cf_width;
+    always_comb cf_width = cfgw[63:48];
 
     /* Attribute code to depth; 8-10 are the reversed 1/2/4. */
     logic reversed;
@@ -80,12 +68,14 @@ module mode3
     logic [19:0] sizeof_row;
 
     always_comb begin
-        mode3_win_w = cf_width;
-        mode3_win_h = cf_height;
+        mode3_win_wf = 5'd1;
+        mode3_win_hf = 5'd1;
         mode3_sizeof_row = sizeof_row;
         mode3_addr = state == S3_ADDR;
         mode3_data_row = rm_row[14:0];
         mode3_seg_on = state == S3_SEG;
+        mode3_bpp = bpp_log;
+        mode3_reversed = reversed;
     end
 
     always_comb begin
@@ -98,14 +88,8 @@ module mode3
     initial begin
         state = S3_IDLE;
         sizeof_row = '0;
-        mode3_tl_start = 1'b0;
-        mode3_pal_ptr = '0;
-        mode3_pal_xram = 1'b0;
-        mode3_bpp = '0;
-        mode3_reversed = 1'b0;
     end
     always_ff @(posedge clk) begin
-        mode3_tl_start <= 1'b0;
         if (abort_i) begin
 `ifdef VERILATOR
             if (state == S3_WRAP || state == S3_ADDR)
@@ -121,20 +105,8 @@ module mode3
                 S3_WRAP:
                     if (rm_settle)
                         state <= S3_ADDR;
-                S3_ADDR: begin
-                    /* The tail's plan: a blank line loads nothing. The
-                     * overrun blanks the line on this same edge, so it is
-                     * folded in here too. */
-                    mode3_pal_ptr <= cf_palette;
-                    mode3_pal_xram <= !rm_blank && !rm_overrun
-                        && !cf_palette[0]
-                        && bpp_log != 3'd4
-                        && pal_fits(cf_palette, bpp_log[1:0]);
-                    mode3_bpp <= bpp_log;
-                    mode3_reversed <= reversed;
-                    mode3_tl_start <= 1'b1;
+                S3_ADDR:
                     state <= S3_SEG;
-                end
                 S3_SEG:
                     if (rm_end)
                         state <= S3_IDLE;
