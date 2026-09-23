@@ -121,7 +121,7 @@ bool vga_run_frame(void)
     const unsigned long want = frame_n + 1;
     while (frame_n != want)
     {
-        if (dbg_is_stopped())
+        if (dbg_is_stopped() && sys_running())
             return false;
         sys_task();
         sys_io_task();
@@ -293,8 +293,10 @@ void vga_task(void)
     /* A debugger holding the 6502 holds the whole machine. Left running, the
      * beam would go on counting frames and latching $FFF0 bit 7 while a
      * program sat at a breakpoint, and stepping one instruction would resume
-     * into an interrupt storm the program never lived through. */
-    if (dbg_is_stopped())
+     * into an interrupt storm the program never lived through. After an exit
+     * there is no 6502 to hold, so the stop presented at exit leaves the beam
+     * running and the final screen is drawn. */
+    if (dbg_is_stopped() && sys_running())
         return;
     /* The line is drawn from the machine as it stands before the 6502 cycles
      * for that scanline have run, because the 6502 catches up to the beam

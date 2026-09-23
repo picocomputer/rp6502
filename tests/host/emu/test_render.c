@@ -49,13 +49,16 @@ UTEST(render, nothing_is_made_until_the_sink_asks)
 
 UTEST(render, a_held_machine_repeats_its_last_level)
 {
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     aud_setup_probe(counting);
     g_calls = 0;
     ASSERT_EQ(aud_render(g_out, 800), 800);
     const float last_l = g_out[799 * 2];
     const float last_r = g_out[799 * 2 + 1];
 
-    dbg_note_stop(0);
+    dbg_set_active(true);
+    dbg_request_pause();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
     const int made = g_calls;
     ASSERT_EQ(aud_render(g_out, 800), 0);
@@ -69,6 +72,9 @@ UTEST(render, a_held_machine_repeats_its_last_level)
     dbg_continue();
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_GT(g_calls, made);
+    dbg_set_active(false);
+    sys_stop();
+    sys_commit();
     aud_stop();
 }
 

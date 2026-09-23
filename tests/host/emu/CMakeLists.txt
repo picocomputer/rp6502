@@ -80,7 +80,7 @@ rp6502_add_test(rln LIBS emu_core)
 rp6502_add_test(log SINK
     DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 
-rp6502_add_test(render LIBS emu_core)
+rp6502_add_test(render LIBS emu_core ROM ${ADVENTURE_ROM})
 
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)

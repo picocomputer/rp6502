@@ -42,35 +42,45 @@ static bool held_at(float l, float r)
     return true;
 }
 
-UTEST(dbg, a_pause_holds_the_level_but_a_mach_stop_does_not)
+UTEST(dbg, a_pause_holds_the_machine_but_an_exit_stop_does_not)
 {
     ASSERT_TRUE(load());
 
-    sys_stop();
-    sys_commit();
     bel_add(&bel_teletype);
-    emu_frames(1);
     int n = aud_render(g_out, 800);
     ASSERT_GT(n, 0);
     ASSERT_FALSE(held_at(g_out[0], g_out[1]));
-    float last_l = g_out[(n - 1) * 2], last_r = g_out[(n - 1) * 2 + 1];
+    const float last_l = g_out[(n - 1) * 2], last_r = g_out[(n - 1) * 2 + 1];
 
     dbg_set_active(true);
-    dbg_note_stop(entry_pc());
+    dbg_add_breakpoint(entry_pc());
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
-    while ((n = aud_render(g_out, 800)) > 0)
-    {
-        last_l = g_out[(n - 1) * 2];
-        last_r = g_out[(n - 1) * 2 + 1];
-    }
+    ASSERT_TRUE(sys_running());
+    const unsigned long paused_at = vga_frame_count();
+    ASSERT_EQ(aud_render(g_out, 800), 0);
     ASSERT_TRUE(held_at(last_l, last_r));
     emu_frames(1);
+    ASSERT_EQ(vga_frame_count(), paused_at);
     ASSERT_EQ(aud_render(g_out, 800), 0);
     ASSERT_TRUE(held_at(last_l, last_r));
 
+    dbg_clear_breakpoints();
     dbg_continue();
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_FALSE(held_at(last_l, last_r));
+
+    /* The stop the DAP adapter notes when a program exits under stopOnExit. */
+    sys_stop();
+    sys_commit();
+    dbg_note_stop(0);
+    ASSERT_TRUE(dbg_is_stopped());
+    const unsigned long exited_at = vga_frame_count();
+    emu_frames(1);
+    ASSERT_EQ(vga_frame_count(), exited_at + 1);
+    bel_add(&bel_teletype);
+    ASSERT_EQ(aud_render(g_out, 800), 800);
+    ASSERT_FALSE(held_at(g_out[0], g_out[1]));
 
     disarm();
     emu_frames(60);
