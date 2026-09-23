@@ -42,35 +42,18 @@ module font (
     (* ramstyle = "no_rw_check" *)
     logic [31:0] dec[256] /*verilator public_flat_rd*/;
 
-    /* These capture the soft CPU's write on the machine clock; the two
-     * clocks rise together, and the hold check on that crossing is cut
-     * in host/pocket/quartus/pocket.sdc. */
-    logic w_stb_q;
-    logic [13:0] w_addr_q;
-    logic [31:0] w_data_q;
-    initial begin
-        w_stb_q = 1'b0;
-        w_addr_q = '0;
-        w_data_q = '0;
-    end
-    always_ff @(posedge clk) begin
-        w_stb_q <= w_stb;
-        w_addr_q <= w_addr;
-        w_data_q <= w_data;
-    end
-
     logic [1:0] w_face;
-    always_comb w_face = w_addr_q[13:12];
+    always_comb w_face = w_addr[13:12];
 
     always_ff @(posedge clk) begin
-        if (w_stb_q && w_face == 2'd0)
-            f16[w_addr_q[11:2]] <= w_data_q;
-        if (w_stb_q && w_face == 2'd1)
-            f8[w_addr_q[10:2]] <= w_data_q;
-        if (w_stb_q && w_face == 2'd2)
-            ital[w_addr_q[10:2]] <= w_data_q;
-        if (w_stb_q && w_face == 2'd3)
-            dec[w_addr_q[9:2]] <= w_data_q;
+        if (w_stb && w_face == 2'd0)
+            f16[w_addr[11:2]] <= w_data;
+        if (w_stb && w_face == 2'd1)
+            f8[w_addr[10:2]] <= w_data;
+        if (w_stb && w_face == 2'd2)
+            ital[w_addr[10:2]] <= w_data;
+        if (w_stb && w_face == 2'd3)
+            dec[w_addr[9:2]] <= w_data;
     end
 
     logic [31:0] q16, q8, q_ital, q_dec;
@@ -100,7 +83,7 @@ module font (
     logic unused_font;
     /* Writes are whole words, so the byte within the word selects
      * nothing. */
-    always_comb unused_font = ^{w_addr[1:0], w_addr_q[1:0]};
+    always_comb unused_font = ^{w_addr[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

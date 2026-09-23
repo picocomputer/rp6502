@@ -26,6 +26,12 @@ module mode0 (
     input logic px_last,
     input logic line_start,
     input logic [9:0] cw,
+
+    /* The row map, from sched.sv, which pairs the lines of a 320 wide
+     * canvas so a row of graphics spans two of them. */
+    input logic [9:0] t,
+    input logic pair_start,
+    input logic pair_end,
     output logic [15:0] mode0_pix,
 
     output logic mode0_f_req,
@@ -74,7 +80,6 @@ module mode0 (
 
     /* cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
      * prog {enable[31], end[25:16], begin[9:0]}. */
-    logic [15:0] row_shadow[32] /*verilator public_flat_rd*/;
     logic [31:0] cursor_shadow /*verilator public_flat_rd*/;
     logic [15:0] cursor_color_shadow /*verilator public_flat_rd*/;
     logic [1:0] blink_shadow /*verilator public_flat_rd*/;
@@ -83,8 +88,10 @@ module mode0 (
 
     /* The scanout read stands alone and unreset: a block RAM's output
      * register has no asynchronous clear, and a read inside the
-     * pipeline's reset would keep the cells out of memory entirely. */
-    always_ff @(posedge clk_mem)
+     * pipeline's reset would keep the cells out of memory entirely. It
+     * is on the render's own clock, so a savestate's stop holds the word
+     * the render asked for until it takes it. */
+    always_ff @(posedge clk)
         fetch_q <= {cell3[fetch_word], cell2[fetch_word],
                     cell1[fetch_word], cell0[fetch_word]};
 
@@ -118,26 +125,15 @@ module mode0 (
             if (cell_w3) cell3[cell_idx] <= cell_d[31:24];
         end
     end
+    /* The firmware reads back only the frame counter. */
     always_ff @(posedge clk) begin
         if (b_stb) begin
             sel_cells <= !b_addr[16];
-            if (!b_addr[16]) begin
-            end else begin
-                case (b_addr[7:2])
-                    6'd32: regs_q <= cursor_shadow;
-                    6'd33: regs_q <= {16'd0, cursor_color_shadow};
-                    6'd34: regs_q <= {30'd0, blink_shadow};
-                    6'd35: regs_q <= prog_shadow;
-                    6'd40: regs_q <= frame_count;
-                    default: regs_q <= {16'd0, row_shadow[b_addr[6:2]]};
-                endcase
-            end
+            regs_q <= frame_count;
         end
     end
 
     initial begin
-        for (int i = 0; i < 32; i++)
-            row_shadow[i] = 16'h0000;
         cursor_shadow = 32'h0;
         cursor_color_shadow = 16'h0;
         blink_shadow = 2'h0;
@@ -153,11 +149,7 @@ module mode0 (
                 6'd33: cursor_color_shadow <= b_wdata[15:0];
                 6'd34: blink_shadow <= b_wdata[1:0];
                 6'd35: prog_shadow <= b_wdata;
-                6'd40: ;  /* the frame counter is the raster's */
-                default: begin
-                    if (!b_addr[7])
-                        row_shadow[b_addr[6:2]] <= b_wdata[15:0];
-                end
+                default: ;
             endcase
         end
     end
@@ -166,14 +158,51 @@ module mode0 (
      * row 0, so a mid-frame publish never tears. */
     logic frame_render;
     always_comb frame_render = line_start && v == 10'd524;
-    logic [15:0] row_base[32];
+
+    /* Each row's word pointer has two slots, and row_front picks the one
+     * the render reads. A write goes to the other slot and is flipped in
+     * by the latch, which flips only the rows written since the last one,
+     * so the table costs a small MLAB rather than two banks of registers.
+     * The write is registered first, keeping the bus's half-period
+     * address path off the MLAB's port. */
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [13:0] row_mem[64] /*verilator public_flat_rd*/;
+    logic [31:0] row_front /*verilator public_flat_rd*/;
+    logic [31:0] row_pend /*verilator public_flat_rd*/;
+    logic row_w;
+    logic [4:0] row_wi;
+    logic [13:0] row_wd;
+    initial begin
+        for (int i = 0; i < 64; i++)
+            row_mem[i] = 14'd0;
+        row_front = '0;
+        row_pend = '0;
+        row_w = 1'b0;
+        row_wi = '0;
+        row_wd = '0;
+    end
+    always_ff @(posedge clk)
+        if (row_w)
+            row_mem[{row_wi, !row_front[row_wi]}] <= row_wd;
+    always_ff @(posedge clk) begin
+        row_w <= b_stb && b_we && b_addr[16] && !b_addr[7];
+        row_wi <= b_addr[6:2];
+        row_wd <= b_wdata[15:2];
+        if (frame_render) begin
+            row_front <= row_front
+                ^ (row_pend | (32'(row_w) << row_wi));
+            row_pend <= '0;
+        end else if (row_w)
+            row_pend[row_wi] <= 1'b1;
+    end
+    logic [13:0] row_word;
+    always_comb row_word = row_mem[{logical_row, row_front[logical_row]}];
+
     logic [31:0] cursor_q;
     logic [15:0] cursor_color_q;
     logic [1:0] blink_q;
     logic [31:0] prog_q;
     initial begin
-        for (int i = 0; i < 32; i++)
-            row_base[i] = 16'h0000;
         cursor_q = 32'h0;
         cursor_color_q = 16'h0;
         blink_q = 2'h0;
@@ -181,8 +210,6 @@ module mode0 (
     end
     always_ff @(posedge clk) begin
         if (frame_render) begin
-            for (int i = 0; i < 32; i++)
-                row_base[i] <= row_shadow[i];
             cursor_q <= cursor_shadow;
             cursor_color_q <= cursor_color_shadow;
             blink_q <= blink_shadow;
@@ -197,30 +224,7 @@ module mode0 (
     (* ramstyle = "no_rw_check" *)
     logic [15:0] linebuf[2048];
 
-    /* Its own unreset block: a port inside the pipeline's reset keeps
-     * the whole buffer out of memory. */
-    logic lb_we;
-    logic lb_bank;
-    logic [9:0] lb_addr;
-    logic [15:0] lb_data;
-    always_ff @(posedge clk)
-        if (lb_we)
-            linebuf[{lb_bank, lb_addr}] <= lb_data;
     logic wr_bank;
-    logic [9:0] t;  // the target line
-    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
-     * graphics spans two lines of timing, as in sched.sv. */
-    logic dbl;
-    always_comb dbl = cw == 10'd320;
-    logic [9:0] v_next;
-    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
-    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
-     * is started on the even line and has the whole pair to finish in, and
-     * is handed over on the even line after. Line 524 is the pair's second
-     * line, not a start, and 523 is a start, not an end. */
-    logic pair_start, pair_end;
-    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
-    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
     logic t_active;
     logic [8:0] term_line;
     logic [4:0] logical_row;
@@ -231,15 +235,13 @@ module mode0 (
     logic [6:0] cur_cx;
     logic [2:0] cur_style;  // wrap-park forces block
 
-    logic [6:0] rescol;  // the cell being resolved, one ahead of px
     logic [9:0] px;    // write pointer into the line
     logic [3:0] step;
     logic run /*verilator public_flat_rd*/;
 
-    logic [31:0] w0_n, w1_n;
+    logic [31:0] w0_n;
     logic [13:0] fetch_word;
     logic [31:0] fetch_q;
-    logic [7:0] bits;
     logic [15:0] fg_r, bg_r;
     logic [7:0] shreg;
 
@@ -316,28 +318,31 @@ module mode0 (
      * a row where an overline, strike or underline is drawn, an underline
      * row takes the underline colour, and then under the block cursor the
      * glyph is drawn in the cell's background colour on the cursor
-     * colour. */
+     * colour. The cell's second word is taken straight from the scanout
+     * read, which holds it on both clocks the resolve is used: step 5 and
+     * each cell's last pixel. */
     logic cur_here, cur_block;
     logic [7:0] attr_r;
     logic [7:0] bits_res;
     logic [15:0] fg_res, bg_res;
     always_comb begin
         attr_r = w0_n[15:8];
-        cur_here = cur_hit && rescol == cur_cx;
+        /* The cell being resolved is one ahead of the one px is in. */
+        cur_here = cur_hit && 7'((px + 10'd1) >> 3) == cur_cx;
         cur_block = cur_here && (cur_style == 3'd0 || cur_style == 3'd1
                                  || cur_style == 3'd2);
         bits_res = font_bits;
         fg_res = w0_n[31:16];
-        bg_res = w1_n[15:0];
+        bg_res = fetch_q[15:0];
         if (!cur_block && (attr_r & {6'b0, blink_q}) != 8'h00)
-            fg_res = w1_n[15:0];
+            fg_res = fetch_q[15:0];
         if ((attr_r & line_mask) != 8'h00) begin
             bits_res = 8'hFF;
             if (ul_row && !cur_block)
-                fg_res = w1_n[31:16];
+                fg_res = fetch_q[31:16];
         end
         if (cur_block) begin
-            fg_res = w1_n[15:0];
+            fg_res = fetch_q[15:0];
             bg_res = cursor_color_q;
         end
         if (cur_here && (cur_style == 3'd3 || cur_style == 3'd4)
@@ -349,39 +354,29 @@ module mode0 (
         end
     end
 
-    logic cur_bar;
-    always_comb cur_bar = cur_here && (cur_style == 3'd5 || cur_style == 3'd6);
 
     initial begin
         wr_bank = 1'b0;
         run = 1'b0;
-        t = '0;
         t_active = 1'b0;
         term_line = '0;
         cur_hit = 1'b0;
         cur_cx = '0;
         cur_style = '0;
-        rescol = '0;
         px = '0;
         step = '0;
         w0_n = '0;
-        w1_n = '0;
         fetch_word = '0;
-        bits = '0;
         fg_r = '0;
         bg_r = '0;
         shreg = '0;
     end
     always_ff @(posedge clk) begin
-        lb_we <= 1'b0;
         if (line_start) begin
             if (pair_start)
                 wr_bank <= !wr_bank;
-            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
-                     : v_next;
             if (pair_start) begin
                 run <= 1'b1;
-                rescol <= '0;
                 px <= '0;
                 step <= '0;
             end
@@ -403,7 +398,7 @@ module mode0 (
                         ? (use_40 ? 7'd39 : 7'd79) : cursor_q[6:0];
                     cur_style <= cursor_q[7:0] >= (use_40 ? 8'd40 : 8'd80)
                         ? 3'd1 : cursor_q[18:16];
-                    fetch_word <= row_base[logical_row][15:2];
+                    fetch_word <= row_word;
                     step <= 4'd2;
                 end
                 4'd2: begin
@@ -415,40 +410,26 @@ module mode0 (
                     step <= 4'd4;
                 end
                 4'd4: begin
-                    w1_n <= fetch_q;
                     fetch_word <= fetch_word + 14'd1;
                     step <= 4'd5;
                 end
                 4'd5: begin
-                    bits <= bits_res;
                     fg_r <= fg_res;
                     bg_r <= bg_res;
                     shreg <= bits_res;
-                    rescol <= 7'd1;
                     fetch_word <= fetch_word + 14'd1;
                     step <= 4'd6;
                 end
                 default: begin
-                    lb_we <= 1'b1;
-                    lb_bank <= wr_bank;
-                    lb_addr <= px;
-                    lb_data <= t_active
-                        ? ((cur_bar_out && px[2:0] < (use_40 ? 3'd1 : 3'd2))
-                               ? cursor_color_q
-                               : (shreg[7] ? fg_r : bg_r))
-                        : 16'h0000;
                     shreg <= {shreg[6:0], 1'b0};
                     px <= px + 10'd1;
                     case (px[2:0])
                         3'd0: w0_n <= fetch_q;
-                        3'd1: w1_n <= fetch_q;
                         3'd6: fetch_word <= fetch_word + 14'd1;
                         3'd7: begin
-                            bits <= bits_res;
                             fg_r <= fg_res;
                             bg_r <= bg_res;
                             shreg <= bits_res;
-                            rescol <= rescol + 7'd1;
                             fetch_word <= fetch_word + 14'd1;
                             if (px == (use_40 ? 10'd319 : 10'd639))
                                 run <= 1'b0;
@@ -466,6 +447,17 @@ module mode0 (
     always_comb cur_bar_out = cur_hit && t_active
         && px[9:3] == cur_cx
         && (cur_style == 3'd5 || cur_style == 3'd6);
+
+    /* Its own unreset block: a port inside the pipeline's reset keeps
+     * the whole buffer out of memory. The write is the pipeline's last
+     * step, so it runs on the clocks that step does. */
+    always_ff @(posedge clk)
+        if (!line_start && run && step >= 4'd6)
+            linebuf[{wr_bank, px}] <= t_active
+                ? ((cur_bar_out && px[2:0] < (use_40 ? 3'd1 : 3'd2))
+                       ? cursor_color_q
+                       : (shreg[7] ? fg_r : bg_r))
+                : 16'h0000;
 
     /* The bank toggle lands on h==0's first tick, so only the pixel-0
      * read at the end of h==799 still sees the line under its write-side
@@ -492,7 +484,7 @@ module mode0 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode0;
-    always_comb unused_mode0 = ^{b_addr[1:0], bits, cur_bar,
+    always_comb unused_mode0 = ^{b_addr[1:0],
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

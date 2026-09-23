@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * One plane's line buffer, as two ping-pong banks: the fill engine
- * writes one while the other is scanned out and erased a pixel behind
- * the one being displayed, so a bank holds zeros when it comes back to
- * write duty. done_i arms the bank flip and does nothing else. The banks are
- * separate arrays because one array with two writers would need a true
- * dual port.
+ * writes one while the other is scanned out. done_i arms the bank flip,
+ * and a bank shows only for a line it was flipped in for, because a fill
+ * that finishes has written every pixel of the canvas; any other line
+ * scans out zeros. The banks are separate arrays because one array with
+ * two writers would need a true dual port.
  *
  * Each bank is two arrays, the even pixels and the odd, so the fill can
  * land two pixels a clock: the two are neighbours, so they are of
@@ -18,7 +18,12 @@
 module linebuf (
     input logic clk,
 
-    input logic [9:0] h,
+    /* The beam's derived columns, computed once at the top level because
+     * all three planes share them: the read for the next pixel wraps at
+     * the line's end. */
+    input logic [9:0] rd_addr,
+    input logic h_last,
+
     input logic px_last,
     input logic line_start,
     input logic flip_ok,
@@ -34,8 +39,6 @@ module linebuf (
     output logic [15:0] linebuf_pix
 );
 
-    /* Block RAM holds zeros once the FPGA is configured, so an unfilled
-     * line reads as zeros on the first frame; simulation has to agree. */
     (* ramstyle = "no_rw_check" *)
     logic [15:0] b0e[512];
     (* ramstyle = "no_rw_check" *)
@@ -44,13 +47,6 @@ module linebuf (
     logic [15:0] b1e[512];
     (* ramstyle = "no_rw_check" *)
     logic [15:0] b1o[512];
-    initial
-        for (int i = 0; i < 512; i++) begin
-            b0e[i] = 16'h0000;
-            b0o[i] = 16'h0000;
-            b1e[i] = 16'h0000;
-            b1o[i] = 16'h0000;
-        end
 
     logic wr_bank;
     logic flip_next;
@@ -77,58 +73,34 @@ module linebuf (
         end
     end
 
-    /* The erase, a pixel behind the beam. */
-    logic [9:0] sc_px;
-    logic se_we, so_we;
-    always_comb begin
-        sc_px = h - 10'd1;
-        se_we = !px_last && !sc_px[0];
-        so_we = !px_last && sc_px[0];
-    end
-
-    logic b0e_we, b0o_we, b1e_we, b1o_we;
-    logic [8:0] b0e_addr, b0o_addr, b1e_addr, b1o_addr;
-    logic [15:0] b0e_data, b0o_data, b1e_data, b1o_data;
-    always_comb begin
-        b0e_we = wr_bank ? se_we : fe_we;
-        b0e_addr = wr_bank ? sc_px[9:1] : fe_addr;
-        b0e_data = wr_bank ? 16'h0000 : fe_data;
-        b0o_we = wr_bank ? so_we : fo_we;
-        b0o_addr = wr_bank ? sc_px[9:1] : fo_addr;
-        b0o_data = wr_bank ? 16'h0000 : fo_data;
-        b1e_we = wr_bank ? fe_we : se_we;
-        b1e_addr = wr_bank ? fe_addr : sc_px[9:1];
-        b1e_data = wr_bank ? fe_data : 16'h0000;
-        b1o_we = wr_bank ? fo_we : so_we;
-        b1o_addr = wr_bank ? fo_addr : sc_px[9:1];
-        b1o_data = wr_bank ? fo_data : 16'h0000;
-    end
     always_ff @(posedge clk)
-        if (b0e_we)
-            b0e[b0e_addr] <= b0e_data;
+        if (fe_we && !wr_bank)
+            b0e[fe_addr] <= fe_data;
     always_ff @(posedge clk)
-        if (b0o_we)
-            b0o[b0o_addr] <= b0o_data;
+        if (fo_we && !wr_bank)
+            b0o[fo_addr] <= fo_data;
     always_ff @(posedge clk)
-        if (b1e_we)
-            b1e[b1e_addr] <= b1e_data;
+        if (fe_we && wr_bank)
+            b1e[fe_addr] <= fe_data;
     always_ff @(posedge clk)
-        if (b1o_we)
-            b1o[b1o_addr] <= b1o_data;
+        if (fo_we && wr_bank)
+            b1o[fo_addr] <= fo_data;
 
     /* The read for the next pixel lands on the last clock of this one,
      * from the bank that will be scanned then: the bank flip is on
      * h==0's first clock, so only the pixel-0 read at the end of h==799
      * has to take the bank the flip is about to make the scan bank. */
-    logic [9:0] rd_addr;
     logic rd_bank;
-    always_comb begin
-        rd_addr = h == 10'd799 ? 10'd0 : h + 10'd1;
-        rd_bank = h == 10'd799 && next_ok ? (flip_next ? wr_bank : !wr_bank)
-                                         : !wr_bank;
-    end
+    always_comb rd_bank = h_last && next_ok ? (flip_next ? wr_bank : !wr_bank)
+                                            : !wr_bank;
+    /* shown says the scan bank was flipped in for this line. A 320 wide
+     * fill can be flipped in on the first line of a 640 wide canvas, the
+     * canvas having changed while it ran, and narrow keeps the right half
+     * of that line at zeros. The fill's address on its done clock is the
+     * width it ran to. */
+    logic shown, narrow, narrow_next;
     logic [15:0] q0e, q0o, q1e, q1o;
-    logic q_sel, q_odd;
+    logic q_sel, q_odd, q_v;
     initial begin
         q0e = 16'h0000;
         q0o = 16'h0000;
@@ -136,6 +108,7 @@ module linebuf (
         q1o = 16'h0000;
         q_sel = 1'b0;
         q_odd = 1'b0;
+        q_v = 1'b0;
     end
     always_ff @(posedge clk)
         if (px_last) begin
@@ -145,21 +118,31 @@ module linebuf (
             q1o <= b1o[rd_addr[9:1]];
             q_sel <= rd_bank;
             q_odd <= rd_addr[0];
+            q_v <= (h_last && next_ok ? flip_next : shown)
+                && !(narrow && rd_addr >= 10'd320);
         end
-    always_comb linebuf_pix = q_sel ? (q_odd ? q1o : q1e)
-                                    : (q_odd ? q0o : q0e);
+    always_comb linebuf_pix = !q_v ? 16'h0000
+        : q_sel ? (q_odd ? q1o : q1e)
+                : (q_odd ? q0o : q0e);
 
     initial begin
         wr_bank = 1'b0;
         flip_next = 1'b0;
+        shown = 1'b0;
+        narrow = 1'b0;
+        narrow_next = 1'b0;
     end
     always_ff @(posedge clk) begin
         if (line_start && flip_ok) begin
             if (flip_next)
                 wr_bank <= !wr_bank;
             flip_next <= 1'b0;
-        end else if (done_i)
+            shown <= flip_next;
+            narrow <= narrow_next;
+        end else if (done_i) begin
             flip_next <= 1'b1;
+            narrow_next <= !px_addr[9];
+        end
     end
 
 endmodule

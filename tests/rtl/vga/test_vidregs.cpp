@@ -50,27 +50,23 @@ UTEST(vidregs, a_short_program_moves_the_vsync_line)
 
 /* The sprite stage stops drawing a line whose sprites are not finished when
  * the line ends, and the emulator draws every sprite, so this CRC is of the
- * RTL's picture alone. */
-UTEST(vidregs, sprite_overrun_counts_lost_races)
+ * RTL's picture alone. That a row finishes inside its budget is what the
+ * clock claims on sprite_pair and mode5c_pair say, in the mode suites. */
+UTEST(vidregs, sprite_overrun_cuts_the_row)
 {
     ASSERT_TRUE(boot("sprite_overrun", 320 * 240));
-    ASSERT_GT(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, 0);
     /* What was painted before the row ran out: a 320 wide row has two lines
      * of timing, so the cut lands a line later than it would on one. */
-    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0x9C17336Au);
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xD1033AE3u);
 }
 
-/* A 320 wide row has two lines of timing. This stack of sprites needs more
- * than one line's clocks and fewer than two, so it finishes; the 48-sprite
- * stack above needs more than two and does not. Between them they bracket
- * the row's budget. The overrun counter is never cleared, so what counts is
- * that a further frame adds nothing to it. */
-UTEST(vidregs, a_320_row_has_two_lines_of_sprites)
+/* A hundred doubled and flipped custom sprites on one row, past what its two
+ * lines can draw. The emulator draws them all, so this CRC is of the RTL's
+ * picture alone. */
+UTEST(vidregs, custom_sprite_overrun_cuts_the_row)
 {
-    ASSERT_TRUE(boot("sprite_pair", 320 * 240));
-    const uint16_t before = dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun;
-    tb_capture(dut, fb, 320 * 240);
-    ASSERT_EQ(dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun, before);
+    ASSERT_TRUE(boot("mode5c_overrun", 320 * 240));
+    ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xDF872245u);
 }
 
 UTEST_STATE();

@@ -142,10 +142,9 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
             const seg &s = segs[si];
             dut->seg_valid = 1;
             dut->seg_imm = s.imm;
-            dut->seg_bits = s.bits;
-            dut->seg_ibits = s.ibits;
-            dut->seg_fg = s.fg;
-            dut->seg_bg = s.bg;
+            dut->seg_pay = s.imm ? (uint64_t)s.ibits << 32
+                                       | (uint64_t)s.fg << 16 | s.bg
+                                 : (uint64_t)s.bits;
             dut->seg_px = s.px;
         }
         else
@@ -153,7 +152,6 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
 
         /* Read data arrives two clocks after its grant, as it does from
          * XRAM's render port in the machine. */
-        dut->a_rdy = gnt_q2;
         if (gnt_q2)
             dut->a_rdata = xram32(gnt_addr_q2);
 
@@ -183,19 +181,15 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
 
         if (dut->pixtail_pal_ld)
         {
-            uint16_t w = dut->pixtail_pal_w;
-            uint16_t words = dut->pixtail_pal_words;
-            bool half = (pal_ptr & 2) != 0;
+            /* Load k is the palette's k-th word, whose halves are entries
+             * 2k and 2k + 1 less one for a halfword-aligned palette. */
+            int half = (pal_ptr & 2) != 0;
+            int lo = c->pal_loads * 2 - half;
             uint32_t rd = dut->a_rdata;
-            bool we_e = !half || w != words;
-            bool we_o = !half || w != 0;
-            uint16_t wa_o = half ? (uint16_t)(w - 1) : w;
-            uint16_t wd_e = half ? (uint16_t)(rd >> 16) : (uint16_t)rd;
-            uint16_t wd_o = half ? (uint16_t)rd : (uint16_t)(rd >> 16);
-            if (we_e)
-                palram[(w & 127) * 2] = wd_e;
-            if (we_o)
-                palram[(wa_o & 127) * 2 + 1] = wd_o;
+            if (lo >= 0 && lo < 256)
+                palram[lo] = (uint16_t)rd;
+            if (lo + 1 < 256)
+                palram[lo + 1] = (uint16_t)(rd >> 16);
             c->pal_loads++;
         }
         /* Both palette ports answer in the same clock, as palram does. */

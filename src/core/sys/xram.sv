@@ -11,15 +11,20 @@
  * lane: the RW engine and the soft CPU behind their arbiter, and the
  * savestate serializer, which reads and writes whole words through it.
  *
- * Both clocks are the ungated ones. When the machine is stopped its
- * clock is taken away, but the array is not part of the machine's logic:
- * its addresses and its write enable come from logic that is stopped, so
- * they stand still and it does nothing.
+ * The array's clocks are the ungated ones, and keep running while the
+ * machine is stopped for a savestate. Port B's address and write enable
+ * come from logic that is stopped, so they stand still and it does
+ * nothing. Port A's addresses are registered on the machine's own clock
+ * and its words handed over once for each of the machine's edges, so a
+ * read in flight when the machine stops keeps its address and its word,
+ * and the word that lands after the stop is the one it asked for.
  */
 
 module xram (
-    /* The system clock, port B's. */
+    /* The system clock, port B's, and the machine's, which a savestate
+     * stops. */
     input logic clk,
+    input logic clk_mach,
 
     /* Port A's clock is the machine's doubled and shifted by 9.0 ns, so
      * its edges land 9.0 and 18.9 ns after each machine edge, both clear
@@ -71,7 +76,13 @@ module xram (
     logic [13:0] f_addr_q, s_addr_q, a_a;
     logic [31:0] a_q, s_raw;
     always_comb a_a = ph ? s_addr_q : f_addr_q;
+    /* m_tog flips on each of the machine's edges and m_seen follows it
+     * a handover later, so a handover with no machine edge before it
+     * leaves the words alone. */
+    logic m_tog, m_seen;
     initial begin
+        m_tog = 1'b0;
+        m_seen = 1'b0;
         ph = 1'b0;
         f_addr_q = '0;
         s_addr_q = '0;
@@ -80,16 +91,20 @@ module xram (
         xram_f_rdata = '0;
         xram_s_rdata = '0;
     end
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_mach) begin
         f_addr_q <= f_addr;
         s_addr_q <= s_addr;
+        m_tog <= !m_tog;
     end
     always_ff @(posedge clk_a2) begin
         ph <= clk_ph;
         a_q <= {mem3[a_a], mem2[a_a], mem1[a_a], mem0[a_a]};
         if (ph) begin
-            xram_f_rdata <= a_q;
-            xram_s_rdata <= s_raw;
+            if (m_seen != m_tog) begin
+                xram_f_rdata <= a_q;
+                xram_s_rdata <= s_raw;
+            end
+            m_seen <= m_tog;
         end else
             s_raw <= a_q;
     end

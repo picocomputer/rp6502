@@ -6,8 +6,8 @@
  * The sprite stage: three slots, one per plane, each with a ping-pong
  * line buffer of its own (sbuf). Nothing here waits on a fill and nothing
  * clears a buffer, because the scan side erases behind the pixel being
- * displayed, so a slot scans out its written pixels over transparent
- * zeros and the engines can start as soon as the slots are decoded.
+ * displayed, so a slot scans out its written pixels over unmarked ones
+ * and the engines can start as soon as the slots are decoded.
  * Sprites paint in list order within a slot; across slots, compose
  * stacks the planes.
  */
@@ -15,69 +15,57 @@
 module sprite (
     input logic clk,
 
-    input logic [9:0] v,
-    input logic [9:0] h,
+    /* The beam's derived columns, computed once at the top level because
+     * the line buffers of every plane share them. */
+    input logic [9:0] sc_addr,
+    input logic [9:0] rd_addr,
+    input logic h_last,
+
     input logic px_last,
     input logic line_start,
 
     input logic [9:0] cw,
-    input logic [9:0] ch,
+
+    /* The row map, from sched.sv: a 320 wide canvas is scanned out with
+     * its lines doubled, so a row of graphics spans two lines of timing
+     * and the beam keeps step with the 6502. */
+    input logic [8:0] t_row,
+    input logic render_now,
+    input logic pair_start,
+    input logic pair_end,
 
     output logic [12:0] sprite_s_idx,
     input logic [31:0] s_data,
 
     output logic [16:0] sprite_pix[3],
 
-    /* Counts the lines whose sprites did not finish before the end of
-     * the line. Such a line shows whatever was painted. */
-    output logic [15:0] sprite_overrun /*verilator public_flat_rd*/,
-
+    /* The render port's second slot is this stage's alone, so a request
+     * is taken on the clock it is made and its word lands two clocks on.
+     * Each engine's grant is therefore formed here from the stage's state,
+     * which keeps one engine's request logic out of the other's. */
     output logic sprite_a_req,
     output logic [13:0] sprite_a_addr,
-    input logic a_gnt,
     input logic [31:0] a_rdata
 );
 
-    logic [9:0] t;
-    /* A 320 wide canvas is scanned out with its lines doubled, so a row of
-     * graphics spans two lines of timing and the beam keeps step with the
-     * 6502. The row is rendered again on the second line rather than held,
-     * because the scan side erases the buffer behind the beam and leaves
-     * nothing to re-scan. */
-    logic dbl;
-    always_comb dbl = cw == 10'd320;
-    logic [9:0] v_next;
-    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
-    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
-     * is started on the even line and has the whole pair to finish in, and
-     * is handed over on the even line after. Line 524 is the pair's second
-     * line, not a start, and 523 is a start, not an end. */
-    logic pair_start, pair_end;
-    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
-    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
     /* The engines and the palette cache work a row at a time, so they are
      * aborted and flushed where a row starts, not on the second line of a
      * pair, which would drop a pass that legitimately runs into it. */
     logic row_start;
     always_comb row_start = line_start && pair_start;
 
-    logic render_now;
-    always_comb render_now = t < ch;
-    logic [8:0] t_row;
-    always_comb t_row = t[8:0];
-
     typedef enum logic [1:0] {
         SP_IDLE, SP_SLOT, SP_PLAN, SP_RUN
     } state_t;
     state_t state;
 
-    /* The three sprite slots, read at line start: an index goes out each
-     * clock and the word answers on the next. */
-    logic [31:0] slot_entry[3];
-    logic [31:0] slot_cfg[3];
-    logic [2:0] s_n, s_cap;
-    logic s_cap_v;
-    always_comb sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
+    /* The sprite slot of the plane being drawn, read as the plane is
+     * planned: an index goes out each clock and the word answers on the
+     * next, the entry then the config. */
+    logic [31:0] slot_entry;
+    logic [31:0] slot_cfg;
+    logic s_cfg;
+    always_comb sprite_s_idx = {t_row, p, 1'b1, s_cfg};
 
     logic [1:0] p;
 
@@ -130,15 +118,31 @@ module sprite (
         .clk(clk),
         .start(m5_start),
         .abort_i(row_start),
-        .attr(slot_entry[p][15:0]),
-        .cfg(slot_cfg[p][15:0]),
-        .length(slot_cfg[p][31:16]),
+        .attr(slot_entry[15:0]),
         .t_row(t_row),
         .cw(cw),
         .mode5_a_req(m5_a_req),
         .mode5_a_addr(m5_a_addr),
-        .a_gnt(a_gnt && !pc_req),
-        .a_rdata(a_rdata),
+        .a_gnt(state == SP_RUN && !pc_req),
+        .mode5_lq_active(m5_lq_active),
+        .mode5_lq_size(m5_lq_size),
+        .mode5_lq_pop(m5_lq_pop),
+        .mode5_lq_gnt(m5_lq_gnt),
+        .lq_req(lq_req),
+        .lq_addr(lq_addr),
+        .lq_dsc(lq_dsc[79:0]),
+        .lq_v(lq_v),
+        .lq_end(lq_end),
+        .mode5_rq_run(m5_rq_run),
+        .mode5_rq_first(m5_rq_first),
+        .mode5_rq_last(m5_rq_last),
+        .mode5_rq_want(m5_rq_want),
+        .mode5_rq_pop(m5_rq_pop),
+        .mode5_rq_pop_room(m5_rq_pop_room),
+        .rq_req(rq_req),
+        .rq_addr(rq_addr),
+        .rq_q0(rq_q0),
+        .rq_n(rq_n),
         .mode5_px_we(m5_px_we),
         .mode5_px_addr(m5_px_addr),
         .mode5_px_data(m5_px_data),
@@ -165,15 +169,33 @@ module sprite (
         .clk(clk),
         .start(m4_start),
         .abort_i(row_start),
-        .attr(slot_entry[p][15:0]),
-        .cfg(slot_cfg[p][15:0]),
-        .length(slot_cfg[p][31:16]),
+        .attr(slot_entry[15:0]),
         .t_row(t_row),
         .cw(cw),
         .mode4_a_req(m4_a_req),
         .mode4_a_addr(m4_a_addr),
-        .a_gnt(a_gnt),
+        .a_gnt(state == SP_RUN && run4),
         .a_rdata(a_rdata),
+        .mode4_lq_active(m4_lq_active),
+        .mode4_lq_size(m4_lq_size),
+        .mode4_lq_pop(m4_lq_pop),
+        .mode4_lq_gnt(m4_lq_gnt),
+        .lq_req(lq_req),
+        .lq_addr(lq_addr),
+        .lq_dsc(lq_dsc),
+        .lq_v(lq_v),
+        .lq_end(lq_end),
+        .mode4_rq_run(m4_rq_run),
+        .mode4_rq_first(m4_rq_first),
+        .mode4_rq_last(m4_rq_last),
+        .mode4_rq_want(m4_rq_want),
+        .mode4_rq_pop(m4_rq_pop),
+        .mode4_rq_pop_room(m4_rq_pop_room),
+        .rq_req(rq_req),
+        .rq_addr(rq_addr),
+        .rq_q0(rq_q0),
+        .rq_q1(rq_q1),
+        .rq_n(rq_n),
         .mode4_px_we(m4_px_we),
         .mode4_px_addr(m4_px_addr),
         .mode4_px_data(m4_px_data),
@@ -181,30 +203,92 @@ module sprite (
     );
 
     logic sp_is4;
-    always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
+    always_comb sp_is4 = slot_entry[18:16] == 3'd4;
 
-    /* Latched when the plane is planned, because sp_is4 reads
-     * slot_entry[p][18:16] through a three-way mux, which would
-     * otherwise stand in both the pixel port's data path and the XRAM
-     * arbitration for a bit that cannot change while the engine runs. */
+    /* Latched when the plane is planned, so the engine select that
+     * stands in both the pixel port's data path and the XRAM arbitration
+     * is a register rather than a compare. */
     logic run4;
+
+    /* One descriptor list queue and one row word queue for the two
+     * engines, which never run at once. A list is eight bytes a
+     * descriptor, ten for mode 5's custom ones and twenty for mode 4's
+     * affine ones, and is sized on the start clock, when run4 and p are
+     * this plane's. */
+    logic [12:0] n_dsc;
+    logic wide;
+    logic [16:0] list_end;
+    always_comb begin
+        n_dsc = slot_cfg[28:16];
+        wide = run4 && slot_entry[0];
+        list_end = {1'b0, slot_cfg[15:0]}
+            + (wide ? {n_dsc, 4'b0} : {1'b0, n_dsc, 3'b0})
+            + (run4 ? (wide ? {2'b0, n_dsc, 2'b0} : 17'd0)
+                    : (slot_entry[5:3] == 3'd7 ? {3'b0, n_dsc, 1'b0}
+                                                  : 17'd0))
+            - 17'd1;
+    end
+    logic m4_lq_active, m4_lq_pop, m4_lq_gnt;
+    logic m5_lq_active, m5_lq_pop, m5_lq_gnt;
+    logic [3:0] m4_lq_size, m5_lq_size;
+    logic lq_req, lq_v, lq_end;
+    logic [13:0] lq_addr;
+    logic [159:0] lq_dsc;
+    listq listq (
+        .clk(clk),
+        .start(m4_start || m5_start),
+        .cfg(slot_cfg[15:0]),
+        .last(list_end[15:2]),
+        .length(slot_cfg[29:16]),
+        .active(run4 ? m4_lq_active : m5_lq_active),
+        .size(run4 ? m4_lq_size : m5_lq_size),
+        .pop(run4 ? m4_lq_pop : m5_lq_pop),
+        .gnt(run4 ? m4_lq_gnt : m5_lq_gnt),
+        .a_rdata(a_rdata),
+        .listq_req(lq_req),
+        .listq_addr(lq_addr),
+        .listq_dsc(lq_dsc),
+        .listq_v(lq_v),
+        .listq_end(lq_end)
+    );
+
+    logic m4_rq_run, m4_rq_want, m4_rq_pop, m4_rq_pop_room;
+    logic [13:0] m4_rq_first, m4_rq_last;
+    logic m5_rq_run, m5_rq_want, m5_rq_pop, m5_rq_pop_room;
+    logic [13:0] m5_rq_first, m5_rq_last;
+    logic rq_req;
+    logic [13:0] rq_addr;
+    logic [31:0] rq_q0, rq_q1;
+    logic [2:0] rq_n;
+    rowq rowq (
+        .clk(clk),
+        .run(run4 ? m4_rq_run : m5_rq_run),
+        .first(run4 ? m4_rq_first : m5_rq_first),
+        .last(run4 ? m4_rq_last : m5_rq_last),
+        .want(run4 ? m4_rq_want : m5_rq_want),
+        .pop(run4 ? m4_rq_pop : m5_rq_pop),
+        .pop_room(run4 ? m4_rq_pop_room : m5_rq_pop_room),
+        .gnt(state == SP_RUN && (run4 || !pc_req)),
+        .a_rdata(a_rdata),
+        .rowq_req(rq_req),
+        .rowq_addr(rq_addr),
+        .rowq_q0(rq_q0),
+        .rowq_q1(rq_q1),
+        .rowq_n(rq_n)
+    );
 
     /* The cache's fill preempts mode 5's own requests. A palette lookup
      * only happens while the index word is in hand, which is also the only
-     * time mode 5 requests a prefetch of the next one, so a grant arriving
-     * while pc_req is set goes to the cache and mode 5's a_gnt is
-     * masked. */
+     * time mode 5 requests a prefetch of the next one, so the slot goes to
+     * the cache while pc_req is set and mode 5 is not granted. */
     always_comb begin
         sprite_a_req = state == SP_RUN
             && (run4 ? m4_a_req : (pc_req || m5_a_req));
         sprite_a_addr = run4 ? m4_a_addr
             : pc_req ? pc_addr : m5_a_addr;
-        pc_gnt = a_gnt && pc_req && state == SP_RUN && !run4;
+        pc_gnt = pc_req && state == SP_RUN && !run4;
     end
 
-    logic sp_en;
-    always_comb sp_en = slot_entry[p][31]
-        && (slot_entry[p][18:16] == 3'd5 || sp_is4);
 
     logic wr_bank;
     logic flip_next;
@@ -215,23 +299,21 @@ module sprite (
      * rather than stopping at cw, so a switch to a narrower canvas
      * cannot strand pixels. */
     logic [10:0] sb_rd;
-    always_comb sb_rd = h == 10'd799 && pair_end
+    always_comb sb_rd = h_last && pair_end
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}
-        : {!wr_bank, h + 10'd1};
+        : {!wr_bank, rd_addr};
     logic sb_we;
     always_comb sb_we = !px_last;
 
     logic [1:0] eng_we;
     logic [9:0] eng_addr;
     logic [31:0] eng_px;
-    logic [33:0] eng_data;
     always_comb begin
         eng_we = run4 ? m4_px_we : m5_px_we;
         if (state != SP_RUN)
             eng_we = 2'b00;
         eng_addr = run4 ? m4_px_addr : m5_px_addr;
         eng_px = run4 ? m4_px_data : m5_px_data;
-        eng_data = {1'b1, eng_px[31:16], 1'b1, eng_px[15:0]};
     end
 
     genvar gi;
@@ -242,9 +324,9 @@ module sprite (
                 .wr_bank(wr_bank),
                 .a_we(eng_we & {2{p == 2'(gi)}}),
                 .a_addr(eng_addr),
-                .a_data(eng_data),
+                .a_data(eng_px),
                 .sc_we(sb_we),
-                .sc_addr(h - 10'd1),
+                .sc_addr(sc_addr),
                 .rd_en(px_last),
                 .rd_addr(sb_rd[9:0]),
                 .rd_bank(sb_rd[10]),
@@ -258,52 +340,37 @@ module sprite (
             state <= SP_IDLE;
         else begin
             p <= p + 2'd1;
-            state <= SP_PLAN;
+            state <= SP_SLOT;
         end
     endtask
 
     initial begin
         state = SP_IDLE;
-        t = '0;
-        slot_entry[0] = '0;
-        slot_entry[1] = '0;
-        slot_entry[2] = '0;
-        slot_cfg[0] = '0;
-        slot_cfg[1] = '0;
-        slot_cfg[2] = '0;
-        s_n = '0;
-        s_cap = '0;
-        s_cap_v = 1'b0;
+        slot_entry = '0;
+        slot_cfg = '0;
+        s_cfg = 1'b0;
         p = '0;
         m4_start = 1'b0;
         m5_start = 1'b0;
         run4 = 1'b0;
         wr_bank = 1'b0;
         flip_next = 1'b0;
-        sprite_overrun = '0;
     end
     always_ff @(posedge clk) begin
         m4_start <= 1'b0;
         m5_start <= 1'b0;
-        if (h == 10'd799 && pair_end && state != SP_IDLE) begin
-            /* Count the lost row once and drop it; the engines abort at
-             * the next row start. */
-            sprite_overrun <= sprite_overrun
-                + 16'd1;
+        if (h_last && pair_end && state != SP_IDLE) begin
+            /* The row did not finish in its line; drop it, and the
+             * engines abort at the next row start. What it painted
+             * before the deadline is what shows. */
             state <= SP_IDLE;
-        end else if (line_start) begin
-            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
-                     : v_next;
-            if (pair_start) begin
-                if (flip_next)
-                    wr_bank <= !wr_bank;
-                flip_next <= 1'b0;
-            end
-            if (pair_start) begin
-                s_n <= '0;
-                s_cap_v <= 1'b0;
-                state <= SP_SLOT;
-            end
+        end else if (row_start) begin
+            if (flip_next)
+                wr_bank <= !wr_bank;
+            flip_next <= 1'b0;
+            p <= '0;
+            s_cfg <= 1'b0;
+            state <= SP_SLOT;
         end else begin
             case (state)
                 SP_IDLE: ;
@@ -312,24 +379,24 @@ module sprite (
                         state <= SP_IDLE;
                     else begin
                         flip_next <= 1'b1;
-                        if (s_n < 3'd6)
-                            s_n <= s_n + 3'd1;
-                        s_cap <= s_n;
-                        s_cap_v <= s_n < 3'd6;
-                        if (s_cap_v) begin
-                            if (s_cap[0])
-                                slot_cfg[s_cap[2:1]] <= s_data;
-                            else
-                                slot_entry[s_cap[2:1]] <= s_data;
-                            if (s_cap == 3'd5) begin
-                                p <= '0;
+                        s_cfg <= !s_cfg;
+                        /* A plane with no sprites is passed over on the
+                         * clock its entry answers. */
+                        if (s_cfg) begin
+                            slot_entry <= s_data;
+                            if (s_data[31] && (s_data[18:16] == 3'd4
+                                               || s_data[18:16] == 3'd5))
                                 state <= SP_PLAN;
-                            end
+                            else
+                                next_plane();
                         end
                     end
                 end
+                /* The config answers on this clock, so the empty list is
+                 * judged from it as it is latched. */
                 SP_PLAN: begin
-                    if (!sp_en)
+                    slot_cfg <= s_data;
+                    if (s_data[31:16] == 16'd0)
                         next_plane();
                     else begin
                         run4 <= sp_is4;
@@ -350,9 +417,8 @@ module sprite (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sprite;
-    always_comb unused_sprite = ^{t[9], slot_entry[0][30:19],
-                                      slot_entry[1][30:19],
-                                      slot_entry[2][30:19]};
+    always_comb unused_sprite = ^{slot_entry[31:19], slot_cfg[31:30],
+                                      list_end[16], list_end[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -40,11 +40,6 @@
 #include "core/sys/debug_log.h"
 #include "core/str/rln.h"
 #include "core/sys/pix.h"
-#include "core/vga/mode/mode1.h"
-#include "core/vga/mode/mode2.h"
-#include "core/vga/mode/mode3.h"
-#include "core/vga/mode/mode4.h"
-#include "core/vga/mode/mode5.h"
 #include "core/term/term.h"
 
 

@@ -121,6 +121,11 @@ static uint32_t tb_rgba8(uint16_t px)
 template <typename Dut, typename Each>
 static void tb_frame_start(Dut *dut, Each each)
 {
+    /* Already on a frame's first clock, which is where a boot that settled
+     * returns; going round to 524 first would waste the whole frame. */
+    if (dut->wiring_scanline == 0 && dut->rootp->wiring__DOT__vid_h == 0
+        && !dut->rootp->wiring__DOT__timing__DOT__tick)
+        return;
     while (dut->wiring_scanline != 524)
     {
         each();

@@ -38,22 +38,21 @@ module pixtail
     /* Segment counts must sum to cw exactly. */
     input logic seg_valid,
     input logic seg_imm,
-    input logic [22:0] seg_bits,   /* xram: origin, in bits */
-    input logic [7:0] seg_ibits,   /* immediate: the row, MSB first */
-    input logic [15:0] seg_fg,     /* immediate: bit set */
-    input logic [15:0] seg_bg,     /* immediate: bit clear */
+    /* An xram segment's origin in bits; an immediate one's row, MSB
+     * first, above the colors for its bits set and clear. */
+    input logic [39:0] seg_pay,
     input logic [9:0] seg_px,
     output logic pixtail_seg_take,
 
     output logic pixtail_a_req,
     output logic [13:0] pixtail_a_addr,
     input logic a_gnt,
-    input logic a_rdy,
     input logic [31:0] a_rdata,
 
+    /* The palette load, for every fill mode: mode 1 waits on pal_done
+     * and reads the store itself. */
     output logic pixtail_pal_ld,
-    output logic [7:0] pixtail_pal_w,
-    output logic [8:0] pixtail_pal_words,
+    output logic pixtail_pal_done,
     output logic [7:0] pixtail_pal_idx,
     output logic [7:0] pixtail_pal_idx1,
     output logic pixtail_pal_xram,
@@ -80,22 +79,29 @@ module pixtail
      * alignment, never on the image. The fill modes are contracted to be
      * deterministic that way. */
     logic [8:0] pal_words;
-    always_comb pal_words = 9'd1 << ((5'd1 << bpp_log) - 5'd1);
+    always_comb
+        case (bpp_log)
+            3'd0: pal_words = 9'd1;
+            3'd1: pal_words = 9'd2;
+            3'd2: pal_words = 9'd8;
+            3'd3: pal_words = 9'd128;
+            default: pal_words = 9'd0;   /* raw color indexes nothing */
+        endcase
     logic [8:0] pal_fetch;
     always_comb pal_fetch = pal_words + {8'd0, pal_ptr[1]};
     logic [8:0] pal_n;
-    logic [7:0] pal_w;
     logic pal_skip;
     always_comb pal_skip = !pal_xram || bpp_log == 3'd4;
+    /* The load ends as its last word lands, which is the landing with
+     * every word asked for and none following it. */
+    always_comb pixtail_pal_done = state == T_PAL
+        && (pal_skip || (gnt_q && !gnt_q1 && pal_n == pal_fetch));
 
     /* The fetch side runs ahead into the on-deck segment, so handing over
      * from one xram segment to the next costs no bubble. */
     typedef struct packed {
         logic imm;
-        logic [22:0] bits;
-        logic [7:0] ibits;
-        logic [15:0] fg;
-        logic [15:0] bg;
+        logic [39:0] pay;
         logic [9:0] px;
     } seg_t;
     seg_t cur, deck;
@@ -168,24 +174,11 @@ module pixtail
     logic [7:0] cur_byte, byte_1;
     always_comb cur_byte = fifo[0][{bit_in_word[4:3], 3'b000}+:8];
     always_comb byte_1 = fifo_pair[{bit_next[5:3], 3'b000}+:8];
-    function automatic logic [7:0] sub_idx(input logic [7:0] b,
-                                           input logic [2:0] at,
-                                           input logic [2:0] depth,
-                                           input logic rev);
-        case (depth)
-            3'd0: sub_idx = {7'd0, rev ? b[at] : b[3'd7 - at]};
-            3'd1: sub_idx = {6'd0, rev ? b[{at[2:1], 1'b0}+:2]
-                                     : b[{2'd3 - at[2:1], 1'b0}+:2]};
-            3'd2: sub_idx = {4'd0, rev ? b[{at[2], 2'b00}+:4]
-                                     : b[{!at[2], 2'b00}+:4]};
-            default: sub_idx = b;
-        endcase
-    endfunction
     logic [7:0] pix_idx, pix_idx1;
-    always_comb pix_idx = sub_idx(cur_byte, bit_in_word[2:0], bpp_log,
-                                  reversed);
-    always_comb pix_idx1 = sub_idx(byte_1, bit_next[2:0], bpp_log,
-                                   reversed);
+    always_comb pix_idx = mode::sub_idx(cur_byte, bit_in_word[2:0],
+                                        bpp_log, reversed);
+    always_comb pix_idx1 = mode::sub_idx(byte_1, bit_next[2:0],
+                                         bpp_log, reversed);
     /* Sixteen-bit color at any byte, which is the only pixel wide enough
      * to reach past its word: byte 3 takes its high half from the word
      * behind it. Everything narrower divides eight and cannot straddle. */
@@ -197,14 +190,12 @@ module pixtail
 
     logic [2:0] imm_bit;
     logic imm_on, imm_on1;
-    always_comb imm_on = cur.ibits[3'd7 - imm_bit];
-    always_comb imm_on1 = cur.ibits[3'd6 - imm_bit];
+    always_comb imm_on = cur.pay[{3'b100, 3'd7 - imm_bit}];
+    always_comb imm_on1 = cur.pay[{3'b100, 3'd6 - imm_bit}];
 
     always_comb begin
         pixtail_pal_ld = !abort_i && !start && state == T_PAL
             && !pal_skip && gnt_q;
-        pixtail_pal_w = pal_w;
-        pixtail_pal_words = pal_words;
         pixtail_pal_idx = pix_idx;
         pixtail_pal_idx1 = pix_idx1;
         pixtail_pal_xram = pal_xram;
@@ -237,8 +228,8 @@ module pixtail
         pixtail_px_addr = px;
         pixtail_px_data = 32'h0000_0000;
         if (emit_imm)
-            pixtail_px_data = {imm_on1 ? cur.fg : cur.bg,
-                               imm_on ? cur.fg : cur.bg};
+            pixtail_px_data = {imm_on1 ? cur.pay[31:16] : cur.pay[15:0],
+                               imm_on ? cur.pay[31:16] : cur.pay[15:0]};
         else if (emit_xram)
             pixtail_px_data = bpp_log == 3'd4 ? {pix16_1, pix16}
                                               : {pal_q1, pal_q};
@@ -248,10 +239,7 @@ module pixtail
         pixtail_a_req = 1'b0;
         pixtail_a_addr = fetch_word;
         case (state)
-            T_PAL: begin
-                pixtail_a_req = !pal_skip && pal_n < pal_fetch;
-                pixtail_a_addr = pal_ptr[15:2] + {5'd0, pal_n};
-            end
+            T_PAL: pixtail_a_req = !pal_skip && pal_n < pal_fetch;
             /* Three words in the system at most, counting the one that
              * lands and the ones that go this clock, which at two clocks
              * of latency is what keeps a word a clock coming. */
@@ -265,7 +253,6 @@ module pixtail
     initial begin
         state = T_IDLE;
         pal_n = '0;
-        pal_w = '0;
         cur_v = 1'b0;
         deck_v = 1'b0;
         cur = '0;
@@ -308,7 +295,6 @@ module pixtail
             state <= T_IDLE;
         end else if (start) begin
             pal_n <= '0;
-            pal_w <= '0;
             cur_v <= 1'b0;
             deck_v <= 1'b0;
             cur_fetched <= 1'b0;
@@ -316,34 +302,25 @@ module pixtail
             fifo_v <= '0;
             inflight <= '0;
             fetch_px_left <= '0;
+            fetch_word <= pal_ptr[15:2];
             px <= '0;
             state <= T_PAL;
         end else begin
             case (state)
                 T_IDLE: ;
                 T_PAL: begin
-                    if (pal_skip) begin
-                        state <= T_RUN;
-                    end else begin
-                        if (a_gnt)
-                            pal_n <= pal_n + 9'd1;
-                        if (gnt_q) begin
-                            pal_w <= pal_w + 8'd1;
-                            if ({1'b0, pal_w} == pal_fetch - 9'd1) begin
-                                pal_w <= '0;
-                                state <= T_RUN;
-                            end
-                        end
+                    if (a_gnt) begin
+                        pal_n <= pal_n + 9'd1;
+                        fetch_word <= fetch_word + 14'd1;
                     end
+                    if (pixtail_pal_done)
+                        state <= T_RUN;
                 end
                 T_RUN: begin
                     if (pixtail_seg_take) begin
                         if (!cur_v) begin
                             cur.imm <= seg_imm;
-                            cur.bits <= seg_bits;
-                            cur.ibits <= seg_ibits;
-                            cur.fg <= seg_fg;
-                            cur.bg <= seg_bg;
+                            cur.pay <= seg_pay;
                             cur.px <= seg_px;
                             cur_v <= 1'b1;
                             cur_left <= seg_px;
@@ -351,10 +328,7 @@ module pixtail
                             imm_bit <= '0;
                         end else begin
                             deck.imm <= seg_imm;
-                            deck.bits <= seg_bits;
-                            deck.ibits <= seg_ibits;
-                            deck.fg <= seg_fg;
-                            deck.bg <= seg_bg;
+                            deck.pay <= seg_pay;
                             deck.px <= seg_px;
                             deck_v <= 1'b1;
                             deck_fetched <= seg_imm;
@@ -364,17 +338,17 @@ module pixtail
                     /* Take order is fetch order, so cur outranks the
                      * deck. */
                     if (aim_cur_now) begin
-                        fetch_word <= 14'(cur.bits >> 5);
-                        fetch_bit0_next <= 5'(cur.bits & 23'd31);
-                        fetch_phase <= 5'(cur.bits & 23'd31)
+                        fetch_word <= cur.pay[18:5];
+                        fetch_bit0_next <= cur.pay[4:0];
+                        fetch_phase <= cur.pay[4:0]
                             & 5'((5'd1 << bpp_log) - 5'd1);
-                        fetch_px_left <= cur.px;
+                        fetch_px_left <= cur_left;
                         fetch_seg1 <= 1'b0;
                         cur_fetched <= 1'b1;
                     end else if (aim_deck_now) begin
-                        fetch_word <= 14'(deck.bits >> 5);
-                        fetch_bit0_next <= 5'(deck.bits & 23'd31);
-                        fetch_phase <= 5'(deck.bits & 23'd31)
+                        fetch_word <= deck.pay[18:5];
+                        fetch_bit0_next <= deck.pay[4:0];
+                        fetch_phase <= deck.pay[4:0]
                             & 5'((5'd1 << bpp_log) - 5'd1);
                         fetch_px_left <= deck.px;
                         fetch_seg1 <= 1'b1;
@@ -514,8 +488,7 @@ module pixtail
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pixtail;
-    always_comb unused_pixtail = ^{a_rdy, cur.bits, cur.px,
-                                       pal_ptr[0]};
+    always_comb unused_pixtail = ^{cur.px, pal_ptr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

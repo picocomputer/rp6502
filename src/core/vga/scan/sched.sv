@@ -6,8 +6,7 @@
  * The fill scheduler, one engine for three planes. At line start it
  * reads the three fill slots, queues the enabled fills in ascending
  * plane order, and runs them through fill one at a time. A plane that
- * does not run never flips its line buffer, so it scans out the zeros
- * the erase side left there.
+ * does not run never flips its line buffer, so it scans out zeros.
  *
  * A line is 1,600 clocks (timing.sv) and a fill lands two pixels a
  * clock, so three planes fit serially on a 640-wide canvas. A 320-wide
@@ -30,6 +29,16 @@ module sched (
     input logic [9:0] cw,
     input logic [9:0] ch,
 
+    /* The row map, which every stage pairs lines by. It lives here
+     * because this is the one instance that walks the frame's rows, and
+     * mode0.sv, scan/sprite.sv and the top level all read it rather than
+     * deriving it again. */
+    output logic [9:0] sched_t,
+    output logic sched_dbl,
+    output logic sched_pair_start,
+    output logic sched_pair_end,
+    output logic sched_render_now,
+
     output logic [8:0] sched_p_line,
     output logic [1:0] sched_p_plane,
     input logic [31:0] p_entry,
@@ -50,11 +59,10 @@ module sched (
     logic [9:0] t /*verilator public_flat_rd*/;
     /* A 320 wide canvas is scanned out with its lines doubled, so a row of
      * graphics spans two lines of timing and the beam keeps step with the
-     * 6502. The row is rendered again on the second line rather than held,
-     * because the scan side erases the buffer behind the beam and leaves
-     * nothing to re-scan. */
+     * 6502. */
     logic dbl;
     always_comb dbl = cw == 10'd320;
+    always_comb sched_dbl = dbl;
     logic [9:0] v_next;
     always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
     /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
@@ -64,9 +72,13 @@ module sched (
     logic pair_start, pair_end;
     always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
     always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
+    always_comb sched_pair_start = pair_start;
+    always_comb sched_pair_end = pair_end;
+    always_comb sched_t = t;
 
     logic render_now;
     always_comb render_now = t < ch;
+    always_comb sched_render_now = render_now;
     logic [8:0] t_row;
     always_comb t_row = t[8:0];
     always_comb sched_p_line = t_row;
@@ -88,30 +100,17 @@ module sched (
     logic [15:0] pl_attr[3];
     logic [15:0] pl_cfg[3];
 
-    logic [1:0] dec_q[3];
-    logic [1:0] dec_n;
-    logic [2:0] dec_run;
-    always_comb begin
-        dec_q[0] = 2'd0;
-        dec_q[1] = 2'd0;
-        dec_q[2] = 2'd0;
-        dec_n = 2'd0;
-        for (int i = 0; i < 3; i++)
-            if (pl_en[i]) begin
-                dec_q[dec_n] = 2'(i);
-                dec_n = dec_n + 2'd1;
-            end
-        dec_run = '0;
-        for (int i = 0; i < 3; i++)
-            if (2'(i) < dec_n)
-                dec_run[dec_q[i]] = 1'b1;
-    end
-
-    logic [1:0] q[3];
-    logic [1:0] q_n, q_i;
-    logic [1:0] cur;
-    always_comb cur = q[q_i];
+    /* The planes still to fill this row run lowest first, so the one
+     * running is the lowest pending, and the fill reads its slot straight
+     * from here for as long as it runs. */
     logic [2:0] plane_pending /*verilator public_flat_rd*/;
+    logic [1:0] cur;
+    always_comb begin
+        cur = plane_pending[0] ? 2'd0 : plane_pending[1] ? 2'd1 : 2'd2;
+        sched_e_mode = pl_mode[cur];
+        sched_e_attr = pl_attr[cur];
+        sched_e_config = pl_cfg[cur];
+    end
 
     /* The marker compose sees is decided during this line's slot sweep
      * and taken at the next line_start, so it changes on the same edge
@@ -154,17 +153,11 @@ module sched (
             pl_mode[i] = '0;
             pl_attr[i] = '0;
             pl_cfg[i] = '0;
-            q[i] = '0;
         end
-        q_n = '0;
-        q_i = '0;
         plane_pending = '0;
         term_q = '0;
         term_armed = 1'b0;
         sched_e_start = 1'b0;
-        sched_e_mode = '0;
-        sched_e_attr = '0;
-        sched_e_config = '0;
     end
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
@@ -202,17 +195,10 @@ module sched (
                             pl_cfg[2'(rd_i - 3'd1)] <= p_config;
                         end
                         if (rd_i == 3'd4) begin
-                            for (int i = 0; i < 3; i++)
-                                q[i] <= dec_q[i];
-                            q_n <= dec_n;
-                            q_i <= 2'd0;
-                            plane_pending <= dec_run;
+                            plane_pending <= {pl_en[2], pl_en[1], pl_en[0]};
                             term_armed <= 1'b1;
-                            if (dec_n != 2'd0) begin
+                            if (pl_en[0] || pl_en[1] || pl_en[2]) begin
                                 sched_e_start <= 1'b1;
-                                sched_e_mode <= pl_mode[dec_q[0]];
-                                sched_e_attr <= pl_attr[dec_q[0]];
-                                sched_e_config <= pl_cfg[dec_q[0]];
                                 state <= SCH_RUN;
                             end else
                                 state <= SCH_IDLE;
@@ -222,13 +208,9 @@ module sched (
                 SCH_RUN: begin
                     if (e_done) begin
                         plane_pending[cur] <= 1'b0;
-                        if (q_i + 2'd1 < q_n) begin
-                            q_i <= q_i + 2'd1;
+                        if ((plane_pending & ~(3'd1 << cur)) != 3'd0)
                             sched_e_start <= 1'b1;
-                            sched_e_mode <= pl_mode[q[q_i + 2'd1]];
-                            sched_e_attr <= pl_attr[q[q_i + 2'd1]];
-                            sched_e_config <= pl_cfg[q[q_i + 2'd1]];
-                        end else
+                        else
                             state <= SCH_IDLE;
                     end
                 end

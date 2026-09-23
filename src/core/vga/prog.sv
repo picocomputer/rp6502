@@ -9,16 +9,15 @@
  *
  * Four arrays, one per word of a slot pair, because a block RAM has two
  * ports and this table has four readers. Split by word each array has
- * one writer and one reader, which fits a block RAM; kept whole it
- * becomes a quarter of a million registers.
+ * one render reader, which fits a block RAM; kept whole it becomes a
+ * quarter of a million registers.
  *
- * The bus side reads by borrowing the render's own read ports rather
- * than by having any of its own. It is allowed to because the only
- * reader is the savestate engine and the engine does not read until it
- * has stopped the machine, so the render is standing still and its
- * ports are going spare. What the beam draws while that is happening is
- * whatever the engine is reading, which for the length of a savestate
- * is the honest price of not duplicating twenty blocks of memory.
+ * The render reads on the machine's clock, so a savestate's stop leaves
+ * an answer in flight where it was. The soft CPU writes, and the
+ * savestate engine reads and writes, through each array's other port,
+ * which keeps its clock while the machine is stopped. At this depth a
+ * block with two such ports costs no more blocks than one with a single
+ * reader.
  *
  * The canvas and the vsync line are shadows: the canvas latches where
  * the render takes the frame's first row, the vsync line at the beam's
@@ -54,9 +53,8 @@ module prog (
     input logic [12:0] s_idx,
     output logic [31:0] prog_s_data,
 
-    /* The savestate serializer holds the machine, and the render's read
-     * ports with it: the render is stopped, so both of them are going
-     * spare. Word 0 and 1 are the fill slot, 2 and 3 the sprite slot. */
+    /* The savestate serializer, with the machine stopped. Word 0 and 1
+     * are the fill slot, 2 and 3 the sprite slot. */
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic [1:0] sst_word,
@@ -65,13 +63,11 @@ module prog (
     output logic [31:0] prog_sst_rdata,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
-     * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
-     * overrun count. */
+     * then bit 15 the registers — 0 canvas, 1 vsync line. */
     input logic b_stb,
     input logic b_we,
     input logic [15:0] b_addr,
-    input logic [31:0] b_wdata,
-    output logic [31:0] prog_b_rdata
+    input logic [31:0] b_wdata
 );
 
     /* Indexed by {line, plane}; the word within the pair picks the
@@ -93,27 +89,10 @@ module prog (
     logic [10:0] b_idx;
     always_comb b_idx = b_addr[14:4];
 
-    logic [10:0] p_a, s_a;
-    always_comb begin
-        p_a = sst_own ? sst_addr : {p_line, p_plane};
-        s_a = sst_own ? sst_addr : s_idx[12:2];
-    end
-
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;
     logic [9:0] vsync_shadow /*verilator public_flat_rw*/;
     logic [9:0] vsync_q;
 
-    /* The table's answer is not registered here: the arrays latch it on
-     * the strobe into the render's own outputs, and the word arrives
-     * the clock after, which is what the bus asks for anyway. */
-    logic b_tbl_q;
-    logic [1:0] b_word_q;
-    logic [31:0] b_reg_q;
-    initial begin
-        b_tbl_q = 1'b0;
-        b_word_q = 2'd0;
-        b_reg_q = 32'd0;
-    end
     /* One write port per array, whoever is writing: a block RAM has
      * one, and a second conditional write -- even one that can never
      * fire at the same time -- is a second port, which un-infers the
@@ -129,40 +108,36 @@ module prog (
         w_d = sst_own ? sst_wdata : b_wdata;
         w_go = sst_own ? sst_we : (b_stb && !b_addr[15] && b_we);
     end
+    logic [31:0] fe_b, sc_b;
+    logic [15:0] fc_b;
+    logic [19:0] se_b;
     always_ff @(posedge clk_mem) begin
-        if (w_go) begin
-            if (w_word == 2'd0) fill_e[w_a] <= w_d;
-            if (w_word == 2'd1) fill_c[w_a] <= w_d[15:0];
-            if (w_word == 2'd2) spr_e[w_a] <= {w_d[31], w_d[18:0]};
-            if (w_word == 2'd3) spr_c[w_a] <= w_d;
-        end
-        if (b_stb && !sst_own) begin
-            b_tbl_q <= !b_addr[15];
-            b_word_q <= b_addr[3:2];
-            b_reg_q <= !b_addr[15] || b_addr[3] ? 32'd0
-                : (b_addr[2] ? {22'd0, vsync_shadow}
-                             : {29'd0, canvas_shadow});
-        end
+        if (w_go && w_word == 2'd0) fill_e[w_a] <= w_d;
+        fe_b <= fill_e[w_a];
+    end
+    always_ff @(posedge clk_mem) begin
+        if (w_go && w_word == 2'd1) fill_c[w_a] <= w_d[15:0];
+        fc_b <= fill_c[w_a];
+    end
+    always_ff @(posedge clk_mem) begin
+        if (w_go && w_word == 2'd2) spr_e[w_a] <= {w_d[31], w_d[18:0]};
+        se_b <= spr_e[w_a];
+    end
+    always_ff @(posedge clk_mem) begin
+        if (w_go && w_word == 2'd3) spr_c[w_a] <= w_d;
+        sc_b <= spr_c[w_a];
     end
 
     logic [19:0] s_e_q;
     logic [31:0] s_c_q;
     logic s_half_q;
 
-    logic [31:0] b_tbl;
     always_comb begin
-        case (b_word_q)
-            2'd0: b_tbl = prog_p_entry;
-            2'd1: b_tbl = {16'd0, prog_p_config};
-            2'd2: b_tbl = {s_e_q[19], 12'd0, s_e_q[18:0]};
-            default: b_tbl = s_c_q;
-        endcase
-        prog_b_rdata = b_tbl_q ? b_tbl : b_reg_q;
         case (sst_word)
-            2'd0: prog_sst_rdata = prog_p_entry;
-            2'd1: prog_sst_rdata = {16'd0, prog_p_config};
-            2'd2: prog_sst_rdata = {s_e_q[19], 12'd0, s_e_q[18:0]};
-            default: prog_sst_rdata = s_c_q;
+            2'd0: prog_sst_rdata = fe_b;
+            2'd1: prog_sst_rdata = {16'd0, fc_b};
+            2'd2: prog_sst_rdata = {se_b[19], 12'd0, se_b[18:0]};
+            default: prog_sst_rdata = sc_b;
         endcase
     end
 
@@ -202,11 +177,11 @@ module prog (
     /* The sprite stage only ever asks for words 2 and 3 — its index
      * carries a hard 1 in the word's high bit — so its two arrays
      * answer together and the low bit picks between them. */
-    always_ff @(posedge clk_mem) begin
-        prog_p_entry <= fill_e[p_a];
-        prog_p_config <= fill_c[p_a];
-        s_e_q <= spr_e[s_a];
-        s_c_q <= spr_c[s_a];
+    always_ff @(posedge clk) begin
+        prog_p_entry <= fill_e[{p_line, p_plane}];
+        prog_p_config <= fill_c[{p_line, p_plane}];
+        s_e_q <= spr_e[s_idx[12:2]];
+        s_c_q <= spr_c[s_idx[12:2]];
         s_half_q <= s_idx[0];
     end
     always_comb prog_s_data =

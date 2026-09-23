@@ -72,12 +72,16 @@ module palcache
     always_comb wa_b = ha_b[14:1];
 
     /* A copy of the tags for each lookup, because an MLAB reads through
-     * one port. */
+     * one port. A tag carries the row its word landed in, so the flush
+     * empties the cache by counting rows rather than by clearing a bit
+     * per line. Each flush restamps one line with the row that is ending,
+     * so no stamp is ever 512 rows old, where the count would come round
+     * to it. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [5:0] tag_a[256];
+    logic [14:0] tag_a[256];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [5:0] tag_b[256];
-    logic [255:0] valid;
+    logic [14:0] tag_b[256];
+    logic [8:0] rows;
 
     logic filling;
     logic [13:0] fill_wa;
@@ -86,10 +90,8 @@ module palcache
         land = filling && fill_rdy;
         land_a = land && fill_wa == wa_a;
         land_b = land && fill_wa == wa_b;
-        hit_a = (valid[wa_a[7:0]] && tag_a[wa_a[7:0]] == wa_a[13:8])
-            || land_a;
-        hit_b = (valid[wa_b[7:0]] && tag_b[wa_b[7:0]] == wa_b[13:8])
-            || land_b;
+        hit_a = tag_a[wa_a[7:0]] == {rows, wa_a[13:8]} || land_a;
+        hit_b = tag_b[wa_b[7:0]] == {rows, wa_b[13:8]} || land_b;
     end
     always_comb palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
@@ -122,10 +124,9 @@ module palcache
         for (int i = 0; i < 256; i++) begin
             lo[i] = 16'd0;
             hi[i] = 16'd0;
-            tag_a[i] = 6'd0;
-            tag_b[i] = 6'd0;
+            tag_a[i] = 15'd0;
+            tag_b[i] = 15'd0;
         end
-    initial valid = '0;
     always_ff @(posedge clk) begin
         if (wr_a) begin
             lo[fill_wa[7:0]] <= a_rdata[15:0];
@@ -163,6 +164,7 @@ module palcache
         bi_qb = '0;
         filling = 1'b0;
         fill_wa = '0;
+        rows = '0;
     end
     always_ff @(posedge clk) begin
         half_a <= ha_a[0];
@@ -182,23 +184,22 @@ module palcache
             : byp_b ? byp_qb : half_b ? hi_qb : lo_qb;
     end
 
+    /* The flush's stamp takes the tag write from a word landing on the
+     * same clock, which could not answer a lookup after the boundary
+     * anyway. */
     always_ff @(posedge clk) begin
-        if (land) begin
-            filling <= 1'b0;
-            tag_a[fill_wa[7:0]] <= fill_wa[13:8];
-            tag_b[fill_wa[7:0]] <= fill_wa[13:8];
-            valid[fill_wa[7:0]] <= 1'b1;
+        if (land || flush) begin
+            tag_a[flush ? rows[7:0] : fill_wa[7:0]] <= {rows, fill_wa[13:8]};
+            tag_b[flush ? rows[7:0] : fill_wa[7:0]] <= {rows, fill_wa[13:8]};
         end
+        if (land)
+            filling <= 1'b0;
         if (miss_now && fill_gnt) begin
             filling <= 1'b1;
             fill_wa <= palcache_addr;
         end
-
-        /* The flush is written last, so it outranks a fill landing on
-         * the same clock: a word granted before the row boundary must
-         * not validate a line after it. */
         if (flush) begin
-            valid <= '0;
+            rows <= rows + 9'd1;
             filling <= 1'b0;
         end
     end

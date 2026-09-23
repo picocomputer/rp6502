@@ -8,11 +8,11 @@
  * one plane at a time and a mode that reads the palette fetches every
  * entry it will index before it emits a pixel.
  *
- * Entries are split by parity so that the load writes one XRAM word,
- * which holds two entries, in one clock. The second copy answers mode
- * 1's foreground and background in the same cycle; modes 2 and 3 read
- * port A alone. Both reads are asynchronous because they have to answer
- * where they are used.
+ * Entries are split by the half of an XRAM word they arrive in, so that
+ * the load writes a whole word, which holds two entries, in one clock.
+ * The second copy answers mode 1's foreground and background in the
+ * same cycle; modes 2 and 3 read port A alone. Both reads are
+ * asynchronous because they have to answer where they are used.
  */
 
 module palram
@@ -22,7 +22,6 @@ module palram
 
     input logic ld,
     input logic [7:0] w,
-    input logic [8:0] words,
     input logic half,
     input logic [31:0] a_rdata,
 
@@ -43,47 +42,41 @@ module palram
      * arrays of 128 sixteen-bit entries is 8192 flip-flops, and the
      * device stops fitting. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_a_even[128];
+    logic [15:0] pal_a_lo[128];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_a_odd[128];
+    logic [15:0] pal_a_hi[128];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_b_even[128];
+    logic [15:0] pal_b_lo[128];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_b_odd[128];
+    logic [15:0] pal_b_hi[128];
 
-    /* A halfword-aligned palette puts entry 0 in the first word's high
-     * half, so each end of the run writes one parity only: the first
-     * word's low half is the halfword before the palette, and the last
-     * word's high half is the halfword after it. */
-    logic we_e, we_o;
-    logic [6:0] wa_o;
-    logic [15:0] wd_e, wd_o;
-    always_comb begin
-        we_e = ld && (!half || {1'b0, w} != words);
-        we_o = ld && (!half || w != 8'd0);
-        wa_o = half ? 7'(w - 8'd1) : w[6:0];
-        wd_e = half ? a_rdata[31:16] : a_rdata[15:0];
-        wd_o = half ? a_rdata[15:0] : a_rdata[31:16];
-    end
+    /* Word w's halves are entries 2w and 2w + 1, or with a halfword-aligned
+     * palette 2w - 1 and 2w, so its low half lands a line lower and the
+     * reads flip halves. The halves either side of the palette land on
+     * entries its depth never indexes, or on entry 255 before the load
+     * reaches it; only the one past a 256-color palette would wrap onto
+     * entry 0, and it is not written. */
+    logic [6:0] wa_lo;
+    always_comb wa_lo = half ? 7'(w - 8'd1) : w[6:0];
 
     /* No reset, because an array that takes one cannot be memory. */
     always_ff @(posedge clk) begin
-        if (we_e) begin
-            pal_a_even[w[6:0]] <= wd_e;
-            pal_b_even[w[6:0]] <= wd_e;
-        end
-        if (we_o) begin
-            pal_a_odd[wa_o] <= wd_o;
-            pal_b_odd[wa_o] <= wd_o;
+        if (ld) begin
+            pal_a_lo[wa_lo] <= a_rdata[15:0];
+            pal_b_lo[wa_lo] <= a_rdata[15:0];
+            if (!w[7]) begin
+                pal_a_hi[w[6:0]] <= a_rdata[31:16];
+                pal_b_hi[w[6:0]] <= a_rdata[31:16];
+            end
         end
     end
 
     always_comb begin
         if (xram) begin
-            palram_qa = idx_a[0] ? pal_a_odd[idx_a[7:1]]
-                                     : pal_a_even[idx_a[7:1]];
-            palram_qb = idx_b[0] ? pal_b_odd[idx_b[7:1]]
-                                     : pal_b_even[idx_b[7:1]];
+            palram_qa = idx_a[0] ^ half ? pal_a_hi[idx_a[7:1]]
+                                        : pal_a_lo[idx_a[7:1]];
+            palram_qb = idx_b[0] ^ half ? pal_b_hi[idx_b[7:1]]
+                                        : pal_b_lo[idx_b[7:1]];
         end else if (one_bpp) begin
             palram_qa = VID_COLOR_2[idx_a[0]];
             palram_qb = VID_COLOR_2[idx_b[0]];

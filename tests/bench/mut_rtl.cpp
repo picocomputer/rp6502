@@ -307,8 +307,5 @@ mut_budget_t mut_measure(const char *name)
                 name, b.lines);
         return MUT_BUDGET_NONE;
     }
-    if (b.worst >= b.deadline_at_worst &&
-        dut->rootp->wiring__DOT__sprite__DOT__sprite_overrun > 0)
-        return MUT_BUDGET_OVER;
     return b.worst < b.deadline_at_worst ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
 }

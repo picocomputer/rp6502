@@ -25,6 +25,7 @@ set(RP6502_RTL_SOURCES
     ${OPL2_SOURCES}
     ${W65C02_ROM}
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
+    ${RP6502_SRC}/core/vga/mode/mode.sv
     ${RP6502_SRC}/core/riscv/tcm_pkg.sv
     ${RP6502_SRC}/core/wdc/cpu.sv
     ${RP6502_SRC}/core/wdc/bus.sv
@@ -44,6 +45,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/font.sv
     ${RP6502_SRC}/core/vga/scan/palram.sv
     ${RP6502_SRC}/core/vga/scan/pixtail.sv
+    ${RP6502_SRC}/core/vga/scan/rowmap.sv
     ${RP6502_SRC}/core/vga/scan/sched.sv
     ${RP6502_SRC}/core/vga/scan/fill.sv
     ${RP6502_SRC}/core/vga/scan/linebuf.sv
@@ -53,6 +55,8 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/mode/mode4.sv
     ${RP6502_SRC}/core/vga/mode/mode5.sv
     ${RP6502_SRC}/core/vga/scan/palcache.sv
+    ${RP6502_SRC}/core/vga/scan/rowq.sv
+    ${RP6502_SRC}/core/vga/scan/listq.sv
     ${RP6502_SRC}/core/vga/scan/sbuf.sv
     ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
