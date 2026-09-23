@@ -1,5 +1,5 @@
 # The RP6502 project tools: rp6502_executable(), rp6502_asset(),
-# rp6502_xram(), rp6502_byproducts(), and the fetch that keeps this
+# rp6502_map(), rp6502_byproducts(), and the fetch that keeps this
 # directory current.
 #
 # Update with:  cmake -P tools/rp6502.cmake
@@ -71,29 +71,11 @@ function(rp6502_fetch_sums out_var)
     set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
-# One release archive, reduced to the executable it carries.
-function(rp6502_fetch_emu suffix member exe)
-    if(RP6502_EMU_RELEASE STREQUAL "latest")
-        set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/latest/download")
-    else()
-        set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/download/${RP6502_EMU_RELEASE}")
-    endif()
-    set(tmp "${RP6502_TOOLS_DIR}/${exe}.tmp")
-    file(REMOVE_RECURSE "${tmp}")
-    file(MAKE_DIRECTORY "${tmp}")
-    file(DOWNLOAD "${base}/SHA256SUMS" "${tmp}/SHA256SUMS"
-        STATUS status
-        TLS_VERIFY ON
-        INACTIVITY_TIMEOUT 30
-    )
-    list(GET status 0 code)
-    list(GET status 1 text)
-    if(NOT code EQUAL 0)
-        file(REMOVE_RECURSE "${tmp}")
-        message(NOTICE "No emulator: cannot fetch ${base}/SHA256SUMS\n${text}")
-        return()
-    endif()
-    rp6502_read_sums("${tmp}/SHA256SUMS" assets)
+# One release archive, reduced to the executable it carries. assets is
+# the release's name=hash list. Sets result_var to ok, unsupported when
+# the release has no such asset, or failed.
+function(rp6502_fetch_emu base assets suffix member exe result_var)
+    set(${result_var} failed PARENT_SCOPE)
     set(name)
     foreach(asset IN LISTS assets)
         string(REGEX MATCH "^(.+)=([0-9a-fA-F]+)$" ignored "${asset}")
@@ -106,10 +88,13 @@ function(rp6502_fetch_emu suffix member exe)
         endif()
     endforeach()
     if(NOT name)
-        file(REMOVE_RECURSE "${tmp}")
         message(NOTICE "No emulator: release ${RP6502_EMU_RELEASE} has no ${suffix}")
+        set(${result_var} unsupported PARENT_SCOPE)
         return()
     endif()
+    set(tmp "${RP6502_TOOLS_DIR}/${exe}.tmp")
+    file(REMOVE_RECURSE "${tmp}")
+    file(MAKE_DIRECTORY "${tmp}")
     message(STATUS "Fetching tools/${exe}")
     file(DOWNLOAD "${base}/${name}" "${tmp}/${name}"
         STATUS status
@@ -153,31 +138,81 @@ function(rp6502_fetch_emu suffix member exe)
             GROUP_READ GROUP_EXECUTE
             WORLD_READ WORLD_EXECUTE)
     endif()
+    set(${result_var} ok PARENT_SCOPE)
 endfunction()
 
+# Given MISSING, fetches only what tools/ lacks, and nothing at all once
+# rp6502-emu.unsupported exists, so a host the release has no build for
+# doesn't ask again at every configure. An update removes it and retries.
 function(rp6502_fetch_emulator)
-    cmake_host_system_information(RESULT host QUERY OS_NAME)
-    if(host STREQUAL "Windows")
-        rp6502_fetch_emu("windows.zip" "rp6502-emu.exe" "rp6502-emu.exe")
+    # Each build is suffix|member|exe. OS_NAME is "macOS" on a Mac, not
+    # Darwin, so the Windows and Apple hosts are told apart this way.
+    set(builds)
+    if(CMAKE_HOST_WIN32)
+        list(APPEND builds "windows.zip|rp6502-emu.exe|rp6502-emu.exe")
+    elseif(CMAKE_HOST_APPLE)
+        list(APPEND builds "macos.zip|rp6502-emu.app/Contents/MacOS/rp6502-emu|rp6502-emu")
+    else()
+        cmake_host_system_information(RESULT host QUERY OS_NAME)
+        cmake_host_system_information(RESULT release QUERY OS_RELEASE)
+        cmake_host_system_information(RESULT machine QUERY OS_PLATFORM)
+        if(host STREQUAL "Linux")
+            # WSL runs the Windows build through interop.
+            if(release MATCHES "[Mm]icrosoft")
+                list(APPEND builds "windows.zip|rp6502-emu.exe|rp6502-emu.exe")
+            endif()
+            list(APPEND builds "linux-${machine}.tar.gz|rp6502-emu|rp6502-emu")
+        endif()
+    endif()
+    set(sentinel "${RP6502_TOOLS_DIR}/rp6502-emu.unsupported")
+    if(NOT "MISSING" IN_LIST ARGN)
+        file(REMOVE "${sentinel}")
+    elseif(EXISTS "${sentinel}")
+        message(STATUS "No emulator: tools/rp6502-emu.unsupported has the reason, "
+            "and cmake -P tools/rp6502.cmake tries again.")
         return()
     endif()
-    if(host STREQUAL "Darwin")
-        rp6502_fetch_emu("macos.zip"
-            "rp6502-emu.app/Contents/MacOS/rp6502-emu" "rp6502-emu")
-        return()
-    endif()
-    if(NOT host STREQUAL "Linux")
-        return()
-    endif()
-    cmake_host_system_information(RESULT release QUERY OS_RELEASE)
-    cmake_host_system_information(RESULT machine QUERY OS_PLATFORM)
-    # WSL runs the Windows build through interop.
-    if(release MATCHES "[Mm]icrosoft")
-        rp6502_fetch_emu("windows.zip" "rp6502-emu.exe" "rp6502-emu.exe")
-    endif()
-    if(machine STREQUAL "x86_64" OR machine STREQUAL "aarch64")
-        rp6502_fetch_emu("linux-${machine}.tar.gz" "rp6502-emu" "rp6502-emu")
-    endif()
+    set(assets)
+    foreach(build IN LISTS builds)
+        string(REPLACE "|" ";" fields "${build}")
+        list(GET fields 0 suffix)
+        list(GET fields 1 member)
+        list(GET fields 2 exe)
+        if("MISSING" IN_LIST ARGN AND EXISTS "${RP6502_TOOLS_DIR}/${exe}")
+            continue()
+        endif()
+        # One list serves every build, and it is fetched only when a build
+        # is wanted. The timeout bounds a network that drops packets.
+        if(NOT assets)
+            if(RP6502_EMU_RELEASE STREQUAL "latest")
+                set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/latest/download")
+            else()
+                set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/download/${RP6502_EMU_RELEASE}")
+            endif()
+            message(STATUS "Fetching the emulator list")
+            set(sums "${RP6502_TOOLS_DIR}/rp6502-emu.SHA256SUMS.tmp")
+            file(DOWNLOAD "${base}/SHA256SUMS" "${sums}"
+                STATUS status
+                TLS_VERIFY ON
+                TIMEOUT 30
+            )
+            list(GET status 0 code)
+            list(GET status 1 text)
+            if(code EQUAL 0)
+                rp6502_read_sums("${sums}" assets)
+            endif()
+            file(REMOVE "${sums}")
+            if(NOT assets)
+                message(NOTICE "No emulator: cannot fetch ${base}/SHA256SUMS\n${text}")
+                break()
+            endif()
+        endif()
+        rp6502_fetch_emu("${base}" "${assets}" "${suffix}" "${member}" "${exe}" result)
+        if(result STREQUAL "unsupported")
+            file(APPEND "${sentinel}"
+                "Release ${RP6502_EMU_RELEASE} has no ${suffix} for tools/${exe}.\n")
+        endif()
+    endforeach()
 endfunction()
 
 # Hooks patch config files.
@@ -249,6 +284,12 @@ endif()
 
 if(CMAKE_SCRIPT_MODE_FILE)
     return()
+endif()
+
+# A clone has the tools but not the emulator, which git ignores. The
+# bootstrap's first configure has just fetched everything.
+if(NOT RP6502_TOOLS_FETCHED)
+    rp6502_fetch_emulator(MISSING)
 endif()
 
 if(DEFINED CC65_TARGET_SYSTEM)
@@ -383,11 +424,10 @@ function(rp6502_executable name)
     )
     add_custom_target(${name}_rp6502 ALL DEPENDS "${rom_file}")
     # A layout that fails its checks must not produce a ROM.
-    get_directory_property(xram_checks RP6502_XRAM_CHECKS)
-    if (xram_checks)
-        add_dependencies(${name}_rp6502 ${xram_checks})
+    get_target_property(map_checks ${name} RP6502_MAP_CHECKS)
+    if (map_checks)
+        add_dependencies(${name}_rp6502 ${map_checks})
     endif()
-    set_property(DIRECTORY APPEND PROPERTY RP6502_ROM_TARGETS "${name}_rp6502")
     # Mark that rp6502_executable has been called for this target
     set_property(TARGET ${name} PROPERTY RP6502_EXECUTABLE_CALLED TRUE)
 endfunction()
@@ -405,8 +445,9 @@ endfunction()
 # with "ROM:filename" from a micro filesystem in the ROM.
 # Writing the address as RAM(<x>) or XRAM(<x>) checks that it is in range,
 # and XRAM() sets the bit that tells XRAM from RAM, so an offset from
-# rp6502_xram() loads into XRAM. Inside the parentheses, <x> is a number
-# or the name of a CMake variable.
+# rp6502_map() loads into XRAM. Inside the parentheses, <x> is a number,
+# a name rp6502_map() read for this target, or the name of a CMake
+# variable.
 #
 function(rp6502_asset name)
     get_target_property(executable_called ${name} RP6502_EXECUTABLE_CALLED)
@@ -421,6 +462,7 @@ function(rp6502_asset name)
     set(args ${ARGN})
     list(LENGTH args argc)
     list(GET args 0 addr)
+    set(unread FALSE)
     if (addr STREQUAL "RAM" OR addr STREQUAL "XRAM")
         set(form "${addr}")
         if (NOT argc EQUAL 5)
@@ -432,16 +474,27 @@ function(rp6502_asset name)
             message(FATAL_ERROR "rp6502_asset(${name} ${form}(<address>) <in_file>)")
         endif()
         list(GET args 2 value)
-        if (DEFINED ${value})
+        set(token "${value}")
+        get_target_property(read ${name} RP6502_MAP_NAME_${value})
+        if (NOT read MATCHES "-NOTFOUND$")
+            set(value "${read}")
+        elseif (DEFINED ${value})
             set(value "${${value}}")
         endif()
         set(written "${value}")
+        # rp6502_map() gives an address it could not read this value.
+        if (value STREQUAL "0xFFFFFFFF")
+            set(unread TRUE)
+            # Stands in until the build refuses it.
+            set(value 0)
+        endif()
         # A leading $ is how a 6502 program writes hex, which rp6502.py
         # takes as well.
         string(REGEX REPLACE "^\\$" "0x" value "${value}")
         if (NOT value MATCHES "^[-+]?(0[xX][0-9a-fA-F]+|[0-9]+)$")
             message(FATAL_ERROR
-                "rp6502_asset(${name} ${form}(...)): ${written} is not a number.")
+                "rp6502_asset(${name} ${form}(...)): ${written} is not a number,"
+                " or a name from rp6502_map(${name} ...).")
         endif()
         if (form STREQUAL "RAM")
             set(limit 65535)
@@ -459,6 +512,10 @@ function(rp6502_asset name)
             math(EXPR value "${value} | 0x10000")
         endif()
         math(EXPR addr "${value}" OUTPUT_FORMAT HEXADECIMAL)
+        if (unread)
+            # Keeps two refusals from sharing an output.
+            set(addr "${form}_${token}")
+        endif()
         list(GET args 4 in_file)
     else()
         if (NOT argc EQUAL 2)
@@ -475,15 +532,25 @@ function(rp6502_asset name)
     set(out_file "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${name}.rp6502/${key}/${rel_path}")
     get_filename_component(out_dir "${out_file}" DIRECTORY)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    add_custom_command(
-        OUTPUT "${out_file}"
-        DEPENDS "${src_file}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
+    set(create
         COMMAND "${Python3_EXECUTABLE}"
                 "${RP6502_TOOLS_DIR}/rp6502.py"
                 -a "${addr}"
                 -o "${out_file}"
-                create "${src_file}"
+                create "${src_file}")
+    # The configure has to finish for the build to report why the address
+    # was not read, so the refusal waits for the build too.
+    if (unread)
+        set(create
+            COMMAND ${CMAKE_COMMAND} -E echo
+                "rp6502_asset(${name} ${form}(${token})): rp6502_map() did not read this address, or it does not fit in 16 bits."
+            COMMAND ${CMAKE_COMMAND} -E false)
+    endif()
+    add_custom_command(
+        OUTPUT "${out_file}"
+        DEPENDS "${src_file}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
+        ${create}
         VERBATIM
     )
     set_property(TARGET ${name} APPEND PROPERTY
@@ -493,35 +560,52 @@ endfunction()
 
 # Give CMake the addresses a header defines.
 #
-# RP6502 XRAM Layout
-# ^^^^^^^^^^^^^^^^^^
+# RP6502 Memory Map
+# ^^^^^^^^^^^^^^^^^
 #
-#  rp6502_xram(<header> <regex> [<unaligned_regex>])
+#  rp6502_map(<target> <header> <regex> [<unaligned_regex>])
 #
 # Reads the ``#define`` lines of ``<header>`` whose name matches
-# ``<regex>`` and sets each name as a variable holding the value the
-# header computes. The names then work as rp6502_asset() addresses.
+# ``<regex>`` and records each name on ``<target>`` with the value the
+# header computes. The names then work inside RAM() and XRAM() in that
+# target's rp6502_asset() calls, and its ROM waits for the header's check.
 # Names matching ``<unaligned_regex>`` are exempt from 16-bit alignment.
-# A commented out define, a define with no value, and a function-like
-# macro are all skipped.
+# A target can read several headers, one call each, and a name defined
+# by two of them stops the configure. A commented out define, a define
+# with no value, and a function-like macro are all skipped.
 #
 # The layout is checked while the project builds rather than while it
 # configures, so a header that will not compile still leaves a configured
 # project behind, and every problem is reported by the compiler against
 # the line in the header.
 #
-function(rp6502_xram header regex)
-    set(unaligned "${ARGV2}")
+function(rp6502_map target)
+    # The arguments are counted here rather than named, so a wrong count
+    # gets the usage instead of CMake's complaint about the call.
+    if (ARGC LESS 3 OR ARGC GREATER 4)
+        message(FATAL_ERROR
+            "rp6502_map(<target> <header> <regex> [<unaligned_regex>])")
+    endif()
+    if (NOT TARGET ${target})
+        message(FATAL_ERROR
+            "rp6502_map(${target} ...): ${target} is not a target. "
+            "Call rp6502_map() after add_executable(${target}).")
+    endif()
+    set(header "${ARGV1}")
+    set(regex "${ARGV2}")
+    set(unaligned)
+    if (ARGC EQUAL 4)
+        set(unaligned "${ARGV3}")
+    endif()
+    get_target_property(executable_called ${target} RP6502_EXECUTABLE_CALLED)
+    if (executable_called)
+        message(FATAL_ERROR
+            "rp6502_map(${target} ...) must be registered BEFORE calling rp6502_executable()."
+        )
+    endif()
     get_filename_component(header_file "${header}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     get_filename_component(header_name "${header_file}" NAME)
     get_filename_component(header_dir "${header_file}" DIRECTORY)
-    get_filename_component(stem "${header_file}" NAME_WE)
-    get_directory_property(rom_targets RP6502_ROM_TARGETS)
-    if (rom_targets)
-        message(FATAL_ERROR
-            "rp6502_xram(${header}) must be registered BEFORE calling rp6502_executable()."
-        )
-    endif()
     # Editing the layout has to configure again, since these values are read
     # at configure time.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${header_file}")
@@ -605,7 +689,23 @@ function(rp6502_xram header regex)
         endif()
     endforeach()
 
-    set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${stem}.xram")
+    # Two targets can share a header, and a target can read two headers
+    # with the same file name, so the files are kept apart by both.
+    file(RELATIVE_PATH id "${CMAKE_SOURCE_DIR}" "${header_file}")
+    if (id MATCHES "^\\.\\.")
+        # A whole absolute path would push the ROM path past what the
+        # emulator opens.
+        get_filename_component(stem "${header_file}" NAME_WE)
+        string(SHA1 hash "${header_file}")
+        string(SUBSTRING "${hash}" 0 8 hash)
+        set(id "${stem}_${hash}")
+    endif()
+    string(MAKE_C_IDENTIFIER "${id}" id)
+    if (TARGET ${target}_map_${id})
+        message(FATAL_ERROR
+            "rp6502_map(${target} ${header}): ${header} is already mapped for ${target}.")
+    endif()
+    set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.map/${id}")
     string(REPLACE "\\" "/" header_c "${header_file}")
 
     # A program that prints the values. Everything is unsigned long, so
@@ -621,7 +721,7 @@ function(rp6502_xram header regex)
             "#endif\n")
     endforeach()
     string(APPEND stub "    return 0;\n}\n")
-    file(WRITE "${dir}/xram_stub.c" "${stub}")
+    file(WRITE "${dir}/map_stub.c" "${stub}")
 
     # A program of assertions, compiled but never run, so the compiler
     # reports a bad layout against the line in the header. Every name gets a
@@ -641,24 +741,25 @@ function(rp6502_xram header regex)
         string(MAKE_C_IDENTIFIER "${type}" probe)
         string(APPEND check
             "\n#if ${guard}\n#line ${line} \"${header_c}\"\n"
-            "extern ${type} _xram_fits_${probe}[1];\n#endif\n")
+            "extern ${type} _map_fits_${probe}[1];\n#endif\n")
     endforeach()
     # An offset and arithmetic between offsets are size_t, so 16 bits, and
-    # can never trip this. A number that does not fit is a long and does.
+    # can never trip this. A number that does not fit is a long and does,
+    # and so does a negative one, which the cast makes large.
     foreach(name line IN ZIP_LISTS names lines)
         string(APPEND check
             "\n#ifdef ${name}\n#line ${line} \"${header_c}\"\n"
-            "_Static_assert((${name}) < 0x10000L,"
-            " \"${name} overflows 16 bits.\");\n")
+            "_Static_assert((unsigned long)(${name}) < 0x10000UL,"
+            " \"${name} does not fit in 16 bits.\");\n")
         if (NOT unaligned OR NOT name MATCHES "^(${unaligned})$")
             string(APPEND check
                 "#line ${line} \"${header_c}\"\n"
                 "_Static_assert(!((${name}) & 1), \"${name} is unaligned."
-                " To allow, use the [<unaligned_regex>] in rp6502_xram.\");\n")
+                " To allow, use the [<unaligned_regex>] in rp6502_map.\");\n")
         endif()
         string(APPEND check "#endif\n")
     endforeach()
-    file(WRITE "${dir}/xram_check.c" "${check}")
+    file(WRITE "${dir}/map_check.c" "${check}")
 
     # cc65's CMAKE_C_COMPILER is a wrapper around cl65 that puts diagnostics
     # in the form an IDE matches, so both programs are built through it.
@@ -671,7 +772,7 @@ function(rp6502_xram header regex)
     set(failed FALSE)
     execute_process(
         COMMAND "${CMAKE_C_COMPILER}" ${compiler_args} ${flags} -I "${header_dir}"
-                -o "${dir}/xram_stub" "${dir}/xram_stub.c"
+                -o "${dir}/map_stub" "${dir}/map_stub.c"
         WORKING_DIRECTORY "${dir}"
         RESULT_VARIABLE result
         OUTPUT_VARIABLE output
@@ -687,7 +788,7 @@ function(rp6502_xram header regex)
         execute_process(
             COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
                     -a "${load_addr}" -r "${load_addr}"
-                    -o "${dir}/xram_stub.rp6502" create "${dir}/xram_stub"
+                    -o "${dir}/map_stub.rp6502" create "${dir}/map_stub"
             RESULT_VARIABLE result
             OUTPUT_VARIABLE output
             ERROR_VARIABLE output
@@ -701,7 +802,7 @@ function(rp6502_xram header regex)
         execute_process(
             COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
                     -c "${RP6502_PROJECT_DIR}/.rp6502"
-                    execute "${dir}/xram_stub.rp6502"
+                    execute "${dir}/map_stub.rp6502"
             TIMEOUT 60
             RESULT_VARIABLE result
             OUTPUT_VARIABLE output
@@ -713,62 +814,69 @@ function(rp6502_xram header regex)
     endif()
 
     # A failure here is the header's, and the build reports it in full, so
-    # the configure finishes with every address at zero rather than leaving
-    # the project unconfigured.
+    # the configure finishes with every address unread rather than leaving
+    # the project unconfigured. Unread is 0xFFFFFFFF, which RAM() and
+    # XRAM() refuse and rp6502.py cannot place, so no ROM is built from it.
     string(REPLACE "\r" "" output "${output}")
     foreach(name IN LISTS names)
+        set(found "")
         if (failed)
-            set(${name} 0 PARENT_SCOPE)
+            set(found 0xFFFFFFFF)
         elseif (output MATCHES "(^|\n)${name} (0x[0-9A-Fa-f]+)")
-            # Out of range is zeroed, so it reaches rp6502_asset() as nothing
-            # while the build reports it against the header.
+            # Out of range is unread while the build reports it against the
+            # header.
             set(found "${CMAKE_MATCH_2}")
             math(EXPR numeric "${found}")
             if (numeric GREATER 65535)
-                set(found 0)
+                set(found 0xFFFFFFFF)
             endif()
-            set(${name} "${found}" PARENT_SCOPE)
-        else()
-            # The preprocessor skipped it, so it is not a name at all.
-            unset(${name} PARENT_SCOPE)
         endif()
+        # A name the preprocessor skipped is not a name at all.
+        if (found STREQUAL "")
+            continue()
+        endif()
+        # One header may define a name twice under #if, but two maps of one
+        # target never share a name. Names from a header that was not read
+        # are not recorded, since some of them may sit in a false #if.
+        if (NOT failed)
+            get_target_property(from ${target} RP6502_MAP_FROM_${name})
+            if (NOT from MATCHES "-NOTFOUND$" AND NOT from STREQUAL header_file)
+                file(RELATIVE_PATH from "${CMAKE_CURRENT_SOURCE_DIR}" "${from}")
+                message(FATAL_ERROR
+                    "rp6502_map(${target} ${header}): ${name} is already defined by "
+                    "rp6502_map(${target} ${from}).")
+            endif()
+            set_property(TARGET ${target} PROPERTY RP6502_MAP_FROM_${name} "${header_file}")
+        endif()
+        set_property(TARGET ${target} PROPERTY RP6502_MAP_NAME_${name} "${found}")
     endforeach()
     # A header that will not compile is reported by the compile below, but a
-    # tool that did not run leaves a header that compiles and every address
-    # at zero, which would otherwise build a ROM that loads everything over
-    # the start of XRAM. So the reason is carried to the build and fails it.
+    # tool that did not run leaves a header that compiles and nothing to
+    # report. So the reason is carried to the build and fails it.
     set(unread)
     if (failed)
-        message(STATUS "rp6502_xram(${header}) read no addresses; the build reports why.")
-        file(WRITE "${dir}/xram_unread.txt"
-            "rp6502_xram(${header}) read no addresses, so every name is zero.\n${output}\n")
+        message(STATUS "rp6502_map(${target} ${header}) read no addresses; the build reports why.")
+        file(WRITE "${dir}/map_unread.txt"
+            "rp6502_map(${target} ${header}) read no addresses. Configure again once"
+            " this is fixed.\n${output}\n")
         set(unread
-            COMMAND "${CMAKE_COMMAND}" -E cat "${dir}/xram_unread.txt"
+            COMMAND "${CMAKE_COMMAND}" -E cat "${dir}/map_unread.txt"
             COMMAND "${CMAKE_COMMAND}" -E false)
     endif()
 
-    # Target names are global, and one header can be shared by two
-    # directories, so the name carries where it was called from.
-    file(RELATIVE_PATH id "${CMAKE_SOURCE_DIR}" "${header_file}")
-    if (id MATCHES "^\\.\\.")
-        set(id "${header_file}")
-    endif()
-    string(MAKE_C_IDENTIFIER "${id}" id)
-    string(MD5 hash "${CMAKE_CURRENT_BINARY_DIR}|${header_file}")
-    string(SUBSTRING "${hash}" 0 8 hash)
-    set(target "rp6502_xram_${id}_${hash}")
+    set(map_check "${target}_map_${id}")
     add_custom_command(
-        OUTPUT "${dir}/xram_check.stamp"
-        DEPENDS "${header_file}" "${dir}/xram_check.c"
+        OUTPUT "${dir}/map_check.stamp"
+        DEPENDS "${header_file}" "${dir}/map_check.c"
         COMMAND "${CMAKE_C_COMPILER}" ${compiler_args} ${flags} -I "${header_dir}"
-                -c -o "${dir}/xram_check.o" "${dir}/xram_check.c"
+                -c -o "${dir}/map_check.o" "${dir}/map_check.c"
         ${unread}
-        COMMAND "${CMAKE_COMMAND}" -E touch "${dir}/xram_check.stamp"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${dir}/map_check.stamp"
         COMMENT "Checking ${header_name}"
         VERBATIM
     )
-    add_custom_target(${target} ALL DEPENDS "${dir}/xram_check.stamp")
-    set_property(DIRECTORY APPEND PROPERTY RP6502_XRAM_CHECKS "${target}")
+    add_custom_target(${map_check} ALL DEPENDS "${dir}/map_check.stamp")
+    set_property(TARGET ${target} APPEND PROPERTY RP6502_MAP_CHECKS "${map_check}")
 endfunction()
 
 # Declare files as byproducts of building <target>.
