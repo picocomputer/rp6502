@@ -307,6 +307,12 @@ int main(int argc, char **argv)
         return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
     }
 
+    if (o.rom_args && !proc_argv_fits(rom, o.n_rom_args, o.rom_args))
+    {
+        fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+        free(rom);
+        return 1;
+    }
     bool booted = proc_boot(rom, o.n_rom_args, o.rom_args, 0);
     free(rom);
     if (!booted)

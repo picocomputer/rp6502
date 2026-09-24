@@ -36,6 +36,10 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
  * fit. */
 bool proc_set_argv(const char *rom, int argc, char *const *args);
 
+/* Whether proc_set_argv would take these. It only measures, so a thread that
+ * does not own the machine may ask. */
+bool proc_argv_fits(const char *rom, int argc, char *const *args);
+
 /* Ask for an exec of what argv[0] names. The 6502 stops here, but the load
  * waits for proc_exec_task in the io column, so a program's RAM is never
  * written over from inside the syscall that asked for it. proc_exec_inflight
