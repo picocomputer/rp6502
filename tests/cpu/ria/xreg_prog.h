@@ -44,12 +44,12 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 0);
 
     /* The ATTR_CLK_RUN_* reads come before any call that fails. API_ERRNO is
-     * set to 0xFFFF when a program starts and a successful call leaves it
-     * unchanged, so this is the only point where 0xFFFF shows that none of
-     * the four reads failed. Only the errno is printed, because the value a
-     * read returns depends on the machine. The Pocket firmware reads the run
-     * clock from the MTIME counter, and the emulator computes it from the
-     * scanline count. */
+     * zero when a program starts and a successful call leaves it unchanged,
+     * so this is the only point where zero shows that none of the four reads
+     * failed. Only the errno is printed, because the value a read returns
+     * depends on the machine. The Pocket firmware reads the run clock from
+     * the MTIME counter, and the emulator computes it from the scanline
+     * count. */
     opn_errno(0x0A, 0x10);
     opn_errno(0x0A, 0x11);
     opn_errno(0x0A, 0x12);
@@ -144,10 +144,9 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 5);
     p.store(TB_RIA_TX, 0x07); /* BEL, rings */
 
-    /* Attribute 2 is ATTR_CODE_PAGE. Neither the emulator nor the Pocket
-     * firmware supports page 1252, so setting it leaves the page unchanged
-     * and still succeeds. The page is read only after it is set, so the
-     * printed output does not depend on the page each machine boots with. */
+    /* Attribute 2 is ATTR_CODE_PAGE. Page 1252 is unavailable, so setting it
+     * still succeeds and selects the system page, which is 437 on the
+     * emulator bench. */
     push(0); push(0); push(3); push(0x52); /* 850 */
     opn(0x0B, 2);
     opn(0x0A, 2);

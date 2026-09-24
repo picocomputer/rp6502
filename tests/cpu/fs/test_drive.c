@@ -71,6 +71,13 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
     snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
+/* g_dir as the host spells it, without the FS: the POSIX GETCWD puts in
+ * front. */
+static const char *host_dir(void)
+{
+    return strncmp(g_dir, "FS:", 3) ? g_dir : g_dir + 3;
+}
+
 
 UTEST(drive, rom_resolve_and_load)
 {
@@ -82,7 +89,7 @@ UTEST(drive, rom_resolve_and_load)
 
     make_file("second.rp6502", "#!RP6502 two", 12);
     char second[TEST_PATH_MAX];
-    snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
+    snprintf(second, sizeof(second), "%s/second.rp6502", host_dir());
     ASSERT_TRUE(rom_alias_insert(second));
 
     ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), TEST_FIXTURE);
@@ -184,7 +191,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
     char hostprobe[512];
-    snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
+    snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", host_dir());
     FILE *hp = fopen(hostprobe, "rb");
     ASSERT_TRUE(hp != NULL);
     if (hp)

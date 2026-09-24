@@ -121,7 +121,6 @@ void api_run(void)
     xstack_ptr = XSTACK_SIZE;
     REGS(0xFFE5) = 1; // STEP0
     REGS(0xFFE9) = 1; // STEP1
-    API_ERRNO = 0xFFFF;
     api_set_axsreg(-1);
     api_set_regs_released();
 }
@@ -231,6 +230,11 @@ bool api_pop_int16_end(int16_t *data)
 }
 
 bool api_pop_int32_end(int32_t *data)
+{
+    return api_pop_end(data, sizeof(*data), true);
+}
+
+bool api_pop_int64_end(int64_t *data)
 {
     return api_pop_end(data, sizeof(*data), true);
 }

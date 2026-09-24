@@ -38,15 +38,15 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
     return n;
 }
 
-UTEST(rtc, strftime_maps_utf8_to_oem)
+UTEST(rtc, strftime_keeps_code_page_literals)
 {
     oem_set_code_page_run(437);
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0};
     char out[16];
-    uint16_t n = drive_strftime(&w, "caf\xC3\xA9", out, sizeof out); /* "café" UTF-8 */
+    uint16_t n = drive_strftime(&w, "caf\x82", out, sizeof out); /* CP437 "café" */
     ASSERT_EQ(n, (uint16_t)4);
-    ASSERT_EQ((unsigned char)out[3], 0x82); /* CP437 'é' */
+    ASSERT_EQ((unsigned char)out[3], 0x82);
     ASSERT_EQ(out[0], 'c');
 }
 
@@ -66,17 +66,16 @@ UTEST(rtc, code_page_drives_oem_mapping)
     oem_set_code_page_run(437);
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
 
-    struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0};
     char out[8];
-    drive_strftime(&w, "\xC3\xA3", out, sizeof out); /* "ã" UTF-8 */
-    ASSERT_EQ((unsigned char)out[0], 0x7F);          /* not in CP437 */
+    oem_from_utf8("\xC3\xA3", out, sizeof out); /* "ã" UTF-8 */
+    ASSERT_EQ((unsigned char)out[0], 0x7F);      /* not in CP437 */
 
     ASSERT_FALSE(oem_set_code_page(999));
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
 
     oem_set_code_page_run(850);
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850);
-    drive_strftime(&w, "\xC3\xA3", out, sizeof out);
+    oem_from_utf8("\xC3\xA3", out, sizeof out);
     ASSERT_EQ((unsigned char)out[0], 0xC6); /* CP850 'ã' */
 }
 

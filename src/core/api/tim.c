@@ -7,6 +7,7 @@
 
 #include "osal/os.h"
 #include "core/str/oem.h"
+#include "core/ria/regs.h"
 #include "core/api/tim.h"
 
 void tim_init(void)
@@ -62,8 +63,13 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     struct tm zoned = *tm, probe = *tm;
     if (mktime(&probe) != (time_t)-1)
         os_tm_apply_zone(&zoned, &probe);
-    char utf8[512];
-    size_t un = os_strftime_local(utf8, sizeof utf8, format, &zoned);
+    /* The format is code page text and the host strftime reads UTF-8. A code
+     * page byte is at most 3 UTF-8 bytes, so any format fits, and a character
+     * the host renders is at most 4, so a render that fits max fits here. */
+    char fmt8[3 * XSTACK_SIZE];
+    oem_to_utf8(format, fmt8, sizeof fmt8);
+    char utf8[4 * XSTACK_SIZE];
+    size_t un = os_strftime_local(utf8, sizeof utf8, fmt8, &zoned);
     /* strftime returns 0 on overflow and leaves the buffer unspecified, so a
      * terminator is forced before the UTF-8 conversion below reads it. */
     utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;

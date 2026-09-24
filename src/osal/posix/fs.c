@@ -267,8 +267,15 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
             target = size; /* read-only: stop at the end */
         else if (ftruncate(desc, (off_t)target) != 0)
         {
-            *err = errno_to_api(errno); /* no room: the pointer has not moved */
-            return -1;
+            /* On a full volume the seek stops at the end too, as f_lseek
+             * does on the Pico, because LSEEK has no ENOSPC. */
+            api_errno e = errno_to_api(errno);
+            if (e != API_ENOSPC)
+            {
+                *err = e; /* the pointer has not moved */
+                return -1;
+            }
+            target = size;
         }
     }
     int64_t np = lseek(desc, (off_t)target, SEEK_SET);

@@ -8,8 +8,9 @@
  *
  * Paths arrive in the 6502's OEM code page and may carry this drive's name.
  * strip_drive takes the name off and oem_to_utf8 the code page before every
- * libc call, and names come back through oem_from_utf8. Nothing puts a drive
- * name back on, because a POSIX path has no device in it.
+ * libc call, and names come back through oem_from_utf8. Only drive_getcwd
+ * puts the name back on, because the result of GETCWD always includes a
+ * device name.
  */
 
 #include "osal/dir.h"
@@ -533,8 +534,10 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
         return false;
     /* oem_from_utf8 returns the untruncated length, so a short buffer is an
      * error here rather than a path the caller cannot use. */
-    bool ok = oem_from_utf8(u8, buf, size) < size;
-    if (!ok)
+    bool ok = size > 3 && oem_from_utf8(u8, buf + 3, size - 3) < size - 3;
+    if (ok)
+        memcpy(buf, "FS:", 3);
+    else
         *err = API_ENOMEM;
     free(u8);
     return ok;

@@ -173,7 +173,7 @@ bool attr_api_lrand(void)
     return api_return_axsreg(sys_random() & 0x7FFFFFFF);
 }
 
-// RIA_OP_ERRNO_OPT 0x06. No C prototype; the C runtimes issue it in assembly.
+// RIA_OP_ERRNO_OPT 0x06 is retained for binaries built with older SDKs.
 bool attr_api_errno_opt(void)
 {
     uint8_t opt = API_A;

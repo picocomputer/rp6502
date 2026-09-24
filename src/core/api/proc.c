@@ -118,8 +118,6 @@ bool proc_api_exec(void)
 {
     if (!arg_pull_xstack())
         return api_return_errno(API_EINVAL);
-    if (!arg_index(0))
-        return api_return_errno(API_EINVAL);
     proc_exec_start();
     return api_return_ax(0);
 }

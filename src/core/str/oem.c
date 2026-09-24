@@ -26,7 +26,7 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-    if (cp < 900 && unicode_has_page(cp))
+    if (unicode_has_page(cp))
     {
         oem_fs_code_page(cp);
         oem_code_page_run = cp;
@@ -47,7 +47,7 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t cp = sst_get_u16(c);
     /* Zero is a valid saved value, because a machine whose resolved page the
      * tables do not carry runs with no page at all. */
-    if (!sst_ok(c) || (cp != 0 && (cp >= 900 || !unicode_has_page(cp))))
+    if (!sst_ok(c) || (cp != 0 && !unicode_has_page(cp)))
         return false;
     oem_code_page_run = cp;
     oem_fs_code_page(cp);
@@ -74,13 +74,15 @@ void oem_stop(void)
 
 void oem_set_code_page_run(uint16_t cp)
 {
+    if (!unicode_has_page(cp))
+        cp = oem_resolve();
     oem_request_code_page(cp);
 }
 
 /* Zero is auto: follow the locale's default. */
 bool oem_check_code_page(uint16_t *v)
 {
-    return *v == 0 || (*v < 900 && unicode_has_page(*v));
+    return *v == 0 || unicode_has_page(*v);
 }
 
 void oem_apply_code_page(uint16_t cp, bool changed)

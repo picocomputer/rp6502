@@ -58,10 +58,17 @@ static bool fresh_cwd(void)
     return drive_cwd(g_dir, sizeof(g_dir));
 }
 
+/* g_dir as the host spells it, without the FS: the POSIX GETCWD puts in
+ * front. */
+static const char *host_dir(void)
+{
+    return strncmp(g_dir, "FS:", 3) ? g_dir : g_dir + 3;
+}
+
 static bool host_exists(const char *rel)
 {
     char p[512];
-    snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
+    snprintf(p, sizeof(p), "%s/%s", host_dir(), rel);
     FILE *f = fopen(p, "rb");
     if (f)
         fclose(f);
@@ -115,6 +122,7 @@ UTEST(fs, chdir_getcwd_relative)
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
+    ASSERT_EQ(strncmp(cwd, host_drive(), strlen(host_drive())), 0);
 
     dsys_path("saves");
     dir_api_mkdir();
@@ -179,7 +187,7 @@ UTEST(fs, answers_in_the_host_s_spelling)
     ASSERT_STREQ(cwd, g_dir);
 
     char probe[TEST_PATH_MAX + 16];
-    snprintf(probe, sizeof(probe), "%s/round.txt", cwd);
+    snprintf(probe, sizeof(probe), "%s/round.txt", host_dir());
     FILE *f = fopen(probe, "wb");
     ASSERT_TRUE(f != NULL);
     fclose(f);
@@ -198,7 +206,7 @@ UTEST(fs, a_name_the_code_page_cannot_spell_is_refused)
      * either character. */
     static const char kanji[] = "\xE6\x97\xA5\xE6\x9C\xAC.txt";
     char probe[512];
-    snprintf(probe, sizeof(probe), "%s/%s", g_dir, kanji);
+    snprintf(probe, sizeof(probe), "%s/%s", host_dir(), kanji);
     FILE *f = fopen(probe, "wb");
     if (!f)
         return;
@@ -405,7 +413,7 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
     char rompath[300];
-    snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
+    snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", host_dir());
     FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
@@ -454,7 +462,7 @@ UTEST(fs, rom_asset_name_compares_through_the_code_page)
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
     char rompath[300];
-    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
+    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", host_dir());
     FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);

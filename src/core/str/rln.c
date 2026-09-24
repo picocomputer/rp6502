@@ -2025,6 +2025,8 @@ bool rln_api_lastkey(void)
 bool rln_api_peek(void)
 {
     if (!rln_callback)
+        return api_return_errno(API_EINVAL);
+    if (!rln_buflen)
         return api_return_ax(0);
     rln_buf[rln_buflen] = 0;
     for (int i = rln_buflen - 1; i >= 0; i--)

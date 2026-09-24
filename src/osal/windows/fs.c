@@ -371,7 +371,8 @@ static int64_t win_size_of(struct win_file *f, api_errno *err)
 }
 
 /* The position is this table's, but the length is still the filesystem's, so
- * extending a file is a call that can fail on a full volume. */
+ * extending a file is a call that can meet a full volume. The seek then stops
+ * at the end, as f_lseek does on the Pico, because LSEEK has no ENOSPC. */
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct win_file *f = win_fil(desc);
@@ -422,8 +423,13 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
             FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = (LONGLONG)target}};
             if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
             {
-                *err = win_last_error_to_api();
-                return -1; /* the position has not moved */
+                api_errno e = win_last_error_to_api();
+                if (e != API_ENOSPC)
+                {
+                    *err = e;
+                    return -1; /* the position has not moved */
+                }
+                target = size;
             }
         }
     }
