@@ -94,6 +94,9 @@ bool os_gmtime(time_t t, struct tm *out)
 void os_locale_reset(void) {}
 void os_locale_free(void) {}
 
+/* %a, %b and %c come out in English here, while the POSIX hosts format in the
+ * environment's locale. This needs upgrading, if possible, to _strftime_l with
+ * a locale from _create_locale(LC_TIME, ""). */
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return strftime(buf, max, fmt, tm);
