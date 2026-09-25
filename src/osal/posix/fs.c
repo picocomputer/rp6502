@@ -51,12 +51,12 @@ static struct
 #ifdef __EMSCRIPTEN__
 /* Whether the syncfs being dispatched has started its FS.syncfs. Only one call
  * is in flight at a time, so one flag serves every descriptor, and a close
- * clears it, so a sync that a stop cut short never answers a later one. */
+ * clears it, so a sync that a stop interrupted never completes a later one. */
 static bool fs_syncing;
 #endif
 
 /* A name that cannot be kept takes no slot, so an ident of the descriptor
- * fails rather than naming another file. */
+ * fails rather than recording another file's name. */
 static void fs_keep(int fd, const char *name, uint8_t flags)
 {
     if (!name || strlen(name) > API_PATH_MAX)
@@ -165,10 +165,10 @@ static int fs_open_native(const char *host, uint8_t flags, api_errno *err)
     return fd;
 }
 
-/* The open behind fs_std_open and fs_save_open. name is what a savestate
- * writes down for the descriptor, or NULL for the drive path of the file that
- * host names. That path is taken after the open, so realpath resolves a file
- * just created and a later chdir cannot move it. */
+/* The open used by fs_std_open and fs_save_open. name is what a savestate
+ * records for the descriptor, or NULL to record the drive path of the file at
+ * host. That path is found after the open, so realpath resolves a file just
+ * created, and a later chdir cannot change it. */
 static int fs_open_kept(const char *host, uint8_t flags, const char *name, api_errno *err)
 {
     int fd = fs_open_native(host, flags, err);
@@ -176,8 +176,8 @@ static int fs_open_kept(const char *host, uint8_t flags, const char *name, api_e
         return -1;
     if ((flags & FS_APPEND) && lseek(fd, 0, SEEK_END) < 0) /* once, after any TRUNC */
     {
-        /* Reporting success would hand back a descriptor at the start of a
-         * file the program asked to append to. */
+        /* Reporting success would return a descriptor positioned at the start
+         * of a file opened with O_APPEND. */
         *err = errno_to_api(errno);
         close(fd);
         return -1;
@@ -204,7 +204,6 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return fd;
 }
 
-/* The folder behind SAVE:, as a host path. */
 static char *fs_save_dir;
 
 void fs_save_start(void)
@@ -250,9 +249,9 @@ char *fs_host_realpath(const char *host)
     return realpath(host, NULL);
 }
 
-/* Moved to the top of the descriptor space, which open() reaches only once
- * everything below it is in use, so the ROM image stays out of the low
- * numbers a program's own files get. Nothing is kept for a savestate, because
+/* Moved to the top of the descriptor space, which open() uses only once every
+ * lower number is in use, so the ROM image does not take the low numbers that
+ * a program's files get. Nothing is recorded for a savestate, because
  * core/rom/asset.c opens the image again by the name it was run by. */
 int fs_rom_open_host(const char *host, api_errno *err)
 {
@@ -273,8 +272,8 @@ int fs_rom_open_host(const char *host, api_errno *err)
 }
 
 /* The loader has already resolved ":name" through its alias map, and this
- * host has no store of its own to create one in, so the write combination is
- * refused. */
+ * host has no list of installed ROMs to add one to, so the write combination
+ * is refused. */
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (flags != FS_RD)
@@ -421,7 +420,8 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
 }
 
 /* fsync does nothing in the browser, where FS.syncfs stores the files and
- * answers in a callback on a later turn of the page's event loop. */
+ * reports completion in a callback on a later turn of the page's event
+ * loop. */
 std_rw_result fs_std_sync(int desc, api_errno *err)
 {
 #ifdef __EMSCRIPTEN__

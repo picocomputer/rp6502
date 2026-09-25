@@ -58,16 +58,16 @@ static struct win_file
     bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
-    /* What a savestate needs to find this file again in a later session. The
-     * path is made absolute so a later chdir cannot move it. GetFullPathNameW
-     * is lexical and never touches the filesystem, so it resolves a name that
-     * does not exist yet. A save keeps SAVE:name instead, which opens again
-     * in whatever folder SAVE: has then. */
+    /* What a savestate needs to open this file again in a later session. The
+     * path is made absolute so a later chdir cannot change it.
+     * GetFullPathNameW works on the text alone and never reads the
+     * filesystem, so it resolves a name that does not exist yet. A save
+     * records SAVE:name instead, which opens again in the SAVE: folder of
+     * that later session. */
     uint8_t flags;
     char path[API_PATH_MAX + 1];
 } win_files[WIN_MAX_FILES + 1];
 
-/* The folder behind SAVE:, fixed by fs_save_start when a ROM starts. */
 static wchar_t *win_save_dir;
 
 static struct win_file *win_fil(int fd)
@@ -134,8 +134,8 @@ static int64_t win_size_of(struct win_file *f, api_errno *err)
     return (int64_t)sz.QuadPart;
 }
 
-/* A slot for an open handle, which it closes when there is none. keep is the
- * name a savestate records. */
+/* A slot for an open handle, which is closed when no slot is free. keep is
+ * the name a savestate records. */
 static int win_adopt(HANDLE h, uint8_t flags, const char *keep, api_errno *err)
 {
     int fd = 0;
@@ -176,9 +176,9 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     free(w);
     if (h == INVALID_HANDLE_VALUE)
         return -1;
-    /* A relative name would reopen against whatever folder is current at the
-     * load, so a file with no absolute name keeps none, and an ident of it
-     * fails rather than naming another file. */
+    /* A relative name would open again against whatever folder is current
+     * at the load, so no name is recorded for a file with no absolute name,
+     * and an ident of it fails rather than recording another file's name. */
     char *abs = os_dir_realpath(path);
     int fd = win_adopt(h, flags, abs ? abs : "", err);
     free(abs);
@@ -217,7 +217,7 @@ int fs_save_open(const char *name, uint8_t flags, api_errno *err)
     wcscpy(w, win_save_dir);
     if (w[dn - 1] != L'\\' && w[dn - 1] != L'/')
         w[dn++] = L'\\';
-    /* save_std_open passes only ASCII, so each byte is its own UTF-16 unit. */
+    /* save_std_open passes only ASCII, so each byte becomes one UTF-16 unit. */
     for (size_t i = 0; i <= nn; i++)
         w[dn + i] = (wchar_t)name[i];
     if (flags & FS_CREAT)
@@ -463,9 +463,9 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     return xfer_step(desc, (void *)buf, count, put, true, err);
 }
 
-/* The position is this table's, but the length is still the filesystem's, so
- * extending a file is a call that can meet a full volume. That seek fails and
- * leaves the file and the position as they were. */
+/* The position is kept in this table, but the length is in the filesystem,
+ * so extending a file is a call that can fail on a full volume. That seek
+ * fails and leaves the file and the position as they were. */
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct win_file *f = win_fil(desc);

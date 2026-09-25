@@ -643,9 +643,9 @@ cc65dbg_t *cc65dbg_load(const char *path)
         }
     }
 
-    /* Pass 3 measures the globals whose record carried no size. ld65 packs the
-     * objects of a segment contiguously and without padding, so a global reaches
-     * from its own label to the next one in its segment, or to the end of that
+    /* Pass 3 measures the globals whose record has no size. ld65 packs the
+     * objects of a segment contiguously and without padding, so a global runs
+     * from its label to the next label in its segment, or to the end of that
      * segment. Labels in other segments are passed over because a linker config
      * can overlay segments, as rp6502.cfg puts BSS on top of ONCE. */
     uint64_t *labkey = nsym ? malloc(nsym * sizeof(uint64_t)) : NULL;

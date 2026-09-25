@@ -163,7 +163,7 @@ static bool fs_grow;
 
 /* A program stopped partway through a call can leave its command in flight.
  * fs_stop collects it before std_stop closes the descriptors, because
- * fs_flush takes a command in flight under a descriptor's id for that
+ * fs_flush would otherwise read that command's result as the result of the
  * descriptor's Flush. */
 void fs_stop(void)
 {
@@ -665,7 +665,8 @@ int fs_save_open(const char *name, uint8_t flags, api_errno *err)
     return fs_open_card(name, FS_SAVES_PATH, flags, err);
 }
 
-/* SAVE: is FS_SAVES_PATH for every ROM, so a start has nothing to fix. */
+/* SAVE: is FS_SAVES_PATH for every ROM, so there is nothing to set when a
+ * ROM starts. */
 void fs_save_start(void)
 {
 }

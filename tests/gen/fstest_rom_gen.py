@@ -434,7 +434,7 @@ def build():
     p.lda_imm(1)
     p.rts()
 
-    # stat of a root answers one fixed entry: size 0, zero dates, a directory
+    # stat of a root returns one fixed entry: size 0, zero dates, a directory
     # named /. A machine without stat fails with the errno expected.
     p.symbol("stat_root")
     p.stx_abs(TMP)
@@ -931,7 +931,7 @@ def build():
     p.jsr_abs("do_close")
 
     # SAVE: is one flat folder: one separator after the colon is dropped and
-    # the device name takes any case.
+    # the device name may be in any case.
     for name in ("SAVE:/" + NAME[len("SAVE:"):],
                  "save:\\" + NAME[len("SAVE:"):]):
         open_it(name, O_RDONLY)
@@ -949,7 +949,7 @@ def build():
     check("not_ff")
     p.jsr_abs("do_close")
 
-    # Only open takes SAVE:. A machine without stat gives ENOSYS.
+    # Only open accepts SAVE:. A machine without stat gives ENOSYS.
     expect_errno(ENODEV, ENOSYS)
     p.push_str(NAME)
     p.call(OP_STAT)

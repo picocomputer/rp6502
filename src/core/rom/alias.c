@@ -65,8 +65,8 @@ const char *rom_alias_insert_as(const char *host, const char *name)
     return key;
 }
 
-/* The name is the last part of the path as given, so a symlink installs under
- * its own name rather than its target's. */
+/* The name is the last part of the path as given, so a symlink is installed
+ * under the symlink's name, not the target's. */
 const char *rom_alias_insert(const char *host)
 {
     char name[API_PATH_MAX]; /* with its ":", a name has to fit in a path */

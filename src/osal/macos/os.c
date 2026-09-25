@@ -22,9 +22,9 @@ uint32_t os_random(void)
     return (uint32_t)(s ^ (s >> 32));
 }
 
-/* Apple's guidelines put an application's own files in a folder of
- * Application Support named for its bundle identifier, and the config and the
- * saves share it. */
+/* Apple's guidelines put an application's files in a folder of Application
+ * Support named for its bundle identifier, and the config and the saves are
+ * both in it. */
 static char *app_support_dir(void)
 {
     static const char tail[] =

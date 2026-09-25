@@ -295,9 +295,9 @@ Alt-F4 is passed to the program too.
 
 `FS:` is the microSD card, and the drive is writable. The working
 directory is `/Assets/rp6502/common`, the folder that holds the core's
-own files and the ROMs a user picks in the Pocket's menu, and no call
-moves it. getcwd returns `FS:/Assets/rp6502/common`, and a relative
-name resolves in that folder, so `foo.txt`, `FS:foo.txt` and
+files and the ROMs a user picks in the Pocket's menu, and no call moves
+it. getcwd returns `FS:/Assets/rp6502/common`, and a relative name
+resolves in that folder, so `foo.txt`, `FS:foo.txt` and
 `FS:/Assets/rp6502/common/foo.txt` name the same file. A name that
 starts with a separator is absolute, and `/` and `\` both separate.
 
@@ -310,7 +310,7 @@ the Pocket accepts a write in Assets is not recorded, so a program saves
 through `SAVE:`.
 
 **The host resolves no relative name and no `.` or `..`.** A name sent
-without a leading slash opens nothing, so `fs_card_path` makes every
+without a leading slash fails to open, so `fs_card_path` makes every
 name absolute before the firmware sends it and removes each `.` and `..`
 on the way. A `..` at the card root stays at the root. `fs_pool[].name`
 holds that absolute path, so the rebind after a restore and the resize
@@ -323,9 +323,9 @@ A name follows the FAT rules before it is resolved, through
 `path_fat_ok` in `src/core/str/path.c`, as on every other machine. A `:`
 anywhere after `FS:`, or any of `"*<>?|`, a control character or DEL,
 gives EINVAL. A `:` in the first part of a name without `FS:`, as in
-`VCP0:x`, names a drive this machine lacks and gives ENODEV. There is no
-null drive either: no ROM is installed on the Pocket, so an `exec` of a
-`:name` fails.
+`VCP0:x`, ends the name of a drive this machine does not have and gives
+ENODEV. There is no null drive either: no ROM is installed on the
+Pocket, so an `exec` of a `:name` fails.
 
 **argv[0] is `FS:` and the path from Get File.** The host stages the ROM
 image without its name, so the firmware reads the name with Get File
@@ -407,18 +407,19 @@ Write returns once the host has taken the bytes, which on a handheld
 that sleeps is not the same as the card having them. Flush, `0x0188`,
 would commit them, and the Pocket does not reply to it. The bridge
 override in `vendor/openfpga_rp6502` ends a data slot command after
-about 0.9 s without a reply, so a flush costs one deadline and not the
-session. A flush is sent on every sync and every close of a file open
-for writing until one gets no reply. After that no flush is sent for the
-rest of the session, so a write is only as durable as the host's
-acceptance of the bytes. A sync of a file open only for reading sends no
-flush and returns at once.
+about 0.9 s without a reply, so a flush waits at most one deadline
+instead of the rest of the session. A flush is sent on every sync and
+every close of a file open for writing until one gets no reply. After
+that no flush is sent for the rest of the session, so a write is known
+to be stored only as far as the host's reply to the write shows. A sync
+of a file open only for reading sends no flush and returns at once.
 
 Close polls its flush from the main loop as sync does, so the other
 tasks run during the deadline. `std_stop` calls close in a loop that
-runs no other task until the close finishes. Close therefore reaps a
-command that another descriptor left in flight, and it does not wait for
-`fs_restore`, because a Flush sent to a stale slot changes no data.
+runs no other task until the close finishes. Close therefore collects
+the result of a command that another descriptor left in flight, and it
+does not wait for `fs_restore`, because a Flush sent to a stale slot
+changes no data.
 
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26

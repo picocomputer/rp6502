@@ -181,8 +181,8 @@
           // one transaction. A syncfs from the program returns once
           // FS.syncfs has finished.
           var ops = M.FS.mount(I, {autoPersist: true}, '/saves').node_ops;
-          // A sync stores only entries whose mtime moved, and MEMFS moves it
-          // only on a write, so a truncate or a chmod would never be stored.
+          // A sync stores only entries whose mtime changed, and MEMFS changes
+          // it only on a write, so a truncate or a chmod would never be stored.
           // Marking the node modified lets the close after an O_TRUNC queue
           // the sync as a write would.
           var setattr = ops.setattr;
@@ -257,7 +257,7 @@
         function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
         function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
         // Face button labels: 3 PlayStation, 2 Eastern BA, 1 Western AB, 0 when
-        // the id doesn't say for certain or buttons[] is in the device's own order.
+        // the id does not identify the pad or buttons[] is in the device's order.
         function padType(gp) {
           if (gp.mapping !== 'standard') return 0;
           var id = gp.id;

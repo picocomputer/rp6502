@@ -5,10 +5,10 @@
  *
  * Every host/sokol/<os>, and src/host/itch.io for the web, implements the
  * window functions here and nothing else implements any of them. A platform
- * with nothing to say for one of these writes an empty body. entry_argv_utf8 is
- * Windows' alone. The host_gamepad_ three at the bottom are the desktops' alone,
- * because app/gamepad.c, which is what calls them, is built only for the
- * desktop emulator.
+ * that has nothing to do for one of these implements it with an empty body. Only
+ * Windows implements entry_argv_utf8. Only the desktop builds implement the
+ * three host_gamepad_ functions at the bottom, because app/gamepad.c, which
+ * calls them, is built only for the desktop emulator.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_
@@ -64,8 +64,8 @@ void host_window_open_url(const char *url);
 
 /* The argv of main() on Windows is in the ANSI code page, which cannot hold
  * every path, so the command line is read again as UTF-16 and returned in
- * UTF-8, the encoding every other host's argv arrives in. NULL if it cannot be
- * read. The result lasts for the whole run. */
+ * UTF-8, the encoding of argv on every other host. NULL if it cannot be read.
+ * The result lasts for the whole run. */
 char **entry_argv_utf8(int *argc);
 
 /* One host controller, in the units gamepad_host_report takes. Each backend

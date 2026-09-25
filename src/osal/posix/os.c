@@ -79,8 +79,8 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 #endif
 }
 
-/* Mode 0700 is what the XDG Base Directory spec asks of every folder it
- * creates, and a folder that already exists keeps its own. */
+/* The XDG Base Directory spec requires mode 0700 for every folder created
+ * here, and a folder that already exists keeps its permissions. */
 void os_ensure_parent_dir(const char *filepath)
 {
     char *tmp = strdup(filepath); /* the separators are cut and restored in place */

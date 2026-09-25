@@ -3,14 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The API speaks FAT: attribute bits and a 1980-epoch date. A POSIX
- * filesystem has neither, so struct stat becomes an f_stat_t here.
+ * The API uses FAT's attribute bits and 1980-epoch dates. A POSIX filesystem
+ * has neither, so struct stat is converted to an f_stat_t here.
  *
- * Paths arrive in the 6502's OEM code page and may carry this drive's name.
- * path_to_utf8 takes the name off, holds the rest to the FAT rules and
- * converts the code page before every libc call, and names come back through
- * oem_from_utf8. drive_getcwd and os_dir_realpath put the name back on,
- * because an absolute path always starts with its drive.
+ * Paths from a program are in the 6502's OEM code page and may start with
+ * this drive's name. path_to_utf8 removes the name, checks the rest against
+ * the FAT rules and converts the code page before every libc call, and names
+ * from the host are converted with oem_from_utf8. drive_getcwd and
+ * os_dir_realpath put the name back on, because an absolute path always
+ * starts with its drive.
  */
 
 #include "osal/dir.h"
@@ -37,7 +38,7 @@
 #define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
 /* FS: is the only drive here, so a path without it, such as a host path from
- * the command line, is already in the host's own form. */
+ * the command line, is already a host path. */
 static const char *strip_drive(const char *path)
 {
     return strncasecmp(path, "FS:", 3) == 0 ? path + 3 : path;
@@ -71,9 +72,9 @@ char *path_to_utf8(const char *path, api_errno *err)
     return u8;
 }
 
-/* A '\\' inside a host name would come back through path_to_utf8 as a
- * separator. oem_from_utf8 writes one byte per UTF-8 sequence, so it only
- * ever contracts and the source length bounds the allocation. */
+/* A '\\' inside a host name would be read by path_to_utf8 as a separator.
+ * oem_from_utf8 writes one byte per UTF-8 sequence, so its output is never
+ * longer than its input, and the source length bounds the allocation. */
 char *path_from_host(const char *host)
 {
     if (strchr(host, '\\') || !oem_maps_utf8(host))
@@ -93,9 +94,9 @@ char *path_from_host(const char *host)
     return out;
 }
 
-/* A name or path from the host as a program is shown it. Each character that
+/* A name or path from the host, as a program receives it. Each character that
  * the code page cannot hold or that FAT refuses in a name becomes 127, which
- * no path takes, so the name shows but cannot be opened. */
+ * no path may contain, so the name is listed but cannot be opened. */
 static size_t shown_from_utf8(const char *u8, char *dst, size_t size)
 {
     size_t need = oem_from_utf8(u8, dst, size);
@@ -435,9 +436,9 @@ bool drive_rewinddir(int des, api_errno *err)
     return true;
 }
 
-/* POSIX removes a file whatever its own permissions say, while f_unlink
- * refuses one marked read-only, which here is one without S_IWUSR. remove(3)
- * takes a file or an empty directory, as f_unlink does. */
+/* POSIX removes a file regardless of its permissions, while f_unlink refuses
+ * one marked read-only, which here is one without S_IWUSR. remove(3) removes
+ * a file or an empty directory, as f_unlink does. */
 bool drive_unlink(const char *path, api_errno *err)
 {
     char *u8 = path_to_utf8(path, err);
@@ -460,10 +461,10 @@ bool drive_unlink(const char *path, api_errno *err)
 }
 
 /* A file replaces only a file. rename(2) would also put a folder in place of
- * an empty one, and fails with errors of its own for the other mixes, so those
- * are refused first. The same object under a second spelling, such as a change
- * of case where the host ignores case, is not in the way, and a target on
- * another mount is left for rename(2) to refuse. */
+ * an empty one, and fails with other errors for the other combinations, so
+ * those are refused first. The same file under a second name, such as a
+ * change of case where the host ignores case, does not count as an existing
+ * target, and a target on another mount is left for rename(2) to refuse. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     char *u8old = path_to_utf8(oldname, err);

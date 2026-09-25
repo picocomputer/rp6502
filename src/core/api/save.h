@@ -7,11 +7,11 @@
 #ifndef _CORE_API_SAVE_H_
 #define _CORE_API_SAVE_H_
 
-/* SAVE: is one flat folder of saves, and each machine puts it where its host
- * keeps saved data. The name rules are the same on every machine, so a name
- * that opens on one opens on all of them. The host's fs_save_open
- * opens the file behind a name, and everything after the open is the
- * filesystem row's (osal/fs.h SAVE_STD_DRIVER). */
+/* SAVE: is one flat folder of saves, and each host puts it where saved data
+ * goes on that host. The name rules are the same on every machine, so a name
+ * that opens on one opens on all of them. fs_save_open in each host opens the
+ * file for a name, and the filesystem row's functions (SAVE_STD_DRIVER in
+ * osal/fs.h) handle every call after the open. */
 
 #include "core/api/api.h"
 #include <stdbool.h>

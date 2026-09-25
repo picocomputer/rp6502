@@ -15,8 +15,9 @@
  * The HID half needs no mapping database because hid.dll parses the report
  * descriptor and hands back Button 1 through n and the Generic Desktop axes.
  * On the real machine core/hid/parse.c reads the same descriptor into the bit
- * offsets core/hid/gamepad.c extracts with. A pad known by its ids whose
- * buttons run in its maker's own order takes a table of its own.
+ * offsets core/hid/gamepad.c extracts with. A pad whose maker numbers its
+ * buttons in a different order is found by its ids and read with a separate
+ * table.
  */
 
 #include "core/hid/gamepad.h"
@@ -220,7 +221,7 @@ static const USAGE gamepad_hid_usage[GAMEPAD_HID_VALUE_COUNT] = {
     0x30, 0x31, 0x32, 0x35, 0x33, 0x34, 0x39};
 
 /* HID numbers buttons from 1, so usage n is map[n - 1]. A generic gamepad
- * is read in the report's own order, as core/hid/parse.c reads it. */
+ * is read in the report's order, as core/hid/parse.c reads it. */
 static const gamepad_button_t gamepad_hid_map_generic[] = {
     GAMEPAD_BTN_A, GAMEPAD_BTN_B, GAMEPAD_BTN_C, GAMEPAD_BTN_X,
     GAMEPAD_BTN_Y, GAMEPAD_BTN_Z, GAMEPAD_BTN_L1, GAMEPAD_BTN_R1,

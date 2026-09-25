@@ -80,15 +80,14 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
     snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
-/* g_dir as the host spells it, without the FS: the POSIX GETCWD puts in
+/* g_dir as a host path, without the FS: that the POSIX GETCWD puts in
  * front. */
 static const char *host_dir(void)
 {
     return strncmp(g_dir, "FS:", 3) ? g_dir : g_dir + 3;
 }
 
-/* The absolute form of a host path, as the host spells it, for the caller to
- * free. */
+/* The absolute form of a host path, for the caller to free. */
 static char *host_abs(const char *host)
 {
 #ifdef _WIN32
@@ -114,7 +113,7 @@ static bool copy_fixture(const char *host)
     return ok;
 }
 
-/* The argv a program hands EXEC: one offset, the zero pair that ends the
+/* The argv a program passes to EXEC: one offset, the zero pair that ends the
  * table, then argv[0]. */
 static void push_exec(const char *argv0)
 {
@@ -142,7 +141,7 @@ UTEST(drive, rom_resolve_and_load)
     ASSERT_TRUE(fixture != NULL);
     ASSERT_TRUE(second != NULL);
 
-    /* An install names the file it was given from any working directory. */
+    /* An install opens the file it was given from any working directory. */
     dsys_path("elsewhere");
     dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
@@ -199,8 +198,8 @@ UTEST(drive, an_install_replaces_one_of_the_same_name)
 }
 
 #ifndef _WIN32
-/* U+65E5 U+672C, which no single-byte code page holds, name the folder, so
- * only an install can name the ROM in it. */
+/* The folder is named U+65E5 U+672C, which no single-byte code page holds, so
+ * only an install can run the ROM in it. */
 UTEST(drive, an_install_keeps_a_host_path_the_code_page_cannot_hold)
 {
     ASSERT_TRUE(fresh());

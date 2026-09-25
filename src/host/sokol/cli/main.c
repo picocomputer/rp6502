@@ -236,9 +236,9 @@ int main(int argc, char **argv)
     }
 
     /* Install ROMs before the boot load, or an exec, can resolve them. An
-     * install takes its host path as it came, in UTF-8, and an argument the
-     * guest will see converts to OEM. The first install's name is copied at
-     * once, because a later install of the same name replaces it. */
+     * install keeps its host path in UTF-8, as given, and an argument passed
+     * to the program is converted to OEM. The first install's name is copied
+     * at once, because a later install of the same name replaces it. */
     char first_install[API_PATH_MAX + 1] = "";
     for (int i = 0; i < o.n_installs; i++)
     {

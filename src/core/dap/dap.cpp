@@ -1525,8 +1525,9 @@ extern "C" void dap_start(void)
             args.push_back(oem_from_utf8_str(a));
         if (args.empty())
             args = g_default_args;
-        /* Refused here, while the client can still be told. The exec loads
-         * what argv[0] names, so argv[0] has to fit even with no args. */
+        /* The exec is refused here, where the error can still be returned to
+         * the client. The exec loads the file in argv[0], so argv[0] has to
+         * fit even with no other arguments. */
         if (!program.empty())
         {
             std::vector<char *> argv;

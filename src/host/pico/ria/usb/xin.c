@@ -158,8 +158,8 @@ bool __in_flash("xin_class_driver_init") xin_class_driver_init(void)
 }
 
 /* XInput reports face buttons by their Xbox positions whatever their labels.
- * These carry PlayStation labels, and the HORIPAD S ships with Switch or
- * GameCube labels under one id. */
+ * These pads have PlayStation labels, and the HORIPAD S is sold with Switch
+ * or GameCube labels under one id. */
 static uint8_t __in_flash("xin_button_type") xin_button_type(uint16_t vendor_id, uint16_t product_id)
 {
     switch ((uint32_t)vendor_id << 16 | product_id)

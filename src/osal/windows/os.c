@@ -15,7 +15,7 @@
 #include <wchar.h>
 #include <windows.h>
 /* initguid.h comes before knownfolders.h so that this file defines
- * FOLDERID_SavedGames itself, and no uuid library has to carry it. */
+ * FOLDERID_SavedGames itself, and no uuid library is needed for it. */
 #include <initguid.h>
 #include <knownfolders.h>
 #include <shlobj.h>
@@ -110,7 +110,8 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
     (void)tm, (void)probe; /* the CRT's struct tm has no tm_gmtoff or tm_zone */
 }
 
-/* A folder the wide API named, with an ASCII tail, as one UTF-8 path. */
+/* A folder path from the wide API joined with an ASCII tail, as one UTF-8
+ * path. */
 static char *win_join_utf8(const wchar_t *base, const char *tail)
 {
     char *u8 = win_wide_to_utf8(base);

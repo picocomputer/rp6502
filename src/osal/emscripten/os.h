@@ -29,8 +29,8 @@ std_rw_result os_syncfs_poll(api_errno *err);
  * slow and changes only when something is stored. os_estimate_stale marks the
  * kept estimate out of date, and a write, a close after a write and a syncfs
  * each call it. os_estimate_start starts a new estimate only when the kept one
- * is out of date or missing, none is in flight and no failure is waiting for
- * a poll. The poll returns STD_PENDING while an estimate is in flight, then
+ * is out of date or missing, none is in flight and no failure is still
+ * unreported. The poll returns STD_PENDING while an estimate is in flight, then
  * STD_OK with the quota and the usage in bytes, or STD_ERROR with API_ENOSYS
  * when the browser offers no estimate and API_EIO when it refused one. A
  * failure is returned by one poll, and the start after that poll tries

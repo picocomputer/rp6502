@@ -25,8 +25,8 @@ uint16_t oem_get_code_page_run(void)
     return font_get_code_page();
 }
 
-/* The page of the locale, which a request for a page the font lacks
- * selects in its place. */
+/* The locale's code page, which is selected in place of a requested page
+ * that the font does not have. */
 static uint16_t oem_system_cp;
 
 void oem_set_code_page_run(uint16_t cp)

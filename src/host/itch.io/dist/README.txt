@@ -65,7 +65,7 @@ Saves and browser storage
 
 A program saves by opening a file on the SAVE: device, such as
 SAVE:hopper.hiscore. In the browser those files are in /saves/, and
-they are the only files that can outlast the page. The ROM is written
+they are the only files kept after the player leaves. The ROM is written
 to /roms/ in memory, and a file written anywhere else, such as the
 working directory, is lost when the player leaves.
 

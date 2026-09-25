@@ -84,9 +84,10 @@ static void std_rln_callback(bool timeout, const char *buf)
 #define STD_BUF_XSTACK 1
 #define STD_BUF_XRAM 2
 
-/* Under SST_SHARED a file that fs_std_open opened is left out, because its
- * host path names nothing on another machine, and the load closes it. A
- * SAVE: file stays, because its name is the same on every machine. */
+/* A savestate sent to another machine for netplay (SST_SHARED) does not
+ * record files opened by path, because that path may not exist on the other
+ * machine, and loading the state closes them. A SAVE: file is recorded by its
+ * name, which opens the same save on every machine. */
 static bool std_left_out(const std_fd_t *f, unsigned flags)
 {
     size_t count;
@@ -94,8 +95,8 @@ static bool std_left_out(const std_fd_t *f, unsigned flags)
            std_drivers(&count)[f->driver].open == fs_std_open;
 }
 
-/* A close that returns STD_PENDING is waited out, because nothing dispatches
- * it again. */
+/* A close that returns STD_PENDING is called again until it finishes,
+ * because no later dispatch repeats it. */
 static void std_close_now(std_fd_t *f)
 {
     api_errno ignored;
@@ -142,8 +143,9 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
             at = (uint16_t)(std_buf - (char *)xram);
         }
     }
-    /* A transfer on a file left out goes with it, so the call waiting on it
-     * is dispatched again after the load and fails. */
+    /* A read or write in progress on a file that the state does not record
+     * is not recorded either, so its op is dispatched again after the load
+     * and fails. */
     bool active = std_fd_active && !std_left_out(std_fd_active, flags);
     sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
     sst_put_u8(c, kind);

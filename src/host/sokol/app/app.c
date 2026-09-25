@@ -316,8 +316,8 @@ char *app_rom_path(const char *host)
     {
         /* oem_from_utf8 writes one byte per UTF-8 sequence, so the UTF-8
          * length holds the result. A name FAT refuses has no drive path
-         * either, and os_dir_realpath answers NULL for it. Nor does a path
-         * whose absolute form is longer than a path may be. */
+         * either, and os_dir_realpath returns NULL for it. So does a path
+         * whose absolute form is longer than API_PATH_MAX. */
         size_t sz = strlen(host) + 1;
         char *oem = malloc(sz);
         if (oem)
@@ -336,8 +336,8 @@ char *app_rom_path(const char *host)
     return rom;
 }
 
-/* The ":name" of the null drive install that the last drop to boot made, or
- * NULL. */
+/* The ":name" installed on the null drive for the last dropped file that
+ * booted, or NULL. */
 static char *dropped_rom;
 
 bool app_boot_rom(const char *path)
@@ -354,12 +354,12 @@ bool app_boot_rom(const char *path)
         com_printf("cannot read dropped file\n");
         return false;
     }
-    /* The file is screened before proc_boot stops the machine, so an accidental
-     * drop leaves the running program alone; the loader would refuse it too, but
-     * only after that program was gone. The screen uses an ordinary descriptor
-     * because there is one ROM descriptor and the running program is holding it
-     * open for its assets. A file on the null drive opens only as a ROM image,
-     * on that one descriptor, so it goes to the loader unscreened. */
+    /* The file is checked before proc_boot stops the machine, so an accidental
+     * drop leaves the running program running; the loader would refuse the file
+     * too, but only after stopping that program. The check uses an ordinary
+     * descriptor, because there is one ROM descriptor and the running program
+     * has it open for its assets. A file on the null drive opens only as a ROM
+     * image, on that one descriptor, so it goes to the loader unchecked. */
     if (rom[0] != ':')
     {
         uint8_t buf[ROM_RECORD_MAX];
@@ -377,9 +377,9 @@ bool app_boot_rom(const char *path)
     }
     vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
     bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
-    /* The last drop's install goes once proc_boot has stopped the machine,
-     * whether or not this boot succeeded, unless this drop's install of the
-     * same name has taken its slot. */
+    /* The install from the previous drop is removed once proc_boot has
+     * stopped the machine, whether or not this boot succeeded, unless this
+     * drop installed a ROM of the same name, which replaced it. */
     if (dropped_rom && strcasecmp(dropped_rom, rom) != 0)
         rom_alias_remove(dropped_rom);
     if (!ok && rom[0] == ':')

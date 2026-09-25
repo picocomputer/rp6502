@@ -1022,9 +1022,9 @@ bool script_command(const char *line)
         return true;
     }
 
-    /* The script is UTF-8. An installed ROM's path is the host's own and
-     * stays so, while a name or a path the machine resolves converts to OEM
-     * in place, which only ever shortens it. */
+    /* The script is UTF-8. An installed ROM's path stays a host path in
+     * UTF-8, while a name or a path that the machine resolves is converted to
+     * OEM in place, which only ever shortens it. */
     if (!strcasecmp(cmd, "install"))
     {
         char path[SCRIPT_LINE_MAX];

@@ -42,15 +42,14 @@ int app_exit_code(void);
  * window. */
 void app_set_break(bool (*asked)(void), void (*leave)(void));
 
-/* The name a boot takes for a ROM file given by its host path in UTF-8,
- * allocated for the caller to free, or NULL. A path that has a drive path in
- * the code page becomes that drive path. A program could not name any other
- * path, so that file is installed on the null drive and the result is its
- * ":name". */
+/* The name to boot a ROM file by, from its host path in UTF-8, allocated for
+ * the caller to free, or NULL. A path that has a drive path in the code page
+ * becomes that drive path. A program could not open any other path, so that
+ * file is installed on the null drive and the result is its ":name". */
 char *app_rom_path(const char *host);
 
-/* Boot a .rp6502, true on success. The path is what the OS handed the
- * platform, named for the boot by app_rom_path. It returns false without
+/* Boot a .rp6502, true on success. The path is the host path from the OS,
+ * converted for the boot by app_rom_path. It returns false without
  * booting while a DAP client controls the machine. A failed load leaves the
  * machine stopped, because rom_load streams records into live RAM before it
  * can fail, as on hardware where a failed LOAD leaves the CPU stopped in the

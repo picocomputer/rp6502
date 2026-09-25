@@ -46,9 +46,9 @@ int fs_std_reopen(sst_cursor_t *c, api_errno *err);
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);
 
-/* A host path, as opposed to a drive path, is in the host's own syntax and in
+/* A host path, as opposed to a drive path, is in the host's syntax and in
  * UTF-8 whatever the code page, and the FAT name rules do not apply to it,
- * because only the host names it. An installed ROM is one of these
+ * because a program never passes one. An installed ROM is one of these
  * (core/rom/alias.c). fs_host_realpath returns the absolute form of a file or
  * folder that exists, allocated for the caller to free, or NULL.
  * fs_rom_open_host opens a ROM image for reading as fs_rom_open does, in the
@@ -56,16 +56,16 @@ bool fs_rom_remove(const char *name, api_errno *err);
 char *fs_host_realpath(const char *host);
 int fs_rom_open_host(const char *host, api_errno *err);
 
-/* fs_save_start fixes the folder behind SAVE: each time a program starts: the
+/* fs_save_start sets the SAVE: folder each time a program starts: the
  * host_save_dir of host/host.h, or the working directory at that moment when
  * that is NULL. fs_save_open opens name in that folder, so a CHDIR or CHDRIVE
  * by the program does not move its saves. save_std_open has already checked
  * name against the rules in core/api/save.h. The descriptor is one the
- * fs_std_ functions take, and fs_std_ident writes it down as SAVE:name, so a
- * savestate carries no host path for it and fs_std_reopen sends it back
- * through save_std_open. The folder outlives a stop, because a savestate
+ * fs_std_ functions accept, and fs_std_ident records it as SAVE:name, so a
+ * savestate holds no host path for it and fs_std_reopen opens it again
+ * through save_std_open. The folder is kept after a stop, because a savestate
  * loaded into a stopped machine still reopens its SAVE: files there. A host
- * that unloads this library gives it back with fs_save_free. */
+ * that unloads this library frees it with fs_save_free. */
 int fs_save_open(const char *name, uint8_t flags, api_errno *err);
 void fs_save_start(void);
 void fs_save_free(void);

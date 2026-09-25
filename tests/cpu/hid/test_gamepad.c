@@ -86,7 +86,7 @@ static bool pad_mount(uint16_t vendor_id, uint16_t product_id)
     return gamepad_mount(PAD_SLOT, &desc, vendor_id, product_id, GAMEPAD_TYPE_UNKNOWN);
 }
 
-/* A generic pad keeps the report's own order: button n in bit n - 1. */
+/* A generic pad keeps the report's order: button n in bit n - 1. */
 UTEST(gamepad, a_generic_pad_keeps_its_order)
 {
     ASSERT_TRUE(pad_mount(0x2DC8, 0x6001));
@@ -97,7 +97,7 @@ UTEST(gamepad, a_generic_pad_keeps_its_order)
 }
 
 /* Its buttons are Y, B, A, X, L, R, ZL, ZR, Minus, Plus, L3, R3, Home and
- * Capture, and each lands in the bit of its label, as type 2 promises. */
+ * Capture, and each lands in the bit of its label, as type 2 requires. */
 UTEST(gamepad, a_wired_switch_pad_reports_by_label)
 {
     static const uint16_t want[14] = {0x0010, 0x0002, 0x0001, 0x0008, 0x0040,

@@ -110,10 +110,10 @@ bool proc_api_argv(void)
     return api_return_ax(arg_push_xstack());
 }
 
-/* op 0x09. The xstack holds the new argv, whose argv[0] names the .rp6502.
- * The op succeeds as soon as the argv parses and argv[0] fits in a path,
- * because by the time a load can fail the program that asked for it is gone;
- * the error goes to the console. */
+/* op 0x09. The xstack holds the new argv, whose argv[0] is the path of the
+ * .rp6502. The op succeeds as soon as the argv parses and argv[0] fits in a
+ * path, because by the time a load can fail, the program that called EXEC has
+ * already stopped; the error is printed on the console. */
 bool proc_api_exec(void)
 {
     if (!arg_pull_xstack() || strlen(arg_index(0)) > API_PATH_MAX)

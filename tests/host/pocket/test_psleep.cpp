@@ -848,9 +848,9 @@ UTEST(psleep, a_sleep_inside_a_file_operation_still_finishes_it)
     teardown();
 }
 
-/* The main loop stops the program when a blob starts to arrive, so the
- * program stops while its close still waits for the Flush reply only if the
- * close polls Flush instead of blocking the main loop. */
+/* The main loop stops the program when a savestate starts to load, so the
+ * program stops while its close is still waiting for the Flush reply only if
+ * the close polls Flush instead of blocking the main loop. */
 UTEST(psleep, a_close_waiting_on_flush_leaves_the_main_loop_running)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);

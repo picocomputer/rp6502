@@ -189,8 +189,9 @@ static bool fat_is_file(const char *path)
 /* f_rename discards the drive of the new name and renames on the drive of the
  * old one, so names on two drives are refused before anything changes. FatFs
  * also refuses a new name already in use, while rename(2) and MoveFileEx
- * replace a file there, so a file in the way of a file is removed and the
- * rename retried. FAT offers no way to do that atomically. */
+ * replace a file there, so when both names are files, the file at the new
+ * name is removed and the rename is tried again. FAT offers no way to do
+ * that atomically. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     if (!fat_path_ok(oldname, err) || !fat_path_ok(newname, err))

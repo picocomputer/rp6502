@@ -49,9 +49,9 @@ static bool drive_mkdir_at(const char *path)
     return drive_mkdir(path, &err);
 }
 
-/* Option 2 is API_ERRNO_OPT_LLVM, selected so that errno checks tell one
- * error from another. SAVE: is fixed to the new folder, as a ROM start would
- * fix it with no host save folder. */
+/* Option 2 is API_ERRNO_OPT_LLVM, selected so that errno checks can
+ * distinguish one error from another. SAVE: is set to the new folder, as a
+ * ROM start sets it when the host has no save folder. */
 static bool fresh_cwd(void)
 {
     char dir[TEST_PATH_MAX];
@@ -65,7 +65,7 @@ static bool fresh_cwd(void)
     return true;
 }
 
-/* g_dir as the host spells it, without the FS: the POSIX GETCWD puts in
+/* g_dir as a host path, without the FS: that the POSIX GETCWD puts in
  * front. */
 static const char *host_dir(void)
 {
@@ -974,9 +974,10 @@ UTEST(fs, a_name_windows_keeps_for_a_device_is_refused)
 static uint8_t g_blob[STD_SST_SIZE];
 static int g_save_fd, g_plain_fd;
 
-/* A save and a plain file, both open part way in, are written down with
- * flags. SAVE: then moves to a new folder whose save of the same name holds
- * other bytes, so only a reopen by name reads those. */
+/* A save and a plain file, each open with its position partway in, are
+ * recorded in a savestate with their flags. SAVE: then moves to a new folder
+ * whose save of the same name holds other bytes, so only a reopen by name
+ * reads those. */
 static bool take_two_files(unsigned flags, sst_cursor_t *c)
 {
     if (!fresh_cwd())

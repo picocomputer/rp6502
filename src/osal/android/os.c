@@ -30,7 +30,7 @@ uint32_t os_random(void)
     return (uint32_t)(s ^ (s >> 32));
 }
 
-/* The Android host is deprecated and gets no save folder of its own. */
+/* The Android host is deprecated and has no save folder. */
 char *os_save_dir(void)
 {
     return NULL;

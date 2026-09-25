@@ -36,15 +36,15 @@ void os_sleep_ns(uint64_t ns);
 
 /* Where an application's config file goes, as a host path in UTF-8 rather
  * than in the OEM code page the drive uses. os_config_dir allocates and the
- * caller frees; it is NULL when the host names no such directory.
+ * caller frees; it is NULL when the host has no such directory.
  * os_ensure_parent_dir makes the directories that will hold filepath. */
 char *os_config_dir(void);
 void os_ensure_parent_dir(const char *filepath);
 
-/* The folder the host's guidelines name for an application's saved data, as a
- * host path in UTF-8, allocated for the caller to free, or NULL when the host
- * names none. It is only named here; the first SAVE: open that creates a file
- * makes whatever part of it is missing. */
+/* The folder that the host's guidelines give for an application's saved data,
+ * as a host path in UTF-8, allocated for the caller to free, or NULL when the
+ * guidelines give none. This only builds the path; the first SAVE: open that
+ * creates a file creates any missing part of the folder. */
 char *os_save_dir(void);
 
 /* fopen of a host path in UTF-8. The Windows CRT's fopen reads the ANSI code

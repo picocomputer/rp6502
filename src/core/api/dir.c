@@ -30,7 +30,6 @@ static bool dir_push_stat(f_stat_t *info)
     return ok;
 }
 
-/* The path on the xstack, or NULL when it is longer than any op takes. */
 static const char *dir_path_peek(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
@@ -81,13 +80,14 @@ void dir_stop(void)
  * only position a drive here will take is a read per entry: a load reopens
  * the path and reads forward to the count.
  *
- * Under SST_SHARED the path slots are written empty, because the blob crosses
- * to another machine where a path under one peer's home directory names
- * nothing under the other's. Such a load keeps the directories and the
- * working directory it already has, though the entry counts still come from
- * the blob. The working directory is also written empty when getcwd shows it
- * with character 127, which drive_chdir refuses, so a load keeps the one it
- * has rather than failing. */
+ * Under SST_SHARED the path slots are written empty, because the savestate is
+ * sent to another machine for netplay, and a path under one player's home
+ * directory may not exist on the other player's machine. Loading such a state
+ * leaves the open directories and the working directory as they are, though
+ * the entry counts still come from the state. The working directory is also
+ * written empty when getcwd returns it with character 127, which drive_chdir
+ * refuses, so loading the state leaves the working directory unchanged rather
+ * than failing. */
 #define DIR_SLOT (API_PATH_MAX + 1)
 
 void dir_sst_save(sst_cursor_t *c, unsigned flags)
@@ -331,7 +331,7 @@ bool dir_api_getcwd(void)
     if (!ok)
         return api_return_errno(err);
     uint16_t len = (uint16_t)strlen((char *)xstack);
-    if (len > API_PATH_MAX) /* no op could take it back */
+    if (len > API_PATH_MAX) /* longer than any path an op accepts */
         return api_return_errno(API_ENOMEM);
     for (uint16_t i = len; i;)
         xstack[--xstack_ptr] = xstack[--i];
@@ -359,8 +359,8 @@ bool dir_api_getlabel(void)
     return api_return_ax((uint16_t)(len + 1));
 }
 
-/* The path stays on the xstack while the drive returns STD_PENDING, because
- * the op is dispatched again with it. */
+/* The path stays on the xstack while drive_getfree returns STD_PENDING,
+ * because the op is dispatched again with it. */
 bool dir_api_getfree(void)
 {
     const char *path = dir_path_peek();

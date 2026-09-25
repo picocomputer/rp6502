@@ -222,7 +222,7 @@ static std::vector<uint8_t> save_rom()
     return tb_rom_image(TB_ORG, a.b);
 }
 
-/* NULL is a frontend that has no save folder to give. */
+/* NULL stands for a frontend with no save folder. */
 static void fe_save_dir(const char *dir)
 {
     fe.have_save_dir = dir != NULL;
@@ -258,8 +258,8 @@ UTEST(load, argv0_is_the_absolute_path_with_its_drive)
     fe.unload_game();
 }
 
-/* U+65E5 U+672C, which no single-byte code page holds, name the folder, so
- * a program in it can only be named as an install. */
+/* The folder is named U+65E5 U+672C, which no single-byte code page holds,
+ * so a program in it can only run as an install. */
 static std::filesystem::path unnamed_dir()
 {
     std::filesystem::path dir =
@@ -286,7 +286,7 @@ UTEST(load, a_path_the_code_page_cannot_hold_boots_as_an_install)
     fe.unload_game();
 }
 
-/* A program could not name a path longer than 255 bytes either. Windows opens
+/* A program could not open a path longer than 255 bytes either. Windows opens
  * a path this long only with long paths turned on, so the test is not built
  * there. */
 #ifndef _WIN32
@@ -327,7 +327,7 @@ static uint8_t xram_at(uint16_t addr)
 }
 
 /* The refused file is then made a program, so an EXEC of its ":name" loads
- * only if the install outlived the failed load. The EXEC of a path first
+ * only if the install was kept after the failed load. The EXEC of a path first
  * shows that the launcher's EXEC works. */
 UTEST(load, a_failed_load_leaves_no_install)
 {
@@ -384,8 +384,8 @@ UTEST(load, the_core_leaves_the_working_directory_alone)
     std::filesystem::current_path(before);
 }
 
-/* The folder is made by the first save, so a program that never saves leaves
- * nothing behind. */
+/* The folder is made by the first save, so a program that never saves
+ * creates no folder. */
 UTEST(load, a_save_goes_to_rp6502_in_the_frontend_save_folder)
 {
     std::filesystem::path saves = std::filesystem::path(TEST_SCRATCH) / "fe_saves";

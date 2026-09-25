@@ -103,8 +103,8 @@ bool clk_api_mktime(void)
     clk_wire_to_tm(&w, &tm);
     time_t t = mktime(&tm);
     /* -1 is also a valid time, the second before the epoch, and the second
-     * after that time is 0. A field of the struct is no test, because the
-     * libcs differ in what a failed mktime leaves there. */
+     * after that time is 0. The struct cannot be checked instead, because the
+     * C libraries differ in what a failed mktime writes to it. */
     if (t == (time_t)-1)
     {
         struct tm next;

@@ -52,22 +52,23 @@ static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static float audio_out[RETRO_AUD_FRAMES * 2];
 static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
 
-static char *loaded_host; /* the content's absolute host path; owned here */
-static char *loaded_rom;  /* what the last boot loaded it as; owned here */
-static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL; owned here */
+/* Each of these is allocated here and freed here. */
+static char *loaded_host; /* the content's absolute host path */
+static char *loaded_rom;  /* the path or ":name" the last boot loaded */
+static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
 static bool hint_shown;
 
-/* Set by a proc_boot that succeeded, which loaded_host and machine_inited do
- * not say: both are set before proc_boot can fail, and a frontend asks for a
- * savestate the moment the core loads content. */
+/* Set by a proc_boot that succeeded. loaded_host and machine_inited cannot
+ * show that, because both are set before proc_boot can fail, and a frontend
+ * requests a savestate as soon as the core loads content. */
 static bool booted;
 
 /* The drive path of the content in the code page in force, or, for a path
  * that has no drive path, the ":name" of an install on the null drive, since
- * a program could not name that path either. Allocated for the caller to
+ * a program could not open that path either. Allocated for the caller to
  * free. */
 static char *rom_path(const char *host)
 {
@@ -75,8 +76,8 @@ static char *rom_path(const char *host)
     {
         /* oem_from_utf8 writes one byte per UTF-8 sequence, so the UTF-8
          * length holds the result. A name FAT refuses has no drive path
-         * either, and os_dir_realpath answers NULL for it. Nor does a path
-         * whose absolute form is longer than a path may be. */
+         * either, and os_dir_realpath returns NULL for it. So does a path
+         * whose absolute form is longer than API_PATH_MAX. */
         size_t sz = strlen(host) + 1;
         char *oem = malloc(sz);
         if (oem)
@@ -466,9 +467,9 @@ const char *host_save_dir(void)
 }
 
 /* The first load cold-boots the machine; every load after it refills RAM, so
- * a program never sees what the last one left behind. The content is named
- * again on every boot, after sys_init has put a code page in force and in
- * whichever one an option has since chosen. */
+ * no data from the last program remains in memory. The content path is
+ * converted again on every boot, after sys_init has selected a code page,
+ * into whichever code page an option has selected since. */
 static bool boot(void)
 {
     apply_options(machine_inited);
@@ -519,7 +520,6 @@ bool retro_load_game(const struct retro_game_info *game)
         return false;
     }
 
-    /* SAVE: gets a folder of this core's own in the frontend's save folder. */
     const char *dir = NULL;
     free(save_dir), save_dir = NULL;
     if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir && *dir)

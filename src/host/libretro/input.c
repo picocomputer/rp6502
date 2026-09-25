@@ -366,12 +366,12 @@ static void poll_gamepads(retro_input_state_t state)
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
                         RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
-        /* A RetroPad has two sticks whatever hardware is behind it, and
-         * libretro never tells a core what that hardware is, so its face
-         * button labels are unknown. Claiming the sticks only for
-         * RETRO_DEVICE_ANALOG would deny them to most players, because a
-         * frontend reports a plain joypad for an analog controller unless
-         * someone goes and changes it. */
+        /* A RetroPad has two sticks whatever gamepad the player uses, and
+         * libretro does not report that gamepad to a core, so its face button
+         * labels are unknown. Reporting the sticks only for
+         * RETRO_DEVICE_ANALOG would remove them for most players, because a
+         * frontend reports a plain joypad for an analog controller unless the
+         * player changes that setting. */
         gamepad_connect(p, true, GAMEPAD_TYPE_UNKNOWN, true);
         port_live[p] = true;
         gamepad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);

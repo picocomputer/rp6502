@@ -5,8 +5,8 @@
  *
  * Linux gamepads, through evdev. The kernel's drivers name every button and
  * axis, over USB and Bluetooth alike, so there is no mapping database here,
- * though they do not agree on where X and Y sit. The usual layout is the
- * kernel's own gamepad API (Documentation/input/gamepad.rst), which is not the
+ * though the drivers differ on where X and Y are. The usual layout is the
+ * kernel's gamepad API (Documentation/input/gamepad.rst), which is not the
  * HID layout core/hid/gamepad.c parses: the triggers are ABS_Z and ABS_RZ, and
  * the right stick is ABS_RX and ABS_RY.
  */
@@ -93,7 +93,7 @@ static void gamepad_apply_button(gamepad_device_t *dev, uint16_t code, bool down
     switch (code)
     {
     /* BTN_X is BTN_NORTH and BTN_Y is BTN_WEST. xpad and hid-generic send X
-     * and Y by label, so an Xbox X arrives as BTN_NORTH. Sony's drivers send
+     * and Y by label, so an Xbox X is reported as BTN_NORTH. Sony's drivers send
      * Square and Triangle by position, and hid-nintendo sends a Switch
      * controller's A and B by position. */
     case BTN_SOUTH: button = dev->state.type == GAMEPAD_TYPE_EASTERN ? GAMEPAD_BTN_B : GAMEPAD_BTN_A; break;
@@ -116,8 +116,9 @@ static void gamepad_apply_button(gamepad_device_t *dev, uint16_t code, bool down
     case BTN_DPAD_LEFT: button = GAMEPAD_BTN_DPAD_LEFT; break;
     case BTN_DPAD_RIGHT: button = GAMEPAD_BTN_DPAD_RIGHT; break;
     default:
-        /* hid-generic numbers a HID Joystick's buttons from BTN_JOYSTICK with no
-         * position behind them, so they take the report's order, as on the Pico. */
+        /* hid-generic numbers a HID Joystick's buttons from BTN_JOYSTICK, and
+         * those codes give no positions, so the buttons fill the report in
+         * that order, as on the Pico. */
         if (code < BTN_JOYSTICK || code > BTN_JOYSTICK + (GAMEPAD_BTN_R3 - GAMEPAD_BTN_A))
             return;
         button = (gamepad_button_t)(GAMEPAD_BTN_A + (code - BTN_JOYSTICK));
@@ -153,11 +154,11 @@ static void gamepad_close_device(gamepad_device_t *dev)
     dev->fd = -1;
 }
 
-/* A /dev/input node has to be opened before it can be asked what it is, so
- * anything that answers with neither BTN_SOUTH nor BTN_TRIGGER is closed again
- * here rather than holding one of the four gamepad_devices slots. A mouse with
- * more than 16 buttons runs on into BTN_TRIGGER, and its button 16 gives it
- * away. */
+/* A /dev/input node has to be opened before its capabilities can be read, so
+ * a device that reports neither BTN_SOUTH nor BTN_TRIGGER is closed again here
+ * rather than holding one of the four gamepad_devices slots. A mouse with more
+ * than 16 buttons has codes up to BTN_TRIGGER, and its sixteenth button,
+ * BTN_JOYSTICK - 1, marks it as a mouse. */
 static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_t id)
 {
     int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);

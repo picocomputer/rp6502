@@ -43,7 +43,7 @@ static bool win_drive_mounted(char letter)
 /* Win32 opens a device for these final names, with any extension and any
  * trailing spaces, so no file can be stored under one. A trailing separator
  * does not hide one, because Win32 reads "CON\" as a folder named CON, which
- * mkdir would create and no plain path could reach again. */
+ * mkdir would create and no plain path could open again. */
 static bool win_reserved(const wchar_t *w)
 {
     size_t end = wcslen(w);
@@ -69,10 +69,10 @@ static bool win_reserved(const wchar_t *w)
            (!_wcsnicmp(name, L"COM", 3) || !_wcsnicmp(name, L"LPT", 3));
 }
 
-/* The FAT rules are applied before Win32 sees a path, because Win32 gives ':'
- * and the wildcards meanings of its own: a device, a stream, a pattern. Two
- * leading separators start a UNC path or a \\?\ or \\.\ device path, any of
- * which reaches past the drive letters. */
+/* The FAT rules are applied before a path is passed to Win32, because Win32
+ * gives ':' and the wildcards other meanings: a device, a stream, a pattern.
+ * Two leading separators start a UNC path or a \\?\ or \\.\ device path,
+ * none of which uses a drive letter. */
 wchar_t *path_to_wide(const char *path, api_errno *err)
 {
     bool drive = win_has_drive(path);
@@ -171,8 +171,8 @@ void win_make_parents(wchar_t *path)
 
 /* A path in full, resolved the way Win32 resolves one: a relative path against
  * the process working directory, and a drive-relative one ("C:") against the
- * directory Win32 remembers for that drive. For "." at a drive root, the
- * sizing call asks for room for "C:" only, and a buffer a few units long
+ * directory Win32 stores for that drive. For "." at a drive root, the
+ * sizing call reports room for "C:" only, and a buffer a few units long
  * receives "C:" in place of "C:\" with no error, so the first try uses a
  * MAX_PATH buffer, as .NET does. A longer path is tried again at the size
  * the call reports, which includes the terminating null. */
@@ -200,10 +200,10 @@ wchar_t *win_full_path(const wchar_t *w, api_errno *err)
     }
 }
 
-/* NULL when no program could name the absolute path: one with a character the
- * code page cannot hold, or one on a UNC share, which a relative path reaches
- * when the working directory is there. A drive path in full starts with "X:",
- * and a UNC one with two backslashes. */
+/* NULL when no program could open the absolute path: one with a character the
+ * code page cannot hold, or one on a UNC share, which a relative path resolves
+ * to when the working directory is on one. A drive path in full starts with
+ * "X:", and a UNC one with two backslashes. */
 char *os_dir_realpath(const char *path)
 {
     api_errno ignored;
@@ -351,7 +351,7 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     bool ok;
     if (n == 3 && full[1] == L':')
     {
-        /* The attributes only confirm that the volume answers. */
+        /* Reading the attributes only checks that the volume is mounted. */
         ok = win_ok(GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES, err);
         if (ok)
             f_stat_root(info);
@@ -612,11 +612,11 @@ bool drive_chdir(const char *path, api_errno *err)
     return ok;
 }
 
-/* SetCurrentDirectoryW of a bare "X:" is Windows' own change-drive, the one
- * cd /d and the CRT's _chdrive use. It lands on the folder in "=X:", or on
+/* SetCurrentDirectoryW of a bare "X:" is the Windows change of drive, the one
+ * cd /d and the CRT's _chdrive use. It changes to the folder in "=X:", or to
  * the drive's root when there is none. The letter is checked against the
- * mounted set first, so a drive that is not there reports a missing device
- * rather than a path error. */
+ * mounted drives first, so a drive that is not there gives ENODEV rather than
+ * a path error. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
     if (!drive[0])
@@ -695,7 +695,7 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 }
 
 /* A working directory on a UNC share has no drive letter, so no path a
- * program could write names it. */
+ * program could write refers to it. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     wchar_t *w = win_full_path(L".", err);

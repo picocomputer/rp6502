@@ -18,8 +18,8 @@ char *path_from_wide(const wchar_t *w, api_errno *err);
 
 void win_to_slash(char *p);
 
-/* A host path crosses in UTF-8 and takes no name rules. Both allocate, and
- * the caller frees. */
+/* A host path is passed in UTF-8 and is not checked against the name rules.
+ * Both allocate, and the caller frees. */
 wchar_t *win_utf8_to_wide(const char *u8, api_errno *err);
 char *win_wide_to_utf8(const wchar_t *w);
 

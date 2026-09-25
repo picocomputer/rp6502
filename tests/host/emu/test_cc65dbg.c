@@ -141,7 +141,7 @@ UTEST(cc65dbg, globals_via_import_chain)
  * C globals. _errno_opt_constructor lies inside the long d, and initlib lies
  * inside the long e. In the fixture, ONCE has the lower seg id and ends past
  * BSS, so __oserror, the last byte of BSS, is one byte only when it is measured
- * to the end of its own segment. __errno is a label with no segment, and it is
+ * to the end of its segment. __errno is a label with no segment, and it is
  * bounded by RIA_OP, which has none either. */
 UTEST(cc65dbg, globals_under_once_overlay)
 {

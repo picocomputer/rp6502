@@ -61,9 +61,9 @@ void proc_exec_request(void)
     sys_stop();
 }
 
-/* Measured in size_t, because arg_append computes with uint16_t and these come
- * from a host that bounds nothing. argv[0] is a path, so it is held to what a
- * path may be rather than to what the xstack happens to hold. */
+/* Measured in size_t, because arg_append computes with uint16_t and the host
+ * does not limit these lengths. argv[0] is a path, so it is limited to
+ * API_PATH_MAX rather than to the xstack size. */
 static bool argv_fits(const char *argv0, int argc, char *const *args)
 {
     size_t len = strlen(argv0);

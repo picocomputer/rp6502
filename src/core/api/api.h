@@ -70,11 +70,11 @@ uint16_t api_platform_errno(api_errno num);
  * the others onto the xstack in declaration order, so a handler pops them in
  * reverse and the first parameter comes off last.
  *
- * That first parameter may arrive short -- cc65 pushes its unsigned 32 bit
- * time_t as five bytes where the call declares an int64 -- to keep the 6502
- * code small, so these fill the rest in, with zero for the unsigned forms and
- * with the sign bit for the signed ones. They fail unless the pop empties the
- * xstack.
+ * That first parameter may be shorter than its declared type, because cc65
+ * pushes its unsigned 32-bit time_t as five bytes where the call declares an
+ * int64, which keeps the 6502 code small. These functions fill in the missing
+ * bytes, with zero for the unsigned forms and with the sign bit for the signed
+ * ones. They fail unless the pop empties the xstack.
  */
 
 bool api_pop_uint8_end(uint8_t *data);
