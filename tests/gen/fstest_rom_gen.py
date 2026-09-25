@@ -435,13 +435,12 @@ def build():
     p.rts()
 
     # stat of a root answers one fixed entry: size 0, zero dates, a directory
-    # named /.
+    # named /. A machine without stat fails with the errno expected.
     p.symbol("stat_root")
     p.stx_abs(TMP)
     p.ora_abs(TMP)
     with p.branch("beq"):
-        p.lda_imm(1)
-        p.rts()
+        p.jmp_abs("errno_is")
     p.store(BAD, 0)
     p.ldx_imm(12)
     p.symbol("stat_root.zero")
@@ -1001,6 +1000,7 @@ def build():
     p.jsr_abs("do_close")
 
     # A drive root has one fixed entry, and an empty path is refused.
+    expect_errno(ENOSYS)
     p.push_str("/")
     p.jsr_abs("push_pfx")
     p.call(OP_STAT)

@@ -7,7 +7,6 @@
 #include "fs.h"
 
 #include "core/api/dir.h"
-#include "core/str/path.h"
 
 #include <string.h>
 
@@ -58,11 +57,8 @@ static bool drive_enosys(api_errno *err)
 
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
-    const char *rest = fs_strip_drive(path);
-    if (!path_is_sep(rest[0]) || rest[1])
-        return drive_enosys(err);
-    f_stat_root(info);
-    return true;
+    (void)path, (void)info;
+    return drive_enosys(err);
 }
 
 bool drive_unlink(const char *path, api_errno *err)
@@ -147,8 +143,7 @@ bool drive_rewinddir(int des, api_errno *err)
 bool drive_validate(int des, api_errno *err)
 {
     (void)des;
-    *err = API_EBADF;
-    return false;
+    return drive_enosys(err);
 }
 
 bool drive_dir_path(int des, char *buf, size_t size)
