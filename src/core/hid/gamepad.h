@@ -136,6 +136,9 @@ bool gamepad_mount(int slot, const gamepad_connection_t *desc,
 
 bool gamepad_umount(int slot);
 
+// A DualShock 4 or DualSense, or a copy of either, by its ids.
+bool gamepad_is_sony(uint16_t vendor_id, uint16_t product_id);
+
 void gamepad_report(int slot, uint8_t const *data, uint16_t len);
 
 // An Xbox One sends the home button outside its reports.

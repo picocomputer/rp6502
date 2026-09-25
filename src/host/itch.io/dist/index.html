@@ -248,7 +248,7 @@
       // Privacy-gated: nothing reads navigator.getGamepads() until the running
       // program maps the gamepad report block into XRAM (it calls xreg_ria_gamepad,
       // flipping gamepad_mapped()). A 250 ms watcher checks that flag; only then
-      // do we poll the four "standard mapping" gamepads per frame and forward each.
+      // do we poll the four gamepads per frame and forward each.
       // If the program releases the block we stop and resume watching, so the
       // browser only touches the gamepad while a ROM asks for it.
       function initGamepadBridge() {
@@ -264,11 +264,13 @@
         function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
         function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
         // Face button labels: 3 PlayStation, 2 Eastern BA, 1 Western AB, 0 when
-        // the id doesn't say for certain.
-        function padType(id) {
-          id = id || '';
+        // the id doesn't say for certain or buttons[] is in the device's own order.
+        function padType(gp) {
+          if (gp.mapping !== 'standard') return 0;
+          var id = gp.id;
           if (/054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id)) return 3;
-          if (/057e|switch|joy-?con|nintendo/i.test(id)) return 2;
+          // Pro Controller or Joy-Con pair; a lone Joy-Con held sideways fits no row.
+          if (/057e\D+20(09|0e)/i.test(id)) return 2;
           if (/045e|xbox|xinput/i.test(id)) return 1;
           return 0;
         }
@@ -289,11 +291,15 @@
                        (on(14) ? 0x04 : 0) | (on(15) ? 0x08 : 0);
             var b0 = (on(0) ? 0x01 : 0) | (on(1) ? 0x02 : 0) | (on(2) ? 0x08 : 0) |
                      (on(3) ? 0x10 : 0) | (on(4) ? 0x40 : 0) | (on(5) ? 0x80 : 0);
+            var type = padType(gp);
+            // The standard mapping places Nintendo face buttons by position.
+            if (type === 2)
+              b0 = (b0 & 0xE4) | (b0 & 0x09) << 1 | (b0 & 0x12) >> 1;
             var b1 = (on(6) ? 0x01 : 0) | (on(7) ? 0x02 : 0) | (on(8) ? 0x04 : 0) |
                      (on(9) ? 0x08 : 0) | (on(16) ? 0x10 : 0) | (on(10) ? 0x20 : 0) |
                      (on(11) ? 0x40 : 0);
             report(p, dpad, b0, b1, axis(a[0]), axis(a[1]), axis(a[2]), axis(a[3]),
-                   trig(b[6]), trig(b[7]), padType(gp.id), a.length >= 4 ? 1 : 0);
+                   trig(b[6]), trig(b[7]), type, a.length >= 4 ? 1 : 0);
             connected[p] = true;
           }
           raf = requestAnimationFrame(poll);

@@ -58,9 +58,9 @@ UTEST(input, start_reaches_the_record)
     press(0, RETRO_DEVICE_ID_JOYPAD_START, true);
     fe_run(20);
     const uint8_t *rec = gamepad_record(0);
-    /* 0xD0 holds the connected, two-stick and western-layout bits, which the
-     * core sets for every RetroPad. */
-    ASSERT_EQ(rec[0], 0xD0);
+    /* 0xC0 holds the connected and two-stick bits, which the core sets for
+     * every RetroPad. */
+    ASSERT_EQ(rec[0], 0xC0);
     ASSERT_EQ(rec[1], 0x00);
     ASSERT_EQ(rec[2], 0x00);
     ASSERT_EQ(rec[3], 0x08);
@@ -74,7 +74,7 @@ UTEST(input, the_south_button_is_the_machines_a)
     press(0, RETRO_DEVICE_ID_JOYPAD_B, true);
     fe_run(20);
     const uint8_t *rec = gamepad_record(0);
-    ASSERT_EQ(rec[0], 0xD1); /* 0xD0 + dpad up */
+    ASSERT_EQ(rec[0], 0xC1); /* 0xC0 + dpad up */
     ASSERT_EQ(rec[2], 0x01); /* button0 bit 0 is A */
     fe.unload_game();
 }
@@ -85,7 +85,7 @@ UTEST(input, a_stick_derives_its_digital_reading)
     fe.analog[0][RETRO_DEVICE_INDEX_ANALOG_LEFT][RETRO_DEVICE_ID_ANALOG_Y] = -0x7F00;
     fe_run(20);
     const uint8_t *rec = gamepad_record(0);
-    ASSERT_EQ(rec[0], 0xD0);
+    ASSERT_EQ(rec[0], 0xC0);
     ASSERT_EQ(rec[1], 0x01); /* left stick up */
     ASSERT_EQ(rec[2], 0x00);
     ASSERT_EQ(rec[3], 0x00);

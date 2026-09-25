@@ -55,16 +55,17 @@ static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int 
 static void gamepad_remap_playstation_classic(
     gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
-    if (vendor_id != 0x054C || product_id != 0x05C2)
+    if (vendor_id != 0x054C || product_id != 0x0CDA)
         return;
     RP6502_LOG(hid, DEBUG, "Playstation Classic remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
     conn->features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION);
+    // Its HID buttons are Triangle, Circle, Cross, Square, L2, R2, L1, R1, Select, Start.
     gamepad_swap_buttons(conn, 0, 2);
-    gamepad_swap_buttons(conn, 2, 3);
-    gamepad_swap_buttons(conn, 4, 8); // l1/l2
-    gamepad_swap_buttons(conn, 5, 9); // r1/r2
-    gamepad_swap_buttons(conn, 4, 6);
-    gamepad_swap_buttons(conn, 5, 7);
+    gamepad_swap_buttons(conn, 2, 4);
+    gamepad_swap_buttons(conn, 2, 8);
+    gamepad_swap_buttons(conn, 2, 10);
+    gamepad_swap_buttons(conn, 5, 9);
+    gamepad_swap_buttons(conn, 5, 11);
 }
 
 /* The 8BitDo M30 is a Sega-style gamepad whose wired DInput mode reports
@@ -84,6 +85,39 @@ static void gamepad_remap_8bitdo_m30(
     gamepad_swap_buttons(conn, 2, GAMEPAD_HOME_BUTTON);
 }
 
+/* Wired Switch pads number their buttons Y, B, A, X, L, R, ZL, ZR, Minus,
+ * Plus, L3, R3, Home and Capture. */
+static void gamepad_remap_switch_wired(
+    gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
+{
+    switch ((uint32_t)vendor_id << 16 | product_id)
+    {
+    case 0x0E6F0180: // PDP Faceoff Wired Pro Controller
+    case 0x0E6F0181: // PDP Faceoff Deluxe Wired Pro Controller
+    case 0x0E6F0184: // PDP Faceoff Wired Deluxe+ Audio Controller
+    case 0x0E6F0187: // PDP Rock Candy Wired Controller
+    case 0x0E6F0188: // PDP Afterglow Wired Deluxe+ Audio Controller
+    case 0x0E6F018B: // PDP Afterglow Wave Wired Controller
+    case 0x0F0D0092: // HORI Pokken Tournament DX Pro Pad
+    case 0x0F0D00C1: // HORIPAD for Nintendo Switch
+    case 0x20D6A713: // PowerA Super Mario Controller
+    case 0x20D6A714: // PowerA Spectra Controller
+    case 0x20D6A716: // PowerA Fusion Pro Controller
+    case 0x20D6A718: // PowerA Nano Wired Controller
+        break;
+    default:
+        return;
+    }
+    RP6502_LOG(hid, DEBUG, "Switch wired remap: vid=0x%04X, pid=0x%04X", vendor_id, product_id);
+    conn->features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_EASTERN);
+    // The pad's button number for each report slot, 0 for none.
+    static const uint8_t buttons[16] = {3, 2, 0, 4, 1, 0, 5, 6, 7, 8, 9, 10, 13, 11, 12, 0};
+    uint16_t offsets[16];
+    memcpy(offsets, conn->button_offsets, sizeof(offsets));
+    for (int i = 0; i < 16; i++)
+        conn->button_offsets[i] = buttons[i] ? offsets[buttons[i] - 1] : 0xFFFF;
+}
+
 static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
@@ -94,7 +128,6 @@ static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
         case 0x09CC: // DualShock 4 (2nd gen)
         case 0x0BA0: // DualShock 4 USB receiver
         case 0x0DAE: // DualShock 4 (special edition variant)
-        case 0x0CDA: // DualShock 4 (Asia region, special edition)
         case 0x0D9A: // DualShock 4 (Japan region, special edition)
         case 0x0E04: // DualShock 4 (rare, but reported)
             return true;
@@ -110,32 +143,14 @@ static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
             return true;
         }
     }
-    if (vendor_id == 0x20D6) // PowerA
-    {
-        switch (product_id)
-        {
-        case 0xA711: // PowerA PS4 Wired
-            return true;
-        }
-    }
-    if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
-    {
-        switch (product_id)
-        {
-        case 0x5501: // PowerA PS4 Wired
-            return true;
-        }
-    }
     if (vendor_id == 0x0F0D) // Hori
     {
         switch (product_id)
         {
         case 0x0055: // Hori PS4 Mini Wired Gamepad
         case 0x005E: // Hori PS4 Mini Wired Gamepad
-        case 0x00C5: // Hori PS4 Fighting Commander
         case 0x00D9: // Hori PS4 Fighting Stick Mini
         case 0x00EE: // Hori PS4 Fighting Commander
-        case 0x00F6: // Hori PS4 Mini Gamepad
         case 0x00F7: // Hori PS4 Mini Gamepad
             return true;
         }
@@ -173,6 +188,12 @@ static bool gamepad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
         }
     }
     return false;
+}
+
+bool gamepad_is_sony(uint16_t vendor_id, uint16_t product_id)
+{
+    return gamepad_is_sony_ds4(vendor_id, product_id) ||
+           gamepad_is_sony_ds5(vendor_id, product_id);
 }
 
 // The DualShock 4's own report descriptor is not usable, so its report is
@@ -253,8 +274,8 @@ static const gamepad_connection_t gamepad_desc_sony_ds5 = {
     .hat_min = 0,
     .hat_max = 7,
     .button_offsets = {
-        // X, Circle, Unused, Square, Triangle, Unused, L1, R1
-        61, 62, 0xFFFF, 60, 63, 0xFFFF, 64, 65,
+        // Cross, Circle, Edge right paddle, Square, Triangle, Edge left paddle, L1, R1
+        61, 62, 79, 60, 63, 78, 64, 65,
         // L2, R2, Create, Options, PS, L3, R3, Touchpad
         66, 67, 68, 69, 72, 70, 71, 73,
         // Hat buttons computed from HID hat
@@ -285,6 +306,7 @@ static void gamepad_distill(
 
         gamepad_remap_8bitdo_m30(conn, vendor_id, product_id);
         gamepad_remap_playstation_classic(conn, vendor_id, product_id);
+        gamepad_remap_switch_wired(conn, vendor_id, product_id);
     }
 
     if (!conn->valid)
@@ -514,8 +536,7 @@ bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connec
     /* A Sony controller is recognized by its ids alone, because the descriptor
      * it offers is wrong. Anything else has to have been read as a gamepad
      * already. */
-    if (!desc->valid && !gamepad_is_sony_ds4(vendor_id, product_id) &&
-        !gamepad_is_sony_ds5(vendor_id, product_id))
+    if (!desc->valid && !gamepad_is_sony(vendor_id, product_id))
         return false;
 
     gamepad_connection_t *conn = NULL;
