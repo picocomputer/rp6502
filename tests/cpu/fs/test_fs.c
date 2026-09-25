@@ -31,26 +31,6 @@
 
 static char g_dir[256];
 
-/* TEMPORARY CI DIAGNOSTIC */
-#ifdef _WIN32
-#include <windows.h>
-static void diag_cwd(const char *when)
-{
-    wchar_t cur[MAX_PATH], full[MAX_PATH];
-    DWORD c = GetCurrentDirectoryW(MAX_PATH, cur);
-    DWORD f = GetFullPathNameW(L".", MAX_PATH, full, NULL);
-    DWORD n = GetFullPathNameW(L".", 0, NULL, NULL);
-    char raw[512];
-    api_errno err = 0;
-    bool ok = drive_getcwd(raw, sizeof raw, &err);
-    printf("DIAG %s: cur=%lu[%ls] full=%lu[%ls] size=%lu getcwd=%d[%s] err=%d\n", when,
-           (unsigned long)c, cur, (unsigned long)f, full, (unsigned long)n, ok, ok ? raw : "", (int)err);
-}
-#define DIAG_CWD(w) diag_cwd(w)
-#else
-#define DIAG_CWD(w) ((void)0)
-#endif
-
 static bool drive_chdir_to(const char *path)
 {
     api_errno err;
@@ -816,14 +796,12 @@ UTEST(fs, dotdot_at_a_root_stays_there)
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
     char cwd[TEST_PATH_MAX];
-    DIAG_CWD("after chdir root");
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STREQ(cwd, root);
     dsys_path("..");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    DIAG_CWD("after chdir ..");
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STREQ(cwd, root);

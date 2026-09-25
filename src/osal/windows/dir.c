@@ -171,8 +171,10 @@ void win_make_parents(wchar_t *path)
 
 /* A path in full, resolved the way Win32 resolves one: a relative path against
  * the process working directory, and a drive-relative one ("C:") against the
- * directory Win32 remembers for that drive. The sizing call returns zero on
- * failure and otherwise a count that includes the terminating null. */
+ * directory Win32 remembers for that drive. The sizing call should count the
+ * terminating null, but for "." at a drive root it does not, and a buffer of
+ * that size gets "C:" in place of "C:\" with no error, so one more unit is
+ * allotted. */
 wchar_t *win_full_path(const wchar_t *w, api_errno *err)
 {
     DWORD n = GetFullPathNameW(w, 0, NULL, NULL);
@@ -181,6 +183,7 @@ wchar_t *win_full_path(const wchar_t *w, api_errno *err)
         *err = win_last_error_to_api();
         return NULL;
     }
+    n++;
     wchar_t *full = malloc((size_t)n * sizeof *full);
     if (!full)
     {
