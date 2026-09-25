@@ -405,7 +405,8 @@ UTEST(load, a_save_goes_to_rp6502_in_the_frontend_save_folder)
     fe_run(10);
     fe.unload_game();
     fe_save_dir(NULL);
-    ASSERT_STREQ(file_text(saves / "rp6502" / "fe.sav").c_str(), "ok");
+    std::string got = file_text(saves / "rp6502" / "fe.sav");
+    ASSERT_STREQ(got.c_str(), "ok");
 }
 
 UTEST(load, with_no_frontend_save_folder_a_save_goes_to_the_working_directory)
@@ -422,5 +423,6 @@ UTEST(load, with_no_frontend_save_folder_a_save_goes_to_the_working_directory)
     fe_run(10);
     fe.unload_game();
     std::filesystem::current_path(before);
-    ASSERT_STREQ(file_text(here / "fe.sav").c_str(), "ok");
+    std::string got = file_text(here / "fe.sav");
+    ASSERT_STREQ(got.c_str(), "ok");
 }
