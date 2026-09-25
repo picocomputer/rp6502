@@ -1659,6 +1659,7 @@ if __name__ == "__main__":
                 ROMException,
                 FileNotFoundError,
                 TimeoutError,
+                socket.timeout,
                 RuntimeError,
                 ConnectionError,
                 socket.gaierror,
