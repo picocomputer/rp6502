@@ -67,16 +67,10 @@ void wake_task(void)
      * CPU_RESB reads 0 while the engine holds the 6502 in reset. */
     {
         const char *want = proc_staged_path();
-        char bound[128];
-        bool same = false;
-        if (want && *want && fs_getfile(FS_SLOT_ROM, bound, sizeof bound))
-        {
-            const char *at = bound;
-            if (*want != '/'
-                && !strncmp(bound, FS_ASSETS_PATH, sizeof FS_ASSETS_PATH - 1))
-                at += sizeof FS_ASSETS_PATH - 1;
-            same = !strcmp(at, want);
-        }
+        char bound[API_PATH_MAX + 1];
+        bool same = want && *want
+                    && fs_getfile(FS_SLOT_ROM, bound, sizeof bound)
+                    && !strcmp(fs_strip_drive(want), bound);
         if (!same && (!want || !*want))
             RP6502_LOG(rom, ERROR, "no path to stage");
         else if (!same)

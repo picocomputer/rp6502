@@ -56,7 +56,7 @@ def prog():
     return p
 
 
-def drive(emu, rom):
+def drive(emu, rom, save_dir=None):
     def body(e):
         e.cmd("run 10")
         e.cmd("key a+ctrl")
@@ -77,7 +77,7 @@ def drive(emu, rom):
         e.cmd('wait "A"')
         e.cmd(f'type "{TYPED}{END}"')
         e.cmd(f'wait "{TYPED}{END}"')
-    return rp6502_script.drive(emu, rom, body)
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir)
 
 
 def main():
@@ -87,11 +87,12 @@ def main():
                     help="run the ROM on the emulator and type at it")
     ap.add_argument("--emu", help="the rp6502-emu binary")
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
         print(f"tty.rp6502 {image(prog()).write(a.emit)} bytes")
     if a.drive:
-        return drive(a.emu, a.rom)
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

@@ -87,7 +87,7 @@ static bool parse_fill(const char *s, bool *random, uint8_t *value)
 enum
 {
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
-    OPT_INSTALL, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
+    OPT_INSTALL, OPT_SAVE_DIR, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
     OPT_CRC, OPT_HEADLESS, OPT_STDIN,
 };
@@ -102,6 +102,7 @@ static const struct option longopts[] = {
     {"headless",     no_argument,       NULL, OPT_HEADLESS},
     {"stdin",        no_argument,       NULL, OPT_STDIN},
     {"install",      required_argument, NULL, OPT_INSTALL},
+    {"save-dir",     required_argument, NULL, OPT_SAVE_DIR},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
     {"phi2",         required_argument, NULL, OPT_PHI2},
     {"cp",           required_argument, NULL, OPT_CP},
@@ -134,7 +135,10 @@ void cli_usage(FILE *out, const char *argv0)
             "                            there is the console: keys raw, screen drawn on it,\n"
             "                            Ctrl-\\ the way out. Implied by --headless\n"
             "  --install <file>          install a .rp6502 on the null drive, reached\n"
-            "                            as :basename; repeatable, the first one boots\n"
+            "                            as :basename; repeatable, and the first one\n"
+            "                            boots when no ROM is named\n"
+            "  --save-dir <folder>       the folder behind SAVE:, made by the first save\n"
+            "                            (default: this OS's folder for saved data)\n"
             "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
             "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000);\n"
             "                            0 runs unpaced, warping time\n"
@@ -243,6 +247,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             o->installs[o->n_installs++] = optarg;
             break;
         }
+        case OPT_SAVE_DIR: o->save_dir = optarg; break;
         case OPT_BGCOLOR:
             if (!parse_hex_color(optarg, &o->bg_r, &o->bg_g, &o->bg_b))
             {

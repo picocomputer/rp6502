@@ -201,6 +201,12 @@
 /
 /  const char* VolumeStr[FF_VOLUMES] = {"ram","flash","sd","usb",...
 */
+int f_getldnumber (const char* path);	/* RP6502: get_ldnumber for callers, defined after it in ff.c */
+/* RP6502: The current drive is static in ff.c, and resolving a path on
+/  another drive (sys/path.c) or comparing the drives of two names
+/  (osal/pico/dir.c) needs it. f_getldnumber returns the logical drive number
+/  a path names, the current drive's when it names none, or -1 for a drive
+/  that does not exist. Re-apply it on a FatFs upgrade. */
 
 
 #define FF_MULTI_PARTITION	0
@@ -292,7 +298,7 @@ unsigned long long drive_min_gpt (void);	/* RP6502: runtime FF_MIN_GPT hook (mon
 */
 
 
-#define FF_FS_LOCK		8
+#define FF_FS_LOCK		0
 /* The option FF_FS_LOCK switches file lock function to control duplicated file open
 /  and illegal operation to open objects. This option must be 0 when FF_FS_READONLY
 /  is 1.

@@ -58,7 +58,7 @@
 
 /* open() tries these rows in order, and the filesystem row accepts every
  * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */

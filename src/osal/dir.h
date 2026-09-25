@@ -8,9 +8,11 @@
 #define _OSAL_DIR_H_
 
 #include "core/api/api.h"
+#include "core/api/std.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define DIR_MAX_OPEN 8
 
@@ -29,6 +31,15 @@ typedef struct
     char fname[F_NAME_MAX + 1];
 } f_stat_t;
 
+/* The one entry that stat returns for a drive root on every machine: a
+ * directory named "/" with no size and no dates. */
+static inline void f_stat_root(f_stat_t *info)
+{
+    memset(info, 0, sizeof *info);
+    info->fattrib = 0x10;
+    info->fname[0] = '/';
+}
+
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err);
 bool drive_unlink(const char *path, api_errno *err);
 bool drive_rename(const char *oldname, const char *newname, api_errno *err);
@@ -37,7 +48,13 @@ bool drive_chdir(const char *path, api_errno *err);
 bool drive_chdrive(const char *drive, api_errno *err);
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err);
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err);
-bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect, api_errno *err);
+
+/* Counts in 512 byte sectors. STD_PENDING means the counts are not ready yet,
+ * and core/api/dir.c dispatches the op again with the same path, so a call
+ * made while a query is in flight polls that query rather than starting
+ * another. */
+std_rw_result drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect, api_errno *err);
+
 bool drive_getcwd(char *buf, size_t size, api_errno *err);
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err);
 bool drive_setlabel(const char *path, api_errno *err);

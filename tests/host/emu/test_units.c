@@ -425,6 +425,21 @@ UTEST(cli, no_separator_no_rom_args)
     ASSERT_STREQ(o.rom, "rom.rp6502");
 }
 
+UTEST(cli, save_dir_names_the_folder_behind_save)
+{
+    cli_options o;
+    cli_options_init(&o);
+    char *plain[] = {"emu", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(2, plain, &o), 0);
+    ASSERT_TRUE(o.save_dir == NULL);
+
+    cli_options_init(&o);
+    char *argv[] = {"emu", "--save-dir", "saves", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(4, argv, &o), 0);
+    ASSERT_STREQ(o.save_dir, "saves");
+    ASSERT_STREQ(o.rom, "rom.rp6502");
+}
+
 UTEST(cli, batch_headless_and_unpaced)
 {
     cli_options o;

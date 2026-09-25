@@ -11,28 +11,12 @@
 #include "core/hid/vtkeys.h"
 #include "core/sys/sst.h"
 #include "osal/fs.h"
-#include "osal/dir.h"
+#include "osal/os.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 static bool state_threaded_audio;
-
-static char state_slot_path[1024];
-
-void state_slot_init(const char *rom)
-{
-    if (!rom || !*rom)
-        return;
-    char *abs = os_dir_realpath(rom);
-    snprintf(state_slot_path, sizeof state_slot_path, "%s.sst", abs ? abs : rom);
-    free(abs);
-}
-
-const char *state_slot(void)
-{
-    return state_slot_path[0] ? state_slot_path : NULL;
-}
 
 void state_audio_is_threaded(bool on) { state_threaded_audio = on; }
 
@@ -76,7 +60,7 @@ bool state_save_file(const char *path, const char **why)
         *why = bad;
         return false;
     }
-    FILE *f = fopen(path, "wb");
+    FILE *f = os_fopen(path, "wb");
     if (!f)
     {
         free(buf);
@@ -97,7 +81,7 @@ bool state_save_file(const char *path, const char **why)
 
 bool state_load_file(const char *path, const char **why)
 {
-    FILE *f = fopen(path, "rb");
+    FILE *f = os_fopen(path, "rb");
     if (!f)
     {
         *why = "cannot open the file to read";
@@ -138,7 +122,7 @@ bool state_load_file(const char *path, const char **why)
     vtkeys_paste_cancel();
     state_park();
     fs_std_settle();
-    const char *bad = sst_load(buf, (size_t)len, 0, NULL);
+    const char *bad = sst_load(buf, (size_t)len, 0);
     state_unpark();
     free(buf);
     if (bad)

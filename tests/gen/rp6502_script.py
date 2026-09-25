@@ -91,7 +91,9 @@ class Emu:
         return False
 
 
-def drive(emu, rom, body, args=(), env=None):
+def drive(emu, rom, body, args=(), env=None, save_dir=None):
+    if save_dir:
+        args = ("--save-dir", str(save_dir), *args)
     e = Emu(emu, rom, args, env=env)
     try:
         with e:

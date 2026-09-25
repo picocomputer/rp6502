@@ -13,6 +13,7 @@
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
+#include "osal/fs.h"
 #include "machine.h"
 #include "drivers.h"
 
@@ -83,13 +84,32 @@ static void std_rln_callback(bool timeout, const char *buf)
 #define STD_BUF_XSTACK 1
 #define STD_BUF_XRAM 2
 
+/* Under SST_SHARED a file that fs_std_open opened is left out, because its
+ * host path names nothing on another machine, and the load closes it. A
+ * SAVE: file stays, because its name is the same on every machine. */
+static bool std_left_out(const std_fd_t *f, unsigned flags)
+{
+    size_t count;
+    return (flags & SST_SHARED) && f >= &std_fd_pool[STD_FD_FIRST_FREE] &&
+           std_drivers(&count)[f->driver].open == fs_std_open;
+}
+
+/* A close that returns STD_PENDING is waited out, because nothing dispatches
+ * it again. */
+static void std_close_now(std_fd_t *f)
+{
+    api_errno ignored;
+    while (f->close(f->desc, &ignored) == STD_PENDING)
+        ;
+    f->is_open = false;
+}
+
 void std_sst_save(sst_cursor_t *c, unsigned flags)
 {
-    (void)flags;
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         std_fd_t *f = &std_fd_pool[fd];
-        bool carried = f->is_open && fd >= STD_FD_FIRST_FREE;
+        bool carried = f->is_open && fd >= STD_FD_FIRST_FREE && !std_left_out(f, flags);
         sst_put_bool(c, carried);
         if (!carried)
             continue;
@@ -122,7 +142,10 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
             at = (uint16_t)(std_buf - (char *)xram);
         }
     }
-    sst_put_u8(c, std_fd_active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
+    /* A transfer on a file left out goes with it, so the call waiting on it
+     * is dispatched again after the load and fails. */
+    bool active = std_fd_active && !std_left_out(std_fd_active, flags);
+    sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
     sst_put_u8(c, kind);
     sst_put_u16(c, at);
     sst_put_u16(c, std_size);
@@ -147,13 +170,8 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
      * their places, because otherwise the host's own file handles leak. The
      * console rows below STD_FD_FIRST_FREE are opened by std_init and stay. */
     for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
-        if (std_fd_pool[fd].is_open && std_fd_pool[fd].close)
-        {
-            api_errno ignored;
-            while (std_fd_pool[fd].close(std_fd_pool[fd].desc, &ignored) == STD_PENDING)
-                ;
-            std_fd_pool[fd].is_open = false;
-        }
+        if (std_fd_pool[fd].is_open)
+            std_close_now(&std_fd_pool[fd]);
 
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
@@ -322,6 +340,8 @@ bool std_api_open(void)
 {
     char *path = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
+    if (strlen(path) > API_PATH_MAX || !(API_A & (FS_RD | FS_WR)))
+        return api_return_errno(API_EINVAL);
     if (strcasecmp(path, STR_TTY_COLON) == 0)
         return api_return_ax(STD_FD_TTY);
     if (strcasecmp(path, STR_CON_COLON) == 0)
@@ -662,11 +682,6 @@ void std_stop(void)
     std_stdin_closed = false;
     std_asked_console = false;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
-    {
-        if (!std_fd_pool[i].is_open)
-            continue;
-        api_errno err;
-        std_fd_pool[i].close(std_fd_pool[i].desc, &err);
-        std_fd_pool[i].is_open = false;
-    }
+        if (std_fd_pool[i].is_open)
+            std_close_now(&std_fd_pool[i]);
 }

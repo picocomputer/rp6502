@@ -55,18 +55,27 @@ void rom_pump_close(rom_pump_t *p);
 
 /* An installed ":name" and the host file behind it (alias.c).
  *
- * insert copies the path it is given. resolve borrows: the answer is the
- * install's own string, or the path itself where nothing claims it. */
-bool rom_alias_insert(const char *hostpath);
-bool rom_alias_insert_as(const char *hostpath, const char *name);
+ * host is a host path (osal/fs.h), and the install keeps its absolute form.
+ * name is in the code page, without the ":", and rom_alias_insert takes it
+ * from the last part of host. An install replaces an earlier one of the same
+ * name. Each insert returns the name it went in under, which is the install's
+ * own string, or NULL when it fails.
+ *
+ * rom_alias_resolve borrows the absolute host path of the install that path
+ * names, and returns NULL when path is not an installed ":name".
+ * rom_alias_open opens a ROM image for reading by any name a load takes: the
+ * host path of an install, or else path itself through fs_rom_open. */
+const char *rom_alias_insert(const char *host);
+const char *rom_alias_insert_as(const char *host, const char *name);
 bool rom_alias_remove(const char *name);
 const char *rom_alias_resolve(const char *path);
+int rom_alias_open(const char *path, api_errno *err);
 
-/* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path,
- * or an installed ":name", which rom_load resolves. The named assets are not
- * read: only the start of the asset directory is kept, so a ROM: open scans the
- * file for the entry on demand. Returns false, after saying why on the console,
- * on any format or CRC error. */
+/* Load a .rp6502 into ram[]/xram[]. The path may be a drive path or an
+ * installed ":name", which rom_load resolves. The named assets are not read:
+ * only the start of the asset directory is kept, so a ROM: open scans the file
+ * for the entry on demand. Returns false, after saying why on the console, on
+ * any format or CRC error. */
 bool rom_load(const char *path);
 
 /* The loader hands its descriptor and asset-directory offset to the ROM: drive,

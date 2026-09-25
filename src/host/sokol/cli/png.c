@@ -7,6 +7,7 @@
 
 #include "host/sokol/cli/png.h"
 #include "host/host.h"
+#include "osal/os.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +52,7 @@ static uint32_t adler32(const uint8_t *data, size_t len)
 
 bool png_write(const char *path, int w, int h, const uint32_t *rgba)
 {
-    FILE *f = fopen(path, "wb");
+    FILE *f = os_fopen(path, "wb");
     if (!f)
     {
         fprintf(stderr, "rp6502-emu: cannot write PNG '%s'\n", path);

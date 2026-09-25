@@ -39,27 +39,24 @@ const char *path_abs(const char *path)
     }
     else
     {
-        if (f_getcwd(path_buf, sizeof(path_buf)) != FR_OK)
-            return NULL;
+        FRESULT fr;
         if (colon)
         {
             // f_getcwd reads only the current drive, so the target drive is
-            // made current for the call and the saved drive is restored
+            // made current for the call and the current drive is restored
             // afterward.
-            const char *save_colon = strchr(path_buf, ':');
-            if (!save_colon)
-                return NULL;
-            char save[6];
-            size_t save_len = (size_t)(save_colon + 1 - path_buf);
-            memcpy(save, path_buf, save_len);
-            save[save_len] = '\0';
-            if (f_chdrive(path) != FR_OK)
-                return NULL;
-            FRESULT fr = f_getcwd(path_buf, sizeof(path_buf));
-            f_chdrive(save);
-            if (fr != FR_OK)
-                return NULL;
+            const char current[] = {(char)('0' + f_getldnumber("")), ':', '\0'};
+            fr = f_chdrive(path);
+            if (fr == FR_OK)
+            {
+                fr = f_getcwd(path_buf, sizeof(path_buf));
+                f_chdrive(current);
+            }
         }
+        else
+            fr = f_getcwd(path_buf, sizeof(path_buf));
+        if (fr != FR_OK)
+            return NULL;
         const char *buf_colon = strchr(path_buf, ':');
         if (!buf_colon)
             return NULL;

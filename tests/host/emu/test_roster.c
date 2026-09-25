@@ -186,7 +186,7 @@ UTEST(roster, both_savestate_walks_go_forward)
     ASSERT_STREQ("aScS", walked);
 
     walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, 0, NULL), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sizeof blob, 0), (const char *)NULL);
     /* An untrusted load first saves the machine into a scratch copy, so every
      * row's save runs before its load. */
     ASSERT_STREQ("aScSaLcL", walked);
@@ -237,7 +237,7 @@ UTEST(roster, a_row_that_refuses_puts_the_machine_back)
     a_held = 0x33;
     c_held = 0x44;
     c_refuses = true;
-    ASSERT_NE(sst_load(blob, sizeof blob, 0, NULL), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sizeof blob, 0), (const char *)NULL);
     ASSERT_EQ((int)a_held, 0x33);
     ASSERT_EQ((int)c_held, 0x44);
     c_refuses = false;
@@ -258,6 +258,6 @@ UTEST(roster, a_trusted_load_takes_no_scratch)
     a_committed_machine();
     ASSERT_EQ(sst_save(blob, sizeof blob, SST_TRUSTED), (const char *)NULL);
     walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, SST_TRUSTED, NULL), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sizeof blob, SST_TRUSTED), (const char *)NULL);
     ASSERT_STREQ("aLcL", walked);
 }

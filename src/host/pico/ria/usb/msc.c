@@ -76,7 +76,7 @@ static_assert(FF_SFN_BUF == 12);
 static_assert(FF_FS_RPATH == 2);
 static_assert(FF_MULTI_PARTITION == 0);
 static_assert(FF_USE_MKFS == 1);
-static_assert(FF_FS_LOCK == 8);
+static_assert(FF_FS_LOCK == 0);
 static_assert(FF_FS_NORTC == 0);
 static_assert(FF_USE_TRIM == 1);
 static_assert(FF_VOLUMES == 10);

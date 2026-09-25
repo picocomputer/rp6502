@@ -22,14 +22,13 @@
 #include "core/sys/random.h"
 #include "host/host.h"
 #include "core/rom/rom.h"
-#include "core/str/path.h"
+#include "osal/fs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/wdc/phi2.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli/cli.h"
 #include "host/sokol/cli/script.h"
-#include "host/sokol/cli/state.h"
 #include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
 #include "host/sokol/cli/credits.h"
@@ -91,23 +90,43 @@ uint32_t host_seed(void)
     return run_seed;
 }
 
-/* argv in the guest's code page, allocated to fit: os_argv_to_oem only ever
- * contracts, so the argument's own length is the bound. The caller frees. */
-static char *argv_to_oem(const char *arg)
+static const char *save_dir;
+
+const char *host_save_dir(void)
 {
-    size_t sz = strlen(arg) + 1;
-    char *oem = malloc(sz);
-    if (oem && !os_argv_to_oem(arg, oem, sz))
-    {
-        free(oem);
-        oem = NULL;
-    }
-    return oem;
+    return save_dir;
+}
+
+/* A relative --save-dir names a folder in the directory the emulator started
+ * in. It is made absolute here because a program's CHDIR moves the process. */
+static const char *save_dir_from(const char *dir)
+{
+#ifdef _WIN32
+    bool absolute = dir[0] == '/' || dir[0] == '\\' || (dir[0] && dir[1] == ':');
+#else
+    bool absolute = dir[0] == '/';
+#endif
+    if (absolute)
+        return dir;
+    char *cwd = fs_host_realpath(".");
+    char *joined = cwd ? malloc(strlen(cwd) + strlen(dir) + 2) : NULL;
+    if (joined)
+        sprintf(joined, "%s/%s", cwd, dir);
+    free(cwd);
+    return joined;
 }
 
 int main(int argc, char **argv)
 {
     os_console_attach();
+#ifdef _WIN32
+    argv = entry_argv_utf8(&argc);
+    if (!argv)
+    {
+        fprintf(stderr, "rp6502-emu: cannot read the command line\n");
+        return 1;
+    }
+#endif
     app_set_break(os_console_break_asked, os_console_break_exit);
     cli_options o;
     cli_options_init(&o);
@@ -145,8 +164,6 @@ int main(int argc, char **argv)
         return 1;
     }
 #endif
-
-    state_slot_init(o.rom);
 
     if (o.have_frames && !o.screenshot && !o.crc)
     {
@@ -200,19 +217,28 @@ int main(int argc, char **argv)
             com_set_tx_tap(streams_stderr);
     }
 
-    /* Install ROMs before the boot load, or an exec, can resolve them. A path
-     * or an argument the guest will see converts from the host's argv encoding
-     * to OEM here; a path only the host opens stays as it came. */
+    save_dir = o.save_dir ? save_dir_from(o.save_dir) : os_save_dir();
+    if (o.save_dir && !save_dir)
+    {
+        fprintf(stderr, "rp6502-emu: cannot take the save folder '%s'\n", o.save_dir);
+        return 1;
+    }
+
+    /* Install ROMs before the boot load, or an exec, can resolve them. An
+     * install takes its host path as it came, in UTF-8, and an argument the
+     * guest will see converts to OEM. The first install's name is copied at
+     * once, because a later install of the same name replaces it. */
+    char first_install[API_PATH_MAX + 1] = "";
     for (int i = 0; i < o.n_installs; i++)
     {
-        char *oem = argv_to_oem(o.installs[i]);
-        bool ok = oem && rom_alias_insert(oem);
-        free(oem);
-        if (!ok)
+        const char *name = rom_alias_insert(o.installs[i]);
+        if (!name)
         {
             fprintf(stderr, "rp6502-emu: cannot install '%s'\n", o.installs[i]);
             return 1;
         }
+        if (i == 0)
+            snprintf(first_install, sizeof first_install, ":%s", name);
     }
 
     static char args_store[2048];
@@ -227,7 +253,8 @@ int main(int argc, char **argv)
         }
         for (int i = 0; i < o.n_rom_args; i++)
         {
-            if (!os_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
+            size_t room = sizeof args_store - used;
+            if (oem_from_utf8(o.rom_args[i], args_store + used, room) >= room)
             {
                 fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
                 return 1;
@@ -269,22 +296,13 @@ int main(int argc, char **argv)
 
     char *rom = NULL; /* owned; NULL means none was named */
     if (o.rom)
-        rom = argv_to_oem(o.rom);
+        rom = app_rom_path(o.rom);
     else if (o.n_installs > 0)
-    {
-        char *inst = argv_to_oem(o.installs[0]);
-        if (inst)
-        {
-            const char *base = path_basename(inst);
-            rom = malloc(strlen(base) + 2); /* the ':' and the null */
-            if (rom)
-                sprintf(rom, ":%s", base);
-        }
-        free(inst);
-    }
+        rom = strdup(first_install);
     if ((o.rom || o.n_installs > 0) && !rom)
     {
-        fprintf(stderr, "rp6502-emu: cannot take the ROM path\n");
+        fprintf(stderr, "rp6502-emu: cannot load ROM '%s'\n",
+                o.rom ? o.rom : o.installs[0]);
         return 1;
     }
 

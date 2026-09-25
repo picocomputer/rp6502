@@ -38,10 +38,10 @@ script:
     bg        Letterbox/pillarbox fill color, six hex digits, no "#".
     filter    Pixel scaling: nearest (blocky), linear (smooth), or
               sharp.
-    db        Browser save database name. See "Saves and browser
-              storage" below.
-    persist   false (default) don't save db; true keeps /db/
-              forever.
+    db        Browser save database name. Blank means the file name
+              in rom. See "Saves and browser storage" below.
+    persist   false (default) keeps saves until the player leaves
+              the page; true keeps them in the player's browser.
 
 
 Updating the emulator
@@ -65,14 +65,38 @@ itch.io embed settings
 Saves and browser storage
 -------------------------
 
-With persist: true, anything your program writes to /db/ lands in
-an IndexedDB database in the player's browser. This allows players to
-save games or high scores.
+A program saves by opening a file on the SAVE: device, such as
+SAVE:hopper.hiscore. In the browser those files are in /saves/, and
+they are the only files that can outlast the page. The ROM is written
+to /roms/ in memory, and a file written anywhere else, such as the
+working directory, is lost when the player leaves.
 
-Database name. CONFIG.db, defaults to ROM filename when blank.
+With persist: true, /saves/ is mirrored to an IndexedDB database in
+the player's browser. This allows players to save games or high
+scores. A close after a write queues the save to IndexedDB, and a
+syncfs from the program returns once IndexedDB has stored it. The page
+also requests persistent storage, so a browser that grants it does not
+clear the saves to free space.
 
-Off by default. Without persist: true, saves last only until the player
-leaves or reloads the page - nothing touches IndexedDB at all.
+Off by default. Without persist: true, /saves/ is plain memory and
+saves last only until the player leaves or reloads the page.
+IndexedDB is not used at all.
+
+Database name. CONFIG.db names the database. When it is blank, the
+name is the file name in CONFIG.rom, without any folder or query
+string. In either case each character other than A-Z, a-z, 0-9, ".",
+"-" and "_" becomes "_". Earlier versions of this page named the
+database after the whole rom setting, so a page whose rom setting has
+a folder or a query string opens a new, empty database after an
+upgrade. Set db to the old name, such as games_hopper.rp6502 for
+games/hopper.rp6502, to keep those saves. Saves stored from the /db/
+folder of an earlier version load into /saves/ under the same names.
+
+One window at a time. With persist: true, a database is used by one
+window at a time, because each window loads a separate copy and writes
+that copy back. A second window with the same db shows "This game is
+running in another window" and starts when the first window closes.
+Games with different db names run side by side.
 
 Who can see it. itch.io serves every HTML game from one shared origin
 (html-classic.itch.zone), and IndexedDB is per-origin, so the database
@@ -82,9 +106,10 @@ unrelated games that both ship game.rp6502 will collide. A unique db
 (say, yourname-yourgame) avoids that.
 
 Sharing on purpose. Give several of your pages the same db and their
-games share one filesystem. This works *because* of the shared origin;
-if itch.io ever isolates games onto their own origins, cross-page
-sharing stops and existing saves effectively reset.
+games share one set of saves. This suits the episodes of one game,
+since only one episode runs at a time. It works *because* of the
+shared origin; if itch.io ever moves games onto separate origins,
+cross-page sharing stops and existing saves effectively reset.
 
 
 Please tag it RP6502

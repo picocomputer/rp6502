@@ -11,10 +11,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
+#include <shellapi.h> /* ShellExecuteA, CommandLineToArgvW (WIN32_LEAN_AND_MEAN omits them) */
 
-#include "core/str/oem.h"
-#include "core/sys/debug_log.h"
+#include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
@@ -22,7 +21,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <wchar.h>
 
 void host_window_resize(int w, int h)
 {
@@ -65,73 +63,37 @@ void host_window_menu_draw(void)
         prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
-static bool wide_is_oem_lossless(const WCHAR *w)
-{
-    /* oem_from_wide writes at most one byte per UTF-16 unit and oem_to_wide
-     * one unit per byte, so one length serves both buffers. */
-    size_t n = wcslen(w) + 1;
-    char *oem = malloc(n);
-    uint16_t *back = malloc(n * sizeof *back);
-    bool same = false;
-    if (oem && back)
-    {
-        oem_from_wide((const uint16_t *)w, oem, n);
-        oem_to_wide(oem, back, (int)n);
-        same = wcscmp(w, (const WCHAR *)back) == 0;
-    }
-    free(oem), free(back);
-    return same;
-}
-
 void host_window_files_dropped(void)
 {
-    /* sokol delivers the path as UTF-8 and app_boot_rom converts it to the
-     * guest's OEM code page, so a path with characters that code page cannot
-     * hold falls back to its 8.3 short name. */
-    const char *utf8 = sapp_get_dropped_file_path(0);
-    int wn = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
-    WCHAR *wide = wn > 0 ? malloc((size_t)wn * sizeof *wide) : NULL;
-    if (!wide || !MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wn))
-    {
-        free(wide);
-        RP6502_LOG(emu, ERROR, "cannot take the dropped path");
-        return;
-    }
-    if (wide_is_oem_lossless(wide))
-    {
-        free(wide);
-        if (app_boot_rom(utf8))
-            waiting_for_rom = false;
-        return;
-    }
-    /* A short name can be longer than the long name it came from, so it is
-     * measured on its own. GetShortPathNameW returns the size it needs when
-     * the buffer is too small, rather than failing. */
-    DWORD sn = GetShortPathNameW(wide, NULL, 0);
-    WCHAR *shortw = sn ? malloc((size_t)sn * sizeof *shortw) : NULL;
-    DWORD got = shortw ? GetShortPathNameW(wide, shortw, sn) : 0;
-    free(wide);
-    char *shortu8 = NULL;
-    if (got && got < sn && wide_is_oem_lossless(shortw))
-    {
-        int un = WideCharToMultiByte(CP_UTF8, 0, shortw, -1, NULL, 0, NULL, NULL);
-        shortu8 = un > 0 ? malloc((size_t)un) : NULL;
-        if (shortu8 && !WideCharToMultiByte(CP_UTF8, 0, shortw, -1, shortu8, un, NULL, NULL))
-        {
-            free(shortu8);
-            shortu8 = NULL;
-        }
-    }
-    free(shortw);
-    if (!shortu8)
-    {
-        RP6502_LOG(emu, ERROR, "dropped path not representable in the OEM code page");
-        return;
-    }
-    bool booted = app_boot_rom(shortu8);
-    free(shortu8);
-    if (booted)
+    if (app_boot_rom(sapp_get_dropped_file_path(0)))
         waiting_for_rom = false;
+}
+
+char **entry_argv_utf8(int *argc)
+{
+    int n;
+    WCHAR **wide = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!wide)
+        return NULL;
+    /* One block: the pointer table, then the strings it points at. */
+    size_t size = ((size_t)n + 1) * sizeof(char *);
+    for (int i = 0; i < n; i++)
+        size += (size_t)WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, NULL, 0, NULL, NULL);
+    char **argv = malloc(size);
+    if (argv)
+    {
+        char *at = (char *)(argv + n + 1);
+        char *end = (char *)argv + size;
+        for (int i = 0; i < n; i++)
+        {
+            argv[i] = at;
+            at += WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, at, (int)(end - at), NULL, NULL);
+        }
+        argv[n] = NULL;
+        *argc = n;
+    }
+    LocalFree(wide);
+    return argv;
 }
 
 void host_window_open_url(const char *url)

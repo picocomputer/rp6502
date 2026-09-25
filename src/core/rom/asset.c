@@ -89,7 +89,7 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags)
     if (!running || !running[0])
         return false;
     api_errno err;
-    int fd = fs_rom_open(rom_alias_resolve(running), FS_RD, &err);
+    int fd = rom_alias_open(running, &err);
     if (fd < 0)
         return false;
     rom_fd = fd;
@@ -245,9 +245,9 @@ static window_t *window_get(int desc)
 
 static bool path_is_rom(const char *path, const char **rest)
 {
-    if (strncasecmp(path, "ROM:", 4) == 0)
+    if (strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) == 0)
     {
-        *rest = path + 4;
+        *rest = path + STR_ROM_COLON_LEN;
         return true;
     }
     return false;

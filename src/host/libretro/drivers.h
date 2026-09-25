@@ -57,7 +57,7 @@
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 /* No host attaches a serial port to this machine, so the only bytes that ever
  * reach the UART source are the terminal's replies to a program's queries,

@@ -33,7 +33,7 @@
   <script>
     /* =====================================================================
      *  DEPLOY CONFIG — edit this block, then re-zip the folder and upload.
-     *  Nothing else in this file needs changing. See README.md for steps.
+     *  Nothing else in this file needs changing. See README.txt for steps.
      * ===================================================================== */
     var CONFIG = {
       rom:    'adventure.rp6502',          // your program, sitting next to this file
@@ -70,7 +70,7 @@
 
       // ?credits dumps every bundled component's license notice (the emulator's
       // built-in --credits). There is no on-page link — it's the attribution
-      // path for anyone who redistributes the emulator. See README.md.
+      // path for anyone who redistributes the emulator. See README.txt.
       if (new URLSearchParams(location.search).has('credits')) {
         var lines = [];
         window.Module = {
@@ -96,11 +96,12 @@
       function sanitize(s) { return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'default'; }
 
       var base = baseName(CONFIG.rom);
-      var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
+      var dbname = sanitize(String(CONFIG.db || '') || base);
       var persist = CONFIG.persist === true;
-      var args = ['--install', '/' + base];
+      var args = ['--save-dir', '/saves'];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
+      args.push('/roms/' + base);
 
       // Failures must land on the page, not just the DevTools console: keep a
       // tail of stderr, and surface any uncaught error/rejection (a crashed
@@ -133,30 +134,35 @@
         }],
         preRun: [function () {
           var M = Module;
-          // /db is made the cwd, so program writes land there. With
-          // persist it's IDBFS, mirrored to an IndexedDB database named by
-          // CONFIG.db — IDBFS names databases after the mountpoint, so wrap
-          // getDB to substitute ours. Without persist it's plain memory and
-          // saves vanish when the player leaves.
-          try { M.FS.mkdirTree('/db'); } catch (e) {}
+          // The ROM is kept in memory at /roms, and SAVE: opens files in
+          // /saves. With persist, /saves is IDBFS, mirrored to an IndexedDB
+          // database named by CONFIG.db. Without it, /saves is plain memory
+          // and saves vanish when the player leaves.
+          M.FS.mkdir('/roms');
+          M.FS.mount(M.MEMFS, {}, '/roms');
+          M.FS.mkdir('/saves');
           if (persist) {
             var I = M.IDBFS;
+            // IDBFS names a database after its mountpoint, so the mountpoint
+            // is swapped for dbname here.
             var getDB = I.getDB;
             I.getDB = function (name, cb) {
-              return getDB(name === '/db' ? dbname : name, cb);
+              return getDB(name === '/saves' ? dbname : name, cb);
             };
-            // Store keys mount-relative ('save.dat', not '/db/save.dat') so
-            // the database doesn't bake in the mountpoint. IDBFS uses one
-            // string as both VFS path and database key, so translate on the
-            // remote side only: prepend on the way out, strip on the way in.
-            var strip = function (p) { return p.slice('/db/'.length); };
+            // Keys are stored mount-relative ('save.dat', not '/saves/save.dat'),
+            // so a database holds no mountpoint and saves made under the earlier
+            // /db mountpoint still load. IDBFS uses one string as both VFS path
+            // and database key, so the path is translated on the remote side
+            // only: the mountpoint is prepended on the way out and stripped on
+            // the way in.
+            var strip = function (p) { return p.slice('/saves/'.length); };
             var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
             var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
             I.getRemoteSet = function (mount, cb) {
               grs(mount, function (err, remote) {
                 if (remote && remote.entries) {
                   var entries = {};
-                  for (var k in remote.entries) entries['/db/' + k] = remote.entries[k];
+                  for (var k in remote.entries) entries['/saves/' + k] = remote.entries[k];
                   remote.entries = entries;
                 }
                 cb(err, remote);
@@ -165,24 +171,45 @@
             I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
             I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
             I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
-            // autoPersist: IDBFS hooks close, unlink, rename, mkdir and rmdir and
-            // queues a syncfs itself, batching a frame's writes into one
-            // transaction and re-running when one lands mid-flight. A plain
-            // fsync() cannot do it -- emscripten only routes fd_sync to syncfs
-            // under ASYNCIFY or PTHREADS, and this build has neither.
-            M.FS.mount(M.IDBFS, {autoPersist: true}, '/db');
+            // autoPersist drops the error of each sync it starts, so every
+            // IDBFS sync logs its failure here.
+            var syncfs = I.syncfs;
+            I.syncfs = function (mount, populate, cb) {
+              syncfs(mount, populate, function (err) {
+                if (err) console.error('IDBFS:', err);
+                cb(err);
+              });
+            };
+            // autoPersist queues a sync after a close that wrote and after a
+            // create, unlink, rename or rmdir, batching a frame's changes into
+            // one transaction. A syncfs from the program returns once
+            // FS.syncfs has finished.
+            var ops = M.FS.mount(I, {autoPersist: true}, '/saves').node_ops;
+            // A sync stores only entries whose mtime moved, and MEMFS moves it
+            // only on a write, so a truncate or a chmod would never be stored.
+            // Marking the node modified lets the close after an O_TRUNC queue
+            // the sync as a write would.
+            var setattr = ops.setattr;
+            ops.setattr = function (node, attr) {
+              var changed = (attr.size !== undefined && attr.size !== node.usedBytes) ||
+                            (attr.mode !== undefined && attr.mode !== node.mode);
+              setattr(node, attr);
+              if (changed) {
+                node.mtime = Date.now();
+                node.isModified = true;
+              }
+            };
             M.addRunDependency('idbfs');
             M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
+          } else {
+            M.FS.mount(M.MEMFS, {}, '/saves');
           }
-          M.FS.chdir('/db');
-          // Fetch the program into MEMFS (never written back to IndexedDB, so
-          // storage only holds saves).
           M.addRunDependency('rom');
           fetch(CONFIG.rom).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.arrayBuffer();
           }).then(function (buf) {
-            M.FS.writeFile('/' + base, new Uint8Array(buf));
+            M.FS.writeFile('/roms/' + base, new Uint8Array(buf));
           }).catch(function (e) {
             fail('Could not load ' + CONFIG.rom + ' (' + e.message + ').');
           }).finally(function () { M.removeRunDependency('rom'); });
@@ -282,7 +309,30 @@
         watch = setInterval(check, 250);
       }
 
-      load();
+      // Each window loads a separate copy of the database, and a sync makes
+      // the database match that copy, so two windows on one database would
+      // undo each other's saves. The lock is held until the window closes.
+      function boot() {
+        msg.style.display = 'none';
+        load();
+        return new Promise(function () {});
+      }
+      if (persist && navigator.storage) navigator.storage.persist().catch(console.error);
+      if (persist && navigator.locks) {
+        navigator.locks.request(dbname, {ifAvailable: true}, function (lock) {
+          if (lock) return boot();
+          msg.textContent = 'This game is running in another window';
+          msg.style.display = 'grid';
+          return navigator.locks.request(dbname, boot);
+        }).catch(function (e) {
+          // Where the browser blocks storage, the lock request fails too,
+          // and the game runs with its saves in memory only.
+          console.error(e);
+          boot();
+        });
+      } else {
+        load();
+      }
     })();
   </script>
 </body>

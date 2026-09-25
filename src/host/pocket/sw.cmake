@@ -32,6 +32,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/core/sys/pix.c
+        ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c
         ${RP6502_SRC}/core/rom/pump.c
         ${RP6502_SRC}/core/api/xreg0.c
@@ -42,10 +43,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/arg.c
         ${RP6502_SRC}/core/api/attr.c
         ${RP6502_SRC}/core/api/proc.c
+        ${RP6502_SRC}/core/api/save.c
         ${RP6502_SRC}/core/api/clk.c
         ${RP6502_SRC}/core/api/std.c
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c
+        ${RP6502_SRC}/core/str/path.c
         ${RP6502_SRC}/core/str/unicode.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c

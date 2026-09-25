@@ -38,25 +38,25 @@ bool proc_exec_inflight(void)
 
 void proc_nfc(const uint8_t *tag_data, size_t len)
 {
+    char text[256];
     char path[256];
     RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
 
-    if (!nfc_parse_text(tag_data, len, path, sizeof(path)))
+    if (!nfc_parse_text(tag_data, len, text, sizeof(text)))
         goto fail;
-    RP6502_LOG(proc, DEBUG, "nfc text %s", path);
+    RP6502_LOG(proc, DEBUG, "nfc text %s", text);
 
-    const char *args = path;
+    const char *args = text;
     const char *first_arg = str_parse_string(&args);
     if (!first_arg)
         goto fail;
+
     if (*first_arg == ':')
     {
-        rom_load_argv(first_arg, args);
-        return;
+        if (!rom_installed(first_arg + 1, path))
+            goto fail;
     }
-
-    bool has_drive = (strchr(first_arg, ':') != NULL);
-    if (has_drive)
+    else if (strchr(first_arg, ':'))
     {
         // NFC paths ignore the CWD: imply the leading '/' after the drive.
         const char *colon = strchr(first_arg, ':');
@@ -141,9 +141,6 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
             putchar(c);
     }
     putchar('"');
-    nfc_parse_text(tag_data, len, path, sizeof(path));
-    args = path;
-    str_parse_string(&args);
     if (*args)
     {
         putchar(' ');
@@ -154,7 +151,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         }
     }
     putchar('\n');
-    rom_mon_load(path);
+    rom_load_argv(path, args);
     return;
 
 already_running:

@@ -170,10 +170,10 @@ def image(letter):
     return rom
 
 
-def drive(emu, rom):
+def drive(emu, rom, save_dir=None):
     def body(e):
         e.cmd('wait "reading ROM:song"')
-    return rp6502_script.drive(emu, rom, body)
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir)
 
 
 def main():
@@ -184,12 +184,13 @@ def main():
                     help="run the ROM on the emulator and check what it says")
     ap.add_argument("--emu", help="the rp6502-emu binary")
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     letter = a.variant.upper()[:1]
     if a.emit:
         print(f"sleepasset-{letter.lower()}.rp6502 {image(letter).write(a.emit)} bytes")
     if a.drive:
-        return drive(a.emu, a.rom)
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

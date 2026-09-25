@@ -3287,6 +3287,11 @@ static int get_ldnumber (	/* Returns logical drive number (-1:invalid drive numb
 #endif
 }
 
+int f_getldnumber (const TCHAR* path)	/* RP6502: get_ldnumber for callers (ffconf.h) */
+{
+	return get_ldnumber(&path);
+}
+
 
 
 

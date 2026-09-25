@@ -303,7 +303,7 @@ bool oem_maps_wide(const uint16_t *w)
 bool oem_maps_oem(const char *s)
 {
     for (const unsigned char *p = (const unsigned char *)s; *p; p++)
-        if (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run))
+        if (*p == OEM_NO_SPELLING || (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run)))
             return false;
     return true;
 }

@@ -17,12 +17,15 @@
 #include <stdint.h>
 
 /* Stand a program up: put the outgoing one away, load the image over the RAM
- * it was running out of, seed its argv, and ask for the machine back.
+ * it was running out of, seed its argv, fix the SAVE: folder, and ask for the
+ * machine back.
  *
- * argc < 0 leaves argv alone, which is what an exec wants, the outgoing
- * program having written it on its way out. Returns false with the machine
- * left stopped: rom_load deposits records into live RAM as it reads them, so a
- * failure may already have written over what was running.
+ * argc < 0 keeps the argv the outgoing program wrote on its way out, which is
+ * what an exec wants, and loads its argv[0], which rom names, made absolute.
+ * Returns false with the machine left stopped, after printing the reason on
+ * the console, when the argv does not fit or the load fails: rom_load
+ * deposits records into live RAM as it reads them, so a failure may already
+ * have written over what was running.
  *
  * It ends at the request rather than the start, so a caller inside a driver
  * walk leaves the pass to commit it and a host outside one calls sys_commit

@@ -7,10 +7,11 @@
 #include "fs.h"
 
 #include "core/api/dir.h"
+#include "core/str/path.h"
 
 #include <string.h>
 
-static char paths[2][128];
+static char paths[2][API_PATH_MAX + 1];
 
 char *os_dir_path_hold(const char *path)
 {
@@ -29,14 +30,9 @@ void os_dir_path_drop(char *path)
     path[0] = '\0';
 }
 
-/* This is FS_SAVES_PATH without its trailing slash. fs_std_open puts a
- * relative name under FS_SAVES_PATH, so when a program appends a separator
- * and a name to this path and opens the result, the path refers to the same
- * file as the bare name. A relative name given to exec is put under
- * FS_ASSETS_PATH instead, because rom_load opens it with fs_rom_open. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    static const char cwd[] = "/Saves/rp6502/common";
+    static const char cwd[] = FS_DRIVE FS_ASSETS_PATH;
     if (size < sizeof cwd)
     {
         *err = API_ENOMEM;
@@ -62,8 +58,11 @@ static bool drive_enosys(api_errno *err)
 
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
-    (void)path, (void)info;
-    return drive_enosys(err);
+    const char *rest = fs_strip_drive(path);
+    if (!path_is_sep(rest[0]) || rest[1])
+        return drive_enosys(err);
+    f_stat_root(info);
+    return true;
 }
 
 bool drive_unlink(const char *path, api_errno *err)
@@ -102,10 +101,11 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
     return drive_enosys(err);
 }
 
-bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect, api_errno *err)
+std_rw_result drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect, api_errno *err)
 {
     (void)path, (void)tot_sect, (void)fre_sect;
-    return drive_enosys(err);
+    *err = API_ENOSYS;
+    return STD_ERROR;
 }
 
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)

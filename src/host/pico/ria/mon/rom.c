@@ -17,6 +17,7 @@
 #include "ria-w/net/cyw.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
+#include "core/str/path.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "sys/path.h"
@@ -77,6 +78,7 @@ static void rom_loading(void)
             rom_asset_adopt(rom_pump.fd, rom_pump.assets_start);
             rom_pump.fd = -1;
             rom_state = ROM_RUNNING;
+            fs_save_start();
             sys_run();
         }
         else
@@ -148,10 +150,14 @@ void rom_mon_install(const char *args)
     else
     {
         // Derive LFS ROM name from FAT filename
-        size_t lfs_name_len = strlen(tok);
-        if (lfs_name_len > 7 && !strncasecmp(".RP6502", tok + lfs_name_len - 7, 7))
+        const char *base = tok;
+        for (const char *p = tok; *p; p++)
+            if (*p == ':' || path_is_sep(*p))
+                base = p + 1;
+        size_t lfs_name_len = strlen(base);
+        if (lfs_name_len > 7 && !strncasecmp(".RP6502", base + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
-        if (!rom_copy_install_name(lfs_name, tok, lfs_name_len))
+        if (!rom_copy_install_name(lfs_name, base, lfs_name_len))
         {
             mon_add_response_utf8(S(STR_ERR_ROM_NAME_INVALID));
             return;
@@ -341,24 +347,23 @@ void rom_mon_load(const char *args)
     rom_load_argv(filename, args);
 }
 
+bool rom_installed(const char *name, char *argv0)
+{
+    if (!rom_copy_install_name(argv0 + 1, name, 0))
+        return false;
+    argv0[0] = ':';
+    struct lfs_info info;
+    return lfs_stat(&lfs_volume, argv0 + 1, &info) >= 0 &&
+           info.type == LFS_TYPE_REG;
+}
+
 bool rom_load_installed(const char *args)
 {
     const char *tok = str_parse_string(&args);
-    if (!tok)
+    char argv0[1 + LFS_NAME_MAX + 1];
+    if (!tok || !rom_installed(tok, argv0))
         return false;
-    char name[LFS_NAME_MAX + 1];
-    if (!rom_copy_install_name(name, tok, 0))
-        return false;
-    api_errno err;
-    char probe[1 + LFS_NAME_MAX + 1];
-    snprintf(probe, sizeof probe, ":%s", name);
-    int fd = fs_rom_open(probe, FS_RD, &err);
-    if (fd < 0)
-        return false;
-    fs_std_close(fd, &err);
-    char rom_argv0[1 + LFS_NAME_MAX + 1];
-    snprintf(rom_argv0, sizeof(rom_argv0), ":%s", name);
-    rom_load_argv(rom_argv0, args);
+    rom_load_argv(argv0, args);
     return true;
 }
 
@@ -696,16 +701,9 @@ bool rom_set_boot(const char *args)
         cfg_save_boot("");
         return true;
     }
-    char buf[LFS_NAME_MAX + 1];
-    if (!rom_copy_install_name(buf, argv0, 0))
+    char installed[1 + LFS_NAME_MAX + 1];
+    if (!rom_installed(argv0, installed))
         return false;
-    api_errno err;
-    char probe[1 + LFS_NAME_MAX + 1];
-    snprintf(probe, sizeof probe, ":%s", buf);
-    int fd = fs_rom_open(probe, FS_RD, &err);
-    if (fd < 0)
-        return false;
-    fs_std_close(fd, &err);
     while (!str_parse_end(p))
         if (!str_parse_string(&p))
             return false;
