@@ -171,33 +171,33 @@ void win_make_parents(wchar_t *path)
 
 /* A path in full, resolved the way Win32 resolves one: a relative path against
  * the process working directory, and a drive-relative one ("C:") against the
- * directory Win32 remembers for that drive. The sizing call should count the
- * terminating null, but for "." at a drive root it does not, and a buffer of
- * that size gets "C:" in place of "C:\" with no error, so one more unit is
- * allotted. */
+ * directory Win32 remembers for that drive. For "." at a drive root, the
+ * sizing call asks for room for "C:" only, and a buffer a few units long
+ * receives "C:" in place of "C:\" with no error, so the first try uses a
+ * MAX_PATH buffer, as .NET does. A longer path is tried again at the size
+ * the call reports, which includes the terminating null. */
 wchar_t *win_full_path(const wchar_t *w, api_errno *err)
 {
-    DWORD n = GetFullPathNameW(w, 0, NULL, NULL);
-    if (!n)
+    DWORD size = MAX_PATH;
+    for (;;)
     {
-        *err = win_last_error_to_api();
-        return NULL;
-    }
-    n++;
-    wchar_t *full = malloc((size_t)n * sizeof *full);
-    if (!full)
-    {
-        *err = API_ENOMEM;
-        return NULL;
-    }
-    DWORD got = GetFullPathNameW(w, n, full, NULL);
-    if (!got || got >= n) /* the path grew between the two calls */
-    {
-        *err = got ? API_ENOMEM : win_last_error_to_api();
+        wchar_t *full = malloc((size_t)size * sizeof *full);
+        if (!full)
+        {
+            *err = API_ENOMEM;
+            return NULL;
+        }
+        DWORD got = GetFullPathNameW(w, size, full, NULL);
+        if (got && got < size)
+            return full;
         free(full);
-        return NULL;
+        if (!got)
+        {
+            *err = win_last_error_to_api();
+            return NULL;
+        }
+        size = got + 1; /* each try is larger, so the loop ends */
     }
-    return full;
 }
 
 /* NULL when no program could name the absolute path: one with a character the
