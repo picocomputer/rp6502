@@ -120,7 +120,7 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
         return false;
     if (!rest[0])
     {
-        *err = API_EINVAL;
+        *err = f_getldnumber(path) < 0 ? API_ENODEV : API_EINVAL;
         return false;
     }
     FILINFO fno;

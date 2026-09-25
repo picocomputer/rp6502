@@ -316,17 +316,17 @@ char *app_rom_path(const char *host)
     {
         /* oem_from_utf8 writes one byte per UTF-8 sequence, so the UTF-8
          * length holds the result. A name FAT refuses has no drive path
-         * either, and os_dir_realpath answers NULL for it. */
+         * either, and os_dir_realpath answers NULL for it. Nor does a path
+         * whose absolute form is longer than a path may be. */
         size_t sz = strlen(host) + 1;
         char *oem = malloc(sz);
         if (oem)
             oem_from_utf8(host, oem, sz);
         char *abs = oem ? os_dir_realpath(oem) : NULL;
-        if (abs)
-        {
-            free(abs);
+        bool named = abs && strlen(abs) <= API_PATH_MAX;
+        free(abs);
+        if (named)
             return oem;
-        }
         free(oem);
     }
     const char *name = rom_alias_insert(host);
@@ -335,6 +335,10 @@ char *app_rom_path(const char *host)
         sprintf(rom, ":%s", name);
     return rom;
 }
+
+/* The ":name" of the null drive install that the last drop to boot made, or
+ * NULL. */
+static char *dropped_rom;
 
 bool app_boot_rom(const char *path)
 {
@@ -373,9 +377,17 @@ bool app_boot_rom(const char *path)
     }
     vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
     bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    /* The last drop's install goes once proc_boot has stopped the machine,
+     * whether or not this boot succeeded, unless this drop's install of the
+     * same name has taken its slot. */
+    if (dropped_rom && strcasecmp(dropped_rom, rom) != 0)
+        rom_alias_remove(dropped_rom);
     if (!ok && rom[0] == ':')
         rom_alias_remove(rom);
-    free(rom);
+    free(dropped_rom);
+    dropped_rom = ok && rom[0] == ':' ? rom : NULL;
+    if (rom != dropped_rom)
+        free(rom);
     if (!ok)
         return false;
     /* proc_boot only requests the machine, and a caller outside a driver pass

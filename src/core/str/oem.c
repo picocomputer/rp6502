@@ -258,14 +258,20 @@ int oem_to_wide(const char *s, uint16_t *w, int wcount)
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz)
 {
     size_t n = 0;
-    for (size_t i = 0; i < wlen && n + 1 < dstsz; i++)
+    for (size_t i = 0; i < wlen; i++)
     {
-        unsigned char b = w[i] < 0x80 ? (unsigned char)w[i]
-                                      : (unsigned char)ff_uni2oem(w[i], oem_code_page_run);
-        dst[n++] = b ? (char)b : 0x7F;
+        uint16_t u = w[i];
+        /* A surrogate pair is one character, and no code page holds it. */
+        if ((u & 0xFC00) == 0xD800 && i + 1 < wlen && (w[i + 1] & 0xFC00) == 0xDC00)
+            i++;
+        unsigned char b = u < 0x80 ? (unsigned char)u
+                                   : (unsigned char)ff_uni2oem(u, oem_code_page_run);
+        if (n + 1 < dstsz)
+            dst[n] = b ? (char)b : 0x7F;
+        n++;
     }
     if (dstsz)
-        dst[n] = 0;
+        dst[n < dstsz ? n : dstsz - 1] = 0;
     return n;
 }
 

@@ -214,6 +214,11 @@ void fs_save_start(void)
     fs_save_dir = dir ? strdup(dir) : getcwd(NULL, 0);
 }
 
+void fs_save_free(void)
+{
+    free(fs_save_dir), fs_save_dir = NULL;
+}
+
 /* The name keeps to the ASCII that core/api/save.h allows, which is the same
  * in UTF-8 as in the code page. */
 int fs_save_open(const char *name, uint8_t flags, api_errno *err)
@@ -300,6 +305,50 @@ static int64_t fs_size_of(int fd)
     return (int64_t)st.st_size;
 }
 
+/* fs_extend grows a writable file from size to target with zeros and returns
+ * 0 or an errno. An extending ftruncate leaves a hole on most host file
+ * systems and succeeds on a full drive, so the gap is allocated here and a
+ * full drive fails the seek. A failure cuts the file back to size. */
+#ifdef __EMSCRIPTEN__
+/* MEMFS holds every byte in memory, so ftruncate already allocates the gap.
+ * It also goes through setattr, where the browser page marks the file to be
+ * stored in IndexedDB, and posix_fallocate does not. */
+static int fs_extend(int desc, int64_t size, int64_t target)
+{
+    (void)size;
+    return ftruncate(desc, (off_t)target) != 0 ? errno : 0;
+}
+#else
+static int fs_zero_fill(int desc, int64_t size, int64_t target)
+{
+    static const char zeros[4096];
+    for (int64_t at = size; at < target;)
+    {
+        size_t n = target - at < (int64_t)sizeof zeros ? (size_t)(target - at)
+                                                       : sizeof zeros;
+        ssize_t w = pwrite(desc, zeros, n, (off_t)at);
+        if (w < 0)
+            return errno;
+        at += w;
+    }
+    return 0;
+}
+
+static int fs_extend(int desc, int64_t size, int64_t target)
+{
+#ifdef __APPLE__
+    int e = fs_zero_fill(desc, size, target); /* macOS has no posix_fallocate */
+#else
+    int e = posix_fallocate(desc, (off_t)size, (off_t)(target - size));
+    if (e == EOPNOTSUPP || e == EINVAL) /* a file system without fallocate */
+        e = fs_zero_fill(desc, size, target);
+#endif
+    if (e)
+        (void)!ftruncate(desc, (off_t)size);
+    return e;
+}
+#endif
+
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     int64_t base;
@@ -351,10 +400,14 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         }
         if ((fl & O_ACCMODE) == O_RDONLY)
             target = size; /* read-only: stop at the end */
-        else if (ftruncate(desc, (off_t)target) != 0)
+        else
         {
-            *err = errno_to_api(errno); /* the pointer has not moved */
-            return -1;
+            int e = fs_extend(desc, size, target);
+            if (e)
+            {
+                *err = errno_to_api(e); /* the pointer has not moved */
+                return -1;
+            }
         }
     }
     int64_t np = lseek(desc, (off_t)target, SEEK_SET);

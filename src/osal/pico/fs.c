@@ -186,8 +186,8 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return (int)(fp - fat_fil_pool);
 }
 
-/* The folder behind SAVE:, as f_getcwd gave it when the ROM started, or empty
- * when no drive was mounted then. */
+/* The folder behind SAVE:, as f_getcwd gave it when the 6502 last started, or
+ * empty when no drive was mounted then. */
 static char save_dir[API_PATH_MAX + 1];
 
 void fs_save_start(void)

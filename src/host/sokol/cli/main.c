@@ -97,22 +97,33 @@ const char *host_save_dir(void)
     return save_dir;
 }
 
-/* A relative --save-dir names a folder in the directory the emulator started
- * in. It is made absolute here because a program's CHDIR moves the process. */
+/* A --save-dir that is not absolute is taken from the drive and folder the
+ * emulator starts in, and made absolute here because a program's CHDIR and
+ * CHDRIVE move the process. On Windows only a drive with a separator, or two
+ * leading separators, is absolute: "\x" is on the current drive and "C:x" is
+ * in the current folder of C:. */
 static const char *save_dir_from(const char *dir)
 {
+    char base[3] = ".";
+    const char *rest = dir;
 #ifdef _WIN32
-    bool absolute = dir[0] == '/' || dir[0] == '\\' || (dir[0] && dir[1] == ':');
-#else
-    bool absolute = dir[0] == '/';
-#endif
-    if (absolute)
+    bool drive = dir[0] && dir[1] == ':';
+    rest += drive ? 2 : 0;
+    bool rooted = rest[0] == '/' || rest[0] == '\\';
+    if (rooted && (drive || rest[1] == '/' || rest[1] == '\\'))
         return dir;
-    char *cwd = fs_host_realpath(".");
-    char *joined = cwd ? malloc(strlen(cwd) + strlen(dir) + 2) : NULL;
+    if (drive || rooted)
+        memcpy(base, dir, drive ? 2 : 1);
+    rest += rooted;
+#else
+    if (dir[0] == '/')
+        return dir;
+#endif
+    char *abs = fs_host_realpath(base);
+    char *joined = abs ? malloc(strlen(abs) + strlen(rest) + 2) : NULL;
     if (joined)
-        sprintf(joined, "%s/%s", cwd, dir);
-    free(cwd);
+        sprintf(joined, "%s/%s", abs, rest);
+    free(abs);
     return joined;
 }
 

@@ -10,8 +10,8 @@
 #include "core/api/api.h"
 #include <wchar.h>
 
-/* Both allocate to fit, because there is one UTF-16 unit per OEM byte and one
- * OEM byte per unit back. The caller frees. NULL sets *err. path_to_wide
+/* Both allocate to fit, because there is one UTF-16 unit per OEM byte and at
+ * most one OEM byte per unit back. The caller frees. NULL sets *err. path_to_wide
  * applies the FAT name rules, so it takes only a drive path. */
 wchar_t *path_to_wide(const char *path, api_errno *err);
 char *path_from_wide(const wchar_t *w, api_errno *err);

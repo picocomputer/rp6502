@@ -85,7 +85,9 @@ void dir_stop(void)
  * to another machine where a path under one peer's home directory names
  * nothing under the other's. Such a load keeps the directories and the
  * working directory it already has, though the entry counts still come from
- * the blob. */
+ * the blob. The working directory is also written empty when getcwd shows it
+ * with character 127, which drive_chdir refuses, so a load keeps the one it
+ * has rather than failing. */
 #define DIR_SLOT (API_PATH_MAX + 1)
 
 void dir_sst_save(sst_cursor_t *c, unsigned flags)
@@ -101,7 +103,8 @@ void dir_sst_save(sst_cursor_t *c, unsigned flags)
     }
     char cwd[DIR_SLOT];
     api_errno err;
-    if (flags & SST_SHARED || !drive_getcwd(cwd, sizeof cwd, &err))
+    if (flags & SST_SHARED || !drive_getcwd(cwd, sizeof cwd, &err) ||
+        strchr(cwd, 0x7F))
         cwd[0] = 0;
     sst_put_str(c, cwd, DIR_SLOT);
 }

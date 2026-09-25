@@ -161,9 +161,10 @@ static uint32_t fs_command(uint32_t who, uint32_t op)
 
 static bool fs_grow;
 
-/* fs_std_close waits for a command in flight only when it flushes, so a
- * command started for a descriptor that is closed without a flush can still
- * be in flight after std_stop has closed that descriptor. */
+/* A program stopped partway through a call can leave its command in flight.
+ * fs_stop collects it before std_stop closes the descriptors, because
+ * fs_flush takes a command in flight under a descriptor's id for that
+ * descriptor's Flush. */
 void fs_stop(void)
 {
     fs_wait_free();
@@ -440,13 +441,6 @@ static std_rw_result fs_flush(int desc, api_errno *err)
     if (fs_flush_state == FS_FLUSH_NEVER)
         return STD_OK;
     uint32_t st;
-    /* std_stop calls close in a loop that runs no other task, so a command
-     * another descriptor left in flight is reaped here. */
-    if (!fs_may(FS_W(desc)))
-    {
-        fs_reap();
-        return STD_PENDING;
-    }
     if (fs_owner == FS_W_NONE)
     {
         FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
@@ -934,8 +928,10 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
 }
 
 /* What a resize puts in the bytes it adds is unrecorded, so the gap that a
- * seek past the end opens is written with zeros. The writes stop at a
- * restore, because after one the slot may be bound to another file. */
+ * seek past the end opens is written with zeros. When a write fails, the file
+ * is resized back so that the failed seek changes nothing. The writes stop at
+ * a restore without the resize back, because after one the slot may be bound
+ * to another file. */
 static bool fs_extend(int d, uint32_t to)
 {
     uint32_t slot = FS_SLOT_FIRST + (uint32_t)d;
@@ -954,7 +950,11 @@ static bool fs_extend(int d, uint32_t to)
         FILE_BRIDGE = FILE_WIN_BASE;
         FILE_LENGTH = to - at < FILE_WIN_SIZE ? to - at : FILE_WIN_SIZE;
         if (fs_command(FS_W(d), FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        {
+            fs_try_open(FS_W(d), slot, fs_pool[d].name, FS_DS_RESIZE,
+                        fs_pool[d].len);
             return false;
+        }
     }
     fs_pool[d].len = to;
     return true;

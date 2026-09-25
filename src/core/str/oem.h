@@ -81,7 +81,8 @@ bool oem_maps_utf8(const char *u8);  // host UTF-8 -> the code page
 bool oem_maps_wide(const uint16_t *w); // host UTF-16 -> the code page
 bool oem_maps_oem(const char *s);      // the code page -> Unicode
 
-// UTF-16 strings; returns units/bytes written
+/* UTF-16 strings. oem_to_wide returns the units written, and oem_from_wide
+ * and oem_from_wide_n return the untruncated length, as snprintf does. */
 int oem_to_wide(const char *s, uint16_t *w, int wcount);
 size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz);

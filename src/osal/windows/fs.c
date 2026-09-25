@@ -176,8 +176,11 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     free(w);
     if (h == INVALID_HANDLE_VALUE)
         return -1;
+    /* A relative name would reopen against whatever folder is current at the
+     * load, so a file with no absolute name keeps none, and an ident of it
+     * fails rather than naming another file. */
     char *abs = os_dir_realpath(path);
-    int fd = win_adopt(h, flags, abs ? abs : path, err);
+    int fd = win_adopt(h, flags, abs ? abs : "", err);
     free(abs);
     return fd;
 }
@@ -190,6 +193,11 @@ void fs_save_start(void)
     free(win_save_dir);
     win_save_dir = w ? win_full_path(w, &ignored) : NULL;
     free(w);
+}
+
+void fs_save_free(void)
+{
+    free(win_save_dir), win_save_dir = NULL;
 }
 
 int fs_save_open(const char *name, uint8_t flags, api_errno *err)

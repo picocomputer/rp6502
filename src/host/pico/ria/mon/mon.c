@@ -18,6 +18,7 @@
 #include "ria/mon/status.h"
 #include "ria/mon/uf2.h"
 #include "ria-w/net/cyw.h"
+#include "osal/fs.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -76,6 +77,7 @@ static void mon_reset(const char *args)
 {
     (void)args;
     arg_clear();
+    fs_save_start();
     sys_run();
 }
 

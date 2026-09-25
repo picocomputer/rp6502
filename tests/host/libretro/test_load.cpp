@@ -236,40 +236,124 @@ static std::string file_text(const std::filesystem::path &p)
                        std::istreambuf_iterator<char>());
 }
 
+/* The argv[0] a boot or an EXEC records for a ROM at this path. */
+static std::string absolute_argv0(const char *path)
+{
+#ifdef _WIN32
+    return std::filesystem::absolute(path).generic_string();
+#else
+    return "FS:" + std::filesystem::canonical(path).string();
+#endif
+}
+
 UTEST(load, argv0_is_the_absolute_path_with_its_drive)
 {
     const char *path = write_rom("argv0.rp6502", argv_rom());
     ASSERT_TRUE(path != NULL);
     ASSERT_TRUE(fe_load(path));
     fe_run(10);
-#ifdef _WIN32
-    std::string want = std::filesystem::absolute(path).generic_string();
-#else
-    std::string want = "FS:" + std::filesystem::canonical(path).string();
-#endif
     std::string got = argv0_in_xram();
+    std::string want = absolute_argv0(path);
     ASSERT_STREQ(got.c_str(), want.c_str());
     fe.unload_game();
 }
 
 /* U+65E5 U+672C, which no single-byte code page holds, name the folder, so
- * the program can only be named as an install. */
-UTEST(load, a_path_the_code_page_cannot_hold_boots_as_an_install)
+ * a program in it can only be named as an install. */
+static std::filesystem::path unnamed_dir()
 {
     std::filesystem::path dir =
         std::filesystem::u8path(TEST_SCRATCH "/\xE6\x97\xA5\xE6\x9C\xAC");
     std::filesystem::create_directories(dir);
-    std::filesystem::path rom = dir / "argv1.rp6502";
-    std::vector<uint8_t> image = argv_rom();
-    {
-        std::ofstream out(rom, std::ios::binary);
-        out.write((const char *)image.data(), (std::streamsize)image.size());
-        ASSERT_TRUE((bool)out);
-    }
+    return dir;
+}
+
+static bool write_host(const std::filesystem::path &p, const std::vector<uint8_t> &image)
+{
+    std::ofstream out(p, std::ios::binary);
+    out.write((const char *)image.data(), (std::streamsize)image.size());
+    return (bool)out;
+}
+
+UTEST(load, a_path_the_code_page_cannot_hold_boots_as_an_install)
+{
+    std::filesystem::path rom = unnamed_dir() / "argv1.rp6502";
+    ASSERT_TRUE(write_host(rom, argv_rom()));
     ASSERT_TRUE(fe_load(rom.u8string().c_str()));
     fe_run(10);
     std::string got = argv0_in_xram();
     ASSERT_STREQ(got.c_str(), ":argv1.rp6502");
+    fe.unload_game();
+}
+
+/* A program could not name a path longer than 255 bytes either. Windows opens
+ * a path this long only with long paths turned on, so the test is not built
+ * there. */
+#ifndef _WIN32
+UTEST(load, a_path_too_long_to_name_boots_as_an_install)
+{
+    std::filesystem::path dir = std::filesystem::canonical(TEST_SCRATCH);
+    while (dir.string().size() < 256)
+        dir /= std::string(40, 'd');
+    std::filesystem::create_directories(dir);
+    std::filesystem::path rom = dir / "argv2.rp6502";
+    ASSERT_TRUE(write_host(rom, argv_rom()));
+    ASSERT_TRUE(fe_load(rom.c_str()));
+    fe_run(10);
+    std::string got = argv0_in_xram();
+    ASSERT_STREQ(got.c_str(), ":argv2.rp6502");
+    fe.unload_game();
+}
+#endif
+
+/* Writes 0xEE to XRAM $0100, then EXECs argv0. An EXEC whose ROM does not
+ * load leaves the machine stopped with the 0xEE in place. */
+static std::vector<uint8_t> exec_rom(const char *argv0)
+{
+    tb_asm a;
+    a.poke(0x0100, 0xEE);
+    a.push_str(argv0);
+    a.pushw(0); /* the zero pair that ends the offset table */
+    a.pushw(4); /* the offset of argv[0] */
+    a.call(0x09); /* EXEC */
+    a.stp();
+    return tb_rom_image(TB_ORG, a.b);
+}
+
+static uint8_t xram_at(uint16_t addr)
+{
+    const uint8_t *xram = (const uint8_t *)fe.get_memory_data(RETRO_MEMORY_VIDEO_RAM);
+    return xram ? xram[addr] : 0;
+}
+
+/* The refused file is then made a program, so an EXEC of its ":name" loads
+ * only if the install outlived the failed load. The EXEC of a path first
+ * shows that the launcher's EXEC works. */
+UTEST(load, a_failed_load_leaves_no_install)
+{
+    const char *path = write_rom("exec_target.rp6502", argv_rom());
+    ASSERT_TRUE(path != NULL);
+    const std::string target = path; /* write_rom reuses its buffer */
+    const char *launcher = write_rom("exec_path.rp6502", exec_rom(target.c_str()));
+    ASSERT_TRUE(launcher != NULL);
+    ASSERT_TRUE(fe_load(launcher));
+    fe_run(30);
+    std::string got = argv0_in_xram();
+    std::string want = absolute_argv0(target.c_str());
+    ASSERT_STREQ(got.c_str(), want.c_str());
+    fe.unload_game();
+
+    std::filesystem::path gone = unnamed_dir() / "gone.rp6502";
+    const char junk[] = "this is not a program\n";
+    ASSERT_TRUE(write_host(gone, std::vector<uint8_t>(junk, junk + strlen(junk))));
+    ASSERT_FALSE(fe_load(gone.u8string().c_str()));
+    ASSERT_TRUE(write_host(gone, argv_rom()));
+
+    launcher = write_rom("exec_gone.rp6502", exec_rom(":gone.rp6502"));
+    ASSERT_TRUE(launcher != NULL);
+    ASSERT_TRUE(fe_load(launcher));
+    fe_run(30);
+    ASSERT_EQ(xram_at(0x0100), (uint8_t)0xEE);
     fe.unload_game();
 }
 

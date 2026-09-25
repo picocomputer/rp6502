@@ -197,9 +197,10 @@ wchar_t *win_full_path(const wchar_t *w, api_errno *err)
     return full;
 }
 
-/* NULL when the code page cannot hold the absolute path, because an answer
- * with a substitute in it would name nothing. The caller then keeps the path
- * as it was given. */
+/* NULL when no program could name the absolute path: one with a character the
+ * code page cannot hold, or one on a UNC share, which a relative path reaches
+ * when the working directory is there. A drive path in full starts with "X:",
+ * and a UNC one with two backslashes. */
 char *os_dir_realpath(const char *path)
 {
     api_errno ignored;
@@ -210,7 +211,9 @@ char *os_dir_realpath(const char *path)
     free(wpath);
     if (!wfull)
         return NULL;
-    char *out = oem_maps_wide((const uint16_t *)wfull) ? path_from_wide(wfull, &ignored) : NULL;
+    char *out = wfull[1] == L':' && oem_maps_wide((const uint16_t *)wfull)
+                    ? path_from_wide(wfull, &ignored)
+                    : NULL;
     free(wfull);
     return out;
 }
@@ -268,11 +271,17 @@ static void fat_pack_time(const FILETIME *ft, uint16_t *fdate, uint16_t *ftime)
     }
 }
 
-/* A character with no byte in the running code page converts to 0x7F, which
- * no path may hold, so such an entry is listed but cannot be opened. */
+/* A character with no byte in the running code page, or one that FAT refuses
+ * in a name, shows as 0x7F, which no path may hold, so such an entry is listed
+ * but cannot be opened. Win32 lists names with FAT's refused characters from
+ * NTFS volumes and shares that other systems write. An 8.3 name never holds
+ * one. */
 static void info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd)
 {
     oem_from_wide((const uint16_t *)fd->cFileName, info->fname, sizeof info->fname);
+    for (char *p = info->fname; *p; p++)
+        if ((unsigned char)*p < 0x20 || strchr("\"*:<>?|\\", *p))
+            *p = 0x7F;
     /* Win32 leaves cAlternateFileName empty when the long name is already an
      * 8.3 name. */
     oem_from_wide((const uint16_t *)fd->cAlternateFileName, info->altname,
@@ -318,7 +327,7 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
     if (!path[0] || (win_has_drive(path) && !path[2]))
     {
-        *err = API_EINVAL;
+        *err = path[0] && !win_drive_mounted(path[0]) ? API_ENODEV : API_EINVAL;
         return false;
     }
     wchar_t *w = path_to_wide(path, err);
@@ -682,21 +691,23 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
     return true;
 }
 
-/* The code page conversion writes one byte per UTF-16 unit, so the UTF-16
- * length settles whether the answer fits. */
+/* A working directory on a UNC share has no drive letter, so no path a
+ * program could write names it. */
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     wchar_t *w = win_full_path(L".", err);
     if (!w)
         return false;
-    bool ok = wcslen(w) < size;
-    if (ok)
-    {
-        oem_from_wide((const uint16_t *)w, buf, size);
-        win_to_slash(buf);
-    }
-    else
+    bool ok = false;
+    if (w[1] != L':')
+        *err = API_ENODEV;
+    else if (oem_from_wide((const uint16_t *)w, buf, size) >= size)
         *err = API_ENOMEM;
+    else
+    {
+        win_to_slash(buf);
+        ok = true;
+    }
     free(w);
     return ok;
 }

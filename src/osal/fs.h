@@ -56,16 +56,19 @@ bool fs_rom_remove(const char *name, api_errno *err);
 char *fs_host_realpath(const char *host);
 int fs_rom_open_host(const char *host, api_errno *err);
 
-/* fs_save_start fixes the folder behind SAVE: each time a ROM starts: the
+/* fs_save_start fixes the folder behind SAVE: each time a program starts: the
  * host_save_dir of host/host.h, or the working directory at that moment when
  * that is NULL. fs_save_open opens name in that folder, so a CHDIR or CHDRIVE
  * by the program does not move its saves. save_std_open has already checked
  * name against the rules in core/api/save.h. The descriptor is one the
  * fs_std_ functions take, and fs_std_ident writes it down as SAVE:name, so a
  * savestate carries no host path for it and fs_std_reopen sends it back
- * through save_std_open. */
+ * through save_std_open. The folder outlives a stop, because a savestate
+ * loaded into a stopped machine still reopens its SAVE: files there. A host
+ * that unloads this library gives it back with fs_save_free. */
 int fs_save_open(const char *name, uint8_t flags, api_errno *err);
 void fs_save_start(void);
+void fs_save_free(void);
 
 #define SAVE_STD_DRIVER              \
     {                                \
