@@ -124,18 +124,17 @@ UTEST(fontstore, attribute_get_reports_the_boot_default)
     ASSERT_EQ(reported(out, 0), (uint16_t)437);
 }
 
-/* The font asset has no code page 1252, so the second set leaves 850 in
- * force. */
-UTEST(fontstore, attribute_set_takes_a_page_and_ignores_the_rest)
+/* The font asset has no code page 1252, so the second set selects the
+ * system page, which is 437 for the EN locale. */
+UTEST(fontstore, attribute_set_falls_back_to_the_system_page)
 {
     std::string out;
     ASSERT_TRUE(tb_boot(dut, rom_attr_code_page({850, 1252}), &out));
     ASSERT_EQ(out.size(), (size_t)6);
     ASSERT_EQ(reported(out, 0), (uint16_t)0);
     ASSERT_EQ(reported(out, 2), (uint16_t)0);
-    ASSERT_EQ(reported(out, 4), (uint16_t)850);
+    ASSERT_EQ(reported(out, 4), (uint16_t)437);
     font_init();
-    font_set_code_page(850);
     auto *r = dut->rootp;
     for (size_t i = 0; i < 4096; i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
