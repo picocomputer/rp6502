@@ -38,10 +38,10 @@ include(${RP6502_SRC}/core/emu.cmake)
 # beside that machine rather than a copy that could drift from it.
 target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 # The browser has no <aio.h>, so the file driver takes the synchronous
-# transport. With persist on, the page mounts IDBFS with autoPersist at /saves,
-# which queues a save to IndexedDB after a close that wrote and after each
-# directory change. A syncfs from a program returns once FS.syncfs, started
-# through os.c, has finished.
+# transport. The page mounts IDBFS with autoPersist at /saves, which queues a
+# save to IndexedDB after a close that wrote and after each directory change.
+# A syncfs from a program returns once FS.syncfs, started through os.c, has
+# finished.
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT sync)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)

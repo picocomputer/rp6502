@@ -40,8 +40,7 @@
       title:  'Colossal Cave Adventure',   // browser tab title
       bg:     '000000',                    // letterbox fill, 6 hex digits (no '#')
       filter: 'sharp',                     // pixel scaling: nearest | linear | sharp
-      db:      '',    // save database name; blank = the rom filename (see README)
-      persist: false, // true = saves are kept in the player's browser (see README)
+      db:     '',                          // save database name; blank = the rom filename
     };
     /* ===================== end of editable section ====================== */
 
@@ -97,7 +96,6 @@
 
       var base = baseName(CONFIG.rom);
       var dbname = sanitize(String(CONFIG.db || '') || base);
-      var persist = CONFIG.persist === true;
       var args = ['--save-dir', '/saves'];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
@@ -135,75 +133,70 @@
         preRun: [function () {
           var M = Module;
           // The ROM is kept in memory at /roms, and SAVE: opens files in
-          // /saves. With persist, /saves is IDBFS, mirrored to an IndexedDB
-          // database named by CONFIG.db. Without it, /saves is plain memory
-          // and saves vanish when the player leaves.
+          // /saves, which is IDBFS, mirrored to an IndexedDB database named
+          // by CONFIG.db.
           M.FS.mkdir('/roms');
           M.FS.mount(M.MEMFS, {}, '/roms');
           M.FS.mkdir('/saves');
-          if (persist) {
-            var I = M.IDBFS;
-            // IDBFS names a database after its mountpoint, so the mountpoint
-            // is swapped for dbname here.
-            var getDB = I.getDB;
-            I.getDB = function (name, cb) {
-              return getDB(name === '/saves' ? dbname : name, cb);
-            };
-            // Keys are stored mount-relative ('save.dat', not '/saves/save.dat'),
-            // so a database holds no mountpoint and saves made under the earlier
-            // /db mountpoint still load. IDBFS uses one string as both VFS path
-            // and database key, so the path is translated on the remote side
-            // only: the mountpoint is prepended on the way out and stripped on
-            // the way in.
-            var strip = function (p) { return p.slice('/saves/'.length); };
-            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
-            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
-            I.getRemoteSet = function (mount, cb) {
-              grs(mount, function (err, remote) {
-                if (remote && remote.entries) {
-                  var entries = {};
-                  for (var k in remote.entries) entries['/saves/' + k] = remote.entries[k];
-                  remote.entries = entries;
-                }
-                cb(err, remote);
-              });
-            };
-            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
-            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
-            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
-            // autoPersist drops the error of each sync it starts, so every
-            // IDBFS sync logs its failure here.
-            var syncfs = I.syncfs;
-            I.syncfs = function (mount, populate, cb) {
-              syncfs(mount, populate, function (err) {
-                if (err) console.error('IDBFS:', err);
-                cb(err);
-              });
-            };
-            // autoPersist queues a sync after a close that wrote and after a
-            // create, unlink, rename or rmdir, batching a frame's changes into
-            // one transaction. A syncfs from the program returns once
-            // FS.syncfs has finished.
-            var ops = M.FS.mount(I, {autoPersist: true}, '/saves').node_ops;
-            // A sync stores only entries whose mtime moved, and MEMFS moves it
-            // only on a write, so a truncate or a chmod would never be stored.
-            // Marking the node modified lets the close after an O_TRUNC queue
-            // the sync as a write would.
-            var setattr = ops.setattr;
-            ops.setattr = function (node, attr) {
-              var changed = (attr.size !== undefined && attr.size !== node.usedBytes) ||
-                            (attr.mode !== undefined && attr.mode !== node.mode);
-              setattr(node, attr);
-              if (changed) {
-                node.mtime = Date.now();
-                node.isModified = true;
+          var I = M.IDBFS;
+          // IDBFS names a database after its mountpoint, so the mountpoint
+          // is swapped for dbname here.
+          var getDB = I.getDB;
+          I.getDB = function (name, cb) {
+            return getDB(name === '/saves' ? dbname : name, cb);
+          };
+          // Keys are stored mount-relative ('save.dat', not '/saves/save.dat'),
+          // so a database holds no mountpoint and saves made under the earlier
+          // /db mountpoint still load. IDBFS uses one string as both VFS path
+          // and database key, so the path is translated on the remote side
+          // only: the mountpoint is prepended on the way out and stripped on
+          // the way in.
+          var strip = function (p) { return p.slice('/saves/'.length); };
+          var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+          var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+          I.getRemoteSet = function (mount, cb) {
+            grs(mount, function (err, remote) {
+              if (remote && remote.entries) {
+                var entries = {};
+                for (var k in remote.entries) entries['/saves/' + k] = remote.entries[k];
+                remote.entries = entries;
               }
-            };
-            M.addRunDependency('idbfs');
-            M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
-          } else {
-            M.FS.mount(M.MEMFS, {}, '/saves');
-          }
+              cb(err, remote);
+            });
+          };
+          I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+          I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+          I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+          // autoPersist drops the error of each sync it starts, so every
+          // IDBFS sync logs its failure here.
+          var syncfs = I.syncfs;
+          I.syncfs = function (mount, populate, cb) {
+            syncfs(mount, populate, function (err) {
+              if (err) console.error('IDBFS:', err);
+              cb(err);
+            });
+          };
+          // autoPersist queues a sync after a close that wrote and after a
+          // create, unlink, rename or rmdir, batching a frame's changes into
+          // one transaction. A syncfs from the program returns once
+          // FS.syncfs has finished.
+          var ops = M.FS.mount(I, {autoPersist: true}, '/saves').node_ops;
+          // A sync stores only entries whose mtime moved, and MEMFS moves it
+          // only on a write, so a truncate or a chmod would never be stored.
+          // Marking the node modified lets the close after an O_TRUNC queue
+          // the sync as a write would.
+          var setattr = ops.setattr;
+          ops.setattr = function (node, attr) {
+            var changed = (attr.size !== undefined && attr.size !== node.usedBytes) ||
+                          (attr.mode !== undefined && attr.mode !== node.mode);
+            setattr(node, attr);
+            if (changed) {
+              node.mtime = Date.now();
+              node.isModified = true;
+            }
+          };
+          M.addRunDependency('idbfs');
+          M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
           M.addRunDependency('rom');
           fetch(CONFIG.rom).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -234,7 +227,7 @@
       // close may miss it). The guard avoids overlapping syncfs calls.
       var syncing = false;
       function flush() {
-        if (!persist || !Module.FS || syncing) return;
+        if (!Module.FS || syncing) return;
         syncing = true;
         try { Module.FS.syncfs(false, function () { syncing = false; }); }
         catch (e) { syncing = false; }
@@ -323,8 +316,8 @@
         load();
         return new Promise(function () {});
       }
-      if (persist && navigator.storage) navigator.storage.persist().catch(console.error);
-      if (persist && navigator.locks) {
+      if (navigator.storage) navigator.storage.persist().catch(console.error);
+      if (navigator.locks) {
         navigator.locks.request(dbname, {ifAvailable: true}, function (lock) {
           if (lock) return boot();
           msg.textContent = 'This game is running in another window';

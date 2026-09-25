@@ -40,8 +40,6 @@ script:
               sharp.
     db        Browser save database name. Blank means the file name
               in rom. See "Saves and browser storage" below.
-    persist   false (default) keeps saves until the player leaves
-              the page; true keeps them in the player's browser.
 
 
 Updating the emulator
@@ -71,16 +69,13 @@ they are the only files that can outlast the page. The ROM is written
 to /roms/ in memory, and a file written anywhere else, such as the
 working directory, is lost when the player leaves.
 
-With persist: true, /saves/ is mirrored to an IndexedDB database in
-the player's browser. This allows players to save games or high
-scores. A close after a write queues the save to IndexedDB, and a
-syncfs from the program returns once IndexedDB has stored it. The page
-also requests persistent storage, so a browser that grants it does not
-clear the saves to free space.
-
-Off by default. Without persist: true, /saves/ is plain memory and
-saves last only until the player leaves or reloads the page.
-IndexedDB is not used at all.
+/saves/ is mirrored to an IndexedDB database in the player's browser,
+so saved games and high scores are kept. A close after a write queues
+the save to IndexedDB, and a syncfs from the program returns once
+IndexedDB has stored it. The page also requests persistent storage, so
+a browser that grants it does not clear the saves to free space. Where
+the browser blocks storage, as some private windows do, saves last
+only until the player leaves the page.
 
 Database name. CONFIG.db names the database. When it is blank, the
 name is the file name in CONFIG.rom, without any folder or query
@@ -92,11 +87,11 @@ upgrade. Set db to the old name, such as games_hopper.rp6502 for
 games/hopper.rp6502, to keep those saves. Saves stored from the /db/
 folder of an earlier version load into /saves/ under the same names.
 
-One window at a time. With persist: true, a database is used by one
-window at a time, because each window loads a separate copy and writes
-that copy back. A second window with the same db shows "This game is
-running in another window" and starts when the first window closes.
-Games with different db names run side by side.
+One window at a time. A database is used by one window at a time,
+because each window loads a separate copy and writes that copy back. A
+second window with the same db shows "This game is running in another
+window" and starts when the first window closes. Games with different
+db names run side by side.
 
 Who can see it. itch.io serves every HTML game from one shared origin
 (html-classic.itch.zone), and IndexedDB is per-origin, so the database
