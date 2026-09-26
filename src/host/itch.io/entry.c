@@ -9,6 +9,7 @@
 #include "host/sokol/app/prompt.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
+#include <emscripten/html5.h>
 #include <stdint.h>
 
 /* Firefox and Safari slow animation frames for a hidden or offscreen page
@@ -40,6 +41,10 @@ EM_JS(void, js_away_setup, (int32_t *away, const double *run_ms, double live_ms)
     const last = [0, 0];
     let held = false;
     node.onaudioprocess = (e) => {
+        // saudio_shutdown frees the buffer a pull writes, and an event
+        // queued before the shutdown can still arrive after it.
+        if (Module._saudio_node !== node)
+            return;
         const out = e.outputBuffer;
         const live = !HEAP32[away >> 2] && performance.now() - HEAPF64[run_ms >> 3] < live_ms;
         if (live)
@@ -64,7 +69,7 @@ EM_JS(void, js_away_setup, (int32_t *away, const double *run_ms, double live_ms)
 
 static void entry_frame(void)
 {
-    const double now = emscripten_get_now();
+    const double now = emscripten_performance_now();
     const double gap = now - callback_ms;
     callback_ms = now;
     if (away || gap >= LIVE_MS)
