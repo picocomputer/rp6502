@@ -17,8 +17,12 @@
 
 #include "osal/fs.h"
 #include "osal/posix/errmap.h"
+#include "osal/posix/fs.h"
 #include <errno.h>
 #include <unistd.h>
+#ifdef __EMSCRIPTEN__
+#include "osal/emscripten/os.h"
+#endif
 
 std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
@@ -43,11 +47,15 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
         return STD_ERROR;
     }
     *put = (uint32_t)r;
+#ifdef __EMSCRIPTEN__
+    os_estimate_stale();
+#endif
     return STD_OK;
 }
 
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
+    fs_closing(desc);
     if (close(desc) != 0) /* also a deferred flush failure: ENOSPC, EIO */
     {
         *err = errno_to_api(errno);

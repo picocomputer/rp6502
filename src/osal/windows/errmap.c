@@ -12,7 +12,6 @@ api_errno win_error_to_api(DWORD e)
     {
     case ERROR_FILE_NOT_FOUND:
     case ERROR_PATH_NOT_FOUND:
-    case ERROR_INVALID_NAME:
     case ERROR_NO_MORE_FILES:
     case ERROR_DIRECTORY: /* a path leading through a file, FatFs FR_NO_PATH */
         return API_ENOENT;
@@ -28,6 +27,7 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
         return API_ENOMEM;
+    case ERROR_INVALID_NAME:
     case ERROR_FILENAME_EXCED_RANGE:
     case ERROR_INVALID_PARAMETER:
     case ERROR_NEGATIVE_SEEK:

@@ -38,6 +38,11 @@ void rom_mon_install(const char *args);
 void rom_mon_remove(const char *args);
 void rom_mon_help(const char *args);
 
+/* True when name is an installed ROM. argv0, of LFS_NAME_MAX + 2 bytes,
+ * receives its argv[0]: a ':' and the name in capitals. The check opens no
+ * descriptor, so it is safe while a ROM runs. */
+bool rom_installed(const char *name, char *argv0);
+
 // Begin loading an installed rom, if exists.
 bool rom_load_installed(const char *args);
 

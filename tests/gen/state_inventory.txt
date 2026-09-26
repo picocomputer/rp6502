@@ -270,5 +270,6 @@ osal/posix/console.c con_raw_on: not carried: the host's terminal, not the machi
 osal/posix/console.c con_saved: not carried: the host's terminal, not the machine's
 osal/posix/dir.c dirs: the DIR chunk reopens each slot by the path this table keeps
 osal/posix/fs.c fs_kept: the STD chunk reopens each descriptor by the path this pool keeps
+osal/posix/fs.c fs_save_dir: not carried: fixed at each ROM start; a savestate's SAVE: files reopen by name in the loading machine's folder
 osal/posix/fs_aio.c g_xfer: not carried: fs_std_settle cancels the transfer before either walk
 osal/posix/os.c g_locale: not carried: the host's locale

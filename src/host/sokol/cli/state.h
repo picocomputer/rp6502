@@ -19,12 +19,6 @@
 bool state_save_file(const char *path, const char **why);
 bool state_load_file(const char *path, const char **why);
 
-/* A savestate file named for the program and fixed at startup, because a
- * program can chdir the host process and a slot named later would land
- * wherever the program has since gone. */
-void state_slot_init(const char *rom);
-const char *state_slot(void);
-
 /* Whether an audio device is open whose callback a save or a load has to park
  * out of the engines. The window sets it wherever it opened one; a headless or
  * muted run leaves it false and nothing waits. On the web build the callback

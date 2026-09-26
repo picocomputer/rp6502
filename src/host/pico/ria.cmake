@@ -81,7 +81,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/clk.c
     ${RP6502_ROOT}/src/core/api/dir.c
     ${RP6502_ROOT}/src/core/api/ops.c
+    ${RP6502_ROOT}/src/core/api/save.c
     ${RP6502_ROOT}/src/core/api/xreg0.c
+    ${RP6502_ROOT}/src/core/rom/alias.c
     ${RP6502_ROOT}/src/core/rom/asset.c
     ${RP6502_ROOT}/src/core/rom/pump.c
     ${RP6502_ROOT}/src/core/str/path.c

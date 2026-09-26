@@ -326,7 +326,7 @@ static void poll_gamepads(retro_input_state_t state)
             {RETRO_DEVICE_ID_JOYPAD_LEFT, GAMEPAD_BTN_DPAD_LEFT},
             {RETRO_DEVICE_ID_JOYPAD_RIGHT, GAMEPAD_BTN_DPAD_RIGHT},
             /* Mapped by position, not by name: the RetroPad's B is its south
-             * button and this machine's A is too. */
+             * button, where an Xbox gamepad has A. */
             {RETRO_DEVICE_ID_JOYPAD_B, GAMEPAD_BTN_A},
             {RETRO_DEVICE_ID_JOYPAD_A, GAMEPAD_BTN_B},
             {RETRO_DEVICE_ID_JOYPAD_Y, GAMEPAD_BTN_X},
@@ -366,12 +366,13 @@ static void poll_gamepads(retro_input_state_t state)
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
                         RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
-        /* A RetroPad is a western-layout gamepad with two sticks whatever
-         * hardware is behind it. Claiming the sticks only for
-         * RETRO_DEVICE_ANALOG would deny them to most players, because a
-         * frontend reports a plain joypad for an analog controller unless
-         * someone goes and changes it. */
-        gamepad_connect(p, true, GAMEPAD_TYPE_WESTERN, true);
+        /* A RetroPad has two sticks whatever gamepad the player uses, and
+         * libretro does not report that gamepad to a core, so its face button
+         * labels are unknown. Reporting the sticks only for
+         * RETRO_DEVICE_ANALOG would remove them for most players, because a
+         * frontend reports a plain joypad for an analog controller unless the
+         * player changes that setting. */
+        gamepad_connect(p, true, GAMEPAD_TYPE_UNKNOWN, true);
         port_live[p] = true;
         gamepad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
     }

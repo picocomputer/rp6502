@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "osal/pico/dir.h"
 #include "osal/pico/errmap.h"
 #include "osal/fs.h"
 #include "fatfs/ff.h"
@@ -77,6 +78,8 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         rom_rd_lfs_live = true;
         return FS_DESC_ROM;
     }
+    if (!fat_path_ok(path, err))
+        return -1;
     FRESULT fresult = f_open(&fat_fil_pool[FS_DESC_ROM], path, FA_READ);
     if (fresult != FR_OK)
     {
@@ -153,8 +156,15 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
+    if (!fat_path_ok(path, err))
+        return -1;
 
+    // f_open refuses a directory as a missing file when it may not create one,
+    // and the root as an invalid name, where the other machines give EACCES.
     FRESULT fresult = f_open(fp, path, mode);
+    if ((fresult == FR_NO_FILE || fresult == FR_INVALID_NAME) &&
+        fat_names_dir(path))
+        fresult = FR_DENIED;
     if (fresult != FR_OK)
     {
         *err = fresult_to_api(fresult);
@@ -174,6 +184,32 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     }
 
     return (int)(fp - fat_fil_pool);
+}
+
+/* The SAVE: folder, as f_getcwd returned it when the 6502 last started, or
+ * empty when no drive was mounted then. */
+static char save_dir[API_PATH_MAX + 1];
+
+void fs_save_start(void)
+{
+    if (f_getcwd(save_dir, sizeof save_dir) != FR_OK)
+        save_dir[0] = '\0';
+}
+
+int fs_save_open(const char *name, uint8_t flags, api_errno *err)
+{
+    if (!save_dir[0])
+    {
+        *err = API_ENODEV;
+        return -1;
+    }
+    char path[sizeof save_dir + 1 + SAVE_NAME_MAX];
+    size_t len = strlen(save_dir);
+    memcpy(path, save_dir, len);
+    if (path[len - 1] != '/')
+        path[len++] = '/';
+    strcpy(path + len, name);
+    return fs_std_open(path, flags, err);
 }
 
 void fs_std_settle(void)
@@ -301,6 +337,34 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     return STD_OK;
 }
 
+/* f_lseek past the end of a writable file extends it over clusters that
+ * still hold old data, and when the volume fills it stops short with no
+ * error, so the gap is written with zeros instead. A volume that fills leaves
+ * the file and its position as they were. */
+static int fat_extend(FIL *fp, FSIZE_t to, int32_t *pos, api_errno *err)
+{
+    const char zeros[128] = {0};
+    FSIZE_t from = f_tell(fp);
+    FSIZE_t size = f_size(fp);
+    FRESULT fresult = f_lseek(fp, size);
+    UINT want = 0, bw = 0;
+    while (fresult == FR_OK && bw == want && f_tell(fp) < to)
+    {
+        FSIZE_t gap = to - f_tell(fp);
+        want = gap < sizeof zeros ? (UINT)gap : sizeof zeros;
+        fresult = f_write(fp, zeros, want, &bw);
+    }
+    if (fresult == FR_OK && bw == want)
+    {
+        *pos = (int32_t)to;
+        return 0;
+    }
+    *err = fresult == FR_OK ? API_ENOSPC : fresult_to_api(fresult);
+    if (f_lseek(fp, size) == FR_OK && f_truncate(fp) == FR_OK)
+        f_lseek(fp, from);
+    return -1;
+}
+
 int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
     lfs_file_t *lf;
@@ -385,6 +449,8 @@ int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errn
         *err = API_ERANGE;
         return -1;
     }
+    if (absolute_offset > f_size(fp) && (fp->flag & FA_WRITE))
+        return fat_extend(fp, absolute_offset, pos, err);
     FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)
     {

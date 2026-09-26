@@ -33,15 +33,14 @@
   <script>
     /* =====================================================================
      *  DEPLOY CONFIG — edit this block, then re-zip the folder and upload.
-     *  Nothing else in this file needs changing. See README.md for steps.
+     *  Nothing else in this file needs changing. See README.txt for steps.
      * ===================================================================== */
     var CONFIG = {
       rom:    'adventure.rp6502',          // your program, sitting next to this file
       title:  'Colossal Cave Adventure',   // browser tab title
       bg:     '000000',                    // letterbox fill, 6 hex digits (no '#')
       filter: 'sharp',                     // pixel scaling: nearest | linear | sharp
-      db:      '',    // save database name; blank = the rom filename (see README)
-      persist: false, // true = saves are kept in the player's browser (see README)
+      db:     '',                          // save database name; blank = the rom filename
     };
     /* ===================== end of editable section ====================== */
 
@@ -70,7 +69,7 @@
 
       // ?credits dumps every bundled component's license notice (the emulator's
       // built-in --credits). There is no on-page link — it's the attribution
-      // path for anyone who redistributes the emulator. See README.md.
+      // path for anyone who redistributes the emulator. See README.txt.
       if (new URLSearchParams(location.search).has('credits')) {
         var lines = [];
         window.Module = {
@@ -96,11 +95,11 @@
       function sanitize(s) { return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'default'; }
 
       var base = baseName(CONFIG.rom);
-      var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
-      var persist = CONFIG.persist === true;
-      var args = ['--install', '/' + base];
+      var dbname = sanitize(String(CONFIG.db || '') || base);
+      var args = ['--save-dir', '/saves'];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
+      args.push('/roms/' + base);
 
       // Failures must land on the page, not just the DevTools console: keep a
       // tail of stderr, and surface any uncaught error/rejection (a crashed
@@ -133,56 +132,77 @@
         }],
         preRun: [function () {
           var M = Module;
-          // /db is made the cwd, so program writes land there. With
-          // persist it's IDBFS, mirrored to an IndexedDB database named by
-          // CONFIG.db — IDBFS names databases after the mountpoint, so wrap
-          // getDB to substitute ours. Without persist it's plain memory and
-          // saves vanish when the player leaves.
-          try { M.FS.mkdirTree('/db'); } catch (e) {}
-          if (persist) {
-            var I = M.IDBFS;
-            var getDB = I.getDB;
-            I.getDB = function (name, cb) {
-              return getDB(name === '/db' ? dbname : name, cb);
-            };
-            // Store keys mount-relative ('save.dat', not '/db/save.dat') so
-            // the database doesn't bake in the mountpoint. IDBFS uses one
-            // string as both VFS path and database key, so translate on the
-            // remote side only: prepend on the way out, strip on the way in.
-            var strip = function (p) { return p.slice('/db/'.length); };
-            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
-            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
-            I.getRemoteSet = function (mount, cb) {
-              grs(mount, function (err, remote) {
-                if (remote && remote.entries) {
-                  var entries = {};
-                  for (var k in remote.entries) entries['/db/' + k] = remote.entries[k];
-                  remote.entries = entries;
-                }
-                cb(err, remote);
-              });
-            };
-            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
-            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
-            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
-            // autoPersist: IDBFS hooks close, unlink, rename, mkdir and rmdir and
-            // queues a syncfs itself, batching a frame's writes into one
-            // transaction and re-running when one lands mid-flight. A plain
-            // fsync() cannot do it -- emscripten only routes fd_sync to syncfs
-            // under ASYNCIFY or PTHREADS, and this build has neither.
-            M.FS.mount(M.IDBFS, {autoPersist: true}, '/db');
-            M.addRunDependency('idbfs');
-            M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
-          }
-          M.FS.chdir('/db');
-          // Fetch the program into MEMFS (never written back to IndexedDB, so
-          // storage only holds saves).
+          // The ROM is kept in memory at /roms, and SAVE: opens files in
+          // /saves, which is IDBFS, mirrored to an IndexedDB database named
+          // by CONFIG.db.
+          M.FS.mkdir('/roms');
+          M.FS.mount(M.MEMFS, {}, '/roms');
+          M.FS.mkdir('/saves');
+          var I = M.IDBFS;
+          // IDBFS names a database after its mountpoint, so the mountpoint
+          // is swapped for dbname here.
+          var getDB = I.getDB;
+          I.getDB = function (name, cb) {
+            return getDB(name === '/saves' ? dbname : name, cb);
+          };
+          // Keys are stored mount-relative ('save.dat', not '/saves/save.dat'),
+          // so a database holds no mountpoint and saves made under the earlier
+          // /db mountpoint still load. IDBFS uses one string as both VFS path
+          // and database key, so the path is translated on the remote side
+          // only: the mountpoint is prepended on the way out and stripped on
+          // the way in.
+          var strip = function (p) { return p.slice('/saves/'.length); };
+          var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+          var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+          I.getRemoteSet = function (mount, cb) {
+            grs(mount, function (err, remote) {
+              if (remote && remote.entries) {
+                var entries = {};
+                for (var k in remote.entries) entries['/saves/' + k] = remote.entries[k];
+                remote.entries = entries;
+              }
+              cb(err, remote);
+            });
+          };
+          I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+          I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+          I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+          // autoPersist drops the error of each sync it starts, so every
+          // IDBFS sync logs its failure here.
+          var syncfs = I.syncfs;
+          I.syncfs = function (mount, populate, cb) {
+            syncfs(mount, populate, function (err) {
+              if (err) console.error('IDBFS:', err);
+              cb(err);
+            });
+          };
+          // autoPersist queues a sync after a close that wrote and after a
+          // create, unlink, rename or rmdir, batching a frame's changes into
+          // one transaction. A syncfs from the program returns once
+          // FS.syncfs has finished.
+          var ops = M.FS.mount(I, {autoPersist: true}, '/saves').node_ops;
+          // A sync stores only entries whose mtime changed, and MEMFS changes
+          // it only on a write, so a truncate or a chmod would never be stored.
+          // Marking the node modified lets the close after an O_TRUNC queue
+          // the sync as a write would.
+          var setattr = ops.setattr;
+          ops.setattr = function (node, attr) {
+            var changed = (attr.size !== undefined && attr.size !== node.usedBytes) ||
+                          (attr.mode !== undefined && attr.mode !== node.mode);
+            setattr(node, attr);
+            if (changed) {
+              node.mtime = Date.now();
+              node.isModified = true;
+            }
+          };
+          M.addRunDependency('idbfs');
+          M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
           M.addRunDependency('rom');
           fetch(CONFIG.rom).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.arrayBuffer();
           }).then(function (buf) {
-            M.FS.writeFile('/' + base, new Uint8Array(buf));
+            M.FS.writeFile('/roms/' + base, new Uint8Array(buf));
           }).catch(function (e) {
             fail('Could not load ' + CONFIG.rom + ' (' + e.message + ').');
           }).finally(function () { M.removeRunDependency('rom'); });
@@ -207,7 +227,7 @@
       // close may miss it). The guard avoids overlapping syncfs calls.
       var syncing = false;
       function flush() {
-        if (!persist || !Module.FS || syncing) return;
+        if (!Module.FS || syncing) return;
         syncing = true;
         try { Module.FS.syncfs(false, function () { syncing = false; }); }
         catch (e) { syncing = false; }
@@ -221,7 +241,7 @@
       // Privacy-gated: nothing reads navigator.getGamepads() until the running
       // program maps the gamepad report block into XRAM (it calls xreg_ria_gamepad,
       // flipping gamepad_mapped()). A 250 ms watcher checks that flag; only then
-      // do we poll the four "standard mapping" gamepads per frame and forward each.
+      // do we poll the four gamepads per frame and forward each.
       // If the program releases the block we stop and resume watching, so the
       // browser only touches the gamepad while a ROM asks for it.
       function initGamepadBridge() {
@@ -237,11 +257,13 @@
         function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
         function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
         // Face button labels: 3 PlayStation, 2 Eastern BA, 1 Western AB, 0 when
-        // the id doesn't say for certain.
-        function padType(id) {
-          id = id || '';
+        // the id does not identify the pad or buttons[] is in the device's order.
+        function padType(gp) {
+          if (gp.mapping !== 'standard') return 0;
+          var id = gp.id;
           if (/054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id)) return 3;
-          if (/057e|switch|joy-?con|nintendo/i.test(id)) return 2;
+          // Pro Controller or Joy-Con pair; a lone Joy-Con held sideways fits no row.
+          if (/057e\D+20(09|0e)/i.test(id)) return 2;
           if (/045e|xbox|xinput/i.test(id)) return 1;
           return 0;
         }
@@ -262,11 +284,15 @@
                        (on(14) ? 0x04 : 0) | (on(15) ? 0x08 : 0);
             var b0 = (on(0) ? 0x01 : 0) | (on(1) ? 0x02 : 0) | (on(2) ? 0x08 : 0) |
                      (on(3) ? 0x10 : 0) | (on(4) ? 0x40 : 0) | (on(5) ? 0x80 : 0);
+            var type = padType(gp);
+            // The standard mapping places Nintendo face buttons by position.
+            if (type === 2)
+              b0 = (b0 & 0xE4) | (b0 & 0x09) << 1 | (b0 & 0x12) >> 1;
             var b1 = (on(6) ? 0x01 : 0) | (on(7) ? 0x02 : 0) | (on(8) ? 0x04 : 0) |
                      (on(9) ? 0x08 : 0) | (on(16) ? 0x10 : 0) | (on(10) ? 0x20 : 0) |
                      (on(11) ? 0x40 : 0);
             report(p, dpad, b0, b1, axis(a[0]), axis(a[1]), axis(a[2]), axis(a[3]),
-                   trig(b[6]), trig(b[7]), padType(gp.id), a.length >= 4 ? 1 : 0);
+                   trig(b[6]), trig(b[7]), type, a.length >= 4 ? 1 : 0);
             connected[p] = true;
           }
           raf = requestAnimationFrame(poll);
@@ -282,7 +308,30 @@
         watch = setInterval(check, 250);
       }
 
-      load();
+      // Each window loads a separate copy of the database, and a sync makes
+      // the database match that copy, so two windows on one database would
+      // undo each other's saves. The lock is held until the window closes.
+      function boot() {
+        msg.style.display = 'none';
+        load();
+        return new Promise(function () {});
+      }
+      if (navigator.storage) navigator.storage.persist().catch(console.error);
+      if (navigator.locks) {
+        navigator.locks.request(dbname, {ifAvailable: true}, function (lock) {
+          if (lock) return boot();
+          msg.textContent = 'This game is running in another window';
+          msg.style.display = 'grid';
+          return navigator.locks.request(dbname, boot);
+        }).catch(function (e) {
+          // Where the browser blocks storage, the lock request fails too,
+          // and the game runs with its saves in memory only.
+          console.error(e);
+          boot();
+        });
+      } else {
+        load();
+      }
     })();
   </script>
 </body>

@@ -43,6 +43,8 @@ api_errno errno_to_api(int host_errno)
         return API_EBUSY;
     case ENODEV:
     case ENXIO:
+    /* A rename across mounts is one across drives. */
+    case EXDEV:
         return API_ENODEV;
     case EAGAIN:
         return API_EAGAIN;

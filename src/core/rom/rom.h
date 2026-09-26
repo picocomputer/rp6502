@@ -53,20 +53,29 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec, ap
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);
 
-/* An installed ":name" and the host file behind it (alias.c).
+/* An installed ":name" and its host file (alias.c).
  *
- * insert copies the path it is given. resolve borrows: the answer is the
- * install's own string, or the path itself where nothing claims it. */
-bool rom_alias_insert(const char *hostpath);
-bool rom_alias_insert_as(const char *hostpath, const char *name);
+ * host is a host path (osal/fs.h), and the install stores its absolute form.
+ * name is in the code page, without the ":", and rom_alias_insert takes it
+ * from the last part of host. An install replaces an earlier one of the same
+ * name. Each insert returns the installed name, a string held in the alias
+ * table, or NULL when it fails.
+ *
+ * rom_alias_resolve returns the absolute host path installed under path,
+ * without copying it, or NULL when path is not an installed ":name".
+ * rom_alias_open opens a ROM image for reading by any name rom_load accepts:
+ * the host path of an install, or else path itself through fs_rom_open. */
+const char *rom_alias_insert(const char *host);
+const char *rom_alias_insert_as(const char *host, const char *name);
 bool rom_alias_remove(const char *name);
 const char *rom_alias_resolve(const char *path);
+int rom_alias_open(const char *path, api_errno *err);
 
-/* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path,
- * or an installed ":name", which rom_load resolves. The named assets are not
- * read: only the start of the asset directory is kept, so a ROM: open scans the
- * file for the entry on demand. Returns false, after saying why on the console,
- * on any format or CRC error. */
+/* Load a .rp6502 into ram[]/xram[]. The path may be a drive path or an
+ * installed ":name", which rom_load resolves. The named assets are not read:
+ * only the start of the asset directory is kept, so a ROM: open scans the file
+ * for the entry on demand. Returns false, after printing the reason on the
+ * console, on any format or CRC error. */
 bool rom_load(const char *path);
 
 /* The loader hands its descriptor and asset-directory offset to the ROM: drive,

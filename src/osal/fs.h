@@ -7,6 +7,7 @@
 #ifndef _OSAL_FS_H_
 #define _OSAL_FS_H_
 
+#include "core/api/save.h"
 #include "core/api/std.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -44,6 +45,43 @@ int fs_std_reopen(sst_cursor_t *c, api_errno *err);
 
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);
+
+/* A host path, as opposed to a drive path, is in the host's syntax and in
+ * UTF-8 whatever the code page, and the FAT name rules do not apply to it,
+ * because a program never passes one. An installed ROM is one of these
+ * (core/rom/alias.c). fs_host_realpath returns the absolute form of a file or
+ * folder that exists, allocated for the caller to free, or NULL.
+ * fs_rom_open_host opens a ROM image for reading as fs_rom_open does, in the
+ * same descriptor space. */
+char *fs_host_realpath(const char *host);
+int fs_rom_open_host(const char *host, api_errno *err);
+
+/* fs_save_start sets the SAVE: folder each time a program starts: the
+ * host_save_dir of host/host.h, or the working directory at that moment when
+ * that is NULL. fs_save_open opens name in that folder, so a CHDIR or CHDRIVE
+ * by the program does not move its saves. save_std_open has already checked
+ * name against the rules in core/api/save.h. The descriptor is one the
+ * fs_std_ functions accept, and fs_std_ident records it as SAVE:name, so a
+ * savestate holds no host path for it and fs_std_reopen opens it again
+ * through save_std_open. The folder is kept after a stop, because a savestate
+ * loaded into a stopped machine still reopens its SAVE: files there. A host
+ * that unloads this library frees it with fs_save_free. */
+int fs_save_open(const char *name, uint8_t flags, api_errno *err);
+void fs_save_start(void);
+void fs_save_free(void);
+
+#define SAVE_STD_DRIVER              \
+    {                                \
+        .handles = save_std_handles, \
+        .open = save_std_open,       \
+        .close = fs_std_close,       \
+        .read = fs_std_read,         \
+        .write = fs_std_write,       \
+        .sync = fs_std_sync,         \
+        .lseek = fs_std_lseek,       \
+        .ident = fs_std_ident,       \
+        .reopen = fs_std_reopen,     \
+    }
 
 #define FS_STD_DRIVER           \
     {                              \

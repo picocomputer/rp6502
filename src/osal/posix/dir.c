@@ -3,18 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The API speaks FAT: attribute bits and a 1980-epoch date. A POSIX
- * filesystem has neither, so struct stat becomes an f_stat_t here.
+ * The API uses FAT's attribute bits and 1980-epoch dates. A POSIX filesystem
+ * has neither, so struct stat is converted to an f_stat_t here.
  *
- * Paths arrive in the 6502's OEM code page and may carry this drive's name.
- * strip_drive takes the name off and oem_to_utf8 the code page before every
- * libc call, and names come back through oem_from_utf8. Nothing puts a drive
- * name back on, because a POSIX path has no device in it.
+ * Paths from a program are in the 6502's OEM code page and may start with
+ * this drive's name. path_to_utf8 removes the name, checks the rest against
+ * the FAT rules and converts the code page before every libc call, and names
+ * from the host are converted with oem_from_utf8. drive_getcwd and
+ * os_dir_realpath put the name back on, because an absolute path always
+ * starts with its drive.
  */
 
 #include "osal/dir.h"
 #include "core/str/oem.h"
+#include "core/str/path.h"
 #include "osal/os.h"
+#include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include <dirent.h>
 #include <errno.h>
@@ -27,11 +31,14 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef __EMSCRIPTEN__
+#include "osal/emscripten/os.h"
+#endif
 
 #define DIR_NAME_MAX 256 /* an entry's name, not a path */
 
-/* FS: is the only drive here, and a path without it is already native, which
- * is what lets a host path from the command line go straight through. */
+/* FS: is the only drive here, so a path without it, such as a host path from
+ * the command line, is already a host path. */
 static const char *strip_drive(const char *path)
 {
     return strncasecmp(path, "FS:", 3) == 0 ? path + 3 : path;
@@ -40,41 +47,63 @@ static const char *strip_drive(const char *path)
 char *path_to_utf8(const char *path, api_errno *err)
 {
     const char *native = strip_drive(path);
-    /* A leading ":" is the null drive, where installed ROMs live. It has no
-     * equivalent in the host's path format, so neither ":name" nor "FS::name"
-     * can name a real file. */
-    if (native[0] == ':')
-    {
-        *err = API_ENODEV; /* FR_INVALID_DRIVE maps to this on the Pico */
+    if (!path_fat_ok(native, native != path, err))
         return NULL;
-    }
     /* A byte with no character in the code page would be substituted, and a
      * substituted name is a different name, so the path is refused with the
-     * same error FatFs returns for it. Length is held to API_PATH_MAX, what the
-     * board holds, so a path that works on one machine works on the other. */
-    if (strlen(native) > API_PATH_MAX || !oem_maps_oem(native))
+     * same error FatFs returns for it. */
+    if (!oem_maps_oem(native))
     {
-        *err = API_EINVAL; /* FR_INVALID_NAME maps to this on the Pico */
+        *err = API_EINVAL;
         return NULL;
     }
     size_t usz = oem_to_utf8(native, NULL, 0) + 1;
     char *u8 = malloc(usz);
-    if (u8)
-        oem_to_utf8(native, u8, usz);
-    else
+    if (!u8)
+    {
         *err = API_ENOMEM;
+        return NULL;
+    }
+    oem_to_utf8(native, u8, usz);
+    /* FatFs separates with either slash, and POSIX with '/' alone. */
+    for (char *p = u8; *p; p++)
+        if (*p == '\\')
+            *p = '/';
     return u8;
 }
 
-/* oem_from_utf8 writes one byte per UTF-8 sequence, so it only ever contracts
- * and the source length bounds the allocation. */
-static char *path_from_utf8(const char *u8)
+/* A '\\' inside a host name would be read by path_to_utf8 as a separator.
+ * oem_from_utf8 writes one byte per UTF-8 sequence, so its output is never
+ * longer than its input, and the source length bounds the allocation. */
+char *path_from_host(const char *host)
 {
-    size_t sz = strlen(u8) + 1;
+    if (strchr(host, '\\') || !oem_maps_utf8(host))
+        return NULL;
+    size_t sz = 3 + strlen(host) + 1;
     char *out = malloc(sz);
-    if (out)
-        oem_from_utf8(u8, out, sz);
+    if (!out)
+        return NULL;
+    memcpy(out, "FS:", 3);
+    oem_from_utf8(host, out + 3, sz - 3);
+    api_errno ignored;
+    if (!path_fat_ok(out + 3, true, &ignored))
+    {
+        free(out);
+        return NULL;
+    }
     return out;
+}
+
+/* A name or path from the host, as a program receives it. Each character that
+ * the code page cannot hold or that FAT refuses in a name becomes 127, which
+ * no path may contain, so the name is listed but cannot be opened. */
+static size_t shown_from_utf8(const char *u8, char *dst, size_t size)
+{
+    size_t need = oem_from_utf8(u8, dst, size);
+    for (char *p = dst; *p; p++)
+        if ((unsigned char)*p < 0x20 || strchr("\"*:<>?|\\", *p))
+            *p = 0x7F;
+    return need;
 }
 
 char *os_dir_realpath(const char *path)
@@ -85,9 +114,7 @@ char *os_dir_realpath(const char *path)
         return NULL;
     char *r = realpath(u8, NULL);
     free(u8);
-    if (!r)
-        return NULL;
-    char *out = path_from_utf8(r);
+    char *out = r ? path_from_host(r) : NULL;
     free(r);
     return out;
 }
@@ -274,9 +301,18 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    struct stat st;
+    if (!u8[0]) /* an empty path or a bare drive name */
+    {
+        free(u8);
+        *err = API_EINVAL;
+        return false;
+    }
+    struct stat st, root;
     bool ok = posix_ok(stat(u8, &st) == 0, err);
-    if (ok)
+    if (ok && stat("/", &root) == 0 && st.st_dev == root.st_dev &&
+        st.st_ino == root.st_ino)
+        f_stat_root(info);
+    else if (ok)
     {
         /* The reported name is taken off the native path rather than off the
          * caller's text, which still carries whatever drive name it was
@@ -286,9 +322,8 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
         while (n > 1 && u8[n - 1] == '/')
             u8[--n] = 0;
         const char *slash = strrchr(u8, '/');
-        const char *base = slash && slash[1] ? slash + 1 : (slash ? slash : u8);
         char name[DIR_NAME_MAX];
-        oem_from_utf8(base, name, sizeof name);
+        oem_from_utf8(slash ? slash + 1 : u8, name, sizeof name);
         info_from_stat(info, &st, name, AT_FDCWD, u8);
     }
     free(u8);
@@ -300,8 +335,8 @@ static bool dir_open_into(int i, const char *path, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    /* a directory of no name is the working directory */
-    void *dp = posix_opendir(u8[0] ? u8 : ".");
+    bool here = !u8[0]; /* a directory of no name is the working directory */
+    void *dp = posix_opendir(here ? "." : u8);
     bool ok = posix_ok(dp != NULL, err);
     free(u8);
     if (!ok)
@@ -309,7 +344,7 @@ static bool dir_open_into(int i, const char *path, api_errno *err)
     dirs[i].used = true;
     dirs[i].dp = dp;
     dirs[i].path[0] = 0;
-    char *abs = os_dir_realpath(path);
+    char *abs = os_dir_realpath(here ? "." : path);
     if (abs)
     {
         if (strlen(abs) <= API_PATH_MAX)
@@ -379,15 +414,8 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
             return true;
         }
     } while (strcmp(u8name, ".") == 0 || strcmp(u8name, "..") == 0);
-    /* A substituted name would let two entries arrive under one name, and a
-     * program handing that name back would open neither of them. */
-    if (!oem_maps_utf8(u8name))
-    {
-        *err = API_EINVAL;
-        return false;
-    }
     char name[DIR_NAME_MAX];
-    oem_from_utf8(u8name, name, sizeof name);
+    shown_from_utf8(u8name, name, sizeof name);
     info_from_stat(info, &st, name, fd, u8name);
     return true;
 }
@@ -408,16 +436,35 @@ bool drive_rewinddir(int des, api_errno *err)
     return true;
 }
 
+/* POSIX removes a file regardless of its permissions, while f_unlink refuses
+ * one marked read-only, which here is one without S_IWUSR. remove(3) removes
+ * a file or an empty directory, as f_unlink does. */
 bool drive_unlink(const char *path, api_errno *err)
 {
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    bool ok = posix_ok(remove(u8) == 0, err);
+    struct stat st;
+    bool ok = posix_ok(stat(u8, &st) == 0, err);
+    if (ok && !(st.st_mode & S_IWUSR))
+    {
+        *err = API_EACCES;
+        ok = false;
+    }
+    ok = ok && posix_ok(remove(u8) == 0, err);
     free(u8);
-    return ok; /* remove(3) takes a file or an empty directory, as f_unlink does */
+#ifdef __EMSCRIPTEN__
+    if (ok)
+        os_estimate_stale();
+#endif
+    return ok;
 }
 
+/* A file replaces only a file. rename(2) would also put a folder in place of
+ * an empty one, and fails with other errors for the other combinations, so
+ * those are refused first. The same file under a second name, such as a
+ * change of case where the host ignores case, does not count as an existing
+ * target, and a target on another mount is left for rename(2) to refuse. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     char *u8old = path_to_utf8(oldname, err);
@@ -429,8 +476,20 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
         free(u8old);
         return false;
     }
-    bool ok = posix_ok(rename(u8old, u8new) == 0, err); /* replaces an existing target */
+    struct stat so, sn;
+    bool ok = posix_ok(stat(u8old, &so) == 0, err);
+    if (ok && stat(u8new, &sn) == 0 && so.st_dev == sn.st_dev &&
+        so.st_ino != sn.st_ino && (S_ISDIR(so.st_mode) || S_ISDIR(sn.st_mode)))
+    {
+        *err = API_EEXIST;
+        ok = false;
+    }
+    ok = ok && posix_ok(rename(u8old, u8new) == 0, err);
     free(u8old), free(u8new);
+#ifdef __EMSCRIPTEN__
+    if (ok)
+        os_estimate_stale();
+#endif
     return ok;
 }
 
@@ -441,6 +500,10 @@ bool drive_mkdir(const char *path, api_errno *err)
         return false;
     bool ok = posix_ok(mkdir(u8, 0777) == 0, err);
     free(u8);
+#ifdef __EMSCRIPTEN__
+    if (ok)
+        os_estimate_stale();
+#endif
     return ok;
 }
 
@@ -461,8 +524,7 @@ bool drive_chdir(const char *path, api_errno *err)
  * drive, and neither does the null drive. */
 bool drive_chdrive(const char *drive, api_errno *err)
 {
-    const char *rest = strip_drive(drive);
-    if (rest[0] == 0 && drive[0] != ':')
+    if (!strip_drive(drive)[0])
         return true;
     *err = API_ENODEV;
     return false;
@@ -531,53 +593,65 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     char *u8 = getcwd(NULL, 0); /* getcwd allocates an answer of its own length */
     if (!posix_ok(u8 != NULL, err))
         return false;
-    /* oem_from_utf8 returns the untruncated length, so a short buffer is an
-     * error here rather than a path the caller cannot use. */
-    bool ok = oem_from_utf8(u8, buf, size) < size;
-    if (!ok)
+    /* shown_from_utf8 returns the untruncated length, so a short buffer is
+     * an error here rather than a path the caller cannot use. */
+    bool ok = size > 3 && shown_from_utf8(u8, buf + 3, size - 3) < size - 3;
+    if (ok)
+        memcpy(buf, "FS:", 3);
+    else
         *err = API_ENOMEM;
     free(u8);
     return ok;
 }
 
-/* A POSIX filesystem has no volume label, and an empty label is FatFs's own
- * word for unlabeled. No portable call answers one. */
+/* Only the Pico has volume labels. The emulator neither reads nor renames the
+ * host's, so both label calls refuse. */
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
-    (void)path, (void)size, (void)err;
-    label[0] = 0;
-    return true;
-}
-
-/* Setting a label fails rather than reporting success for something that did
- * not happen. */
-bool drive_setlabel(const char *path, api_errno *err)
-{
-    (void)path;
-    *err = API_ENOSYS;
+    (void)path, (void)label, (void)size;
+    *err = API_EACCES;
     return false;
 }
 
-bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
-                          api_errno *err)
+bool drive_setlabel(const char *path, api_errno *err)
+{
+    (void)path;
+    *err = API_EACCES;
+    return false;
+}
+
+std_rw_result drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
+                            api_errno *err)
 {
     /* A query of no name asks about the drive in use, which is what f_getfree
      * does with "". Asked after the conversion, so that "FS:" is a drive query
      * and not an empty path. */
     char *u8 = path_to_utf8(path, err);
     if (!u8)
-        return false;
+        return STD_ERROR;
     struct statvfs vfs;
     bool ok = posix_ok(statvfs(u8[0] ? u8 : ".", &vfs) == 0, err);
     free(u8);
     if (!ok)
-        return false;
+        return STD_ERROR;
+#ifdef __EMSCRIPTEN__
+    /* The browser's filesystem reports made-up sizes. What the page may store
+     * is the quota the browser gives it, less what it already uses. */
+    uint64_t quota, usage;
+    os_estimate_start();
+    std_rw_result r = os_estimate_poll(&quota, &usage, err);
+    if (r != STD_OK)
+        return r;
+    uint64_t tot = quota / 512;
+    uint64_t fre = (usage < quota ? quota - usage : 0) / 512;
+#else
     uint64_t unit = vfs.f_frsize ? vfs.f_frsize : vfs.f_bsize;
     uint64_t tot = ((uint64_t)vfs.f_blocks * unit) / 512;
     uint64_t fre = ((uint64_t)vfs.f_bavail * unit) / 512;
+#endif
     *tot_sect = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
     *fre_sect = fre > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre;
-    return true;
+    return STD_OK;
 }
 
 /* A POSIX filesystem takes filenames as bytes; there is no page to set. */

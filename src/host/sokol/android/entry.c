@@ -201,6 +201,8 @@ uint32_t host_seed(void)
     return run_seed;
 }
 
+const char *host_save_dir(void) { return NULL; }
+
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 void host_window_files_dropped(void) {}

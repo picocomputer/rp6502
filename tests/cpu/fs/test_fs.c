@@ -26,6 +26,8 @@
 #define O_WR 0x02
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
+#define O_APPEND_ 0x40
+#define O_EXCL_ 0x80
 
 static char g_dir[256];
 
@@ -47,21 +49,33 @@ static bool drive_mkdir_at(const char *path)
     return drive_mkdir(path, &err);
 }
 
+/* Option 2 is API_ERRNO_OPT_LLVM, selected so that errno checks can
+ * distinguish one error from another. SAVE: is set to the new folder, as a
+ * ROM start sets it when the host has no save folder. */
 static bool fresh_cwd(void)
 {
     char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
-    if (!drive_chdir_to(dir))
+    if (!drive_chdir_to(dir) || !drive_cwd(g_dir, sizeof(g_dir)))
         return false;
-    return drive_cwd(g_dir, sizeof(g_dir));
+    fs_save_start();
+    api_set_errno_opt(2);
+    return true;
+}
+
+/* g_dir as a host path, without the FS: that the POSIX GETCWD puts in
+ * front. */
+static const char *host_dir(void)
+{
+    return strncmp(g_dir, "FS:", 3) ? g_dir : g_dir + 3;
 }
 
 static bool host_exists(const char *rel)
 {
     char p[512];
-    snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
+    snprintf(p, sizeof(p), "%s/%s", host_dir(), rel);
     FILE *f = fopen(p, "rb");
     if (f)
         fclose(f);
@@ -72,6 +86,20 @@ static void msc_expect(char *out, size_t sz, const char *suffix)
 {
     snprintf(out, sz, "%s%s", g_dir, suffix);
 }
+
+static void make_file(const char *rel, const char *data, uint16_t n)
+{
+    int f = ssys_open(rel, O_WR | O_CREAT_ | O_TRUNC_);
+    if (f >= 0)
+    {
+        ssys_write(f, data, n);
+        ssys_close(f);
+    }
+}
+
+#define AM_RDO 0x01
+#define AM_DIR 0x10
+#define AM_ARC 0x20
 
 
 UTEST(fs, drive_write_read_seek)
@@ -115,6 +143,7 @@ UTEST(fs, chdir_getcwd_relative)
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
+    ASSERT_EQ(strncmp(cwd, host_drive(), strlen(host_drive())), 0);
 
     dsys_path("saves");
     dir_api_mkdir();
@@ -178,47 +207,102 @@ UTEST(fs, answers_in_the_host_s_spelling)
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STREQ(cwd, g_dir);
 
-    char probe[TEST_PATH_MAX + 16];
-    snprintf(probe, sizeof(probe), "%s/round.txt", cwd);
-    FILE *f = fopen(probe, "wb");
-    ASSERT_TRUE(f != NULL);
-    fclose(f);
-
-    char *abs = os_dir_realpath(probe);
+    make_file("round.txt", "r", 1);
+    char expect[TEST_PATH_MAX];
+    msc_expect(expect, sizeof(expect), "/round.txt");
+    ASSERT_EQ(strncmp(expect, host_drive(), strlen(host_drive())), 0);
+    char *abs = os_dir_realpath("round.txt");
     ASSERT_TRUE(abs != NULL);
-    ASSERT_STREQ(abs, probe);
+    ASSERT_STREQ(abs, expect);
+    free(abs);
+    abs = os_dir_realpath(expect);
+    ASSERT_TRUE(abs != NULL);
+    ASSERT_STREQ(abs, expect);
     free(abs);
 }
 
-UTEST(fs, a_name_the_code_page_cannot_spell_is_refused)
+/* U+65E5 U+672C, which no single-byte code page holds. */
+static bool make_kanji_file(void)
+{
+#ifdef _WIN32
+    FILE *f = _wfopen(L"\u65E5\u672C.txt", L"wb");
+#else
+    FILE *f = fopen("\xE6\x97\xA5\xE6\x9C\xAC.txt", "wb");
+#endif
+    if (f)
+        fclose(f);
+    return f != NULL;
+}
+
+UTEST(fs, a_name_the_code_page_cannot_hold_lists_with_127)
 {
     ASSERT_TRUE(fresh_cwd());
-
-    /* These bytes are U+65E5 U+672C in UTF-8, and no single-byte code page has
-     * either character. */
-    static const char kanji[] = "\xE6\x97\xA5\xE6\x9C\xAC.txt";
-    char probe[512];
-    snprintf(probe, sizeof(probe), "%s/%s", g_dir, kanji);
-    FILE *f = fopen(probe, "wb");
-    if (!f)
-        return;
+    ASSERT_TRUE(make_kanji_file());
+    make_file("plain.txt", "p", 1);
+    int want = 2;
+#ifndef _WIN32
+    FILE *f = fopen("x:y.txt", "wb");
+    ASSERT_TRUE(f != NULL);
     fclose(f);
+    want++;
+#endif
 
     dsys_path("");
     dir_api_opendir();
     int des = dsys_ax();
     ASSERT_TRUE(des >= 0);
-    bool refused = false;
-    for (int i = 0; i < 8 && !refused; i++)
+    int count = 0;
+    bool saw_kanji = false, saw_plain = false, saw_colon = false;
+    f_stat_t info;
+    for (;;)
     {
         dsys_des(des);
         dir_api_readdir();
-        refused = dsys_ax() != 0;
+        ASSERT_EQ(dsys_ax(), 0);
+        dsys_filinfo(&info);
+        if (!info.fname[0])
+            break;
+        count++;
+        saw_kanji |= !strcmp(info.fname, "\x7F\x7F.txt");
+        saw_plain |= !strcmp(info.fname, "plain.txt");
+        saw_colon |= !strcmp(info.fname, "x\x7Fy.txt");
     }
-    ASSERT_TRUE(refused);
     dsys_des(des);
     dir_api_closedir();
+    ASSERT_EQ(count, want);
+    ASSERT_TRUE(saw_kanji);
+    ASSERT_TRUE(saw_plain);
+#ifndef _WIN32
+    ASSERT_TRUE(saw_colon);
+#endif
+
+    ASSERT_TRUE(ssys_open("\x7F\x7F.txt", O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    dsys_path("\x7F\x7F.txt");
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
 }
+
+#ifndef _WIN32
+/* Windows cannot make a folder this deep outside its long path form. */
+UTEST(fs, a_working_directory_past_255_bytes_is_not_answered)
+{
+    ASSERT_TRUE(fresh_cwd());
+    char seg[81];
+    memset(seg, 'd', 80);
+    seg[80] = 0;
+    for (int i = 0; i < 3; i++)
+    {
+        ASSERT_TRUE(drive_mkdir_at(seg));
+        ASSERT_TRUE(drive_chdir_to(seg));
+    }
+    dir_api_getcwd();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOMEM));
+    ASSERT_TRUE(drive_chdir_to(g_dir));
+}
+#endif
 
 UTEST(fs, chdrive_takes_this_machine_s_drive)
 {
@@ -231,27 +315,20 @@ UTEST(fs, chdrive_takes_this_machine_s_drive)
     dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), 0);
 
-    /* The name is longer than one letter because on Windows drive_chdrive
-     * accepts any single letter that names a drive the host has. */
     dsys_path("NOPE:");
     dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+
+    /* A drive name is not one without its colon. */
+    char bare[8];
+    snprintf(bare, sizeof bare, "%.*s", (int)strlen(host_drive()) - 1, host_drive());
+    dsys_path(bare);
+    dir_api_chdrive();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
 
     ASSERT_TRUE(drive_chdir_to(g_dir));
-}
-
-#define AM_RDO 0x01
-#define AM_DIR 0x10
-#define AM_ARC 0x20
-
-static void make_file(const char *rel, const char *data, uint16_t n)
-{
-    int f = ssys_open(rel, O_WR | O_CREAT_ | O_TRUNC_);
-    if (f >= 0)
-    {
-        ssys_write(f, data, n);
-        ssys_close(f);
-    }
 }
 
 UTEST(fs, dir_enumeration)
@@ -345,21 +422,23 @@ UTEST(fs, dir_enumeration)
     ASSERT_EQ(dsys_ax(), -1);
 
     dsys_path("");
-    dir_api_getfree();
+    while (dir_api_getfree())
+        ;
     ASSERT_EQ(dsys_ax(), 0);
     uint32_t freeb = 0, totalb = 0;
     dsys_getfree(&freeb, &totalb);
     ASSERT_GT(totalb, 0u);
     ASSERT_TRUE(freeb <= totalb);
 
-    /* dir_api_getlabel returns the label's length plus one for its terminator,
-     * and it holds the label in 12 bytes, so the result is 1 for a volume with
-     * no label and never more than 12. */
+    /* Only the Pico has volume labels. */
     dsys_path("");
     dir_api_getlabel();
-    int16_t label_len = dsys_ax();
-    ASSERT_GE(label_len, 1);
-    ASSERT_LE(label_len, 12);
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    dsys_path("NEWLABEL");
+    dir_api_setlabel();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
 
     dsys_chmod(AM_RDO, AM_RDO, "alpha.txt");
     dir_api_chmod();
@@ -392,9 +471,6 @@ UTEST(fs, dir_enumeration)
 UTEST(fs, rom_asset_window_read_only_on_demand)
 {
     ASSERT_TRUE(fresh_cwd());
-    /* Option 2 is API_ERRNO_OPT_LLVM. Until a map is selected every errno is
-     * -1, so the errno checks below would pass whichever error occurred. */
-    api_set_errno_opt(2);
 
     /* rom_load rejects a ROM without a reset vector, so the file has one
      * record for $FFFC and $FFFD. The first "#>" line gives the length of the
@@ -405,7 +481,7 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
     char rompath[300];
-    snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
+    snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", host_dir());
     FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
@@ -454,7 +530,7 @@ UTEST(fs, rom_asset_name_compares_through_the_code_page)
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
     char rompath[300];
-    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
+    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", host_dir());
     FILE *rf = fopen(rompath, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
@@ -561,6 +637,393 @@ UTEST(fs, a_read_of_nothing_writes_nothing)
     dsys_path("zero.txt");
     dir_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
+}
+
+static int32_t stat_size(const char *path)
+{
+    dsys_path(path);
+    dir_api_stat();
+    if (dsys_ax() != 0)
+        return -1;
+    f_stat_t info;
+    dsys_filinfo(&info);
+    return (int32_t)info.fsize;
+}
+
+static void dsys_rename(const char *from, const char *to)
+{
+    size_t nf = strlen(from) + 1, nt = strlen(to) + 1;
+    xstack_ptr = (uint16_t)(XSTACK_SIZE - nf - nt);
+    memcpy(&xstack[xstack_ptr], to, nt);
+    memcpy(&xstack[xstack_ptr + nt], from, nf);
+}
+
+UTEST(fs, a_save_lands_in_the_folder_fixed_at_start)
+{
+    ASSERT_TRUE(fresh_cwd());
+
+    int f = ssys_open("SAVE:hopper.hiscore", O_WR | O_CREAT_ | O_TRUNC_);
+    ASSERT_TRUE(f >= 0);
+    ASSERT_EQ(ssys_write(f, "1234", 4), 4);
+    ssys_close(f);
+    ASSERT_TRUE(host_exists("hopper.hiscore"));
+
+    dsys_path("sub");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("sub");
+    dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+
+    char buf[8] = {0};
+    f = ssys_open("save:/hopper.hiscore", O_RD);
+    ASSERT_TRUE(f >= 0);
+    ASSERT_EQ(ssys_read(f, buf, 8), 4);
+    ASSERT_EQ(memcmp(buf, "1234", 4), 0);
+    ssys_close(f);
+    ASSERT_TRUE(ssys_open("hopper.hiscore", O_RD) < 0);
+
+    f = ssys_open("SAVE:\\hopper.hiscore", O_WR | O_APPEND_);
+    ASSERT_TRUE(f >= 0);
+    ASSERT_EQ(ssys_write(f, "5", 1), 1);
+    ssys_close(f);
+    ASSERT_EQ(stat_size("../hopper.hiscore"), 5);
+
+    ASSERT_TRUE(ssys_open("SAVE:hopper.hiscore", O_WR | O_CREAT_ | O_EXCL_) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EEXIST));
+}
+
+UTEST(fs, a_save_name_follows_one_rule_everywhere)
+{
+    ASSERT_TRUE(fresh_cwd());
+
+    static const char *const refused[] = {
+        "SAVE:", "SAVE:/", "SAVE:..", "SAVE:../x", "SAVE:a/b", "SAVE:FS:/x",
+        "SAVE:x.", "SAVE:a b", "SAVE:CON", "SAVE:con.txt", "SAVE:Com1",
+        "SAVE:lpt9.sav", "SAVE:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"};
+    for (size_t i = 0; i < sizeof refused / sizeof *refused; i++)
+    {
+        ASSERT_TRUE(ssys_open(refused[i], O_WR | O_CREAT_) < 0);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+
+    static const char *const taken[] = {
+        "SAVE:fs_32_chars_long_name.0123456789", "SAVE:console.txt",
+        "SAVE:hopper.X42"};
+    for (size_t i = 0; i < sizeof taken / sizeof *taken; i++)
+    {
+        int f = ssys_open(taken[i], O_WR | O_CREAT_ | O_TRUNC_);
+        ASSERT_TRUE(f >= 0);
+        ssys_close(f);
+    }
+    ASSERT_TRUE(host_exists("fs_32_chars_long_name.0123456789"));
+}
+
+UTEST(fs, only_open_takes_save)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("SAVE:kept.sav", "k", 1);
+    ASSERT_TRUE(host_exists("kept.sav"));
+
+    dsys_path("SAVE:x");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    dsys_path("SAVE:kept.sav");
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    dsys_path("SAVE:kept.sav");
+    dir_api_unlink();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    ASSERT_TRUE(host_exists("kept.sav"));
+}
+
+UTEST(fs, a_path_follows_the_fat_rules)
+{
+    ASSERT_TRUE(fresh_cwd());
+
+    static const char *const no_drive[] = {"VCP0:x", "nope:x"};
+    for (size_t i = 0; i < sizeof no_drive / sizeof *no_drive; i++)
+    {
+        ASSERT_TRUE(ssys_open(no_drive[i], O_WR | O_CREAT_) < 0);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    }
+
+    char drive_colon[16];
+    snprintf(drive_colon, sizeof drive_colon, "%sx:y", host_drive());
+    const char *const invalid[] = {
+        "a/b:c", "/a:b", drive_colon, "a*b", "a?b", "a\"b", "a<b", "a>b",
+        "a|b", "a\x01" "b", "a\x7F" "b"};
+    for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++)
+    {
+        ASSERT_TRUE(ssys_open(invalid[i], O_WR | O_CREAT_) < 0);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+#ifndef _WIN32
+    ASSERT_FALSE(host_exists("a*b"));
+#endif
+
+    dsys_path("sub");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    int f = ssys_open("sub\\f.txt", O_WR | O_CREAT_);
+    ASSERT_TRUE(f >= 0);
+    ssys_close(f);
+    ASSERT_TRUE(host_exists("sub/f.txt"));
+
+    ASSERT_TRUE(ssys_open("sub/f.txt", O_CREAT_) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+
+    char too_long[API_PATH_MAX + 2];
+    memset(too_long, 'x', API_PATH_MAX + 1);
+    too_long[API_PATH_MAX + 1] = 0;
+    ASSERT_TRUE(ssys_open(too_long, O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    dsys_path(too_long);
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+}
+
+UTEST(fs, dotdot_at_a_root_stays_there)
+{
+    ASSERT_TRUE(fresh_cwd());
+    char root[16];
+    snprintf(root, sizeof root, "%s/", host_drive());
+    dsys_path(root);
+    dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    char cwd[TEST_PATH_MAX];
+    dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
+    ASSERT_STREQ(cwd, root);
+    dsys_path("..");
+    dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
+    ASSERT_STREQ(cwd, root);
+    ASSERT_TRUE(drive_chdir_to(g_dir));
+}
+
+UTEST(fs, a_seek_past_the_end_fills_the_gap_with_zeros)
+{
+    ASSERT_TRUE(fresh_cwd());
+    int f = ssys_open("gap.dat", O_WR | O_CREAT_ | O_TRUNC_);
+    ASSERT_TRUE(f >= 0);
+    ASSERT_EQ(ssys_write(f, "ab", 2), 2);
+    ASSERT_EQ(ssys_lseek(f, 10, SEEK_SET), 10);
+    ASSERT_EQ(ssys_lseek(f, 0, SEEK_END), 10);
+    ssys_close(f);
+
+    f = ssys_open("gap.dat", O_RD);
+    ASSERT_TRUE(f >= 0);
+    char buf[16];
+    memset(buf, 0x55, sizeof buf);
+    ASSERT_EQ(ssys_read(f, buf, 16), 10);
+    ASSERT_EQ(memcmp(buf, "ab\0\0\0\0\0\0\0\0", 10), 0);
+    ssys_close(f);
+}
+
+UTEST(fs, a_drive_root_has_one_fixed_entry)
+{
+    ASSERT_TRUE(fresh_cwd());
+    char root[16];
+    snprintf(root, sizeof root, "%s/", host_drive());
+    const char *const roots[] = {"/", root};
+    for (size_t i = 0; i < sizeof roots / sizeof *roots; i++)
+    {
+        dsys_path(roots[i]);
+        dir_api_stat();
+        ASSERT_EQ(dsys_ax(), 0);
+        f_stat_t info;
+        dsys_filinfo(&info);
+        ASSERT_STREQ(info.fname, "/");
+        ASSERT_EQ(info.fattrib, AM_DIR);
+        ASSERT_EQ(info.fsize, 0u);
+        ASSERT_EQ(info.fdate, 0);
+        ASSERT_EQ(info.ftime, 0);
+    }
+
+    const char *const refused[] = {"", host_drive()};
+    for (size_t i = 0; i < sizeof refused / sizeof *refused; i++)
+    {
+        dsys_path(refused[i]);
+        dir_api_stat();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+}
+
+UTEST(fs, an_open_file_can_be_opened_again_renamed_and_unlinked)
+{
+    ASSERT_TRUE(fresh_cwd());
+    int w = ssys_open("twice.txt", O_WR | O_CREAT_ | O_TRUNC_);
+    ASSERT_TRUE(w >= 0);
+    ASSERT_EQ(ssys_write(w, "abc", 3), 3);
+    int r = ssys_open("twice.txt", O_RD);
+    ASSERT_TRUE(r >= 0);
+
+    dsys_rename("twice.txt", "moved.txt");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_TRUE(host_exists("moved.txt"));
+    dsys_path("moved.txt");
+    dir_api_unlink();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_FALSE(host_exists("moved.txt"));
+
+    ASSERT_EQ(ssys_close(r), 0);
+    ASSERT_EQ(ssys_close(w), 0);
+}
+
+UTEST(fs, an_open_of_a_directory_is_refused)
+{
+    ASSERT_TRUE(fresh_cwd());
+    dsys_path("sub");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_TRUE(ssys_open("sub", O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    ASSERT_TRUE(ssys_open("sub", O_WR | O_CREAT_) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+}
+
+UTEST(fs, a_rename_replaces_only_a_file_with_a_file)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "A", 1);
+    make_file("b.txt", "BB", 2);
+    dsys_path("d1");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("d2");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+
+    dsys_rename("a.txt", "b.txt");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_FALSE(host_exists("a.txt"));
+    ASSERT_EQ(stat_size("b.txt"), 1);
+
+    static const char *const taken[][2] = {
+        {"b.txt", "d1"}, {"d1", "d2"}, {"d1", "b.txt"}};
+    for (size_t i = 0; i < sizeof taken / sizeof *taken; i++)
+    {
+        dsys_rename(taken[i][0], taken[i][1]);
+        dir_api_rename();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EEXIST));
+    }
+    ASSERT_EQ(stat_size("b.txt"), 1);
+
+    dsys_rename("b.txt", "NOPE:b.txt");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    ASSERT_TRUE(host_exists("b.txt"));
+}
+
+UTEST(fs, an_unlink_of_a_read_only_file_is_refused)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("ro.txt", "R", 1);
+    dsys_chmod(AM_RDO, AM_RDO, "ro.txt");
+    dir_api_chmod();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("ro.txt");
+    dir_api_unlink();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    ASSERT_TRUE(host_exists("ro.txt"));
+
+    dsys_chmod(AM_RDO, 0, "ro.txt");
+    dir_api_chmod();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("ro.txt");
+    dir_api_unlink();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_FALSE(host_exists("ro.txt"));
+}
+
+#ifdef _WIN32
+UTEST(fs, a_name_windows_keeps_for_a_device_is_refused)
+{
+    ASSERT_TRUE(fresh_cwd());
+    dsys_path("sub");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    static const char *const reserved[] = {
+        "NUL", "con", "Aux", "PRN", "com1", "LPT9", "CONIN$", "conout$",
+        "sub/nul"};
+    for (size_t i = 0; i < sizeof reserved / sizeof *reserved; i++)
+    {
+        ASSERT_TRUE(ssys_open(reserved[i], O_WR | O_CREAT_) < 0);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+    dsys_path("PRN");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+}
+#endif
+
+static uint8_t g_blob[STD_SST_SIZE];
+static int g_save_fd, g_plain_fd;
+
+/* A save and a plain file, each open with its position partway in, are
+ * recorded in a savestate with their flags. SAVE: then moves to a new folder
+ * whose save of the same name holds other bytes, so only a reopen by name
+ * reads those. */
+static bool take_two_files(unsigned flags, sst_cursor_t *c)
+{
+    if (!fresh_cwd())
+        return false;
+    make_file("SAVE:slot.sav", "ABCDEFGH", 8);
+    make_file("plain.txt", "pqrstuvw", 8);
+    g_save_fd = ssys_open("SAVE:slot.sav", O_RD);
+    g_plain_fd = ssys_open("plain.txt", O_RD);
+    char buf[4];
+    if (g_save_fd < 0 || g_plain_fd < 0 ||
+        ssys_read(g_save_fd, buf, 2) != 2 || ssys_read(g_plain_fd, buf, 3) != 3)
+        return false;
+    *c = (sst_cursor_t){g_blob, g_blob + sizeof g_blob, false};
+    std_sst_save(c, flags);
+    if (!sst_ok(c) || !fresh_cwd())
+        return false;
+    make_file("SAVE:slot.sav", "abcdefgh", 8);
+    return true;
+}
+
+UTEST(fs, a_savestate_reopens_a_save_by_its_name)
+{
+    sst_cursor_t c;
+    ASSERT_TRUE(take_two_files(0, &c));
+    sst_cursor_t r = {g_blob, c.at, false};
+    ASSERT_TRUE(std_sst_load(&r, 0));
+
+    char buf[4] = {0};
+    ASSERT_EQ(ssys_read(g_save_fd, buf, 2), 2);
+    ASSERT_EQ(memcmp(buf, "cd", 2), 0);
+    ASSERT_EQ(ssys_read(g_plain_fd, buf, 1), 1);
+    ASSERT_EQ(buf[0], 's');
+}
+
+UTEST(fs, a_shared_savestate_carries_saves_and_closes_host_files)
+{
+    sst_cursor_t c;
+    ASSERT_TRUE(take_two_files(SST_SHARED, &c));
+    sst_cursor_t r = {g_blob, c.at, false};
+    ASSERT_TRUE(std_sst_load(&r, SST_SHARED));
+
+    char buf[4] = {0};
+    ASSERT_EQ(ssys_read(g_save_fd, buf, 2), 2);
+    ASSERT_EQ(memcmp(buf, "cd", 2), 0);
+    ASSERT_TRUE(ssys_read(g_plain_fd, buf, 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
 }
 
 UTEST_MAIN()

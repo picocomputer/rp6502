@@ -42,13 +42,17 @@
 /* VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
  * which calls term_set_height on the terminal state that term_init sets up.
+ *
+ * FS_DRIVER follows STD_DRIVER because stop hooks run in reverse, and fs_stop
+ * has to collect a command that a stopped program left in flight before
+ * std_stop's closes send their Flush.
  */
 #define RP6502_MACH_DRIVERS                             \
     CFG_DRIVER, PROC_DRIVER,                            \
     STR_DRIVER,                                         \
     AUD_DRIVER, BEL_DRIVER,                             \
-    COM_DRIVER, FS_DRIVER,                              \
-    STD_DRIVER, RLN_DRIVER, TERM_DRIVER,                \
+    COM_DRIVER, STD_DRIVER, FS_DRIVER,                  \
+    RLN_DRIVER, TERM_DRIVER,                            \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
@@ -58,7 +62,7 @@
 
 /* open() tries these rows in order, and the filesystem row accepts every
  * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */

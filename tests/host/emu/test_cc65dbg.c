@@ -12,6 +12,9 @@
 #ifndef TEST_FIXTURE
 #define TEST_FIXTURE "cc65.dbg"
 #endif
+#ifndef TEST_ONCE_FIXTURE
+#define TEST_ONCE_FIXTURE "cc65_once.dbg"
+#endif
 
 /* In the fixture, c_sp, the C stack pointer, is the zero-page pair $00:$01,
  * so fake_mem makes c_sp read as $0500. */
@@ -130,6 +133,46 @@ UTEST(cc65dbg, globals_via_import_chain)
     ASSERT_TRUE(strcmp(v[0].name, "gcounter") == 0);
     ASSERT_EQ((int)v[0].addr, 0x0800);
     ASSERT_EQ((int)v[0].size, 2);
+    cc65dbg_free(db);
+}
+
+/* This fixture is trimmed from a real link with rp6502.cfg, which puts BSS on
+ * top of ONCE, so the ONCE labels of the startup code share addresses with the
+ * C globals. _errno_opt_constructor lies inside the long d, and initlib lies
+ * inside the long e. In the fixture, ONCE has the lower seg id and ends past
+ * BSS, so __oserror, the last byte of BSS, is one byte only when it is measured
+ * to the end of its segment. __errno is a label with no segment, and it is
+ * bounded by RIA_OP, which has none either. */
+UTEST(cc65dbg, globals_under_once_overlay)
+{
+    cc65dbg_t *db = cc65dbg_load(TEST_ONCE_FIXTURE);
+    ASSERT_TRUE(db != NULL);
+    static const struct
+    {
+        const char *name;
+        int addr;
+        int size;
+    } want[] = {
+        {"a", 0x036D, 1},
+        {"x", 0x036E, 2},
+        {"b", 0x0370, 4},
+        {"c", 0x0374, 2},
+        {"d", 0x0376, 4},
+        {"h", 0x037A, 4},
+        {"s", 0x037E, 4},
+        {"e", 0x0382, 4},
+        {"__oserror", 0x0386, 1},
+        {"__errno", 0xFFED, 2},
+    };
+    cc65var_t v[16];
+    int n = cc65dbg_globals(db, v, 16);
+    ASSERT_EQ(n, (int)(sizeof want / sizeof want[0]));
+    for (int k = 0; k < n; k++)
+    {
+        ASSERT_STREQ(v[k].name, want[k].name);
+        ASSERT_EQ((int)v[k].addr, want[k].addr);
+        ASSERT_EQ((int)v[k].size, want[k].size);
+    }
     cc65dbg_free(db);
 }
 

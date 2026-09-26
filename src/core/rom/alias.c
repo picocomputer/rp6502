@@ -10,6 +10,7 @@
 
 #include "osal/fs.h"
 #include "core/rom/rom.h"
+#include "core/str/oem.h"
 #include "core/str/path.h"
 #include <stdlib.h>
 #include <string.h>
@@ -23,41 +24,55 @@
 
 typedef struct
 {
-    char *name; /* the text after the ":", such as "adventure.rp6502" */
-    char *host; /* the backing file, and what marks the slot used */
+    char *name; /* the text after the ":" in the code page, such as "adventure.rp6502" */
+    char *host; /* the absolute host path, and what marks the slot used */
 } alias_t;
 static alias_t aliases[ROM_ALIAS_MAX];
 
-bool rom_alias_insert_as(const char *hostpath, const char *name)
+/* The comparison ignores case, to match the firmware's handling of installed
+ * names. */
+static alias_t *alias_find(const char *name)
 {
-    if (!name || !*name)
-        return false;
-    /* Only a check that the file exists now; the load reopens it later through
-     * fs_rom_open. */
-    api_errno err;
-    int fd = fs_std_open(hostpath, FS_RD, &err);
-    if (fd < 0)
-        return false;
-    fs_std_close(fd, &err);
     for (int i = 0; i < ROM_ALIAS_MAX; i++)
-        if (!aliases[i].host)
-        {
-            char *key = strdup(name), *host = strdup(hostpath);
-            if (key && host)
-            {
-                aliases[i].name = key;
-                aliases[i].host = host;
-                return true;
-            }
-            free(key), free(host);
-            return false;
-        }
-    return false;
+        if (aliases[i].host && strcasecmp(aliases[i].name, name) == 0)
+            return &aliases[i];
+    return NULL;
 }
 
-bool rom_alias_insert(const char *hostpath)
+/* The host path is kept absolute, because a program may chdir before the
+ * install is loaded, and as a host path, because the code page may not hold
+ * it. */
+const char *rom_alias_insert_as(const char *host, const char *name)
 {
-    return rom_alias_insert_as(hostpath, path_basename(hostpath));
+    if (!*name)
+        return NULL;
+    char *abs = fs_host_realpath(host);
+    if (!abs)
+        return NULL;
+    alias_t *slot = alias_find(name);
+    for (int i = 0; !slot && i < ROM_ALIAS_MAX; i++)
+        if (!aliases[i].host)
+            slot = &aliases[i];
+    char *key = slot ? strdup(name) : NULL;
+    if (!key)
+    {
+        free(abs);
+        return NULL;
+    }
+    free(slot->name), free(slot->host);
+    slot->name = key;
+    slot->host = abs;
+    return key;
+}
+
+/* The name is the last part of the path as given, so a symlink is installed
+ * under the symlink's name, not the target's. */
+const char *rom_alias_insert(const char *host)
+{
+    char name[API_PATH_MAX]; /* with its ":", a name has to fit in a path */
+    if (oem_from_utf8(path_basename(host), name, sizeof name) >= sizeof name)
+        return NULL;
+    return rom_alias_insert_as(host, name);
 }
 
 bool rom_alias_remove(const char *name)
@@ -66,42 +81,38 @@ bool rom_alias_remove(const char *name)
         return false;
     if (*name == ':')
         name++;
-    for (int i = 0; i < ROM_ALIAS_MAX; i++)
-        if (aliases[i].host && strcasecmp(aliases[i].name, name) == 0)
-        {
-            char *key = aliases[i].name, *host = aliases[i].host;
-            aliases[i].host = NULL;
-            aliases[i].name = NULL;
-            free(key), free(host);
-            return true;
-        }
-    return false;
+    alias_t *a = alias_find(name);
+    if (!a)
+        return false;
+    free(a->name), free(a->host);
+    a->name = a->host = NULL;
+    return true;
 }
 
-/* Resolve ":name" to the file it aliases. The comparison ignores case, to match
- * the firmware's handling of installed names. Everything else passes through
- * verbatim, including a name no alias claims. */
 const char *rom_alias_resolve(const char *path)
 {
-    if (path[0] == ':')
-        for (int i = 0; i < ROM_ALIAS_MAX; i++)
-            if (aliases[i].host && strcasecmp(aliases[i].name, path + 1) == 0)
-                return aliases[i].host;
-    return path;
+    alias_t *a = path[0] == ':' ? alias_find(path + 1) : NULL;
+    return a ? a->host : NULL;
+}
+
+int rom_alias_open(const char *path, api_errno *err)
+{
+    const char *host = rom_alias_resolve(path);
+    return host ? fs_rom_open_host(host, err) : fs_rom_open(path, FS_RD, err);
 }
 
 #else /* ROM_ALIAS_MAX */
 
-bool rom_alias_insert(const char *hostpath)
+const char *rom_alias_insert(const char *host)
 {
-    (void)hostpath;
-    return false;
+    (void)host;
+    return NULL;
 }
 
-bool rom_alias_insert_as(const char *hostpath, const char *name)
+const char *rom_alias_insert_as(const char *host, const char *name)
 {
-    (void)hostpath, (void)name;
-    return false;
+    (void)host, (void)name;
+    return NULL;
 }
 
 bool rom_alias_remove(const char *name)
@@ -112,7 +123,13 @@ bool rom_alias_remove(const char *name)
 
 const char *rom_alias_resolve(const char *path)
 {
-    return path;
+    (void)path;
+    return NULL;
+}
+
+int rom_alias_open(const char *path, api_errno *err)
+{
+    return fs_rom_open(path, FS_RD, err);
 }
 
 #endif /* ROM_ALIAS_MAX */

@@ -45,14 +45,14 @@ static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
 
 bool rom_load(const char *path)
 {
-    /* An installed ":name" becomes its backing file here, because fs_rom_open
-     * on these hosts has no store of its own to look one up in. */
-    const char *host = rom_alias_resolve(path);
     rom_assets_reset();
     api_errno err;
     rom_pump_t pump;
     static uint8_t buf[ROM_RECORD_MAX];
-    if (!rom_pump_open(&pump, host, buf, &err))
+    /* An installed ":name" is opened as its host file here, because
+     * fs_rom_open on these hosts has no list of installed ROMs. */
+    int fd = rom_alias_open(path, &err);
+    if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
     {
         com_printf("cannot load ROM '%s'\n", path);
         return false;

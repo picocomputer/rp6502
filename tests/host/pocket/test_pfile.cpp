@@ -7,6 +7,8 @@
 #include "Vtb_pocket.h"
 #include "Vtb_pocket___024root.h"
 
+#include "tb_asm.h"
+#include "tb_rom.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -239,8 +241,11 @@ static void do_openfile()
         it = g_files.emplace(key, std::vector<uint8_t>()).first;
         created = true;
     }
+    /* What the host puts in the bytes a resize adds is unrecorded, so the
+     * model fills them with 0xA5, and a firmware that leaves them as the
+     * host wrote them fails the zero checks. */
     if (flags & 2)
-        it->second.resize(size, 0);
+        it->second.resize(size, 0xA5);
     g_bound[slot] = key;
     dt_set(slot, (uint32_t)it->second.size());
     target_answer(created ? 1 : 0);
@@ -445,6 +450,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     size_t made = 0;
+    std::string name;
     const std::vector<uint8_t> *f = NULL;
     for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
              = g_files.begin();
@@ -452,9 +458,12 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
         if (it->first != g_bound[0])
         {
             made++;
+            name = it->first;
             f = &it->second;
         }
     ASSERT_EQ(made, (size_t)1);
+    /* The ROM writes a SAVE: name, which opens under Saves. */
+    ASSERT_EQ(name.rfind("/Saves/rp6502/common/", 0), (size_t)0);
     ASSERT_EQ(f->size(), want.size());
     ASSERT_EQ(memcmp(f->data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
@@ -488,11 +497,18 @@ static void run_fstest(int *utest_result)
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* The ROM prints its counts in hex, so PASS 38/38 is all 56 checks,
-     * which is the line passed() in fstest_rom_gen.py returns. */
-    if (g_console.find("PASS 38/38") == std::string::npos)
+    /* The ROM prints the checks that passed and the checks it ran, and the
+     * run passes when the two counts match. */
+    unsigned passed = 0, ran = 0;
+    size_t line = g_console.find("PASS ");
+    bool read = line != std::string::npos
+                && sscanf(g_console.c_str() + line, "PASS %x/%x", &passed,
+                          &ran) == 2;
+    if (!read || !ran || passed != ran)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 38/38") != std::string::npos);
+    ASSERT_TRUE(read);
+    ASSERT_GT(ran, 0u);
+    ASSERT_EQ(passed, ran);
 }
 
 UTEST(pfile, the_whole_drive_conforms)
@@ -504,7 +520,7 @@ UTEST(pfile, the_whole_drive_conforms)
     teardown();
 }
 
-UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
+UTEST(pfile, a_card_without_the_saves_folder_fails_promptly)
 {
     std::vector<uint8_t> rom = read_file(FSTEST_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -540,7 +556,7 @@ UTEST(pfile, the_program_is_told_what_it_is_called)
     if (g_console.find(".rp6502") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
     ASSERT_TRUE(g_console.find(".rp6502") != std::string::npos);
-    ASSERT_TRUE(g_console.find(g_bound[0]) != std::string::npos);
+    ASSERT_TRUE(g_console.find("FS:" + g_bound[0] + "|") != std::string::npos);
     teardown();
 }
 
@@ -571,7 +587,7 @@ UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
     for (int u = 0; u < 64; u++)
         for (const char *c = "0123456789ABCDEF"; *c; c++)
             dat.push_back((uint8_t)*c);
-    g_files["/Saves/rp6502/common/probe.dat"] = dat;
+    g_files["/Assets/rp6502/common/probe.dat"] = dat;
 
     for (long i = 0; i < 40000000L && g_console.size() < 4000; i++)
         step();
@@ -583,5 +599,113 @@ UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
     ASSERT_TRUE(g_console.find("counting") != std::string::npos);
     ASSERT_TRUE(g_console.find("CROOKED") == std::string::npos);
     ASSERT_TRUE(g_console.find("FAILED") == std::string::npos);
+    teardown();
+}
+
+#define PFILE_FD 0x0200
+
+static void pfile_fd_call(tb_asm &p, uint8_t op)
+{
+    p.lda_abs(PFILE_FD);
+    p.sta(TB_API_A);
+    p.call(op);
+}
+
+/* The ROM writes abcd, seeks to GAP_AT and writes Z, so the bytes from 4 up
+ * to GAP_AT are the gap that the seek opened. */
+#define GAP_AT 1000u
+
+static std::vector<uint8_t> gap_rom(void)
+{
+    tb_asm p;
+    p.push_str("SAVE:gap.dat");
+    p.store(TB_API_A, 0x03 | 0x10 | 0x20); /* O_RDWR | O_CREAT | O_TRUNC */
+    p.call(0x14);                           /* OP_OPEN */
+    p.sta(PFILE_FD);
+    for (const char *c = "dcba"; *c; c++)
+        p.push((uint8_t)*c);
+    pfile_fd_call(p, 0x18); /* OP_WRITE_XSTACK */
+    p.pushl(GAP_AT);
+    p.push(2);              /* SEEK_SET in cc65's numbering */
+    pfile_fd_call(p, 0x1A); /* OP_LSEEK */
+    p.push('Z');
+    pfile_fd_call(p, 0x18); /* OP_WRITE_XSTACK */
+    pfile_fd_call(p, 0x15); /* OP_CLOSE */
+    for (const char *c = "gap done\r\n"; *c; c++)
+    {
+        p.lda((uint8_t)*c);
+        p.putc_a();
+    }
+    p.stp();
+    return tb_rom_image(TB_ORG, p.b);
+}
+
+UTEST(pfile, a_seek_past_the_end_fills_the_gap_with_zeros)
+{
+    boot(gap_rom(), false);
+
+    for (long i = 0; i < 40000000L && g_console.find("gap done") == std::string::npos;
+         i++)
+        step();
+    if (g_console.find("gap done") == std::string::npos)
+        fprintf(stderr, "console: [%s] opens=%d writes=%d\n", g_console.c_str(),
+                g_opens, g_writes);
+    ASSERT_TRUE(g_console.find("gap done") != std::string::npos);
+
+    std::map<std::string, std::vector<uint8_t>>::const_iterator it
+        = g_files.find("/Saves/rp6502/common/gap.dat");
+    ASSERT_TRUE(it != g_files.end());
+    const std::vector<uint8_t> &f = it->second;
+    ASSERT_EQ(f.size(), (size_t)GAP_AT + 1);
+    ASSERT_EQ(memcmp(f.data(), "abcd", 4), 0);
+    size_t nonzero = 0;
+    for (size_t i = 4; i < GAP_AT; i++)
+        if (f[i])
+            nonzero++;
+    ASSERT_EQ(nonzero, (size_t)0);
+    ASSERT_EQ(f[GAP_AT], (uint8_t)'Z');
+    teardown();
+}
+
+/* The name starts with four .. segments, one more than the depth of the
+ * working directory, and the last of them stays at the card root. '\'
+ * separates as '/' does, so the name resolves to argv.rp6502 in the working
+ * directory. */
+#define EXEC_NAME "..\\../../..\\Assets/rp6502/common/./argv.rp6502"
+
+static std::vector<uint8_t> exec_rom(void)
+{
+    tb_asm p;
+    /* The argv block is one offset, the zero pair that ends the table, then
+     * the name, all pushed from the end so that they land in reading
+     * order. */
+    const char *name = EXEC_NAME;
+    size_t n = strlen(name);
+    p.push(0);
+    while (n--)
+        p.push((uint8_t)name[n]);
+    p.pushw(0);
+    p.pushw(4);
+    p.call(0x09); /* OP_EXEC */
+    p.stp();
+    return tb_rom_image(TB_ORG, p.b);
+}
+
+UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
+{
+    std::vector<uint8_t> argv = read_file(ARGV_ROM);
+    ASSERT_GT(argv.size(), 0u);
+    boot(exec_rom(), false);
+    /* boot() only ticks the clocks and serves no request, so the file is in
+     * place before the exec opens it. */
+    g_files["/Assets/rp6502/common/argv.rp6502"] = argv;
+
+    const std::string want = "FS:/Assets/rp6502/common/argv.rp6502|";
+    for (long i = 0; i < 60000000L && g_console.find("]") == std::string::npos;
+         i++)
+        step();
+    if (g_console.find(want) == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find(want) != std::string::npos);
     teardown();
 }

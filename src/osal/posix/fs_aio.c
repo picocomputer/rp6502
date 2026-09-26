@@ -12,6 +12,7 @@
 
 #include "osal/fs.h"
 #include "osal/posix/errmap.h"
+#include "osal/posix/fs.h"
 #include <aio.h>
 #include <errno.h>
 #include <string.h>
@@ -111,6 +112,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
         aio_return(&g_xfer.cb);
         g_xfer.fd = -1;
     }
+    fs_closing(fd);
     if (close(fd) != 0) /* also a deferred flush failure: ENOSPC, EIO */
     {
         *err = errno_to_api(errno);

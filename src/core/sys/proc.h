@@ -16,17 +16,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Stand a program up: put the outgoing one away, load the image over the RAM
- * it was running out of, seed its argv, and ask for the machine back.
+/* Starts a program: stops the outgoing one, loads the new image into RAM,
+ * sets its argv and the SAVE: folder, and requests that the machine run.
  *
- * argc < 0 leaves argv alone, which is what an exec wants, the outgoing
- * program having written it on its way out. Returns false with the machine
- * left stopped: rom_load deposits records into live RAM as it reads them, so a
- * failure may already have written over what was running.
+ * argc < 0 keeps the argv that the outgoing program wrote before it stopped,
+ * which is what an exec needs, and loads rom, which is that argv[0], made
+ * absolute. Returns false with the machine stopped, after printing the reason
+ * on the console, when the argv does not fit or the load fails: rom_load
+ * writes records into RAM as it reads them, so a failed load may already have
+ * overwritten the program that was running.
  *
- * It ends at the request rather than the start, so a caller inside a driver
- * walk leaves the pass to commit it and a host outside one calls sys_commit
- * itself. */
+ * It returns once the run is requested, before the machine starts, so a
+ * caller inside a driver pass lets that pass commit the request, and a host
+ * outside one calls sys_commit itself. */
 #define PROC_REFILL 0x01  /* fill sram and xram first: a fresh machine, not a program change */
 #define PROC_UNCHAIN 0x02 /* break any launcher chain, because a program asked for by name is not a child */
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
@@ -35,6 +37,10 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
  * unless it is a ':name' installed ROM, then the args. False when they do not
  * fit. */
 bool proc_set_argv(const char *rom, int argc, char *const *args);
+
+/* Whether proc_set_argv would accept these. It only measures, so it may be
+ * called from a thread other than the one running the machine. */
+bool proc_argv_fits(const char *rom, int argc, char *const *args);
 
 /* Ask for an exec of what argv[0] names. The 6502 stops here, but the load
  * waits for proc_exec_task in the io column, so a program's RAM is never

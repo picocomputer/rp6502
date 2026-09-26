@@ -3,12 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux gamepads, through evdev. The kernel's HID drivers have already decided
- * which physical button is BTN_SOUTH and which axis is the right stick, over
- * USB and Bluetooth alike, so there is no mapping database here. The layout
- * below is the kernel's own gamepad API (Documentation/input/gamepad.rst),
- * which is not the HID layout core/hid/gamepad.c parses: here the triggers are
- * ABS_Z and ABS_RZ, and the right stick is ABS_RX and ABS_RY.
+ * Linux gamepads, through evdev. The kernel's drivers name every button and
+ * axis, over USB and Bluetooth alike, so there is no mapping database here,
+ * though the drivers differ on where X and Y are. The usual layout is the
+ * kernel's gamepad API (Documentation/input/gamepad.rst), which is not the
+ * HID layout core/hid/gamepad.c parses: the triggers are ABS_Z and ABS_RZ, and
+ * the right stick is ABS_RX and ABS_RY.
  */
 
 #include "core/hid/gamepad.h"
@@ -42,10 +42,17 @@ enum
 static const uint16_t gamepad_axis_code[GAMEPAD_AXIS_COUNT] = {
     ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ};
 
+/* A pad whose driver passes its HID usages through, such as an Xbox pad on
+ * Bluetooth under hid-microsoft, puts its right stick on Z and Rz when its
+ * triggers are Brake and Accelerator, as core/hid/parse.c reads it. */
+static const uint16_t gamepad_axis_code_pedal[GAMEPAD_AXIS_COUNT] = {
+    ABS_X, ABS_Y, ABS_Z, ABS_RZ, ABS_BRAKE, ABS_GAS};
+
 typedef struct
 {
     int fd;
     uint64_t id;
+    const uint16_t *axis_code;
     bool present[GAMEPAD_AXIS_COUNT];
     int32_t min[GAMEPAD_AXIS_COUNT];
     int32_t max[GAMEPAD_AXIS_COUNT];
@@ -85,11 +92,15 @@ static void gamepad_apply_button(gamepad_device_t *dev, uint16_t code, bool down
     gamepad_button_t button;
     switch (code)
     {
-    case BTN_SOUTH: button = GAMEPAD_BTN_A; break;
-    case BTN_EAST: button = GAMEPAD_BTN_B; break;
+    /* BTN_X is BTN_NORTH and BTN_Y is BTN_WEST. xpad and hid-generic send X
+     * and Y by label, so an Xbox X is reported as BTN_NORTH. Sony's drivers send
+     * Square and Triangle by position, and hid-nintendo sends a Switch
+     * controller's A and B by position. */
+    case BTN_SOUTH: button = dev->state.type == GAMEPAD_TYPE_EASTERN ? GAMEPAD_BTN_B : GAMEPAD_BTN_A; break;
+    case BTN_EAST: button = dev->state.type == GAMEPAD_TYPE_EASTERN ? GAMEPAD_BTN_A : GAMEPAD_BTN_B; break;
     case BTN_C: button = GAMEPAD_BTN_C; break;
-    case BTN_WEST: button = GAMEPAD_BTN_X; break;
-    case BTN_NORTH: button = GAMEPAD_BTN_Y; break;
+    case BTN_X: button = dev->state.type == GAMEPAD_TYPE_PLAYSTATION ? GAMEPAD_BTN_Y : GAMEPAD_BTN_X; break;
+    case BTN_Y: button = dev->state.type == GAMEPAD_TYPE_PLAYSTATION ? GAMEPAD_BTN_X : GAMEPAD_BTN_Y; break;
     case BTN_Z: button = GAMEPAD_BTN_Z; break;
     case BTN_TL: button = GAMEPAD_BTN_L1; break;
     case BTN_TR: button = GAMEPAD_BTN_R1; break;
@@ -104,7 +115,14 @@ static void gamepad_apply_button(gamepad_device_t *dev, uint16_t code, bool down
     case BTN_DPAD_DOWN: button = GAMEPAD_BTN_DPAD_DOWN; break;
     case BTN_DPAD_LEFT: button = GAMEPAD_BTN_DPAD_LEFT; break;
     case BTN_DPAD_RIGHT: button = GAMEPAD_BTN_DPAD_RIGHT; break;
-    default: return;
+    default:
+        /* hid-generic numbers a HID Joystick's buttons from BTN_JOYSTICK, and
+         * those codes give no positions, so the buttons fill the report in
+         * that order, as on the Pico. */
+        if (code < BTN_JOYSTICK || code > BTN_JOYSTICK + (GAMEPAD_BTN_R3 - GAMEPAD_BTN_A))
+            return;
+        button = (gamepad_button_t)(GAMEPAD_BTN_A + (code - BTN_JOYSTICK));
+        break;
     }
     gamepad_button_apply(button, down, &dev->state.dpad,
                          &dev->state.button0, &dev->state.button1);
@@ -136,9 +154,11 @@ static void gamepad_close_device(gamepad_device_t *dev)
     dev->fd = -1;
 }
 
-/* A /dev/input node has to be opened before it can be asked what it is, so
- * anything that answers with no BTN_SOUTH is closed again here rather than
- * holding one of the four gamepad_devices slots. */
+/* A /dev/input node has to be opened before its capabilities can be read, so
+ * a device that reports neither BTN_SOUTH nor BTN_TRIGGER is closed again here
+ * rather than holding one of the four gamepad_devices slots. A mouse with more
+ * than 16 buttons has codes up to BTN_TRIGGER, and its sixteenth button,
+ * BTN_JOYSTICK - 1, marks it as a mouse. */
 static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_t id)
 {
     int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
@@ -148,7 +168,8 @@ static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_
     unsigned long keys[GAMEPAD_BIT_LONGS(KEY_CNT)];
     memset(keys, 0, sizeof(keys));
     if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) < 0 ||
-        !GAMEPAD_BIT_TEST(keys, BTN_SOUTH))
+        !(GAMEPAD_BIT_TEST(keys, BTN_SOUTH) ||
+          (GAMEPAD_BIT_TEST(keys, BTN_TRIGGER) && !GAMEPAD_BIT_TEST(keys, BTN_JOYSTICK - 1))))
     {
         close(fd);
         return false;
@@ -161,11 +182,14 @@ static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_
     unsigned long axes[GAMEPAD_BIT_LONGS(ABS_CNT)];
     memset(axes, 0, sizeof(axes));
     ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(axes)), axes);
+    dev->axis_code = GAMEPAD_BIT_TEST(axes, ABS_BRAKE) && GAMEPAD_BIT_TEST(axes, ABS_GAS)
+                         ? gamepad_axis_code_pedal
+                         : gamepad_axis_code;
     for (int axis = 0; axis < GAMEPAD_AXIS_COUNT; axis++)
     {
         struct input_absinfo info;
-        if (!GAMEPAD_BIT_TEST(axes, gamepad_axis_code[axis]) ||
-            ioctl(fd, EVIOCGABS(gamepad_axis_code[axis]), &info) < 0)
+        if (!GAMEPAD_BIT_TEST(axes, dev->axis_code[axis]) ||
+            ioctl(fd, EVIOCGABS(dev->axis_code[axis]), &info) < 0)
             continue;
         dev->present[axis] = true;
         dev->min[axis] = info.minimum;
@@ -188,7 +212,16 @@ static bool gamepad_open_device(gamepad_device_t *dev, const char *path, uint64_
         {
         case 0x054C: dev->state.type = GAMEPAD_TYPE_PLAYSTATION; break;
         case 0x045E: dev->state.type = GAMEPAD_TYPE_WESTERN; break;
-        case 0x057E: dev->state.type = GAMEPAD_TYPE_EASTERN; break;
+        case 0x057E:
+            /* Wii Remotes, the Classic Controller and the NES, N64 and Genesis
+             * pads lack the type 2 layout. Bit 15 of the version marks
+             * hid-nintendo's mapping; joycond's combined Joy-Cons (0x2008)
+             * pass that mapping on with version 0. */
+            if (((ids.version & 0x8000) &&
+                 (ids.product == 0x2009 || ids.product == 0x2017)) ||
+                ids.product == 0x2008)
+                dev->state.type = GAMEPAD_TYPE_EASTERN;
+            break;
         }
 
     memset(keys, 0, sizeof(keys));
@@ -274,7 +307,7 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
                     gamepad_apply_hat(dev, event->code, event->value);
                 else
                     for (int axis = 0; axis < GAMEPAD_AXIS_COUNT; axis++)
-                        if (dev->present[axis] && gamepad_axis_code[axis] == event->code)
+                        if (dev->present[axis] && dev->axis_code[axis] == event->code)
                             gamepad_apply_axis(dev, axis, event->value);
             }
         }

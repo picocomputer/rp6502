@@ -9,6 +9,7 @@
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
 #include "core/rom/rom.h"
+#include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "host/host.h"
 #include "core/api/proc.h"
@@ -23,6 +24,7 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
+#include "osal/os.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1020,6 +1022,9 @@ bool script_command(const char *line)
         return true;
     }
 
+    /* The script is UTF-8. An installed ROM's path stays a host path in
+     * UTF-8, while a name or a path that the machine resolves is converted to
+     * OEM in place, which only ever shortens it. */
     if (!strcasecmp(cmd, "install"))
     {
         char path[SCRIPT_LINE_MAX];
@@ -1028,6 +1033,8 @@ bool script_command(const char *line)
         char *as = script_more(&p) ? script_word(&p) : NULL;
         if (as && *as == ':')
             as++;
+        if (as)
+            oem_from_utf8(as, as, strlen(as) + 1);
         if (!(as ? rom_alias_insert_as(path, as) : rom_alias_insert(path)))
             return script_error("cannot install '%s'", path);
         return true;
@@ -1038,6 +1045,7 @@ bool script_command(const char *line)
         char *name = script_word(&p);
         if (!name || !*name)
             return script_error("remove wants an installed name");
+        oem_from_utf8(name, name, strlen(name) + 1);
         if (!rom_alias_remove(name))
             return script_error("nothing installed as '%s'", name);
         return true;
@@ -1048,6 +1056,7 @@ bool script_command(const char *line)
         char path[SCRIPT_LINE_MAX];
         if (!script_string(&p, path, sizeof path) || !path[0])
             return script_error("load wants a quoted path");
+        oem_from_utf8(path, path, sizeof path);
         /* A running program would have its memory written out from under it,
          * so a load happens only between programs. */
         if (sys_active())
@@ -1213,7 +1222,7 @@ bool script_load(const char *path)
     }
     else
     {
-        script_file = fopen(path, "r");
+        script_file = os_fopen(path, "r");
         if (!script_file)
         {
             fprintf(stderr, "rp6502-emu: cannot open script '%s'\n", path);

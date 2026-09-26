@@ -57,7 +57,7 @@ def prog():
     return p
 
 
-def drive(emu, rom):
+def drive(emu, rom, save_dir=None):
     # The payload has no zero byte because `wait` searches the console
     # capture as a C string, and a zero byte would hide everything printed
     # after it.
@@ -66,7 +66,7 @@ def drive(emu, rom):
 
     def body(e):
         e.cmd(f'wait "{DONE.decode().rstrip()}"')
-    return rp6502_script.drive(emu, rom, body)
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir)
 
 
 def main():
@@ -76,11 +76,12 @@ def main():
                     help="run the ROM on the emulator and check what it says")
     ap.add_argument("--emu", help="the rp6502-emu binary")
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
         print(f"stream.rp6502 {image(prog()).write(a.emit)} bytes")
     if a.drive:
-        return drive(a.emu, a.rom)
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

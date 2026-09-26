@@ -29,21 +29,26 @@ void os_locale_free(void);
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe);
 
-/* One command-line argument, from this process's argv encoding to the guest's
- * OEM code page. False if it does not fit. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
-
 /* Monotonic time, in nanoseconds from an origin only the OS knows. */
 uint64_t os_mono_ns(void);
 
 void os_sleep_ns(uint64_t ns);
 
-/* Where an application's config file goes, in the host's native path format
- * and native path encoding rather than the OEM code page the drive uses.
- * os_config_dir allocates and the caller frees; it is NULL when the host names
- * no such directory. os_ensure_parent_dir makes the directories that will hold
- * filepath. */
+/* Where an application's config file goes, as a host path in UTF-8 rather
+ * than in the OEM code page the drive uses. os_config_dir allocates and the
+ * caller frees; it is NULL when the host has no such directory.
+ * os_ensure_parent_dir makes the directories that will hold filepath. */
 char *os_config_dir(void);
 void os_ensure_parent_dir(const char *filepath);
+
+/* The folder that the host's guidelines give for an application's saved data,
+ * as a host path in UTF-8, allocated for the caller to free, or NULL when the
+ * guidelines give none. This only builds the path; the first SAVE: open that
+ * creates a file creates any missing part of the folder. */
+char *os_save_dir(void);
+
+/* fopen of a host path in UTF-8. The Windows CRT's fopen reads the ANSI code
+ * page, so Windows converts the path and calls _wfopen. */
+FILE *os_fopen(const char *path, const char *mode);
 
 #endif /* _OSAL_OS_H_ */

@@ -101,6 +101,7 @@ rp6502_add_test(dwarf_frame
 
 rp6502_add_test(cc65dbg
     SOURCES test_cc65dbg.c ${RP6502_SRC}/core/dap/cc65dbg.c
-    INCLUDES ${RP6502_SRC} ROM host/emu/cc65.dbg)
+    INCLUDES ${RP6502_SRC} ROM host/emu/cc65.dbg
+    DEFS TEST_ONCE_FIXTURE="${CMAKE_CURRENT_LIST_DIR}/cc65_once.dbg")
 
 rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})

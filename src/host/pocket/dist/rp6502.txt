@@ -16,22 +16,26 @@ The Pocket needs firmware 2.3 or later. Open the core from the
 Pocket menu under openFPGA.
 
 
-Saves
------
-
-Programs save to Saves/rp6502/common/, which is the core's working
-directory. The Pocket will not create this path automatically; you
-will find a .keep file there to ensure the zip file retains the
-directory structure.
-
-
 ROMs
 ----
 
 6502 software is distributed as files ending with ".rp6502". Put
-them in Assets/rp6502/common/ on the card; the core asks you to
-pick one when it opens. Find them on Discord, which has a forum
+them in Assets/rp6502/common/ on the card, and pick one from the
+list shown when the core opens. Find them on Discord, which has a forum
 for ROMs, or on itch.io under the RP6502 tag:
 
     https://discord.gg/TC6X8kTr6d
     https://itch.io/games/tag-rp6502
+
+Assets/rp6502/common/ is also the working directory, so a program
+opens a file beside its ROM by its plain name. The working directory
+cannot be changed on the Pocket. The Pocket has no installed ROMs, so
+each ROM runs from its file.
+
+
+Saves
+-----
+
+A program saves through SAVE:, and those files are stored in
+Saves/rp6502/common/. The Pocket does not create this folder, so the
+package has a .keep file in it, which keeps the folder in the zip file.

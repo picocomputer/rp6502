@@ -26,7 +26,7 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-    if (cp < 900 && unicode_has_page(cp))
+    if (unicode_has_page(cp))
     {
         oem_fs_code_page(cp);
         oem_code_page_run = cp;
@@ -47,7 +47,7 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t cp = sst_get_u16(c);
     /* Zero is a valid saved value, because a machine whose resolved page the
      * tables do not carry runs with no page at all. */
-    if (!sst_ok(c) || (cp != 0 && (cp >= 900 || !unicode_has_page(cp))))
+    if (!sst_ok(c) || (cp != 0 && !unicode_has_page(cp)))
         return false;
     oem_code_page_run = cp;
     oem_fs_code_page(cp);
@@ -74,13 +74,15 @@ void oem_stop(void)
 
 void oem_set_code_page_run(uint16_t cp)
 {
+    if (!unicode_has_page(cp))
+        cp = oem_resolve();
     oem_request_code_page(cp);
 }
 
 /* Zero is auto: follow the locale's default. */
 bool oem_check_code_page(uint16_t *v)
 {
-    return *v == 0 || (*v < 900 && unicode_has_page(*v));
+    return *v == 0 || unicode_has_page(*v);
 }
 
 void oem_apply_code_page(uint16_t cp, bool changed)
@@ -256,14 +258,20 @@ int oem_to_wide(const char *s, uint16_t *w, int wcount)
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz)
 {
     size_t n = 0;
-    for (size_t i = 0; i < wlen && n + 1 < dstsz; i++)
+    for (size_t i = 0; i < wlen; i++)
     {
-        unsigned char b = w[i] < 0x80 ? (unsigned char)w[i]
-                                      : (unsigned char)ff_uni2oem(w[i], oem_code_page_run);
-        dst[n++] = b ? (char)b : 0x7F;
+        uint16_t u = w[i];
+        /* A surrogate pair is one character, and no code page holds it. */
+        if ((u & 0xFC00) == 0xD800 && i + 1 < wlen && (w[i + 1] & 0xFC00) == 0xDC00)
+            i++;
+        unsigned char b = u < 0x80 ? (unsigned char)u
+                                   : (unsigned char)ff_uni2oem(u, oem_code_page_run);
+        if (n + 1 < dstsz)
+            dst[n] = b ? (char)b : 0x7F;
+        n++;
     }
     if (dstsz)
-        dst[n] = 0;
+        dst[n < dstsz ? n : dstsz - 1] = 0;
     return n;
 }
 
@@ -301,7 +309,7 @@ bool oem_maps_wide(const uint16_t *w)
 bool oem_maps_oem(const char *s)
 {
     for (const unsigned char *p = (const unsigned char *)s; *p; p++)
-        if (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run))
+        if (*p == OEM_NO_SPELLING || (*p >= 0x80 && !ff_oem2uni(*p, oem_code_page_run)))
             return false;
     return true;
 }

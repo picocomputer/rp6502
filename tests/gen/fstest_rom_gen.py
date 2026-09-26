@@ -17,13 +17,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rp6502_script  # noqa: E402
-from rp6502_asm import (API_A, OP_CHDIR, OP_CHDRIVE, OP_CLOSE, OP_GETCWD,
+from rp6502_asm import (API_A, API_ERRNO, OP_ARGV, OP_CHDIR, OP_CHDRIVE,
+                        OP_CLOSE, OP_DROP_XSTACK, OP_ERRNO_OPT, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
-                        OP_READ_XRAM, OP_READ_XSTACK, OP_SYNCFS, OP_TIME_GET,
-                        OP_WRITE_XRAM, OP_WRITE_XSTACK, O_APPEND, O_CREAT,
-                        O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, RW0_ADDR,
-                        RW0_DATA, SEEK_CUR, SEEK_END, SEEK_SET, XSTACK, Asm,
-                        putc, puthex, putnib)
+                        OP_READ_XRAM, OP_READ_XSTACK, OP_RENAME, OP_STAT,
+                        OP_SYNCFS, OP_TIME_GET, OP_WRITE_XRAM,
+                        OP_WRITE_XSTACK, O_APPEND, O_CREAT, O_EXCL, O_RDONLY,
+                        O_TRUNC, O_WRONLY, RW0_ADDR, RW0_DATA, SEEK_CUR,
+                        SEEK_END, SEEK_SET, XSTACK, Asm, putc, puthex,
+                        putnib)
 from rp6502_rom import image
 
 
@@ -38,19 +40,47 @@ CNT = 0x0208
 BAD = 0x0209
 CNTL, CNTH = 0x020A, 0x020B
 PFXN = 0x020C
-TMP2 = 0x020C
-FAILS = 0x0210
+TMP2 = 0x020D
+ERRA, ERRB = 0x020E, 0x020F
+FD2 = 0x0210
+CWDN = 0x0211
+CWDL, CWDH = 0x0212, 0x0213
+ARGN = 0x0214
 FDS = 0x0230
 PFX = 0x0240
 PFX_MAX = 8
+CWD = 0x7000
+ARGV0 = 0x7100
+FAILS = 0x7200
 
 CHUNK = 128
 CHUNKS = 12
 TOTAL = CHUNK * CHUNKS
 
-NAME = "fs1.dat"
-NAME2 = "fs2.dat"
-NAME3 = "fs3.dat"
+# Every file the ROM creates is a SAVE: file, so the ROM writes nothing into
+# the working directory, which on the Pocket is the folder of the core itself.
+NAME = "SAVE:fs1.dat"
+NAME2 = "SAVE:fs2.dat"
+NAME3 = "SAVE:fs3.dat"
+NAME4 = "SAVE:fs4.dat"
+LONGEST = "SAVE:fs_32_chars_long_name.0123456789"
+
+# Each of these breaks one of the SAVE: name rules.
+REFUSED = ["SAVE:", "SAVE:..", "SAVE:../x", "SAVE:a/b", "SAVE:FS:/x",
+           "SAVE:x.", "SAVE:CON", "SAVE:lpt1.sav", "SAVE:a b",
+           "SAVE:" + "n" * 33]
+
+GAP = 32
+
+# llvm-mos numbers, which the ROM selects before its first call.
+ERRNO_OPT_LLVM = 2
+EACCES = 13
+ENODEV = 19
+EINVAL = 22
+ENOSYS = 38
+
+# The Pocket keeps its working directory in one fixed folder.
+POCKET_CWD = "FS:/Assets/rp6502/common"
 
 # The first XRAM read of NAME3 and the first of the asset each request one
 # chunk more than the data holds, so a read that returns the requested length
@@ -65,8 +95,10 @@ ALEN = CHUNK * ACHUNKS
 XROM = 0x6000
 
 # The first check fails if NAME exists and an exclusive create of NAME2 fails
-# if NAME2 exists, so drive() deletes the files in CREATES before each run.
-CREATES = [NAME, NAME2, NAME3, "pfx.dat"] + [f"s{i}.dat" for i in range(9)]
+# if NAME2 exists, so drive() deletes the files in CREATES from the SAVE:
+# folder before each run.
+CREATES = ([n[len("SAVE:"):] for n in (NAME, NAME2, NAME3, NAME4, LONGEST)]
+           + ["pfx.dat"] + [f"s{i}.dat" for i in range(9)])
 
 # The check that compares localtime with gmtime fails where the two agree, as
 # they do on a host set to UTC, so the emulator is run in a time zone five
@@ -284,12 +316,25 @@ def build():
     p.lda_abs(BAD)
     p.rts()
 
-    p.symbol("drive_pfx")
+    # The working directory goes to CWD and its drive name, up to and with
+    # the colon, to PFX.
+    p.symbol("cwd_buf")
     p.call(OP_GETCWD)
+    p.sta_abs(CWDL)
+    p.stx_abs(CWDH)
+    p.ldx_imm(0)
+    p.symbol("cwd_buf.top")
+    p.lda_abs(XSTACK)
+    p.sta_abx(CWD)
+    p.beq("cwd_buf.end")
+    p.inx()
+    p.bne("cwd_buf.top")
+    p.symbol("cwd_buf.end")
+    p.stx_abs(CWDN)
     p.store(PFXN, 0)
     p.ldx_imm(0)
-    p.symbol("drive_pfx.top")
-    p.lda_abs(XSTACK)
+    p.symbol("cwd_buf.pfx")
+    p.lda_abx(CWD)
     p.cmp_imm(ord(":"))
     with p.branch("bne"):
         p.sta_abx(PFX)
@@ -310,19 +355,141 @@ def build():
     p.cpx_imm(PFX_MAX)
     with p.branch("bne"):
         p.rts()
-    p.jmp_abs("drive_pfx.top")
+    p.jmp_abs("cwd_buf.pfx")
 
-    p.symbol("push_pfx")
+    p.symbol("cwd_has_drive")
     p.lda_abs(PFXN)
-    p.tax()
-    p.symbol("push_pfx.top")
-    p.cpx_imm(0)
     with p.branch("bne"):
+        p.lda_imm(1)
         p.rts()
+    p.ldx_abs(PFXN)
+    p.lda_abx(CWD)
+    p.cmp_imm(ord("/"))
+    with p.branch("beq"):
+        p.lda_imm(1)
+        p.rts()
+    p.lda_imm(0)
+    p.rts()
+
+    # The argv table ends at its zero pair, and argv[0] is the first string
+    # after it.
+    p.symbol("argv0_buf")
+    p.call(OP_ARGV)
+    p.symbol("argv0_buf.table")
+    p.lda_abs(XSTACK)
+    p.sta_abs(TMP)
+    p.lda_abs(XSTACK)
+    p.ora_abs(TMP)
+    p.bne("argv0_buf.table")
+    p.ldx_imm(0)
+    p.symbol("argv0_buf.top")
+    p.lda_abs(XSTACK)
+    p.sta_abx(ARGV0)
+    p.beq("argv0_buf.end")
+    p.inx()
+    p.bne("argv0_buf.top")
+    p.symbol("argv0_buf.end")
+    p.stx_abs(ARGN)
+    p.call(OP_DROP_XSTACK)
+    p.rts()
+
+    def pusher(name, buf, count):
+        p.symbol(name)
+        p.ldx_abs(count)
+        p.symbol(name + ".top")
+        p.cpx_imm(0)
+        with p.branch("bne"):
+            p.rts()
+        p.dex()
+        p.lda_abx(buf)
+        p.sta_abs(XSTACK)
+        p.jmp_abs(name + ".top")
+
+    # push_pfx goes on top of a string already pushed, so it pushes no
+    # terminator.
+    pusher("push_pfx", PFX, PFXN)
+    pusher("push_cwd.chars", CWD, CWDN)
+    pusher("push_argv0.chars", ARGV0, ARGN)
+
+    for name in ("push_cwd", "push_argv0"):
+        p.symbol(name)
+        p.push(0)
+        p.jmp_abs(name + ".chars")
+
+    # A failed call returns -1, and the errno it leaves is ERRA or ERRB.
+    p.symbol("errno_is")
+    p.cpx_imm(0xFF)
+    p.bne("errno_is.no")
+    p.lda_abs(API_ERRNO + 1)
+    p.bne("errno_is.no")
+    p.lda_abs(API_ERRNO)
+    p.cmp_abs(ERRA)
+    p.beq("errno_is.yes")
+    p.cmp_abs(ERRB)
+    p.bne("errno_is.no")
+    p.symbol("errno_is.yes")
+    p.lda_imm(0)
+    p.rts()
+    p.symbol("errno_is.no")
+    p.lda_imm(1)
+    p.rts()
+
+    # stat of a root returns one fixed entry: size 0, zero dates, a directory
+    # named /. A machine without stat fails with the errno expected.
+    p.symbol("stat_root")
+    p.stx_abs(TMP)
+    p.ora_abs(TMP)
+    with p.branch("beq"):
+        p.jmp_abs("errno_is")
+    p.store(BAD, 0)
+    p.ldx_imm(12)
+    p.symbol("stat_root.zero")
+    p.lda_abs(XSTACK)
+    p.ora_abs(BAD)
+    p.sta_abs(BAD)
     p.dex()
-    p.lda_abx(PFX)
-    p.sta_abs(XSTACK)
-    p.jmp_abs("push_pfx.top")
+    p.bne("stat_root.zero")
+    p.lda_abs(XSTACK)
+    p.cmp_imm(0x10)
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.ldx_imm(13)
+    p.symbol("stat_root.alt")
+    p.lda_abs(XSTACK)
+    p.dex()
+    p.bne("stat_root.alt")
+    p.lda_abs(XSTACK)
+    p.cmp_imm(ord("/"))
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.lda_abs(XSTACK)
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.lda_abs(BAD)
+    p.rts()
+
+    # Reads GAP bytes, which must all be zero.
+    p.symbol("rd_zero")
+    p.store(BAD, 0)
+    p.pushw(GAP)
+    p.lda_abs(FD)
+    p.sta_abs(API_A)
+    p.call(OP_READ_XSTACK)
+    p.cmp_imm(GAP)
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.cpx_imm(0)
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.ldx_imm(GAP)
+    p.symbol("rd_zero.top")
+    p.lda_abs(XSTACK)
+    with p.branch("beq"):
+        p.store(BAD, 1)
+    p.dex()
+    p.bne("rd_zero.top")
+    p.lda_abs(BAD)
+    p.rts()
 
     p.symbol("main")
 
@@ -359,8 +526,22 @@ def build():
         p.sta_abs(API_A)
         p.call(op)
 
+    def seek_set(ofs):
+        p.pushl(ofs)
+        p.push(SEEK_SET)
+        p.lda_abs(FD)
+        p.sta_abs(API_A)
+        p.call(OP_LSEEK)
+
+    # Stored before the call, because the stores go through A.
+    def expect_errno(a, b=None):
+        p.store(ERRA, a)
+        p.store(ERRB, a if b is None else b)
+
     for a, v in ((PASSN, 0), (FAILN, 0), (TIDX, 1), (VAL, 13), (BAD, 0)):
         p.store(a, v)
+    p.store(API_A, ERRNO_OPT_LLVM)
+    p.call(OP_ERRNO_OPT)
 
     text("FS ")
 
@@ -530,7 +711,7 @@ def build():
 
     p.store(BAD, 0)
     for i in range(8):
-        open_it(f"s{i}.dat", O_WRONLY | O_CREAT)
+        open_it(f"SAVE:s{i}.dat", O_WRONLY | O_CREAT)
         p.lda_abs(FD)
         p.sta_abs(FDS + i)
         p.cmp_imm(0xFF)
@@ -539,7 +720,7 @@ def build():
     p.lda_abs(BAD)
     record()
 
-    open_it("s8.dat", O_WRONLY | O_CREAT)
+    open_it("SAVE:s8.dat", O_WRONLY | O_CREAT)
     p.lda_abs(FD)
     check("is_ff", platform=True)
 
@@ -609,13 +790,10 @@ def build():
     p.lda_abs(FD)
     check("is_ff")
 
-    p.jsr_abs("drive_pfx")
+    p.jsr_abs("cwd_buf")
+    check("cwd_has_drive")
 
-    p.push_str("pfx.dat")
-    p.jsr_abs("push_pfx")
-    p.store(API_A, O_WRONLY | O_CREAT | O_TRUNC)
-    p.call(OP_OPEN)
-    p.sta_abs(FD)
+    open_it("SAVE:pfx.dat", O_WRONLY | O_CREAT | O_TRUNC)
     p.lda_abs(FD)
     check("not_ff")
     p.jsr_abs("do_close")
@@ -634,22 +812,18 @@ def build():
     p.lda_abs(FD)
     check("not_ff", platform=True)
     p.jsr_abs("do_close")
-    open_it("pfx.dat", O_RDONLY)
-    p.lda_abs(FD)
-    check("not_ff")
-    p.jsr_abs("do_close")
     open_it("msc1:pfx.dat", O_RDONLY)
     p.lda_abs(FD)
     check("is_ff")
 
-    # On a Pocket, getcwd returns the length of /Saves/rp6502/common plus one.
-    p.store(EXPL, 21)
-    p.store(EXPH, 0)
-    p.call(OP_GETCWD)
+    # getcwd returns the length of the path plus one.
+    expect16(len(POCKET_CWD) + 1)
+    p.lda_abs(CWDL)
+    p.ldx_abs(CWDH)
     check("eq16", platform=True)
     p.store(TMP, 0)
-    for ch in "/Saves/rp6502/common":
-        p.lda_abs(XSTACK)
+    for i, ch in enumerate(POCKET_CWD + "\0"):
+        p.lda_abs(CWD + i)
         p.cmp_imm(ord(ch))
         with p.branch("beq"):
             p.inc_abs(TMP)
@@ -756,6 +930,117 @@ def build():
     check("eq16")
     p.jsr_abs("do_close")
 
+    # SAVE: is one flat folder: one separator after the colon is dropped and
+    # the device name may be in any case.
+    for name in ("SAVE:/" + NAME[len("SAVE:"):],
+                 "save:\\" + NAME[len("SAVE:"):]):
+        open_it(name, O_RDONLY)
+        p.lda_abs(FD)
+        check("not_ff")
+        p.jsr_abs("do_close")
+
+    for name in REFUSED:
+        expect_errno(EINVAL)
+        open_it(name, O_WRONLY | O_CREAT)
+        check("errno_is")
+
+    open_it(LONGEST, O_WRONLY | O_CREAT | O_TRUNC)
+    p.lda_abs(FD)
+    check("not_ff")
+    p.jsr_abs("do_close")
+
+    # Only open accepts SAVE:. A machine without stat gives ENOSYS.
+    expect_errno(ENODEV, ENOSYS)
+    p.push_str(NAME)
+    p.call(OP_STAT)
+    check("errno_is")
+    p.call(OP_DROP_XSTACK)
+
+    expect_errno(EINVAL)
+    open_it(NAME, O_CREAT)
+    check("errno_is")
+
+    for name in ("a/b:c", "a*b"):
+        expect_errno(EINVAL)
+        open_it(name, O_RDONLY)
+        check("errno_is")
+
+    expect_errno(EINVAL)
+    p.push(0)
+    p.ldx_imm(0)
+    p.lda_imm(ord("x"))
+    p.symbol("long_path")
+    p.sta_abs(XSTACK)
+    p.dex()
+    p.bne("long_path")
+    p.store(API_A, O_RDONLY)
+    p.call(OP_OPEN)
+    check("errno_is")
+
+    p.jsr_abs("argv0_buf")
+    p.jsr_abs("push_argv0")
+    p.store(API_A, O_RDONLY)
+    p.call(OP_OPEN)
+    p.sta_abs(FD)
+    check("not_ff")
+    p.jsr_abs("do_close")
+
+    # A seek past the end of a writable file fills the gap with zeros.
+    open_it(NAME4, O_WRONLY | O_CREAT | O_TRUNC)
+    expect16(GAP)
+    seek_set(GAP)
+    check("eq16")
+    p.jsr_abs("do_close")
+    open_it(NAME4, O_RDONLY)
+    expect16(GAP)
+    p.jsr_abs("seek_end")
+    check("eq16")
+    seek_set(0)
+    check("rd_zero")
+    p.jsr_abs("do_close")
+
+    # A drive root has one fixed entry, and an empty path is refused.
+    expect_errno(ENOSYS)
+    p.push_str("/")
+    p.jsr_abs("push_pfx")
+    p.call(OP_STAT)
+    check("stat_root")
+    p.call(OP_DROP_XSTACK)
+
+    expect_errno(EINVAL, ENOSYS)
+    p.push_str("")
+    p.call(OP_STAT)
+    check("errno_is")
+    p.call(OP_DROP_XSTACK)
+
+    # A file open for writing can be opened again.
+    open_it(NAME, O_WRONLY)
+    p.lda_abs(FD)
+    p.sta_abs(FD2)
+    check("not_ff")
+    open_it(NAME, O_RDONLY)
+    p.lda_abs(FD)
+    check("not_ff")
+    p.jsr_abs("do_close")
+    p.lda_abs(FD2)
+    p.sta_abs(FD)
+    p.jsr_abs("do_close")
+
+    # An open of a directory gives EACCES.
+    expect_errno(EACCES)
+    p.jsr_abs("push_cwd")
+    p.store(API_A, O_RDONLY)
+    p.call(OP_OPEN)
+    check("errno_is")
+
+    # A rename to another drive gives ENODEV, or ENOSYS on a machine without
+    # rename. RENAME takes the new name on top of the old one.
+    expect_errno(ENODEV, ENOSYS)
+    p.push_str(NAME[len("SAVE:"):])
+    p.push_str("MSC9:" + NAME[len("SAVE:"):])
+    p.call(OP_RENAME)
+    check("errno_is")
+
     text("\r\nPASS ")
     p.lda_abs(PASSN)
     p.jsr_abs("puthex")
@@ -788,13 +1073,14 @@ def passed():
     return f"PASS {CHECKS:02X}/{CHECKS:02X}"
 
 
-def drive(emu, rom):
+def drive(emu, rom, save_dir=None):
     """A host-backed drive fails the four platform checks, because it
-    allows more than eight open files and its working directory is not
-    /Saves/rp6502/common. The run passes when exactly those four fail."""
+    allows more than eight open files, its SAVE: folder is not
+    /Saves/rp6502/common and its working directory is not the Pocket's. The
+    run passes when exactly those four fail."""
     build()
     for name in CREATES:
-        pathlib.Path(name).unlink(missing_ok=True)
+        (pathlib.Path(save_dir or ".") / name).unlink(missing_ok=True)
 
     def body(e):
         e.cmd('wait "BAD "')
@@ -802,7 +1088,8 @@ def drive(emu, rom):
         if PLATFORM:
             e.cmd(f'peek ${FAILS:04X} '
                   + " ".join(f"${i:02X}" for i in PLATFORM))
-    return rp6502_script.drive(emu, rom, body, env={"TZ": TZ})
+    return rp6502_script.drive(emu, rom, body, env={"TZ": TZ},
+                               save_dir=save_dir)
 
 
 def main():
@@ -812,6 +1099,7 @@ def main():
                     help="run the ROM on the emulator and check what it says")
     ap.add_argument("--emu", help="the rp6502-emu binary")
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
         rom = image(build())
@@ -819,7 +1107,7 @@ def main():
         n = rom.write(a.emit)
         print(f"fstest.rp6502 {n} bytes, {CHECKS} checks, {TOTAL} byte payload")
     if a.drive:
-        return drive(a.emu, a.rom)
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

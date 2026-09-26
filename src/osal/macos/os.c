@@ -6,6 +6,9 @@
  */
 
 #include "osal/os.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 uint32_t os_random(void)
@@ -17,4 +20,31 @@ uint32_t os_random(void)
                  (uint64_t)real.tv_sec * 1442695040888963407ull +
                  (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return (uint32_t)(s ^ (s >> 32));
+}
+
+/* Apple's guidelines put an application's files in a folder of Application
+ * Support named for its bundle identifier, and the config and the saves are
+ * both in it. */
+static char *app_support_dir(void)
+{
+    static const char tail[] =
+        "/Library/Application Support/io.github.picocomputer.rp6502-emu";
+    const char *home = getenv("HOME");
+    if (!home || !home[0])
+        return NULL;
+    size_t sz = strlen(home) + sizeof tail;
+    char *dir = malloc(sz);
+    if (dir)
+        snprintf(dir, sz, "%s%s", home, tail);
+    return dir;
+}
+
+char *os_config_dir(void)
+{
+    return app_support_dir();
+}
+
+char *os_save_dir(void)
+{
+    return app_support_dir();
 }

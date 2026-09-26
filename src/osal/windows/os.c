@@ -6,9 +6,7 @@
  */
 
 #include "osal/os.h"
-#include "core/str/oem.h"
-#include <direct.h>
-#include <io.h>
+#include "osal/windows/dir.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +14,11 @@
 #include <time.h>
 #include <wchar.h>
 #include <windows.h>
+/* initguid.h comes before knownfolders.h so that this file defines
+ * FOLDERID_SavedGames itself, and no uuid library is needed for it. */
+#include <initguid.h>
+#include <knownfolders.h>
+#include <shlobj.h>
 
 /* The value is the same on every SDK; only the newer ones declare it. */
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
@@ -94,6 +97,9 @@ bool os_gmtime(time_t t, struct tm *out)
 void os_locale_reset(void) {}
 void os_locale_free(void) {}
 
+/* %a, %b and %c come out in English here, while the POSIX hosts format in the
+ * environment's locale. This needs upgrading, if possible, to _strftime_l with
+ * a locale from _create_locale(LC_TIME, ""). */
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return strftime(buf, max, fmt, tm);
@@ -104,57 +110,55 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
     (void)tm, (void)probe; /* the CRT's struct tm has no tm_gmtoff or tm_zone */
 }
 
+/* A folder path from the wide API joined with an ASCII tail, as one UTF-8
+ * path. */
+static char *win_join_utf8(const wchar_t *base, const char *tail)
+{
+    char *u8 = win_wide_to_utf8(base);
+    char *dir = u8 ? realloc(u8, strlen(u8) + strlen(tail) + 1) : NULL;
+    if (!dir)
+    {
+        free(u8);
+        return NULL;
+    }
+    strcat(dir, tail);
+    return dir;
+}
+
 char *os_config_dir(void)
 {
-    const char *base = getenv("APPDATA");
-    if (!base || !base[0])
-        return NULL;
-    static const char tail[] = "\\rp6502-emu";
-    char *dir = malloc(strlen(base) + sizeof tail);
-    if (dir)
-        sprintf(dir, "%s%s", base, tail);
-    return dir;
+    const wchar_t *base = _wgetenv(L"APPDATA");
+    return base && base[0] ? win_join_utf8(base, "\\rp6502-emu") : NULL;
 }
 
 void os_ensure_parent_dir(const char *filepath)
 {
-    char *tmp = strdup(filepath);
-    if (!tmp)
-        return;
-    char *s1 = strrchr(tmp, '/');
-    char *s2 = strrchr(tmp, '\\');
-    char *slash = (s2 > s1) ? s2 : s1;
-    if (!slash || slash == tmp)
-    {
-        free(tmp);
-        return;
-    }
-    *slash = 0;
-    for (char *p = tmp + 1; *p; p++)
-        if (*p == '/' || *p == '\\')
-        {
-            char c = *p;
-            *p = 0;
-            _mkdir(tmp);
-            *p = c;
-        }
-    _mkdir(tmp);
-    free(tmp);
+    api_errno ignored;
+    wchar_t *w = win_utf8_to_wide(filepath, &ignored);
+    if (w)
+        win_make_parents(w);
+    free(w);
 }
 
-/* An ANSI main()'s argv is in the process ANSI code page, not UTF-8. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+/* KF_FLAG_CREATE makes Saved Games when a profile lacks it. The folder inside
+ * it is made by the first SAVE: open that creates a file. */
+char *os_save_dir(void)
 {
-    int n = MultiByteToWideChar(CP_ACP, 0, arg, -1, NULL, 0);
-    wchar_t *w = n > 0 ? malloc((size_t)n * sizeof *w) : NULL;
-    if (!w || !MultiByteToWideChar(CP_ACP, 0, arg, -1, w, n))
-    {
-        free(w);
-        return false;
-    }
-    bool ok = wcslen(w) < dstsz; /* one OEM byte per UTF-16 unit */
-    if (ok)
-        oem_from_wide((const uint16_t *)w, dst, dstsz);
-    free(w);
-    return ok;
+    PWSTR base = NULL;
+    char *dir = NULL;
+    if (SUCCEEDED(SHGetKnownFolderPath(&FOLDERID_SavedGames, KF_FLAG_CREATE, NULL, &base)))
+        dir = win_join_utf8(base, "\\rp6502");
+    CoTaskMemFree(base);
+    return dir;
+}
+
+FILE *os_fopen(const char *path, const char *mode)
+{
+    api_errno ignored;
+    wchar_t *wpath = win_utf8_to_wide(path, &ignored);
+    wchar_t *wmode = win_utf8_to_wide(mode, &ignored);
+    FILE *f = wpath && wmode ? _wfopen(wpath, wmode) : NULL;
+    free(wpath);
+    free(wmode);
+    return f;
 }

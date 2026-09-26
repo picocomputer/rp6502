@@ -1514,7 +1514,8 @@ extern "C" void dap_start(void)
             g_session->send(dap::InitializedEvent());
         });
 
-    g_session->registerHandler([](const dap::RP6502LaunchRequest &req) {
+    g_session->registerHandler([](const dap::RP6502LaunchRequest &req)
+                                   -> dap::ResponseOrError<dap::LaunchResponse> {
         std::string program = req.program.value("");
         /* Request args are UTF-8 JSON and convert here; the --dap command-line
          * defaults arrived already OEM (main.c converted its argv), so they
@@ -1524,6 +1525,17 @@ extern "C" void dap_start(void)
             args.push_back(oem_from_utf8_str(a));
         if (args.empty())
             args = g_default_args;
+        /* The exec is refused here, where the error can still be returned to
+         * the client. The exec loads the file in argv[0], so argv[0] has to
+         * fit even with no other arguments. */
+        if (!program.empty())
+        {
+            std::vector<char *> argv;
+            for (const std::string &a : args)
+                argv.push_back(const_cast<char *>(a.c_str()));
+            if (!proc_argv_fits(oem_from_utf8_str(program).c_str(), (int)argv.size(), argv.data()))
+                return dap::Error("ROM argv overflow");
+        }
         std::string elf = req.elf.value("");
         std::string dbg = req.dbg.value("");
         bool soe = req.stopOnEntry.value(false);
@@ -1585,17 +1597,7 @@ extern "C" void dap_start(void)
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
-                if (!proc_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
-                {
-                    /* Args over the 512-byte argv buffer. The response already
-                     * went out, so run anyway — but with argv[0] intact (the
-                     * re-exec invariant) and the failure in the Debug Console. */
-                    proc_set_argv(prog_oem.c_str(), 0, NULL);
-                    dap::OutputEvent ev;
-                    ev.category = "console";
-                    ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
-                    g_session->send(ev);
-                }
+                proc_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data());
                 proc_exec_request();
             }
             g_launch_requested = true; /* dap_pump can now detect a load that never started */

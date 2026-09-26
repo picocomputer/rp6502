@@ -52,17 +52,56 @@ static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static float audio_out[RETRO_AUD_FRAMES * 2];
 static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
 
-static char *loaded_rom;  /* the OEM code page, absolute; owned here */
-static char *loaded_path; /* as the frontend passed it; owned here */
+/* Each of these is allocated here and freed here. */
+static char *loaded_host; /* the content's absolute host path */
+static char *loaded_rom;  /* the path or ":name" the last boot loaded */
+static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
 static bool hint_shown;
 
-/* Set by a proc_boot that succeeded, which loaded_rom and machine_inited do
- * not say: both are set before proc_boot can fail, and a frontend asks for a
- * savestate the moment the core loads content. */
+/* Set by a proc_boot that succeeded. loaded_host and machine_inited cannot
+ * show that, because both are set before proc_boot can fail, and a frontend
+ * requests a savestate as soon as the core loads content. */
 static bool booted;
+
+/* The drive path of the content in the code page in force, or, for a path
+ * that has no drive path, the ":name" of an install on the null drive, since
+ * a program could not open that path either. Allocated for the caller to
+ * free. */
+static char *rom_path(const char *host)
+{
+    if (oem_maps_utf8(host))
+    {
+        /* oem_from_utf8 writes one byte per UTF-8 sequence, so the UTF-8
+         * length holds the result. A name FAT refuses has no drive path
+         * either, and os_dir_realpath returns NULL for it. So does a path
+         * whose absolute form is longer than API_PATH_MAX. */
+        size_t sz = strlen(host) + 1;
+        char *oem = malloc(sz);
+        if (oem)
+            oem_from_utf8(host, oem, sz);
+        char *abs = oem ? os_dir_realpath(oem) : NULL;
+        bool named = abs && strlen(abs) <= API_PATH_MAX;
+        free(abs);
+        if (named)
+            return oem;
+        free(oem);
+    }
+    const char *name = rom_alias_insert(host);
+    char *rom = name ? malloc(strlen(name) + 2) : NULL;
+    if (rom)
+        sprintf(rom, ":%s", name);
+    return rom;
+}
+
+static void forget_rom(void)
+{
+    if (loaded_rom && loaded_rom[0] == ':')
+        rom_alias_remove(loaded_rom);
+    free(loaded_rom), loaded_rom = NULL;
+}
 
 /* Taken once per session, so the random stream and the memory fill agree with
  * each other. */
@@ -325,8 +364,10 @@ void retro_deinit(void)
         sys_commit();
     }
     machine_inited = false;
-    free(loaded_rom), loaded_rom = NULL;
-    free(loaded_path), loaded_path = NULL;
+    forget_rom();
+    free(loaded_host), loaded_host = NULL;
+    free(save_dir), save_dir = NULL;
+    fs_save_free();
     shutdown_sent = false;
     geom_w = geom_h = 0;
     hint_shown = false;
@@ -420,82 +461,16 @@ uint32_t host_seed(void)
     return run_seed;
 }
 
-/* A string in the guest's code page, allocated to fit: UTF-8 to OEM only ever
- * contracts, so the argument's own length bounds the result. The caller frees.
- *
- * This is core's conversion rather than os_argv_to_oem because a frontend
- * hands its paths over as UTF-8 on Windows as anywhere else, while the sokol
- * emulator's ANSI main() is given the OS's own code page instead. */
-static char *argv_to_oem(const char *arg)
+const char *host_save_dir(void)
 {
-    size_t sz = strlen(arg) + 1;
-    char *oem = malloc(sz);
-    if (oem && oem_from_utf8(arg, oem, sz) >= sz)
-    {
-        free(oem);
-        oem = NULL;
-    }
-    return oem;
-}
-
-/* Where the frontend wants a program's saves to go. The drive is still the
- * whole host filesystem, as on every other host; this only sets the directory
- * a program starts in. */
-static void enter_save_directory(const char *content_path)
-{
-    const char *dir = NULL;
-    char *own = NULL;
-    if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir || !*dir)
-    {
-        /* No save directory: the program's own folder, which is where the SDK
-         * puts what it ships beside a ROM. GET_GAME_INFO_EXT is asked for it
-         * rather than cutting the path, because the frontend also knows when
-         * the program came out of an archive, in which case the path points
-         * inside the zip and has no directory to cut. */
-        struct retro_game_info_ext *ext = NULL;
-        if (environ_cb(RETRO_ENVIRONMENT_GET_GAME_INFO_EXT, &ext) &&
-            ext && ext->dir && *ext->dir)
-        {
-            char *oem_dir = argv_to_oem(ext->dir);
-            if (oem_dir)
-            {
-                api_errno err;
-                drive_chdir(oem_dir, &err);
-                free(oem_dir);
-            }
-            return;
-        }
-        if (!content_path)
-            return;
-        own = strdup(content_path);
-        if (!own)
-            return;
-        char *slash = strrchr(own, '/');
-#ifdef _WIN32
-        char *back = strrchr(own, '\\');
-        if (back > slash)
-            slash = back;
-#endif
-        if (!slash)
-        {
-            free(own);
-            return;
-        }
-        *slash = 0;
-        dir = own;
-    }
-    char *oem = argv_to_oem(dir);
-    if (oem)
-    {
-        api_errno err;
-        drive_chdir(oem, &err);
-    }
-    free(oem), free(own);
+    return save_dir;
 }
 
 /* The first load cold-boots the machine; every load after it refills RAM, so
- * a program never sees what the last one left behind. */
-static bool boot(const char *rom_oem)
+ * no data from the last program remains in memory. The content path is
+ * converted again on every boot, after sys_init has selected a code page,
+ * into whichever code page an option has selected since. */
+static bool boot(void)
 {
     apply_options(machine_inited);
     unsigned flags = PROC_UNCHAIN;
@@ -507,7 +482,9 @@ static bool boot(const char *rom_oem)
         machine_inited = true;
     }
     booted = false;
-    if (!proc_boot(rom_oem, 0, NULL, flags))
+    forget_rom();
+    loaded_rom = rom_path(loaded_host);
+    if (!loaded_rom || !proc_boot(loaded_rom, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
     sys_commit();
@@ -532,35 +509,33 @@ bool retro_load_game(const struct retro_game_info *game)
         return false;
     }
 
-    /* Made absolute before anything moves, because the frontend's path is
-     * relative to a directory enter_save_directory is about to leave, and
-     * retro_reset has to find the same file again from wherever the program
-     * has since gone. */
-    char *given = argv_to_oem(game->path);
-    if (!given)
+    /* Made absolute now, because a program's CHDIR moves the whole frontend
+     * process and retro_reset has to find the same file again. */
+    forget_rom();
+    free(loaded_host);
+    loaded_host = fs_host_realpath(game->path);
+    if (!loaded_host)
     {
-        RP6502_LOG(retro, ERROR, "cannot take the ROM path");
+        RP6502_LOG(retro, ERROR, "cannot find '%s'", game->path);
         return false;
     }
-    char *abs = os_dir_realpath(given);
-    free(loaded_rom);
-    loaded_rom = abs ? abs : given;
-    if (abs)
-        free(given);
+
+    const char *dir = NULL;
+    free(save_dir), save_dir = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir && *dir)
+    {
+        save_dir = malloc(strlen(dir) + sizeof "/rp6502");
+        if (save_dir)
+            sprintf(save_dir, "%s/rp6502", dir);
+    }
 
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);
 
-    free(loaded_path);
-    loaded_path = strdup(game->path);
-    if (!loaded_rom || !loaded_path)
+    if (!boot())
     {
-        RP6502_LOG(retro, ERROR, "cannot take the ROM path");
+        forget_rom();
         return false;
     }
-    enter_save_directory(loaded_path);
-
-    if (!boot(loaded_rom))
-        return false;
 
     /* Two blocks in one flat map, XRAM above the 6502's own space. A blank
      * addrspace on both is what keeps them in one namespace; naming them would
@@ -598,19 +573,15 @@ void retro_unload_game(void)
         sys_stop();
         sys_commit();
     }
-    free(loaded_rom), loaded_rom = NULL;
-    free(loaded_path), loaded_path = NULL;
+    forget_rom();
+    free(loaded_host), loaded_host = NULL;
+    free(save_dir), save_dir = NULL;
 }
 
-/* The save directory is entered again because a chdir moves the whole host
- * process and nothing in a reboot puts it back, so a program that changed
- * directory would leave the next run starting there. */
 void retro_reset(void)
 {
-    if (!loaded_rom)
-        return;
-    enter_save_directory(loaded_path);
-    boot(loaded_rom);
+    if (loaded_host)
+        boot();
 }
 
 /* The machine paints RGBA8 (0xAABBGGRR) and libretro was asked for XRGB8888
@@ -781,15 +752,15 @@ bool retro_unserialize(const void *data, size_t size)
         return false;
     fs_std_settle();
     unsigned flags = savestate_flags();
-    const char *why = sst_load(data, size, flags, loaded_rom);
+    const char *why = sst_load(data, size, flags);
     if (why)
     {
         RP6502_LOG(retro, ERROR, "cannot load state: %s", why);
         /* A refused load rolls itself back, but a trusted load has no
          * rollback and a rollback can itself fail. Either leaves no machine
          * standing, and only this file has a ROM to stand one up with. */
-        if (!sys_active() && loaded_rom)
-            boot(loaded_rom);
+        if (!sys_active() && loaded_host)
+            boot();
         return false;
     }
     /* Two things no savestate row can put back: shutdown_sent is kept in this

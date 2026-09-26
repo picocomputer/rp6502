@@ -42,14 +42,18 @@ int app_exit_code(void);
  * window. */
 void app_set_break(bool (*asked)(void), void (*leave)(void));
 
-/* Boot a .rp6502, true on success. The path is host UTF-8 and is converted to
- * the guest's OEM code page here, so a platform passes what the OS handed it; a
- * path with a character that has no byte in the code page never boots, and a
- * platform that has another name for the file, such as the Windows 8.3 name,
- * should substitute it first. It returns false without booting while a DAP
- * client controls the machine. A failed load leaves the machine stopped,
- * because rom_load streams records into live RAM before it can fail, as on
- * hardware where a failed LOAD leaves the CPU stopped in the monitor. */
+/* The name to boot a ROM file by, from its host path in UTF-8, allocated for
+ * the caller to free, or NULL. A path that has a drive path in the code page
+ * becomes that drive path. A program could not open any other path, so that
+ * file is installed on the null drive and the result is its ":name". */
+char *app_rom_path(const char *host);
+
+/* Boot a .rp6502, true on success. The path is the host path from the OS,
+ * converted for the boot by app_rom_path. It returns false without
+ * booting while a DAP client controls the machine. A failed load leaves the
+ * machine stopped, because rom_load streams records into live RAM before it
+ * can fail, as on hardware where a failed LOAD leaves the CPU stopped in the
+ * monitor. */
 bool app_boot_rom(const char *path);
 
 uint64_t app_machine_ns(void);

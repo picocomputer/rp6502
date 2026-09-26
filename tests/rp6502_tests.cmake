@@ -239,7 +239,8 @@ function(rp6502_add_script_test name)
     # A relative path in a script's shot command or in a program's file calls
     # resolves against the working directory, so each script test gets its own
     # directory and tests run by ctest --parallel do not overwrite each other's
-    # files.
+    # files. The same directory is the SAVE: folder, so no test writes into
+    # the save folder of the user who runs it.
     set(_work ${CMAKE_CURRENT_BINARY_DIR}/script.${name})
     file(MAKE_DIRECTORY ${_work})
 
@@ -249,11 +250,12 @@ function(rp6502_add_script_test name)
     if(S_DRIVER)
         add_test(NAME script.${name}
             COMMAND ${CMAKE_COMMAND} -E env python3 ${S_DRIVER} --drive
-                --emu $<TARGET_FILE:rp6502-emu> --rom ${S_ROM} ${S_ARGS})
+                --emu $<TARGET_FILE:rp6502-emu> --rom ${S_ROM}
+                --save-dir ${_work} ${S_ARGS})
     else()
         add_test(NAME script.${name}
-            COMMAND rp6502-emu --mute --seed 1 --fill 0 ${S_ARGS}
-                --script ${S_SCRIPT} ${S_ROM})
+            COMMAND rp6502-emu --mute --seed 1 --fill 0 --save-dir ${_work}
+                ${S_ARGS} --script ${S_SCRIPT} ${S_ROM})
     endif()
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)

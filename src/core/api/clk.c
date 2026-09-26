@@ -54,10 +54,10 @@ bool clk_api_time_get(void)
 
 bool clk_api_time_set(void)
 {
-    uint64_t u;
-    if (!api_pop_uint64_end(&u))
+    int64_t sec;
+    if (!api_pop_int64_end(&sec))
         return api_return_errno(API_EINVAL);
-    struct timespec ts = {.tv_sec = (int64_t)u, .tv_nsec = 0};
+    struct timespec ts = {.tv_sec = sec, .tv_nsec = 0};
     /* The errno is EACCES rather than ERANGE because a machine without a
      * time-of-day clock of its own is refusing to move the clock, not failing
      * to represent the value. */
@@ -68,11 +68,10 @@ bool clk_api_time_set(void)
 
 static bool clk_api_to_tm(bool local)
 {
-    uint64_t u;
-    if (!api_pop_uint64_end(&u))
+    int64_t sec;
+    if (!api_pop_int64_end(&sec))
         return api_return_errno(API_EINVAL);
-    // A short push is zero filled, so only a full eight-byte push is negative.
-    time_t t = (int64_t)u;
+    time_t t = sec;
     struct tm tm;
     if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)))
         return api_return_errno(API_EINVAL);
@@ -103,8 +102,17 @@ bool clk_api_mktime(void)
     struct tm tm;
     clk_wire_to_tm(&w, &tm);
     time_t t = mktime(&tm);
+    /* -1 is also a valid time, the second before the epoch, and the second
+     * after that time is 0. The struct cannot be checked instead, because the
+     * C libraries differ in what a failed mktime writes to it. */
     if (t == (time_t)-1)
-        return api_return_errno(API_ERANGE);
+    {
+        struct tm next;
+        clk_wire_to_tm(&w, &next);
+        next.tm_sec++;
+        if (mktime(&next) != 0)
+            return api_return_errno(API_ERANGE);
+    }
     int64_t sec = t;
     if (!api_push_n(&sec, sizeof(sec)))
         return api_return_errno(API_EINVAL);

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "osal/dir.h"
 #include "osal/fs.h"
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
@@ -309,6 +310,36 @@ void app_frame(void)
     gfx_end_pass();
 }
 
+char *app_rom_path(const char *host)
+{
+    if (oem_maps_utf8(host))
+    {
+        /* oem_from_utf8 writes one byte per UTF-8 sequence, so the UTF-8
+         * length holds the result. A name FAT refuses has no drive path
+         * either, and os_dir_realpath returns NULL for it. So does a path
+         * whose absolute form is longer than API_PATH_MAX. */
+        size_t sz = strlen(host) + 1;
+        char *oem = malloc(sz);
+        if (oem)
+            oem_from_utf8(host, oem, sz);
+        char *abs = oem ? os_dir_realpath(oem) : NULL;
+        bool named = abs && strlen(abs) <= API_PATH_MAX;
+        free(abs);
+        if (named)
+            return oem;
+        free(oem);
+    }
+    const char *name = rom_alias_insert(host);
+    char *rom = name ? malloc(strlen(name) + 2) : NULL;
+    if (rom)
+        sprintf(rom, ":%s", name);
+    return rom;
+}
+
+/* The ":name" installed on the null drive for the last dropped file that
+ * booted, or NULL. */
+static char *dropped_rom;
+
 bool app_boot_rom(const char *path)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -317,49 +348,46 @@ bool app_boot_rom(const char *path)
     if (dap_is_active())
         return false;
 #endif
-    /* The host hands a UTF-8 path and the machine works in the guest's OEM code
-     * page. A character that has no byte in the code page becomes 0x7F, which
-     * names no file, so an unrepresentable path is refused here before the
-     * machine is touched rather than halting the running program on a failed
-     * load. oem_from_utf8 writes one OEM byte per UTF-8 sequence, so the UTF-8
-     * length always holds the result. */
-    size_t osz = strlen(path) + 1;
-    char *oem = malloc(osz);
-    if (!oem)
-        return false;
-    oem_from_utf8(path, oem, osz);
-    size_t bsz = oem_to_utf8(oem, NULL, 0) + 1;
-    char *back = malloc(bsz);
-    if (back)
-        oem_to_utf8(oem, back, bsz);
-    bool same = back && strcmp(path, back) == 0;
-    free(back);
-    if (!same)
+    char *rom = app_rom_path(path);
+    if (!rom)
     {
-        free(oem);
-        com_printf("dropped path not representable in the OEM code page\n");
+        com_printf("cannot read dropped file\n");
         return false;
     }
-    /* The file is screened before proc_boot stops the machine, so an accidental
-     * drop leaves the running program alone; the loader would refuse it too, but
-     * only after that program was gone. The screen uses an ordinary descriptor
-     * because there is one ROM descriptor and the running program is holding it
-     * open for its assets. */
-    uint8_t buf[ROM_RECORD_MAX];
-    rom_pump_t pump;
-    api_errno err;
-    int fd = fs_std_open(oem, FS_RD, &err);
-    if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
+    /* The file is checked before proc_boot stops the machine, so an accidental
+     * drop leaves the running program running; the loader would refuse the file
+     * too, but only after stopping that program. The check uses an ordinary
+     * descriptor, because there is one ROM descriptor and the running program
+     * has it open for its assets. A file on the null drive opens only as a ROM
+     * image, on that one descriptor, so it goes to the loader unchecked. */
+    if (rom[0] != ':')
     {
-        com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
-                                      : "cannot read dropped file\n");
-        free(oem);
-        return false;
+        uint8_t buf[ROM_RECORD_MAX];
+        rom_pump_t pump;
+        api_errno err;
+        int fd = fs_std_open(rom, FS_RD, &err);
+        if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
+        {
+            com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
+                                          : "cannot read dropped file\n");
+            free(rom);
+            return false;
+        }
+        rom_pump_close(&pump);
     }
-    rom_pump_close(&pump);
     vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
-    bool ok = proc_boot(oem, 0, NULL, PROC_UNCHAIN);
-    free(oem);
+    bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    /* The install from the previous drop is removed once proc_boot has
+     * stopped the machine, whether or not this boot succeeded, unless this
+     * drop installed a ROM of the same name, which replaced it. */
+    if (dropped_rom && strcasecmp(dropped_rom, rom) != 0)
+        rom_alias_remove(dropped_rom);
+    if (!ok && rom[0] == ':')
+        rom_alias_remove(rom);
+    free(dropped_rom);
+    dropped_rom = ok && rom[0] == ':' ? rom : NULL;
+    if (rom != dropped_rom)
+        free(rom);
     if (!ok)
         return false;
     /* proc_boot only requests the machine, and a caller outside a driver pass

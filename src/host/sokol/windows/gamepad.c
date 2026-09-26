@@ -15,7 +15,9 @@
  * The HID half needs no mapping database because hid.dll parses the report
  * descriptor and hands back Button 1 through n and the Generic Desktop axes.
  * On the real machine core/hid/parse.c reads the same descriptor into the bit
- * offsets core/hid/gamepad.c extracts with.
+ * offsets core/hid/gamepad.c extracts with. A pad whose maker numbers its
+ * buttons in a different order is found by its ids and read with a separate
+ * table.
  */
 
 #include "core/hid/gamepad.h"
@@ -218,6 +220,34 @@ enum
 static const USAGE gamepad_hid_usage[GAMEPAD_HID_VALUE_COUNT] = {
     0x30, 0x31, 0x32, 0x35, 0x33, 0x34, 0x39};
 
+/* HID numbers buttons from 1, so usage n is map[n - 1]. A generic gamepad
+ * is read in the report's order, as core/hid/parse.c reads it. */
+static const gamepad_button_t gamepad_hid_map_generic[] = {
+    GAMEPAD_BTN_A, GAMEPAD_BTN_B, GAMEPAD_BTN_C, GAMEPAD_BTN_X,
+    GAMEPAD_BTN_Y, GAMEPAD_BTN_Z, GAMEPAD_BTN_L1, GAMEPAD_BTN_R1,
+    GAMEPAD_BTN_L2, GAMEPAD_BTN_R2, GAMEPAD_BTN_SELECT, GAMEPAD_BTN_START,
+    GAMEPAD_BTN_HOME, GAMEPAD_BTN_L3, GAMEPAD_BTN_R3};
+
+/* Square, Cross, Circle and Triangle come first, as in the fixed
+ * descriptors core/hid/gamepad.c gives these pads on the real machine. */
+static const gamepad_button_t gamepad_hid_map_sony[] = {
+    GAMEPAD_BTN_X, GAMEPAD_BTN_A, GAMEPAD_BTN_B, GAMEPAD_BTN_Y,
+    GAMEPAD_BTN_L1, GAMEPAD_BTN_R1, GAMEPAD_BTN_L2, GAMEPAD_BTN_R2,
+    GAMEPAD_BTN_SELECT, GAMEPAD_BTN_START, GAMEPAD_BTN_L3, GAMEPAD_BTN_R3,
+    GAMEPAD_BTN_HOME};
+
+static const gamepad_button_t gamepad_hid_map_ps_classic[] = {
+    GAMEPAD_BTN_Y, GAMEPAD_BTN_B, GAMEPAD_BTN_A, GAMEPAD_BTN_X,
+    GAMEPAD_BTN_L2, GAMEPAD_BTN_R2, GAMEPAD_BTN_L1, GAMEPAD_BTN_R1,
+    GAMEPAD_BTN_SELECT, GAMEPAD_BTN_START};
+
+/* The Switch Pro numbers its south, east, west and north buttons first. */
+static const gamepad_button_t gamepad_hid_map_switch_pro[] = {
+    GAMEPAD_BTN_B, GAMEPAD_BTN_A, GAMEPAD_BTN_Y, GAMEPAD_BTN_X,
+    GAMEPAD_BTN_L1, GAMEPAD_BTN_R1, GAMEPAD_BTN_L2, GAMEPAD_BTN_R2,
+    GAMEPAD_BTN_SELECT, GAMEPAD_BTN_START, GAMEPAD_BTN_L3, GAMEPAD_BTN_R3,
+    GAMEPAD_BTN_HOME};
+
 typedef struct
 {
     HANDLE file;
@@ -227,6 +257,8 @@ typedef struct
     PHIDP_PREPARSED_DATA preparsed;
     USHORT report_len;
     USHORT button_caps_len;
+    const gamepad_button_t *map;
+    USHORT map_len;
     bool has[GAMEPAD_HID_VALUE_COUNT];
     LONG min[GAMEPAD_HID_VALUE_COUNT];
     LONG max[GAMEPAD_HID_VALUE_COUNT];
@@ -318,15 +350,38 @@ static bool gamepad_hid_open_one(gamepad_hid_t *hid, const wchar_t *path, uint64
     hid->state.sticks = hid->has[GAMEPAD_HID_X] && hid->has[GAMEPAD_HID_Y] &&
                         hid->has[GAMEPAD_HID_Z] && hid->has[GAMEPAD_HID_RZ];
 
+    hid->map = gamepad_hid_map_generic;
+    hid->map_len = sizeof gamepad_hid_map_generic / sizeof gamepad_hid_map_generic[0];
     HIDD_ATTRIBUTES attributes;
     attributes.Size = sizeof(attributes);
     if (HidD_GetAttributes(hid->file, &attributes))
-        switch (attributes.VendorID)
+    {
+        if (attributes.VendorID == 0x054C && attributes.ProductID == 0x0CDA)
         {
-        case 0x054C: hid->state.type = GAMEPAD_TYPE_PLAYSTATION; break;
-        case 0x045E: hid->state.type = GAMEPAD_TYPE_WESTERN; break;
-        case 0x057E: hid->state.type = GAMEPAD_TYPE_EASTERN; break;
+            hid->state.type = GAMEPAD_TYPE_PLAYSTATION;
+            hid->map = gamepad_hid_map_ps_classic;
+            hid->map_len = sizeof gamepad_hid_map_ps_classic / sizeof gamepad_hid_map_ps_classic[0];
         }
+        else if (gamepad_is_sony(attributes.VendorID, attributes.ProductID))
+        {
+            hid->state.type = GAMEPAD_TYPE_PLAYSTATION;
+            hid->map = gamepad_hid_map_sony;
+            hid->map_len = sizeof gamepad_hid_map_sony / sizeof gamepad_hid_map_sony[0];
+        }
+        else if (attributes.VendorID == 0x057E && attributes.ProductID == 0x2009)
+        {
+            hid->state.type = GAMEPAD_TYPE_EASTERN;
+            hid->map = gamepad_hid_map_switch_pro;
+            hid->map_len = sizeof gamepad_hid_map_switch_pro / sizeof gamepad_hid_map_switch_pro[0];
+        }
+        /* Bluetooth Xbox pads have no IG_ in their path and number their
+         * buttons in the generic order. SideWinder-era pads vary by model. */
+        else if (attributes.VendorID == 0x045E &&
+                 (attributes.ProductID == 0x02FD || attributes.ProductID == 0x0B05 ||
+                  attributes.ProductID == 0x0B13 ||
+                  (attributes.ProductID >= 0x0B20 && attributes.ProductID <= 0x0B22)))
+            hid->state.type = GAMEPAD_TYPE_WESTERN;
+    }
 
     hid->overlapped.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!hid->overlapped.hEvent)
@@ -343,7 +398,6 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
     gamepad_host_t *state = &hid->state;
     state->dpad = state->button0 = state->button1 = 0;
 
-    /* HID numbers buttons from 1, so usage n is map[n - 1]. */
     USAGE usages[64];
     ULONG usage_count = sizeof usages / sizeof usages[0];
     if (hid->button_caps_len &&
@@ -352,14 +406,9 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
                        hid->report_len) == HIDP_STATUS_SUCCESS)
         for (ULONG i = 0; i < usage_count; i++)
         {
-            static const gamepad_button_t map[] = {
-                GAMEPAD_BTN_A, GAMEPAD_BTN_B, GAMEPAD_BTN_C, GAMEPAD_BTN_X,
-                GAMEPAD_BTN_Y, GAMEPAD_BTN_Z, GAMEPAD_BTN_L1, GAMEPAD_BTN_R1,
-                GAMEPAD_BTN_L2, GAMEPAD_BTN_R2, GAMEPAD_BTN_SELECT, GAMEPAD_BTN_START,
-                GAMEPAD_BTN_HOME, GAMEPAD_BTN_L3, GAMEPAD_BTN_R3};
             unsigned index = usages[i] - 1u;
-            if (index < sizeof map / sizeof map[0])
-                gamepad_button_apply(map[index], true, &state->dpad,
+            if (index < hid->map_len)
+                gamepad_button_apply(hid->map[index], true, &state->dpad,
                                      &state->button0, &state->button1);
             /* An Xbox-style descriptor declares its d-pad as usages 17 to 20
              * instead of as a hat, which is where gamepad.c reads it too. */

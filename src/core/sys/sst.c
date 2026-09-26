@@ -245,9 +245,8 @@ const char *sst_save(void *buf, size_t len, unsigned flags)
     return sst_write((uint8_t *)buf, flags);
 }
 
-const char *sst_load(const void *buf, size_t len, unsigned flags, const char *rom)
+const char *sst_load(const void *buf, size_t len, unsigned flags)
 {
-    (void)rom;
     const uint8_t *p = (const uint8_t *)buf;
 
     if (len < SST_HEADER_LEN)

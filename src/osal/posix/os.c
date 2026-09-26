@@ -5,10 +5,8 @@
  */
 
 #include "osal/os.h"
-#include "core/str/oem.h"
 #include <errno.h>
 #include <locale.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -81,23 +79,8 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 #endif
 }
 
-char *os_config_dir(void)
-{
-    const char *base = getenv("XDG_CONFIG_HOME");
-    const char *tail = "/rp6502-emu";
-    if (!base || !base[0])
-    {
-        base = getenv("HOME");
-        tail = "/.config/rp6502-emu";
-    }
-    if (!base || !base[0])
-        return NULL;
-    char *dir = malloc(strlen(base) + strlen(tail) + 1);
-    if (dir)
-        sprintf(dir, "%s%s", base, tail);
-    return dir;
-}
-
+/* The XDG Base Directory spec requires mode 0700 for every folder created
+ * here, and a folder that already exists keeps its permissions. */
 void os_ensure_parent_dir(const char *filepath)
 {
     char *tmp = strdup(filepath); /* the separators are cut and restored in place */
@@ -114,15 +97,14 @@ void os_ensure_parent_dir(const char *filepath)
         if (*p == '/')
         {
             *p = 0;
-            mkdir(tmp, 0755);
+            mkdir(tmp, 0700);
             *p = '/';
         }
-    mkdir(tmp, 0755);
+    mkdir(tmp, 0700);
     free(tmp);
 }
 
-/* POSIX (and Emscripten) argv arrives as UTF-8. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+FILE *os_fopen(const char *path, const char *mode)
 {
-    return oem_from_utf8(arg, dst, dstsz) < dstsz;
+    return fopen(path, mode);
 }

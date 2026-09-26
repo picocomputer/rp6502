@@ -29,3 +29,9 @@ uint32_t os_random(void)
         (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return (uint32_t)(s ^ (s >> 32));
 }
+
+/* The Android host is deprecated and has no save folder. */
+char *os_save_dir(void)
+{
+    return NULL;
+}

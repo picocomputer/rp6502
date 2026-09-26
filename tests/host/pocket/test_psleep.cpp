@@ -291,6 +291,10 @@ static void do_slotwrite()
     target_done();
 }
 
+/* g_flush_hold leaves the next Flush unanswered, with g_flush_owed set,
+ * until the test calls target_done(). */
+static bool g_flush_hold, g_flush_owed;
+
 static void do_flush()
 {
     dut->target_dataslot_done = 0;
@@ -300,6 +304,12 @@ static void do_flush()
      * clk_74a edges before target_done() raises it. */
     for (int k = 0; k < 4; k++)
         a_edge();
+    if (g_flush_hold)
+    {
+        g_flush_hold = false;
+        g_flush_owed = true;
+        return;
+    }
     target_done();
 }
 
@@ -726,7 +736,7 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
     std::string want((const char *)payload.data(), payload.size());
 
     boot(rom);
-    g_files["/Saves/rp6502/common/M.DAT"] = payload;
+    g_files["/Assets/rp6502/common/M.DAT"] = payload;
 
     for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
         step();
@@ -785,7 +795,7 @@ UTEST(psleep, a_load_into_a_running_machine_keeps_its_bindings)
         payload.push_back((uint8_t)('a' + (i % 26)));
 
     boot(rom);
-    g_files["/Saves/rp6502/common/M.DAT"] = payload;
+    g_files["/Assets/rp6502/common/M.DAT"] = payload;
     for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
         step();
     ASSERT_GE(g_console.size(), 64u);
@@ -835,6 +845,32 @@ UTEST(psleep, a_sleep_inside_a_file_operation_still_finishes_it)
          i++)
         step();
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    teardown();
+}
+
+/* The main loop stops the program when a savestate starts to load, so the
+ * program stops while its close is still waiting for the Flush reply only if
+ * the close polls Flush instead of blocking the main loop. */
+UTEST(psleep, a_close_waiting_on_flush_leaves_the_main_loop_running)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    g_flush_owed = false;
+    g_flush_hold = true;
+    boot(rom);
+
+    for (long i = 0; i < 20000000L && !g_flush_owed; i++)
+        step();
+    ASSERT_TRUE(g_flush_owed);
+    ASSERT_TRUE((int)MEM(resb));
+
+    host_write(BLOB_BRIDGE, 0);
+    for (long i = 0; i < 2000000L && (int)MEM(resb); i++)
+        step();
+    ASSERT_FALSE((int)MEM(resb));
+
+    target_done();
+    g_flush_owed = false;
     teardown();
 }
 

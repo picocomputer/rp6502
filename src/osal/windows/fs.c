@@ -23,6 +23,8 @@
 
 #include "osal/fs.h"
 #include "core/str/oem.h"
+#include "core/str/str.h"
+#include "host/host.h"
 #include "osal/os.h"
 #include "osal/dir.h"
 #include "osal/windows/dir.h"
@@ -56,13 +58,17 @@ static struct win_file
     bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
-    /* What a savestate needs to find this file again in a later session. The
-     * path is made absolute so a later chdir cannot move it. GetFullPathNameW
-     * is lexical and never touches the filesystem, so it resolves a name that
-     * does not exist yet. */
+    /* What a savestate needs to open this file again in a later session. The
+     * path is made absolute so a later chdir cannot change it.
+     * GetFullPathNameW works on the text alone and never reads the
+     * filesystem, so it resolves a name that does not exist yet. A save
+     * records SAVE:name instead, which opens again in the SAVE: folder of
+     * that later session. */
     uint8_t flags;
     char path[API_PATH_MAX + 1];
 } win_files[WIN_MAX_FILES + 1];
+
+static wchar_t *win_save_dir;
 
 static struct win_file *win_fil(int fd)
 {
@@ -91,11 +97,10 @@ bool fs_std_handles(const char *path)
     return true;
 }
 
-static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
+/* A directory fails here as ERROR_ACCESS_DENIED, because opening one needs
+ * FILE_FLAG_BACKUP_SEMANTICS. */
+static HANDLE win_create(const wchar_t *w, uint8_t flags, api_errno *err)
 {
-    wchar_t *w = path_to_wide(path, err);
-    if (!w)
-        return INVALID_HANDLE_VALUE;
     bool wr = (flags & FS_WR) != 0;
     DWORD access = wr ? ((flags & FS_RD) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_WRITE)
                       : GENERIC_READ;
@@ -113,19 +118,26 @@ static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
 
     HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            NULL, disp, WIN_OPEN_FLAGS, NULL);
-    /* win_last_error_to_api runs before the free, because free can change
-     * GetLastError. */
     if (h == INVALID_HANDLE_VALUE)
         *err = win_last_error_to_api();
-    free(w);
     return h;
 }
 
-int fs_std_open(const char *path, uint8_t flags, api_errno *err)
+static int64_t win_size_of(struct win_file *f, api_errno *err)
 {
-    HANDLE h = win_open_handle(path, flags, err);
-    if (h == INVALID_HANDLE_VALUE)
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(f->h, &sz))
+    {
+        *err = win_last_error_to_api();
         return -1;
+    }
+    return (int64_t)sz.QuadPart;
+}
+
+/* A slot for an open handle, which is closed when no slot is free. keep is
+ * the name a savestate records. */
+static int win_adopt(HANDLE h, uint8_t flags, const char *keep, api_errno *err)
+{
     int fd = 0;
     for (; fd < WIN_MAX_FILES; fd++)
         if (!win_files[fd].used)
@@ -136,27 +148,88 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0,
-                                      .writable = (flags & FS_WR) != 0,
-                                      .flags = (uint8_t)(flags & (FS_RD | FS_WR))};
-    char *abs = os_dir_realpath(path);
-    const char *keep = abs ? abs : path;
+    struct win_file *f = &win_files[fd];
+    *f = (struct win_file){.used = true, .h = h, .pos = 0,
+                           .writable = (flags & FS_WR) != 0,
+                           .flags = (uint8_t)(flags & (FS_RD | FS_WR))};
     if (strlen(keep) <= API_PATH_MAX)
-        strcpy(win_files[fd].path, keep);
-    free(abs);
+        strcpy(f->path, keep);
     if (flags & FS_APPEND) /* a one-time seek to the end, after any truncation */
     {
-        LARGE_INTEGER sz;
-        if (!GetFileSizeEx(h, &sz))
+        f->pos = win_size_of(f, err);
+        if (f->pos < 0)
         {
-            *err = win_last_error_to_api();
-            win_files[fd].used = false;
+            f->used = false;
             CloseHandle(h);
             return -1;
         }
-        win_files[fd].pos = (int64_t)sz.QuadPart;
     }
     return fd;
+}
+
+int fs_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
+        return -1;
+    HANDLE h = win_create(w, flags, err);
+    free(w);
+    if (h == INVALID_HANDLE_VALUE)
+        return -1;
+    /* A relative name would open again against whatever folder is current
+     * at the load, so no name is recorded for a file with no absolute name,
+     * and an ident of it fails rather than recording another file's name. */
+    char *abs = os_dir_realpath(path);
+    int fd = win_adopt(h, flags, abs ? abs : "", err);
+    free(abs);
+    return fd;
+}
+
+void fs_save_start(void)
+{
+    api_errno ignored;
+    const char *dir = host_save_dir();
+    wchar_t *w = win_utf8_to_wide(dir ? dir : ".", &ignored);
+    free(win_save_dir);
+    win_save_dir = w ? win_full_path(w, &ignored) : NULL;
+    free(w);
+}
+
+void fs_save_free(void)
+{
+    free(win_save_dir), win_save_dir = NULL;
+}
+
+int fs_save_open(const char *name, uint8_t flags, api_errno *err)
+{
+    if (!win_save_dir)
+    {
+        *err = API_ENODEV;
+        return -1;
+    }
+    size_t dn = wcslen(win_save_dir), nn = strlen(name);
+    wchar_t *w = malloc((dn + 1 + nn + 1) * sizeof *w);
+    if (!w)
+    {
+        *err = API_ENOMEM;
+        return -1;
+    }
+    wcscpy(w, win_save_dir);
+    if (w[dn - 1] != L'\\' && w[dn - 1] != L'/')
+        w[dn++] = L'\\';
+    /* save_std_open passes only ASCII, so each byte becomes one UTF-16 unit. */
+    for (size_t i = 0; i <= nn; i++)
+        w[dn + i] = (wchar_t)name[i];
+    if (flags & FS_CREAT)
+        win_make_parents(w);
+    HANDLE h = win_create(w, flags, err);
+    free(w);
+    if (h == INVALID_HANDLE_VALUE)
+        return -1;
+    char keep[STR_SAVE_COLON_LEN + SAVE_NAME_MAX + 1];
+    memcpy(keep, STR_SAVE_COLON, STR_SAVE_COLON_LEN);
+    strcpy(keep + STR_SAVE_COLON_LEN, name);
+    return win_adopt(h, flags, keep, err);
 }
 
 bool fs_std_ident(int desc, sst_cursor_t *c)
@@ -184,11 +257,27 @@ int fs_std_reopen(sst_cursor_t *c, api_errno *err)
     /* The access bits only. CREAT, EXCL, TRUNC and APPEND happened once, when
      * the program opened the file, and repeating one here would create or
      * empty the very file this is trying to find again. */
-    int fd = fs_std_open(path, flags & (FS_RD | FS_WR), err);
+    uint8_t access = (uint8_t)(flags & (FS_RD | FS_WR));
+    int fd = save_std_handles(path) ? save_std_open(path, access, err)
+                                    : fs_std_open(path, access, err);
     if (fd < 0)
         return -1;
     win_files[fd].pos = pos;
     return fd;
+}
+
+/* Takes w and frees it. */
+static int win_rom_open(wchar_t *w, api_errno *err)
+{
+    if (!w)
+        return -1;
+    HANDLE h = win_create(w, FS_RD, err);
+    free(w);
+    if (h == INVALID_HANDLE_VALUE)
+        return -1;
+    win_files[WIN_FILE_ROM] =
+        (struct win_file){.used = true, .h = h, .pos = 0, .writable = false};
+    return WIN_FILE_ROM;
 }
 
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
@@ -198,12 +287,27 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
         return -1;
     }
-    HANDLE h = win_open_handle(path, FS_RD, err);
-    if (h == INVALID_HANDLE_VALUE)
-        return -1;
-    win_files[WIN_FILE_ROM] =
-        (struct win_file){.used = true, .h = h, .pos = 0, .writable = false};
-    return WIN_FILE_ROM;
+    return win_rom_open(path_to_wide(path, err), err);
+}
+
+int fs_rom_open_host(const char *host, api_errno *err)
+{
+    return win_rom_open(win_utf8_to_wide(host, err), err);
+}
+
+/* No symlink is followed, so an install keeps the path it was given, made
+ * absolute. */
+char *fs_host_realpath(const char *host)
+{
+    api_errno ignored;
+    wchar_t *w = win_utf8_to_wide(host, &ignored);
+    wchar_t *full = w ? win_full_path(w, &ignored) : NULL;
+    free(w);
+    char *out = full && GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES
+                    ? win_wide_to_utf8(full)
+                    : NULL;
+    free(full);
+    return out;
 }
 
 bool fs_rom_remove(const char *name, api_errno *err)
@@ -359,19 +463,9 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     return xfer_step(desc, (void *)buf, count, put, true, err);
 }
 
-static int64_t win_size_of(struct win_file *f, api_errno *err)
-{
-    LARGE_INTEGER sz;
-    if (!GetFileSizeEx(f->h, &sz))
-    {
-        *err = win_last_error_to_api();
-        return -1;
-    }
-    return (int64_t)sz.QuadPart;
-}
-
-/* The position is this table's, but the length is still the filesystem's, so
- * extending a file is a call that can fail on a full volume. */
+/* The position is kept in this table, but the length is in the filesystem,
+ * so extending a file is a call that can fail on a full volume. That seek
+ * fails and leaves the file and the position as they were. */
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct win_file *f = win_fil(desc);
@@ -423,7 +517,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
             if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
             {
                 *err = win_last_error_to_api();
-                return -1; /* the position has not moved */
+                return -1;
             }
         }
     }

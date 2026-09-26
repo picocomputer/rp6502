@@ -293,74 +293,76 @@ Alt-F4 is passed to the program too.
 
 ## The host's filesystem
 
-`FS:` is the microSD card, and the drive is writable. The firmware
-strips `FS:` from a name, and a name without a leading slash is
-relative, so the firmware prefixes it with `/Saves/rp6502/common/`. A
-name that starts with a slash is absolute and gets no prefix. `foo.txt`
-and `FS:foo.txt` name the same file, and
-`FS:/Assets/rp6502/common/foo.txt` names a file in the package's folder
-under Assets.
+`FS:` is the microSD card, and the drive is writable. The working
+directory is `/Assets/rp6502/common`, the folder that holds the core's
+files and the ROMs a user picks in the Pocket's menu, and no call moves
+it. getcwd returns `FS:/Assets/rp6502/common`, and a relative name
+resolves in that folder, so `foo.txt`, `FS:foo.txt` and
+`FS:/Assets/rp6502/common/foo.txt` name the same file. A name that
+starts with a separator is absolute, and `/` and `\` both separate.
 
-`FS:` is a name a program can use for the drive. The firmware does not
-add it to the paths it returns, such as the one getcwd returns and
-argv[0], because a path on this card has no device prefix, just as a
-POSIX path has none.
+`SAVE:` names a file in `/Saves/rp6502/common/`, so `SAVE:hopper.hiscore`
+is `/Saves/rp6502/common/hopper.hiscore` on the card. `fs_save_open`
+joins the name to that folder and opens it through the same code as a
+name on `FS:`, so every call after the open is the same for both. The
+folder is the same for every ROM, so `fs_save_start` is empty. Whether
+the Pocket accepts a write in Assets is not recorded, so a program saves
+through `SAVE:`.
 
-**The host does not resolve relative names.** A name sent without a
-leading slash opens nothing, so every name the firmware sends is
-absolute. The bench's host model in
-`tests/host/pocket/test_pfile.cpp` returns 4, malformed path, for a
-relative name, so a firmware change that sends one fails a test.
+**The host resolves no relative name and no `.` or `..`.** A name sent
+without a leading slash fails to open, so `fs_card_path` makes every
+name absolute before the firmware sends it and removes each `.` and `..`
+on the way. A `..` at the card root stays at the root. `fs_pool[].name`
+holds that absolute path, so the rebind after a restore and the resize
+before a write past the end send the same path as the open. The bench's
+host model in `tests/host/pocket/test_pfile.cpp` returns 4, malformed
+path, for a relative name, so a firmware change that sends one fails a
+test.
 
-Since the host keeps no working directory, getcwd is implemented in the
-firmware. It returns `/Saves/rp6502/common`, which is where relative
-names resolve, so appending a separator and a name opens the same file
-as the bare name. The path has no trailing separator, so a program that
-appends one does not double it. chdir fails for every path, including
-that one.
+A name follows the FAT rules before it is resolved, through
+`path_fat_ok` in `src/core/str/path.c`, as on every other machine. A `:`
+anywhere after `FS:`, or any of `"*<>?|`, a control character or DEL,
+gives EINVAL. A `:` in the first part of a name without `FS:`, as in
+`VCP0:x`, ends the name of a drive this machine does not have and gives
+ENODEV. There is no null drive either: no ROM is installed on the
+Pocket, so an `exec` of a `:name` fails.
 
-**Relative names resolve under two different folders.** A machine with
-no working directory still has to define what a bare name means, and
-the two places a bare name comes from need different folders:
-
-| a relative name naming    | resolves under           |
-| ------------------------- | ------------------------ |
-| a file, through `std` open | `/Saves/rp6502/common/`  |
-| a program, through argv   | `/Assets/rp6502/common/` |
-
-Saved files go in Saves. Programs are in Assets, because the ROM a user
-picks in the Pocket's menu comes from that folder. `fs_try_open` takes
-the folder to resolve against as an argument, so `exec` resolves a
-relative program name under Assets and every other open resolves under
-Saves.
-
-**argv[0] keeps the prefix the host gives it.** It arrives as an
-absolute path, `/Assets/rp6502/common/name.rp6502`, so `open(argv[0])`
-opens the program. Stripped to a bare name, it would resolve under
-Saves, where the program is not.
-
-**argv[0] comes from Get File.** The host stages the ROM image without
-its name, so the firmware reads the name with Get File (`0x0190`) on
-the ROM slot. The host writes the filename into memory at an address
-given in the command. That memory is in the SDRAM staging store, at
-`GETFILE_BRIDGE`, because the host cannot write to the window that Open
-File reads its parameters from. The firmware issues Get File once per
-staged image, in `proc_restage()`. An `exec` does not issue it, because
-the program that called `exec` has already set the arguments.
+**argv[0] is `FS:` and the path from Get File.** The host stages the ROM
+image without its name, so the firmware reads the name with Get File
+(`0x0190`) on the ROM slot and puts `FS:` in front of it, as in
+`FS:/Assets/rp6502/common/name.rp6502`. The host writes the filename
+into memory at an address given in the command. That memory is in the
+SDRAM staging store, at `GETFILE_BRIDGE`, because the host cannot write
+to the window that Open File reads its parameters from. The firmware
+issues Get File once per staged image, in `proc_restage()`. An `exec`
+does not issue it, because the program that called `exec` has already
+set the arguments. `proc_exec_take` makes that argv[0] absolute against
+the working directory before the load, so argv[0] always holds the
+absolute path of the ROM with its drive. An `exec` whose absolute path
+is longer than 255 bytes, or whose arguments no longer fit the xstack
+once the path is absolute, is refused with a message on the console.
 
 As measured on hardware, the response holds a NUL-terminated name at
 offset 0, which is where Open File's parameter struct holds its name.
 
 The list of target commands, the commands the core sends to the host,
-ends at Open File, so there is no delete, rename or mkdir, and those
-calls return ENOSYS. opendir returns ENOSYS too, so a program finds its
-files by opening names in turn, such as `save00.dat` upward. An
-`O_RDONLY` open fails on a missing name without creating anything.
+ends at Open File, so there is no delete, rename or mkdir. stat, unlink,
+rename, mkdir, opendir, readdir and the other calls on a directory
+descriptor, chmod, utime, chdir, getlabel, setlabel and getfree all
+return ENOSYS. The saves that exist are found by opening names in turn,
+such as `SAVE:hopper.slot0` upward. An `O_RDONLY` open fails on a missing
+name without creating anything.
 
-**The drive's folder ships in the package.** The host creates no
-directories, so `src/host/pocket/dist/` has `Saves/rp6502/common/` with
-a `.keep` file in it, which keeps the folder in the zip, and the card
-has the folder once the core is installed.
+Because the host has no stat, an open gives EACCES for a directory only
+when the path is `/Assets/rp6502/common`, `/Saves/rp6502/common` or a
+folder above them, the card root included. An open of any other folder
+goes to the host, and what the host returns for one is not recorded.
+
+**The package ships both folders.** The host creates no directories, so
+`src/host/pocket/dist/` has `Saves/rp6502/common/` with a `.keep` file
+in it, which keeps the folder in the zip, and the build puts the core's
+files in `Assets/rp6502/common/`. The card has both folders once the
+core is installed.
 
 **Much of the host behaviour in this section was measured on
 hardware.** A Pocket firmware update can change it without notice. When
@@ -368,7 +370,12 @@ this section and `fstest.rp6502` disagree, the ROM is right.
 
 **Seeking needs no host command.** Slot Read and Slot Write both include
 a 32-bit offset into the file, so random access needs no cursor
-protocol.
+protocol. A seek past the end of a file open for writing is the
+exception: `fs_extend` resizes the file with Open File and then writes
+zeros over the gap with Slot Write, because what a resize puts in the
+bytes it adds has not been measured. The main loop stops until those
+writes finish, because a driver's lseek has no pending result. A seek
+past the end of a file open only for reading stops at the end.
 
 **Creating a file takes both flag bits.** With bit 0, create, on its
 own, Open File returns 1, created and opened, and makes no file. The
@@ -399,12 +406,20 @@ failures, 3 is not found and 4 is malformed path.
 Write returns once the host has taken the bytes, which on a handheld
 that sleeps is not the same as the card having them. Flush, `0x0188`,
 would commit them, and the Pocket does not reply to it. The bridge
-override in `vendor/openfpga_rp6502` gives up on a data slot command
-after about 0.9 s without a reply, so a flush costs one deadline and not
-the session. A flush is sent on every sync and on every close of a file
-open for writing until one gets no reply. After that no flush is sent
-for the rest of the session, so a write is only as durable as the
-host's acceptance of the bytes.
+override in `vendor/openfpga_rp6502` ends a data slot command after
+about 0.9 s without a reply, so a flush waits at most one deadline
+instead of the rest of the session. A flush is sent on every sync and
+every close of a file open for writing until one gets no reply. After
+that no flush is sent for the rest of the session, so a write is known
+to be stored only as far as the host's reply to the write shows. A sync
+of a file open only for reading sends no flush and returns at once.
+
+Close polls its flush from the main loop as sync does, so the other
+tasks run during the deadline. `std_stop` calls close in a loop that
+runs no other task until the close finishes. Close therefore collects
+the result of a command that another descriptor left in flight, and it
+does not wait for `fs_restore`, because a Flush sent to a stale slot
+changes no data.
 
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26
@@ -423,7 +438,7 @@ shorter, a command the host ignores comes back as result 7 and not as a
 command creates a directory, and the host does not create the folders
 in a path. An Open File with both flag bits for a file in a folder that
 does not exist returns 1, created and opened, and makes no file, so
-`fs_std_open` follows a create with a plain open to check that the file
+`fs_open_card` follows a create with a plain open to check that the file
 exists.
 
 ## The host interface

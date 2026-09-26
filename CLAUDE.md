@@ -24,3 +24,11 @@ Comments. Default to NOT adding one. Add a comment only for a non-obvious
 must never be added. Provide an understanding, not a narration, and only
 when reading the code doesn't convey the message. Short, one-line, comments
 describing an area to assist with navigation are engouraged.
+
+Voice. In every comment, doc, plan, commit message and reply, write about
+code, programs, machines, devices, files and data as objects, never as beings:
+they do not know, want, ask, say, tell, see, reach, decide, carry, own or
+arrive, and nothing belongs to them or sits behind anything. Use plain words
+in full sentences with explicit subjects and no figures of speech. A comment
+gives only the why that cannot be read from the code, never what the code
+does. Never ignore this paragraph, in any session or subagent, for any reason.

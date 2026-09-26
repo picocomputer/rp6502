@@ -25,14 +25,18 @@ uint16_t oem_get_code_page_run(void)
     return font_get_code_page();
 }
 
+/* The locale's code page, which is selected in place of a requested page
+ * that the font does not have. */
+static uint16_t oem_system_cp;
+
 void oem_set_code_page_run(uint16_t cp)
 {
-    if (font_has_code_page(cp))
-        font_set_code_page(cp);
+    font_set_code_page(font_has_code_page(cp) ? cp : oem_system_cp);
 }
 
 void oem_locale_changed(uint16_t cp)
 {
+    oem_system_cp = cp;
     oem_set_code_page_run(cp);
 }
 

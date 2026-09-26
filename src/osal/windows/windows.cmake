@@ -28,12 +28,14 @@ function(rp6502_osal_windows target)
         ${RP6502_OSAL_WINDOWS}/fs.c
         ${RP6502_OSAL_WINDOWS}/os.c)
     # CancelIoEx and SetFileInformationByHandle in fs.c, and
-    # CreateWaitableTimerExW in os.c, are declared only when _WIN32_WINNT names
-    # Vista or later, so the floor cannot go below 0x0600. Nothing here needs
-    # Windows 7; 0x0601 is a margin above the real floor. PRIVATE, so this
-    # floor cannot hide newer APIs from the window and pad code compiled beside
-    # these files.
+    # CreateWaitableTimerExW and SHGetKnownFolderPath in os.c, are declared
+    # only when _WIN32_WINNT names Vista or later, so the floor cannot go below
+    # 0x0600. Nothing here needs Windows 7; 0x0601 is a margin above the real
+    # floor. PRIVATE, so this floor cannot hide newer APIs from the window and
+    # pad code compiled beside these files.
     target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0601)
+    # SHGetKnownFolderPath and CoTaskMemFree in os.c.
+    target_link_libraries(${target} PRIVATE shell32 ole32)
     if(NOT MSVC)
         return()
     endif()

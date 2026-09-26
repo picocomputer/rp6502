@@ -61,7 +61,8 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(strstr(cap, "subdir 10 0000\r\n") != NULL);
     ASSERT_TRUE(strstr(cap, "readdir 00\r\n") != NULL);
     ASSERT_TRUE(strstr(cap, "closedir 00\r\n") != NULL);
-    ASSERT_TRUE(strstr(cap, "getlabel 00\r\n") != NULL);
+    /* Only the Pico has volume labels, so getlabel returns -1 here. */
+    ASSERT_TRUE(strstr(cap, "getlabel FF\r\n") != NULL);
     ASSERT_TRUE(strstr(cap, "getfree 00\r\n") != NULL);
 }
 

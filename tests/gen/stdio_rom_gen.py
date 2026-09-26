@@ -51,13 +51,14 @@ def prog():
     return p
 
 
-def drive(emu, rom):
+def drive(emu, rom, save_dir=None):
     """EMU_ECHO is removed because it mirrors the console onto stderr, which
     is one of the streams under test."""
     env = {k: v for k, v in os.environ.items() if k != "EMU_ECHO"}
+    save = ["--save-dir", str(save_dir)] if save_dir else []
     r = subprocess.run(
         [str(emu), "--headless", "--phi2", "0", "--mute", "--seed", "1",
-         "--fill", "0", str(rom)],
+         "--fill", "0", *save, str(rom)],
         input=INPUT, capture_output=True, text=True, env=env, timeout=60)
     ok = True
     for name, got, want in (("stdout", r.stdout, OUTPUT),
@@ -77,11 +78,12 @@ def main():
                     help="run the ROM headless and read its streams back")
     ap.add_argument("--emu", help="the rp6502-emu binary")
     ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
         print(f"stdio.rp6502 {image(prog()).write(a.emit)} bytes")
     if a.drive:
-        return drive(a.emu, a.rom)
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

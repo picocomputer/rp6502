@@ -18,7 +18,7 @@ extern "C"
 {
 #include "host/sokol/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "host/sokol/dbg/dbgui_layout.h" /* load/save */
-#include "osal/os.h"                /* os_config_dir, os_ensure_parent_dir */
+#include "osal/os.h"                /* os_config_dir, os_ensure_parent_dir, os_fopen */
 }
 
 #include <cstdio>
@@ -59,7 +59,7 @@ static char *dbgui_config_path(void)
 /* Read a file into buf (NUL-terminated, up to cap-1 bytes), or -1 if absent. */
 static long dbgui_read_file(const char *path, char *buf, size_t cap)
 {
-    FILE *f = std::fopen(path, "rb");
+    FILE *f = os_fopen(path, "rb");
     if (!f)
         return -1;
     std::fseek(f, 0, SEEK_END);
@@ -93,7 +93,7 @@ void dbgui_layout_save(void)
         return;
     size_t n = 0;
     const char *ini = ImGui::SaveIniSettingsToMemory(&n);
-    FILE *f = std::fopen(path, "wb");
+    FILE *f = os_fopen(path, "wb");
     std::free(path);
     if (!f)
         return;

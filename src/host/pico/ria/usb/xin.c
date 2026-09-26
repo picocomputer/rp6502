@@ -157,6 +157,28 @@ bool __in_flash("xin_class_driver_init") xin_class_driver_init(void)
     return true;
 }
 
+/* XInput reports face buttons by their Xbox positions whatever their labels.
+ * These pads have PlayStation labels, and the HORIPAD S is sold with Switch
+ * or GameCube labels under one id. */
+static uint8_t __in_flash("xin_button_type") xin_button_type(uint16_t vendor_id, uint16_t product_id)
+{
+    switch ((uint32_t)vendor_id << 16 | product_id)
+    {
+    case 0x0F0D00ED: // HORI Fighting Stick mini 4 kai
+    case 0x0F0D0164: // HORI Fighting Commander OCTA
+    case 0x146B0603: // Nacon PS4 Compact Controller
+    case 0x146B0604: // Nacon Daija Arcade Stick
+    case 0x146B0609: // Nacon Wireless Controller for PS4
+    case 0x2C222303: // Qanba Obsidian Arcade Joystick
+    case 0x2C222503: // Qanba Dragon Arcade Joystick
+    case 0x98860024: // Astro C40
+        return GAMEPAD_TYPE_PLAYSTATION;
+    case 0x0F0D00DC: // HORIPAD S
+        return GAMEPAD_TYPE_UNKNOWN;
+    }
+    return GAMEPAD_TYPE_WESTERN;
+}
+
 uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
@@ -252,7 +274,7 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
         (xin_devices[idx].slot = (int8_t)hid_mount(NULL, NULL, NULL, desc, vendor_id,
-                                                   product_id, GAMEPAD_TYPE_WESTERN)) < 0)
+                                                   product_id, xin_button_type(vendor_id, product_id))) < 0)
     {
         RP6502_LOG(xinput, ERROR, "failed to mount in gamepad system");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);

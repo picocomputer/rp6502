@@ -20,6 +20,7 @@ typedef struct
     bool help;
     const char *installs[16];
     int n_installs;
+    const char *save_dir;
     int bg_r, bg_g, bg_b;
     bool have_bg;
     int frames;

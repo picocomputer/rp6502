@@ -362,6 +362,15 @@ UTEST(oem, utf8_string_roundtrip)
     ASSERT_EQ((unsigned char)oem[1], 0x82u);
     ASSERT_EQ((unsigned char)oem[2], 0x7Fu);
 
+    /* U+1F600 is a surrogate pair, one character, so one 0x7F */
+    uint16_t pair[3] = {'a', 0xD83D, 0xDE00};
+    ASSERT_EQ(oem_from_wide_n(pair, 3, oem, sizeof oem), (size_t)2);
+    ASSERT_EQ(oem[0], 'a');
+    ASSERT_EQ((unsigned char)oem[1], 0x7Fu);
+    ASSERT_EQ(oem[2], 0);
+    ASSERT_EQ(oem_from_wide_n(w, 3, oem, 2), (size_t)3);
+    ASSERT_STREQ(oem, "a");
+
     /* 'ã' is 0xC6 in CP850 and is absent from CP437 */
     oem_set_code_page_run(850);
     ASSERT_EQ(oem_from_utf8("\xC3\xA3", oem, sizeof oem), (size_t)1);
@@ -422,6 +431,21 @@ UTEST(cli, no_separator_no_rom_args)
     ASSERT_EQ(cli_parse_args(2, argv, &o), 0);
     ASSERT_TRUE(o.rom_args == NULL);
     ASSERT_EQ(o.n_rom_args, 0);
+    ASSERT_STREQ(o.rom, "rom.rp6502");
+}
+
+UTEST(cli, save_dir_names_the_folder_behind_save)
+{
+    cli_options o;
+    cli_options_init(&o);
+    char *plain[] = {"emu", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(2, plain, &o), 0);
+    ASSERT_TRUE(o.save_dir == NULL);
+
+    cli_options_init(&o);
+    char *argv[] = {"emu", "--save-dir", "saves", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(4, argv, &o), 0);
+    ASSERT_STREQ(o.save_dir, "saves");
     ASSERT_STREQ(o.rom, "rom.rp6502");
 }
 

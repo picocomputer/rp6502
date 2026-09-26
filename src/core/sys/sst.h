@@ -174,14 +174,18 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
     s[slot - 1] = 0;
 }
 
-/* TRUSTED  the caller made this blob and is handing it straight back, so the
- *          load skips the scratch copy that would otherwise let it undo
- *          itself. There is nothing to distrust, and the copy costs a save on
- *          every load.
- * SHARED   the blob crosses to another machine, so core/api/dir.c writes its
- *          path slots empty and a load keeps the directories and the working
- *          directory it already has, because a path under one user's home is
- *          a desync under another's.
+/* TRUSTED  the caller made this blob and loads it right back, so the load
+ *          skips the scratch copy of the machine that would let a failed load
+ *          be undone. The blob is known to be good, and the copy costs a save
+ *          on every load.
+ * SHARED   the blob is sent to another machine for netplay. core/api/dir.c
+ *          writes its path slots empty, and a load leaves the open
+ *          directories and the working directory as they are, because a path
+ *          under one player's home directory may not exist on the other
+ *          player's machine, and the two machines would fall out of sync. For
+ *          the same reason, core/api/std.c does not record files opened by
+ *          path, and a load closes them; a SAVE: file is recorded by its
+ *          name.
  *
  * Neither flag means a plain load from a file, which takes the scratch and
  * checks the payload sum. */
@@ -199,6 +203,6 @@ size_t sst_size(void);
  * already written over, but only when the scratch copy was taken, so a
  * SST_TRUSTED load that a row refuses leaves the machine half loaded. */
 const char *sst_save(void *buf, size_t len, unsigned flags);
-const char *sst_load(const void *buf, size_t len, unsigned flags, const char *rom);
+const char *sst_load(const void *buf, size_t len, unsigned flags);
 
 #endif /* _CORE_SYS_SST_H_ */
