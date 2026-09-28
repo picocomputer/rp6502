@@ -5,8 +5,8 @@
  *
  * Paths arrive in the 6502's OEM code page and may carry this drive's name;
  * path_to_utf8 in osal/posix/dir.h takes both off before every libc call. A
- * SAVE: name and an installed ROM's host path are not drive paths and do not
- * go through it.
+ * SAVE: name and the host path of an installed file are not drive paths and do
+ * not go through it.
  */
 
 #include "osal/fs.h"
@@ -14,6 +14,7 @@
 #include "osal/posix/dir.h"
 #include "osal/posix/errmap.h"
 #include "osal/posix/fs.h"
+#include "core/rom/rom.h"
 #include "core/str/str.h"
 #include "host/host.h"
 #include <errno.h>
@@ -196,6 +197,11 @@ static int fs_open_kept(const char *host, uint8_t flags, const char *name, api_e
 
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
+    /* An installed file opens for reading only, and a savestate records it by
+     * its ":name". */
+    const char *host = flags == FS_RD ? rom_alias_resolve(path) : NULL;
+    if (host)
+        return fs_open_kept(host, flags, path, err);
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return -1;

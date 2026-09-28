@@ -57,6 +57,8 @@
   var CONFIG = {
     title:   'Colossal Cave Adventure', // browser tab title
     rom:     'adventure.rp6502',        // the program, next to this file
+    args:    [],                        // arguments for the program, such as ['-c1']
+    install: [],                        // more files, read by the program as ':name'
     db:      '',                        // saves database, such as 'username-projectname'
     bg:      '000000',                  // letterbox color, six hex digits
     filter:  'sharp',                   // nearest | linear | sharp

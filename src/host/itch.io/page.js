@@ -105,23 +105,30 @@ body { display: flex; flex-direction: column; }
         return;
     }
 
-    const name = CONFIG.rom.split(/[?#]/)[0].split('/').pop();
+    // The ROM and each file in CONFIG.install are written to /roms under
+    // the last part of their URL.
+    const fileName = (url) => url.split(/[?#]/)[0].split('/').pop();
+    const install = CONFIG.install || [];
     Module.arguments = ['--save-dir', '/saves'];
     if (CONFIG.bg)
         Module.arguments.push('--bgcolor', CONFIG.bg);
     if (CONFIG.filter)
         Module.arguments.push('--filter', CONFIG.filter);
-    Module.arguments.push('/roms/' + name);
+    for (const url of install)
+        Module.arguments.push('--install', '/roms/' + fileName(url));
+    Module.arguments.push('/roms/' + fileName(CONFIG.rom));
+    if (CONFIG.args)
+        Module.arguments.push('--', ...CONFIG.args);
 
     // A failed fetch never settles, so the start waits and the message stays.
-    const rom = fetch(CONFIG.rom).then((r) => {
+    const files = [CONFIG.rom, ...install].map((url) => fetch(url).then((r) => {
         if (!r.ok)
             throw new Error('HTTP ' + r.status);
         return r.arrayBuffer();
-    }).catch((e) => {
-        fail(`Could not load ${CONFIG.rom} (${e.message}).`);
+    }).then((buf) => [fileName(url), buf]).catch((e) => {
+        fail(`Could not load ${url} (${e.message}).`);
         return new Promise(() => {});
-    });
+    }));
 
     // Sound starts with the click on the overlay. sokol resumes a suspended
     // context by itself, so the connection to the speakers is held back
@@ -290,7 +297,10 @@ body { display: flex; flex-direction: column; }
         Module.FS.mkdir('/roms');
         Module.FS.mkdir('/saves');
         wait('dom', built);
-        wait('rom', rom.then((buf) => Module.FS.writeFile('/roms/' + name, new Uint8Array(buf))));
+        wait('roms', Promise.all(files).then((list) => {
+            for (const [name, buf] of list)
+                Module.FS.writeFile('/roms/' + name, new Uint8Array(buf));
+        }));
         if (CONFIG.image)
             wait('hold', clicked);
         if (CONFIG.db)

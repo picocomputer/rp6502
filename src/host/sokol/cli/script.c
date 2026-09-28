@@ -1205,7 +1205,7 @@ void script_usage(FILE *out)
             "  shot \"file.png\"           write the canvas\n"
             "  state save \"file\" / state load \"file\"   the machine, written down\n"
             "  seed                      print this run's seed\n"
-            "  install \"path\" [NAME]     put a ROM on the null drive as :NAME\n"
+            "  install \"path\" [NAME]     put a file on the null drive as :NAME\n"
             "  remove <NAME>             take it back off\n"
             "  load \"path\"               boot a program on a stopped machine\n"
             "  sys run|stop|break        start, stop, or interrupt the machine\n"
