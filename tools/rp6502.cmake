@@ -433,7 +433,7 @@ function(rp6502_fetch caller keyword spec out_var source_var)
         if(file AND EXISTS "${cache}/${sha}/run")
             file(READ "${cache}/${sha}/run" source)
         else()
-            rp6502_fetch_url("${api}/actions/runs?head_sha=${sha}&status=completed&per_page=100"
+            rp6502_fetch_url("${api}/actions/runs?head_sha=${sha}&per_page=100"
                 "${tmp}" result text)
             if(NOT result STREQUAL "ok")
                 message(FATAL_ERROR "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}")
@@ -499,7 +499,7 @@ function(rp6502_fetch caller keyword spec out_var source_var)
             file(REMOVE "${tmp}")
             if(NOT source)
                 message(FATAL_ERROR
-                    "${caller}: the finished CI runs of ${repo} commit ${sha} have no "
+                    "${caller}: the CI runs of ${repo} commit ${sha} have no "
                     "${wanted} that has not expired. Artifacts expire after 90 days.")
             endif()
         endif()
