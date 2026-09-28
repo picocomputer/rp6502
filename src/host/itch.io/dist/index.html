@@ -22,12 +22,11 @@
   .overlay .button {
     width: var(--size); height: var(--size); border-radius: 50%;
     display: grid; place-items: center; box-sizing: border-box;
-    border: 2px solid rgba(255, 255, 255, .9); background: rgba(255, 255, 255, .15);
-    backdrop-filter: blur(6px); box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
-    transition: transform .15s ease, background .15s ease;
+    border: 3px solid #fff; background: rgba(0, 0, 0, .3); backdrop-filter: blur(2px);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .5); transition: transform .15s ease;
   }
-  .overlay:hover .button { transform: scale(1.06); background: rgba(255, 255, 255, .25); }
-  .overlay svg { width: 44%; margin-left: 8%; fill: currentColor; }
+  .overlay:hover .button { transform: scale(1.06); }
+  .overlay svg { width: 51%; fill: currentColor; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
   .overlay .label { padding: 4px 14px; border-radius: 999px; background: rgba(0, 0, 0, .6); }
   .footer {
     padding: 8px 16px; border-top: 1px solid #303335; text-align: center;
@@ -42,7 +41,7 @@
 <template id="overlay">
   <div class="overlay">
     <div class="play">
-      <div class="button"><svg viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z"/></svg></div>
+      <div class="button"><svg viewBox="0 0 24 24"><path d="M8.5 5.5v13l10-6.5z"/></svg></div>
       <div class="label">Click to play</div>
     </div>
   </div>
