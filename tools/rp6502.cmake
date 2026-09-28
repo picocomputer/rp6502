@@ -1,6 +1,6 @@
 # The RP6502 project tools: rp6502_executable(), rp6502_asset(),
-# rp6502_map(), rp6502_byproducts(), and the fetch that keeps this
-# directory current.
+# rp6502_map(), rp6502_byproducts(), rp6502_basic(), and the fetch that
+# keeps this directory current.
 #
 # Update with:  cmake -P tools/rp6502.cmake
 #
@@ -9,6 +9,7 @@ cmake_minimum_required(VERSION 3.21)
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "main")
 set(RP6502_EMU_RELEASE "latest")
+set(RP6502_BASIC_REPO "picocomputer/msbasic")
 
 set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
 get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
@@ -215,6 +216,53 @@ function(rp6502_fetch_emulator)
     endforeach()
 endfunction()
 
+# tools/basic.rp6502 is committed with a BASIC project, so it can be
+# replaced with another build. When it is missing, the latest release of
+# RP6502_BASIC_REPO is fetched and checked against that release's
+# SHA256SUMS, and a failure stops the configure, because a BASIC project
+# builds nothing without it.
+function(rp6502_fetch_basic)
+    set(out "${RP6502_TOOLS_DIR}/basic.rp6502")
+    if(EXISTS "${out}")
+        return()
+    endif()
+    set(base "https://github.com/${RP6502_BASIC_REPO}/releases/latest/download")
+    message(STATUS "Fetching tools/basic.rp6502")
+    set(sums "${out}.SHA256SUMS.tmp")
+    file(DOWNLOAD "${base}/SHA256SUMS" "${sums}"
+        STATUS status
+        TLS_VERIFY ON
+        TIMEOUT 30
+    )
+    set(hash)
+    list(GET status 0 code)
+    if(code EQUAL 0)
+        rp6502_read_sums("${sums}" assets)
+        foreach(asset IN LISTS assets)
+            if(asset MATCHES "^basic\\.rp6502=([0-9a-fA-F]+)$")
+                set(hash "${CMAKE_MATCH_1}")
+            endif()
+        endforeach()
+    endif()
+    file(REMOVE "${sums}")
+    if(NOT hash)
+        message(FATAL_ERROR "No BASIC: cannot fetch ${base}/SHA256SUMS")
+    endif()
+    file(DOWNLOAD "${base}/basic.rp6502" "${out}.tmp"
+        STATUS status
+        TLS_VERIFY ON
+        INACTIVITY_TIMEOUT 30
+        EXPECTED_HASH SHA256=${hash}
+    )
+    list(GET status 0 code)
+    list(GET status 1 text)
+    if(NOT code EQUAL 0)
+        file(REMOVE "${out}.tmp")
+        message(FATAL_ERROR "No BASIC: cannot fetch ${base}/basic.rp6502\n${text}")
+    endif()
+    file(RENAME "${out}.tmp" "${out}")
+endfunction()
+
 # Hooks patch config files.
 function(rp6502_hook_tasks_json)
     set(file "${RP6502_PROJECT_DIR}/.vscode/tasks.json")
@@ -296,11 +344,12 @@ if(DEFINED CC65_TARGET_SYSTEM)
     find_package(cc65 REQUIRED)
 elseif(DEFINED LLVM_MOS_PLATFORM)
     find_package(llvm-mos-sdk REQUIRED)
-else()
+elseif(NOT RP6502_BASIC)
     message(FATAL_ERROR
         "No compiler selected.\n"
         "Configure with a CMake preset; cmake --list-presets shows them. "
-        "Without presets, set CC65_TARGET_SYSTEM or LLVM_MOS_PLATFORM.")
+        "Without presets, set CC65_TARGET_SYSTEM or LLVM_MOS_PLATFORM, "
+        "or RP6502_BASIC for a BASIC project.")
 endif()
 
 # cc65 links a flat image at a fixed address;
@@ -558,6 +607,71 @@ function(rp6502_asset name)
     )
 endfunction()
 
+# Package BASIC programs with BASIC.
+#
+# RP6502 BASIC
+# ^^^^^^^^^^^^
+#
+#  rp6502_basic(<name> <program> [<program>...])
+#
+# Builds <name>.rp6502 from tools/basic.rp6502 with each program as a
+# ROM asset under its file name, and a target <name> that builds it. At
+# start, BASIC loads and runs the asset autorun.bas, written here to RUN
+# the first program, and one program starts another with
+# RUN "ROM:<file name>". A BASIC project needs no compiler, so its preset
+# sets RP6502_BASIC and it calls project(<name> NONE).
+#
+function(rp6502_basic name)
+    if (NOT ARGN)
+        message(FATAL_ERROR "rp6502_basic(<name> <program> [<program>...])")
+    endif()
+    rp6502_fetch_basic()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${name}.basic")
+    list(GET ARGN 0 first)
+    get_filename_component(first "${first}" NAME)
+    string(TOUPPER "${first}" first)
+    # Written only when it changes, so a configure does not rebuild the ROM.
+    file(CONFIGURE OUTPUT "${dir}/autorun.bas"
+        CONTENT "10 RUN \"ROM:${first}\"\n")
+    set(programs ${ARGN} "${dir}/autorun.bas")
+    set(names)
+    set(asset_roms)
+    foreach(program IN LISTS programs)
+        get_filename_component(src "${program}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        get_filename_component(asset "${src}" NAME)
+        # rp6502.py takes a hex number or "file" after -a as an address,
+        # writes asset names in ASCII, and the ROM: drive ignores case.
+        string(TOUPPER "${asset}" key)
+        if (asset MATCHES "^(\\$?(0[xX])?[0-9A-Fa-f]+|[Ff][Ii][Ll][Ee])$"
+                OR NOT asset MATCHES "^[!-~]+$")
+            message(FATAL_ERROR "rp6502_basic(${name} ...): ${asset} cannot be an asset name.")
+        endif()
+        if (key IN_LIST names)
+            message(FATAL_ERROR "rp6502_basic(${name} ...): two programs are named ${key}.")
+        endif()
+        list(APPEND names "${key}")
+        set(rom "${dir}/${asset}.rp6502")
+        add_custom_command(
+            OUTPUT "${rom}"
+            DEPENDS "${src}"
+            COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
+                    -a "${asset}" -o "${rom}" create "${src}"
+            VERBATIM
+        )
+        list(APPEND asset_roms "${rom}")
+    endforeach()
+    set(out "${CMAKE_CURRENT_BINARY_DIR}/${name}.rp6502")
+    add_custom_command(
+        OUTPUT "${out}"
+        DEPENDS "${RP6502_TOOLS_DIR}/basic.rp6502" ${asset_roms}
+        COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
+                -o "${out}" create "${RP6502_TOOLS_DIR}/basic.rp6502" ${asset_roms}
+        VERBATIM
+    )
+    add_custom_target(${name} ALL DEPENDS "${out}")
+endfunction()
+
 # Give CMake the addresses a header defines.
 #
 # RP6502 Memory Map
@@ -764,15 +878,22 @@ function(rp6502_map target)
     # cc65's CMAKE_C_COMPILER is a wrapper around cl65 that puts diagnostics
     # in the form an IDE matches, so both programs are built through it.
     set(compiler_args)
-    if (CMAKE_C_COMPILER_ARG1)
+    if (CMAKE_C_COMPILER_ID STREQUAL "cc65")
+        set(compiler_args -P "${RP6502_TOOLS_DIR}/cc65-toolchain.cmake" -- "${CC65_C_COMPILER}")
+    elseif (CMAKE_C_COMPILER_ARG1)
         separate_arguments(compiler_args NATIVE_COMMAND "${CMAKE_C_COMPILER_ARG1}")
     endif()
     separate_arguments(flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+    # clang does not escape spaces in the -MT target, so the target is a
+    # plain name.
+    separate_arguments(dep_flags NATIVE_COMMAND "${CMAKE_DEPFILE_FLAGS_C}")
+    string(REPLACE "<DEP_TARGET>" "map_stub" dep_flags "${dep_flags}")
+    string(REPLACE "<DEP_FILE>" "${dir}/map_stub.d" dep_flags "${dep_flags}")
 
     set(failed FALSE)
     execute_process(
         COMMAND "${CMAKE_C_COMPILER}" ${compiler_args} ${flags} -I "${header_dir}"
-                -o "${dir}/map_stub" "${dir}/map_stub.c"
+                ${dep_flags} -o "${dir}/map_stub" "${dir}/map_stub.c"
         WORKING_DIRECTORY "${dir}"
         RESULT_VARIABLE result
         OUTPUT_VARIABLE output
@@ -780,6 +901,30 @@ function(rp6502_map target)
     )
     if (NOT result EQUAL 0)
         set(failed TRUE)
+    endif()
+
+    # The addresses are read at configure time, so a change to any header
+    # the stub includes has to configure the project again, not only a
+    # change to the named one. The list is read after a failed compile too,
+    # so fixing an included header configures again. A failed cc65 compile
+    # keeps the previous list, which can name a header that no longer exists.
+    if (EXISTS "${dir}/map_stub.d")
+        file(READ "${dir}/map_stub.d" deps)
+        # Make syntax, where a name that ends in a colon is a target.
+        string(REGEX REPLACE "\\\\\r?\n" " " deps "${deps}")
+        string(REGEX REPLACE "([^\\\\])[ \t\r\n]+" "\\1;" deps "${deps}")
+        foreach(dep IN LISTS deps)
+            if (dep STREQUAL "" OR dep MATCHES ":$")
+                continue()
+            endif()
+            string(REPLACE "\\ " " " dep "${dep}")
+            string(REPLACE "\\#" "#" dep "${dep}")
+            string(REPLACE "$$" "$" dep "${dep}")
+            cmake_path(ABSOLUTE_PATH dep BASE_DIRECTORY "${dir}" NORMALIZE)
+            if (EXISTS "${dep}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${dep}")
+            endif()
+        endforeach()
     endif()
 
     if (NOT failed)
