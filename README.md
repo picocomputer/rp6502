@@ -9,7 +9,7 @@ The main documentation starts here:<br>
 https://picocomputer.github.io/
 
 Pre-built firmware and executables:<br>
-https://github.com/picocomputer/rp6502/releases
+https://github.com/picocomputer/
 
 This project is for building emulation or firmware. For writing 6502 software, see
 [picocomputer/rp6502-sdk](https://github.com/picocomputer/rp6502-sdk), which
