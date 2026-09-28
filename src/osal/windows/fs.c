@@ -22,6 +22,7 @@
  */
 
 #include "osal/fs.h"
+#include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "host/host.h"
@@ -169,13 +170,18 @@ static int win_adopt(HANDLE h, uint8_t flags, const char *keep, api_errno *err)
 
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    wchar_t *w = path_to_wide(path, err);
+    /* An installed file opens for reading only, and a savestate records it by
+     * its ":name". */
+    const char *host = flags == FS_RD ? rom_alias_resolve(path) : NULL;
+    wchar_t *w = host ? win_utf8_to_wide(host, err) : path_to_wide(path, err);
     if (!w)
         return -1;
     HANDLE h = win_create(w, flags, err);
     free(w);
     if (h == INVALID_HANDLE_VALUE)
         return -1;
+    if (host)
+        return win_adopt(h, flags, path, err);
     /* A relative name would open again against whatever folder is current
      * at the load, so no name is recorded for a file with no absolute name,
      * and an ident of it fails rather than recording another file's name. */

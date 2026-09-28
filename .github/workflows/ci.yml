@@ -989,3 +989,22 @@ jobs:
             - Discord: https://discord.gg/TC6X8kTr6d
             - itch.io: https://itch.io/games/tag-rp6502
             - Documentation: https://picocomputer.github.io/
+
+  # ---------------------------------------------------------------------------
+  # libretro-branch: the libretro buildbot builds the core from the libretro
+  # branch, so a release that published moves that branch to the tagged
+  # commit. The push is not forced, so a tag behind the branch fails here
+  # instead of moving the branch back.
+  # ---------------------------------------------------------------------------
+  libretro-branch:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward libretro to the tag
+        run: git push origin "${GITHUB_SHA}:refs/heads/libretro"

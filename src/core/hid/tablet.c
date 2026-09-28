@@ -158,7 +158,8 @@ bool tablet_xreg(uint16_t word)
         tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
     for (int i = 0; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
-    if (tablet_xram != 0xFFFF) /* the one write that also seeds TABLET_CURSOR_OFF */
+    tablet_state[TABLET_OFF_CONTROL] = TABLET_CURSOR_ARROW;
+    if (tablet_xram != 0xFFFF) /* the one write that also seeds the control byte */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
     return mapped || word == 0xFFFF;
 }

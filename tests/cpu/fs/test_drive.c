@@ -159,7 +159,17 @@ UTEST(drive, rom_resolve_and_load)
 
     ASSERT_TRUE(rom_load(":adventure.rp6502"));
 
-    ASSERT_TRUE(ssys_open(":adventure.rp6502", O_RD) < 0);
+    /* An installed file opens for reading by its name in any case, and for
+     * nothing else. */
+    int in = ssys_open(":ADVENTURE.RP6502", O_RD);
+    ASSERT_TRUE(in >= 0);
+    char magic[8] = {0};
+    ASSERT_EQ(ssys_read(in, magic, 8), 8);
+    ASSERT_EQ(memcmp(magic, "#!RP6502", 8), 0);
+    ssys_close(in);
+    ASSERT_TRUE(ssys_open(":adventure.rp6502", O_RD | O_WR) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
+    ASSERT_TRUE(ssys_open(":nope.rp6502", O_RD) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
     ASSERT_TRUE(ssys_open(":", O_RD) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
