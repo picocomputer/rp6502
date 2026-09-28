@@ -99,7 +99,6 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .width = win_w,
         .height = win_h,
         .swap_interval = 1,
-        .window_title = "Picocomputer 6502",
         .enable_clipboard = true,
         .clipboard_size = 65536,
         .logger.func = app_log,

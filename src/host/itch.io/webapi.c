@@ -3,28 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * No C code calls anything here; the page's index.html reaches the emulated
- * HID devices through these exports. That is why this file is compiled into
- * the executable rather than into emu_core: a static library member whose
- * symbols nothing references is never pulled in, so the object would be gone
- * before EMSCRIPTEN_KEEPALIVE could mark anything in it.
+ * No C code calls anything here; the exports are for JavaScript, such as
+ * page.js. That is why this file is compiled into the executable rather than
+ * into emu_core: a static library member whose symbols nothing references is
+ * never pulled in, so the object would be gone before EMSCRIPTEN_KEEPALIVE
+ * could mark anything in it.
  */
 
-#include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
-#include "core/hid/tablet.h"
 #include <emscripten.h>
 #include <stdint.h>
-
-EMSCRIPTEN_KEEPALIVE int mouse_mapped(void)
-{
-    return mouse_is_mapped() ? 1 : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tablet_mapped(void)
-{
-    return tablet_is_mapped() ? 1 : 0;
-}
 
 /* The page polls the browser's Gamepad API only while this reports true, so it
  * touches no controller until a program has mapped the report block into

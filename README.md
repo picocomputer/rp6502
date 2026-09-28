@@ -137,8 +137,9 @@ missing window decorations.
 To build for web, select Folder:itch.io; the Emscripten toolchain installs itself
 the first time and needs no preset argument to find. Pressing F7 builds
 `build/itch.io/bundle`, a ready-to-publish itch.io sample that plays one program
-(`adventure.rp6502` by default) — see `src/host/itch.io/dist/README.txt` to retarget
-and deploy it.
+(`adventure.rp6502` by default). `src/host/itch.io/page.js` builds the page
+around the emulator. The `index.html` settings and the steps to publish are on
+[RP6502-WEB](https://picocomputer.github.io/web.html).
 
 The bundle does not work from a `file://` URL; the browser needs an HTTP origin
 to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
