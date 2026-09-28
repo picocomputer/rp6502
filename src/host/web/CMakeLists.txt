@@ -1,6 +1,6 @@
-# The emulator in a browser, and the itch.io bundle it assembles.
+# The emulator in a browser, and the web bundle it assembles.
 #
-# `cmake -S src/host/itch.io -B build/itch.io` is the whole invocation, because
+# `cmake -S src/host/web -B build/web` is the whole invocation, because
 # emsdk_toolchain.cmake beside this file is named below and installs Emscripten
 # the first time. It has to be set before project(), which is what reads
 # CMAKE_TOOLCHAIN_FILE; a -D on the command line still wins.
@@ -83,7 +83,7 @@ set_property(TARGET rp6502-emu APPEND PROPERTY
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
-# There is one web output. build/itch.io/bundle is the shippable itch.io
+# There is one web output. build/web/bundle is the shippable web player
 # sample, and the link writes rp6502.js and rp6502.wasm straight into it so
 # that the engine exists exactly once.
 set_target_properties(rp6502-emu PROPERTIES
@@ -95,7 +95,7 @@ add_custom_target(web_bundle ALL
     COMMAND ${CMAKE_COMMAND} -E copy
         "${RP6502_ROOT}/tests/roms/adventure.rp6502"
         "${CMAKE_BINARY_DIR}/bundle"
-    COMMENT "Assembling web bundle (build/itch.io/bundle) + adventure.rp6502"
+    COMMENT "Assembling web bundle (build/web/bundle) + adventure.rp6502"
     VERBATIM)
 add_dependencies(web_bundle rp6502-emu)
 

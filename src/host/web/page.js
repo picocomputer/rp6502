@@ -42,9 +42,7 @@
         style.textContent = `
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: #000; }
 body { display: flex; flex-direction: column; }
-#rp6502 { position: relative; flex: 1 1 0; min-height: 0;
-  background: center / contain no-repeat; image-rendering: pixelated; }
-#rp6502 > * { image-rendering: auto; }
+#rp6502 { position: relative; flex: 1 1 0; min-height: 0; }
 #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
   outline: none; touch-action: none; }
 #rp6502-msg { position: absolute; inset: 0; z-index: 1; display: none; place-items: center;
@@ -97,6 +95,8 @@ body { display: flex; flex-direction: column; }
         ? 'CONFIG.bg must be six hex digits, such as 000000.'
         : CONFIG.filter && !['nearest', 'linear', 'sharp'].includes(CONFIG.filter)
         ? 'CONFIG.filter must be nearest, linear or sharp.'
+        : CONFIG.run && !['always', 'onaudio', 'onclick'].includes(CONFIG.run)
+        ? 'CONFIG.run must be always, onaudio or onclick.'
         : '';
     if (bad) {
         Module.noInitialRun = true;
@@ -130,60 +130,88 @@ body { display: flex; flex-direction: column; }
         return new Promise(() => {});
     }));
 
-    // Sound starts with the click on the overlay. sokol resumes a suspended
-    // context by itself, so the connection to the speakers is held back
-    // instead; sokol makes it once, at start.
-    const connect = AudioNode.prototype.connect;
-    const deferred = [];
-    let play = null;
-    let clicked = Promise.resolve();
-    if (CONFIG.overlay) {
-        AudioNode.prototype.connect = function (dest) {
-            if (dest instanceof AudioDestinationNode) {
-                deferred.push([this, arguments]);
-                return dest;
-            }
-            return connect.apply(this, arguments);
+    // Made here rather than by sokol at start, the context exists before the
+    // emulator runs, so its state sets the overlay and the hold, and a click
+    // can resume it: WebKit resumes a context only inside a gesture.
+    let audio = null;
+    if (typeof AudioContext === 'function') {
+        audio = new AudioContext({sampleRate: 48000, latencyHint: 'interactive'});
+        const native = AudioContext;
+        window.AudioContext = function () {
+            window.AudioContext = native;
+            return audio;
         };
-        clicked = new Promise((resolve) => {
-            play = () => {
-                removeEventListener('keydown', play);
-                AudioNode.prototype.connect = connect;
-                for (const [node, args] of deferred.splice(0))
-                    connect.apply(node, args);
-                if (Module._saudio_context)
-                    Module._saudio_context.resume();
-                else {
-                    // WebKit leaves a context made outside a click suspended,
-                    // so the context sokol makes later is made in the click.
-                    const made = new AudioContext({sampleRate: 48000, latencyHint: 'interactive'});
-                    const native = AudioContext;
-                    window.AudioContext = function () {
-                        window.AudioContext = native;
-                        return made;
-                    };
-                }
-                overlay.remove();
-                canvas.focus({preventScroll: true});
+    }
+    const silent = () => audio && ['suspended', 'interrupted'].includes(audio.state);
+
+    // sokol tries a resume only on the first click, touch and key press, so a
+    // first key press that is not a user activation, such as Shift, leaves
+    // the sound off. The catch keeps a refused resume from showing as a
+    // crash.
+    const unmute = () => {
+        if (silent() && navigator.userActivation?.isActive !== false)
+            audio.resume().catch(() => {});
+    };
+    for (const type of ['keydown', 'pointerdown', 'pointerup', 'touchend'])
+        addEventListener(type, unmute, true);
+
+    const run = CONFIG.run || 'always';
+    let clicked = run !== 'onclick';
+    let click = null;
+    const started = run === 'onclick'
+        ? new Promise((resolve) => {
+            click = () => {
+                removeEventListener('keydown', click);
+                removeEventListener('pointerdown', click);
+                clicked = true;
+                sync();
                 resolve();
             };
-        });
+        })
+        : run === 'onaudio'
+        ? new Promise((resolve) => {
+            const check = () => {
+                if (!silent()) {
+                    audio?.removeEventListener('statechange', check);
+                    resolve();
+                }
+            };
+            audio?.addEventListener('statechange', check);
+            check();
+        })
+        : Promise.resolve();
+
+    function sync() {
+        if (!overlay)
+            return;
+        const up = !clicked || silent();
+        if (up && !overlay.isConnected)
+            box.append(overlay);
+        else if (!up && overlay.isConnected) {
+            overlay.remove();
+            canvas.focus({preventScroll: true});
+        }
     }
 
+    let box = null;
     const built = parsed(() => {
-        const box = frame();
+        box = frame();
         if (CONFIG.bg)
             document.body.style.background = '#' + CONFIG.bg;
-        if (CONFIG.image)
-            box.style.backgroundImage = `url("${CONFIG.image}")`;
         if (CONFIG.filter === 'nearest')
             canvas.style.imageRendering = 'pixelated';
         if (CONFIG.overlay) {
             overlay = template(CONFIG.overlay);
-            overlay.addEventListener('click', play);
-            addEventListener('keydown', play);
-            box.append(overlay);
+            if (click)
+                overlay.addEventListener('click', click);
         }
+        if (click) {
+            addEventListener('keydown', click);
+            if (!overlay)
+                addEventListener('pointerdown', click);
+        }
+        audio?.addEventListener('statechange', sync);
+        sync();
         if (CONFIG.footer)
             box.after(template(CONFIG.footer));
         // sokol measures the canvas only on a window resize, and the footer
@@ -301,8 +329,7 @@ body { display: flex; flex-direction: column; }
             for (const [name, buf] of list)
                 Module.FS.writeFile('/roms/' + name, new Uint8Array(buf));
         }));
-        if (CONFIG.image)
-            wait('hold', clicked);
+        wait('hold', started);
         if (CONFIG.db)
             wait('saves', saves());
     };

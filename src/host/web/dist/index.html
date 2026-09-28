@@ -62,9 +62,9 @@
     db:      '',                        // saves database, such as 'username-projectname'
     bg:      '000000',                  // letterbox color, six hex digits
     filter:  'sharp',                   // nearest | linear | sharp
-    overlay: '',                        // 'overlay' turns on the click-to-play template
+    overlay: 'overlay',                 // template shown while there is no sound
     footer:  '',                        // 'footer' turns on the footer template
-    image:   '',                        // picture shown until the game starts
+    run:     'always',                  // always | onaudio | onclick
   };
 </script>
 <script src="rp6502.js" onerror="document.body.textContent = 'Could not load rp6502.js'"></script>

@@ -596,14 +596,14 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # itch.io: build the emsdk web target, ship the bundle it assembles.
+  # web: build the emsdk web target, ship the bundle it assembles.
   # ---------------------------------------------------------------------------
-  itch-io:
-    name: itch.io
+  web:
+    name: web
     needs: [version]
     runs-on: ubuntu-24.04
     env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-itch.io.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-web.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -620,16 +620,16 @@ jobs:
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/host/itch.io
+          cd src/host/web
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset release
 
-      - name: Package itch.io
+      - name: Package web
         run: |
           set -euxo pipefail
-          cd build/itch.io/bundle
+          cd build/web/bundle
           zip -r "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
@@ -894,7 +894,7 @@ jobs:
   # update for everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, sdk-tools, pico, linux, libretro-bundle, macos, itch-io,
+    needs: [version, sdk-tools, pico, linux, libretro-bundle, macos, web,
             windows, android, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
@@ -923,7 +923,7 @@ jobs:
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    libretro.zip \
-                   pocket.zip itch.io.zip android.apk; do
+                   pocket.zip web.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
             if [ -z "$src" ]; then
@@ -955,7 +955,7 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-libretro.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-web.zip
             dist/rp6502-${{ needs.version.outputs.version }}-android.apk
             dist/SHA256SUMS
           fail_on_unmatched_files: true
@@ -974,7 +974,7 @@ jobs:
             | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
             | `rp6502-${{ needs.version.outputs.version }}-libretro.zip` | RetroArch core, every platform — or install it from the Core Downloader |
             | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
-            | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
+            | `rp6502-${{ needs.version.outputs.version }}-web.zip` | A web page that plays one program |
             | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |
 
             The desktop builds are unsigned and the APK is signed with a debug
