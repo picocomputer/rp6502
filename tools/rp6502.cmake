@@ -727,8 +727,10 @@ set(CMAKE_BASIC_COMPILER_ENV_VAR "")
 ]=])
 # The executable is an empty file. The ROM is <TARGET>.rp6502 beside it,
 # the name a launch configuration makes from the target path, as for C.
+# BASIC comes first, so a help asset of the program replaces the help of
+# BASIC.
 file(WRITE "${rp6502_basic_dir}/CMakeBASICInformation.cmake"
-"set(CMAKE_BASIC_LINK_EXECUTABLE \"<CMAKE_BASIC_COMPILER> \\\"${RP6502_TOOLS_DIR}/rp6502.py\\\" -o <TARGET>.rp6502 create <LINK_FLAGS> <OBJECTS>\" \"<CMAKE_COMMAND> -E touch <TARGET>\")
+"set(CMAKE_BASIC_LINK_EXECUTABLE \"<CMAKE_BASIC_COMPILER> \\\"${RP6502_TOOLS_DIR}/rp6502.py\\\" -o <TARGET>.rp6502 create --replace help <LINK_FLAGS> <OBJECTS>\" \"<CMAKE_COMMAND> -E touch <TARGET>\")
 set(CMAKE_BASIC_INFORMATION_LOADED 1)
 ")
 file(WRITE "${rp6502_basic_dir}/CMakeTestBASICCompiler.cmake" "set(CMAKE_BASIC_COMPILER_WORKS 1 CACHE INTERNAL \"\")\n")

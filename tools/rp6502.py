@@ -923,16 +923,21 @@ class ROM:
             raise ValueError(f"Invalid hex address: {s!r}")
         return int(s, 0)
 
-    def __init__(self):
+    def __init__(self, replace=()):
         """Sparse array of virtual ROM with optional named assets."""
         self.data = {}
         self.alloc = {}
         self.assets = []  # list of (name, bytes)
+        self.replace = set(replace)
 
     def add_asset(self, name: str, data: bytes):
         """Append a named asset to the ROM."""
-        if any(n == name for n, _ in self.assets):
-            raise ROMException(f"Asset name already exists: {name}")
+        for i, (n, _) in enumerate(self.assets):
+            if n == name:
+                if name not in self.replace:
+                    raise ROMException(f"Asset name already exists: {name}")
+                self.assets[i] = (name, data)
+                return
         self.assets.append((name, data))
 
     def add_binary_data(self, data: bytes, addr: int):
@@ -1366,6 +1371,13 @@ def exec_args():
     parsers["web"].add_argument(
         "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
     )
+    parsers["create"].add_argument(
+        "--replace",
+        action="append",
+        default=[],
+        metavar="name",
+        help="A later asset of this name replaces an earlier one. Repeatable.",
+    )
     parsers["execute"].add_argument(
         "--script", metavar="file", help="Drive the ROM with an emulator script."
     )
@@ -1648,7 +1660,7 @@ def exec_args():
         args.reset = str_to_address(parser, args.reset, "-r/--reset")
         args.irq = str_to_address(parser, args.irq, "-i/--irq")
         print(f"[{os.path.basename(__file__)}] Creating {args.out}")
-        rom = ROM()
+        rom = ROM(args.replace)
         if args.address is None:
             for vec_value, vec_flag in (
                 (args.nmi, "-n/--nmi"),
