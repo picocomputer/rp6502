@@ -49,7 +49,13 @@ body { display: flex; flex-direction: column; }
   padding: 1em; text-align: center; color: #c7d0d9; background: rgba(0, 0, 0, .85);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 #rp6502-msg pre { max-width: 92vw; max-height: 92vh; overflow: auto; margin: 0; text-align: left;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }`;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#rp6502-footer { padding: 8px 16px; border-top: 1px solid #303335; text-align: center;
+  color: #9ca0a5; font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#rp6502-footer p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rp6502-footer .links { font-size: 12px; color: #6b7075; }
+#rp6502-footer a { color: #5ca5ff; text-decoration: none; }
+#rp6502-footer svg { width: 1em; height: 1em; margin-right: .3em; vertical-align: -.15em; fill: currentColor; }`;
         document.head.prepend(style);
         const box = document.createElement('div');
         box.id = 'rp6502';
@@ -71,6 +77,38 @@ body { display: flex; flex-direction: column; }
     }
     function template(id) {
         return document.getElementById(id).content.firstElementChild.cloneNode(true);
+    }
+    // The line of CONFIG.footer, and under it links to the repository, the
+    // ROM and the Picocomputer.
+    function footer() {
+        const div = document.createElement('div');
+        div.id = 'rp6502-footer';
+        const line = document.createElement('p');
+        line.innerHTML = CONFIG.footer;
+        const links = document.createElement('p');
+        links.className = 'links';
+        const link = (href, text) => {
+            const a = document.createElement('a');
+            a.href = href;
+            a.textContent = text;
+            return a;
+        };
+        const parts = [];
+        if (CONFIG.github) {
+            const a = link('https://github.com/' + CONFIG.github, CONFIG.github);
+            a.target = '_blank';
+            a.insertAdjacentHTML('afterbegin', '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>');
+            parts.push(a);
+        }
+        const rom = link(CONFIG.rom, 'Download ROM');
+        rom.download = fileName(CONFIG.rom);
+        parts.push(rom);
+        const site = link('https://picocomputer.github.io', 'Picocomputer 6502');
+        site.target = '_blank';
+        parts.push(site);
+        parts.forEach((a, i) => links.append(...(i ? [' \u2013 ', a] : [a])));
+        div.append(line, links);
+        return div;
     }
     function wait(id, promise) {
         Module.addRunDependency(id);
@@ -213,7 +251,7 @@ body { display: flex; flex-direction: column; }
         audio?.addEventListener('statechange', sync);
         sync();
         if (CONFIG.footer)
-            box.after(template(CONFIG.footer));
+            box.after(footer());
         // sokol measures the canvas only on a window resize, and the footer
         // can change the canvas height without one.
         new ResizeObserver(() => dispatchEvent(new Event('resize'))).observe(canvas);

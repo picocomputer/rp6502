@@ -1072,7 +1072,9 @@ endfunction()
 # index.html is the page. Without one, the page is the index.html of the
 # web zip. CONFIG is JavaScript, the keys and values of an object: its
 # keys replace the same keys in CONFIG of the page, and add the others.
-# CONFIG.rom is always the ROM.
+# CONFIG.rom is always the ROM, and CONFIG.github, for the links under a
+# footer, is the GitHub repository of the git remote origin unless CONFIG
+# names another.
 #
 function(rp6502_web rom)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "OUTPUT;EMULATOR;PAGE;CONFIG" "")
@@ -1161,6 +1163,14 @@ function(rp6502_web rom)
     set(script "<script>\n")
     if (page STREQUAL "${dir}/emulator/index.html")
         string(APPEND script "CONFIG.title = '';\n")
+    endif()
+    # The footer links to the GitHub repository that the git remote of the
+    # project names; CONFIG can name another.
+    execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" remote get-url origin
+        OUTPUT_VARIABLE origin OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if (origin MATCHES "github\\.com[:/]([^/]+/[^/]+)$")
+        string(REGEX REPLACE "\\.git$" "" repo "${CMAKE_MATCH_1}")
+        string(APPEND script "CONFIG.github = '${repo}';\n")
     endif()
     if (DEFINED arg_CONFIG)
         string(APPEND script "Object.assign(CONFIG, {\n${arg_CONFIG}\n});\n")

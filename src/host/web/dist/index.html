@@ -28,13 +28,6 @@
   .overlay:hover .button { transform: scale(1.06); }
   .overlay svg { width: 51%; fill: currentColor; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
   .overlay .label { padding: 4px 14px; border-radius: 999px; background: rgba(0, 0, 0, .6); }
-  .footer {
-    padding: 8px 16px; border-top: 1px solid #303335; text-align: center;
-    color: #9ca0a5; font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .footer p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .footer .credits { font-size: 12px; color: #6b7075; }
-  .footer a { color: #5ca5ff; }
 </style>
 </head>
 <body>
@@ -44,13 +37,6 @@
       <div class="button"><svg viewBox="0 0 24 24"><path d="M8.5 5.5v13l10-6.5z"/></svg></div>
       <div class="label">Click to play</div>
     </div>
-  </div>
-</template>
-<template id="footer">
-  <div class="footer">
-    <p>Type a command, then press Enter.</p>
-    <p class="credits">By Will Crowther and Don Woods &middot;
-      <a href="https://picocomputer.github.io" target="_blank">Picocomputer 6502</a></p>
   </div>
 </template>
 <script>
@@ -63,7 +49,8 @@
     bg:      '000000',                  // letterbox color, six hex digits
     filter:  'sharp',                   // nearest | linear | sharp
     overlay: 'overlay',                 // template shown while there is no sound
-    footer:  '',                        // 'footer' turns on the footer template
+    footer:  '',                        // a line of HTML under the game, with links
+    github:  '',                        // repository linked in the footer, such as 'owner/repo'
     run:     'always',                  // always | onaudio | onclick
   };
 </script>
