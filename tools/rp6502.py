@@ -1344,7 +1344,7 @@ def exec_args():
     cmds = {
         "term": ("Attach to the RIA console.", None),
         "emu": ("Launch emulator from config (for IDE).", None),
-        "execute": ("Run local ROM in the emulator, headless and unpaced.", 1),
+        "execute": ("Run local ROM in the emulator with no window, headless or by --script.", 1),
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
@@ -1365,6 +1365,22 @@ def exec_args():
             )
     parsers["web"].add_argument(
         "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
+    )
+    parsers["execute"].add_argument(
+        "--script", metavar="file", help="Drive the ROM with an emulator script."
+    )
+    parsers["execute"].add_argument(
+        "--seed", metavar="n", help="Fixed random seed, for a reproducible run."
+    )
+    parsers["execute"].add_argument(
+        "--phi2",
+        metavar="khz",
+        help="6502 clock in kHz. Without --script the default is 0, unpaced.",
+    )
+    parsers["execute"].add_argument(
+        "--save-dir",
+        metavar="folder",
+        help="Folder used as SAVE:, instead of the OS folder for saved data.",
     )
     # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
     for cmd in ("run", "execute"):
@@ -1703,11 +1719,21 @@ def exec_args():
         serve_web(args.filename[0])
 
     if args.command == "execute":
-        # Headless with the phi2 lock off: the ROM's streams are this process's
-        # streams, and its exit code is ours, so a 6502 program is a step in a
-        # pipeline.
+        # The exit code of the ROM becomes the exit code of this process, so a
+        # 6502 program can be a step in a pipeline or a test.
         emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        cmd = [emulator, "--headless", "--phi2", "0", args.filename[0]]
+        if args.script:
+            cmd = [emulator, "--script", args.script]
+        else:
+            cmd = [emulator, "--headless"]
+        phi2 = args.phi2 if args.phi2 is not None else (None if args.script else "0")
+        if phi2 is not None:
+            cmd += ["--phi2", phi2]
+        if args.seed:
+            cmd += ["--seed", args.seed]
+        if args.save_dir:
+            cmd += ["--save-dir", args.save_dir]
+        cmd.append(args.filename[0])
         rom_args = args.rom_args
         if rom_args and rom_args[0] == "--":  # REMAINDER keeps a leading "--"
             rom_args = rom_args[1:]
@@ -1715,8 +1741,9 @@ def exec_args():
             rom_args = config_rom_args()
         if rom_args:
             cmd += ["--"] + rom_args
+        stdin = None if args.script == "-" else subprocess.DEVNULL
         try:
-            sys.exit(subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode)
+            sys.exit(subprocess.run(cmd, stdin=stdin).returncode)
         except OSError as e:
             raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
 

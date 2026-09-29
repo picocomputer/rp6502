@@ -22,12 +22,14 @@
     const msg = document.createElement('div');
     msg.id = 'rp6502-msg';
     let overlay = null;
+    let failed = false;
 
     function show(text) {
         msg.textContent = text;
         msg.style.display = 'grid';
     }
     function fail(text) {
+        failed = true;
         overlay?.remove();
         show(text);
     }
@@ -53,7 +55,7 @@ body { display: flex; flex-direction: column; }
 #rp6502-footer { padding: 8px 16px; border-top: 1px solid #303335; text-align: center;
   color: #9ca0a5; font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 #rp6502-footer p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#rp6502-footer .links { font-size: 12px; color: #6b7075; }
+#rp6502-footer .links { font-size: 12px; color: #6b7075; white-space: normal; }
 #rp6502-footer a { color: #5ca5ff; text-decoration: none; }
 #rp6502-footer svg { width: 1em; height: 1em; margin-right: .3em; vertical-align: -.15em; fill: currentColor; }`;
         document.head.prepend(style);
@@ -222,7 +224,7 @@ body { display: flex; flex-direction: column; }
     function sync() {
         if (!overlay)
             return;
-        const up = !clicked || silent();
+        const up = !failed && (!clicked || silent());
         if (up && !overlay.isConnected)
             box.append(overlay);
         else if (!up && overlay.isConnected) {
