@@ -12,7 +12,7 @@
         "${workspaceFolder}/src/host/sokol/android",
         "${workspaceFolder}/src/host/libretro",
         "${workspaceFolder}/src/host/pocket",
-        "${workspaceFolder}/src/host/itch.io",
+        "${workspaceFolder}/src/host/web",
         "${workspaceFolder}/tests/rtl"
     ],
     "cmake.buildDirectory": "${sourceDirectory}/build",

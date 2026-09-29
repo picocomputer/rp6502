@@ -4,7 +4,7 @@ This directory holds `adventure.rp6502`, the only `.rp6502` file in the
 repository. Every other `.rp6502` program that a test runs is generated from
 source.
 
-Besides the tests, `src/host/itch.io` ships `adventure.rp6502` as the sample
+Besides the tests, `src/host/web` ships `adventure.rp6502` as the sample
 program in the web bundle.
 
 ## Rebuilding it

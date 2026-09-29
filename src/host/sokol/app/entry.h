@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Every host/sokol/<os>, and src/host/itch.io for the web, implements the
+ * Every host/sokol/<os>, and src/host/web for the web, implements the
  * window functions here and nothing else implements any of them. A platform
  * that has nothing to do for one of these implements it with an empty body. Only
  * Windows implements entry_argv_utf8. Only the desktop builds implement the

@@ -9,7 +9,7 @@ The main documentation starts here:<br>
 https://picocomputer.github.io/
 
 Pre-built firmware and executables:<br>
-https://github.com/picocomputer/rp6502/releases
+https://github.com/picocomputer/
 
 This project is for building emulation or firmware. For writing 6502 software, see
 [picocomputer/rp6502-sdk](https://github.com/picocomputer/rp6502-sdk), which
@@ -88,7 +88,7 @@ settings.
 | --- | --- | --- |
 | `rp6502` (the repository root) | the two Pico firmwares | `build/` |
 | `src/host/sokol` | the emulator on Linux, Windows and macOS, and its test suite | `build/sokol/<os>/{debug,release}` |
-| `src/host/itch.io` | the itch.io bundle | `build/itch.io` |
+| `src/host/web` | the web bundle | `build/web` |
 | `src/host/sokol/android` | the same machine on Android: the native library, and an `apk` target | `build/android/` |
 | `src/host/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
 | `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
@@ -134,16 +134,16 @@ prompted for one of the included test roms, or use "RetroArch Debug
 installed; on WSL the launch configuration already works around the
 missing window decorations.
 
-To build for web, select Folder:itch.io; the Emscripten toolchain installs itself
+To build for web, select Folder:web; the Emscripten toolchain installs itself
 the first time and needs no preset argument to find. Pressing F7 builds
-`build/itch.io/bundle`, a ready-to-publish itch.io sample that plays one program
-(`adventure.rp6502` by default). `src/host/itch.io/page.js` builds the page
+`build/web/bundle`, a ready-to-publish web player sample that plays one program
+(`adventure.rp6502` by default). `src/host/web/page.js` builds the page
 around the emulator. The `index.html` settings and the steps to publish are on
 [RP6502-WEB](https://picocomputer.github.io/web.html).
 
 The bundle does not work from a `file://` URL; the browser needs an HTTP origin
 to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
-`build/itch.io/bundle` is enough to try it.
+`build/web/bundle` is enough to try it.
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
 into `build/pocket/package`; `pocket-bitstream` and `pocket-fit` are targets

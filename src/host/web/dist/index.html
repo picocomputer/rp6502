@@ -28,13 +28,6 @@
   .overlay:hover .button { transform: scale(1.06); }
   .overlay svg { width: 51%; fill: currentColor; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
   .overlay .label { padding: 4px 14px; border-radius: 999px; background: rgba(0, 0, 0, .6); }
-  .footer {
-    padding: 8px 16px; border-top: 1px solid #303335; text-align: center;
-    color: #9ca0a5; font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .footer p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .footer .credits { font-size: 12px; color: #6b7075; }
-  .footer a { color: #5ca5ff; }
 </style>
 </head>
 <body>
@@ -46,13 +39,6 @@
     </div>
   </div>
 </template>
-<template id="footer">
-  <div class="footer">
-    <p>Type a command, then press Enter.</p>
-    <p class="credits">By Will Crowther and Don Woods &middot;
-      <a href="https://picocomputer.github.io" target="_blank">Picocomputer 6502</a></p>
-  </div>
-</template>
 <script>
   var CONFIG = {
     title:   'Colossal Cave Adventure', // browser tab title
@@ -61,10 +47,12 @@
     install: [],                        // more files, read by the program as ':name'
     db:      '',                        // saves database, such as 'username-projectname'
     bg:      '000000',                  // letterbox color, six hex digits
+    border:  '',                        // space around the game, such as '8px' or '1em'
     filter:  'sharp',                   // nearest | linear | sharp
-    overlay: '',                        // 'overlay' turns on the click-to-play template
-    footer:  '',                        // 'footer' turns on the footer template
-    image:   '',                        // picture shown until the game starts
+    overlay: 'overlay',                 // template shown while there is no sound
+    footer:  '',                        // a line of HTML under the game, with links
+    github:  '',                        // repository linked in the footer, such as 'owner/repo'
+    run:     'always',                  // always | onaudio | onclick
   };
 </script>
 <script src="rp6502.js" onerror="document.body.textContent = 'Could not load rp6502.js'"></script>

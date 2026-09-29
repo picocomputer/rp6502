@@ -923,16 +923,21 @@ class ROM:
             raise ValueError(f"Invalid hex address: {s!r}")
         return int(s, 0)
 
-    def __init__(self):
+    def __init__(self, replace=()):
         """Sparse array of virtual ROM with optional named assets."""
         self.data = {}
         self.alloc = {}
         self.assets = []  # list of (name, bytes)
+        self.replace = set(replace)
 
     def add_asset(self, name: str, data: bytes):
         """Append a named asset to the ROM."""
-        if any(n == name for n, _ in self.assets):
-            raise ROMException(f"Asset name already exists: {name}")
+        for i, (n, _) in enumerate(self.assets):
+            if n == name:
+                if name not in self.replace:
+                    raise ROMException(f"Asset name already exists: {name}")
+                self.assets[i] = (name, data)
+                return
         self.assets.append((name, data))
 
     def add_binary_data(self, data: bytes, addr: int):
@@ -1251,6 +1256,85 @@ class Emulator:
             send(response)
 
 
+def serve_web(path):
+    """Serves the web packages that rp6502_web() makes in <build>/web, with
+    a list of them at the root, until stopped. path is the build folder or
+    a file in it, such as the launch target that VS Code has just built."""
+    import html
+    import http.server
+    import threading
+    import webbrowser
+
+    build = os.path.abspath(path)
+    while not os.path.isfile(os.path.join(build, "CMakeCache.txt")):
+        parent = os.path.dirname(build)
+        if parent == build:
+            raise RuntimeError(f"{path} is not in a CMake build folder")
+        build = parent
+    root = os.path.join(build, "web")
+
+    def packages():
+        if not os.path.isdir(root):
+            return []
+        return sorted(
+            name
+            for name in os.listdir(root)
+            if os.path.isfile(os.path.join(root, name, "index.html"))
+        )
+
+    if not packages():
+        raise RuntimeError(
+            f"{build} has no web packages; rp6502_web() in CMakeLists.txt makes them"
+        )
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=root, **kwargs)
+
+        def do_GET(self):
+            if self.path.split("?")[0] not in ("/", "/index.html"):
+                return super().do_GET()
+            items = "".join(
+                f'<li><a href="{html.escape(name)}/">{html.escape(name)}</a>'
+                f' &middot; <a href="{html.escape(name)}.zip">{html.escape(name)}.zip</a></li>'
+                for name in packages()
+            )
+            body = (
+                '<!doctype html><meta charset="utf-8"><title>Web packages</title>'
+                f"<h1>Web packages</h1><ul>{items}</ul>"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            pass
+
+    # On Windows, SO_REUSEADDR lets a second server bind a port in use.
+    class Server(http.server.ThreadingHTTPServer):
+        allow_reuse_address = os.name != "nt"
+
+    server = None
+    for port in range(8000, 8100):
+        try:
+            server = Server(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    if not server:
+        raise RuntimeError("No free port from 8000 to 8099")
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    print(f"[{SCRIPT_FILE}] Serving {root} at {url}", flush=True)
+    # A text browser waits for the page, which is served only after this.
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
 def exec_args():
     # Standard library argument parser
     class CustomFormatter(argparse.HelpFormatter):
@@ -1265,10 +1349,11 @@ def exec_args():
     cmds = {
         "term": ("Attach to the RIA console.", None),
         "emu": ("Launch emulator from config (for IDE).", None),
-        "execute": ("Run local ROM in the emulator, headless and unpaced.", 1),
+        "execute": ("Run local ROM in the emulator with no window, headless or by --script.", 1),
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
+        "web": ("Serve the web packages of a build folder.", None),
         "create": (
             "Create local ROM file from a file. Additional local ROM files will be merged.",
             "+",
@@ -1283,6 +1368,32 @@ def exec_args():
                 nargs=nargs,
                 help="Local filename." if nargs == 1 else "Local filename(s).",
             )
+    parsers["web"].add_argument(
+        "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
+    )
+    parsers["create"].add_argument(
+        "--replace",
+        action="append",
+        default=[],
+        metavar="name",
+        help="A later asset of this name replaces an earlier one. Repeatable.",
+    )
+    parsers["execute"].add_argument(
+        "--script", metavar="file", help="Drive the ROM with an emulator script."
+    )
+    parsers["execute"].add_argument(
+        "--seed", metavar="n", help="Fixed random seed, for a reproducible run."
+    )
+    parsers["execute"].add_argument(
+        "--phi2",
+        metavar="khz",
+        help="6502 clock in kHz. Without --script the default is 0, unpaced.",
+    )
+    parsers["execute"].add_argument(
+        "--save-dir",
+        metavar="folder",
+        help="Folder used as SAVE:, instead of the OS folder for saved data.",
+    )
     # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
     for cmd in ("run", "execute"):
         parsers[cmd].add_argument(
@@ -1549,7 +1660,7 @@ def exec_args():
         args.reset = str_to_address(parser, args.reset, "-r/--reset")
         args.irq = str_to_address(parser, args.irq, "-i/--irq")
         print(f"[{os.path.basename(__file__)}] Creating {args.out}")
-        rom = ROM()
+        rom = ROM(args.replace)
         if args.address is None:
             for vec_value, vec_flag in (
                 (args.nmi, "-n/--nmi"),
@@ -1616,12 +1727,25 @@ def exec_args():
         except OSError as e:
             raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
 
+    if args.command == "web":
+        serve_web(args.filename[0])
+
     if args.command == "execute":
-        # Headless with the phi2 lock off: the ROM's streams are this process's
-        # streams, and its exit code is ours, so a 6502 program is a step in a
-        # pipeline.
+        # The exit code of the ROM becomes the exit code of this process, so a
+        # 6502 program can be a step in a pipeline or a test.
         emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        cmd = [emulator, "--headless", "--phi2", "0", args.filename[0]]
+        if args.script:
+            cmd = [emulator, "--script", args.script]
+        else:
+            cmd = [emulator, "--headless"]
+        phi2 = args.phi2 if args.phi2 is not None else (None if args.script else "0")
+        if phi2 is not None:
+            cmd += ["--phi2", phi2]
+        if args.seed:
+            cmd += ["--seed", args.seed]
+        if args.save_dir:
+            cmd += ["--save-dir", args.save_dir]
+        cmd.append(args.filename[0])
         rom_args = args.rom_args
         if rom_args and rom_args[0] == "--":  # REMAINDER keeps a leading "--"
             rom_args = rom_args[1:]
@@ -1629,8 +1753,9 @@ def exec_args():
             rom_args = config_rom_args()
         if rom_args:
             cmd += ["--"] + rom_args
+        stdin = None if args.script == "-" else subprocess.DEVNULL
         try:
-            sys.exit(subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode)
+            sys.exit(subprocess.run(cmd, stdin=stdin).returncode)
         except OSError as e:
             raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
 
