@@ -576,7 +576,7 @@ function(rp6502_hook_launch_json)
             "program": "${workspaceFolder}/tools/rp6502.py",
             "args": [
                 "web",
-                "${command:cmake.buildDirectory}"
+                "${command:cmake.launchTargetPath}"
             ],
         },
 ]==])

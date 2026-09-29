@@ -1251,16 +1251,21 @@ class Emulator:
             send(response)
 
 
-def serve_web(build):
-    """Builds, then serves the web packages that rp6502_web() makes in
-    <build>/web, with a list of them at the root, until stopped."""
+def serve_web(path):
+    """Serves the web packages that rp6502_web() makes in <build>/web, with
+    a list of them at the root, until stopped. path is the build folder or
+    a file in it, such as the launch target that VS Code has just built."""
     import html
     import http.server
     import threading
     import webbrowser
 
-    if subprocess.run(["cmake", "--build", build]).returncode:
-        raise RuntimeError(f"Building {build} failed")
+    build = os.path.abspath(path)
+    while not os.path.isfile(os.path.join(build, "CMakeCache.txt")):
+        parent = os.path.dirname(build)
+        if parent == build:
+            raise RuntimeError(f"{path} is not in a CMake build folder")
+        build = parent
     root = os.path.join(build, "web")
 
     def packages():
@@ -1343,7 +1348,7 @@ def exec_args():
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
-        "web": ("Build, then serve the web packages of a build folder.", None),
+        "web": ("Serve the web packages of a build folder.", None),
         "create": (
             "Create local ROM file from a file. Additional local ROM files will be merged.",
             "+",
@@ -1359,7 +1364,7 @@ def exec_args():
                 help="Local filename." if nargs == 1 else "Local filename(s).",
             )
     parsers["web"].add_argument(
-        "filename", nargs=1, metavar="build", help="CMake build folder."
+        "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
     )
     # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
     for cmd in ("run", "execute"):
