@@ -1317,17 +1317,8 @@ def serve_web(build):
         raise RuntimeError("No free port from 8000 to 8099")
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"[{SCRIPT_FILE}] Serving {root} at {url}", flush=True)
-    def open_browser():
-        # On WSL, xdg-open runs a BROWSER path with spaces, such as one under
-        # Program Files, without quotes, so Windows opens the page itself.
-        if "microsoft" in platform.release().lower():
-            subprocess.run(["explorer.exe", url], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-        else:
-            webbrowser.open(url)
-
     # A text browser waits for the page, which is served only after this.
-    threading.Thread(target=open_browser, daemon=True).start()
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
