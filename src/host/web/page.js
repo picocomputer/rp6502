@@ -42,9 +42,9 @@
         style.textContent = `
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: #000; }
 body { display: flex; flex-direction: column; }
-#rp6502 { position: relative; flex: 1 1 0; min-height: 0; }
-#canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
-  outline: none; touch-action: none; }
+#rp6502 { --border: 0px; position: relative; flex: 1 1 0; min-height: 0; }
+#canvas { position: absolute; inset: var(--border); display: block; outline: none; touch-action: none;
+  width: calc(100% - 2 * var(--border)); height: calc(100% - 2 * var(--border)); }
 #rp6502-msg { position: absolute; inset: 0; z-index: 1; display: none; place-items: center;
   padding: 1em; text-align: center; color: #c7d0d9; background: rgba(0, 0, 0, .85);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -236,6 +236,8 @@ body { display: flex; flex-direction: column; }
         box = frame();
         if (CONFIG.bg)
             document.body.style.background = '#' + CONFIG.bg;
+        if (CONFIG.border)
+            box.style.setProperty('--border', CONFIG.border);
         if (CONFIG.filter === 'nearest')
             canvas.style.imageRendering = 'pixelated';
         if (CONFIG.overlay) {
