@@ -1521,8 +1521,11 @@ extern "C" void dap_start(void)
          * defaults arrived already OEM (main.c converted its argv), so they
          * pass through — converting them again would mangle high bytes. */
         std::vector<std::string> args;
-        for (const std::string &a : req.args.value({}))
-            args.push_back(oem_from_utf8_str(a));
+        /* value({}) returns a reference to the temporary default, and C++17
+         * destroys that temporary before the loop body runs. */
+        if (req.args.has_value())
+            for (const std::string &a : req.args.value())
+                args.push_back(oem_from_utf8_str(a));
         if (args.empty())
             args = g_default_args;
         /* The exec is refused here, where the error can still be returned to
