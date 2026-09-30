@@ -131,8 +131,8 @@ body { display: flex; flex-direction: column; }
         return;
     }
 
-    const bad = CONFIG.bg && !/^[0-9a-fA-F]{6}$/.test(CONFIG.bg)
-        ? 'CONFIG.bg must be six hex digits, such as 000000.'
+    const bad = CONFIG.bgcolor && !/^[0-9a-fA-F]{6}$/.test(CONFIG.bgcolor)
+        ? 'CONFIG.bgcolor must be six hex digits, such as 000000.'
         : CONFIG.filter && !['nearest', 'linear', 'sharp'].includes(CONFIG.filter)
         ? 'CONFIG.filter must be nearest, linear or sharp.'
         : CONFIG.run && !['always', 'onaudio', 'onclick'].includes(CONFIG.run)
@@ -150,8 +150,8 @@ body { display: flex; flex-direction: column; }
     const fileName = (url) => url.split(/[?#]/)[0].split('/').pop();
     const install = CONFIG.install || [];
     Module.arguments = ['--save-dir', '/saves'];
-    if (CONFIG.bg)
-        Module.arguments.push('--bgcolor', CONFIG.bg);
+    if (CONFIG.bgcolor)
+        Module.arguments.push('--bgcolor', CONFIG.bgcolor);
     if (CONFIG.filter)
         Module.arguments.push('--filter', CONFIG.filter);
     for (const url of install)
@@ -236,8 +236,8 @@ body { display: flex; flex-direction: column; }
     let box = null;
     const built = parsed(() => {
         box = frame();
-        if (CONFIG.bg)
-            document.body.style.background = '#' + CONFIG.bg;
+        if (CONFIG.bgcolor)
+            document.body.style.background = '#' + CONFIG.bgcolor;
         if (CONFIG.border)
             box.style.setProperty('--border', CONFIG.border);
         if (CONFIG.filter === 'nearest')
