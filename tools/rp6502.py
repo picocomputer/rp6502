@@ -990,21 +990,21 @@ class ROM:
                 raise ROMException("No nmi address found in file.")
             addr["nmi"] = data[0] + data[1] * 256
             data = data[2:]
-        if addr["nmi"]:
+        if addr["nmi"] is not None:
             self.add_nmi_vector(addr["nmi"])
         if addr["reset"] is True:
             if len(data) < 2:
                 raise ROMException("No reset address found in file.")
             addr["reset"] = data[0] + data[1] * 256
             data = data[2:]
-        if addr["reset"]:
+        if addr["reset"] is not None:
             self.add_reset_vector(addr["reset"])
         if addr["irq"] is True:
             if len(data) < 2:
                 raise ROMException("No irq address found in file.")
             addr["irq"] = data[0] + data[1] * 256
             data = data[2:]
-        if addr["irq"]:
+        if addr["irq"] is not None:
             self.add_irq_vector(addr["irq"])
         self.add_binary_data(data, addr["data"])
 
@@ -1671,11 +1671,11 @@ def exec_args():
                     parser.error(
                         f"argument {vec_flag}: 'file' requires a binary asset (-a)"
                     )
-            if args.nmi:
+            if args.nmi is not None:
                 rom.add_nmi_vector(args.nmi)
-            if args.reset:
+            if args.reset is not None:
                 rom.add_reset_vector(args.reset)
-            if args.irq:
+            if args.irq is not None:
                 rom.add_irq_vector(args.irq)
             extras_start = 0
         else:

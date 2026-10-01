@@ -960,35 +960,6 @@ jobs:
             dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
-          body: |
-            ## Picocomputer 6502 release
-
-            One download per platform, each with install instructions inside.
-
-            | Asset | |
-            |---|---|
-            | `rp6502-${{ needs.version.outputs.version }}-pico.zip` | RIA and VGA firmware for the Picocomputer |
-            | `rp6502-${{ needs.version.outputs.version }}-windows.zip` | Emulator, Windows x64 (Direct3D 11) |
-            | `rp6502-${{ needs.version.outputs.version }}-macos.zip` | Emulator, macOS 11+ Apple silicon |
-            | `rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz` | Emulator, Linux x86_64 (glibc 2.35+) |
-            | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
-            | `rp6502-${{ needs.version.outputs.version }}-libretro.zip` | RetroArch core, every platform — or install it from the Core Downloader |
-            | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
-            | `rp6502-${{ needs.version.outputs.version }}-web.zip` | A web page that plays one program |
-            | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |
-
-            The desktop builds are unsigned and the APK is signed with a debug
-            key, so every OS objects on first launch. Windows: "More info" then
-            "Run anyway". macOS: "Open Anyway" under Privacy & Security.
-            Android: "More info" then "Install anyway".
-
-            The emulators come with no software. 6502 programs are distributed
-            as `.rp6502` files — find them on Discord, which has a forum for
-            ROMs, or on itch.io under the RP6502 tag.
-
-            - Discord: https://discord.gg/TC6X8kTr6d
-            - itch.io: https://itch.io/games/tag-rp6502
-            - Documentation: https://picocomputer.github.io/
 
   # ---------------------------------------------------------------------------
   # libretro-branch: the libretro buildbot builds the core from the libretro
