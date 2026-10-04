@@ -747,13 +747,24 @@ jobs:
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
-  # Ten minutes, most of it running the suite rather than building it. It used
-  # to be gated on whether the diff touched anything the tree reads, which cost
-  # a minute and a half of configuring to find out — the gate was worth less
-  # than it cost, so it is gone and this simply runs.
+  # Most of the time goes to running the suite rather than building it, so the
+  # suite runs as two halves on two runners at once: ctest -I takes every
+  # second test, starting from the first in A and from the second in B. It
+  # used to be gated on whether the diff touched anything the tree reads, which
+  # cost a minute and a half of configuring to find out — the gate was worth
+  # less than it cost, so it is gone and this simply runs.
   # ---------------------------------------------------------------------------
   rtl-tests:
+    name: RTL tests ${{ matrix.half }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - half: A
+            first: 1
+          - half: B
+            first: 2
     steps:
       - uses: actions/checkout@v7
 
@@ -772,7 +783,7 @@ jobs:
         working-directory: tests/rtl
 
       - name: Run simulation tests
-        run: ctest --test-dir build/rtl --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/rtl --output-on-failure --parallel $(nproc) -I ${{ matrix.first }},,2
 
   # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
