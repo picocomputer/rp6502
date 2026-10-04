@@ -6,9 +6,10 @@
  * Every host/sokol/<os>, and src/host/web for the web, implements the
  * window functions here and nothing else implements any of them. A platform
  * that has nothing to do for one of these implements it with an empty body. Only
- * Windows implements entry_argv_utf8. Only the desktop builds implement the
- * three host_gamepad_ functions at the bottom, because app/gamepad.c, which
- * calls them, is built only for the desktop emulator.
+ * Windows implements entry_argv_utf8, and only the web entry_canvas_locked.
+ * Only the desktop builds implement the three host_gamepad_ functions at the
+ * bottom, because app/gamepad.c, which calls them, is built only for the
+ * desktop emulator.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_
@@ -67,6 +68,10 @@ void host_window_open_url(const char *url);
  * UTF-8, the encoding of argv on every other host. NULL if it cannot be read.
  * The result lasts for the whole run. */
 char **entry_argv_utf8(int *argc);
+
+/* True while the pointer lock is on Module.canvas. On the web,
+ * sapp_mouse_locked() is true while the lock is on any canvas in the page. */
+bool entry_canvas_locked(void);
 
 /* One host controller, in the units gamepad_host_report takes. Each backend
  * does the scaling, because the range of each axis comes from the platform's

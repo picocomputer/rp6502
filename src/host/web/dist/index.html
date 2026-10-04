@@ -1,60 +1,30 @@
 <!doctype html>
-<!--
-  Copyright (c) 2026 Rumbledethumps
-  SPDX-License-Identifier: BSD-3-Clause OR Unlicense
--->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Picocomputer 6502</title>
 <style>
-  .overlay {
-    --y: 50%;                              /* height of the button, from the top */
-    --size: clamp(56px, 18vmin, 96px);     /* width of the button */
-    --shade: rgba(0, 0, 0, .45);           /* over the game */
-    position: absolute; inset: 0; cursor: pointer; background: var(--shade);
-    color: #fff; font: 600 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .overlay .play {
-    position: absolute; left: 50%; top: var(--y); transform: translate(-50%, -50%);
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-  }
-  .overlay .button {
-    width: var(--size); height: var(--size); border-radius: 50%;
-    display: grid; place-items: center; box-sizing: border-box;
-    border: 3px solid #fff; background: rgba(0, 0, 0, .3); backdrop-filter: blur(2px);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, .5); transition: transform .15s ease;
-  }
-  .overlay:hover .button { transform: scale(1.06); }
-  .overlay svg { width: 51%; fill: currentColor; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-  .overlay .label { padding: 4px 14px; border-radius: 999px; background: rgba(0, 0, 0, .6); }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #000; }
+  #game { height: 100%; }
 </style>
 </head>
 <body>
-<template id="overlay">
-  <div class="overlay">
-    <div class="play">
-      <div class="button"><svg viewBox="0 0 24 24"><path d="M8.5 5.5v13l10-6.5z"/></svg></div>
-      <div class="label">Click to play</div>
-    </div>
-  </div>
-</template>
-<script>
-  var CONFIG = {
-    title:   'Colossal Cave Adventure', // browser tab title
-    rom:     'adventure.rp6502',        // the program, next to this file
-    args:    [],                        // arguments for the program, such as ['-c1']
-    install: [],                        // more files, read by the program as ':name'
-    db:      '',                        // saves database, such as 'username-projectname'
-    bgcolor: '000000',                  // letterbox color, six hex digits
-    border:  '',                        // space around the game, such as '8px' or '1em'
-    filter:  'sharp',                   // nearest | linear | sharp
-    overlay: 'overlay',                 // template shown while there is no sound
-    footer:  '',                        // a line of HTML under the game, with links
-    github:  '',                        // repository linked in the footer, such as 'owner/repo'
-    run:     'always',                  // always | onaudio | onclick
-  };
-</script>
+<div id="game"></div>
 <script src="rp6502.js" onerror="document.body.textContent = 'Could not load rp6502.js'"></script>
+<script>
+  rp6502('game', 'adventure.rp6502', {
+    title:    'Colossal Cave Adventure', // browser tab title
+    db:       '',                        // saves database, such as 'username-projectname'
+    bgcolor:  '000000',                  // letterbox color, six hex digits
+    border:   '',                        // space around the game, such as '8px' or '1em'
+    filter:   'sharp',                   // nearest | linear | sharp
+    footer:   '',                        // a line of HTML under the game, with links
+    github:   '',                        // repository linked in the footer, such as 'owner/repo'
+    autoplay: 'on',                      // on | auto | off | muted
+    install:  [],                        // more files, which the program opens as ':NAME'
+    args:     [],                        // arguments for the program, such as ['-c1']
+  });
+</script>
 </body>
 </html>

@@ -94,7 +94,7 @@ static void update_title(void)
         v = 1;
         t = "Picocomputer 6502 (stopped)";
     }
-    else if (mouse_is_mapped() && sapp_mouse_locked())
+    else if (mouse_is_mapped() && input_mouse_locked())
     {
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
@@ -126,7 +126,10 @@ static void stream_cb(float *buffer, int num_frames, int num_channels)
 
 void app_init(void)
 {
+#ifndef __EMSCRIPTEN__
+    /* A web page sets its own tab icon. */
     sapp_set_icon(icon_desc());
+#endif
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
         .logger.func = app_log,
@@ -138,11 +141,17 @@ void app_init(void)
          * got and the machine resamples from its own rate to that; WASAPI and
          * CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
          * of that rate is 10.7 ms of device latency, where sokol's default of
-         * 2048 is 43. */
+         * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
+         * which stops while the window moves, and its size must be a power of
+         * two, so the web build uses 1024 frames, 21.3 ms. */
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
+#ifdef __EMSCRIPTEN__
+            .buffer_frames = 1024,
+#else
             .buffer_frames = 512,
+#endif
             .stream_cb = stream_cb,
             .logger.func = app_log,
         });
@@ -240,7 +249,7 @@ void app_frame(void)
 
     /* The absolute tablet never captures the pointer, and a program that has
      * unmapped the mouse no longer wants it. */
-    if (sapp_mouse_locked() && (!mouse_is_mapped() || tablet_is_mapped()))
+    if (input_mouse_locked() && (!mouse_is_mapped() || tablet_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
     /* A host overlay, such as the Android ROM menu or the desktop drop-a-ROM

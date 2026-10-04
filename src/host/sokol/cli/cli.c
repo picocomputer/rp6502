@@ -140,7 +140,8 @@ void cli_usage(FILE *out, const char *argv0)
             "                            ROM is named\n"
             "  --save-dir <folder>       the folder behind SAVE:, made by the first save\n"
             "                            (default: this OS's folder for saved data)\n"
-            "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
+            "  --bgcolor RRGGBB          letterbox/pillarbox fill color, # optional\n"
+            "                            (default 000000)\n"
             "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000);\n"
             "                            0 runs unpaced, warping time\n"
             "  --cp <n>                  OEM code page (437/720/737/771/775/850/852/855/\n"
@@ -252,7 +253,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_BGCOLOR:
             if (!parse_hex_color(optarg, &o->bg_r, &o->bg_g, &o->bg_b))
             {
-                fprintf(stderr, "rp6502-emu: bad --bgcolor (want RRGGBB)\n");
+                fprintf(stderr, "rp6502-emu: bad --bgcolor (want RRGGBB or #RRGGBB)\n");
                 return 2;
             }
             o->have_bg = true;

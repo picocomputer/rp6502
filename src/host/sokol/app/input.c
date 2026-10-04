@@ -8,6 +8,7 @@
 #include "host/sokol/app/input.h"
 
 #include "host/sokol/app/gfx.h"
+#include "host/sokol/app/entry.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -361,6 +362,15 @@ static bool input_tablet(const sapp_event *e)
     }
 }
 
+bool input_mouse_locked(void)
+{
+#if defined(__EMSCRIPTEN__)
+    return sapp_mouse_locked() && entry_canvas_locked();
+#else
+    return sapp_mouse_locked();
+#endif
+}
+
 void input_event(const sapp_event *e)
 {
     if (tablet_is_mapped() && input_tablet(e))
@@ -371,7 +381,7 @@ void input_event(const sapp_event *e)
     case SAPP_EVENTTYPE_KEY_DOWN:
         /* Esc releases a captured mouse rather than being typed, which is how a
          * browser leaves pointer lock. */
-        if (e->key_code == SAPP_KEYCODE_ESCAPE && sapp_mouse_locked())
+        if (e->key_code == SAPP_KEYCODE_ESCAPE && input_mouse_locked())
         {
             sapp_lock_mouse(false);
             break;
@@ -383,7 +393,7 @@ void input_event(const sapp_event *e)
         input_key(e);
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
-        if (!sapp_mouse_locked())
+        if (!input_mouse_locked())
         {
             /* The first click captures the pointer, and only once a program has
              * mapped the mouse. That click is spent on the capture. */
@@ -394,11 +404,11 @@ void input_event(const sapp_event *e)
             set_host_mouse_button(e->mouse_button, true);
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
-        if (sapp_mouse_locked())
+        if (input_mouse_locked())
             set_host_mouse_button(e->mouse_button, false);
         break;
     case SAPP_EVENTTYPE_MOUSE_MOVE:
-        if (sapp_mouse_locked())
+        if (input_mouse_locked())
         {
             int cw, ch;
             vga_canvas_size(&cw, &ch);
@@ -412,7 +422,7 @@ void input_event(const sapp_event *e)
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        if (sapp_mouse_locked())
+        if (input_mouse_locked())
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:

@@ -16,6 +16,9 @@ struct sapp_event;
  * input. */
 void input_event(const struct sapp_event *e);
 
+/* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
+bool input_mouse_locked(void);
+
 /* Whether the host pointer is over the drawn canvas. The tablet's requested
  * cursor applies only there, and the system cursor shows in the letterbox. */
 void input_set_pointer_on_canvas(bool on);

@@ -11,6 +11,7 @@
  */
 
 #include "core/hid/gamepad.h"
+#include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <stdint.h>
 
@@ -34,4 +35,11 @@ EMSCRIPTEN_KEEPALIVE void gamepad_host(int player, int dpad, int button0, int bu
 EMSCRIPTEN_KEEPALIVE void gamepad_disconnect(int player)
 {
     gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
+}
+
+/* destroy() in page.js stops the sokol frame loop through sapp_quit(),
+ * because JavaScript has no handle on that loop. */
+EMSCRIPTEN_KEEPALIVE void web_quit(void)
+{
+    sapp_quit();
 }

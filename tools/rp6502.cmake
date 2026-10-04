@@ -798,16 +798,18 @@ endfunction()
     The page file, or a folder copied with all subfolders, where the root
     ``index.html`` is the page. The default is the ``index.html`` of the
     web zip. The page must load the emulator with
-    ``<script src="rp6502.js">``, and a script with the settings of
-    ``CONFIG`` is inserted just before that tag.
+    ``<script src="rp6502.js">`` and then call
+    ``rp6502(container, rom, options)``. A script inserted right after the
+    ``rp6502.js`` tag replaces the ``rom`` of every ``rp6502()`` call with
+    the ROM of ``<target>``, and merges ``CONFIG`` into the ``options`` of
+    every call.
 
   ``CONFIG <text>``
     JavaScript, the keys and values of an object, which replace or add
-    keys of ``CONFIG`` in the page. ``CONFIG.rom`` is always the ROM.
-    ``CONFIG.github``, for the links under a footer, is the GitHub
-    repository of the git remote ``origin`` unless ``<text>`` names another.
-    With the default page, ``CONFIG.title`` is empty unless ``<text>`` sets
-    it.
+    keys of the ``options`` of every ``rp6502()`` call in the page.
+    ``github``, for the links under a footer, is the GitHub repository of
+    the git remote ``origin`` unless ``<text>`` names another. With the
+    default page, ``title`` is blank unless ``<text>`` sets it.
 #]=======================================================================]
 function(rp6502_web target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "OUTPUT;EMULATOR;PAGE;CONFIG" "")
@@ -888,26 +890,68 @@ function(rp6502_web target)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${page}")
     endif()
 
-    # The settings are a separate script, before rp6502.js reads CONFIG.
+    # The script follows the rp6502.js tag, so it replaces rp6502() before any
+    # call in the page.
     file(READ "${page}" html)
     string(FIND "${html}" "<script src=\"rp6502.js\"" at)
     if (at LESS 0)
         message(FATAL_ERROR "${caller}: ${page} has no <script src=\"rp6502.js\">.")
     endif()
-    set(script "<script>\n")
+    string(SUBSTRING "${html}" ${at} -1 tail)
+    string(FIND "${tail}" "</script>" end)
+    if (end LESS 0)
+        message(FATAL_ERROR "${caller}: ${page} has no </script> after <script src=\"rp6502.js\">.")
+    endif()
+    math(EXPR at "${at} + ${end} + 9")
+    set(merge)
     if (page STREQUAL "${dir}/emulator/index.html")
-        string(APPEND script "CONFIG.title = '';\n")
+        string(APPEND merge ", {title: ''}")
     endif()
     execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" remote get-url origin
         OUTPUT_VARIABLE origin OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     if (origin MATCHES "github\\.com[:/]([^/]+/[^/]+)$")
         string(REGEX REPLACE "\\.git$" "" repo "${CMAKE_MATCH_1}")
-        string(APPEND script "CONFIG.github = '${repo}';\n")
+        string(APPEND merge ", {github: '${repo}'}")
     endif()
+    # web.py takes the last value of a key in the text, so CONFIG is written
+    # after the other options, in the order of the merge.
+    set(config)
+    set(options "options")
     if (DEFINED arg_CONFIG)
-        string(APPEND script "Object.assign(CONFIG, {\n${arg_CONFIG}\n});\n")
+        # Migration: run, the old name of autoplay, is accepted until the
+        # projects that use it change to autoplay.
+        set(key "(^|[^A-Za-z0-9_$])")
+        set(run "${key}run[ \t\r\n]*:[ \t\r\n]*['\"]([A-Za-z]*)['\"]")
+        if (arg_CONFIG MATCHES "${run}")
+            set(old "${CMAKE_MATCH_2}")
+            set(value "${old}")
+            if (arg_CONFIG MATCHES "${key}autoplay[ \t\r\n]*:")
+                message(FATAL_ERROR "${caller}: CONFIG sets both run and autoplay.")
+            elseif (value STREQUAL "always")
+                set(value on)
+            elseif (value STREQUAL "onaudio")
+                set(value auto)
+            elseif (value STREQUAL "onclick")
+                set(value off)
+            else()
+                message(FATAL_ERROR "${caller}: run in CONFIG must be always, onaudio or onclick.")
+            endif()
+            message(WARNING "${caller}: in CONFIG, change run: '${old}' to autoplay: '${value}'.")
+            string(REGEX REPLACE "${run}" "\\1autoplay: '${value}'" arg_CONFIG "${arg_CONFIG}")
+        endif()
+        set(config "    const config = {\n${arg_CONFIG}\n};\n")
+        set(options "Object.assign(options, config)")
     endif()
-    string(APPEND script "CONFIG.rom = '${target}.rp6502';\n</script>\n")
+    string(CONCAT script
+        "\n<script>\n"
+        "// rp6502_web()\n"
+        "rp6502 = ((call) => (container, page_rom, options) => {\n"
+        "    const rom = '${target}.rp6502';\n"
+        "    options = Object.assign({}, options${merge});\n"
+        "${config}"
+        "    return call(container, rom, ${options});\n"
+        "})(rp6502);\n"
+        "</script>")
     string(SUBSTRING "${html}" 0 ${at} head)
     string(SUBSTRING "${html}" ${at} -1 tail)
     set(html "${head}${script}${tail}")

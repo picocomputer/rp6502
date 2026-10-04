@@ -10,9 +10,9 @@ Publish
 
 1. Put your .rp6502 next to index.html and delete adventure.rp6502.
 
-2. In index.html, change the CONFIG block. rom is the file name of your
-   program, title is the name in the browser tab, and db names the
-   database for saves.
+2. In index.html, change the rp6502() call. Its second argument is the
+   file name of your program, title is the name in the browser tab, and
+   db names the database for saves.
 
 3. Copy the folder to any web server. A browser runs the page only from
    a web server, not from a file on disk; to try it on your computer,
@@ -30,7 +30,7 @@ keep your index.html.
 More
 ----
 
-The CONFIG settings, the click-to-play overlay, the footer, saves, and
-building a web zip with CMake:
+The settings, the click-to-play overlay, the footer, saves, several
+players on one page, and building a web zip with CMake:
 
     https://picocomputer.github.io/web.html

@@ -38,7 +38,7 @@ include(${RP6502_SRC}/core/emu.cmake)
 # beside that machine rather than a copy that could drift from it.
 target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 # The browser has no <aio.h>, so the file driver takes the synchronous
-# transport. With CONFIG.db set, page.js mounts IDBFS with autoPersist at
+# transport. With the db setting, page.js mounts IDBFS with autoPersist at
 # /saves, which queues a save to IndexedDB after a close that wrote and after
 # each directory change. A syncfs from a program returns once FS.syncfs,
 # started through os.c, has finished.
@@ -68,6 +68,11 @@ target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 # A browser that backs growable wasm memory with a resizable ArrayBuffer may
 # still reject a resizable view at TextDecoder or WebGL, so the classic heap
 # is kept and every handoff to a browser API works everywhere.
+# MODULARIZE makes rp6502.js a factory that runs once for each player on a
+# page. ABORT_ON_WASM_EXCEPTIONS turns a trap into an abort of one instance
+# instead of an exception on the page. The function that player-pre.js opens
+# takes define, module and exports as parameters, which are undefined, so the
+# UMD export does not register rp6502.js with a RequireJS loader on the page.
 target_link_options(rp6502-emu PRIVATE
     "-sUSE_WEBGL2=1"
     "-sENVIRONMENT=web"
@@ -75,11 +80,18 @@ target_link_options(rp6502-emu PRIVATE
     "-sGROWABLE_ARRAYBUFFERS=0"
     "-sSTACK_SIZE=512KB"
     "-sFORCE_FILESYSTEM=1"
+    "-sMODULARIZE=1"
+    "-sEXPORT_NAME=rp6502"
+    "-sABORT_ON_WASM_EXCEPTIONS=1"
     "-lidbfs.js"
     "-sEXPORTED_RUNTIME_METHODS=FS,MEMFS,IDBFS,addRunDependency,removeRunDependency"
-    "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/page.js")
-set_property(TARGET rp6502-emu APPEND PROPERTY
-    LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/page.js)
+    "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/page.js"
+    "SHELL:--extern-pre-js ${CMAKE_CURRENT_LIST_DIR}/player-pre.js"
+    "SHELL:--extern-post-js ${CMAKE_CURRENT_LIST_DIR}/player.js")
+set_property(TARGET rp6502-emu APPEND PROPERTY LINK_DEPENDS
+    ${CMAKE_CURRENT_LIST_DIR}/page.js
+    ${CMAKE_CURRENT_LIST_DIR}/player-pre.js
+    ${CMAKE_CURRENT_LIST_DIR}/player.js)
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)
 
