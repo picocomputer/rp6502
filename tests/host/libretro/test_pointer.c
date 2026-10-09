@@ -41,7 +41,7 @@ static const uint8_t *xram_at(unsigned addr)
     return xram ? xram + addr : NULL;
 }
 
-#define CONTACT_BYTES 6
+#define CONTACT_BYTES 4
 #define MOUSE_BYTES 5
 
 static uint8_t settled[CONTACT_BYTES];
@@ -201,8 +201,7 @@ UTEST(pointer, a_pointer_off_the_image_is_no_contact)
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
     fe_run(5);
-    for (int i = 0; i < 6; i++)
-        ASSERT_EQ(xram_at(TABLET_CONTACT0)[i], 0x00);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
 
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 0;
     fe_run(5);
@@ -250,9 +249,9 @@ UTEST(pointer, two_fingers_are_two_contacts)
     fe_run(5);
     const uint8_t *c0 = xram_at(TABLET_CONTACT0);
     ASSERT_EQ(c0[0], 0x01);
-    ASSERT_EQ(c0[6], 0x01);
-    ASSERT_EQ(c0[12], 0x00);
-    ASSERT_NE(c0[7] | c0[8] << 8 | c0[9] << 16, c0[1] | c0[2] << 8 | c0[3] << 16);
+    ASSERT_EQ(c0[4], 0x01);
+    ASSERT_EQ(c0[8], 0x00);
+    ASSERT_NE(c0[5] | c0[6] << 8 | c0[7] << 16, c0[1] | c0[2] << 8 | c0[3] << 16);
     fe.unload_game();
 }
 
@@ -324,7 +323,7 @@ UTEST(pointer, a_held_button_is_not_a_finger)
     fe.mouse[RETRO_DEVICE_ID_MOUSE_RIGHT] = 1;
     fe_run(5);
     ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x82); /* hover + RIGHT */
-    ASSERT_EQ(xram_at(TABLET_CONTACT0)[6], 0x00);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[4], 0x00);
 
     memset(fe.mouse, 0, sizeof fe.mouse);
     memset(fe.pointer, 0, sizeof fe.pointer);
@@ -355,8 +354,7 @@ UTEST(pointer, a_lightgun_points_at_the_tablet)
     /* libretro.h defines -0x8000 on a lightgun axis as out of bounds. */
     fe.lightgun[0][RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X] = -0x8000;
     fe_run(5);
-    for (int i = 0; i < 6; i++)
-        ASSERT_EQ(xram_at(TABLET_CONTACT0)[i], 0x00);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x00);
 
     fe.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     memset(fe.lightgun, 0, sizeof fe.lightgun);

@@ -22,7 +22,7 @@
 
 #define TABLET_MAX_CONTACTS 8 /* fixed, because the program allocates the block */
 #define TABLET_HEADER_SIZE 4  /* control, status, wheel, pan */
-#define TABLET_CONTACT_SIZE 6 /* flags, x0, x1, x2, y0, y1 */
+#define TABLET_CONTACT_SIZE 4 /* flags, xy_hi, x_lo, y_lo */
 #define TABLET_BLOCK_SIZE (TABLET_HEADER_SIZE + TABLET_MAX_CONTACTS * TABLET_CONTACT_SIZE)
 
 #define TABLET_OFF_CONTROL 0
@@ -128,6 +128,6 @@ void tablet_sst_save(sst_cursor_t *c, unsigned flags);
 bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break, \
-    nul_config, nul_config, SST(TBLT, 1, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
+    nul_config, nul_config, SST(TBLT, 2, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
 
 #endif /* _CORE_HID_TABLET_H_ */

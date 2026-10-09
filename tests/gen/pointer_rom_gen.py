@@ -14,7 +14,7 @@ from rp6502_asm import (RW0_ADDR, RW0_DATA, RW0_STEP, RW1_ADDR, RW1_DATA,  # noq
 from rp6502_rom import image  # noqa: E402
 
 MOUSE = 0xFF00          # buttons, x, y, wheel, pan
-TABLET = 0xFF10         # 4 byte header + 8 contacts of 6
+TABLET = 0xFF10         # 4 byte header + 8 contacts of 4
 MIRROR = 0xFF50
 TICKS = 0xFF55
 

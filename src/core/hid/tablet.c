@@ -12,14 +12,13 @@
 #include "machine.h"
 #include <string.h>
 
-/* The offsets of the XRAM report block are in tablet.h. Every field is one
- * byte, so each 6502 read is atomic. A coordinate too wide for one byte is
- * delivered as a set of single-byte windows of which exactly one is non-zero,
- * and the program decodes it by taking the first non-zero byte. An inactive
- * contact is all zero, which is flags of 0 and no window set. The wheel and
- * pan bytes are counters read by subtracting the previous value, as the
- * mouse's are. The program sets the control byte, and it leads the block so
- * that everything the firmware writes back is one contiguous run. */
+/* The offsets of the XRAM report block are in tablet.h. A coordinate is 12
+ * bits: the high nibbles of X and Y share one byte, X in the upper nibble, and
+ * the low bytes follow. A released contact has flags of 0 and keeps its last
+ * position. The wheel and pan bytes are counters read by subtracting the
+ * previous value, as the mouse's are. The program sets the control byte, and
+ * it leads the block so that everything the firmware writes back is one
+ * contiguous run. */
 /* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
  * fixed reference resolution at the same rate mouse.c reports at and then
  * scaled to the canvas. The program then reads an absolute position that moves
@@ -58,53 +57,33 @@ static tablet_connection_t *tablet_get_connection_by_slot(int slot)
     return NULL;
 }
 
-/* X into three windows. A window byte carries 1 to 255, and 0 says the value
- * is not in that window, so three of them span 0 to 764. */
-static void tablet_encode_x(uint8_t *d, int x)
+static int tablet_clamp(int v)
 {
-    if (x < 0)
-        x = 0;
-    if (x > 764)
-        x = 764;
-    d[0] = d[1] = d[2] = 0;
-    if (x <= 254)
-        d[0] = (uint8_t)(x + 1);
-    else if (x <= 509)
-        d[1] = (uint8_t)(x - 254);
-    else
-        d[2] = (uint8_t)(x - 509);
-}
-
-/* Y into two windows, spanning 0 to 509. */
-static void tablet_encode_y(uint8_t *d, int y)
-{
-    if (y < 0)
-        y = 0;
-    if (y > 509)
-        y = 509;
-    d[0] = d[1] = 0;
-    if (y <= 254)
-        d[0] = (uint8_t)(y + 1);
-    else
-        d[1] = (uint8_t)(y - 254);
+    if (v < 0)
+        return 0;
+    if (v > 0xFFF)
+        return 0xFFF;
+    return v;
 }
 
 static void tablet_put_contact(int i, uint8_t flags, int x, int y)
 {
     uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE];
+    x = tablet_clamp(x);
+    y = tablet_clamp(y);
     c[0] = flags;
-    tablet_encode_x(&c[1], x);
-    tablet_encode_y(&c[4], y);
+    c[1] = (uint8_t)((x >> 8) << 4 | y >> 8);
+    c[2] = (uint8_t)x;
+    c[3] = (uint8_t)y;
 }
 
 static void tablet_clear_contact(int i)
 {
-    memset(&tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE], 0, TABLET_CONTACT_SIZE);
+    tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE] = 0;
 }
 
-/* A 6502 reading the block during this memcpy can get a contact half updated,
- * or flags from one frame with coordinates from another; that costs one stale
- * or blank frame, and the next report publishes the whole block again. */
+/* A 6502 reading the block during this memcpy can get bytes from two reports,
+ * so a program reads the block until two reads match. */
 static void tablet_write_xram(void)
 {
     if (tablet_xram == 0xFFFF)
@@ -156,8 +135,6 @@ bool tablet_xreg(uint16_t word)
     memset(tablet_state, 0, sizeof(tablet_state));
     if (tablet_host_cursor)
         tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
-    for (int i = 0; i < TABLET_MAX_CONTACTS; ++i)
-        tablet_clear_contact(i);
     tablet_state[TABLET_OFF_CONTROL] = TABLET_CURSOR_ARROW;
     if (tablet_xram != 0xFFFF) /* the one write that also seeds the control byte */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
