@@ -1,7 +1,5 @@
-# tablet.rp6502 maps the tablet block at $FF10. The block is a four-byte
-# header followed by eight contacts of four bytes: flags, xy_hi, x_lo, y_lo.
-# xy_hi holds the high nibble of X in its upper half and the high nibble of Y
-# in its lower half.
+# tablet.rp6502 maps the tablet block at $FF10. Each contact is flags, y_lo,
+# x_lo, yx_hi.
 
 run 10
 peek xram:$FF14 $00 $00 $00 $00
@@ -9,31 +7,31 @@ peek xram:$FF14 $00 $00 $00 $00
 # A single touch is contact 0 with its flags set to $01, TABLET_FLAG_LEFT.
 tablet touch 60,60
 wait xram:$FF14 $01
-peek xram:$FF14 $01 $00 $3C $3C
+peek xram:$FF14 $01 $3C $3C $00
 
 # X 300 is $12C and Y 200 is $0C8.
 tablet touch 300,200
 wait xram:$FF16 $2C
-peek xram:$FF14 $01 $10 $2C $C8
+peek xram:$FF14 $01 $C8 $2C $01
 
 # X 100 is $064 and Y 300 is $12C.
 tablet touch 100,300
-wait xram:$FF15 $01
-peek xram:$FF14 $01 $01 $64 $2C
+wait xram:$FF17 $10
+peek xram:$FF14 $01 $2C $64 $10
 
 # A hovering pointer is also contact 0, and its flags are its button bitmap
 # with TABLET_FLAG_HOVER, $80, set.
 tablet at 100 100 1
 wait xram:$FF14 $81
-peek xram:$FF14 $81 $00 $64 $64
+peek xram:$FF14 $81 $64 $64 $00
 
 # A released contact has flags of 0 and keeps its last position.
 tablet clear
 wait xram:$FF14 $00
-peek xram:$FF14 $00 $00 $64 $64
+peek xram:$FF14 $00 $64 $64 $00
 
 tablet touch 10,10 20,20 30,30
 wait xram:$FF14 $01
-peek xram:$FF14 $01 $00 $0A $0A
-peek xram:$FF18 $01 $00 $14 $14
-peek xram:$FF1C $01 $00 $1E $1E
+peek xram:$FF14 $01 $0A $0A $00
+peek xram:$FF18 $01 $14 $14 $00
+peek xram:$FF1C $01 $1E $1E $00

@@ -12,13 +12,10 @@
 #include "machine.h"
 #include <string.h>
 
-/* The offsets of the XRAM report block are in tablet.h. A coordinate is 12
- * bits: the high nibbles of X and Y share one byte, X in the upper nibble, and
- * the low bytes follow. A released contact has flags of 0 and keeps its last
- * position. The wheel and pan bytes are counters read by subtracting the
- * previous value, as the mouse's are. The program sets the control byte, and
- * it leads the block so that everything the firmware writes back is one
- * contiguous run. */
+/* The offsets of the XRAM report block are in tablet.h. The wheel and pan
+ * bytes are counters read by subtracting the previous value, as the mouse's
+ * are. The program sets the control byte, and it leads the block so that
+ * everything the firmware writes back is one contiguous run. */
 /* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
  * fixed reference resolution at the same rate mouse.c reports at and then
  * scaled to the canvas. The program then reads an absolute position that moves
@@ -72,9 +69,9 @@ static void tablet_put_contact(int i, uint8_t flags, int x, int y)
     x = tablet_clamp(x);
     y = tablet_clamp(y);
     c[0] = flags;
-    c[1] = (uint8_t)((x >> 8) << 4 | y >> 8);
+    c[1] = (uint8_t)y;
     c[2] = (uint8_t)x;
-    c[3] = (uint8_t)y;
+    c[3] = (uint8_t)((y >> 8) << 4 | x >> 8);
 }
 
 static void tablet_clear_contact(int i)
