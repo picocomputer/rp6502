@@ -44,7 +44,8 @@ static const uint8_t *xram_at(unsigned addr)
 #define CONTACT_BYTES 4
 #define MOUSE_BYTES 5
 
-static uint8_t settled[CONTACT_BYTES];
+/* One buffer holds either block, so it is sized for the larger. */
+static uint8_t settled[MOUSE_BYTES > CONTACT_BYTES ? MOUSE_BYTES : CONTACT_BYTES];
 
 static void block_copy(uint8_t *dst, unsigned addr, int len)
 {
