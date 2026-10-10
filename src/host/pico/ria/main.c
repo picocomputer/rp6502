@@ -25,7 +25,13 @@ bool sys_break_to_launcher(void)
     if (proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
-    sys_break_request();
+    // With a launcher, stop as an exit does, as the pocket host does. A break
+    // would run the break hooks after proc_stop has queued the relaunch, and
+    // rom_break would set ROM_IDLE over the load rom_exec just started.
+    if (proc_has_launcher())
+        sys_stop();
+    else
+        sys_break_request();
     return true;
 }
 
