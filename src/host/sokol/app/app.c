@@ -252,9 +252,9 @@ void app_frame(void)
     if (input_mouse_locked() && (!mouse_is_mapped() || tablet_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
-    /* A host overlay, such as the Android ROM menu or the desktop drop-a-ROM
-     * prompt, holds the CPU with no program loaded, so the halt it shows is not
-     * a program exiting and must not close the window. */
+    /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
+     * the halt it shows is not a program exiting and must not close the
+     * window. */
     if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
     {
         app_quit_asked = true;

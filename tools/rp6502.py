@@ -1486,6 +1486,8 @@ def exec_args():
     if args.config:
         launch = f"{SCRIPT_NAME}][Launch"
         config = configparser.ConfigParser(interpolation=None)
+        # Python 3.9 and older end a section name at the first "]".
+        config.SECTCRE = re.compile(r"\[(?P<header>.+)\]")
         try:
             existed = os.path.exists(args.config)
             if existed:

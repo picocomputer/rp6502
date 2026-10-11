@@ -5,8 +5,8 @@
 # a machine that runs as its own process, fs_sync.c for one running inside
 # another program's process. The libretro core takes sync because a frontend
 # unloads it and glibc's AIO helper threads would be left holding a buffer
-# inside a library that is going away; the browser and Android take it because
-# they have no POSIX AIO at all.
+# inside a library that is going away; the browser takes it because it has no
+# POSIX AIO at all.
 
 include_guard(GLOBAL)
 

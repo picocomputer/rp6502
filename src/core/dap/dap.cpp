@@ -1464,6 +1464,25 @@ void dbg_watch_on_access(uint16_t addr, uint8_t val, bool is_write)
     }
 }
 
+/* stdin as the DAP reader. cppdap's dap::file(stdin, false) never reports
+ * closed, so when the client goes away its reader thread spins forever. */
+class StdinReader : public dap::Reader
+{
+public:
+    bool isOpen() override { return !closed.load(); }
+    void close() override { closed.store(true); }
+    size_t read(void *buffer, size_t n) override
+    {
+        size_t got = fread(buffer, 1, n, stdin);
+        if (got < n) /* fread comes up short only at EOF or on an error */
+            closed.store(true);
+        return got;
+    }
+
+private:
+    std::atomic<bool> closed{false};
+};
+
 } // namespace
 
 extern "C" void dap_set_default_args(int argc, char **argv)
@@ -2267,9 +2286,10 @@ extern "C" void dap_start(void)
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
-    auto in = dap::file(stdin, false);
+    auto in = std::make_shared<StdinReader>();
     auto out = dap::file(stdout, false);
-    g_session->bind(in, out);
+    /* A closed pipe means the client is gone, so quit as on a disconnect. */
+    g_session->bind(in, out, []() { g_quit.store(true); });
 }
 
 extern "C" void dap_pump(void)
@@ -2354,8 +2374,8 @@ extern "C" void dap_stop(void)
     /* The window is going away with the client still attached (the user hit [X],
      * not VS Code's Stop): announce it so the session ends cleanly instead of the
      * client seeing a dropped pipe. send() flushes (cppdap's File::write). Skip
-     * when the client itself asked to disconnect (g_quit) or a TerminatedEvent
-     * already went out. */
+     * when the client disconnected or closed the pipe (g_quit) or a
+     * TerminatedEvent already went out. */
     out_flush();
     if (g_session && !g_quit.load() && !g_term_sent)
     {

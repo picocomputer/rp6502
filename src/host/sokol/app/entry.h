@@ -25,9 +25,7 @@
  * the window presents, and it must hold the largest canvas. scale may be
  * fractional, and have_scale marks an explicit --scale, which beats the saved
  * debug-session window size. exit_on_halt closes the window when the program
- * exits instead of leaving its final output up. Returns app_exit_code. Android
- * has no entry_run, because there NativeActivity starts the app through
- * sokol_app.h, which calls sokol_main in place of main. */
+ * exits instead of leaving its final output up. Returns app_exit_code. */
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt);
 
 /* No ROM was supplied. A platform that can still receive one by drag and drop
@@ -46,17 +44,17 @@ void host_window_set_aspect_hint(int cw, int ch);
 /* Per-platform setup, from the sokol init callback. */
 void host_window_init(void);
 
-/* True while a platform overlay is up: the Android ROM menu, or a desktop's
- * drop-a-ROM prompt. The canvas is not drawn while it is, and a halted program
- * is not treated as a program exiting. */
+/* True while a platform overlay is up, such as a desktop's drop-a-ROM prompt.
+ * The canvas is not drawn while it is, and a halted program is not treated as
+ * a program exiting. */
 bool host_window_menu_active(void);
 
 /* Draw that overlay into the current swapchain pass. */
 void host_window_menu_draw(void);
 
 /* A file was dropped on the window. Desktop platforms pass the path to
- * app_boot_rom; web and Android do not enable drag and drop, so nothing calls
- * this there. */
+ * app_boot_rom; the web does not enable drag and drop, so nothing calls this
+ * there. */
 void host_window_files_dropped(void);
 
 /* Open a URL in the user's default browser, for the docs link under the

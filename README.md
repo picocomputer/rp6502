@@ -89,7 +89,6 @@ settings.
 | `rp6502` (the repository root) | the two Pico firmwares | `build/` |
 | `src/host/sokol` | the emulator on Linux, Windows and macOS, and its test suite | `build/sokol/<os>/{debug,release}` |
 | `src/host/web` | the web bundle | `build/web` |
-| `src/host/sokol/android` | the same machine on Android: the native library, and an `apk` target | `build/android/` |
 | `src/host/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
 | `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |

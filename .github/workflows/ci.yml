@@ -491,14 +491,14 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # libretro-android: the buildbot's Android targets, built with the runner's
-  # own NDK. Not src/host/sokol/android/apk — that root is the APK. This is the
-  # same src/host/libretro the buildbot's android template points at, driven by
-  # the NDK's toolchain file. No ctest: the tests would be Android binaries, so
-  # what is checked here is that it builds and exports nothing extra.
+  # own NDK. This is the same src/host/libretro the buildbot's android
+  # template points at, driven by the NDK's toolchain file. No ctest: the tests
+  # would be Android binaries, so what is checked here is that it builds and
+  # exports nothing extra.
   #
-  # android-21 rather than the APK's floor of 28, because 21 is what the
-  # buildbot template passes and what RetroArch itself declares, so a core
-  # built here is a core that loads everywhere RetroArch does.
+  # android-21 because it is what the buildbot template passes and what
+  # RetroArch itself declares, so a core built here is a core that loads
+  # everywhere RetroArch does.
   # ---------------------------------------------------------------------------
   libretro-android:
     name: libretro-${{ matrix.target }}
@@ -582,6 +582,9 @@ jobs:
           mkdir stage
           # The build made the bundle; its Info.plist is osal/macos/.
           cp -R build/sokol/macos/release/rp6502-emu.app stage/
+          # The linker signs only the binary, which macOS calls damaged inside
+          # an app. Ad-hoc sign the whole app so Gatekeeper offers Open Anyway.
+          codesign --force --deep --sign - stage/rp6502-emu.app
           cp src/host/sokol/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.
@@ -686,54 +689,6 @@ jobs:
           Copy-Item build/sokol/windows/release/rp6502-emu.exe stage/
           Copy-Item src/host/sokol/dist/windows/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}
-          archive: false
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------------------
-  # android: build the optimized arm64-v8a APK and ship it as it is.
-  # ---------------------------------------------------------------------------
-  android:
-    needs: [version]
-    runs-on: ubuntu-24.04
-    env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-android.apk
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      # versionCode must be an integer, so a tag becomes one (0.31 -> 3100) and
-      # everything else stays 1. Nothing upgrades this APK in place.
-      - name: Build APK (Release)
-        env:
-          FWVER: ${{ needs.version.outputs.fwver }}
-          FWCI: ${{ needs.version.outputs.fwci }}
-        run: |
-          set -euxo pipefail
-          CODE=1
-          if [ -n "$FWVER" ]; then
-            CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
-          fi
-          cd src/host/sokol/android/apk
-          ./gradlew assembleRelease \
-            -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
-
-      # An APK is already a zip and Android installs it directly, so it ships
-      # bare. Its install warning lives in the release body, not a README.
-      - name: Package android
-        run: |
-          set -euxo pipefail
-          cp build/android/gradle/outputs/apk/release/rp6502-emu-release.apk \
-            "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -906,7 +861,7 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     needs: [version, sdk-tools, pico, linux, libretro-bundle, macos, web,
-            windows, android, pocket, rtl-tests]
+            windows, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -934,7 +889,7 @@ jobs:
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    libretro.zip \
-                   pocket.zip web.zip android.apk; do
+                   pocket.zip web.zip; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
             if [ -z "$src" ]; then
@@ -967,7 +922,6 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-libretro.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
             dist/rp6502-${{ needs.version.outputs.version }}-web.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-android.apk
             dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true

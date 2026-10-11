@@ -5,8 +5,8 @@
  *
  * Which host controller is which player, and when to look for more. Reading the
  * controllers is the host_gamepad_ half of entry.h, one implementation per
- * desktop; only the desktop emulator builds this file, because web and Android
- * reach core/hid/gamepad.h by their own paths.
+ * desktop; only the desktop emulator builds this file, because the web reaches
+ * core/hid/gamepad.h by its own path.
  *
  * Sokol has no gamepad API, so these are polled rather than delivered as events
  * the way the rest of input.c is.
