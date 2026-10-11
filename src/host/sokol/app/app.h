@@ -38,8 +38,7 @@ int app_exit_code(void);
 
 /* How this host stops a run from outside the program it is running: whether it
  * was asked for, and how to leave when it was. A host with no such thing, such
- * as an APK or a browser tab, installs neither and ends the run by closing its
- * window. */
+ * as a browser tab, installs neither and ends the run by closing its window. */
 void app_set_break(bool (*asked)(void), void (*leave)(void));
 
 /* The name to boot a ROM file by, from its host path in UTF-8, allocated for

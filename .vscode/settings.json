@@ -9,7 +9,6 @@
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
         "${workspaceFolder}/src/host/sokol",
-        "${workspaceFolder}/src/host/sokol/android",
         "${workspaceFolder}/src/host/libretro",
         "${workspaceFolder}/src/host/pocket",
         "${workspaceFolder}/src/host/web",
