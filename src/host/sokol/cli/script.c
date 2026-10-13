@@ -59,6 +59,7 @@ static bool script_run, script_fail;
 static script_wait_t script_wait;
 static unsigned long script_budget;
 static char script_needle[256];
+static size_t script_needle_len;
 static int script_exit_want;
 
 /* Where an address points. Without a prefix, or with ram:, it is the 6502's
@@ -121,7 +122,7 @@ static void script_std_tap(int fd, const char *buf, int len)
     {
         char utf8[3];
         size_t n = (size_t)oem_to_utf8_char((unsigned char)buf[i], utf8);
-        if (cap->len + n > sizeof cap->buf - 1)
+        if (cap->len + n > sizeof cap->buf)
         {
             /* Only output that no check has taken yet gets this far. The
              * newest SCRIPT_CAP_KEEP bytes are kept so that a needle
@@ -136,13 +137,28 @@ static void script_std_tap(int fd, const char *buf, int len)
         memcpy(cap->buf + cap->len, utf8, n);
         cap->len += n;
     }
-    cap->buf[cap->len] = 0;
+}
+
+/* Where the text first appears in the capture, or NULL. The program can write
+ * a zero byte, so the search counts lengths rather than stopping at one. */
+static char *script_find(script_cap_t *cap, const char *text, size_t len)
+{
+    char *end = cap->buf + cap->len;
+    for (char *s = cap->buf; (size_t)(end - s) >= len; s++)
+    {
+        s = memchr(s, text[0], (size_t)(end - s) - len + 1);
+        if (!s)
+            return NULL;
+        if (!memcmp(s, text, len))
+            return s;
+    }
+    return NULL;
 }
 
 static void script_cap_take(script_cap_t *cap, const char *through)
 {
     size_t used = (size_t)(through - cap->buf);
-    memmove(cap->buf, cap->buf + used, cap->len - used + 1);
+    memmove(cap->buf, cap->buf + used, cap->len - used);
     cap->len -= used;
 }
 
@@ -182,12 +198,12 @@ static void script_cpu(char *buf, size_t size)
 }
 
 /* Control bytes are written as C escapes, so a failure is always one line. */
-static void script_printable(char *out, size_t size, const char *in)
+static void script_printable(char *out, size_t size, const char *in, size_t len)
 {
     size_t n = 0;
-    for (; *in && n + 5 < size; in++)
+    for (size_t i = 0; i < len && n + 5 < size; i++)
     {
-        unsigned char c = (unsigned char)*in;
+        unsigned char c = (unsigned char)in[i];
         if (c == '\n')
             n += (size_t)snprintf(out + n, size - n, "\\n");
         else if (c == '\r')
@@ -223,12 +239,12 @@ static void script_reply(const char *fmt, ...)
  * a driver can't ask afterwards. */
 static bool script_error(const char *fmt, ...)
 {
-    char msg[512], text[2048], cpu[96];
+    char msg[1024], text[4096], cpu[96];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    script_printable(text, sizeof text, msg);
+    script_printable(text, sizeof text, msg, strlen(msg));
     script_cpu(cpu, sizeof cpu);
     script_reply("fail %s; %s", text, cpu);
     /* The program's stdout that no check has used goes out raw after the
@@ -333,7 +349,8 @@ static char script_escape(char **p)
     }
 }
 
-static bool script_string(char **p, char *out, size_t outsz)
+/* A quoted string and its length, which counts any \0 written in it. */
+static bool script_text(char **p, char *out, size_t outsz, size_t *len)
 {
     char *s = *p;
     while (*s == ' ' || *s == '\t')
@@ -347,11 +364,6 @@ static bool script_string(char **p, char *out, size_t outsz)
         char c = *s++;
         if (c == '\\' && *s)
             c = script_escape(&s);
-        /* The paths from here all use C strings, so a NUL would end one
-         * early and send part of what was written. The command fails
-         * instead. */
-        if (!c)
-            return false;
         if (n + 1 >= outsz)
             return false;
         out[n++] = c;
@@ -359,8 +371,17 @@ static bool script_string(char **p, char *out, size_t outsz)
     if (*s != '"')
         return false;
     out[n] = 0;
+    *len = n;
     *p = s + 1;
     return true;
+}
+
+/* The paths and typed text from here use C strings, so a \0 would end one
+ * early and send part of what was written. The command fails instead. */
+static bool script_string(char **p, char *out, size_t outsz)
+{
+    size_t len;
+    return script_text(p, out, outsz, &len) && strlen(out) == len;
 }
 
 static int script_radix(char **w)
@@ -831,17 +852,15 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "wait"))
     {
-        /* Text, or a byte in memory. script_string leaves the line alone when
-         * it finds no quote, so trying the text form first costs nothing and
-         * the two grammars cannot be confused. */
-        char text[sizeof script_needle];
+        /* Text, or a byte in memory. script_text leaves the line alone when it
+         * finds no quote, so trying the text form first costs nothing and the
+         * two grammars cannot be confused. */
         char *before = p;
         script_cap_t *cap = script_stream(&p);
-        if (script_string(&p, text, sizeof text))
+        if (script_text(&p, script_needle, sizeof script_needle, &script_needle_len))
         {
-            if (!text[0])
+            if (!script_needle_len)
                 return script_error("wait wants a quoted string");
-            snprintf(script_needle, sizeof script_needle, "%s", text);
             script_wait_cap = cap;
             script_wait = SCRIPT_TEXT;
         }
@@ -873,16 +892,18 @@ static bool script_command(const char *line)
     {
         bool want = !strcasecmp(cmd, "expect");
         script_cap_t *cap = script_stream(&p);
-        char text[256];
-        if (!script_string(&p, text, sizeof text) || !text[0])
+        char text[256], shown[4 * sizeof text];
+        size_t len;
+        if (!script_text(&p, text, sizeof text, &len) || !len)
             return script_error("%s wants a quoted string", cmd);
-        char *found = strstr(cap->buf, text);
+        char *found = script_find(cap, text, len);
+        script_printable(shown, sizeof shown, text, len);
         if (want && !found)
-            return script_error("expected \"%s\"%s", text, script_on(cap));
+            return script_error("expected \"%s\"%s", shown, script_on(cap));
         if (!want && found)
-            return script_error("did not expect \"%s\"%s", text, script_on(cap));
+            return script_error("did not expect \"%s\"%s", shown, script_on(cap));
         if (found)
-            script_cap_take(cap, found + strlen(text));
+            script_cap_take(cap, found + len);
         return true;
     }
 
@@ -1268,17 +1289,19 @@ static bool script_settle(void)
         break;
     case SCRIPT_TEXT:
     {
-        char *found = strstr(script_wait_cap->buf, script_needle);
+        char *found = script_find(script_wait_cap, script_needle, script_needle_len);
         if (found)
         {
-            script_cap_take(script_wait_cap, found + strlen(script_needle));
+            script_cap_take(script_wait_cap, found + script_needle_len);
             break;
         }
-    }
         if (script_spend())
             return false;
-        return script_error("timed out waiting for \"%s\"%s", script_needle,
+        char shown[4 * sizeof script_needle];
+        script_printable(shown, sizeof shown, script_needle, script_needle_len);
+        return script_error("timed out waiting for \"%s\"%s", shown,
                             script_on(script_wait_cap));
+    }
     case SCRIPT_BYTE:
     {
         uint8_t got = script_peek(script_addr_space, (uint16_t)script_addr);

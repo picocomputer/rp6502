@@ -1,0 +1,7 @@
+# The program writes a zero byte, and what comes after it can still be matched.
+
+run 10
+poke bus:$FFE1 $41
+poke bus:$FFE1 $00
+poke bus:$FFE1 $42
+wait "A\0B"

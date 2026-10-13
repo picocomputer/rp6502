@@ -11,6 +11,8 @@ rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
 rp6502_add_script_test(codepage ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
+rp6502_add_script_test(zero ROM ${STDIO_ROM} DEPENDS stdio_rom)
+
 rp6502_add_script_test(registers ROM ${ADVENTURE_ROM})
 
 rp6502_add_script_test(unassigned ROM ${ADVENTURE_ROM})
