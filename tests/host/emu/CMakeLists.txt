@@ -1,7 +1,6 @@
 rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
-        ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/streams.c
-        ${RP6502_SRC}/host/sokol/cli/state.c
+        ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
 rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
@@ -9,6 +8,8 @@ rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
 rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
+
+rp6502_add_script_test(codepage ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
 # The run fails on purpose, and the test checks the failure line. A . stands
 # for the ; that CMake would split the expression on.

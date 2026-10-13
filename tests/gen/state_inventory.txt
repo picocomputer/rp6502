@@ -121,7 +121,6 @@ core/hid/tablet.c tablet_y: the TBLT chunk
 core/hid/vtkeys.c vtkeys_paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
 core/hid/vtkeys.c vtkeys_paste_len: not carried: every load cancels the paste, so there is nothing left to carry
 core/hid/vtkeys.c vtkeys_paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
-core/hid/vtkeys.c vtkeys_paste_run: not carried: every load cancels the paste, so there is nothing left to carry
 core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk

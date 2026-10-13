@@ -8,7 +8,6 @@
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
-#include "host/sokol/cli/streams.h"
 #include "core/api/api.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
@@ -79,9 +78,10 @@ static struct
     int lx, ly, rx, ry, lt, rt;
 } script_gamepad[4];
 
-/* What the program wrote to stdout and to stderr that no check has used yet.
- * The line editor's echo of typed text is not the program's output, so it is
- * in neither. */
+/* What the program wrote to stdout and to stderr that no check has used yet,
+ * converted from the code page to UTF-8 as it was written, so that it compares
+ * with the script's own text. The line editor's echo of typed text is not the
+ * program's output, so it is in neither. */
 typedef struct
 {
     char buf[SCRIPT_CAP_SIZE];
@@ -108,15 +108,22 @@ static void script_std_tap(int fd, const char *buf, int len)
     script_cap_t *cap = &script_cap[fd - 1];
     for (int i = 0; i < len; i++)
     {
-        if (cap->len == sizeof cap->buf - 1)
+        char utf8[3];
+        size_t n = (size_t)oem_to_utf8_char((unsigned char)buf[i], utf8);
+        if (cap->len + n > sizeof cap->buf - 1)
         {
             /* Only output that no check has taken yet gets this far. The
              * newest SCRIPT_CAP_KEEP bytes are kept so that a needle
-             * straddling the discard still has somewhere to match. */
-            memmove(cap->buf, cap->buf + cap->len - SCRIPT_CAP_KEEP, SCRIPT_CAP_KEEP);
-            cap->len = SCRIPT_CAP_KEEP;
+             * straddling the discard still has somewhere to match, starting
+             * on a whole character. */
+            size_t from = cap->len - SCRIPT_CAP_KEEP;
+            while (((unsigned char)cap->buf[from] & 0xC0) == 0x80)
+                from++;
+            memmove(cap->buf, cap->buf + from, cap->len - from);
+            cap->len -= from;
         }
-        cap->buf[cap->len++] = buf[i];
+        memcpy(cap->buf + cap->len, utf8, n);
+        cap->len += n;
     }
     cap->buf[cap->len] = 0;
 }
@@ -215,7 +222,7 @@ static bool script_error(const char *fmt, ...)
     script_reply("fail %s; %s", text, cpu);
     /* The program's stdout that no check has used goes out raw after the
      * failure, up to EOF. Its stderr is on stderr already. */
-    streams_write(stdout, SCRIPT_STDOUT->buf, (int)SCRIPT_STDOUT->len);
+    fwrite(SCRIPT_STDOUT->buf, 1, SCRIPT_STDOUT->len, stdout);
     fflush(stdout);
     /* The message goes last, on a line of its own, so a program that clears
      * or resets the screen can't wipe it. */
@@ -843,7 +850,7 @@ static bool script_command(const char *line)
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
         vtkeys_paste(text);
-        /* Waiting for the paste to drain, because vtkeys_paste replaces
+        /* Waiting for the text to drain, because vtkeys_paste replaces
          * whatever is still being delivered and back-to-back type commands
          * would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;
@@ -1270,7 +1277,7 @@ void script_usage(FILE *out)
             "                                      run until the program writes it\n"
             "                                      (default stdout, 600 frames)\n"
             "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
-            "  type \"text\" [frames]      type it (\\n = Enter, \\t = Tab)\n"
+            "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
             "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"

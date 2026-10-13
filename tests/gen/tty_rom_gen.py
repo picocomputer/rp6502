@@ -65,6 +65,8 @@ def drive(emu, rom, save_dir=None):
         e.cmd('wait "\\x02"')
         e.cmd('type "\\x41\\102"')
         e.cmd('wait "AB"')
+        e.cmd('type "\\r\\n"')
+        e.cmd('wait "\\r\\n"')
         e.cmd("key space")
         e.cmd('wait " "')
         e.cmd("key minus")

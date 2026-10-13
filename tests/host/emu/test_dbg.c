@@ -267,7 +267,7 @@ UTEST(dbg, continue_runs_to_exit)
     /* Adventure asks a yes-or-no question about instructions when it starts
      * and another to confirm "quit", so pasting "no", "quit" and "yes" ends the
      * program. */
-    vtkeys_paste("no\nquit\nyes\n");
+    vtkeys_paste("no\rquit\ryes\r");
     for (int i = 0; i < 600 && sys_running(); i++)
         emu_frames(1);
     ASSERT_FALSE(sys_running());

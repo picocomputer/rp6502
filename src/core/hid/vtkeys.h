@@ -37,10 +37,10 @@ void vtkeys_ctrl_letter(char letter);
  * byte, promoted by Ctrl first when both are held. */
 void vtkeys_alt_char(char ch, bool ctrl);
 
-/* Type a block of UTF-8 as keystrokes. CR, LF and CRLF each become one Enter;
- * every other control byte passes through unchanged. vtkeys_task paces the
- * delivery against the room left in the ring, so text longer than the ring
- * cannot lose bytes. A new call replaces whatever is still being delivered. */
+/* Type a block of UTF-8 as keystrokes. Every control byte, CR and LF
+ * included, is sent as written. vtkeys_task paces the delivery against the
+ * room left in the ring, so text longer than the ring cannot lose bytes. A
+ * new call replaces whatever is still being delivered. */
 void vtkeys_paste(const char *utf8);
 void vtkeys_paste_cancel(void);
 

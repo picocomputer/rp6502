@@ -49,7 +49,7 @@ UTEST(adventure, intro_banner)
 
 UTEST(adventure, opening_room)
 {
-    ASSERT_TRUE(boot("no\n"));
+    ASSERT_TRUE(boot("no\r"));
     run_frames(120);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "standing at the end of a road") != NULL);
@@ -59,7 +59,7 @@ UTEST(adventure, opening_room)
 
 UTEST(adventure, parses_a_command)
 {
-    ASSERT_TRUE(boot("no\ntake lamp\n"));
+    ASSERT_TRUE(boot("no\rtake lamp\r"));
     run_frames(200);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "I see no lamp here") != NULL);
