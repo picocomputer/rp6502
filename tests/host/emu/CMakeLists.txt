@@ -11,6 +11,12 @@ rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
 rp6502_add_script_test(codepage ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
+rp6502_add_script_test(registers ROM ${ADVENTURE_ROM})
+
+rp6502_add_script_test(unassigned ROM ${ADVENTURE_ROM})
+set_tests_properties(script.unassigned PROPERTIES PASS_REGULAR_EXPRESSION
+    "[$]FF00 is unassigned")
+
 # The run fails on purpose, and the test checks the failure line. A . stands
 # for the ; that CMake would split the expression on.
 rp6502_add_script_test(stuck ROM ${ADVENTURE_ROM})

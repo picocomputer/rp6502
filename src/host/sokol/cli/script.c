@@ -24,6 +24,8 @@
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
+#include "core/wdc/via.h"
+#include "core/ria/ria.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
@@ -59,10 +61,19 @@ static unsigned long script_budget;
 static char script_needle[256];
 static int script_exit_want;
 
+/* Where an address points. Without a prefix, or with ram:, it is the 6502's
+ * address space. bus: is the same space, written the way the 6502 writes it. */
+typedef enum
+{
+    SCRIPT_CPU,
+    SCRIPT_XRAM,
+    SCRIPT_BUS,
+} script_space_t;
+
 /* A `wait` on memory looks here. script_settle samples the byte once a
  * frame, so a program that publishes a value for a few cycles and moves on can
  * be missed. */
-static uint8_t *script_addr_base;
+static script_space_t script_addr_space;
 static long script_addr;
 static uint8_t script_addr_want;
 
@@ -378,14 +389,16 @@ static bool script_number(char **p, long *out)
     return true;
 }
 
-static bool script_address(char **p, uint8_t **base, long *addr)
+static bool script_address(char **p, script_space_t *space, long *addr)
 {
     char *word = script_word(p);
     if (!word)
         return false;
-    *base = sram;
+    *space = SCRIPT_CPU;
     if (!strncasecmp(word, "xram:", 5))
-        *base = (uint8_t *)xram, word += 5;
+        *space = SCRIPT_XRAM, word += 5;
+    else if (!strncasecmp(word, "bus:", 4))
+        *space = SCRIPT_BUS, word += 4;
     else if (!strncasecmp(word, "ram:", 4))
         word += 4;
     int radix = script_radix(&word);
@@ -395,6 +408,47 @@ static bool script_address(char **p, uint8_t **base, long *addr)
         return false;
     *addr = value;
     return true;
+}
+
+/* Nothing answers a read of $FF00-$FFCF or takes a write there. */
+static bool script_unassigned(script_space_t space, long addr)
+{
+    return space != SCRIPT_XRAM && addr > SRAM_MMAP_HI && addr < VIA_MMAP_LO;
+}
+
+/* What a read finds, with none of what a read on the bus does. */
+static uint8_t script_peek(script_space_t space, uint16_t addr)
+{
+    if (space == SCRIPT_XRAM)
+        return xram[addr];
+    if (addr >= RIA_MMAP_LO)
+        return REGS(addr);
+    if (addr >= VIA_MMAP_LO)
+        return via_reg_peek(addr);
+    return sram[addr];
+}
+
+/* A plain poke sets what a read finds. bus: stores the way the 6502 does, so
+ * a register does what a store to it does, and sram[] takes every byte the
+ * way sram_tick does. */
+static void script_poke(script_space_t space, uint16_t addr, uint8_t value)
+{
+    if (space == SCRIPT_XRAM)
+        xram[addr] = value;
+    else if (space == SCRIPT_BUS)
+    {
+        sram[addr] = value;
+        if (addr >= RIA_MMAP_LO)
+            ria_reg_write(addr, value);
+        else if (addr >= VIA_MMAP_LO)
+            via_reg_write(addr, value);
+    }
+    else if (addr >= RIA_MMAP_LO)
+        REGS(addr) = value;
+    else if (addr >= VIA_MMAP_LO)
+        via_reg_poke(addr, value);
+    else
+        sram[addr] = value;
 }
 
 static void script_gamepad_publish(int player)
@@ -797,10 +851,14 @@ static bool script_command(const char *line)
         else
         {
             long want;
-            if (!script_address(&p, &script_addr_base, &script_addr) ||
+            if (!script_address(&p, &script_addr_space, &script_addr) ||
                 !script_number(&p, &want) || want < 0 || want > 0xFF)
                 return script_error("wait wants a quoted string, or an address "
                                  "and the byte to wait for");
+            if (script_addr_space == SCRIPT_BUS)
+                return script_error("bus: is only for poke");
+            if (script_unassigned(script_addr_space, script_addr))
+                return script_error("$%04lX is unassigned", script_addr);
             script_addr_want = (uint8_t)want;
             script_wait = SCRIPT_BYTE;
         }
@@ -956,10 +1014,12 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "peek"))
     {
-        uint8_t *base;
+        script_space_t space;
         long addr, want;
-        if (!script_address(&p, &base, &addr))
+        if (!script_address(&p, &space, &addr))
             return script_error("peek wants an address");
+        if (space == SCRIPT_BUS)
+            return script_error("bus: is only for poke");
         int i = 0;
         while (script_more(&p))
         {
@@ -967,9 +1027,12 @@ static bool script_command(const char *line)
                 return script_error("peek wants byte values 0..255");
             if (addr + i > 0xFFFF)
                 return script_error("peek runs past the end of memory");
-            if (base[addr + i] != (uint8_t)want)
+            if (script_unassigned(space, addr + i))
+                return script_error("$%04lX is unassigned", addr + i);
+            uint8_t got = script_peek(space, (uint16_t)(addr + i));
+            if (got != (uint8_t)want)
                 return script_error("$%04lX+%d is $%02X, expected $%02lX",
-                                    addr, i, base[addr + i], want);
+                                    addr, i, got, want);
             i++;
         }
         if (!i)
@@ -977,15 +1040,11 @@ static bool script_command(const char *line)
         return true;
     }
 
-    /* Writes land in sram[] or xram[] directly. sram_tick stores any address
-     * but answers a read only at or below SRAM_MMAP_HI ($FEFF), so a poke
-     * above that changes nothing the program can read, and it reaches no
-     * device either because it never goes on the bus. */
     if (!strcasecmp(cmd, "poke"))
     {
-        uint8_t *base;
+        script_space_t space;
         long addr, value;
-        if (!script_address(&p, &base, &addr))
+        if (!script_address(&p, &space, &addr))
             return script_error("poke wants an address");
         int i = 0;
         while (script_more(&p))
@@ -994,7 +1053,9 @@ static bool script_command(const char *line)
                 return script_error("poke wants byte values 0..255");
             if (addr + i > 0xFFFF)
                 return script_error("poke runs past the end of memory");
-            base[addr + i] = (uint8_t)value;
+            if (script_unassigned(space, addr + i))
+                return script_error("$%04lX is unassigned", addr + i);
+            script_poke(space, (uint16_t)(addr + i), (uint8_t)value);
             i++;
         }
         if (!i)
@@ -1016,16 +1077,22 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "dump"))
     {
-        uint8_t *base;
+        script_space_t space;
         long addr, count = 1;
-        if (!script_address(&p, &base, &addr))
+        if (!script_address(&p, &space, &addr))
             return script_error("dump wants an address");
+        if (space == SCRIPT_BUS)
+            return script_error("bus: is only for poke");
         if (script_more(&p) && (!script_number(&p, &count) || count < 1))
             return script_error("dump wants a byte count");
+        for (long i = 0; i < count && addr + i <= 0xFFFF; i++)
+            if (script_unassigned(space, addr + i))
+                return script_error("$%04lX is unassigned", addr + i);
         if (script_replies)
             printf("ok");
         for (long i = 0; i < count && addr + i <= 0xFFFF; i++)
-            printf("%s%02X", i || script_replies ? " " : "", base[addr + i]);
+            printf("%s%02X", i || script_replies ? " " : "",
+                   script_peek(space, (uint16_t)(addr + i)));
         printf("\n");
         fflush(stdout);
         script_answered = script_replies;
@@ -1213,13 +1280,16 @@ static bool script_settle(void)
         return script_error("timed out waiting for \"%s\"%s", script_needle,
                             script_on(script_wait_cap));
     case SCRIPT_BYTE:
-        if (script_addr_base[script_addr] == script_addr_want)
+    {
+        uint8_t got = script_peek(script_addr_space, (uint16_t)script_addr);
+        if (got == script_addr_want)
             break;
         if (script_spend())
             return false;
         return script_error("timed out waiting for %s:$%04lX to read $%02X; it is $%02X",
-                            script_addr_base == xram ? "xram" : "ram", script_addr,
-                         script_addr_want, script_addr_base[script_addr]);
+                            script_addr_space == SCRIPT_XRAM ? "xram" : "ram",
+                            script_addr, script_addr_want, got);
+    }
     case SCRIPT_TYPING:
         if (!vtkeys_paste_busy())
             break;
@@ -1292,7 +1362,7 @@ void script_usage(FILE *out)
             "  expect-not [stdout|stderr] \"text\"   match (default stdout)\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
-            "  poke [xram:]<addr> <byte>...        write memory\n"
+            "  poke [xram:|bus:]<addr> <byte>...   write memory; bus: stores as the 6502\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
             "  cpu                                 PC A X Y SP P, then OP BUSY RESB\n"
             "  crc                                 the canvas as a CRC-32\n"

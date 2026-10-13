@@ -1,0 +1,26 @@
+# The program waits in the RIA's spin loop for a line. A peek finds a register
+# without what a read does, a plain poke sets one without what a write does,
+# and bus: stores the way the program would.
+
+wait "Would you like instructions?"
+run 2
+peek $FFF1 $80 $FE
+
+poke $FFE5 $01 $00 $10
+poke bus:$FFE4 $41
+poke bus:$FFE4 $42
+peek xram:$1000 $41 $42
+peek $FFE6 $02 $10
+
+poke bus:$FFE1 $41
+expect "A"
+
+# A read of T1CL on the bus would clear the T1 flag in IFR.
+poke bus:$FFDD $7F
+poke bus:$FFD4 $10 $00
+run 1
+peek $FFDD $40
+dump $FFD4 1
+peek $FFDD $40
+poke $FFDD $00
+peek $FFDD $00
