@@ -8,6 +8,14 @@ rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
 rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
+rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
+
+# The run fails on purpose, and the test checks the failure line. A . stands
+# for the ; that CMake would split the expression on.
+rp6502_add_script_test(stuck ROM ${ADVENTURE_ROM})
+set_tests_properties(script.stuck PROPERTIES PASS_REGULAR_EXPRESSION
+    "timed out waiting for \"standing at the end of a road\". PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
+
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
     set_tests_properties(cli_${name} PROPERTIES

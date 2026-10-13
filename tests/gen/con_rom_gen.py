@@ -8,7 +8,6 @@
 # still clear when the program reads it before exiting.
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -69,12 +68,11 @@ def prog():
 
 
 def drive(emu, rom, save_dir=None):
-    env = {k: v for k, v in os.environ.items() if k != "EMU_ECHO"}
     save = ["--save-dir", str(save_dir)] if save_dir else []
     r = subprocess.run(
         [str(emu), "--headless", "--phi2", "0", "--mute", "--seed", "1",
          "--fill", "0", *save, str(rom)],
-        input=INPUT, capture_output=True, text=True, env=env, timeout=60)
+        input=INPUT, capture_output=True, text=True, timeout=60)
     ok = True
     for name, got, want in (("stdout", r.stdout, INPUT),
                             ("exit code", r.returncode, EXIT_CODE)):

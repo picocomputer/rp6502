@@ -1,0 +1,5 @@
+# Nothing answers the question, so the second wait times out while the
+# program waits for a line, and the failure says where the 6502 is.
+
+wait "Would you like instructions?"
+wait "standing at the end of a road" 60

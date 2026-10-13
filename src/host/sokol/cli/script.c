@@ -8,6 +8,8 @@
 #include "host/sokol/cli/script.h"
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
+#include "host/sokol/cli/streams.h"
+#include "core/api/api.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
@@ -21,10 +23,12 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
+#include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "osal/os.h"
+#include "chips/chips/w65c02.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,61 +79,109 @@ static struct
     int lx, ly, rx, ry, lt, rt;
 } script_gamepad[4];
 
-static char script_cap[SCRIPT_CAP_SIZE];
-static size_t script_cap_len;
-
-/* The captured console also goes here when someone is watching. It is set
- * before script_load and deliberately not cleared there, because main installs
- * the EMU_ECHO watcher before the script is opened. */
-static void (*script_echo)(const char *buf, int len);
-
-void script_set_echo(void (*echo)(const char *buf, int len))
+/* What the program wrote to stdout and to stderr that no check has used yet.
+ * The line editor's echo of typed text is not the program's output, so it is
+ * in neither. */
+typedef struct
 {
-    script_echo = echo;
-}
+    char buf[SCRIPT_CAP_SIZE];
+    size_t len;
+} script_cap_t;
 
-static void script_tap(const char *buf, int len)
+static script_cap_t script_cap[2];
+#define SCRIPT_STDOUT (&script_cap[0])
+#define SCRIPT_STDERR (&script_cap[1])
+
+/* The text a `wait` is looking in. */
+static script_cap_t *script_wait_cap;
+
+/* The program's stderr reaches the host's as it is written. This says whether
+ * it stopped partway through a line. */
+static bool script_stderr_midline;
+
+static void script_std_tap(int fd, const char *buf, int len)
 {
-    if (script_echo)
-        script_echo(buf, len);
+    if (fd != 1 && fd != 2)
+        return;
+    if (fd == 2 && len)
+        script_stderr_midline = buf[len - 1] != '\n';
+    script_cap_t *cap = &script_cap[fd - 1];
     for (int i = 0; i < len; i++)
     {
-        if (script_cap_len == sizeof script_cap - 1)
+        if (cap->len == sizeof cap->buf - 1)
         {
-            /* Only console output that no check has taken yet gets this far.
-             * The newest SCRIPT_CAP_KEEP bytes are kept so that a needle
+            /* Only output that no check has taken yet gets this far. The
+             * newest SCRIPT_CAP_KEEP bytes are kept so that a needle
              * straddling the discard still has somewhere to match. */
-            memmove(script_cap, script_cap + script_cap_len - SCRIPT_CAP_KEEP, SCRIPT_CAP_KEEP);
-            script_cap_len = SCRIPT_CAP_KEEP;
+            memmove(cap->buf, cap->buf + cap->len - SCRIPT_CAP_KEEP, SCRIPT_CAP_KEEP);
+            cap->len = SCRIPT_CAP_KEEP;
         }
-        script_cap[script_cap_len++] = buf[i];
+        cap->buf[cap->len++] = buf[i];
     }
-    script_cap[script_cap_len] = 0;
+    cap->buf[cap->len] = 0;
 }
 
-static void script_cap_take(const char *through)
+static void script_cap_take(script_cap_t *cap, const char *through)
 {
-    size_t used = (size_t)(through - script_cap);
-    memmove(script_cap, script_cap + used, script_cap_len - used + 1);
-    script_cap_len -= used;
+    size_t used = (size_t)(through - cap->buf);
+    memmove(cap->buf, cap->buf + used, cap->len - used + 1);
+    cap->len -= used;
 }
 
-/* The capture carries the line editor's escapes and the echo of anything the
- * script typed, so a needle that spans a cursor move never matches and the
- * bytes have to be read to see why. */
-static void script_show_capture(void)
+/* An optional stdout or stderr before a string. Without one it is stdout. */
+static script_cap_t *script_stream(char **p)
 {
-    size_t from = script_cap_len > 200 ? script_cap_len - 200 : 0;
-    fputs("  console: ", stderr);
-    for (size_t i = from; i < script_cap_len; i++)
+    char *s = *p;
+    while (*s == ' ' || *s == '\t')
+        s++;
+    size_t n = strcspn(s, " \t");
+    script_cap_t *cap = NULL;
+    if (n == 6 && !strncasecmp(s, "stdout", 6))
+        cap = SCRIPT_STDOUT;
+    else if (n == 6 && !strncasecmp(s, "stderr", 6))
+        cap = SCRIPT_STDERR;
+    if (!cap)
+        return SCRIPT_STDOUT;
+    *p = s + n;
+    return cap;
+}
+
+/* Messages name the stream only when it is not the default. */
+static const char *script_on(const script_cap_t *cap)
+{
+    return cap == SCRIPT_STDERR ? " on stderr" : "";
+}
+
+/* Where the program is: the 6502's registers, then the RIA's OP and BUSY.
+ * RESB is 0 once the program has stopped and the 6502 is held in reset. */
+static void script_cpu(char *buf, size_t size)
+{
+    w65c02_t *c = cpu_chip();
+    snprintf(buf, size,
+             "PC=$%04X A=$%02X X=$%02X Y=$%02X SP=$%02X P=$%02X OP=$%02X BUSY=$%02X RESB=%d",
+             w65c02_pc(c), w65c02_a(c), w65c02_x(c), w65c02_y(c), w65c02_s(c),
+             w65c02_p(c), API_OP, REGS(0xFFF2), sys_running() ? 1 : 0);
+}
+
+/* Control bytes are written as C escapes, so a failure is always one line. */
+static void script_printable(char *out, size_t size, const char *in)
+{
+    size_t n = 0;
+    for (; *in && n + 5 < size; in++)
     {
-        unsigned char c = (unsigned char)script_cap[i];
-        if (c >= ' ' && c < 0x7F)
-            fputc(c, stderr);
+        unsigned char c = (unsigned char)*in;
+        if (c == '\n')
+            n += (size_t)snprintf(out + n, size - n, "\\n");
+        else if (c == '\r')
+            n += (size_t)snprintf(out + n, size - n, "\\r");
+        else if (c == '\t')
+            n += (size_t)snprintf(out + n, size - n, "\\t");
+        else if (c < ' ' || c == 0x7F)
+            n += (size_t)snprintf(out + n, size - n, "\\x%02X", c);
         else
-            fprintf(stderr, "\\x%02X", c);
+            out[n++] = (char)c;
     }
-    fputc('\n', stderr);
+    out[n] = 0;
 }
 
 static bool script_replies;
@@ -149,15 +201,28 @@ static void script_reply(const char *fmt, ...)
     script_answered = true;
 }
 
+/* Every failure ends with where the program is, because the run ends here and
+ * a driver can't ask afterwards. */
 static bool script_error(const char *fmt, ...)
 {
-    char msg[512];
+    char msg[512], text[2048], cpu[96];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    fprintf(stderr, "rp6502-emu: %s:%d: %s\n", script_path, script_line_no, msg);
-    script_reply("fail %s", msg);
+    script_printable(text, sizeof text, msg);
+    script_cpu(cpu, sizeof cpu);
+    script_reply("fail %s; %s", text, cpu);
+    /* The program's stdout that no check has used goes out raw after the
+     * failure, up to EOF. Its stderr is on stderr already. */
+    streams_write(stdout, SCRIPT_STDOUT->buf, (int)SCRIPT_STDOUT->len);
+    fflush(stdout);
+    /* The message goes last, on a line of its own, so a program that clears
+     * or resets the screen can't wipe it. */
+    if ((SCRIPT_STDOUT->len && SCRIPT_STDOUT->buf[SCRIPT_STDOUT->len - 1] != '\n') ||
+        script_stderr_midline)
+        fputc('\n', stderr);
+    fprintf(stderr, "rp6502-emu: %s:%d: %s; %s\n", script_path, script_line_no, text, cpu);
     script_pending = false;
     script_fail = true;
     script_run = false;
@@ -677,7 +742,9 @@ static uint8_t script_key_from_name(const char *name, char *plain, char *shifted
     return 0;
 }
 
-bool script_command(const char *line)
+/* Run one command line. False on a bad line or a failed assertion, either of
+ * which ends the run. */
+static bool script_command(const char *line)
 {
     char buf[SCRIPT_LINE_MAX];
     snprintf(buf, sizeof buf, "%s", line);
@@ -707,13 +774,19 @@ bool script_command(const char *line)
          * it finds no quote, so trying the text form first costs nothing and
          * the two grammars cannot be confused. */
         char text[sizeof script_needle];
+        char *before = p;
+        script_cap_t *cap = script_stream(&p);
         if (script_string(&p, text, sizeof text))
         {
             if (!text[0])
                 return script_error("wait wants a quoted string");
             snprintf(script_needle, sizeof script_needle, "%s", text);
+            script_wait_cap = cap;
             script_wait = SCRIPT_TEXT;
         }
+        else if (p != before)
+            return script_error("wait %s wants a quoted string",
+                                cap == SCRIPT_STDERR ? "stderr" : "stdout");
         else
         {
             long want;
@@ -734,16 +807,17 @@ bool script_command(const char *line)
     if (!strcasecmp(cmd, "expect") || !strcasecmp(cmd, "expect-not"))
     {
         bool want = !strcasecmp(cmd, "expect");
+        script_cap_t *cap = script_stream(&p);
         char text[256];
         if (!script_string(&p, text, sizeof text) || !text[0])
             return script_error("%s wants a quoted string", cmd);
-        char *found = strstr(script_cap, text);
+        char *found = strstr(cap->buf, text);
         if (want && !found)
-            return script_error("expected \"%s\"", text);
+            return script_error("expected \"%s\"%s", text, script_on(cap));
         if (!want && found)
-            return script_error("did not expect \"%s\"", text);
+            return script_error("did not expect \"%s\"%s", text, script_on(cap));
         if (found)
-            script_cap_take(found + strlen(text));
+            script_cap_take(cap, found + strlen(text));
         return true;
     }
 
@@ -951,6 +1025,16 @@ bool script_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "cpu"))
+    {
+        char cpu[96];
+        script_cpu(cpu, sizeof cpu);
+        printf(script_replies ? "ok %s\n" : "%s\n", cpu);
+        fflush(stdout);
+        script_answered = script_replies;
+        return true;
+    }
+
     /* The canvas is checked against a remembered hash rather than a literal
      * one, because a hash written into a script is invalidated by every
      * unrelated rendering change. A driver that wants the number reads
@@ -1110,17 +1194,17 @@ static bool script_settle(void)
         break;
     case SCRIPT_TEXT:
     {
-        char *found = strstr(script_cap, script_needle);
+        char *found = strstr(script_wait_cap->buf, script_needle);
         if (found)
         {
-            script_cap_take(found + strlen(script_needle));
+            script_cap_take(script_wait_cap, found + strlen(script_needle));
             break;
         }
     }
         if (script_spend())
             return false;
-        script_show_capture();
-        return script_error("timed out waiting for \"%s\"", script_needle);
+        return script_error("timed out waiting for \"%s\"%s", script_needle,
+                            script_on(script_wait_cap));
     case SCRIPT_BYTE:
         if (script_addr_base[script_addr] == script_addr_want)
             break;
@@ -1180,9 +1264,11 @@ void script_usage(FILE *out)
 {
     fprintf(out,
             "\nscript commands (one per line, # comments, text always quoted;\n"
-            "a failed check names the line and exits 1):\n"
+            "a failed check names the line and the cpu, then exits 1):\n"
             "  run [frames]              let frames elapse (default 1)\n"
-            "  wait \"text\" [frames]      run until the console says it (default 600)\n"
+            "  wait [stdout|stderr] \"text\" [frames]\n"
+            "                                      run until the program writes it\n"
+            "                                      (default stdout, 600 frames)\n"
             "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
             "  type \"text\" [frames]      type it (\\n = Enter, \\t = Tab)\n"
             "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
@@ -1195,11 +1281,13 @@ void script_usage(FILE *out)
             "  pad <n> trigger <lt> <rt>           0..255\n"
             "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
             "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
-            "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
+            "  expect [stdout|stderr] \"text\"       check the stream since its last\n"
+            "  expect-not [stdout|stderr] \"text\"   match (default stdout)\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
             "  poke [xram:]<addr> <byte>...        write memory\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
+            "  cpu                                 PC A X Y SP P, then OP BUSY RESB\n"
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
@@ -1230,12 +1318,16 @@ bool script_load(const char *path)
         }
         script_path = path;
     }
-    com_set_tx_tap(script_tap);
+    com_set_std_tap(script_std_tap);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;
-    script_cap_len = 0;
-    script_cap[0] = 0;
+    for (int i = 0; i < 2; i++)
+    {
+        script_cap[i].len = 0;
+        script_cap[i].buf[0] = 0;
+    }
+    script_stderr_midline = false;
     script_marked = false;
     script_fail = false;
     script_replies = false;

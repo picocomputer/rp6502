@@ -16,7 +16,6 @@
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
-#include "core/com/com.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/cli/png.h"
 #include "core/sys/random.h"
@@ -214,19 +213,6 @@ int main(int argc, char **argv)
     sys_init();
 
     streams_mirror_stderr();
-
-    /* EMU_ECHO mirrors the machine's console to the host's stderr, so a run
-     * that failed can be read without rendering a frame. It is set up here
-     * rather than past the launch paths that return early, so that every mode
-     * gets it. com.c holds one console tap, which a script takes for itself,
-     * so the script is asked to echo rather than displaced. */
-    if (getenv("EMU_ECHO"))
-    {
-        if (o.script)
-            script_set_echo(streams_stderr);
-        else
-            com_set_tx_tap(streams_stderr);
-    }
 
     save_dir = o.save_dir ? save_dir_from(o.save_dir) : os_save_dir();
     if (o.save_dir && !save_dir)

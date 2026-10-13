@@ -17,7 +17,8 @@
  * assembles reports and hands them to the same core/hid entry points a real
  * device would.
  *
- * A failed assertion names the line it failed on and ends the run;
+ * A failed assertion names the line it failed on and where the 6502 is, then
+ * writes the program's stdout that no check used, and ends the run;
  * script_exit_code is what the process should return.
  *
  * `reply` turns on a line of stdout per command -- ok, ok <values>, or
@@ -47,16 +48,7 @@ bool script_running(void);
  * than at least six hundred. */
 void script_task(void);
 
-/* Run one command line. False on a bad line or a failed assertion, either of
- * which ends the run. */
-bool script_command(const char *line);
-
 /* 0 when every assertion held. */
 int script_exit_code(void);
-
-/* Watch the console the script is matching. com.c holds one console tap,
- * which the script takes, so this is the only way to see those bytes while a
- * script runs. */
-void script_set_echo(void (*echo)(const char *buf, int len));
 
 #endif /* _HOST_SOKOL_CLI_SCRIPT_H_ */

@@ -263,7 +263,6 @@ function(rp6502_add_script_test name)
     set_tests_properties(script.${name} PROPERTIES
         WORKING_DIRECTORY ${_work}
         TIMEOUT ${S_TIMEOUT}
-        ENVIRONMENT EMU_ECHO=1
         LABELS "script;${_dir}")
 
     if(S_DEPENDS)

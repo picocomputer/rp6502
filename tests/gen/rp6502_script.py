@@ -27,11 +27,11 @@ class ScriptError(Exception):
 class Emu:
     def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT, env=None):
         self.timeout = timeout
-        env = dict(os.environ, EMU_ECHO="1", **(env or {}))
+        env = dict(os.environ, **env) if env else None
         self.proc = subprocess.Popen(
             [str(emu), *EMU_ARGS, *args, "--script", "-", str(rom)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            env=env, text=True, bufsize=1)
+            env=env, text=True, encoding="utf-8", errors="replace", bufsize=1)
         # The replies are read on a thread rather than with select, because
         # these suites also run on Windows, where select does not accept a
         # pipe.
@@ -56,12 +56,26 @@ class Emu:
         if reply is None:
             raise ScriptError(f"the machine stopped before answering {line!r}")
         if reply.startswith("fail"):
-            raise ScriptError(f"{line!r}: {reply[5:] or 'failed'}")
+            raise ScriptError(f"{line!r}: {reply[5:] or 'failed'}{self._rest()}")
         if reply == "ok":
             return ""
         if reply.startswith("ok "):
             return reply[3:]
         raise ScriptError(f"{line!r}: unexpected answer {reply!r}")
+
+    def _rest(self):
+        """A fail ends the run, and the rest of stdout is the program's output
+        that no check used, up to EOF."""
+        lines = []
+        while True:
+            try:
+                out = self.replies.get(timeout=self.timeout)
+            except queue.Empty:
+                break
+            if out is None:
+                break
+            lines.append(out)
+        return "".join("\n" + out for out in lines)
 
     def start(self):
         self.send("reply")

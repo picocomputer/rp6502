@@ -58,8 +58,8 @@ def prog():
 
 
 def drive(emu, rom, save_dir=None):
-    # The payload has no zero byte because `wait` searches the console
-    # capture as a C string, and a zero byte would hide everything printed
+    # The payload has no zero byte because `wait` searches the program's
+    # stdout as a C string, and a zero byte would hide everything printed
     # after it.
     payload = bytes(1 + (i * 7 + 11) % 0xFF for i in range(CHUNK * 5))
     pathlib.Path(NAME).write_bytes(payload)

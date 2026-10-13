@@ -52,7 +52,7 @@ void streams_mirror_stdout(void)
     com_set_std_tap(streams_stdout_tap);
 }
 
-void streams_stderr(const char *buf, int len)
+static void streams_stderr(const char *buf, int len)
 {
     streams_write(stderr, buf, len);
 }
