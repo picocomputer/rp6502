@@ -1,0 +1,10 @@
+# The program reads 0 bytes from stdin, keeps what the read returned at
+# $0201, then sets $0200. A read that waited for a line would never get there.
+
+wait $0200 1 10
+peek $0201 0 0
+
+# Nothing is reading stdin now, so nothing echoes a typed key.
+type "q"
+run 2
+expect-not console "q"

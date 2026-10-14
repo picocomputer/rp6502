@@ -158,4 +158,12 @@ if(TARGET rp6502-emu)
 
     rp6502_add_script_test(argv DRIVER ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
         ROM ${ARGV_ROM} DEPENDS argv_rom)
+
+    rp6502_add_script_test(chain ROM ${LAUNCHER_ROM}
+        ARGS --install ${LAUNCHER_ROM} --install ${CHILD_ROM}
+        DEPENDS chain_roms)
+
+    rp6502_add_script_test(sigint ROM ${SIGINT_ROM} DEPENDS sigint_rom)
+
+    rp6502_add_script_test(zeroread ROM ${ZEROREAD_ROM} DEPENDS zeroread_rom)
 endif()

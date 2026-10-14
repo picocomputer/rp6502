@@ -32,4 +32,6 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(opl_bel DRIVER ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
         ROM ${AUD_ROM_OPL_BEL} ARGS --check opl-bel --base ${AUD_ROM_OPL}
         DEPENDS aud_roms)
+    rp6502_add_script_test(bel_off DRIVER ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
+        ROM ${AUD_ROM_BEL_OFF} ARGS --check bel-off DEPENDS aud_roms)
 endif()

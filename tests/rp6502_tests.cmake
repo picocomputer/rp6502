@@ -67,15 +67,17 @@ set(AUD_ROM_OPL_EXIT ${RP6502_TEST_ROM_DIR}/opl_exit.rp6502)
 set(AUD_ROM_OPL_INIT ${RP6502_TEST_ROM_DIR}/opl_init.rp6502)
 set(AUD_ROM_BEL ${RP6502_TEST_ROM_DIR}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_TEST_ROM_DIR}/opl_bel.rp6502)
+set(AUD_ROM_BEL_OFF ${RP6502_TEST_ROM_DIR}/bel_off.rp6502)
 rp6502_test_rom(aud_roms GEN ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
     ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
         --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
         --emit-opl-init ${AUD_ROM_OPL_INIT}
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
+        --emit-bel-off ${AUD_ROM_BEL_OFF}
     OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
         ${AUD_ROM_OPL_EXIT} ${AUD_ROM_OPL_INIT}
-        ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
+        ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL} ${AUD_ROM_BEL_OFF}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")
 
@@ -211,6 +213,28 @@ rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
     OUTPUTS ${VSYNC_ROM}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the vsync interrupt ROM")
+
+set(LAUNCHER_ROM ${RP6502_TEST_ROM_DIR}/launcher.rp6502)
+set(CHILD_ROM ${RP6502_TEST_ROM_DIR}/child.rp6502)
+rp6502_test_rom(chain_roms GEN ${RP6502_TESTS_DIR}/gen/chain_rom_gen.py
+    ARGS --emit-launcher ${LAUNCHER_ROM} --emit-child ${CHILD_ROM}
+    OUTPUTS ${LAUNCHER_ROM} ${CHILD_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the launcher chain ROMs")
+
+set(SIGINT_ROM ${RP6502_TEST_ROM_DIR}/sigint.rp6502)
+rp6502_test_rom(sigint_rom GEN ${RP6502_TESTS_DIR}/gen/sigint_rom_gen.py
+    ARGS --emit ${SIGINT_ROM}
+    OUTPUTS ${SIGINT_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the Ctrl-C interrupt ROM")
+
+set(ZEROREAD_ROM ${RP6502_TEST_ROM_DIR}/zeroread.rp6502)
+rp6502_test_rom(zeroread_rom GEN ${RP6502_TESTS_DIR}/gen/zeroread_rom_gen.py
+    ARGS --emit ${ZEROREAD_ROM}
+    OUTPUTS ${ZEROREAD_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the zero-length read ROM")
 
 function(rp6502_add_script_test name)
     cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;TIMEOUT" "ARGS;ROM_ARGS;DEPENDS" ${ARGN})

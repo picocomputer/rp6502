@@ -11,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rp6502_script  # noqa: E402
-from rp6502_asm import API_OP, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, Asm
+from rp6502_asm import (API_OP, OP_ATTR_SET, RIA_TX, RW0_ADDR, RW0_DATA,
+                        RW0_STEP, Asm)
 from rp6502_rom import image
 
 
@@ -190,6 +191,27 @@ def bel_prog():
     return p
 
 
+def bel_off_prog():
+    """The bell is turned off and a BEL written. Once the script pokes $0200,
+    the bell is turned back on and a second BEL written."""
+    p = Prog()
+    p.store(0x0200, 0)
+    p.pushl(0)
+    p.call_a(OP_ATTR_SET, 5)  # ATTR_BEL
+    p.lda_imm(0x07)
+    p.sta_abs(RIA_TX)
+    wait = p.local("wait")
+    p.symbol(wait)
+    p.lda_abs(0x0200)
+    p.beq(wait)
+    p.pushl(1)
+    p.call_a(OP_ATTR_SET, 5)
+    p.lda_imm(0x07)
+    p.sta_abs(RIA_TX)
+    p.spin()
+    return p
+
+
 def opl_bel_prog():
     p = Prog()
     page = 0xF000
@@ -344,6 +366,19 @@ def check_bel(a):
     return 0
 
 
+def check_bel_off(a):
+    """With the bell off, a BEL rings nothing. With it back on, a BEL rings."""
+    if record(a.emu, a.rom, a.save_dir, 'wait "\\a" 10', 'wav "off.wav" 16',
+              "poke $0200 1", 'wait "\\a" 10', 'wav "on.wav" 4'):
+        return 1
+    if max(peaks(mono("off.wav"))):
+        return fail("a BEL rang with the bell off")
+    p = peaks(mono("on.wav"))
+    if max(p) <= BELL:
+        return fail(f"no bell once it was back on: peaks {p}")
+    return 0
+
+
 def check_opl_bel(a):
     """A BEL rings over the OPL. The OPL alone is far louder than the bell,
     so the recording is compared with one of the same OPL code without the
@@ -373,8 +408,8 @@ def check_exit(a):
 
 
 CHECKS = {"psg": check_psg, "opl": check_opl, "init": check_init,
-          "pre": check_pre, "bel": check_bel, "opl-bel": check_opl_bel,
-          "exit": check_exit}
+          "pre": check_pre, "bel": check_bel, "bel-off": check_bel_off,
+          "opl-bel": check_opl_bel, "exit": check_exit}
 
 
 def main():
@@ -385,6 +420,7 @@ def main():
     ap.add_argument("--emit-opl-exit")
     ap.add_argument("--emit-opl-init")
     ap.add_argument("--emit-bel")
+    ap.add_argument("--emit-bel-off")
     ap.add_argument("--emit-opl-bel")
     ap.add_argument("--drive", action="store_true",
                     help="record the ROM's sound to a wav and check it")
@@ -407,6 +443,8 @@ def main():
         print(f"opl_init.rp6502 {emit(a.emit_opl_init, opl_init_prog())} bytes")
     if a.emit_bel:
         print(f"bel.rp6502 {emit(a.emit_bel, bel_prog())} bytes")
+    if a.emit_bel_off:
+        print(f"bel_off.rp6502 {emit(a.emit_bel_off, bel_off_prog())} bytes")
     if a.emit_opl_bel:
         print(f"opl_bel.rp6502 {emit(a.emit_opl_bel, opl_bel_prog())} bytes")
     if a.drive:
