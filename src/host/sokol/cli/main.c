@@ -73,9 +73,9 @@ static int run_dap(const cli_options *o)
 #endif
 
 
-/* The seed for this run, drawn once. --seed pins it, and otherwise the OS is
- * asked. The memory fills, the RNG the program reads and the script's `seed`
- * verb all ask separately, so it has to answer the same every time. */
+/* host_seed returns the seed for this run, which is chosen once. --seed sets
+ * it, and otherwise it comes from the OS. The memory fill, the program's RNG
+ * and the script's `cpu` line each read it, so it stays the same all run. */
 static uint32_t run_seed;
 static bool run_seed_taken;
 
@@ -355,8 +355,11 @@ int main(int argc, char **argv)
         dbg_set_active(true);
 
     /* Armed before the machine starts so the script's first check sees the
-     * program's first output. */
-    if (o.script && !script_load(o.script))
+     * program's first output. The script's names come from the .sym file
+     * beside the booted ROM, which for an install is the last file given
+     * that name. */
+    if (o.script &&
+        !script_load(o.script, o.rom ? o.rom : rom_alias_resolve(first_install)))
         return 1;
 
     /* A host terminal becomes the machine's console and carries its screen,

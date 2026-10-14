@@ -26,11 +26,15 @@
  * because a driver that read it sooner would race the machine. It stays off
  * until a script asks, so a driver can send a whole preamble without waiting
  * and then read the ok for `reply` itself as the moment the machine begins
- * answering. */
+ * answering.
+ *
+ * Any number can be a Python expression using the names in the ROM's .sym,
+ * and `let name = expr` sets a variable that later lines can use. */
 
-/* Open a script and arm it. "-" reads stdin one line at a time, so a driver
- * in any language can work the machine: the machine waits for each line. */
-bool script_load(const char *path);
+/* Open a script and arm it, with the names from the .sym beside rom. "-"
+ * reads stdin one line at a time, so a driver in any language can work the
+ * machine: the machine waits for each line. */
+bool script_load(const char *path, const char *rom);
 
 /* The verbs, for --help. Printed here rather than in cli.c because cli.c is
  * also linked without script.c. */

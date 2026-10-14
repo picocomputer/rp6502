@@ -21,7 +21,7 @@ static unsigned long frames_for(const char *text)
     fputs(text, f);
     fclose(f);
 
-    if (!emu_restart(TEST_FIXTURE) || !script_load(path))
+    if (!emu_restart(TEST_FIXTURE) || !script_load(path, TEST_FIXTURE))
         return (unsigned long)-1;
     unsigned long before = vga_frame_count();
     while (script_running())

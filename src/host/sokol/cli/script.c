@@ -6,6 +6,7 @@
  */
 
 #include "host/sokol/cli/script.h"
+#include "host/sokol/cli/expr.h"
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
 #include "core/api/api.h"
@@ -32,6 +33,7 @@
 #include "core/aud/mix.h"
 #include "osal/os.h"
 #include "chips/chips/w65c02.h"
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -218,14 +220,15 @@ static const char *script_on(const script_cap_t *cap)
 }
 
 /* Where the program is: the 6502's registers, then the RIA's OP and BUSY.
- * RESB is 0 once the program has stopped and the 6502 is held in reset. */
+ * RESB is 0 once the program has stopped and the 6502 is held in reset.
+ * SEED is the run's seed, so a failed run can be repeated with --seed. */
 static void script_cpu(char *buf, size_t size)
 {
     w65c02_t *c = cpu_chip();
     snprintf(buf, size,
-             "PC=$%04X A=$%02X X=$%02X Y=$%02X SP=$%02X P=$%02X OP=$%02X BUSY=$%02X RESB=%d",
+             "PC=$%04X A=$%02X X=$%02X Y=$%02X SP=$%02X P=$%02X OP=$%02X BUSY=$%02X RESB=%d SEED=%u",
              w65c02_pc(c), w65c02_a(c), w65c02_x(c), w65c02_y(c), w65c02_s(c),
-             w65c02_p(c), API_OP, REGS(0xFFF2), sys_running() ? 1 : 0);
+             w65c02_p(c), API_OP, REGS(0xFFF2), sys_running() ? 1 : 0, host_seed());
 }
 
 /* Control bytes are written as C escapes, so a failure is always one line. */
@@ -270,6 +273,10 @@ static void script_reply(const char *fmt, ...)
  * a driver can't ask afterwards. */
 static bool script_error(const char *fmt, ...)
 {
+    /* Only the first error on a line is reported, so a command's usage
+     * message never follows the error from its expression. */
+    if (script_fail)
+        return false;
     char msg[1024], text[4096], cpu[96];
     va_list ap;
     va_start(ap, fmt);
@@ -308,6 +315,19 @@ static bool script_more(char **p)
     return *s != 0;
 }
 
+/* The first of the stop characters outside parentheses, or the end. */
+static char *script_outside(char *s, const char *stop)
+{
+    int depth = 0;
+    for (; *s && (depth || !strchr(stop, *s)); s++)
+        if (*s == '(')
+            depth++;
+        else if (*s == ')' && depth)
+            depth--;
+    return s;
+}
+
+/* A space inside parentheses is part of the word, so (base + 4) is one. */
 static char *script_word(char **p)
 {
     char *s = *p;
@@ -319,8 +339,7 @@ static char *script_word(char **p)
         return NULL;
     }
     char *word = s;
-    while (*s && *s != ' ' && *s != '\t')
-        s++;
+    s = script_outside(s, " \t");
     if (*s)
         *s++ = 0;
     *p = s;
@@ -416,30 +435,189 @@ static bool script_string(char **p, char *out, size_t outsz)
     return script_text(p, out, outsz, &len) && strlen(out) == len;
 }
 
-static int script_radix(char **w)
+/* A name the script can use, from the .sym beside the ROM or set by the
+ * script itself. */
+typedef struct
 {
-    if (**w == '$')
-        return ++*w, 16;
-    if ((*w)[0] == '0' && ((*w)[1] == 'x' || (*w)[1] == 'X'))
-        return *w += 2, 16;
-    return 10;
+    char *name;
+    expr_value_t value;
+} script_name_t;
+
+typedef struct
+{
+    script_name_t *at;
+    size_t count;
+} script_names_t;
+
+static script_names_t script_syms, script_vars;
+
+static void script_names_clear(script_names_t *names)
+{
+    for (size_t i = 0; i < names->count; i++)
+        free(names->at[i].name);
+    free(names->at);
+    names->at = NULL;
+    names->count = 0;
+}
+
+static bool script_names_add(script_names_t *names, const char *name, size_t len,
+                             expr_value_t value)
+{
+    script_name_t *at = realloc(names->at, (names->count + 1) * sizeof *at);
+    if (!at)
+        return false;
+    names->at = at;
+    char *copy = malloc(len + 1);
+    if (!copy)
+        return false;
+    memcpy(copy, name, len);
+    copy[len] = 0;
+    at[names->count].name = copy;
+    at[names->count].value = value;
+    names->count++;
+    return true;
+}
+
+/* How many entries have the name, with the last of them in found. */
+static int script_names_count(script_names_t *names, const char *name, size_t len,
+                              script_name_t **found)
+{
+    int n = 0;
+    for (size_t i = 0; i < names->count; i++)
+        if (!strncmp(names->at[i].name, name, len) && !names->at[i].name[len])
+        {
+            *found = &names->at[i];
+            n++;
+        }
+    return n;
+}
+
+/* A name on two .sym lines, or in both lists after a load, is ambiguous.
+ * Names are case-sensitive, as in Python. */
+static expr_status_t script_lookup(const char *name, size_t len, expr_value_t *value)
+{
+    script_name_t *found = NULL;
+    int n = script_names_count(&script_syms, name, len, &found) +
+            script_names_count(&script_vars, name, len, &found);
+    if (n > 1)
+        return EXPR_AMBIGUOUS;
+    if (!n)
+        return EXPR_UNKNOWN;
+    *value = found->value;
+    return EXPR_OK;
+}
+
+/* The end of the name at s, or s when no name starts there. Names are as in
+ * Python, with . allowed after the first character. */
+static char *script_name_end(char *s)
+{
+    if (isalpha((unsigned char)*s) || *s == '_')
+        while (isalnum((unsigned char)*s) || *s == '_' || *s == '.')
+            s++;
+    return s;
+}
+
+/* Loads the .sym beside a ROM: the same path with a .sym extension, added
+ * when it has none. No file means no names. False, with why filled in, when
+ * a line is not a name and a whole number. */
+static bool script_symbols(const char *rom, char *why, size_t size)
+{
+    script_names_clear(&script_syms);
+    size_t len = strlen(rom);
+    const char *dot = strrchr(rom, '.');
+    if (dot && !strpbrk(dot, "/\\"))
+        len = (size_t)(dot - rom);
+    char *path = malloc(len + 5);
+    if (!path)
+        return snprintf(why, size, "out of memory"), false;
+    memcpy(path, rom, len);
+    memcpy(path + len, ".sym", 5);
+    FILE *f = os_fopen(path, "r");
+    char line[SCRIPT_LINE_MAX];
+    int n = 0;
+    bool ok = true;
+    while (f && ok && fgets(line, sizeof line, f))
+    {
+        n++;
+        line[strcspn(line, "\r\n")] = 0;
+        char *value = strchr(line, ' ');
+        expr_value_t v = {0};
+        ok = value && value > line && expr_int(value + 1, strlen(value + 1), &v.i) &&
+             script_names_add(&script_syms, line, (size_t)(value - line), v);
+    }
+    if (f)
+        fclose(f);
+    if (!ok)
+        snprintf(why, size, "cannot read '%s' line %d", path, n);
+    free(path);
+    return ok;
+}
+
+/* Works out an expression, failing the line with its error. A message shows
+ * the expression without one pair of parentheses around all of it. With
+ * whole set, a float fails too, because no command takes one. */
+static bool script_expr(const char *text, bool whole, expr_value_t *out)
+{
+    int len = (int)strlen(text), depth = 0;
+    bool outer = text[0] == '(';
+    for (int i = 0; i < len; i++)
+    {
+        if (text[i] == '(')
+            depth++;
+        else if (text[i] == ')' && depth)
+        {
+            depth--;
+            if (!depth && i + 1 < len)
+                outer = false;
+        }
+    }
+    if (depth)
+        return script_error("missing ) in '%s'", text);
+    const char *shown = outer ? text + 1 : text;
+    int n = outer ? len - 2 : len;
+    const char *name = NULL;
+    size_t name_len = 0;
+    expr_status_t st = expr_eval(text, (size_t)len, script_lookup, out, &name, &name_len);
+    if (st == EXPR_OK && whole && out->is_float)
+        st = EXPR_NOT_WHOLE;
+    switch (st)
+    {
+    case EXPR_OK:
+        return true;
+    case EXPR_BAD:
+        return script_error("bad expression '%.*s'", n, shown);
+    case EXPR_UNKNOWN:
+        return script_error("unknown name '%.*s'", (int)name_len, name);
+    case EXPR_AMBIGUOUS:
+        return script_error("ambiguous name '%.*s'", (int)name_len, name);
+    case EXPR_ZERO:
+        return script_error("%.*s divides by zero", n, shown);
+    case EXPR_OVERFLOW:
+        return script_error("%.*s overflows 64 bits", n, shown);
+    case EXPR_SHIFT:
+        return script_error("%.*s shifts by a negative count", n, shown);
+    case EXPR_COMPLEX:
+        return script_error("%.*s is a complex number", n, shown);
+    case EXPR_NOT_WHOLE:
+        break;
+    }
+    return script_error("%.*s is not a whole number", n, shown);
+}
+
+/* Every number is an expression, and it must give a whole number. */
+static bool script_value(char *word, long *out)
+{
+    expr_value_t v;
+    if (!script_expr(word, true, &v) || (long)v.i != v.i)
+        return false;
+    *out = (long)v.i;
+    return true;
 }
 
 static bool script_number(char **p, long *out)
 {
     char *word = script_word(p);
-    if (!word)
-        return false;
-    bool neg = *word == '-';
-    if (neg)
-        word++;
-    int base = script_radix(&word);
-    char *end;
-    long value = strtol(word, &end, base);
-    if (end == word || *end)
-        return false;
-    *out = neg ? -value : value;
-    return true;
+    return word && script_value(word, out);
 }
 
 static bool script_address(char **p, script_space_t *space, long *addr)
@@ -456,12 +634,41 @@ static bool script_address(char **p, script_space_t *space, long *addr)
         *space = SCRIPT_BUS, word += 4;
     else if (!strncasecmp(word, "ram:", 4))
         word += 4;
-    int radix = script_radix(&word);
-    char *end;
-    long value = strtol(word, &end, radix);
-    if (end == word || *end || value < 0 || value > 0xFFFF)
+    long value;
+    if (!script_value(word, &value) || value < 0 || value > 0xFFFF)
         return false;
     *addr = value;
+    return true;
+}
+
+/* let name = expr sets a variable. A # that starts a word begins a comment,
+ * as on any other line, and ends the expression. */
+static bool script_assign(const char *name, size_t len, char *expr)
+{
+    while (*expr == ' ' || *expr == '\t')
+        expr++;
+    char *end = expr;
+    while (*end && *end != '#')
+    {
+        end = script_outside(end, " \t");
+        while (*end == ' ' || *end == '\t')
+            end++;
+    }
+    while (end > expr && (end[-1] == ' ' || end[-1] == '\t'))
+        end--;
+    *end = 0;
+    if (!*expr)
+        return script_error("let wants name = expr");
+    expr_value_t value;
+    if (!script_expr(expr, false, &value))
+        return false;
+    script_name_t *found;
+    if (script_names_count(&script_syms, name, len, &found))
+        return script_error("cannot assign symbol '%.*s'", (int)len, name);
+    if (script_names_count(&script_vars, name, len, &found))
+        found->value = value;
+    else if (!script_names_add(&script_vars, name, len, value))
+        return script_error("out of memory");
     return true;
 }
 
@@ -720,8 +927,8 @@ static bool script_cmd_tablet(char *p)
         {
             if (count == TABLET_MAX_CONTACTS)
                 return script_error("tablet touch takes at most %d contacts", TABLET_MAX_CONTACTS);
-            char *comma = strchr(word, ',');
-            if (!comma)
+            char *comma = script_outside(word, ",");
+            if (!*comma)
                 return script_error("tablet touch wants x,y pairs");
             *comma = 0;
             char *xs = word, *ys = comma + 1;
@@ -1072,6 +1279,12 @@ static bool script_command(const char *line)
             uint8_t hid = script_key_from_name(name, NULL, NULL);
             if (!hid)
             {
+                /* A word that is neither a key nor a known name is an
+                 * unknown key, not an unknown name. */
+                expr_value_t value;
+                if (!*script_name_end(name) &&
+                    script_lookup(name, strlen(name), &value) == EXPR_UNKNOWN)
+                    return script_error("unknown key '%s'", name);
                 char *num = name;
                 long usage;
                 if (!script_number(&num, &usage) || usage < 4 || usage > 255)
@@ -1170,6 +1383,19 @@ static bool script_command(const char *line)
             return script_error("reply wants on or off");
         script_replies = on;
         return true;
+    }
+
+    if (!strcasecmp(cmd, "let"))
+    {
+        while (*p == ' ' || *p == '\t')
+            p++;
+        char *eq = script_name_end(p);
+        size_t len = (size_t)(eq - p);
+        while (*eq == ' ' || *eq == '\t')
+            eq++;
+        if (!len || eq[0] != '=' || eq[1] == '=')
+            return script_error("let wants name = expr");
+        return script_assign(p, len, eq + 1);
     }
 
     if (!strcasecmp(cmd, "dump"))
@@ -1299,17 +1525,9 @@ static bool script_command(const char *line)
         return true;
     }
 
-    if (!strcasecmp(cmd, "seed"))
-    {
-        printf(script_replies ? "ok %u\n" : "%u\n", host_seed());
-        fflush(stdout);
-        script_answered = script_replies;
-        return true;
-    }
-
     /* The script is UTF-8. An installed ROM's path stays a host path in
      * UTF-8, while a name or a path that the machine resolves is converted to
-     * OEM in place, which only ever shortens it. */
+     * OEM, which only ever shortens it. */
     if (!strcasecmp(cmd, "install"))
     {
         char path[SCRIPT_LINE_MAX];
@@ -1338,18 +1556,36 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "load"))
     {
-        char path[SCRIPT_LINE_MAX];
+        char path[SCRIPT_LINE_MAX], oem[SCRIPT_LINE_MAX];
         if (!script_string(&p, path, sizeof path) || !path[0])
             return script_error("load wants a quoted path");
-        oem_from_utf8(path, path, sizeof path);
+        oem_from_utf8(path, oem, sizeof oem);
         /* A running program would have its memory written out from under it,
          * so a load happens only between programs. */
         if (sys_active())
             return script_error("load wants a stopped machine");
         vtkeys_paste_cancel();
-        if (!proc_boot(path, 0, NULL, PROC_UNCHAIN))
+        if (!proc_boot(oem, 0, NULL, PROC_UNCHAIN))
             return script_error("cannot load '%s'", path);
         sys_commit();
+        /* The symbols now come from the new program's .sym. An installed
+         * :NAME has its .sym beside the file that was installed. */
+        char host[SCRIPT_LINE_MAX];
+        const char *rom = rom_alias_resolve(oem);
+        if (!rom)
+        {
+            /* The machine takes either slash, so the .sym lookup does too. */
+            snprintf(host, sizeof host, "%s", strncasecmp(path, "FS:", 3) ? path : path + 3);
+#ifndef _WIN32
+            for (char *s = host; *s; s++)
+                if (*s == '\\')
+                    *s = '/';
+#endif
+            rom = host;
+        }
+        char why[SCRIPT_LINE_MAX];
+        if (!script_symbols(rom, why, sizeof why))
+            return script_error("%s", why);
         return true;
     }
 
@@ -1530,23 +1766,34 @@ void script_usage(FILE *out)
             "                                      write memory; bus: and xbus: store\n"
             "                                      the way the 6502 and the RIA do\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
-            "  cpu                                 PC A X Y SP P, then OP BUSY RESB\n"
+            "  cpu                                 PC A X Y SP P, then OP BUSY RESB SEED\n"
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
             "  wav \"file.wav\" [frames]   record that many frames of sound (default 1)\n"
             "  state save \"file\" / state load \"file\"   the machine, written down\n"
-            "  seed                      print this run's seed\n"
             "  install \"path\" [NAME]     put a file on the null drive as :NAME\n"
             "  remove <NAME>             take it back off\n"
             "  load \"path\"               boot a program on a stopped machine\n"
             "  sys run|stop|break        start, stop, or interrupt the machine\n"
             "  reply [on|off]            answer every command on stdout, for a\n"
-            "                            driver on the other end of a pipe\n");
+            "                            driver on the other end of a pipe\n"
+            "  let name = expr           set a variable that later lines can use\n"
+            "\nEvery number is a Python 3 expression, such as 255, $FF or XRAM_PSG+5.\n"
+            "Spaces separate arguments, so an expression with spaces must be in\n"
+            "parentheses: poke xram:(XRAM_PSG + 5) $80. Names come from variables\n"
+            "and from the .sym beside the ROM. / makes a float, which no command takes.\n");
 }
 
-bool script_load(const char *path)
+bool script_load(const char *path, const char *rom)
 {
+    char why[SCRIPT_LINE_MAX];
+    script_names_clear(&script_vars);
+    if (!script_symbols(rom, why, sizeof why))
+    {
+        fprintf(stderr, "rp6502-emu: %s\n", why);
+        return false;
+    }
     if (!strcmp(path, "-"))
     {
         script_file = stdin;

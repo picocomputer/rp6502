@@ -43,9 +43,9 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
     return true;
 }
 
-/* The script's number grammar for the whole command line: $FF and 0xFF are
- * hex and everything else is decimal, because strtol's base 0 would read
- * "010" as eight, which is not what someone typing a byte count means. */
+/* A command-line number: $FF and 0xFF are hex and everything else is
+ * decimal, because strtol's base 0 would read "010" as eight, which is not
+ * what someone typing a byte count means. */
 static bool cli_number(const char *s, long long *out)
 {
     int base = 10;

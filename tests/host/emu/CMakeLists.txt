@@ -1,5 +1,6 @@
 rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
+        ${RP6502_SRC}/host/sokol/cli/expr.c
         ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
@@ -35,6 +36,18 @@ set_tests_properties(script.unassigned PROPERTIES PASS_REGULAR_EXPRESSION
 rp6502_add_script_test(stuck ROM ${ADVENTURE_ROM})
 set_tests_properties(script.stuck PROPERTIES PASS_REGULAR_EXPRESSION
     "timed out waiting for \"standing at the end of a road\". PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
+
+# The symbols tests use two copies of adventure, each with a hand-written .sym
+# file, so a script can load the other copy and check that the symbols change.
+foreach(_rom adventure other)
+    configure_file(${ADVENTURE_ROM} ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.rp6502 COPYONLY)
+    configure_file(symbols/${_rom}.sym ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.sym COPYONLY)
+endforeach()
+rp6502_add_script_test(symbols ROM ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502
+    ARGS --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/other.rp6502)
+rp6502_add_script_test(symbols_fail DRIVER symbols_fail.py
+    ROM ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502)
+rp6502_add_script_test(symbols_keys ROM ${KEYBOARD_ROM} DEPENDS keyboard_rom)
 
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
@@ -133,3 +146,14 @@ rp6502_add_test(cc65dbg
     DEFS TEST_ONCE_FIXTURE="${CMAKE_CURRENT_LIST_DIR}/cc65_once.dbg")
 
 rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})
+
+set(EXPR_CASES ${CMAKE_CURRENT_BINARY_DIR}/expr_cases.txt)
+rp6502_test_rom(expr_cases GEN ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
+    ARGS --emit ${EXPR_CASES}
+    OUTPUTS ${EXPR_CASES}
+    COMMENT "Generating the expression test cases")
+rp6502_add_test(expr ROM ${EXPR_CASES} DEPENDS expr_cases
+    SOURCES test_expr.c ${RP6502_SRC}/host/sokol/cli/expr.c)
+if(NOT WIN32)
+    target_link_libraries(test_expr PRIVATE m)
+endif()
