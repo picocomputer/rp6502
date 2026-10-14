@@ -210,35 +210,59 @@ def emit(path, body):
     return image(body).write(path)
 
 
-def drive(emu, rom, save_dir=None):
-    """Records the PSG's note and checks it the way aud.psg_oscillates does:
-    loud, and 440 Hz within a tenth, counted as crossings of a gate of 512."""
-    def body(e):
-        e.cmd("run 3")
-        e.cmd('wav "psg.wav" 12')
-    code = rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
-    if code:
-        return code
-    with wave.open("psg.wav", "rb") as w:
+def mono(path):
+    """The wav's samples, left and right averaged. None when it is not 16-bit
+    stereo at 48 kHz."""
+    with wave.open(path, "rb") as w:
         shape = (w.getnchannels(), w.getsampwidth(), w.getframerate())
         pcm = w.readframes(w.getnframes())
     if shape != (2, 2, 48000):
-        print(f"{sys.argv[0]}: psg.wav is {shape}", file=sys.stderr)
-        return 1
+        print(f"{sys.argv[0]}: {path} is {shape}", file=sys.stderr)
+        return None
     samples = struct.unpack(f"<{len(pcm) // 2}h", pcm)
-    mono = [(samples[i] + samples[i + 1]) / 2 for i in range(0, len(samples), 2)]
-    peak = max(abs(v) for v in mono)
+    return [(samples[i] + samples[i + 1]) / 2 for i in range(0, len(samples), 2)]
+
+
+def drive(emu, rom, save_dir=None):
+    """Records the PSG's note and checks it the way aud.psg_oscillates does:
+    loud, and 440 Hz within a tenth, counted as crossings of a gate of 512.
+    Then the gate byte is cleared twice. A plain poke changes XRAM, and the
+    PSG, which catches the gate only as the RIA writes it, plays on. xbus:
+    writes it the way the RIA does, and the note is released."""
+    def body(e):
+        e.cmd("run 3")
+        e.cmd('wav "psg.wav" 12')
+        e.cmd("poke xram:$8006 $00")
+        e.cmd('wav "plain.wav" 2')
+        e.cmd("poke xbus:$8006 $00")
+        e.cmd("run 1")
+        e.cmd('wav "released.wav" 2')
+    code = rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
+    if code:
+        return code
+    note, plain, released = (mono(n) for n in ("psg.wav", "plain.wav", "released.wav"))
+    if note is None or plain is None or released is None:
+        return 1
+    peak = max(abs(v) for v in note)
     cross, side = 0, 0
-    for v in mono:
+    for v in note:
         if v > 512:
             cross += side < 0
             side = 1
         elif v < -512:
             cross += side > 0
             side = -1
-    hz = cross / 2 * 48000 / len(mono)
+    hz = cross / 2 * 48000 / len(note)
     if peak <= 4096 or cross <= 100 or not 396 < hz < 484:
         print(f"{sys.argv[0]}: peak {peak}, {cross} crossings, {hz:.1f} Hz",
+              file=sys.stderr)
+        return 1
+    if max(abs(v) for v in plain) <= 4096:
+        print(f"{sys.argv[0]}: a plain poke of the gate released the note",
+              file=sys.stderr)
+        return 1
+    if max(abs(v) for v in released):
+        print(f"{sys.argv[0]}: the note plays on after an xbus: poke of the gate",
               file=sys.stderr)
         return 1
     return 0

@@ -103,13 +103,18 @@ void ria_aud_watch(uint16_t xaddr)
     ria_aud_page = xaddr == 0xFFFF ? 0xFFFF : (uint16_t)(xaddr & 0xFF00);
 }
 
+void ria_xram_write(uint16_t addr, uint8_t data)
+{
+    xram[addr] = data;
+    if ((addr & 0xFF00) == ria_aud_page)
+        aud_xram_write(addr, data);
+}
+
 static void rw_write(int which, uint8_t data)
 {
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);
     int8_t step = (int8_t)(which ? regs[0x09] : regs[0x05]);
-    xram[addr] = data;
-    if ((addr & 0xFF00) == ria_aud_page)
-        aud_xram_write(addr, data);
+    ria_xram_write(addr, data);
     addr = (uint16_t)(addr + step);
     if (which)
         REGSW(0xFFEA) = addr;

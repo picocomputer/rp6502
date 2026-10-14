@@ -67,12 +67,14 @@ static size_t script_needle_len;
 static int script_exit_want;
 
 /* Where an address points. Without a prefix, or with ram:, it is the 6502's
- * address space. bus: is the same space, written the way the 6502 writes it. */
+ * address space. bus: is the same space, written the way the 6502 writes it.
+ * xbus: is XRAM, written the way the RIA writes it for the 6502. */
 typedef enum
 {
     SCRIPT_CPU,
     SCRIPT_XRAM,
     SCRIPT_BUS,
+    SCRIPT_XBUS,
 } script_space_t;
 
 /* A `wait` on memory looks here. script_settle samples the byte once a
@@ -447,6 +449,8 @@ static bool script_address(char **p, script_space_t *space, long *addr)
     *space = SCRIPT_CPU;
     if (!strncasecmp(word, "xram:", 5))
         *space = SCRIPT_XRAM, word += 5;
+    else if (!strncasecmp(word, "xbus:", 5))
+        *space = SCRIPT_XBUS, word += 5;
     else if (!strncasecmp(word, "bus:", 4))
         *space = SCRIPT_BUS, word += 4;
     else if (!strncasecmp(word, "ram:", 4))
@@ -463,7 +467,16 @@ static bool script_address(char **p, script_space_t *space, long *addr)
 /* Nothing answers a read of $FF00-$FFCF or takes a write there. */
 static bool script_unassigned(script_space_t space, long addr)
 {
-    return space != SCRIPT_XRAM && addr > SRAM_MMAP_HI && addr < VIA_MMAP_LO;
+    return (space == SCRIPT_CPU || space == SCRIPT_BUS) &&
+           addr > SRAM_MMAP_HI && addr < VIA_MMAP_LO;
+}
+
+/* bus: and xbus: are stores, so peek, dump and wait refuse them. */
+static bool script_readable(script_space_t space)
+{
+    if (space == SCRIPT_BUS || space == SCRIPT_XBUS)
+        return script_error("%s is only for poke", space == SCRIPT_BUS ? "bus:" : "xbus:");
+    return true;
 }
 
 /* What a read finds, with none of what a read on the bus does. */
@@ -485,6 +498,8 @@ static void script_poke(script_space_t space, uint16_t addr, uint8_t value)
 {
     if (space == SCRIPT_XRAM)
         xram[addr] = value;
+    else if (space == SCRIPT_XBUS)
+        ria_xram_write(addr, value);
     else if (space == SCRIPT_BUS)
     {
         sram[addr] = value;
@@ -924,8 +939,8 @@ static bool script_command(const char *line)
                 !script_number(&p, &want) || want < 0 || want > 0xFF)
                 return script_error("wait wants a quoted string, or an address "
                                  "and the byte to wait for");
-            if (script_addr_space == SCRIPT_BUS)
-                return script_error("bus: is only for poke");
+            if (!script_readable(script_addr_space))
+                return false;
             if (script_unassigned(script_addr_space, script_addr))
                 return script_error("$%04lX is unassigned", script_addr);
             script_addr_want = (uint8_t)want;
@@ -1099,8 +1114,8 @@ static bool script_command(const char *line)
         long addr, want;
         if (!script_address(&p, &space, &addr))
             return script_error("peek wants an address");
-        if (space == SCRIPT_BUS)
-            return script_error("bus: is only for poke");
+        if (!script_readable(space))
+            return false;
         int i = 0;
         while (script_more(&p))
         {
@@ -1162,8 +1177,8 @@ static bool script_command(const char *line)
         long addr, count = 1;
         if (!script_address(&p, &space, &addr))
             return script_error("dump wants an address");
-        if (space == SCRIPT_BUS)
-            return script_error("bus: is only for poke");
+        if (!script_readable(space))
+            return false;
         if (script_more(&p) && (!script_number(&p, &count) || count < 1))
             return script_error("dump wants a byte count");
         for (long i = 0; i < count && addr + i <= 0xFFFF; i++)
@@ -1499,7 +1514,9 @@ void script_usage(FILE *out)
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  eof [frames]              end stdin once the program has read what was typed\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
-            "  poke [xram:|bus:]<addr> <byte>...   write memory; bus: stores as the 6502\n"
+            "  poke [xram:|bus:|xbus:]<addr> <byte>...\n"
+            "                                      write memory; bus: and xbus: store\n"
+            "                                      the way the 6502 and the RIA do\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
             "  cpu                                 PC A X Y SP P, then OP BUSY RESB\n"
             "  crc                                 the canvas as a CRC-32\n"
