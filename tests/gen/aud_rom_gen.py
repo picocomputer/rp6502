@@ -210,62 +210,171 @@ def emit(path, body):
     return image(body).write(path)
 
 
+# The recordings are 48 kHz, 800 samples to a frame. These bars are the ones
+# the C audio tests used: one PSG voice at full volume peaks near 16127, far
+# over LOUD, and BELL is a level no silence reaches.
+FRAME = 800
+LOUD = 4096
+BELL = 32
+
+
 def mono(path):
-    """The wav's samples, left and right averaged. None when it is not 16-bit
-    stereo at 48 kHz."""
+    """The wav's samples, left and right averaged."""
     with wave.open(path, "rb") as w:
         shape = (w.getnchannels(), w.getsampwidth(), w.getframerate())
         pcm = w.readframes(w.getnframes())
     if shape != (2, 2, 48000):
-        print(f"{sys.argv[0]}: {path} is {shape}", file=sys.stderr)
-        return None
+        raise ValueError(f"{path} is {shape}")
     samples = struct.unpack(f"<{len(pcm) // 2}h", pcm)
     return [(samples[i] + samples[i + 1]) / 2 for i in range(0, len(samples), 2)]
 
 
-def drive(emu, rom, save_dir=None):
-    """Records the PSG's note and checks it the way aud.psg_oscillates does:
-    loud, and 440 Hz within a tenth, counted as crossings of a gate of 512.
-    Then the gate byte is cleared twice. A plain poke changes XRAM, and the
-    PSG, which catches the gate only as the RIA writes it, plays on. xbus:
-    writes it the way the RIA does, and the note is released."""
-    def body(e):
-        e.cmd("run 3")
-        e.cmd('wav "psg.wav" 12')
-        e.cmd("poke xram:$8006 $00")
-        e.cmd('wav "plain.wav" 2')
-        e.cmd("poke xbus:$8006 $00")
-        e.cmd("run 1")
-        e.cmd('wav "released.wav" 2')
-    code = rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
-    if code:
-        return code
-    note, plain, released = (mono(n) for n in ("psg.wav", "plain.wav", "released.wav"))
-    if note is None or plain is None or released is None:
-        return 1
-    peak = max(abs(v) for v in note)
+def peaks(m):
+    """The loudest sample of each frame."""
+    return [max(abs(v) for v in m[i:i + FRAME]) for i in range(0, len(m), FRAME)]
+
+
+def onset(p, start=0):
+    """The first frame from start that is not silent, or -1."""
+    return next((i for i in range(start, len(p)) if p[i]), -1)
+
+
+def crossings(m):
+    """Swings through a gate of 512 each way, the way the C tests counted."""
     cross, side = 0, 0
-    for v in note:
+    for v in m:
         if v > 512:
             cross += side < 0
             side = 1
         elif v < -512:
             cross += side > 0
             side = -1
-    hz = cross / 2 * 48000 / len(note)
-    if peak <= 4096 or cross <= 100 or not 396 < hz < 484:
-        print(f"{sys.argv[0]}: peak {peak}, {cross} crossings, {hz:.1f} Hz",
-              file=sys.stderr)
+    return cross
+
+
+def record(emu, rom, save_dir, *lines):
+    def body(e):
+        for line in lines:
+            e.cmd(line)
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
+
+
+def fail(msg):
+    print(f"{sys.argv[0]}: {msg}", file=sys.stderr)
+    return 1
+
+
+def check_psg(a):
+    """The note starts within three frames, loud, and the twelve frames after
+    its first are 440 Hz within a tenth. Then the gate byte is cleared twice.
+    A plain poke changes XRAM, and the PSG, which catches the gate only as
+    the RIA writes it, plays on. xbus: writes it the way the RIA does, and
+    the note is released."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "psg.wav" 15',
+              "poke xram:$8006 $00", 'wav "plain.wav" 2',
+              "poke xbus:$8006 $00", "run 1", 'wav "released.wav" 2'):
         return 1
-    if max(abs(v) for v in plain) <= 4096:
-        print(f"{sys.argv[0]}: a plain poke of the gate released the note",
-              file=sys.stderr)
-        return 1
-    if max(abs(v) for v in released):
-        print(f"{sys.argv[0]}: the note plays on after an xbus: poke of the gate",
-              file=sys.stderr)
-        return 1
+    m = mono("psg.wav")
+    p = peaks(m)
+    at = onset(p)
+    if not 0 <= at < 3 or p[at] <= LOUD:
+        return fail(f"no loud note in frames 0-2: peaks {p[:3]}")
+    tail = m[(at + 1) * FRAME:(at + 13) * FRAME]
+    cross = crossings(tail)
+    hz = cross / 2 * 48000 / len(tail)
+    if max(abs(v) for v in tail) <= LOUD or cross <= 100 or not 396 < hz < 484:
+        return fail(f"{cross} crossings, {hz:.1f} Hz")
+    if max(peaks(mono("plain.wav"))) <= LOUD:
+        return fail("a plain poke of the gate released the note")
+    if max(peaks(mono("released.wav"))):
+        return fail("the note plays on after an xbus: poke of the gate")
     return 0
+
+
+def check_opl(a):
+    """The chord starts within three frames, loud, and swings through the
+    gate more than 80 times in the twelve frames after its first."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "opl.wav" 15'):
+        return 1
+    m = mono("opl.wav")
+    p = peaks(m)
+    at = onset(p)
+    if not 0 <= at < 3 or p[at] <= LOUD:
+        return fail(f"no loud chord in frames 0-2: peaks {p[:3]}")
+    tail = m[(at + 1) * FRAME:(at + 13) * FRAME]
+    if max(abs(v) for v in tail) <= LOUD or crossings(tail) <= 80:
+        return fail(f"{crossings(tail)} crossings")
+    return 0
+
+
+def check_init(a):
+    """A burst that clears every OPL register before the note loses no write
+    of the note's own."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "init.wav" 3'):
+        return 1
+    p = peaks(mono("init.wav"))
+    at = onset(p)
+    if at < 0 or p[at] <= LOUD:
+        return fail(f"no loud note in frames 0-2: peaks {p}")
+    return 0
+
+
+def check_pre(a):
+    """The block is programmed, gate and all, before xreg names it, so no note
+    starts until the program writes the gate again about five frames later."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "pre.wav" 20'):
+        return 1
+    p = peaks(mono("pre.wav"))
+    if any(p[1:4]):
+        return fail(f"sound in frames 1-3: peaks {p[1:4]}")
+    at = onset(p, 4)
+    if at < 0 or p[at] <= LOUD:
+        return fail(f"no loud note in frames 4-19: peaks {p[4:]}")
+    return 0
+
+
+def check_bel(a):
+    """A BEL rings with no sound generator mapped."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "bel.wav" 4'):
+        return 1
+    p = peaks(mono("bel.wav"))
+    at = onset(p)
+    if at < 0 or p[at] <= BELL:
+        return fail(f"no bell in frames 0-3: peaks {p}")
+    return 0
+
+
+def check_opl_bel(a):
+    """A BEL rings over the OPL. The OPL alone is far louder than the bell,
+    so the recording is compared with one of the same OPL code without the
+    BEL, and what is left is the bell."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "both.wav" 4'):
+        return 1
+    if record(a.emu, a.base, a.save_dir, 'wav "opl.wav" 4'):
+        return 1
+    p = peaks([x - y for x, y in zip(mono("both.wav"), mono("opl.wav"))])
+    at = onset(p)
+    if at < 0 or p[at] <= BELL:
+        return fail(f"no bell over the OPL in frames 0-3: peaks {p}")
+    return 0
+
+
+def check_exit(a):
+    """The chord sounds, and the second frame after the program exits is
+    silent."""
+    if record(a.emu, a.rom, a.save_dir, 'wav "on.wav" 1', "expect-exit 0 20",
+              "run 1", 'wav "off.wav" 1'):
+        return 1
+    if not max(peaks(mono("on.wav"))):
+        return fail("no sound before the exit")
+    if max(peaks(mono("off.wav"))):
+        return fail("sound after the exit")
+    return 0
+
+
+CHECKS = {"psg": check_psg, "opl": check_opl, "init": check_init,
+          "pre": check_pre, "bel": check_bel, "opl-bel": check_opl_bel,
+          "exit": check_exit}
 
 
 def main():
@@ -278,9 +387,12 @@ def main():
     ap.add_argument("--emit-bel")
     ap.add_argument("--emit-opl-bel")
     ap.add_argument("--drive", action="store_true",
-                    help="record psg.rp6502 to a wav and check the note")
+                    help="record the ROM's sound to a wav and check it")
+    ap.add_argument("--check", choices=CHECKS, default="psg",
+                    help="what to check, which names the ROM it is for")
+    ap.add_argument("--base", help="opl.rp6502, for --check opl-bel")
     ap.add_argument("--emu", help="the rp6502-emu binary")
-    ap.add_argument("--rom", help="the psg.rp6502 --emit-psg wrote")
+    ap.add_argument("--rom", help="the ROM the check is for")
     ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit_psg:
@@ -298,7 +410,7 @@ def main():
     if a.emit_opl_bel:
         print(f"opl_bel.rp6502 {emit(a.emit_opl_bel, opl_bel_prog())} bytes")
     if a.drive:
-        return drive(a.emu, a.rom, a.save_dir)
+        return CHECKS[a.check](a)
     return 0
 
 
