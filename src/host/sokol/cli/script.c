@@ -90,19 +90,21 @@ static struct
     int lx, ly, rx, ry, lt, rt;
 } script_gamepad[4];
 
-/* What the program wrote to stdout and to stderr that no check has used yet,
- * converted from the code page to UTF-8 as it was written, so that it compares
- * with the script's own text. The line editor's echo of typed text is not the
- * program's output, so it is in neither. */
+/* What no check has used yet, converted from the code page to UTF-8 as it was
+ * written, so that it compares with the script's own text. stdout and stderr
+ * are the bytes the program wrote. console is what reaches the screen: those
+ * bytes with the CR the console puts before each newline, the line editor's
+ * echo of typed text, and the system's own messages. */
 typedef struct
 {
     char buf[SCRIPT_CAP_SIZE];
     size_t len;
 } script_cap_t;
 
-static script_cap_t script_cap[2];
+static script_cap_t script_cap[3];
 #define SCRIPT_STDOUT (&script_cap[0])
 #define SCRIPT_STDERR (&script_cap[1])
+#define SCRIPT_CONSOLE (&script_cap[2])
 
 /* The text a `wait` is looking in. */
 static script_cap_t *script_wait_cap;
@@ -111,13 +113,8 @@ static script_cap_t *script_wait_cap;
  * it stopped partway through a line. */
 static bool script_stderr_midline;
 
-static void script_std_tap(int fd, const char *buf, int len)
+static void script_cap_put(script_cap_t *cap, const char *buf, int len)
 {
-    if (fd != 1 && fd != 2)
-        return;
-    if (fd == 2 && len)
-        script_stderr_midline = buf[len - 1] != '\n';
-    script_cap_t *cap = &script_cap[fd - 1];
     for (int i = 0; i < len; i++)
     {
         char utf8[3];
@@ -137,6 +134,20 @@ static void script_std_tap(int fd, const char *buf, int len)
         memcpy(cap->buf + cap->len, utf8, n);
         cap->len += n;
     }
+}
+
+static void script_std_tap(int fd, const char *buf, int len)
+{
+    if (fd != 1 && fd != 2)
+        return;
+    if (fd == 2 && len)
+        script_stderr_midline = buf[len - 1] != '\n';
+    script_cap_put(&script_cap[fd - 1], buf, len);
+}
+
+static void script_console_tap(const char *buf, int len)
+{
+    script_cap_put(SCRIPT_CONSOLE, buf, len);
 }
 
 /* Where the text first appears in the capture, or NULL. The program can write
@@ -162,28 +173,32 @@ static void script_cap_take(script_cap_t *cap, const char *through)
     cap->len -= used;
 }
 
-/* An optional stdout or stderr before a string. Without one it is stdout. */
+static const char *const script_cap_names[] = {"stdout", "stderr", "console"};
+
+/* An optional stream before a string. Without one it is stdout. */
 static script_cap_t *script_stream(char **p)
 {
     char *s = *p;
     while (*s == ' ' || *s == '\t')
         s++;
     size_t n = strcspn(s, " \t");
-    script_cap_t *cap = NULL;
-    if (n == 6 && !strncasecmp(s, "stdout", 6))
-        cap = SCRIPT_STDOUT;
-    else if (n == 6 && !strncasecmp(s, "stderr", 6))
-        cap = SCRIPT_STDERR;
-    if (!cap)
-        return SCRIPT_STDOUT;
-    *p = s + n;
-    return cap;
+    for (int i = 0; i < 3; i++)
+        if (n == strlen(script_cap_names[i]) && !strncasecmp(s, script_cap_names[i], n))
+        {
+            *p = s + n;
+            return &script_cap[i];
+        }
+    return SCRIPT_STDOUT;
 }
 
 /* Messages name the stream only when it is not the default. */
 static const char *script_on(const script_cap_t *cap)
 {
-    return cap == SCRIPT_STDERR ? " on stderr" : "";
+    if (cap == SCRIPT_STDERR)
+        return " on stderr";
+    if (cap == SCRIPT_CONSOLE)
+        return " on console";
+    return "";
 }
 
 /* Where the program is: the 6502's registers, then the RIA's OP and BUSY.
@@ -866,7 +881,7 @@ static bool script_command(const char *line)
         }
         else if (p != before)
             return script_error("wait %s wants a quoted string",
-                                cap == SCRIPT_STDERR ? "stderr" : "stdout");
+                                script_cap_names[cap - script_cap]);
         else
         {
             long want;
@@ -1366,7 +1381,7 @@ void script_usage(FILE *out)
             "\nscript commands (one per line, # comments, text always quoted;\n"
             "a failed check names the line and the cpu, then exits 1):\n"
             "  run [frames]              let frames elapse (default 1)\n"
-            "  wait [stdout|stderr] \"text\" [frames]\n"
+            "  wait [stdout|stderr|console] \"text\" [frames]\n"
             "                                      run until the program writes it\n"
             "                                      (default stdout, 600 frames)\n"
             "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
@@ -1381,8 +1396,10 @@ void script_usage(FILE *out)
             "  pad <n> trigger <lt> <rt>           0..255\n"
             "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
             "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
-            "  expect [stdout|stderr] \"text\"       check the stream since its last\n"
-            "  expect-not [stdout|stderr] \"text\"   match (default stdout)\n"
+            "  expect [stdout|stderr|console] \"text\"\n"
+            "  expect-not [stdout|stderr|console] \"text\"\n"
+            "                                      check the stream since its last\n"
+            "                                      match (default stdout)\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
             "  poke [xram:|bus:]<addr> <byte>...   write memory; bus: stores as the 6502\n"
@@ -1419,14 +1436,12 @@ bool script_load(const char *path)
         script_path = path;
     }
     com_set_std_tap(script_std_tap);
+    com_set_tx_tap(script_console_tap);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;
-    for (int i = 0; i < 2; i++)
-    {
+    for (int i = 0; i < 3; i++)
         script_cap[i].len = 0;
-        script_cap[i].buf[0] = 0;
-    }
     script_stderr_midline = false;
     script_marked = false;
     script_fail = false;
