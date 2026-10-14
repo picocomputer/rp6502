@@ -213,7 +213,7 @@ rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py
     COMMENT "Generating the vsync interrupt ROM")
 
 function(rp6502_add_script_test name)
-    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
+    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;TIMEOUT" "ARGS;ROM_ARGS;DEPENDS" ${ARGN})
     if(NOT TARGET rp6502-emu)
         message(FATAL_ERROR
             "rp6502_add_script_test(${name}) drives the shipped binary.\n"
@@ -253,9 +253,15 @@ function(rp6502_add_script_test name)
                 --emu $<TARGET_FILE:rp6502-emu> --rom ${S_ROM}
                 --save-dir ${_work} ${S_ARGS})
     else()
+        # ROM_ARGS reach the program as argv[1] and on. A driver passes its own
+        # through rp6502_script.drive.
+        set(_rom_args)
+        if(S_ROM_ARGS)
+            set(_rom_args -- ${S_ROM_ARGS})
+        endif()
         add_test(NAME script.${name}
             COMMAND rp6502-emu --mute --seed 1 --fill 0 --save-dir ${_work}
-                ${S_ARGS} --script ${S_SCRIPT} ${S_ROM})
+                ${S_ARGS} --script ${S_SCRIPT} ${S_ROM} ${_rom_args})
     endif()
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)

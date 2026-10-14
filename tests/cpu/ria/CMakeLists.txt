@@ -152,4 +152,9 @@ if(TARGET rp6502-emu)
         ROM ${CON_ROM} DEPENDS con_rom TIMEOUT 120)
 
     rp6502_add_script_test(adventure ROM ${ADVENTURE_ROM})
+
+    rp6502_add_script_test(args ROM ${ARGV_ROM} ROM_ARGS Foo DEPENDS argv_rom)
+
+    rp6502_add_script_test(argv DRIVER ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
+        ROM ${ARGV_ROM} DEPENDS argv_rom)
 endif()

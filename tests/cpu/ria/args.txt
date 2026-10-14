@@ -1,0 +1,4 @@
+# The program prints its argv with a | for each zero byte, so the argument
+# given after the ROM appears between two of them.
+
+wait ".rp6502|Foo|]\r\n"

@@ -26,12 +26,12 @@ class ScriptError(Exception):
 
 class Emu:
     def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT, env=None,
-                 mute=True):
+                 mute=True, rom_args=()):
         self.timeout = timeout
         env = dict(os.environ, **env) if env else None
         self.proc = subprocess.Popen(
             [str(emu), *(("--mute",) if mute else ()), *EMU_ARGS, *args,
-             "--script", "-", str(rom)],
+             "--script", "-", str(rom), *(("--", *rom_args) if rom_args else ())],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             env=env, text=True, encoding="utf-8", errors="replace", bufsize=1)
         # The replies are read on a thread rather than with select, because
@@ -107,10 +107,11 @@ class Emu:
         return False
 
 
-def drive(emu, rom, body, args=(), env=None, save_dir=None, mute=True):
+def drive(emu, rom, body, args=(), env=None, save_dir=None, mute=True,
+          rom_args=()):
     if save_dir:
         args = ("--save-dir", str(save_dir), *args)
-    e = Emu(emu, rom, args, env=env, mute=mute)
+    e = Emu(emu, rom, args, env=env, mute=mute, rom_args=rom_args)
     try:
         with e:
             e.start()
