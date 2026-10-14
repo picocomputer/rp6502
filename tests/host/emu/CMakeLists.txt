@@ -7,6 +7,9 @@ rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
 rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 
+rp6502_add_script_test(state_mode ROM ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502
+    DEPENDS rp6502_test_corpus)
+
 rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
 
 rp6502_add_script_test(codepage ROM ${STDIO_ROM} DEPENDS stdio_rom)
