@@ -328,6 +328,11 @@ int main(int argc, char **argv)
         free(rom);
         return 1;
     }
+    /* With no window there is no frame to keep smooth, so a file transfer
+     * completes before the call returns and lands on the same scanline every
+     * run. */
+    if (o.headless || o.script || o.screenshot || o.crc)
+        fs_std_immediate(true);
     bool booted = proc_boot(rom, o.n_rom_args, o.rom_args, 0);
     free(rom);
     if (!booted)

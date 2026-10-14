@@ -323,6 +323,19 @@ bool fs_rom_remove(const char *name, api_errno *err)
     return false;
 }
 
+#ifndef RP6502_FS_SYNC
+static bool g_immediate;
+#endif
+
+void fs_std_immediate(bool on)
+{
+#ifndef RP6502_FS_SYNC
+    g_immediate = on;
+#else
+    (void)on; /* every transfer completes at once already */
+#endif
+}
+
 void fs_std_settle(void)
 {
 #ifndef RP6502_FS_SYNC
@@ -436,12 +449,14 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
             }
         }
         /* Whether it completed at once or queued, the event is what says so,
-         * so both are reaped by the next dispatch. */
+         * so both are reaped by the next dispatch, or right here when the
+         * transfer has to complete before the call returns. */
         g_xfer.fd = fd;
-        return STD_PENDING;
+        if (!g_immediate)
+            return STD_PENDING;
     }
     DWORD bytes = 0;
-    if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
+    if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, g_immediate))
     {
         DWORD e = GetLastError();
         if (e == ERROR_IO_INCOMPLETE)

@@ -67,3 +67,9 @@ std_rw_result fs_std_close(int desc, api_errno *err)
 void fs_std_settle(void)
 {
 }
+
+/* Every transfer here completes at once already. */
+void fs_std_immediate(bool on)
+{
+    (void)on;
+}
