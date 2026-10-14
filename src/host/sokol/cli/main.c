@@ -406,7 +406,10 @@ int main(int argc, char **argv)
         {
             script_task();
             if (script_running())
+            {
                 vga_run_frame();
+                script_listen();
+            }
         }
         if (script_exit_code() || !(o.screenshot || o.crc))
         {

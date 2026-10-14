@@ -23,3 +23,8 @@ else()
             AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
         DEPENDS aud_roms)
 endif()
+
+if(TARGET rp6502-emu)
+    rp6502_add_script_test(psg DRIVER ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
+        ROM ${AUD_ROM_PSG} DEPENDS aud_roms)
+endif()

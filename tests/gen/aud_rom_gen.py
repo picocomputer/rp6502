@@ -4,7 +4,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
+import struct
+import sys
+import wave
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rp6502_script  # noqa: E402
 from rp6502_asm import API_OP, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, Asm
 from rp6502_rom import image
 
@@ -204,6 +210,40 @@ def emit(path, body):
     return image(body).write(path)
 
 
+def drive(emu, rom, save_dir=None):
+    """Records the PSG's note and checks it the way aud.psg_oscillates does:
+    loud, and 440 Hz within a tenth, counted as crossings of a gate of 512."""
+    def body(e):
+        e.cmd("run 3")
+        e.cmd('wav "psg.wav" 12')
+    code = rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
+    if code:
+        return code
+    with wave.open("psg.wav", "rb") as w:
+        shape = (w.getnchannels(), w.getsampwidth(), w.getframerate())
+        pcm = w.readframes(w.getnframes())
+    if shape != (2, 2, 48000):
+        print(f"{sys.argv[0]}: psg.wav is {shape}", file=sys.stderr)
+        return 1
+    samples = struct.unpack(f"<{len(pcm) // 2}h", pcm)
+    mono = [(samples[i] + samples[i + 1]) / 2 for i in range(0, len(samples), 2)]
+    peak = max(abs(v) for v in mono)
+    cross, side = 0, 0
+    for v in mono:
+        if v > 512:
+            cross += side < 0
+            side = 1
+        elif v < -512:
+            cross += side > 0
+            side = -1
+    hz = cross / 2 * 48000 / len(mono)
+    if peak <= 4096 or cross <= 100 or not 396 < hz < 484:
+        print(f"{sys.argv[0]}: peak {peak}, {cross} crossings, {hz:.1f} Hz",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit-psg")
@@ -213,6 +253,11 @@ def main():
     ap.add_argument("--emit-opl-init")
     ap.add_argument("--emit-bel")
     ap.add_argument("--emit-opl-bel")
+    ap.add_argument("--drive", action="store_true",
+                    help="record psg.rp6502 to a wav and check the note")
+    ap.add_argument("--emu", help="the rp6502-emu binary")
+    ap.add_argument("--rom", help="the psg.rp6502 --emit-psg wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit_psg:
         print(f"psg.rp6502 {emit(a.emit_psg, psg_prog())} bytes")
@@ -228,6 +273,8 @@ def main():
         print(f"bel.rp6502 {emit(a.emit_bel, bel_prog())} bytes")
     if a.emit_opl_bel:
         print(f"opl_bel.rp6502 {emit(a.emit_opl_bel, opl_bel_prog())} bytes")
+    if a.drive:
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

@@ -48,6 +48,10 @@ bool script_running(void);
  * than at least six hundred. */
 void script_task(void);
 
+/* Make the sound of the frame that just ran. The caller runs it after every
+ * frame, as a sink would pull it. */
+void script_listen(void);
+
 /* 0 when every assertion held. */
 int script_exit_code(void);
 

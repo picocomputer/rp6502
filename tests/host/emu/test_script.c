@@ -28,7 +28,10 @@ static unsigned long frames_for(const char *text)
     {
         script_task();
         if (script_running())
+        {
             emu_frames(1);
+            script_listen();
+        }
     }
     return vga_frame_count() - before;
 }

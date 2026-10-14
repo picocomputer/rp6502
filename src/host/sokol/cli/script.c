@@ -29,6 +29,7 @@
 #include "core/ria/ria.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
+#include "core/aud/mix.h"
 #include "osal/os.h"
 #include "chips/chips/w65c02.h"
 #include <stdarg.h>
@@ -51,6 +52,7 @@ typedef enum
     SCRIPT_TYPING,
     SCRIPT_EXIT,
     SCRIPT_EOF,
+    SCRIPT_WAV,
 } script_wait_t;
 
 static FILE *script_file;
@@ -82,6 +84,16 @@ static uint8_t script_addr_want;
 
 static uint32_t script_mark;
 static bool script_marked;
+
+/* Sound is made at mix.c's own default rate, one frame of it per frame. */
+#define SCRIPT_AUD_RATE 48000
+#define SCRIPT_AUD_FRAMES (SCRIPT_AUD_RATE / VGA_HZ)
+
+/* A wav larger than this would not fit the 32-bit sizes in its header. */
+#define SCRIPT_WAV_MAX_FRAMES 1000000
+
+/* The file `wav` is writing, NULL when it is not. */
+static FILE *script_wav;
 
 static struct
 {
@@ -487,6 +499,27 @@ static void script_poke(script_space_t space, uint16_t addr, uint8_t value)
         via_reg_poke(addr, value);
     else
         sram[addr] = value;
+}
+
+static void script_put_le(uint32_t v, int bytes)
+{
+    for (int i = 0; i < bytes; i++)
+        fputc((int)(v >> (8 * i)) & 0xFF, script_wav);
+}
+
+/* One frame of sound, pulled after every frame the script runs the way a
+ * sink pulls it, so the engines keep time with the machine whether or not a
+ * wav is being written. With --mute it is silence and costs nothing. */
+void script_listen(void)
+{
+    float out[SCRIPT_AUD_FRAMES * 2];
+    aud_render(out, SCRIPT_AUD_FRAMES);
+    if (!script_wav)
+        return;
+    /* aud_render divides a 16-bit sample by 32768, so this gives it back
+     * exactly. */
+    for (int i = 0; i < SCRIPT_AUD_FRAMES * 2; i++)
+        script_put_le((uint16_t)(int16_t)(out[i] * 32768.0f), 2);
 }
 
 static void script_gamepad_publish(int player)
@@ -1188,6 +1221,36 @@ static bool script_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "wav"))
+    {
+        char path[SCRIPT_LINE_MAX];
+        if (!script_string(&p, path, sizeof path) || !path[0])
+            return script_error("wav wants a quoted path");
+        long frames = 1;
+        if (script_more(&p) && (!script_number(&p, &frames) || frames < 0 ||
+                                frames > SCRIPT_WAV_MAX_FRAMES))
+            return script_error("wav wants a frame count");
+        script_wav = os_fopen(path, "wb");
+        if (!script_wav)
+            return script_error("cannot write '%s'", path);
+        uint32_t data = (uint32_t)frames * SCRIPT_AUD_FRAMES * 4;
+        fwrite("RIFF", 1, 4, script_wav);
+        script_put_le(36 + data, 4);
+        fwrite("WAVEfmt ", 1, 8, script_wav);
+        script_put_le(16, 4);
+        script_put_le(1, 2); /* PCM */
+        script_put_le(2, 2); /* stereo */
+        script_put_le(SCRIPT_AUD_RATE, 4);
+        script_put_le(SCRIPT_AUD_RATE * 4, 4);
+        script_put_le(4, 2);
+        script_put_le(16, 2);
+        fwrite("data", 1, 4, script_wav);
+        script_put_le(data, 4);
+        script_wait = SCRIPT_WAV;
+        script_budget = (unsigned long)frames;
+        return true;
+    }
+
     if (!strcasecmp(cmd, "shot"))
     {
         char path[SCRIPT_LINE_MAX]; /* a token cannot outrun its own line */
@@ -1368,6 +1431,16 @@ static bool script_settle(void)
         if (script_spend())
             return false;
         return script_error("timed out ending stdin; the program is not reading it");
+    case SCRIPT_WAV:
+    {
+        if (script_spend())
+            return false;
+        FILE *f = script_wav;
+        script_wav = NULL;
+        if (ferror(f) | fclose(f))
+            return script_error("cannot write the wav");
+        break;
+    }
     }
     script_wait = SCRIPT_IDLE;
     return true;
@@ -1432,6 +1505,7 @@ void script_usage(FILE *out)
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
+            "  wav \"file.wav\" [frames]   record that many frames of sound (default 1)\n"
             "  state save \"file\" / state load \"file\"   the machine, written down\n"
             "  seed                      print this run's seed\n"
             "  install \"path\" [NAME]     put a file on the null drive as :NAME\n"
@@ -1467,6 +1541,7 @@ bool script_load(const char *path)
     for (int i = 0; i < 3; i++)
         script_cap[i].len = 0;
     script_stderr_midline = false;
+    aud_set_sink_rate(SCRIPT_AUD_RATE);
     script_marked = false;
     script_fail = false;
     script_replies = false;

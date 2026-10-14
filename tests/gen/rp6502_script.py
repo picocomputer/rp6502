@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 
-EMU_ARGS = ("--mute", "--seed", "1", "--fill", "0")
+EMU_ARGS = ("--seed", "1", "--fill", "0")
 
 REPLY_TIMEOUT = 300
 
@@ -25,11 +25,13 @@ class ScriptError(Exception):
 
 
 class Emu:
-    def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT, env=None):
+    def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT, env=None,
+                 mute=True):
         self.timeout = timeout
         env = dict(os.environ, **env) if env else None
         self.proc = subprocess.Popen(
-            [str(emu), *EMU_ARGS, *args, "--script", "-", str(rom)],
+            [str(emu), *(("--mute",) if mute else ()), *EMU_ARGS, *args,
+             "--script", "-", str(rom)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             env=env, text=True, encoding="utf-8", errors="replace", bufsize=1)
         # The replies are read on a thread rather than with select, because
@@ -105,10 +107,10 @@ class Emu:
         return False
 
 
-def drive(emu, rom, body, args=(), env=None, save_dir=None):
+def drive(emu, rom, body, args=(), env=None, save_dir=None, mute=True):
     if save_dir:
         args = ("--save-dir", str(save_dir), *args)
-    e = Emu(emu, rom, args, env=env)
+    e = Emu(emu, rom, args, env=env, mute=mute)
     try:
         with e:
             e.start()
