@@ -7,6 +7,8 @@
 
 # RP6502-RIA Developer tool
 
+# Keep this file working on Python 3.9 for macOS.
+
 import os
 import re
 import time
@@ -22,7 +24,9 @@ import json
 import glob
 import shlex
 import socket
+import struct
 import subprocess
+import concurrent.futures
 from typing import Union
 
 # POSIX
@@ -1132,6 +1136,318 @@ class ROM:
         return len(data)
 
 
+class Symbols(dict):
+    """The names and values of a .sym file. A name with two values is not
+    in the table but in self.ambiguous. A missing file gives an empty table."""
+
+    def __init__(self, path):
+        super().__init__()
+        self.ambiguous = set()
+        try:
+            with open(path) as f:
+                for line in f:
+                    name, value = line.split()
+                    value = int(value, 0)
+                    if name in self.ambiguous:
+                        continue
+                    if self.get(name, value) != value:
+                        del self[name]
+                        self.ambiguous.add(name)
+                    else:
+                        self[name] = value
+        except FileNotFoundError:
+            pass
+
+    def __missing__(self, name):
+        if name in self.ambiguous:
+            raise KeyError(f"{name} is ambiguous")
+        raise KeyError(name)
+
+    @staticmethod
+    def text(value: int) -> str:
+        """The text of a value in a .sym file: hex from 0x0000 to 0xFFFF, else decimal."""
+        return f"0x{value:04X}" if 0 <= value <= 0xFFFF else str(value)
+
+    @staticmethod
+    def write(path, pairs):
+        """Writes (name, value) pairs as a .sym file and returns its lines as pairs.
+        Repeated pairs make one line. Values outside int64 are left out."""
+        lines = sorted({(n, v) for n, v in pairs if -(1 << 63) <= v < (1 << 63)})
+        with open(path, "w") as f:
+            f.writelines(f"{name} {Symbols.text(value)}\n" for name, value in lines)
+        return lines
+
+    @staticmethod
+    def _split_command(command: str) -> list:
+        """The words of a command from compile_commands.json."""
+        if os.name != "nt":
+            return shlex.split(command)
+        # Windows commands use Windows quoting, and shlex removes the backslashes.
+        parse = ctypes.windll.shell32.CommandLineToArgvW
+        parse.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+        parse.restype = ctypes.POINTER(wintypes.LPWSTR)
+        argc = ctypes.c_int()
+        argv = parse(command, ctypes.byref(argc))
+        words = [argv[i] for i in range(argc.value)]
+        kernel32.LocalFree(argv)
+        return words
+
+    @staticmethod
+    def _sources(commands: str, objects: str) -> list:
+        """The compile_commands.json entries of the C sources that have their
+        object under the objects folder, each with the words before its -o."""
+        with open(commands) as f:
+            entries = json.load(f)
+        objects = os.path.abspath(objects) + os.sep
+        sources = []
+        for entry in entries:
+            words = Symbols._split_command(entry["command"])
+            at = len(words) - 1 - words[::-1].index("-o")
+            obj = os.path.normpath(os.path.join(entry["directory"], words[at + 1]))
+            if obj.startswith(objects) and entry["file"].endswith(".c"):
+                sources.append((entry, words[:at]))
+        return sources
+
+    @staticmethod
+    def _make_deps(path: str, directory: str) -> list:
+        """The prerequisites in a Make dependency file, as absolute paths."""
+        with open(path) as f:
+            text = re.sub(r"\\\r?\n", " ", f.read())
+        deps = []
+        for word in re.split(r"(?<!\\)\s+", text):
+            if word and not word.endswith(":"):
+                word = word.replace("\\ ", " ").replace("\\#", "#").replace("$$", "$")
+                deps.append(os.path.normpath(os.path.join(directory, word)))
+        return deps
+
+    @staticmethod
+    def _first_line(files: list, pattern: str):
+        """The path:line of the first line that matches pattern, or None."""
+        regex = re.compile(pattern)
+        for path in files:
+            with open(path, errors="replace") as f:
+                for number, line in enumerate(f, 1):
+                    if regex.match(line):
+                        return f"{path}:{number}"
+        return None
+
+    @staticmethod
+    def _run_compiler(argv: list, cwd: str):
+        """Runs a compiler, with its stderr in its stdout."""
+        return subprocess.run(
+            argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+
+    @staticmethod
+    def _read_source(entry: dict, flags: list, cc65: bool, work: str, n: int):
+        """The (name, value) pairs of the integer macros of one C source, the
+        files that its compile reads, and an error for each struct over 65535 bytes."""
+        directory, source = entry["directory"], entry["file"]
+
+        # A function-like macro has "(" after its name, so it does not match.
+        listing = os.path.join(work, f"{n}.dm")
+        mode = ["-E", "-Wc", "-dM"] if cc65 else ["-dM", "-E"]
+        result = Symbols._run_compiler(
+            flags + mode + ["-o", listing, source], directory
+        )
+        if result.returncode:
+            sys.exit(result.stdout.rstrip("\n"))
+        names = []
+        with open(listing, errors="replace") as f:
+            for line in f:
+                match = re.match(r"#define ([A-Za-z_]\w*) +\S", line)
+                if match:
+                    names.append(match.group(1))
+
+        # Each macro becomes two constants: its value, and 1 if it is negative.
+        # "| 0" is an error for floats and pointers. A name with an error is removed.
+        stub = os.path.join(work, f"{n}.c")
+        asm = os.path.join(work, f"{n}.s")
+        dep = os.path.join(work, f"{n}.d")
+        wide = "unsigned long" if cc65 else "unsigned long long"
+        if cc65:
+            mode = ["--create-full-dep", dep]
+        else:
+            mode = ["-fno-lto", "-ferror-limit=0", "-MD", "-MF", dep]
+        # CMake 3.21 reads a -S in the cc65 wrapper call as its own option, which
+        # takes the next word as a folder, so -S comes right before the stub.
+        argv = flags + ["-I", os.path.dirname(source)] + mode + ["-o", asm, "-S", stub]
+        # The stub includes the source by its real path from the stub's folder,
+        # so the compiler opens this source and no other file of the same name.
+        include = os.path.relpath(os.path.realpath(source), os.path.realpath(work))
+        include = include.replace(os.sep, "/")
+        live = list(range(len(names)))
+        while True:
+            with open(stub, "w") as f:
+                f.write(f'#include "{include}"\n')
+                for i in live:
+                    f.write(f"const {wide} _sym_{i} = ({wide})(({names[i]}) | 0);\n")
+                    f.write(f"const unsigned char _neg_{i} = ({names[i]}) < 0;\n")
+            result = Symbols._run_compiler(argv, directory)
+            if result.returncode == 0:
+                break
+            # Lines 2+2k and 3+2k of the stub hold the name live[k].
+            bad = set()
+            for match in re.finditer(
+                r"^(.+?):(\d+):(?:\d+:)? (?:fatal error|error|fatal):",
+                result.stdout,
+                re.M | re.I,
+            ):
+                k = (int(match.group(2)) - 2) // 2
+                path = os.path.normpath(os.path.join(directory, match.group(1)))
+                if path == stub and 0 <= k < len(live):
+                    bad.add(live[k])
+            if not bad:
+                sys.exit(result.stdout.rstrip("\n"))
+            live = [i for i in live if i not in bad]
+
+        # cc65 writes ".dword $XXXXXXXX" and ".byte $XX", llvm-mos writes decimal.
+        if cc65:
+            pattern = r"^__(sym|neg)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-F]+)"
+            base, bits = 16, 32
+        else:
+            pattern = r"^_(sym|neg)_(\d+):\s*\.(?:quad|byte)\s+(-?\d+)"
+            base, bits = 10, 64
+        with open(asm) as f:
+            found = {
+                (m.group(1), int(m.group(2))): int(m.group(3), base)
+                for m in re.finditer(pattern, f.read(), re.M)
+            }
+        pairs = []
+        for i in live:
+            value = found[("sym", i)] & ((1 << bits) - 1)
+            if found[("neg", i)]:
+                value -= 1 << bits
+            pairs.append((names[i], value))
+
+        files = []
+        for path in Symbols._make_deps(dep, directory):
+            if path != stub and path not in files:
+                files.append(path)
+
+        # cc65 gives an error for a struct over 65535 bytes, llvm-mos does not.
+        errors = []
+        if not cc65:
+            argv = flags + [
+                "-Xclang",
+                "-fdump-record-layouts-complete",
+                "-fsyntax-only",
+            ]
+            layouts = subprocess.run(
+                argv + [source],
+                cwd=directory,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).stdout
+            for block in layouts.split("*** Dumping AST Record Layout")[1:]:
+                head = re.search(r"^\s*0 \| (struct|union) (.+)$", block, re.M)
+                size = re.search(r"\[sizeof=(\d+),", block)
+                if not head or not size or int(size.group(1)) <= 0xFFFF:
+                    continue
+                kind, name = head.groups()
+                unnamed = re.fullmatch(r".*\(unnamed at (.+?)(:\d+:\d+)\)", name)
+                if unnamed:
+                    path = os.path.normpath(os.path.join(directory, unnamed.group(1)))
+                    where, what = path + unnamed.group(2), kind
+                else:
+                    where = Symbols._first_line(
+                        files, rf".*\b{kind}\s+{re.escape(name)}\b"
+                    )
+                    where, what = where or source, f"{kind} {name}"
+                errors.append(
+                    f"{where}: error: {what} is {size.group(1)} bytes, larger than 65535"
+                )
+        return pairs, files, errors
+
+    @staticmethod
+    def _dbg_symbols(path: str) -> list:
+        """The (name, value) pairs of a cc65 .dbg file. cc65 puts _ before a C
+        name, so a name _x is also given as x."""
+        pairs = []
+        with open(path, errors="replace") as f:
+            for line in f:
+                if not line.startswith("sym\t"):
+                    continue
+                fields = dict(re.findall(r'(\w+)=("[^"]*"|[^,\n]*)', line[4:]))
+                name = fields.get("name", "").strip('"')
+                skip = fields.get("type") == "imp" or name.startswith("@")
+                if skip or "val" not in fields:
+                    continue
+                value = int(fields["val"], 0)
+                pairs.append((name, value))
+                if name.startswith("_") and len(name) > 1:
+                    pairs.append((name[1:], value))
+        return pairs
+
+    @staticmethod
+    def _elf_symbols(path: str) -> list:
+        """The (name, value) pairs of the symbol table of an ELF32 file."""
+        with open(path, "rb") as f:
+            data = f.read()
+        (shoff,) = struct.unpack_from("<I", data, 0x20)
+        shentsize, shnum = struct.unpack_from("<HH", data, 0x2E)
+        sections = [
+            struct.unpack_from("<10I", data, shoff + i * shentsize)
+            for i in range(shnum)
+        ]
+        pairs = []
+        for _, kind, _, _, offset, size, link, _, _, _ in sections:
+            if kind != 2:  # SHT_SYMTAB
+                continue
+            strings = sections[link][4]
+            for at in range(offset, offset + size, 16):
+                name, value, _, info = struct.unpack_from("<IIIB", data, at)
+                if not name or (info & 0xF) in (3, 4):  # STT_SECTION, STT_FILE
+                    continue
+                end = data.index(b"\0", strings + name)
+                pairs.append((data[strings + name : end].decode(), value))
+        return pairs
+
+    @staticmethod
+    def build(linked, out, commands, objects, work, aligns) -> list:
+        """Writes the .sym file of a linked program. Returns the error lines."""
+        target = os.path.splitext(os.path.basename(out))[0]
+        errors = []
+        patterns = []
+        for regex in aligns:
+            try:
+                patterns.append((regex, re.compile(regex)))
+            except re.error as e:
+                errors.append(f'rp6502_align({target} "{regex}"): {e}')
+
+        cc65 = linked.endswith(".dbg")
+        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols._elf_symbols(linked)
+        work = os.path.abspath(work)
+        os.makedirs(work, exist_ok=True)
+        sources = Symbols._sources(commands, objects)
+        files = []
+        with concurrent.futures.ThreadPoolExecutor(len(sources) or 1) as pool:
+            jobs = [
+                pool.submit(Symbols._read_source, entry, flags, cc65, work, n)
+                for n, (entry, flags) in enumerate(sources)
+            ]
+            for job in jobs:
+                found, read, records = job.result()
+                pairs += found
+                files += [path for path in read if path not in files]
+                errors += [line for line in records if line not in errors]
+
+        lines = Symbols.write(out, pairs)
+        for number, (name, value) in enumerate(lines, 1):
+            regex = next((r for r, p in patterns if p.fullmatch(name)), None)
+            if regex is None or (0 <= value <= 0xFFFF and value % 2 == 0):
+                continue
+            why = "odd" if 0 <= value <= 0xFFFF else "outside 0x0000-0xFFFF"
+            where = Symbols._first_line(files, rf"\s*#\s*define\s+{re.escape(name)}\b")
+            where = where or f"{out}:{number}"
+            errors.append(
+                f"{where}: error: {name} is {Symbols.text(value)}, which is {why}; "
+                f'rp6502_align({target} "{regex}")'
+            )
+        return errors
+
+
 class Emulator:
     """rp6502-emu discovery and debug-adapter error reporting."""
 
@@ -1256,85 +1572,6 @@ class Emulator:
             send(response)
 
 
-def serve_web(path):
-    """Serves the web packages that rp6502_web() makes in <build>/web, with
-    a list of them at the root, until stopped. path is the build folder or
-    a file in it, such as the launch target that VS Code has just built."""
-    import html
-    import http.server
-    import threading
-    import webbrowser
-
-    build = os.path.abspath(path)
-    while not os.path.isfile(os.path.join(build, "CMakeCache.txt")):
-        parent = os.path.dirname(build)
-        if parent == build:
-            raise RuntimeError(f"{path} is not in a CMake build folder")
-        build = parent
-    root = os.path.join(build, "web")
-
-    def packages():
-        if not os.path.isdir(root):
-            return []
-        return sorted(
-            name
-            for name in os.listdir(root)
-            if os.path.isfile(os.path.join(root, name, "index.html"))
-        )
-
-    if not packages():
-        raise RuntimeError(
-            f"{build} has no web packages; rp6502_web() in CMakeLists.txt makes them"
-        )
-
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=root, **kwargs)
-
-        def do_GET(self):
-            if self.path.split("?")[0] not in ("/", "/index.html"):
-                return super().do_GET()
-            items = "".join(
-                f'<li><a href="{html.escape(name)}/">{html.escape(name)}</a>'
-                f' &middot; <a href="{html.escape(name)}.zip">{html.escape(name)}.zip</a></li>'
-                for name in packages()
-            )
-            body = (
-                '<!doctype html><meta charset="utf-8"><title>Web packages</title>'
-                f"<h1>Web packages</h1><ul>{items}</ul>"
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format, *args):
-            pass
-
-    # On Windows, SO_REUSEADDR lets a second server bind a port in use.
-    class Server(http.server.ThreadingHTTPServer):
-        allow_reuse_address = os.name != "nt"
-
-    server = None
-    for port in range(8000, 8100):
-        try:
-            server = Server(("127.0.0.1", port), Handler)
-            break
-        except OSError:
-            continue
-    if not server:
-        raise RuntimeError("No free port from 8000 to 8099")
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
-    print(f"[{SCRIPT_FILE}] Serving {root} at {url}", flush=True)
-    # A text browser waits for the page, which is served only after this.
-    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-
-
 def exec_args():
     # Standard library argument parser
     class CustomFormatter(argparse.HelpFormatter):
@@ -1353,11 +1590,11 @@ def exec_args():
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
-        "web": ("Serve the web packages of a build folder.", None),
         "create": (
             "Create local ROM file from a file. Additional local ROM files will be merged.",
             "+",
         ),
+        "sym": ("Write the .sym file of a linked program.", 1),
     }
     parsers = {}
     for cmd, (desc, nargs) in cmds.items():
@@ -1368,15 +1605,40 @@ def exec_args():
                 nargs=nargs,
                 help="Local filename." if nargs == 1 else "Local filename(s).",
             )
-    parsers["web"].add_argument(
-        "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
-    )
     parsers["create"].add_argument(
         "--replace",
         action="append",
         default=[],
         metavar="name",
         help="A later asset of this name replaces an earlier one. Repeatable.",
+    )
+    parsers["create"].add_argument(
+        "--sym",
+        metavar="file",
+        help="The .sym file with the names for -a RAM(<name>) and -a XRAM(<name>).",
+    )
+    parsers["sym"].add_argument(
+        "--commands",
+        required=True,
+        metavar="file",
+        help="The compile_commands.json of the build.",
+    )
+    parsers["sym"].add_argument(
+        "--objects",
+        required=True,
+        metavar="folder",
+        help="The object folder of the target, CMakeFiles/<target>.dir.",
+    )
+    parsers["sym"].add_argument(
+        "--work", required=True, metavar="folder", help="Folder for temporary files."
+    )
+    parsers["sym"].add_argument(
+        "--align",
+        action="append",
+        default=[],
+        metavar="regex",
+        help="The value of each name that matches must be even and within "
+        "0x0000-0xFFFF. Repeatable.",
     )
     parsers["execute"].add_argument(
         "--script", metavar="file", help="Drive the ROM with an emulator script."
@@ -1407,7 +1669,8 @@ def exec_args():
         "--address",
         dest="address",
         metavar="addr",
-        help="Asset name (string) or starting address of binary data.",
+        help="Asset name (string), starting address of binary data, "
+        "or RAM(<name>) or XRAM(<name>) from create --sym.",
     )
     parser.add_argument("-o", dest="out", metavar="name", help="Output path/filename.")
     parser.add_argument(
@@ -1657,7 +1920,26 @@ def exec_args():
             console.terminal(code_page)
 
     if args.command == "create":
-        args.address = str_to_address_or_name(args.address)
+        named = re.fullmatch(r"(X?RAM)\((.+)\)", args.address or "")
+        if named:
+            form, name = named.groups()
+            if not args.sym:
+                parser.error(f"argument -a: {args.address} requires --sym")
+            symbols = Symbols(args.sym)
+            if name in symbols.ambiguous:
+                raise RuntimeError(f"{args.address}: {name} is ambiguous")
+            if name not in symbols:
+                raise RuntimeError(f"{args.address}: {name} is not in {args.sym}")
+            value = symbols[name]
+            end = 0xFFFF if form == "RAM" else 0x1FFFF
+            if not 0 <= value <= end:
+                raise RuntimeError(
+                    f"{args.address}: {name} is {Symbols.text(value)}, "
+                    f"which is outside 0x0000-0x{end:X}"
+                )
+            args.address = value | 0x10000 if form == "XRAM" else value
+        else:
+            args.address = str_to_address_or_name(args.address)
         args.nmi = str_to_address(parser, args.nmi, "-n/--nmi")
         args.reset = str_to_address(parser, args.reset, "-r/--reset")
         args.irq = str_to_address(parser, args.irq, "-i/--irq")
@@ -1701,6 +1983,21 @@ def exec_args():
             rom.add_rom_file(file)
         rom.write(args.out)
 
+    if args.command == "sym":
+        errors = Symbols.build(
+            args.filename[0],
+            args.out,
+            args.commands,
+            args.objects,
+            args.work,
+            args.align,
+        )
+        # Raw lines, without the [rp6502.py] prefix, so IDEs read file:line.
+        for line in errors:
+            print(line, file=sys.stderr)
+        if errors:
+            sys.exit(1)
+
     if args.command == "emu":
         # `emu` exists to launch the emulator as the IDE's debug adapter, which
         # always passes the project config (for the emulator path and --ini), so
@@ -1728,9 +2025,6 @@ def exec_args():
             os.execvp(cmd[0], cmd)
         except OSError as e:
             raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
-
-    if args.command == "web":
-        serve_web(args.filename[0])
 
     if args.command == "execute":
         # The exit code of the ROM becomes the exit code of this process, so a
