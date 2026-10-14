@@ -111,7 +111,9 @@ uint32_t rom_generation(void);
 void asset_sst_save(sst_cursor_t *c, unsigned flags);
 bool asset_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+/* A stop closes the image, as the Pico's monitor does, because the stop also
+ * clears the running program's name that a savestate reopens it by. */
+#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, rom_assets_reset, nul_break, \
     nul_config, nul_config, SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
 
 #define ROM_STD_DRIVER           \
