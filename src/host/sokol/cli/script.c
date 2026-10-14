@@ -440,7 +440,7 @@ static bool script_string(char **p, char *out, size_t outsz)
 typedef struct
 {
     char *name;
-    expr_value_t value;
+    int64_t value;
 } script_name_t;
 
 typedef struct
@@ -461,7 +461,7 @@ static void script_names_clear(script_names_t *names)
 }
 
 static bool script_names_add(script_names_t *names, const char *name, size_t len,
-                             expr_value_t value)
+                             int64_t value)
 {
     script_name_t *at = realloc(names->at, (names->count + 1) * sizeof *at);
     if (!at)
@@ -494,7 +494,7 @@ static int script_names_count(script_names_t *names, const char *name, size_t le
 
 /* A name on two .sym lines, or in both lists after a load, is ambiguous.
  * Names are case-sensitive, as in Python. */
-static expr_status_t script_lookup(const char *name, size_t len, expr_value_t *value)
+static expr_status_t script_lookup(const char *name, size_t len, int64_t *value)
 {
     script_name_t *found = NULL;
     int n = script_names_count(&script_syms, name, len, &found) +
@@ -541,8 +541,8 @@ static bool script_symbols(const char *rom, char *why, size_t size)
         n++;
         line[strcspn(line, "\r\n")] = 0;
         char *value = strchr(line, ' ');
-        expr_value_t v = {0};
-        ok = value && value > line && expr_int(value + 1, strlen(value + 1), &v.i) &&
+        int64_t v;
+        ok = value && value > line && expr_int(value + 1, strlen(value + 1), &v) &&
              script_names_add(&script_syms, line, (size_t)(value - line), v);
     }
     if (f)
@@ -554,9 +554,8 @@ static bool script_symbols(const char *rom, char *why, size_t size)
 }
 
 /* Works out an expression, failing the line with its error. A message shows
- * the expression without one pair of parentheses around all of it. With
- * whole set, a float fails too, because no command takes one. */
-static bool script_expr(const char *text, bool whole, expr_value_t *out)
+ * the expression without one pair of parentheses around all of it. */
+static bool script_expr(const char *text, int64_t *out)
 {
     int len = (int)strlen(text), depth = 0;
     bool outer = text[0] == '(';
@@ -578,8 +577,6 @@ static bool script_expr(const char *text, bool whole, expr_value_t *out)
     const char *name = NULL;
     size_t name_len = 0;
     expr_status_t st = expr_eval(text, (size_t)len, script_lookup, out, &name, &name_len);
-    if (st == EXPR_OK && whole && out->is_float)
-        st = EXPR_NOT_WHOLE;
     switch (st)
     {
     case EXPR_OK:
@@ -596,21 +593,21 @@ static bool script_expr(const char *text, bool whole, expr_value_t *out)
         return script_error("%.*s overflows 64 bits", n, shown);
     case EXPR_SHIFT:
         return script_error("%.*s shifts by a negative count", n, shown);
-    case EXPR_COMPLEX:
-        return script_error("%.*s is a complex number", n, shown);
-    case EXPR_NOT_WHOLE:
+    case EXPR_FLOAT:
         break;
+    case EXPR_DIVIDE:
+        return script_error("%.*s: floats are not allowed, use //", n, shown);
     }
-    return script_error("%.*s is not a whole number", n, shown);
+    return script_error("%.*s: floats are not allowed", n, shown);
 }
 
-/* Every number is an expression, and it must give a whole number. */
+/* Every number is an expression. */
 static bool script_value(char *word, long *out)
 {
-    expr_value_t v;
-    if (!script_expr(word, true, &v) || (long)v.i != v.i)
+    int64_t v;
+    if (!script_expr(word, &v) || (long)v != v)
         return false;
-    *out = (long)v.i;
+    *out = (long)v;
     return true;
 }
 
@@ -659,8 +656,8 @@ static bool script_assign(const char *name, size_t len, char *expr)
     *end = 0;
     if (!*expr)
         return script_error("let wants name = expr");
-    expr_value_t value;
-    if (!script_expr(expr, false, &value))
+    int64_t value;
+    if (!script_expr(expr, &value))
         return false;
     script_name_t *found;
     if (script_names_count(&script_syms, name, len, &found))
@@ -1281,7 +1278,7 @@ static bool script_command(const char *line)
             {
                 /* A word that is neither a key nor a known name is an
                  * unknown key, not an unknown name. */
-                expr_value_t value;
+                int64_t value;
                 if (!*script_name_end(name) &&
                     script_lookup(name, strlen(name), &value) == EXPR_UNKNOWN)
                     return script_error("unknown key '%s'", name);
@@ -1782,7 +1779,8 @@ void script_usage(FILE *out)
             "\nEvery number is a Python 3 expression, such as 255, $FF or XRAM_PSG+5.\n"
             "Spaces separate arguments, so an expression with spaces must be in\n"
             "parentheses: poke xram:(XRAM_PSG + 5) $80. Names come from variables\n"
-            "and from the .sym beside the ROM. / makes a float, which no command takes.\n");
+            "and from the .sym beside the ROM. Floats are not allowed, so use // to\n"
+            "divide.\n");
 }
 
 bool script_load(const char *path, const char *rom)

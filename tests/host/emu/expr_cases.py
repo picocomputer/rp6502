@@ -4,12 +4,15 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """This script writes the cases for test_expr.c, one `<want> <expr>` line per
 case. Each `<want>` is the answer Python gives when every whole number must
-fit in 64 bits."""
+fit in 64 bits. Floats are not allowed, so a float literal, a / or a
+negative power is an error."""
 
 import argparse
 import ast
+import io
 import operator
 import random
+import tokenize
 import types
 import warnings
 
@@ -17,7 +20,6 @@ import warnings
 NAMES = {
     "a": 7,
     "b": -3,
-    "f": 2.5,
     "p.q": 0x1234,
     "INT64_MAX": 2**63 - 1,
     "INT64_MIN": -2**63,
@@ -28,25 +30,20 @@ EDGES = [
     "INT64_MAX + 1", "INT64_MIN - 1", "9223372036854775807",
     "9223372036854775808", "-1 << 63", "1 << 63", "0 << -1", "0 << 1000",
     "1 << 64", "-1 >> 100", "5 >> 64", "1 >> -1", "010", "00", "0_0",
-    "0_1", "1 // 0 + nope", "nope + 1 // 0", "~(1 / 2)", "-2 ** 2",
-    "2 ** -1", "2 ** 3 ** 2", "0 ** 0", "0 ** -1", "(-8.0) ** (1 / 3)",
-    "(-8) ** (1 / 3)", "(-3.0) ** 1000.5", "10.0 ** 400", "(-10.0) ** 401",
-    "2 ** 53 + 1 == 2.0 ** 53", "INT64_MAX == 2.0 ** 63",
-    "INT64_MIN == -2.0 ** 63", "1 < 2 < 3", "1 < 3 < 2", "1 < 0 < 1 // 0",
-    "0 and 1 // 0", "1 or nope", "nope or 1", "not 0.0", "not 0", "not f",
-    "not (1e309 - 1e309)", "2 or 3 and 0", "0 or 0.0", "0x_FF", "$FF_FF",
-    "$_FF", "0b_101", "0o17", "0B1", "0X1f", "1_000", "1__000", "1_", "0x",
-    "$", ".5e1", "1.e5", "1.", ".5", "2.5e-3", "1E3", "1e+", "010.5",
-    "01e1", "0_9.5", "0.0 ** -1e309", "(-2.0) ** (1e309 - 1e309)",
-    "(-1e309) ** 0.5", "(-2) ** 63", "2 ** 62", "2 ** 63", "(-2) ** 64",
-    "(-1) ** INT64_MAX", "2 ** INT64_MAX", "INT64_MIN ** 1", "5 % -3",
-    "-5 // 3", "-5.5 // 2", "5.5 % -2", "f // 0.0", "f % -0.0", "1 / 0",
-    "1.0 // 0", "-0.0", "1e309 * 0", "1e308 * 10", "5e-324 / 2",
-    "0.1 + 0.2", "1.0 << 1", "1 & 1.0", "~f", "p.q + 1", "a + b * f",
-    "(1", "1)", "()", "", "1 1", "a +", "not", "- not 1", "1 < not 1",
-    "f(1)", "1 if 1 else 2", "1 = 1", "\"a\"", "9007199254740993 / 3",
-    "INT64_MIN / 3", "INT64_MAX / -7", "1 / INT64_MAX", "1 and.5", "0 or.5",
-    "not.5",
+    "0_1", "1 // 0 + nope", "nope + 1 // 0", "-2 ** 2", "2 ** -1",
+    "0 ** -1", "(-8) ** -1", "1 ** -1", "2 ** 3 ** 2", "0 ** 0",
+    "(-2) ** 63", "2 ** 62", "2 ** 63", "(-2) ** 64", "(-1) ** INT64_MAX",
+    "2 ** INT64_MAX", "INT64_MIN ** 1", "1 < 2 < 3", "1 < 3 < 2",
+    "1 < 0 < 1 // 0", "0 and 1 // 0", "1 or nope", "nope or 1", "not 0",
+    "not 5", "2 or 3 and 0", "0 or 0", "0x_FF", "$FF_FF", "$_FF", "0b_101",
+    "0o17", "0B1", "0X1f", "0x1e3", "$1E3", "1_000", "1__000", "1_", "0x",
+    "$", "5 % -3", "-5 // 3", "-7 // 2", "-7 % 2", "p.q + 1", "a + b * a",
+    "6 / 2", "1 / 0", "nope / 2", "1 // 0 + 1 / 2", "1 or 1 / 2",
+    "1.5 * 2", "2 * 1.5", "1 / 2 + 1.5", "1.5 + 1 / 2", ".5e1", "1.e5",
+    "1.", ".5", "2.5e-3", "1E3", "1e+", "010.5", "01e1", "0_9.5", "1e309",
+    "1 and.5", "0 or.5", "not.5", "1e3 / (1", "(1", "1)", "()", "", "1 1",
+    "a +", "not", "- not 1", "1 < not 1", "f(1)", "1 if 1 else 2", "1 = 1",
+    "\"a\"", "1j",
 ]
 
 UNARY = {ast.USub: operator.neg, ast.UAdd: operator.pos,
@@ -61,16 +58,15 @@ COMPARE = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt,
            ast.GtE: operator.ge, ast.Eq: operator.eq, ast.NotEq: operator.ne}
 
 ERRORS = {NameError: "unknown", ZeroDivisionError: "zero",
-          OverflowError: "overflow", ValueError: "shift",
-          TypeError: "not_whole"}
+          OverflowError: "overflow", ValueError: "shift"}
 
 
 class Big(Exception):
     """A whole number that does not fit in 64 bits."""
 
 
-class Complex(Exception):
-    """A complex result, which the emulator cannot hold."""
+class Power(Exception):
+    """A negative power, which gives a float in Python."""
 
 
 def dotted(n):
@@ -99,9 +95,7 @@ def supported(n):
 
 
 def fit(v):
-    if type(v) is complex:
-        raise Complex
-    if type(v) is int and not -2**63 <= v < 2**63:
+    if not -2**63 <= v < 2**63:
         raise Big
     return v
 
@@ -122,12 +116,13 @@ def walk(n):
     if isinstance(n, ast.BinOp):
         a, b = walk(n.left), walk(n.right)
         op = type(n.op)
-        if type(a) is int and type(b) is int:
-            # Python would build a huge number before the check.
-            if op is ast.Pow and b >= 64 and abs(a) >= 2:
-                raise Big
-            if op is ast.LShift and b >= 64 and a:
-                raise Big
+        # Python would build a huge number before the check.
+        if op is ast.Pow and b >= 64 and abs(a) >= 2:
+            raise Big
+        if op is ast.LShift and b >= 64 and a:
+            raise Big
+        if op is ast.Pow and b < 0 and a:
+            raise Power
         return fit(BINARY[op](a, b))
     if isinstance(n, ast.BoolOp):
         v = walk(n.values[0])
@@ -146,11 +141,23 @@ def walk(n):
 
 
 def show(v):
-    if type(v) is complex:
-        return "complex"
     if type(v) is float:
-        return "float:" + v.hex()
+        return "float"
     return f"int:{int(v)}"
+
+
+def refused(text):
+    """divide or float for the first / or float literal, else None. These are
+    errors before anything is worked out."""
+    lines = io.StringIO(text.replace("$", "0x")).readline
+    for tok in tokenize.generate_tokens(lines):
+        if tok.type == tokenize.OP and tok.string == "/":
+            return "divide"
+        number = tok.string.lower()
+        if (tok.type == tokenize.NUMBER and number[:2] not in ("0x", "0o", "0b")
+                and ("." in number or "e" in number)):
+            return "float"
+    return None
 
 
 def answer(text):
@@ -161,12 +168,15 @@ def answer(text):
         return "bad", True
     if not supported(tree.body):
         return "bad", False
+    why = refused(text)
+    if why:
+        return why, False
     try:
         return show(walk(tree.body)), True
     except Big:
         return "overflow", False
-    except Complex:
-        return "complex", False
+    except Power:
+        return "float", False
     except tuple(ERRORS) as e:
         return ERRORS[type(e)], True
 
@@ -233,15 +243,16 @@ def float_text(r):
 
 def atom(r):
     k = r.random()
-    if k < 0.45:
+    if k < 0.7:
         return whole(r)
-    if k < 0.75:
+    if k < 0.73:
         return float_text(r)
-    return r.choice(["a", "b", "f", "p.q", "INT64_MAX", "INT64_MIN", "nope"])
+    return r.choice(["a", "b", "p.q", "INT64_MAX", "INT64_MIN", "nope"])
 
 
+# / is rare, because any / makes the whole case an error.
 BINOPS = ["or", "and", "<", "<=", ">", ">=", "==", "!=", "|", "^", "&",
-          "<<", ">>", "+", "-", "*", "/", "//", "%", "**"]
+          "<<", ">>", "+", "-", "*", "//", "%", "**"]
 
 
 def expr(r, depth):
@@ -252,7 +263,7 @@ def expr(r, depth):
         return r.choice(["-", "+", "~", "not "]) + expr(r, depth - 1)
     if k < 0.5:
         return "(" + expr(r, depth - 1) + ")"
-    op = r.choice(BINOPS)
+    op = "/" if r.random() < 0.01 else r.choice(BINOPS)
     space = " " if op in ("or", "and") or r.random() < 0.7 else ""
     return expr(r, depth - 1) + space + op + space + expr(r, depth - 1)
 

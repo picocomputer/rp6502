@@ -154,6 +154,3 @@ rp6502_test_rom(expr_cases GEN ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
     COMMENT "Generating the expression test cases")
 rp6502_add_test(expr ROM ${EXPR_CASES} DEPENDS expr_cases
     SOURCES test_expr.c ${RP6502_SRC}/host/sokol/cli/expr.c)
-if(NOT WIN32)
-    target_link_libraries(test_expr PRIVATE m)
-endif()
