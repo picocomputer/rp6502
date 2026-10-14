@@ -4,10 +4,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rp6502_script  # noqa: E402
 from rp6502_asm import (API_A, API_X, OP_CLOSEDIR, OP_DROP_XSTACK, OP_EXIT,
                         OP_GETFREE, OP_GETLABEL, OP_OPENDIR, OP_READDIR,
                         XSTACK, Asm, putc, puthex, puthex16,
@@ -109,12 +111,48 @@ def prog():
     return p
 
 
+def drive(emu, rom, save_dir):
+    """Lists a folder of two files and a subfolder. The listing comes in the
+    host's order, which is the order os.scandir gives for the same folder, so
+    the entries are expected in that order."""
+    here = Path(save_dir).resolve() / "listed"
+    here.mkdir(exist_ok=True)
+    (here / "alpha.txt").write_bytes(b"hello")
+    (here / "beta.dat").write_bytes(b"wider content here")
+    (here / "subdir").mkdir(exist_ok=True)
+    os.chdir(here)
+
+    def entry(e):
+        if e.is_dir():
+            return f"{e.name} 10 0000"
+        return f"{e.name} 20 {e.stat().st_size:04X}"
+
+    def body(e):
+        e.cmd("expect-exit 0 20")
+        e.cmd('expect "opendir 00\\r\\n"')
+        for e2 in os.scandir("."):
+            e.cmd(f'expect "{entry(e2)}\\r\\n"')
+        e.cmd('expect "readdir 00\\r\\n"')
+        e.cmd('expect "closedir 00\\r\\n"')
+        # Only the Pico has volume labels, so getlabel returns -1 here.
+        e.cmd('expect "getlabel FF\\r\\n"')
+        e.cmd('expect "getfree 00\\r\\n"')
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit")
+    ap.add_argument("--drive", action="store_true",
+                    help="list a folder the driver makes and check the lines")
+    ap.add_argument("--emu", help="the rp6502-emu binary")
+    ap.add_argument("--rom", help="the .rp6502 --emit wrote")
+    ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
         print(f"dir.rp6502 {image(prog()).write(a.emit)} bytes")
+    if a.drive:
+        return drive(a.emu, a.rom, a.save_dir)
     return 0
 
 

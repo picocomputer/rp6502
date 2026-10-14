@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
-
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -42,11 +43,20 @@ def prog():
     return p
 
 
-def drive(emu, rom, save_dir=None):
-    """Empty arguments keep their places. CMake drops an empty string from a
-    list, so this runs as a driver rather than a script with ROM_ARGS."""
+def drive(emu, rom, save_dir):
+    """Empty arguments keep their places, which CMake cannot pass because it
+    drops an empty string from a list. Then a copy of the ROM is loaded by a
+    relative path, and its argv[0] is the absolute path with its drive."""
+    here = Path(save_dir).resolve()
+    shutil.copy(rom, here / "x.rp6502")
+    os.chdir(here)
+    cwd = here.as_posix() if os.name == "nt" else "FS:" + here.as_posix()
+
     def body(e):
         e.cmd('wait ".rp6502||Foo||]\\r\\n"')
+        e.cmd("sys stop")
+        e.cmd('load "x.rp6502"')
+        e.cmd(f'wait "|||{cwd}/x.rp6502|]\\r\\n"')
     return rp6502_script.drive(emu, rom, body, save_dir=save_dir,
                                rom_args=("", "Foo", ""))
 

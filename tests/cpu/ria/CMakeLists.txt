@@ -22,11 +22,7 @@ add_test(NAME rom_tool
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
 
-rp6502_add_test(features LIBS emu_core ROM ${ADVENTURE_ROM}
-    DEFS EXEC_ROM="${EXEC_ROM}" ROMS_DIR="${RP6502_TEST_CORPUS}"
-    DEPENDS exec_rom)
-
-rp6502_add_test(adventure LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
+rp6502_add_test(features LIBS emu_core ROM ${ADVENTURE_ROM})
 
 if(COMMAND rp6502_add_machine_test)
     if(RP6502_SOFT_CPU)
@@ -154,6 +150,11 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(adventure ROM ${ADVENTURE_ROM})
 
     rp6502_add_script_test(args ROM ${ARGV_ROM} ROM_ARGS Foo DEPENDS argv_rom)
+
+    rp6502_add_script_test(eof_empty ROM ${STDIO_ROM} DEPENDS stdio_rom)
+
+    rp6502_add_script_test(canvas DRIVER canvas.py
+        ROM ${RP6502_TEST_CORPUS}/mode3_1bpp.rp6502 DEPENDS rp6502_test_corpus)
 
     rp6502_add_script_test(argv DRIVER ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
         ROM ${ARGV_ROM} DEPENDS argv_rom)

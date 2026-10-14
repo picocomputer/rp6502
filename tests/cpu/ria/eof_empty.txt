@@ -1,0 +1,9 @@
+# The program copies each line typed to stdout, and on end of file it writes
+# "eof" and exits 3. Nothing is typed, so the read that is waiting gets no
+# bytes when stdin ends, not an empty line.
+
+run 10
+eof
+expect-exit 3
+expect-not "\neof"
+expect "eof\n"

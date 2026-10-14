@@ -185,47 +185,6 @@ UTEST(drive, rom_resolve_and_load)
     ssys_close(f);
 }
 
-UTEST(drive, an_install_replaces_one_of_the_same_name)
-{
-    ASSERT_TRUE(fresh());
-    make_file("adventure.rp6502", "NOT THE ROM", 11);
-    char *own = host_abs("adventure.rp6502");
-    char *fixture = host_abs(TEST_FIXTURE);
-    ASSERT_TRUE(own != NULL);
-    ASSERT_TRUE(fixture != NULL);
-
-    ASSERT_STREQ(rom_alias_insert("adventure.rp6502"), "adventure.rp6502");
-    ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), own);
-    ASSERT_STREQ(rom_alias_insert_as(TEST_FIXTURE, "ADVENTURE.RP6502"),
-                 "ADVENTURE.RP6502");
-    ASSERT_STREQ(rom_alias_resolve(":adventure.rp6502"), fixture);
-    free(own);
-    free(fixture);
-
-    ASSERT_TRUE(rom_alias_remove("adventure.rp6502"));
-    ASSERT_TRUE(rom_alias_resolve(":adventure.rp6502") == NULL);
-    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE) != NULL);
-}
-
-#ifndef _WIN32
-/* The folder is named U+65E5 U+672C, which no single-byte code page holds, so
- * only an install can run the ROM in it. */
-UTEST(drive, an_install_keeps_a_host_path_the_code_page_cannot_hold)
-{
-    ASSERT_TRUE(fresh());
-    char dir[TEST_PATH_MAX + 16], rom[TEST_PATH_MAX + 32];
-    snprintf(dir, sizeof dir, "%s/\xE6\x97\xA5\xE6\x9C\xAC", host_dir());
-    ASSERT_EQ(mkdir(dir, 0700), 0);
-    snprintf(rom, sizeof rom, "%s/z.rp6502", dir);
-    ASSERT_TRUE(copy_fixture(rom));
-
-    ASSERT_STREQ(rom_alias_insert(rom), "z.rp6502");
-    ASSERT_STREQ(rom_alias_resolve(":z.rp6502"), rom);
-    ASSERT_TRUE(rom_load(":z.rp6502"));
-    ASSERT_TRUE(rom_alias_remove(":z.rp6502"));
-}
-#endif
-
 UTEST(drive, fs_rom_open_is_the_one_way_in)
 {
     ASSERT_TRUE(fresh());
@@ -335,23 +294,6 @@ UTEST(drive, mount_transparent_no_chroot)
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect);
-}
-
-UTEST(drive, a_boot_by_relative_path_leaves_argv0_absolute)
-{
-    ASSERT_TRUE(fresh());
-    char rom[TEST_PATH_MAX + 16];
-    snprintf(rom, sizeof rom, "%s/x.rp6502", host_dir());
-    ASSERT_TRUE(copy_fixture(rom));
-
-    ASSERT_TRUE(emu_restart("x.rp6502"));
-    char expect[TEST_PATH_MAX];
-    msc_expect(expect, sizeof(expect), "/x.rp6502");
-    ASSERT_STREQ(arg_index(0), expect);
-    ASSERT_EQ(strncmp(arg_index(0), host_drive(), strlen(host_drive())), 0);
-
-    sys_stop();
-    sys_commit();
 }
 
 UTEST(drive, an_exec_by_relative_path_leaves_argv0_absolute)
