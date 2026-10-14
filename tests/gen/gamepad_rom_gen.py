@@ -20,6 +20,11 @@ CONNECTED = 0x80
 
 BUF = 0x0200
 
+# The highest place for the block that leaves room for all four records.
+LAST = 0x10000 - PLAYERS * RECORD
+RESULT = 0x0200
+DONE = 0x0204
+
 
 def prog():
     p = Asm()
@@ -79,12 +84,33 @@ def prog():
     return p
 
 
+def bounds_prog():
+    p = Asm()
+
+    # Ask for the block one byte too high, then at the highest place, and keep
+    # what each xreg returns in A and X.
+    p.xreg(0, 0, 2, LAST + 1)
+    p.sta_abs(RESULT)
+    p.stx_abs(RESULT + 1)
+    p.xreg(0, 0, 2, LAST)
+    p.sta_abs(RESULT + 2)
+    p.stx_abs(RESULT + 3)
+    p.store(DONE, 1)
+    p.symbol("spin")
+    p.bra("spin")
+    return p
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit")
+    ap.add_argument("--emit-bounds")
     a = ap.parse_args()
     if a.emit:
         print(f"gamepad.rp6502 {image(prog()).write(a.emit)} bytes")
+    if a.emit_bounds:
+        n = image(bounds_prog()).write(a.emit_bounds)
+        print(f"gamepad_bounds.rp6502 {n} bytes")
     return 0
 
 

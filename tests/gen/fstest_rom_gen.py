@@ -7,7 +7,7 @@
 # the bytes would repeat every 256 bytes, so chunk n + 2 would equal chunk n
 # and a read that returned an earlier chunk's bytes could pass. With the 37
 # added, each chunk's first byte is 165 past the previous chunk's, and 165 is
-# odd, so none of the 17 or fewer chunks in one sequence repeats another.
+# odd, so none of the 40 or fewer chunks in one sequence repeats another.
 
 import argparse
 import pathlib
@@ -63,6 +63,7 @@ NAME = "SAVE:fs1.dat"
 NAME2 = "SAVE:fs2.dat"
 NAME3 = "SAVE:fs3.dat"
 NAME4 = "SAVE:fs4.dat"
+NAME5 = "SAVE:fs5.dat"
 LONGEST = "SAVE:fs_32_chars_long_name.0123456789"
 
 # Each of these breaks one of the SAVE: name rules.
@@ -94,10 +95,17 @@ ACHUNKS = 17    # 2176 bytes, more than the 2048 std.c reads at a time
 ALEN = CHUNK * ACHUNKS
 XROM = 0x6000
 
+# NAME5 is read back through XRAM in reads larger than the 2048 bytes std.c
+# reads at a time, so the first read takes two of those reads.
+YCHUNKS = 40    # 5120 bytes
+YREAD = 24      # 3072 bytes asked for in each read
+YLEN = CHUNK * YCHUNKS
+
 # The first check fails if NAME exists and an exclusive create of NAME2 fails
 # if NAME2 exists, so drive() deletes the files in CREATES from the SAVE:
 # folder before each run.
-CREATES = ([n[len("SAVE:"):] for n in (NAME, NAME2, NAME3, NAME4, LONGEST)]
+CREATES = ([n[len("SAVE:"):]
+            for n in (NAME, NAME2, NAME3, NAME4, NAME5, LONGEST)]
            + ["pfx.dat"] + [f"s{i}.dat" for i in range(9)])
 
 # The check that compares localtime with gmtime fails where the two agree, as
@@ -910,6 +918,49 @@ def build():
     expect16(0)
     xram_io(OP_READ_XRAM, XRD, CHUNK)
     check("eq16")
+    p.jsr_abs("do_close")
+
+    # NAME5 goes out from XRAM in one write and comes back in reads of 3072
+    # bytes: the second read gets the 2048 left and the third gets none.
+    p.store(VAL, 13)
+    p.store(CNT, YCHUNKS)
+    rw0_at(XWR)
+    p.jsr_abs("xfill")
+    open_it(NAME5, O_WRONLY | O_CREAT | O_TRUNC)
+    expect16(YLEN)
+    xram_io(OP_WRITE_XRAM, XWR, YLEN)
+    check("eq16")
+    p.jsr_abs("do_close")
+
+    open_it(NAME5, O_RDONLY)
+    expect16(CHUNK * YREAD)
+    xram_io(OP_READ_XRAM, XRD, CHUNK * YREAD)
+    check("eq16")
+
+    p.store(VAL, 13)
+    p.store(CNT, YREAD)
+    rw0_at(XRD)
+    check("xcheck")
+
+    expect16(CHUNK * (YCHUNKS - YREAD))
+    xram_io(OP_READ_XRAM, XRD, CHUNK * YREAD)
+    check("eq16")
+
+    p.store(VAL, (13 + YREAD * (7 * CHUNK + 37)) & 0xFF)
+    p.store(CNT, YCHUNKS - YREAD)
+    rw0_at(XRD)
+    check("xcheck")
+
+    expect16(0)
+    xram_io(OP_READ_XRAM, XRD, CHUNK * YREAD)
+    check("eq16")
+
+    expect16(4 * CHUNK)
+    seek_set(4 * CHUNK)
+    check("eq16")
+
+    p.store(VAL, (13 + 4 * (7 * CHUNK + 37)) & 0xFF)
+    check("rd_chunk")
     p.jsr_abs("do_close")
 
     open_it("ROM:" + ASSET, O_RDONLY)

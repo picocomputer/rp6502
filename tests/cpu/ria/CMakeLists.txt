@@ -49,8 +49,7 @@ else()
         TIMEOUT 60)
 endif()
 
-rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_TB_HOSTOS}
-    LIBS emu_core DEFS ROMS_DIR="${RP6502_TEST_CORPUS}" TIMEOUT 60)
+rp6502_add_test(rtc LIBS emu_core)
 
 if(COMMAND rp6502_add_machine_test)
     if(RP6502_SOFT_CPU)
@@ -166,4 +165,7 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(sigint ROM ${SIGINT_ROM} DEPENDS sigint_rom)
 
     rp6502_add_script_test(zeroread ROM ${ZEROREAD_ROM} DEPENDS zeroread_rom)
+
+    rp6502_add_script_test(clk DRIVER ${RP6502_TESTS_DIR}/gen/clk_rom_gen.py
+        ROM ${CLK_ROM} DEPENDS clk_rom)
 endif()

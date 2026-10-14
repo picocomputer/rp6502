@@ -143,12 +143,33 @@ rp6502_test_rom(exec_rom GEN ${RP6502_TESTS_DIR}/gen/exec_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the exec ROM")
 
+set(EXECREL_ROM ${RP6502_TEST_ROM_DIR}/execrel.rp6502)
+rp6502_test_rom(execrel_rom GEN ${RP6502_TESTS_DIR}/gen/execrel_rom_gen.py
+    ARGS --emit ${EXECREL_ROM}
+    OUTPUTS ${EXECREL_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the relative exec ROM")
+
+set(DRIVE_ROM ${RP6502_TEST_ROM_DIR}/drive.rp6502)
+rp6502_test_rom(drive_rom GEN ${RP6502_TESTS_DIR}/gen/drive_rom_gen.py
+    ARGS --emit ${DRIVE_ROM}
+    OUTPUTS ${DRIVE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the drive ROM")
+
 set(TIME_ROM ${RP6502_TEST_ROM_DIR}/time.rp6502)
 rp6502_test_rom(time_rom GEN ${RP6502_TESTS_DIR}/gen/time_rom_gen.py
     ARGS --emit ${TIME_ROM}
     OUTPUTS ${TIME_ROM}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the time ROM")
+
+set(CLK_ROM ${RP6502_TEST_ROM_DIR}/clk.rp6502)
+rp6502_test_rom(clk_rom GEN ${RP6502_TESTS_DIR}/gen/clk_rom_gen.py
+    ARGS --emit ${CLK_ROM}
+    OUTPUTS ${CLK_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the clock ROM")
 
 set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)
 rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
@@ -201,11 +222,12 @@ rp6502_test_rom(pointer_roms GEN ${RP6502_TESTS_DIR}/gen/pointer_rom_gen.py
     COMMENT "Generating the pointing device ROMs")
 
 set(GAMEPAD_ROM ${RP6502_TEST_ROM_DIR}/gamepad.rp6502)
+set(GAMEPAD_BOUNDS_ROM ${RP6502_TEST_ROM_DIR}/gamepad_bounds.rp6502)
 rp6502_test_rom(gamepad_rom GEN ${RP6502_TESTS_DIR}/gen/gamepad_rom_gen.py
-    ARGS --emit ${GAMEPAD_ROM}
-    OUTPUTS ${GAMEPAD_ROM}
+    ARGS --emit ${GAMEPAD_ROM} --emit-bounds ${GAMEPAD_BOUNDS_ROM}
+    OUTPUTS ${GAMEPAD_ROM} ${GAMEPAD_BOUNDS_ROM}
     DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the gamepad records ROM")
+    COMMENT "Generating the gamepad records ROMs")
 
 set(VSYNC_ROM ${RP6502_TEST_ROM_DIR}/vsync.rp6502)
 rp6502_test_rom(vsync_rom GEN ${RP6502_TESTS_DIR}/gen/vsync_rom_gen.py

@@ -1,7 +1,11 @@
 rp6502_add_test(gamepad LIBS emu_core TIMEOUT 60)
 
 if(TARGET rp6502-emu)
-    rp6502_add_script_test(gamepad ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
+    rp6502_add_script_test(gamepad ROM ${GAMEPAD_ROM} ARGS --fill $55
+        DEPENDS gamepad_rom)
+
+    rp6502_add_script_test(gamepad_bounds ROM ${GAMEPAD_BOUNDS_ROM}
+        ARGS --fill $55 DEPENDS gamepad_rom)
 
     rp6502_add_script_test(gamepad_held ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
 

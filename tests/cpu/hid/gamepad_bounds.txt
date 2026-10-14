@@ -1,0 +1,10 @@
+# gamepad_bounds.rp6502 keeps what its two xreg calls return at $0200 and
+# sets $0204 when it is done.
+
+wait $0204 $01
+# Four ten-byte records must end by $FFFF, so $FFD9 is refused with -1 and
+# $FFD8 is taken with 0.
+peek $0200 $FF $FF $00 $00
+# Player 3's record is the last ten bytes, at $FFF6.
+pad 3 connect
+peek xram:$FFF6 $80

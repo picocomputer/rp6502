@@ -1,6 +1,10 @@
 run 40
 expect "Disconnected"
 expect-not "Select"
+# The test runs with --fill $55, so these read zero only because the
+# program's xreg cleared all four records.
+peek xram:$FF00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+peek xram:$FF1E $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
 
 pad 0 connect
 pad 0 press start
@@ -24,6 +28,13 @@ pad 0 stick 0 -127 0 0
 run 10
 peek xram:$FF00 $81 $01
 
+# Left is 4 in the dpad nibble, and letting it go keeps the connected bit.
+pad 0 release up
+pad 0 press left
+peek xram:$FF00 $84
+pad 0 release left
+peek xram:$FF00 $80
+
 pad 0 disconnect
 run 20
 expect "Disconnected"
@@ -38,3 +49,9 @@ peek xram:$FF0A $A0
 pad 1 connect
 run 10
 peek xram:$FF0A $80
+
+# A stop leaves XRAM alone and drops the block, so a pad writes nothing there.
+poke xram:$FF00 $AB
+sys stop
+pad 0 connect
+peek xram:$FF00 $AB

@@ -16,4 +16,10 @@ if(TARGET rp6502-emu)
         ROM ${DIR_ROM} DEPENDS dir_rom)
 
     rp6502_add_script_test(install DRIVER install.py ROM ${ADVENTURE_ROM})
+
+    rp6502_add_script_test(drive DRIVER ${RP6502_TESTS_DIR}/gen/drive_rom_gen.py
+        ROM ${DRIVE_ROM} ARGS --adventure ${ADVENTURE_ROM} DEPENDS drive_rom)
+
+    rp6502_add_script_test(execrel DRIVER ${RP6502_TESTS_DIR}/gen/execrel_rom_gen.py
+        ROM ${EXECREL_ROM} DEPENDS execrel_rom argv_rom)
 endif()
