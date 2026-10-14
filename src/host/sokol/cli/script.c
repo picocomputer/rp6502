@@ -278,8 +278,9 @@ static bool script_error(const char *fmt, ...)
     script_printable(text, sizeof text, msg, strlen(msg));
     script_cpu(cpu, sizeof cpu);
     script_reply("fail %s; %s", text, cpu);
-    /* The program's stdout that no check has used goes out raw after the
-     * failure, up to EOF. Its stderr is on stderr already. */
+    /* The program's stdout that no check has used goes out after the failure,
+     * up to EOF, in the UTF-8 the checks search. Its stderr is on stderr
+     * already. */
     fwrite(SCRIPT_STDOUT->buf, 1, SCRIPT_STDOUT->len, stdout);
     fflush(stdout);
     /* The message goes last, on a line of its own, so a program that clears
