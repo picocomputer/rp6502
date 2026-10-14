@@ -9,6 +9,7 @@
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
 #include "core/api/api.h"
+#include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
@@ -49,6 +50,7 @@ typedef enum
     SCRIPT_BYTE,
     SCRIPT_TYPING,
     SCRIPT_EXIT,
+    SCRIPT_EOF,
 } script_wait_t;
 
 static FILE *script_file;
@@ -935,6 +937,16 @@ static bool script_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "eof"))
+    {
+        long frames = SCRIPT_WAIT_FRAMES;
+        if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
+            return script_error("eof wants a frame budget");
+        script_wait = SCRIPT_EOF;
+        script_budget = (unsigned long)frames;
+        return true;
+    }
+
     if (!strcasecmp(cmd, "type"))
     {
         char text[SCRIPT_LINE_MAX];
@@ -1345,6 +1357,17 @@ static bool script_settle(void)
         if (script_spend())
             return false;
         return script_error("timed out waiting for the program to exit");
+    case SCRIPT_EOF:
+        /* The moment console.c ends a piped stdin: a read is waiting and
+         * everything typed has been taken, so no typed byte is lost. */
+        if (std_stdin_waiting() && com_input_idle())
+        {
+            std_stdin_eof();
+            break;
+        }
+        if (script_spend())
+            return false;
+        return script_error("timed out ending stdin; the program is not reading it");
     }
     script_wait = SCRIPT_IDLE;
     return true;
@@ -1401,6 +1424,7 @@ void script_usage(FILE *out)
             "                                      check the stream since its last\n"
             "                                      match (default stdout)\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
+            "  eof [frames]              end stdin once the program has read what was typed\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
             "  poke [xram:|bus:]<addr> <byte>...   write memory; bus: stores as the 6502\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
