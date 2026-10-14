@@ -1461,9 +1461,20 @@ static bool script_settle(void)
     return true;
 }
 
+/* A program's xreg blanks the gamepad block until the next report, so the other
+ * hosts restate their pads on every poll, and a script restates its own before
+ * every frame. */
+static void script_gamepads_restate(void)
+{
+    for (int i = 0; i < 4; i++)
+        if (script_gamepad[i].connected)
+            script_gamepad_publish(i);
+}
+
 void script_task(void)
 {
     char line[SCRIPT_LINE_MAX];
+    script_gamepads_restate();
     while (script_run && script_settle())
     {
         /* Settling is what says the last command finished, so this is where it
