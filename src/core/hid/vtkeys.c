@@ -54,8 +54,8 @@ void vtkeys_char(uint32_t codepoint)
  * a break is caught even when the ring is full and the byte is dropped. */
 void vtkeys_ctrl_letter(char letter)
 {
-    char c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
-    if (c)
+    int c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
+    if (c >= 0)
         com_keyboard_push_byte((uint8_t)c);
 }
 
@@ -65,9 +65,9 @@ void vtkeys_alt_char(char ch, bool ctrl)
         return;
     if (ctrl)
     {
-        char c = keyboard_ctrl_promote(ch, HID_KEY_NONE);
-        if (c)
-            ch = c;
+        int c = keyboard_ctrl_promote(ch, HID_KEY_NONE);
+        if (c >= 0)
+            ch = (char)c;
     }
     com_keyboard_push_byte(0x1b);
     com_keyboard_push_byte((uint8_t)ch);
@@ -101,9 +101,9 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
     {
         if (ctrl)
         {
-            char c = keyboard_ctrl_promote(ch, hid_usage);
-            if (c)
-                ch = c;
+            int c = keyboard_ctrl_promote(ch, hid_usage);
+            if (c >= 0)
+                ch = (char)c;
         }
         /* Alt prefixes ESC rather than changing the byte the key types, so it
          * composes with whatever the other modifiers already decided. */

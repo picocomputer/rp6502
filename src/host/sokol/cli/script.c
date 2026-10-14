@@ -1034,8 +1034,8 @@ static bool script_command(const char *line)
         {
             /* Not vtkeys_ctrl_letter, which drops a key that has no control
              * byte. A key that sends nothing is an error instead. */
-            char byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
-            if (!byte)
+            int byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
+            if (byte < 0)
                 return script_error("'%s' has no control byte", name);
             com_keyboard_push_byte((uint8_t)byte);
         }

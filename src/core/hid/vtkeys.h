@@ -28,9 +28,9 @@ void vtkeys_char(uint32_t codepoint);
 /* Queue a key that has no character of its own as its xterm sequence. */
 bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt);
 
-/* Queue a Ctrl and letter chord as its C0 control byte. A byte that is
- * neither promotable nor a C0 control already is not a chord and queues
- * nothing. */
+/* Queue a Ctrl chord as the byte keyboard_ctrl_promote makes of the
+ * character. A character Ctrl has nothing to say about, and 0 for no
+ * character, queue nothing. */
 void vtkeys_ctrl_letter(char letter);
 
 /* Queue Alt and a character as the xterm Meta form, which is ESC then the

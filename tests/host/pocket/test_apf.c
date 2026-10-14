@@ -256,6 +256,24 @@ UTEST(apf, a_keyboard_types_through_its_layout)
     ASSERT_EQ(buf[0], 'z');
 }
 
+/* Ctrl with 2 and with Space types a zero byte, and Ctrl with 3 an ESC, as
+ * xterm and the Linux console do. */
+UTEST(apf, ctrl_types_what_xterm_types)
+{
+    reset_all();
+    keymap_set_layout_list("US");
+    apf_mount(2, APF_TYPE_KEYBOARD);
+
+    char buf[8];
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x1F000000u, 0x0000, false); /* Ctrl+2 */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x2C000000u, 0x0000, false); /* Ctrl+Space */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x20000000u, 0x0000, false); /* Ctrl+3 */
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(memcmp(buf, "\0\0\x1B", 3), 0);
+}
+
 /* Lowercase a with tilde is 0xC6 in CP850 and is absent from CP437. */
 UTEST(apf, dead_keys_follow_a_code_page_change)
 {
