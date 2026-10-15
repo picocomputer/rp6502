@@ -6,10 +6,11 @@
 import os
 import shutil
 
+import rp6502
 from rp6502_asm import (API_A, API_ERRNO, API_X, OP_DROP_XSTACK,
                         OP_ERRNO_OPT, OP_EXEC, OP_EXIT, XSTACK, Asm, putc,
                         puthex, putnib)
-from rp6502_rom import emu, main, rom, save_dir
+from rp6502_rom import main, rom, save_dir
 
 TMP = 0x0200
 
@@ -78,7 +79,7 @@ def test_execrel():
     shutil.copy(rom("argv"), here / "y.rp6502")
     os.chdir(here)
     cwd = here.as_posix() if os.name == "nt" else "FS:" + here.as_posix()
-    with emu(rom("execrel")) as e:
+    with rp6502.Emu(rom("execrel")) as e:
         # 16 is EINVAL.
         e.cmd('wait "exec long FFFF 16\\r\\n"')
         e.cmd(f'wait "argv[\\x04|||{cwd}/y.rp6502|]\\r\\n"')

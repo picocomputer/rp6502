@@ -4,12 +4,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import struct
-import sys
 import wave
 
+import rp6502
 from rp6502_asm import (API_OP, OP_ATTR_SET, RIA_TX, RW0_ADDR, RW0_DATA,
                         RW0_STEP, Asm)
-from rp6502_rom import emu, main, rom
+from rp6502_rom import main, rom
 
 PSG = 0x8000
 GO = 0x0200
@@ -271,14 +271,9 @@ def crossings(m):
 
 
 def record(name, *lines):
-    with emu(rom(name)) as e:
+    with rp6502.Emu(rom(name)) as e:
         for line in lines:
             e.cmd(line)
-
-
-def fail(msg):
-    print(f"{sys.argv[0]}: {msg}", file=sys.stderr)
-    return 1
 
 
 def test_psg():
@@ -293,18 +288,17 @@ def test_psg():
     m = mono("psg.wav")
     p = peaks(m)
     at = onset(p)
-    if not 0 <= at < 3 or p[at] <= LOUD:
-        return fail(f"no loud note in frames 0-2: peaks {p[:3]}")
+    assert 0 <= at < 3 and p[at] > LOUD, \
+        f"no loud note in frames 0-2: peaks {p[:3]}"
     tail = m[(at + 1) * FRAME:(at + 13) * FRAME]
     cross = crossings(tail)
     hz = cross / 2 * 48000 / len(tail)
-    if max(abs(v) for v in tail) <= LOUD or cross <= 100 or not 396 < hz < 484:
-        return fail(f"{cross} crossings, {hz:.1f} Hz")
-    if max(peaks(mono("plain.wav"))) <= LOUD:
-        return fail("a plain poke of the gate released the note")
-    if max(peaks(mono("released.wav"))):
-        return fail("the note plays on after an xbus: poke of the gate")
-    return 0
+    assert max(abs(v) for v in tail) > LOUD and cross > 100 \
+        and 396 < hz < 484, f"{cross} crossings, {hz:.1f} Hz"
+    assert max(peaks(mono("plain.wav"))) > LOUD, \
+        "a plain poke of the gate released the note"
+    assert not max(peaks(mono("released.wav"))), \
+        "the note plays on after an xbus: poke of the gate"
 
 
 def test_opl():
@@ -314,12 +308,11 @@ def test_opl():
     m = mono("opl.wav")
     p = peaks(m)
     at = onset(p)
-    if not 0 <= at < 3 or p[at] <= LOUD:
-        return fail(f"no loud chord in frames 0-2: peaks {p[:3]}")
+    assert 0 <= at < 3 and p[at] > LOUD, \
+        f"no loud chord in frames 0-2: peaks {p[:3]}"
     tail = m[(at + 1) * FRAME:(at + 13) * FRAME]
-    if max(abs(v) for v in tail) <= LOUD or crossings(tail) <= 80:
-        return fail(f"{crossings(tail)} crossings")
-    return 0
+    assert max(abs(v) for v in tail) > LOUD and crossings(tail) > 80, \
+        f"{crossings(tail)} crossings"
 
 
 def test_opl_init():
@@ -328,9 +321,7 @@ def test_opl_init():
     record("opl_init", 'wav "init.wav" 3')
     p = peaks(mono("init.wav"))
     at = onset(p)
-    if at < 0 or p[at] <= LOUD:
-        return fail(f"no loud note in frames 0-2: peaks {p}")
-    return 0
+    assert at >= 0 and p[at] > LOUD, f"no loud note in frames 0-2: peaks {p}"
 
 
 def test_psg_pre():
@@ -338,12 +329,10 @@ def test_psg_pre():
     starts until the program writes the gate again about five frames later."""
     record("psg_pre", 'wav "pre.wav" 20')
     p = peaks(mono("pre.wav"))
-    if any(p[1:4]):
-        return fail(f"sound in frames 1-3: peaks {p[1:4]}")
+    assert not any(p[1:4]), f"sound in frames 1-3: peaks {p[1:4]}"
     at = onset(p, 4)
-    if at < 0 or p[at] <= LOUD:
-        return fail(f"no loud note in frames 4-19: peaks {p[4:]}")
-    return 0
+    assert at >= 0 and p[at] > LOUD, \
+        f"no loud note in frames 4-19: peaks {p[4:]}"
 
 
 def test_bel():
@@ -351,21 +340,16 @@ def test_bel():
     record("bel", 'wav "bel.wav" 4')
     p = peaks(mono("bel.wav"))
     at = onset(p)
-    if at < 0 or p[at] <= BELL:
-        return fail(f"no bell in frames 0-3: peaks {p}")
-    return 0
+    assert at >= 0 and p[at] > BELL, f"no bell in frames 0-3: peaks {p}"
 
 
 def test_bel_off():
     """With the bell off, a BEL rings nothing. With it back on, a BEL rings."""
     record("bel_off", 'wait "\\a" 10', 'wav "off.wav" 16',
            "poke GO 1", 'wait "\\a" 10', 'wav "on.wav" 4')
-    if max(peaks(mono("off.wav"))):
-        return fail("a BEL rang with the bell off")
+    assert not max(peaks(mono("off.wav"))), "a BEL rang with the bell off"
     p = peaks(mono("on.wav"))
-    if max(p) <= BELL:
-        return fail(f"no bell once it was back on: peaks {p}")
-    return 0
+    assert max(p) > BELL, f"no bell once it was back on: peaks {p}"
 
 
 def test_opl_bel():
@@ -376,9 +360,8 @@ def test_opl_bel():
     record("opl", 'wav "opl.wav" 4')
     p = peaks([x - y for x, y in zip(mono("both.wav"), mono("opl.wav"))])
     at = onset(p)
-    if at < 0 or p[at] <= BELL:
-        return fail(f"no bell over the OPL in frames 0-3: peaks {p}")
-    return 0
+    assert at >= 0 and p[at] > BELL, \
+        f"no bell over the OPL in frames 0-3: peaks {p}"
 
 
 def test_opl_exit():
@@ -386,11 +369,8 @@ def test_opl_exit():
     silent."""
     record("opl_exit", 'wav "on.wav" 1', "expect-exit 0 20",
            "run 1", 'wav "off.wav" 1')
-    if not max(peaks(mono("on.wav"))):
-        return fail("no sound before the exit")
-    if max(peaks(mono("off.wav"))):
-        return fail("sound after the exit")
-    return 0
+    assert max(peaks(mono("on.wav"))), "no sound before the exit"
+    assert not max(peaks(mono("off.wav"))), "sound after the exit"
 
 
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,

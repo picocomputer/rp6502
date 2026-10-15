@@ -5,11 +5,12 @@
 
 import os
 
+import rp6502
 from rp6502_asm import (API_A, API_X, OP_CLOSEDIR, OP_DROP_XSTACK, OP_EXIT,
                         OP_GETFREE, OP_GETLABEL, OP_OPENDIR, OP_READDIR,
                         XSTACK, Asm, putc, puthex, puthex16,
                         putnib)
-from rp6502_rom import emu, main, rom, save_dir
+from rp6502_rom import main, rom, save_dir
 
 SIZE_L = 0x0200
 SIZE_H = 0x0201
@@ -122,7 +123,7 @@ def test_dir():
             return f"{found.name} 10 0000"
         return f"{found.name} 20 {found.stat().st_size:04X}"
 
-    with emu(rom("dir")) as e:
+    with rp6502.Emu(rom("dir")) as e:
         e.cmd("expect-exit 0 20")
         e.cmd('expect "opendir 00\\r\\n"')
         for found in os.scandir("."):

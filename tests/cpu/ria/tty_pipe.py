@@ -8,12 +8,12 @@
 # still clear when the program reads it before exiting.
 
 import subprocess
-import sys
 
+import rp6502
 from rp6502_asm import (API_A, API_X, OP_ATTR_GET, OP_CLOSE, OP_EXIT, OP_OPEN,
                         OP_READ_XSTACK, OP_WRITE_XSTACK, O_RDONLY, XSTACK,
                         Asm)
-from rp6502_rom import command, main, rom
+from rp6502_rom import main, rom
 
 ATTR_SIGINT = 0x08
 FD = 0x0200
@@ -65,16 +65,12 @@ def prog():
 
 
 def test_tty_pipe():
-    r = subprocess.run(command("--headless", "--phi2", "0", rom("tty_pipe")),
-                       input=INPUT, capture_output=True, text=True, timeout=60)
-    ok = True
+    cmd = rp6502.Emu.command("--headless", "--phi2", "0", rom("tty_pipe"))
+    r = subprocess.run(cmd, input=INPUT, capture_output=True, text=True,
+                       timeout=60)
     for name, got, want in (("stdout", r.stdout, INPUT),
                             ("exit code", r.returncode, EXIT_CODE)):
-        if got != want:
-            print(f"{sys.argv[0]}: {name} {got!r}, expected {want!r}",
-                  file=sys.stderr)
-            ok = False
-    return 0 if ok else 1
+        assert got == want, f"{name} {got!r}, expected {want!r}"
 
 
 ROMS = {"tty_pipe": prog}

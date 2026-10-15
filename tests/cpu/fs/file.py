@@ -3,10 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+import rp6502
 from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
                         OP_WRITE_XSTACK, O_CREAT, O_RDONLY, O_TRUNC,
                         O_WRONLY, XSTACK, Asm)
-from rp6502_rom import emu, main, rom
+from rp6502_rom import main, rom
 
 NAME = "SAVE:T.DAT"
 PAYLOAD = b"pocket file ok\r\n"
@@ -60,7 +61,7 @@ def prog():
 
 
 def test_file():
-    with emu(rom("file")) as e:
+    with rp6502.Emu(rom("file")) as e:
         e.cmd(f'wait "{PAYLOAD.decode().rstrip()}"')
 
 

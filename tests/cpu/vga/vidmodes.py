@@ -7,7 +7,6 @@ import argparse
 from pathlib import Path
 
 from rp6502_asm import Asm
-from rp6502_rom import Rom
 
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument("--out", type=Path, required=True,
@@ -50,11 +49,11 @@ def prog(canvas, progs, speak=None, stop=True):
 
 
 def rom(name, canvas, progs, xram_chunks, speak=None):
-    r = Rom().program(prog(canvas, progs, speak))
+    p = prog(canvas, progs, speak)
     for addr, data in xram_chunks:
-        r.record(0x10000 + addr, data)
+        p.rom.add_binary_data(data, 0x10000 + addr)
     note(name, canvas)
-    r.write(OUT / f"{name}.rp6502")
+    p.write(OUT / f"{name}.rp6502")
 
 
 def le16(*vals):
@@ -793,15 +792,14 @@ mode0mix("mode0_win180", 2, 1, 0, 0)
 p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY, stop=False)
 p.xreg(1, 0, 0, 0)
 p.stp()
-r = Rom().program(p)
-r.record(0x10000 + 0x0100,
-         bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF))
-r.record(0x10000 + 0x0800,
-         bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))
+cfg = bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF)
+p.rom.add_binary_data(cfg, 0x10000 + 0x0100)
+p.rom.add_binary_data(bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)),
+                      0x10000 + 0x0800)
 # The manifest records canvas 0 because the program ends on the console
 # canvas, and a suite captures the canvas the program ends on.
 note("mode0_return", 0)
-r.write(OUT / "mode0_return.rp6502")
+p.write(OUT / "mode0_return.rp6502")
 
 cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
 cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)

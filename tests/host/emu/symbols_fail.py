@@ -7,7 +7,8 @@ message. A failure ends the run, so each case gets its own emulator."""
 
 import subprocess
 
-from rp6502_rom import command, main
+import rp6502
+from rp6502_rom import main
 
 # The lines to send, and the message the last one fails with.
 CASES = [
@@ -38,9 +39,9 @@ CASES = [
 
 
 def test_symbols_fail():
-    failed = 0
+    errors = []
     for lines, want in CASES:
-        r = subprocess.run(command("--script", "-"),
+        r = subprocess.run(rp6502.Emu.command("--script", "-"),
                            input="\n".join(lines) + "\n",
                            capture_output=True, text=True)
         # The emulator reports one failure, at the last line of the case.
@@ -49,10 +50,9 @@ def test_symbols_fail():
         start = f"rp6502-emu: <stdin>:{len(lines)}: {want}; "
         if (r.returncode != 1 or len(fails) != 1
                 or not fails[0].startswith(start)):
-            print(f"{lines[-1]!r} should fail with {want!r}, but the "
-                  f"emulator exited {r.returncode} with {r.stderr!r}")
-            failed = 1
-    return failed
+            errors.append(f"{lines[-1]!r} should fail with {want!r}, but the "
+                          f"emulator exited {r.returncode} with {r.stderr!r}")
+    assert not errors, "\n".join(errors)
 
 
 TESTS = {"symbols_fail": test_symbols_fail}

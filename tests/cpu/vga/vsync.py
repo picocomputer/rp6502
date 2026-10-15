@@ -7,7 +7,7 @@
 # console that a suite can read.
 
 from rp6502_asm import RW0_ADDR, RW0_DATA, Asm
-from rp6502_rom import image, main
+from rp6502_rom import main
 
 RIA_VSYNC = 0xFFE3
 RIA_IRQ = 0xFFF0
@@ -81,9 +81,8 @@ def prog():
     p.bne("dump")
     p.stp()
 
-    out = image(p)
-    out.add_irq_vector(irq)
-    return out
+    p.rom.add_irq_vector(irq)
+    return p
 
 
 ROMS = {"vsync": prog}

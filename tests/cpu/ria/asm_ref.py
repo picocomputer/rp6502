@@ -6,9 +6,8 @@
 import argparse
 from pathlib import Path
 
-from rp6502_asm import (API_A, ORG, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY,
-                        RIA_TX, Asm)
-from rp6502_rom import Rom
+from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY, RIA_TX,
+                        Asm)
 
 
 def build():
@@ -66,8 +65,9 @@ def main():
     ap.add_argument("--emit-bin", help="the assembled program, raw")
     a = ap.parse_args()
     if a.emit:
-        r = Rom().program(build(), ORG).record(0x10040, bytes(range(16)))
-        print(f"asm_ref.rp6502 {r.write(a.emit)} bytes")
+        p = build()
+        p.rom.add_binary_data(bytes(range(16)), 0x10040)
+        print(f"asm_ref.rp6502 {p.write(a.emit)} bytes")
     if a.emit_bin:
         code = build().code()
         Path(a.emit_bin).write_bytes(code)

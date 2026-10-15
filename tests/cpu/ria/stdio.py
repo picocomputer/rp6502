@@ -4,11 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import subprocess
-import sys
 
+import rp6502
 from rp6502_asm import (API_A, API_X, OP_EXIT, OP_READ_XSTACK, OP_WRITE_XSTACK,
                         XSTACK, Asm)
-from rp6502_rom import command, main, rom, script
+from rp6502_rom import main, rom, script
 
 EXIT_CODE = 3
 ERR = "err\n"
@@ -65,17 +65,13 @@ def test_eof_empty():
 
 
 def test_stdio():
-    r = subprocess.run(command("--headless", "--phi2", "0", rom("stdio")),
-                       input=INPUT, capture_output=True, text=True, timeout=60)
-    ok = True
+    cmd = rp6502.Emu.command("--headless", "--phi2", "0", rom("stdio"))
+    r = subprocess.run(cmd, input=INPUT, capture_output=True, text=True,
+                       timeout=60)
     for name, got, want in (("stdout", r.stdout, OUTPUT),
                             ("stderr", r.stderr, ERR),
                             ("exit code", r.returncode, EXIT_CODE)):
-        if got != want:
-            print(f"{sys.argv[0]}: {name} {got!r}, expected {want!r}",
-                  file=sys.stderr)
-            ok = False
-    return 0 if ok else 1
+        assert got == want, f"{name} {got!r}, expected {want!r}"
 
 
 ROMS = {"stdio": prog}

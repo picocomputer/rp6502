@@ -10,11 +10,12 @@ import os
 import struct
 import time
 
+import rp6502
 from rp6502_asm import (API_A, API_ERRNO, API_X, OP_ATTR_GET, OP_ATTR_SET,
                         OP_EXIT, OP_STRFTIME, OP_TIME_GET, OP_TIME_SET,
                         OP_WRITE_XSTACK, XSTACK, Asm, putc, putnib,
                         puthex)
-from rp6502_rom import ScriptError, emu, main, rom
+from rp6502_rom import main, rom
 
 ATTR_ERRNO_OPT = 0x00
 ATTR_CODE_PAGE = 0x02
@@ -114,7 +115,7 @@ def prog():
 
 def test_clk():
     os.environ["TZ"] = "PST8"
-    with emu("--cp", "437", rom("clk")) as e:
+    with rp6502.Emu("--cp", "437", rom("clk")) as e:
         # The emulator's clock can be a few milliseconds behind Python's,
         # so a second is allowed below.
         before = int(time.time()) - 1
@@ -127,9 +128,8 @@ def test_clk():
         e.cmd('wait "get 0000\\n"')
         after = int(time.time())
         got = struct.unpack("<q", bytes.fromhex(e.cmd("dump GOT 8")))[0]
-        if not before <= got <= after:
-            raise ScriptError(
-                f"time_get read {got}, not between {before} and {after}")
+        assert before <= got <= after, \
+            f"time_get read {got}, not between {before} and {after}"
         # The code page the program set is gone when it runs again.
         e.cmd('wait "cp 0352\\n"')
         e.cmd("expect-exit 0")

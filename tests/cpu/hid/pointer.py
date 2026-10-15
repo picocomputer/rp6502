@@ -6,7 +6,7 @@
 from rp6502_asm import (RW0_ADDR, RW0_DATA, RW0_STEP, RW1_ADDR, RW1_DATA,
                         RW1_STEP, VIA_ACR, VIA_IER, VIA_IFR, VIA_T1_HI,
                         VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, Asm)
-from rp6502_rom import image, main, rom, script
+from rp6502_rom import main, rom, script
 
 MOUSE = 0xFF00          # buttons, x, y, wheel, pan
 TABLET = 0xFF10         # 4 byte header + 8 contacts of 4
@@ -26,7 +26,7 @@ def tablet_rom():
     p = Asm()
     p.xreg(0, 0, 3, TABLET)
     p.jmp_abs(p.here())
-    return image(p)
+    return p
 
 
 def mouse_rom():
@@ -80,9 +80,8 @@ def mouse_rom():
 
     p.jmp_abs(p.here())
 
-    out = image(p)
-    out.add_irq_vector(irq)
-    return out
+    p.rom.add_irq_vector(irq)
+    return p
 
 
 POINTER_SCRIPT = r"""

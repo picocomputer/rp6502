@@ -5,7 +5,7 @@
 
 from rp6502_asm import (API_A, API_ERRNO, OP_LSEEK, OP_OPEN, OP_READ_XSTACK,
                         O_RDONLY, XSTACK, Asm, putc, putnib, puthex)
-from rp6502_rom import image, main
+from rp6502_rom import main
 
 ASSET = "song"
 
@@ -158,9 +158,9 @@ def prog(letter):
 
 
 def sleepasset(letter):
-    out = image(prog(letter))
-    out.add_asset(ASSET, payload(letter))
-    return out
+    p = prog(letter)
+    p.rom.add_asset(ASSET, payload(letter))
+    return p
 
 
 ROMS = {"sleepasset-a": lambda: sleepasset("A"),

@@ -6,8 +6,9 @@
 import os
 import shutil
 
+import rp6502
 from rp6502_asm import OP_ARGV, XSTACK, Asm, putc, putnib, puthex
-from rp6502_rom import emu, main, rom, save_dir, script
+from rp6502_rom import main, rom, save_dir, script
 
 BAR = ord("|")
 
@@ -59,7 +60,7 @@ def test_argv():
     shutil.copy(rom("argv"), here / "x.rp6502")
     os.chdir(here)
     cwd = here.as_posix() if os.name == "nt" else "FS:" + here.as_posix()
-    with emu(rom("argv"), "--", "", "Foo", "") as e:
+    with rp6502.Emu(rom("argv"), "--", "", "Foo", "") as e:
         e.cmd('wait ".rp6502||Foo||]\\r\\n"')
         e.cmd("sys stop")
         e.cmd('load "x.rp6502"')

@@ -5,9 +5,10 @@
 
 from pathlib import Path
 
+import rp6502
 from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK, O_RDONLY,
                         XSTACK, Asm)
-from rp6502_rom import emu, main, rom
+from rp6502_rom import main, rom
 
 NAME = "M.DAT"
 CHUNK = 16
@@ -57,7 +58,7 @@ def test_stream():
     # after it.
     payload = bytes(1 + (i * 7 + 11) % 0xFF for i in range(CHUNK * 5))
     Path(NAME).write_bytes(payload)
-    with emu(rom("stream")) as e:
+    with rp6502.Emu(rom("stream")) as e:
         e.cmd(f'wait "{DONE.decode().rstrip()}"')
 
 

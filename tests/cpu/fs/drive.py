@@ -7,13 +7,14 @@ import os
 import shutil
 from pathlib import Path
 
+import rp6502
 from rp6502_asm import (API_A, API_ERRNO, API_X, OP_CHDIR, OP_CHDRIVE,
                         OP_CLOSE, OP_DROP_XSTACK, OP_ERRNO_OPT, OP_EXIT,
                         OP_GETCWD, OP_MKDIR, OP_OPEN, OP_OPENDIR,
                         OP_READ_XSTACK, OP_STAT, OP_UNLINK, O_CREAT, O_RDONLY,
                         O_RDWR, O_TRUNC, O_WRONLY, XSTACK, Asm, putc, puthex,
                         putnib)
-from rp6502_rom import ADVENTURE, ScriptError, emu, main, rom, save_dir
+from rp6502_rom import ADVENTURE, main, rom, save_dir
 
 TMP = 0x0200
 FD = 0x0201
@@ -187,7 +188,7 @@ def test_drive():
     parent = (here.parent.as_posix() if os.name == "nt"
               else "FS:" + here.parent.as_posix())
 
-    with emu(rom("drive")) as e:
+    with rp6502.Emu(rom("drive")) as e:
         e.cmd(f'install "{Path(ADVENTURE).as_posix()}"')
         e.cmd('install "second.rp6502"')
         e.cmd("expect-exit 0 60")
@@ -210,8 +211,7 @@ def test_drive():
         e.cmd('expect "mkdir :sub FFFF\\r\\n"')
         e.cmd('expect "stat drive::adventure.rp6502 FFFF\\r\\n"')
         e.cmd('expect "open drive:save.dat 00\\r\\n"')
-        if not (here / "save.dat").exists():
-            raise ScriptError(f"no save.dat in {here}")
+        assert (here / "save.dat").exists(), f"no save.dat in {here}"
         e.cmd('expect "mkdir sub 0000\\r\\n"')
         e.cmd('expect "chdir sub 0000\\r\\n"')
         e.cmd(f'expect "getcwd {cwd}/sub\\r\\n"')

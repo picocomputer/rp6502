@@ -1461,6 +1461,21 @@ class Emu:
     A with statement closes the emulator, or kills it when the block raises."""
 
     def __init__(self, *words):
+        cmd = Emu.command("--script", "-", *words)
+        self.sym = Symbols(os.path.splitext(Emu._boots(cmd[1:]))[0] + ".sym")
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+        self.cmd("reply")
+
+    @staticmethod
+    def command(*words) -> list:
+        """The command line $RP6502_EMU <words before --> <sys.argv[1:]>
+        -- <words after -->. The emulator gives the words after -- to the ROM."""
         words = list(words)
         argv = sys.argv[1:]
         split = words.index("--") if "--" in words else len(words)
@@ -1472,25 +1487,19 @@ class Emu:
             rom_args = argv[split + 1 :] + rom_args
         else:
             options += argv
-        cmd = [os.environ["RP6502_EMU"], "--script", "-"] + options
+        cmd = [os.environ["RP6502_EMU"]] + options
         if rom_args:
             cmd += ["--"] + rom_args
-        self.sym = Symbols(os.path.splitext(Emu._boots(options))[0] + ".sym")
-        self._proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            encoding="utf-8",
-            errors="replace",
-        )
-        self.cmd("reply")
+        return cmd
 
     @staticmethod
-    def _boots(options) -> str:
-        """The ROM that the emulator boots: the first .rp6502 that is not the
-        value of --install, else the first --install value, else ''."""
+    def _boots(words) -> str:
+        """The ROM that the emulator boots: the first .rp6502 before -- that is
+        not the value of --install, else the first --install value, else ''."""
         installs = []
-        for before, word in zip([""] + options, options):
+        for before, word in zip([""] + words, words):
+            if word == "--":
+                break
             if before == "--install":
                 installs.append(word)
             elif word.endswith(".rp6502"):

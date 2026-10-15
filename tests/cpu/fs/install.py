@@ -8,7 +8,8 @@ import os
 import shutil
 from pathlib import Path
 
-from rp6502_rom import ADVENTURE, emu, main, save_dir
+import rp6502
+from rp6502_rom import ADVENTURE, main, save_dir
 
 
 def replaces(here):
@@ -16,7 +17,7 @@ def replaces(here):
     first, and a remove takes the name off."""
     (here / "adventure.rp6502").write_bytes(b"NOT THE ROM")
     fixture = Path(ADVENTURE).as_posix()
-    with emu(ADVENTURE) as e:
+    with rp6502.Emu(ADVENTURE) as e:
         e.cmd("sys stop")
         e.cmd('install "adventure.rp6502"')
         e.cmd(f'install "{fixture}" ADVENTURE.RP6502')
@@ -33,7 +34,7 @@ def host_path(here):
     folder = here / "日本"
     folder.mkdir(exist_ok=True)
     shutil.copy(ADVENTURE, folder / "z.rp6502")
-    with emu(ADVENTURE) as e:
+    with rp6502.Emu(ADVENTURE) as e:
         e.cmd("sys stop")
         e.cmd(f'install "{(folder / "z.rp6502").as_posix()}"')
         e.cmd('load ":z.rp6502"')

@@ -7,7 +7,7 @@
 # Ctrl-C.
 
 from rp6502_asm import OP_ATTR_GET, Asm
-from rp6502_rom import image, main, rom, script
+from rp6502_rom import main, rom, script
 
 RIA_VSYNC = 0xFFE3
 RIA_IRQ = 0xFFF0
@@ -76,9 +76,8 @@ def prog():
     p.symbol("spin")
     p.bra("spin")
 
-    out = image(p)
-    out.add_irq_vector(irq)
-    return out
+    p.rom.add_irq_vector(irq)
+    return p
 
 
 SIGINT_SCRIPT = r"""

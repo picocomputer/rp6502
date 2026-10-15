@@ -24,10 +24,16 @@ set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 
 # The Python files of the tests import the assembler and the test runner
-# from lib.
+# from lib, and rp6502 from tools. PYTHONPATH separates folders with ; on
+# Windows and with : on other hosts.
 set(RP6502_TEST_LIB ${RP6502_TESTS_DIR}/lib)
-set(RP6502_TEST_PYTHON ${CMAKE_COMMAND} -E env PYTHONPATH=${RP6502_TEST_LIB}
-    PYTHONDONTWRITEBYTECODE=1 python3)
+if(CMAKE_HOST_WIN32)
+    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}$<SEMICOLON>${RP6502_ROOT}/tools")
+else()
+    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}:${RP6502_ROOT}/tools")
+endif()
+set(RP6502_TEST_PYTHON ${CMAKE_COMMAND} -E env
+    PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1 python3)
 set(RP6502_TEST_LIB_FILES
     ${RP6502_TEST_LIB}/rp6502_asm.py
     ${RP6502_TEST_LIB}/rp6502_rom.py
@@ -138,8 +144,8 @@ function(rp6502_add_script_test)
     if(file MATCHES "\\.py$")
         add_test(NAME script.${S_NAME}
             COMMAND ${CMAKE_COMMAND} -E env RP6502_EMU=$<TARGET_FILE:rp6502-emu>
-                RP6502_ROMS=${RP6502_TEST_ROM_DIR} PYTHONPATH=${RP6502_TEST_LIB}
-                PYTHONDONTWRITEBYTECODE=1
+                RP6502_ROMS=${RP6502_TEST_ROM_DIR}
+                PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1
                 python3 ${file} ${S_NAME} --save-dir ${_work} ${args})
     else()
         add_test(NAME script.${S_NAME}

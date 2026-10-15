@@ -9,6 +9,8 @@ import os
 import sys
 from contextlib import contextmanager
 
+import rp6502
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 CODEGEN = os.path.join(ROOT, "vendor", "chips", "codegen")
@@ -153,6 +155,7 @@ class Asm:
         self._sym = {}
         self._fix = []
         self._n = 0
+        self.rom = rp6502.ROM()
 
     def symbol(self, name):
         if name in self._sym:
@@ -223,6 +226,19 @@ class Asm:
                 self._b[at] = target & 0xFF
                 self._b[at + 1] = target >> 8
         return bytes(self._b)
+
+    def write(self, path, names=None):
+        """Adds the program and its reset vector to self.rom and writes the
+        ROM. Beside it, the method writes the .sym file: the labels and the
+        whole numbers of this module and of names. Returns the ROM's size."""
+        self.rom.add_binary_data(self.code(), self.org)
+        self.rom.add_reset_vector(self.org)
+        size = self.rom.write(path)
+        pairs = list(self._sym.items())
+        for table in (globals(), names or {}):
+            pairs += [(k, v) for k, v in table.items() if type(v) is int]
+        rp6502.Symbols.write(os.path.splitext(str(path))[0] + ".sym", pairs)
+        return size
 
     def __len__(self):
         return len(self._b)

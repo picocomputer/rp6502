@@ -11,6 +11,7 @@
 
 import os
 
+import rp6502
 from rp6502_asm import (API_A, API_ERRNO, OP_ARGV, OP_CHDIR, OP_CHDRIVE,
                         OP_CLOSE, OP_DROP_XSTACK, OP_ERRNO_OPT, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
@@ -20,7 +21,7 @@ from rp6502_asm import (API_A, API_ERRNO, OP_ARGV, OP_CHDIR, OP_CHDRIVE,
                         O_TRUNC, O_WRONLY, RW0_ADDR, RW0_DATA, SEEK_CUR,
                         SEEK_END, SEEK_SET, XSTACK, Asm, putc, puthex,
                         putnib)
-from rp6502_rom import emu, image, main, rom, save_dir
+from rp6502_rom import main, rom, save_dir
 
 
 FD = 0x0200
@@ -1119,9 +1120,9 @@ def passed():
 
 
 def fstest_rom():
-    out = image(build())
-    out.add_asset(ASSET, payload(ACHUNKS))
-    return out
+    p = build()
+    p.rom.add_asset(ASSET, payload(ACHUNKS))
+    return p
 
 
 def test_fstest():
@@ -1133,7 +1134,7 @@ def test_fstest():
     for name in CREATES:
         (save_dir() / name).unlink(missing_ok=True)
     os.environ["TZ"] = TZ
-    with emu(rom("fstest")) as e:
+    with rp6502.Emu(rom("fstest")) as e:
         e.cmd('wait "BAD "')
         e.cmd(f"peek FAILN ${len(PLATFORM):02X}")
         if PLATFORM:
