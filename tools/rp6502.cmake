@@ -25,7 +25,7 @@ Commands
 * :command:`rp6502_executable` packages the linker output as a ROM.
 * :command:`rp6502_basic` packages BASIC programs as a ROM.
 * :command:`rp6502_web` packages a ROM as a web page.
-* :command:`rp6502_test` adds tests that run in the emulator.
+* :command:`rp6502_test` adds a test that runs in the emulator.
 * :command:`rp6502_byproducts` declares the extra files that a link writes.
 
 Functions named ``_rp6502_*`` are internal.
@@ -724,83 +724,68 @@ endfunction()
 #[=======================================================================[.rst:
 .. command:: rp6502_test
 
-  Adds tests that run in the emulator.
+  Adds a test that runs in the emulator, in the form of ``add_test()``.
 
   .. code-block:: cmake
 
-    rp6502_test(<file>... [NAME <name>] [ARGS <arg>...])
+    rp6502_test(NAME <name> COMMAND <file> [<arg>...])
 
-  Each ``<file>``, a path from the current source folder, is one test: a
-  ``.py`` file in Python, and any other file as an emulator script. The
-  name of a test is the file name without the extension, and each name
-  must be unique in the project. A test runs in ``test/<name>/`` in the
-  build folder. That folder holds ``rp6502-emu``, the emulator of the test,
-  and ``save/``, the folder behind ``SAVE:``. A script runs as
-  ``rp6502-emu --save-dir <save> --script <file> <arg>...``. A Python test
-  runs as ``python <file> --save-dir <save> <arg>...``, with ``tools/`` in
-  ``PYTHONPATH`` and the emulator in the environment variable
-  ``RP6502_EMU``. A test gets the ROM of a target in ``ARGS``, as in
-  ``ARGS $<TARGET_PROPERTY:hello,RP6502_ROM>``.
+  The test ``<name>`` runs ``<file>``, a path from the current source
+  folder: a ``.py`` file in Python, and any other file as an emulator
+  script. Each name must be unique in the project. The test runs in
+  ``test/<name>/`` in the build folder. That folder holds ``rp6502-emu``,
+  the emulator of the test, and ``save/``, the folder behind ``SAVE:``. A
+  script runs as ``rp6502-emu --save-dir <save> --script <file> <arg>...``.
+  A Python test runs as ``python <file> --save-dir <save> <arg>...``, with
+  ``tools/`` in ``PYTHONPATH`` and the emulator in the environment
+  variable ``RP6502_EMU``. Each ``<arg>`` is an emulator option or a ROM,
+  such as ``$<TARGET_PROPERTY:hello,RP6502_ROM>``, and the words after
+  ``--`` are the arguments of the ROM.
 
   The tests also add two setup tests, which ctest runs before the other
   tests: ``rp6502.build`` builds the project, and ``rp6502.save`` empties
   each ``save/`` folder.
-
-  ``NAME <name>``
-    The name of the test. ``NAME`` is allowed only with one ``<file>``.
-
-  ``ARGS <arg>...``
-    Arguments for every ``<file>``: emulator options and a ROM, then
-    ``--`` and the arguments of the ROM.
 #]=======================================================================]
 function(rp6502_test)
-    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME" "ARGS")
-    set(files ${arg_UNPARSED_ARGUMENTS})
-    if (NOT files OR arg_KEYWORDS_MISSING_VALUES)
-        message(FATAL_ERROR "rp6502_test(<file>... [NAME <name>] [ARGS <arg>...])")
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME" "COMMAND")
+    if (NOT DEFINED arg_NAME OR NOT DEFINED arg_COMMAND OR arg_UNPARSED_ARGUMENTS
+            OR arg_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "rp6502_test(NAME <name> COMMAND <file> [<arg>...])")
     endif()
-    string(REPLACE ";" " " listed "${files}")
-    set(caller "rp6502_test(${listed})")
-    list(LENGTH files count)
-    if (DEFINED arg_NAME AND count GREATER 1)
-        message(FATAL_ERROR "${caller}: NAME is allowed only with one file.")
-    endif()
+    set(name "${arg_NAME}")
+    set(caller "rp6502_test(NAME ${name})")
+    set(args "${arg_COMMAND}")
+    list(POP_FRONT args file)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    foreach(file IN LISTS files)
-        get_filename_component(path "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-        if (NOT EXISTS "${path}")
-            message(FATAL_ERROR "${caller}: ${file} is not a file.")
-        endif()
-        get_filename_component(name "${file}" NAME_WLE)
-        if (DEFINED arg_NAME)
-            set(name "${arg_NAME}")
-        endif()
-        # CMake refuses a repeated test name only inside one folder.
-        get_property(names GLOBAL PROPERTY RP6502_TESTS)
-        if (name IN_LIST names)
-            message(FATAL_ERROR "${caller}: the project already has a test named ${name}.")
-        endif()
-        set_property(GLOBAL APPEND PROPERTY RP6502_TESTS "${name}")
-        # The end of configure links the emulator, from the settings of this
-        # folder.
-        set_property(GLOBAL PROPERTY RP6502_TEST_DIR_${name} "${CMAKE_CURRENT_SOURCE_DIR}")
-        # ctest does not make the working folder.
-        set(dir "${CMAKE_BINARY_DIR}/test/${name}")
-        file(MAKE_DIRECTORY "${dir}")
-        set(emu "${dir}/${RP6502_EMU_NAME}")
-        if (path MATCHES "\\.py$")
-            add_test(NAME ${name}
-                COMMAND "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${arg_ARGS}
-                WORKING_DIRECTORY "${dir}")
-            set_tests_properties(${name} PROPERTIES ENVIRONMENT
-                "PYTHONPATH=${RP6502_TOOLS_DIR};PYTHONDONTWRITEBYTECODE=1;RP6502_EMU=${emu}")
-        else()
-            add_test(NAME ${name}
-                COMMAND "${emu}" --save-dir "${dir}/save" --script "${path}" ${arg_ARGS}
-                WORKING_DIRECTORY "${dir}")
-        endif()
-        set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED rp6502.build)
-    endforeach()
+    get_filename_component(path "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if (NOT EXISTS "${path}")
+        message(FATAL_ERROR "${caller}: ${file} is not a file.")
+    endif()
+    # CMake refuses a repeated test name only inside one folder.
+    get_property(names GLOBAL PROPERTY RP6502_TESTS)
+    if (name IN_LIST names)
+        message(FATAL_ERROR "${caller}: the project already has a test named ${name}.")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY RP6502_TESTS "${name}")
+    # The end of configure links the emulator, from the settings of this
+    # folder.
+    set_property(GLOBAL PROPERTY RP6502_TEST_DIR_${name} "${CMAKE_CURRENT_SOURCE_DIR}")
+    # ctest does not make the working folder.
+    set(dir "${CMAKE_BINARY_DIR}/test/${name}")
+    file(MAKE_DIRECTORY "${dir}")
+    set(emu "${dir}/${RP6502_EMU_NAME}")
+    if (path MATCHES "\\.py$")
+        add_test(NAME ${name}
+            COMMAND "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${args}
+            WORKING_DIRECTORY "${dir}")
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT
+            "PYTHONPATH=${RP6502_TOOLS_DIR};PYTHONDONTWRITEBYTECODE=1;RP6502_EMU=${emu}")
+    else()
+        add_test(NAME ${name}
+            COMMAND "${emu}" --save-dir "${dir}/save" --script "${path}" ${args}
+            WORKING_DIRECTORY "${dir}")
+    endif()
+    set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED rp6502.build)
 endfunction()
 
 #[=======================================================================[.rst:
