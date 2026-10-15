@@ -13,9 +13,10 @@ includes this file before ``project()``:
 The include loads the compiler for the variable that the configure preset
 sets: cc65 for ``CC65_TARGET_SYSTEM``, llvm-mos for ``LLVM_MOS_PLATFORM``,
 or none for ``RP6502_BASIC``, a project of BASIC programs only. The include
-also adds BASIC as a language for ``project()``, fetches the emulator when
-``tools/`` lacks it, and sets ``RP6502_TOOLS_DIR`` to the ``tools/``
-folder.
+also adds BASIC as a language for ``project()``, enables testing, fetches
+the emulator when ``tools/`` lacks it, and sets ``RP6502_TOOLS_DIR`` to
+the ``tools/`` folder. With testing enabled, no target can have the name
+``test``.
 
 Commands
 ^^^^^^^^
@@ -25,6 +26,7 @@ Commands
 * :command:`rp6502_executable` packages the linker output as a ROM.
 * :command:`rp6502_basic` packages BASIC programs as a ROM.
 * :command:`rp6502_web` packages a ROM as a web page.
+* :command:`rp6502_test` adds tests that run a ROM.
 * :command:`rp6502_byproducts` declares the extra files that a link writes.
 
 Functions named ``_rp6502_*`` are internal.
@@ -729,6 +731,87 @@ function(rp6502_web target)
         COMMENT "Packaging web/${zip}"
         VERBATIM
     )
+endfunction()
+
+#[=======================================================================[.rst:
+.. command:: rp6502_test
+
+  Adds tests that run the ROM of a target.
+
+  .. code-block:: cmake
+
+    rp6502_test(<target> <file>... [NAME <name>] [ARGS <arg>...])
+
+  ``<target>`` must already have a ROM from :command:`rp6502_executable`
+  or :command:`rp6502_basic`. Each ``<file>``, a path from the current
+  source folder, is one test, which ``rp6502.py test`` runs with the ROM:
+  a ``.py`` file in Python, and any other file as an emulator script. The
+  name of a test is the file name without the extension, and the test runs
+  in ``test/<name>/`` in the build folder. Each name must be unique in the
+  project. The first call also adds the test ``rp6502.build``, which
+  builds the project. ctest runs ``rp6502.build`` before the other tests.
+
+  ``NAME <name>``
+    The name of the test. ``NAME`` is allowed only with one ``<file>``.
+
+  ``ARGS <arg>...``
+    Arguments for every ``<file>``. A Python test gets them in
+    ``sys.argv[1:]``, and for any other file the emulator gets them after
+    the ROM.
+#]=======================================================================]
+function(rp6502_test target)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "NAME" "ARGS")
+    set(files ${arg_UNPARSED_ARGUMENTS})
+    if (NOT files OR arg_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "rp6502_test(<target> <file>... [NAME <name>] [ARGS <arg>...])")
+    endif()
+    string(REPLACE ";" " " listed "${files}")
+    set(caller "rp6502_test(${target} ${listed})")
+    list(LENGTH files count)
+    if (DEFINED arg_NAME AND count GREATER 1)
+        message(FATAL_ERROR "${caller}: NAME is allowed only with one file.")
+    endif()
+    if (TARGET ${target})
+        get_target_property(rom_file ${target} RP6502_ROM)
+    endif()
+    if (NOT rom_file)
+        message(FATAL_ERROR
+            "${caller}: ${target} makes no ROM. Call rp6502_executable(${target} ...) "
+            "or rp6502_basic(${target} ...) before rp6502_test(${target} ...).")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    # ctest does not build the ROMs. if(TEST) sees only the current folder, so
+    # the GLOBAL list finds the first call in the project.
+    get_property(names GLOBAL PROPERTY RP6502_TESTS)
+    if ("${names}" STREQUAL "")
+        add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
+        set_tests_properties(rp6502.build PROPERTIES FIXTURES_SETUP rp6502.build)
+    endif()
+    foreach(file IN LISTS files)
+        get_filename_component(path "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        if (NOT EXISTS "${path}")
+            message(FATAL_ERROR "${caller}: ${file} is not a file.")
+        endif()
+        get_filename_component(name "${file}" NAME_WLE)
+        if (DEFINED arg_NAME)
+            set(name "${arg_NAME}")
+        endif()
+        # CMake refuses a repeated test name only inside one folder.
+        get_property(names GLOBAL PROPERTY RP6502_TESTS)
+        if (name IN_LIST names)
+            message(FATAL_ERROR "${caller}: the project already has a test named ${name}.")
+        endif()
+        set_property(GLOBAL APPEND PROPERTY RP6502_TESTS "${name}")
+        # ctest does not make the working folder.
+        set(dir "${CMAKE_BINARY_DIR}/test/${name}")
+        file(MAKE_DIRECTORY "${dir}")
+        add_test(NAME ${name}
+            COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
+                    -c "${RP6502_PROJECT_DIR}/.rp6502"
+                    test "${path}" "${rom_file}" ${arg_ARGS}
+            WORKING_DIRECTORY "${dir}")
+        set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED rp6502.build)
+    endforeach()
 endfunction()
 
 #[=======================================================================[.rst:
@@ -1479,6 +1562,10 @@ endif()
 if(CMAKE_SCRIPT_MODE_FILE)
     return()
 endif()
+
+# ctest finds the tests of rp6502_test() only when the top folder enables
+# testing.
+enable_testing()
 
 # A clone lacks the emulator, which is not committed.
 if(NOT RP6502_TOOLS_FETCHED)

@@ -26,6 +26,7 @@ import shlex
 import socket
 import struct
 import subprocess
+import tempfile
 import concurrent.futures
 from typing import Union
 
@@ -1572,6 +1573,66 @@ class Emulator:
             send(response)
 
 
+class ScriptError(Exception):
+    """A script command that failed, or an emulator that exited with an error."""
+
+
+class Emu:
+    """An emulator that runs a ROM with script commands from a test. The
+    defaults come from the environment that the test subcommand sets. A with
+    statement closes the emulator, or kills it when the block raises."""
+
+    def __init__(self, rom=None, save_dir=None, args=()):
+        self.rom = rom or os.environ["RP6502_ROM"]
+        self.save_dir = save_dir or os.environ["RP6502_SAVE_DIR"]
+        self.sym = Symbols(os.path.splitext(self.rom)[0] + ".sym")
+        cmd = [os.environ["RP6502_EMULATOR"]]
+        if "RP6502_SEED" in os.environ:
+            cmd += ["--seed", os.environ["RP6502_SEED"]]
+        cmd += ["--save-dir", self.save_dir, "--script", "-", self.rom, *args]
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+        self.cmd("reply")
+
+    def cmd(self, line):
+        """Sends one script command and returns the text after ok. A fail
+        raises ScriptError with the line, the reason and the rest of stdout."""
+        self._proc.stdin.write(line + "\n")
+        self._proc.stdin.flush()
+        reply = self._proc.stdout.readline()
+        if not reply:
+            raise ScriptError(f"{line}: the emulator exited before it answered")
+        reply = reply.rstrip("\n")
+        if reply.startswith("fail"):
+            rest = self._proc.stdout.read()
+            raise ScriptError(f"{line}: {reply[5:]}\n{rest}".rstrip("\n"))
+        if reply != "ok" and not reply.startswith("ok "):
+            raise ScriptError(f"{line}: unexpected answer {reply!r}")
+        return reply[3:]
+
+    def close(self):
+        """Ends the script and waits for the emulator to exit. An exit code
+        other than 0 raises ScriptError."""
+        self._proc.communicate()
+        if self._proc.returncode:
+            raise ScriptError(f"the emulator exited with code {self._proc.returncode}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, *_):
+        if kind is None:
+            self.close()
+        else:
+            self._proc.kill()
+            self._proc.communicate()
+
+
 def exec_args():
     # Standard library argument parser
     class CustomFormatter(argparse.HelpFormatter):
@@ -1587,6 +1648,7 @@ def exec_args():
         "term": ("Attach to the RIA console.", None),
         "emu": ("Launch emulator from config (for IDE).", None),
         "execute": ("Run local ROM in the emulator with no window, headless or by --script.", 1),
+        "test": ("Run a .py test or an emulator script on a ROM in the emulator.", None),
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
@@ -1655,6 +1717,20 @@ def exec_args():
         "--save-dir",
         metavar="folder",
         help="Folder used as SAVE:, instead of the OS folder for saved data.",
+    )
+    parsers["test"].add_argument("file", help="A .py test or an emulator script.")
+    parsers["test"].add_argument("rom", help="The ROM to test.")
+    parsers["test"].add_argument(
+        "test_args",
+        nargs=argparse.REMAINDER,
+        metavar="args",
+        help="Arguments for the test: sys.argv[1:] of a .py test, "
+        "or emulator arguments after the ROM for a script.",
+    )
+    parsers["test"].add_argument(
+        "--seed",
+        metavar="n",
+        help="Fixed random seed for every emulator in the run, to repeat a run.",
     )
     # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
     for cmd in ("run", "execute"):
@@ -2054,6 +2130,36 @@ def exec_args():
             sys.exit(subprocess.run(cmd, stdin=stdin).returncode)
         except OSError as e:
             raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
+
+    if args.command == "test":
+        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
+        # argparse drops a "--" that follows the ROM, so read the words as typed.
+        words = sys.argv[sys.argv.index(args.rom) + 1 :]
+        with tempfile.TemporaryDirectory() as save_dir:
+            if args.file.endswith(".py"):
+                cmd = [sys.executable, args.file] + words
+                env = dict(
+                    os.environ,
+                    PYTHONPATH=os.path.dirname(os.path.abspath(__file__)),
+                    RP6502_ROM=args.rom,
+                    RP6502_EMULATOR=emulator,
+                    RP6502_SAVE_DIR=save_dir,
+                    PYTHONDONTWRITEBYTECODE="1",
+                )
+                if args.seed:
+                    env["RP6502_SEED"] = args.seed
+            else:
+                cmd = [emulator]
+                if args.seed:
+                    cmd += ["--seed", args.seed]
+                cmd += ["--save-dir", save_dir, "--script", args.file, args.rom]
+                cmd += words
+                env = None
+            try:
+                code = subprocess.run(cmd, env=env).returncode
+            except OSError as e:
+                raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
+        sys.exit(code)
 
 
 # This file may be included or run like a program.
