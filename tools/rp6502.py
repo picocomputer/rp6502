@@ -26,7 +26,6 @@ import shlex
 import socket
 import struct
 import subprocess
-import tempfile
 import concurrent.futures
 from typing import Union
 
@@ -1272,7 +1271,10 @@ class Symbols(dict):
             mode = ["-fno-lto", "-ferror-limit=0", "-MD", "-MF", dep]
         # CMake 3.21 reads a -S in the cc65 wrapper call as its own option, which
         # takes the next word as a folder, so -S comes right before the stub.
-        argv = flags + ["-I", os.path.dirname(source)] + mode + ["-o", asm, "-S", stub]
+        # cc65 aborts on an error message with a long file name, so the stub is
+        # named by its path from the compile folder.
+        argv = flags + ["-I", os.path.dirname(source)] + mode
+        argv += ["-o", asm, "-S", os.path.relpath(stub, directory)]
         # The stub includes the source by its real path from the stub's folder,
         # so the compiler opens this source and no other file of the same name.
         include = os.path.relpath(os.path.realpath(source), os.path.realpath(work))
@@ -1449,147 +1451,31 @@ class Symbols(dict):
         return errors
 
 
-class Emulator:
-    """rp6502-emu discovery and debug-adapter error reporting."""
-
-    # True once we know this run is an `emu` launch: we are the IDE's debug
-    # adapter, so errors must be promoted to DAP (see fatal).
-    launching = False
-
-    @staticmethod
-    def find(config=None):
-        """The emulator the tools fetch beside this script."""
-        exe = "rp6502-emu.exe" if platform.system() == "Windows" else "rp6502-emu"
-        beside = "rp6502-emu.exe" if "microsoft" in platform.release().lower() else exe
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), beside)
-        if config:
-            try:
-                rel = os.path.relpath(path, os.path.dirname(os.path.abspath(config)))
-            except ValueError:  # Windows: another drive has no relative path
-                return path
-            if not rel.startswith(os.pardir):
-                return rel.replace(os.sep, "/")
-        return path
-
-    @staticmethod
-    def resolve(emulator: str, config) -> str:
-        """The executable an 'emulator' setting names."""
-        if not emulator:
-            where = f" in {config}" if config else " in a config file"
-            raise RuntimeError(
-                f"No emulator configured — set 'emulator'{where} "
-                f"to the rp6502-emu executable path."
-            )
-        emulator = os.path.expanduser(os.path.expandvars(emulator))
-        if config and not os.path.isabs(emulator):
-            beside = os.path.join(os.path.dirname(os.path.abspath(config)), emulator)
-            if os.path.isfile(beside):
-                return beside
-        return emulator
-
-    @staticmethod
-    def cannot_run(emulator: str, config, err) -> str:
-        """Why the emulator did not start, and where to change it."""
-        if config:
-            return (
-                f"Cannot run emulator '{emulator}': {err} — "
-                f"fix 'emulator' in {config}"
-            )
-        return (
-            f"Cannot run emulator '{emulator}': {err} — "
-            f"name it with 'emulator' in a config file, or put it on PATH"
-        )
-
-    @staticmethod
-    def send_dap_error(message: str):
-        """Speak minimal DAP: acknowledge `initialize`, then fail `launch`/`attach`."""
-        stdin = sys.stdin.buffer
-        stdout = sys.stdout.buffer
-        out_seq = 0
-
-        def read_request():
-            header = b""
-            while not header.endswith(b"\r\n\r\n"):
-                byte = stdin.read(1)
-                if not byte:
-                    return None  # stream closed before a full header
-                header += byte
-            length = 0
-            for line in header.split(b"\r\n"):
-                name, sep, value = line.partition(b":")
-                if sep and name.strip().lower() == b"content-length":
-                    length = int(value.strip())
-            body = b""
-            while len(body) < length:
-                chunk = stdin.read(length - len(body))
-                if not chunk:
-                    return None
-                body += chunk
-            return json.loads(body.decode("utf-8"))
-
-        def send(response):
-            nonlocal out_seq
-            out_seq += 1
-            response["seq"] = out_seq
-            data = json.dumps(response).encode("utf-8")
-            stdout.write(
-                b"Content-Length: " + str(len(data)).encode("ascii") + b"\r\n\r\n"
-            )
-            stdout.write(data)
-            stdout.flush()
-
-        while True:
-            request = read_request()
-            if request is None:
-                return
-            if request.get("type") != "request":
-                continue
-            command = request.get("command")
-            request_seq = request.get("seq", 0)
-            if command in ("launch", "attach"):
-                send(
-                    {
-                        "type": "response",
-                        "request_seq": request_seq,
-                        "success": False,
-                        "command": command,
-                        "message": message,
-                        "body": {
-                            "error": {"id": 1, "format": message, "showUser": True}
-                        },
-                    }
-                )
-                return
-            # `initialize` (and anything else before launch) gets a bare success
-            # so the client proceeds to send the launch request we then fail.
-            response = {
-                "type": "response",
-                "request_seq": request_seq,
-                "success": True,
-                "command": command,
-            }
-            if command == "initialize":
-                response["body"] = {}
-            send(response)
-
-
 class ScriptError(Exception):
     """A script command that failed, or an emulator that exited with an error."""
 
 
 class Emu:
-    """An emulator that runs a ROM with script commands from a test. The
-    defaults come from the environment that the test subcommand sets. A with
-    statement closes the emulator, or kills it when the block raises."""
+    """An emulator that a test drives with script commands. The command is
+    $RP6502_EMU --script - <words before --> <sys.argv[1:]> -- <words after -->.
+    A with statement closes the emulator, or kills it when the block raises."""
 
-    def __init__(self, rom=None, save_dir=None, args=()):
-        self.rom = rom or os.environ["RP6502_ROM"]
-        self.save_dir = save_dir or os.environ["RP6502_SAVE_DIR"]
-        self.sym = Symbols(os.path.splitext(self.rom)[0] + ".sym")
-        cmd = [os.environ["RP6502_EMULATOR"]]
-        if "RP6502_SEED" in os.environ:
-            cmd += ["--seed", os.environ["RP6502_SEED"]]
-        cmd += ["--save-dir", self.save_dir, "--script", "-", self.rom, *args]
+    def __init__(self, *words):
+        words = list(words)
+        argv = sys.argv[1:]
+        split = words.index("--") if "--" in words else len(words)
+        options = words[:split]
+        rom_args = words[split + 1 :]
+        if "--" in argv:
+            split = argv.index("--")
+            options += argv[:split]
+            rom_args = argv[split + 1 :] + rom_args
+        else:
+            options += argv
+        cmd = [os.environ["RP6502_EMU"], "--script", "-"] + options
+        if rom_args:
+            cmd += ["--"] + rom_args
+        self.sym = Symbols(os.path.splitext(Emu._boots(options))[0] + ".sym")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -1598,6 +1484,18 @@ class Emu:
             errors="replace",
         )
         self.cmd("reply")
+
+    @staticmethod
+    def _boots(options) -> str:
+        """The ROM that the emulator boots: the first .rp6502 that is not the
+        value of --install, else the first --install value, else ''."""
+        installs = []
+        for before, word in zip([""] + options, options):
+            if before == "--install":
+                installs.append(word)
+            elif word.endswith(".rp6502"):
+                return word
+        return installs[0] if installs else ""
 
     def cmd(self, line):
         """Sends one script command and returns the text after ok. A fail
@@ -1646,9 +1544,6 @@ def exec_args():
     sp = parser.add_subparsers(dest="command", required=True)
     cmds = {
         "term": ("Attach to the RIA console.", None),
-        "emu": ("Launch emulator from config (for IDE).", None),
-        "execute": ("Run local ROM in the emulator with no window, headless or by --script.", 1),
-        "test": ("Run a .py test or an emulator script on a ROM in the emulator.", None),
         "run": ("Run local ROM by sending to RIA.", 1),
         "upload": ("Upload local files to RIA USB storage.", "+"),
         "basic": ("Executes a program with the installed BASIC.", 1),
@@ -1702,44 +1597,13 @@ def exec_args():
         help="The value of each name that matches must be even and within "
         "0x0000-0xFFFF. Repeatable.",
     )
-    parsers["execute"].add_argument(
-        "--script", metavar="file", help="Drive the ROM with an emulator script."
-    )
-    parsers["execute"].add_argument(
-        "--seed", metavar="n", help="Fixed random seed, for a reproducible run."
-    )
-    parsers["execute"].add_argument(
-        "--phi2",
-        metavar="khz",
-        help="6502 clock in kHz. Without --script the default is 0, unpaced.",
-    )
-    parsers["execute"].add_argument(
-        "--save-dir",
-        metavar="folder",
-        help="Folder used as SAVE:, instead of the OS folder for saved data.",
-    )
-    parsers["test"].add_argument("file", help="A .py test or an emulator script.")
-    parsers["test"].add_argument("rom", help="The ROM to test.")
-    parsers["test"].add_argument(
-        "test_args",
+    # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
+    parsers["run"].add_argument(
+        "rom_args",
         nargs=argparse.REMAINDER,
         metavar="args",
-        help="Arguments for the test: sys.argv[1:] of a .py test, "
-        "or emulator arguments after the ROM for a script.",
+        help="Arguments passed to the ROM.",
     )
-    parsers["test"].add_argument(
-        "--seed",
-        metavar="n",
-        help="Fixed random seed for every emulator in the run, to repeat a run.",
-    )
-    # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
-    for cmd in ("run", "execute"):
-        parsers[cmd].add_argument(
-            "rom_args",
-            nargs=argparse.REMAINDER,
-            metavar="args",
-            help="Arguments passed to the ROM.",
-        )
     parser.add_argument(
         "-a",
         "--address",
@@ -1819,7 +1683,6 @@ def exec_args():
         help=f"Attach to console terminal on run.",
     )
     args = parser.parse_args()
-    Emulator.launching = args.command == "emu"
 
     # Config file (shared with the emulator, which owns it in ImGui ini format).
     if args.config:
@@ -1828,39 +1691,35 @@ def exec_args():
         # Python 3.9 and older end a section name at the first "]".
         config.SECTCRE = re.compile(r"\[(?P<header>.+)\]")
         try:
-            existed = os.path.exists(args.config)
-            if existed:
+            if os.path.exists(args.config):
                 # configparser.read() silently skips unreadable files
                 if not os.access(args.config, os.R_OK):
                     raise PermissionError("permission denied")
                 config.read(args.config)
-            # Upgrade a legacy plain [RP6502] to [RP6502][Launch].
-            upgrading = config.has_section(SCRIPT_NAME) and not config.has_section(
-                launch
-            )
-            if (not existed) or upgrading:
+            if not config.has_section(launch):
                 old = (
                     dict(config[SCRIPT_NAME]) if config.has_section(SCRIPT_NAME) else {}
                 )
                 pick = lambda k: old.get(k, "")
-                config.remove_section(SCRIPT_NAME)  # drop legacy [RP6502]
                 # User always sees the full list of keys, even when blank.
                 config[launch] = {
-                    "emulator": pick("emulator") or Emulator.find(args.config),
                     "device": pick("device") or args.device,
                     "key": pick("key") or args.key or "",
                     "workdir": pick("workdir") or args.workdir or "",
                     "args": pick("args"),
                     "term": pick("term") or args.term,
                 }
-                with open(args.config, "w") as cfg:
-                    config.write(cfg)
+                # Appended as text, because a configparser rewrite lowercases
+                # the keys of the emulator's sections.
+                section = configparser.ConfigParser(interpolation=None)
+                section[launch] = config[launch]
+                with open(args.config, "a") as cfg:
+                    section.write(cfg)
         except (configparser.Error, OSError) as e:
             raise RuntimeError(f"Cannot load config {args.config}: {e}")
         if config.has_section(launch):
             sec = config[launch]
             args.workdir = sec.get("workdir", "") or args.workdir or None
-            args.emulator = sec.get("emulator", "")
             args.device = sec.get("device", args.device)
             args.key = sec.get("key", "") or args.key or None
             args.term = sec.get("term", args.term)
@@ -2074,93 +1933,6 @@ def exec_args():
         if errors:
             sys.exit(1)
 
-    if args.command == "emu":
-        # `emu` exists to launch the emulator as the IDE's debug adapter, which
-        # always passes the project config (for the emulator path and --ini), so
-        # an invocation without one is a misconfiguration.
-        if not args.config:
-            raise RuntimeError(
-                "emu requires -c/--config <file> with an 'emulator' path."
-            )
-        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        cmd = [emulator, "--dap", "--ini", args.config]
-        # Config args ride the emulator command line as the ROM's argv;
-        # a launch request that carries its own args overrides them there.
-        rom_args = config_rom_args()
-        if rom_args:
-            cmd += ["--"] + rom_args
-        # Status to stderr only: stdout carries the lldb-dap DAP stream.
-        print(f"[{SCRIPT_FILE}] Launching {emulator}", file=sys.stderr)
-        try:
-            if os.name == "nt":
-                sys.exit(
-                    subprocess.Popen(
-                        cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr
-                    ).wait()
-                )
-            os.execvp(cmd[0], cmd)
-        except OSError as e:
-            raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
-
-    if args.command == "execute":
-        # The exit code of the ROM becomes the exit code of this process, so a
-        # 6502 program can be a step in a pipeline or a test.
-        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        if args.script:
-            cmd = [emulator, "--script", args.script]
-        else:
-            cmd = [emulator, "--headless"]
-        phi2 = args.phi2 if args.phi2 is not None else (None if args.script else "0")
-        if phi2 is not None:
-            cmd += ["--phi2", phi2]
-        if args.seed:
-            cmd += ["--seed", args.seed]
-        if args.save_dir:
-            cmd += ["--save-dir", args.save_dir]
-        cmd.append(args.filename[0])
-        rom_args = args.rom_args
-        if rom_args and rom_args[0] == "--":  # REMAINDER keeps a leading "--"
-            rom_args = rom_args[1:]
-        if not rom_args:
-            rom_args = config_rom_args()
-        if rom_args:
-            cmd += ["--"] + rom_args
-        stdin = None if args.script == "-" else subprocess.DEVNULL
-        try:
-            sys.exit(subprocess.run(cmd, stdin=stdin).returncode)
-        except OSError as e:
-            raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
-
-    if args.command == "test":
-        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        # argparse drops a "--" that follows the ROM, so read the words as typed.
-        words = sys.argv[sys.argv.index(args.rom) + 1 :]
-        with tempfile.TemporaryDirectory() as save_dir:
-            if args.file.endswith(".py"):
-                cmd = [sys.executable, args.file] + words
-                env = dict(
-                    os.environ,
-                    PYTHONPATH=os.path.dirname(os.path.abspath(__file__)),
-                    RP6502_ROM=args.rom,
-                    RP6502_EMULATOR=emulator,
-                    RP6502_SAVE_DIR=save_dir,
-                    PYTHONDONTWRITEBYTECODE="1",
-                )
-                if args.seed:
-                    env["RP6502_SEED"] = args.seed
-            else:
-                cmd = [emulator]
-                if args.seed:
-                    cmd += ["--seed", args.seed]
-                cmd += ["--save-dir", save_dir, "--script", args.file, args.rom]
-                cmd += words
-                env = None
-            try:
-                code = subprocess.run(cmd, env=env).returncode
-            except OSError as e:
-                raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
-        sys.exit(code)
-
 
 # This file may be included or run like a program.
 if __name__ == "__main__":
@@ -2170,15 +1942,6 @@ if __name__ == "__main__":
     try:
         exec_args()
     except Exception as e:
-        # On an emu launch we are the IDE's debug adapter.
-        if Emulator.launching:
-            print(f"[{SCRIPT_FILE}] {e}", file=sys.stderr)
-            if not sys.stdin.isatty():
-                try:
-                    Emulator.send_dap_error(f"{e}")
-                except Exception:
-                    pass  # Best effort
-            sys.exit(1)
         # Exceptions to show in VS Code output instead of Python debugger.
         if not isinstance(
             e,

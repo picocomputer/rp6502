@@ -13,10 +13,9 @@ includes this file before ``project()``:
 The include loads the compiler for the variable that the configure preset
 sets: cc65 for ``CC65_TARGET_SYSTEM``, llvm-mos for ``LLVM_MOS_PLATFORM``,
 or none for ``RP6502_BASIC``, a project of BASIC programs only. The include
-also adds BASIC as a language for ``project()``, enables testing, fetches
-the emulator when ``tools/`` lacks it, and sets ``RP6502_TOOLS_DIR`` to
-the ``tools/`` folder. With testing enabled, no target can have the name
-``test``.
+also adds BASIC as a language for ``project()``, enables testing, and sets
+``RP6502_TOOLS_DIR`` to the ``tools/`` folder. With testing enabled, no
+target can have the name ``test``.
 
 Commands
 ^^^^^^^^
@@ -26,28 +25,75 @@ Commands
 * :command:`rp6502_executable` packages the linker output as a ROM.
 * :command:`rp6502_basic` packages BASIC programs as a ROM.
 * :command:`rp6502_web` packages a ROM as a web page.
-* :command:`rp6502_test` adds tests that run a ROM.
+* :command:`rp6502_test` adds tests that run in the emulator.
 * :command:`rp6502_byproducts` declares the extra files that a link writes.
 
 Functions named ``_rp6502_*`` are internal.
+
+Tool Versions
+^^^^^^^^^^^^^
+
+The native emulator, the web player and BASIC come from the releases of
+``picocomputer/rp6502`` and ``picocomputer/msbasic``. Configure fetches a
+release file once into ``tools/`` under its release name, such as
+``tools/rp6502-0.40-web.zip``, and unpacks it into ``build/tools/``. Three
+settings select the versions:
+
+``RP6502_EMU_VERSION``
+  The native emulator of each executable target, BASIC target and test.
+
+``RP6502_WEB_VERSION``
+  The web player of each :command:`rp6502_web` target.
+
+``RP6502_BASIC_VERSION``
+  The BASIC of each :command:`rp6502_basic` target.
+
+A version starts with a digit, such as ``0.40``. The tag of its release is
+``v0.40``. Without a version, a target or a test gets the newest release in
+``tools/``, and configure fetches the latest release when ``tools/`` has
+none.
+
+The value of a setting comes from the cache, which ``-D`` and presets set.
+Without a cache value, it comes from the property of the target or the
+test. Without a property, it comes from the variable in the folder of the
+target, or in the folder that calls :command:`rp6502_test`. A variable
+applies to that folder and to the folders that it adds after it is set, as
+any CMake variable does.
+
+.. code-block:: cmake
+
+  set(RP6502_EMU_VERSION 0.40)
+  set_target_properties(paint PROPERTIES RP6502_EMU_VERSION 0.39)
+  set_tests_properties(picker PROPERTIES RP6502_EMU_VERSION 0.39)
+
+``RP6502_EMU``, ``RP6502_WEB`` and ``RP6502_BASIC`` are settings of the
+same kind. Each names a file to use in place of a release: an emulator
+executable, a web zip, or a ``basic.rp6502``. A file found at any level
+comes before any version. A relative path is a path from the top source
+folder. ``RP6502_BASIC`` is also the switch of a BASIC project, so a CMake
+true value, such as ``ON``, names no file.
+
+Each target folder and each test folder has ``rp6502-emu``
+(``rp6502-emu.exe`` on Windows), a link to the emulator of the target or
+the test.
 
 Update
 ^^^^^^
 
 ``cmake -P tools/rp6502.cmake`` replaces each file that ``tools/SHA256SUMS``
-of ``RP6502_TOOLS_REPO`` lists, after a check of the hash, then fetches the
-emulator, and adds an update task and a web launch entry to
-``.vscode/tasks.json`` and ``.vscode/launch.json`` when those files exist.
-Commit the tools; the first configure of a clone fetches the emulator.
-When the release has no emulator for the host,
-``tools/rp6502-emu.unsupported`` holds the reason until the next update.
+of ``RP6502_TOOLS_REPO`` lists, after a check of the hash. It then fetches
+from the latest releases the emulator for the host, the web zip when
+``tools/`` has a web zip, and BASIC when ``tools/`` has BASIC. It also
+updates ``.vscode/tasks.json``, ``.vscode/launch.json``, ``.gitignore`` and
+the ``rp6502_map()`` calls of ``CMakeLists.txt`` when those files exist.
+Commit the tools. Git ignores the release files.
 #]=======================================================================]
 
-cmake_minimum_required(VERSION 3.21)
+# Ubuntu 24.04 has CMake 3.28. Do not require a later version.
+cmake_minimum_required(VERSION 3.28)
 
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "main")
-set(RP6502_EMU_RELEASE "latest")
 set(RP6502_BASIC_REPO "picocomputer/msbasic")
 
 set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
@@ -245,8 +291,10 @@ endfunction()
     rp6502_executable(<target> [DATA <addr>] [NMI <addr>]
                       [RESET <addr>] [IRQ <addr>] [<rom>...])
 
-  Building ``<target>`` also writes ``<target>.rp6502`` and ``<target>.sym``
-  in the current build folder. The ROM holds the linker output, the assets
+  The linker output goes into ``<target>/`` in the current build folder,
+  and building ``<target>`` also writes ``<target>.rp6502`` and
+  ``<target>.sym`` there. The folder also holds ``rp6502-emu``, the emulator
+  of the target. The ROM holds the linker output, the assets
   that :command:`rp6502_asset` adds, and each ``<rom>``, a path from the
   current source folder. The ``.sym`` file holds each integer ``#define``
   of the C sources and each linker symbol, one ``NAME VALUE`` line each.
@@ -325,7 +373,8 @@ function(rp6502_executable target)
     endif()
     # The merge command of rp6502.py
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    set(rom_file "${CMAKE_CURRENT_BINARY_DIR}/${target}.rp6502")
+    _rp6502_target_folder(${target} folder)
+    set(rom_file "${folder}/${target}.rp6502")
     set(tool_command "${Python3_EXECUTABLE}"
         "${RP6502_TOOLS_DIR}/rp6502.py"
     )
@@ -369,7 +418,7 @@ function(rp6502_executable target)
         ${all_extra_roms} ${named_sources})
     # The .sym file is written first, because rp6502.py reads some asset
     # addresses from it.
-    set(sym_file "${CMAKE_CURRENT_BINARY_DIR}/${target}.sym")
+    set(sym_file "${folder}/${target}.sym")
     if (CMAKE_C_COMPILER_ID STREQUAL "cc65")
         set(linked "$<TARGET_FILE:${target}>.dbg")
     else()
@@ -408,47 +457,34 @@ endfunction()
 
   .. code-block:: cmake
 
-    rp6502_basic(<target> [BASIC <spec>] [<autorun>])
+    rp6502_basic(<target> [<autorun>])
 
-  Building the executable target ``<target>`` writes ``<target>.rp6502``,
-  which holds BASIC and the assets of ``<target>``. The programs are assets
-  that :command:`rp6502_asset` adds before this call, as in
+  Building the executable target ``<target>`` writes ``<target>.rp6502``
+  in ``<target>/`` in the current build folder. The ROM holds BASIC and the
+  assets of ``<target>``. The programs are assets that
+  :command:`rp6502_asset` adds before this call, as in
   ``rp6502_asset(<target> game.bas src/game.bas)``. One program starts
   another with ``RUN "ROM:<file>"``. The project lists BASIC as a
   language, as in ``project(<name> BASIC)`` or
   ``project(<name> C ASM BASIC)``, and a project with no compiler sets
-  ``RP6502_BASIC`` in the configure preset.
-
-  ``BASIC <spec>``
-    The BASIC ROM: ``owner/repo/ref``, ``owner/repo`` for the latest
-    release, a ref of ``picocomputer/msbasic``, or a ``.rp6502`` file of
-    the project. The default is the latest release of
-    ``picocomputer/msbasic``. A ref other than a release tag needs a GitHub
-    token in ``GITHUB_TOKEN`` or ``GH_TOKEN``.
+  ``RP6502_BASIC`` in the configure preset. ``RP6502_BASIC_VERSION`` and
+  ``RP6502_BASIC`` select BASIC, as `Tool Versions`_ tells.
 
   ``<autorun>``
     The asset that BASIC runs at start, through an added ``autorun.bas``
     asset. Without an ``autorun.bas`` asset, BASIC starts at the prompt.
 #]=======================================================================]
 function(rp6502_basic target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "BASIC" "")
     set(caller "rp6502_basic(${target})")
-    list(LENGTH arg_UNPARSED_ARGUMENTS count)
-    if (count GREATER 1 OR NOT TARGET ${target})
+    if (ARGC GREATER 2 OR NOT TARGET ${target})
         message(FATAL_ERROR
-            "rp6502_basic(<target> [BASIC <spec>] [<autorun>]), after add_executable(<target>) "
+            "rp6502_basic(<target> [<autorun>]), after add_executable(<target>) "
             "and its rp6502_asset() calls")
     endif()
     if (NOT CMAKE_BASIC_COMPILER_LOADED)
         message(FATAL_ERROR
             "${caller}: BASIC is not a language of the project. List it in "
             "project(), as in project(<name> BASIC) or project(<name> C ASM BASIC).")
-    endif()
-    if (NOT arg_BASIC AND EXISTS "${RP6502_TOOLS_DIR}/basic.rp6502")
-        message(FATAL_ERROR
-            "${caller}: tools/basic.rp6502 is no longer used by default. Name it "
-            "with rp6502_basic(${target} BASIC tools/basic.rp6502 ...), or delete it "
-            "for the latest release.")
     endif()
     # A BASIC ROM has no .sym file, so RAM() and XRAM() take numbers only.
     get_target_property(addrs ${target} RP6502_ASSET_NAMES)
@@ -460,20 +496,15 @@ function(rp6502_basic target)
         endif()
         math(EXPR index "${index} + 1")
     endforeach()
-    _rp6502_fetch("${caller}" BASIC "${arg_BASIC}" basic source)
-    set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.basic")
-    # The file changes only with BASIC, so a Makefile relinks for a new BASIC
-    # that is older than the ROM.
-    file(CONFIGURE OUTPUT "${dir}/basic.txt" CONTENT "${basic}\n")
-    if (count EQUAL 1)
+    if (ARGC EQUAL 2)
+        set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.basic")
         # The ROM: drive ignores case, and BASIC is written in capitals.
-        string(TOUPPER "${arg_UNPARSED_ARGUMENTS}" autorun)
+        string(TOUPPER "${ARGV1}" autorun)
         get_target_property(names ${target} RP6502_ASSET_NAMES)
         string(TOUPPER "${names}" names)
         if (NOT autorun IN_LIST names)
             message(FATAL_ERROR
-                "${caller}: no rp6502_asset(${target} ${arg_UNPARSED_ARGUMENTS} ...) "
-                "comes before it.")
+                "${caller}: no rp6502_asset(${target} ${ARGV1} ...) comes before it.")
         endif()
         # file(CONFIGURE) keeps the ROM from rebuilding at every configure.
         file(CONFIGURE OUTPUT "${dir}/autorun.bas" CONTENT "10 RUN \"ROM:${autorun}\"\n")
@@ -485,19 +516,18 @@ function(rp6502_basic target)
     endif()
     # As sources, the assets are built before the link that merges them.
     target_sources(${target} PRIVATE ${assets})
-    set(rom "${CMAKE_CURRENT_BINARY_DIR}/${target}.rp6502")
-    set_target_properties(${target} PROPERTIES LINKER_LANGUAGE BASIC SUFFIX ""
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    _rp6502_target_folder(${target} folder)
+    set(rom "${folder}/${target}.rp6502")
+    set_target_properties(${target} PROPERTIES LINKER_LANGUAGE BASIC SUFFIX "")
     # The link writes the ROM, and Ninja requires a rule that declares it.
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E true
         BYPRODUCTS "${rom}"
         VERBATIM)
-    target_link_options(${target} PRIVATE "${basic}" ${assets})
-    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
-        "${basic}" "${dir}/basic.txt" ${assets})
+    # The end of configure adds BASIC, because its version can be set later.
     set_target_properties(${target} PROPERTIES
         RP6502_EXECUTABLE_CALLED TRUE
+        RP6502_BASIC_TARGET TRUE
         RP6502_ROM "${rom}")
 endfunction()
 
@@ -508,7 +538,7 @@ endfunction()
 
   .. code-block:: cmake
 
-    rp6502_web(<target> [OUTPUT <name>.zip] [EMULATOR <spec>]
+    rp6502_web(<target> [OUTPUT <name>.zip]
                [PAGE <file> | <folder>] [CONFIG <text>])
 
   ``<target>`` must already have a ROM from :command:`rp6502_executable`
@@ -516,17 +546,11 @@ endfunction()
   ``web/<name>.zip`` in the build folder, with the same files unpacked in
   ``web/<name>/``. At the root are the ROM, the page as ``index.html``,
   and ``rp6502.js`` and ``rp6502.wasm`` from the web zip of the emulator.
+  ``RP6502_WEB_VERSION`` and ``RP6502_WEB`` select the web zip, as
+  `Tool Versions`_ tells.
 
   ``OUTPUT <name>.zip``
     The name of the zip, by default ``<target>.zip``.
-
-  ``EMULATOR <spec>``
-    The web zip: ``owner/repo/ref``, ``owner/repo`` for the latest
-    release, a ref of ``picocomputer/rp6502``, or a ``.zip`` file of the
-    project. The default is the latest release of ``picocomputer/rp6502``.
-    A ref other than a release tag needs a GitHub token in ``GITHUB_TOKEN``
-    or ``GH_TOKEN``. ``RP6502_WEB_EMULATOR``, when set, replaces
-    ``EMULATOR`` in every call.
 
   ``PAGE <file> | <folder>``
     The page file, or a folder copied with all subfolders, where the root
@@ -546,12 +570,12 @@ endfunction()
     default page, ``title`` is blank unless ``<text>`` sets it.
 #]=======================================================================]
 function(rp6502_web target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "OUTPUT;EMULATOR;PAGE;CONFIG" "")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "OUTPUT;PAGE;CONFIG" "")
     set(caller "rp6502_web(${target})")
     if (arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "${caller}: ${arg_UNPARSED_ARGUMENTS} follows no keyword. rp6502_web(<target> "
-            "[OUTPUT <name>.zip] [EMULATOR <spec>] [PAGE <file> | <folder>] [CONFIG <text>])")
+            "[OUTPUT <name>.zip] [PAGE <file> | <folder>] [CONFIG <text>])")
     endif()
     if (TARGET ${target})
         get_target_property(rom_file ${target} RP6502_ROM)
@@ -574,23 +598,10 @@ function(rp6502_web target)
         message(FATAL_ERROR "${caller}: two rp6502_web() calls make ${zip}.")
     endif()
     set_property(GLOBAL APPEND PROPERTY RP6502_WEB_ZIPS "${zip}")
-    set(spec "${arg_EMULATOR}")
-    if (RP6502_WEB_EMULATOR)
-        set(spec "${RP6502_WEB_EMULATOR}")
-    endif()
-    _rp6502_fetch("${caller}" EMULATOR "${spec}" web_zip source)
-
     set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${name}.web")
-    file(REMOVE_RECURSE "${dir}/emulator")
-    file(ARCHIVE_EXTRACT INPUT "${web_zip}" DESTINATION "${dir}/emulator"
-        PATTERNS rp6502.js rp6502.wasm index.html)
-    foreach(part rp6502.js rp6502.wasm index.html)
-        if (NOT EXISTS "${dir}/emulator/${part}")
-            message(FATAL_ERROR "${caller}: ${web_zip} has no ${part} at its root.")
-        endif()
-    endforeach()
 
-    set(page "${dir}/emulator/index.html")
+    # An empty page is the index.html of the web zip.
+    set(page)
     set(folder)
     if (arg_PAGE)
         get_filename_component(path "${arg_PAGE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -620,25 +631,12 @@ function(rp6502_web target)
         file(GLOB folder_entries LIST_DIRECTORIES true RELATIVE "${folder}" "${folder}/*")
         list(REMOVE_ITEM folder_entries index.html)
     endif()
-    if (NOT page STREQUAL "${dir}/emulator/index.html")
+    if (page)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${page}")
     endif()
 
-    # The script follows the rp6502.js tag, so it replaces rp6502() before any
-    # call in the page.
-    file(READ "${page}" html)
-    string(FIND "${html}" "<script src=\"rp6502.js\"" at)
-    if (at LESS 0)
-        message(FATAL_ERROR "${caller}: ${page} has no <script src=\"rp6502.js\">.")
-    endif()
-    string(SUBSTRING "${html}" ${at} -1 tail)
-    string(FIND "${tail}" "</script>" end)
-    if (end LESS 0)
-        message(FATAL_ERROR "${caller}: ${page} has no </script> after <script src=\"rp6502.js\">.")
-    endif()
-    math(EXPR at "${at} + ${end} + 9")
     set(merge)
-    if (page STREQUAL "${dir}/emulator/index.html")
+    if (NOT page)
         string(APPEND merge ", {title: ''}")
     endif()
     execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" remote get-url origin
@@ -676,6 +674,8 @@ function(rp6502_web target)
         set(config "    const config = {\n${arg_CONFIG}\n};\n")
         set(options "Object.assign(options, config)")
     endif()
+    # The script follows the rp6502.js tag, so it replaces rp6502() before any
+    # call in the page.
     string(CONCAT script
         "\n<script>\n"
         "// rp6502_web()\n"
@@ -686,25 +686,13 @@ function(rp6502_web target)
         "    return call(container, rom, ${options});\n"
         "})(rp6502);\n"
         "</script>")
-    string(SUBSTRING "${html}" 0 ${at} head)
-    string(SUBSTRING "${html}" ${at} -1 tail)
-    set(html "${head}${script}${tail}")
-    # index.html is rewritten only on a change, so the zip is not rebuilt.
-    set(written)
-    if (EXISTS "${dir}/index.html")
-        file(READ "${dir}/index.html" written)
-    endif()
-    if (NOT written STREQUAL html)
-        file(WRITE "${dir}/index.html" "${html}")
-    endif()
-    file(SHA256 "${web_zip}" web_hash)
-    string(REPLACE ";" "\n" listed "${folder_files}")
-    file(CONFIGURE OUTPUT "${dir}/sources.txt"
-        CONTENT "${web_zip} ${web_hash}\n${listed}\n" @ONLY)
-    # The publish workflow reads this file to screenshot the player with the
-    # same emulator.
-    file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/CMakeFiles/${name}.emulator"
-        CONTENT "${source}\n" @ONLY)
+    # The end of configure writes the page, because the web zip version can
+    # be set later.
+    set_property(GLOBAL PROPERTY RP6502_WEB_TARGET_${name} "${target}")
+    set_property(GLOBAL PROPERTY RP6502_WEB_DIR_${name} "${dir}")
+    set_property(GLOBAL PROPERTY RP6502_WEB_PAGE_${name} "${page}")
+    set_property(GLOBAL PROPERTY RP6502_WEB_SCRIPT_${name} "${script}")
+    set_property(GLOBAL PROPERTY RP6502_WEB_FILES_${name} "${folder_files}")
     set(out "${CMAKE_BINARY_DIR}/web")
 
     set(stage "${out}/${name}")
@@ -736,57 +724,48 @@ endfunction()
 #[=======================================================================[.rst:
 .. command:: rp6502_test
 
-  Adds tests that run the ROM of a target.
+  Adds tests that run in the emulator.
 
   .. code-block:: cmake
 
-    rp6502_test(<target> <file>... [NAME <name>] [ARGS <arg>...])
+    rp6502_test(<file>... [NAME <name>] [ARGS <arg>...])
 
-  ``<target>`` must already have a ROM from :command:`rp6502_executable`
-  or :command:`rp6502_basic`. Each ``<file>``, a path from the current
-  source folder, is one test, which ``rp6502.py test`` runs with the ROM:
-  a ``.py`` file in Python, and any other file as an emulator script. The
-  name of a test is the file name without the extension, and the test runs
-  in ``test/<name>/`` in the build folder. Each name must be unique in the
-  project. The first call also adds the test ``rp6502.build``, which
-  builds the project. ctest runs ``rp6502.build`` before the other tests.
+  Each ``<file>``, a path from the current source folder, is one test: a
+  ``.py`` file in Python, and any other file as an emulator script. The
+  name of a test is the file name without the extension, and each name
+  must be unique in the project. A test runs in ``test/<name>/`` in the
+  build folder. That folder holds ``rp6502-emu``, the emulator of the test,
+  and ``save/``, the folder behind ``SAVE:``. A script runs as
+  ``rp6502-emu --save-dir <save> --script <file> <arg>...``. A Python test
+  runs as ``python <file> --save-dir <save> <arg>...``, with ``tools/`` in
+  ``PYTHONPATH`` and the emulator in the environment variable
+  ``RP6502_EMU``. A test gets the ROM of a target in ``ARGS``, as in
+  ``ARGS $<TARGET_PROPERTY:hello,RP6502_ROM>``.
+
+  The tests also add two setup tests, which ctest runs before the other
+  tests: ``rp6502.build`` builds the project, and ``rp6502.save`` empties
+  each ``save/`` folder.
 
   ``NAME <name>``
     The name of the test. ``NAME`` is allowed only with one ``<file>``.
 
   ``ARGS <arg>...``
-    Arguments for every ``<file>``. A Python test gets them in
-    ``sys.argv[1:]``, and for any other file the emulator gets them after
-    the ROM.
+    Arguments for every ``<file>``: emulator options and a ROM, then
+    ``--`` and the arguments of the ROM.
 #]=======================================================================]
-function(rp6502_test target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "NAME" "ARGS")
+function(rp6502_test)
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME" "ARGS")
     set(files ${arg_UNPARSED_ARGUMENTS})
     if (NOT files OR arg_KEYWORDS_MISSING_VALUES)
-        message(FATAL_ERROR "rp6502_test(<target> <file>... [NAME <name>] [ARGS <arg>...])")
+        message(FATAL_ERROR "rp6502_test(<file>... [NAME <name>] [ARGS <arg>...])")
     endif()
     string(REPLACE ";" " " listed "${files}")
-    set(caller "rp6502_test(${target} ${listed})")
+    set(caller "rp6502_test(${listed})")
     list(LENGTH files count)
     if (DEFINED arg_NAME AND count GREATER 1)
         message(FATAL_ERROR "${caller}: NAME is allowed only with one file.")
     endif()
-    if (TARGET ${target})
-        get_target_property(rom_file ${target} RP6502_ROM)
-    endif()
-    if (NOT rom_file)
-        message(FATAL_ERROR
-            "${caller}: ${target} makes no ROM. Call rp6502_executable(${target} ...) "
-            "or rp6502_basic(${target} ...) before rp6502_test(${target} ...).")
-    endif()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    # ctest does not build the ROMs. if(TEST) sees only the current folder, so
-    # the GLOBAL list finds the first call in the project.
-    get_property(names GLOBAL PROPERTY RP6502_TESTS)
-    if ("${names}" STREQUAL "")
-        add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
-        set_tests_properties(rp6502.build PROPERTIES FIXTURES_SETUP rp6502.build)
-    endif()
     foreach(file IN LISTS files)
         get_filename_component(path "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
         if (NOT EXISTS "${path}")
@@ -802,14 +781,24 @@ function(rp6502_test target)
             message(FATAL_ERROR "${caller}: the project already has a test named ${name}.")
         endif()
         set_property(GLOBAL APPEND PROPERTY RP6502_TESTS "${name}")
+        # The end of configure links the emulator, from the settings of this
+        # folder.
+        set_property(GLOBAL PROPERTY RP6502_TEST_DIR_${name} "${CMAKE_CURRENT_SOURCE_DIR}")
         # ctest does not make the working folder.
         set(dir "${CMAKE_BINARY_DIR}/test/${name}")
         file(MAKE_DIRECTORY "${dir}")
-        add_test(NAME ${name}
-            COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
-                    -c "${RP6502_PROJECT_DIR}/.rp6502"
-                    test "${path}" "${rom_file}" ${arg_ARGS}
-            WORKING_DIRECTORY "${dir}")
+        set(emu "${dir}/${RP6502_EMU_NAME}")
+        if (path MATCHES "\\.py$")
+            add_test(NAME ${name}
+                COMMAND "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${arg_ARGS}
+                WORKING_DIRECTORY "${dir}")
+            set_tests_properties(${name} PROPERTIES ENVIRONMENT
+                "PYTHONPATH=${RP6502_TOOLS_DIR};PYTHONDONTWRITEBYTECODE=1;RP6502_EMU=${emu}")
+        else()
+            add_test(NAME ${name}
+                COMMAND "${emu}" --save-dir "${dir}/save" --script "${path}" ${arg_ARGS}
+                WORKING_DIRECTORY "${dir}")
+        endif()
         set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED rp6502.build)
     endforeach()
 endfunction()
@@ -825,9 +814,10 @@ endfunction()
 
   Some linker configurations write files beside the executable, which
   ``add_executable()`` does not model. A relative ``<file>`` is a path
-  from the current build folder. An :command:`rp6502_asset` made from one
-  of these files is made after the link. Call this before
-  :command:`rp6502_executable`.
+  from the current build folder, so a file beside the executable is
+  ``<target>/<file>``. An :command:`rp6502_asset` made from one of these
+  files is made after the link, and names the file by the same full path.
+  Call this before :command:`rp6502_executable`.
 #]=======================================================================]
 function(rp6502_byproducts target)
     add_custom_command(
@@ -854,251 +844,271 @@ function(_rp6502_default_address var)
     endif()
 endfunction()
 
-# Fetches the BASIC ROM or web zip that <spec> names into the build folder,
-# and sets <out_var> to the file and <source_var> to the origin of the file,
-# the text of CMakeFiles/<name>.emulator. A ref is a release tag, or else a commit
-# with a CI artifact. Tags and commits are fetched once per build folder. The
-# latest release and branches are looked up at each configure, or taken from
-# the last lookup offline.
-function(_rp6502_fetch caller keyword spec out_var source_var)
-    if(keyword STREQUAL "BASIC")
-        set(repo "${RP6502_BASIC_REPO}")
-        set(pattern "^basic\\.rp6502$")
-        set(wanted "basic.rp6502")
-        set(offline_fix "BASIC tools/basic.rp6502")
-    else()
-        set(repo "${RP6502_TOOLS_REPO}")
-        set(pattern "-web\\.zip$")
-        set(wanted "file ending in -web.zip")
-        set(offline_fix "EMULATOR tools/rp6502-web.zip")
+# Puts the output of <target> in <current build folder>/<target>/, and sets
+# <out_var> to that folder. A file at that path, the linker output of older
+# tools, is deleted.
+function(_rp6502_target_folder target out_var)
+    set(folder "${CMAKE_CURRENT_BINARY_DIR}/${target}")
+    if(EXISTS "${folder}" AND NOT IS_DIRECTORY "${folder}")
+        file(REMOVE "${folder}")
     endif()
-    set(offline_fix "To work offline, commit a copy of the file and name it, such as ${offline_fix}.")
-    if(spec MATCHES "\\.(zip|rp6502)$")
-        get_filename_component(file "${spec}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-        if(NOT EXISTS "${file}" OR IS_DIRECTORY "${file}")
-            message(FATAL_ERROR "${caller}: ${keyword} ${spec} is not a file.")
+    file(MAKE_DIRECTORY "${folder}")
+    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${folder}")
+    set_property(GLOBAL APPEND PROPERTY RP6502_TARGETS ${target})
+    set(${out_var} "${folder}" PARENT_SCOPE)
+endfunction()
+
+# Sets <out_var> to the setting <name> of <item>, a TARGET or a TEST in the
+# source folder <dir>: the cache, else the property, else the variable. With
+# FILE, a CMake boolean constant counts as no value.
+function(_rp6502_setting name want kind item dir out_var)
+    set(cache)
+    if(DEFINED CACHE{${name}})
+        set(cache "$CACHE{${name}}")
+    endif()
+    if(kind STREQUAL "TARGET")
+        get_target_property(property ${item} ${name})
+    else()
+        get_test_property(${item} ${name} DIRECTORY "${dir}" property)
+    endif()
+    get_directory_property(variable DIRECTORY "${dir}" DEFINITION ${name})
+    foreach(level cache property variable)
+        set(value "${${level}}")
+        if(value STREQUAL "" OR value MATCHES "NOTFOUND$")
+            continue()
         endif()
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${file}")
-        set(${out_var} "${file}" PARENT_SCOPE)
+        string(TOUPPER "${value}" upper)
+        if(want STREQUAL "FILE" AND upper MATCHES "^(1|0|ON|OFF|YES|NO|TRUE|FALSE|Y|N|IGNORE)$")
+            continue()
+        endif()
+        set(${out_var} "${value}" PARENT_SCOPE)
+        return()
+    endforeach()
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# Sets <file_var> to the emulator, web zip or basic.rp6502 of <tool> (EMU,
+# WEB or BASIC) for <item>, a TARGET or a TEST in the source folder <dir>,
+# and <source_var> to "file <path>" or "release <repo> v<version>". The
+# file of EMU is empty when the host has no emulator.
+function(_rp6502_resolve tool kind item dir file_var source_var)
+    _rp6502_setting(RP6502_${tool} FILE ${kind} ${item} "${dir}" file)
+    if(NOT file STREQUAL "")
+        get_filename_component(file "${file}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+        if(NOT EXISTS "${file}" OR IS_DIRECTORY "${file}")
+            message(FATAL_ERROR "RP6502_${tool} ${file} is not a file.")
+        endif()
+        # A rebuilt file replaces the links to it at the next configure.
+        set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${file}")
+        set(${file_var} "${file}" PARENT_SCOPE)
         set(${source_var} "file ${file}" PARENT_SCOPE)
         return()
     endif()
-    set(ref latest)
-    if(spec MATCHES "^([^/]+/[^/]+)(/(.+))?$")
-        set(repo "${CMAKE_MATCH_1}")
-        if(CMAKE_MATCH_3)
-            set(ref "${CMAKE_MATCH_3}")
-        endif()
-    elseif(NOT spec STREQUAL "")
-        set(ref "${spec}")
+    _rp6502_setting(RP6502_${tool}_VERSION VERSION ${kind} ${item} "${dir}" version)
+    if(NOT version STREQUAL "" AND NOT version MATCHES "^[0-9][0-9A-Za-z.+_-]*$")
+        message(FATAL_ERROR "RP6502_${tool}_VERSION ${version}: a version starts with a digit, such as 0.40.")
     endif()
-    set(what "${keyword} ${repo}/${ref}")
-    set(cache "${CMAKE_BINARY_DIR}/rp6502/${repo}")
-    string(MAKE_C_IDENTIFIER "${ref}" key)
-    set(record "${cache}/${key}.ref")
-    set(tmp "${cache}/${key}.tmp")
-
-    # A tag or a full commit hash names the same file forever.
-    if(EXISTS "${record}")
-        file(STRINGS "${record}" lines)
-        list(GET lines 0 kind)
-        list(GET lines 1 file)
-        list(GET lines 2 source)
-        if(EXISTS "${file}" AND (kind STREQUAL "tag" OR ref MATCHES "^[0-9a-f]{40}$"))
-            set(${out_var} "${file}" PARENT_SCOPE)
-            set(${source_var} "${source}" PARENT_SCOPE)
-            return()
+    # Every target and test with the same version gets the same file.
+    set(key "RP6502_RESOLVED_${tool}_${version}")
+    get_property(done GLOBAL PROPERTY ${key} SET)
+    if(NOT done)
+        _rp6502_release(${tool} "${version}" file version repo)
+        if(tool STREQUAL "BASIC")
+            _rp6502_unpack("${file}" folder)
+            set(file "${folder}/basic.rp6502")
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "msbasic-${version}.zip has no basic.rp6502.")
+            endif()
+        elseif(tool STREQUAL "EMU" AND NOT file STREQUAL "")
+            _rp6502_unpack("${file}" folder)
+            set(file "${folder}/${RP6502_HOST_MEMBER}")
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "${folder} has no ${RP6502_HOST_MEMBER}.")
+            endif()
+            if(NOT CMAKE_HOST_WIN32)
+                file(CHMOD "${file}" PERMISSIONS
+                    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                    GROUP_READ GROUP_EXECUTE
+                    WORLD_READ WORLD_EXECUTE)
+            endif()
         endif()
+        set_property(GLOBAL PROPERTY ${key} "${file}" "release ${repo} v${version}")
     endif()
-
-    # A release, where SHA256SUMS lists the file and the hash.
-    if(ref STREQUAL "latest")
-        set(base "https://github.com/${repo}/releases/latest/download")
-    else()
-        set(base "https://github.com/${repo}/releases/download/${ref}")
-    endif()
-    _rp6502_fetch_url("${base}/SHA256SUMS" "${tmp}" result text)
-    if(result STREQUAL "ok")
-        _rp6502_read_sums("${tmp}" assets)
-        file(REMOVE "${tmp}")
-        set(name)
-        foreach(asset IN LISTS assets)
-            string(REGEX MATCH "^(.+)=([0-9a-fA-F]+)$" ignored "${asset}")
-            # The matches are read out before the next match overwrites them.
-            set(asset_name "${CMAKE_MATCH_1}")
-            set(asset_hash "${CMAKE_MATCH_2}")
-            if(asset_name MATCHES "${pattern}")
-                set(name "${asset_name}")
-                string(TOLOWER "${asset_hash}" hash)
-            endif()
-        endforeach()
-        if(NOT name)
-            message(FATAL_ERROR "${caller}: the SHA256SUMS of ${what} lists no ${wanted}.")
-        endif()
-        set(file "${cache}/${hash}/${name}")
-        if(NOT EXISTS "${file}")
-            message(STATUS "Fetching ${what}: ${name}")
-            _rp6502_fetch_url("${base}/${name}" "${file}.tmp" result text ${hash})
-            if(NOT result STREQUAL "ok")
-                message(FATAL_ERROR "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}")
-            endif()
-            file(RENAME "${file}.tmp" "${file}")
-        endif()
-        if(ref STREQUAL "latest")
-            set(kind latest)
-        else()
-            set(kind tag)
-        endif()
-        set(source "release ${repo} ${ref}")
-    elseif(result STREQUAL "failed")
-        message(FATAL_ERROR "${caller}: cannot fetch ${what}.\n${text}")
-    elseif(result STREQUAL "offline")
-        _rp6502_fetch_last("${record}" "${caller}"
-            "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}" file source)
-        set(${out_var} "${file}" PARENT_SCOPE)
-        set(${source_var} "${source}" PARENT_SCOPE)
-        return()
-    else()
-        # Not a release with SHA256SUMS: a commit, a short hash, or a branch.
-        set(api "https://api.github.com/repos/${repo}")
-        _rp6502_fetch_url("${api}/releases/tags/${ref}" "${tmp}" release text)
-        file(REMOVE "${tmp}")
-        if(release STREQUAL "ok")
-            message(FATAL_ERROR "${caller}: the release ${ref} of ${repo} has no SHA256SUMS.")
-        endif()
-        if("$ENV{GITHUB_TOKEN}" STREQUAL "" AND "$ENV{GH_TOKEN}" STREQUAL "")
-            message(FATAL_ERROR
-                "${caller}: ${what} is not a release with SHA256SUMS. A commit is "
-                "fetched from its CI run, which needs a GitHub token in GITHUB_TOKEN "
-                "or GH_TOKEN.")
-        endif()
-        _rp6502_fetch_url("${api}/commits/${ref}" "${tmp}" result text)
-        if(result STREQUAL "missing")
-            message(FATAL_ERROR "${caller}: ${repo} has no release or commit named ${ref}.")
-        elseif(NOT result STREQUAL "ok")
-            _rp6502_fetch_last("${record}" "${caller}"
-                "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}" file source)
-            set(${out_var} "${file}" PARENT_SCOPE)
-            set(${source_var} "${source}" PARENT_SCOPE)
-            return()
-        endif()
-        file(READ "${tmp}" json)
-        string(JSON sha GET "${json}" sha)
-        set(file)
-        file(GLOB found "${cache}/${sha}/*")
-        foreach(candidate IN LISTS found)
-            get_filename_component(candidate_name "${candidate}" NAME)
-            if(candidate_name MATCHES "${pattern}")
-                set(file "${candidate}")
-            endif()
-        endforeach()
-        if(file AND EXISTS "${cache}/${sha}/run")
-            file(READ "${cache}/${sha}/run" source)
-        else()
-            _rp6502_fetch_url("${api}/actions/runs?head_sha=${sha}&per_page=100"
-                "${tmp}" result text)
-            if(NOT result STREQUAL "ok")
-                message(FATAL_ERROR "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}")
-            endif()
-            file(READ "${tmp}" json)
-            string(JSON count LENGTH "${json}" workflow_runs)
-            # Pull request runs go last; they build a merge, not the commit.
-            set(first)
-            set(later)
-            if(count GREATER 0)
-                math(EXPR last "${count} - 1")
-                foreach(i RANGE ${last})
-                    string(JSON id GET "${json}" workflow_runs ${i} id)
-                    string(JSON event GET "${json}" workflow_runs ${i} event)
-                    if(event STREQUAL "pull_request")
-                        list(APPEND later ${id})
-                    else()
-                        list(APPEND first ${id})
-                    endif()
-                endforeach()
-            endif()
-            set(runs ${first} ${later})
-            set(source)
-            foreach(run IN LISTS runs)
-                _rp6502_fetch_url("${api}/actions/runs/${run}/artifacts?per_page=100" "${tmp}" result text)
-                if(NOT result STREQUAL "ok")
-                    continue()
-                endif()
-                file(READ "${tmp}" json)
-                string(JSON count LENGTH "${json}" artifacts)
-                if(count EQUAL 0)
-                    continue()
-                endif()
-                math(EXPR last "${count} - 1")
-                foreach(i RANGE ${last})
-                    string(JSON name GET "${json}" artifacts ${i} name)
-                    string(JSON expired GET "${json}" artifacts ${i} expired)
-                    if(NOT name MATCHES "${pattern}" OR expired)
-                        continue()
-                    endif()
-                    string(JSON id GET "${json}" artifacts ${i} id)
-                    string(JSON digest ERROR_VARIABLE no_digest GET "${json}" artifacts ${i} digest)
-                    set(check)
-                    if(NOT no_digest AND digest MATCHES "^sha256:([0-9a-f]+)$")
-                        set(check ${CMAKE_MATCH_1})
-                    endif()
-                    set(file "${cache}/${sha}/${name}")
-                    message(STATUS "Fetching ${what}: ${name} from CI run ${run}")
-                    _rp6502_fetch_url("${api}/actions/artifacts/${id}/zip" "${file}.tmp" result text ${check})
-                    if(NOT result STREQUAL "ok")
-                        message(FATAL_ERROR "${caller}: cannot fetch ${what}.\n${text}\n${offline_fix}")
-                    endif()
-                    file(RENAME "${file}.tmp" "${file}")
-                    set(source "run ${repo} ${run}")
-                    file(WRITE "${cache}/${sha}/run" "${source}")
-                    break()
-                endforeach()
-                if(source)
-                    break()
-                endif()
-            endforeach()
-            file(REMOVE "${tmp}")
-            if(NOT source)
-                message(FATAL_ERROR
-                    "${caller}: the CI runs of ${repo} commit ${sha} have no "
-                    "${wanted} that has not expired. Artifacts expire after 90 days.")
-            endif()
-        endif()
-        set(kind commit)
-    endif()
-    file(WRITE "${record}" "${kind}\n${file}\n${source}\n")
-    set(${out_var} "${file}" PARENT_SCOPE)
+    get_property(done GLOBAL PROPERTY ${key})
+    list(GET done 0 file)
+    list(GET done 1 source)
+    set(${file_var} "${file}" PARENT_SCOPE)
     set(${source_var} "${source}" PARENT_SCOPE)
 endfunction()
 
-# One GitHub request. Sets <out_var> to ok, missing for HTTP 404 or 422,
-# failed for another HTTP error or a wrong [<sha256>], or offline, and
-# <text_var> to the reason. The token goes only to api.github.com; curl
-# drops it on a redirect to storage.
-function(_rp6502_fetch_url url file out_var text_var)
-    set(headers)
-    if(url MATCHES "^https://api\\.github\\.com/")
-        set(headers
-            HTTPHEADER "Accept: application/vnd.github+json"
-            HTTPHEADER "X-GitHub-Api-Version: 2022-11-28")
-        if(NOT "$ENV{GITHUB_TOKEN}" STREQUAL "")
-            list(APPEND headers HTTPHEADER "Authorization: Bearer $ENV{GITHUB_TOKEN}")
-        elseif(NOT "$ENV{GH_TOKEN}" STREQUAL "")
-            list(APPEND headers HTTPHEADER "Authorization: Bearer $ENV{GH_TOKEN}")
+# Sets <file_var> to the file in tools/ of release <version> of <tool>, and
+# <version_var> and <repo_var> to the version and repository. An empty
+# <version> is the newest release in tools/, else the latest release.
+function(_rp6502_release tool version file_var version_var repo_var)
+    if(tool STREQUAL "BASIC")
+        set(repo "${RP6502_BASIC_REPO}")
+        set(name "msbasic-@.zip")
+        set(versions "^msbasic-(.+)\\.zip$")
+    else()
+        set(repo "${RP6502_TOOLS_REPO}")
+        set(versions "^rp6502-(.+)-web\\.zip$")
+        if(tool STREQUAL "WEB")
+            set(name "rp6502-@-web.zip")
+        else()
+            set(name "rp6502-@-${RP6502_HOST_SUFFIX}")
         endif()
     endif()
+    set(required TRUE)
+    if(tool STREQUAL "EMU")
+        set(required FALSE)
+        if(NOT RP6502_HOST_SUFFIX)
+            message(NOTICE "No emulator: no release has one for this host.")
+            set(${file_var} "" PARENT_SCOPE)
+            set(${version_var} "" PARENT_SCOPE)
+            set(${repo_var} "${repo}" PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+    if(version STREQUAL "")
+        string(REPLACE "." "\\." pattern "${name}")
+        string(REPLACE "@" "(.+)" pattern "^${pattern}(\\.unsupported)?$")
+        _rp6502_newest("${pattern}" version)
+    endif()
+    if(version STREQUAL "")
+        _rp6502_latest("${repo}" "${versions}" ${required} version)
+    endif()
+    set(file "")
+    if(NOT version STREQUAL "")
+        string(REPLACE "@" "${version}" name "${name}")
+        _rp6502_release_file("${repo}" "${version}" "${name}" ${required} file)
+    endif()
+    set(${file_var} "${file}" PARENT_SCOPE)
+    set(${version_var} "${version}" PARENT_SCOPE)
+    set(${repo_var} "${repo}" PARENT_SCOPE)
+endfunction()
+
+# Sets <out_var> to the newest version among the names in tools/ that match
+# <regex>, where the first group is the version, or to "" for none.
+function(_rp6502_newest regex out_var)
+    file(GLOB names RELATIVE "${RP6502_TOOLS_DIR}" "${RP6502_TOOLS_DIR}/*")
+    set(newest "")
+    foreach(name IN LISTS names)
+        if(name MATCHES "${regex}")
+            if(newest STREQUAL "" OR CMAKE_MATCH_1 VERSION_GREATER newest)
+                set(newest "${CMAKE_MATCH_1}")
+            endif()
+        endif()
+    endforeach()
+    set(${out_var} "${newest}" PARENT_SCOPE)
+endfunction()
+
+# Sets <out_var> to the version of the latest release of <repo>, read from
+# the name in its SHA256SUMS that matches <regex>. A failure stops configure
+# when <required> is true, and otherwise sets <out_var> to "".
+function(_rp6502_latest repo regex required out_var)
+    get_property(version GLOBAL PROPERTY RP6502_LATEST_${repo})
+    if("${version}" STREQUAL "")
+        get_filename_component(stem "${repo}" NAME)
+        set(sums "${RP6502_TOOLS_DIR}/${stem}-latest.SHA256SUMS.tmp")
+        set(url "https://github.com/${repo}/releases/latest/download/SHA256SUMS")
+        _rp6502_download("${url}" "${sums}" "" result text)
+        set(version "")
+        if(result STREQUAL "ok")
+            _rp6502_read_sums("${sums}" assets)
+            file(REMOVE "${sums}")
+            foreach(asset IN LISTS assets)
+                string(REGEX REPLACE "=[0-9a-fA-F]+$" "" asset_name "${asset}")
+                if(asset_name MATCHES "${regex}")
+                    set(version "${CMAKE_MATCH_1}")
+                endif()
+            endforeach()
+            if(version STREQUAL "")
+                set(text "${url} lists no file that matches ${regex}")
+            endif()
+        endif()
+        if(version STREQUAL "")
+            if(required)
+                message(FATAL_ERROR "Cannot find the latest release of ${repo}.\n${text}")
+            endif()
+            message(NOTICE "No emulator: cannot find the latest release of ${repo}.\n${text}")
+            set(${out_var} "" PARENT_SCOPE)
+            return()
+        endif()
+        set_property(GLOBAL PROPERTY RP6502_LATEST_${repo} "${version}")
+    endif()
+    set(${out_var} "${version}" PARENT_SCOPE)
+endfunction()
+
+# Sets <out_var> to tools/<name> of release v<version> of <repo>, fetched
+# when tools/ lacks it. A release without the file stops configure for a
+# <required> file, and otherwise writes tools/<name>.unsupported.
+function(_rp6502_release_file repo version name required out_var)
+    set(file "${RP6502_TOOLS_DIR}/${name}")
+    set(record "${file}.unsupported")
+    set(${out_var} "" PARENT_SCOPE)
+    if(EXISTS "${file}")
+        set(${out_var} "${file}" PARENT_SCOPE)
+        return()
+    endif()
+    if(EXISTS "${record}")
+        file(READ "${record}" text)
+        message(NOTICE "No emulator: ${text}")
+        return()
+    endif()
+    set(base "https://github.com/${repo}/releases/download/v${version}")
+    get_filename_component(stem "${repo}" NAME)
+    set(sums "${RP6502_TOOLS_DIR}/${stem}-${version}.SHA256SUMS.tmp")
+    _rp6502_download("${base}/SHA256SUMS" "${sums}" "" result text)
+    if(result STREQUAL "missing")
+        message(FATAL_ERROR "${repo} has no release v${version}.")
+    endif()
+    set(hash "")
+    if(result STREQUAL "ok")
+        _rp6502_read_sums("${sums}" assets)
+        file(REMOVE "${sums}")
+        foreach(asset IN LISTS assets)
+            if(asset MATCHES "^(.+)=([0-9a-fA-F]+)$" AND CMAKE_MATCH_1 STREQUAL name)
+                set(hash "${CMAKE_MATCH_2}")
+            endif()
+        endforeach()
+        if(hash STREQUAL "")
+            set(text "release v${version} of ${repo} has no ${name}.")
+            if(required)
+                message(FATAL_ERROR "The ${text}")
+            endif()
+            file(WRITE "${record}" "${text}\n")
+            message(NOTICE "No emulator: ${text}")
+            return()
+        endif()
+        message(STATUS "Fetching tools/${name}")
+        _rp6502_download("${base}/${name}" "${file}.tmp" "${hash}" result text)
+    endif()
+    if(NOT result STREQUAL "ok")
+        if(required)
+            message(FATAL_ERROR "Cannot fetch tools/${name}.\n${text}")
+        endif()
+        message(NOTICE "No emulator: cannot fetch tools/${name}.\n${text}")
+        return()
+    endif()
+    file(RENAME "${file}.tmp" "${file}")
+    set(${out_var} "${file}" PARENT_SCOPE)
+endfunction()
+
+# Downloads <url> to <file>, checked against <sha256> when it is not empty.
+# Sets <out_var> to ok, missing for HTTP 404, or failed, and <text_var> to
+# the reason.
+function(_rp6502_download url file sha256 out_var text_var)
     file(DOWNLOAD "${url}" "${file}"
         STATUS status
         LOG log
         TLS_VERIFY ON
         INACTIVITY_TIMEOUT 30
-        ${headers}
     )
     list(GET status 0 code)
     list(GET status 1 text)
     # The last status line is the answer after any redirects.
     string(REGEX MATCHALL "HTTP/[0-9.]+ [0-9][0-9][0-9]" answers "${log}")
-    set(answer)
+    set(answer "")
     if(answers)
         list(GET answers -1 answer)
         string(REGEX REPLACE "^HTTP/[0-9.]+ " "" answer "${answer}")
@@ -1106,18 +1116,17 @@ function(_rp6502_fetch_url url file out_var text_var)
     set(result ok)
     if(NOT code EQUAL 0)
         file(REMOVE "${file}")
-        # curl reports an error answer as 22; anything else is the network.
-        if(NOT code EQUAL 22)
-            set(result offline)
-        elseif(answer STREQUAL "404" OR answer STREQUAL "422")
-            set(result missing)
-        else()
-            set(result failed)
+        set(result failed)
+        # curl reports an error answer as 22.
+        if(code EQUAL 22)
             set(text "HTTP ${answer}")
+            if(answer STREQUAL "404")
+                set(result missing)
+            endif()
         endif()
-    elseif(ARGC GREATER 4)
+    elseif(NOT sha256 STREQUAL "")
         file(SHA256 "${file}" got)
-        string(TOLOWER "${ARGV4}" expected)
+        string(TOLOWER "${sha256}" expected)
         if(NOT got STREQUAL expected)
             file(REMOVE "${file}")
             set(result failed)
@@ -1128,20 +1137,179 @@ function(_rp6502_fetch_url url file out_var text_var)
     set(${text_var} "${url}: ${text}" PARENT_SCOPE)
 endfunction()
 
-# Offline, uses the file that <record> names, or stops with <message>.
-function(_rp6502_fetch_last record caller message file_var source_var)
-    if(EXISTS "${record}")
-        file(STRINGS "${record}" lines)
-        list(GET lines 1 file)
-        list(GET lines 2 source)
-        if(EXISTS "${file}")
-            message(NOTICE "${caller}: no network, so the file fetched before is used.")
-            set(${file_var} "${file}" PARENT_SCOPE)
-            set(${source_var} "${source}" PARENT_SCOPE)
+# Unpacks <archive> once into build/tools/<name without .zip or .tar.gz>/
+# in the project, and sets <out_var> to that folder.
+function(_rp6502_unpack archive out_var)
+    get_filename_component(name "${archive}" NAME)
+    string(REGEX REPLACE "\\.(zip|tar\\.gz)$" "" stem "${name}")
+    set(folder "${RP6502_PROJECT_DIR}/build/tools/${stem}")
+    if(NOT IS_DIRECTORY "${folder}")
+        # The rename comes last, so an interrupted unpack leaves no folder.
+        set(tmp "${folder}.tmp")
+        file(REMOVE_RECURSE "${tmp}")
+        file(MAKE_DIRECTORY "${tmp}")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E tar xf "${archive}"
+            WORKING_DIRECTORY "${tmp}"
+            RESULT_VARIABLE result
+            ERROR_VARIABLE error
+        )
+        if(NOT result STREQUAL "0")
+            file(REMOVE_RECURSE "${tmp}")
+            message(FATAL_ERROR "Cannot unpack ${archive}\n${error}")
+        endif()
+        file(RENAME "${tmp}" "${folder}")
+    endif()
+    set(${out_var} "${folder}" PARENT_SCOPE)
+endfunction()
+
+# Makes <link> a hard link to <file>, or a copy where the file system has no
+# links, and keeps a link with the size and time of <file>. An empty <file>
+# removes <link>.
+function(_rp6502_link file link)
+    if(file STREQUAL "")
+        file(REMOVE "${link}")
+        return()
+    endif()
+    if(EXISTS "${link}")
+        file(SIZE "${file}" size)
+        file(SIZE "${link}" link_size)
+        file(TIMESTAMP "${file}" time "%s" UTC)
+        file(TIMESTAMP "${link}" link_time "%s" UTC)
+        if(size EQUAL link_size AND time STREQUAL link_time)
             return()
         endif()
     endif()
-    message(FATAL_ERROR "${message}")
+    get_filename_component(folder "${link}" DIRECTORY)
+    file(MAKE_DIRECTORY "${folder}")
+    # The rename comes last, so a command line that holds <link> runs the
+    # old file or the new file, and never a part of one.
+    set(tmp "${link}.tmp")
+    file(REMOVE_RECURSE "${tmp}" "${tmp}.d")
+    file(CREATE_LINK "${file}" "${tmp}" RESULT result)
+    if(NOT result STREQUAL "0")
+        # file(COPY) keeps the time of the file, which the check above reads.
+        file(COPY "${file}" DESTINATION "${tmp}.d")
+        get_filename_component(name "${file}" NAME)
+        file(RENAME "${tmp}.d/${name}" "${tmp}")
+        file(REMOVE_RECURSE "${tmp}.d")
+    endif()
+    file(RENAME "${tmp}" "${link}" RESULT result)
+    if(NOT result STREQUAL "0")
+        file(REMOVE "${tmp}")
+        message(NOTICE "Cannot replace ${link}. Close the emulator, then configure again.\n${result}")
+    endif()
+endfunction()
+
+# Adds BASIC to the link of the BASIC target <target> in the source folder <dir>.
+function(_rp6502_basic_finish target dir)
+    _rp6502_resolve(BASIC TARGET ${target} "${dir}" basic source)
+    get_target_property(binary ${target} BINARY_DIR)
+    # The file changes only with BASIC, so a Makefile relinks for a new BASIC
+    # that is older than the ROM.
+    set(record "${binary}/CMakeFiles/${target}.basic/basic.txt")
+    file(CONFIGURE OUTPUT "${record}" CONTENT "${basic}\n")
+    get_target_property(assets ${target} RP6502_ASSET_ROMS)
+    if(NOT assets)
+        set(assets)
+    endif()
+    target_link_options(${target} PRIVATE "${basic}" ${assets})
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+        "${basic}" "${record}" ${assets})
+endfunction()
+
+# Writes the page and the emulator files that the build of web/<zip> copies.
+function(_rp6502_web_finish zip)
+    string(REGEX REPLACE "\\.zip$" "" name "${zip}")
+    get_property(target GLOBAL PROPERTY RP6502_WEB_TARGET_${name})
+    get_property(dir GLOBAL PROPERTY RP6502_WEB_DIR_${name})
+    get_property(page GLOBAL PROPERTY RP6502_WEB_PAGE_${name})
+    get_property(script GLOBAL PROPERTY RP6502_WEB_SCRIPT_${name})
+    get_property(folder_files GLOBAL PROPERTY RP6502_WEB_FILES_${name})
+    set(caller "rp6502_web(${target})")
+    get_target_property(src ${target} SOURCE_DIR)
+    _rp6502_resolve(WEB TARGET ${target} "${src}" web_zip source)
+
+    file(REMOVE_RECURSE "${dir}/emulator")
+    file(ARCHIVE_EXTRACT INPUT "${web_zip}" DESTINATION "${dir}/emulator"
+        PATTERNS rp6502.js rp6502.wasm index.html)
+    foreach(part rp6502.js rp6502.wasm index.html)
+        if(NOT EXISTS "${dir}/emulator/${part}")
+            message(FATAL_ERROR "${caller}: ${web_zip} has no ${part} at its root.")
+        endif()
+    endforeach()
+    if(NOT page)
+        set(page "${dir}/emulator/index.html")
+    endif()
+
+    file(READ "${page}" html)
+    string(FIND "${html}" "<script src=\"rp6502.js\"" at)
+    if(at LESS 0)
+        message(FATAL_ERROR "${caller}: ${page} has no <script src=\"rp6502.js\">.")
+    endif()
+    string(SUBSTRING "${html}" ${at} -1 tail)
+    string(FIND "${tail}" "</script>" end)
+    if(end LESS 0)
+        message(FATAL_ERROR "${caller}: ${page} has no </script> after <script src=\"rp6502.js\">.")
+    endif()
+    math(EXPR at "${at} + ${end} + 9")
+    string(SUBSTRING "${html}" 0 ${at} head)
+    string(SUBSTRING "${html}" ${at} -1 tail)
+    set(html "${head}${script}${tail}")
+    # index.html is rewritten only on a change, so the zip is not rebuilt.
+    set(written)
+    if(EXISTS "${dir}/index.html")
+        file(READ "${dir}/index.html" written)
+    endif()
+    if(NOT written STREQUAL html)
+        file(WRITE "${dir}/index.html" "${html}")
+    endif()
+    file(SHA256 "${web_zip}" web_hash)
+    string(REPLACE ";" "\n" listed "${folder_files}")
+    file(CONFIGURE OUTPUT "${dir}/sources.txt"
+        CONTENT "${web_zip} ${web_hash}\n${listed}\n" @ONLY)
+    # The publish workflow reads this file to screenshot the player with the
+    # same emulator.
+    file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/CMakeFiles/${name}.emulator"
+        CONTENT "${source}\n" @ONLY)
+endfunction()
+
+# Gives each target and test its emulator, BASIC and web zip at the end of
+# configure, after every setting is made.
+function(_rp6502_finish)
+    get_property(targets GLOBAL PROPERTY RP6502_TARGETS)
+    foreach(target IN LISTS targets)
+        get_target_property(dir ${target} SOURCE_DIR)
+        get_target_property(folder ${target} RUNTIME_OUTPUT_DIRECTORY)
+        _rp6502_resolve(EMU TARGET ${target} "${dir}" emu source)
+        _rp6502_link("${emu}" "${folder}/${RP6502_EMU_NAME}")
+        get_target_property(basic ${target} RP6502_BASIC_TARGET)
+        if(basic)
+            _rp6502_basic_finish(${target} "${dir}")
+        endif()
+    endforeach()
+    get_property(zips GLOBAL PROPERTY RP6502_WEB_ZIPS)
+    foreach(zip IN LISTS zips)
+        _rp6502_web_finish("${zip}")
+    endforeach()
+    get_property(tests GLOBAL PROPERTY RP6502_TESTS)
+    set(saves)
+    foreach(name IN LISTS tests)
+        get_property(dir GLOBAL PROPERTY RP6502_TEST_DIR_${name})
+        set(folder "${CMAKE_BINARY_DIR}/test/${name}")
+        _rp6502_resolve(EMU TEST ${name} "${dir}" emu source)
+        _rp6502_link("${emu}" "${folder}/${RP6502_EMU_NAME}")
+        list(APPEND saves "${folder}/save")
+    endforeach()
+    if(tests)
+        # ctest does not build the ROMs, and a test starts with an empty save/.
+        add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
+        add_test(NAME rp6502.save COMMAND "${CMAKE_COMMAND}" -E rm -rf ${saves})
+        set_tests_properties(rp6502.build rp6502.save PROPERTIES FIXTURES_SETUP rp6502.build)
+    endif()
+    # A new release file in tools/ runs configure again at the next build.
+    file(GLOB releases CONFIGURE_DEPENDS
+        "${RP6502_TOOLS_DIR}/rp6502-*" "${RP6502_TOOLS_DIR}/msbasic-*")
 endfunction()
 
 # Used by the commands and the tool update
@@ -1158,7 +1326,43 @@ function(_rp6502_read_sums file out_var)
     set(${out_var} "${entries}" PARENT_SCOPE)
 endfunction()
 
-# Internal helpers of the tool update and the emulator fetch
+# Sets RP6502_HOST_SUFFIX to the end of the name of the release file with
+# the emulator for this host, RP6502_HOST_MEMBER to the emulator in that
+# file, and RP6502_EMU_NAME to the name of the links to the emulator.
+function(_rp6502_host)
+    set(suffix)
+    set(member "rp6502-emu")
+    set(exe "rp6502-emu")
+    # Windows and Apple hosts are tested with CMAKE_HOST_WIN32 and
+    # CMAKE_HOST_APPLE, because OS_NAME is macOS on a Mac and not Darwin.
+    if(CMAKE_HOST_WIN32)
+        set(suffix "windows.zip")
+        set(member "rp6502-emu.exe")
+        set(exe "rp6502-emu.exe")
+    elseif(CMAKE_HOST_APPLE)
+        set(suffix "macos.zip")
+        set(member "rp6502-emu.app/Contents/MacOS/rp6502-emu")
+    else()
+        cmake_host_system_information(RESULT host QUERY OS_NAME)
+        cmake_host_system_information(RESULT release QUERY OS_RELEASE)
+        cmake_host_system_information(RESULT machine QUERY OS_PLATFORM)
+        if(host STREQUAL "Linux")
+            # WSL runs the Windows build through interop, which finds a
+            # Windows program by its contents and not by .exe.
+            if(release MATCHES "[Mm]icrosoft")
+                set(suffix "windows.zip")
+                set(member "rp6502-emu.exe")
+            else()
+                set(suffix "linux-${machine}.tar.gz")
+            endif()
+        endif()
+    endif()
+    set(RP6502_HOST_SUFFIX "${suffix}" PARENT_SCOPE)
+    set(RP6502_HOST_MEMBER "${member}" PARENT_SCOPE)
+    set(RP6502_EMU_NAME "${exe}" PARENT_SCOPE)
+endfunction()
+
+# Internal helpers of the tool update
 
 # Fetches tools/<name>, and checks the file against <hash> when <hash> is not
 # empty. The rename comes last, so a failed fetch leaves the working tool in
@@ -1205,147 +1409,25 @@ function(_rp6502_fetch_sums out_var)
     set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
-# Fetches the emulator for the host. With MISSING, the fetch skips what
-# tools/ has, and skips everything while tools/rp6502-emu.unsupported exists,
-# so no configure on a host with no build repeats the fetch.
-function(_rp6502_fetch_emulator)
-    # Each build is suffix|member|exe. Windows and Apple hosts are tested with
-    # CMAKE_HOST_WIN32 and CMAKE_HOST_APPLE, because OS_NAME is macOS on a Mac
-    # and not Darwin.
-    set(builds)
-    if(CMAKE_HOST_WIN32)
-        list(APPEND builds "windows.zip|rp6502-emu.exe|rp6502-emu.exe")
-    elseif(CMAKE_HOST_APPLE)
-        list(APPEND builds "macos.zip|rp6502-emu.app/Contents/MacOS/rp6502-emu|rp6502-emu")
-    else()
-        cmake_host_system_information(RESULT host QUERY OS_NAME)
-        cmake_host_system_information(RESULT release QUERY OS_RELEASE)
-        cmake_host_system_information(RESULT machine QUERY OS_PLATFORM)
-        if(host STREQUAL "Linux")
-            # WSL runs the Windows build through interop.
-            if(release MATCHES "[Mm]icrosoft")
-                list(APPEND builds "windows.zip|rp6502-emu.exe|rp6502-emu.exe")
-            endif()
-            list(APPEND builds "linux-${machine}.tar.gz|rp6502-emu|rp6502-emu")
-        endif()
+# Fetches from the latest releases the emulator for this host, the web zip
+# when tools/ has a web zip, and BASIC when tools/ has BASIC.
+function(_rp6502_update)
+    _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
+    if(RP6502_HOST_SUFFIX)
+        _rp6502_release_file("${RP6502_TOOLS_REPO}" "${version}"
+            "rp6502-${version}-${RP6502_HOST_SUFFIX}" FALSE file)
     endif()
-    set(sentinel "${RP6502_TOOLS_DIR}/rp6502-emu.unsupported")
-    if(NOT "MISSING" IN_LIST ARGN)
-        file(REMOVE "${sentinel}")
-    elseif(EXISTS "${sentinel}")
-        message(STATUS "No emulator: tools/rp6502-emu.unsupported has the reason, "
-            "and cmake -P tools/rp6502.cmake tries again.")
-        return()
+    file(GLOB found "${RP6502_TOOLS_DIR}/rp6502-*-web.zip")
+    if(found)
+        _rp6502_release_file("${RP6502_TOOLS_REPO}" "${version}"
+            "rp6502-${version}-web.zip" TRUE file)
     endif()
-    set(assets)
-    foreach(build IN LISTS builds)
-        string(REPLACE "|" ";" fields "${build}")
-        list(GET fields 0 suffix)
-        list(GET fields 1 member)
-        list(GET fields 2 exe)
-        if("MISSING" IN_LIST ARGN AND EXISTS "${RP6502_TOOLS_DIR}/${exe}")
-            continue()
-        endif()
-        if(NOT assets)
-            if(RP6502_EMU_RELEASE STREQUAL "latest")
-                set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/latest/download")
-            else()
-                set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/download/${RP6502_EMU_RELEASE}")
-            endif()
-            message(STATUS "Fetching the emulator list")
-            set(sums "${RP6502_TOOLS_DIR}/rp6502-emu.SHA256SUMS.tmp")
-            # TIMEOUT limits the wait on a network that drops packets.
-            file(DOWNLOAD "${base}/SHA256SUMS" "${sums}"
-                STATUS status
-                TLS_VERIFY ON
-                TIMEOUT 30
-            )
-            list(GET status 0 code)
-            list(GET status 1 text)
-            if(code EQUAL 0)
-                _rp6502_read_sums("${sums}" assets)
-            endif()
-            file(REMOVE "${sums}")
-            if(NOT assets)
-                message(NOTICE "No emulator: cannot fetch ${base}/SHA256SUMS\n${text}")
-                break()
-            endif()
-        endif()
-        _rp6502_fetch_emu("${base}" "${assets}" "${suffix}" "${member}" "${exe}" result)
-        if(result STREQUAL "unsupported")
-            file(APPEND "${sentinel}"
-                "Release ${RP6502_EMU_RELEASE} has no ${suffix} for tools/${exe}.\n")
-        endif()
-    endforeach()
-endfunction()
-
-# Fetches the asset ending in <suffix> and unpacks <member> as tools/<exe>.
-# Sets <result_var> to ok, unsupported for no such asset, or failed.
-function(_rp6502_fetch_emu base assets suffix member exe result_var)
-    set(${result_var} failed PARENT_SCOPE)
-    set(name)
-    foreach(asset IN LISTS assets)
-        string(REGEX MATCH "^(.+)=([0-9a-fA-F]+)$" ignored "${asset}")
-        # The matches are read out before the next match overwrites them.
-        set(asset_name "${CMAKE_MATCH_1}")
-        set(asset_hash "${CMAKE_MATCH_2}")
-        if(asset_name MATCHES "-${suffix}$")
-            set(name "${asset_name}")
-            set(hash "${asset_hash}")
-        endif()
-    endforeach()
-    if(NOT name)
-        message(NOTICE "No emulator: release ${RP6502_EMU_RELEASE} has no ${suffix}")
-        set(${result_var} unsupported PARENT_SCOPE)
-        return()
+    file(GLOB found "${RP6502_TOOLS_DIR}/msbasic-*.zip")
+    if(found)
+        _rp6502_latest("${RP6502_BASIC_REPO}" "^msbasic-(.+)\\.zip$" TRUE version)
+        _rp6502_release_file("${RP6502_BASIC_REPO}" "${version}"
+            "msbasic-${version}.zip" TRUE file)
     endif()
-    set(tmp "${RP6502_TOOLS_DIR}/${exe}.tmp")
-    file(REMOVE_RECURSE "${tmp}")
-    file(MAKE_DIRECTORY "${tmp}")
-    message(STATUS "Fetching tools/${exe}")
-    file(DOWNLOAD "${base}/${name}" "${tmp}/${name}"
-        STATUS status
-        TLS_VERIFY ON
-        INACTIVITY_TIMEOUT 30
-    )
-    list(GET status 0 code)
-    list(GET status 1 text)
-    if(NOT code EQUAL 0)
-        file(REMOVE_RECURSE "${tmp}")
-        message(NOTICE "No emulator: cannot fetch ${base}/${name}\n${text}")
-        return()
-    endif()
-    file(SHA256 "${tmp}/${name}" got)
-    string(TOLOWER "${hash}" hash)
-    if(NOT got STREQUAL hash)
-        file(REMOVE_RECURSE "${tmp}")
-        message(NOTICE "No emulator: wrong contents for ${name}")
-        return()
-    endif()
-    execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E tar xf "${name}"
-        WORKING_DIRECTORY "${tmp}"
-        RESULT_VARIABLE result
-        ERROR_VARIABLE error
-    )
-    if(NOT result STREQUAL "0")
-        file(REMOVE_RECURSE "${tmp}")
-        message(NOTICE "No emulator: cannot unpack ${name}\n${error}")
-        return()
-    endif()
-    file(RENAME "${tmp}/${member}" "${RP6502_TOOLS_DIR}/${exe}" RESULT result)
-    file(REMOVE_RECURSE "${tmp}")
-    if(NOT result STREQUAL "0")
-        message(NOTICE "No emulator: cannot replace tools/${exe}, close it first\n${result}")
-        return()
-    endif()
-    if(NOT CMAKE_HOST_WIN32)
-        file(CHMOD "${RP6502_TOOLS_DIR}/${exe}" PERMISSIONS
-            OWNER_READ OWNER_WRITE OWNER_EXECUTE
-            GROUP_READ GROUP_EXECUTE
-            WORLD_READ WORLD_EXECUTE)
-    endif()
-    set(${result_var} ok PARENT_SCOPE)
 endfunction()
 
 # Adds the update task to .vscode/tasks.json.
@@ -1394,8 +1476,8 @@ function(_rp6502_hook_tasks_json)
     message(STATUS "Added the update task to .vscode/tasks.json")
 endfunction()
 
-# Renames the old entries of .vscode/launch.json, and adds or replaces
-# RP6502-WEB.
+# Renames the old entries of .vscode/launch.json, replaces the RP6502-EMU
+# entry of older tools, and adds or replaces RP6502-WEB.
 function(_rp6502_hook_launch_json)
     set(file "${RP6502_PROJECT_DIR}/.vscode/launch.json")
     if(NOT EXISTS "${file}")
@@ -1408,6 +1490,66 @@ function(_rp6502_hook_launch_json)
     if(NOT json STREQUAL before)
         file(WRITE "${file}" "${json}")
         message(STATUS "Renamed the entries of .vscode/launch.json")
+    endif()
+    # Older tools wrote an RP6502-EMU entry that starts the emulator through
+    # rp6502.py. The new entry starts the rp6502-emu of the launch target.
+    set(old_emu [==[
+        {
+            "name": "RP6502-EMU",
+            "type": "lldb-dap",
+            "request": "launch",
+            "debugAdapterExecutable": "/usr/bin/env",
+            "debugAdapterArgs": [
+                "python3",
+                "${workspaceFolder}/tools/rp6502.py",
+                "-c",
+                "${workspaceFolder}/.rp6502",
+                "emu"
+            ],
+            "windows": {
+                "debugAdapterExecutable": "${env:ComSpec}",
+                "debugAdapterArgs": [
+                    "/c",
+                    "python",
+                    "${workspaceFolder}\\tools\\rp6502.py",
+                    "-c",
+                    "${workspaceFolder}\\.rp6502",
+                    "emu"
+                ]
+            },
+            "program": "${command:cmake.launchTargetPath}.rp6502",
+            "stopOnEntry": false,
+            "stopOnExit": true
+        },
+]==])
+    set(emu [==[
+        {
+            "name": "RP6502-EMU",
+            "type": "lldb-dap",
+            "request": "launch",
+            "debugAdapterExecutable": "${command:cmake.launchTargetDirectory}/rp6502-emu",
+            "debugAdapterArgs": [
+                "--dap",
+                "--ini",
+                "${workspaceFolder}/.rp6502"
+            ],
+            "windows": {
+                "debugAdapterExecutable": "${command:cmake.launchTargetDirectory}/rp6502-emu.exe"
+            },
+            "program": "${command:cmake.launchTargetPath}.rp6502",
+            "args": [],
+            "stopOnEntry": false,
+            "stopOnExit": true
+        },
+]==])
+    string(FIND "${json}" "${old_emu}" old_at)
+    if(old_at GREATER_EQUAL 0)
+        string(REPLACE "${old_emu}" "${emu}" json "${json}")
+        file(WRITE "${file}" "${json}")
+        message(STATUS "Replaced the RP6502-EMU entry of .vscode/launch.json")
+    elseif(json MATCHES "\"RP6502-EMU\"" AND NOT json MATCHES "cmake\\.launchTargetDirectory")
+        message(NOTICE
+            "Change the RP6502-EMU entry of .vscode/launch.json by hand to this:\n${emu}")
     endif()
     # The entry is inserted as text at the end of the configurations, so the
     # entry that F5 starts does not change.
@@ -1533,6 +1675,55 @@ function(_rp6502_hook_launch_json)
     message(STATUS "Added the web entry to .vscode/launch.json")
 endfunction()
 
+# Replaces the .gitignore lines of the emulator of older tools with lines
+# for the release files.
+function(_rp6502_hook_gitignore)
+    set(file "${RP6502_PROJECT_DIR}/.gitignore")
+    if(NOT EXISTS "${file}")
+        return()
+    endif()
+    file(READ "${file}" before)
+    if(NOT before MATCHES "\n$")
+        string(APPEND before "\n")
+    endif()
+    string(REGEX REPLACE "(^|\n)/tools/rp6502-emu\\.\\*\r?\n" "\\1" text "${before}")
+    string(REGEX REPLACE "(^|\n)/tools/rp6502-emu(\r?\n)"
+        "\\1/tools/rp6502-*\\2/tools/msbasic-*\\2" text "${text}")
+    if(NOT text STREQUAL before)
+        file(WRITE "${file}" "${text}")
+        message(STATUS "Changed the tools lines of .gitignore")
+    endif()
+endfunction()
+
+# Rewrites each rp6502_map() call of the top CMakeLists.txt as the
+# rp6502_align() call that the rp6502_map() stub makes. A call in another
+# form keeps the warning of the stub.
+function(_rp6502_hook_cmakelists)
+    set(file "${RP6502_PROJECT_DIR}/CMakeLists.txt")
+    if(NOT EXISTS "${file}")
+        return()
+    endif()
+    file(READ "${file}" before)
+    set(text "${before}")
+    set(space "[ \t\r\n]")
+    set(call "rp6502_map\\(${space}*([A-Za-z0-9_.+-]+)${space}+(\"[^\"]*\"|[^ \t\r\n()\"]+)")
+    string(APPEND call "${space}+\"([^\"]*)\"(${space}+\"([^\"]*)\")?${space}*\\)")
+    while(text MATCHES "${call}")
+        set(old "${CMAKE_MATCH_0}")
+        set(target "${CMAKE_MATCH_1}")
+        set(regex "${CMAKE_MATCH_3}")
+        if(CMAKE_MATCH_4)
+            set(regex "(?!(?:${CMAKE_MATCH_5})$)(?:${regex})")
+        endif()
+        set(new "rp6502_align(${target} \"${regex}\")")
+        string(REPLACE "${old}" "${new}" text "${text}")
+        message(STATUS "CMakeLists.txt: ${new}")
+    endwhile()
+    if(NOT text STREQUAL before)
+        file(WRITE "${file}" "${text}")
+    endif()
+endfunction()
+
 # This code runs at include, after every function above is defined.
 
 # cmake -P updates the tools and includes the new file when it changed.
@@ -1552,11 +1743,21 @@ if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
     endif()
 endif()
 
+_rp6502_host()
+
+# Older tools kept one emulator in tools/, which no version uses.
+file(REMOVE
+    "${RP6502_TOOLS_DIR}/rp6502-emu"
+    "${RP6502_TOOLS_DIR}/rp6502-emu.exe"
+    "${RP6502_TOOLS_DIR}/rp6502-emu.unsupported")
+
 # RP6502_TOOLS_FETCHED is set by the update above or by the bootstrap.
 if(RP6502_TOOLS_FETCHED)
     _rp6502_hook_tasks_json()
     _rp6502_hook_launch_json()
-    _rp6502_fetch_emulator()
+    _rp6502_hook_gitignore()
+    _rp6502_hook_cmakelists()
+    _rp6502_update()
 endif()
 
 if(CMAKE_SCRIPT_MODE_FILE)
@@ -1567,10 +1768,14 @@ endif()
 # testing.
 enable_testing()
 
-# A clone lacks the emulator, which is not committed.
-if(NOT RP6502_TOOLS_FETCHED)
-    _rp6502_fetch_emulator(MISSING)
+# The end of the top folder gives each target and test its tools, after
+# every setting of a version is made.
+get_property(rp6502_deferred GLOBAL PROPERTY RP6502_DEFERRED)
+if(NOT rp6502_deferred)
+    set_property(GLOBAL PROPERTY RP6502_DEFERRED TRUE)
+    cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL _rp6502_finish)
 endif()
+unset(rp6502_deferred)
 
 if(DEFINED CC65_TARGET_SYSTEM)
     find_package(cc65 REQUIRED)
