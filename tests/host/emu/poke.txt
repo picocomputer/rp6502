@@ -7,10 +7,10 @@ expect "Disconnected"
 expect-not "Select"
 
 # $80 in the first byte is the connected bit and $08 in the fourth is Start.
-poke xram:$FF00 $80 $00 $00 $08
+poke xram:GAMEPAD $80 $00 $00 $08
 run 20
 expect "Select"
-peek xram:$FF00 $80 $00 $00 $08
+peek xram:GAMEPAD $80 $00 $00 $08
 
 poke $0200 $12 34 0x56
 peek ram:$0200 18 $22 86

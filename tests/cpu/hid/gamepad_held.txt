@@ -5,4 +5,4 @@ pad 0 connect
 pad 0 press start
 run 40
 expect "Select"
-peek xram:$FF00 $80 $00 $00 $08
+peek xram:GAMEPAD $80 $00 $00 $08

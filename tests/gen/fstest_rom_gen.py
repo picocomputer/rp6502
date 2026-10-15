@@ -1135,10 +1135,9 @@ def drive(emu, rom, save_dir=None):
 
     def body(e):
         e.cmd('wait "BAD "')
-        e.cmd(f'peek ${FAILN:04X} ${len(PLATFORM):02X}')
+        e.cmd(f"peek FAILN ${len(PLATFORM):02X}")
         if PLATFORM:
-            e.cmd(f'peek ${FAILS:04X} '
-                  + " ".join(f"${i:02X}" for i in PLATFORM))
+            e.cmd("peek FAILS " + " ".join(f"${i:02X}" for i in PLATFORM))
     return rp6502_script.drive(emu, rom, body, env={"TZ": TZ},
                                save_dir=save_dir)
 
@@ -1155,7 +1154,7 @@ def main():
     if a.emit:
         rom = image(build())
         rom.add_asset(ASSET, payload(ACHUNKS))
-        n = rom.write(a.emit)
+        n = rom.write(a.emit, globals())
         print(f"fstest.rp6502 {n} bytes, {CHECKS} checks, {TOTAL} byte payload")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir)

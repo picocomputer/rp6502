@@ -101,7 +101,7 @@ def main():
     ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
-        print(f"execrel.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"execrel.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir)
     return 0

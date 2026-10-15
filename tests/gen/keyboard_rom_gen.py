@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        print(f"keyboard.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"keyboard.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     return 0
 
 

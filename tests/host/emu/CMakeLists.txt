@@ -72,15 +72,15 @@ endforeach()
 
 # CMake regular expressions have no {n} repetition, so the CRC's eight hex
 # digits are written out as eight character classes.
-rp6502_add_cli_test(crc --mute --seed 1 --fill 0 --crc --frames 10
+rp6502_add_cli_test(crc --crc --frames 10
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
     "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
-rp6502_add_cli_test(phi2_zero --mute --seed 1 --fill 0 --phi2 0 --crc --frames 1
+rp6502_add_cli_test(phi2_zero --phi2 0 --crc --frames 1
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 
 add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
-    --mute --seed 1 --fill 010
+    --fill 010
     --script ${CMAKE_CURRENT_LIST_DIR}/fill.txt
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")

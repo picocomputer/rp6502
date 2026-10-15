@@ -70,7 +70,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit", required=True)
     a = ap.parse_args()
-    print(f"time.rp6502 {image(prog()).write(a.emit)} bytes")
+    print(f"time.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     return 0
 
 

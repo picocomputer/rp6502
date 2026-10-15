@@ -182,7 +182,7 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        n = image(build()).write(a.emit)
+        n = image(build()).write(a.emit, globals())
         print(f"bigfile.rp6502 {n} bytes, {TOTAL} byte payload")
     return 0
 

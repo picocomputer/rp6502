@@ -107,9 +107,9 @@ def main():
     ap.add_argument("--emit-bounds")
     a = ap.parse_args()
     if a.emit:
-        print(f"gamepad.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"gamepad.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.emit_bounds:
-        n = image(bounds_prog()).write(a.emit_bounds)
+        n = image(bounds_prog()).write(a.emit_bounds, globals())
         print(f"gamepad_bounds.rp6502 {n} bytes")
     return 0
 

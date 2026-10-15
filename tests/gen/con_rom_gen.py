@@ -70,8 +70,7 @@ def prog():
 def drive(emu, rom, save_dir=None):
     save = ["--save-dir", str(save_dir)] if save_dir else []
     r = subprocess.run(
-        [str(emu), "--headless", "--phi2", "0", "--mute", "--seed", "1",
-         "--fill", "0", *save, str(rom)],
+        [str(emu), "--headless", "--phi2", "0", *save, str(rom)],
         input=INPUT, capture_output=True, text=True, timeout=60)
     ok = True
     for name, got, want in (("stdout", r.stdout, INPUT),
@@ -93,7 +92,7 @@ def main():
     ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
-        print(f"con.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"con.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir)
     return 0

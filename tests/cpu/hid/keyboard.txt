@@ -1,8 +1,8 @@
-# keyboard.rp6502 polls the keyboard bitmap in XRAM and exits with code 2 once
-# a key has been pressed and released.
+# keyboard.rp6502 polls the keyboard bitmap in XRAM and exits with EXIT_CODE
+# once a key has been pressed and released.
 
 run 20
 press space
 run 5
 release space
-expect-exit 2
+expect-exit EXIT_CODE

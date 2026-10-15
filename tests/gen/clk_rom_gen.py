@@ -129,7 +129,7 @@ def drive(emu, rom, save_dir):
         e.cmd('wait "set FFFF 000D\\n"')
         e.cmd('wait "get 0000\\n"')
         after = int(time.time())
-        got = struct.unpack("<q", bytes.fromhex(e.cmd(f"dump ${GOT:04X} 8")))[0]
+        got = struct.unpack("<q", bytes.fromhex(e.cmd("dump GOT 8")))[0]
         if not before <= got <= after:
             raise rp6502_script.ScriptError(
                 f"time_get read {got}, not between {before} and {after}")
@@ -153,7 +153,7 @@ def main():
     ap.add_argument("--save-dir", help="the folder behind SAVE:")
     a = ap.parse_args()
     if a.emit:
-        print(f"clk.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"clk.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir)
     return 0

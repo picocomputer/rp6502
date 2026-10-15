@@ -70,6 +70,10 @@ def mouse_rom():
 
     p.symbol("main")
     p.xreg(0, 0, 1, MOUSE)  # reg 1 is the mouse, reg 3 the tablet
+    # The count starts from zero, whatever XRAM held at boot.
+    p.store(RW1_ADDR, TICKS & 0xFF)
+    p.store(RW1_ADDR + 1, TICKS >> 8)
+    p.store(RW1_DATA, 0)
 
     p.store(VIA_T1L_LO, T1_PERIOD & 0xFF)
     p.store(VIA_T1L_HI, T1_PERIOD >> 8)
@@ -92,9 +96,9 @@ def main():
     ap.add_argument("--emit-tablet")
     a = ap.parse_args()
     if a.emit_mouse:
-        print(f"mouse.rp6502 {mouse_rom().write(a.emit_mouse)} bytes")
+        print(f"mouse.rp6502 {mouse_rom().write(a.emit_mouse, globals())} bytes")
     if a.emit_tablet:
-        print(f"tablet.rp6502 {tablet_rom().write(a.emit_tablet)} bytes")
+        print(f"tablet.rp6502 {tablet_rom().write(a.emit_tablet, globals())} bytes")
     return 0
 
 

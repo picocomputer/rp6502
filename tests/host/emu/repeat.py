@@ -20,8 +20,10 @@ def drive(emu, rom, save_dir=None):
     def body(e):
         e.cmd("run 20")
         answers.append(e.cmd("cpu"))
+    # cpu ends with the seed, so the runs share one.
     for _ in range(3):
-        code = rp6502_script.drive(emu, rom, body, save_dir=save_dir)
+        code = rp6502_script.drive(emu, rom, body, args=("--seed", "1"),
+                                   save_dir=save_dir)
         if code:
             return code
     if len(set(answers)) != 1:

@@ -86,7 +86,7 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        n = image(build()).write(a.emit)
+        n = image(build()).write(a.emit, globals())
         print(f"probe.rp6502 {n} bytes, shrink probe on {OLD}, create {NEW}")
     return 0
 

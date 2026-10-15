@@ -1,26 +1,26 @@
-# sigint.rp6502 keeps what it sees of each Ctrl-C in RAM. $0200 is how far
-# it has got, and it waits for a poke to $0210 before turning the interrupt on.
+# sigint.rp6502 keeps what it sees of each Ctrl-C in RAM. STAGE is how far
+# it has got, and it waits for a poke to GO before turning the interrupt on.
 
 run 2
 key c+ctrl
-wait $0200 1 2
+wait STAGE 1 2
 # ATTR_SIGINT read 1 for the Ctrl-C, then 0 because reading it cleared it.
-peek $0201 $01 $00
+peek LATCH $01 $00
 
 # This Ctrl-C comes while interrupts are on and SIGINT is off, so it does
 # not interrupt.
 key c+ctrl
 run 3
-peek $0205 0
+peek TAKEN 0
 # It is still waiting when the program turns SIGINT on, and the write that
 # turns it on clears it, so no interrupt is taken for it.
-poke $0210 1
-wait $0200 2 10
-peek $0203 0
+poke GO 1
+wait STAGE 2 10
+peek EARLY 0
 
-# Now a Ctrl-C interrupts. The handler's read of $FFF0 clears it, so the
-# count of interrupts at $0205 stays at 1.
+# Now a Ctrl-C interrupts. The handler's read of RIA_IRQ clears it, so the
+# count of interrupts at TAKEN stays at 1.
 key c+ctrl
-wait $0205 1 2
+wait TAKEN 1 2
 run 2
-peek $0204 $40 $01
+peek FLAGS IRQ_SIGINT $01

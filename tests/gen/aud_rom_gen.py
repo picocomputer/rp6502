@@ -15,6 +15,9 @@ from rp6502_asm import (API_OP, OP_ATTR_SET, RIA_TX, RW0_ADDR, RW0_DATA,
                         RW0_STEP, Asm)
 from rp6502_rom import image
 
+PSG = 0x8000
+GO = 0x0200
+
 
 class Prog(Asm):
     def settle(self):
@@ -53,7 +56,7 @@ class Prog(Asm):
 
 def psg_prog():
     p = Prog()
-    page = 0x8000
+    page = PSG
     p.xreg(0, 1, 0, page)
     p.settle()
     # The frequency register holds hertz times three, so 0x0528 is 440 Hz.
@@ -73,7 +76,7 @@ def psg_prog():
 
 def psg_pre_prog():
     p = Prog()
-    page = 0x8000
+    page = PSG
     p.poke(page + 0, 0x28)
     p.poke(page + 1, 0x05)
     p.poke(page + 2, 0x80)
@@ -192,17 +195,17 @@ def bel_prog():
 
 
 def bel_off_prog():
-    """The bell is turned off and a BEL written. Once the script pokes $0200,
+    """The bell is turned off and a BEL written. Once the script pokes GO,
     the bell is turned back on and a second BEL written."""
     p = Prog()
-    p.store(0x0200, 0)
+    p.store(GO, 0)
     p.pushl(0)
     p.call_a(OP_ATTR_SET, 5)  # ATTR_BEL
     p.lda_imm(0x07)
     p.sta_abs(RIA_TX)
     wait = p.local("wait")
     p.symbol(wait)
-    p.lda_abs(0x0200)
+    p.lda_abs(GO)
     p.beq(wait)
     p.pushl(1)
     p.call_a(OP_ATTR_SET, 5)
@@ -229,7 +232,7 @@ def opl_bel_prog():
 
 
 def emit(path, body):
-    return image(body).write(path)
+    return image(body).write(path, globals())
 
 
 # The recordings are 48 kHz, 800 samples to a frame. These bars are the ones
@@ -278,7 +281,7 @@ def record(emu, rom, save_dir, *lines):
     def body(e):
         for line in lines:
             e.cmd(line)
-    return rp6502_script.drive(emu, rom, body, save_dir=save_dir, mute=False)
+    return rp6502_script.drive(emu, rom, body, save_dir=save_dir)
 
 
 def fail(msg):
@@ -293,8 +296,8 @@ def check_psg(a):
     the RIA writes it, plays on. xbus: writes it the way the RIA does, and
     the note is released."""
     if record(a.emu, a.rom, a.save_dir, 'wav "psg.wav" 15',
-              "poke xram:$8006 $00", 'wav "plain.wav" 2',
-              "poke xbus:$8006 $00", "run 1", 'wav "released.wav" 2'):
+              "poke xram:PSG+6 $00", 'wav "plain.wav" 2',
+              "poke xbus:PSG+6 $00", "run 1", 'wav "released.wav" 2'):
         return 1
     m = mono("psg.wav")
     p = peaks(m)
@@ -369,7 +372,7 @@ def check_bel(a):
 def check_bel_off(a):
     """With the bell off, a BEL rings nothing. With it back on, a BEL rings."""
     if record(a.emu, a.rom, a.save_dir, 'wait "\\a" 10', 'wav "off.wav" 16',
-              "poke $0200 1", 'wait "\\a" 10', 'wav "on.wav" 4'):
+              "poke GO 1", 'wait "\\a" 10', 'wav "on.wav" 4'):
         return 1
     if max(peaks(mono("off.wav"))):
         return fail("a BEL rang with the bell off")

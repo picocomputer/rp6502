@@ -4,9 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
+import rp6502_asm
 from rp6502_asm import ORG, Asm
 
 
@@ -23,10 +25,13 @@ def tool():
     return mod
 
 
-ROM = tool().ROM
+rp6502 = tool()
+ROM = rp6502.ROM
 
 
 class Rom(ROM):
+    labels = {}
+
     def record(self, addr, data):
         self.add_binary_data(bytes(data), addr)
         return self
@@ -36,8 +41,22 @@ class Rom(ROM):
         return self
 
     def program(self, prog, org=ORG):
-        body = prog.code() if isinstance(prog, Asm) else bytes(prog)
+        if isinstance(prog, Asm):
+            body = prog.code()
+            self.labels = dict(prog._sym)
+        else:
+            body = bytes(prog)
         return self.record(org, body).reset(org)
+
+    def write(self, path, names=None):
+        """Writes the ROM and, beside it, its .sym file: the labels of the
+        program and the whole numbers of rp6502_asm and of names."""
+        size = super().write(path)
+        pairs = list(self.labels.items())
+        for table in (vars(rp6502_asm), names or {}):
+            pairs += [(k, v) for k, v in table.items() if type(v) is int]
+        rp6502.Symbols.write(os.path.splitext(str(path))[0] + ".sym", pairs)
+        return size
 
 
 def image(prog, org=ORG):

@@ -95,7 +95,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit", required=True)
     a = ap.parse_args()
-    print(f"vsync.rp6502 {prog().write(a.emit)} bytes")
+    print(f"vsync.rp6502 {prog().write(a.emit, globals())} bytes")
     return 0
 
 

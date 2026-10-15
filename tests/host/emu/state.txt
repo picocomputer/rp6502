@@ -4,16 +4,16 @@ expect "Disconnected"
 mark
 state save "machine.sst"
 
-poke xram:$FF00 $80 $00 $00 $08
+poke xram:GAMEPAD $80 $00 $00 $08
 run 20
 expect "Select"
 expect-changed
-peek xram:$FF00 $80 $00 $00 $08
+peek xram:GAMEPAD $80 $00 $00 $08
 
 state load "machine.sst"
 run 1
 expect-same
-peek xram:$FF00 $00 $00 $00 $00
+peek xram:GAMEPAD $00 $00 $00 $00
 
 poke $0200 $52 $50 $36 $34
 

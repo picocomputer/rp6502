@@ -105,10 +105,10 @@ def main():
     ap.add_argument("--emit-child")
     a = ap.parse_args()
     if a.emit_launcher:
-        n = image(launcher_prog()).write(a.emit_launcher)
+        n = image(launcher_prog()).write(a.emit_launcher, globals())
         print(f"launcher.rp6502 {n} bytes")
     if a.emit_child:
-        print(f"child.rp6502 {image(child_prog()).write(a.emit_child)} bytes")
+        print(f"child.rp6502 {image(child_prog()).write(a.emit_child, globals())} bytes")
     return 0
 
 

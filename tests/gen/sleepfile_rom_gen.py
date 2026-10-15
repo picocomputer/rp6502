@@ -141,7 +141,7 @@ def main():
     ap.add_argument("--data", help="write the data file this ROM reads")
     a = ap.parse_args()
     if a.emit:
-        print(f"sleepfile.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"sleepfile.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.data:
         Path(a.data).write_bytes(payload())
         print(f"{a.data} {len(payload())} bytes")

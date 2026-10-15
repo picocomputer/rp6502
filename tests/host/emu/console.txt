@@ -15,7 +15,7 @@ type "\r"
 wait stdout "zz\n"
 expect console "zz\r\n"
 
-poke bus:$FFE1 $71
-poke bus:$FFE1 $0A
+poke bus:RIA_TX $71
+poke bus:RIA_TX $0A
 expect stdout "q\n"
 expect console "q\n"

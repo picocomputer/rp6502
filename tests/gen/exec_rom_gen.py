@@ -127,7 +127,7 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        print(f"exec.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"exec.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     return 0
 
 

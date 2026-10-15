@@ -240,7 +240,7 @@ def main():
     ap.add_argument("--adventure", help="the adventure ROM to install")
     a = ap.parse_args()
     if a.emit:
-        print(f"drive.rp6502 {image(prog()).write(a.emit)} bytes")
+        print(f"drive.rp6502 {image(prog()).write(a.emit, globals())} bytes")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir, a.adventure)
     return 0

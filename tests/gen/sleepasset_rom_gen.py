@@ -188,7 +188,7 @@ def main():
     a = ap.parse_args()
     letter = a.variant.upper()[:1]
     if a.emit:
-        print(f"sleepasset-{letter.lower()}.rp6502 {image(letter).write(a.emit)} bytes")
+        print(f"sleepasset-{letter.lower()}.rp6502 {image(letter).write(a.emit, globals())} bytes")
     if a.drive:
         return drive(a.emu, a.rom, a.save_dir)
     return 0

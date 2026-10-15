@@ -67,7 +67,7 @@ def prog():
 
 
 def emit(path, body):
-    return image(body).write(path)
+    return image(body).write(path, globals())
 
 
 def drive(emu, rom, save_dir=None):

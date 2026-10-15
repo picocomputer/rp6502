@@ -306,7 +306,7 @@ function(rp6502_add_script_test name)
             set(_rom_args -- ${S_ROM_ARGS})
         endif()
         add_test(NAME script.${name}
-            COMMAND rp6502-emu --mute --seed 1 --fill 0 --save-dir ${_work}
+            COMMAND rp6502-emu --save-dir ${_work}
                 ${S_ARGS} --script ${S_SCRIPT} ${S_ROM} ${_rom_args})
     endif()
     if(NOT S_TIMEOUT)
