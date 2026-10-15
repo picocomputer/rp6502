@@ -1,5 +1,6 @@
 # The program copies each line typed to stdout, and on end of file it writes
-# "eof" and exits with EXIT_CODE. The line left unfinished when stdin ends still arrives.
+# "eof" and exits with EXIT_CODE. The line left unfinished when stdin ends
+# still arrives.
 
 run 10
 type "bb"

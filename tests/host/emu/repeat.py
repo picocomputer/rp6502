@@ -6,43 +6,21 @@
 starts, because with no window a file transfer completes before the call
 returns."""
 
-import argparse
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
-import rp6502_script  # noqa: E402
+from rp6502_rom import ADVENTURE, emu, main
 
 
-def drive(emu, rom, save_dir=None):
+def test_repeat():
     answers = []
-
-    def body(e):
-        e.cmd("run 20")
-        answers.append(e.cmd("cpu"))
-    # cpu ends with the seed, so the runs share one.
+    # The answer to cpu ends with the seed, so the three runs use one seed.
     for _ in range(3):
-        code = rp6502_script.drive(emu, rom, body, args=("--seed", "1"),
-                                   save_dir=save_dir)
-        if code:
-            return code
+        with emu("--seed", "1", ADVENTURE) as e:
+            e.cmd("run 20")
+            answers.append(e.cmd("cpu"))
     if len(set(answers)) != 1:
-        print(f"{sys.argv[0]}: the runs differ: {answers}", file=sys.stderr)
+        print(f"the runs differ: {answers}")
         return 1
     return 0
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--drive", action="store_true", help="run the ROM three times")
-    ap.add_argument("--emu", help="the rp6502-emu binary")
-    ap.add_argument("--rom", help="the ROM to run")
-    ap.add_argument("--save-dir", help="the folder behind SAVE:")
-    a = ap.parse_args()
-    if a.drive:
-        return drive(a.emu, a.rom, a.save_dir)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+TESTS = {"repeat": test_repeat}
+main(globals())

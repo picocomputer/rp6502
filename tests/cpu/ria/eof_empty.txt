@@ -1,9 +1,0 @@
-# The program copies each line typed to stdout, and on end of file it writes
-# "eof" and exits with EXIT_CODE. Nothing is typed, so the read that is waiting gets no
-# bytes when stdin ends, not an empty line.
-
-run 10
-eof
-expect-exit EXIT_CODE
-expect-not "\neof"
-expect "eof\n"

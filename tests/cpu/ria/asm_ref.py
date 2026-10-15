@@ -4,13 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
 from rp6502_asm import (API_A, ORG, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY,
-                        RIA_TX, Asm)  # noqa: E402
-from rp6502_rom import Rom  # noqa: E402
+                        RIA_TX, Asm)
+from rp6502_rom import Rom
 
 
 def build():

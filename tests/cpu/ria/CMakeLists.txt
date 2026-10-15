@@ -1,10 +1,8 @@
 set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.bin)
 add_custom_command(OUTPUT ${ASM_REF}
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_TEST_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit-bin ${ASM_REF}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py
-        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
-        ${RP6502_TESTS_DIR}/gen/rp6502_rom.py
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py ${RP6502_TEST_LIB_FILES}
     COMMENT "Assembling the reference image"
     VERBATIM)
 add_custom_target(asm_ref DEPENDS ${ASM_REF})
@@ -12,12 +10,11 @@ rp6502_add_test(asm SOURCES test_asm.cpp DEFS ASM_REF="${ASM_REF}")
 add_dependencies(test_asm asm_ref)
 
 add_test(NAME asm_opcodes
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py --check)
+    COMMAND ${RP6502_TEST_PYTHON} ${RP6502_TEST_LIB}/rp6502_asm.py --check)
 set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;cpu.ria")
 
 add_test(NAME rom_tool
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_TEST_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
@@ -29,7 +26,7 @@ if(COMMAND rp6502_add_machine_test)
         rp6502_add_machine_test(exec FIRMWARE
             SOURCES test_exec.cpp ${RP6502_BENCH}/mut_rtl.cpp
             DEFS EXEC_ROM="${EXEC_ROM}"
-            DEPENDS exec_rom
+            DEPENDS exec_roms
             TIMEOUT 900)
     endif()
 elseif(TARGET rp6502_libretro)
@@ -38,14 +35,14 @@ elseif(TARGET rp6502_libretro)
         INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
         DEFS EXEC_ROM="${EXEC_ROM}"
             RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
-        DEPENDS exec_rom rp6502_libretro
+        DEPENDS exec_roms rp6502_libretro
         TIMEOUT 120)
 else()
     rp6502_add_test(exec LIBS emu_core
         SOURCES test_exec.cpp ${RP6502_BENCH}/mut_emu.c
         INCLUDES ${RP6502_BENCH}
         DEFS EXEC_ROM="${EXEC_ROM}"
-        DEPENDS exec_rom
+        DEPENDS exec_roms
         TIMEOUT 60)
 endif()
 
@@ -55,24 +52,24 @@ if(COMMAND rp6502_add_machine_test)
     if(RP6502_SOFT_CPU)
         rp6502_add_machine_test(time FIRMWARE
             SOURCES test_time.cpp ${RP6502_BENCH}/mut_rtl.cpp
-            DEFS TIME_ROM="${TIME_ROM}"
-            DEPENDS time_rom
+            DEFS TIME_ROM="${STRFTIME_ROM}"
+            DEPENDS strftime_roms
             TIMEOUT 900)
     endif()
 elseif(TARGET rp6502_libretro)
     rp6502_add_test(time LIBS ${CMAKE_DL_LIBS}
         SOURCES test_time.cpp ${RP6502_BENCH}/mut_libretro.c
         INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
-        DEFS TIME_ROM="${TIME_ROM}"
+        DEFS TIME_ROM="${STRFTIME_ROM}"
             RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
-        DEPENDS time_rom rp6502_libretro
+        DEPENDS strftime_roms rp6502_libretro
         TIMEOUT 120)
 else()
     rp6502_add_test(time LIBS emu_core
         SOURCES test_time.cpp ${RP6502_BENCH}/mut_emu.c
         INCLUDES ${RP6502_BENCH}
-        DEFS TIME_ROM="${TIME_ROM}"
-        DEPENDS time_rom
+        DEFS TIME_ROM="${STRFTIME_ROM}"
+        DEPENDS strftime_roms
         TIMEOUT 60)
 endif()
 
@@ -137,35 +134,16 @@ if(RP6502_SOFT_CPU)
 endif()
 
 if(TARGET rp6502-emu)
-    rp6502_add_script_test(tty DRIVER ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
-        ROM ${TTY_ROM} DEPENDS tty_rom TIMEOUT 120)
-
-    rp6502_add_script_test(stdio DRIVER ${RP6502_TESTS_DIR}/gen/stdio_rom_gen.py
-        ROM ${STDIO_ROM} DEPENDS stdio_rom TIMEOUT 120)
-
-    rp6502_add_script_test(con DRIVER ${RP6502_TESTS_DIR}/gen/con_rom_gen.py
-        ROM ${CON_ROM} DEPENDS con_rom TIMEOUT 120)
-
-    rp6502_add_script_test(adventure ROM ${ADVENTURE_ROM})
-
-    rp6502_add_script_test(args ROM ${ARGV_ROM} ROM_ARGS Foo DEPENDS argv_rom)
-
-    rp6502_add_script_test(eof_empty ROM ${STDIO_ROM} DEPENDS stdio_rom)
-
-    rp6502_add_script_test(canvas DRIVER canvas.py
-        ROM ${RP6502_TEST_CORPUS}/mode3_1bpp.rp6502 DEPENDS rp6502_test_corpus)
-
-    rp6502_add_script_test(argv DRIVER ${RP6502_TESTS_DIR}/gen/argv_rom_gen.py
-        ROM ${ARGV_ROM} DEPENDS argv_rom)
-
-    rp6502_add_script_test(chain ROM ${LAUNCHER_ROM}
-        ARGS --install ${LAUNCHER_ROM} --install ${CHILD_ROM}
-        DEPENDS chain_roms)
-
-    rp6502_add_script_test(sigint ROM ${SIGINT_ROM} DEPENDS sigint_rom)
-
-    rp6502_add_script_test(zeroread ROM ${ZEROREAD_ROM} DEPENDS zeroread_rom)
-
-    rp6502_add_script_test(clk DRIVER ${RP6502_TESTS_DIR}/gen/clk_rom_gen.py
-        ROM ${CLK_ROM} DEPENDS clk_rom)
+    rp6502_add_script_test(NAME adventure COMMAND adventure.txt ${ADVENTURE_ROM})
+    rp6502_add_script_test(NAME args COMMAND argv.py)
+    rp6502_add_script_test(NAME argv COMMAND argv.py)
+    rp6502_add_script_test(NAME canvas COMMAND canvas.py)
+    rp6502_add_script_test(NAME chain COMMAND chain.py)
+    rp6502_add_script_test(NAME clk COMMAND clk.py)
+    rp6502_add_script_test(NAME eof_empty COMMAND stdio.py)
+    rp6502_add_script_test(NAME sigint COMMAND sigint.py)
+    rp6502_add_script_test(NAME stdio COMMAND stdio.py)
+    rp6502_add_script_test(NAME tty_keys COMMAND tty_keys.py)
+    rp6502_add_script_test(NAME tty_pipe COMMAND tty_pipe.py)
+    rp6502_add_script_test(NAME zeroread COMMAND zeroread.py)
 endif()

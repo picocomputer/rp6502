@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Rumbledethumps
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+import os
+import shutil
+
+from rp6502_asm import OP_ARGV, XSTACK, Asm, putc, putnib, puthex
+from rp6502_rom import emu, main, rom, save_dir, script
+
+BAR = ord("|")
+
+
+def prog():
+    p = Asm()
+    p.jmp_abs("main")
+    p.use(putc, putnib, puthex)
+    p.symbol("main")
+
+    p.say("argv[")
+    p.call(OP_ARGV)
+
+    p.tax()
+    p.beq("done")
+    p.symbol("emit")
+    p.lda_abs(XSTACK)
+    p.bne("show")
+    p.lda_imm(BAR)
+    p.symbol("show")
+    p.putc_a()
+    p.dex()
+    p.bne("emit")
+
+    p.symbol("done")
+    p.say("]\r\n")
+    p.stp()
+    return p
+
+
+ARGS_SCRIPT = r"""
+# The program prints its argv with a | for each zero byte, so the argument
+# given after the ROM appears between two of them.
+
+wait ".rp6502|Foo|]\r\n"
+"""
+
+
+def test_args():
+    script(ARGS_SCRIPT, rom("argv"), "--", "Foo")
+
+
+def test_argv():
+    """Empty arguments keep their places, which CMake cannot pass because it
+    drops an empty string from a list. Then a copy of the ROM is loaded by a
+    relative path, and its argv[0] is the absolute path with its drive."""
+    here = save_dir()
+    here.mkdir(exist_ok=True)
+    shutil.copy(rom("argv"), here / "x.rp6502")
+    os.chdir(here)
+    cwd = here.as_posix() if os.name == "nt" else "FS:" + here.as_posix()
+    with emu(rom("argv"), "--", "", "Foo", "") as e:
+        e.cmd('wait ".rp6502||Foo||]\\r\\n"')
+        e.cmd("sys stop")
+        e.cmd('load "x.rp6502"')
+        e.cmd(f'wait "|||{cwd}/x.rp6502|]\\r\\n"')
+
+
+ROMS = {"argv": prog}
+TESTS = {"args": test_args, "argv": test_argv}
+main(globals())

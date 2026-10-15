@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * tests/gen/vsync_rom_gen.py writes the program, which copies what it recorded
+ * vsync.py writes the program, which copies what it recorded
  * to XRAM at the offsets below before it stops.
  */
 

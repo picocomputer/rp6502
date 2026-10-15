@@ -242,8 +242,9 @@ jobs:
   # from .gitlab-ci.yml; these jobs are how we find out we broke it.
   #
   # Every libretro job below builds from a matrix that names its targets, even
-  # where there is one of them, because tests/gen/libretro_targets_gate.py reads
-  # those names and fails when they differ from the jobs in .gitlab-ci.yml.
+  # where there is one of them, because
+  # tests/host/libretro/libretro_targets_gate.py reads those names and fails
+  # when they differ from the jobs in .gitlab-ci.yml.
   # ---------------------------------------------------------------------------
   libretro:
     name: libretro-${{ matrix.target }}

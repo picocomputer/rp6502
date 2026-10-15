@@ -9,8 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
-from rp6502_rom import tool  # noqa: E402
+from rp6502_rom import tool
 
 # MBUF_SIZE in src/host/pico/ria/sys/mbuf.h is the size of mbuf, the buffer
 # the monitor reads each record into.

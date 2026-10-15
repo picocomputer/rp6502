@@ -1,8 +1,0 @@
-# A pad connected and held before the program maps the gamepad block is still
-# there after it does.
-
-pad 0 connect
-pad 0 press start
-run 40
-expect "Select"
-peek xram:GAMEPAD $80 $00 $00 $08

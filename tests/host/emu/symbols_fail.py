@@ -5,12 +5,9 @@
 """Each way a name or an expression can fail ends the run with its own
 message. A failure ends the run, so each case gets its own emulator."""
 
-import argparse
-import sys
-from pathlib import Path
+import subprocess
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
-import rp6502_script  # noqa: E402
+from rp6502_rom import command, main
 
 # The lines to send, and the message the last one fails with.
 CASES = [
@@ -40,43 +37,23 @@ CASES = [
 ]
 
 
-def drive(emu, rom, save_dir=None):
-    args = ("--install", str(Path(rom).with_name("other.rp6502")))
-    if save_dir:
-        args = ("--save-dir", str(save_dir), *args)
+def test_symbols_fail():
     failed = 0
     for lines, want in CASES:
-        e = rp6502_script.Emu(emu, rom, args)
-        with e:
-            e.start()
-            got = "no failure"
-            try:
-                for line in lines:
-                    e.cmd(line)
-            except rp6502_script.ScriptError as err:
-                got = str(err)
-        code = e.close()
-        # One failure gives one fail line, never a second one after it.
-        if (code != 1 or not got.startswith(f"{lines[-1]!r}: {want}; ")
-                or "\nfail " in got):
-            print(f"{sys.argv[0]}: {lines[-1]!r} should fail with {want!r}, "
-                  f"but the emulator exited {code} with {got!r}",
-                  file=sys.stderr)
+        r = subprocess.run(command("--script", "-"),
+                           input="\n".join(lines) + "\n",
+                           capture_output=True, text=True)
+        # The emulator reports one failure, at the last line of the case.
+        fails = [x for x in r.stderr.splitlines()
+                 if x.startswith("rp6502-emu:")]
+        start = f"rp6502-emu: <stdin>:{len(lines)}: {want}; "
+        if (r.returncode != 1 or len(fails) != 1
+                or not fails[0].startswith(start)):
+            print(f"{lines[-1]!r} should fail with {want!r}, but the "
+                  f"emulator exited {r.returncode} with {r.stderr!r}")
             failed = 1
     return failed
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--drive", action="store_true", help="run every case")
-    ap.add_argument("--emu", help="the rp6502-emu binary")
-    ap.add_argument("--rom", help="the ROM to run")
-    ap.add_argument("--save-dir", help="the folder behind SAVE:")
-    a = ap.parse_args()
-    if a.drive:
-        return drive(a.emu, a.rom, a.save_dir)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+TESTS = {"symbols_fail": test_symbols_fail}
+main(globals())

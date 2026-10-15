@@ -74,7 +74,7 @@ endif()
 
 add_test(NAME vidmodes_corpus
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_TESTS_DIR}/gen/vidmodes_gate.py
+        ${CMAKE_CURRENT_LIST_DIR}/vidmodes_gate.py
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.c
         --suite ${RP6502_TESTS_DIR}/rtl/vga/test_vidregs.cpp)
@@ -85,7 +85,7 @@ if(COMMAND rp6502_add_machine_test)
         rp6502_add_machine_test(vsync FIRMWARE
             SOURCES test_vsync.cpp ${RP6502_BENCH}/mut_rtl.cpp
             DEFS VSYNC_ROM="${VSYNC_ROM}"
-            DEPENDS vsync_rom
+            DEPENDS vsync_roms
             TIMEOUT 900)
     endif()
 elseif(TARGET rp6502_libretro)
@@ -94,14 +94,14 @@ elseif(TARGET rp6502_libretro)
         INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
         DEFS VSYNC_ROM="${VSYNC_ROM}"
             RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
-        DEPENDS rp6502_libretro vsync_rom
+        DEPENDS rp6502_libretro vsync_roms
         TIMEOUT 120)
 else()
     rp6502_add_test(vsync LIBS emu_core
         SOURCES test_vsync.cpp ${RP6502_BENCH}/mut_emu.c
         INCLUDES ${RP6502_BENCH}
         DEFS VSYNC_ROM="${VSYNC_ROM}"
-        DEPENDS vsync_rom
+        DEPENDS vsync_roms
         TIMEOUT 60)
 endif()
 

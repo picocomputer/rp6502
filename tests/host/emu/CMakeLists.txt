@@ -1,39 +1,39 @@
-rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom
+rp6502_add_test(script LIBS emu_core ROM ${GAMEPAD_ROM} DEPENDS gamepad_roms
     SOURCES test_script.c ${RP6502_SRC}/host/sokol/cli/script.c
         ${RP6502_SRC}/host/sokol/cli/expr.c
         ${RP6502_SRC}/host/sokol/cli/png.c ${RP6502_SRC}/host/sokol/cli/state.c
     TIMEOUT 60)
 
-rp6502_add_script_test(poke ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
+rp6502_add_script_test(NAME poke COMMAND poke.txt ${GAMEPAD_ROM})
 
-rp6502_add_script_test(state ROM ${GAMEPAD_ROM} DEPENDS gamepad_rom)
+rp6502_add_script_test(NAME state COMMAND state.txt ${GAMEPAD_ROM})
 
-rp6502_add_script_test(state_mode ROM ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502
-    DEPENDS rp6502_test_corpus)
+rp6502_add_script_test(NAME state_mode COMMAND state_mode.txt
+    ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 
-rp6502_add_script_test(split ROM ${STDIO_ROM} DEPENDS stdio_rom)
+rp6502_add_script_test(NAME split COMMAND split.txt ${STDIO_ROM})
 
-rp6502_add_script_test(codepage ROM ${STDIO_ROM} DEPENDS stdio_rom)
+rp6502_add_script_test(NAME codepage COMMAND codepage.txt ${STDIO_ROM})
 
-rp6502_add_script_test(console ROM ${STDIO_ROM} DEPENDS stdio_rom)
+rp6502_add_script_test(NAME console COMMAND console.txt ${STDIO_ROM})
 
-rp6502_add_script_test(eof ROM ${STDIO_ROM} DEPENDS stdio_rom)
+rp6502_add_script_test(NAME eof COMMAND eof.txt ${STDIO_ROM})
 
-rp6502_add_script_test(ctrl ROM ${TTY_ROM} DEPENDS tty_rom)
+rp6502_add_script_test(NAME ctrl COMMAND ctrl.txt ${TTY_KEYS_ROM})
 
-rp6502_add_script_test(repeat DRIVER repeat.py ROM ${ADVENTURE_ROM})
+rp6502_add_script_test(NAME repeat COMMAND repeat.py)
 
-rp6502_add_script_test(zero ROM ${STDIO_ROM} DEPENDS stdio_rom)
+rp6502_add_script_test(NAME zero COMMAND zero.txt ${STDIO_ROM})
 
-rp6502_add_script_test(registers ROM ${ADVENTURE_ROM})
+rp6502_add_script_test(NAME registers COMMAND registers.txt ${ADVENTURE_ROM})
 
-rp6502_add_script_test(unassigned ROM ${ADVENTURE_ROM})
+rp6502_add_script_test(NAME unassigned COMMAND unassigned.txt ${ADVENTURE_ROM})
 set_tests_properties(script.unassigned PROPERTIES PASS_REGULAR_EXPRESSION
     "[$]FF00 is unassigned")
 
 # The run fails on purpose, and the test checks the failure line. A . stands
 # for the ; that CMake would split the expression on.
-rp6502_add_script_test(stuck ROM ${ADVENTURE_ROM})
+rp6502_add_script_test(NAME stuck COMMAND stuck.txt ${ADVENTURE_ROM})
 set_tests_properties(script.stuck PROPERTIES PASS_REGULAR_EXPRESSION
     "timed out waiting for \"standing at the end of a road\". PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
 
@@ -43,11 +43,11 @@ foreach(_rom adventure other)
     configure_file(${ADVENTURE_ROM} ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.rp6502 COPYONLY)
     configure_file(symbols/${_rom}.sym ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.sym COPYONLY)
 endforeach()
-rp6502_add_script_test(symbols ROM ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502
-    ARGS --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/other.rp6502)
-rp6502_add_script_test(symbols_fail DRIVER symbols_fail.py
-    ROM ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502)
-rp6502_add_script_test(symbols_keys ROM ${KEYBOARD_ROM} DEPENDS keyboard_rom)
+set(_symbols --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/other.rp6502
+    ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502)
+rp6502_add_script_test(NAME symbols COMMAND symbols.txt ${_symbols})
+rp6502_add_script_test(NAME symbols_fail COMMAND symbols_fail.py ${_symbols})
+rp6502_add_script_test(NAME symbols_keys COMMAND symbols_keys.txt ${KEYBOARD_ROM})
 
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
@@ -105,10 +105,10 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS
    AND NOT APPLE AND NOT WIN32)
     add_test(NAME state_inventory
         COMMAND ${CMAKE_COMMAND} -E env python3
-            ${RP6502_TESTS_DIR}/gen/state_inventory.py
+            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.py
             ${CMAKE_BINARY_DIR}/compile_commands.json
             ${RP6502_SRC}
-            ${RP6502_TESTS_DIR}/gen/state_inventory.txt)
+            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.txt)
     set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
 endif()
 
@@ -148,9 +148,12 @@ rp6502_add_test(cc65dbg
 rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})
 
 set(EXPR_CASES ${CMAKE_CURRENT_BINARY_DIR}/expr_cases.txt)
-rp6502_test_rom(expr_cases GEN ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
-    ARGS --emit ${EXPR_CASES}
-    OUTPUTS ${EXPR_CASES}
-    COMMENT "Generating the expression test cases")
+add_custom_command(OUTPUT ${EXPR_CASES}
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py --emit ${EXPR_CASES}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
+    COMMENT "Generating the expression test cases"
+    VERBATIM)
+add_custom_target(expr_cases DEPENDS ${EXPR_CASES})
 rp6502_add_test(expr ROM ${EXPR_CASES} DEPENDS expr_cases
     SOURCES test_expr.c ${RP6502_SRC}/host/sokol/cli/expr.c)

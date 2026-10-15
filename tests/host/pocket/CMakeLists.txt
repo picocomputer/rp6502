@@ -88,7 +88,7 @@ if(RP6502_SOFT_CPU)
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
             ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_rom stream_rom
+        DEPENDS file_roms stream_roms
         TIMEOUT 1200)
 
     rp6502_add_machine_test(pfile FIRMWARE SPLIT
@@ -96,7 +96,7 @@ if(RP6502_SOFT_CPU)
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" FSTEST_ROM="${FSTEST_ROM}"
             ARGV_ROM="${ARGV_ROM}" SLEEPFILE_ROM="${SLEEPFILE_ROM}"
-        DEPENDS file_rom fstest_rom argv_rom sleepfile_rom
+        DEPENDS file_roms fstest_roms argv_roms sleepfile_roms
         TIMEOUT 1200)
 endif()
 
