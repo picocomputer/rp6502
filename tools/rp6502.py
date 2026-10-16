@@ -1457,11 +1457,18 @@ class ScriptError(Exception):
 
 class Emu:
     """An emulator that a test drives with script commands. The command is
-    $RP6502_EMU --script - <words before --> <sys.argv[1:]> -- <words after -->.
-    A with statement closes the emulator, or kills it when the block raises."""
+    $RP6502_EMU --script - <args> <sys.argv[1:]>, with the ROM arguments after
+    -- from one of the two. A with statement closes the emulator, or kills it
+    when the block raises."""
 
-    def __init__(self, *words):
-        cmd = Emu.command("--script", "-", *words)
+    # The options of the emulator that take a value, and the one option that
+    # can repeat, from src/host/sokol/cli.
+    _VALUED = {"screenshot", "frames", "scale", "filter", "script", "install",
+               "save-dir", "bgcolor", "phi2", "cp", "seed", "fill", "ini"}
+    _REPEATABLE = {"install"}
+
+    def __init__(self, *args):
+        cmd = Emu.command("--script", "-", *args)
         self.sym = Symbols(os.path.splitext(Emu._boots(cmd[1:]))[0] + ".sym")
         self._proc = subprocess.Popen(
             cmd,
@@ -1473,24 +1480,54 @@ class Emu:
         self.cmd("reply")
 
     @staticmethod
-    def command(*words) -> list:
-        """The command line $RP6502_EMU <words before --> <sys.argv[1:]>
-        -- <words after -->. The emulator gives the words after -- to the ROM."""
-        words = list(words)
-        argv = sys.argv[1:]
-        split = words.index("--") if "--" in words else len(words)
-        options = words[:split]
-        rom_args = words[split + 1 :]
-        if "--" in argv:
-            split = argv.index("--")
-            options += argv[:split]
-            rom_args = argv[split + 1 :] + rom_args
-        else:
-            options += argv
-        cmd = [os.environ["RP6502_EMU"]] + options
+    def command(*args) -> list:
+        """The command line $RP6502_EMU <args> <sys.argv[1:]>, with the ROM
+        arguments after -- from one of the two. An option other than --install
+        or a ROM in both, or ROM arguments in both, raise ScriptError."""
+        given, given_rom = Emu._split(list(args))
+        argv, argv_rom = Emu._split(sys.argv[1:])
+        given_names, given_roms = Emu._names(given)
+        argv_names, argv_roms = Emu._names(argv)
+        for name in given_names:
+            if name in argv_names and name not in Emu._REPEATABLE:
+                raise ScriptError(f"--{name} is in Emu() and in the arguments of the test")
+        if given_roms and argv_roms:
+            raise ScriptError("a ROM is in Emu() and in the arguments of the test")
+        if given_rom and argv_rom:
+            raise ScriptError(
+                "ROM arguments are in Emu() and in the arguments of the test")
+        cmd = [os.environ["RP6502_EMU"]] + given + argv
+        rom_args = given_rom or argv_rom
         if rom_args:
             cmd += ["--"] + rom_args
         return cmd
+
+    @staticmethod
+    def _split(words) -> tuple:
+        """Splits <words> at the first -- into the options and the ROM
+        arguments."""
+        if "--" not in words:
+            return words, []
+        split = words.index("--")
+        return words[:split], words[split + 1 :]
+
+    @staticmethod
+    def _names(options) -> tuple:
+        """The option names and the ROMs in <options>. An empty word is no
+        ROM, as for the emulator."""
+        names, roms = [], []
+        i = 0
+        while i < len(options):
+            word = options[i]
+            if word.startswith("--") and len(word) > 2:
+                name = word[2:].split("=", 1)[0]
+                names.append(name)
+                if "=" not in word and name in Emu._VALUED:
+                    i += 1
+            elif word:
+                roms.append(word)
+            i += 1
+        return names, roms
 
     @staticmethod
     def _boots(words) -> str:
