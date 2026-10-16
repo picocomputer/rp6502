@@ -5,9 +5,10 @@
  *
  * Two entries in the debugger's ini file that draw nothing.
  *
- * [RP6502][Launch] is rp6502.py's launch configuration. An
- * ImGuiSettingsHandler round-trips it verbatim and the emulator never reads
- * what is in it.
+ * [RP6502][PICO] is rp6502.py's settings for running on an RP6502-PICO, and
+ * [RP6502][Launch] is its older name. An ImGuiSettingsHandler round-trips it
+ * verbatim under the name it was read with, and the emulator never reads what
+ * is in it.
  *
  * [Window][Manager] is the host window's own size, kept in ImGui's built-in
  * geometry handler as a window named "Manager" that is never drawn: each save
@@ -31,12 +32,13 @@ extern "C"
 
 typedef struct
 {
-    int launch_len;
-    char launch[2048]; /* raw [Launch] lines; a line that will not fit is dropped whole */
+    const char *name; /* "PICO" or "Launch", as read */
+    int pico_len;
+    char pico[2048]; /* raw [PICO] lines; a line that will not fit is dropped whole */
 } ui_ini_t;
 
 /* Adds the settings handler at the front of the current ImGui context's
- * handler list, because that list is the write order: [RP6502][Launch] then
+ * handler list, because that list is the write order: [RP6502][PICO] then
  * leads the written file, and the [Window][Manager] size is refreshed before
  * ImGui's built-in [Window] handler writes it out. */
 void ui_ini_register(ui_ini_t *ini);
@@ -64,50 +66,54 @@ static ui_ini_t *_ui_ini_self(ImGuiSettingsHandler *handler)
     return (ui_ini_t *)handler->UserData;
 }
 
-static void _ui_ini_launch_clear(ui_ini_t *ini)
+static void _ui_ini_pico_clear(ui_ini_t *ini)
 {
-    ini->launch_len = 0;
-    ini->launch[0] = 0;
+    ini->pico_len = 0;
+    ini->pico[0] = 0;
 }
 
-static void _ui_ini_launch_line(ui_ini_t *ini, const char *line)
+static void _ui_ini_pico_line(ui_ini_t *ini, const char *line)
 {
     size_t n = strlen(line);
     /* The 2 is the newline this appends and the terminator. */
-    if (ini->launch_len + n + 2 > sizeof ini->launch)
+    if (ini->pico_len + n + 2 > sizeof ini->pico)
         return;
-    memcpy(ini->launch + ini->launch_len, line, n);
-    ini->launch_len += (int)n;
-    ini->launch[ini->launch_len++] = '\n';
-    ini->launch[ini->launch_len] = 0;
+    memcpy(ini->pico + ini->pico_len, line, n);
+    ini->pico_len += (int)n;
+    ini->pico[ini->pico_len++] = '\n';
+    ini->pico[ini->pico_len] = 0;
 }
 
 static void _ui_ini_clear(ImGuiContext *, ImGuiSettingsHandler *handler)
 {
-    _ui_ini_launch_clear(_ui_ini_self(handler));
+    _ui_ini_pico_clear(_ui_ini_self(handler));
 }
 
 static void *_ui_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *handler, const char *name)
 {
     ui_ini_t *ini = _ui_ini_self(handler);
-    if (strcmp(name, "Launch") != 0)
+    if (strcmp(name, "PICO") == 0)
+        ini->name = "PICO";
+    else if (strcmp(name, "Launch") == 0)
+        ini->name = "Launch";
+    else
         return nullptr;
-    _ui_ini_launch_clear(ini);
-    return (void *)ini->launch;
+    _ui_ini_pico_clear(ini);
+    return (void *)ini->pico;
 }
 
 static void _ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *handler, void *, const char *line)
 {
-    _ui_ini_launch_line(_ui_ini_self(handler), line);
+    _ui_ini_pico_line(_ui_ini_self(handler), line);
 }
 
 static void _ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
     ui_ini_t *ini = _ui_ini_self(handler);
-    if (ini->launch_len)
+    if (ini->pico_len)
     {
-        buf->appendf("[%s][Launch]\n", handler->TypeName);
-        buf->append(ini->launch, ini->launch + ini->launch_len);
+        buf->appendf("[%s][%s]\n", handler->TypeName, ini->name);
+        buf->append(ini->pico, ini->pico + ini->pico_len);
         buf->append("\n");
     }
     if (sapp_isvalid())

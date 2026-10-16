@@ -9,6 +9,7 @@
 
 # Keep this file working on Python 3.9 for macOS.
 
+import io
 import os
 import re
 import time
@@ -1733,6 +1734,8 @@ def exec_args():
 
     # Config file (shared with the emulator, which owns it in ImGui ini format).
     if args.config:
+        pico = f"{SCRIPT_NAME}][PICO"
+        # The older name of the section, still read and never renamed.
         launch = f"{SCRIPT_NAME}][Launch"
         config = configparser.ConfigParser(interpolation=None)
         # Python 3.9 and older end a section name at the first "]".
@@ -1743,34 +1746,40 @@ def exec_args():
                 if not os.access(args.config, os.R_OK):
                     raise PermissionError("permission denied")
                 config.read(args.config)
-            if not config.has_section(launch):
+            if not config.has_section(pico) and not config.has_section(launch):
                 old = (
                     dict(config[SCRIPT_NAME]) if config.has_section(SCRIPT_NAME) else {}
                 )
                 pick = lambda k: old.get(k, "")
                 # User always sees the full list of keys, even when blank.
-                config[launch] = {
+                config[pico] = {
                     "device": pick("device") or args.device,
                     "key": pick("key") or args.key or "",
                     "workdir": pick("workdir") or args.workdir or "",
                     "args": pick("args"),
                     "term": pick("term") or args.term,
                 }
-                # Appended as text, because a configparser rewrite lowercases
-                # the keys of the emulator's sections.
+                # Inserted as text at the front of the file, where the user
+                # finds it, because a configparser rewrite lowercases the keys
+                # of the emulator's sections.
                 section = configparser.ConfigParser(interpolation=None)
-                section[launch] = config[launch]
-                with open(args.config, "a") as cfg:
-                    section.write(cfg)
+                section[pico] = config[pico]
+                text = io.StringIO()
+                section.write(text)
+                rest = b""
+                if os.path.exists(args.config):
+                    with open(args.config, "rb") as cfg:
+                        rest = cfg.read()
+                with open(args.config, "wb") as cfg:
+                    cfg.write(text.getvalue().encode() + rest)
         except (configparser.Error, OSError) as e:
             raise RuntimeError(f"Cannot load config {args.config}: {e}")
-        if config.has_section(launch):
-            sec = config[launch]
-            args.workdir = sec.get("workdir", "") or args.workdir or None
-            args.device = sec.get("device", args.device)
-            args.key = sec.get("key", "") or args.key or None
-            args.term = sec.get("term", args.term)
-            args.config_args = sec.get("args", "")
+        sec = config[pico if config.has_section(pico) else launch]
+        args.workdir = sec.get("workdir", "") or args.workdir or None
+        args.device = sec.get("device", args.device)
+        args.key = sec.get("key", "") or args.key or None
+        args.term = sec.get("term", args.term)
+        args.config_args = sec.get("args", "")
 
     if args.workdir:
         args.workdir = args.workdir.strip().strip("/") or None

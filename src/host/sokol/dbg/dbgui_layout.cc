@@ -7,7 +7,7 @@
  * settings system: this module is only the file-path resolution (--ini override,
  * else <os-config-dir>/dbgui.ini) plus read-file -> LoadIniSettingsFromMemory and
  * SaveIniSettingsToMemory -> write-file. Window geometry rides in ImGui's built-in
- * [Window] handler; the window open-flags ([Chips]) and the [RP6502][Launch]
+ * [Window] handler; the window open-flags ([Chips]) and the [RP6502][PICO]
  * device block ride in custom ImGuiSettingsHandlers registered in dbgui.cc. No
  * chips-UI dependency here.
  */
