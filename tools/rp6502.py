@@ -1580,8 +1580,9 @@ def exec_args():
     )
     parsers["create"].add_argument(
         "--sym",
+        nargs="?",
         metavar="file",
-        help="The .sym file with the names for -a RAM(<name>) and -a XRAM(<name>).",
+        help="The .sym file with the symbols for -a RAM(<x>) and -a XRAM(<x>).",
     )
     parsers["sym"].add_argument(
         "--commands",
@@ -1619,7 +1620,7 @@ def exec_args():
         dest="address",
         metavar="addr",
         help="Asset name (string), starting address of binary data, "
-        "or RAM(<name>) or XRAM(<name>) from create --sym.",
+        "or RAM(<x>) or XRAM(<x>), where <x> is a number or a symbol from create --sym.",
     )
     parser.add_argument("-o", dest="out", metavar="name", help="Output path/filename.")
     parser.add_argument(
@@ -1864,23 +1865,27 @@ def exec_args():
             console.terminal(code_page)
 
     if args.command == "create":
-        named = re.fullmatch(r"(X?RAM)\((.+)\)", args.address or "")
-        if named:
-            form, name = named.groups()
-            if not args.sym:
-                parser.error(f"argument -a: {args.address} requires --sym")
-            symbols = Symbols(args.sym)
-            if name in symbols.ambiguous:
-                raise RuntimeError(f"{args.address}: {name} is ambiguous")
-            if name not in symbols:
-                raise RuntimeError(f"{args.address}: {name} is not in {args.sym}")
-            value = symbols[name]
+        memory = re.fullmatch(r"(X?RAM)\((.+)\)", args.address or "")
+        if memory:
+            form, name = memory.groups()
+            try:
+                value = ROM.parse_int(name)
+                shown = args.address
+            except ValueError:
+                if not args.sym:
+                    raise RuntimeError(
+                        f"{args.address}: {name} is not a number, and the ROM has no .sym file"
+                    )
+                symbols = Symbols(args.sym)
+                if name in symbols.ambiguous:
+                    raise RuntimeError(f"{args.address}: {name} is ambiguous")
+                if name not in symbols:
+                    raise RuntimeError(f"{args.address}: {name} is not in {args.sym}")
+                value = symbols[name]
+                shown = f"{args.address}: {name} is {Symbols.text(value)}, which"
             end = 0xFFFF if form == "RAM" else 0x1FFFF
             if not 0 <= value <= end:
-                raise RuntimeError(
-                    f"{args.address}: {name} is {Symbols.text(value)}, "
-                    f"which is outside 0x0000-0x{end:X}"
-                )
+                raise RuntimeError(f"{shown} is outside 0x0000-0x{end:X}")
             args.address = value | 0x10000 if form == "XRAM" else value
         else:
             args.address = str_to_address_or_name(args.address)

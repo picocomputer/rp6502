@@ -35,7 +35,7 @@ Tool Versions
 
 The native emulator, the web player and BASIC come from the releases of
 ``picocomputer/rp6502`` and ``picocomputer/msbasic``. Configure fetches a
-release file once into ``tools/`` under its release name, such as
+tool file once into ``tools/`` under the file name of its release, such as
 ``tools/rp6502-0.40-web.zip``, and unpacks it into ``build/tools/``. Three
 settings select the versions:
 
@@ -67,7 +67,7 @@ any CMake variable does.
   set_tests_properties(picker PROPERTIES RP6502_EMU_VERSION 0.39)
 
 ``RP6502_EMU``, ``RP6502_WEB`` and ``RP6502_BASIC`` are settings of the
-same kind. Each names a file to use in place of a release: an emulator
+same kind. Each names a file to use in place of a tool file: an emulator
 executable, a web zip, or a ``basic.rp6502``. A file found at any level
 comes before any version. A relative path is a path from the top source
 folder. ``RP6502_BASIC`` is also the switch of a BASIC project, so a CMake
@@ -86,7 +86,7 @@ from the latest releases the emulator for the host, the web zip when
 ``tools/`` has a web zip, and BASIC when ``tools/`` has BASIC. It also
 updates ``.vscode/tasks.json``, ``.vscode/launch.json``, ``.gitignore`` and
 the ``rp6502_map()`` calls of ``CMakeLists.txt`` when those files exist.
-Commit the tools. Git ignores the release files.
+Commit the tools. Git ignores the tool files.
 #]=======================================================================]
 
 # Ubuntu 24.04 has CMake 3.28. Do not require a later version.
@@ -167,13 +167,11 @@ endfunction()
   in ``${CMAKE_CURRENT_BINARY_DIR}/logo.bin``. Call this before
   :command:`rp6502_executable` or :command:`rp6502_basic`.
 
-  ``RAM(<x>)`` and ``XRAM(<x>)`` check that the address is in range, and
-  ``XRAM()`` sets bit 16, so ``<file>`` loads into XRAM. ``<x>`` is a
-  number in the same forms, or a CMake variable that holds one, which CMake
-  reads when it configures. Any other ``<x>`` is a symbol in
-  ``<target>.sym``, which the build reads after the link. With
-  :command:`rp6502_basic`, ``<x>`` must be a number or a CMake variable,
-  because a BASIC ROM has no ``.sym`` file.
+  ``RAM(<x>)`` and ``XRAM(<x>)`` load ``<file>`` into RAM or XRAM at
+  ``<x>``, which ``rp6502.py`` reads when the build packages the asset.
+  ``<x>`` is a number in the same forms, or a symbol in ``<target>.sym``. A
+  CMake variable goes in as ``${<variable>}``. With :command:`rp6502_basic`,
+  ``<x>`` must be a number, because a BASIC ROM has no ``.sym`` file.
 #]=======================================================================]
 function(rp6502_asset target)
     get_target_property(executable_called ${target} RP6502_EXECUTABLE_CALLED)
@@ -186,50 +184,20 @@ function(rp6502_asset target)
     set(args ${ARGN})
     list(LENGTH args argc)
     list(GET args 0 addr)
-    set(named FALSE)
+    set(sym FALSE)
     if (addr STREQUAL "RAM" OR addr STREQUAL "XRAM")
-        set(form "${addr}")
         if (NOT argc EQUAL 5)
-            message(FATAL_ERROR "rp6502_asset(${target} ${form}(<address>) <in_file>)")
+            message(FATAL_ERROR "rp6502_asset(${target} ${addr}(<address>) <in_file>)")
         endif()
         list(GET args 1 opened)
+        list(GET args 2 token)
         list(GET args 3 closed)
         if (NOT opened STREQUAL "(" OR NOT closed STREQUAL ")")
-            message(FATAL_ERROR "rp6502_asset(${target} ${form}(<address>) <in_file>)")
+            message(FATAL_ERROR "rp6502_asset(${target} ${addr}(<address>) <in_file>)")
         endif()
-        list(GET args 2 token)
-        set(written "${token}")
-        if (DEFINED ${token})
-            set(written "${${token}}")
-        endif()
-        # A leading $ is 6502 hex, which rp6502.py also accepts.
-        string(REGEX REPLACE "^\\$" "0x" value "${written}")
-        if (value MATCHES "^[-+]?(0[xX][0-9a-fA-F]+|[0-9]+)$")
-            if (form STREQUAL "RAM")
-                set(limit 65535)
-                set(ends "0xFFFF")
-            else()
-                set(limit 131071)
-                set(ends "0x1FFFF")
-            endif()
-            math(EXPR value "(${value})")
-            if (value LESS 0 OR value GREATER ${limit})
-                message(FATAL_ERROR
-                    "rp6502_asset(${target} ${form}(...)): ${written} is outside ${form}, which ends at ${ends}.")
-            endif()
-            if (form STREQUAL "XRAM")
-                math(EXPR value "${value} | 0x10000")
-            endif()
-            math(EXPR addr "${value}" OUTPUT_FORMAT HEXADECIMAL)
-        elseif (DEFINED ${token})
-            message(FATAL_ERROR
-                "rp6502_asset(${target} ${form}(${token})): the CMake variable ${token} "
-                "holds \"${written}\", which is not a number.")
-        else()
-            # rp6502.py reads the address of a symbol from <target>.sym.
-            set(addr "${form}(${token})")
-            set(named TRUE)
-        endif()
+        # rp6502.py reads <x> as a number, or as a symbol in <target>.sym.
+        set(addr "${addr}(${token})")
+        set(sym TRUE)
         list(GET args 4 in_file)
     else()
         if (NOT argc EQUAL 2)
@@ -252,7 +220,7 @@ function(rp6502_asset target)
                 -a "${addr}"
                 -o "${out_file}"
                 create "${src_file}")
-    if (named)
+    if (sym)
         list(APPEND create --sym "$<TARGET_PROPERTY:${target},RP6502_SYM>")
     endif()
     set(create COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}" ${create})
@@ -272,8 +240,8 @@ function(rp6502_asset target)
     set_target_properties(${target} PROPERTIES
         RP6502_ASSET_SRC_${index} "${src_file}"
         RP6502_ASSET_CMD_${index} "${create}")
-    if (named)
-        set_property(TARGET ${target} PROPERTY RP6502_ASSET_NAMED_${index} TRUE)
+    if (sym)
+        set_property(TARGET ${target} PROPERTY RP6502_ASSET_SYM_${index} TRUE)
     endif()
     set_property(TARGET ${target} APPEND PROPERTY
         RP6502_ASSET_ROMS "${out_file}"
@@ -343,28 +311,28 @@ function(rp6502_executable target)
             list(APPEND all_extra_roms "${CMAKE_CURRENT_SOURCE_DIR}/${rom}")
         endif()
     endforeach()
-    # An asset made from a byproduct of the link, or with an address from the
-    # .sym file, is made after the link.
+    # An asset made from a byproduct of the link, or in RAM() or XRAM(), is
+    # made after the link, because its address can be in the .sym file.
     get_target_property(asset_roms ${target} RP6502_ASSET_ROMS)
     get_target_property(byproducts ${target} RP6502_BYPRODUCTS)
     set(pre_link)
     set(post_link)
     set(post_link_roms)
-    set(named_sources)
+    set(sym_sources)
     if (asset_roms)
         list(APPEND all_extra_roms ${asset_roms})
         set(index 0)
         foreach(rom IN LISTS asset_roms)
             get_target_property(src ${target} RP6502_ASSET_SRC_${index})
-            get_target_property(named ${target} RP6502_ASSET_NAMED_${index})
+            get_target_property(sym ${target} RP6502_ASSET_SYM_${index})
             get_target_property(cmd ${target} RP6502_ASSET_CMD_${index})
             if (byproducts AND src IN_LIST byproducts)
                 list(APPEND post_link ${cmd})
                 list(APPEND post_link_roms "${rom}")
-            elseif (named)
+            elseif (sym)
                 list(APPEND post_link ${cmd})
                 list(APPEND post_link_roms "${rom}")
-                list(APPEND named_sources "${src}")
+                list(APPEND sym_sources "${src}")
             else()
                 list(APPEND pre_link "${rom}")
             endif()
@@ -405,17 +373,17 @@ function(rp6502_executable target)
     if (pre_link)
         target_sources(${target} PRIVATE ${pre_link})
     endif()
-    # The source file of an asset with an address from the .sym file is a
-    # source of the target too, but is never compiled.
-    if (named_sources)
-        set_source_files_properties(${named_sources} PROPERTIES HEADER_FILE_ONLY TRUE)
-        target_sources(${target} PRIVATE ${named_sources})
+    # The source file of an asset made after the link is a source of the
+    # target too, but is never compiled.
+    if (sym_sources)
+        set_source_files_properties(${sym_sources} PROPERTIES HEADER_FILE_ONLY TRUE)
+        target_sources(${target} PRIVATE ${sym_sources})
     endif()
     if (post_link_roms)
         list(REMOVE_ITEM all_extra_roms ${post_link_roms})
     endif()
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
-        ${all_extra_roms} ${named_sources})
+        ${all_extra_roms} ${sym_sources})
     # The .sym file is written first, because rp6502.py reads some asset
     # addresses from it.
     set(sym_file "${folder}/${target}.sym")
@@ -486,16 +454,6 @@ function(rp6502_basic target)
             "${caller}: BASIC is not a language of the project. List it in "
             "project(), as in project(<name> BASIC) or project(<name> C ASM BASIC).")
     endif()
-    # A BASIC ROM has no .sym file, so RAM() and XRAM() take numbers only.
-    get_target_property(addrs ${target} RP6502_ASSET_NAMES)
-    set(index 0)
-    foreach(addr IN LISTS addrs)
-        get_target_property(named ${target} RP6502_ASSET_NAMED_${index})
-        if (named)
-            message(FATAL_ERROR "${caller}: ${addr} is not a number or a CMake variable.")
-        endif()
-        math(EXPR index "${index} + 1")
-    endforeach()
     if (ARGC EQUAL 2)
         set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.basic")
         # The ROM: drive ignores case, and BASIC is written in capitals.
@@ -965,7 +923,7 @@ function(_rp6502_release tool version file_var version_var repo_var)
     set(file "")
     if(NOT version STREQUAL "")
         string(REPLACE "@" "${version}" name "${name}")
-        _rp6502_release_file("${repo}" "${version}" "${name}" ${required} file)
+        _rp6502_tool_file("${repo}" "${version}" "${name}" ${required} file)
     endif()
     set(${file_var} "${file}" PARENT_SCOPE)
     set(${version_var} "${version}" PARENT_SCOPE)
@@ -1027,7 +985,7 @@ endfunction()
 # Sets <out_var> to tools/<name> of release v<version> of <repo>, fetched
 # when tools/ lacks it. A release without the file stops configure for a
 # <required> file, and otherwise writes tools/<name>.unsupported.
-function(_rp6502_release_file repo version name required out_var)
+function(_rp6502_tool_file repo version name required out_var)
     set(file "${RP6502_TOOLS_DIR}/${name}")
     set(record "${file}.unsupported")
     set(${out_var} "" PARENT_SCOPE)
@@ -1292,8 +1250,8 @@ function(_rp6502_finish)
         add_test(NAME rp6502.save COMMAND "${CMAKE_COMMAND}" -E rm -rf ${saves})
         set_tests_properties(rp6502.build rp6502.save PROPERTIES FIXTURES_SETUP rp6502.build)
     endif()
-    # A new release file in tools/ runs configure again at the next build.
-    file(GLOB releases CONFIGURE_DEPENDS
+    # A new tool file in tools/ runs configure again at the next build.
+    file(GLOB tool_files CONFIGURE_DEPENDS
         "${RP6502_TOOLS_DIR}/rp6502-*" "${RP6502_TOOLS_DIR}/msbasic-*")
 endfunction()
 
@@ -1311,7 +1269,7 @@ function(_rp6502_read_sums file out_var)
     set(${out_var} "${entries}" PARENT_SCOPE)
 endfunction()
 
-# Sets RP6502_HOST_SUFFIX to the end of the name of the release file with
+# Sets RP6502_HOST_SUFFIX to the end of the name of the tool file with
 # the emulator for this host, RP6502_HOST_MEMBER to the emulator in that
 # file, and RP6502_EMU_NAME to the name of the links to the emulator.
 function(_rp6502_host)
@@ -1399,18 +1357,18 @@ endfunction()
 function(_rp6502_update)
     _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
     if(RP6502_HOST_SUFFIX)
-        _rp6502_release_file("${RP6502_TOOLS_REPO}" "${version}"
+        _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-${RP6502_HOST_SUFFIX}" FALSE file)
     endif()
     file(GLOB found "${RP6502_TOOLS_DIR}/rp6502-*-web.zip")
     if(found)
-        _rp6502_release_file("${RP6502_TOOLS_REPO}" "${version}"
+        _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-web.zip" TRUE file)
     endif()
     file(GLOB found "${RP6502_TOOLS_DIR}/msbasic-*.zip")
     if(found)
         _rp6502_latest("${RP6502_BASIC_REPO}" "^msbasic-(.+)\\.zip$" TRUE version)
-        _rp6502_release_file("${RP6502_BASIC_REPO}" "${version}"
+        _rp6502_tool_file("${RP6502_BASIC_REPO}" "${version}"
             "msbasic-${version}.zip" TRUE file)
     endif()
 endfunction()
@@ -1661,7 +1619,7 @@ function(_rp6502_hook_launch_json)
 endfunction()
 
 # Replaces the .gitignore lines of the emulator of older tools with lines
-# for the release files.
+# for the tool files.
 function(_rp6502_hook_gitignore)
     set(file "${RP6502_PROJECT_DIR}/.gitignore")
     if(NOT EXISTS "${file}")
