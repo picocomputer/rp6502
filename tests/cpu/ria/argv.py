@@ -7,7 +7,7 @@ import os
 import shutil
 
 import rp6502
-from rp6502_asm import OP_ARGV, XSTACK, Asm, putc, putnib, puthex
+from rp6502_asm import OP_ARGV, OP_EXEC, XSTACK, Asm, putc, putnib, puthex
 from rp6502_rom import main, rom, save_dir, script
 
 BAR = ord("|")
@@ -35,6 +35,38 @@ def prog():
 
     p.symbol("done")
     p.say("]\r\n")
+    p.stp()
+    return p
+
+
+def prog_long():
+    """EXEC with a path of 256 bytes, one more than a path holds, and then
+    ARGV. The program prints the low byte that EXEC returns and the size
+    that ARGV returns."""
+    p = Asm()
+    p.jmp_abs("main")
+    p.use(putc, putnib, puthex)
+    p.symbol("main")
+
+    p.push(0)
+    p.ldx_imm(0)
+    p.symbol("fill")
+    p.lda_imm(ord("A"))
+    p.sta_abs(XSTACK)
+    p.dex()
+    p.bne("fill")
+    for b in (0, 0, 0, 4):
+        p.push(b)
+    p.call(OP_EXEC)
+    p.jsr_abs("puthex")
+
+    p.call(OP_ARGV)
+    p.pha()
+    p.txa()
+    p.jsr_abs("puthex")
+    p.pla()
+    p.jsr_abs("puthex")
+    p.say("\r\n")
     p.stp()
     return p
 
@@ -67,6 +99,12 @@ def test_argv():
         e.cmd(f'wait "|||{cwd}/x.rp6502|]\\r\\n"')
 
 
-ROMS = {"argv": prog}
-TESTS = {"args": test_args, "argv": test_argv}
+def test_exec_long():
+    """A refused EXEC leaves the argv empty, so ARGV returns the 2 bytes of
+    an empty table."""
+    script('wait "FF0002\\r\\n"\n', rom("exec_long"))
+
+
+ROMS = {"argv": prog, "exec_long": prog_long}
+TESTS = {"args": test_args, "argv": test_argv, "exec_long": test_exec_long}
 main(globals())

@@ -23,11 +23,11 @@
 #define PIX_CH0_XREGS_MAX 8
 static uint16_t xregs[PIX_CH0_XREGS_MAX];
 
-static bool pix_ch0_xreg(uint8_t addr, uint16_t word)
+static bool pix_ch0_xreg(uint8_t index, uint16_t word)
 {
-    if (addr < PIX_CH0_XREGS_MAX)
-        xregs[addr] = word;
-    switch (addr)
+    if (index < PIX_CH0_XREGS_MAX)
+        xregs[index] = word;
+    switch (index)
     {
     case 0: // CANVAS
         // vga_xreg_canvas sends ack/nak
@@ -49,9 +49,9 @@ static bool pix_ch0_xreg(uint8_t addr, uint16_t word)
     return false;
 }
 
-static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
+static bool pix_ch15_xreg(uint8_t index, uint16_t word)
 {
-    switch (addr)
+    switch (index)
     {
     case 0x00: // DISPLAY
         if (word > vga_sxga)
@@ -195,13 +195,13 @@ void pix_task(void)
     {
         uint32_t raw = pio_sm_get(PIX_PIO, PIX_REGS_SM);
         uint8_t ch = (raw & 0x0F000000) >> 24;
-        uint8_t addr = (raw & 0x00FF0000) >> 16;
+        uint8_t index = (raw & 0x00FF0000) >> 16;
         uint16_t word = raw & 0xFFFF;
         // These return true on slow operations to
         // allow us to stay greedy on fast ones.
-        if (ch == 0 && pix_ch0_xreg(addr, word))
+        if (ch == 0 && pix_ch0_xreg(index, word))
             break;
-        if (ch == 15 && pix_ch15_xreg(addr, word))
+        if (ch == 15 && pix_ch15_xreg(index, word))
             break;
     }
 }

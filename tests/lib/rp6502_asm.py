@@ -286,10 +286,10 @@ class Asm:
         self.store(API_A, a)
         self.call(op)
 
-    def xreg(self, dev, ch, addr, *words):
+    def xreg(self, dev, ch, index, *words):
         self.push(dev)
         self.push(ch)
-        self.push(addr)
+        self.push(index)
         for w in words:
             self.pushw(w)
         self.call(OP_XREG)

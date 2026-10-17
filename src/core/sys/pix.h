@@ -15,7 +15,7 @@
 
 /* A message carries three device bits, so it can name eight. Device 0 is an
  * XRAM write, which the VGA's own state machine takes; it is also the xreg
- * address of the RIA itself, which pix_api_xreg answers in place rather than
+ * device of the RIA itself, which pix_api_xreg answers in place rather than
  * sending; 2 to 6 are for user expansion; device 7 is the idle message the bus
  * resynchronizes on. */
 #define PIX_DEVICE_XRAM 0

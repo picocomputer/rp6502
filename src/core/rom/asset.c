@@ -369,17 +369,18 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
                    : whence == SEEK_CUR ? (int32_t)w->pos
                    : whence == SEEK_END ? (int32_t)w->len
                                         : -1;
-    if (from < 0 || from + off < 0)
+    /* The sum is 64 bits so that a large offset cannot overflow it. */
+    int64_t np = (int64_t)from + off;
+    if (from < 0 || np < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    int32_t np = from + off;
     /* A seek past the end of the asset lands at its end rather than failing,
      * and the next read says so by returning nothing. */
-    if ((uint32_t)np > w->len)
-        np = (int32_t)w->len;
+    if (np > (int64_t)w->len)
+        np = w->len;
     w->pos = (uint32_t)np;
-    *pos = np;
+    *pos = (int32_t)np;
     return 0;
 }
