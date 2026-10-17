@@ -1352,13 +1352,14 @@ function(_rp6502_fetch_sums out_var)
     set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
-# Fetches the latest release of each of the emulator for this host, the web
-# player and BASIC that tools/ has. The next configure that uses a tool
-# that tools/ lacks fetches it.
+# Fetches the latest release of the emulator for this host, the web player,
+# and BASIC, for each one that tools/ has. A configure fetches a tool that
+# tools/ lacks when the project uses it.
 function(_rp6502_update)
     set(emu)
     if(RP6502_HOST_SUFFIX)
-        # A record of an unsupported host counts, so a new release can add it.
+        # An .unsupported record counts too, so the update tries the latest
+        # release for this host again.
         file(GLOB emu
             "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}"
             "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}.unsupported")

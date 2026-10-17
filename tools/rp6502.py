@@ -1584,153 +1584,201 @@ def exec_args():
         def __init__(self, prog):
             super().__init__(prog, max_help_position=27)
 
+        def _format_args(self, action, default_metavar):
+            # The usage shows the metavar of REMAINDER, not "...".
+            if action.nargs == argparse.REMAINDER:
+                return f"[{action.metavar} ...]"
+            return super()._format_args(action, default_metavar)
+
     parser = argparse.ArgumentParser(
-        description="Interface with RIA console. Manage ROM packaging.",
+        description="Run ROMs on an RP6502-PICO, and package ROMs.",
+        epilog="For the options of a subcommand, add -h after it, as in: "
+        "rp6502.py run -h",
         formatter_class=CustomFormatter,
     )
-    sp = parser.add_subparsers(dest="command", required=True)
-    cmds = {
-        "term": ("Attach to the RIA console.", None),
-        "run": ("Run local ROM by sending to RIA.", 1),
-        "upload": ("Upload local files to RIA USB storage.", "+"),
-        "basic": ("Executes a program with the installed BASIC.", 1),
-        "create": (
-            "Create local ROM file from a file. Additional local ROM files will be merged.",
-            "+",
-        ),
-        "sym": ("Write the .sym file of a linked program.", 1),
-    }
-    parsers = {}
-    for cmd, (desc, nargs) in cmds.items():
-        parsers[cmd] = sp.add_parser(cmd, description=desc, help=desc)
-        if nargs:
-            parsers[cmd].add_argument(
-                "filename",
-                nargs=nargs,
-                help="Local filename." if nargs == 1 else "Local filename(s).",
-            )
-    parsers["create"].add_argument(
+    # Support for older projects that give the options before the subcommand.
+    for flags, dest, default in (
+        (("-a", "--address"), "address", None),
+        (("-o",), "out", None),
+        (("-n", "--nmi"), "nmi", None),
+        (("-r", "--reset"), "reset", None),
+        (("-i", "--irq"), "irq", None),
+        (("-c", "--config"), "config", None),
+        (("-d", "-D", "--device"), "device", None),
+        (("-k", "--key"), "key", None),
+        (("-w", "--workdir"), "workdir", None),
+        (("-t", "--term"), "term", None),
+    ):
+        parser.add_argument(*flags, dest=dest, default=default, help=argparse.SUPPRESS)
+    sp = parser.add_subparsers(dest="command", required=True, metavar="subcommand")
+
+    def subcommand(name, text):
+        return sp.add_parser(
+            name, help=text, description=text, formatter_class=CustomFormatter
+        )
+
+    def option(sub, *flags, **kwargs):
+        # An option not given after the subcommand keeps its value from before
+        # the subcommand.
+        sub.add_argument(*flags, default=argparse.SUPPRESS, **kwargs)
+
+    def connection(sub):
+        option(
+            sub,
+            "-c",
+            "--config",
+            dest="config",
+            metavar="file",
+            help="The settings file.",
+        )
+        option(
+            sub,
+            "-d",
+            "--device",
+            dest="device",
+            metavar="dev",
+            help="The serial port, or the hostname or IP address for telnet. "
+            f"Default {Console.default_device()}.",
+        )
+        # Hidden alias for anyone used to minicom -D /dev/
+        option(sub, "-D", dest="device", help=argparse.SUPPRESS)
+        option(
+            sub,
+            "-k",
+            "--key",
+            dest="key",
+            metavar="key",
+            help="The passkey that telnet requires.",
+        )
+        option(
+            sub,
+            "-w",
+            "--workdir",
+            dest="workdir",
+            metavar="dir",
+            help="The directory to work in, from the root of the current drive.",
+        )
+
+    def terminal(sub, when):
+        option(
+            sub,
+            "-t",
+            "--term",
+            dest="term",
+            metavar="bool",
+            help=f"Open a terminal on the console {when}. Default True.",
+        )
+
+    run = subcommand("run", "Upload a ROM to the RP6502-PICO, load it, and open a terminal.")
+    connection(run)
+    terminal(run, "after the load")
+    run.add_argument("filename", nargs=1, metavar="rom", help="The ROM.")
+    # Everything after the ROM is the ROM's argv, like `LOAD rom args...`.
+    run.add_argument(
+        "rom_args",
+        nargs=argparse.REMAINDER,
+        metavar="args",
+        help="Arguments for the ROM.",
+    )
+
+    upload = subcommand("upload", "Upload files to the RP6502-PICO.")
+    connection(upload)
+    option(
+        upload,
+        "-o",
+        dest="out",
+        metavar="name",
+        help="The destination name, when you upload one file.",
+    )
+    upload.add_argument("filename", nargs="+", metavar="file", help="A file to upload.")
+
+    term = subcommand("term", "Open a terminal on the console.")
+    connection(term)
+
+    basic = subcommand(
+        "basic",
+        "Send a BASIC program to the BASIC installed on the RP6502-PICO, and run it.",
+    )
+    connection(basic)
+    terminal(basic, "after the run")
+    basic.add_argument("filename", nargs=1, metavar="program", help="The BASIC program.")
+
+    create = subcommand("create", "Package a file into a ROM, and merge ROMs into it.")
+    option(create, "-o", dest="out", metavar="out", help="The ROM file to write.")
+    option(
+        create,
+        "-a",
+        "--address",
+        dest="address",
+        metavar="addr",
+        help="An address, RAM(<x>), XRAM(<x>), an asset name, or 'file' for the "
+        "address at the start of the file. <x> is a number or a symbol of --sym.",
+    )
+    for flags, dest, vector in (
+        (("-r", "--reset"), "reset", "reset vector at $FFFC-$FFFD"),
+        (("-i", "--irq"), "irq", "IRQ vector at $FFFE-$FFFF"),
+        (("-n", "--nmi"), "nmi", "NMI vector at $FFFA-$FFFB"),
+    ):
+        option(
+            create,
+            *flags,
+            dest=dest,
+            metavar="addr",
+            help=f"The {vector}: an address, or 'file' for the address in the file.",
+        )
+    create.add_argument(
         "--replace",
         action="append",
         default=[],
         metavar="name",
-        help="A later asset of this name replaces an earlier one. Repeatable.",
+        help="A later asset with this name replaces an earlier one. Repeatable.",
     )
-    parsers["create"].add_argument(
+    create.add_argument(
         "--sym",
         nargs="?",
-        metavar="file",
+        metavar="symfile",
         help="The .sym file with the symbols for -a RAM(<x>) and -a XRAM(<x>).",
     )
-    parsers["sym"].add_argument(
+    create.add_argument(
+        "filename",
+        nargs=1,
+        metavar="file",
+        help="The file to package. Without -a, a ROM to merge.",
+    )
+    create.add_argument("roms", nargs="*", metavar="rom", help="A ROM to merge.")
+
+    sym = subcommand("sym", "Write the .sym file of a linked program.")
+    option(sym, "-o", dest="out", metavar="out", help="The .sym file to write.")
+    sym.add_argument(
         "--commands",
         required=True,
         metavar="file",
         help="The compile_commands.json of the build.",
     )
-    parsers["sym"].add_argument(
+    sym.add_argument(
         "--objects",
         required=True,
-        metavar="folder",
-        help="The object folder of the target, CMakeFiles/<target>.dir.",
+        metavar="dir",
+        help="The object directory of the target, CMakeFiles/<target>.dir.",
     )
-    parsers["sym"].add_argument(
-        "--work", required=True, metavar="folder", help="Folder for temporary files."
+    sym.add_argument(
+        "--work", required=True, metavar="dir", help="A directory for temporary files."
     )
-    parsers["sym"].add_argument(
+    sym.add_argument(
         "--align",
         action="append",
         default=[],
         metavar="regex",
-        help="The value of each name that matches must be even and within "
+        help="The value of each symbol that matches must be even and within "
         "0x0000-0xFFFF. Repeatable.",
     )
-    # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
-    parsers["run"].add_argument(
-        "rom_args",
-        nargs=argparse.REMAINDER,
-        metavar="args",
-        help="Arguments passed to the ROM.",
-    )
-    parser.add_argument(
-        "-a",
-        "--address",
-        dest="address",
-        metavar="addr",
-        help="Asset name (string), starting address of binary data, "
-        "or RAM(<x>) or XRAM(<x>), where <x> is a number or a symbol from create --sym.",
-    )
-    parser.add_argument("-o", dest="out", metavar="name", help="Output path/filename.")
-    parser.add_argument(
-        "-n",
-        "--nmi",
-        dest="nmi",
-        metavar="addr",
-        help="NMI vector for $FFFA-$FFFB or `file` to read from file.",
-    )
-    parser.add_argument(
-        "-r",
-        "--reset",
-        dest="reset",
-        metavar="addr",
-        help="Reset vector for $FFFC-$FFFD or `file` to read from file.",
-    )
-    parser.add_argument(
-        "-i",
-        "--irq",
-        dest="irq",
-        metavar="addr",
-        help="IRQ vector for $FFFE-$FFFF or `file` to read from file.",
-    )
+    sym.add_argument("filename", nargs=1, metavar="linked", help="The linker output.")
 
-    parser.add_argument(
-        "-c",
-        "--config",
-        dest="config",
-        metavar="name",
-        help=f"Configuration file for debug settings.",
-    )
-    parser.add_argument(
-        "-d",
-        "--device",
-        dest="device",
-        metavar="dev",
-        default=Console.default_device(),
-        help=f"Serial device or telnet address:port. Default={Console.default_device()}",
-    )
-    parser.add_argument(
-        # Hidden alias for anyone used to minicom -D /dev/
-        "-D",
-        dest="device",
-        metavar="dev",
-        default=argparse.SUPPRESS,
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "-k",
-        "--key",
-        dest="key",
-        metavar="key",
-        default=None,
-        help="Passkey for telnet authentication. Device becomes telnet host.",
-    )
-    parser.add_argument(
-        "-w",
-        "--workdir",
-        dest="workdir",
-        metavar="dir",
-        default=None,
-        help="Remote directory to work in.",
-    )
-    parser.add_argument(
-        "-t",
-        "--term",
-        dest="term",
-        metavar="bool",
-        default="True",
-        help=f"Attach to console terminal on run.",
-    )
     args = parser.parse_args()
+    if args.command in ("create", "sym") and not args.out:
+        parser.error(f"{args.command} requires -o")
+    if args.command == "create":
+        args.filename += args.roms
 
     # Config file (shared with the emulator, which owns it in ImGui ini format).
     if args.config:
@@ -1753,15 +1801,15 @@ def exec_args():
                 pick = lambda k: old.get(k, "")
                 # User always sees the full list of keys, even when blank.
                 config[pico] = {
-                    "device": pick("device") or args.device,
+                    "device": pick("device") or args.device or Console.default_device(),
                     "key": pick("key") or args.key or "",
                     "workdir": pick("workdir") or args.workdir or "",
                     "args": pick("args"),
-                    "term": pick("term") or args.term,
+                    "term": pick("term") or args.term or "True",
                 }
                 # Inserted as text at the front of the file, where the user
-                # finds it, because a configparser rewrite lowercases the keys
-                # of the emulator's sections.
+                # finds it. A configparser rewrite would lowercase the keys of
+                # the emulator's sections.
                 section = configparser.ConfigParser(interpolation=None)
                 section[pico] = config[pico]
                 text = io.StringIO()
@@ -1774,12 +1822,18 @@ def exec_args():
                     cfg.write(text.getvalue().encode() + rest)
         except (configparser.Error, OSError) as e:
             raise RuntimeError(f"Cannot load config {args.config}: {e}")
+        # An option on the command line takes precedence over the file.
         sec = config[pico if config.has_section(pico) else launch]
-        args.workdir = sec.get("workdir", "") or args.workdir or None
-        args.device = sec.get("device", args.device)
-        args.key = sec.get("key", "") or args.key or None
-        args.term = sec.get("term", args.term)
+        args.workdir = args.workdir or sec.get("workdir", "") or None
+        args.device = args.device or sec.get("device", "") or None
+        args.key = args.key or sec.get("key", "") or None
+        args.term = args.term or sec.get("term", "") or None
         args.config_args = sec.get("args", "")
+
+    if args.device is None:
+        args.device = Console.default_device()
+    if args.term is None:
+        args.term = "True"
 
     if args.workdir:
         args.workdir = args.workdir.strip().strip("/") or None
