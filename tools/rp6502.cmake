@@ -217,9 +217,10 @@ function(rp6502_asset target)
     set(create
         COMMAND "${Python3_EXECUTABLE}"
                 "${RP6502_TOOLS_DIR}/rp6502.py"
+                create
                 -a "${addr}"
                 -o "${out_file}"
-                create "${src_file}")
+                "${src_file}")
     if (sym)
         list(APPEND create --sym "$<TARGET_PROPERTY:${target},RP6502_SYM>")
     endif()
@@ -345,6 +346,7 @@ function(rp6502_executable target)
     set(rom_file "${folder}/${target}.rp6502")
     set(tool_command "${Python3_EXECUTABLE}"
         "${RP6502_TOOLS_DIR}/rp6502.py"
+        create
     )
     set(executable_inputs)
     if (NOT data_addr STREQUAL "none")
@@ -364,7 +366,7 @@ function(rp6502_executable target)
     endif ()
     list(APPEND tool_command
         -o "${rom_file}"
-        create ${executable_inputs}
+        ${executable_inputs}
         -- ${all_extra_roms}
     )
     # As sources, the assets are built before the link, and a change to one
@@ -399,7 +401,7 @@ function(rp6502_executable target)
     endforeach()
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND "${Python3_EXECUTABLE}" "${RP6502_TOOLS_DIR}/rp6502.py"
-                -o "${sym_file}" sym "${linked}"
+                sym -o "${sym_file}" "${linked}"
                 --commands "${CMAKE_BINARY_DIR}/compile_commands.json"
                 --objects "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir"
                 --work "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.sym"
@@ -1764,7 +1766,7 @@ set(CMAKE_BASIC_COMPILER_ENV_VAR "")
 # a launch configuration makes from the target path, as for C. BASIC comes
 # first, so a help asset of the program replaces the help of BASIC.
 file(WRITE "${rp6502_basic_dir}/CMakeBASICInformation.cmake"
-"set(CMAKE_BASIC_LINK_EXECUTABLE \"<CMAKE_BASIC_COMPILER> \\\"${RP6502_TOOLS_DIR}/rp6502.py\\\" -o <TARGET>.rp6502 create --replace help <LINK_FLAGS> <OBJECTS>\" \"<CMAKE_COMMAND> -E touch <TARGET>\")
+"set(CMAKE_BASIC_LINK_EXECUTABLE \"<CMAKE_BASIC_COMPILER> \\\"${RP6502_TOOLS_DIR}/rp6502.py\\\" create -o <TARGET>.rp6502 --replace help <LINK_FLAGS> <OBJECTS>\" \"<CMAKE_COMMAND> -E touch <TARGET>\")
 set(CMAKE_BASIC_INFORMATION_LOADED 1)
 ")
 file(WRITE "${rp6502_basic_dir}/CMakeTestBASICCompiler.cmake" "set(CMAKE_BASIC_COMPILER_WORKS 1 CACHE INTERNAL \"\")\n")
