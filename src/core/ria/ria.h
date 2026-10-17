@@ -51,6 +51,10 @@ typedef struct
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
+/* An XRAM write as RW0 and RW1 make it: the byte, and the PSG or OPL told
+ * when the byte is in its block. */
+void ria_xram_write(uint16_t addr, uint8_t data);
+
 /* One PHI2 tick. data is in/out: the RIA drives it on a read of its window and
  * takes it on a write. Returns the RIA's own IRQB, which the board ORs with
  * every other device's. */

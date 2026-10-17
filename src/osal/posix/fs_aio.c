@@ -30,6 +30,13 @@ static struct
     int fd;
 } g_xfer = {.fd = -1};
 
+static bool g_immediate;
+
+void fs_std_immediate(bool on)
+{
+    g_immediate = on;
+}
+
 static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
     *got = 0;
@@ -54,9 +61,16 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
         if ((is_write ? aio_write(&g_xfer.cb) : aio_read(&g_xfer.cb)) != 0)
             return STD_ERROR;
         g_xfer.fd = fd;
-        return STD_PENDING;
+        if (!g_immediate)
+            return STD_PENDING;
     }
     int e = aio_error(&g_xfer.cb);
+    while (e == EINPROGRESS && g_immediate)
+    {
+        const struct aiocb *cb = &g_xfer.cb;
+        aio_suspend(&cb, 1, NULL);
+        e = aio_error(&g_xfer.cb);
+    }
     if (e == EINPROGRESS)
         return STD_PENDING;
     ssize_t r = aio_return(&g_xfer.cb);

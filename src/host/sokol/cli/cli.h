@@ -40,10 +40,10 @@ typedef struct
     bool credits;
     bool version;
     const char *ini;
-    unsigned long long seed;
-    bool have_seed;
-    bool fill_random;
-    uint8_t fill_value;
+    uint32_t memseed;
+    bool have_memseed;
+    uint8_t memfill;
+    bool have_memfill;
     char **rom_args; /* the words after "--"; NULL when none was given */
     int n_rom_args;
 } cli_options;

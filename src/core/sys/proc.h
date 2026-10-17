@@ -33,6 +33,10 @@
 #define PROC_UNCHAIN 0x02 /* break any launcher chain, because a program asked for by name is not a child */
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
 
+/* The line that the last proc_boot printed on the console, or "" when that
+ * proc_boot succeeded. */
+const char *proc_boot_error(void);
+
 /* Seed a program's argv without starting it: its own path, made absolute
  * unless it is a ':name' installed ROM, then the args. False when they do not
  * fit. */

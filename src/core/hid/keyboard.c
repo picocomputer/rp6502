@@ -150,17 +150,26 @@ size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
     return 0;
 }
 
-char keyboard_ctrl_promote(char ch, uint8_t keycode)
+int keyboard_ctrl_promote(char ch, uint8_t keycode)
 {
-    if (ch >= '`' && ch <= '~')
-        return (char)(ch - 96);
-    if (ch >= '@' && ch <= '_')
-        return (char)(ch - 64);
+    unsigned char c = (unsigned char)ch;
     if (keycode == HID_KEY_BACKSPACE)
         return '\b';
-    if ((unsigned char)ch < 0x20)
-        return ch;
-    return 0;
+    if (!c)
+        return -1;
+    if ((c >= '@' && c < 0x7F) || c == ' ')
+        return c & 0x1F;
+    if (c == '2')
+        return 0x00;
+    if (c >= '3' && c <= '7')
+        return c - '3' + 0x1B;
+    if (c == '8')
+        return 0x7F;
+    if (c == '/')
+        return 0x1F;
+    if (c < 0x20)
+        return c;
+    return -1;
 }
 
 void keyboard_sst_save(sst_cursor_t *c, unsigned flags)

@@ -74,9 +74,11 @@ int rom_alias_open(const char *path, api_errno *err);
 /* Load a .rp6502 into ram[]/xram[]. The path may be a drive path or an
  * installed ":name", which rom_load resolves. The named assets are not read:
  * only the start of the asset directory is kept, so a ROM: open scans the file
- * for the entry on demand. Returns false, after printing the reason on the
- * console, on any format or CRC error. */
+ * for the entry on demand. Returns false on any format or CRC error. */
 bool rom_load(const char *path);
+
+/* The console message for the reason that the last rom_load failed. */
+const char *rom_load_error(void);
 
 /* The loader hands its descriptor and asset-directory offset to the ROM: drive,
  * which owns the descriptor from here; rom_assets_reset closes it. */
@@ -111,7 +113,9 @@ uint32_t rom_generation(void);
 void asset_sst_save(sst_cursor_t *c, unsigned flags);
 bool asset_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+/* A stop closes the image, as the Pico's monitor does, because the stop also
+ * clears the running program's name that a savestate reopens it by. */
+#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, rom_assets_reset, nul_break, \
     nul_config, nul_config, SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
 
 #define ROM_STD_DRIVER           \

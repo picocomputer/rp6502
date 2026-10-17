@@ -1,0 +1,6 @@
+# The program copies each line typed to stdout. Typing converts the script's
+# UTF-8 to the code page, and the capture converts the program's output back,
+# so a check matches the text as the script writes it.
+
+type "café ─\r"
+wait "café ─\n"

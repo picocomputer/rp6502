@@ -424,21 +424,7 @@ void mon_add_response_fatfs(int fresult)
 
 void mon_add_response_errno(api_errno err)
 {
-    switch (err)
-    {
-    case API_ENOENT:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_NO_FILE));
-    case API_EACCES:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
-    case API_EEXIST:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_EXIST));
-    case API_ENOEXEC:
-        return mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-    case API_ENOSPC:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
-    default:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DISK_ERR));
-    }
+    mon_add_response_utf8(api_errno_str(err));
 }
 
 static void mon_more(void)

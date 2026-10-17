@@ -30,6 +30,9 @@ void sys_random_fill(void *dst, size_t len, uint32_t *state);
 
 void sys_random_seed(void);
 
+/* Restarts the stream of sys_random from seed. */
+void sys_random_set(uint32_t seed);
+
 #define RANDOM_SST_SIZE 4
 void random_sst_save(sst_cursor_t *c, unsigned flags);
 bool random_sst_load(sst_cursor_t *c, unsigned flags);

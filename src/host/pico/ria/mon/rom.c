@@ -84,7 +84,7 @@ static void rom_loading(void)
         else
         {
             rom_state = ROM_IDLE;
-            mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+            mon_add_response_utf8(S(STR_ERR_ROM_NO_RESET_VECTOR));
         }
         return;
     case ROM_PUMP_RECORD:
@@ -191,7 +191,7 @@ void rom_mon_install(const char *args)
         }
     if (!rom_pump_complete(&rom_pump))
     {
-        mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+        mon_add_response_utf8(S(STR_ERR_ROM_NO_RESET_VECTOR));
         rom_pump_close(&rom_pump);
         return;
     }

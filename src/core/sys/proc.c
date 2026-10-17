@@ -13,6 +13,7 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/sys/com.h"
+#include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
 #include "osal/os.h"
@@ -20,6 +21,10 @@
 #include <string.h>
 
 static bool queued;
+
+/* The line that the last proc_boot printed, for a host that also shows it
+ * somewhere other than the console. */
+static const char *boot_error = "";
 
 void proc_sst_save(sst_cursor_t *c, unsigned flags)
 {
@@ -118,6 +123,18 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
     return ok;
 }
 
+const char *proc_boot_error(void)
+{
+    return boot_error;
+}
+
+static bool proc_boot_failed(const char *why)
+{
+    boot_error = why;
+    com_printf("%s", why);
+    return false;
+}
+
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
     sys_stop_now(); /* before the load writes over what it was running on */
@@ -126,11 +143,9 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
      * launcher comes back. Whatever the outgoing program had queued goes with
      * it, since a start asked for by name is not its child. */
     queued = false;
+    boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
-    {
-        com_printf("argv does not fit for ROM '%s'\n", rom);
-        return false;
-    }
+        return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW));
     if (argc < 0)
         rom = arg_index(0);
     if (flags & PROC_REFILL)
@@ -138,8 +153,8 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
         sram_init();
         xram_init();
     }
-    if (!rom_load(rom)) /* rom_load has already said why on the console */
-        return false;
+    if (!rom_load(rom))
+        return proc_boot_failed(rom_load_error());
     if (argc >= 0)
         proc_set_argv(rom, argc, args);
     if (flags & PROC_UNCHAIN)

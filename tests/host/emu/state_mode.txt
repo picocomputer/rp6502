@@ -1,0 +1,12 @@
+# The program sets graphics mode 3 and stops on STP, so after sys stop clears
+# the canvas, only the savestate can paint it again.
+
+run 10
+mark
+state save "mode.sst"
+sys stop
+run 2
+expect-changed
+state load "mode.sst"
+run 2
+expect-same

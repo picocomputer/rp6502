@@ -19,9 +19,8 @@
 #include <string.h>
 
 /* The mode program being assembled. Channel 0 stores each register as it
- * arrives and the mode write at address 1 consumes the lot, which works
- * because core/sys/pix.c delivers a burst from the highest address down and
- * so leaves the parameters here before the mode that reads them. */
+ * arrives and the mode write at index 1 consumes the lot, which works
+ * because core/sys/pix.c delivers the registers after MODE before MODE. */
 static uint16_t xregs[16];
 
 static void xregs_clear(void)
@@ -48,18 +47,18 @@ bool xreg_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-bool xreg1(uint8_t channel, uint8_t address, uint16_t word)
+bool xreg1(uint8_t channel, uint8_t index, uint16_t word)
 {
     if (channel == 0)
     {
-        xregs[address & 0x0F] = word;
-        if (address == 0) /* CANVAS */
+        xregs[index & 0x0F] = word;
+        if (index == 0) /* CANVAS */
         {
             bool ok = vga_canvas_select(word);
             xregs_clear();
             return ok;
         }
-        if (address == 1) /* MODE */
+        if (index == 1) /* MODE */
         {
             /* The console canvas is not programmable. */
             if (vga_canvas_is_console())
@@ -78,7 +77,7 @@ bool xreg1(uint8_t channel, uint8_t address, uint16_t word)
     {
         /* pix_api_xreg refuses a program's write to this channel, so what
          * arrives here comes only from the machine itself. */
-        switch (address)
+        switch (index)
         {
         case 0x00: /* DISPLAY */
             vga_canvas_select(vga_canvas_console);

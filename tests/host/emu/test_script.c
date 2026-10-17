@@ -21,14 +21,17 @@ static unsigned long frames_for(const char *text)
     fputs(text, f);
     fclose(f);
 
-    if (!emu_restart(TEST_FIXTURE) || !script_load(path))
+    if (!emu_restart(TEST_FIXTURE) || !script_load(path, TEST_FIXTURE))
         return (unsigned long)-1;
     unsigned long before = vga_frame_count();
     while (script_running())
     {
         script_task();
         if (script_running())
+        {
             emu_frames(1);
+            script_listen();
+        }
     }
     return vga_frame_count() - before;
 }
@@ -47,12 +50,14 @@ UTEST(script, checks_are_free)
     ASSERT_EQ(frames_for("# nothing but a comment\n\n"), 0ul);
     ASSERT_EQ(frames_for("pad 0 connect\npad 0 press start\npad 0 disconnect\n"), 0ul);
     ASSERT_EQ(frames_for("run 5\npoke xram:$0000 $A5\npeek xram:$0000 $A5\nrun 5\n"), 10ul);
+    ASSERT_EQ(frames_for("run 5\nstatus\nsys stop\nstatus\nrun 5\n"), 10ul);
+    ASSERT_EQ(frames_for("seed 5\ndiscard\n"), 0ul);
 }
 
 UTEST(script, budget_is_exact)
 {
     ASSERT_EQ(frames_for("wait \"no program says this\" 5\n"), 5ul);
-    ASSERT_EQ(frames_for("expect-exit 0 7\n"), 7ul);
+    ASSERT_EQ(frames_for("wait exit 7\n"), 7ul);
 }
 
 UTEST(script, waiting_on_memory_is_exact)

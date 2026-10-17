@@ -81,7 +81,8 @@ static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
     if (got == 0)
     {
         line[0] = 0;
-        return -1; /* EOF */
+        *err = API_ENOEXEC; /* the file ends where a line must be */
+        return -1;
     }
     size_t i = 0;
     while (i < got && line[i] != '\n')

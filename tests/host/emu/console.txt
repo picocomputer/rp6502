@@ -1,0 +1,21 @@
+# The program writes "err" to stderr, then copies each line typed to stdout.
+# console is what reaches the screen: the console puts a CR before each
+# newline from stdout and stderr, the line editor echoes what is typed, and a
+# byte stored to TX goes out as it is.
+
+run 10
+expect stderr "err\n"
+expect console "err\r\n"
+
+type "zz"
+run 2
+expect-not stdout "z"
+expect console "z"
+type "\r"
+wait stdout "zz\n"
+expect console "zz\r\n"
+
+poke bus:RIA_TX $71
+poke bus:RIA_TX $0A
+expect stdout "q\n"
+expect console "q\n"

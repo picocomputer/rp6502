@@ -7,6 +7,7 @@
 #include "core/api/ops.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
+#include "core/str/str.h"
 #include "core/sys/sys.h"
 
 /* Both toolchains define these errno values, except EUNKNOWN at the end of
@@ -182,6 +183,24 @@ uint16_t api_platform_errno(api_errno num)
         return API_MAP(EILSEQ);
     default:
         return API_MAP(EUNKNOWN);
+    }
+}
+
+const char *api_errno_str(api_errno num)
+{
+    switch (num)
+    {
+    case API_ENOENT:
+        return S(STR_ERR_FATFS_NO_FILE);
+    case API_EACCES:
+    case API_ENOSPC:
+        return S(STR_ERR_FATFS_DENIED);
+    case API_EEXIST:
+        return S(STR_ERR_FATFS_EXIST);
+    case API_ENOEXEC:
+        return S(STR_ERR_ROM_DATA_INVALID);
+    default:
+        return S(STR_ERR_FATFS_DISK_ERR);
     }
 }
 

@@ -36,6 +36,12 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
  * nothing in flight to cancel. */
 void fs_std_settle(void);
 
+/* Every transfer completes before the call returns, so a read lands on the
+ * same scanline every run. A host with no window turns this on, because it has
+ * no frame to keep smooth while it waits. A synchronous transport always
+ * completes at once. */
+void fs_std_immediate(bool on);
+
 /* Save a descriptor and open it again, in core/api/std.h's shape. The name is
  * made absolute when the file is opened, because both the guest and this core
  * may chdir before the save. */

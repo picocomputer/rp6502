@@ -64,7 +64,7 @@ extern "C"
 #include "chips/ui/ui_dasm.h"        /* after w65c02dasm.h (impl calls w65c02dasm_op) */
 #include "chips/ui/ui_w65c02.h"      /* CPU register window */
 #include "host/sokol/dbg/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
-#include "host/sokol/dbg/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
+#include "host/sokol/dbg/ui_ini.h"  /* dummy elements: [RP6502][PICO] + [Window][Manager] */
 #include "chips/ui/ui_m6522.h"
 #include "chips/ui/ui_dbg.h"         /* disassembly/breakpoints */
 
@@ -445,7 +445,7 @@ static const ui_chip_pin_t pins_6522[] = {
 /* ---- Layout persistence: the config file is owned by ImGui's settings system.
  * Two custom ImGuiSettingsHandlers (registered in dbgui_init) ride in that ini:
  *   [Chips][<window title>]  IsOpen=1  — per-window open flags (chips ui_settings_t)
- *   [RP6502][Launch] + [Window][Manager] entry — ui_ini.h's elements
+ *   [RP6502][PICO] + [Window][Manager] entry — ui_ini.h's elements
  * Window geometry rides in ImGui's built-in [Window] handler; the menu bar (below)
  * just toggles each window's open flag. ---- */
 static ui_settings_t g_settings;
@@ -541,7 +541,7 @@ static void rp6502ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler,
     buf->appendf("[%s][Scale]\nScale=%g\n\n", handler->TypeName, g_ui_scale);
 }
 
-/* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
+/* The [RP6502][PICO] block and the dummy [Window][Manager] entry ride in
  * ui_ini.h's elements. */
 static ui_ini_t g_ini;
 

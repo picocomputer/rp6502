@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * tests/gen/time_rom_gen.py writes the program, which leaves the length
+ * strftime.py writes the program, which leaves the length
  * strftime returned at XRAM $0000 and the formatted text after it.
  */
 

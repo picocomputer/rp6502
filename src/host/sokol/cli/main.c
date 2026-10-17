@@ -16,7 +16,6 @@
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
-#include "core/com/com.h"
 #include "core/dap/dbg.h"
 #include "host/sokol/cli/png.h"
 #include "core/sys/random.h"
@@ -74,9 +73,8 @@ static int run_dap(const cli_options *o)
 #endif
 
 
-/* The seed for this run, drawn once. --seed pins it, and otherwise the OS is
- * asked. The memory fills, the RNG the program reads and the script's `seed`
- * verb all ask separately, so it has to answer the same every time. */
+/* host_seed returns the first seed of the program's RNG, chosen once from the
+ * OS. A script's seed command restarts the RNG from a seed of its own. */
 static uint32_t run_seed;
 static bool run_seed_taken;
 
@@ -203,30 +201,14 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    /* One seed for the run reaches both the memory fills and the RNG the
-     * program reads, from separate streams so that the fills cannot move what
-     * the program's rand() returns. It is set before sys_init, which is where
-     * sram_init and xram_init fill. */
-    if (o.have_seed)
-        run_seed = (uint32_t)o.seed, run_seed_taken = true;
-    sram_set_fill(o.fill_random, o.fill_value, host_seed());
-    xram_set_fill(o.fill_random, o.fill_value, host_seed());
+    /* Set before sys_init, which is where sram_init and xram_init fill. */
+    uint32_t memseed = o.have_memseed ? o.memseed : os_random();
+    sram_set_fill(!o.have_memfill, o.memfill, memseed);
+    xram_set_fill(!o.have_memfill, o.memfill, memseed);
+    script_set_memory(o.have_memfill, o.memfill, memseed);
     sys_init();
 
     streams_mirror_stderr();
-
-    /* EMU_ECHO mirrors the machine's console to the host's stderr, so a run
-     * that failed can be read without rendering a frame. It is set up here
-     * rather than past the launch paths that return early, so that every mode
-     * gets it. com.c holds one console tap, which a script takes for itself,
-     * so the script is asked to echo rather than displaced. */
-    if (getenv("EMU_ECHO"))
-    {
-        if (o.script)
-            script_set_echo(streams_stderr);
-        else
-            com_set_tx_tap(streams_stderr);
-    }
 
     save_dir = o.save_dir ? save_dir_from(o.save_dir) : os_save_dir();
     if (o.save_dir && !save_dir)
@@ -342,14 +324,18 @@ int main(int argc, char **argv)
         free(rom);
         return 1;
     }
+    /* With no window there is no frame to keep smooth, so a file transfer
+     * completes before the call returns and lands on the same scanline every
+     * run. */
+    if (o.headless || o.script || o.screenshot || o.crc)
+        fs_std_immediate(true);
     bool booted = proc_boot(rom, o.n_rom_args, o.rom_args, 0);
     free(rom);
     if (!booted)
     {
-        /* rom_load said why on the machine's console, which no window on this
+        /* proc_boot said why on the machine's console, which no window on this
          * path ever shows, so the reason is repeated here. */
-        fprintf(stderr, "rp6502-emu: cannot load ROM '%s'\n",
-                o.rom ? o.rom : o.installs[0]);
+        fprintf(stderr, "rp6502-emu: %s", proc_boot_error());
         return 1;
     }
 
@@ -364,8 +350,11 @@ int main(int argc, char **argv)
         dbg_set_active(true);
 
     /* Armed before the machine starts so the script's first check sees the
-     * program's first output. */
-    if (o.script && !script_load(o.script))
+     * program's first output. The script's names come from the .sym file
+     * beside the booted ROM, which for an install is the last file given
+     * that name. */
+    if (o.script &&
+        !script_load(o.script, o.rom ? o.rom : rom_alias_resolve(first_install)))
         return 1;
 
     /* A host terminal becomes the machine's console and carries its screen,
@@ -420,7 +409,10 @@ int main(int argc, char **argv)
         {
             script_task();
             if (script_running())
+            {
                 vga_run_frame();
+                script_listen();
+            }
         }
         if (script_exit_code() || !(o.screenshot || o.crc))
         {

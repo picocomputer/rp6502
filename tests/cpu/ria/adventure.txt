@@ -1,14 +1,14 @@
 wait "Colossal Cave Adventure"
 wait "Would you like instructions?"
-type "no\n"
+type "no\r"
 
 wait "standing at the end of a road"
 wait "small brick"
 
-type "take lamp\n"
+type "take lamp\r"
 wait "I see no lamp here"
 
 type "take lampX"
 key backspace
-type "\n"
+type "\r"
 wait "I see no lamp here"

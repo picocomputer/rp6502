@@ -1,0 +1,10 @@
+# The program writes "err" to stderr, then copies each line typed to stdout.
+# stdout is checked before anything takes the "err", so a capture that mixed
+# the two streams would fail here.
+
+run 10
+expect-not stdout "err"
+wait stderr "err"
+type "bb\r"
+wait stdout "bb\n"
+expect-not stderr "bb"

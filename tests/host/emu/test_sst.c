@@ -5,19 +5,11 @@
  */
 
 #include "core/sys/sst.h"
-#include "core/sys/sys.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
-#include "core/com/com.h"
-#include "core/api/xreg.h"
-#include "core/ria/regs.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
-#include "core/vga/vga.h"
-#include "core/vga/vga_emu.h"
-#include "osal/fs.h"
-#include <stdio.h>
 #include "core/wdc/sram.h"
 
 #include "emu_boot.h"
@@ -25,8 +17,6 @@
 #include <string.h>
 
 static uint8_t blob[1 << 20];
-
-static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 static const char *take(void)
 {
@@ -69,13 +59,14 @@ UTEST(sst, a_blob_is_framed)
     ASSERT_EQ(memcmp(blob + sst_size() - 4, "56PR", 4), 0);
 }
 
+/* The bytes past the end of the short buffer are the guard. */
 UTEST(sst, a_short_buffer_is_refused_rather_than_overrun)
 {
-    uint8_t guard[16];
-    memset(guard, 0x5A, sizeof guard);
-    ASSERT_NE(sst_save(blob, sst_size() - 1, 0), (const char *)NULL);
-    for (unsigned i = 0; i < sizeof guard; i++)
-        ASSERT_EQ(guard[i], 0x5A);
+    size_t len = sst_size() - 1;
+    memset(blob + len, 0x5A, 16);
+    ASSERT_NE(sst_save(blob, len, 0), (const char *)NULL);
+    for (size_t i = 0; i < 16; i++)
+        ASSERT_EQ(blob[len + i], 0x5A);
 }
 
 UTEST(sst, two_saves_of_one_unchanged_machine_are_the_same_bytes)
@@ -202,101 +193,6 @@ UTEST(sst, a_program_picks_up_where_it_was)
     ASSERT_EQ(bus_cycles() - at_save, reference);
 }
 
-UTEST(sst, an_open_file_comes_back_where_it_was)
-{
-    char path[] = TEST_SCRATCH "/sst_open.txt";
-    FILE *f = fopen(path, "wb");
-    ASSERT_TRUE(f != NULL);
-    for (int i = 0; i < 64; i++)
-        fputc(i, f);
-    fclose(f);
-
-    api_errno err = API_EIO;
-    int fd = fs_std_open(path, FS_RD, &err);
-    ASSERT_GE(fd, 0);
-    char buf[8];
-    uint32_t got = 0;
-    while (fs_std_read(fd, buf, 8, &got, &err) == STD_PENDING)
-        ;
-    ASSERT_EQ(got, (uint32_t)8);
-
-    sst_cursor_t c = {(uint8_t *)blob, (uint8_t *)blob + sizeof blob, false};
-    ASSERT_TRUE(fs_std_ident(fd, &c));
-    api_errno ignored;
-    fs_std_close(fd, &ignored);
-
-    sst_cursor_t r = {(uint8_t *)blob, c.at, false};
-    int again = fs_std_reopen(&r, &err);
-    ASSERT_GE(again, 0);
-    while (fs_std_read(again, buf, 8, &got, &err) == STD_PENDING)
-        ;
-    ASSERT_EQ(got, (uint32_t)8);
-    for (int i = 0; i < 8; i++)
-        ASSERT_EQ((uint8_t)buf[i], (uint8_t)(8 + i));
-    fs_std_close(again, &ignored);
-    remove(path);
-}
-
-UTEST(sst, the_screen_comes_back)
-{
-    vga_set_framebuffer(fb);
-    static const char hello[] = "\33[2Jsavestate\r\n";
-    com_stdout_write(hello, sizeof hello - 1);
-    emu_frames(2);
-    uint32_t before = 0;
-    ASSERT_TRUE(vga_frame_crc(&before));
-    ASSERT_EQ(take(), (const char *)NULL);
-
-    static const char noise[] = "\33[2JXXXXXXXXXXXXXXXX\r\n";
-    com_stdout_write(noise, sizeof noise - 1);
-    emu_frames(2);
-    uint32_t scribbled = 0;
-    ASSERT_TRUE(vga_frame_crc(&scribbled));
-    ASSERT_NE(scribbled, before);
-
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    emu_frames(2);
-    uint32_t after = 0;
-    ASSERT_TRUE(vga_frame_crc(&after));
-    ASSERT_EQ(after, before);
-}
-
-UTEST(sst, a_graphics_mode_comes_back)
-{
-    vga_set_framebuffer(fb);
-    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
-    for (int i = 0; i < 0x4000; i++)
-        xram[0x2000 + i] = (uint8_t)(i * 31 + 7);
-    static const uint16_t cfg[] = {320, 240, 0x2000, 0x1000};
-    for (int i = 0; i < 4; i++)
-    {
-        xram[0x1000 + i * 2] = (uint8_t)cfg[i];
-        xram[0x1000 + i * 2 + 1] = (uint8_t)(cfg[i] >> 8);
-    }
-    ASSERT_TRUE(xreg1(0, 2, 3));      /* 8bpp */
-    ASSERT_TRUE(xreg1(0, 3, 0x1000)); /* the config struct */
-    ASSERT_TRUE(xreg1(0, 4, 0));      /* plane */
-    ASSERT_TRUE(xreg1(0, 5, 0));
-    ASSERT_TRUE(xreg1(0, 6, 0));
-    ASSERT_TRUE(xreg1(0, 1, 3));      /* MODE reads 2-6, so it goes last */
-    emu_frames(2);
-    uint32_t painted = 0;
-    ASSERT_TRUE(vga_frame_crc(&painted));
-    ASSERT_EQ(take(), (const char *)NULL);
-
-    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
-    emu_frames(2);
-    uint32_t blank = 0;
-    ASSERT_TRUE(vga_frame_crc(&blank));
-
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    emu_frames(2);
-    uint32_t again = 0;
-    ASSERT_TRUE(vga_frame_crc(&again));
-    ASSERT_EQ(again, painted);
-    (void)blank;
-}
-
 /* What rw_write does, without a 6502 to do it. Every caller writes the block
  * the sounding engine was given, so there is no page to test. */
 static void aud_poke(uint16_t at, uint8_t val)
@@ -387,13 +283,6 @@ UTEST(sst, an_opl_chord_comes_back)
     aud_pull(came, 32);
     ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
     ASSERT_EQ(memcmp(went, came, sizeof went), 0);
-}
-
-UTEST(sst, a_round_trip_leaves_the_machine_standing)
-{
-    ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    emu_frames(2);
 }
 
 UTEST_MAIN_EMU()

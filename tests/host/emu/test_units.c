@@ -47,6 +47,26 @@ UTEST(rom, rejects_missing_file)
     ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
 }
 
+/* A ROM without a reset vector loads its records, then fails with the reason
+ * that the monitor of an RP6502-PICO gives. */
+UTEST(rom, rejects_a_rom_without_a_reset_vector)
+{
+    static const char image[] =
+        "#!RP6502\n"
+        "$00300 $4 $06EE5D17\n" "\xA9\x2A\xDB\xEA";
+    char path[TEST_PATH_MAX];
+    snprintf(path, sizeof path, "%s/novector.rp6502", TEST_SCRATCH);
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    ASSERT_EQ(fwrite(image, 1, sizeof image - 1, f), sizeof image - 1);
+    fclose(f);
+
+    memset(sram, 0, 0x10000);
+    ASSERT_FALSE(rom_load(path));
+    ASSERT_EQ(sram[0x0300], 0xA9);
+    ASSERT_STREQ(rom_load_error(), "?ROM has no reset vector\n");
+}
+
 UTEST(rom, loads_a_headerless_image)
 {
     static const char image[] =
@@ -467,59 +487,42 @@ UTEST(cli, batch_headless_and_unpaced)
     ASSERT_EQ(o.phi2_khz, 4000);
 }
 
-UTEST(units, host_text_keeps_control_bytes_and_spells_one_line_end)
+UTEST(units, host_text_keeps_control_bytes)
 {
-    oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
-    size_t n = oem_from_utf8_run(&text, "a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
+    size_t n = oem_from_utf8_run("a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
     ASSERT_EQ(taken, (size_t)7);
-    ASSERT_EQ(n, (size_t)6);
-    ASSERT_EQ(memcmp(out, "a\rb\rc\r", 6), 0);
-    n = oem_from_utf8_run(&text, "\33[A\3\177", 6, true, out, sizeof out, &taken);
+    ASSERT_EQ(n, (size_t)7);
+    ASSERT_EQ(memcmp(out, "a\nb\r\nc\r", 7), 0);
+    n = oem_from_utf8_run("\33[A\3\177", 6, true, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)6);
     ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
 }
 
 UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
 {
-    oem_run_t text = {0};
     char out[32];
     size_t taken = 0;
-    size_t n = oem_from_utf8_run(&text, "h\xc3", 2, false, out, sizeof out, &taken);
+    size_t n = oem_from_utf8_run("h\xc3", 2, false, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)1);
     ASSERT_EQ(out[0], 'h');
     ASSERT_EQ(taken, (size_t)1); /* the lead byte is left for the next call */
-    n = oem_from_utf8_run(&text, "\xc3\xa9!", 3, false, out, sizeof out, &taken);
+    n = oem_from_utf8_run("\xc3\xa9!", 3, false, out, sizeof out, &taken);
     ASSERT_EQ(taken, (size_t)3);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
     ASSERT_EQ(out[1], '!');
-    n = oem_from_utf8_run(&text, "x\r", 2, false, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ(taken, (size_t)2);
-    ASSERT_EQ(out[1], '\r');
-    ASSERT_TRUE(text.after_cr);
-    /* A line feed opening the next read completes the CRLF and is dropped. */
-    n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)1);
-    ASSERT_EQ(out[0], 'y');
-    ASSERT_FALSE(text.after_cr);
-    /* With no CR before it, a line feed opening a read becomes CR. */
-    n = oem_from_utf8_run(&text, "\ny", 2, false, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ(out[0], '\r');
 }
 
 UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
 {
-    oem_run_t text = {0};
     char out[8];
     size_t taken = 0;
-    size_t n = oem_from_utf8_run(&text, "\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
+    size_t n = oem_from_utf8_run("\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
     ASSERT_EQ(n, (size_t)1);
     ASSERT_EQ(out[0], '?');
-    n = oem_from_utf8_run(&text, "abcd", 4, true, out, 2, &taken);
+    n = oem_from_utf8_run("abcd", 4, true, out, 2, &taken);
     ASSERT_EQ(n, (size_t)2);
     ASSERT_EQ(taken, (size_t)2);
 }

@@ -7,10 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gen"))
-from rp6502_rom import tool  # noqa: E402
+import rp6502
 
 # MBUF_SIZE in src/host/pico/ria/sys/mbuf.h is the size of mbuf, the buffer
 # the monitor reads each record into.
@@ -18,7 +15,6 @@ MBUF_SIZE = 1024
 
 
 def check(scratch):
-    t = tool()
     fails = []
 
     def fail(msg):
@@ -27,7 +23,7 @@ def check(scratch):
 
     prog = bytes((i * 13 + 7) & 0xFF for i in range(3000))
     xram = bytes((i * 7 + 3) & 0xFF for i in range(600))
-    rom = t.ROM()
+    rom = rp6502.ROM()
     rom.add_binary_data(prog, 0x0300)
     rom.add_binary_data(xram, 0x10000)
     rom.add_asset("help", b"a named asset\n")
@@ -36,7 +32,7 @@ def check(scratch):
     path = Path(scratch) / "rom_tool_check.rp6502"
     rom.write(path)
 
-    back = t.ROM()
+    back = rp6502.ROM()
     back.add_rom_file(str(path))
     if back.data != rom.data:
         fail("the reader did not reproduce the writer's memory image")
@@ -45,11 +41,11 @@ def check(scratch):
     if not back.has_reset_vector():
         fail("the reset vector did not survive")
 
-    merged = t.ROM()
+    merged = rp6502.ROM()
     merged.add_rom_file(str(path))
     merged_path = Path(scratch) / "rom_tool_merged.rp6502"
     merged.write(merged_path)
-    again = t.ROM()
+    again = rp6502.ROM()
     again.add_rom_file(str(merged_path))
     if again.data != rom.data:
         fail("a merged image did not reproduce the original")
@@ -57,7 +53,7 @@ def check(scratch):
     body = path.read_bytes().split(b"\n", 1)[1]
     env_path = Path(scratch) / "rom_tool_env.rp6502"
     env_path.write_bytes(b"#!/usr/bin/env rp6502-emu\r\n" + body)
-    env = t.ROM()
+    env = rp6502.ROM()
     env.add_rom_file(str(env_path))
     if env.data != rom.data:
         fail("an executable shebang naming rp6502 was not read as a ROM")
@@ -65,8 +61,8 @@ def check(scratch):
     sh_path = Path(scratch) / "rom_tool_sh.rp6502"
     sh_path.write_bytes(b"#!/bin/sh\r\n" + body)
     try:
-        t.ROM().add_rom_file(str(sh_path))
-    except t.ROMException:
+        rp6502.ROM().add_rom_file(str(sh_path))
+    except rp6502.ROMException:
         pass
     else:
         fail("a shebang not naming rp6502 was accepted")
@@ -80,11 +76,11 @@ def check(scratch):
         addr += len(data)
         addr, data = rom.next_rom_data(addr)
 
-    dup = t.ROM()
+    dup = rp6502.ROM()
     dup.add_binary_data(b"\1\2\3\4", 0x0300)
     try:
         dup.add_binary_data(b"\5\6", 0x0301)
-    except t.ROMException:
+    except rp6502.ROMException:
         pass
     else:
         fail("overlapping records were accepted")
