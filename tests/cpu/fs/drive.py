@@ -191,7 +191,8 @@ def test_drive():
     with rp6502.Emu(rom("drive")) as e:
         e.cmd(f'install "{Path(ADVENTURE).as_posix()}"')
         e.cmd('install "second.rp6502"')
-        e.cmd("expect-exit 0 60")
+        e.cmd("wait exit 60")
+        e.cmd("expect exit 0")
         e.cmd('expect "mkdir elsewhere 0000\\r\\n"')
         e.cmd('expect "chdir elsewhere 0000\\r\\n"')
         e.cmd('expect "read :ADVENTURE.RP6502 #!RP6502\\r\\n"')

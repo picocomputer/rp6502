@@ -124,7 +124,8 @@ def test_dir():
         return f"{found.name} 20 {found.stat().st_size:04X}"
 
     with rp6502.Emu(rom("dir")) as e:
-        e.cmd("expect-exit 0 20")
+        e.cmd("wait exit 20")
+        e.cmd("expect exit 0")
         e.cmd('expect "opendir 00\\r\\n"')
         for found in os.scandir("."):
             e.cmd(f'expect "{entry(found)}\\r\\n"')

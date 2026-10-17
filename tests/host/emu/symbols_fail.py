@@ -45,11 +45,12 @@ def test_symbols_fail():
                            input="\n".join(lines) + "\n",
                            capture_output=True, text=True)
         # The emulator reports one failure, at the last line of the case.
+        # A failure is two lines: the message, then the status.
         fails = [x for x in r.stderr.splitlines()
                  if x.startswith("rp6502-emu:")]
-        start = f"rp6502-emu: <stdin>:{len(lines)}: {want}; "
-        if (r.returncode != 1 or len(fails) != 1
-                or not fails[0].startswith(start)):
+        line = f"rp6502-emu: <stdin>:{len(lines)}: {want}"
+        if (r.returncode != 1 or len(fails) != 2 or fails[0] != line
+                or not fails[1].startswith("rp6502-emu: PC=")):
             errors.append(f"{lines[-1]!r} should fail with {want!r}, but the "
                           f"emulator exited {r.returncode} with {r.stderr!r}")
     assert not errors, "\n".join(errors)

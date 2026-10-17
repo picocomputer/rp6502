@@ -132,10 +132,12 @@ def test_clk():
             f"time_get read {got}, not between {before} and {after}"
         # The code page the program set is gone when it runs again.
         e.cmd('wait "cp 0352\\n"')
-        e.cmd("expect-exit 0")
+        e.cmd("wait exit")
+        e.cmd("expect exit 0")
         e.cmd("sys run")
         e.cmd('wait "cp 01B5\\n"')
-        e.cmd("expect-exit 0")
+        e.cmd("wait exit")
+        e.cmd("expect exit 0")
 
 
 ROMS = {"clk": prog}

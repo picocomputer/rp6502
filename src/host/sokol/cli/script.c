@@ -15,8 +15,10 @@
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "host/host.h"
+#include "core/api/arg.h"
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
+#include "core/sys/random.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
@@ -66,7 +68,18 @@ static script_wait_t script_wait;
 static unsigned long script_budget;
 static char script_needle[256];
 static size_t script_needle_len;
-static int script_exit_want;
+
+/* The seeds and the memory fill that status prints. The RNG seed is the last
+ * one that seed set, or host_seed() until then. */
+static uint32_t script_memseed;
+static uint8_t script_memfill;
+static bool script_memfill_set;
+static uint32_t script_rng_seed;
+static bool script_rng_set;
+
+/* A machine that sys stop or sys break stopped has no exit code of its own,
+ * so EXIT and the exit checks wait for the next load or sys run. */
+static bool script_halted;
 
 /* Where an address points. Without a prefix, or with ram:, it is the 6502's
  * address space. bus: is the same space, written the way the 6502 writes it.
@@ -219,16 +232,40 @@ static const char *script_on(const script_cap_t *cap)
     return "";
 }
 
-/* Where the program is: the 6502's registers, then the RIA's OP and BUSY.
- * RESB is 0 once the program has stopped and the 6502 is held in reset.
- * SEED is the run's seed, so a failed run can be repeated with --seed. */
-static void script_cpu(char *buf, size_t size)
+static uint32_t script_rng(void)
+{
+    return script_rng_set ? script_rng_seed : host_seed();
+}
+
+/* The program exited, as opposed to a stop that the script asked for. */
+static bool script_exited(void)
+{
+    return proc_exited() && !script_halted;
+}
+
+/* The status line. ROM is last, so its path needs no quotes. */
+#define SCRIPT_STATUS_SIZE 1024
+static void script_status(char *buf, size_t size)
 {
     w65c02_t *c = cpu_chip();
+    char exit_code[16] = "", memory[24], rom[768];
+    if (script_exited())
+        snprintf(exit_code, sizeof exit_code, " EXIT=%d", proc_get_exit_code());
+    if (script_memfill_set)
+        snprintf(memory, sizeof memory, "MEMFILL=$%02X", script_memfill);
+    else
+        snprintf(memory, sizeof memory, "MEMSEED=%u", (unsigned)script_memseed);
+    /* After a stop, argv[0] still names the ROM that ran last. */
+    const char *running = proc_running();
+    if (!running[0] && arg_index(0))
+        running = arg_index(0);
+    oem_to_utf8(running, rom, sizeof rom);
     snprintf(buf, size,
-             "PC=$%04X A=$%02X X=$%02X Y=$%02X SP=$%02X P=$%02X OP=$%02X BUSY=$%02X RESB=%d SEED=%u",
+             "PC=$%04X A=$%02X X=$%02X Y=$%02X SP=$%02X P=$%02X OP=$%02X BUSY=$%02X "
+             "RESB=%d%s SEED=%u %s ROM=%s",
              w65c02_pc(c), w65c02_a(c), w65c02_x(c), w65c02_y(c), w65c02_s(c),
-             w65c02_p(c), API_OP, REGS(0xFFF2), sys_running() ? 1 : 0, host_seed());
+             w65c02_p(c), API_OP, REGS(0xFFF2), sys_running() ? 1 : 0, exit_code,
+             (unsigned)script_rng(), memory, rom);
 }
 
 /* Control bytes are written as C escapes, so a failure is always one line. */
@@ -269,22 +306,23 @@ static void script_reply(const char *fmt, ...)
     script_answered = true;
 }
 
-/* Every failure ends with where the program is, because the run ends here and
- * a driver can't ask afterwards. */
+/* Every failure is followed by a status line, because the run ends here and a
+ * driver can't ask afterwards. */
 static bool script_error(const char *fmt, ...)
 {
     /* Only the first error on a line is reported, so a command's usage
      * message never follows the error from its expression. */
     if (script_fail)
         return false;
-    char msg[1024], text[4096], cpu[96];
+    char msg[1024], text[4096], status[SCRIPT_STATUS_SIZE];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     script_printable(text, sizeof text, msg, strlen(msg));
-    script_cpu(cpu, sizeof cpu);
-    script_reply("fail %s; %s", text, cpu);
+    script_status(status, sizeof status);
+    script_reply("fail %s", text);
+    script_reply("%s", status);
     /* The program's stdout that no check has used goes out after the failure,
      * up to EOF, in the UTF-8 the checks search. Its stderr is on stderr
      * already. */
@@ -295,7 +333,8 @@ static bool script_error(const char *fmt, ...)
     if ((SCRIPT_STDOUT->len && SCRIPT_STDOUT->buf[SCRIPT_STDOUT->len - 1] != '\n') ||
         script_stderr_midline)
         fputc('\n', stderr);
-    fprintf(stderr, "rp6502-emu: %s:%d: %s; %s\n", script_path, script_line_no, text, cpu);
+    fprintf(stderr, "rp6502-emu: %s:%d: %s\nrp6502-emu: %s\n", script_path, script_line_no,
+            text, status);
     script_pending = false;
     script_fail = true;
     script_run = false;
@@ -344,6 +383,29 @@ static char *script_word(char **p)
         *s++ = 0;
     *p = s;
     return word;
+}
+
+/* Takes the next word when it is the keyword. The line is left as it was
+ * when it is not, so another grammar can read it. */
+static bool script_keyword(char **p, const char *keyword)
+{
+    char *s = *p;
+    while (*s == ' ' || *s == '\t')
+        s++;
+    size_t n = strlen(keyword);
+    if (strncasecmp(s, keyword, n) || (s[n] && s[n] != ' ' && s[n] != '\t'))
+        return false;
+    *p = s + n;
+    return true;
+}
+
+/* A command fails on a word after its last argument, as the monitor does. */
+static bool script_end(char *p)
+{
+    char *word = script_word(&p);
+    if (word)
+        return script_error("unexpected '%s'; spaces separate arguments", word);
+    return true;
 }
 
 static int script_hex_digit(char c)
@@ -819,6 +881,8 @@ static bool script_cmd_gamepad(char *p)
                                  "playstation or sticks, not '%s'",
                                  word);
         }
+        if (!script_end(p))
+            return false;
         if (connect)
             script_gamepad_publish((int)player);
         else
@@ -850,6 +914,8 @@ static bool script_cmd_gamepad(char *p)
         for (int i = 0; i < 4; i++)
             if (!script_number(&p, &v[i]) || v[i] < -128 || v[i] > 127)
                 return script_error("pad stick wants lx ly rx ry, each -128..127");
+        if (!script_end(p))
+            return false;
         script_gamepad[player].lx = (int)v[0];
         script_gamepad[player].ly = (int)v[1];
         script_gamepad[player].rx = (int)v[2];
@@ -861,6 +927,8 @@ static bool script_cmd_gamepad(char *p)
         for (int i = 0; i < 2; i++)
             if (!script_number(&p, &v[i]) || v[i] < 0 || v[i] > 255)
                 return script_error("pad trigger wants lt rt, each 0..255");
+        if (!script_end(p))
+            return false;
         script_gamepad[player].lt = (int)v[0];
         script_gamepad[player].rt = (int)v[1];
     }
@@ -878,6 +946,8 @@ static bool script_cmd_mouse(char *p)
         long dx, dy;
         if (!script_number(&p, &dx) || !script_number(&p, &dy))
             return script_error("mouse move wants dx dy");
+        if (!script_end(p))
+            return false;
         mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
         return true;
     }
@@ -888,6 +958,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse wheel wants a count");
         if (script_more(&p) && !script_number(&p, &pan))
             return script_error("mouse wheel wants a pan count");
+        if (!script_end(p))
+            return false;
         mouse_host_wheel((int)wheel, (int)pan);
         return true;
     }
@@ -896,6 +968,8 @@ static bool script_cmd_mouse(char *p)
         long mask;
         if (!script_number(&p, &mask) || mask < 0 || mask > 255)
             return script_error("mouse buttons wants a bitmap 0..255");
+        if (!script_end(p))
+            return false;
         mouse_host_buttons((uint8_t)mask);
         return true;
     }
@@ -912,6 +986,8 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants x y");
         if (script_more(&p) && (!script_number(&p, &buttons) || buttons < 0 || buttons > 255))
             return script_error("tablet at wants a button bitmap 0..255");
+        if (!script_end(p))
+            return false;
         tablet_host_pointer((int)x, (int)y, (uint8_t)buttons, true);
         return true;
     }
@@ -946,11 +1022,15 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet wheel wants a count");
         if (script_more(&p) && !script_number(&p, &pan))
             return script_error("tablet wheel wants a pan count");
+        if (!script_end(p))
+            return false;
         tablet_host_wheel((int)wheel, (int)pan);
         return true;
     }
     if (verb && !strcasecmp(verb, "clear"))
     {
+        if (!script_end(p))
+            return false;
         tablet_host_clear();
         return true;
     }
@@ -1117,14 +1197,22 @@ static bool script_command(const char *line)
             return script_error("run wants a frame count");
         script_wait = SCRIPT_FRAMES;
         script_budget = (unsigned long)frames;
-        return true;
+        return script_end(p);
     }
 
     if (!strcasecmp(cmd, "wait"))
     {
-        /* Text, or a byte in memory. script_text leaves the line alone when it
-         * finds no quote, so trying the text form first costs nothing and the
-         * two grammars cannot be confused. */
+        /* A form that does not match leaves the line for the next one, so a
+         * name spelled exit needs parentheses to be an address. */
+        if (script_keyword(&p, "exit"))
+        {
+            long frames = SCRIPT_WAIT_FRAMES;
+            if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
+                return script_error("wait exit wants a frame budget");
+            script_wait = SCRIPT_EXIT;
+            script_budget = (unsigned long)frames;
+            return script_end(p);
+        }
         char *before = p;
         script_cap_t *cap = script_stream(&p);
         if (script_text(&p, script_needle, sizeof script_needle, &script_needle_len))
@@ -1155,17 +1243,35 @@ static bool script_command(const char *line)
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("wait wants a frame budget");
         script_budget = (unsigned long)frames;
-        return true;
+        return script_end(p);
     }
 
     if (!strcasecmp(cmd, "expect") || !strcasecmp(cmd, "expect-not"))
     {
         bool want = !strcasecmp(cmd, "expect");
+        if (script_keyword(&p, "exit"))
+        {
+            long code;
+            if (!script_number(&p, &code))
+                return script_error("%s exit wants an exit code", cmd);
+            if (!script_end(p))
+                return false;
+            if (!script_exited())
+                return script_error("the program has not exited");
+            int got = proc_get_exit_code();
+            if (want && got != code)
+                return script_error("exit code %d, expected %ld", got, code);
+            if (!want && got == code)
+                return script_error("did not expect exit code %d", got);
+            return true;
+        }
         script_cap_t *cap = script_stream(&p);
         char text[256], shown[4 * sizeof text];
         size_t len;
         if (!script_text(&p, text, sizeof text, &len) || !len)
             return script_error("%s wants a quoted string", cmd);
+        if (!script_end(p))
+            return false;
         char *found = script_find(cap, text, len);
         script_printable(shown, sizeof shown, text, len);
         if (want && !found)
@@ -1177,16 +1283,44 @@ static bool script_command(const char *line)
         return true;
     }
 
-    if (!strcasecmp(cmd, "expect-exit"))
+    /* Captured output stays until a check takes it, so a script that starts
+     * over discards what the last program wrote. */
+    if (!strcasecmp(cmd, "discard"))
     {
-        long code, frames = SCRIPT_WAIT_FRAMES;
-        if (!script_number(&p, &code))
-            return script_error("expect-exit wants an exit code");
-        if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
-            return script_error("expect-exit wants a frame budget");
-        script_exit_want = (int)code;
-        script_wait = SCRIPT_EXIT;
-        script_budget = (unsigned long)frames;
+        int from = 0, to = 3;
+        char *name = script_word(&p);
+        if (name)
+        {
+            for (from = 0; from < 3 && strcasecmp(name, script_cap_names[from]); from++)
+                ;
+            if (from == 3)
+                return script_error("discard wants stdout, stderr or console");
+            to = from + 1;
+        }
+        if (!script_end(p))
+            return false;
+        for (int i = from; i < to; i++)
+            script_cap[i].len = 0;
+        return true;
+    }
+
+    /* The seed of the program's RNG, which takes effect at its next draw. An
+     * int64_t, because a long is 32 bits on Windows. */
+    if (!strcasecmp(cmd, "seed"))
+    {
+        char *word = script_word(&p);
+        int64_t seed;
+        if (!word)
+            return script_error("seed wants a number from 0 to 4294967295");
+        if (!script_expr(word, &seed))
+            return false;
+        if (seed < 0 || seed > UINT32_MAX)
+            return script_error("seed wants a number from 0 to 4294967295");
+        if (!script_end(p))
+            return false;
+        script_rng_seed = (uint32_t)seed;
+        script_rng_set = true;
+        sys_random_set(script_rng_seed);
         return true;
     }
 
@@ -1197,7 +1331,7 @@ static bool script_command(const char *line)
             return script_error("eof wants a frame budget");
         script_wait = SCRIPT_EOF;
         script_budget = (unsigned long)frames;
-        return true;
+        return script_end(p);
     }
 
     if (!strcasecmp(cmd, "type"))
@@ -1208,6 +1342,8 @@ static bool script_command(const char *line)
         long frames = SCRIPT_WAIT_FRAMES;
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
+        if (!script_end(p))
+            return false;
         vtkeys_paste(text);
         /* Waiting for the text to drain, because vtkeys_paste replaces
          * whatever is still being delivered and back-to-back type commands
@@ -1241,6 +1377,8 @@ static bool script_command(const char *line)
         uint8_t hid = script_key_from_name(name, &plain, &shifted);
         if (!hid)
             return script_error("unknown key '%s'", name);
+        if (!script_end(p))
+            return false;
         if (vtkeys_key(hid, ctrl, shift, alt))
             return true;
         /* vtkeys_key is false for a key that types a character, which the
@@ -1301,14 +1439,18 @@ static bool script_command(const char *line)
         char *which = script_word(&p);
         if (!which)
             which = "";
+        uint8_t led;
         if (!strcasecmp(which, "num"))
-            keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
+            led = KEYBOARD_LED_NUMLOCK;
         else if (!strcasecmp(which, "caps"))
-            keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK);
+            led = KEYBOARD_LED_CAPSLOCK;
         else if (!strcasecmp(which, "scroll"))
-            keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
+            led = KEYBOARD_LED_SCROLLLOCK;
         else
             return script_error("lock wants num, caps or scroll");
+        if (!script_end(p))
+            return false;
+        keyboard_toggle_lock(led);
         return true;
     }
 
@@ -1378,6 +1520,8 @@ static bool script_command(const char *line)
             on = false;
         else if (word && strcasecmp(word, "on"))
             return script_error("reply wants on or off");
+        if (!script_end(p))
+            return false;
         script_replies = on;
         return true;
     }
@@ -1405,6 +1549,8 @@ static bool script_command(const char *line)
             return false;
         if (script_more(&p) && (!script_number(&p, &count) || count < 1))
             return script_error("dump wants a byte count");
+        if (!script_end(p))
+            return false;
         for (long i = 0; i < count && addr + i <= 0xFFFF; i++)
             if (script_unassigned(space, addr + i))
                 return script_error("$%04lX is unassigned", addr + i);
@@ -1419,11 +1565,13 @@ static bool script_command(const char *line)
         return true;
     }
 
-    if (!strcasecmp(cmd, "cpu"))
+    if (!strcasecmp(cmd, "status"))
     {
-        char cpu[96];
-        script_cpu(cpu, sizeof cpu);
-        printf(script_replies ? "ok %s\n" : "%s\n", cpu);
+        if (!script_end(p))
+            return false;
+        char status[SCRIPT_STATUS_SIZE];
+        script_status(status, sizeof status);
+        printf(script_replies ? "ok %s\n" : "%s\n", status);
         fflush(stdout);
         script_answered = script_replies;
         return true;
@@ -1436,6 +1584,8 @@ static bool script_command(const char *line)
     if (!strcasecmp(cmd, "crc") || !strcasecmp(cmd, "mark") ||
         !strcasecmp(cmd, "expect-same") || !strcasecmp(cmd, "expect-changed"))
     {
+        if (!script_end(p))
+            return false;
         uint32_t crc;
         if (!vga_frame_crc(&crc))
             return script_error("no framebuffer to hash");
@@ -1469,6 +1619,8 @@ static bool script_command(const char *line)
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0 ||
                                 frames > SCRIPT_WAV_MAX_FRAMES))
             return script_error("wav wants a frame count");
+        if (!script_end(p))
+            return false;
         script_wav = os_fopen(path, "wb");
         if (!script_wav)
             return script_error("cannot write '%s'", path);
@@ -1495,6 +1647,8 @@ static bool script_command(const char *line)
         char path[SCRIPT_LINE_MAX]; /* a token cannot outrun its own line */
         if (!script_string(&p, path, sizeof path))
             return script_error("shot wants a quoted path");
+        if (!script_end(p))
+            return false;
         const uint32_t *fb = vga_get_framebuffer();
         if (!fb)
             return script_error("no framebuffer to write");
@@ -1515,6 +1669,8 @@ static bool script_command(const char *line)
         if (!script_string(&p, path, sizeof path) || !path[0])
             return script_error("state %s wants a quoted path",
                                 saving ? "save" : "load");
+        if (!script_end(p))
+            return false;
         const char *why = "";
         if (saving ? !state_save_file(path, &why) : !state_load_file(path, &why))
             return script_error("cannot %s '%s': %s", saving ? "save" : "load",
@@ -1531,6 +1687,8 @@ static bool script_command(const char *line)
         if (!script_string(&p, path, sizeof path) || !path[0])
             return script_error("install wants a quoted path");
         char *as = script_more(&p) ? script_word(&p) : NULL;
+        if (!script_end(p))
+            return false;
         if (as && *as == ':')
             as++;
         if (as)
@@ -1545,6 +1703,8 @@ static bool script_command(const char *line)
         char *name = script_word(&p);
         if (!name || !*name)
             return script_error("remove wants an installed name");
+        if (!script_end(p))
+            return false;
         oem_from_utf8(name, name, strlen(name) + 1);
         if (!rom_alias_remove(name))
             return script_error("nothing installed as '%s'", name);
@@ -1556,6 +1716,8 @@ static bool script_command(const char *line)
         char path[SCRIPT_LINE_MAX], oem[SCRIPT_LINE_MAX];
         if (!script_string(&p, path, sizeof path) || !path[0])
             return script_error("load wants a quoted path");
+        if (!script_end(p))
+            return false;
         oem_from_utf8(path, oem, sizeof oem);
         /* A running program would have its memory written out from under it,
          * so a load happens only between programs. */
@@ -1564,6 +1726,7 @@ static bool script_command(const char *line)
         vtkeys_paste_cancel();
         if (!proc_boot(oem, 0, NULL, PROC_UNCHAIN))
             return script_error("cannot load '%s'", path);
+        script_halted = false;
         sys_commit();
         /* The symbols now come from the new program's .sym. An installed
          * :NAME has its .sym beside the file that was installed. */
@@ -1589,16 +1752,22 @@ static bool script_command(const char *line)
     if (!strcasecmp(cmd, "sys"))
     {
         char *what = script_word(&p);
-        if (!what)
+        if (!what || (strcasecmp(what, "run") && strcasecmp(what, "stop") &&
+                      strcasecmp(what, "break")))
             return script_error("sys wants run, stop or break");
+        if (!script_end(p))
+            return false;
+        /* A stop of a machine that already stopped keeps its exit. */
+        if (!strcasecmp(what, "run"))
+            script_halted = false;
+        else if (sys_running())
+            script_halted = true;
         if (!strcasecmp(what, "run"))
             sys_run();
         else if (!strcasecmp(what, "stop"))
             sys_stop();
-        else if (!strcasecmp(what, "break"))
-            sys_break_request();
         else
-            return script_error("sys wants run, stop or break");
+            sys_break_request();
         sys_commit();
         return true;
     }
@@ -1659,13 +1828,8 @@ static bool script_settle(void)
             return false;
         return script_error("timed out typing; the program is not reading its input");
     case SCRIPT_EXIT:
-        if (proc_exited())
-        {
-            int code = proc_get_exit_code();
-            if (code != script_exit_want)
-                return script_error("exit code %d, expected %d", code, script_exit_want);
+        if (script_exited())
             break;
-        }
         if (script_spend())
             return false;
         return script_error("timed out waiting for the program to exit");
@@ -1735,12 +1899,13 @@ void script_usage(FILE *out)
 {
     fprintf(out,
             "\nscript commands (one per line, # comments, text always quoted;\n"
-            "a failed check names the line and the cpu, then exits 1):\n"
+            "a failed check names the line and the status, then exits 1):\n"
             "  run [frames]              let frames elapse (default 1)\n"
             "  wait [stdout|stderr|console] \"text\" [frames]\n"
             "                                      run until the program writes it\n"
-            "                                      (default stdout, 600 frames)\n"
-            "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
+            "                                      (default stdout)\n"
+            "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that value\n"
+            "  wait exit [frames]        run until the program exits\n"
             "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
             "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
@@ -1756,14 +1921,21 @@ void script_usage(FILE *out)
             "  expect-not [stdout|stderr|console] \"text\"\n"
             "                                      check the stream since its last\n"
             "                                      match (default stdout)\n"
-            "  expect-exit <code> [frames]         run until it exits, check the code\n"
+            "  expect exit <code>        check the exit code of the program\n"
+            "  expect-not exit <code>\n"
+            "  discard [stdout|stderr|console]     drop what no check has taken\n"
+            "                                      (default all three)\n"
             "  eof [frames]              end stdin once the program has read what was typed\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
             "  poke [xram:|bus:|xbus:]<addr> <byte>...\n"
             "                                      write memory; bus: and xbus: store\n"
             "                                      the way the 6502 and the RIA do\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
-            "  cpu                                 PC A X Y SP P, then OP BUSY RESB SEED\n"
+            "  status                              PC A X Y SP P, OP BUSY RESB, EXIT\n"
+            "                                      once the program exits, SEED,\n"
+            "                                      MEMSEED or MEMFILL, then ROM\n"
+            "  seed <n>                  set the seed of the program's RNG, 0 to\n"
+            "                            4294967295\n"
             "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
             "  shot \"file.png\"           write the canvas\n"
@@ -1780,7 +1952,8 @@ void script_usage(FILE *out)
             "Spaces separate arguments, so an expression with spaces must be in\n"
             "parentheses: poke xram:(XRAM_PSG + 5) $80. Names come from variables\n"
             "and from the .sym beside the ROM. Floats are not allowed, so use // to\n"
-            "divide.\n");
+            "divide. A command that waits fails when its [frames] run out, 600 by\n"
+            "default.\n");
 }
 
 bool script_load(const char *path, const char *rom)
@@ -1817,6 +1990,8 @@ bool script_load(const char *path, const char *rom)
     script_stderr_midline = false;
     aud_set_sink_rate(SCRIPT_AUD_RATE);
     script_marked = false;
+    script_rng_set = false;
+    script_halted = false;
     script_fail = false;
     script_replies = false;
     script_answered = false;
@@ -1838,4 +2013,11 @@ bool script_running(void)
 int script_exit_code(void)
 {
     return script_fail ? 1 : 0;
+}
+
+void script_set_memory(bool memfill_set, uint8_t memfill, uint32_t memseed)
+{
+    script_memfill_set = memfill_set;
+    script_memfill = memfill;
+    script_memseed = memseed;
 }

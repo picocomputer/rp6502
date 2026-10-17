@@ -54,7 +54,8 @@ EOF_EMPTY_SCRIPT = r"""
 
 run 10
 eof
-expect-exit EXIT_CODE
+wait exit
+expect exit EXIT_CODE
 expect-not "\neof"
 expect "eof\n"
 """

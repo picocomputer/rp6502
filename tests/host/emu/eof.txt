@@ -6,4 +6,5 @@ run 10
 type "bb"
 eof
 wait "bb\neof\n"
-expect-exit EXIT_CODE
+wait exit
+expect exit EXIT_CODE

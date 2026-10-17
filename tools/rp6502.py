@@ -1453,7 +1453,12 @@ class Symbols(dict):
 
 
 class ScriptError(Exception):
-    """A script command that failed, or an emulator that exited with an error."""
+    """A script command that failed, or an emulator that exited with an error.
+    status holds the fields of the status line of a failed command."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status or {}
 
 
 class Emu:
@@ -1465,7 +1470,7 @@ class Emu:
     # The options of the emulator that take a value, and the one option that
     # can repeat, from src/host/sokol/cli.
     _VALUED = {"screenshot", "frames", "scale", "filter", "script", "install",
-               "save-dir", "bgcolor", "phi2", "cp", "seed", "fill", "ini"}
+               "save-dir", "bgcolor", "phi2", "cp", "memseed", "memfill", "ini"}
     _REPEATABLE = {"install"}
 
     def __init__(self, *args):
@@ -1554,11 +1559,30 @@ class Emu:
             raise ScriptError(f"{line}: the emulator exited before it answered")
         reply = reply.rstrip("\n")
         if reply.startswith("fail"):
+            status = self._proc.stdout.readline().rstrip("\n")
             rest = self._proc.stdout.read()
-            raise ScriptError(f"{line}: {reply[5:]}\n{rest}".rstrip("\n"))
+            raise ScriptError(f"{line}: {reply[5:]}\n{status}\n{rest}".rstrip("\n"),
+                              Emu._fields(status))
         if reply != "ok" and not reply.startswith("ok "):
             raise ScriptError(f"{line}: unexpected answer {reply!r}")
         return reply[3:]
+
+    def status(self) -> dict:
+        """Sends status and returns its fields as a dict of ints, with ROM as a
+        str."""
+        return Emu._fields(self.cmd("status"))
+
+    @staticmethod
+    def _fields(line) -> dict:
+        """The fields of a status line. ROM is last, and its value is the rest
+        of the line."""
+        fields, _, rom = line.partition(" ROM=")
+        status = {}
+        for field in fields.split():
+            name, _, value = field.partition("=")
+            status[name] = int(value[1:], 16) if value.startswith("$") else int(value)
+        status["ROM"] = rom
+        return status
 
     def close(self):
         """Ends the script and waits for the emulator to exit. An exit code

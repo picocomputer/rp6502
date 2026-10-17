@@ -73,9 +73,8 @@ static int run_dap(const cli_options *o)
 #endif
 
 
-/* host_seed returns the seed for this run, which is chosen once. --seed sets
- * it, and otherwise it comes from the OS. The memory fill, the program's RNG
- * and the script's `cpu` line each read it, so it stays the same all run. */
+/* host_seed returns the first seed of the program's RNG, chosen once from the
+ * OS. A script's seed command restarts the RNG from a seed of its own. */
 static uint32_t run_seed;
 static bool run_seed_taken;
 
@@ -202,14 +201,11 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    /* One seed for the run reaches both the memory fills and the RNG the
-     * program reads, from separate streams so that the fills cannot move what
-     * the program's rand() returns. It is set before sys_init, which is where
-     * sram_init and xram_init fill. */
-    if (o.have_seed)
-        run_seed = (uint32_t)o.seed, run_seed_taken = true;
-    sram_set_fill(o.fill_random, o.fill_value, host_seed());
-    xram_set_fill(o.fill_random, o.fill_value, host_seed());
+    /* Set before sys_init, which is where sram_init and xram_init fill. */
+    uint32_t memseed = o.have_memseed ? o.memseed : os_random();
+    sram_set_fill(!o.have_memfill, o.memfill, memseed);
+    xram_set_fill(!o.have_memfill, o.memfill, memseed);
+    script_set_memory(o.have_memfill, o.memfill, memseed);
     sys_init();
 
     streams_mirror_stderr();

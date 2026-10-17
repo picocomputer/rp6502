@@ -100,7 +100,7 @@ GAMEPAD_SCRIPT = r"""
 run 40
 expect "Disconnected"
 expect-not "Select"
-# The test runs with --fill $55, so these read zero only because the
+# The test runs with --memfill $55, so these read zero only because the
 # program's xreg cleared all four records.
 peek xram:GAMEPAD $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
 peek xram:GAMEPAD+3*RECORD $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
@@ -184,13 +184,13 @@ peek xram:GAMEPAD $80 $00 $00 $08
 def test_gamepad():
     # Only xreg writes some of the bytes that the script checks, so the fill
     # gives those bytes a known value.
-    script(GAMEPAD_SCRIPT, "--fill", "$55", rom("gamepad"))
+    script(GAMEPAD_SCRIPT, "--memfill", "$55", rom("gamepad"))
 
 
 def test_gamepad_bounds():
     # The fill sets DONE to $55, so the wait passes only after the program
     # sets DONE.
-    script(GAMEPAD_BOUNDS_SCRIPT, "--fill", "$55", rom("gamepad_bounds"))
+    script(GAMEPAD_BOUNDS_SCRIPT, "--memfill", "$55", rom("gamepad_bounds"))
 
 
 def test_gamepad_held():

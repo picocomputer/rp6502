@@ -367,7 +367,7 @@ def test_opl_bel():
 def test_opl_exit():
     """The chord sounds, and the second frame after the program exits is
     silent."""
-    record("opl_exit", 'wav "on.wav" 1', "expect-exit 0 20",
+    record("opl_exit", 'wav "on.wav" 1', "wait exit 20", "expect exit 0",
            "run 1", 'wav "off.wav" 1')
     assert max(peaks(mono("on.wav"))), "no sound before the exit"
     assert not max(peaks(mono("off.wav"))), "sound after the exit"

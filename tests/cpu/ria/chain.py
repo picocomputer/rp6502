@@ -101,14 +101,16 @@ CHAIN_SCRIPT = r"""
 wait "launcher "
 wait "/launcher.rp6502\nchild exec\nchild\nlauncher "
 wait "/launcher.rp6502\nback 07\n"
-expect-exit 0
+wait exit
+expect exit 0
 run 10
 expect-not "launcher"
 
 # Started by its installed name, it keeps that name when it comes back.
 load ":launcher.rp6502"
 wait "launcher :launcher.rp6502\nchild exec\nchild\nlauncher :launcher.rp6502\nback 07\n"
-expect-exit 0
+wait exit
+expect exit 0
 run 10
 expect-not "launcher"
 """

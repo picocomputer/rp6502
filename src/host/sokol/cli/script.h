@@ -9,6 +9,7 @@
 #define _HOST_SOKOL_CLI_SCRIPT_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 /* Scripted input: a line-oriented command language that plugs in gamepads,
@@ -58,5 +59,9 @@ void script_listen(void);
 
 /* 0 when every assertion held. */
 int script_exit_code(void);
+
+/* How RAM and XRAM were filled, for status: one byte, or a random fill from
+ * memseed. */
+void script_set_memory(bool memfill_set, uint8_t memfill, uint32_t memseed);
 
 #endif /* _HOST_SOKOL_CLI_SCRIPT_H_ */

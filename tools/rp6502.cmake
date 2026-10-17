@@ -34,8 +34,8 @@ Tool Versions
 ^^^^^^^^^^^^^
 
 The native emulator, the web player and BASIC come from the releases of
-``picocomputer/rp6502`` and ``picocomputer/msbasic``. Configure fetches a
-tool file once into ``tools/`` under the file name of its release, such as
+``picocomputer/rp6502`` and ``picocomputer/msbasic``. Configure fetches each
+of them once into ``tools/`` under the file name of its release, such as
 ``tools/rp6502-0.40-web.zip``, and unpacks it into ``build/tools/``. Three
 settings select the versions:
 
@@ -67,11 +67,12 @@ any CMake variable does.
   set_tests_properties(picker PROPERTIES RP6502_EMU_VERSION 0.39)
 
 ``RP6502_EMU``, ``RP6502_WEB`` and ``RP6502_BASIC`` are settings of the
-same kind. Each names a file to use in place of a tool file: an emulator
-executable, a web zip, or a ``basic.rp6502``. A file found at any level
-comes before any version. A relative path is a path from the top source
-folder. ``RP6502_BASIC`` is also the switch of a BASIC project, so a CMake
-true value, such as ``ON``, names no file.
+same kind. Each is the path of a file that replaces the emulator, the web
+player or BASIC of a release: an emulator executable, the zip of a web
+player, or a ``basic.rp6502``. A file found at any level comes before any
+version. A relative path is a path from the top source folder.
+``RP6502_BASIC`` is also the switch of a BASIC project, so a CMake true
+value, such as ``ON``, is not a file path.
 
 Each target folder and each test folder has ``rp6502-emu``
 (``rp6502-emu.exe`` on Windows), a link to the emulator of the target or
@@ -505,9 +506,9 @@ endfunction()
   or :command:`rp6502_basic`. Building ``<target>`` also writes
   ``web/<name>.zip`` in the build folder, with the same files unpacked in
   ``web/<name>/``. At the root are the ROM, the page as ``index.html``,
-  and ``rp6502.js`` and ``rp6502.wasm`` from the web zip of the emulator.
-  ``RP6502_WEB_VERSION`` and ``RP6502_WEB`` select the web zip, as
-  `Tool Versions`_ tells.
+  and ``rp6502.js`` and ``rp6502.wasm`` from the web player.
+  ``RP6502_WEB_VERSION`` and ``RP6502_WEB`` select the web player. See
+  `Tool Versions`_.
 
   ``OUTPUT <name>.zip``
     The name of the zip, by default ``<target>.zip``.
@@ -515,7 +516,7 @@ endfunction()
   ``PAGE <file> | <folder>``
     The page file, or a folder copied with all subfolders, where the root
     ``index.html`` is the page. The default is the ``index.html`` of the
-    web zip. The page must load the emulator with
+    web player. The page must load the emulator with
     ``<script src="rp6502.js">`` and then call
     ``rp6502(container, rom, options)``. A script inserted right after the
     ``rp6502.js`` tag replaces the ``rom`` of every ``rp6502()`` call with
@@ -560,7 +561,7 @@ function(rp6502_web target)
     set_property(GLOBAL APPEND PROPERTY RP6502_WEB_ZIPS "${zip}")
     set(dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${name}.web")
 
-    # An empty page is the index.html of the web zip.
+    # An empty page is the index.html of the web player.
     set(page)
     set(folder)
     if (arg_PAGE)
@@ -646,8 +647,8 @@ function(rp6502_web target)
         "    return call(container, rom, ${options});\n"
         "})(rp6502);\n"
         "</script>")
-    # The end of configure writes the page, because the web zip version can
-    # be set later.
+    # The end of configure writes the page, because the version of the web
+    # player can be set later.
     set_property(GLOBAL PROPERTY RP6502_WEB_TARGET_${name} "${target}")
     set_property(GLOBAL PROPERTY RP6502_WEB_DIR_${name} "${dir}")
     set_property(GLOBAL PROPERTY RP6502_WEB_PAGE_${name} "${page}")
@@ -661,7 +662,7 @@ function(rp6502_web target)
         set(copy_folder COMMAND "${CMAKE_COMMAND}" -E copy_directory "${folder}" "${stage}")
     endif()
     # The zip is a post-build step of the ROM target, and a change to the
-    # page, the folder or the web zip links the target again.
+    # page, the folder or the web player links the target again.
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
         "${dir}/index.html" "${dir}/sources.txt" ${folder_files})
     add_custom_command(TARGET ${target} POST_BUILD
@@ -832,10 +833,11 @@ function(_rp6502_setting name want kind item dir out_var)
     set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
-# Sets <file_var> to the emulator, web zip or basic.rp6502 of <tool> (EMU,
-# WEB or BASIC) for <item>, a TARGET or a TEST in the source folder <dir>,
-# and <source_var> to "file <path>" or "release <repo> v<version>". The
-# file of EMU is empty when the host has no emulator.
+# Sets <file_var> to the emulator, the zip of the web player or the
+# basic.rp6502 of <tool> (EMU, WEB or BASIC) for <item>, a TARGET or a TEST
+# in the source folder <dir>, and <source_var> to "file <path>" or
+# "release <repo> v<version>". The file of EMU is empty when the host has no
+# emulator.
 function(_rp6502_resolve tool kind item dir file_var source_var)
     _rp6502_setting(RP6502_${tool} FILE ${kind} ${item} "${dir}" file)
     if(NOT file STREQUAL "")
@@ -925,7 +927,7 @@ function(_rp6502_release tool version file_var version_var repo_var)
     set(file "")
     if(NOT version STREQUAL "")
         string(REPLACE "@" "${version}" name "${name}")
-        _rp6502_tool_file("${repo}" "${version}" "${name}" ${required} file)
+        _rp6502_fetch_release("${repo}" "${version}" "${name}" ${required} file)
     endif()
     set(${file_var} "${file}" PARENT_SCOPE)
     set(${version_var} "${version}" PARENT_SCOPE)
@@ -987,7 +989,7 @@ endfunction()
 # Sets <out_var> to tools/<name> of release v<version> of <repo>, fetched
 # when tools/ lacks it. A release without the file stops configure for a
 # <required> file, and otherwise writes tools/<name>.unsupported.
-function(_rp6502_tool_file repo version name required out_var)
+function(_rp6502_fetch_release repo version name required out_var)
     set(file "${RP6502_TOOLS_DIR}/${name}")
     set(record "${file}.unsupported")
     set(${out_var} "" PARENT_SCOPE)
@@ -1173,14 +1175,14 @@ function(_rp6502_web_finish zip)
     get_property(folder_files GLOBAL PROPERTY RP6502_WEB_FILES_${name})
     set(caller "rp6502_web(${target})")
     get_target_property(src ${target} SOURCE_DIR)
-    _rp6502_resolve(WEB TARGET ${target} "${src}" web_zip source)
+    _rp6502_resolve(WEB TARGET ${target} "${src}" web_player source)
 
     file(REMOVE_RECURSE "${dir}/emulator")
-    file(ARCHIVE_EXTRACT INPUT "${web_zip}" DESTINATION "${dir}/emulator"
+    file(ARCHIVE_EXTRACT INPUT "${web_player}" DESTINATION "${dir}/emulator"
         PATTERNS rp6502.js rp6502.wasm index.html)
     foreach(part rp6502.js rp6502.wasm index.html)
         if(NOT EXISTS "${dir}/emulator/${part}")
-            message(FATAL_ERROR "${caller}: ${web_zip} has no ${part} at its root.")
+            message(FATAL_ERROR "${caller}: ${web_player} has no ${part} at its root.")
         endif()
     endforeach()
     if(NOT page)
@@ -1209,18 +1211,18 @@ function(_rp6502_web_finish zip)
     if(NOT written STREQUAL html)
         file(WRITE "${dir}/index.html" "${html}")
     endif()
-    file(SHA256 "${web_zip}" web_hash)
+    file(SHA256 "${web_player}" web_hash)
     string(REPLACE ";" "\n" listed "${folder_files}")
     file(CONFIGURE OUTPUT "${dir}/sources.txt"
-        CONTENT "${web_zip} ${web_hash}\n${listed}\n" @ONLY)
+        CONTENT "${web_player} ${web_hash}\n${listed}\n" @ONLY)
     # The publish workflow reads this file to screenshot the player with the
     # same emulator.
     file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/CMakeFiles/${name}.emulator"
         CONTENT "${source}\n" @ONLY)
 endfunction()
 
-# Gives each target and test its emulator, BASIC and web zip at the end of
-# configure, after every setting is made.
+# Gives each target and test its emulator, BASIC and web player at the end
+# of configure, after every setting is made.
 function(_rp6502_finish)
     get_property(targets GLOBAL PROPERTY RP6502_TARGETS)
     foreach(target IN LISTS targets)
@@ -1252,8 +1254,9 @@ function(_rp6502_finish)
         add_test(NAME rp6502.save COMMAND "${CMAKE_COMMAND}" -E rm -rf ${saves})
         set_tests_properties(rp6502.build rp6502.save PROPERTIES FIXTURES_SETUP rp6502.build)
     endif()
-    # A new tool file in tools/ runs configure again at the next build.
-    file(GLOB tool_files CONFIGURE_DEPENDS
+    # A new emulator, web player or BASIC in tools/ runs configure again at
+    # the next build.
+    file(GLOB releases CONFIGURE_DEPENDS
         "${RP6502_TOOLS_DIR}/rp6502-*" "${RP6502_TOOLS_DIR}/msbasic-*")
 endfunction()
 
@@ -1271,7 +1274,7 @@ function(_rp6502_read_sums file out_var)
     set(${out_var} "${entries}" PARENT_SCOPE)
 endfunction()
 
-# Sets RP6502_HOST_SUFFIX to the end of the name of the tool file with
+# Sets RP6502_HOST_SUFFIX to the end of the name of the file that holds
 # the emulator for this host, RP6502_HOST_MEMBER to the emulator in that
 # file, and RP6502_EMU_NAME to the name of the links to the emulator.
 function(_rp6502_host)
@@ -1371,17 +1374,17 @@ function(_rp6502_update)
         _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
     endif()
     if(emu)
-        _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
+        _rp6502_fetch_release("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-${RP6502_HOST_SUFFIX}" FALSE file)
     endif()
     if(web)
-        _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
+        _rp6502_fetch_release("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-web.zip" TRUE file)
     endif()
     file(GLOB found "${RP6502_TOOLS_DIR}/msbasic-*.zip")
     if(found)
         _rp6502_latest("${RP6502_BASIC_REPO}" "^msbasic-(.+)\\.zip$" TRUE version)
-        _rp6502_tool_file("${RP6502_BASIC_REPO}" "${version}"
+        _rp6502_fetch_release("${RP6502_BASIC_REPO}" "${version}"
             "msbasic-${version}.zip" TRUE file)
     endif()
 endfunction()
@@ -1632,7 +1635,7 @@ function(_rp6502_hook_launch_json)
 endfunction()
 
 # Replaces the .gitignore lines of the emulator of older tools with lines
-# for the tool files.
+# for the emulator, the web player and BASIC.
 function(_rp6502_hook_gitignore)
     set(file "${RP6502_PROJECT_DIR}/.gitignore")
     if(NOT EXISTS "${file}")

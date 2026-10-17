@@ -31,11 +31,11 @@ rp6502_add_script_test(NAME unassigned COMMAND unassigned.txt ${ADVENTURE_ROM})
 set_tests_properties(script.unassigned PROPERTIES PASS_REGULAR_EXPRESSION
     "[$]FF00 is unassigned")
 
-# The run fails on purpose, and the test checks the failure line. A . stands
-# for the ; that CMake would split the expression on.
+# The run fails on purpose, and the test checks the failure and the status
+# line after it.
 rp6502_add_script_test(NAME stuck COMMAND stuck.txt ${ADVENTURE_ROM})
 set_tests_properties(script.stuck PROPERTIES PASS_REGULAR_EXPRESSION
-    "timed out waiting for \"standing at the end of a road\". PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
+    "timed out waiting for \"standing at the end of a road\"\nrp6502-emu: PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
 
 # The symbols tests use two copies of adventure, each with a hand-written .sym
 # file, so a script can load the other copy and check that the symbols change.
@@ -58,7 +58,10 @@ endfunction()
 rp6502_add_cli_test(help --help)
 
 foreach(_case
-    "seed;--seed;x"
+    "memseed;--memseed;x"
+    "memseed_range;--memseed;4294967296"
+    "memfill_random;--memfill;random"
+    "memseed_and_memfill;--memseed;1;--memfill;0"
     "phi2;--phi2;fast"
     "scale;--scale;abc"
     "cp;--cp;4o7"
@@ -80,7 +83,7 @@ rp6502_add_cli_test(phi2_zero --phi2 0 --crc --frames 1
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 
 add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
-    --fill 010
+    --memfill 010
     --script ${CMAKE_CURRENT_LIST_DIR}/fill.txt
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
 set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")

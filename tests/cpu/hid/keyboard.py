@@ -46,7 +46,8 @@ run 20
 press space
 run 5
 release space
-expect-exit EXIT_CODE
+wait exit
+expect exit EXIT_CODE
 """
 
 

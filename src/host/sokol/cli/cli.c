@@ -24,7 +24,6 @@ void cli_options_init(cli_options *o)
     o->frames = 120;
     o->scale = 1.5;
     o->scale_filter = GFX_FILTER_SHARP;
-    o->fill_random = true;
 }
 
 static bool parse_hex_color(const char *s, int *r, int *g, int *b)
@@ -67,27 +66,13 @@ static bool cli_bad(const char *opt, const char *value)
     return false;
 }
 
-static bool parse_fill(const char *s, bool *random, uint8_t *value)
-{
-    if (!strcasecmp(s, "random"))
-    {
-        *random = true;
-        return true;
-    }
-    long long v;
-    if (!cli_number(s, &v) || v < 0 || v > 255)
-        return false;
-    *random = false;
-    *value = (uint8_t)v;
-    return true;
-}
 
 /* Long-option codes, above 255 so they cannot collide with a short-option
  * character. */
 enum
 {
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
-    OPT_INSTALL, OPT_SAVE_DIR, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
+    OPT_INSTALL, OPT_SAVE_DIR, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_MEMSEED, OPT_MEMFILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
     OPT_CRC, OPT_HEADLESS, OPT_STDIN,
 };
@@ -106,8 +91,8 @@ static const struct option longopts[] = {
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
     {"phi2",         required_argument, NULL, OPT_PHI2},
     {"cp",           required_argument, NULL, OPT_CP},
-    {"seed",         required_argument, NULL, OPT_SEED},
-    {"fill",         required_argument, NULL, OPT_FILL},
+    {"memseed",      required_argument, NULL, OPT_MEMSEED},
+    {"memfill",      required_argument, NULL, OPT_MEMFILL},
     {"mute",         no_argument,       NULL, OPT_MUTE},
     {"debug",        no_argument,       NULL, OPT_DEBUG},
     {"dap",          no_argument,       NULL, OPT_DAP},
@@ -146,10 +131,10 @@ void cli_usage(FILE *out, const char *argv0)
             "                            0 runs unpaced, warping time\n"
             "  --cp <n>                  OEM code page (437/720/737/771/775/850/852/855/\n"
             "                            857/860-866/869, default 437)\n"
-            "  --seed <n>                fixed RNG seed for reproducible runs\n"
-            "                            (default: host entropy)\n"
-            "  --fill random|<byte>      what RAM and XRAM hold at boot, as $FF or 255\n"
-            "                            (default: random, like the hardware's)\n"
+            "  --memseed <n>             seed of the random RAM and XRAM fill,\n"
+            "                            0-4294967295 (default: host entropy)\n"
+            "  --memfill <byte>          fill RAM and XRAM with one byte, as $FF or 255,\n"
+            "                            in place of the random fill of --memseed\n"
             "  --mute                    mute all audio (no synth, no OS audio device)\n"
             "  --debug                   on-screen machine debugger (CPU/VIA/disasm); holds\n"
             "                            the window open on stop for inspection; no window\n"
@@ -276,23 +261,24 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             o->code_page = (int)v;
             break;
         }
-        case OPT_SEED:
+        case OPT_MEMSEED:
         {
             long long v;
-            if (!cli_number(optarg, &v) || v < 0)
-                return cli_bad("--seed", optarg), 2;
-            o->seed = (unsigned long long)v;
-            o->have_seed = true;
+            if (!cli_number(optarg, &v) || v < 0 || v > UINT32_MAX)
+                return cli_bad("--memseed", optarg), 2;
+            o->memseed = (uint32_t)v;
+            o->have_memseed = true;
             break;
         }
-        case OPT_FILL:
-            if (!parse_fill(optarg, &o->fill_random, &o->fill_value))
-            {
-                fprintf(stderr, "rp6502-emu: bad --fill '%s' "
-                                "(want random or a byte 0-255)\n", optarg);
-                return 2;
-            }
+        case OPT_MEMFILL:
+        {
+            long long v;
+            if (!cli_number(optarg, &v) || v < 0 || v > 255)
+                return cli_bad("--memfill", optarg), 2;
+            o->memfill = (uint8_t)v;
+            o->have_memfill = true;
             break;
+        }
         case OPT_MUTE: o->mute = true; break;
         case OPT_DEBUG: o->debug = true; break;
         case OPT_DAP: o->dap = true; break;
@@ -308,6 +294,11 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
             fprintf(stderr, "rp6502-emu: unknown option '%s'\n", argv[optind - 1]);
             return 2;
         }
+    }
+    if (o->have_memseed && o->have_memfill)
+    {
+        fprintf(stderr, "rp6502-emu: --memseed and --memfill cannot both be given\n");
+        return 2;
     }
     if (o->headless)
         o->console = true;
