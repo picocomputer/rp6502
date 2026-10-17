@@ -22,11 +22,11 @@ Commands
 
 * :command:`rp6502_align` checks that addresses are even.
 * :command:`rp6502_asset` adds a file to a ROM.
+* :command:`rp6502_byproduct` adds a byproduct of the link to a ROM.
 * :command:`rp6502_executable` packages the linker output as a ROM.
 * :command:`rp6502_basic` packages BASIC programs as a ROM.
 * :command:`rp6502_web` packages a ROM as a web page.
 * :command:`rp6502_test` adds a test that runs in the emulator.
-* :command:`rp6502_byproducts` declares the extra files that a link writes.
 
 Functions named ``_rp6502_*`` are internal.
 
@@ -163,9 +163,10 @@ endfunction()
   loads ``<file>`` into RAM ($0-$FFFF) or XRAM ($10000-$1FFFF) when the ROM
   loads. Any other ``<address>`` is a file name in the ROM, which a program
   opens as ``ROM:<address>``. A relative ``<file>`` is a path from the
-  current source folder. A generated file, such as the output of a custom
-  command or of :command:`rp6502_byproducts`, is named by the full path, as
-  in ``${CMAKE_CURRENT_BINARY_DIR}/logo.bin``. Call this before
+  current source folder. For a generated file, such as the output of a
+  custom command, ``<file>`` is the full path, as in
+  ``${CMAKE_CURRENT_BINARY_DIR}/logo.bin``. For a file that the link writes,
+  use :command:`rp6502_byproduct`. Call this before
   :command:`rp6502_executable` or :command:`rp6502_basic`.
 
   ``RAM(<x>)`` and ``XRAM(<x>)`` load ``<file>`` into RAM or XRAM at
@@ -208,7 +209,7 @@ function(rp6502_asset target)
     endif()
     get_filename_component(src_file "${in_file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     file(RELATIVE_PATH rel_path "${CMAKE_SOURCE_DIR}" "${src_file}")
-    if (rel_path MATCHES "^\\.\\.")
+    if (IS_ABSOLUTE "${rel_path}" OR rel_path MATCHES "^\\.\\.")
         get_filename_component(rel_path "${src_file}" NAME)
     endif()
     string(MAKE_C_IDENTIFIER "${addr}" key)
@@ -264,12 +265,13 @@ endfunction()
   The linker output goes into ``<target>/`` in the current build folder,
   and building ``<target>`` also writes ``<target>.rp6502`` and
   ``<target>.sym`` there. The folder also holds ``rp6502-emu``, the emulator
-  of the target. The ROM holds the linker output, the assets
-  that :command:`rp6502_asset` adds, and each ``<rom>``, a path from the
-  current source folder. The ``.sym`` file holds each integer ``#define``
-  of the C sources and each linker symbol, one ``NAME VALUE`` line each.
-  Call :command:`rp6502_asset`, :command:`rp6502_align` and
-  :command:`rp6502_byproducts` for the target before this command.
+  of the target. The ROM holds the linker output, the assets that
+  :command:`rp6502_asset` and :command:`rp6502_byproduct` add, and each
+  ``<rom>``, a path from the current source folder. The ``.sym`` file holds
+  each integer ``#define`` of the C sources and each linker symbol, one
+  ``NAME VALUE`` line each.
+  Call :command:`rp6502_asset`, :command:`rp6502_byproduct`, and
+  :command:`rp6502_align` for the target before this command.
 
   ``DATA <addr>``
     Where the linker output loads. Without ``DATA``, the ROM leaves the
@@ -376,7 +378,7 @@ function(rp6502_executable target)
     if (pre_link)
         target_sources(${target} PRIVATE ${pre_link})
     endif()
-    # The source file of an asset made after the link is a source of the
+    # The source file of an asset with a symbol address is a source of the
     # target too, but is never compiled.
     if (sym_sources)
         set_source_files_properties(${sym_sources} PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -750,32 +752,35 @@ function(rp6502_test)
 endfunction()
 
 #[=======================================================================[.rst:
-.. command:: rp6502_byproducts
+.. command:: rp6502_byproduct
 
-  Declares files that the link of a target also writes.
+  Adds ``<file>``, which the link of ``<target>`` writes, to the ROM of
+  ``<target>``.
 
   .. code-block:: cmake
 
-    rp6502_byproducts(<target> <file>...)
+    rp6502_byproduct(<target> <address> <file>)
+    rp6502_byproduct(<target> RAM(<x>) <file>)
+    rp6502_byproduct(<target> XRAM(<x>) <file>)
 
-  Some linker configurations write files beside the executable, which
-  ``add_executable()`` does not model. A relative ``<file>`` is a path
-  from the current build folder, so a file beside the executable is
-  ``<target>/<file>``. An :command:`rp6502_asset` made from one of these
-  files is made after the link, and names the file by the same full path.
-  Call this before :command:`rp6502_executable`.
+  ``<address>`` is as in :command:`rp6502_asset`. A relative ``<file>`` is a
+  path from the folder of the linker output, ``<target>/`` in the current
+  build folder. The build packages the file after the link, so a
+  ``POST_BUILD`` command of the target can write it. Add that command before
+  :command:`rp6502_executable`. A ``POST_BUILD`` command runs only when the
+  target links, so add its input files to the ``LINK_DEPENDS`` property of
+  the target. Call this before :command:`rp6502_executable`.
 #]=======================================================================]
-function(rp6502_byproducts target)
-    add_custom_command(
-        OUTPUT ${ARGN}
-        DEPENDS ${target}
-        COMMAND ${CMAKE_COMMAND} -E touch_nocreate ${ARGN}
-        VERBATIM
-    )
-    foreach(file IN LISTS ARGN)
-        get_filename_component(file "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-        set_property(TARGET ${target} APPEND PROPERTY RP6502_BYPRODUCTS "${file}")
-    endforeach()
+function(rp6502_byproduct target)
+    set(args ${ARGN})
+    list(LENGTH args argc)
+    if (NOT argc EQUAL 2 AND NOT argc EQUAL 5)
+        message(FATAL_ERROR "rp6502_byproduct(<target> <address> <file>)")
+    endif()
+    list(POP_BACK args file)
+    get_filename_component(file "${file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}/${target}")
+    set_property(TARGET ${target} APPEND PROPERTY RP6502_BYPRODUCTS "${file}")
+    rp6502_asset(${target} ${args} "${file}")
 endfunction()
 
 # Internal helpers of the commands above
