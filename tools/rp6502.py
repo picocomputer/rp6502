@@ -1559,10 +1559,14 @@ class Emu:
             raise ScriptError(f"{line}: the emulator exited before it answered")
         reply = reply.rstrip("\n")
         if reply.startswith("fail"):
-            status = self._proc.stdout.readline().rstrip("\n")
+            status = self._proc.stdout.readline()
             rest = self._proc.stdout.read()
+            # An emulator from an older release prints no status line.
+            if not status.startswith("PC="):
+                status, rest = "", status + rest
+            status = status.rstrip("\n")
             raise ScriptError(f"{line}: {reply[5:]}\n{status}\n{rest}".rstrip("\n"),
-                              Emu._fields(status))
+                              Emu._fields(status) if status else {})
         if reply != "ok" and not reply.startswith("ok "):
             raise ScriptError(f"{line}: unexpected answer {reply!r}")
         return reply[3:]
