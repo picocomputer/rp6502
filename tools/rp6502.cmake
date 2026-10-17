@@ -82,11 +82,11 @@ Update
 
 ``cmake -P tools/rp6502.cmake`` replaces each file that ``tools/SHA256SUMS``
 of ``RP6502_TOOLS_REPO`` lists, after a check of the hash. It then fetches
-from the latest releases the emulator for the host, the web zip when
-``tools/`` has a web zip, and BASIC when ``tools/`` has BASIC. It also
-updates ``.vscode/tasks.json``, ``.vscode/launch.json``, ``.gitignore`` and
-the ``rp6502_map()`` calls of ``CMakeLists.txt`` when those files exist.
-Commit the tools. Git ignores the tool files.
+the latest release of each of the emulator for the host, the web player
+and BASIC that ``tools/`` has. It also updates ``.vscode/tasks.json``,
+``.vscode/launch.json``, ``.gitignore`` and the ``rp6502_map()`` calls of
+``CMakeLists.txt`` when those files exist. Commit the scripts. Git ignores
+the emulator, the web player and BASIC.
 #]=======================================================================]
 
 # Ubuntu 24.04 has CMake 3.28. Do not require a later version.
@@ -1352,16 +1352,26 @@ function(_rp6502_fetch_sums out_var)
     set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
-# Fetches from the latest releases the emulator for this host, the web zip
-# when tools/ has a web zip, and BASIC when tools/ has BASIC.
+# Fetches the latest release of each of the emulator for this host, the web
+# player and BASIC that tools/ has. The next configure that uses a tool
+# that tools/ lacks fetches it.
 function(_rp6502_update)
-    _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
+    set(emu)
     if(RP6502_HOST_SUFFIX)
+        # A record of an unsupported host counts, so a new release can add it.
+        file(GLOB emu
+            "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}"
+            "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}.unsupported")
+    endif()
+    file(GLOB web "${RP6502_TOOLS_DIR}/rp6502-*-web.zip")
+    if(emu OR web)
+        _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
+    endif()
+    if(emu)
         _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-${RP6502_HOST_SUFFIX}" FALSE file)
     endif()
-    file(GLOB found "${RP6502_TOOLS_DIR}/rp6502-*-web.zip")
-    if(found)
+    if(web)
         _rp6502_tool_file("${RP6502_TOOLS_REPO}" "${version}"
             "rp6502-${version}-web.zip" TRUE file)
     endif()
