@@ -2329,7 +2329,9 @@ extern "C" void dap_pump(void)
         {
             dap::OutputEvent ev;
             ev.category = "console";
-            ev.output = "rp6502-emu: program failed to start\n";
+            const char *why = proc_boot_error();
+            ev.output = std::string("rp6502-emu: ") +
+                        (why[0] ? why : "program failed to start\n");
             g_session->send(ev);
         }
     }

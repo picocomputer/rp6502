@@ -47,6 +47,26 @@ UTEST(rom, rejects_missing_file)
     ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
 }
 
+/* A ROM without a reset vector loads its records, then fails with the reason
+ * that the monitor of an RP6502-PICO gives. */
+UTEST(rom, rejects_a_rom_without_a_reset_vector)
+{
+    static const char image[] =
+        "#!RP6502\n"
+        "$00300 $4 $06EE5D17\n" "\xA9\x2A\xDB\xEA";
+    char path[TEST_PATH_MAX];
+    snprintf(path, sizeof path, "%s/novector.rp6502", TEST_SCRATCH);
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    ASSERT_EQ(fwrite(image, 1, sizeof image - 1, f), sizeof image - 1);
+    fclose(f);
+
+    memset(sram, 0, 0x10000);
+    ASSERT_FALSE(rom_load(path));
+    ASSERT_EQ(sram[0x0300], 0xA9);
+    ASSERT_STREQ(rom_load_error(), "?ROM has no reset vector\n");
+}
+
 UTEST(rom, loads_a_headerless_image)
 {
     static const char image[] =

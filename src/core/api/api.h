@@ -51,6 +51,10 @@ bool api_set_errno_opt(uint8_t opt);
  * at every program start. */
 uint16_t api_platform_errno(api_errno num);
 
+/* The message that a console shows for num, such as "?No file\n" for
+ * API_ENOENT, in the active locale. */
+const char *api_errno_str(api_errno num);
+
 /* The longest path any op takes. The boards hold a path in a 256 byte buffer,
  * which is 255 characters and a terminator, so a longer path has nowhere to go
  * on the machine this API was written for. */

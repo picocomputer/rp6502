@@ -134,6 +134,7 @@ core/rom/asset.c rom_assets_start: the ASET chunk
 core/rom/asset.c rom_fd: the ASET chunk
 core/rom/asset.c windows: not carried: each open window is the STD chunk's own record of that descriptor
 core/rom/rom.c buf.0: parse scratch, dead at every frame boundary
+core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
 core/str/rln.c history.4: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
@@ -199,6 +200,7 @@ core/sys/config.c config_oem_code_page: not carried: host settings, not machine 
 core/sys/config.c config_phi2_khz: not carried: host settings, not machine state
 core/sys/config.c config_str_locale: not carried: host settings, not machine state
 core/sys/proc.c argv.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c boot_error: not carried: the message for the last failed boot, which the host reads right after the boot
 core/sys/proc.c launcher.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/proc.c queued: the PROC chunk
 core/sys/proc.c running.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack

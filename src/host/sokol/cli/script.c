@@ -1725,7 +1725,10 @@ static bool script_command(const char *line)
             return script_error("load wants a stopped machine");
         vtkeys_paste_cancel();
         if (!proc_boot(oem, 0, NULL, PROC_UNCHAIN))
-            return script_error("cannot load '%s'", path);
+        {
+            const char *why = proc_boot_error();
+            return script_error("%.*s", (int)strcspn(why, "\n"), why);
+        }
         script_halted = false;
         sys_commit();
         /* The symbols now come from the new program's .sym. An installed

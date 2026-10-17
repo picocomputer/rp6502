@@ -9,6 +9,7 @@
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import rp6502
 from rp6502_asm import (API_A, API_X, OP_ATTR_GET, OP_EXIT, Asm, putc)
@@ -50,6 +51,12 @@ def prog():
     return p
 
 
+def quoted(path):
+    """A host path as a script string. A script reads a backslash as an escape,
+    so the string has forward slashes, which Windows also takes."""
+    return '"' + Path(path).as_posix() + '"'
+
+
 def drew(e):
     return int.from_bytes(bytes.fromhex(e.cmd("dump GOT 4")), "little")
 
@@ -68,7 +75,7 @@ def test_seed():
         for seed, value in ((0, 0), (4294967295, 4294967295), ("(2 + 3)", 5)):
             e.cmd("discard")
             e.cmd(f"seed {seed}")
-            e.cmd(f'load "{rom("seed")}"')
+            e.cmd(f'load {quoted(rom("seed"))}')
             e.cmd("wait exit")
             e.cmd('expect "drew\\n"')
             assert drew(e) == lrand(value), f"seed {seed} drew {drew(e):08X}"
@@ -107,7 +114,7 @@ def test_failure_line():
     """A failure ends with the cpu, the exit code and both seeds."""
     line = fails(["seed 5", "wait exit", "expect exit 0"],
                  f"exit code {EXIT_CODE}, expected 0", "--memseed", "7")
-    want = f" RESB=0 EXIT={EXIT_CODE} SEED=5 MEMSEED=7 ROM=FS:"
+    want = f" RESB=0 EXIT={EXIT_CODE} SEED=5 MEMSEED=7 ROM="
     assert want in line and line.endswith("/seed.rp6502"), line
     # Emu gives the same fields with the error.
     try:
@@ -143,7 +150,7 @@ def test_status():
         e.cmd("wait exit")
         s = e.status()
         assert s["EXIT"] == EXIT_CODE and s["RESB"] == 0, s
-        e.cmd(f'load "{os.path.join(spaced, "my rom.rp6502")}"')
+        e.cmd(f'load {quoted(os.path.join(spaced, "my rom.rp6502"))}')
         s = e.status()
         assert s["ROM"].endswith("/a b/my rom.rp6502"), s
         assert e.cmd("status").endswith(" ROM=" + s["ROM"])
@@ -155,7 +162,7 @@ def test_exit_checks():
     another program exited."""
     fails(["expect exit 0"], "the program has not exited")
     fails(["sys stop", "expect exit 0"], "the program has not exited")
-    fails(["wait exit", f'load "{rom("seed")}"', "sys stop", "expect exit 3"],
+    fails(["wait exit", f'load {quoted(rom("seed"))}', "sys stop", "expect exit 3"],
           "the program has not exited")
     with rp6502.Emu(rom("seed")) as e:
         e.cmd("wait exit")
@@ -164,6 +171,25 @@ def test_exit_checks():
     line = fails(["sys stop", "status", "wait exit 5"],
                  "timed out waiting for the program to exit")
     assert " EXIT=" not in line, line
+
+
+def test_load_errors():
+    """A ROM that does not start gives the same message as the monitor of an
+    RP6502-PICO, on the command line and from load."""
+    novec = rp6502.ROM()
+    novec.add_binary_data(b"\xea", 0x0200)
+    novec.write("novec.rp6502")
+    assets = rp6502.ROM()
+    assets.add_asset("help", b"help")
+    assets.write("assets.rp6502")
+    r = subprocess.run(rp6502.Emu.command("--headless", "novec.rp6502"),
+                       capture_output=True, text=True)
+    assert (r.returncode, r.stderr) == \
+        (1, "rp6502-emu: ?ROM has no reset vector\n"), r
+    for name, want in (("novec.rp6502", "?ROM has no reset vector"),
+                       ("assets.rp6502", "?ROM data invalid"),
+                       ("missing.rp6502", "?No file")):
+        fails(["wait exit", f"load {quoted(os.path.abspath(name))}"], want)
 
 
 def test_discard():
@@ -180,5 +206,6 @@ ROMS = {"seed": prog}
 TESTS = {"seed": test_seed, "seed_range": test_seed_range,
          "leftover": test_leftover, "failure_line": test_failure_line,
          "exit_checks": test_exit_checks, "discard": test_discard,
-         "memfill": test_memfill, "status": test_status}
+         "memfill": test_memfill, "status": test_status,
+         "load_errors": test_load_errors}
 main(globals())

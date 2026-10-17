@@ -333,10 +333,9 @@ int main(int argc, char **argv)
     free(rom);
     if (!booted)
     {
-        /* rom_load said why on the machine's console, which no window on this
+        /* proc_boot said why on the machine's console, which no window on this
          * path ever shows, so the reason is repeated here. */
-        fprintf(stderr, "rp6502-emu: cannot load ROM '%s'\n",
-                o.rom ? o.rom : o.installs[0]);
+        fprintf(stderr, "rp6502-emu: %s", proc_boot_error());
         return 1;
     }
 
