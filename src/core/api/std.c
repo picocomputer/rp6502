@@ -384,9 +384,11 @@ bool std_api_open(void)
 bool std_api_close(void)
 {
     int fd = API_A;
-    if (fd == STD_FD_TTY || fd == STD_FD_CON)
+    /* The console descriptors stay open, so a close of one succeeds and
+     * changes nothing. */
+    if (fd < STD_FD_FIRST_FREE)
         return api_return_ax(0);
-    if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
+    if (fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
         return api_return_errno(API_EBADF);
     std_fd_t *f = &std_fd_pool[fd];
     api_errno err = API_EIO;

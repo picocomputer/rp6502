@@ -6,11 +6,12 @@
 import subprocess
 
 import rp6502
-from rp6502_asm import (API_A, API_X, OP_EXIT, OP_READ_XSTACK, OP_WRITE_XSTACK,
-                        XSTACK, Asm)
+from rp6502_asm import (API_A, API_X, OP_CLOSE, OP_EXIT, OP_READ_XSTACK,
+                        OP_WRITE_XSTACK, XSTACK, Asm)
 from rp6502_rom import main, rom, script
 
 EXIT_CODE = 3
+EXIT = 0x10  # zero page byte that holds the OR of the close results
 ERR = "err\n"
 EOF = "eof\n"
 INPUT = "a\rbb\r"
@@ -75,6 +76,38 @@ def test_stdio():
         assert got == want, f"{name} {got!r}, expected {want!r}"
 
 
-ROMS = {"stdio": prog}
-TESTS = {"eof_empty": test_eof_empty, "stdio": test_stdio}
+def prog_close():
+    """Closes stdin, stdout, stderr, CON: and TTY:, and exits with the OR of
+    the five results, then writes to stdout to show that it is still open."""
+    p = Asm()
+    p.store(EXIT, 0)
+    for fd in range(5):
+        p.call_a(OP_CLOSE, fd)
+        p.ora_abs(EXIT)
+        p.sta_abs(EXIT)
+    write_str(p, 1, "ok\n")
+    p.lda_abs(EXIT)
+    p.sta_abs(API_A)
+    p.store(API_X, 0)
+    p.call(OP_EXIT)
+    p.stp()
+    return p
+
+
+CLOSE_SCRIPT = r"""
+# A close of a console descriptor succeeds and leaves it open.
+
+wait exit
+expect exit 0
+expect "ok\n"
+"""
+
+
+def test_close_console():
+    script(CLOSE_SCRIPT, rom("close"))
+
+
+ROMS = {"stdio": prog, "close": prog_close}
+TESTS = {"eof_empty": test_eof_empty, "stdio": test_stdio,
+         "close_console": test_close_console}
 main(globals())

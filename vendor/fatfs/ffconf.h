@@ -298,7 +298,11 @@ unsigned long long drive_min_gpt (void);	/* RP6502: runtime FF_MIN_GPT hook (mon
 */
 
 
-#define FF_FS_LOCK		0
+/* One lock for each object that can be open at once: the program's files
+/  and the ROM file of osal/pico/fs.c, the program's directories of
+/  osal/dir.h, and the directory that fat_names_dir() opens to test a path.
+/  osal/pico/fs.c checks the sum against those limits. */
+#define FF_FS_LOCK		(8 + 1 + 8 + 1)
 /* The option FF_FS_LOCK switches file lock function to control duplicated file open
 /  and illegal operation to open objects. This option must be 0 when FF_FS_READONLY
 /  is 1.

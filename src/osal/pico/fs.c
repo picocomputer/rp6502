@@ -6,6 +6,7 @@
 
 #include "osal/pico/dir.h"
 #include "osal/pico/errmap.h"
+#include "osal/dir.h"
 #include "osal/fs.h"
 #include "fatfs/ff.h"
 #include "osal/pico/lfs.h"
@@ -23,6 +24,11 @@
 #define FS_DESC_ROM FAT_FIL_MAX
 #define FS_DESC_ROM_WR (FAT_FIL_MAX + 1)
 static FIL fat_fil_pool[FAT_FIL_MAX + 1];
+
+/* FatFs takes a lock for each open file and directory. ffconf.h cannot see
+ * these limits, so its sum is checked here: the files, the ROM file, the
+ * directories, and the directory that fat_names_dir() opens. */
+static_assert(FF_FS_LOCK == FAT_FIL_MAX + 1 + DIR_MAX_OPEN + 1);
 static bool rom_rd_lfs_live;
 static lfs_file_t rom_rd_lfs;
 LFS_FILE_CONFIG(rom_rd_lfs_cfg, static);
