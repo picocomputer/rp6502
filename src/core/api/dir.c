@@ -215,21 +215,21 @@ bool dir_api_telldir(void)
 bool dir_api_seekdir(void)
 {
     int des = API_A;
-    int32_t offs;
-    if (!api_pop_int32_end(&offs))
+    int32_t loc;
+    if (!api_pop_int32_end(&loc))
         return api_return_errno(API_EINVAL);
     api_errno err;
     if (!drive_validate(des, &err))
         return api_return_errno(err);
-    if (offs < 0)
+    if (loc < 0)
         return api_return_errno(API_EINVAL);
-    if (tells[des] > offs)
+    if (tells[des] > loc)
     {
         if (!drive_rewinddir(des, &err))
             return api_return_errno(err);
         tells[des] = 0;
     }
-    while (tells[des] < offs)
+    while (tells[des] < loc)
     {
         f_stat_t info;
         if (!dir_next(des, &info, &err))
