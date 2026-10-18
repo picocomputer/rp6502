@@ -423,11 +423,13 @@ UTEST(fs, dir_enumeration)
     ASSERT_TRUE(freeb <= totalb);
 
     /* Only the Pico has volume labels. */
-    dsys_path("");
+    dsys_path(host_drive());
     dir_api_getlabel();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
-    dsys_path("NEWLABEL");
+    char named[32];
+    snprintf(named, sizeof named, "%sNEWLABEL", host_drive());
+    dsys_path(named);
     dir_api_setlabel();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
@@ -458,6 +460,29 @@ UTEST(fs, dir_enumeration)
     dsys_filinfo(&info);
     ASSERT_EQ((unsigned)((info.fdate >> 9) & 0x7F), 10u);
     ASSERT_EQ((unsigned)((info.fdate >> 5) & 0x0F), 3u);
+}
+
+UTEST(fs, a_label_call_requires_a_drive_name)
+{
+    ASSERT_TRUE(fresh_cwd());
+    char root[16];
+    snprintf(root, sizeof root, "%s/", host_drive());
+    const char *const get_refused[] = {"", ":", root};
+    for (size_t i = 0; i < sizeof get_refused / sizeof *get_refused; i++)
+    {
+        dsys_path(get_refused[i]);
+        dir_api_getlabel();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+    static const char *const set_refused[] = {"NEWLABEL", ":NEWLABEL"};
+    for (size_t i = 0; i < sizeof set_refused / sizeof *set_refused; i++)
+    {
+        dsys_path(set_refused[i]);
+        dir_api_setlabel();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
 }
 
 UTEST(fs, rom_asset_window_read_only_on_demand)

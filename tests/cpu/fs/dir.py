@@ -131,7 +131,7 @@ def test_dir():
             e.cmd(f'expect "{entry(found)}\\r\\n"')
         e.cmd('expect "readdir 00\\r\\n"')
         e.cmd('expect "closedir 00\\r\\n"')
-        # Only the Pico has volume labels, so getlabel returns -1 here.
+        # GETLABEL requires a drive name, so it returns -1 for "".
         e.cmd('expect "getlabel FF\\r\\n"')
         e.cmd('expect "getfree 00\\r\\n"')
 

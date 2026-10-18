@@ -331,19 +331,28 @@ bool dir_api_getcwd(void)
     return api_return_ax(len + 1);
 }
 
+/* The label calls require a drive name, so a label never lands on the current
+ * drive. Returns the text after the colon, or NULL. */
+static const char *dir_after_drive(const char *path)
+{
+    const char *colon = path ? strchr(path, ':') : NULL;
+    return colon && colon != path ? colon + 1 : NULL;
+}
+
 bool dir_api_setlabel(void)
 {
     const char *path = dir_path();
     api_errno err = API_EINVAL;
-    return dir_return(path && drive_setlabel(path, &err), &err);
+    return dir_return(dir_after_drive(path) && drive_setlabel(path, &err), &err);
 }
 
 bool dir_api_getlabel(void)
 {
     const char *path = dir_path();
+    const char *rest = dir_after_drive(path);
     char label[12];
     api_errno err = API_EINVAL;
-    if (!path || !drive_getlabel(path, label, sizeof(label), &err))
+    if (!rest || *rest || !drive_getlabel(path, label, sizeof(label), &err))
         return api_return_errno(err);
     size_t len = strlen(label);
     for (size_t i = len; i;)
