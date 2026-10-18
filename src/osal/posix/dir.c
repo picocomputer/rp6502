@@ -532,17 +532,6 @@ bool drive_chdir(const char *path, api_errno *err)
     return ok;
 }
 
-/* FS: and the bare current drive are the only drives, and anything else is a
- * missing device. The name must leave nothing behind it, so "FS:junk" names no
- * drive, and neither does the null drive. */
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    if (!strip_drive(drive)[0])
-        return true;
-    *err = API_ENODEV;
-    return false;
-}
-
 /* Only the read-only bit has a POSIX equivalent, which is write permission;
  * hidden, system and archive are dropped. The path is resolved whatever the
  * mask holds, because a chmod of something that is not there is an error on

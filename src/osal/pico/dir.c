@@ -224,23 +224,6 @@ bool drive_chdir(const char *path, api_errno *err)
     return true;
 }
 
-/* A name is empty for the current drive, or a volume ID and its colon with
- * nothing after it, as on the other machines. FatFs itself takes any name
- * without a colon as the current drive and drops whatever follows the colon,
- * so the check comes first. f_chdrive accepts a slot with no drive in it, so
- * f_getlabel mounts the volume first. */
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    const char *colon = strchr(drive, ':');
-    if (drive[0] && (!colon || colon[1]))
-    {
-        *err = API_ENODEV;
-        return false;
-    }
-    return fat_ok(f_getlabel((const TCHAR *)drive, NULL, NULL), err) &&
-           fat_ok(f_chdrive((const TCHAR *)drive), err);
-}
-
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     return fat_path_ok(path, err) &&

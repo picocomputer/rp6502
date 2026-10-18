@@ -96,8 +96,8 @@ const char *host_save_dir(void)
 }
 
 /* A --save-dir that is not absolute is taken from the drive and folder the
- * emulator starts in, and made absolute here because a program's CHDIR and
- * CHDRIVE move the process. On Windows only a drive with a separator, or two
+ * emulator starts in, and made absolute here because a program's CHDIR moves
+ * the process. On Windows only a drive with a separator, or two
  * leading separators, is absolute: "\x" is on the current drive and "C:x" is
  * in the current folder of C:. */
 static const char *save_dir_from(const char *dir)

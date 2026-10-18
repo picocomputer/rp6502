@@ -12,7 +12,7 @@
 import os
 
 import rp6502
-from rp6502_asm import (API_A, API_ERRNO, OP_ARGV, OP_CHDIR, OP_CHDRIVE,
+from rp6502_asm import (API_A, API_ERRNO, OP_ARGV, OP_CHDIR,
                         OP_CLOSE, OP_DROP_XSTACK, OP_ERRNO_OPT, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
                         OP_READ_XRAM, OP_READ_XSTACK, OP_RENAME, OP_STAT,
@@ -836,11 +836,6 @@ def build():
     p.push_str("/Saves/rp6502/common")
     p.call(OP_CHDIR)
     check("is_ff")
-
-    p.push_str("")
-    p.jsr_abs("push_pfx")
-    p.call(OP_CHDRIVE)
-    check("not_ff")
 
     # OP_TIME_GET pushes a 64-bit count of seconds, which is popped low
     # byte first. A nonzero byte 3 puts the time after mid-1970, long after

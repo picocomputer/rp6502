@@ -205,7 +205,7 @@ X(STR_HELP_HELP,
   "STATUS              - \aPokaż status systemu i podłączonych urządzeń.\n"
   "SET (atr) (wart)    - \aZmień lub pokaż ustawienia.\n"
   "DIR (kat|napęd)     - \aWypisz zawartość katalogu.\n"
-  "LS (kat)            - \aZmień lub pokaż bieżący katalog.\n"
+  "CD (kat)            - \aZmień lub pokaż bieżący katalog.\n"
   "(MSC)0:             - \aMSC0:-MSC9: Zmień bieżące urządzenie pamięci.\n"
   "LOAD plik           - \aWczytaj plik ROM. Uruchom, jeśli ma wektor resetu.\n"
   "INFO plik           - \aPokaż tekst pomocy z pliku ROM, jeśli istnieje.\n"

@@ -201,7 +201,7 @@ X(STR_HELP_HELP,
   "STATUS               - \aAffiche l'état du système et des périphériques connectés.\n"
   "SET (attr) (valeur)  - \aModifier ou afficher les réglages.\n"
   "DIR (rep|lecteur)    - \aListe le contenu d'un répertoire.\n"
-  "LS (rep)             - \aChanger ou afficher le répertoire courant.\n"
+  "CD (rep)             - \aChanger ou afficher le répertoire courant.\n"
   "(MSC)0:              - \aMSC0:-MSC9: Changer le périphérique de stockage courant.\n"
   "LOAD fichier         - \aCharge un fichier ROM. Démarre si vecteur reset présent.\n"
   "INFO fichier         - \aAffiche l'aide incluse dans le fichier ROM, si présente.\n"

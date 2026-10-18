@@ -41,14 +41,6 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     return true;
 }
 
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    if (!*fs_strip_drive(drive))
-        return true;
-    *err = API_ENODEV;
-    return false;
-}
-
 static bool drive_enosys(api_errno *err)
 {
     *err = API_ENOSYS;

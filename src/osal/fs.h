@@ -64,8 +64,8 @@ int fs_rom_open_host(const char *host, api_errno *err);
 
 /* fs_save_start sets the SAVE: folder each time a program starts: the
  * host_save_dir of host/host.h, or the working directory at that moment when
- * that is NULL. fs_save_open opens name in that folder, so a CHDIR or CHDRIVE
- * by the program does not move its saves. save_std_open has already checked
+ * that is NULL. fs_save_open opens name in that folder, so a CHDIR by the
+ * program does not move its saves. save_std_open has already checked
  * name against the rules in core/api/save.h. The descriptor is one the
  * fs_std_ functions accept, and fs_std_ident records it as SAVE:name, so a
  * savestate holds no host path for it and fs_std_reopen opens it again

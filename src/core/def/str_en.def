@@ -201,7 +201,7 @@ X(STR_HELP_HELP,
   "STATUS              - \aShow status of system and connected devices.\n"
   "SET (attr) (value)  - \aChange or show settings.\n"
   "DIR (dir|drive)     - \aList contents of directory.\n"
-  "LS (dir)            - \aChange or show current directory.\n"
+  "CD (dir)            - \aChange or show current directory.\n"
   "(MSC)0:             - \aMSC0:-MSC9: Change current storage device.\n"
   "LOAD file           - \aLoad ROM file. Start if contains reset vector.\n"
   "INFO file           - \aShow help text, if any, contained in ROM file.\n"

@@ -314,13 +314,6 @@ bool dir_api_chdir(void)
     return dir_return(path && drive_chdir(path, &err), &err);
 }
 
-bool dir_api_chdrive(void)
-{
-    const char *path = dir_path();
-    api_errno err = API_EINVAL;
-    return dir_return(path && drive_chdrive(path, &err), &err);
-}
-
 /* The drive writes the path at the bottom of the xstack; it is relocated to
  * the top so the 6502 pops it in order. */
 bool dir_api_getcwd(void)

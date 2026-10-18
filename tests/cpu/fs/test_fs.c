@@ -304,27 +304,19 @@ UTEST(fs, a_working_directory_past_255_bytes_is_not_answered)
 }
 #endif
 
-UTEST(fs, chdrive_takes_this_machine_s_drive)
+UTEST(fs, chdir_takes_this_machine_s_drive_alone)
 {
     ASSERT_TRUE(fresh_cwd());
 
     dsys_path(host_drive());
-    dir_api_chdrive();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("");
-    dir_api_chdrive();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
 
     dsys_path("NOPE:");
-    dir_api_chdrive();
-    ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
-
-    /* A drive name is not one without its colon. */
-    char bare[8];
-    snprintf(bare, sizeof bare, "%.*s", (int)strlen(host_drive()) - 1, host_drive());
-    dsys_path(bare);
-    dir_api_chdrive();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
 

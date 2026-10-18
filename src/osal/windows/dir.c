@@ -628,7 +628,8 @@ static void win_note_cwd(void)
 }
 
 /* A path on another drive moves the process there, so a chdir switches drives
- * as it does on every machine. */
+ * as it does on every machine. A bare "X:" returns to the folder in "=X:", or
+ * to the root of the drive when there is none. */
 bool drive_chdir(const char *path, api_errno *err)
 {
     if (!path[0])
@@ -640,25 +641,6 @@ bool drive_chdir(const char *path, api_errno *err)
     bool ok = win_ok(SetCurrentDirectoryW(w), err);
     free(w);
     return ok;
-}
-
-/* SetCurrentDirectoryW of a bare "X:" is the Windows change of drive, the one
- * cd /d and the CRT's _chdrive use. It changes to the folder in "=X:", or to
- * the drive's root when there is none. The letter is checked against the
- * mounted drives first, so a drive that is not there gives ENODEV rather than
- * a path error. */
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    if (!drive[0])
-        return true;
-    if (!win_has_drive(drive) || drive[2] || !win_drive_mounted(drive[0]))
-    {
-        *err = API_ENODEV;
-        return false;
-    }
-    win_note_cwd();
-    const wchar_t w[3] = {(wchar_t)drive[0], L':', 0};
-    return win_ok(SetCurrentDirectoryW(w), err);
 }
 
 /* The API's attribute bits are Win32's own bits, so the ones the mask does not

@@ -91,9 +91,8 @@ bool ops_dispatch(uint8_t operation)
     case 0x28:
         return dir_api_mkdir();
     case 0x29:
+    case 0x2A: /* dir_api_chdrive */
         return dir_api_chdir();
-    case 0x2A:
-        return dir_api_chdrive();
     case 0x2B:
         return dir_api_getcwd();
     case 0x2C:
