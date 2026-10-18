@@ -180,31 +180,30 @@ bool drive_unlink(const char *path, api_errno *err)
     return fat_path_ok(path, err) && fat_ok(f_unlink((const TCHAR *)path), err);
 }
 
-static bool fat_is_file(const char *path)
-{
-    FILINFO fno;
-    return f_stat((const TCHAR *)path, &fno) == FR_OK && !(fno.fattrib & AM_DIR);
-}
-
-/* f_rename discards the drive of the new name and renames on the drive of the
- * old one, so names on two drives are refused before anything changes. FatFs
- * also refuses a new name already in use, while rename(2) and MoveFileEx
- * replace a file there, so when both names are files, the file at the new
- * name is removed and the rename is tried again. FAT offers no way to do
- * that atomically. */
+/* RENAME follows rename(2). FatFs refuses a new name that exists, so an
+ * entry of the same type there is removed first, which is not atomic. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     if (!fat_path_ok(oldname, err) || !fat_path_ok(newname, err))
         return false;
+    /* f_rename ignores the drive of the new name. */
     if (f_getldnumber(oldname) != f_getldnumber(newname))
     {
         *err = API_ENODEV;
         return false;
     }
     FRESULT fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
-    if (fr == FR_EXIST && fat_is_file(oldname) && fat_is_file(newname) &&
-        (fr = f_unlink((const TCHAR *)newname)) == FR_OK)
-        fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    /* f_rename refuses a move of a directory into itself before FR_EXIST. */
+    if (fr == FR_EXIST)
+    {
+        if (fat_names_dir(oldname) != fat_names_dir(newname))
+        {
+            *err = API_EACCES;
+            return false;
+        }
+        if ((fr = f_unlink((const TCHAR *)newname)) == FR_OK)
+            fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    }
     return fat_ok(fr, err);
 }
 

@@ -460,11 +460,8 @@ bool drive_unlink(const char *path, api_errno *err)
     return ok;
 }
 
-/* A file replaces only a file. rename(2) would also put a folder in place of
- * an empty one, and fails with other errors for the other combinations, so
- * those are refused first. The same file under a second name, such as a
- * change of case where the host ignores case, does not count as an existing
- * target, and a target on another mount is left for rename(2) to refuse. */
+/* RENAME follows rename(2), with EACCES for each refused replacement. It
+ * also refuses to replace a read-only file, as FAT does. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     char *u8old = path_to_utf8(oldname, err);
@@ -478,13 +475,29 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
     }
     struct stat so, sn;
     bool ok = posix_ok(stat(u8old, &so) == 0, err);
+    bool both_dirs = false;
+    /* A target is another file on the same device. rename(2) refuses a
+     * target on another device. */
     if (ok && stat(u8new, &sn) == 0 && so.st_dev == sn.st_dev &&
-        so.st_ino != sn.st_ino && (S_ISDIR(so.st_mode) || S_ISDIR(sn.st_mode)))
+        so.st_ino != sn.st_ino)
     {
-        *err = API_EEXIST;
+        both_dirs = S_ISDIR(so.st_mode) && S_ISDIR(sn.st_mode);
+        if (S_ISDIR(so.st_mode) != S_ISDIR(sn.st_mode) ||
+            (!S_ISDIR(sn.st_mode) && !(sn.st_mode & S_IWUSR)))
+        {
+            *err = API_EACCES;
+            ok = false;
+        }
+    }
+    if (ok && rename(u8old, u8new) != 0)
+    {
+        /* rename(2) refuses a directory that is not empty with ENOTEMPTY or
+         * EEXIST. */
+        *err = both_dirs && (errno == ENOTEMPTY || errno == EEXIST)
+                   ? API_EACCES
+                   : errno_to_api(errno);
         ok = false;
     }
-    ok = ok && posix_ok(rename(u8old, u8new) == 0, err);
     free(u8old), free(u8new);
 #ifdef __EMSCRIPTEN__
     if (ok)

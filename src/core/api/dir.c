@@ -252,7 +252,7 @@ bool dir_api_rewinddir(void)
     return api_return_ax(0);
 }
 
-bool dir_api_unlink(void)
+bool dir_api_remove(void)
 {
     const char *path = dir_path();
     api_errno err = API_EINVAL;

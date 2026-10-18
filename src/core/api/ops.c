@@ -63,7 +63,7 @@ bool ops_dispatch(uint8_t operation)
     case 0x1A:
         return std_api_lseek_cc65();
     case 0x1B:
-        return dir_api_unlink();
+        return dir_api_remove();
     case 0x1C:
         return dir_api_rename();
     case 0x1D:

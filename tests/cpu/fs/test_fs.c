@@ -129,7 +129,7 @@ UTEST(fs, drive_write_read_seek)
     ssys_close(f);
 
     dsys_path("hello.txt");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_FALSE(host_exists("hello.txt"));
 }
@@ -598,7 +598,7 @@ UTEST(fs, oem_names_roundtrip)
     ASSERT_STREQ(info.fname, "nap\x82.txt");
 
     dsys_path("nap\x82.txt");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("nap\x82.txt");
     dir_api_stat();
@@ -734,7 +734,7 @@ UTEST(fs, only_open_takes_save)
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
     dsys_path("SAVE:kept.sav");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENODEV));
     ASSERT_TRUE(host_exists("kept.sav"));
@@ -871,7 +871,7 @@ UTEST(fs, an_open_file_can_be_opened_again_renamed_and_unlinked)
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_TRUE(host_exists("moved.txt"));
     dsys_path("moved.txt");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_FALSE(host_exists("moved.txt"));
 
@@ -891,34 +891,57 @@ UTEST(fs, an_open_of_a_directory_is_refused)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
 }
 
-UTEST(fs, a_rename_replaces_only_a_file_with_a_file)
+UTEST(fs, a_rename_follows_the_rules_of_rename)
 {
     ASSERT_TRUE(fresh_cwd());
     make_file("a.txt", "A", 1);
     make_file("b.txt", "BB", 2);
-    dsys_path("d1");
-    dir_api_mkdir();
-    ASSERT_EQ(dsys_ax(), 0);
-    dsys_path("d2");
-    dir_api_mkdir();
-    ASSERT_EQ(dsys_ax(), 0);
+    static const char *const dirs[] = {"d1", "d2", "d3", "d3/sub", "d4"};
+    for (size_t i = 0; i < sizeof dirs / sizeof *dirs; i++)
+    {
+        dsys_path(dirs[i]);
+        dir_api_mkdir();
+        ASSERT_EQ(dsys_ax(), 0);
+    }
 
+    /* A file replaces a file. */
     dsys_rename("a.txt", "b.txt");
     dir_api_rename();
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_FALSE(host_exists("a.txt"));
     ASSERT_EQ(stat_size("b.txt"), 1);
 
-    static const char *const taken[][2] = {
-        {"b.txt", "d1"}, {"d1", "d2"}, {"d1", "b.txt"}};
-    for (size_t i = 0; i < sizeof taken / sizeof *taken; i++)
+    /* A directory replaces an empty directory. */
+    dsys_rename("d1", "d2");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_FALSE(host_exists("d1"));
+    ASSERT_TRUE(host_exists("d2"));
+
+    /* A file and a directory never replace each other, and a directory does
+     * not replace one that is not empty. */
+    static const char *const refused[][2] = {
+        {"b.txt", "d2"}, {"d2", "b.txt"}, {"d2", "d3"}};
+    for (size_t i = 0; i < sizeof refused / sizeof *refused; i++)
     {
-        dsys_rename(taken[i][0], taken[i][1]);
+        dsys_rename(refused[i][0], refused[i][1]);
         dir_api_rename();
         ASSERT_EQ(dsys_ax(), -1);
-        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EEXIST));
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
     }
     ASSERT_EQ(stat_size("b.txt"), 1);
+    ASSERT_TRUE(host_exists("d3/sub"));
+
+    /* A directory does not move into itself. */
+    static const char *const inside[][2] = {{"d3", "d3/sub/x"}, {"d4", "d4/x"}};
+    for (size_t i = 0; i < sizeof inside / sizeof *inside; i++)
+    {
+        dsys_rename(inside[i][0], inside[i][1]);
+        dir_api_rename();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    }
+    ASSERT_TRUE(host_exists("d3/sub"));
 
     dsys_rename("b.txt", "NOPE:b.txt");
     dir_api_rename();
@@ -927,7 +950,7 @@ UTEST(fs, a_rename_replaces_only_a_file_with_a_file)
     ASSERT_TRUE(host_exists("b.txt"));
 }
 
-UTEST(fs, an_unlink_of_a_read_only_file_is_refused)
+UTEST(fs, a_read_only_file_is_not_removed_or_replaced)
 {
     ASSERT_TRUE(fresh_cwd());
     make_file("ro.txt", "R", 1);
@@ -935,16 +958,24 @@ UTEST(fs, an_unlink_of_a_read_only_file_is_refused)
     dir_api_chmod();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("ro.txt");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
     ASSERT_TRUE(host_exists("ro.txt"));
+
+    /* A rename does not replace it either. */
+    make_file("new.txt", "NN", 2);
+    dsys_rename("new.txt", "ro.txt");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    ASSERT_EQ(stat_size("ro.txt"), 1);
 
     dsys_chmod(AM_RDO, 0, "ro.txt");
     dir_api_chmod();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("ro.txt");
-    dir_api_unlink();
+    dir_api_remove();
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_FALSE(host_exists("ro.txt"));
 }

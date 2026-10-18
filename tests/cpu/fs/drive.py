@@ -11,7 +11,7 @@ import rp6502
 from rp6502_asm import (API_A, API_ERRNO, API_X, OP_CHDIR, OP_CHDRIVE,
                         OP_CLOSE, OP_DROP_XSTACK, OP_ERRNO_OPT, OP_EXIT,
                         OP_GETCWD, OP_MKDIR, OP_OPEN, OP_OPENDIR,
-                        OP_READ_XSTACK, OP_STAT, OP_UNLINK, O_CREAT, O_RDONLY,
+                        OP_READ_XSTACK, OP_STAT, OP_REMOVE, O_CREAT, O_RDONLY,
                         O_RDWR, O_TRUNC, O_WRONLY, XSTACK, Asm, putc, puthex,
                         putnib)
 from rp6502_rom import ADVENTURE, main, rom, save_dir
@@ -144,7 +144,7 @@ def prog():
     path_call("opendir :", OP_OPENDIR, ":")
     path_call("chdir :adventure.rp6502", OP_CHDIR, ":adventure.rp6502")
     path_call("chdrive :", OP_CHDRIVE, ":")
-    path_call("unlink :adventure.rp6502", OP_UNLINK, ":adventure.rp6502")
+    path_call("remove :adventure.rp6502", OP_REMOVE, ":adventure.rp6502")
     path_call("mkdir :sub", OP_MKDIR, ":sub")
     stat("stat drive::adventure.rp6502", ":adventure.rp6502", pfx=True)
 
@@ -208,7 +208,7 @@ def test_drive():
         e.cmd('expect "opendir : FFFF\\r\\n"')
         e.cmd('expect "chdir :adventure.rp6502 FFFF\\r\\n"')
         e.cmd('expect "chdrive : FFFF\\r\\n"')
-        e.cmd('expect "unlink :adventure.rp6502 FFFF\\r\\n"')
+        e.cmd('expect "remove :adventure.rp6502 FFFF\\r\\n"')
         e.cmd('expect "mkdir :sub FFFF\\r\\n"')
         e.cmd('expect "stat drive::adventure.rp6502 FFFF\\r\\n"')
         e.cmd('expect "open drive:save.dat 00\\r\\n"')

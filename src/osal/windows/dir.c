@@ -538,9 +538,23 @@ bool drive_unlink(const char *path, api_errno *err)
     return ok;
 }
 
-/* An existing entry at the new name is replaced only when both names are
- * files. The first attempt replaces nothing, so a change of case alone, which
- * Win32 matches to the same entry, still renames. */
+/* Whether the directory wo holds wn at any depth, so a move of a directory
+ * into itself fails with EINVAL, as in rename(2), before anything changes. */
+static bool win_dir_holds(const wchar_t *wo, const wchar_t *wn)
+{
+    wchar_t fo[MAX_PATH], fn[MAX_PATH];
+    DWORD lo = GetFullPathNameW(wo, MAX_PATH, fo, NULL);
+    DWORD ln = GetFullPathNameW(wn, MAX_PATH, fn, NULL);
+    if (!lo || lo >= MAX_PATH || !ln || ln >= MAX_PATH)
+        return false;
+    while (lo && (fo[lo - 1] == L'\\' || fo[lo - 1] == L'/'))
+        lo--;
+    return ln > lo && (fn[lo] == L'\\' || fn[lo] == L'/') &&
+           CompareStringOrdinal(fo, (int)lo, fn, (int)lo, TRUE) == CSTR_EQUAL;
+}
+
+/* RENAME follows rename(2). MoveFileEx cannot replace a directory, so an
+ * empty directory at the new name is removed first, which is not atomic. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     wchar_t *wo = path_to_wide(oldname, err);
@@ -552,17 +566,33 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
         free(wo);
         return false;
     }
+    if (win_dir_holds(wo, wn))
+    {
+        *err = API_EINVAL;
+        free(wo), free(wn);
+        return false;
+    }
+    /* A rename to the same entry, such as a change of case, succeeds here,
+     * before any removal. */
     bool ok = MoveFileExW(wo, wn, 0);
     DWORD e = ok ? 0 : GetLastError();
     if (e == ERROR_ALREADY_EXISTS || e == ERROR_FILE_EXISTS)
     {
         DWORD ao = GetFileAttributesW(wo), an = GetFileAttributesW(wn);
-        if (ao != INVALID_FILE_ATTRIBUTES && an != INVALID_FILE_ATTRIBUTES &&
-            !((ao | an) & FILE_ATTRIBUTE_DIRECTORY))
+        if (ao != INVALID_FILE_ATTRIBUTES && an != INVALID_FILE_ATTRIBUTES)
         {
-            ok = MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING);
-            if (!ok)
-                e = GetLastError();
+            bool odir = ao & FILE_ATTRIBUTE_DIRECTORY;
+            bool ndir = an & FILE_ATTRIBUTE_DIRECTORY;
+            if (odir != ndir)
+                e = ERROR_ACCESS_DENIED;
+            else
+            {
+                if (!odir)
+                    ok = MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING);
+                else if (RemoveDirectoryW(wn))
+                    ok = MoveFileExW(wo, wn, 0);
+                e = ok ? 0 : GetLastError();
+            }
         }
     }
     if (!ok)
