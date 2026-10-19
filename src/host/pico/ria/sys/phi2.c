@@ -20,10 +20,6 @@ static_assert(PHI2_MAX_KHZ <= SYS_RP2350_KHZ / 32);
 
 static uint16_t quantize(uint16_t freq_khz, uint16_t *div_int, uint8_t *div_frac)
 {
-    if (freq_khz < PHI2_MIN_KHZ)
-        freq_khz = PHI2_MIN_KHZ;
-    if (freq_khz > PHI2_MAX_KHZ)
-        freq_khz = PHI2_MAX_KHZ;
     float clkdiv = SYS_RP2350_KHZ / 32.f / freq_khz;
     uint16_t clkdiv_int = clkdiv;
     uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);

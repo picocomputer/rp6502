@@ -32,9 +32,10 @@ uint16_t oem_get_code_page_run(void)
     return apf_host_code_page;
 }
 
-void oem_set_code_page_run(uint16_t cp)
+bool oem_set_code_page_run(uint16_t cp)
 {
     apf_host_code_page = cp;
+    return true;
 }
 
 void vga_canvas_size(int *w, int *h)

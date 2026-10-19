@@ -14,10 +14,6 @@
 
 void phi2_set_khz_run(uint16_t phi2_khz)
 {
-    if (phi2_khz < PHI2_MIN_KHZ)
-        phi2_khz = PHI2_MIN_KHZ;
-    if (phi2_khz > PHI2_MAX_KHZ)
-        phi2_khz = PHI2_MAX_KHZ;
     MMIO_PHI2 = phi2_khz;
 }
 
@@ -34,10 +30,10 @@ bool phi2_check_khz(uint16_t *v)
 void phi2_apply_khz(uint16_t phi2_khz, bool changed)
 {
     (void)changed;
-    MMIO_PHI2 = phi2_khz;
+    phi2_set_khz_run(phi2_khz);
 }
 
 void phi2_init(void)
 {
-    MMIO_PHI2 = phi2_get_khz();
+    phi2_set_khz_run(phi2_get_khz());
 }

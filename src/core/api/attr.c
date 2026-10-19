@@ -95,14 +95,13 @@ bool attr_api_set(void)
             return api_return_errno(API_EINVAL);
         break;
     case ATTR_PHI2_KHZ:
-        if (value > UINT16_MAX)
+        if (value < PHI2_MIN_KHZ || value > PHI2_MAX_KHZ)
             return api_return_errno(API_EINVAL);
         phi2_set_khz_run((uint16_t)value);
         break;
     case ATTR_CODE_PAGE:
-        if (value > UINT16_MAX)
+        if (value > UINT16_MAX || !oem_set_code_page_run((uint16_t)value))
             return api_return_errno(API_EINVAL);
-        oem_set_code_page_run((uint16_t)value);
         break;
     case ATTR_RLN_LENGTH:
         if (value > UINT8_MAX)
@@ -161,9 +160,7 @@ bool attr_api_phi2(void)
 // int code_page(int cp)
 bool attr_api_code_page(void)
 {
-    uint16_t cp = API_AX;
-    if (cp)
-        oem_set_code_page_run(cp);
+    oem_set_code_page_run(API_AX);
     return api_return_ax(oem_get_code_page_run());
 }
 

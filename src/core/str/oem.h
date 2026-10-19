@@ -27,8 +27,9 @@
 void oem_init(void);
 void oem_stop(void);
 
-// The code page in force, set without saving it to config.
-void oem_set_code_page_run(uint16_t cp);
+// Sets the code page in force, without saving it to config. Returns false,
+// and changes nothing, for a code page that the tables do not have.
+bool oem_set_code_page_run(uint16_t cp);
 uint16_t oem_get_code_page_run(void);
 
 bool oem_check_code_page(uint16_t *v);

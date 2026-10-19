@@ -72,11 +72,12 @@ void oem_stop(void)
         oem_request_code_page(oem_resolve());
 }
 
-void oem_set_code_page_run(uint16_t cp)
+bool oem_set_code_page_run(uint16_t cp)
 {
     if (!unicode_has_page(cp))
-        cp = oem_resolve();
+        return false;
     oem_request_code_page(cp);
+    return true;
 }
 
 /* Zero is auto: follow the locale's default. */
