@@ -2062,7 +2062,9 @@ void rln_poke(const char *str)
     bool prev_overwrite = rln_overwrite;
     if (sync)
         rln_overwrite = true;
-    for (const char *p = str; *p; p++)
+    // An empty string sends 0x00.
+    const char *p = str;
+    do
     {
         uint8_t ch = (uint8_t)*p;
         if (ch < 32 && ch != '\33' && ch != '\30')
@@ -2078,8 +2080,8 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, (uint8_t)ch);
-    }
+        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, ch);
+    } while (*++p);
     if (sync)
     {
         bool need_reemit = (rln_overwrite != prev_overwrite);

@@ -135,13 +135,18 @@ UTEST(rln, lastkey_and_peek_require_an_empty_xstack)
 }
 
 /* With both sizes fixed, one cursor position report starts the edit. */
-UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
+static void editing(void)
 {
     fresh();
     rln_set_term_width(80);
     rln_set_term_height(24);
     reading();
     wire("\33[1;1R");
+}
+
+UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
+{
+    editing();
     wire("\33[C");
     ASSERT_EQ(lastkey_len(), 3);
     char key[64] = "\33[";
@@ -150,6 +155,16 @@ UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
     strcat(key, "C");
     wire(key);
     ASSERT_EQ(lastkey_len(), 0);
+}
+
+UTEST(rln, a_poke_of_an_empty_string_ends_the_line)
+{
+    editing();
+    rln_poke("ab");
+    ASSERT_EQ(lines, 0);
+    rln_poke("");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
 }
 
 UTEST_MAIN();
