@@ -819,8 +819,8 @@ def build():
     p.lda_abs(FD)
     check("is_ff")
 
-    # getcwd returns the length of the path plus one.
-    expect16(len(POCKET_CWD) + 1)
+    # getcwd returns the length of the path.
+    expect16(len(POCKET_CWD))
     p.lda_abs(CWDL)
     p.ldx_abs(CWDH)
     check("eq16", platform=True)

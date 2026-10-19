@@ -48,8 +48,8 @@ def prog():
     result(p, "opendir")
 
     p.symbol("next")
-    # readdir pushes its 282 bytes onto whatever the 512 byte xstack still
-    # holds, so the unread part of the previous entry is cleared first.
+    # READDIR requires an empty XSTACK, so the unread part of the previous
+    # entry is dropped first.
     p.call(OP_DROP_XSTACK)
     p.lda_abs(DES)
     p.sta_abs(API_A)

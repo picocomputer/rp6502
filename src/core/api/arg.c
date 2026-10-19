@@ -81,7 +81,8 @@ static bool arg_validate(uint16_t size)
             return false;
         pos++;
     }
-    return pos == size;
+    // The last string may leave out its terminator.
+    return pos == size || pos == size + 1;
 }
 
 bool arg_append(const char *str)

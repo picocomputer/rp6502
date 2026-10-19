@@ -6,6 +6,7 @@
 
 #include "core/str/oem.h"
 #include "core/str/str.h"
+#include "core/api/arg.h"
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
@@ -144,6 +145,7 @@ UTEST(fs, chdir_getcwd_relative)
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
+    ASSERT_EQ(dsys_ax(), (int16_t)strlen(cwd));
     ASSERT_EQ(strncmp(cwd, host_drive(), strlen(host_drive())), 0);
 
     dsys_path("saves");
@@ -531,6 +533,17 @@ UTEST(fs, a_call_refuses_more_than_its_arguments)
     proc_api_exec();
     ASSERT_EQ(dsys_ax(), -1);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+}
+
+UTEST(fs, exec_data_takes_its_last_string_with_or_without_a_terminator)
+{
+    push_bytes("\4\0\0\0a\0", 6);
+    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_STREQ(arg_index(0), "a");
+    push_bytes("\4\0\0\0a", 5);
+    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_STREQ(arg_index(0), "a");
+    arg_clear();
 }
 
 UTEST(fs, rom_asset_window_read_only_on_demand)

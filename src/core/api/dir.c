@@ -312,7 +312,7 @@ bool dir_api_getcwd(void)
         return api_return_errno(API_ENOMEM);
     for (uint16_t i = len; i;)
         xstack[--xstack_ptr] = xstack[--i];
-    return api_return_ax(len + 1);
+    return api_return_ax(len);
 }
 
 // Returns the text after the drive name, or NULL when the path has none.
@@ -340,7 +340,7 @@ bool dir_api_getlabel(void)
     size_t len = strlen(label);
     for (size_t i = len; i;)
         api_push_char(&label[--i]);
-    return api_return_ax((uint16_t)(len + 1));
+    return api_return_ax((uint16_t)len);
 }
 
 /* The path goes back on the xstack while drive_getfree returns STD_PENDING,
