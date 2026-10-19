@@ -340,9 +340,8 @@ const std_driver_t *std_drivers(size_t *count)
 
 bool std_api_open(void)
 {
-    char *path = (char *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    if (strlen(path) > API_PATH_MAX || !(API_A & (FS_RD | FS_WR)))
+    const char *path = api_pop_str_end(API_PATH_MAX);
+    if (!path || !(API_A & (FS_RD | FS_WR)))
         return api_return_errno(API_EINVAL);
     if (strcasecmp(path, STR_TTY_COLON) == 0)
         return api_return_ax(STD_FD_TTY);

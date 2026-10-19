@@ -12,35 +12,20 @@
 
 static int32_t tells[DIR_MAX_OPEN];
 
-static bool dir_push_stat(f_stat_t *info)
+static void dir_push_stat(f_stat_t *info)
 {
     /* The xstack grows downward, so the fields are pushed last first to land
      * in struct order for the 6502. */
-    bool ok = true;
     for (int i = F_NAME_MAX; i >= 0; i--)
-        ok &= api_push_char(&info->fname[i]);
+        api_push_char(&info->fname[i]);
     for (int i = F_ALTNAME_MAX; i >= 0; i--)
-        ok &= api_push_char(&info->altname[i]);
-    ok &= api_push_uint8(&info->fattrib);
-    ok &= api_push_uint16(&info->crtime);
-    ok &= api_push_uint16(&info->crdate);
-    ok &= api_push_uint16(&info->ftime);
-    ok &= api_push_uint16(&info->fdate);
-    ok &= api_push_uint32(&info->fsize);
-    return ok;
-}
-
-static const char *dir_path_peek(void)
-{
-    const char *path = (const char *)&xstack[xstack_ptr];
-    return strlen(path) > API_PATH_MAX ? NULL : path;
-}
-
-static const char *dir_path(void)
-{
-    const char *path = dir_path_peek();
-    xstack_ptr = XSTACK_SIZE;
-    return path;
+        api_push_char(&info->altname[i]);
+    api_push_uint8(&info->fattrib);
+    api_push_uint16(&info->crtime);
+    api_push_uint16(&info->crdate);
+    api_push_uint16(&info->ftime);
+    api_push_uint16(&info->fdate);
+    api_push_uint32(&info->fsize);
 }
 
 /* err comes by pointer and is read here, after the call that sets it, because
@@ -159,19 +144,18 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
 
 bool dir_api_stat(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     f_stat_t info;
     api_errno err = API_EINVAL;
     if (!path || !drive_stat(path, &info, &err))
         return api_return_errno(err);
-    if (!dir_push_stat(&info))
-        return api_return_errno(API_ENOMEM);
+    dir_push_stat(&info);
     return api_return_ax(0);
 }
 
 bool dir_api_opendir(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     int des;
     api_errno err = API_EINVAL;
     if (!path || !drive_opendir(path, &des, &err))
@@ -182,6 +166,8 @@ bool dir_api_opendir(void)
 
 bool dir_api_readdir(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     int des = API_A;
     api_errno err;
     if (!drive_validate(des, &err))
@@ -189,8 +175,7 @@ bool dir_api_readdir(void)
     f_stat_t info;
     if (!dir_next(des, &info, &err))
         return api_return_errno(err);
-    if (!dir_push_stat(&info))
-        return api_return_errno(API_ENOMEM);
+    dir_push_stat(&info);
     return api_return_ax(0);
 }
 
@@ -254,20 +239,18 @@ bool dir_api_rewinddir(void)
 
 bool dir_api_remove(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(path && drive_unlink(path, &err), &err);
 }
 
 bool dir_api_rename(void)
 {
-    /* The xstack holds newname, its terminator, then oldname, which is the
-     * reverse of the order drive_rename takes them. */
-    const char *newname = dir_path();
-    if (!newname)
-        return api_return_errno(API_EINVAL);
-    const char *oldname = newname + strlen(newname) + 1;
-    if (oldname > (const char *)&xstack[XSTACK_SIZE] || strlen(oldname) > API_PATH_MAX)
+    /* The xstack holds newname, then oldname, which is the reverse of the
+     * order drive_rename takes them. */
+    const char *newname = api_pop_str(API_PATH_MAX);
+    const char *oldname = newname ? api_pop_str_end(API_PATH_MAX) : NULL;
+    if (!oldname)
         return api_return_errno(API_EINVAL);
     api_errno err;
     return dir_return(drive_rename(oldname, newname, &err), &err);
@@ -279,7 +262,7 @@ bool dir_api_chmod(void)
     uint8_t attr;
     if (!api_pop_uint8(&attr))
         return api_return_errno(API_EINVAL);
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(path && drive_chmod(path, attr, mask, &err), &err);
 }
@@ -295,21 +278,21 @@ bool dir_api_utime(void)
         !api_pop_uint16(&info.ftime) ||
         !api_pop_uint16(&info.fdate))
         return api_return_errno(API_EINVAL);
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(path && drive_utime(path, &info, &err), &err);
 }
 
 bool dir_api_mkdir(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(path && drive_mkdir(path, &err), &err);
 }
 
 bool dir_api_chdir(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(path && drive_chdir(path, &err), &err);
 }
@@ -318,9 +301,10 @@ bool dir_api_chdir(void)
  * the top so the 6502 pops it in order. */
 bool dir_api_getcwd(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     api_errno err;
     bool ok = drive_getcwd((char *)xstack, XSTACK_SIZE, &err);
-    xstack_ptr = XSTACK_SIZE;
     if (!ok)
         return api_return_errno(err);
     uint16_t len = (uint16_t)strlen((char *)xstack);
@@ -331,8 +315,7 @@ bool dir_api_getcwd(void)
     return api_return_ax(len + 1);
 }
 
-/* The label calls require a drive name, so a label never lands on the current
- * drive. Returns the text after the colon, or NULL. */
+// Returns the text after the drive name, or NULL when the path has none.
 static const char *dir_after_drive(const char *path)
 {
     const char *colon = path ? strchr(path, ':') : NULL;
@@ -341,14 +324,14 @@ static const char *dir_after_drive(const char *path)
 
 bool dir_api_setlabel(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(dir_after_drive(path) && drive_setlabel(path, &err), &err);
 }
 
 bool dir_api_getlabel(void)
 {
-    const char *path = dir_path();
+    const char *path = api_pop_str_end(API_PATH_MAX);
     const char *rest = dir_after_drive(path);
     char label[12];
     api_errno err = API_EINVAL;
@@ -356,25 +339,27 @@ bool dir_api_getlabel(void)
         return api_return_errno(err);
     size_t len = strlen(label);
     for (size_t i = len; i;)
-        if (!api_push_char(&label[--i]))
-            return api_return_errno(API_ENOMEM);
+        api_push_char(&label[--i]);
     return api_return_ax((uint16_t)(len + 1));
 }
 
-/* The path stays on the xstack while drive_getfree returns STD_PENDING,
+/* The path goes back on the xstack while drive_getfree returns STD_PENDING,
  * because the op is dispatched again with it. */
 bool dir_api_getfree(void)
 {
-    const char *path = dir_path_peek();
+    size_t at = xstack_ptr;
+    const char *path = api_pop_str_end(API_PATH_MAX);
     uint32_t tot_sect, fre_sect;
     api_errno err = API_EINVAL;
     std_rw_result r = path ? drive_getfree(path, &tot_sect, &fre_sect, &err) : STD_ERROR;
     if (r == STD_PENDING)
+    {
+        xstack_ptr = at;
         return api_working();
+    }
     if (r == STD_ERROR)
         return api_return_errno(err);
-    xstack_ptr = XSTACK_SIZE;
-    if (!api_push_uint32(&tot_sect) || !api_push_uint32(&fre_sect))
-        return api_return_errno(API_ENOMEM);
+    api_push_uint32(&tot_sect);
+    api_push_uint32(&fre_sect);
     return api_return_ax(0);
 }

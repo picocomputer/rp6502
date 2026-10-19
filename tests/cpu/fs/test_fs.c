@@ -7,6 +7,7 @@
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/api/dir.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "osal/fs.h"
@@ -483,6 +484,53 @@ UTEST(fs, a_label_call_requires_a_drive_name)
         ASSERT_EQ(dsys_ax(), -1);
         ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
     }
+}
+
+static void push_bytes(const void *data, size_t n)
+{
+    xstack_ptr = XSTACK_SIZE - n;
+    memcpy(&xstack[xstack_ptr], data, n);
+}
+
+/* A call takes exactly its arguments from the xstack, and a call that takes
+ * none and returns data there requires the xstack empty. */
+UTEST(fs, a_call_refuses_more_than_its_arguments)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("x.txt", "x", 1);
+    f_stat_t info;
+
+    push_bytes("x.txt", 5);
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_filinfo(&info);
+    push_bytes("x.txt", 6);
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_filinfo(&info);
+
+    push_bytes("x.txt\0\7", 7);
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    ASSERT_EQ(xstack_ptr, (size_t)XSTACK_SIZE);
+
+    push_bytes("y.txt\0x.txt\0\7", 13);
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    ASSERT_TRUE(host_exists("x.txt"));
+
+    push_bytes("\7", 1);
+    dir_api_getcwd();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+
+    /* The argv data of ["a"], then one more byte. */
+    push_bytes("\4\0\0\0a\0\7", 7);
+    proc_api_exec();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
 }
 
 UTEST(fs, rom_asset_window_read_only_on_demand)

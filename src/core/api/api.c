@@ -257,3 +257,24 @@ bool api_pop_int64_end(int64_t *data)
 {
     return api_pop_end(data, sizeof(*data), true);
 }
+
+const char *api_pop_str(size_t max)
+{
+    const char *str = (const char *)&xstack[xstack_ptr];
+    size_t len = strlen(str);
+    if (len > max || len >= XSTACK_SIZE - xstack_ptr)
+        return NULL;
+    xstack_ptr += len + 1;
+    return str;
+}
+
+const char *api_pop_str_end(size_t max)
+{
+    const char *str = (const char *)&xstack[xstack_ptr];
+    size_t len = strlen(str);
+    size_t n = XSTACK_SIZE - xstack_ptr;
+    if (len > max || (n != len && n != len + 1))
+        return NULL;
+    xstack_ptr = XSTACK_SIZE;
+    return str;
+}

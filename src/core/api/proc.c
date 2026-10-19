@@ -107,6 +107,8 @@ bool proc_stop(void)
 
 bool proc_api_argv(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     return api_return_ax(arg_push_xstack());
 }
 
