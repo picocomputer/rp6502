@@ -7,6 +7,7 @@
 
 #include "osal/os.h"
 #include "osal/windows/dir.h"
+#include <locale.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,17 +93,27 @@ bool os_gmtime(time_t t, struct tm *out)
     return gmtime_s(out, &t) == 0;
 }
 
-/* Nothing to load. No setlocale call anywhere moves the CRT out of the C
- * locale, so the strftime below answers in it. */
-void os_locale_reset(void) {}
-void os_locale_free(void) {}
+/* The user's regional format in UTF-8, used only by strftime so that the rest
+ * of the process stays in the C locale. NULL before Windows 10 version 1803,
+ * and the C locale answers instead. */
+static _locale_t win_locale;
 
-/* %a, %b and %c come out in English here, while the POSIX hosts format in the
- * environment's locale. This needs upgrading, if possible, to _strftime_l with
- * a locale from _create_locale(LC_TIME, ""). */
+void os_locale_reset(void)
+{
+    if (!win_locale)
+        win_locale = _create_locale(LC_ALL, ".UTF8");
+}
+
+void os_locale_free(void)
+{
+    if (win_locale)
+        _free_locale(win_locale), win_locale = NULL;
+}
+
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
-    return strftime(buf, max, fmt, tm);
+    return win_locale ? _strftime_l(buf, max, fmt, tm, win_locale)
+                      : strftime(buf, max, fmt, tm);
 }
 
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe)

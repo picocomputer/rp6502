@@ -121,6 +121,8 @@ rp6502_add_test(com LIBS emu_core)
 
 rp6502_add_test(rln LIBS emu_core)
 
+rp6502_add_test(clk LIBS emu_core)
+
 rp6502_add_test(log SINK
     DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 

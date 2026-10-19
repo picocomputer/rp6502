@@ -74,9 +74,8 @@ static bool clk_api_to_tm(bool local)
         return api_return_errno(API_EINVAL);
     time_t t = sec;
     struct tm tm;
-    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)))
-        return api_return_errno(API_EINVAL);
-    if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
+    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)) ||
+        tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;
     clk_tm_to_wire(&tm, &w);
