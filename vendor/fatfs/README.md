@@ -5,7 +5,7 @@ From: http://elm-chan.org/fsw/ff
 This copy is FatFs R0.16 with patches 1 and 2 to ff.c, and with the
 ffunicode.c of August 3, 2025, from http://elm-chan.org/fsw/ff/patches.html.
 
-Each change in ff.c and ffunicode.c has a comment that starts with
+Each change in ff.c, ff.h, and ffunicode.c has a comment that contains
 "RP6502". After an upgrade of FatFs, apply each change again.
 
 ## ffconf.h
@@ -27,7 +27,30 @@ additions:
 - `FF_FS_LOCK` is the sum of the objects that can be open at once.
   src/osal/pico/fs.c and src/host/pico/ria/usb/msc.c check the sum.
 
+## ff.h
+
+- `FRESULT` has two more results, `FR_NO_SPACE` (20) and `FR_NOT_EMPTY`
+  (21). Upstream FatFs gives `FR_DENIED` for both conditions, and for a
+  refused access too. src/osal/pico/errmap.c maps `FR_NO_SPACE` to ENOSPC
+  and `FR_NOT_EMPTY` to EEXIST, as POSIX does, and `FR_DENIED` stays
+  EACCES. src/host/pico/ria/mon/mon.c has a message for each.
+
 ## ff.c
+
+- A full drive gives `FR_NO_SPACE`, not `FR_DENIED`: `dir_next()` when no
+  cluster is free to stretch a directory, `dir_alloc()` when no directory
+  entry is free, and `f_mkdir()` when no cluster is free for the new
+  directory. `f_open()` with a create, `f_mkdir()`, `f_rename()`, and
+  `f_setlabel()` get the result from these functions.
+- `f_unlink()` of a directory that is not empty gives `FR_NOT_EMPTY`, and
+  `f_unlink()` of the current directory gives `FR_LOCKED`, which maps to
+  EBUSY. Upstream FatFs gives `FR_DENIED` for both. A read-only entry still
+  gives `FR_DENIED`.
+- `f_open()` with `FA_OPEN_ALWAYS` refuses a read-only file only when the
+  open writes, with `FA_WRITE` or `FA_CREATE_ALWAYS`. Upstream FatFs
+  refuses every such open of a read-only file, so open(2) with
+  O_RDONLY|O_CREAT of a read-only file failed. A directory is still always
+  refused.
 
 - `f_rename()` refuses to move a directory into itself, and returns
   `FR_INVALID_NAME`. rename(2) refuses the same move with EINVAL. Upstream

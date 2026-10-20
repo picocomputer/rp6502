@@ -34,7 +34,7 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     static const char cwd[] = FS_DRIVE FS_ASSETS_PATH;
     if (size < sizeof cwd)
     {
-        *err = API_ENOMEM;
+        *err = API_ERANGE;
         return false;
     }
     memcpy(buf, cwd, sizeof cwd);

@@ -16,8 +16,9 @@
  * FatFs call. */
 bool fat_path_ok(const char *path, api_errno *err);
 
-/* True when path opens as a directory, a root included. An empty path and a
- * bare drive name, which f_opendir takes as the current folder, give false. */
+/* True when path opens as a directory: a root, a bare drive name, which
+ * f_opendir takes as the current directory of that drive, or any other
+ * directory. */
 bool fat_names_dir(const char *path);
 
 #endif /* _OSAL_PICO_DIR_H_ */

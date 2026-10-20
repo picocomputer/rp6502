@@ -93,6 +93,7 @@ bool api_pop_int64_end(int64_t *data);
 
 const char *api_pop_str(size_t max);
 const char *api_pop_str_end(size_t max);
+const char *api_pop_path_end(api_errno *err);
 
 static inline bool api_pop_n(void *data, size_t n)
 {

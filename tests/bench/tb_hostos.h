@@ -13,6 +13,7 @@
 #define TEST_PATH_MAX 4096
 
 bool host_make_tmpdir(char *buf, size_t sz);
+bool host_path_exists(const char *path);
 void host_setenv(const char *name, const char *value);
 
 const char *host_drive(void);

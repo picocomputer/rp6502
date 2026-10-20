@@ -16,13 +16,11 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_DIRECTORY: /* a path leading through a file, FatFs FR_NO_PATH */
         return API_ENOENT;
     case ERROR_ACCESS_DENIED:
-    case ERROR_SHARING_VIOLATION:
-    case ERROR_LOCK_VIOLATION:
     case ERROR_WRITE_PROTECT:
-    case ERROR_DIR_NOT_EMPTY: /* FatFs FR_DENIED */
         return API_EACCES;
     case ERROR_ALREADY_EXISTS:
     case ERROR_FILE_EXISTS:
+    case ERROR_DIR_NOT_EMPTY: /* api_errno has no ENOTEMPTY */
         return API_EEXIST;
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
@@ -36,6 +34,9 @@ api_errno win_error_to_api(DWORD e)
         return API_EBADF;
     case ERROR_DISK_FULL:
     case ERROR_HANDLE_DISK_FULL:
+    case ERROR_DISK_QUOTA_EXCEEDED:
+    case ERROR_CANNOT_MAKE: /* a full FAT root directory */
+    case ERROR_FILE_TOO_LARGE:
         return API_ENOSPC;
     case ERROR_TOO_MANY_OPEN_FILES:
         return API_EMFILE;
@@ -44,6 +45,8 @@ api_errno win_error_to_api(DWORD e)
     case ERROR_INVALID_DRIVE:
     case ERROR_NOT_SAME_DEVICE: /* a rename across volumes */
         return API_ENODEV;
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
     case ERROR_BUSY:
     case ERROR_PIPE_BUSY:
         return API_EBUSY;

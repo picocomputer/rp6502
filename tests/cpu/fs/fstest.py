@@ -70,6 +70,8 @@ GAP = 32
 
 # llvm-mos numbers, which the ROM selects before its first call.
 ERRNO_OPT_LLVM = 2
+ENOENT = 2
+EBADF = 9
 EACCES = 13
 ENODEV = 19
 EINVAL = 22
@@ -770,8 +772,10 @@ def build():
     p.push(0x5A)
     p.lda_abs(FD)
     p.sta_abs(API_A)
+    expect_errno(EBADF)
     p.call(OP_WRITE_XSTACK)
     check("is_ff")
+    check("errno_is")
 
     p.store(EXPL, CHUNK)
     p.store(EXPH, 0)
@@ -1048,7 +1052,7 @@ def build():
     check("stat_root")
     p.call(OP_DROP_XSTACK)
 
-    expect_errno(EINVAL, ENOSYS)
+    expect_errno(ENOENT)
     p.push_str("")
     p.call(OP_STAT)
     check("errno_is")

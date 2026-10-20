@@ -144,9 +144,9 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
 
 bool dir_api_stat(void)
 {
-    const char *path = api_pop_str_end(API_PATH_MAX);
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     f_stat_t info;
-    api_errno err = API_EINVAL;
     if (!path || !drive_stat(path, &info, &err))
         return api_return_errno(err);
     dir_push_stat(&info);
@@ -239,8 +239,8 @@ bool dir_api_rewinddir(void)
 
 bool dir_api_remove(void)
 {
-    const char *path = api_pop_str_end(API_PATH_MAX);
-    api_errno err = API_EINVAL;
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_unlink(path, &err), &err);
 }
 
@@ -252,6 +252,8 @@ bool dir_api_rename(void)
     const char *oldname = newname ? api_pop_str_end(API_PATH_MAX) : NULL;
     if (!oldname)
         return api_return_errno(API_EINVAL);
+    if (!oldname[0] || !newname[0])
+        return api_return_errno(API_ENOENT);
     api_errno err;
     return dir_return(drive_rename(oldname, newname, &err), &err);
 }
@@ -262,8 +264,8 @@ bool dir_api_chmod(void)
     uint8_t attr;
     if (!api_pop_uint8(&attr))
         return api_return_errno(API_EINVAL);
-    const char *path = api_pop_str_end(API_PATH_MAX);
-    api_errno err = API_EINVAL;
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_chmod(path, attr, mask, &err), &err);
 }
 
@@ -278,22 +280,22 @@ bool dir_api_utime(void)
         !api_pop_uint16(&info.ftime) ||
         !api_pop_uint16(&info.fdate))
         return api_return_errno(API_EINVAL);
-    const char *path = api_pop_str_end(API_PATH_MAX);
-    api_errno err = API_EINVAL;
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_utime(path, &info, &err), &err);
 }
 
 bool dir_api_mkdir(void)
 {
-    const char *path = api_pop_str_end(API_PATH_MAX);
-    api_errno err = API_EINVAL;
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_mkdir(path, &err), &err);
 }
 
 bool dir_api_chdir(void)
 {
-    const char *path = api_pop_str_end(API_PATH_MAX);
-    api_errno err = API_EINVAL;
+    api_errno err;
+    const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_chdir(path, &err), &err);
 }
 
@@ -309,7 +311,7 @@ bool dir_api_getcwd(void)
         return api_return_errno(err);
     uint16_t len = (uint16_t)strlen((char *)xstack);
     if (len > API_PATH_MAX) /* longer than any path an op accepts */
-        return api_return_errno(API_ENOMEM);
+        return api_return_errno(API_ERANGE);
     for (uint16_t i = len; i;)
         xstack[--xstack_ptr] = xstack[--i];
     return api_return_ax(len);

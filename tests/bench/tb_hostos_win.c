@@ -38,6 +38,11 @@ bool host_make_tmpdir(char *buf, size_t sz)
     return false;
 }
 
+bool host_path_exists(const char *path)
+{
+    return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+}
+
 void host_setenv(const char *name, const char *value)
 {
     _putenv_s(name, value);

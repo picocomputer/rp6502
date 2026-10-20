@@ -91,9 +91,10 @@ bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
+std_rw_result rom_std_sync(int desc, api_errno *err);
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 bool rom_std_ident(int desc, sst_cursor_t *c);
-int rom_std_reopen(sst_cursor_t *c, api_errno *err);
+int rom_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 void rom_assets_reset(void);
 
 /* Read a named asset into buf, NUL-terminated and truncated to bufsz-1. Returns
@@ -124,6 +125,7 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags);
         .open = rom_std_open,       \
         .close = rom_std_close,     \
         .read = rom_std_read,       \
+        .sync = rom_std_sync,       \
         .lseek = rom_std_lseek,     \
         .ident = rom_std_ident,     \
         .reopen = rom_std_reopen,   \

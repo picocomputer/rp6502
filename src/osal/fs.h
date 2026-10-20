@@ -47,7 +47,7 @@ void fs_std_immediate(bool on);
  * may chdir before the save. */
 #define FS_PATH_SLOT (API_PATH_MAX + 1)
 bool fs_std_ident(int desc, sst_cursor_t *c);
-int fs_std_reopen(sst_cursor_t *c, api_errno *err);
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);

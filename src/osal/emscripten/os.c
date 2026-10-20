@@ -36,10 +36,13 @@ enum
     JS_OK = 2,
     JS_FAILED = 3,
     JS_ABSENT = 4,
+    JS_FULL = 5,
 };
 
 EM_JS(void, js_syncfs, (int32_t *state), {
-    FS.syncfs(false, (e) => { HEAP32[state >> 2] = e ? 3 : 2; });
+    FS.syncfs(false, (e) => {
+        HEAP32[state >> 2] = !e ? 2 : e.name === "QuotaExceededError" ? 5 : 3;
+    });
 });
 
 EM_JS(void, js_estimate, (int32_t *state, double *quota, double *usage), {
@@ -59,14 +62,14 @@ EM_JS(void, js_estimate, (int32_t *state, double *quota, double *usage), {
 
 static int32_t syncfs_state;
 static bool syncfs_again;
-static bool syncfs_failed;
+static int32_t syncfs_result = JS_OK; /* JS_FAILED or JS_FULL until a poll reports it */
 
 static void syncfs_settle(void)
 {
     if (syncfs_state == JS_IDLE || syncfs_state == JS_RUNNING)
         return;
-    if (syncfs_state == JS_FAILED)
-        syncfs_failed = true;
+    if (syncfs_state != JS_OK)
+        syncfs_result = syncfs_state;
     syncfs_state = JS_IDLE;
     if (syncfs_again)
     {
@@ -93,10 +96,10 @@ std_rw_result os_syncfs_poll(api_errno *err)
     syncfs_settle();
     if (syncfs_state == JS_RUNNING)
         return STD_PENDING;
-    if (!syncfs_failed)
+    if (syncfs_result == JS_OK)
         return STD_OK;
-    syncfs_failed = false;
-    *err = API_EIO;
+    *err = syncfs_result == JS_FULL ? API_ENOSPC : API_EIO;
+    syncfs_result = JS_OK;
     return STD_ERROR;
 }
 

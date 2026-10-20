@@ -801,11 +801,6 @@ bool mid_std_handles(const char *name)
 int mid_std_open(const char *name, uint8_t flags, api_errno *err)
 {
     (void)flags;
-    if (!mid_std_handles(name))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
     uint8_t idx = name[4] - '0';
     if (idx >= CFG_TUH_MIDI || !mid_mounts[idx].mounted)
     {
@@ -885,15 +880,16 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     return (conn->session << 4) | idx;
 }
 
-// A descriptor holds the mount session above the slot index, so a descriptor
+// The cable of an open descriptor, or NULL when its device is gone. A
+// descriptor holds the mount session above the slot index, so a descriptor
 // kept across an unplug does not resolve to the next device mounted in that
 // slot.
 static mid_t *mid_desc_conn(int desc)
 {
-    int idx = desc & 0xF;
-    if (idx >= CFG_TUH_MIDI || (desc >> 4) != mid_mounts[idx].session)
+    mid_t *conn = &mid_mounts[desc & 0xF];
+    if ((desc >> 4) != conn->session || !conn->opened)
         return NULL;
-    return &mid_mounts[idx];
+    return conn;
 }
 
 static bool mid_tx_draining(const mid_t *conn)
@@ -904,7 +900,7 @@ static bool mid_tx_draining(const mid_t *conn)
 
 static void mid_close_finalize(mid_t *conn)
 {
-    if (!mid_raw(conn) && conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
+    if (!mid_raw(conn) && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
     {
         if (conn->tx_acc_len > 0 && conn->tx_acc_len < 3 && !conn->tx_acc_eox)
         {
@@ -923,25 +919,14 @@ static void mid_close_finalize(mid_t *conn)
     conn->opened = false;
 }
 
-static std_rw_result mid_drain_gate(int desc, mid_t **conn, api_errno *err)
-{
-    *conn = mid_desc_conn(desc);
-    if (!*conn)
-    {
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    if ((*conn)->opened && (*conn)->mounted && (*conn)->has_tx && mid_tx_draining(*conn))
-        return STD_PENDING;
-    return STD_OK;
-}
-
 std_rw_result mid_std_close(int desc, api_errno *err)
 {
-    mid_t *conn;
-    std_rw_result result = mid_drain_gate(desc, &conn, err);
-    if (result != STD_OK)
-        return result;
+    (void)err;
+    mid_t *conn = mid_desc_conn(desc);
+    if (!conn)
+        return STD_OK;
+    if (mid_tx_draining(conn))
+        return STD_PENDING;
     RP6502_LOG(midi, INFO, "%d close", desc & 0xF);
     mid_close_finalize(conn);
     return STD_OK;
@@ -949,17 +934,27 @@ std_rw_result mid_std_close(int desc, api_errno *err)
 
 std_rw_result mid_std_sync(int desc, api_errno *err)
 {
-    mid_t *conn;
-    return mid_drain_gate(desc, &conn, err);
+    mid_t *conn = mid_desc_conn(desc);
+    if (!conn)
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    return mid_tx_draining(conn) ? STD_PENDING : STD_OK;
 }
 
 std_rw_result mid_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
-    if (!conn || !conn->mounted || !conn->opened || !conn->has_rx)
+    if (!conn)
     {
         *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (!conn->has_rx)
+    {
+        *err = API_EINVAL;
         return STD_ERROR;
     }
     uint32_t n = 0;
@@ -976,9 +971,14 @@ std_rw_result mid_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
-    if (!conn || !conn->mounted || !conn->opened || !conn->has_tx)
+    if (!conn)
     {
         *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (!conn->has_tx)
+    {
+        *err = API_EINVAL;
         return STD_ERROR;
     }
     uint32_t n = 0;

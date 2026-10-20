@@ -78,10 +78,7 @@ static bool host_exists(const char *rel)
 {
     char p[512];
     snprintf(p, sizeof(p), "%s/%s", host_dir(), rel);
-    FILE *f = fopen(p, "rb");
-    if (f)
-        fclose(f);
-    return f != NULL;
+    return host_path_exists(p);
 }
 
 static void msc_expect(char *out, size_t sz, const char *suffix)
@@ -302,7 +299,7 @@ UTEST(fs, a_working_directory_past_255_bytes_is_not_answered)
     }
     dir_api_getcwd();
     ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOMEM));
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ERANGE));
     ASSERT_TRUE(drive_chdir_to(g_dir));
 }
 #endif
@@ -316,7 +313,8 @@ UTEST(fs, chdir_takes_this_machine_s_drive_alone)
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("");
     dir_api_chdir();
-    ASSERT_EQ(dsys_ax(), 0);
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
 
     dsys_path("NOPE:");
     dir_api_chdir();
@@ -412,9 +410,11 @@ UTEST(fs, dir_enumeration)
     dsys_des(des);
     dir_api_readdir();
     ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
     dsys_des(99);
     dir_api_readdir();
     ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
 
     dsys_path("");
     while (dir_api_getfree())
@@ -429,13 +429,13 @@ UTEST(fs, dir_enumeration)
     dsys_path(host_drive());
     dir_api_getlabel();
     ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOSYS));
     char named[32];
     snprintf(named, sizeof named, "%sNEWLABEL", host_drive());
     dsys_path(named);
     dir_api_setlabel();
     ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOSYS));
 
     dsys_chmod(AM_RDO, AM_RDO, "alpha.txt");
     dir_api_chmod();
@@ -578,7 +578,11 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     int f = ssys_open("ROM:r.txt", O_RD);
     ASSERT_TRUE(f >= 0);
     ASSERT_TRUE(ssys_write(f, "x", 1) < 0);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOSYS));
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    xstack_ptr = XSTACK_SIZE;
+    API_A = (uint8_t)f;
+    ssys_dispatch(std_api_syncfs);
+    ASSERT_EQ(dsys_ax(), 0);
     char buf[8] = {0};
     ASSERT_EQ(ssys_read(f, buf, 8), 3);
     ASSERT_STREQ(buf, "abc");
@@ -925,14 +929,14 @@ UTEST(fs, a_drive_root_has_one_fixed_entry)
         ASSERT_EQ(info.ftime, 0);
     }
 
-    const char *const refused[] = {"", host_drive()};
-    for (size_t i = 0; i < sizeof refused / sizeof *refused; i++)
-    {
-        dsys_path(refused[i]);
-        dir_api_stat();
-        ASSERT_EQ(dsys_ax(), -1);
-        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
-    }
+    dsys_path("");
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    dsys_path(host_drive());
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
 }
 
 UTEST(fs, an_open_file_can_be_opened_again_renamed_and_unlinked)
@@ -998,14 +1002,21 @@ UTEST(fs, a_rename_follows_the_rules_of_rename)
 
     /* A file and a directory never replace each other, and a directory does
      * not replace one that is not empty. */
-    static const char *const refused[][2] = {
-        {"b.txt", "d2"}, {"d2", "b.txt"}, {"d2", "d3"}};
+    static const struct
+    {
+        const char *from, *to;
+        api_errno err;
+    } refused[] = {
+        {"b.txt", "d2", API_EACCES},
+        {"d2", "b.txt", API_EACCES},
+        {"d2", "d3", API_EEXIST},
+    };
     for (size_t i = 0; i < sizeof refused / sizeof *refused; i++)
     {
-        dsys_rename(refused[i][0], refused[i][1]);
+        dsys_rename(refused[i].from, refused[i].to);
         dir_api_rename();
         ASSERT_EQ(dsys_ax(), -1);
-        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+        ASSERT_EQ(ssys_errno(), api_platform_errno(refused[i].err));
     }
     ASSERT_EQ(stat_size("b.txt"), 1);
     ASSERT_TRUE(host_exists("d3/sub"));
@@ -1079,6 +1090,113 @@ UTEST(fs, a_name_windows_keeps_for_a_device_is_refused)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
 }
 #endif
+
+UTEST(fs, a_read_or_a_write_the_open_did_not_ask_for_fails_with_ebadf)
+{
+    ASSERT_TRUE(fresh_cwd());
+    char buf[4];
+    int w = ssys_open("w.txt", O_WR | O_CREAT_);
+    ASSERT_TRUE(w >= 0);
+    ASSERT_TRUE(ssys_read(w, buf, 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ASSERT_EQ(ssys_write(w, "abc", 3), 3);
+    ssys_close(w);
+    int r = ssys_open("w.txt", O_RD);
+    ASSERT_TRUE(r >= 0);
+    ASSERT_TRUE(ssys_write(r, "x", 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ssys_close(r);
+
+    ASSERT_TRUE(ssys_write(0, "x", 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ASSERT_TRUE(ssys_read(1, buf, 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+}
+
+UTEST(fs, the_console_cannot_seek_or_sync)
+{
+    ASSERT_TRUE(fresh_cwd());
+    ASSERT_EQ(ssys_lseek(0, 0, SEEK_SET), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ESPIPE));
+    xstack_ptr = XSTACK_SIZE;
+    API_A = 1;
+    ssys_dispatch(std_api_syncfs);
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+}
+
+UTEST(fs, an_empty_path_fails_with_enoent)
+{
+    ASSERT_TRUE(fresh_cwd());
+    ASSERT_TRUE(ssys_open("", O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    bool (*const calls[])(void) = {dir_api_stat, dir_api_remove,
+                                   dir_api_mkdir};
+    for (size_t i = 0; i < sizeof calls / sizeof *calls; i++)
+    {
+        dsys_path("");
+        calls[i]();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    }
+    dsys_chmod(AM_RDO, AM_RDO, "");
+    dir_api_chmod();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    dsys_utime(0, 0, "");
+    dir_api_utime();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    make_file("a.txt", "A", 1);
+    dsys_rename("a.txt", "");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    dsys_rename("", "a.txt");
+    dir_api_rename();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+}
+
+UTEST(fs, directories_fail_as_posix_says)
+{
+    ASSERT_TRUE(fresh_cwd());
+    dsys_path("full");
+    dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    make_file("full/x.txt", "X", 1);
+    dsys_path("full");
+    dir_api_remove();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EEXIST));
+    const char *const existing[] = {".", host_drive()};
+    for (size_t i = 0; i < sizeof existing / sizeof *existing; i++)
+    {
+        dsys_path(existing[i]);
+        dir_api_mkdir();
+        ASSERT_EQ(dsys_ax(), -1);
+        ASSERT_EQ(ssys_errno(), api_platform_errno(API_EEXIST));
+    }
+    ASSERT_TRUE(ssys_open(host_drive(), O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
+}
+
+UTEST(fs, a_savestate_keeps_the_open_mode)
+{
+    ASSERT_TRUE(fresh_cwd());
+    int w = ssys_open("w.txt", O_WR | O_CREAT_);
+    ASSERT_TRUE(w >= 0);
+    static uint8_t blob[STD_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false};
+    std_sst_save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    sst_cursor_t r = {blob, c.at, false};
+    ASSERT_TRUE(std_sst_load(&r, 0));
+    char buf[1];
+    ASSERT_TRUE(ssys_read(w, buf, 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ASSERT_EQ(ssys_write(w, "x", 1), 1);
+}
 
 static uint8_t g_blob[STD_SST_SIZE];
 static int g_save_fd, g_plain_fd;

@@ -74,8 +74,6 @@ bool fat_path_ok(const char *path, api_errno *err)
 
 bool fat_names_dir(const char *path)
 {
-    if (!*fat_after_drive(path))
-        return false;
     DIR dir;
     if (f_opendir(&dir, (const TCHAR *)path) != FR_OK)
         return false;
@@ -85,12 +83,7 @@ bool fat_names_dir(const char *path)
 
 bool drive_validate(int des, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
-    if (dirs[des].obj.fs == 0)
+    if (des < 0 || des >= DIR_MAX_OPEN || dirs[des].obj.fs == 0)
     {
         *err = API_EBADF;
         return false;
@@ -209,7 +202,14 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 
 bool drive_mkdir(const char *path, api_errno *err)
 {
-    return fat_path_ok(path, err) && fat_ok(f_mkdir((const TCHAR *)path), err);
+    if (!fat_path_ok(path, err))
+        return false;
+    // f_mkdir refuses ".", "..", a root and a bare drive name as an invalid
+    // name.
+    FRESULT fresult = f_mkdir((const TCHAR *)path);
+    if (fresult == FR_INVALID_NAME && fat_names_dir(path))
+        fresult = FR_EXIST;
+    return fat_ok(fresult, err);
 }
 
 /* f_chdir sets the folder of the drive it names without making that drive
@@ -243,7 +243,12 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    return fat_ok(f_getcwd((TCHAR *)buf, (UINT)size), err);
+    FRESULT fresult = f_getcwd((TCHAR *)buf, (UINT)size);
+    if (fresult == FR_OK)
+        return true;
+    // f_getcwd gives FR_NOT_ENOUGH_CORE when the path does not fit buf.
+    *err = fresult == FR_NOT_ENOUGH_CORE ? API_ERANGE : fresult_to_api(fresult);
+    return false;
 }
 
 bool drive_setlabel(const char *path, api_errno *err)

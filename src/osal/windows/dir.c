@@ -302,10 +302,10 @@ static void info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd)
 struct win_dir
 {
     bool used;
-    HANDLE h;
+    HANDLE h; /* INVALID_HANDLE_VALUE for a directory with no entries */
     WIN32_FIND_DATAW fd;
     bool first; /* FindFirstFileW already yielded the first entry */
-    bool alive;
+    bool alive; /* false after a failed rewind */
     wchar_t *pattern;
     char path[API_PATH_MAX + 1];
 };
@@ -313,12 +313,7 @@ static struct win_dir dirs[DIR_MAX_OPEN];
 
 bool drive_validate(int des, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
-    if (!dirs[des].used)
+    if (des < 0 || des >= DIR_MAX_OPEN || !dirs[des].used)
     {
         *err = API_EBADF;
         return false;
@@ -328,9 +323,9 @@ bool drive_validate(int des, api_errno *err)
 
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
-    if (!path[0] || (win_has_drive(path) && !path[2]))
+    if (win_has_drive(path) && !path[2])
     {
-        *err = path[0] && !win_drive_mounted(path[0]) ? API_ENODEV : API_EINVAL;
+        *err = win_drive_mounted(path[0]) ? API_EINVAL : API_ENODEV;
         return false;
     }
     wchar_t *w = path_to_wide(path, err);
@@ -371,6 +366,17 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     return ok;
 }
 
+/* FindFirstFileW gives ERROR_PATH_NOT_FOUND for a directory that is not there.
+ * ERROR_FILE_NOT_FOUND from a search for every name is thus a directory with
+ * no entries, such as an empty drive root, and the search succeeds with no
+ * handle. */
+static bool dir_find_first(struct win_dir *d, const wchar_t *pattern, api_errno *err)
+{
+    d->h = FindFirstFileW(pattern, &d->fd);
+    d->first = true;
+    return win_ok(d->h != INVALID_HANDLE_VALUE || GetLastError() == ERROR_FILE_NOT_FOUND, err);
+}
+
 static bool dir_open_into(int i, const char *path, api_errno *err)
 {
     struct win_dir *d = &dirs[i];
@@ -400,15 +406,13 @@ static bool dir_open_into(int i, const char *path, api_errno *err)
     pattern[n] = 0;
     free(base);
 
-    d->h = FindFirstFileW(pattern, &d->fd);
-    if (!win_ok(d->h != INVALID_HANDLE_VALUE, err))
+    if (!dir_find_first(d, pattern, err))
     {
         free(pattern);
         return false;
     }
     d->pattern = pattern;
     d->used = true;
-    d->first = true;
     d->alive = true;
     d->path[0] = 0;
     char *abs = os_dir_realpath(path[0] ? path : ".");
@@ -449,11 +453,6 @@ bool drive_dir_path(int des, char *buf, size_t size)
 
 bool drive_reopendir(int des, const char *path, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
     if (dirs[des].used)
         drive_closedir(des, err);
     return dir_open_into(des, path, err);
@@ -467,21 +466,15 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
         *err = API_EBADF;
         return false;
     }
-    for (;;)
+    while (d->h != INVALID_HANDLE_VALUE)
     {
-        if (!d->first)
+        if (!d->first && !FindNextFileW(d->h, &d->fd))
         {
-            if (!FindNextFileW(d->h, &d->fd))
-            {
-                DWORD e = GetLastError();
-                if (e == ERROR_NO_MORE_FILES)
-                {
-                    memset(info, 0, sizeof(*info)); /* an empty fname is the end */
-                    return true;
-                }
-                *err = win_error_to_api(e);
-                return false;
-            }
+            DWORD e = GetLastError();
+            if (e == ERROR_NO_MORE_FILES)
+                break;
+            *err = win_error_to_api(e);
+            return false;
         }
         d->first = false;
         info_from_find(info, &d->fd);
@@ -489,13 +482,15 @@ bool drive_readdir(int des, f_stat_t *info, api_errno *err)
             continue;
         return true;
     }
+    memset(info, 0, sizeof(*info)); /* an empty fname is the end */
+    return true;
 }
 
 bool drive_closedir(int des, api_errno *err)
 {
     (void)err;
     struct win_dir *d = &dirs[des];
-    if (d->alive && d->h != INVALID_HANDLE_VALUE)
+    if (d->h != INVALID_HANDLE_VALUE)
         FindClose(d->h);
     free(d->pattern);
     d->pattern = NULL;
@@ -508,17 +503,10 @@ bool drive_closedir(int des, api_errno *err)
 bool drive_rewinddir(int des, api_errno *err)
 {
     struct win_dir *d = &dirs[des];
-    if (d->alive && d->h != INVALID_HANDLE_VALUE)
+    if (d->h != INVALID_HANDLE_VALUE)
         FindClose(d->h);
-    d->h = FindFirstFileW(d->pattern, &d->fd);
-    if (!win_ok(d->h != INVALID_HANDLE_VALUE, err))
-    {
-        d->alive = false;
-        return false;
-    }
-    d->first = true;
-    d->alive = true;
-    return true;
+    d->alive = dir_find_first(d, d->pattern, err);
+    return d->alive;
 }
 
 bool drive_unlink(const char *path, api_errno *err)
@@ -606,7 +594,14 @@ bool drive_mkdir(const char *path, api_errno *err)
     wchar_t *w = path_to_wide(path, err);
     if (!w)
         return false;
-    bool ok = win_ok(CreateDirectoryW(w, NULL), err);
+    bool ok = CreateDirectoryW(w, NULL);
+    DWORD e = ok ? 0 : GetLastError();
+    /* CreateDirectoryW refuses a drive root with ERROR_ACCESS_DENIED, where
+     * mkdir(2) gives EEXIST for any name that is already there. */
+    if (e == ERROR_ACCESS_DENIED && GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES)
+        e = ERROR_ALREADY_EXISTS;
+    if (!ok)
+        *err = win_error_to_api(e);
     free(w);
     return ok;
 }
@@ -717,7 +712,7 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     if (w[1] != L':')
         *err = API_ENODEV;
     else if (oem_from_wide((const uint16_t *)w, buf, size) >= size)
-        *err = API_ENOMEM;
+        *err = API_ERANGE;
     else
     {
         win_to_slash(buf);
@@ -732,14 +727,14 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)path, (void)label, (void)size;
-    *err = API_EACCES;
+    *err = API_ENOSYS;
     return false;
 }
 
 bool drive_setlabel(const char *path, api_errno *err)
 {
     (void)path;
-    *err = API_EACCES;
+    *err = API_ENOSYS;
     return false;
 }
 

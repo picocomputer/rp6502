@@ -193,8 +193,9 @@ const char *api_errno_str(api_errno num)
     case API_ENOENT:
         return S(STR_ERR_FATFS_NO_FILE);
     case API_EACCES:
-    case API_ENOSPC:
         return S(STR_ERR_FATFS_DENIED);
+    case API_ENOSPC:
+        return S(STR_ERR_NO_SPACE_ON_DEVICE);
     case API_EEXIST:
         return S(STR_ERR_FATFS_EXIST);
     case API_ENOEXEC:
@@ -277,4 +278,11 @@ const char *api_pop_str_end(size_t max)
         return NULL;
     xstack_ptr = XSTACK_SIZE;
     return str;
+}
+
+const char *api_pop_path_end(api_errno *err)
+{
+    const char *path = api_pop_str_end(API_PATH_MAX);
+    *err = path ? API_ENOENT : API_EINVAL;
+    return path && path[0] ? path : NULL;
 }

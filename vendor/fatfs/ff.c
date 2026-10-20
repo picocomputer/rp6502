@@ -1765,7 +1765,7 @@ static FRESULT dir_sdi (	/* FR_OK(0):succeeded, !=0:error */
 /* Directory handling - Move directory table index next                  */
 /*-----------------------------------------------------------------------*/
 
-static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DENIED:Could not stretch */
+static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_NO_SPACE:Could not stretch (RP6502) */
 	DIR* dp,				/* Pointer to the directory object */
 	int stretch				/* 0: Do not stretch table, 1: Stretch table if needed */
 )
@@ -1797,7 +1797,7 @@ static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DEN
 						dp->sect = 0; return FR_NO_FILE;
 					}
 					clst = create_chain(&dp->obj, dp->clust);	/* Allocate a cluster */
-					if (clst == 0) return FR_DENIED;			/* No free cluster */
+					if (clst == 0) return FR_NO_SPACE;			/* RP6502: in place of FR_DENIED, no free cluster */
 					if (clst == 1) return FR_INT_ERR;			/* Internal error */
 					if (clst == 0xFFFFFFFF) return FR_DISK_ERR;	/* Disk error */
 					if (dir_clear(fs, clst) != FR_OK) return FR_DISK_ERR;	/* Clean up the stretched table */
@@ -1855,7 +1855,7 @@ static FRESULT dir_alloc (	/* FR_OK(0):succeeded, !=0:error */
 		} while (res == FR_OK);
 	}
 
-	if (res == FR_NO_FILE) res = FR_DENIED;	/* No directory entry to allocate */
+	if (res == FR_NO_FILE) res = FR_NO_SPACE;	/* RP6502: in place of FR_DENIED, no directory entry to allocate */
 	return res;
 }
 
@@ -2497,7 +2497,7 @@ static FRESULT dir_find (	/* FR_OK(0):succeeded, !=0:error */
 /* Register an object to the directory                                   */
 /*-----------------------------------------------------------------------*/
 
-static FRESULT dir_register (	/* FR_OK:succeeded, FR_DENIED:no free entry or too many SFN collision, FR_DISK_ERR:disk error */
+static FRESULT dir_register (	/* FR_OK:succeeded, FR_NO_SPACE:no free entry (RP6502), FR_DENIED:too many SFN collision, FR_DISK_ERR:disk error */
 	DIR* dp						/* Target directory with object name to be created */
 )
 {
@@ -3859,7 +3859,7 @@ FRESULT f_open (
 				if (mode & FA_CREATE_NEW) {
 					res = FR_EXIST;				/* Cannot create as new file */
 				} else {
-					if (dj.obj.attr & (AM_RDO | AM_DIR)) res = FR_DENIED;	/* Cannot overwrite it (R/O or DIR) */
+					if ((dj.obj.attr & AM_DIR) || ((dj.obj.attr & AM_RDO) && (mode & (FA_WRITE | FA_CREATE_ALWAYS)))) res = FR_DENIED;	/* RP6502: refuse a DIR, and a R/O file only when the open writes */
 				}
 			}
 			if (res == FR_OK && (mode & FA_CREATE_ALWAYS)) {	/* Truncate the file if overwrite mode */
@@ -5141,7 +5141,7 @@ FRESULT f_unlink (
 			if (dj.obj.attr & AM_DIR) {		/* Is the object a sub-directory? */
 #if FF_FS_RPATH
 				if (dclst == fs->cdir) {
-					res = FR_DENIED;		/* Current directory cannot be removed */
+					res = FR_LOCKED;		/* RP6502: in place of FR_DENIED, current directory cannot be removed */
 				} else
 #endif
 				{
@@ -5156,7 +5156,7 @@ FRESULT f_unlink (
 					res = dir_sdi(&sdj, 0);
 					if (res == FR_OK) {
 						res = DIR_READ_FILE(&sdj);			/* Check if the sub-directory is empty */
-						if (res == FR_OK) res = FR_DENIED;	/* Not empty? */
+						if (res == FR_OK) res = FR_NOT_EMPTY;	/* RP6502: in place of FR_DENIED, not empty? */
 						if (res == FR_NO_FILE) res = FR_OK;	/* Empty? */
 					}
 				}
@@ -5210,7 +5210,7 @@ FRESULT f_mkdir (
 			sobj.fs = fs;						/* New object ID to create a new chain */
 			dcl = create_chain(&sobj, 0);		/* Allocate a cluster for the new directory */
 			res = FR_OK;
-			if (dcl == 0) res = FR_DENIED;		/* No space to allocate a new cluster? */
+			if (dcl == 0) res = FR_NO_SPACE;	/* RP6502: in place of FR_DENIED, no space to allocate a new cluster? */
 			if (dcl == 1) res = FR_INT_ERR;		/* Any insanity? */
 			if (dcl == 0xFFFFFFFF) res = FR_DISK_ERR;	/* Disk error? */
 			tm = GET_FATTIME();
