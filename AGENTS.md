@@ -37,9 +37,9 @@ behind it, and fix every place in the change that breaks that rule.
 
 Comments. A function comment states what the function does, and only
 when the name does not. A comment inside a function gives the reason for
-a line that would surprise the reader. Do not comment edge cases, caller
-behavior, or what the code or the documentation already states. Do not
-narrate the session.
+a line that would surprise a person reading the code. Do not comment edge
+cases, caller behavior, or what the code or the documentation already
+states. Do not narrate the session.
 
 Questions. Answer a question with an answer. Do not edit in reply to a
 question.
@@ -47,12 +47,13 @@ question.
 Status. Do not report the state of a build, a test, or a task that you
 did not check.
 
-Voice. Write for engineers and programmers, in the style of a data sheet.
-This applies to the manual, comments, messages, help text, tests and plans.
-Use plain language with the writing rules of ASD-STE100 Simplified Technical
-English, but not its restricted dictionary:
+Voice. Write for a person: the programmer who reads the code next, or
+the user who reads a message, help text, or test output. Write it the way
+you would explain it to that person, in plain language. This applies to
+comments, messages, help text, tests and plans. The manual follows
+~/picocomputer.github.io/docs/AGENTS.md instead.
 - Use one word for one meaning, and use the same word every time.
-- Use the present tense and the active voice. Give each sentence a subject.
+- Use the present tense and the active voice.
 - Prefer short sentences. A sentence is as long as its content requires.
 - Write one instruction in each sentence.
 - Do not use noun clusters of more than three words.
