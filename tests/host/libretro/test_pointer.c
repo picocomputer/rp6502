@@ -28,7 +28,7 @@ static void point_at(float fx, float fy, bool pressed)
     fe.pointer[0][RETRO_DEVICE_ID_POINTER_PRESSED] = pressed ? 1 : 0;
 }
 
-/* The mouse and tablet programs that tests/gen/pointer_rom_gen.py builds map
+/* The mouse and tablet programs that tests/cpu/hid/pointer.py builds map
  * their blocks at these addresses. The tablet's four-byte header comes before
  * contact 0, whose flags are its first byte. */
 #define MOUSE_XREG 0xFF00

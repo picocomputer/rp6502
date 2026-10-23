@@ -144,9 +144,8 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 5);
     p.store(TB_RIA_TX, 0x07); /* BEL, rings */
 
-    /* Attribute 2 is ATTR_CODE_PAGE. Page 1252 is unavailable, so setting it
-     * still succeeds and selects the system page, which is 437 on the
-     * emulator bench. */
+    /* Attribute 2 is ATTR_CODE_PAGE. The machine has no page 1252, so that
+     * set fails with EINVAL and 850 stays. */
     push(0); push(0); push(3); push(0x52); /* 850 */
     opn(0x0B, 2);
     opn(0x0A, 2);
@@ -161,9 +160,9 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0A, 7);
     opn(0x0A, 8);
 
-    /* Attribute 1 is ATTR_PHI2_KHZ. The emulator and the Pocket firmware both
-     * clamp 9000 to PHI2_MAX_KHZ, which is also the default, so the last set
-     * puts back the rate the program started at. */
+    /* Attribute 1 is ATTR_PHI2_KHZ. 9000 is above PHI2_MAX_KHZ, so that set
+     * fails with EINVAL and 1000 stays. The last set puts back the rate the
+     * program started at. */
     opn(0x0A, 1);
     p.pushl(1000);
     opn(0x0B, 1);
@@ -171,6 +170,8 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     p.pushl(9000);
     opn(0x0B, 1);
     opn(0x0A, 1);
+    p.pushl(8000);
+    opn(0x0B, 1);
 
     /* Attribute 4 is ATTR_LRAND. The program compares two draws and prints
      * only whether they differ, because the emulator bench and the Pocket

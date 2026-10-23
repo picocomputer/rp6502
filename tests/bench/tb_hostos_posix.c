@@ -8,6 +8,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 bool host_make_tmpdir(char *buf, size_t sz)
@@ -18,6 +19,12 @@ bool host_make_tmpdir(char *buf, size_t sz)
         return false;
     memcpy(buf, d, strlen(d) + 1);
     return true;
+}
+
+bool host_path_exists(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0;
 }
 
 void host_setenv(const char *name, const char *value)

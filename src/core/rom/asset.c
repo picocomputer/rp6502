@@ -243,37 +243,16 @@ static window_t *window_get(int desc)
     return &windows[desc];
 }
 
-static bool path_is_rom(const char *path, const char **rest)
-{
-    if (strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) == 0)
-    {
-        *rest = path + STR_ROM_COLON_LEN;
-        return true;
-    }
-    return false;
-}
-
 bool rom_std_handles(const char *path)
 {
-    const char *rest;
-    return path_is_rom(path, &rest);
+    return strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) == 0;
 }
 
 int rom_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    const char *rest;
-    if (!path_is_rom(path, &rest))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
-    if (flags & FS_WR)
-    {
-        *err = API_EACCES;
-        return -1;
-    }
+    (void)flags;
     uint32_t base, len;
-    if (!rom_asset_find(rest, &base, &len))
+    if (!rom_asset_find(path + STR_ROM_COLON_LEN, &base, &len))
     {
         *err = API_ENOENT;
         return -1;
@@ -302,8 +281,9 @@ bool rom_std_ident(int desc, sst_cursor_t *c)
     return sst_ok(c);
 }
 
-int rom_std_reopen(sst_cursor_t *c, api_errno *err)
+int rom_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
 {
+    (void)mode;
     uint32_t base = sst_get_u32(c);
     uint32_t len = sst_get_u32(c);
     uint32_t pos = sst_get_u32(c);
@@ -357,6 +337,13 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
     return r;
 }
 
+std_rw_result rom_std_sync(int desc, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    return STD_OK;
+}
+
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     window_t *w = window_get(desc);
@@ -369,17 +356,18 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
                    : whence == SEEK_CUR ? (int32_t)w->pos
                    : whence == SEEK_END ? (int32_t)w->len
                                         : -1;
-    if (from < 0 || from + off < 0)
+    /* The sum is 64 bits so that a large offset cannot overflow it. */
+    int64_t np = (int64_t)from + off;
+    if (from < 0 || np < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    int32_t np = from + off;
     /* A seek past the end of the asset lands at its end rather than failing,
      * and the next read says so by returning nothing. */
-    if ((uint32_t)np > w->len)
-        np = (int32_t)w->len;
+    if (np > (int64_t)w->len)
+        np = w->len;
     w->pos = (uint32_t)np;
-    *pos = np;
+    *pos = (int32_t)np;
     return 0;
 }

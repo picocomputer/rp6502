@@ -65,7 +65,7 @@ static uint16_t arg_size(void)
     return offset + (uint16_t)strlen((const char *)&arg_buf[offset]) + 1;
 }
 
-static bool arg_validate(void)
+static bool arg_validate(uint16_t size)
 {
     uint16_t count = arg_count();
     uint16_t pos = (count + 1) * 2;
@@ -81,7 +81,8 @@ static bool arg_validate(void)
             return false;
         pos++;
     }
-    return true;
+    // The last string may leave out its terminator.
+    return pos == size || pos == size + 1;
 }
 
 bool arg_append(const char *str)
@@ -159,7 +160,7 @@ bool arg_pull_xstack(void)
     memcpy(arg_buf, &xstack[ptr], size);
     memset(&arg_buf[size], 0, XSTACK_SIZE - size);
     xstack_ptr = XSTACK_SIZE;
-    if (!arg_validate() || !arg_count())
+    if (!arg_validate(size) || !arg_count())
     {
         arg_clear();
         return false;

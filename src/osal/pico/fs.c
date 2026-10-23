@@ -6,6 +6,7 @@
 
 #include "osal/pico/dir.h"
 #include "osal/pico/errmap.h"
+#include "osal/dir.h"
 #include "osal/fs.h"
 #include "fatfs/ff.h"
 #include "osal/pico/lfs.h"
@@ -23,6 +24,11 @@
 #define FS_DESC_ROM FAT_FIL_MAX
 #define FS_DESC_ROM_WR (FAT_FIL_MAX + 1)
 static FIL fat_fil_pool[FAT_FIL_MAX + 1];
+
+/* FatFs takes a lock for each open file and directory. ffconf.h cannot see
+ * these limits, so its sum is checked here: the files, the ROM file, the
+ * directories, and the directory that fat_names_dir() opens. */
+static_assert(FF_FS_LOCK == FAT_FIL_MAX + 1 + DIR_MAX_OPEN + 1);
 static bool rom_rd_lfs_live;
 static lfs_file_t rom_rd_lfs;
 LFS_FILE_CONFIG(rom_rd_lfs_cfg, static);
@@ -54,7 +60,9 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
                                          &rom_wr_lfs_cfg);
         if (lfsresult < 0)
         {
-            *err = lfs_error_to_api(lfsresult);
+            // littlefs reports a full volume on create as a name too long.
+            *err = lfsresult == LFS_ERR_NAMETOOLONG ? API_ENOSPC
+                                                    : lfs_error_to_api(lfsresult);
             return -1;
         }
         rom_wr_live = true;
@@ -160,7 +168,8 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
 
     // f_open refuses a directory as a missing file when it may not create one,
-    // and the root as an invalid name, where the other machines give EACCES.
+    // and a root or a bare drive name as an invalid name, where the other
+    // machines give EACCES.
     FRESULT fresult = f_open(fp, path, mode);
     if ((fresult == FR_NO_FILE || fresult == FR_INVALID_NAME) &&
         fat_names_dir(path))
@@ -222,9 +231,9 @@ bool fs_std_ident(int desc, sst_cursor_t *c)
     return false;
 }
 
-int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
 {
-    (void)c;
+    (void)c, (void)mode;
     *err = API_ENOSYS;
     return -1;
 }
@@ -325,10 +334,9 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
         *err = fresult_to_api(fresult);
         return STD_ERROR;
     }
-    /* FatFs has no disk-full result. f_write stops when it cannot get a
-     * cluster and reports the short count, so on a full volume it writes
-     * nothing and still returns FR_OK. Nothing written of something asked for
-     * is ENOSPC here. */
+    /* f_write stops when it cannot get a cluster and reports the short count,
+     * so on a full volume it writes nothing and still returns FR_OK. Nothing
+     * written of something asked for is ENOSPC here. */
     if (count && !bw)
     {
         *err = API_ENOSPC;
@@ -396,47 +404,11 @@ int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errn
         *err = API_EBADF;
         return -1;
     }
-    FSIZE_t absolute_offset;
-    if (whence == SEEK_SET)
-    {
-        if (offset < 0)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        absolute_offset = offset;
-    }
-    else if (whence == SEEK_CUR)
-    {
-        FSIZE_t current_pos = f_tell(fp);
-        if (offset < 0 && (FSIZE_t)(-offset) > current_pos)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        if (offset > 0 && (FSIZE_t)offset > (~(FSIZE_t)0) - current_pos)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        absolute_offset = current_pos + offset;
-    }
-    else if (whence == SEEK_END)
-    {
-        FSIZE_t file_size = f_size(fp);
-        if (offset < 0 && (FSIZE_t)(-offset) > file_size)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        if (offset > 0 && (FSIZE_t)offset > (~(FSIZE_t)0) - file_size)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        absolute_offset = file_size + offset;
-    }
-    else
+    int64_t absolute_offset = whence == SEEK_SET   ? offset
+                              : whence == SEEK_CUR ? (int64_t)f_tell(fp) + offset
+                              : whence == SEEK_END ? (int64_t)f_size(fp) + offset
+                                                   : -1;
+    if (absolute_offset < 0)
     {
         *err = API_EINVAL;
         return -1;

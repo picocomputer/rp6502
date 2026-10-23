@@ -26,8 +26,8 @@ extern "C"
 {
 #endif
 
-    bool xreg0(uint8_t channel, uint8_t address, uint16_t word);
-    bool xreg1(uint8_t channel, uint8_t address, uint16_t word);
+    bool xreg0(uint8_t channel, uint8_t index, uint16_t word);
+    bool xreg1(uint8_t channel, uint8_t index, uint16_t word);
 
 #ifdef __cplusplus
 }

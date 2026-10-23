@@ -15,14 +15,14 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 
-bool xreg0(uint8_t channel, uint8_t address, uint16_t word)
+bool xreg0(uint8_t channel, uint8_t index, uint16_t word)
 {
     /* On channel 0 the word is the XRAM address of the device's report
      * block, or 0xFFFF to publish nothing. */
     if (channel == 0)
     {
         bool ok;
-        switch (address)
+        switch (index)
         {
         case 0:
             ok = keyboard_xreg(word);
@@ -44,9 +44,9 @@ bool xreg0(uint8_t channel, uint8_t address, uint16_t word)
     }
     if (channel == 1)
     {
-        if (address == 0)
+        if (index == 0)
             return psg_xreg(word);
-        if (address == 1)
+        if (index == 1)
             return opl_xreg(word);
         return false;
     }

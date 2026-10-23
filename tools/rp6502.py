@@ -7,6 +7,9 @@
 
 # RP6502-RIA Developer tool
 
+# Keep this file working on Python 3.9 for macOS.
+
+import io
 import os
 import re
 import time
@@ -22,7 +25,9 @@ import json
 import glob
 import shlex
 import socket
+import struct
 import subprocess
+import concurrent.futures
 from typing import Union
 
 # POSIX
@@ -1132,207 +1137,473 @@ class ROM:
         return len(data)
 
 
-class Emulator:
-    """rp6502-emu discovery and debug-adapter error reporting."""
+class Symbols(dict):
+    """The names and values of a .sym file. A name with two values is not
+    in the table but in self.ambiguous. A missing file gives an empty table."""
 
-    # True once we know this run is an `emu` launch: we are the IDE's debug
-    # adapter, so errors must be promoted to DAP (see fatal).
-    launching = False
-
-    @staticmethod
-    def find(config=None):
-        """The emulator the tools fetch beside this script."""
-        exe = "rp6502-emu.exe" if platform.system() == "Windows" else "rp6502-emu"
-        beside = "rp6502-emu.exe" if "microsoft" in platform.release().lower() else exe
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), beside)
-        if config:
-            try:
-                rel = os.path.relpath(path, os.path.dirname(os.path.abspath(config)))
-            except ValueError:  # Windows: another drive has no relative path
-                return path
-            if not rel.startswith(os.pardir):
-                return rel.replace(os.sep, "/")
-        return path
-
-    @staticmethod
-    def resolve(emulator: str, config) -> str:
-        """The executable an 'emulator' setting names."""
-        if not emulator:
-            where = f" in {config}" if config else " in a config file"
-            raise RuntimeError(
-                f"No emulator configured — set 'emulator'{where} "
-                f"to the rp6502-emu executable path."
-            )
-        emulator = os.path.expanduser(os.path.expandvars(emulator))
-        if config and not os.path.isabs(emulator):
-            beside = os.path.join(os.path.dirname(os.path.abspath(config)), emulator)
-            if os.path.isfile(beside):
-                return beside
-        return emulator
-
-    @staticmethod
-    def cannot_run(emulator: str, config, err) -> str:
-        """Why the emulator did not start, and where to change it."""
-        if config:
-            return (
-                f"Cannot run emulator '{emulator}': {err} — "
-                f"fix 'emulator' in {config}"
-            )
-        return (
-            f"Cannot run emulator '{emulator}': {err} — "
-            f"name it with 'emulator' in a config file, or put it on PATH"
-        )
-
-    @staticmethod
-    def send_dap_error(message: str):
-        """Speak minimal DAP: acknowledge `initialize`, then fail `launch`/`attach`."""
-        stdin = sys.stdin.buffer
-        stdout = sys.stdout.buffer
-        out_seq = 0
-
-        def read_request():
-            header = b""
-            while not header.endswith(b"\r\n\r\n"):
-                byte = stdin.read(1)
-                if not byte:
-                    return None  # stream closed before a full header
-                header += byte
-            length = 0
-            for line in header.split(b"\r\n"):
-                name, sep, value = line.partition(b":")
-                if sep and name.strip().lower() == b"content-length":
-                    length = int(value.strip())
-            body = b""
-            while len(body) < length:
-                chunk = stdin.read(length - len(body))
-                if not chunk:
-                    return None
-                body += chunk
-            return json.loads(body.decode("utf-8"))
-
-        def send(response):
-            nonlocal out_seq
-            out_seq += 1
-            response["seq"] = out_seq
-            data = json.dumps(response).encode("utf-8")
-            stdout.write(
-                b"Content-Length: " + str(len(data)).encode("ascii") + b"\r\n\r\n"
-            )
-            stdout.write(data)
-            stdout.flush()
-
-        while True:
-            request = read_request()
-            if request is None:
-                return
-            if request.get("type") != "request":
-                continue
-            command = request.get("command")
-            request_seq = request.get("seq", 0)
-            if command in ("launch", "attach"):
-                send(
-                    {
-                        "type": "response",
-                        "request_seq": request_seq,
-                        "success": False,
-                        "command": command,
-                        "message": message,
-                        "body": {
-                            "error": {"id": 1, "format": message, "showUser": True}
-                        },
-                    }
-                )
-                return
-            # `initialize` (and anything else before launch) gets a bare success
-            # so the client proceeds to send the launch request we then fail.
-            response = {
-                "type": "response",
-                "request_seq": request_seq,
-                "success": True,
-                "command": command,
-            }
-            if command == "initialize":
-                response["body"] = {}
-            send(response)
-
-
-def serve_web(path):
-    """Serves the web packages that rp6502_web() makes in <build>/web, with
-    a list of them at the root, until stopped. path is the build folder or
-    a file in it, such as the launch target that VS Code has just built."""
-    import html
-    import http.server
-    import threading
-    import webbrowser
-
-    build = os.path.abspath(path)
-    while not os.path.isfile(os.path.join(build, "CMakeCache.txt")):
-        parent = os.path.dirname(build)
-        if parent == build:
-            raise RuntimeError(f"{path} is not in a CMake build folder")
-        build = parent
-    root = os.path.join(build, "web")
-
-    def packages():
-        if not os.path.isdir(root):
-            return []
-        return sorted(
-            name
-            for name in os.listdir(root)
-            if os.path.isfile(os.path.join(root, name, "index.html"))
-        )
-
-    if not packages():
-        raise RuntimeError(
-            f"{build} has no web packages; rp6502_web() in CMakeLists.txt makes them"
-        )
-
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=root, **kwargs)
-
-        def do_GET(self):
-            if self.path.split("?")[0] not in ("/", "/index.html"):
-                return super().do_GET()
-            items = "".join(
-                f'<li><a href="{html.escape(name)}/">{html.escape(name)}</a>'
-                f' &middot; <a href="{html.escape(name)}.zip">{html.escape(name)}.zip</a></li>'
-                for name in packages()
-            )
-            body = (
-                '<!doctype html><meta charset="utf-8"><title>Web packages</title>'
-                f"<h1>Web packages</h1><ul>{items}</ul>"
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format, *args):
+    def __init__(self, path):
+        super().__init__()
+        self.ambiguous = set()
+        try:
+            with open(path) as f:
+                for line in f:
+                    name, value = line.split()
+                    value = int(value, 0)
+                    if name in self.ambiguous:
+                        continue
+                    if self.get(name, value) != value:
+                        del self[name]
+                        self.ambiguous.add(name)
+                    else:
+                        self[name] = value
+        except FileNotFoundError:
             pass
 
-    # On Windows, SO_REUSEADDR lets a second server bind a port in use.
-    class Server(http.server.ThreadingHTTPServer):
-        allow_reuse_address = os.name != "nt"
+    def __missing__(self, name):
+        if name in self.ambiguous:
+            raise KeyError(f"{name} is ambiguous")
+        raise KeyError(name)
 
-    server = None
-    for port in range(8000, 8100):
-        try:
-            server = Server(("127.0.0.1", port), Handler)
-            break
-        except OSError:
-            continue
-    if not server:
-        raise RuntimeError("No free port from 8000 to 8099")
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
-    print(f"[{SCRIPT_FILE}] Serving {root} at {url}", flush=True)
-    # A text browser waits for the page, which is served only after this.
-    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    @staticmethod
+    def text(value: int) -> str:
+        """The text of a value in a .sym file: hex from 0x0000 to 0xFFFF, else decimal."""
+        return f"0x{value:04X}" if 0 <= value <= 0xFFFF else str(value)
+
+    @staticmethod
+    def write(path, pairs):
+        """Writes (name, value) pairs as a .sym file and returns its lines as pairs.
+        Repeated pairs make one line. Values outside int64 are left out."""
+        lines = sorted({(n, v) for n, v in pairs if -(1 << 63) <= v < (1 << 63)})
+        with open(path, "w") as f:
+            f.writelines(f"{name} {Symbols.text(value)}\n" for name, value in lines)
+        return lines
+
+    @staticmethod
+    def _split_command(command: str) -> list:
+        """The words of a command from compile_commands.json."""
+        if os.name != "nt":
+            return shlex.split(command)
+        # Windows commands use Windows quoting, and shlex removes the backslashes.
+        parse = ctypes.windll.shell32.CommandLineToArgvW
+        parse.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+        parse.restype = ctypes.POINTER(wintypes.LPWSTR)
+        argc = ctypes.c_int()
+        argv = parse(command, ctypes.byref(argc))
+        words = [argv[i] for i in range(argc.value)]
+        kernel32.LocalFree(argv)
+        return words
+
+    @staticmethod
+    def _sources(commands: str, objects: str) -> list:
+        """The compile_commands.json entries of the C sources that have their
+        object under the objects folder, each with the words before its -o."""
+        with open(commands) as f:
+            entries = json.load(f)
+        objects = os.path.abspath(objects) + os.sep
+        sources = []
+        for entry in entries:
+            words = Symbols._split_command(entry["command"])
+            at = len(words) - 1 - words[::-1].index("-o")
+            obj = os.path.normpath(os.path.join(entry["directory"], words[at + 1]))
+            if obj.startswith(objects) and entry["file"].endswith(".c"):
+                sources.append((entry, words[:at]))
+        return sources
+
+    @staticmethod
+    def _make_deps(path: str, directory: str) -> list:
+        """The prerequisites in a Make dependency file, as absolute paths."""
+        with open(path) as f:
+            text = re.sub(r"\\\r?\n", " ", f.read())
+        deps = []
+        for word in re.split(r"(?<!\\)\s+", text):
+            if word and not word.endswith(":"):
+                word = word.replace("\\ ", " ").replace("\\#", "#").replace("$$", "$")
+                deps.append(os.path.normpath(os.path.join(directory, word)))
+        return deps
+
+    @staticmethod
+    def _first_line(files: list, pattern: str):
+        """The path:line of the first line that matches pattern, or None."""
+        regex = re.compile(pattern)
+        for path in files:
+            with open(path, errors="replace") as f:
+                for number, line in enumerate(f, 1):
+                    if regex.match(line):
+                        return f"{path}:{number}"
+        return None
+
+    @staticmethod
+    def _run_compiler(argv: list, cwd: str):
+        """Runs a compiler, with its stderr in its stdout."""
+        return subprocess.run(
+            argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+
+    @staticmethod
+    def _read_source(entry: dict, flags: list, cc65: bool, work: str, n: int):
+        """The (name, value) pairs of the integer macros of one C source, the
+        files that its compile reads, and an error for each struct over 65535 bytes."""
+        directory, source = entry["directory"], entry["file"]
+
+        # A function-like macro has "(" after its name, so it does not match.
+        listing = os.path.join(work, f"{n}.dm")
+        mode = ["-E", "-Wc", "-dM"] if cc65 else ["-dM", "-E"]
+        result = Symbols._run_compiler(
+            flags + mode + ["-o", listing, source], directory
+        )
+        if result.returncode:
+            sys.exit(result.stdout.rstrip("\n"))
+        names = []
+        with open(listing, errors="replace") as f:
+            for line in f:
+                match = re.match(r"#define ([A-Za-z_]\w*) +\S", line)
+                if match:
+                    names.append(match.group(1))
+
+        # Each macro becomes two constants: its value, and 1 if it is negative.
+        # "| 0" is an error for floats and pointers. A name with an error is removed.
+        stub = os.path.join(work, f"{n}.c")
+        asm = os.path.join(work, f"{n}.s")
+        dep = os.path.join(work, f"{n}.d")
+        wide = "unsigned long" if cc65 else "unsigned long long"
+        if cc65:
+            mode = ["--create-full-dep", dep]
+        else:
+            mode = ["-fno-lto", "-ferror-limit=0", "-MD", "-MF", dep]
+        # CMake 3.21 reads a -S in the cc65 wrapper call as its own option, which
+        # takes the next word as a folder, so -S comes right before the stub.
+        # cc65 aborts on an error message with a long file name, so the stub is
+        # named by its path from the compile folder.
+        argv = flags + ["-I", os.path.dirname(source)] + mode
+        argv += ["-o", asm, "-S", os.path.relpath(stub, directory)]
+        # The stub includes the source by its real path from the stub's folder,
+        # so the compiler opens this source and no other file of the same name.
+        include = os.path.relpath(os.path.realpath(source), os.path.realpath(work))
+        include = include.replace(os.sep, "/")
+        live = list(range(len(names)))
+        while True:
+            with open(stub, "w") as f:
+                f.write(f'#include "{include}"\n')
+                for i in live:
+                    f.write(f"const {wide} _sym_{i} = ({wide})(({names[i]}) | 0);\n")
+                    f.write(f"const unsigned char _neg_{i} = ({names[i]}) < 0;\n")
+            result = Symbols._run_compiler(argv, directory)
+            if result.returncode == 0:
+                break
+            # Lines 2+2k and 3+2k of the stub hold the name live[k].
+            bad = set()
+            for match in re.finditer(
+                r"^(.+?):(\d+):(?:\d+:)? (?:fatal error|error|fatal):",
+                result.stdout,
+                re.M | re.I,
+            ):
+                k = (int(match.group(2)) - 2) // 2
+                path = os.path.normpath(os.path.join(directory, match.group(1)))
+                if path == stub and 0 <= k < len(live):
+                    bad.add(live[k])
+            if not bad:
+                sys.exit(result.stdout.rstrip("\n"))
+            live = [i for i in live if i not in bad]
+
+        # cc65 writes ".dword $XXXXXXXX" and ".byte $XX", llvm-mos writes decimal.
+        if cc65:
+            pattern = r"^__(sym|neg)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-F]+)"
+            base, bits = 16, 32
+        else:
+            pattern = r"^_(sym|neg)_(\d+):\s*\.(?:quad|byte)\s+(-?\d+)"
+            base, bits = 10, 64
+        with open(asm) as f:
+            found = {
+                (m.group(1), int(m.group(2))): int(m.group(3), base)
+                for m in re.finditer(pattern, f.read(), re.M)
+            }
+        pairs = []
+        for i in live:
+            value = found[("sym", i)] & ((1 << bits) - 1)
+            if found[("neg", i)]:
+                value -= 1 << bits
+            pairs.append((names[i], value))
+
+        files = []
+        for path in Symbols._make_deps(dep, directory):
+            if path != stub and path not in files:
+                files.append(path)
+
+        # cc65 gives an error for a struct over 65535 bytes, llvm-mos does not.
+        errors = []
+        if not cc65:
+            argv = flags + [
+                "-Xclang",
+                "-fdump-record-layouts-complete",
+                "-fsyntax-only",
+            ]
+            layouts = subprocess.run(
+                argv + [source],
+                cwd=directory,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).stdout
+            for block in layouts.split("*** Dumping AST Record Layout")[1:]:
+                head = re.search(r"^\s*0 \| (struct|union) (.+)$", block, re.M)
+                size = re.search(r"\[sizeof=(\d+),", block)
+                if not head or not size or int(size.group(1)) <= 0xFFFF:
+                    continue
+                kind, name = head.groups()
+                unnamed = re.fullmatch(r".*\(unnamed at (.+?)(:\d+:\d+)\)", name)
+                if unnamed:
+                    path = os.path.normpath(os.path.join(directory, unnamed.group(1)))
+                    where, what = path + unnamed.group(2), kind
+                else:
+                    where = Symbols._first_line(
+                        files, rf".*\b{kind}\s+{re.escape(name)}\b"
+                    )
+                    where, what = where or source, f"{kind} {name}"
+                errors.append(
+                    f"{where}: error: {what} is {size.group(1)} bytes, larger than 65535"
+                )
+        return pairs, files, errors
+
+    @staticmethod
+    def _dbg_symbols(path: str) -> list:
+        """The (name, value) pairs of a cc65 .dbg file. cc65 puts _ before a C
+        name, so a name _x is also given as x."""
+        pairs = []
+        with open(path, errors="replace") as f:
+            for line in f:
+                if not line.startswith("sym\t"):
+                    continue
+                fields = dict(re.findall(r'(\w+)=("[^"]*"|[^,\n]*)', line[4:]))
+                name = fields.get("name", "").strip('"')
+                skip = fields.get("type") == "imp" or name.startswith("@")
+                if skip or "val" not in fields:
+                    continue
+                value = int(fields["val"], 0)
+                pairs.append((name, value))
+                if name.startswith("_") and len(name) > 1:
+                    pairs.append((name[1:], value))
+        return pairs
+
+    @staticmethod
+    def _elf_symbols(path: str) -> list:
+        """The (name, value) pairs of the symbol table of an ELF32 file."""
+        with open(path, "rb") as f:
+            data = f.read()
+        (shoff,) = struct.unpack_from("<I", data, 0x20)
+        shentsize, shnum = struct.unpack_from("<HH", data, 0x2E)
+        sections = [
+            struct.unpack_from("<10I", data, shoff + i * shentsize)
+            for i in range(shnum)
+        ]
+        pairs = []
+        for _, kind, _, _, offset, size, link, _, _, _ in sections:
+            if kind != 2:  # SHT_SYMTAB
+                continue
+            strings = sections[link][4]
+            for at in range(offset, offset + size, 16):
+                name, value, _, info = struct.unpack_from("<IIIB", data, at)
+                if not name or (info & 0xF) in (3, 4):  # STT_SECTION, STT_FILE
+                    continue
+                end = data.index(b"\0", strings + name)
+                pairs.append((data[strings + name : end].decode(), value))
+        return pairs
+
+    @staticmethod
+    def build(linked, out, commands, objects, work, aligns) -> list:
+        """Writes the .sym file of a linked program. Returns the error lines."""
+        target = os.path.splitext(os.path.basename(out))[0]
+        errors = []
+        patterns = []
+        for regex in aligns:
+            try:
+                patterns.append((regex, re.compile(regex)))
+            except re.error as e:
+                errors.append(f'rp6502_align({target} "{regex}"): {e}')
+
+        cc65 = linked.endswith(".dbg")
+        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols._elf_symbols(linked)
+        work = os.path.abspath(work)
+        os.makedirs(work, exist_ok=True)
+        sources = Symbols._sources(commands, objects)
+        files = []
+        with concurrent.futures.ThreadPoolExecutor(len(sources) or 1) as pool:
+            jobs = [
+                pool.submit(Symbols._read_source, entry, flags, cc65, work, n)
+                for n, (entry, flags) in enumerate(sources)
+            ]
+            for job in jobs:
+                found, read, records = job.result()
+                pairs += found
+                files += [path for path in read if path not in files]
+                errors += [line for line in records if line not in errors]
+
+        lines = Symbols.write(out, pairs)
+        for number, (name, value) in enumerate(lines, 1):
+            regex = next((r for r, p in patterns if p.fullmatch(name)), None)
+            if regex is None or (0 <= value <= 0xFFFF and value % 2 == 0):
+                continue
+            why = "odd" if 0 <= value <= 0xFFFF else "outside 0x0000-0xFFFF"
+            where = Symbols._first_line(files, rf"\s*#\s*define\s+{re.escape(name)}\b")
+            where = where or f"{out}:{number}"
+            errors.append(
+                f"{where}: error: {name} is {Symbols.text(value)}, which is {why}; "
+                f'rp6502_align({target} "{regex}")'
+            )
+        return errors
+
+
+class ScriptError(Exception):
+    """A script command that failed, or an emulator that exited with an error.
+    status holds the fields of the status line of a failed command."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status or {}
+
+
+class Emu:
+    """An emulator that a test drives with script commands. The command is
+    $RP6502_EMU --script - <args> <sys.argv[1:]>, with the ROM arguments after
+    -- from one of the two. A with statement closes the emulator, or kills it
+    when the block raises."""
+
+    # The options of the emulator that take a value, and the one option that
+    # can repeat, from src/host/sokol/cli.
+    _VALUED = {"screenshot", "frames", "scale", "filter", "script", "install",
+               "save-dir", "bgcolor", "phi2", "cp", "memseed", "memfill", "ini"}
+    _REPEATABLE = {"install"}
+
+    def __init__(self, *args):
+        cmd = Emu.command("--script", "-", *args)
+        self.sym = Symbols(os.path.splitext(Emu._boots(cmd[1:]))[0] + ".sym")
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+        self.cmd("reply")
+
+    @staticmethod
+    def command(*args) -> list:
+        """The command line $RP6502_EMU <args> <sys.argv[1:]>, with the ROM
+        arguments after -- from one of the two. An option other than --install
+        or a ROM in both, or ROM arguments in both, raise ScriptError."""
+        given, given_rom = Emu._split(list(args))
+        argv, argv_rom = Emu._split(sys.argv[1:])
+        given_names, given_roms = Emu._names(given)
+        argv_names, argv_roms = Emu._names(argv)
+        for name in given_names:
+            if name in argv_names and name not in Emu._REPEATABLE:
+                raise ScriptError(f"--{name} is in Emu() and in the arguments of the test")
+        if given_roms and argv_roms:
+            raise ScriptError("a ROM is in Emu() and in the arguments of the test")
+        if given_rom and argv_rom:
+            raise ScriptError(
+                "ROM arguments are in Emu() and in the arguments of the test")
+        cmd = [os.environ["RP6502_EMU"]] + given + argv
+        rom_args = given_rom or argv_rom
+        if rom_args:
+            cmd += ["--"] + rom_args
+        return cmd
+
+    @staticmethod
+    def _split(words) -> tuple:
+        """Splits <words> at the first -- into the options and the ROM
+        arguments."""
+        if "--" not in words:
+            return words, []
+        split = words.index("--")
+        return words[:split], words[split + 1 :]
+
+    @staticmethod
+    def _names(options) -> tuple:
+        """The option names and the ROMs in <options>. An empty word is no
+        ROM, as for the emulator."""
+        names, roms = [], []
+        i = 0
+        while i < len(options):
+            word = options[i]
+            if word.startswith("--") and len(word) > 2:
+                name = word[2:].split("=", 1)[0]
+                names.append(name)
+                if "=" not in word and name in Emu._VALUED:
+                    i += 1
+            elif word:
+                roms.append(word)
+            i += 1
+        return names, roms
+
+    @staticmethod
+    def _boots(words) -> str:
+        """The ROM that the emulator boots: the first .rp6502 before -- that is
+        not the value of --install, else the first --install value, else ''."""
+        installs = []
+        for before, word in zip([""] + words, words):
+            if word == "--":
+                break
+            if before == "--install":
+                installs.append(word)
+            elif word.endswith(".rp6502"):
+                return word
+        return installs[0] if installs else ""
+
+    def cmd(self, line):
+        """Sends one script command and returns the text after ok. A fail
+        raises ScriptError with the line, the reason and the rest of stdout."""
+        self._proc.stdin.write(line + "\n")
+        self._proc.stdin.flush()
+        reply = self._proc.stdout.readline()
+        if not reply:
+            raise ScriptError(f"{line}: the emulator exited before it answered")
+        reply = reply.rstrip("\n")
+        if reply.startswith("fail"):
+            status = self._proc.stdout.readline()
+            rest = self._proc.stdout.read()
+            # An emulator from an older release prints no status line.
+            if not status.startswith("PC="):
+                status, rest = "", status + rest
+            status = status.rstrip("\n")
+            raise ScriptError(f"{line}: {reply[5:]}\n{status}\n{rest}".rstrip("\n"),
+                              Emu._fields(status) if status else {})
+        if reply != "ok" and not reply.startswith("ok "):
+            raise ScriptError(f"{line}: unexpected answer {reply!r}")
+        return reply[3:]
+
+    def status(self) -> dict:
+        """Sends status and returns its fields as a dict of ints, with ROM as a
+        str."""
+        return Emu._fields(self.cmd("status"))
+
+    @staticmethod
+    def _fields(line) -> dict:
+        """The fields of a status line. ROM is last, and its value is the rest
+        of the line."""
+        fields, _, rom = line.partition(" ROM=")
+        status = {}
+        for field in fields.split():
+            name, _, value = field.partition("=")
+            status[name] = int(value[1:], 16) if value.startswith("$") else int(value)
+        status["ROM"] = rom
+        return status
+
+    def close(self):
+        """Ends the script and waits for the emulator to exit. An exit code
+        other than 0 raises ScriptError."""
+        self._proc.communicate()
+        if self._proc.returncode:
+            raise ScriptError(f"the emulator exited with code {self._proc.returncode}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, *_):
+        if kind is None:
+            self.close()
+        else:
+            self._proc.kill()
+            self._proc.communicate()
 
 
 def exec_args():
@@ -1341,191 +1612,256 @@ def exec_args():
         def __init__(self, prog):
             super().__init__(prog, max_help_position=27)
 
+        def _format_args(self, action, default_metavar):
+            # The usage shows the metavar of REMAINDER, not "...".
+            if action.nargs == argparse.REMAINDER:
+                return f"[{action.metavar} ...]"
+            return super()._format_args(action, default_metavar)
+
     parser = argparse.ArgumentParser(
-        description="Interface with RIA console. Manage ROM packaging.",
+        description="Run ROMs on an RP6502-PICO, and package ROMs.",
+        epilog="For the options of a subcommand, add -h after it, as in: "
+        "rp6502.py run -h",
         formatter_class=CustomFormatter,
     )
-    sp = parser.add_subparsers(dest="command", required=True)
-    cmds = {
-        "term": ("Attach to the RIA console.", None),
-        "emu": ("Launch emulator from config (for IDE).", None),
-        "execute": ("Run local ROM in the emulator with no window, headless or by --script.", 1),
-        "run": ("Run local ROM by sending to RIA.", 1),
-        "upload": ("Upload local files to RIA USB storage.", "+"),
-        "basic": ("Executes a program with the installed BASIC.", 1),
-        "web": ("Serve the web packages of a build folder.", None),
-        "create": (
-            "Create local ROM file from a file. Additional local ROM files will be merged.",
-            "+",
-        ),
-    }
-    parsers = {}
-    for cmd, (desc, nargs) in cmds.items():
-        parsers[cmd] = sp.add_parser(cmd, description=desc, help=desc)
-        if nargs:
-            parsers[cmd].add_argument(
-                "filename",
-                nargs=nargs,
-                help="Local filename." if nargs == 1 else "Local filename(s).",
-            )
-    parsers["web"].add_argument(
-        "filename", nargs=1, metavar="build", help="CMake build folder, or a file in it."
-    )
-    parsers["create"].add_argument(
-        "--replace",
-        action="append",
-        default=[],
-        metavar="name",
-        help="A later asset of this name replaces an earlier one. Repeatable.",
-    )
-    parsers["execute"].add_argument(
-        "--script", metavar="file", help="Drive the ROM with an emulator script."
-    )
-    parsers["execute"].add_argument(
-        "--seed", metavar="n", help="Fixed random seed, for a reproducible run."
-    )
-    parsers["execute"].add_argument(
-        "--phi2",
-        metavar="khz",
-        help="6502 clock in kHz. Without --script the default is 0, unpaced.",
-    )
-    parsers["execute"].add_argument(
-        "--save-dir",
-        metavar="folder",
-        help="Folder used as SAVE:, instead of the OS folder for saved data.",
-    )
-    # Everything after the ROM filename is the ROM's argv, like `LOAD rom args...`.
-    for cmd in ("run", "execute"):
-        parsers[cmd].add_argument(
-            "rom_args",
-            nargs=argparse.REMAINDER,
-            metavar="args",
-            help="Arguments passed to the ROM.",
+    # Support for older projects that give the options before the subcommand.
+    for flags, dest, default in (
+        (("-a", "--address"), "address", None),
+        (("-o",), "out", None),
+        (("-n", "--nmi"), "nmi", None),
+        (("-r", "--reset"), "reset", None),
+        (("-i", "--irq"), "irq", None),
+        (("-c", "--config"), "config", None),
+        (("-d", "-D", "--device"), "device", None),
+        (("-k", "--key"), "key", None),
+        (("-w", "--workdir"), "workdir", None),
+        (("-t", "--term"), "term", None),
+    ):
+        parser.add_argument(*flags, dest=dest, default=default, help=argparse.SUPPRESS)
+    sp = parser.add_subparsers(dest="command", required=True, metavar="subcommand")
+
+    def subcommand(name, text):
+        return sp.add_parser(
+            name, help=text, description=text, formatter_class=CustomFormatter
         )
-    parser.add_argument(
+
+    def option(sub, *flags, **kwargs):
+        # An option not given after the subcommand keeps its value from before
+        # the subcommand.
+        sub.add_argument(*flags, default=argparse.SUPPRESS, **kwargs)
+
+    def connection(sub):
+        option(
+            sub,
+            "-c",
+            "--config",
+            dest="config",
+            metavar="file",
+            help="The settings file.",
+        )
+        option(
+            sub,
+            "-d",
+            "--device",
+            dest="device",
+            metavar="dev",
+            help="The serial port, or the hostname or IP address for telnet. "
+            f"Default {Console.default_device()}.",
+        )
+        # Hidden alias for anyone used to minicom -D /dev/
+        option(sub, "-D", dest="device", help=argparse.SUPPRESS)
+        option(
+            sub,
+            "-k",
+            "--key",
+            dest="key",
+            metavar="key",
+            help="The passkey that telnet requires.",
+        )
+        option(
+            sub,
+            "-w",
+            "--workdir",
+            dest="workdir",
+            metavar="dir",
+            help="The directory to work in, from the root of the current drive.",
+        )
+
+    def terminal(sub, when):
+        option(
+            sub,
+            "-t",
+            "--term",
+            dest="term",
+            metavar="bool",
+            help=f"Open a terminal on the console {when}. Default True.",
+        )
+
+    run = subcommand("run", "Upload a ROM to the RP6502-PICO, load it, and open a terminal.")
+    connection(run)
+    terminal(run, "after the load")
+    run.add_argument("filename", nargs=1, metavar="rom", help="The ROM.")
+    # Everything after the ROM is the ROM's argv, like `LOAD rom args...`.
+    run.add_argument(
+        "rom_args",
+        nargs=argparse.REMAINDER,
+        metavar="args",
+        help="Arguments for the ROM.",
+    )
+
+    upload = subcommand("upload", "Upload files to the RP6502-PICO.")
+    connection(upload)
+    option(
+        upload,
+        "-o",
+        dest="out",
+        metavar="name",
+        help="The destination name, when you upload one file.",
+    )
+    upload.add_argument("filename", nargs="+", metavar="file", help="A file to upload.")
+
+    term = subcommand("term", "Open a terminal on the console.")
+    connection(term)
+
+    basic = subcommand(
+        "basic",
+        "Send a BASIC program to the BASIC installed on the RP6502-PICO, and run it.",
+    )
+    connection(basic)
+    terminal(basic, "after the run")
+    basic.add_argument("filename", nargs=1, metavar="program", help="The BASIC program.")
+
+    create = subcommand("create", "Package a file into a ROM, and merge ROMs into it.")
+    option(create, "-o", dest="out", metavar="out", help="The ROM file to write.")
+    option(
+        create,
         "-a",
         "--address",
         dest="address",
         metavar="addr",
-        help="Asset name (string) or starting address of binary data.",
+        help="An address, RAM(<x>), XRAM(<x>), an asset name, or 'file' for the "
+        "address at the start of the file. <x> is a number or a symbol of --sym.",
     )
-    parser.add_argument("-o", dest="out", metavar="name", help="Output path/filename.")
-    parser.add_argument(
-        "-n",
-        "--nmi",
-        dest="nmi",
-        metavar="addr",
-        help="NMI vector for $FFFA-$FFFB or `file` to read from file.",
-    )
-    parser.add_argument(
-        "-r",
-        "--reset",
-        dest="reset",
-        metavar="addr",
-        help="Reset vector for $FFFC-$FFFD or `file` to read from file.",
-    )
-    parser.add_argument(
-        "-i",
-        "--irq",
-        dest="irq",
-        metavar="addr",
-        help="IRQ vector for $FFFE-$FFFF or `file` to read from file.",
-    )
-
-    parser.add_argument(
-        "-c",
-        "--config",
-        dest="config",
+    for flags, dest, vector in (
+        (("-r", "--reset"), "reset", "reset vector at $FFFC-$FFFD"),
+        (("-i", "--irq"), "irq", "IRQ vector at $FFFE-$FFFF"),
+        (("-n", "--nmi"), "nmi", "NMI vector at $FFFA-$FFFB"),
+    ):
+        option(
+            create,
+            *flags,
+            dest=dest,
+            metavar="addr",
+            help=f"The {vector}: an address, or 'file' for the address in the file.",
+        )
+    create.add_argument(
+        "--replace",
+        action="append",
+        default=[],
         metavar="name",
-        help=f"Configuration file for debug settings.",
+        help="A later asset with this name replaces an earlier one. Repeatable.",
     )
-    parser.add_argument(
-        "-d",
-        "--device",
-        dest="device",
-        metavar="dev",
-        default=Console.default_device(),
-        help=f"Serial device or telnet address:port. Default={Console.default_device()}",
+    create.add_argument(
+        "--sym",
+        nargs="?",
+        metavar="symfile",
+        help="The .sym file with the symbols for -a RAM(<x>) and -a XRAM(<x>).",
     )
-    parser.add_argument(
-        # Hidden alias for anyone used to minicom -D /dev/
-        "-D",
-        dest="device",
-        metavar="dev",
-        default=argparse.SUPPRESS,
-        help=argparse.SUPPRESS,
+    create.add_argument(
+        "filename",
+        nargs=1,
+        metavar="file",
+        help="The file to package. Without -a, a ROM to merge.",
     )
-    parser.add_argument(
-        "-k",
-        "--key",
-        dest="key",
-        metavar="key",
-        default=None,
-        help="Passkey for telnet authentication. Device becomes telnet host.",
+    create.add_argument("roms", nargs="*", metavar="rom", help="A ROM to merge.")
+
+    sym = subcommand("sym", "Write the .sym file of a linked program.")
+    option(sym, "-o", dest="out", metavar="out", help="The .sym file to write.")
+    sym.add_argument(
+        "--commands",
+        required=True,
+        metavar="file",
+        help="The compile_commands.json of the build.",
     )
-    parser.add_argument(
-        "-w",
-        "--workdir",
-        dest="workdir",
+    sym.add_argument(
+        "--objects",
+        required=True,
         metavar="dir",
-        default=None,
-        help="Remote directory to work in.",
+        help="The object directory of the target, CMakeFiles/<target>.dir.",
     )
-    parser.add_argument(
-        "-t",
-        "--term",
-        dest="term",
-        metavar="bool",
-        default="True",
-        help=f"Attach to console terminal on run.",
+    sym.add_argument(
+        "--work", required=True, metavar="dir", help="A directory for temporary files."
     )
+    sym.add_argument(
+        "--align",
+        action="append",
+        default=[],
+        metavar="regex",
+        help="The value of each symbol that matches must be even and within "
+        "0x0000-0xFFFF. Repeatable.",
+    )
+    sym.add_argument("filename", nargs=1, metavar="linked", help="The linker output.")
+
     args = parser.parse_args()
-    Emulator.launching = args.command == "emu"
+    if args.command in ("create", "sym") and not args.out:
+        parser.error(f"{args.command} requires -o")
+    if args.command == "create":
+        args.filename += args.roms
 
     # Config file (shared with the emulator, which owns it in ImGui ini format).
     if args.config:
+        pico = f"{SCRIPT_NAME}][PICO"
+        # The older name of the section, still read and never renamed.
         launch = f"{SCRIPT_NAME}][Launch"
         config = configparser.ConfigParser(interpolation=None)
         # Python 3.9 and older end a section name at the first "]".
         config.SECTCRE = re.compile(r"\[(?P<header>.+)\]")
         try:
-            existed = os.path.exists(args.config)
-            if existed:
+            if os.path.exists(args.config):
                 # configparser.read() silently skips unreadable files
                 if not os.access(args.config, os.R_OK):
                     raise PermissionError("permission denied")
                 config.read(args.config)
-            # Upgrade a legacy plain [RP6502] to [RP6502][Launch].
-            upgrading = config.has_section(SCRIPT_NAME) and not config.has_section(
-                launch
-            )
-            if (not existed) or upgrading:
+            if not config.has_section(pico) and not config.has_section(launch):
                 old = (
                     dict(config[SCRIPT_NAME]) if config.has_section(SCRIPT_NAME) else {}
                 )
                 pick = lambda k: old.get(k, "")
-                config.remove_section(SCRIPT_NAME)  # drop legacy [RP6502]
                 # User always sees the full list of keys, even when blank.
-                config[launch] = {
-                    "emulator": pick("emulator") or Emulator.find(args.config),
-                    "device": pick("device") or args.device,
+                config[pico] = {
+                    "device": pick("device") or args.device or Console.default_device(),
                     "key": pick("key") or args.key or "",
                     "workdir": pick("workdir") or args.workdir or "",
                     "args": pick("args"),
-                    "term": pick("term") or args.term,
+                    "term": pick("term") or args.term or "True",
                 }
-                with open(args.config, "w") as cfg:
-                    config.write(cfg)
+                # Inserted as text at the front of the file, where the user
+                # finds it. A configparser rewrite would lowercase the keys of
+                # the emulator's sections.
+                section = configparser.ConfigParser(interpolation=None)
+                section[pico] = config[pico]
+                text = io.StringIO()
+                section.write(text)
+                rest = b""
+                if os.path.exists(args.config):
+                    with open(args.config, "rb") as cfg:
+                        rest = cfg.read()
+                with open(args.config, "wb") as cfg:
+                    cfg.write(text.getvalue().encode() + rest)
         except (configparser.Error, OSError) as e:
             raise RuntimeError(f"Cannot load config {args.config}: {e}")
-        if config.has_section(launch):
-            sec = config[launch]
-            args.workdir = sec.get("workdir", "") or args.workdir or None
-            args.emulator = sec.get("emulator", "")
-            args.device = sec.get("device", args.device)
-            args.key = sec.get("key", "") or args.key or None
-            args.term = sec.get("term", args.term)
-            args.config_args = sec.get("args", "")
+        # An option on the command line takes precedence over the file.
+        sec = config[pico if config.has_section(pico) else launch]
+        args.workdir = args.workdir or sec.get("workdir", "") or None
+        args.device = args.device or sec.get("device", "") or None
+        args.key = args.key or sec.get("key", "") or None
+        args.term = args.term or sec.get("term", "") or None
+        args.config_args = sec.get("args", "")
+
+    if args.device is None:
+        args.device = Console.default_device()
+    if args.term is None:
+        args.term = "True"
 
     if args.workdir:
         args.workdir = args.workdir.strip().strip("/") or None
@@ -1657,7 +1993,30 @@ def exec_args():
             console.terminal(code_page)
 
     if args.command == "create":
-        args.address = str_to_address_or_name(args.address)
+        memory = re.fullmatch(r"(X?RAM)\((.+)\)", args.address or "")
+        if memory:
+            form, name = memory.groups()
+            try:
+                value = ROM.parse_int(name)
+                shown = args.address
+            except ValueError:
+                if not args.sym:
+                    raise RuntimeError(
+                        f"{args.address}: {name} is not a number, and the ROM has no .sym file"
+                    )
+                symbols = Symbols(args.sym)
+                if name in symbols.ambiguous:
+                    raise RuntimeError(f"{args.address}: {name} is ambiguous")
+                if name not in symbols:
+                    raise RuntimeError(f"{args.address}: {name} is not in {args.sym}")
+                value = symbols[name]
+                shown = f"{args.address}: {name} is {Symbols.text(value)}, which"
+            end = 0xFFFF if form == "RAM" else 0x1FFFF
+            if not 0 <= value <= end:
+                raise RuntimeError(f"{shown} is outside 0x0000-0x{end:X}")
+            args.address = value | 0x10000 if form == "XRAM" else value
+        else:
+            args.address = str_to_address_or_name(args.address)
         args.nmi = str_to_address(parser, args.nmi, "-n/--nmi")
         args.reset = str_to_address(parser, args.reset, "-r/--reset")
         args.irq = str_to_address(parser, args.irq, "-i/--irq")
@@ -1701,65 +2060,20 @@ def exec_args():
             rom.add_rom_file(file)
         rom.write(args.out)
 
-    if args.command == "emu":
-        # `emu` exists to launch the emulator as the IDE's debug adapter, which
-        # always passes the project config (for the emulator path and --ini), so
-        # an invocation without one is a misconfiguration.
-        if not args.config:
-            raise RuntimeError(
-                "emu requires -c/--config <file> with an 'emulator' path."
-            )
-        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        cmd = [emulator, "--dap", "--ini", args.config]
-        # Config args ride the emulator command line as the ROM's argv;
-        # a launch request that carries its own args overrides them there.
-        rom_args = config_rom_args()
-        if rom_args:
-            cmd += ["--"] + rom_args
-        # Status to stderr only: stdout carries the lldb-dap DAP stream.
-        print(f"[{SCRIPT_FILE}] Launching {emulator}", file=sys.stderr)
-        try:
-            if os.name == "nt":
-                sys.exit(
-                    subprocess.Popen(
-                        cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr
-                    ).wait()
-                )
-            os.execvp(cmd[0], cmd)
-        except OSError as e:
-            raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
-
-    if args.command == "web":
-        serve_web(args.filename[0])
-
-    if args.command == "execute":
-        # The exit code of the ROM becomes the exit code of this process, so a
-        # 6502 program can be a step in a pipeline or a test.
-        emulator = Emulator.resolve(getattr(args, "emulator", ""), args.config)
-        if args.script:
-            cmd = [emulator, "--script", args.script]
-        else:
-            cmd = [emulator, "--headless"]
-        phi2 = args.phi2 if args.phi2 is not None else (None if args.script else "0")
-        if phi2 is not None:
-            cmd += ["--phi2", phi2]
-        if args.seed:
-            cmd += ["--seed", args.seed]
-        if args.save_dir:
-            cmd += ["--save-dir", args.save_dir]
-        cmd.append(args.filename[0])
-        rom_args = args.rom_args
-        if rom_args and rom_args[0] == "--":  # REMAINDER keeps a leading "--"
-            rom_args = rom_args[1:]
-        if not rom_args:
-            rom_args = config_rom_args()
-        if rom_args:
-            cmd += ["--"] + rom_args
-        stdin = None if args.script == "-" else subprocess.DEVNULL
-        try:
-            sys.exit(subprocess.run(cmd, stdin=stdin).returncode)
-        except OSError as e:
-            raise RuntimeError(Emulator.cannot_run(emulator, args.config, e))
+    if args.command == "sym":
+        errors = Symbols.build(
+            args.filename[0],
+            args.out,
+            args.commands,
+            args.objects,
+            args.work,
+            args.align,
+        )
+        # Raw lines, without the [rp6502.py] prefix, so IDEs read file:line.
+        for line in errors:
+            print(line, file=sys.stderr)
+        if errors:
+            sys.exit(1)
 
 
 # This file may be included or run like a program.
@@ -1770,15 +2084,6 @@ if __name__ == "__main__":
     try:
         exec_args()
     except Exception as e:
-        # On an emu launch we are the IDE's debug adapter.
-        if Emulator.launching:
-            print(f"[{SCRIPT_FILE}] {e}", file=sys.stderr)
-            if not sys.stdin.isatty():
-                try:
-                    Emulator.send_dap_error(f"{e}")
-                except Exception:
-                    pass  # Best effort
-            sys.exit(1)
         # Exceptions to show in VS Code output instead of Python debugger.
         if not isinstance(
             e,

@@ -25,8 +25,8 @@ rp6502_add_test(run
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_CORPUS}"
-        AUD_ROM_OPL="${AUD_ROM_OPL}"
-        AUD_ROM_PSG="${AUD_ROM_PSG}"
+        AUD_ROM_OPL="${OPL_ROM}"
+        AUD_ROM_PSG="${PSG_ROM}"
     DEPENDS rp6502_libretro aud_roms
     TIMEOUT 60)
 
@@ -38,7 +38,7 @@ rp6502_add_test(input
         KEYBOARD_ROM="${KEYBOARD_ROM}"
         GAMEPAD_ROM="${GAMEPAD_ROM}"
         MOUSE_ROM="${MOUSE_ROM}" TABLET_ROM="${TABLET_ROM}"
-    DEPENDS rp6502_libretro keyboard_rom gamepad_rom pointer_roms
+    DEPENDS rp6502_libretro keyboard_roms gamepad_roms pointer_roms
     TIMEOUT 60)
 
 rp6502_add_test(options
@@ -47,7 +47,7 @@ rp6502_add_test(options
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ROMS_DIR="${RP6502_TEST_CORPUS}"
         GAMEPAD_ROM="${GAMEPAD_ROM}"
-    DEPENDS rp6502_libretro gamepad_rom
+    DEPENDS rp6502_libretro gamepad_roms
     TIMEOUT 60)
 
 rp6502_add_test(pointer
@@ -64,7 +64,7 @@ execute_process(COMMAND ${Python3_EXECUTABLE} -c "import yaml"
 if(_have_yaml EQUAL 0)
     add_test(NAME libretro_targets
         COMMAND ${Python3_EXECUTABLE}
-            ${RP6502_TESTS_DIR}/gen/libretro_targets_gate.py
+            ${CMAKE_CURRENT_LIST_DIR}/libretro_targets_gate.py
             --gitlab ${RP6502_ROOT}/.gitlab-ci.yml
             --github ${RP6502_ROOT}/.github/workflows/ci.yml)
     set_tests_properties(libretro_targets PROPERTIES LABELS "gate;host.libretro")
@@ -75,6 +75,6 @@ rp6502_add_test(state
     LIBS ${CMAKE_DL_LIBS}
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS} ADVENTURE_ROM="${ADVENTURE_ROM}"
-        AUD_ROM_PSG="${AUD_ROM_PSG}"
+        AUD_ROM_PSG="${PSG_ROM}"
     DEPENDS rp6502_libretro aud_roms
     TIMEOUT 120)

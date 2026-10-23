@@ -17,6 +17,74 @@ void via_reset(void)
 
 void *via_chip(void) { return &via; }
 
+/* The read runs on a copy, so the flags and handshakes it would clear stay as
+ * they were. */
+uint8_t via_reg_peek(uint16_t addr)
+{
+    m6522_t copy = via;
+    return _m6522_read(&copy, (uint8_t)(addr & 0xF));
+}
+
+/* Each register is set to what a read of it returns. A port sets its output
+ * register, because nothing is wired to drive its inputs. The model has no
+ * shift register. */
+void via_reg_poke(uint16_t addr, uint8_t data)
+{
+    switch (addr & 0xF)
+    {
+    case M6522_REG_RB:
+        via.pb.outr = data;
+        via.pb.pins = data & via.pb.ddr;
+        break;
+    case M6522_REG_RA:
+    case M6522_REG_RA_NOH:
+        via.pa.outr = data;
+        via.pa.pins = data & via.pa.ddr;
+        break;
+    case M6522_REG_DDRB:
+        via.pb.ddr = data;
+        break;
+    case M6522_REG_DDRA:
+        via.pa.ddr = data;
+        break;
+    case M6522_REG_T1CL:
+        via.t1.counter = (uint16_t)((via.t1.counter & 0xFF00) | data);
+        break;
+    case M6522_REG_T1CH:
+        via.t1.counter = (uint16_t)((via.t1.counter & 0x00FF) | data << 8);
+        break;
+    case M6522_REG_T1LL:
+        via.t1.latch = (uint16_t)((via.t1.latch & 0xFF00) | data);
+        break;
+    case M6522_REG_T1LH:
+        via.t1.latch = (uint16_t)((via.t1.latch & 0x00FF) | data << 8);
+        break;
+    case M6522_REG_T2CL:
+        via.t2.counter = (uint16_t)((via.t2.counter & 0xFF00) | data);
+        break;
+    case M6522_REG_T2CH:
+        via.t2.counter = (uint16_t)((via.t2.counter & 0x00FF) | data << 8);
+        break;
+    case M6522_REG_ACR:
+        via.acr = data;
+        break;
+    case M6522_REG_PCR:
+        via.pcr = data;
+        break;
+    case M6522_REG_IFR:
+        via.intr.ifr = data;
+        break;
+    case M6522_REG_IER:
+        via.intr.ier = data & 0x7F;
+        break;
+    }
+}
+
+void via_reg_write(uint16_t addr, uint8_t data)
+{
+    _m6522_write(&via, (uint8_t)(addr & 0xF), data);
+}
+
 static void via_put_port(sst_cursor_t *c, const m6522_port_t *p)
 {
     sst_put_u8(c, p->inpr);

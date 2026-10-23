@@ -19,9 +19,10 @@
  * while one is in flight queues one more to follow it, so the last to finish
  * covers every write made before the start. The poll returns STD_PENDING
  * until every sync started so far has finished, then STD_OK, or STD_ERROR
- * with API_EIO when one of them failed. A result other than STD_PENDING is
- * returned once and ends the request; with no request outstanding the poll
- * returns STD_OK. */
+ * when one of them failed: API_ENOSPC when the last one to fail exceeded the
+ * browser's storage quota, and API_EIO otherwise. A result other than
+ * STD_PENDING is returned once and ends the request; with no request
+ * outstanding the poll returns STD_OK. */
 void os_syncfs_start(void);
 std_rw_result os_syncfs_poll(api_errno *err);
 

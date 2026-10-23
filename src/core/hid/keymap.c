@@ -218,15 +218,16 @@ static bool keymap_alt_escape(const keymap_press_t *k)
     char ch = ff_uni2oem(layout_code_point(keymap_layout_index, k->keycode,
                                            keymap_shifted(k) ? LAYOUT_SHIFT : LAYOUT_PLAIN),
                          oem_get_code_page_run());
+    int c = ch ? (unsigned char)ch : -1;
     if (k->ctrl)
     {
-        char c = keyboard_ctrl_promote(ch, k->keycode);
-        if (c)
-            ch = c;
+        int promoted = keyboard_ctrl_promote(ch, k->keycode);
+        if (promoted >= 0)
+            c = promoted;
     }
-    if (!ch)
+    if (c < 0)
         return false;
-    keymap_queue((char[]){'\33', ch}, 2);
+    keymap_queue((char[]){'\33', (char)c}, 2);
     return true;
 }
 
@@ -399,11 +400,14 @@ static void keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_pre
     char ch = keymap_layout_lookup(&k);
     if (k.alt && !ch && k.keycode < 128 && keymap_alt_escape(&k))
         return;
+    /* Ctrl can make a 0, so whether there is a byte to type is kept apart
+     * from the byte. */
+    int c = ch ? (unsigned char)ch : -1;
     if (k.ctrl)
-        ch = keyboard_ctrl_promote(ch, k.keycode);
-    if (ch)
+        c = keyboard_ctrl_promote(ch, k.keycode);
+    if (c >= 0)
     {
-        keymap_compose(ch);
+        keymap_compose((char)c);
         return;
     }
     if (initial_press && keymap_chord(&k))

@@ -24,6 +24,14 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data);
 
 void *via_chip(void); /* m6522_t* */
 
+/* A register as a read finds it, and set the same way, with none of what a
+ * read or a write on the bus does. For a script. */
+uint8_t via_reg_peek(uint16_t addr);
+void via_reg_poke(uint16_t addr, uint8_t data);
+
+/* A write as the 6502 makes it, without the cycle a bus tick would add. */
+void via_reg_write(uint16_t addr, uint8_t data);
+
 /* Every field of the vendored model, because the delay pipelines inside the
  * timers and the interrupt logic cannot be re-derived from the registers: a
  * timer one cycle from underflowing looks like any other. */

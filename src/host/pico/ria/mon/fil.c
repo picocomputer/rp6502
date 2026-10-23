@@ -148,6 +148,13 @@ void fil_mon_chdir(const char *args)
         result = f_chdir(path);
         mon_add_response_fatfs(result);
     }
+    // f_chdir leaves the current drive alone, so a path with a drive also
+    // makes that drive current, as CHDIR of the API does.
+    if (result == FR_OK && strchr(path, ':'))
+    {
+        result = f_chdrive(path);
+        mon_add_response_fatfs(result);
+    }
 }
 
 void fil_mon_mkdir(const char *args)
@@ -294,6 +301,8 @@ static void fil_upload_rx_mbuf(bool timeout)
     {
         UINT bytes_written;
         result = f_write(&fil_fatfs_fil, mbuf, mbuf_len, &bytes_written);
+        if (result == FR_OK && bytes_written < mbuf_len)
+            result = FR_NO_SPACE;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
@@ -424,13 +433,10 @@ void fil_mon_copy(const char *args)
         if (fr != FR_OK || br == 0)
             break;
         fr = f_write(&dst_fil, mbuf, br, &bw);
+        if (fr == FR_OK && bw < br)
+            fr = FR_NO_SPACE;
         if (fr != FR_OK)
             break;
-        if (bw < br)
-        {
-            fr = FR_DISK_ERR;
-            break;
-        }
     }
     f_close(&fil_fatfs_fil);
     f_close(&dst_fil);

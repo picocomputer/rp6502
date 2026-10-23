@@ -1,0 +1,15 @@
+# The program echoes each byte it reads. Ctrl with 2, @, Space, 3 to 8 and /
+# sends what xterm and the Linux console send.
+
+run 10
+key 2+ctrl
+key 2+shift+ctrl
+key space+ctrl
+key 3+ctrl
+key 4+ctrl
+key 5+ctrl
+key 6+ctrl
+key 7+ctrl
+key 8+ctrl
+key slash+ctrl
+wait "\0\0\0\x1B\x1C\x1D\x1E\x1F\x7F\x1F"

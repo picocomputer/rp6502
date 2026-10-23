@@ -1,4 +1,4 @@
-# The test passes --fill 010, which rp6502-emu parses as decimal ten rather
+# The test passes --memfill 010, which rp6502-emu parses as decimal ten rather
 # than as octal eight, the value of 010 in C.
 run 1
 peek ram:$C000 10 10

@@ -57,6 +57,14 @@ uint32_t sys_random(void)
     return sys_random_step(&sys_random_state);
 }
 
+/* Marked as seeded, so the first draw cannot replace the seed with
+ * host_seed(). The same seed gives the same stream as host_seed() would. */
+void sys_random_set(uint32_t seed)
+{
+    sys_random_state = seed;
+    sys_random_seeded = true;
+}
+
 /* The state is seeded before it is written so that a blob never carries a
  * stream that has not started. A machine loading one would otherwise come up
  * with a state of zero and marked as seeded, while the machine that saved it

@@ -1375,14 +1375,14 @@ static void rln_ansi_trim_inflight(rln_source_t *a)
     a->inflight_len = 0;
 }
 
-// Snapshot the in-flight tail into rln_lastkey_buf.
+// Saves the key just dispatched for RLN_LASTKEY.
 static void rln_publish_lastkey(rln_source_t *a)
 {
-    uint8_t n = a->inflight_len > RLN_LASTKEY_MAX
-                    ? RLN_LASTKEY_MAX
-                    : (uint8_t)a->inflight_len;
-    memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], n);
-    rln_lastkey_len = n;
+    rln_lastkey_len = 0;
+    if (a->inflight_len > RLN_LASTKEY_MAX)
+        return;
+    memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], a->inflight_len);
+    rln_lastkey_len = (uint8_t)a->inflight_len;
     rln_lastkey_action = rln_action_taken;
 }
 
@@ -1994,16 +1994,13 @@ void rln_set_naws_size(uint16_t w, uint16_t h)
         rln_resize_redraw();
 }
 
-/* Readline magic: lastkey + peekpoke
- */
+/* ----- API calls ----- */
 
-// int ria_readline_lastkey(char *key, unsigned char *action);
-// xstack reply shape (only when at least one key byte is buffered): key
-// bytes pushed in reverse so they pop in receive order, then the action
-// byte last so it pops first. When no key is buffered nothing is pushed
-// and the AX return is 0; the 6502 stub keys off AX before popping.
+// int ria_rln_lastkey(char *key, unsigned char *action);
 bool rln_api_lastkey(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     uint8_t len = 0;
     uint8_t action = 0;
     if (rln_callback && rln_lastkey_len)
@@ -2014,26 +2011,23 @@ bool rln_api_lastkey(void)
         rln_lastkey_action = false;
     }
     for (int i = len - 1; i >= 0; i--)
-        if (!api_push_uint8(&rln_lastkey_buf[i]))
-            return api_return_errno(API_EINVAL);
-    if (len && !api_push_uint8(&action))
-        return api_return_errno(API_EINVAL);
+        api_push_uint8(&rln_lastkey_buf[i]);
+    if (len)
+        api_push_uint8(&action);
     return api_return_ax(len);
 }
 
-// int ria_readline_peek(char *peek, unsigned char *pos);
+// int ria_rln_peek(char *peek, unsigned char *pos);
 bool rln_api_peek(void)
 {
-    if (!rln_callback)
+    if (xstack_ptr != XSTACK_SIZE || !rln_callback)
         return api_return_errno(API_EINVAL);
     if (!rln_buflen)
         return api_return_ax(0);
     rln_buf[rln_buflen] = 0;
     for (int i = rln_buflen - 1; i >= 0; i--)
-        if (!api_push_char(&rln_buf[i]))
-            return api_return_errno(API_EINVAL);
-    if (!api_push_uint8(&rln_bufpos))
-        return api_return_errno(API_EINVAL);
+        api_push_char(&rln_buf[i]);
+    api_push_uint8(&rln_bufpos);
     return api_return_ax(rln_buflen);
 }
 
@@ -2055,13 +2049,6 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
     }
 }
 
-// Any C0 control byte (0x00-0x1F) in the poked stream finishes the
-// input, except for ESC (\33) which starts a CSI sequence and CAN
-// (\30) which the parser uses to abort an in-flight sequence and
-// reset state. CR (\r) completes and is added to history. Every other
-// control (including LF, which echoes as ^J) completes without history
-// and echoes as caret notation (^@..^_). The terminating newline is
-// suppressed by the SUPPRESS_NL attribute, not by any particular byte.
 void rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -2075,7 +2062,9 @@ void rln_poke(const char *str)
     bool prev_overwrite = rln_overwrite;
     if (sync)
         rln_overwrite = true;
-    for (const char *p = str; *p; p++)
+    // An empty string sends 0x00.
+    const char *p = str;
+    do
     {
         uint8_t ch = (uint8_t)*p;
         if (ch < 32 && ch != '\33' && ch != '\30')
@@ -2091,8 +2080,8 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, (uint8_t)ch);
-    }
+        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, ch);
+    } while (*++p);
     if (sync)
     {
         bool need_reemit = (rln_overwrite != prev_overwrite);
@@ -2102,11 +2091,12 @@ void rln_poke(const char *str)
     }
 }
 
-// int ria_readline_poke(const char *poke);
+// int ria_rln_poke(const char *poke);
 bool rln_api_poke(void)
 {
-    const char *poke = (char *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
+    const char *poke = api_pop_str_end(XSTACK_SIZE);
+    if (!poke)
+        return api_return_errno(API_EINVAL);
     rln_poke(poke);
     return api_return_ax(0);
 }

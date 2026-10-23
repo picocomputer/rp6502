@@ -8,6 +8,7 @@ rp6502_submodule(vendor/sokol SENTINEL sokol_app.h
 
 set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/cli/cli.c
+    ${CMAKE_CURRENT_LIST_DIR}/cli/expr.c
     ${CMAKE_CURRENT_LIST_DIR}/app/input.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/png.c
     ${CMAKE_CURRENT_LIST_DIR}/cli/script.c

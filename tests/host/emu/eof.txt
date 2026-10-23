@@ -1,0 +1,10 @@
+# The program copies each line typed to stdout, and on end of file it writes
+# "eof" and exits with EXIT_CODE. The line left unfinished when stdin ends
+# still arrives.
+
+run 10
+type "bb"
+eof
+wait "bb\neof\n"
+wait exit
+expect exit EXIT_CODE

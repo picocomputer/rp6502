@@ -85,6 +85,7 @@ X(STR_ERR_ROM_ARGV_OVERFLOW, "?Przepełnienie argv ROM\n")
 X(STR_ERR_ROM_ARGV_INVALID, "?Nieprawidłowy argument ROM\n")
 X(STR_ERR_ROM_NAME_INVALID, "?Nieprawidłowa nazwa ROM\n")
 X(STR_ERR_ROM_DATA_INVALID, "?Nieprawidłowe dane ROM\n")
+X(STR_ERR_ROM_NO_RESET_VECTOR, "?ROM nie ma wektora resetu\n")
 X(STR_ERR_INVALID_UF2_FILE, "?Nieprawidłowy plik UF2\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA nie jest podłączone\n")
 X(STR_ERR_NO_MEDIA, "?Brak nośnika\n")
@@ -93,6 +94,8 @@ X(STR_ERR_SECTOR_SIZE, "?Rozmiar sektora nieobsługiwany\n")
 X(STR_ERR_GPT_DISABLED, "?GPT niedostępny w tej kompilacji\n")
 X(STR_ERR_FORMAT_FAILED, "?Formatowanie niskopoziomowe nie powiodło się\n")
 X(STR_ERR_DEVICE_CHANGED, "?Zmieniono urządzenie\n")
+X(STR_ERR_DIR_NOT_EMPTY, "?Katalog nie jest pusty\n")
+X(STR_ERR_NO_SPACE_ON_DEVICE, "?Brak miejsca na urządzeniu\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?Błąd IO\n")                              // -5
@@ -101,11 +104,9 @@ X(STR_ERR_LFS_NOENT, "?Brak wpisu katalogu\n")               // -2
 X(STR_ERR_LFS_EXIST, "?Wpis już istnieje\n")                 // -17
 X(STR_ERR_LFS_NOTDIR, "?Wpis nie jest katalogiem\n")         // -20
 X(STR_ERR_LFS_ISDIR, "?Wpis jest katalogiem\n")              // -21
-X(STR_ERR_LFS_NOTEMPTY, "?Katalog nie jest pusty\n")         // -39
 X(STR_ERR_LFS_BADF, "?Nieprawidłowy numer pliku\n")          // -9
 X(STR_ERR_LFS_FBIG, "?Plik jest zbyt duży\n")                // -27
 X(STR_ERR_LFS_INVAL, "?Nieprawidłowy parametr\n")            // -22
-X(STR_ERR_LFS_NOSPC, "?Brak miejsca na urządzeniu\n")        // -28
 X(STR_ERR_LFS_NOMEM, "?Brak dostępnej pamięci\n")            // -12
 X(STR_ERR_LFS_NOATTR, "?Brak danych/atrybutu\n")             // -61
 X(STR_ERR_LFS_NAMETOOLONG, "?Nazwa pliku jest zbyt długa\n") // -36
@@ -204,7 +205,7 @@ X(STR_HELP_HELP,
   "STATUS              - \aPokaż status systemu i podłączonych urządzeń.\n"
   "SET (atr) (wart)    - \aZmień lub pokaż ustawienia.\n"
   "DIR (kat|napęd)     - \aWypisz zawartość katalogu.\n"
-  "LS (kat)            - \aZmień lub pokaż bieżący katalog.\n"
+  "CD (kat)            - \aZmień lub pokaż bieżący katalog.\n"
   "(MSC)0:             - \aMSC0:-MSC9: Zmień bieżące urządzenie pamięci.\n"
   "LOAD plik           - \aWczytaj plik ROM. Uruchom, jeśli ma wektor resetu.\n"
   "INFO plik           - \aPokaż tekst pomocy z pliku ROM, jeśli istnieje.\n"
