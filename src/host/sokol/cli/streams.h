@@ -27,9 +27,7 @@ bool streams_write(FILE *f, const char *buf, int len);
  * those bytes on the same screen. */
 void streams_mirror_stdout(void);
 
-void streams_stderr(const char *buf, int len);
-
-/* Install the above as the program's stderr. Every run does this, because no
+/* Mirror the program's stderr to the host's. Every run does this, because no
  * mode of the emulator claims the host's stderr for itself. It is
  * cleared again where a console terminal already carries the same bytes to
  * the same screen. */

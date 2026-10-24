@@ -9,6 +9,7 @@
 #define _HOST_SOKOL_CLI_SCRIPT_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 /* Scripted input: a line-oriented command language that plugs in gamepads,
@@ -17,7 +18,8 @@
  * assembles reports and hands them to the same core/hid entry points a real
  * device would.
  *
- * A failed assertion names the line it failed on and ends the run;
+ * A failed assertion names the line it failed on and where the 6502 is, then
+ * writes the program's stdout that no check used, and ends the run;
  * script_exit_code is what the process should return.
  *
  * `reply` turns on a line of stdout per command -- ok, ok <values>, or
@@ -25,11 +27,15 @@
  * because a driver that read it sooner would race the machine. It stays off
  * until a script asks, so a driver can send a whole preamble without waiting
  * and then read the ok for `reply` itself as the moment the machine begins
- * answering. */
+ * answering.
+ *
+ * Any number can be a Python expression using the names in the ROM's .sym,
+ * and `let name = expr` sets a variable that later lines can use. */
 
-/* Open a script and arm it. "-" reads stdin one line at a time, so a driver
- * in any language can work the machine: the machine waits for each line. */
-bool script_load(const char *path);
+/* Open a script and arm it, with the names from the .sym beside rom. "-"
+ * reads stdin one line at a time, so a driver in any language can work the
+ * machine: the machine waits for each line. */
+bool script_load(const char *path, const char *rom);
 
 /* The verbs, for --help. Printed here rather than in cli.c because cli.c is
  * also linked without script.c. */
@@ -47,16 +53,15 @@ bool script_running(void);
  * than at least six hundred. */
 void script_task(void);
 
-/* Run one command line. False on a bad line or a failed assertion, either of
- * which ends the run. */
-bool script_command(const char *line);
+/* Make the sound of the frame that just ran. The caller runs it after every
+ * frame, as a sink would pull it. */
+void script_listen(void);
 
 /* 0 when every assertion held. */
 int script_exit_code(void);
 
-/* Watch the console the script is matching. com.c holds one console tap,
- * which the script takes, so this is the only way to see those bytes while a
- * script runs. */
-void script_set_echo(void (*echo)(const char *buf, int len));
+/* How RAM and XRAM were filled, for status: one byte, or a random fill from
+ * memseed. */
+void script_set_memory(bool memfill_set, uint8_t memfill, uint32_t memseed);
 
 #endif /* _HOST_SOKOL_CLI_SCRIPT_H_ */

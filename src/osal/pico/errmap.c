@@ -34,7 +34,10 @@ api_errno fresult_to_api(unsigned fresult)
     case FR_WRITE_PROTECTED:
         return API_EACCES;
     case FR_EXIST:
+    case FR_NOT_EMPTY:
         return API_EEXIST;
+    case FR_NO_SPACE:
+        return API_ENOSPC;
     case FR_INVALID_OBJECT:
         return API_EBADF;
     case FR_TIMEOUT:
@@ -60,12 +63,13 @@ api_errno lfs_error_to_api(int lfs_err)
     case LFS_ERR_NOATTR:
         return API_EIO;
     case LFS_ERR_NOENT:
-        return API_ENOENT;
-    case LFS_ERR_EXIST:
-        return API_EEXIST;
     case LFS_ERR_NOTDIR:
+        return API_ENOENT;
     case LFS_ERR_ISDIR:
+        return API_EACCES;
+    case LFS_ERR_EXIST:
     case LFS_ERR_NOTEMPTY:
+        return API_EEXIST;
     case LFS_ERR_INVAL:
     case LFS_ERR_NAMETOOLONG:
         return API_EINVAL;

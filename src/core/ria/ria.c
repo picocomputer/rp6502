@@ -21,12 +21,19 @@ static ria_t ria;
 #define RIA_IRQ_VSYNC 0x80
 #define RIA_IRQ_SIGINT 0x40
 
-/* A read of $FFF0 on the bus is answered from ria.irq_pending and never from
- * the register file, but the debugger's register panel peeks regs[] directly,
- * so regs[0x10] is kept in step with the flags the RIA actually holds. */
+/* Every read is answered from regs[], as the Pico's register file answers it,
+ * so regs[0x10] is kept in step with the flags the RIA holds. */
 static void ria_irq_publish(void)
 {
     regs[0x10] = ria.irq_pending;
+}
+
+/* RW0 and RW1 show the XRAM byte at their address, the way the Pico's action
+ * loop keeps them. */
+static void ria_rw_publish(void)
+{
+    regs[0x04] = xram[REGSW(0xFFE6)];
+    regs[0x08] = xram[REGSW(0xFFEA)];
 }
 
 void ria_trigger_sigint(void)
@@ -78,7 +85,7 @@ static uint8_t rw_read(int which)
 {
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);
     int8_t step = (int8_t)(which ? regs[0x09] : regs[0x05]);
-    uint8_t v = xram[addr];
+    uint8_t v = which ? regs[0x08] : regs[0x04];
     addr = (uint16_t)(addr + step);
     if (which)
         REGSW(0xFFEA) = addr;
@@ -96,13 +103,18 @@ void ria_aud_watch(uint16_t xaddr)
     ria_aud_page = xaddr == 0xFFFF ? 0xFFFF : (uint16_t)(xaddr & 0xFF00);
 }
 
+void ria_xram_write(uint16_t addr, uint8_t data)
+{
+    xram[addr] = data;
+    if ((addr & 0xFF00) == ria_aud_page)
+        aud_xram_write(addr, data);
+}
+
 static void rw_write(int which, uint8_t data)
 {
     uint16_t addr = which ? REGSW(0xFFEA) : REGSW(0xFFE6);
     int8_t step = (int8_t)(which ? regs[0x09] : regs[0x05]);
-    xram[addr] = data;
-    if ((addr & 0xFF00) == ria_aud_page)
-        aud_xram_write(addr, data);
+    ria_xram_write(addr, data);
     addr = (uint16_t)(addr + step);
     if (which)
         REGSW(0xFFEA) = addr;
@@ -181,7 +193,7 @@ uint8_t ria_reg_read(uint16_t addr)
         return rw_read(1);
     case 0x0C: /* XSTACK pop */
     {
-        uint8_t v = xstack[xstack_ptr];
+        uint8_t v = regs[0x0C];
         if (xstack_ptr < XSTACK_SIZE)
             xstack_ptr++;
         regs[0x0C] = xstack[xstack_ptr];
@@ -189,7 +201,7 @@ uint8_t ria_reg_read(uint16_t addr)
     }
     case 0x10: /* IRQ */
     {
-        uint8_t live = ria.irq_pending;
+        uint8_t live = regs[0x10];
         ria.irq_pending = 0;
         ria_irq_publish();
         return live;
@@ -251,12 +263,14 @@ bool ria_tick(uint16_t addr, bool read, uint8_t *data)
     const bool selected = addr >= RIA_MMAP_LO && addr <= RIA_MMAP_HI;
     const bool irq = ria_irq_asserted();
 
+    ria_rw_publish();
     if (selected)
     {
         if (read)
             *data = ria_reg_read(addr);
         else
             ria_reg_write(addr, *data);
+        ria_rw_publish();
     }
 
     ria.PINS = (addr & 0x1F) * RIA_PIN_A0 | (uint64_t)*data * RIA_PIN_D0;

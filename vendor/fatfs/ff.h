@@ -298,7 +298,7 @@ typedef enum {
 	FR_NO_FILE,				/* (4) Could not find the file */
 	FR_NO_PATH,				/* (5) Could not find the path */
 	FR_INVALID_NAME,		/* (6) The path name format is invalid */
-	FR_DENIED,				/* (7) Access denied due to a prohibited access or directory full */
+	FR_DENIED,				/* (7) Access denied due to a prohibited access (RP6502: directory full is FR_NO_SPACE) */
 	FR_EXIST,				/* (8) Access denied due to a prohibited access */
 	FR_INVALID_OBJECT,		/* (9) The file/directory object is invalid */
 	FR_WRITE_PROTECTED,		/* (10) The physical drive is write protected */
@@ -310,7 +310,9 @@ typedef enum {
 	FR_LOCKED,				/* (16) The operation is rejected according to the file sharing policy */
 	FR_NOT_ENOUGH_CORE,		/* (17) LFN working buffer could not be allocated, given buffer size is insufficient or too deep path */
 	FR_TOO_MANY_OPEN_FILES,	/* (18) Number of open files > FF_FS_LOCK */
-	FR_INVALID_PARAMETER	/* (19) Given parameter is invalid */
+	FR_INVALID_PARAMETER,	/* (19) Given parameter is invalid */
+	FR_NO_SPACE,			/* (20) RP6502: No free cluster or directory entry */
+	FR_NOT_EMPTY			/* (21) RP6502: The directory is not empty */
 } FRESULT;
 
 

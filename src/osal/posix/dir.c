@@ -283,12 +283,7 @@ static struct
 
 bool drive_validate(int des, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
-    if (!dirs[des].used)
+    if (des < 0 || des >= DIR_MAX_OPEN || !dirs[des].used)
     {
         *err = API_EBADF;
         return false;
@@ -301,7 +296,7 @@ bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    if (!u8[0]) /* an empty path or a bare drive name */
+    if (!u8[0]) /* a bare drive name */
     {
         free(u8);
         *err = API_EINVAL;
@@ -382,11 +377,6 @@ bool drive_dir_path(int des, char *buf, size_t size)
 
 bool drive_reopendir(int des, const char *path, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
     if (dirs[des].used)
     {
         posix_closedir(dirs[des].dp);
@@ -460,11 +450,9 @@ bool drive_unlink(const char *path, api_errno *err)
     return ok;
 }
 
-/* A file replaces only a file. rename(2) would also put a folder in place of
- * an empty one, and fails with other errors for the other combinations, so
- * those are refused first. The same file under a second name, such as a
- * change of case where the host ignores case, does not count as an existing
- * target, and a target on another mount is left for rename(2) to refuse. */
+/* RENAME follows rename(2), with EACCES when a file and a directory would
+ * replace each other. It also refuses to replace a read-only file, as FAT
+ * does. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     char *u8old = path_to_utf8(oldname, err);
@@ -478,11 +466,17 @@ bool drive_rename(const char *oldname, const char *newname, api_errno *err)
     }
     struct stat so, sn;
     bool ok = posix_ok(stat(u8old, &so) == 0, err);
+    /* A target is another file on the same device. rename(2) refuses a
+     * target on another device. */
     if (ok && stat(u8new, &sn) == 0 && so.st_dev == sn.st_dev &&
-        so.st_ino != sn.st_ino && (S_ISDIR(so.st_mode) || S_ISDIR(sn.st_mode)))
+        so.st_ino != sn.st_ino)
     {
-        *err = API_EEXIST;
-        ok = false;
+        if (S_ISDIR(so.st_mode) != S_ISDIR(sn.st_mode) ||
+            (!S_ISDIR(sn.st_mode) && !(sn.st_mode & S_IWUSR)))
+        {
+            *err = API_EACCES;
+            ok = false;
+        }
     }
     ok = ok && posix_ok(rename(u8old, u8new) == 0, err);
     free(u8old), free(u8new);
@@ -498,7 +492,7 @@ bool drive_mkdir(const char *path, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return false;
-    bool ok = posix_ok(mkdir(u8, 0777) == 0, err);
+    bool ok = posix_ok(mkdir(u8[0] ? u8 : ".", 0777) == 0, err);
     free(u8);
 #ifdef __EMSCRIPTEN__
     if (ok)
@@ -517,17 +511,6 @@ bool drive_chdir(const char *path, api_errno *err)
     bool ok = posix_ok(chdir(u8[0] ? u8 : ".") == 0, err);
     free(u8);
     return ok;
-}
-
-/* FS: and the bare current drive are the only drives, and anything else is a
- * missing device. The name must leave nothing behind it, so "FS:junk" names no
- * drive, and neither does the null drive. */
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    if (!strip_drive(drive)[0])
-        return true;
-    *err = API_ENODEV;
-    return false;
 }
 
 /* Only the read-only bit has a POSIX equivalent, which is write permission;
@@ -599,7 +582,7 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
     if (ok)
         memcpy(buf, "FS:", 3);
     else
-        *err = API_ENOMEM;
+        *err = API_ERANGE;
     free(u8);
     return ok;
 }
@@ -609,14 +592,14 @@ bool drive_getcwd(char *buf, size_t size, api_errno *err)
 bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)path, (void)label, (void)size;
-    *err = API_EACCES;
+    *err = API_ENOSYS;
     return false;
 }
 
 bool drive_setlabel(const char *path, api_errno *err)
 {
     (void)path;
-    *err = API_EACCES;
+    *err = API_ENOSYS;
     return false;
 }
 

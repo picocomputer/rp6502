@@ -16,10 +16,6 @@ static uint16_t khz_run = PHI2_DEFAULT_KHZ;
 
 void phi2_set_khz_run(uint16_t khz)
 {
-    if (khz < PHI2_MIN_KHZ)
-        khz = PHI2_MIN_KHZ;
-    if (khz > PHI2_MAX_KHZ)
-        khz = PHI2_MAX_KHZ;
     khz_run = khz;
 }
 

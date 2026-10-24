@@ -48,6 +48,10 @@
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "C_Cpp.default.cStandard": "c11",
     "C_Cpp.debugShortcut": false,
+    "python.analysis.extraPaths": [
+        "tests/lib",
+        "tools"
+    ],
     "terminal.integrated.env.windows": {
         "PICO_SDK_PATH": "${env:USERPROFILE}/.pico-sdk/sdk/2.3.0",
         "PICO_TOOLCHAIN_PATH": "${env:USERPROFILE}/.pico-sdk/toolchain/15_2_Rel1",

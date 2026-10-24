@@ -43,12 +43,13 @@ uint32_t clk_get_run(uint32_t us_per_tick)
 
 bool clk_api_time_get(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     struct timespec ts;
     if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
     int64_t sec = ts.tv_sec;
-    if (!api_push_n(&sec, sizeof(sec)))
-        return api_return_errno(API_EINVAL);
+    api_push_n(&sec, sizeof(sec));
     return api_return_ax(0);
 }
 
@@ -73,14 +74,12 @@ static bool clk_api_to_tm(bool local)
         return api_return_errno(API_EINVAL);
     time_t t = sec;
     struct tm tm;
-    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)))
-        return api_return_errno(API_EINVAL);
-    if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
+    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)) ||
+        tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;
     clk_tm_to_wire(&tm, &w);
-    if (!api_push_n(&w, sizeof(w)))
-        return api_return_errno(API_EINVAL);
+    api_push_n(&w, sizeof(w));
     return api_return_ax(0);
 }
 
@@ -114,27 +113,17 @@ bool clk_api_mktime(void)
             return api_return_errno(API_ERANGE);
     }
     int64_t sec = t;
-    if (!api_push_n(&sec, sizeof(sec)))
-        return api_return_errno(API_EINVAL);
+    api_push_n(&sec, sizeof(sec));
     return api_return_ax(0);
 }
 
 bool clk_api_strftime(void)
 {
-    const char *format = (char *)&xstack[xstack_ptr];
     // The result is composed below the format string so the two never overlap.
     size_t max = xstack_ptr;
-    /* The byte at XSTACK_SIZE is always zero, so strlen stops even when the
-     * 6502 pushed no terminator. The length is checked before xstack_ptr
-     * moves, because the RIA serves the 6502's XSTACK register against
-     * xstack_ptr and would read past the array if it ever went above
-     * XSTACK_SIZE. */
-    size_t format_size = strlen(format) + 1;
-    if (format_size > XSTACK_SIZE - max)
-        return api_return_errno(API_EINVAL);
-    xstack_ptr = max + format_size;
+    const char *format = api_pop_str(XSTACK_SIZE);
     struct clk_wire_tm w;
-    if (!api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
+    if (!format || !api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
     if (w.tm_sec < 0 || w.tm_sec > 61 || w.tm_min < 0 || w.tm_min > 59 ||
         w.tm_hour < 0 || w.tm_hour > 23 || w.tm_mday < 1 || w.tm_mday > 31 ||
@@ -159,30 +148,28 @@ bool clk_api_clock(void)
 
 bool clk_api_get_res(void)
 {
-    if (API_A != CLK_ID_REALTIME)
+    if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
     struct timespec ts;
     tim_get_time_res(&ts);
     int32_t nsec = ts.tv_nsec;
     uint32_t sec = ts.tv_sec;
-    if (!api_push_int32(&nsec) ||
-        !api_push_uint32(&sec))
-        return api_return_errno(API_EINVAL);
+    api_push_int32(&nsec);
+    api_push_uint32(&sec);
     return api_return_ax(0);
 }
 
 bool clk_api_get_time(void)
 {
-    if (API_A != CLK_ID_REALTIME)
+    if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
     struct timespec ts;
     if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
     int32_t nsec = ts.tv_nsec;
     uint32_t sec = ts.tv_sec;
-    if (!api_push_int32(&nsec) ||
-        !api_push_uint32(&sec))
-        return api_return_errno(API_EINVAL);
+    api_push_int32(&nsec);
+    api_push_uint32(&sec);
     return api_return_ax(0);
 }
 

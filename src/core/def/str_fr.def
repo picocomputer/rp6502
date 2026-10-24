@@ -81,6 +81,7 @@ X(STR_ERR_ROM_ARGV_OVERFLOW, "?Dépassement argv ROM\n")
 X(STR_ERR_ROM_ARGV_INVALID, "?Argument ROM invalide\n")
 X(STR_ERR_ROM_NAME_INVALID, "?Nom ROM invalide\n")
 X(STR_ERR_ROM_DATA_INVALID, "?Données ROM invalides\n")
+X(STR_ERR_ROM_NO_RESET_VECTOR, "?ROM sans vecteur reset\n")
 X(STR_ERR_INVALID_UF2_FILE, "?Fichier UF2 invalide\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA non connecté\n")
 X(STR_ERR_NO_MEDIA, "?Aucun média\n")
@@ -89,6 +90,8 @@ X(STR_ERR_SECTOR_SIZE, "?Taille de secteur non prise en charge\n")
 X(STR_ERR_GPT_DISABLED, "?GPT indisponible dans cette compilation\n")
 X(STR_ERR_FORMAT_FAILED, "?Formatage bas niveau échoue\n")
 X(STR_ERR_DEVICE_CHANGED, "?Périphérique changé\n")
+X(STR_ERR_DIR_NOT_EMPTY, "?Le répertoire n'est pas vide\n")
+X(STR_ERR_NO_SPACE_ON_DEVICE, "?Plus d'espace disponible sur le périphérique\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?Erreur IO\n")                               // -5
@@ -97,11 +100,9 @@ X(STR_ERR_LFS_NOENT, "?Entrée de répertoire absente\n")         // -2
 X(STR_ERR_LFS_EXIST, "?Entrée déjà existante\n")                // -17
 X(STR_ERR_LFS_NOTDIR, "?L'entrée n'est pas un répertoire\n")    // -20
 X(STR_ERR_LFS_ISDIR, "?L'entrée est un répertoire\n")           // -21
-X(STR_ERR_LFS_NOTEMPTY, "?Le répertoire n'est pas vide\n")      // -39
 X(STR_ERR_LFS_BADF, "?Mauvais numéro de fichier\n")             // -9
 X(STR_ERR_LFS_FBIG, "?Fichier trop volumineux\n")               // -27
 X(STR_ERR_LFS_INVAL, "?Paramètre invalide\n")                   // -22
-X(STR_ERR_LFS_NOSPC, "?Plus d'espace disponible sur le périphérique\n") // -28
 X(STR_ERR_LFS_NOMEM, "?Mémoire insuffisante\n")                 // -12
 X(STR_ERR_LFS_NOATTR, "?Aucune donnée/attribut disponible\n")   // -61
 X(STR_ERR_LFS_NAMETOOLONG, "?Nom de fichier trop long\n")       // -36
@@ -200,7 +201,7 @@ X(STR_HELP_HELP,
   "STATUS               - \aAffiche l'état du système et des périphériques connectés.\n"
   "SET (attr) (valeur)  - \aModifier ou afficher les réglages.\n"
   "DIR (rep|lecteur)    - \aListe le contenu d'un répertoire.\n"
-  "LS (rep)             - \aChanger ou afficher le répertoire courant.\n"
+  "CD (rep)             - \aChanger ou afficher le répertoire courant.\n"
   "(MSC)0:              - \aMSC0:-MSC9: Changer le périphérique de stockage courant.\n"
   "LOAD fichier         - \aCharge un fichier ROM. Démarre si vecteur reset présent.\n"
   "INFO fichier         - \aAffiche l'aide incluse dans le fichier ROM, si présente.\n"

@@ -74,9 +74,11 @@ int rom_alias_open(const char *path, api_errno *err);
 /* Load a .rp6502 into ram[]/xram[]. The path may be a drive path or an
  * installed ":name", which rom_load resolves. The named assets are not read:
  * only the start of the asset directory is kept, so a ROM: open scans the file
- * for the entry on demand. Returns false, after printing the reason on the
- * console, on any format or CRC error. */
+ * for the entry on demand. Returns false on any format or CRC error. */
 bool rom_load(const char *path);
+
+/* The console message for the reason that the last rom_load failed. */
+const char *rom_load_error(void);
 
 /* The loader hands its descriptor and asset-directory offset to the ROM: drive,
  * which owns the descriptor from here; rom_assets_reset closes it. */
@@ -89,9 +91,10 @@ bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
+std_rw_result rom_std_sync(int desc, api_errno *err);
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 bool rom_std_ident(int desc, sst_cursor_t *c);
-int rom_std_reopen(sst_cursor_t *c, api_errno *err);
+int rom_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 void rom_assets_reset(void);
 
 /* Read a named asset into buf, NUL-terminated and truncated to bufsz-1. Returns
@@ -111,7 +114,9 @@ uint32_t rom_generation(void);
 void asset_sst_save(sst_cursor_t *c, unsigned flags);
 bool asset_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
+/* A stop closes the image, as the Pico's monitor does, because the stop also
+ * clears the running program's name that a savestate reopens it by. */
+#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, rom_assets_reset, nul_break, \
     nul_config, nul_config, SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
 
 #define ROM_STD_DRIVER           \
@@ -120,6 +125,7 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags);
         .open = rom_std_open,       \
         .close = rom_std_close,     \
         .read = rom_std_read,       \
+        .sync = rom_std_sync,       \
         .lseek = rom_std_lseek,     \
         .ident = rom_std_ident,     \
         .reopen = rom_std_reopen,   \

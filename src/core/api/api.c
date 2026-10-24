@@ -7,6 +7,7 @@
 #include "core/api/ops.h"
 #include "core/sys/driver.h"
 #include "core/api/api.h"
+#include "core/str/str.h"
 #include "core/sys/sys.h"
 
 /* Both toolchains define these errno values, except EUNKNOWN at the end of
@@ -185,6 +186,25 @@ uint16_t api_platform_errno(api_errno num)
     }
 }
 
+const char *api_errno_str(api_errno num)
+{
+    switch (num)
+    {
+    case API_ENOENT:
+        return S(STR_ERR_FATFS_NO_FILE);
+    case API_EACCES:
+        return S(STR_ERR_FATFS_DENIED);
+    case API_ENOSPC:
+        return S(STR_ERR_NO_SPACE_ON_DEVICE);
+    case API_EEXIST:
+        return S(STR_ERR_FATFS_EXIST);
+    case API_ENOEXEC:
+        return S(STR_ERR_ROM_DATA_INVALID);
+    default:
+        return S(STR_ERR_FATFS_DISK_ERR);
+    }
+}
+
 // The sign bit is in xstack[XSTACK_SIZE - 1] because this pop must empty the
 // stack, so that byte is the value's most significant.
 static bool api_pop_end(void *data, size_t size, bool sign)
@@ -237,4 +257,32 @@ bool api_pop_int32_end(int32_t *data)
 bool api_pop_int64_end(int64_t *data)
 {
     return api_pop_end(data, sizeof(*data), true);
+}
+
+const char *api_pop_str(size_t max)
+{
+    const char *str = (const char *)&xstack[xstack_ptr];
+    size_t len = strlen(str);
+    if (len > max || len >= XSTACK_SIZE - xstack_ptr)
+        return NULL;
+    xstack_ptr += len + 1;
+    return str;
+}
+
+const char *api_pop_str_end(size_t max)
+{
+    const char *str = (const char *)&xstack[xstack_ptr];
+    size_t len = strlen(str);
+    size_t n = XSTACK_SIZE - xstack_ptr;
+    if (len > max || (n != len && n != len + 1))
+        return NULL;
+    xstack_ptr = XSTACK_SIZE;
+    return str;
+}
+
+const char *api_pop_path_end(api_errno *err)
+{
+    const char *path = api_pop_str_end(API_PATH_MAX);
+    *err = path ? API_ENOENT : API_EINVAL;
+    return path && path[0] ? path : NULL;
 }

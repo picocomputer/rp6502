@@ -27,6 +27,7 @@ typedef struct
     bool mounted;
     bool opened;
     bool nfc_checked;
+    uint8_t session;
     uint8_t daddr;
 } vcp_t;
 static vcp_t vcp_mounts[CFG_TUH_CDC];
@@ -109,40 +110,32 @@ static bool vcp_configure_and_connect(uint8_t idx, uint32_t baudrate,
                                       uint8_t data_bits, uint8_t parity,
                                       uint8_t stop_bits)
 {
-    if (!tuh_cdc_set_baudrate(idx, baudrate, NULL, 0))
+    const cdc_line_coding_t coding = {.bit_rate = baudrate,
+                                      .stop_bits = stop_bits,
+                                      .parity = parity,
+                                      .data_bits = data_bits};
+    cdc_line_coding_t now;
+    /* The whole coding in one request, because a port starts with a coding of
+     * zeros, and a baud rate alone carries 0 data bits, which the CDC ACM and
+     * PL2303 drivers refuse. A PL2303 also refuses the coding it already
+     * has, so that one is not sent again. */
+    if ((!tuh_cdc_get_line_coding_local(idx, &now) ||
+         memcmp(&now, &coding, sizeof coding) != 0) &&
+        !tuh_cdc_set_line_coding(idx, &coding, NULL, 0))
         return false;
-    if (!tuh_cdc_set_data_format(idx, stop_bits, parity, data_bits, NULL, 0))
-        return false;
-    if (!tuh_cdc_connect(idx, NULL, 0))
-        return false;
-    return true;
+    return tuh_cdc_connect(idx, NULL, 0);
 }
 
 int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
 {
     (void)flags;
-    if (!vcp_std_handles(name))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
     uint8_t idx = name[3] - '0';
-    if (idx >= CFG_TUH_CDC)
+    if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
     {
         *err = API_ENODEV;
         return -1;
     }
-    if ((int)idx == vcp_nfc_device_idx)
-    {
-        *err = API_EBUSY;
-        return -1;
-    }
-    if (!vcp_mounts[idx].mounted)
-    {
-        *err = API_ENODEV;
-        return -1;
-    }
-    if (vcp_mounts[idx].opened)
+    if ((int)idx == vcp_nfc_device_idx || vcp_mounts[idx].opened)
     {
         *err = API_EBUSY;
         return -1;
@@ -249,52 +242,66 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
 
     if (!vcp_configure_and_connect(idx, baudrate, data_bits, parity, stop_bits))
     {
-        *err = API_EIO;
+        *err = API_EINVAL;
         return -1;
     }
 
     RP6502_LOG(vcp, INFO, "%d open %lu,%d%c%s", idx, (unsigned long)baudrate, data_bits,
                "NOEMS"[parity], CDC_LINE_CODING_STOP_BITS_TEXT(stop_bits));
     vcp_mounts[idx].opened = true;
+    return (vcp_mounts[idx].session << 4) | idx;
+}
+
+// The port of an open descriptor, or -1 when its device is gone. A descriptor
+// holds the mount session above the port index, so a descriptor kept across
+// an unplug does not resolve to the next device mounted on that port.
+static int vcp_desc_idx(int desc)
+{
+    int idx = desc & 0xF;
+    const vcp_t *dev = &vcp_mounts[idx];
+    if ((desc >> 4) != dev->session || !dev->mounted || !dev->opened)
+        return -1;
     return idx;
 }
 
 std_rw_result vcp_std_close(int desc, api_errno *err)
 {
-    if (!vcp_mounts[desc].opened)
+    (void)err;
+    int idx = vcp_desc_idx(desc);
+    if (idx >= 0)
     {
-        *err = API_EBADF;
-        return STD_ERROR;
+        RP6502_LOG(vcp, INFO, "%d close", idx);
+        tuh_cdc_disconnect(idx, NULL, 0);
+        vcp_mounts[idx].opened = false;
     }
-    RP6502_LOG(vcp, INFO, "%d close", desc);
-    tuh_cdc_disconnect(desc, NULL, 0);
-    vcp_mounts[desc].opened = false;
     return STD_OK;
 }
 
 std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
-    if (!vcp_mounts[desc].mounted || !vcp_mounts[desc].opened)
+    int idx = vcp_desc_idx(desc);
+    if (idx < 0)
     {
         *err = API_EIO;
         return STD_ERROR;
     }
-    *bytes_read = tuh_cdc_read(desc, buf, count);
+    *bytes_read = tuh_cdc_read(idx, buf, count);
     return STD_OK;
 }
 
 std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
-    if (!vcp_mounts[desc].mounted || !vcp_mounts[desc].opened)
+    int idx = vcp_desc_idx(desc);
+    if (idx < 0)
     {
         *err = API_EIO;
         return STD_ERROR;
     }
-    uint32_t written = tuh_cdc_write(desc, buf, count);
+    uint32_t written = tuh_cdc_write(idx, buf, count);
     if (written > 0)
-        tuh_cdc_write_flush(desc);
+        tuh_cdc_write_flush(idx);
     *bytes_written = written;
     return STD_OK;
 }
@@ -325,9 +332,11 @@ void tuh_cdc_mount_cb(uint8_t idx)
         return;
     uint8_t daddr = itf_info.daddr;
     vcp_t *dev = &vcp_mounts[idx];
+    uint8_t session = (uint8_t)(dev->session + 1);
     memset(dev, 0, sizeof(*dev));
     uint16_t vid, pid;
     tuh_vid_pid_get(daddr, &vid, &pid);
+    dev->session = session;
     dev->daddr = daddr;
     dev->mounted = true;
     RP6502_LOG(vcp, INFO, "%d mount %04X:%04X dev_addr=%d", idx, vid, pid, daddr);
@@ -387,5 +396,5 @@ int vcp_nfc_open(void)
         return -1;
     RP6502_LOG(vcp, INFO, "%d nfc open", idx);
     vcp_mounts[idx].opened = true;
-    return idx;
+    return (vcp_mounts[idx].session << 4) | idx;
 }

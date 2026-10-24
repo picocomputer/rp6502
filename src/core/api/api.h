@@ -7,6 +7,7 @@
 #ifndef _CORE_API_API_H_
 #define _CORE_API_API_H_
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "core/sys/sst.h"
@@ -51,6 +52,10 @@ bool api_set_errno_opt(uint8_t opt);
  * at every program start. */
 uint16_t api_platform_errno(api_errno num);
 
+/* The message that a console shows for num, such as "?No file\n" for
+ * API_ENOENT, in the active locale. */
+const char *api_errno_str(api_errno num);
+
 /* The longest path any op takes. The boards hold a path in a 256 byte buffer,
  * which is 255 characters and a terminator, so a longer path has nowhere to go
  * on the machine this API was written for. */
@@ -86,6 +91,10 @@ bool api_pop_int16_end(int16_t *data);
 bool api_pop_int32_end(int32_t *data);
 bool api_pop_int64_end(int64_t *data);
 
+const char *api_pop_str(size_t max);
+const char *api_pop_str_end(size_t max);
+const char *api_pop_path_end(api_errno *err);
+
 static inline bool api_pop_n(void *data, size_t n)
 {
     if (XSTACK_SIZE - xstack_ptr < n)
@@ -102,22 +111,20 @@ static inline bool api_pop_int8(int8_t *data) { return api_pop_n(data, sizeof(in
 static inline bool api_pop_int16(int16_t *data) { return api_pop_n(data, sizeof(int16_t)); }
 static inline bool api_pop_int32(int32_t *data) { return api_pop_n(data, sizeof(int32_t)); }
 
-static inline bool api_push_n(const void *data, size_t n)
+static inline void api_push_n(const void *data, size_t n)
 {
-    if (n > xstack_ptr)
-        return false;
+    assert(n <= xstack_ptr);
     xstack_ptr -= n;
     memcpy(&xstack[xstack_ptr], data, n);
-    return true;
 }
 
-static inline bool api_push_char(const char *data) { return api_push_n(data, sizeof(char)); }
-static inline bool api_push_uint8(const uint8_t *data) { return api_push_n(data, sizeof(uint8_t)); }
-static inline bool api_push_uint16(const uint16_t *data) { return api_push_n(data, sizeof(uint16_t)); }
-static inline bool api_push_uint32(const uint32_t *data) { return api_push_n(data, sizeof(uint32_t)); }
-static inline bool api_push_int8(const int8_t *data) { return api_push_n(data, sizeof(int8_t)); }
-static inline bool api_push_int16(const int16_t *data) { return api_push_n(data, sizeof(int16_t)); }
-static inline bool api_push_int32(const int32_t *data) { return api_push_n(data, sizeof(int32_t)); }
+static inline void api_push_char(const char *data) { api_push_n(data, sizeof(char)); }
+static inline void api_push_uint8(const uint8_t *data) { api_push_n(data, sizeof(uint8_t)); }
+static inline void api_push_uint16(const uint16_t *data) { api_push_n(data, sizeof(uint16_t)); }
+static inline void api_push_uint32(const uint32_t *data) { api_push_n(data, sizeof(uint32_t)); }
+static inline void api_push_int8(const int8_t *data) { api_push_n(data, sizeof(int8_t)); }
+static inline void api_push_int16(const int16_t *data) { api_push_n(data, sizeof(int16_t)); }
+static inline void api_push_int32(const int32_t *data) { api_push_n(data, sizeof(int32_t)); }
 
 // A call returns by running the seven bytes at $FFF1, which these write. The
 // SREG after the RTS is data the caller reads back, not code.

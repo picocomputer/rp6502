@@ -36,12 +36,18 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
  * nothing in flight to cancel. */
 void fs_std_settle(void);
 
+/* Every transfer completes before the call returns, so a read lands on the
+ * same scanline every run. A host with no window turns this on, because it has
+ * no frame to keep smooth while it waits. A synchronous transport always
+ * completes at once. */
+void fs_std_immediate(bool on);
+
 /* Save a descriptor and open it again, in core/api/std.h's shape. The name is
  * made absolute when the file is opened, because both the guest and this core
  * may chdir before the save. */
 #define FS_PATH_SLOT (API_PATH_MAX + 1)
 bool fs_std_ident(int desc, sst_cursor_t *c);
-int fs_std_reopen(sst_cursor_t *c, api_errno *err);
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
 bool fs_rom_remove(const char *name, api_errno *err);
@@ -58,8 +64,8 @@ int fs_rom_open_host(const char *host, api_errno *err);
 
 /* fs_save_start sets the SAVE: folder each time a program starts: the
  * host_save_dir of host/host.h, or the working directory at that moment when
- * that is NULL. fs_save_open opens name in that folder, so a CHDIR or CHDRIVE
- * by the program does not move its saves. save_std_open has already checked
+ * that is NULL. fs_save_open opens name in that folder, so a CHDIR by the
+ * program does not move its saves. save_std_open has already checked
  * name against the rules in core/api/save.h. The descriptor is one the
  * fs_std_ functions accept, and fs_std_ident records it as SAVE:name, so a
  * savestate holds no host path for it and fs_std_reopen opens it again

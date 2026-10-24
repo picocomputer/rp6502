@@ -21,18 +21,20 @@ api_errno errno_to_api(int host_errno)
     case EACCES:
     case EPERM:
     case EROFS:
-    /* FatFs answers FR_DENIED to both: a directory opened as a file, and a
-     * directory removed with something still in it. */
+    /* FatFs answers FR_DENIED to a directory opened as a file. */
     case EISDIR:
-    case ENOTEMPTY:
         return API_EACCES;
     case EEXIST:
+    /* rmdir and rename give either one for a directory that is not empty,
+     * and api_errno has no ENOTEMPTY. */
+    case ENOTEMPTY:
         return API_EEXIST;
     case EINVAL:
     case ENAMETOOLONG:
         return API_EINVAL;
     case ENOSPC:
     case EFBIG:
+    case EDQUOT:
         return API_ENOSPC;
     case EMFILE:
     case ENFILE:
@@ -40,6 +42,7 @@ api_errno errno_to_api(int host_errno)
     case EBADF:
         return API_EBADF;
     case EBUSY:
+    case ETXTBSY:
         return API_EBUSY;
     case ENODEV:
     case ENXIO:
@@ -48,6 +51,8 @@ api_errno errno_to_api(int host_errno)
         return API_ENODEV;
     case EAGAIN:
         return API_EAGAIN;
+    case EINTR:
+        return API_EINTR;
     case ENOMEM:
         return API_ENOMEM;
     case ESPIPE:
@@ -57,9 +62,4 @@ api_errno errno_to_api(int host_errno)
     default:
         return API_EIO;
     }
-}
-
-api_errno errno_to_api_rw(int host_errno)
-{
-    return host_errno == EBADF ? API_EACCES : errno_to_api(host_errno);
 }

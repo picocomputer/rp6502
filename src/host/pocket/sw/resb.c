@@ -20,7 +20,7 @@ void resb_assert(void)
     CPU_RESB = 0;
     /* A ROM may have changed the running rate, so a reset puts back the
      * configured one. */
-    MMIO_PHI2 = phi2_get_khz();
+    phi2_set_khz_run(phi2_get_khz());
 }
 
 /* RESB does not reset the $FFF0 interrupt enable mask or its pending

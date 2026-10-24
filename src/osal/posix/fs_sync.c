@@ -30,7 +30,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
     ssize_t r = read(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api_rw(errno);
+        *err = errno_to_api(errno);
         return STD_ERROR;
     }
     *got = (uint32_t)r;
@@ -43,7 +43,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
     ssize_t r = write(desc, buf, count);
     if (r < 0)
     {
-        *err = errno_to_api_rw(errno);
+        *err = errno_to_api(errno);
         return STD_ERROR;
     }
     *put = (uint32_t)r;
@@ -66,4 +66,10 @@ std_rw_result fs_std_close(int desc, api_errno *err)
 
 void fs_std_settle(void)
 {
+}
+
+/* Every transfer here completes at once already. */
+void fs_std_immediate(bool on)
+{
+    (void)on;
 }

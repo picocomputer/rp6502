@@ -244,7 +244,7 @@ static const char *mon_lfs_lookup(int result)
     case LFS_ERR_ISDIR: // -21
         return S(STR_ERR_LFS_ISDIR);
     case LFS_ERR_NOTEMPTY: // -39
-        return S(STR_ERR_LFS_NOTEMPTY);
+        return S(STR_ERR_DIR_NOT_EMPTY);
     case LFS_ERR_BADF: // -9
         return S(STR_ERR_LFS_BADF);
     case LFS_ERR_FBIG: // -27
@@ -252,7 +252,7 @@ static const char *mon_lfs_lookup(int result)
     case LFS_ERR_INVAL: // -22
         return S(STR_ERR_LFS_INVAL);
     case LFS_ERR_NOSPC: // -28
-        return S(STR_ERR_LFS_NOSPC);
+        return S(STR_ERR_NO_SPACE_ON_DEVICE);
     case LFS_ERR_NOMEM: // -12
         return S(STR_ERR_LFS_NOMEM);
     case LFS_ERR_NOATTR: // -61
@@ -306,6 +306,10 @@ static const char *mon_fatfs_lookup(int fresult)
         return S(STR_ERR_FATFS_TOO_MANY_OPEN_FILES);
     case FR_INVALID_PARAMETER: // 19
         return S(STR_ERR_FATFS_INVALID_PARAMETER);
+    case FR_NO_SPACE: // 20
+        return S(STR_ERR_NO_SPACE_ON_DEVICE);
+    case FR_NOT_EMPTY: // 21
+        return S(STR_ERR_DIR_NOT_EMPTY);
     default:
         return NULL;
     }
@@ -424,21 +428,7 @@ void mon_add_response_fatfs(int fresult)
 
 void mon_add_response_errno(api_errno err)
 {
-    switch (err)
-    {
-    case API_ENOENT:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_NO_FILE));
-    case API_EACCES:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
-    case API_EEXIST:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_EXIST));
-    case API_ENOEXEC:
-        return mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-    case API_ENOSPC:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
-    default:
-        return mon_add_response_utf8(S(STR_ERR_FATFS_DISK_ERR));
-    }
+    mon_add_response_utf8(api_errno_str(err));
 }
 
 static void mon_more(void)

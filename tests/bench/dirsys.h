@@ -68,18 +68,22 @@ static inline void dsys_filinfo(f_stat_t *fno)
     memcpy(&fno->crtime, &xstack[p], 2), p += 2;
     fno->fattrib = xstack[p], p += 1;
     memcpy(fno->altname, &xstack[p], 13), p += 13;
-    memcpy(fno->fname, &xstack[p], 256);
+    memcpy(fno->fname, &xstack[p], 256), p += 256;
+    xstack_ptr = p;
 }
 
 static inline void dsys_str(char *out, size_t sz)
 {
-    snprintf(out, sz, "%s", (const char *)&xstack[xstack_ptr]);
+    const char *str = (const char *)&xstack[xstack_ptr];
+    snprintf(out, sz, "%s", str);
+    xstack_ptr += strlen(str);
 }
 
 static inline void dsys_getfree(uint32_t *fre, uint32_t *tot)
 {
     memcpy(fre, &xstack[xstack_ptr], 4);
     memcpy(tot, &xstack[xstack_ptr + 4], 4);
+    xstack_ptr += 8;
 }
 
 #endif /* _EMU_TESTS_DIRSYS_H_ */

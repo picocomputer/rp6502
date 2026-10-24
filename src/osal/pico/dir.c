@@ -74,8 +74,6 @@ bool fat_path_ok(const char *path, api_errno *err)
 
 bool fat_names_dir(const char *path)
 {
-    if (!*fat_after_drive(path))
-        return false;
     DIR dir;
     if (f_opendir(&dir, (const TCHAR *)path) != FR_OK)
         return false;
@@ -85,12 +83,7 @@ bool fat_names_dir(const char *path)
 
 bool drive_validate(int des, api_errno *err)
 {
-    if (des < 0 || des >= DIR_MAX_OPEN)
-    {
-        *err = API_EINVAL;
-        return false;
-    }
-    if (dirs[des].obj.fs == 0)
+    if (des < 0 || des >= DIR_MAX_OPEN || dirs[des].obj.fs == 0)
     {
         *err = API_EBADF;
         return false;
@@ -180,37 +173,43 @@ bool drive_unlink(const char *path, api_errno *err)
     return fat_path_ok(path, err) && fat_ok(f_unlink((const TCHAR *)path), err);
 }
 
-static bool fat_is_file(const char *path)
-{
-    FILINFO fno;
-    return f_stat((const TCHAR *)path, &fno) == FR_OK && !(fno.fattrib & AM_DIR);
-}
-
-/* f_rename discards the drive of the new name and renames on the drive of the
- * old one, so names on two drives are refused before anything changes. FatFs
- * also refuses a new name already in use, while rename(2) and MoveFileEx
- * replace a file there, so when both names are files, the file at the new
- * name is removed and the rename is tried again. FAT offers no way to do
- * that atomically. */
+/* RENAME follows rename(2). FatFs refuses a new name that exists, so an
+ * entry of the same type there is removed first, which is not atomic. */
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     if (!fat_path_ok(oldname, err) || !fat_path_ok(newname, err))
         return false;
+    /* f_rename ignores the drive of the new name. */
     if (f_getldnumber(oldname) != f_getldnumber(newname))
     {
         *err = API_ENODEV;
         return false;
     }
     FRESULT fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
-    if (fr == FR_EXIST && fat_is_file(oldname) && fat_is_file(newname) &&
-        (fr = f_unlink((const TCHAR *)newname)) == FR_OK)
-        fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    /* f_rename refuses a move of a directory into itself before FR_EXIST. */
+    if (fr == FR_EXIST)
+    {
+        if (fat_names_dir(oldname) != fat_names_dir(newname))
+        {
+            *err = API_EACCES;
+            return false;
+        }
+        if ((fr = f_unlink((const TCHAR *)newname)) == FR_OK)
+            fr = f_rename((const TCHAR *)oldname, (const TCHAR *)newname);
+    }
     return fat_ok(fr, err);
 }
 
 bool drive_mkdir(const char *path, api_errno *err)
 {
-    return fat_path_ok(path, err) && fat_ok(f_mkdir((const TCHAR *)path), err);
+    if (!fat_path_ok(path, err))
+        return false;
+    // f_mkdir refuses ".", "..", a root and a bare drive name as an invalid
+    // name.
+    FRESULT fresult = f_mkdir((const TCHAR *)path);
+    if (fresult == FR_INVALID_NAME && fat_names_dir(path))
+        fresult = FR_EXIST;
+    return fat_ok(fresult, err);
 }
 
 /* f_chdir sets the folder of the drive it names without making that drive
@@ -223,23 +222,6 @@ bool drive_chdir(const char *path, api_errno *err)
     if (strchr(path, ':'))
         f_chdrive((const TCHAR *)path);
     return true;
-}
-
-/* A name is empty for the current drive, or a volume ID and its colon with
- * nothing after it, as on the other machines. FatFs itself takes any name
- * without a colon as the current drive and drops whatever follows the colon,
- * so the check comes first. f_chdrive accepts a slot with no drive in it, so
- * f_getlabel mounts the volume first. */
-bool drive_chdrive(const char *drive, api_errno *err)
-{
-    const char *colon = strchr(drive, ':');
-    if (drive[0] && (!colon || colon[1]))
-    {
-        *err = API_ENODEV;
-        return false;
-    }
-    return fat_ok(f_getlabel((const TCHAR *)drive, NULL, NULL), err) &&
-           fat_ok(f_chdrive((const TCHAR *)drive), err);
 }
 
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
@@ -261,7 +243,12 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    return fat_ok(f_getcwd((TCHAR *)buf, (UINT)size), err);
+    FRESULT fresult = f_getcwd((TCHAR *)buf, (UINT)size);
+    if (fresult == FR_OK)
+        return true;
+    // f_getcwd gives FR_NOT_ENOUGH_CORE when the path does not fit buf.
+    *err = fresult == FR_NOT_ENOUGH_CORE ? API_ERANGE : fresult_to_api(fresult);
+    return false;
 }
 
 bool drive_setlabel(const char *path, api_errno *err)

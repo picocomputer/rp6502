@@ -1,0 +1,3 @@
+# Nothing answers at $FF00-$FFCF, so the run fails on purpose.
+
+peek $FF00 0

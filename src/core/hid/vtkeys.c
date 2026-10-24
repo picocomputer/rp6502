@@ -54,8 +54,8 @@ void vtkeys_char(uint32_t codepoint)
  * a break is caught even when the ring is full and the byte is dropped. */
 void vtkeys_ctrl_letter(char letter)
 {
-    char c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
-    if (c)
+    int c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
+    if (c >= 0)
         com_keyboard_push_byte((uint8_t)c);
 }
 
@@ -65,9 +65,9 @@ void vtkeys_alt_char(char ch, bool ctrl)
         return;
     if (ctrl)
     {
-        char c = keyboard_ctrl_promote(ch, HID_KEY_NONE);
-        if (c)
-            ch = c;
+        int c = keyboard_ctrl_promote(ch, HID_KEY_NONE);
+        if (c >= 0)
+            ch = (char)c;
     }
     com_keyboard_push_byte(0x1b);
     com_keyboard_push_byte((uint8_t)ch);
@@ -101,9 +101,9 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
     {
         if (ctrl)
         {
-            char c = keyboard_ctrl_promote(ch, hid_usage);
-            if (c)
-                ch = c;
+            int c = keyboard_ctrl_promote(ch, hid_usage);
+            if (c >= 0)
+                ch = (char)c;
         }
         /* Alt prefixes ESC rather than changing the byte the key types, so it
          * composes with whatever the other modifiers already decided. */
@@ -124,7 +124,6 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 /* Text still being delivered to the keyboard ring, NULL when idle. */
 static char *vtkeys_paste_buf;
 static size_t vtkeys_paste_len, vtkeys_paste_pos;
-static oem_run_t vtkeys_paste_run;
 
 void vtkeys_paste_cancel(void)
 {
@@ -144,7 +143,6 @@ void vtkeys_paste(const char *utf8)
     memcpy(vtkeys_paste_buf, utf8, n);
     vtkeys_paste_len = n;
     vtkeys_paste_pos = 0;
-    vtkeys_paste_run = (oem_run_t){0};
 }
 
 bool vtkeys_paste_busy(void)
@@ -166,8 +164,7 @@ void vtkeys_task(void)
         if (room > sizeof out)
             room = sizeof out;
         size_t taken = 0;
-        size_t n = oem_from_utf8_run(&vtkeys_paste_run,
-                                     vtkeys_paste_buf + vtkeys_paste_pos,
+        size_t n = oem_from_utf8_run(vtkeys_paste_buf + vtkeys_paste_pos,
                                      vtkeys_paste_len - vtkeys_paste_pos,
                                      true, out, room, &taken);
         if (!taken)

@@ -1,0 +1,56 @@
+# This script uses names from a hand-written adventure.sym beside a copy of
+# adventure, and it writes numbers as expressions. Spaces separate arguments,
+# so an expression with spaces must be in parentheses.
+
+# adventure.sym also has a symbol named stdout, but after wait the word
+# stdout without parentheses means the output stream.
+wait stdout "Would you like instructions?"
+expect-not "NOPE"
+
+poke xram:SPOT $A5
+peek xram:$1000 $A5
+poke xram:draw.image+1 7
+peek xram:draw.image+1 (3 + 4)
+poke xram:(SPOT + 2) $09
+peek xram:$1002 9
+
+let base = SPOT + 4  # NOPE in a comment is never looked up
+let base=base+1
+let half = 7 // 2
+poke xram:base $5A
+peek xram:$1005 $5A
+
+pad (1 - 1) connect
+pad 0 press start
+tablet touch 10,(NEG + 30)
+press HID_A
+release HID_A
+press (4)
+release (4)
+
+# Each expression below tests an edge case. The script pokes the result and
+# reads it back, and each peek value is the answer that Python gives.
+poke xram:SPOT ((-1 << 63) == INT64_MIN) (INT64_MIN % -1) ((-2) ** 63 == INT64_MIN) (2 ** 62 >> 61) (-7 // 2 & 255) (7 % -2 & 255) (-1 >> 100 & 255) (~INT64_MIN == INT64_MAX)
+peek xram:SPOT 1 0 1 2 $FC $FF $FF 1
+poke xram:SPOT (1 < 2 < 3) (0 and 1 // 0) (1 or NOPE) (2 or 3 and 0) (not 5) (2 ** 53 + 1 == 2 ** 53) (7 // -2 == -4) (half == 3)
+peek xram:SPOT 1 0 1 2 0 0 1 1
+poke xram:SPOT 0x_FF (1_000 % 256) ($FF_FF & 255) 0b1010 0o17 0X1F 0B11 00
+peek xram:SPOT $FF $E8 $FF 10 15 $1F 3 0
+
+# A stopped machine runs nothing, so its RAM is safe to poke.
+sys stop
+poke SPOT ((1 + 2) * 3)
+peek SPOT 9
+poke SPOT (INT64_MIN == -9223372036854775807 - 1)
+peek SPOT 1
+poke (stdout) $42
+wait (stdout) $42
+
+# Loading the other ROM replaces the names with those from other.sym. The
+# script variables do not change.
+load ":other.rp6502"
+poke xram:SPOT $77
+peek xram:$2000 $77
+poke xram:base $33
+peek xram:$1005 $33
+wait "Would you like instructions?"

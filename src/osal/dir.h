@@ -45,7 +45,6 @@ bool drive_unlink(const char *path, api_errno *err);
 bool drive_rename(const char *oldname, const char *newname, api_errno *err);
 bool drive_mkdir(const char *path, api_errno *err);
 bool drive_chdir(const char *path, api_errno *err);
-bool drive_chdrive(const char *drive, api_errno *err);
 bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err);
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err);
 

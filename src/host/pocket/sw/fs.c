@@ -652,11 +652,6 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     const char *rest = fs_strip_drive(path);
     if (!path_fat_ok(rest, rest != path, err))
         return -1;
-    if (!*rest)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
     return fs_open_card(rest, FS_ASSETS_PATH, flags, err);
 }
 
@@ -689,9 +684,9 @@ bool fs_std_ident(int desc, sst_cursor_t *c)
     return false;
 }
 
-int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
 {
-    (void)c;
+    (void)c, (void)mode;
     *err = API_ENOSYS;
     return -1;
 }
@@ -743,11 +738,6 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
     if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
-        return STD_ERROR;
-    }
-    if ((fs_pool[desc].flags & (FS_RD | FS_WR)) == FS_WR)
-    {
-        *err = API_EACCES;
         return STD_ERROR;
     }
     if (fs_adrift())
@@ -847,11 +837,6 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (fs_adrift())
         return STD_PENDING;
     fs_rebind(desc);
-    if (!(fs_pool[desc].flags & FS_WR))
-    {
-        *err = API_EACCES;
-        return STD_ERROR;
-    }
     fs_pool[desc].cache_len = 0;
     if (!count)
         return STD_OK;

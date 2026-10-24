@@ -27,8 +27,9 @@
 void oem_init(void);
 void oem_stop(void);
 
-// The code page in force, set without saving it to config.
-void oem_set_code_page_run(uint16_t cp);
+// Sets the code page in force, without saving it to config. Returns false,
+// and changes nothing, for a code page that the tables do not have.
+bool oem_set_code_page_run(uint16_t cp);
 uint16_t oem_get_code_page_run(void);
 
 bool oem_check_code_page(uint16_t *v);
@@ -46,24 +47,16 @@ unsigned char oem_from_codepoint(uint32_t cp);
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
 
-/* State a conversion carries between calls, so a CRLF divided between two of
- * them still ends one line. Zero it to start one. */
-typedef struct
-{
-    bool after_cr;
-} oem_run_t;
-
 /* A run of UTF-8 becomes OEM bytes. A character the code page cannot represent
  * becomes '?' rather than the 0x7F the decoder returns, because the line
- * editor in core/str/rln.c reads 0x7F as a backspace. CR, LF, and CRLF each
- * become the single carriage return that ends a line, and every other control
- * byte passes through.
+ * editor in core/str/rln.c reads 0x7F as a backspace. Every control byte,
+ * CR and LF included, passes through.
  *
  * The conversion stops on a full dst, and on a sequence the buffer does not
  * hold whole unless end is true, which means no more input is coming. *taken
  * is what was read, so the rest can be carried to the next call, and the
  * return is the count written. */
-size_t oem_from_utf8_run(oem_run_t *run, const char *utf8, size_t len, bool end,
+size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
                          char *dst, size_t dstsz, size_t *taken);
 
 // One OEM byte -> UTF-8 in dst (at most 3 bytes, no NUL); returns the count

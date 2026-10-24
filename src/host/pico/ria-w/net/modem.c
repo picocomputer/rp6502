@@ -932,29 +932,13 @@ int modem_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     modem_set_conn(desc);
-    const char *filename = path;
-    if (!strncasecmp(filename, "AT", 2))
-    {
-        filename += 2;
-        if (*filename >= '0' && *filename <= '9')
-        {
-            modem_conn->settings_slot = *filename - '0';
-            filename++;
-        }
-        else
-            modem_conn->settings_slot = -1;
-        if (*filename == ':')
-            filename++;
-        else
-        {
-            *err = API_ENOENT;
-            return -1;
-        }
-    }
+    const char *filename = &path[3];
+    if (path[2] == ':')
+        modem_conn->settings_slot = -1;
     else
     {
-        *err = API_ENOENT;
-        return -1;
+        modem_conn->settings_slot = path[2] - '0';
+        filename++;
     }
     if (modem_conn->settings_slot >= 0)
         modem_read_settings(&modem_conn->settings);
@@ -976,22 +960,14 @@ int modem_std_open(const char *path, uint8_t flags, api_errno *err)
 
 std_rw_result modem_std_close(int desc, api_errno *err)
 {
-    if (desc < 0 || desc >= NET_MODEM_DESCS || !modem_conns[desc].is_open)
-    {
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
+    (void)err;
     modem_conn_stop(&modem_conns[desc]);
     return STD_OK;
 }
 
 std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    if (desc < 0 || desc >= NET_MODEM_DESCS || !modem_conns[desc].is_open)
-    {
-        *err = API_EIO;
-        return STD_ERROR;
-    }
+    (void)err;
     modem_set_conn(desc);
     uint32_t pos = 0;
     for (;;)
@@ -1059,11 +1035,7 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
 
 std_rw_result modem_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
-    if (desc < 0 || desc >= NET_MODEM_DESCS || !modem_conns[desc].is_open)
-    {
-        *err = API_EIO;
-        return STD_ERROR;
-    }
+    (void)err;
     modem_set_conn(desc);
     if (modem_conn->parse_active)
     {

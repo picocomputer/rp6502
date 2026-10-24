@@ -37,24 +37,8 @@ UTEST(clock, time_is_phi2_independent)
     ASSERT_EQ(host_clock_us() - t0, 1000000ull);
 }
 
-UTEST(clock, phi2_get_set_clamp)
+UTEST(clock, phi2_get_set)
 {
-    phi2_set_khz_run(8000);
-    ASSERT_EQ(phi2_get_khz_run(), 8000);
-    phi2_set_khz_run(4000);
-    ASSERT_EQ(phi2_get_khz_run(), 4000);
-    phi2_set_khz_run(2000);
-    ASSERT_EQ(phi2_get_khz_run(), 2000);
-    phi2_set_khz_run(1000);
-    ASSERT_EQ(phi2_get_khz_run(), 1000);
-    phi2_set_khz_run(100);
-    ASSERT_EQ(phi2_get_khz_run(), 100);
-
-    phi2_set_khz_run(50);
-    ASSERT_EQ(phi2_get_khz_run(), 100);
-    phi2_set_khz_run(20000);
-    ASSERT_EQ(phi2_get_khz_run(), 8000);
-
     for (uint16_t khz = PHI2_MIN_KHZ; khz <= PHI2_MAX_KHZ; khz++)
     {
         phi2_set_khz_run(khz);

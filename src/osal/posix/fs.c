@@ -45,7 +45,6 @@
 static struct
 {
     int fd; /* the OS descriptor plus one, so 0 can mark a free slot */
-    uint8_t flags;
     char path[API_PATH_MAX + 1];
 } fs_kept[FS_KEPT_MAX];
 
@@ -58,7 +57,7 @@ static bool fs_syncing;
 
 /* A name that cannot be kept takes no slot, so an ident of the descriptor
  * fails rather than recording another file's name. */
-static void fs_keep(int fd, const char *name, uint8_t flags)
+static void fs_keep(int fd, const char *name)
 {
     if (!name || strlen(name) > API_PATH_MAX)
         return;
@@ -66,7 +65,6 @@ static void fs_keep(int fd, const char *name, uint8_t flags)
         if (!fs_kept[i].fd)
         {
             fs_kept[i].fd = fd + 1;
-            fs_kept[i].flags = flags & (FS_RD | FS_WR);
             strcpy(fs_kept[i].path, name);
             return;
         }
@@ -95,30 +93,24 @@ bool fs_std_ident(int desc, sst_cursor_t *c)
             if (at < 0 || at > INT32_MAX)
                 return false;
             sst_put_str(c, fs_kept[i].path, FS_PATH_SLOT);
-            sst_put_u8(c, fs_kept[i].flags);
             sst_put_i32(c, (int32_t)at);
             return sst_ok(c);
         }
     return false;
 }
 
-int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
 {
     char path[FS_PATH_SLOT];
     sst_get_str(c, path, FS_PATH_SLOT);
-    uint8_t flags = sst_get_u8(c);
     int32_t pos = sst_get_i32(c);
     if (!sst_ok(c))
     {
         *err = API_EINVAL;
         return -1;
     }
-    /* The access bits only. CREAT, EXCL, TRUNC and APPEND already happened
-     * when the program opened the file, and repeating one would create or
-     * empty the very file this is trying to find again. */
-    flags &= FS_RD | FS_WR;
-    int fd = save_std_handles(path) ? save_std_open(path, flags, err)
-                                    : fs_std_open(path, flags, err);
+    int fd = save_std_handles(path) ? save_std_open(path, mode, err)
+                                    : fs_std_open(path, mode, err);
     if (fd < 0)
         return -1;
     if (lseek(fd, pos, SEEK_SET) < 0)
@@ -190,7 +182,7 @@ static int fs_open_kept(const char *host, uint8_t flags, const char *name, api_e
         abs = r ? path_from_host(r) : NULL;
         free(r);
     }
-    fs_keep(fd, name ? name : abs, flags);
+    fs_keep(fd, name ? name : abs);
     free(abs);
     return fd;
 }
@@ -205,6 +197,12 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     char *u8 = path_to_utf8(path, err);
     if (!u8)
         return -1;
+    if (!u8[0]) /* a bare drive name, which names a directory */
+    {
+        free(u8);
+        *err = API_EACCES;
+        return -1;
+    }
     int fd = fs_open_kept(u8, flags, NULL, err);
     free(u8);
     return fd;

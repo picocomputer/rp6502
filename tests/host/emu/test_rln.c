@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/api.h"
 #include "core/com/com.h"
+#include "core/ria/regs.h"
 #include "core/str/rln.h"
 #include "utest.h"
 #include <string.h>
@@ -107,6 +109,62 @@ UTEST(rln, a_source_that_goes_away_takes_its_half_line_end_with_it)
     reading();
     wire("\n");
     ASSERT_EQ(lines, 1);
+}
+
+/* Pulls the key and the action byte, as a program does. */
+static int lastkey_len(void)
+{
+    rln_api_lastkey();
+    int len = (int16_t)API_AX;
+    if (len > 0)
+        xstack_ptr += (size_t)len + 1;
+    return len;
+}
+
+UTEST(rln, lastkey_and_peek_require_an_empty_xstack)
+{
+    fresh();
+    reading();
+    xstack_ptr = XSTACK_SIZE - 1;
+    rln_api_lastkey();
+    ASSERT_EQ((int16_t)API_AX, -1);
+    xstack_ptr = XSTACK_SIZE - 1;
+    rln_api_peek();
+    ASSERT_EQ((int16_t)API_AX, -1);
+    ASSERT_EQ(lastkey_len(), 0);
+}
+
+/* With both sizes fixed, one cursor position report starts the edit. */
+static void editing(void)
+{
+    fresh();
+    rln_set_term_width(80);
+    rln_set_term_height(24);
+    reading();
+    wire("\33[1;1R");
+}
+
+UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
+{
+    editing();
+    wire("\33[C");
+    ASSERT_EQ(lastkey_len(), 3);
+    char key[64] = "\33[";
+    for (int i = 0; i < 16; i++)
+        strcat(key, "1;");
+    strcat(key, "C");
+    wire(key);
+    ASSERT_EQ(lastkey_len(), 0);
+}
+
+UTEST(rln, a_poke_of_an_empty_string_ends_the_line)
+{
+    editing();
+    rln_poke("ab");
+    ASSERT_EQ(lines, 0);
+    rln_poke("");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
 }
 
 UTEST_MAIN();

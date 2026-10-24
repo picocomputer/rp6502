@@ -107,17 +107,25 @@ bool proc_stop(void)
 
 bool proc_api_argv(void)
 {
+    if (xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
     return api_return_ax(arg_push_xstack());
 }
 
 /* op 0x09. The xstack holds the new argv, whose argv[0] is the path of the
  * .rp6502. The op succeeds as soon as the argv parses and argv[0] fits in a
  * path, because by the time a load can fail, the program that called EXEC has
- * already stopped; the error is printed on the console. */
+ * already stopped; the error is printed on the console. A refused argv leaves
+ * the argv empty, as a layout that does not parse does. */
 bool proc_api_exec(void)
 {
-    if (!arg_pull_xstack() || strlen(arg_index(0)) > API_PATH_MAX)
+    if (!arg_pull_xstack())
         return api_return_errno(API_EINVAL);
+    if (strlen(arg_index(0)) > API_PATH_MAX)
+    {
+        arg_clear();
+        return api_return_errno(API_EINVAL);
+    }
     proc_exec_start();
     return api_return_ax(0);
 }

@@ -484,8 +484,14 @@ static bool boot(void)
     booted = false;
     forget_rom();
     loaded_rom = rom_path(loaded_host);
-    if (!loaded_rom || !proc_boot(loaded_rom, 0, NULL, flags))
+    if (!loaded_rom)
         return false;
+    if (!proc_boot(loaded_rom, 0, NULL, flags))
+    {
+        const char *why = proc_boot_error();
+        RP6502_LOG(retro, ERROR, "%.*s", (int)strcspn(why, "\n"), why);
+        return false;
+    }
     vga_set_framebuffer(frame_buf);
     sys_commit();
     booted = true;

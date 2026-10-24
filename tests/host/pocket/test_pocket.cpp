@@ -477,7 +477,7 @@ int main(int argc, const char *const argv[])
 static std::vector<uint8_t> gamepad_mapper(uint16_t at)
 {
     tb_asm p;
-    /* For xreg device 0, channel 0, address 2 the word is the XRAM
+    /* For xreg device 0, channel 0, index 2 the word is the XRAM
      * address of the gamepad block, which holds four 10-byte records. */
     p.push(0);
     p.push(0);

@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The kilohertz range is here rather than with a machine because every
- * machine's phi2 clamps to it, and core/str/str.c stringizes it into the SET
- * help line.
+ * The kilohertz range is here rather than with a machine because it is the
+ * same on every machine, core/api/attr.c checks a set against it, and
+ * core/str/str.c stringizes it into the SET help line.
  */
 
 #ifndef _CORE_WDC_PHI2_H_

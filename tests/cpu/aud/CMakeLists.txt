@@ -8,18 +8,16 @@ endif()
 
 if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(aud FIRMWARE
-        DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
-            AUD_ROM_PSG_PRE="${AUD_ROM_PSG_PRE}"
-            AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
-            AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
+        DEFS AUD_ROM_PSG="${PSG_ROM}" AUD_ROM_OPL="${OPL_ROM}"
+            AUD_ROM_PSG_PRE="${PSG_PRE_ROM}"
+            AUD_ROM_OPL_EXIT="${OPL_EXIT_ROM}"
+            AUD_ROM_BEL="${BEL_ROM}" AUD_ROM_OPL_BEL="${OPL_BEL_ROM}"
         DEPENDS aud_roms
         TIMEOUT 600)
-else()
-    rp6502_add_test(aud LIBS emu_core
-        DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
-            AUD_ROM_PSG_PRE="${AUD_ROM_PSG_PRE}"
-            AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
-            AUD_ROM_OPL_INIT="${AUD_ROM_OPL_INIT}"
-            AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
-        DEPENDS aud_roms)
+endif()
+
+if(TARGET rp6502-emu)
+    foreach(test psg psg_pre opl opl_init opl_exit bel opl_bel bel_off)
+        rp6502_add_script_test(NAME ${test} COMMAND aud.py)
+    endforeach()
 endif()

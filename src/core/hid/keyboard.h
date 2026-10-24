@@ -84,12 +84,14 @@ int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui);
  * check by eye, so it lives in one place. */
 size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
 
-/* What Ctrl makes of a byte: Ctrl-A is 0x01 through Ctrl-Z 0x1A and the
- * punctuation range with it, Backspace is BS where DEL was, and a byte that is
- * C0 already types itself. 0 when Ctrl has nothing to say. Backspace needs the
- * keycode because DEL is outside both promotable ranges; pass HID_KEY_NONE
- * where there is a character but no key. */
-char keyboard_ctrl_promote(char ch, uint8_t keycode);
+/* What Ctrl makes of a character, as xterm and the Linux console make it:
+ * Ctrl-@ through Ctrl-_ and Ctrl-` through Ctrl-~ are 0x00 to 0x1F, Space and
+ * 2 are 0x00, 3 to 7 are ESC to 0x1F, 8 is DEL and / is 0x1F. Backspace is BS
+ * where DEL was, and a byte that is C0 already types itself. -1 when Ctrl has
+ * nothing to say, which a ch of 0, meaning no character, always gets.
+ * Backspace needs the keycode because DEL is outside every promotable range;
+ * pass HID_KEY_NONE where there is a character but no key. */
+int keyboard_ctrl_promote(char ch, uint8_t keycode);
 
 /* The blob carries where the program asked for its bitmap and what is in it.
  * The connection table is not saved, because it describes what is plugged in

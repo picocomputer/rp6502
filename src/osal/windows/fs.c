@@ -65,7 +65,6 @@ static struct win_file
      * filesystem, so it resolves a name that does not exist yet. A save
      * records SAVE:name instead, which opens again in the SAVE: folder of
      * that later session. */
-    uint8_t flags;
     char path[API_PATH_MAX + 1];
 } win_files[WIN_MAX_FILES + 1];
 
@@ -151,8 +150,7 @@ static int win_adopt(HANDLE h, uint8_t flags, const char *keep, api_errno *err)
     }
     struct win_file *f = &win_files[fd];
     *f = (struct win_file){.used = true, .h = h, .pos = 0,
-                           .writable = (flags & FS_WR) != 0,
-                           .flags = (uint8_t)(flags & (FS_RD | FS_WR))};
+                           .writable = (flags & FS_WR) != 0};
     if (strlen(keep) <= API_PATH_MAX)
         strcpy(f->path, keep);
     if (flags & FS_APPEND) /* a one-time seek to the end, after any truncation */
@@ -244,28 +242,22 @@ bool fs_std_ident(int desc, sst_cursor_t *c)
     if (!f || !f->path[0] || f->pos < 0 || f->pos > INT32_MAX)
         return false;
     sst_put_str(c, f->path, FS_PATH_SLOT);
-    sst_put_u8(c, f->flags);
     sst_put_i32(c, (int32_t)f->pos);
     return sst_ok(c);
 }
 
-int fs_std_reopen(sst_cursor_t *c, api_errno *err)
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
 {
     char path[FS_PATH_SLOT];
     sst_get_str(c, path, FS_PATH_SLOT);
-    uint8_t flags = sst_get_u8(c);
     int32_t pos = sst_get_i32(c);
     if (!sst_ok(c) || pos < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    /* The access bits only. CREAT, EXCL, TRUNC and APPEND happened once, when
-     * the program opened the file, and repeating one here would create or
-     * empty the very file this is trying to find again. */
-    uint8_t access = (uint8_t)(flags & (FS_RD | FS_WR));
-    int fd = save_std_handles(path) ? save_std_open(path, access, err)
-                                    : fs_std_open(path, access, err);
+    int fd = save_std_handles(path) ? save_std_open(path, mode, err)
+                                    : fs_std_open(path, mode, err);
     if (fd < 0)
         return -1;
     win_files[fd].pos = pos;
@@ -321,6 +313,19 @@ bool fs_rom_remove(const char *name, api_errno *err)
     (void)name;
     *err = API_EACCES;
     return false;
+}
+
+#ifndef RP6502_FS_SYNC
+static bool g_immediate;
+#endif
+
+void fs_std_immediate(bool on)
+{
+#ifndef RP6502_FS_SYNC
+    g_immediate = on;
+#else
+    (void)on; /* every transfer completes at once already */
+#endif
 }
 
 void fs_std_settle(void)
@@ -436,12 +441,14 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
             }
         }
         /* Whether it completed at once or queued, the event is what says so,
-         * so both are reaped by the next dispatch. */
+         * so both are reaped by the next dispatch, or right here when the
+         * transfer has to complete before the call returns. */
         g_xfer.fd = fd;
-        return STD_PENDING;
+        if (!g_immediate)
+            return STD_PENDING;
     }
     DWORD bytes = 0;
-    if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
+    if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, g_immediate))
     {
         DWORD e = GetLastError();
         if (e == ERROR_IO_INCOMPLETE)
