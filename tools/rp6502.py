@@ -1269,7 +1269,8 @@ class Symbols(dict):
         if cc65:
             mode = ["--create-full-dep", dep]
         else:
-            mode = ["-fno-lto", "-ferror-limit=0", "-MD", "-MF", dep]
+            mode = ["-fno-lto", "-ferror-limit=0", "-fno-color-diagnostics"]
+            mode += ["-MD", "-MF", dep]
         # CMake 3.21 reads a -S in the cc65 wrapper call as its own option, which
         # takes the next word as a folder, so -S comes right before the stub.
         # cc65 aborts on an error message with a long file name, so the stub is
