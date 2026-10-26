@@ -104,13 +104,34 @@ bool entry_wait_for_rom(void)
     return true;
 }
 
+/* sokol shows the window but never asks for the foreground. Windows grants that
+ * only to a process the foreground process started, or one that had the last
+ * input, so a window started from a background process, as an editor starts
+ * its debug adapter, opens behind the editor, and a plain SetForegroundWindow
+ * is refused for the same reason. Joining the foreground window's input queue
+ * for the call makes the request come from the thread that holds the
+ * foreground, which Windows grants. */
+static void take_foreground(HWND hwnd)
+{
+    HWND fg = GetForegroundWindow();
+    if (fg == hwnd)
+        return;
+    DWORD self = GetCurrentThreadId();
+    DWORD other = fg ? GetWindowThreadProcessId(fg, NULL) : 0;
+    bool attached = other && other != self && AttachThreadInput(self, other, TRUE);
+    SetForegroundWindow(hwnd);
+    BringWindowToTop(hwnd);
+    if (attached)
+        AttachThreadInput(self, other, FALSE);
+}
+
 void host_window_init(void)
 {
     HWND hwnd = (HWND)sapp_win32_get_hwnd();
     /* sokol offers no hook into its window procedure, so the window is
      * subclassed, and aspect_wndproc sees each message before sokol does. */
     sokol_wndproc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)aspect_wndproc);
-    SetForegroundWindow(hwnd);
+    take_foreground(hwnd);
     if (waiting_for_rom)
         prompt_setup();
 }
