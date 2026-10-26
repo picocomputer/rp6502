@@ -106,10 +106,11 @@ bool entry_wait_for_rom(void)
 
 void host_window_init(void)
 {
+    HWND hwnd = (HWND)sapp_win32_get_hwnd();
     /* sokol offers no hook into its window procedure, so the window is
      * subclassed, and aspect_wndproc sees each message before sokol does. */
-    sokol_wndproc = (WNDPROC)SetWindowLongPtrW((HWND)sapp_win32_get_hwnd(), GWLP_WNDPROC,
-                                               (LONG_PTR)aspect_wndproc);
+    sokol_wndproc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)aspect_wndproc);
+    SetForegroundWindow(hwnd);
     if (waiting_for_rom)
         prompt_setup();
 }
