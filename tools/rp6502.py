@@ -1308,7 +1308,7 @@ class Symbols(dict):
 
         # cc65 writes ".dword $XXXXXXXX" and ".byte $XX", llvm-mos writes decimal.
         if cc65:
-            pattern = r"^__(sym|neg)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-F]+)"
+            pattern = r"^__(sym|neg)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-Fa-f]+)"
             base, bits = 16, 32
         else:
             pattern = r"^_(sym|neg)_(\d+):\s*\.(?:quad|byte)\s+(-?\d+)"
