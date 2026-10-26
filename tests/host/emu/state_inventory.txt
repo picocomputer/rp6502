@@ -236,6 +236,8 @@ core/term/term.c term_80: the TERM chunk
 core/vga/canvas.c canvas_code: the VGA chunk
 core/vga/canvas.c canvas_h: the VGA chunk
 core/vga/canvas.c canvas_w: the VGA chunk
+core/vga/canvas.c console_h: the VGA chunk
+core/vga/canvas.c console_w: the VGA chunk
 core/vga/mode/mode0.c mode0_scanline_begin: the VGA chunk
 core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render

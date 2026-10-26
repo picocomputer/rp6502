@@ -25,6 +25,7 @@ set(RP6502_RTL_SOURCES
     ${OPL2_SOURCES}
     ${W65C02_ROM}
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
+    ${RP6502_SRC}/core/vga/canvas_pkg.sv
     ${RP6502_SRC}/core/vga/mode/mode.sv
     ${RP6502_SRC}/core/riscv/tcm_pkg.sv
     ${RP6502_SRC}/core/wdc/cpu.sv

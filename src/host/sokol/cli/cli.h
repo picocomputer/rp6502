@@ -28,6 +28,8 @@ typedef struct
     double scale;
     bool have_scale;
     gfx_filter_t scale_filter;
+    int console_w, console_h; /* --aspect; set only with fixed_aspect */
+    bool fixed_aspect;        /* --aspect: the window keeps the console's shape */
     int phi2_khz;  /* 0 leaves the machine's default */
     int code_page; /* 0 leaves the machine's default */
     bool crc;

@@ -260,6 +260,16 @@ UTEST(mode3, bpp8_wrap_bound_ptrs_320x240)
     run_case(utest_result, "mode3_wrap", 0x315F62CC, MUT_BUDGET_NONE);
 }
 
+UTEST(mode3, bpp8_whole_canvas_320x200)
+{
+    run_case(utest_result, "mode3_full200", 0x6FE7527F, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode3, bpp2_whole_canvas_640x400)
+{
+    run_case(utest_result, "mode3_full400", 0x8D243CBE, MUT_BUDGET_UNDER);
+}
+
 /* mode3_16bpp_odd is mode3_16bpp with its bitmap at the odd address $0801,
  * so the two frames have the same CRC. */
 UTEST(mode3, bpp16_odd_data_640x360)
@@ -350,6 +360,11 @@ UTEST(mode5, bpp4_32x32_under_text_640x480)
 UTEST(mode5, bpp8_64x64_plane1_320x180)
 {
     run_case(utest_result, "mode5_64x64", 0xD6BAAF53, MUT_BUDGET_NONE);
+}
+
+UTEST(mode5, bpp4_16x16_clipped_at_the_last_row_320x200)
+{
+    run_case(utest_result, "mode5_clip200", 0xDB45E84B, MUT_BUDGET_NONE);
 }
 
 UTEST(mode5, stress_budget_640x480)
@@ -445,6 +460,16 @@ UTEST(mode0, forty_column_320x240)
 UTEST(mode0, forty_column_320x180)
 {
     run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, forty_column_320x200)
+{
+    run_case(utest_result, "mode0_win200", 0x8BBE101A, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, defaults_640x400)
+{
+    run_case(utest_result, "mode0_win400", 0x267E530C, MUT_BUDGET_NONE);
 }
 
 UTEST(mode0, console_return_restores_vsync_line)

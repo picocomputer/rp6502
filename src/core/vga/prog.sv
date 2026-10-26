@@ -26,11 +26,14 @@
  * lines than the raster — and it resets to 480 so the console machine
  * keeps its M3 cadence.
  *
- * Geometry decodes from the canvas: a width and a height, which is all
- * a canvas is. The Pocket's scaler handles presentation.
+ * Geometry decodes from the canvas by canvas_pkg.sv's list: a width and
+ * a height, which is all a canvas is. The Pocket's scaler handles
+ * presentation.
  */
 
-module prog (
+module prog
+    import canvas_pkg::*;
+(
     input logic clk,
     /* The table runs on the clock that does not stop. */
     input logic clk_mem,
@@ -166,11 +169,8 @@ module prog (
 
 
     always_comb begin
-        prog_cw = (prog_canvas == 3'd1 || prog_canvas == 3'd2)
-            ? 10'd320 : 10'd640;
-        prog_ch = prog_canvas == 3'd1 ? 10'd240
-            : prog_canvas == 3'd2 ? 10'd180
-            : prog_canvas == 3'd4 ? 10'd360 : 10'd480;
+        prog_cw = canvas_w(prog_canvas);
+        prog_ch = canvas_h(prog_canvas);
         prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
     end
 

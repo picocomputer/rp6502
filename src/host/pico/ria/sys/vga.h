@@ -66,6 +66,7 @@ int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);
 bool vga_check_display_type(uint8_t *v);
 void vga_apply_display_type(uint8_t display_type, bool changed);
 int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width);
+uint8_t vga_get_display_type(void);
 bool vga_set_display_type(uint8_t display_type);
 const char *vga_get_display_type_verbose(void);
 

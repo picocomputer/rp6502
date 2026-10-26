@@ -7,9 +7,10 @@
  * window functions here and nothing else implements any of them. A platform
  * that has nothing to do for one of these implements it with an empty body. Only
  * Windows implements entry_argv_utf8, and only the web entry_canvas_locked.
- * Only the desktop builds implement the three host_gamepad_ functions at the
- * bottom, because app/gamepad.c, which calls them, is built only for the
- * desktop emulator.
+ * Only the desktop builds implement host_window_resize, because the debugger's
+ * Window Scale menu, which calls it, is built only for the desktop emulator.
+ * The same goes for the three host_gamepad_ functions at the bottom and
+ * app/gamepad.c, which calls them.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_
@@ -34,12 +35,17 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt);
  * false and the caller prints usage and exits. */
 bool entry_wait_for_rom(void);
 
-/* Resize the OS window to w x h framebuffer pixels. X11 and Win32 only. */
+/* Resize the OS window's client area to w x h framebuffer pixels, keeping its
+ * top-left corner where it is. A maximized or fullscreen window keeps the size
+ * the window manager gave it. Desktop only. */
 void host_window_resize(int w, int h);
 
-/* Ask the window manager to keep the canvas aspect cw:ch during an interactive
- * resize. X11 only. */
-void host_window_set_aspect_hint(int cw, int ch);
+/* Keep the window at the frame aspect w:h, which on the web is the player box.
+ * A desktop holds its client area at w:h while the user drags an edge, and with
+ * refit it also reshapes the window now, through host_window_resize, keeping
+ * the width and changing the height. The web gives the box that shape and
+ * ignores refit, because the page sizes the box. */
+void host_window_set_aspect(int w, int h, bool refit);
 
 /* Per-platform setup, from the sokol init callback. */
 void host_window_init(void);

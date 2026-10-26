@@ -382,21 +382,19 @@ void vga_canvas_size(int *w, int *h)
     vga_canvas_geometry(vga_canvas_current, w, h);
 }
 
+// The VGA draws the console on a 1280x1024 display as a 640x512 view, and on
+// every other display as 640x480.
+void vga_console_size(int *w, int *h)
+{
+    *w = 640;
+    *h = vga_get_display_type() == 2 ? 512 : 480;
+}
+
 void vga_set_canvas(uint16_t canvas_word)
 {
-    switch (canvas_word)
-    {
-    case vga_canvas_console:
-    case vga_canvas_320_240:
-    case vga_canvas_320_180:
-    case vga_canvas_640_480:
-    case vga_canvas_640_360:
+    // VGA side naks unknown canvas values and does nothing
+    if (canvas_word < VGA_CANVAS_COUNT)
         vga_canvas_current = (vga_canvas_t)canvas_word;
-        break;
-    default:
-        // VGA side naks unknown canvas values and does nothing
-        break;
-    }
 }
 
 bool vga_connected(void)

@@ -67,7 +67,9 @@ foreach(_case
     "cp;--cp;4o7"
     "frames_without_screenshot;--frames;10"
     "headless_with_script;--headless;--script;-"
-    "headless_with_crc;--headless;--crc")
+    "headless_with_crc;--headless;--crc"
+    "aspect;--aspect;5:4"
+    "aspect_empty;--aspect=")
     list(POP_FRONT _case _name)
     rp6502_add_cli_test(${_name} ${_case} ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
     set_tests_properties(cli_${_name} PROPERTIES WILL_FAIL TRUE)
@@ -81,6 +83,14 @@ set_tests_properties(cli_crc PROPERTIES PASS_REGULAR_EXPRESSION
     "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]\n")
 rp6502_add_cli_test(phi2_zero --phi2 0 --crc --frames 1
     ${RP6502_TEST_CORPUS}/mode3_8bpp.rp6502)
+
+# --aspect 16:9 makes the console 640x360, with 22 rows of 80 columns centered
+# at lines 4 to 356. mode0_return ends on the console with its text there and
+# the cursor off, so the frame is the same on every run and its CRC is pinned.
+rp6502_add_cli_test(aspect_crc --aspect 16:9 --crc --frames 10
+    ${RP6502_TEST_CORPUS}/mode0_return.rp6502)
+set_tests_properties(cli_aspect_crc PROPERTIES PASS_REGULAR_EXPRESSION
+    "^4E5A97C7\n")
 
 add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
     --memfill 010

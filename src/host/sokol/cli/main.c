@@ -47,6 +47,7 @@ static void apply_options(const cli_options *o)
     if (o->have_bg)
         gfx_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
     gfx_set_filter(o->scale_filter);
+    gfx_set_fixed_aspect(o->fixed_aspect);
     if (o->mute)
         aud_set_enabled(false);
     app_set_unpaced(o->unpaced);
@@ -201,6 +202,11 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    /* The console is sized before sys_init, where vga_init brings the machine
+     * up on the console canvas, so the terminal is laid out for that size from
+     * the first frame. */
+    if (o.fixed_aspect)
+        vga_set_console_size(o.console_w, o.console_h);
     /* Set before sys_init, which is where sram_init and xram_init fill. */
     uint32_t memseed = o.have_memseed ? o.memseed : os_random();
     sram_set_fill(!o.have_memfill, o.memfill, memseed);

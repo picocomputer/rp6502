@@ -18,7 +18,7 @@ OUT = ARGS.out
 OUT.mkdir(parents=True, exist_ok=True)
 
 CANVAS_SIZE = {0: (640, 480), 1: (320, 240), 2: (320, 180),
-               3: (640, 480), 4: (640, 360)}
+               3: (640, 480), 4: (640, 360), 5: (320, 200), 6: (640, 400)}
 MANIFEST = []
 
 
@@ -435,6 +435,11 @@ mode3("mode3_1bppr", 2, 8, 1, 64, 40, 7, 3, False)
 mode3("mode3_2bppr", 4, 9, 2, 90, 50, 30, 200, False, config_ptr=0xFFF2)
 mode3("mode3_wrap", 1, 3, 8, 50, 40, -37, -23, True,
       x_wrap=True, y_wrap=True, config_ptr=0xFDE2, pal_ptr=0xFE00)
+# A bitmap over the whole of each 16:10 canvas, down to its last row. Both are
+# 64,000 bytes, so they start at $0400, where an 8 bpp palette at $0200 ends,
+# to fit below the top of XRAM.
+mode3("mode3_full200", 5, 3, 8, 320, 200, 0, 0, True, data_ptr=0x0400)
+mode3("mode3_full400", 6, 1, 2, 640, 400, 0, 0, True, data_ptr=0x0400)
 
 mode1("mode1_1bpp8x8", 3, 0, 30, 12, 4, 6, False, False)
 mode1("mode1_4bpp8x16", 1, 10, 20, 8, 8, 5, True, False)
@@ -485,6 +490,12 @@ mode5("mode5_32x32", 3, 18, 0, [
         (0x2000, bytes(ord("A") + i % 60 for i in range(12 * 4))),
 ])
 mode5("mode5_64x64", 2, 27, 1, [(-20, 100, 0, 0), (280, 150, 0, 0)])
+# Sprites across the bottom of a 320x200 canvas: half of one below it, a
+# single row of one on row 199, one wholly below it, and one that loses only
+# its last row.
+mode5("mode5_clip200", 5, 10, 0, [
+    (40, 192, 0, 0), (100, 199, 1, 0), (160, 200, 0, 0), (220, 185, 1, None),
+])
 
 mode4("mode4_8", 1, 0, 3, [
     (12, 22, 0, False), (16, 26, 1, False),
@@ -788,6 +799,8 @@ mode0mix("mode0_overlay", 3, 1, 32, 464)
 mode0mix("mode0_win360", 4, 1, 0, 0)
 mode0mix("mode0_win240", 1, 1, 0, 0)
 mode0mix("mode0_win180", 2, 1, 0, 0)
+mode0mix("mode0_win200", 5, 1, 0, 0)
+mode0mix("mode0_win400", 6, 1, 0, 0)
 
 p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY, stop=False)
 p.xreg(1, 0, 0, 0)

@@ -954,10 +954,7 @@ static void term_out_RCP(term_state_t *term)
 // Only the term currently being rendered should reply to host queries
 static bool term_is_visible(term_state_t *term)
 {
-    int16_t height = vga_canvas_height();
-    return (height == 180 || height == 240)
-               ? term->width == 40
-               : term->width == 80;
+    return term->width == vga_term_columns(vga_canvas_width());
 }
 
 // Device Status Report
@@ -1374,8 +1371,9 @@ static void term_reflow_cursor_after_display_change(term_state_t *term)
 }
 
 // Like RIS, but preserves the primary screen and reflows the cursor instead of
-// clearing/homing. Out-of-band (PIX DISPLAY xreg, not com_out_chars), so it
-// restarts the cursor blink itself.
+// clearing/homing. Out-of-band (a console reset, by the Pico VGA's DISPLAY xreg
+// or vga_console_reset, not com_out_chars), so it restarts the cursor blink
+// itself.
 static void term_out_RIS_no_clear(term_state_t *term)
 {
     term_reset_core(term);
@@ -2869,8 +2867,7 @@ bool term_sst_load(sst_cursor_t *c, unsigned flags)
 
 static term_state_t *term_visible(void)
 {
-    int16_t height = vga_canvas_height();
-    return (height == 180 || height == 240) ? &term_40 : &term_80;
+    return vga_canvas_width() == 320 ? &term_40 : &term_80;
 }
 
 void term_view(term_view_t *out)

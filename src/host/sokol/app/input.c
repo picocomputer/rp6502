@@ -436,6 +436,12 @@ void input_event(const sapp_event *e)
             int cw, ch;
             vga_canvas_size(&cw, &ch);
             float onscreen_w = (float)cw * gfx_canvas_scale();
+#if defined(__APPLE__)
+            /* AppKit reports a captured pointer's motion in points, and a point
+             * is dpi_scale framebuffer pixels under high_dpi, so the canvas is
+             * measured in points too. */
+            onscreen_w /= sapp_dpi_scale();
+#endif
             if (onscreen_w > 0.0f)
             {
                 float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;

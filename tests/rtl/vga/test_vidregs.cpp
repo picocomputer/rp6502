@@ -48,6 +48,17 @@ UTEST(vidregs, a_short_program_moves_the_vsync_line)
     ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 448);
 }
 
+/* The whole-canvas bitmaps program every row of a 16:10 canvas, so the vsync
+ * line is the canvas's height, and in lines of timing that is 400 on both:
+ * 640x400 spans one line a row and 320x200 two. */
+UTEST(vidregs, a_16_10_canvas_puts_the_vsync_line_at_400)
+{
+    ASSERT_TRUE(boot("mode3_full200", 320 * 200));
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 400);
+    ASSERT_TRUE(boot("mode3_full400", 640 * 400));
+    ASSERT_EQ(dut->rootp->wiring__DOT__prog__DOT__vsync_shadow, 400);
+}
+
 /* The sprite stage stops drawing a line whose sprites are not finished when
  * the line ends, and the emulator draws every sprite, so this CRC is of the
  * RTL's picture alone. That a row finishes inside its budget is what the

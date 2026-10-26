@@ -110,6 +110,22 @@ static const scanvideo_view_t vga_view_640x360 = {
     .y_scale = 1,
     .y_offset = 60};
 
+static const scanvideo_view_t vga_view_320x200 = {
+    .default_timing = &vga_timing_640x480_60_cea,
+    .width = 320,
+    .height = 200,
+    .x_scale = 2,
+    .y_scale = 2,
+    .y_offset = 40};
+
+static const scanvideo_view_t vga_view_640x400 = {
+    .default_timing = &vga_timing_640x480_60_cea,
+    .width = 640,
+    .height = 400,
+    .x_scale = 1,
+    .y_scale = 1,
+    .y_offset = 40};
+
 static const scanvideo_view_t vga_view_320x240_sxga = {
     .default_timing = &vga_timing_1280x1024_60_dmt,
     .width = 320,
@@ -149,6 +165,22 @@ static const scanvideo_view_t vga_view_640x360_sxga = {
     .x_scale = 1,
     .y_scale = 2,
     .y_offset = 152};
+
+static const scanvideo_view_t vga_view_320x200_sxga = {
+    .default_timing = &vga_timing_1280x1024_60_dmt,
+    .width = 320,
+    .height = 200,
+    .x_scale = 2,
+    .y_scale = 4,
+    .y_offset = 112};
+
+static const scanvideo_view_t vga_view_640x400_sxga = {
+    .default_timing = &vga_timing_1280x1024_60_dmt,
+    .width = 640,
+    .height = 400,
+    .x_scale = 1,
+    .y_scale = 2,
+    .y_offset = 112};
 
 static const scanvideo_view_t vga_view_320x180_hd = {
     .default_timing = &vga_timing_1280x720_60_cea,
@@ -319,14 +351,33 @@ static void vga_render_scanline(void)
     vga_rendering[get_core_num()] = false;
 }
 
-// [canvas][display: sd, hd, sxga]
+// [canvas][display]. vga_xreg_canvas accepts exactly the canvases that have
+// a row here, and the assert holds the rows to the list in core/vga/vga.h.
 __in_flash("vga_canvas_view_table") static const scanvideo_view_t *const vga_canvas_view_table[][3] = {
-    [vga_canvas_console] = {&vga_view_640x480, &vga_view_640x480, &vga_view_640x512_sxga},
-    [vga_canvas_320_240] = {&vga_view_320x240, &vga_view_320x240, &vga_view_320x240_sxga},
-    [vga_canvas_320_180] = {&vga_view_320x180, &vga_view_320x180_hd, &vga_view_320x180_sxga},
-    [vga_canvas_640_480] = {&vga_view_640x480, &vga_view_640x480, &vga_view_640x480_sxga},
-    [vga_canvas_640_360] = {&vga_view_640x360, &vga_view_640x360_hd, &vga_view_640x360_sxga},
+    [vga_canvas_console] = {[vga_sd] = &vga_view_640x480,
+                            [vga_hd] = &vga_view_640x480,
+                            [vga_sxga] = &vga_view_640x512_sxga},
+    [vga_canvas_320_240] = {[vga_sd] = &vga_view_320x240,
+                            [vga_hd] = &vga_view_320x240,
+                            [vga_sxga] = &vga_view_320x240_sxga},
+    [vga_canvas_320_180] = {[vga_sd] = &vga_view_320x180,
+                            [vga_hd] = &vga_view_320x180_hd,
+                            [vga_sxga] = &vga_view_320x180_sxga},
+    [vga_canvas_640_480] = {[vga_sd] = &vga_view_640x480,
+                            [vga_hd] = &vga_view_640x480,
+                            [vga_sxga] = &vga_view_640x480_sxga},
+    [vga_canvas_640_360] = {[vga_sd] = &vga_view_640x360,
+                            [vga_hd] = &vga_view_640x360_hd,
+                            [vga_sxga] = &vga_view_640x360_sxga},
+    [vga_canvas_320_200] = {[vga_sd] = &vga_view_320x200,
+                            [vga_hd] = &vga_view_320x200,
+                            [vga_sxga] = &vga_view_320x200_sxga},
+    [vga_canvas_640_400] = {[vga_sd] = &vga_view_640x400,
+                            [vga_hd] = &vga_view_640x400,
+                            [vga_sxga] = &vga_view_640x400_sxga},
 };
+_Static_assert(sizeof vga_canvas_view_table / sizeof vga_canvas_view_table[0] == VGA_CANVAS_COUNT,
+               "a canvas without a view");
 
 static void vga_scanvideo_update(void)
 {
@@ -353,31 +404,23 @@ void vga_set_display(vga_display_t display)
 // When xregs is non-NULL (pix xreg), sends ACK/NAK via backchannel.
 void vga_xreg_canvas(uint16_t *xregs)
 {
-    vga_canvas_t canvas = xregs ? xregs[0] : vga_canvas_console;
-    switch (canvas)
+    uint16_t canvas = xregs ? xregs[0] : vga_canvas_console;
+    if (canvas >= VGA_CANVAS_COUNT)
     {
-    case vga_canvas_console:
-        // prevent flicker when reset not needed
-        if (vga_canvas_selected == vga_canvas_console)
-        {
-            if (xregs)
-                ria_ack();
-            return;
-        }
-        __attribute__((fallthrough));
-    case vga_canvas_320_240:
-    case vga_canvas_320_180:
-    case vga_canvas_640_480:
-    case vga_canvas_640_360:
-        vga_prog_reset();
-        vga_canvas_selected = canvas;
-        vga_scanvideo_update();
-        break;
-    default:
         if (xregs)
             ria_nak();
         return;
     }
+    // prevent flicker when reset not needed
+    if (canvas == vga_canvas_console && vga_canvas_selected == vga_canvas_console)
+    {
+        if (xregs)
+            ria_ack();
+        return;
+    }
+    vga_prog_reset();
+    vga_canvas_selected = (vga_canvas_t)canvas;
+    vga_scanvideo_update();
     if (canvas == vga_canvas_console)
         vga_reset_console_prog();
     if (xregs)
@@ -387,6 +430,11 @@ void vga_xreg_canvas(uint16_t *xregs)
 int16_t vga_canvas_height(void)
 {
     return vga_view_selected->height;
+}
+
+int16_t vga_canvas_width(void)
+{
+    return vga_view_selected->width;
 }
 
 static void vga_render_loop(void)

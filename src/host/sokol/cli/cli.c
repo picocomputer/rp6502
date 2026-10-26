@@ -74,7 +74,7 @@ enum
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_INSTALL, OPT_SAVE_DIR, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_MEMSEED, OPT_MEMFILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
-    OPT_CRC, OPT_HEADLESS, OPT_STDIN,
+    OPT_CRC, OPT_HEADLESS, OPT_STDIN, OPT_ASPECT,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
@@ -83,6 +83,7 @@ static const struct option longopts[] = {
     {"frames",       required_argument, NULL, OPT_FRAMES},
     {"scale",        required_argument, NULL, OPT_SCALE},
     {"filter",       required_argument, NULL, OPT_FILTER},
+    {"aspect",       required_argument, NULL, OPT_ASPECT},
     {"script",       required_argument, NULL, OPT_SCRIPT},
     {"headless",     no_argument,       NULL, OPT_HEADLESS},
     {"stdin",        no_argument,       NULL, OPT_STDIN},
@@ -112,6 +113,9 @@ void cli_usage(FILE *out, const char *argv0)
             "  --frames <n>              frames to run before the screenshot or crc (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
+            "  --aspect <a>              4:3|16:9|16:10: a 640x480, 640x360 or 640x400\n"
+            "                            console, and a window that keeps its shape\n"
+            "                            (default: the window takes each canvas's shape)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
             "                            always headless: the script is the only clock\n"
             "  --headless                no window and no picture: host stdin, stdout and\n"
@@ -221,6 +225,25 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
                                 "(want nearest|linear|sharp)\n", optarg);
                 return 2;
             }
+            break;
+        case OPT_ASPECT:
+            /* The console canvas takes the shape asked for at 640 wide, which
+             * holds 30, 22 or 25 rows of 80 columns, and the window keeps
+             * that shape. */
+            if (!strcmp(optarg, "4:3"))
+                o->console_h = 480;
+            else if (!strcmp(optarg, "16:9"))
+                o->console_h = 360;
+            else if (!strcmp(optarg, "16:10"))
+                o->console_h = 400;
+            else
+            {
+                fprintf(stderr, "rp6502-emu: bad --aspect '%s' "
+                                "(want 4:3|16:9|16:10)\n", optarg);
+                return 2;
+            }
+            o->console_w = 640;
+            o->fixed_aspect = true;
             break;
         case OPT_SCRIPT: o->script = optarg; break;
         case OPT_INSTALL:

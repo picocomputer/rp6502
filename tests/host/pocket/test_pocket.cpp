@@ -155,16 +155,22 @@ static bool run_until_quiet(long *presses = nullptr)
 {
     long frames = 0;
     const long flimit = 20;
+    /* The budget is in clk_sys cycles, 840,000 to a frame, so it stops a run
+     * whose video has stopped rather than one that is slow to go quiet, such
+     * as a ROM that fills XRAM. It is counted past the clk_sys test because
+     * the three clocks tick about four times a clk_sys cycle, and a count of
+     * every tick would run out at a quarter of flimit. */
     long budget = flimit * 900000L;
     bool moved = false;
     bool ran = false;
     int prev = dut->tb_pocket_vs;
-    while (frames < flimit && budget-- > 0)
+    while (frames < flimit && budget > 0)
     {
         long sys_before = g_sys;
         tick();
         if (g_sys == sys_before)
             continue;
+        budget--;
 
         if (dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid)
             moved = true;
@@ -303,8 +309,18 @@ static void run_and_check(int *utest_result, const char *name,
     const size_t got = capture_frame(fb, sizeof fb / sizeof *fb, &slot);
     ASSERT_EQ(got, (size_t)ow * (size_t)oh);
 
-    const int want_slot = ow == 640 ? (oh == 480 ? 0 : 1)
-                                    : (oh == 240 ? 2 : 3);
+    /* No two of video.json's scaler_modes share a height, so the height
+     * alone names the canvas's entry. */
+    int want_slot = -1;
+    switch (oh)
+    {
+    case 480: want_slot = 0; break;
+    case 360: want_slot = 1; break;
+    case 240: want_slot = 2; break;
+    case 180: want_slot = 3; break;
+    case 200: want_slot = 4; break;
+    case 400: want_slot = 5; break;
+    }
     ASSERT_EQ(slot, want_slot);
 
     uint32_t crc = host_crc32(0, fb, got * sizeof(uint32_t));
@@ -416,6 +432,16 @@ UTEST(pocket, canvas2_320x180_native)
 UTEST(pocket, canvas4_640x360_native)
 {
     run_case(utest_result, "mode3_16bpp", 0xFB9D8EDE);
+}
+
+UTEST(pocket, canvas5_320x200_native)
+{
+    run_case(utest_result, "mode3_full200", 0x96571946);
+}
+
+UTEST(pocket, canvas6_640x400_native)
+{
+    run_case(utest_result, "mode3_full400", 0xA09E020A);
 }
 
 UTEST(pocket, reload_with_a_button_held)

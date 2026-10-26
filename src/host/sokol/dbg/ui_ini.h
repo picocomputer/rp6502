@@ -125,7 +125,8 @@ static void _ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGu
          * while the size is restored into sapp_desc, which is logical, so the
          * logical size is what is stored. Storing the framebuffer size would
          * grow the window by the DPI factor every session. dpi_scale is 1.0
-         * where high_dpi is off. */
+         * where high_dpi is off, except on X11, where sokol takes it from
+         * Xft.dpi either way. */
         float d = sapp_dpi_scale();
         s->Size = ImVec2ih((short)(sapp_width() / d + 0.5f), (short)(sapp_height() / d + 0.5f));
     }

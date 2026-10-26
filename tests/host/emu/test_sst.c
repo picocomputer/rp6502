@@ -11,6 +11,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
+#include "core/term/term.h"
 
 #include "emu_boot.h"
 
@@ -48,7 +49,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222854);
+    ASSERT_EQ(sst_size(), (size_t)222856);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -283,6 +284,95 @@ UTEST(sst, an_opl_chord_comes_back)
     aud_pull(came, 32);
     ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
     ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+}
+
+/* Whether the machine is on the console canvas, the console is w by h, and
+ * the terminal on it has rows. */
+static bool on_console(int w, int h, int rows)
+{
+    int cw, ch, vw, vh;
+    vga_console_size(&cw, &ch);
+    vga_canvas_size(&vw, &vh);
+    term_view_t tv;
+    term_view(&tv);
+    return vga_canvas_is_console() && cw == w && ch == h &&
+           vw == w && vh == h && tv.height == rows;
+}
+
+/* The host chooses the console's size, and a savestate made under one size
+ * brings it to a session the host started at another. It stays for the rest
+ * of the session, so the reset and the stop after the load put the console
+ * back at the savestate's size and not the host's. Each is handed a program
+ * left on another canvas, so the console it leaves is one it laid out. */
+UTEST(sst, a_console_size_comes_back_and_stays_for_the_session)
+{
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    vga_set_console_size(640, 400);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    emu_frames(2);
+    ASSERT_TRUE(on_console(640, 400, 25));
+    ASSERT_EQ(take(), (const char *)NULL);
+
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    ASSERT_TRUE(on_console(640, 480, 30));
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(on_console(640, 400, 25));
+
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    emu_frames(2);
+    ASSERT_TRUE(on_console(640, 400, 25));
+
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_320_180));
+    sys_stop();
+    emu_frames(2);
+    ASSERT_TRUE(on_console(640, 400, 25));
+
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    ASSERT_TRUE(on_console(640, 480, 30));
+}
+
+static void put_u16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)(v >> 8);
+    p[1] = (uint8_t)v;
+}
+
+/* The VGA row is loaded on its own here, where no scratch copy puts back what
+ * a refused row set, so a console that survives a refusal survives by the
+ * row's own doing. The row's canvas is at byte 10 and the console's height at
+ * 12. The last case is a console a host could give on a canvas no build has,
+ * which the row has to refuse before it sets the console. */
+UTEST(sst, a_console_no_host_gives_is_refused_before_anything_is_set)
+{
+    static const struct
+    {
+        uint16_t canvas, h;
+    } bad[] = {
+        {vga_canvas_console, 512}, /* the Pico's console on SXGA */
+        {vga_canvas_console, 240},
+        {VGA_CANVAS_COUNT, 400},
+    };
+    static uint8_t row[VGA_SST_SIZE], bent[VGA_SST_SIZE];
+    ASSERT_TRUE(on_console(640, 480, 30));
+    sst_cursor_t c = {row, row + sizeof row, false};
+    vga_sst_save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++)
+    {
+        memcpy(bent, row, sizeof row);
+        put_u16(bent + 10, bad[i].canvas);
+        put_u16(bent + 12, bad[i].h);
+        c = (sst_cursor_t){bent, bent + sizeof bent, false};
+        ASSERT_FALSE(vga_sst_load(&c, 0));
+        ASSERT_TRUE(on_console(640, 480, 30));
+    }
+    c = (sst_cursor_t){row, row + sizeof row, false};
+    ASSERT_TRUE(vga_sst_load(&c, 0));
+    ASSERT_TRUE(on_console(640, 480, 30));
 }
 
 UTEST_MAIN_EMU()

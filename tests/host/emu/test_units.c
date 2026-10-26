@@ -17,6 +17,10 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
+#include "core/str/rln.h"
+#include "core/term/term.h"
+#include "core/vga/vga_emu.h"
+#include "core/vga/mode/mode0.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "core/wdc/sram.h"
@@ -146,6 +150,147 @@ UTEST(xreg, device_channel_dispatch)
     ASSERT_TRUE(xreg1(5, 0, 0)); /* a write to channels 1-14 cannot fail */
 }
 
+/* vga_canvas_geometry is the one list of canvases, so a CANVAS write is
+ * accepted for exactly the codes it knows, and the canvas that is selected
+ * has the size it gives. */
+UTEST(vga, the_geometry_lists_exactly_the_canvases_a_canvas_write_takes)
+{
+    sys_init();
+    int w, h;
+    for (uint16_t code = 0; code < VGA_CANVAS_COUNT; code++)
+    {
+        ASSERT_TRUE(vga_canvas_geometry(code, &w, &h));
+        ASSERT_TRUE(xreg1(0, 0, code));
+        int cw, ch;
+        vga_canvas_size(&cw, &ch);
+        ASSERT_EQ(cw, w);
+        ASSERT_EQ(ch, h);
+        ASSERT_EQ((int)vga_get_canvas(), (int)code);
+    }
+    static const uint16_t unknown[] = {VGA_CANVAS_COUNT, 0xFFFF};
+    for (size_t i = 0; i < sizeof unknown / sizeof unknown[0]; i++)
+    {
+        ASSERT_FALSE(vga_canvas_geometry(unknown[i], &w, &h));
+        ASSERT_FALSE(xreg1(0, 0, unknown[i]));
+    }
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
+{
+    sys_init();
+    vga_set_console_size(640, 400);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    int w, h;
+    vga_canvas_size(&w, &h);
+    ASSERT_EQ(w, 640);
+    ASSERT_EQ(h, 400);
+    term_view_t tv;
+    term_view(&tv);
+    ASSERT_EQ(tv.width, 80);
+    ASSERT_EQ(tv.height, 25);
+
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    vga_canvas_size(&w, &h);
+    ASSERT_EQ(h, 480);
+    term_view(&tv);
+    ASSERT_EQ(tv.height, 30);
+}
+
+/* With BEGIN and END both 0 the terminal is the tallest that fits, centered,
+ * and its width follows the canvas's width alone. */
+UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
+{
+    static const struct
+    {
+        int16_t w, h, begin, end;
+        uint8_t cols, rows;
+    } want[] = {
+        {320, 240, 0, 240, 40, 30},
+        {320, 180, 2, 178, 40, 22},
+        {320, 200, 0, 200, 40, 25},
+        {640, 480, 0, 480, 80, 30},
+        {640, 360, 4, 356, 80, 22},
+        {640, 400, 0, 400, 80, 25},
+        {640, 512, 0, 512, 80, 32},
+    };
+    for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
+    {
+        int16_t begin = 0, end = 0;
+        uint8_t cols = 0, rows = 0;
+        ASSERT_TRUE(mode0_layout(want[i].w, want[i].h, &begin, &end, &cols, &rows));
+        ASSERT_EQ(begin, want[i].begin);
+        ASSERT_EQ(end, want[i].end);
+        ASSERT_EQ(cols, want[i].cols);
+        ASSERT_EQ(rows, want[i].rows);
+    }
+
+    /* END 0 alone runs to the bottom, and a span that is not whole rows is
+     * refused. */
+    int16_t begin = 8, end = 0;
+    uint8_t cols, rows;
+    ASSERT_TRUE(mode0_layout(320, 240, &begin, &end, &cols, &rows));
+    ASSERT_EQ(end, 240);
+    ASSERT_EQ(rows, 29);
+    begin = 0, end = 100;
+    ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
+}
+
+/* With no override, no NAWS and no CPR, the line editor takes its size from
+ * the terminal the canvas holds. */
+UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
+{
+    static const struct
+    {
+        uint16_t canvas, cols, rows;
+    } want[] = {
+        {vga_canvas_console, 80, 30},
+        {vga_canvas_320_240, 40, 30},
+        {vga_canvas_320_180, 40, 22},
+        {vga_canvas_640_480, 80, 30},
+        {vga_canvas_640_360, 80, 22},
+        {vga_canvas_320_200, 40, 25},
+        {vga_canvas_640_400, 80, 25},
+    };
+    sys_init();
+    rln_set_term_width(0);
+    rln_set_term_height(0);
+    rln_set_naws_size(0, 0);
+    for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
+    {
+        ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
+        ASSERT_EQ(rln_get_term_width(), want[i].cols);
+        ASSERT_EQ(rln_get_term_height(), want[i].rows);
+    }
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The emulators put the console back themselves. DISPLAY, register 0 of
+ * channel 15, tells a Pico VGA what it is plugged into and nothing here
+ * answers it. */
+UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
+{
+    sys_init();
+    ASSERT_FALSE(xreg1(15, 0, 1));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_180));
+    ASSERT_TRUE(xreg1(0, 2, 1)); /* a mode program left half assembled */
+    vga_stop();
+    vga_task();
+    ASSERT_TRUE(vga_canvas_is_console());
+    ASSERT_EQ(vga_canvas_width(), 640);
+    ASSERT_EQ(vga_canvas_height(), 480);
+    term_view_t tv;
+    term_view(&tv);
+    ASSERT_EQ(tv.width, 80);
+    ASSERT_EQ(tv.height, 30);
+    uint8_t blob[XREG_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false};
+    xreg_sst_save(&c, 0);
+    for (size_t i = 0; i < sizeof blob; i++)
+        ASSERT_EQ(blob[i], 0);
+}
+
 UTEST(gamepad, host_report_encoding)
 {
     gamepad_stop();
@@ -204,6 +349,51 @@ UTEST(tablet, host_wheel_encoding)
 
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_FALSE(tablet_is_mapped());
+}
+
+static int tablet_contact_y(void)
+{
+    return xram[0xFF00 + TABLET_OFF_CONTACTS + 1] |
+           (xram[0xFF00 + TABLET_OFF_CONTACTS + 3] >> 4) << 8;
+}
+
+/* A relative mouse pushed past the bottom of a widescreen canvas stops there,
+ * so the first move back up moves the pointer up. */
+UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 0, .x_size = 8,
+        .y_offset = 8, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    static const uint16_t canvases[] = {vga_canvas_640_360, vga_canvas_320_180,
+                                        vga_canvas_640_400, vga_canvas_320_200};
+    sys_init();
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    for (size_t i = 0; i < sizeof canvases / sizeof canvases[0]; i++)
+    {
+        ASSERT_TRUE(xreg1(0, 0, canvases[i]));
+        int w, h;
+        vga_canvas_size(&w, &h);
+        /* 126 counts are 63 reference pixels with nothing left over. */
+        const uint8_t down[] = {0, 126};
+        for (int n = 0; n < 20; n++)
+            tablet_report(7, down, sizeof down);
+        ASSERT_EQ(tablet_contact_y(), h - 1);
+        /* 4 counts are 2 reference pixels, at least a pixel of any of
+         * these canvases. */
+        const uint8_t up[] = {0, (uint8_t)-4};
+        tablet_report(7, up, sizeof up);
+        ASSERT_LT(tablet_contact_y(), h - 1);
+    }
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
 static int keyboard_drain(char *buf, int max)
@@ -485,6 +675,32 @@ UTEST(cli, batch_headless_and_unpaced)
     ASSERT_EQ(cli_parse_args(4, khz, &o), 0);
     ASSERT_FALSE(o.unpaced);
     ASSERT_EQ(o.phi2_khz, 4000);
+}
+
+/* Each aspect is a console 640 wide that fixes the frame, and without one the
+ * frame follows the canvas. */
+UTEST(cli, aspect_names_the_console_and_fixes_the_frame)
+{
+    static const struct
+    {
+        char *aspect;
+        int h;
+    } cases[] = {{"4:3", 480}, {"16:9", 360}, {"16:10", 400}};
+    cli_options o;
+    cli_options_init(&o);
+    char *plain[] = {"emu", "rom.rp6502"};
+    ASSERT_EQ(cli_parse_args(2, plain, &o), 0);
+    ASSERT_FALSE(o.fixed_aspect);
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++)
+    {
+        cli_options_init(&o);
+        char *argv[] = {"emu", "--aspect", cases[i].aspect, "rom.rp6502"};
+        ASSERT_EQ(cli_parse_args(4, argv, &o), 0);
+        ASSERT_TRUE(o.fixed_aspect);
+        ASSERT_EQ(o.console_w, 640);
+        ASSERT_EQ(o.console_h, cases[i].h);
+        ASSERT_STREQ(o.rom, "rom.rp6502");
+    }
 }
 
 UTEST(units, host_text_keeps_control_bytes)

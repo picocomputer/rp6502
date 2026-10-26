@@ -20,7 +20,9 @@
  * machine's and the reader has to find the start of a frame again.
  */
 
-module pocket_video (
+module pocket_video
+    import canvas_pkg::*;
+(
     input logic clk_mach,
     input logic [15:0] vid_pixel,
     input logic vid_de,
@@ -38,38 +40,24 @@ module pocket_video (
 
     localparam int H_TOTAL = 800;
     localparam int V_TOTAL = 525;
-    localparam int V_ACTIVE = 480;
     /* X_DE0 also sets how far the reader trails the writer. relock
      * starts the raster at x = 0 when the frame's first pixel is at the
      * head of the FIFO, and the first pop is at x = X_DE0, so the writer
      * stays at least X_DE0 pixels ahead until locked drops. */
     localparam int X_DE0 = 8;
 
-    /* These are vga.h's vga_canvas_t values. The console (0) and
-     * 640x480 (3) canvases decode alike. */
-    localparam logic [2:0] CV_320_240 = 3'd1;
-    localparam logic [2:0] CV_320_180 = 3'd2;
-    localparam logic [2:0] CV_640_360 = 3'd4;
-
-    function automatic logic cv_w320(input logic [2:0] cv);
-        cv_w320 = cv == CV_320_240 || cv == CV_320_180;
-    endfunction
-
-    function automatic logic [9:0] cv_ch(input logic [2:0] cv);
-        cv_ch = cv == CV_320_240 ? 10'd240
-            : cv == CV_320_180 ? 10'd180
-            : cv == CV_640_360 ? 10'd360 : 10'(V_ACTIVE);
-    endfunction
     /* A 320 wide canvas spans two lines of timing per row of graphics, so
      * the writer hands one row over every other line and the reader has to
      * take them at the same cadence or it outruns the FIFO. The scaler still
-     * receives cv_ch rows either way. */
+     * receives canvas_h rows either way. */
     function automatic logic cv_row_sel(input logic [2:0] cv,
                                         input logic [9:0] line);
+        logic dbl;
         logic [9:0] lines;
-        lines = cv_w320(cv) ? 10'(cv_ch(cv) << 1) : cv_ch(cv);
-        cv_row_sel = cv_w320(cv) ? !line[0] && line < lines
-                                 : line < lines;
+        dbl = canvas_w(cv) == 10'd320;
+        lines = dbl ? 10'(canvas_h(cv) << 1) : canvas_h(cv);
+        cv_row_sel = dbl ? !line[0] && line < lines
+                         : line < lines;
     endfunction
 
     /* sof_arm tags the frame's first pixel. vid_frame is high only on a
@@ -162,11 +150,13 @@ module pocket_video (
     logic [9:0] cw;
     logic [2:0] slot; /* This indexes video.json's scaler_modes. */
     always_comb begin
-        cw = cv_w320(canvas) ? 10'd320 : 10'd640;
+        cw = canvas_w(canvas);
         unique case (canvas)
             CV_640_360: slot = 3'd1;
             CV_320_240: slot = 3'd2;
             CV_320_180: slot = 3'd3;
+            CV_320_200: slot = 3'd4;
+            CV_640_400: slot = 3'd5;
             default: slot = 3'd0;
         endcase
     end
@@ -198,8 +188,8 @@ module pocket_video (
      * hands a row over every other line of timing; without this the rows
      * land on every second row of the scaler's frame. */
     logic hs_gap;
-    always_comb hs_gap = cv_w320(canvas) && y[0]
-        && y < 10'(cv_ch(canvas) << 1);
+    always_comb hs_gap = cw == 10'd320 && y[0]
+        && y < 10'(canvas_h(canvas) << 1);
 
     logic relock;
     always_comb relock = run_v2 && !locked && !fifo_empty && fifo_sof;

@@ -398,12 +398,15 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 {
     memset(info, 0, sizeof *info);
     /* The boot console is the largest canvas. A program that picks a smaller
-     * one announces it with SET_GEOMETRY from retro_run as it comes up. */
+     * one announces it with SET_GEOMETRY from retro_run as it comes up. Every
+     * canvas has square pixels, so its aspect is its own width over its
+     * height, and a 16:9 or 16:10 canvas fills a screen of that shape. */
     info->geometry.base_width = VGA_MAX_WIDTH;
     info->geometry.base_height = VGA_MAX_HEIGHT;
     info->geometry.max_width = VGA_MAX_WIDTH;
     info->geometry.max_height = VGA_MAX_HEIGHT;
-    info->geometry.aspect_ratio = 4.0f / 3.0f;
+    info->geometry.aspect_ratio =
+        (float)info->geometry.base_width / info->geometry.base_height;
     info->timing.fps = VGA_HZ;
     info->timing.sample_rate = RETRO_AUD_RATE;
 }
@@ -659,7 +662,7 @@ void retro_run(void)
             .base_height = (unsigned)h,
             .max_width = VGA_MAX_WIDTH,
             .max_height = VGA_MAX_HEIGHT,
-            .aspect_ratio = 4.0f / 3.0f,
+            .aspect_ratio = (float)w / h,
         };
         /* The new geometry is remembered only if the frontend took it. A
          * frontend without this call is told again next frame, which costs

@@ -161,7 +161,7 @@ var AudioContext;
     const template = (id) => root.getRootNode().getElementById?.(id) ?? document.getElementById(id);
     const autoplay = settings.autoplay === undefined ? 'on' : settings.autoplay;
     const known = ['rom', 'install', 'title', 'args', 'db', 'bgcolor', 'border', 'filter',
-                   'autoplay', 'overlay', 'footer', 'github'];
+                   'aspect', 'autoplay', 'overlay', 'footer', 'github'];
     for (const key in settings)
         if (!known.includes(key))
             console.warn('rp6502: unknown setting ' + key);
@@ -169,6 +169,8 @@ var AudioContext;
         ? 'bgcolor must be six hex digits, such as 000000 or #000000.'
         : settings.filter && !['nearest', 'linear', 'sharp'].includes(settings.filter)
         ? 'filter must be nearest, linear or sharp.'
+        : settings.aspect && !['4:3', '16:9', '16:10'].includes(settings.aspect)
+        ? 'aspect must be 4:3, 16:9 or 16:10.'
         : !['on', 'auto', 'off', 'muted'].includes(autoplay)
         ? 'autoplay must be on, auto, off or muted.'
         : settings.overlay && !template(settings.overlay)?.content?.firstElementChild
@@ -188,6 +190,8 @@ var AudioContext;
         Module.arguments.push('--bgcolor', settings.bgcolor);
     if (settings.filter)
         Module.arguments.push('--filter', settings.filter);
+    if (settings.aspect)
+        Module.arguments.push('--aspect', settings.aspect);
     for (const url of install)
         Module.arguments.push('--install', '/roms/' + fileName(url));
     Module.arguments.push('/roms/' + fileName(settings.rom));
@@ -210,6 +214,11 @@ var AudioContext;
         root.style.setProperty('--rp6502-border', settings.border);
     if (settings.filter === 'nearest')
         canvas.style.imageRendering = 'pixelated';
+    // With aspect, the emulator gives the box the console's shape once it
+    // starts. The box takes that shape now, before the WebAssembly loads, so
+    // it does not jump.
+    if (settings.aspect)
+        screen.style.aspectRatio = settings.aspect.replace(':', ' / ');
 
     // The context starts suspended and resumes on a click on the player or a
     // key that the player handles. Chrome runs a new context after a click on
@@ -326,13 +335,21 @@ var AudioContext;
     // sokol_app reads the canvas size only on a window resize event, so the
     // resize handler of sokol_app is called directly when the canvas changes
     // size, with no resize event on the page.
-    const resized = new ResizeObserver(() => {
+    const fit = () => {
         player.style();
         JSEvents?.eventHandlers.find((h) => h.target === window && h.eventTypeString === 'resize')
             ?.handlerFunc({target: window, preventDefault() {}});
-    });
+    };
+    const resized = new ResizeObserver(fit);
     resized.observe(canvas);
     onAbort(() => resized.disconnect());
+    // The emulator gives the box the shape of its frame. The observer would
+    // see the new size only after the picture being drawn now, so sokol_app
+    // is told at once.
+    player.aspect = (w, h) => {
+        screen.style.aspectRatio = w + ' / ' + h;
+        fit();
+    };
 
     function wait(id, promise) {
         Module.addRunDependency(id);
