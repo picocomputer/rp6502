@@ -132,7 +132,11 @@ UTEST(pvideo, raster_and_pixels_exact)
     ASSERT_GE(hs_count, 2 * 525);
 }
 
-UTEST(pvideo, canvas_native_de_skip_and_slot)
+/* A canvas reaches the scaler at its own size: de spans its width on each of
+ * its rows, a 320 wide canvas takes every other line of timing, and the cycle
+ * after de falls carries the canvas's slot in video.json's scaler_modes. */
+static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
+                                           int cw, int ch, uint32_t slot)
 {
     if (dut)
     {
@@ -153,8 +157,11 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         dut->clk_vid = 0;
         dut->eval();
     }
-    dut->vid_canvas = 2; /* vga_canvas_320_180 */
+    dut->vid_canvas = code;
 
+    /* Lines of timing a row of graphics spans. */
+    const int dbl = cw == 320 ? 2 : 1;
+    const int lines = ch * dbl;
     long latched = 0, endlines = 0;
     int rx = -1, ry = -1;
     bool started = false, de_q = false;
@@ -166,11 +173,11 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
             for (int c = 0; c < 1600; c++)
             {
                 dut->vid_frame = line == 0 && c == 0;
-                bool row = !(line & 1) && line < 360;
-                bool de = row && c < 640 && (c & 1) == 1;
+                bool row = line % dbl == 0 && line < lines;
+                bool de = row && c < 2 * cw && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
-                    dut->vid_pixel = pattern(f, c >> 1, line >> 1);
+                    dut->vid_pixel = pattern(f, c >> 1, line / dbl);
                 dut->clk_mach = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
@@ -193,29 +200,27 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                     {
                         int px = rx - 9;
                         int py = ry;
-                        bool dump = !(py & 1) && py < 360;
-                        bool win = px >= 0 && px < 320 && py < 480;
+                        bool dump = py % dbl == 0 && py < lines;
+                        bool win = px >= 0 && px < cw && py < 480;
                         ASSERT_EQ(dut->pocket_video_de, win && dump);
                         ASSERT_EQ(dut->pocket_video_skip, 0);
                         /* HS delimits a scanline, so the lines in between
                          * the handed-over rows carry none. */
                         if (rx == 3)
                             ASSERT_EQ(dut->pocket_video_hs,
-                                      !((py & 1) && py < 360));
+                                      !(dbl == 2 && (py & 1) && py < lines));
                         if (dut->pocket_video_de)
                         {
-                            int pf = (int)(latched / (320L * 180));
+                            int pf = (int)(latched / ((long)cw * ch));
                             ASSERT_EQ(dut->pocket_video_rgb,
-                                      rgb888(pattern(pf, px, py >> 1)));
+                                      rgb888(pattern(pf, px, py / dbl)));
                             latched++;
                         }
                         else if (de_q)
                         {
                             /* On the first cycle after de falls, rgb holds
-                             * the scaler slot in bits 23:13, and the 320x180
-                             * entry in video.json's scaler_modes is slot 3. */
-                            ASSERT_EQ(dut->pocket_video_rgb,
-                                      (uint32_t)3 << 13);
+                             * the scaler slot in bits 23:13. */
+                            ASSERT_EQ(dut->pocket_video_rgb, slot << 13);
                             endlines++;
                         }
                         else
@@ -234,8 +239,28 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         }
     }
     ASSERT_TRUE(started);
-    ASSERT_GT(latched, 2L * 320 * 180);
-    ASSERT_GT(endlines, 2L * 180);
+    ASSERT_GT(latched, 2L * cw * ch);
+    ASSERT_GT(endlines, 2L * ch);
+}
+
+UTEST(pvideo, canvas2_320x180_native)
+{
+    canvas_native_de_skip_and_slot(utest_result, 2, 320, 180, 3);
+}
+
+UTEST(pvideo, canvas4_640x360_native)
+{
+    canvas_native_de_skip_and_slot(utest_result, 4, 640, 360, 1);
+}
+
+UTEST(pvideo, canvas5_320x200_native)
+{
+    canvas_native_de_skip_and_slot(utest_result, 5, 320, 200, 4);
+}
+
+UTEST(pvideo, canvas6_640x400_native)
+{
+    canvas_native_de_skip_and_slot(utest_result, 6, 640, 400, 5);
 }
 
 UTEST_STATE();

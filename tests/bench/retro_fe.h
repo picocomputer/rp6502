@@ -70,6 +70,7 @@ static void fe_dl_error(void)
 typedef struct
 {
     unsigned width, height;
+    float aspect;
 } fe_geom_t;
 
 typedef struct
@@ -249,6 +250,7 @@ static bool fe_environment(unsigned cmd, void *data)
         {
             fe.geom[fe.geom_count].width = g->base_width;
             fe.geom[fe.geom_count].height = g->base_height;
+            fe.geom[fe.geom_count].aspect = g->aspect_ratio;
             fe.geom_count++;
         }
         return true;

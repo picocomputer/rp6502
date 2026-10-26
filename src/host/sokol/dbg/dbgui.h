@@ -24,8 +24,12 @@ void dbgui_set_config_file(const char *path);
  * implausible one. */
 bool dbgui_window_size(int *w, int *h);
 
-void dbgui_init(void);    /* after sg_setup */
+/* After sg_setup. display_scale is sapp_dpi_scale(), from which the UI scale
+ * starts when the layout has none saved. */
+void dbgui_init(float display_scale);
 void dbgui_discard(void); /* before sg_shutdown */
+/* dpi_scale is ImGui's framebuffer scale. app_frame passes 1.0, so ImGui units
+ * are framebuffer pixels. */
 void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale);
 void dbgui_draw(void);   /* between new_frame and render */
 void dbgui_render(void); /* into the current sokol-gfx pass */

@@ -1956,8 +1956,9 @@ uint16_t rln_get_term_width(void)
         return rln_term_width;
     if (vga_connected())
     {
-        vga_canvas_t c = vga_get_canvas();
-        return (c == vga_canvas_320_240 || c == vga_canvas_320_180) ? 40 : 80;
+        int w, h;
+        vga_canvas_size(&w, &h);
+        return (uint16_t)vga_term_columns(w);
     }
     return 80;
 }
@@ -1971,7 +1972,11 @@ uint16_t rln_get_term_height(void)
     if (rln_term_height > 0)
         return rln_term_height;
     if (vga_connected())
-        return (vga_get_display_type() == 2) ? 32 : 30;
+    {
+        int w, h;
+        vga_canvas_size(&w, &h);
+        return (uint16_t)(h / vga_term_row_px(w));
+    }
     return 24;
 }
 

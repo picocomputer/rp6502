@@ -167,7 +167,7 @@ void app_init(void)
     host_window_init();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
-        dbgui_init();
+        dbgui_init(sapp_dpi_scale());
 #endif
 }
 
@@ -292,8 +292,9 @@ void app_frame(void)
      * dbgui_canvas_rect reports the dockspace central node only after a
      * dbgui_draw and the canvas viewport is fitted into that rect.
      *
-     * A dpi_scale of 1.0 renders the overlay at native resolution, so its 13px
-     * bitmap font lands one texel to a pixel instead of being magnified. */
+     * A dpi_scale of 1.0 makes ImGui units framebuffer pixels, so the UI scale,
+     * rather than a fractional display scale, sizes the bitmap font, and at a
+     * whole-multiple UI scale each texel lands on one pixel. */
     if (dbg_is_active())
     {
         dbgui_new_frame(sapp_width(), sapp_height(), (double)dt / 1e9, 1.0f);

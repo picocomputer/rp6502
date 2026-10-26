@@ -35,7 +35,18 @@ typedef enum
 
 void gfx_set_filter(gfx_filter_t filter);
 
-/* Resize the window to what --scale <n> opens: the canvas aspect at n times
+/* The frame is the shape the window, or the web's player box, keeps. It is
+ * dynamic by default: the frame is the canvas the program is on, so the window
+ * follows each mode change. A fixed frame is the console, at the size the host
+ * gave it or a savestate restored, and every other canvas is letterboxed or
+ * pillarboxed inside it. Set before gfx_prepare. */
+void gfx_set_fixed_aspect(bool fixed);
+
+#ifdef EMU_WITH_DEBUGGER
+/* The debugger's Window Scale menu is the only caller of these two, so they are
+ * built only with it.
+ *
+ * Resize the window to what --scale <n> opens: the frame aspect at n times
  * VGA_MAX_HEIGHT, plus the debugger's menu strip when the overlay is up. Docked
  * panels are not counted, because this is a reset to a known size after a manual
  * resize. The window manager may ignore the request. */
@@ -43,6 +54,7 @@ void gfx_set_scale(double scale);
 
 /* The window's current scale by the same formula; 0 when there is no window. */
 double gfx_get_scale(void);
+#endif
 
 /* On-screen pixels per canvas pixel. The input layer divides host mouse motion
  * by this, so pointer speed does not change with the window size. */
@@ -59,16 +71,17 @@ bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy);
  * gfx_end_pass once a frame, and gfx_shutdown from cleanup.
  *
  * Seed the canvas from the launch options and report the window's initial size
- * in pixels: the canvas aspect at the requested scale plus the debugger's menu
+ * in pixels: the frame aspect at the requested scale plus the debugger's menu
  * strip, or the size the last debug session was left at. */
 void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h);
 
 /* From the sokol init callback, after sg_setup. */
 void gfx_setup(void);
 
-/* A program picking a new mode changes the canvas size mid-run. Notice that,
- * keep the window manager's aspect hint honest, and re-fit a window the user
- * has not resized off-aspect. */
+/* A program picking a new mode changes the canvas size mid-run, which changes
+ * a dynamic frame, and a savestate load can change the console, which changes a
+ * fixed one. Notice a new frame shape, keep the window's aspect lock honest,
+ * and re-fit a window the user has not resized off-aspect. */
 void gfx_canvas_changed(void);
 
 /* Size the canvas to the window and take the frame the machine just rendered,

@@ -52,7 +52,8 @@ rp6502_add_module_test(pdbglog
 
 rp6502_add_module_test(pvideo
     TOP pocket_video
-    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+    RTL ${RP6502_SRC}/core/vga/canvas_pkg.sv
+        ${RP6502_POCKET_CORE}/pocket_fifo.sv
         ${RP6502_POCKET_CORE}/pocket_video.sv
     TIMEOUT 120)
 

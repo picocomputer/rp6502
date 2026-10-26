@@ -55,17 +55,25 @@ uint32_t *vga_get_framebuffer(void);
 
 bool vga_frame_crc(uint32_t *crc);
 
-/* The savestate carries the beam, the canvas, and the scanline program.
- * frame_n is not in it, because it is beam_n divided by the scanlines in a
- * frame exactly.
+/* The savestate carries the beam, the canvas, the console's height, and the
+ * scanline program. frame_n is not in it, because it is beam_n divided by the
+ * scanlines in a frame exactly.
+ *
+ * The console's size is in it because the host chooses it, and a program left
+ * on the console canvas would come back with its terminal laid out for another
+ * size. Every console a host gives is 640 wide, so the height is all of the
+ * size there is to carry. The load sets the size it carries in place of the
+ * host's, and stops and resets keep it, so it stays for the rest of the
+ * session.
  *
  * Rows at or past 480 are never booked, because every booking is bounded
  * against the canvas and no canvas the emulator has is taller than that.
  *
- * The 16 leading bytes are 8 beam, 1 vsynced, 1 needs_reset, 2 canvas,
- * 2 highest scanline and 2 mode-0 begin; each row is 3 planes of 12 bytes. */
+ * The 18 leading bytes are 8 beam, 1 vsynced, 1 needs_reset, 2 canvas,
+ * 2 console height, 2 highest scanline and 2 mode-0 begin; each row is 3
+ * planes of 12 bytes. */
 #define VGA_SST_ROWS 480
-#define VGA_SST_SIZE (16 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
+#define VGA_SST_SIZE (18 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
 
 #define VGA_MODE_NONE 0xFF
 vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes);
@@ -78,6 +86,6 @@ void vga_sst_save(sst_cursor_t *c, unsigned flags);
 bool vga_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, \
-    nul_config, nul_config, SST(VGA_, 1, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
+    nul_config, nul_config, SST(VGA_, 2, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

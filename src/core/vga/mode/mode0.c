@@ -252,32 +252,14 @@ bool mode0_prog(uint16_t *xregs)
     int16_t plane = xregs[2];
     int16_t scanline_begin = xregs[3];
     int16_t scanline_end = xregs[4];
-    int16_t height = vga_canvas_height();
-    if (!scanline_begin && !scanline_end)
-    {
-        // Neither widescreen height is a multiple of the font height it uses,
-        // so the default terminal is the tallest one that fits, centered: 22
-        // rows either way, leaving two blank scanlines above and below at 180
-        // and four at 360.
-        if (height == 180)
-            scanline_begin = 2, scanline_end = 178;
-        if (height == 360)
-            scanline_begin = 4, scanline_end = 356;
-    }
-    if (!scanline_end)
-        scanline_end = height;
-    int16_t scanline_count = scanline_end - scanline_begin;
-    bool use_40 = height == 180 || height == 240;
-
-    if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
+    uint8_t cols, rows;
+    if (!mode0_layout(vga_canvas_width(), vga_canvas_height(),
+                      &scanline_begin, &scanline_end, &cols, &rows))
         return false;
 
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, mode0_render))
     {
-        if (use_40)
-            term_set_height(40, (uint8_t)(scanline_count / 8));
-        else
-            term_set_height(80, (uint8_t)(scanline_count / 16));
+        term_set_height(cols, rows);
         mode0_scanline_begin = scanline_begin;
         return true;
     }

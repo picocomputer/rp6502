@@ -11,7 +11,8 @@
   background: var(--rp6502-bgcolor, #000); outline: none; -webkit-tap-highlight-color: transparent; }
 .rp6502[hidden] { display: none; }
 }
-.rp6502-screen { position: relative; flex: 1 1 auto; min-height: 0; aspect-ratio: 4 / 3; container-type: size; }
+.rp6502-screen { position: relative; flex: 1 1 auto; min-height: 0; box-sizing: content-box;
+  padding: var(--rp6502-border, 0px); aspect-ratio: 4 / 3; container-type: size; }
 .rp6502-canvas { position: absolute; inset: var(--rp6502-border, 0px); display: block; outline: none;
   width: calc(100% - 2 * var(--rp6502-border, 0px)); height: calc(100% - 2 * var(--rp6502-border, 0px));
   user-select: none; -webkit-user-select: none; }

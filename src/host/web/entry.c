@@ -103,6 +103,13 @@ EM_JS(void, js_touch_action, (int32_t used), {
     Module.canvas.style.touchAction = (used & 2) ? "none" : "";
 });
 
+/* The player box takes the frame's shape, and sokol_app reads the new canvas
+ * size before this returns, so the next picture is fitted to the new box
+ * rather than the old one. */
+EM_JS(void, js_aspect, (int w, int h), {
+    Module.rp6502.aspect(w, h);
+});
+
 /* After destroy(), app_init fails on the lost WebGL context, and app_frame
  * must not run again. */
 EM_JS(int, js_destroyed, (void), {
@@ -184,8 +191,13 @@ static void entry_frame(void)
     }
 }
 
-void host_window_resize(int w, int h) { (void)w, (void)h; }
-void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
+/* The page sizes the box, so there is no window to re-fit. */
+void host_window_set_aspect(int w, int h, bool refit)
+{
+    (void)refit;
+    js_aspect(w, h);
+}
+
 void host_window_init(void)
 {
     js_away_setup(&away, &run_ms, LIVE_MS);

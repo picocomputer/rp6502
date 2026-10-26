@@ -25,15 +25,14 @@
 static struct
 {
     double scale;
-    int tex_w, tex_h; /* last seen canvas size */
+    int frame_w, frame_h; /* last seen frame shape */
+    bool fixed_aspect;
     sfb_framebuffer sfb;
     gfx_filter_t filter;
     float bg_r, bg_g, bg_b;
     uint32_t *fb; /* the caller's framebuffer, which vga renders into */
     bool ever_uploaded;
 } gfx;
-
-
 
 void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -43,6 +42,19 @@ void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 }
 
 void gfx_set_filter(gfx_filter_t filter) { gfx.filter = filter; }
+
+void gfx_set_fixed_aspect(bool fixed) { gfx.fixed_aspect = fixed; }
+
+/* The shape the window keeps: the canvas when the frame is dynamic, and the
+ * console when it is fixed. A savestate load sets the console it carries, so a
+ * fixed frame moves to the restored aspect. */
+static void frame_size(int *w, int *h)
+{
+    if (gfx.fixed_aspect)
+        vga_console_size(w, h);
+    else
+        vga_canvas_size(w, h);
+}
 
 /* The largest integer scale at which the canvas still fits the window, taking
  * the smaller axis so pixels stay square; sfb's final linear pass absorbs the
@@ -65,7 +77,7 @@ static int sharp_prescale(int cw, int ch, int aw, int ah)
 
 /* When the debugger's menu bar and dockspace are up, panels dock beside the
  * canvas and the canvas is letterboxed within the dockspace's central node, so
- * the window resizes freely with no aspect hint and no width re-fit. */
+ * the window resizes freely with no aspect lock and no re-fit. */
 static bool overlay_active(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -106,16 +118,18 @@ static int scaled_canvas_height(double scale)
     return (int)(VGA_MAX_HEIGHT * scale + 0.5);
 }
 
+#ifdef EMU_WITH_DEBUGGER
 void gfx_set_scale(double scale)
 {
-    int cw, ch;
-    vga_canvas_size(&cw, &ch);
+    int fw, fh;
+    frame_size(&fw, &fh);
     /* scaled_canvas_height is in logical canvas pixels and host_window_resize
      * takes physical framebuffer pixels, so the DPI factor converts between
-     * them; it is 1.0 unless high_dpi is on. top_reserved_px is already
+     * them. It is 1.0 unless high_dpi is on (Windows, macOS, web) or Xft.dpi is
+     * above 96 (X11, where sokol ignores high_dpi). top_reserved_px is already
      * framebuffer pixels. */
     int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
-    int w = aspect_width(h, cw, ch);
+    int w = aspect_width(h, fw, fh);
     host_window_resize(w, h + top_reserved_px());
 }
 
@@ -128,6 +142,7 @@ double gfx_get_scale(void)
      * --scale is given in. */
     return (double)(sapp_height() - top_reserved_px()) / (VGA_MAX_HEIGHT * sapp_dpi_scale());
 }
+#endif
 
 /* The framebuffer-pixel rectangle, x and y from the top left, that the emulated
  * canvas draws into: the dockspace central node when the debugger overlay is up,
@@ -157,26 +172,40 @@ static void canvas_region(int *x, int *y, int *w, int *h)
     *h = rh;
 }
 
-/* The aspect-fit viewport the canvas draws into, centered within canvas_region
- * and given to slbx as borders against the full framebuffer. It is computed on
- * every call because input events arrive before the first frame and across menu
- * and dock changes. */
-static slbx_viewport canvas_viewport(void)
+/* The w:h aspect fit centered within the framebuffer-pixel rectangle at x, y,
+ * given to slbx as borders against the full framebuffer. */
+static slbx_viewport aspect_fit(int x, int y, int w, int h, int aw, int ah)
 {
-    int cw, ch;
-    vga_canvas_size(&cw, &ch);
-    int rx, ry, rw, rh;
-    canvas_region(&rx, &ry, &rw, &rh);
     return slbx_letterbox(sapp_width(), sapp_height(),
                           &(slbx_letterbox_desc){
-                              .content_aspect_ratio = (float)cw / (float)ch,
+                              .content_aspect_ratio = (float)aw / (float)ah,
                               .border = {
-                                  .left = rx,
-                                  .right = sapp_width() - (rx + rw),
-                                  .top = ry,
-                                  .bottom = sapp_height() - (ry + rh),
+                                  .left = x,
+                                  .right = sapp_width() - (x + w),
+                                  .top = y,
+                                  .bottom = sapp_height() - (y + h),
                               },
                           });
+}
+
+/* The viewport the canvas draws into: the frame fitted to canvas_region, and
+ * the canvas fitted to that frame. A canvas at the frame's aspect, which every
+ * canvas is when the frame is dynamic, is fitted once, so it lands exactly where
+ * a single fit puts it; the cross-multiplied test is exact where a float
+ * comparison of the two aspects might not be. It is computed on every call
+ * because input events arrive before the first frame and across menu and dock
+ * changes. */
+static slbx_viewport canvas_viewport(void)
+{
+    int cw, ch, fw, fh;
+    vga_canvas_size(&cw, &ch);
+    frame_size(&fw, &fh);
+    int rx, ry, rw, rh;
+    canvas_region(&rx, &ry, &rw, &rh);
+    slbx_viewport vp = aspect_fit(rx, ry, rw, rh, fw, fh);
+    if ((long)cw * fh != (long)ch * fw)
+        vp = aspect_fit(vp.x, vp.y, vp.width, vp.height, cw, ch);
+    return vp;
 }
 
 float gfx_canvas_scale(void)
@@ -226,62 +255,59 @@ void gfx_setup(void)
         .width = cw,
         .height = ch,
     });
-    gfx.tex_w = cw;
-    gfx.tex_h = ch;
+    frame_size(&gfx.frame_w, &gfx.frame_h);
     if (!overlay_active())
-        host_window_set_aspect_hint(cw, ch);
+        host_window_set_aspect(gfx.frame_w, gfx.frame_h, false);
 }
 
 void gfx_canvas_changed(void)
 {
-    int cw, ch;
-    vga_canvas_size(&cw, &ch);
-    if (cw != gfx.tex_w || ch != gfx.tex_h)
-    {
-        /* Whether the window is still within a pixel of the old canvas aspect,
-         * which says the user has not resized it off-aspect. It has to be read
-         * before tex_w and tex_h are updated. */
-        int w = sapp_width(), h = sapp_height();
-        double off = (double)w - (double)h * gfx.tex_w / gfx.tex_h;
-        int at_aspect = off < 1.0 && off > -1.0;
+    int fw, fh;
+    frame_size(&fw, &fh);
+    /* A new size at the same aspect, such as 320x240 after 640x480, needs
+     * nothing of the window. */
+    if ((long)fw * gfx.frame_h == (long)fh * gfx.frame_w)
+        return;
 
-        gfx.tex_w = cw;
-        gfx.tex_h = ch;
-        if (!overlay_active()) /* the debugger's window never tracks the canvas aspect */
-        {
-            /* Native X11 window managers honor the hint. WSLg ignores it, and
-             * the blit letterboxes there instead. */
-            host_window_set_aspect_hint(cw, ch);
+    /* Whether the window's height is within 2 px of what the old frame aspect
+     * gives its width, which says the user has not resized it off-aspect. A
+     * re-fit rounds the height to a whole point, and a point is two pixels on a
+     * 2x display. It has to be read before frame_w and frame_h are updated. */
+    double off = sapp_height() - (double)sapp_width() * gfx.frame_h / gfx.frame_w;
+    bool at_aspect = off < 2.0 && off > -2.0;
 
-            /* Only a window still at the old aspect is re-fitted; one the user
-             * resized is left alone and letterboxed. There is no poll and snap
-             * to enforce it afterwards, because WSLg restores its own geometry
-             * and drops resize requests. The height is left as it was, and only
-             * the width tracks the aspect. */
-            int new_w = aspect_width(h, cw, ch);
-            if (at_aspect && new_w != w)
-                host_window_resize(new_w, h);
-        }
-    }
+    gfx.frame_w = fw;
+    gfx.frame_h = fh;
+    /* The debugger's window never tracks the frame aspect. Native X11 window
+     * managers honor the lock. WSLg ignores it, and the blit letterboxes there
+     * instead.
+     *
+     * Only a window still at the old aspect is re-fitted; one the user resized
+     * is left alone and letterboxed. There is no poll and snap to enforce it
+     * afterwards, because WSLg restores its own geometry and drops resize
+     * requests. */
+    if (!overlay_active())
+        host_window_set_aspect(fw, fh, at_aspect);
 }
 
-/* Computed by gfx_upload and read by gfx_blit, so a frame fits its viewport
- * once rather than twice. */
-static slbx_viewport frame_vp;
+/* Computed by gfx_upload and read by gfx_blit, so a video frame fits its
+ * viewport once rather than twice. */
+static slbx_viewport canvas_vp;
 
 void gfx_upload(bool new_frame)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
 
-    /* The window tracks the canvas aspect, because RP6502 pixels are square and
-     * so the canvas aspect is the display aspect, and the viewport then fills
-     * the region. When the window is off-aspect, because the window manager
-     * ignored the hint or a resize is in progress, the difference becomes
-     * letterbox or pillarbox against the clear color and nothing stretches. */
-    frame_vp = canvas_viewport();
+    /* The window tracks the frame aspect. RP6502 pixels are square, so the
+     * canvas aspect is the display aspect, and a canvas the shape of the frame
+     * fills the region. When the window is off-aspect, because the window
+     * manager ignored the lock or a resize is in progress, or the canvas is not
+     * the shape of a fixed frame, the difference becomes letterbox or pillarbox
+     * against the clear color and nothing stretches. */
+    canvas_vp = canvas_viewport();
     int f = gfx.filter == GFX_FILTER_SHARP
-                ? sharp_prescale(cw, ch, frame_vp.width, frame_vp.height)
+                ? sharp_prescale(cw, ch, canvas_vp.width, canvas_vp.height)
                 : 1;
     /* sfb_resize recreates its images only when the canvas or the prescale
      * factor changed. The cliprect has to be given explicitly because
@@ -321,10 +347,10 @@ void gfx_blit(void)
      * leaves the pass showing only the clear color. A platform overlay suppresses
      * the canvas the same way, and its own text then draws with the pass's
      * full-window viewport still in effect. */
-    if (!gfx.ever_uploaded || frame_vp.width <= 0 || frame_vp.height <= 0 ||
+    if (!gfx.ever_uploaded || canvas_vp.width <= 0 || canvas_vp.height <= 0 ||
         host_window_menu_active())
         return;
-    sg_apply_viewport(frame_vp.x, frame_vp.y, frame_vp.width, frame_vp.height, true);
+    sg_apply_viewport(canvas_vp.x, canvas_vp.y, canvas_vp.width, canvas_vp.height, true);
     if (gfx.filter == GFX_FILTER_NEAREST)
         sfb_render_ex(gfx.sfb, &(sfb_render_desc){.use_nearest_filter = true});
     else
@@ -342,39 +368,39 @@ void gfx_shutdown(void)
     sfb_shutdown();
 }
 
-/* The window opens at the height --scale asks for and the width its canvas
- * aspect gives, so a 4:3 canvas opens 640x480 and a 16:9 canvas opens wider.
+/* The window opens at the height --scale asks for and the width its frame
+ * aspect gives, so a 4:3 frame opens 640x480 and a 16:9 frame opens wider.
  * A window manager may restore a previous size instead, which is fine: the init
- * callback sets the aspect hint and the blit letterboxes either way. */
+ * callback sets the aspect lock and the blit letterboxes either way. */
 void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h)
 {
     (void)have_scale;
     gfx.fb = fb;
     gfx.scale = scale;
-        int cw, ch;
-        vga_canvas_size(&cw, &ch);
-        int canvas_h = scaled_canvas_height(gfx.scale);
-        int win_w = aspect_width(canvas_h, cw, ch);
-        int win_h = canvas_h;
-    #ifdef EMU_WITH_DEBUGGER
-        if (dbg_is_active())
+    int fw, fh;
+    frame_size(&fw, &fh);
+    int canvas_h = scaled_canvas_height(gfx.scale);
+    int win_w = aspect_width(canvas_h, fw, fh);
+    int win_h = canvas_h;
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+    {
+        /* The debugger's menu bar sits above the canvas, so the window opens
+         * taller by the bar's height; without that the frame-aspect window
+         * squeezes the picture under the menu. It is sized up front from the
+         * estimate because WSLg drops resize requests made after the window
+         * is open. */
+        win_h += (int)(dbgui_menu_bar_estimate() + 0.5f);
+        /* The last debug session's window size is persisted with its layout,
+         * and an explicit --scale asks for a size and wins over it. */
+        int last_w, last_h;
+        if (!have_scale && dbgui_window_size(&last_w, &last_h))
         {
-            /* The debugger's menu bar sits above the canvas, so the window opens
-             * taller by the bar's height; without that the canvas-aspect window
-             * squeezes the picture under the menu. It is sized up front from the
-             * estimate because WSLg drops resize requests made after the window
-             * is open. */
-            win_h += (int)(dbgui_menu_bar_estimate() + 0.5f);
-            /* The last debug session's window size is persisted with its layout,
-             * and an explicit --scale asks for a size and wins over it. */
-            int last_w, last_h;
-            if (!have_scale && dbgui_window_size(&last_w, &last_h))
-            {
-                win_w = last_w;
-                win_h = last_h;
-            }
+            win_w = last_w;
+            win_h = last_h;
         }
-    #endif
+    }
+#endif
     *out_w = win_w;
     *out_h = win_h;
 }

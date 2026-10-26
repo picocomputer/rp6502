@@ -16,6 +16,7 @@
 #include "vid.h"
 
 #include "core/term/term.h"
+#include "core/vga/mode/mode0.h"
 
 #include <stdint.h>
 
@@ -28,26 +29,13 @@ bool mode0_prog(uint16_t *xregs)
     int16_t plane = (int16_t)xregs[2];
     int16_t scanline_begin = (int16_t)xregs[3];
     int16_t scanline_end = (int16_t)xregs[4];
-    int16_t height = vga_canvas_height();
-    if (!scanline_begin && !scanline_end)
-    {
-        if (height == 180)
-            scanline_begin = 2, scanline_end = 178;
-        if (height == 360)
-            scanline_begin = 4, scanline_end = 356;
-    }
-    if (!scanline_end)
-        scanline_end = height;
-    int16_t scanline_count = (int16_t)(scanline_end - scanline_begin);
-    bool use_40 = height == 180 || height == 240;
-    if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
+    uint8_t cols, rows;
+    if (!mode0_layout(vga_canvas_width(), vga_canvas_height(),
+                      &scanline_begin, &scanline_end, &cols, &rows))
         return false;
     if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, NULL))
         return false;
-    if (use_40)
-        term_set_height(40, (uint8_t)(scanline_count / 8));
-    else
-        term_set_height(80, (uint8_t)(scanline_count / 16));
+    term_set_height(cols, rows);
     vid_prog_word = 0x80000000u | ((uint32_t)(uint16_t)scanline_end << 16)
                     | (uint16_t)scanline_begin;
     VID_PROG = vid_prog_word;
@@ -82,7 +70,7 @@ void vid_task(void)
     {
         vid_needs_restore = false;
         xreg1(0x0F, 0x01, 437);
-        xreg1(0x0F, 0x00, vga_get_display_type());
+        vga_console_reset();
     }
     static uint32_t frame;
     uint32_t now = VID_FRAME;
@@ -108,11 +96,10 @@ void vid_restore(void)
     vid_publish();
 }
 
-/* The console's code page and display type are put back when a program
- * stops. The two writes are deferred to vid_task so that they land after
- * every other stop hook has run, which a stop hook itself could ensure only
- * from the first row of the driver list, because stop hooks run in reverse
- * order. */
+/* The console's code page and canvas are put back when a program stops.
+ * Both are deferred to vid_task so that they land after every other stop hook
+ * has run, which a stop hook itself could ensure only from the first row of
+ * the driver list, because stop hooks run in reverse order. */
 void vid_stop(void)
 {
     vid_needs_restore = true;

@@ -6,28 +6,35 @@
 
 #include "core/vga/vga.h"
 #include "core/vga/mode/mode0.h"
+#include "core/api/xreg.h"
+#include "core/term/term.h"
 
+/* canvas_w and canvas_h cache the selected canvas's size, so that the getters
+ * below, which run on every scanline, do not each look it up again. */
 static vga_canvas_t canvas_code = vga_canvas_console;
 static int16_t canvas_w = 640, canvas_h = 480;
+static int16_t console_w = 640, console_h = 480;
+
+void vga_console_size(int *w, int *h)
+{
+    *w = console_w;
+    *h = console_h;
+}
+
+void vga_set_console_size(int w, int h)
+{
+    console_w = (int16_t)w;
+    console_h = (int16_t)h;
+}
 
 /* The savestate load restores the scanline table and the terminal's first line
  * after this call, so this function must not reset the table or re-program the
  * terminal the way vga_canvas_select does. */
 bool vga_canvas_load(uint16_t canvas)
 {
-    switch (canvas)
-    {
-    case vga_canvas_console:
-    case vga_canvas_320_240:
-    case vga_canvas_320_180:
-    case vga_canvas_640_480:
-    case vga_canvas_640_360:
-        break;
-    default:
-        return false;
-    }
     int w, h;
-    vga_canvas_geometry((vga_canvas_t)canvas, &w, &h);
+    if (!vga_canvas_geometry(canvas, &w, &h))
+        return false;
     canvas_code = (vga_canvas_t)canvas;
     canvas_w = (int16_t)w;
     canvas_h = (int16_t)h;
@@ -45,20 +52,10 @@ vga_canvas_t vga_canvas_code(void)
  * the size is different. */
 bool vga_canvas_select(uint16_t canvas)
 {
-    switch (canvas)
-    {
-    case vga_canvas_console:
-    case vga_canvas_320_240:
-    case vga_canvas_320_180:
-    case vga_canvas_640_480:
-    case vga_canvas_640_360:
-        break;
-    default:
-        return false;
-    }
-    canvas_code = (vga_canvas_t)canvas;
     int w, h;
-    vga_canvas_geometry(canvas_code, &w, &h);
+    if (!vga_canvas_geometry(canvas, &w, &h))
+        return false;
+    canvas_code = (vga_canvas_t)canvas;
     canvas_w = (int16_t)w;
     canvas_h = (int16_t)h;
     vga_canvas_reset();
@@ -66,9 +63,16 @@ bool vga_canvas_select(uint16_t canvas)
     if (canvas_code == vga_canvas_console)
     {
         uint16_t xregs[8] = {0};
-        mode0_prog(xregs); /* all zeros: the terminal across the whole canvas */
+        mode0_prog(xregs); /* all zeros: the tallest terminal that fits, centered */
     }
     return true;
+}
+
+void vga_console_reset(void)
+{
+    vga_canvas_select(vga_canvas_console);
+    term_RIS_no_clear();
+    xreg1_clear();
 }
 
 vga_canvas_t vga_get_canvas(void)

@@ -20,11 +20,6 @@ bool vga_connected(void)
     return true;
 }
 
-uint8_t vga_get_display_type(void)
-{
-    return 1;
-}
-
 void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
     vga_pub_mode = mode;

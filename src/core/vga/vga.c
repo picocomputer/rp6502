@@ -5,7 +5,6 @@
  *
  */
 
-#include "core/api/xreg.h"
 #include "core/ria/regs.h"
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
@@ -42,11 +41,6 @@ static inline uint32_t rgb555_to_rgba8(uint16_t px)
 bool vga_connected(void)
 {
     return true;
-}
-
-uint8_t vga_get_display_type(void)
-{
-    return 1;
 }
 
 void vga_canvas_reset(void)
@@ -188,10 +182,13 @@ bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes)
 void vga_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
+    int console_w, console_h;
+    vga_console_size(&console_w, &console_h);
     sst_put_u64(c, beam_n);
     sst_put_bool(c, vsynced);
     sst_put_bool(c, vga_needs_reset);
     sst_put_u16(c, (uint16_t)vga_canvas_code());
+    sst_put_u16(c, (uint16_t)console_h);
     sst_put_u16(c, (uint16_t)vga_prog_highest());
     sst_put_u16(c, (uint16_t)mode0_begin());
     for (int16_t line = 0; line < VGA_SST_ROWS; line++)
@@ -223,9 +220,19 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
     bool synced = sst_get_bool(c);
     bool reset = sst_get_bool(c);
     uint16_t canvas = sst_get_u16(c);
+    uint16_t console_h = sst_get_u16(c);
     uint16_t highest = sst_get_u16(c);
     uint16_t term_begin = sst_get_u16(c);
     if (!sst_ok(c) || highest > VGA_SST_ROWS || term_begin > VGA_SST_ROWS)
+        return false;
+
+    /* Every console a host can give is 640 wide, so only its height is
+     * carried, and that is 480, 400 or 360. The canvas is checked here as
+     * well, rather than left for vga_canvas_load to refuse, because the
+     * console's size has to be set before the canvas is loaded, and a refused
+     * load must have set nothing. */
+    if ((console_h != 480 && console_h != 400 && console_h != 360) ||
+        canvas >= VGA_CANVAS_COUNT)
         return false;
 
     /* Every renderer the table names is resolved before any row is installed,
@@ -248,9 +255,11 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
             sst_get_u16(c);
             sst_get_u16(c);
         }
-    if (!sst_ok(c) || !vga_canvas_load(canvas))
+    if (!sst_ok(c))
         return false;
 
+    vga_set_console_size(640, console_h);
+    vga_canvas_load(canvas);
     beam_n = beam;
     frame_n = (unsigned long)(beam / VGA_SCANLINES);
     vsynced = synced;
@@ -285,10 +294,7 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        /* Channel $F is the control channel the RIA reserves for itself, which
-         * on a board crosses the PIX bus to the VGA. Here the VGA is the same
-         * binary, so it is the call that message would have become. */
-        xreg1(0xF, 0x00, vga_get_display_type());
+        vga_console_reset();
     }
     /* A debugger holding the 6502 holds the whole machine. Left running, the
      * beam would go on counting frames and latching $FFF0 bit 7 while a

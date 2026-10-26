@@ -17,6 +17,9 @@ typedef enum
     vga_canvas_320_180,
     vga_canvas_640_480,
     vga_canvas_640_360,
+    vga_canvas_320_200,
+    vga_canvas_640_400,
+    VGA_CANVAS_COUNT,
 } vga_canvas_t;
 
 unsigned long vga_frame_count(void);
@@ -26,12 +29,19 @@ unsigned long vga_frame_count(void);
 bool vga_connected(void);
 
 vga_canvas_t vga_get_canvas(void);
-uint8_t vga_get_display_type(void);
 
 void vga_canvas_size(int *w, int *h);
 int16_t vga_canvas_height(void);
 int16_t vga_canvas_width(void);
 int16_t vga_canvas_y_scale(void);
+
+/* The size of the console canvas. A Pico RIA derives it from the display the
+ * VGA is plugged into. A machine that draws its own console holds it in
+ * canvas.c, where it is 640x480 unless the host sets another size before the
+ * machine starts, and a savestate load sets the size the savestate carries. A
+ * new size takes effect at the next vga_canvas_select or vga_canvas_load. */
+void vga_console_size(int *w, int *h);
+void vga_set_console_size(int w, int h);
 
 bool vga_canvas_is_console(void);
 
@@ -42,6 +52,11 @@ void vga_load_code_page(uint16_t cp);
 bool vga_canvas_select(uint16_t canvas);
 
 void vga_canvas_reset(void);
+
+/* What a stop does to the console on a machine that draws its own: the
+ * console canvas is selected, the terminal is reset without clearing its
+ * screen, and a mode program left half assembled in the xregs is dropped. */
+void vga_console_reset(void);
 
 void vga_canvas_publish(vga_canvas_t canvas);
 
@@ -57,17 +72,34 @@ vga_canvas_t vga_canvas_code(void);
 
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 
-static inline void vga_canvas_geometry(vga_canvas_t code, int *w, int *h)
+/* The size of every canvas, and the one list of the canvases there are. The
+ * console's size belongs to the machine, so it comes from vga_console_size.
+ * False for a code that names no canvas. */
+static inline bool vga_canvas_geometry(uint16_t code, int *w, int *h)
 {
     switch (code)
     {
-    case vga_canvas_320_240: *w = 320; *h = 240; break;
-    case vga_canvas_320_180: *w = 320; *h = 180; break;
-    case vga_canvas_640_360: *w = 640; *h = 360; break;
-    case vga_canvas_console:
-    case vga_canvas_640_480:
-    default: *w = 640; *h = 480; break;
+    case vga_canvas_console: vga_console_size(w, h); return true;
+    case vga_canvas_320_240: *w = 320; *h = 240; return true;
+    case vga_canvas_320_180: *w = 320; *h = 180; return true;
+    case vga_canvas_640_480: *w = 640; *h = 480; return true;
+    case vga_canvas_640_360: *w = 640; *h = 360; return true;
+    case vga_canvas_320_200: *w = 320; *h = 200; return true;
+    case vga_canvas_640_400: *w = 640; *h = 400; return true;
     }
+    return false;
+}
+
+/* The console has 40 columns in an 8x8 font on a canvas 320 pixels wide, and
+ * 80 columns in an 8x16 font on one 640 wide, whatever the canvas's height. */
+static inline int vga_term_columns(int w)
+{
+    return w == 320 ? 40 : 80;
+}
+
+static inline int vga_term_row_px(int w)
+{
+    return w == 320 ? 8 : 16;
 }
 
 /* Rows in a scanline program, which also bounds a scanline number. It is 512

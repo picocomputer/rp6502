@@ -81,6 +81,15 @@ UTEST(abi, av_info_is_the_machine_it_emulates)
     ASSERT_EQ((int)av.timing.sample_rate, 48000);
 }
 
+UTEST(abi, the_boot_console_is_4_3)
+{
+    struct retro_system_av_info av;
+    fe.get_system_av_info(&av);
+    ASSERT_EQ(av.geometry.base_width, 640u);
+    ASSERT_EQ(av.geometry.base_height, 480u);
+    ASSERT_EQ(av.geometry.aspect_ratio, 4.0f / 3.0f);
+}
+
 UTEST(abi, the_memory_a_frontend_may_read)
 {
     ASSERT_TRUE(fe.get_memory_data(RETRO_MEMORY_SYSTEM_RAM) != NULL);

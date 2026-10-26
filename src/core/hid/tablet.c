@@ -19,9 +19,9 @@
 /* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
  * fixed reference resolution at the same rate mouse.c reports at and then
  * scaled to the canvas. The program then reads an absolute position that moves
- * at the same speed whatever the canvas width is. */
+ * at the same speed whatever the canvas width is. The reference space is
+ * always this wide, and as tall as the canvas's shape makes it. */
 #define TABLET_REF_WIDTH 640
-#define TABLET_REF_HEIGHT 480
 #define TABLET_MOUSE_DIV 2 /* counts per reference pixel, matching mouse.c */
 
 static uint8_t tablet_state[TABLET_BLOCK_SIZE];
@@ -210,16 +210,21 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
         tablet_sub_y -= (int16_t)(sy * TABLET_MOUSE_DIV);
         tablet_ref_x += (int16_t)sx;
         tablet_ref_y += (int16_t)sy;
+        /* The reference space has the canvas's shape, so the pointer stops at
+         * the bottom of a widescreen canvas the moment it reaches it, and the
+         * first move up is seen at once rather than after a band of travel
+         * below the canvas. */
+        const int ref_h = ch * TABLET_REF_WIDTH / cw;
         if (tablet_ref_x < 0)
             tablet_ref_x = 0;
         else if (tablet_ref_x > TABLET_REF_WIDTH - 1)
             tablet_ref_x = TABLET_REF_WIDTH - 1;
         if (tablet_ref_y < 0)
             tablet_ref_y = 0;
-        else if (tablet_ref_y > TABLET_REF_HEIGHT - 1)
-            tablet_ref_y = TABLET_REF_HEIGHT - 1;
+        else if (tablet_ref_y > ref_h - 1)
+            tablet_ref_y = (int16_t)(ref_h - 1);
         /* The width ratio is applied to both axes, so that a diagonal stays
-         * at 45 degrees. The clamp below bounds the vertical extent. */
+         * at 45 degrees. */
         tablet_x = (int16_t)((int32_t)tablet_ref_x * cw / TABLET_REF_WIDTH);
         tablet_y = (int16_t)((int32_t)tablet_ref_y * cw / TABLET_REF_WIDTH);
     }

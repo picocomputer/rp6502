@@ -116,25 +116,50 @@ UTEST(run, nothing_is_handed_over_outside_a_run)
     fe.unload_game();
 }
 
+/* One program on each canvas from 1 to 6, by the canvas code after it. */
+static const char *const one_per_canvas[] = {
+    "mode3_8bpp",    /* 3 */
+    "mode3_1bpp",    /* 1 */
+    "mode3_4bppr",   /* 2 */
+    "mode3_16bpp",   /* 4 */
+    "mode3_full200", /* 5 */
+    "mode3_full400", /* 6 */
+};
+
 UTEST(run, the_frame_is_the_canvas_the_corpus_names)
 {
-    static const char *names[] = {
-        "mode3_8bpp",
-        "mode3_1bpp",
-        "mode3_4bppr",
-        "mode3_16bpp",
-    };
-    for (size_t i = 0; i < sizeof names / sizeof *names; i++)
+    for (size_t i = 0; i < sizeof one_per_canvas / sizeof *one_per_canvas; i++)
     {
+        const char *name = one_per_canvas[i];
         int w, h;
-        ASSERT_TRUE_MSG(corpus_size(names[i], &w, &h), (char *)names[i]);
+        ASSERT_TRUE_MSG(corpus_size(name, &w, &h), (char *)name);
         char path[512];
-        snprintf(path, sizeof path, ROMS_DIR "/%s.rp6502", names[i]);
+        snprintf(path, sizeof path, ROMS_DIR "/%s.rp6502", name);
         ASSERT_TRUE_MSG(fe_load(path), path);
         fe_run(20);
-        ASSERT_EQ_MSG((int)fe.frame_w, w, (char *)names[i]);
-        ASSERT_EQ_MSG((int)fe.frame_h, h, (char *)names[i]);
-        ASSERT_EQ_MSG(fe.frame_pitch, (size_t)w * 4, (char *)names[i]);
+        ASSERT_EQ_MSG((int)fe.frame_w, w, (char *)name);
+        ASSERT_EQ_MSG((int)fe.frame_h, h, (char *)name);
+        ASSERT_EQ_MSG(fe.frame_pitch, (size_t)w * 4, (char *)name);
+        fe.unload_game();
+    }
+}
+
+/* Every canvas has square pixels, so a frontend is told each one's own shape
+ * and a 16:9 or 16:10 canvas is not squeezed into 4:3. */
+UTEST(run, each_canvas_is_announced_at_its_own_aspect)
+{
+    for (size_t i = 0; i < sizeof one_per_canvas / sizeof *one_per_canvas; i++)
+    {
+        const char *name = one_per_canvas[i];
+        int w, h;
+        ASSERT_TRUE_MSG(corpus_size(name, &w, &h), (char *)name);
+        char path[512];
+        snprintf(path, sizeof path, ROMS_DIR "/%s.rp6502", name);
+        ASSERT_TRUE_MSG(fe_load(path), path);
+        fe_run(20);
+        ASSERT_TRUE_MSG(fe.geom_count > 0, (char *)name);
+        const float want = (float)w / h;
+        ASSERT_EQ_MSG(fe.geom[fe.geom_count - 1].aspect, want, (char *)name);
         fe.unload_game();
     }
 }
