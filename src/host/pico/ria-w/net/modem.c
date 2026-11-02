@@ -70,6 +70,11 @@ typedef struct
     absolute_time_t ring_timer;
     uint16_t active_listen_port;
     bool is_answering;
+    // Endpoints of the last call that rang or was dialed, for +PEER and +SELF.
+    // net drops the pcb on hangup, so they are copied while the call is up.
+    bool has_peer;
+    net_endpoint_t peer;
+    net_endpoint_t self;
 } modem_conn_t;
 
 static modem_conn_t modem_conns[NET_MODEM_DESCS];
@@ -552,6 +557,7 @@ bool modem_dial(const char *s)
     }
     modem_conn->parse_active = false;
     modem_conn->is_answering = false;
+    modem_conn->has_peer = false;
     strcpy(modem_conn->cmd_buf, buf);
     modem_conn->dial_port = port;
     modem_conn->state = modem_state_wait;
@@ -574,6 +580,8 @@ bool modem_connect(void)
             modem_set_response_fn_state(modem_response_code, 1); // CONNECT
         modem_conn->state = modem_state_connected;
         modem_conn->in_command_mode = false;
+        modem_conn->has_peer = telnet_peer(modem_desc(), &modem_conn->peer,
+                                           &modem_conn->self);
         telnet_negotiate(modem_desc(), modem_conn->settings.net_mode != 0,
                       modem_conn->settings.tty_type);
         return true;
@@ -640,6 +648,14 @@ uint8_t modem_get_ring_count(void)
     return modem_conn->ring_count;
 }
 
+bool modem_peer_str(bool local, char *buf, size_t size)
+{
+    if (!modem_conn->has_peer)
+        return false;
+    net_endpoint_str(local ? &modem_conn->self : &modem_conn->peer, buf, size);
+    return true;
+}
+
 static void modem_ring(void)
 {
     if (modem_conn->state != modem_state_on_hook)
@@ -648,6 +664,8 @@ static void modem_ring(void)
     modem_conn->ring_count = 0;
     modem_conn->ring_timer = get_absolute_time();
     modem_conn->is_answering = false;
+    modem_conn->has_peer = telnet_pending_peer(modem_conn->settings.listen_port,
+                                               &modem_conn->peer, &modem_conn->self);
 }
 
 static void modem_net_on_close(int desc)
@@ -858,6 +876,7 @@ static void modem_conn_stop(modem_conn_t *conn)
     conn->escape_count = 0;
     conn->ring_count = 0;
     conn->is_answering = false;
+    conn->has_peer = false;
 }
 
 void modem_stop(void)

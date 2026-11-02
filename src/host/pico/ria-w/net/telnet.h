@@ -29,5 +29,7 @@ bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
 bool telnet_accept_server(int desc, uint16_t port, void (*on_close)(int));
 void telnet_reject(uint16_t port);
 bool telnet_has_pending(uint16_t port);
+bool telnet_peer(int desc, net_endpoint_t *remote, net_endpoint_t *local);
+bool telnet_pending_peer(uint16_t port, net_endpoint_t *remote, net_endpoint_t *local);
 
 #endif /* _RIA_W_NET_TELNET_H_ */

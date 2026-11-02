@@ -539,6 +539,50 @@ static bool cmd_plus_pass(const char **s)
     return false;
 }
 
+static int cmd_plus_endpoint_response(char *buf, size_t buf_size, bool local)
+{
+    char addr[64];
+    if (modem_peer_str(local, addr, sizeof(addr)))
+        snprintf(buf, buf_size, "%s\r\n", addr);
+    else
+        oem_snprintf(buf, buf_size, "%s\r\n", S(STR_PARENS_NONE));
+    return -1;
+}
+
+// +PEER?
+static int cmd_plus_peer_response(char *buf, size_t buf_size, int state, unsigned)
+{
+    (void)state;
+    return cmd_plus_endpoint_response(buf, buf_size, false);
+}
+
+// +PEER
+static bool cmd_plus_peer(const char **s)
+{
+    if (**s != '?')
+        return false;
+    ++*s;
+    modem_set_response_fn(cmd_plus_peer_response);
+    return true;
+}
+
+// +SELF?
+static int cmd_plus_self_response(char *buf, size_t buf_size, int state, unsigned)
+{
+    (void)state;
+    return cmd_plus_endpoint_response(buf, buf_size, true);
+}
+
+// +SELF
+static bool cmd_plus_self(const char **s)
+{
+    if (**s != '?')
+        return false;
+    ++*s;
+    modem_set_response_fn(cmd_plus_self_response);
+    return true;
+}
+
 // +
 static bool cmd_parse_plus(const char **s)
 {
@@ -556,6 +600,16 @@ static bool cmd_parse_plus(const char **s)
     {
         *s += STR_PASS_LEN;
         return cmd_plus_pass(s);
+    }
+    if (!strncasecmp(*s, STR_PEER, STR_PEER_LEN))
+    {
+        *s += STR_PEER_LEN;
+        return cmd_plus_peer(s);
+    }
+    if (!strncasecmp(*s, STR_SELF, STR_SELF_LEN))
+    {
+        *s += STR_SELF_LEN;
+        return cmd_plus_self(s);
     }
     return false;
 }

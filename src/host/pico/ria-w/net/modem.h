@@ -76,6 +76,8 @@ bool modem_connect(void);
 bool modem_hangup(void);
 bool modem_answer(void);
 uint8_t modem_get_ring_count(void);
+// The far (local=false) or near end of the last call that rang or was dialed.
+bool modem_peer_str(bool local, char *buf, size_t size);
 bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
