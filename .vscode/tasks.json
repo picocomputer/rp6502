@@ -45,12 +45,14 @@
             "args": [
                 "-s",
                 "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
+                "-c",
+                "set CMAKE_LAUNCH_TARGET {${command:cmake.launchTargetName}}",
                 "-f",
                 "interface/cmsis-dap.cfg",
                 "-f",
                 "target/${command:raspberry-pi-pico.getTarget}.cfg",
                 "-c",
-                "adapter speed 5000; program \"${command:cmake.launchTargetPath}\" verify reset exit"
+                "adapter speed 5000; program {${command:cmake.launchTargetPath}} verify reset exit"
             ],
             "problemMatcher": [],
             "windows": {

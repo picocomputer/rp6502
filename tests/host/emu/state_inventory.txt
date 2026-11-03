@@ -47,6 +47,17 @@ core/aud/mix.c g_viz_pos: not carried: a display of what was rendered
 core/aud/opl.c opl_emu8950: the OPL chunk
 core/aud/opl.c opl_wave_base: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
+core/aud/pcm.c pcm_base: the PCM chunk
+core/aud/pcm.c pcm_buf_mask: the PCM chunk
+core/aud/pcm.c pcm_format: the PCM chunk
+core/aud/pcm.c pcm_frame_sz: the PCM chunk
+core/aud/pcm.c pcm_l0: the PCM chunk
+core/aud/pcm.c pcm_l1: the PCM chunk
+core/aud/pcm.c pcm_phase: the PCM chunk
+core/aud/pcm.c pcm_phase_inc: the PCM chunk
+core/aud/pcm.c pcm_r0: the PCM chunk
+core/aud/pcm.c pcm_r1: the PCM chunk
+core/aud/pcm.c pcm_read_ptr: the PCM chunk
 core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after

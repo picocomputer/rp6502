@@ -20,6 +20,7 @@
 #include "core/api/tim.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
+#include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
@@ -56,7 +57,7 @@
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
     OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
-    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
+    PSG_DRIVER, OPL_DRIVER, PCM_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,  \
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 

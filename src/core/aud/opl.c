@@ -82,7 +82,7 @@ bool opl_xreg(uint16_t word)
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         opl_xaddr = 0xFFFF;
-        aud_stop();
+        aud_release();
         aud_engine_unlock();
         return word == 0xFFFF;
     }
@@ -101,7 +101,8 @@ bool opl_xreg(uint16_t word)
     opl_wave_base = opl_emu8950->slot[0].wav_or_table;
     opl_xaddr = word;
     memset((uint8_t *)&xram[word], 0, 256);
-    /* One engine sounds at a time; see psg_xreg. */
+    /* One of the PSG and the OPL sounds at a time; see psg_xreg. PCM is
+     * summed with either and is left alone. */
     psg_park();
     aud_setup(aud_dev_opl);
     /* Watching is what arms the reporting, so it is asked for after the

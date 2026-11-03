@@ -9,6 +9,7 @@
 #include "core/wdc/bus.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
+#include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/term/term.h"
@@ -49,8 +50,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222856);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
+    ASSERT_EQ(sst_size(), (size_t)222890);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 28u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -284,6 +285,61 @@ UTEST(sst, an_opl_chord_comes_back)
     aud_pull(came, 32);
     ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
     ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+}
+
+UTEST(sst, pcm_sounds_with_the_opl_and_comes_back)
+{
+    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    aud_set_enabled(true);
+    ASSERT_TRUE(opl_xreg(0x4000));
+    static const uint8_t regs[][2] = {
+        {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
+        {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
+        {0xA0, 0x98}, {0xB0, 0x31},
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+
+    /* Mono signed 8-bit at 8 kHz in a 1 KB ring, all but one byte full,
+     * which is more than every pull below consumes. */
+    for (int i = 0; i < 1024; i++)
+        xram[0x5008 + i] = (uint8_t)(i * 37);
+    xram[0x5000] = 0xFF;
+    xram[0x5001] = 0x03;
+    xram[0x5002] = 0x03;
+    xram[0x5003] = 10;
+    xram[0x5004] = 0x40;
+    xram[0x5005] = 0x1F;
+    ASSERT_TRUE(pcm_xreg(0x5000));
+    ASSERT_EQ(aud_device(), aud_dev_opl);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+
+    aud_pull(went, 8);
+    ASSERT_EQ(take(), (const char *)NULL);
+    aud_pull(went, 32);
+
+    ASSERT_TRUE(pcm_xreg(0xFFFF));
+    ASSERT_EQ(aud_device(), aud_dev_opl);
+    ASSERT_TRUE(opl_xreg(0xFFFF));
+    aud_pull(came, 16);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(aud_device(), aud_dev_opl);
+    aud_pull(came, 32);
+    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
+    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+
+    /* Giving up the OPL leaves PCM playing, and stopping PCM then leaves
+     * nothing. */
+    ASSERT_TRUE(opl_xreg(0xFFFF));
+    ASSERT_EQ(aud_device(), aud_dev_none);
+    aud_pull(came, 2);
+    aud_pull(came, 8);
+    ASSERT_TRUE(aud_sounded(came, 64 * 2 * 8));
+    ASSERT_TRUE(pcm_xreg(0xFFFF));
+    aud_pull(came, 2);
+    aud_pull(came, 8);
+    ASSERT_FALSE(aud_sounded(came, 64 * 2 * 8));
 }
 
 /* Whether the machine is on the console canvas, the console is w by h, and

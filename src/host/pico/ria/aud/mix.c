@@ -6,6 +6,7 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
+#include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
@@ -58,16 +59,17 @@ static void __isr __time_critical_func(aud_irq)(void)
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     aud_drain();
-    int16_t l = 0, r = 0;
+    int16_t l = 0, r = 0, pl, pr;
     switch (aud_dev)
     {
     case aud_dev_psg: psg_sample(&l, &r); break;
     case aud_dev_opl: opl_stereo(&l, &r); break;
     case aud_dev_none: break;
     }
+    pcm_sample(&pl, &pr);
     const int32_t bel = bel_sample();
-    int32_t sl = l + bel;
-    int32_t sr = r + bel;
+    int32_t sl = l + pl + bel;
+    int32_t sr = r + pr + bel;
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
     if (sl > AUD_SAMPLE_MAX)
@@ -122,10 +124,20 @@ void __in_flash("aud_init") aud_init(void)
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
-void aud_stop(void)
+void aud_release(void)
 {
     aud_dev = aud_dev_none;
     ria_aud_watch(0xFFFF);
+}
+
+/* PCM goes with the program, since its ring is in XRAM the next one will
+ * write over. */
+void aud_stop(void)
+{
+    aud_release();
+    aud_engine_lock();
+    pcm_stop();
+    aud_engine_unlock();
 }
 
 void aud_setup(aud_dev_t dev)

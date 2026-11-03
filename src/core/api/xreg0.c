@@ -8,6 +8,7 @@
 
 #include "core/sys/driver.h"
 #include "core/aud/opl.h"
+#include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
@@ -48,6 +49,8 @@ bool xreg0(uint8_t channel, uint8_t index, uint16_t word)
             return psg_xreg(word);
         if (index == 1)
             return opl_xreg(word);
+        if (index == 2)
+            return pcm_xreg(word);
         return false;
     }
     return false;

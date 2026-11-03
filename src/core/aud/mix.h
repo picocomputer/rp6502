@@ -32,9 +32,9 @@ void aud_stop(void);
 void aud_shutdown(void);
 
 /* The device to mix, or none. psg_xreg and opl_xreg register themselves here
- * and aud_stop stops whichever is registered, which is one of them: taking
- * either engine parks the other. The bell is not a device, so every mixer
- * adds it whatever this says.
+ * and aud_release gives up whichever is registered, which is one of them:
+ * taking either engine parks the other. The bell and PCM are not devices, so
+ * every mixer adds them whatever this says. aud_stop also stops PCM.
  * The engine is named rather than passed as a function pointer because a
  * savestate has to say which one is sounding in bytes another build will
  * read back.
@@ -47,6 +47,7 @@ typedef enum
     aud_dev_opl,
 } aud_dev_t;
 
+void aud_release(void);
 void aud_setup(aud_dev_t dev);
 aud_dev_t aud_device(void);
 

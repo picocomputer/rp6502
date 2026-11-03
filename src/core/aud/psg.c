@@ -348,7 +348,7 @@ bool psg_xreg(uint16_t word)
         /* Hand the mix back as well, because psg_sample would otherwise go
          * on reading the 64-byte channel block at 0xFFFF, which runs 63
          * bytes past the end of XRAM. */
-        aud_stop();
+        aud_release();
         aud_engine_unlock();
         return word == 0xFFFF;
     }
