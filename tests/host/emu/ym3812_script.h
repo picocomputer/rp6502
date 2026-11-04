@@ -69,6 +69,8 @@ void ym_script_retrigger(ym_script_t *s);
 void ym_script_clip(ym_script_t *s, bool rhythm);
 void ym_script_test_bits(ym_script_t *s, uint32_t seed);
 void ym_script_eg_wrap(ym_script_t *s);
+void ym_script_keyoff_silent(ym_script_t *s);
+void ym_script_decay_sl0(ym_script_t *s);
 
 /* src with every offset the engine skips written, random data, wherever the
  * bus has room between two writes, and 08 bit 7 cleared so that a timer the

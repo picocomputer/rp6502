@@ -38,6 +38,9 @@ void ym_trace(uint8_t reg, uint8_t val)
     ym_script_add(&applied, now, reg, val);
 }
 
+/* Slots that re-evaluate the whole rule in the next sample. */
+int ym_forced_slots(void);
+
 static char why[640];
 
 /* Fed as the firmware feeds it: a sample's writes are pushed, then the
@@ -53,6 +56,41 @@ static void engine_run(const ym_script_t *pushes, int16_t *out)
             ym3812_push(pushes->w[i].reg, pushes->w[i].val);
         out[now] = ym3812_sample();
     }
+}
+
+static bool save(void);
+static bool load(size_t len);
+
+/* NULL when no slot is left between samples to re-evaluate the whole rule,
+ * straight and with the state saved and loaded before every sample, else the
+ * first sample after which one is. */
+static const char *none_forced(const ym_script_t *pushes)
+{
+    for (int cut = 0; cut < 2; cut++)
+    {
+        ym3812_reset();
+        applied.count = 0;
+        size_t i = 0;
+        for (now = 0; now < pushes->samples; now++)
+        {
+            for (; i < pushes->count && pushes->w[i].n == now; i++)
+                ym3812_push(pushes->w[i].reg, pushes->w[i].val);
+            if (cut && !(save() && load(YM3812_SST_SIZE)))
+            {
+                snprintf(why, sizeof why, "sample %u: the load refused a saved state", (unsigned)now);
+                return why;
+            }
+            ym3812_sample();
+            const int k = ym_forced_slots();
+            if (k)
+            {
+                snprintf(why, sizeof why, "after sample %u%s, %d slots re-evaluate in full", (unsigned)now,
+                         cut ? " loaded" : "", k);
+                return why;
+            }
+        }
+    }
+    return NULL;
 }
 
 static void model_run(const ym_script_t *schedule, int16_t *out)
@@ -333,6 +371,34 @@ UTEST(ym3812, lle_holes)
     ym_script_free(&s);
     ASSERT_EQ(missing, 0);
     ASSERT_OK(r);
+}
+
+/* versus_lle and none_forced, then frees the script. */
+static const char *lle_settled_free(ym_script_t *s)
+{
+    const char *r = versus_lle(s, false);
+    if (!r)
+        r = none_forced(s);
+    ym_script_free(s);
+    return r;
+}
+
+/* Key-offs in attack at level 0x1FF, by each source: in the mix that sample,
+ * muted from the next. */
+UTEST(ym3812, lle_keyoff_silent)
+{
+    ym_script_t s = {0};
+    ym_script_keyoff_silent(&s);
+    ASSERT_OK(lle_settled_free(&s));
+}
+
+/* Attack to decay with SL 0, inline and after a forced evaluation: one
+ * decay sample, then sustain. */
+UTEST(ym3812, lle_decay_sl0)
+{
+    ym_script_t s = {0};
+    ym_script_decay_sl0(&s);
+    ASSERT_OK(lle_settled_free(&s));
 }
 
 /* About 11 s, across the envelope timer's wrap. */

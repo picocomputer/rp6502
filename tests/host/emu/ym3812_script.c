@@ -318,12 +318,18 @@ static void ym_dense(int reg, int val, uint32_t gap)
     }
 }
 
-void ym_script_dense(ym_script_t *s, uint32_t seed, uint32_t samples, unsigned flags)
+/* ym_begin for a script whose writes go through ym_dense. */
+static void ym_dense_begin(ym_script_t *s, uint32_t seed, uint32_t samples)
 {
     ym_begin(s, seed, samples);
     ym_last = s->w[1];
     ym_credit = 0;
     ym_lfo0 = ym_last.n;
+}
+
+void ym_script_dense(ym_script_t *s, uint32_t seed, uint32_t samples, unsigned flags)
+{
+    ym_dense_begin(s, seed, samples);
     bool slow = flags & YM_SLOW_ENV, rhythm = flags & YM_RHYTHM, test = flags & YM_TEST_BITS;
     uint32_t gap = (flags & YM_GAP2) ? 1 : 0;
 #define D(reg, val) ym_dense(reg, val, gap)
@@ -854,6 +860,110 @@ void ym_script_eg_wrap(ym_script_t *s)
         ym_w(0xB0 + c, 0x20 | (1 + c % 7) << 2 | 1);
     }
 }
+
+#define D(reg, val) ym_dense(reg, val, 0)
+#define DG(reg, val, gap) ym_dense(reg, val, gap)
+
+/* Slots at AR 0 keyed on from silence stay in attack at level 0x1FF, in the
+ * mix. Each source keys them off: B0 (its modulator a sample later), the
+ * alias BA, B3-B5, B6-B8, BD drum bits and rhythm turned off; a key-on, test
+ * bit 7 or NTS follows as soon as the bus allows. */
+void ym_script_keyoff_silent(ym_script_t *s)
+{
+    ym_dense_begin(s, 12, 6000);
+    D(0x01, 0x20);
+    for (int c = 0; c < 9; c++)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            int off = i ? ym_car(c) : ym_mod(c);
+            D(0x20 + off, 0x01 | (c & 1) << 4);
+            D(0x60 + off, 0x0F);
+            D(0x80 + off, i ? 0x0F : 0x4F);
+        }
+        D(0xC0 + c, c & 1);
+        D(0xA0 + c, 0x55 + 29 * c);
+    }
+    for (int r = 0; ym_last.n < s->samples - 200; r++)
+    {
+        const int rhy = r & 1;
+        for (int c = 0; c < 9; c++)
+            D(0xB0 + c, (c < 6 || !rhy) << 5 | 0x11);
+        D(0xBD, rhy ? 0x3F : 0x00);
+        DG(0xB0, 0x11, (uint32_t)(r % 4));
+        D(0xBA, 0x11);
+        D(0xB3 + r % 3, 0x11);
+        if (rhy)
+        {
+            D(0xBD, 0x2E);
+            D(0xBD, 0x00);
+            D(0xBD, 0x3F);
+            D(0xBD, 0x20);
+        }
+        else
+        {
+            D(0xB6 + r % 3, 0x11);
+            D(0xBD, 0x00);
+        }
+        D(0x01, YM_PICK(0x28, 0x20));
+        DG(0x01, 0xA0, (uint32_t)ym_range(0, 3));
+        D(0x01, 0x20);
+        D(0xB4, 0x31);
+        D(0xB4, 0x11);
+        D(0x08, 0x40);
+        D(0x08, 0x00);
+        DG(0xBD, 0x00, 20);
+    }
+}
+
+/* SL 0: attack ends in the SL band, so decay lasts one sample. AR 15 is at
+ * level 0 on the key-on; the decay sample takes an SL write or a key-off,
+ * and test bit 7 rises while slot 0 is at level 0 in attack. */
+void ym_script_decay_sl0(ym_script_t *s)
+{
+    static const uint8_t ar[9] = {15, 14, 13, 12, 10, 8, 4, 12, 15};
+    ym_dense_begin(s, 13, 9000);
+    D(0x01, 0x20);
+    for (int c = 0; c < 9; c++)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            int off = i ? ym_car(c) : ym_mod(c);
+            D(0x20 + off, 0x01 | (c & 1) << 4 | (c & 2) << 4 | i << 6);
+            D(0x40 + off, i ? 0x00 : 0x10);
+            D(0x60 + off, ar[c] << 4 | (3 * c) % 16);
+            D(0x80 + off, 0x01 + c % 7);
+            D(0xE0 + off, (c + i) & 3);
+        }
+        D(0xC0 + c, c & 1);
+        D(0xA0 + c, 0x80 + 23 * c);
+    }
+    for (int r = 0; ym_last.n < s->samples - 600; r++)
+    {
+        const int rhy = r % 3 == 2;
+        D(0xBD, rhy ? 0x20 : 0x00);
+        for (int c = 1; c < 9; c++)
+            D(0xB0 + c, (c < 6 || !rhy) << 5 | (1 + c % 6) << 2 | 1);
+        if (rhy)
+            D(0xBD, 0x3F);
+        D(0x80 + ym_car(8), 0x20 | (r & 15));
+        D(0x80 + ym_car(8), 0x01);
+        D(0xB0, 0x25);
+        D(0xB0, 0x05);
+        D(0x01, 0x28);
+        DG(0x01, 0x28, (uint32_t)(r % 5));
+        D(0xB9, 0x25);
+        D(0x01, 0xA0);
+        D(0x01, 0x20);
+        DG(0xBD, 0x00, 150 + 37 * (uint32_t)(r % 7));
+        for (int c = 0; c < 9; c++)
+            D(0xB0 + c, (1 + c % 6) << 2 | 1);
+        DG(0x08, (r & 1) << 6, 100);
+    }
+}
+
+#undef D
+#undef DG
 
 /* ---------------- bursts ---------------- */
 

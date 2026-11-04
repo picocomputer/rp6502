@@ -109,7 +109,14 @@ typedef struct
 {
     uint32_t P;        /* 19-bit phase accumulator << 13 */
     int32_t level;     /* 9-bit attenuation */
-    uint16_t lo, span; /* fast path while (level - lo) < span; span 0: re-evaluate */
+    union
+    {
+        struct
+        {
+            uint16_t lo, span; /* fast path while (level - lo) < span; span 0: re-evaluate */
+        };
+        uint32_t rec; /* lo | span << 16 */
+    };
     uint8_t rc;        /* rate code: step table index, YM3812_ATTK + rate index in attack */
     uint8_t state;
     uint8_t key;
@@ -119,6 +126,7 @@ typedef struct
     int32_t mute;    /* -1 summed, 0 muted, this sample */
     uint32_t inc[7]; /* increment << 13 per vibrato variant (ym3812_vmap) */
     uint32_t r6w;    /* rate index per state, byte per state */
+    uint32_t drec;   /* rec of decay from level 0 */
     uint8_t slv;     /* SL, 31 for 15 */
     uint8_t nsx;     /* NTS flips bit 0 of the rate indices */
     uint8_t r20, r40, r60, r80, ws;
@@ -275,7 +283,7 @@ YM3812_COLD void ym3812_eg_forced(ym3812_slot_t *s, uint32_t inc)
         s->state = YM3812_REL;
         ym3812_eg_rec(s);
         if (s->mute != mute)
-            s->span = 0;
+            s->lo = 0x200; /* in the mix this sample, muted from the next */
         s->mute = mute;
         return;
     }
@@ -306,7 +314,7 @@ YM3812_COLD void ym3812_eg_event(ym3812_slot_t *s, uint32_t inc)
     if (st == YM3812_ATT)
     {
         s->state = YM3812_DEC;
-        s->lo = 0, s->span = (uint16_t)(s->slv << 4), s->rc = (uint8_t)ym3812_r6(s, YM3812_DEC);
+        s->rec = s->drec, s->rc = (uint8_t)ym3812_r6(s, YM3812_DEC);
         return;
     }
     if (st == YM3812_DEC && (lv >> 4) == s->slv)
@@ -343,7 +351,7 @@ YM3812_HOT uint32_t ym3812_eg(ym3812_slot_t *s, uint32_t amv, uint32_t inc)
         if (st == YM3812_ATT)
         {
             s->state = YM3812_DEC;
-            s->lo = 0, s->span = (uint16_t)(s->slv << 4), s->rc = (uint8_t)ym3812_r6(s, YM3812_DEC);
+            s->rec = s->drec, s->rc = (uint8_t)ym3812_r6(s, YM3812_DEC);
         }
         else if (st == YM3812_DEC && (e >> 4) == s->slv && e < 0x1f8)
         {
@@ -534,6 +542,12 @@ static void ym3812_slot_eg(ym3812_slot_t *s)
         if (s->span)
             ym3812_eg_rec(s);
     }
+}
+
+/* decay from level 0 up to the SL band; SL 0: none (lo 0x200, span 1) */
+static inline void ym3812_slot_drec(ym3812_slot_t *s)
+{
+    s->drec = s->slv ? (uint32_t)s->slv << 20 : 0x10200;
 }
 
 static inline uint32_t ym3812_drum(int i)
@@ -752,6 +766,7 @@ static void ym3812_apply(uint32_t a, uint32_t v)
     case 4:
         s->r80 = (uint8_t)v;
         ym3812_slot_eg(s);
+        ym3812_slot_drec(s);
         return;
     default:
         if (ym3812_chip.test & 0x20)
@@ -933,6 +948,7 @@ static void ym3812_rebuild(void)
         ym3812_slot_pg(s);
         ym3812_slot_ksl(s);
         ym3812_slot_eg(s);
+        ym3812_slot_drec(s);
         ym3812_eg_rec(s);
     }
 }
