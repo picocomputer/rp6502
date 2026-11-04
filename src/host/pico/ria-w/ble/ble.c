@@ -499,7 +499,7 @@ void ble_task(void)
     }
 }
 
-static void ble_set_config(uint8_t ble)
+static void HOST_IN_FLASH_FUNC("ble_set_config") ble_set_config(uint8_t ble)
 {
     switch (ble)
     {

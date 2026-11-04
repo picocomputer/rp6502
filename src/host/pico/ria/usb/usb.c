@@ -242,7 +242,10 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     return ulen;
 }
 
-void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
+void HOST_IN_FLASH_FUNC("usb_desc_string_to_oem") usb_desc_string_to_oem(const void *desc_buf,
+                                                                         size_t desc_buf_size,
+                                                                         char *dest,
+                                                                         size_t dest_size)
 {
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
     if (ulen > USB_DESC_STRING_MAX_CHAR_LEN)

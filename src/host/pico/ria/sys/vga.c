@@ -213,7 +213,7 @@ static void vga_rln_callback(bool timeout)
         vga_state = VGA_NOT_FOUND;
 }
 
-static void vga_connect(void)
+static void HOST_IN_FLASH_FUNC("vga_connect") vga_connect(void)
 {
     vga_backchannel_irq_disable();
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)

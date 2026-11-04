@@ -437,7 +437,7 @@ bool str_parse_end(const char *args)
 }
 
 
-void str_size(uint64_t bytes, char *out, size_t out_size)
+void HOST_IN_FLASH_FUNC("str_size") str_size(uint64_t bytes, char *out, size_t out_size)
 {
     const char *unit;
     if (bytes < 5000000ULL)

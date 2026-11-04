@@ -123,7 +123,7 @@ void wifi_task(void)
     }
 }
 
-static const char *wifi_status_message(void)
+static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message(void)
 {
     switch (wifi_state)
     {

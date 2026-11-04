@@ -110,7 +110,7 @@ static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_resp
 /* The reset vector is saved here and restored by ria_action_close. ria_task
  * calls ria_action_close between the two halves of a write, so the verify half
  * compares the bytes above $FFF9 against what the write put there. */
-static void ria_action_start(void)
+static void HOST_IN_FLASH_FUNC("ria_action_start") ria_action_start(void)
 {
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
@@ -168,7 +168,7 @@ static void ria_action_end(int32_t result)
     action_result = result;
 }
 
-static void ria_verify_start(void)
+static void HOST_IN_FLASH_FUNC("ria_verify_start") ria_verify_start(void)
 {
     action_state = action_state_verify;
     action_result = RIA_ACTION_RESULT_NONE;
@@ -227,7 +227,7 @@ void ria_task(void)
     callback(ok);
 }
 
-void ria_read_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -253,7 +253,7 @@ void ria_read_buf(uint16_t addr, ria_callback_t callback)
     ria_action_start();
 }
 
-void ria_write_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
