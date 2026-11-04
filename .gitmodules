@@ -46,3 +46,6 @@
 [submodule "vendor/libretro-common"]
 	path = vendor/libretro-common
 	url = https://github.com/libretro/libretro-common.git
+[submodule "vendor/YM3812-LLE"]
+	path = vendor/YM3812-LLE
+	url = https://github.com/nukeykt/YM3812-LLE.git

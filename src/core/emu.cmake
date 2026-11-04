@@ -12,6 +12,7 @@ endif()
 include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_rsmp_coef(rsmp_coef)
+rp6502_gen_ym3812_rom(ym3812_rom)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
@@ -69,6 +70,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/aud/bel_presets.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
+    ${RP6502_SRC}/core/aud/ym3812.c
     ${RP6502_SRC}/core/str/rln.c
     ${RP6502_SRC}/core/str/str.c
     ${RP6502_SRC}/core/vga/prog.c
@@ -126,7 +128,7 @@ if(MSVC)
     )
 endif()
 
-add_dependencies(emu_core rsmp_coef)
+add_dependencies(emu_core rsmp_coef ym3812_rom)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}
