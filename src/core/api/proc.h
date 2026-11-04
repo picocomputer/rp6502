@@ -17,6 +17,12 @@ void proc_run(void);
  * flight, or a launcher relaunch -- false when the chain has ended. */
 bool proc_stop(void);
 
+/* True from a program's own exec until the program it named starts. An exec
+ * hands the machine to the next program as the same session going on, so
+ * the stop it makes keeps the console's type-ahead; every other stop ends
+ * the session and drops it, a return to the launcher included. */
+bool proc_exec_handover(void);
+
 /* argv[0] of the program running now, an empty string between programs. */
 const char *proc_running(void);
 

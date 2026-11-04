@@ -4,6 +4,7 @@ core/api/arg.c arg_buf: the PROC chunk, whose row reaches into this file for it
 core/api/clk.c clk_start_us: the CLK chunk
 core/api/dir.c tells: the DIR chunk
 core/api/proc.c proc_exit_code: the PROC chunk
+core/api/proc.c proc_handover: not carried: only the stop fan-out of the exec that sets it reads it, and that runs in the same sys_commit as the exec; the next program's start clears it
 core/api/proc.c proc_launcher_path: the PROC chunk
 core/api/proc.c proc_running_path: the PROC chunk
 core/api/std.c std_asked_console: the STD chunk
