@@ -25,6 +25,14 @@ static int64_t bus_owed;
 
 static uint64_t bus_cycle_count;
 
+/* Where the batch now running started: the scanline, how far past it its
+ * first cycle starts in sixty-thirds of a cycle, the cycle count then and the
+ * PHI2 it runs at. Between batches they describe the next one. */
+static uint64_t bus_at_line;
+static uint32_t bus_at_off;
+static uint64_t bus_at_cycle;
+static uint32_t bus_at_khz = PHI2_DEFAULT_KHZ;
+
 /* The bus as it stands between run_until calls. The data byte and the two
  * interrupt lines carry across cycles because the CPU latches the settled data
  * on the next tick and samples the interrupt line there too. IRQB is wired-OR
@@ -37,6 +45,21 @@ static bool bus_via_irq;
 static bool bus_ria_irq;
 
 uint64_t bus_cycles(void) { return bus_cycle_count; }
+
+/* A scanline is 2/63000 s and a sixty-third of a cycle 1/(63000 * khz) s. */
+uint64_t bus_now(uint32_t hz)
+{
+    const uint64_t at = bus_at_line * 2 * hz;
+    const uint64_t sub = bus_at_off + 63 * (bus_cycle_count - bus_at_cycle);
+    return at / 63000 + (at % 63000 * bus_at_khz + sub * hz) / (63000ull * bus_at_khz);
+}
+
+static void bus_at_next(void)
+{
+    bus_at_line = bus_lines;
+    bus_at_off = (uint32_t)-bus_owed;
+    bus_at_cycle = bus_cycle_count;
+}
 
 void bus_sst_save(sst_cursor_t *c, unsigned flags)
 {
@@ -72,6 +95,8 @@ bool bus_sst_load(sst_cursor_t *c, unsigned flags)
     bus_read = read;
     bus_via_irq = via_irq;
     bus_ria_irq = ria_irq;
+    bus_at_khz = phi2_get_khz_run();
+    bus_at_next();
     return true;
 }
 
@@ -128,12 +153,14 @@ static void run_until(uint64_t lines)
      * reduces to 2/63. Accumulating in sixty-thirds keeps that exact. The
      * division rounds up so that the cycle straddling the boundary runs on
      * this scanline. */
-    bus_owed += (int64_t)(lines - bus_lines) * phi2_get_khz_run() * 2;
+    const uint32_t khz = phi2_get_khz_run();
+    bus_owed += (int64_t)(lines - bus_lines) * khz * 2;
     bus_lines = lines;
     int64_t n = (bus_owed + 62) / 63;
     bus_owed -= n * 63;
     if (n <= 0)
         return;
+    bus_at_khz = khz;
 
     /* Nothing else reads the bus mid-scanline, so the loop can own it in
      * locals and park it on the way out. */
@@ -143,24 +170,24 @@ static void run_until(uint64_t lines)
     bool via_irq;
     bool ria_irq;
     bus_hoist(&addr, &data, &read, &via_irq, &ria_irq);
-    uint64_t ran = 0;
+    const uint64_t end = bus_cycle_count + (uint64_t)n;
     if (!dbg_is_active())
     {
         /* Two loops rather than one with a per-cycle test, because PHI2 runs
          * at up to 8 MHz and the debug branch is worth keeping out of the
          * common path. */
-        while (ran < (uint64_t)n && sys_running())
+        while (bus_cycle_count < end && sys_running())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            ++ran;
+            ++bus_cycle_count;
         }
     }
     else
     {
-        while (ran < (uint64_t)n && sys_running() && !dbg_is_stopped())
+        while (bus_cycle_count < end && sys_running() && !dbg_is_stopped())
         {
             bus_tick(&addr, &data, &read, &via_irq, &ria_irq);
-            ++ran;
+            ++bus_cycle_count;
             if (cpu_dbg_cycle_cb)
                 cpu_dbg_cycle_cb(cpu_dbg_pins());
             /* The same condition sram_tick uses: every write lands in sram[],
@@ -173,8 +200,8 @@ static void run_until(uint64_t lines)
                 dbg_at_instruction(pc, sp);
         }
     }
-    bus_cycle_count += ran;
     bus_park(addr, data, read, via_irq, ria_irq);
+    bus_at_next();
 }
 
 void bus_task(void)

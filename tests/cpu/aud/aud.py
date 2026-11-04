@@ -118,10 +118,8 @@ def opl_prog():
 
 def opl_exit_prog():
     """The note is held for about 164,600 cycles, which is longer than a
-    frame at the default 8 MHz, before the program exits. The emulator
-    runs the engines only inside aud_render, and test_aud.c calls it once
-    a frame, so a note that starts and is stopped between two calls is
-    never mixed."""
+    frame at the default 8 MHz, before the program exits, so the frame the
+    test records first holds it."""
     p = Prog()
     page = 0xF000
     p.xreg(0, 1, 1, page)
@@ -176,6 +174,55 @@ def opl_init_prog():
     p.dey()
     p.bne(out)
     p.store(RW0_STEP, 0x01)
+    p.spin()
+    return p
+
+
+def opl_spread_prog():
+    """300 writes to register 40, 445 cycles apart, about one frame at the
+    default 8 MHz. The step of zero holds RW0 on the register."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    p.store(RW0_STEP, 0x00)
+    p.store(RW0_ADDR, 0x40)
+    p.store(RW0_ADDR + 1, page >> 8)
+    block, write, wait = p.local("block"), p.local("write"), p.local("wait")
+    p.store(0x10, 2)
+    p.symbol(block)
+    p.ldx_imm(150)
+    p.symbol(write)
+    p.stx_abs(RW0_DATA)
+    p.ldy_imm(87)
+    p.symbol(wait)
+    p.dey()
+    p.bne(wait)
+    p.dex()
+    p.bne(write)
+    p.dec_zp(0x10)
+    p.bne(block)
+    p.spin()
+    return p
+
+
+def opl_flat_prog():
+    """768 writes to register 40 as fast as a loop makes them, 9 cycles
+    apart, far past what the queue holds."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    p.store(RW0_STEP, 0x00)
+    p.store(RW0_ADDR, 0x40)
+    p.store(RW0_ADDR + 1, page >> 8)
+    loop = p.local("flat")
+    p.ldx_imm(0)
+    p.ldy_imm(3)
+    p.symbol(loop)
+    p.stx_abs(RW0_DATA)
+    p.inx()
+    p.bne(loop)
+    p.dey()
+    p.bne(loop)
     p.spin()
     return p
 
@@ -385,6 +432,7 @@ def test_opl_exit():
 
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
+        "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,

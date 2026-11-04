@@ -39,10 +39,21 @@ void aud_shutdown(void);
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
 /* Every 6502 write to XRAM, handed to the engine mapped on its page, if one
- * is. A software machine calls it where the write happens; the Pico's RW
- * engine is core1, which queues every write for the audio interrupt on
- * core0 instead. */
+ * is. A software machine calls it where the write happens, before XRAM takes
+ * the byte, and the write applies from the sample its cycle falls in; the
+ * Pico's RW engine is core1, which queues every write for the audio
+ * interrupt on core0 instead. */
 void aud_xram_write(uint16_t addr, uint8_t val);
+
+/* A software machine's mix, brought up to the machine's present: every
+ * native sample whose period ends by the start of the bus's next cycle is
+ * made. Each frame ends with it, and the engine lock calls it before an
+ * engine changes. */
+void aud_step(void);
+
+/* Native samples made since scanline 0; while one is being made, its
+ * index. */
+uint64_t aud_samples(void);
 
 /* The phase increment of a frequency register that holds hertz times three,
  * as the PSG and the bell keep theirs: freq * 2^32 / (3 * AUD_NATIVE_RATE),
@@ -55,10 +66,10 @@ static inline uint32_t aud_phase_inc(uint16_t freq)
     return (uint32_t)(((uint64_t)freq * AUD_PHASE_MUL) >> 31);
 }
 
-/* Held across one sample by the thread that generates and across one write by
- * the thread that programs, so the engines are never stepped and written at
- * once. Both sides are microseconds, so this spins rather than sleeping; a
- * machine whose sink shares its thread never contends at all. */
+/* Taken by the side that programs the engines across each change. The Pico
+ * holds its audio interrupt off. A software machine makes samples on the
+ * thread that programs, so its lock steps the mix up to the present and the
+ * change lands where the Pico's interrupt would see it. */
 void aud_engine_lock(void);
 void aud_engine_unlock(void);
 
@@ -79,61 +90,55 @@ void aud_engine_unlock(void);
 #define AUD_PWM_BITS 10
 #define AUD_PWM_CENTER (1u << (AUD_PWM_BITS - 1))
 
-/* --mute: disable audio entirely — the synth never runs and the window app
- * opens no OS audio device. Default enabled. */
+/* --mute: nothing is heard and the window app opens no OS audio device. The
+ * engines still step with the machine; their samples are not resampled. Default
+ * enabled. */
 void aud_set_enabled(bool on);
 bool aud_enabled(void);
 
 /* What the host's converter actually runs at, once the audio backend has
- * been opened and answered. The store is a single word and aud_render
- * recomputes the resampler's step on entry, so the rate can change at any
- * time. */
+ * been opened and answered. aud_step reads it for each run of samples, so the
+ * rate can change at any time. */
 void aud_set_sink_rate(uint32_t rate);
 
-/* Fill the sink's buffer: exactly this many frames at the sink's rate, on
- * the sink's thread. Returns how many the machine made -- all of them, or 0
- * while it is muted, parked or held by a debugger. A held machine repeats
- * the level as it stands rather than dropping to silence, which would be a
- * click. */
-int aud_render(float *dst, int samples);
+/* A sink that pulls on its own clock, `frames` at a time, such as an audio
+ * device's callback: aud_render plays what the machine made in order, and
+ * the resampler's ratio is trimmed to keep one device buffer and one video
+ * frame of the sink's rate waiting. 0, the default, is a sink that pulls
+ * once a frame on the machine's thread. */
+void aud_set_sink_buffer(int frames);
 
-/* Hold the sink's thread out of the engines for the length of a savestate
- * walk. aud_render runs on the sink's own thread on whatever schedule the OS
- * gives it, and a walk that read an engine mid-sample would write down a
- * machine that never existed. The host raises the request, waits for the
- * acknowledgement to catch up, walks, and drops it.
- *
- * The acknowledgement is a generation rather than a flag because the thread
- * that stores it can be preempted between reading the request and answering
- * it, and a stale store would otherwise satisfy the next wait with the last
- * one's answer. It is waited on by equality for that reason.
- *
- * The host bounds its wait, since a sink that has stopped calling back must
- * not hold a save forever. */
-void aud_park_request(void);
-bool aud_parked(void);
-void aud_park_release(void);
+/* Frames the machine has made at the sink's rate that aud_render has not
+ * taken. */
+int aud_ready(void);
+
+/* Fills the sink's buffer with exactly this many frames at the sink's rate
+ * and returns how many the machine made; the rest repeat the level as it
+ * stands, since dropping to silence would click. A sink that pulls once a
+ * frame takes the newest and drops anything older. A streaming sink takes
+ * them in order: it waits for its target before it starts, and again after
+ * running dry, and skips ahead to its target when three times that waits.
+ * Muted, it is silence; held by a debugger, the level repeats. */
+int aud_render(float *dst, int samples);
 
 /* Rolling mono downmix of what was rendered, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void);
 
 /* The mix as it stands: which engines are sounding, the two resamplers whose
- * phase is continuous across renders, whatever the last input left pending,
- * and the level a held machine repeats.
+ * phase is continuous across runs, and the native samples made. What waits
+ * for the sink is the host's, and stays where it is.
  *
- * The engines are one byte, bit 0 the PSG and bit 1 the OPL2. A build that
- * mixed one engine at a time wrote 0, 1 or 2 there, which read the same.
+ * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
  *
  * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8+8 pending of 4 with a count and an index, the held pair as two i16,
- * then the bell. */
+ * 8 samples made, then the bell. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 16 * 4 + 2 + 4 + BEL_SST_SIZE)
+#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + BEL_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 1, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+    nul_config, nul_config, SST(AUD_, 2, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

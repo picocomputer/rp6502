@@ -29,6 +29,8 @@ void vga_task(void);
  * whole count into microseconds. */
 uint64_t vga_beam_lines(void);
 
+/* Runs the machine to the next frame, or until a debugger holds it, then
+ * steps the mix up to where it got. False when it was held. */
 bool vga_run_frame(void);
 
 /* No canvas is larger than 640x480, and a framebuffer must hold that. */

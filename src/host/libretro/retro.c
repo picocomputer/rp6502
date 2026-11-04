@@ -40,6 +40,7 @@
  * resampled to it. */
 #define RETRO_AUD_RATE 48000
 #define RETRO_AUD_FRAMES (RETRO_AUD_RATE / VGA_HZ)
+#define RETRO_AUD_MAX (2 * RETRO_AUD_FRAMES)
 
 static retro_environment_t environ_cb;
 static retro_video_refresh_t video_cb;
@@ -49,8 +50,8 @@ static retro_input_state_t input_state_cb;
 static retro_log_printf_t log_cb;
 
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-static float audio_out[RETRO_AUD_FRAMES * 2];
-static int16_t audio_buf[RETRO_AUD_FRAMES * 2];
+static float audio_out[RETRO_AUD_MAX * 2];
+static int16_t audio_buf[RETRO_AUD_MAX * 2];
 
 /* Each of these is allocated here and freed here. */
 static char *loaded_host; /* the content's absolute host path */
@@ -606,14 +607,18 @@ static void swizzle(uint32_t *px, size_t n)
     }
 }
 
-/* One frame's worth per call, which is what a frontend syncing on sound waits
- * for. A silent machine renders silence rather than nothing. */
+/* Everything the frame made, about a frame's worth, which is what a frontend
+ * syncing on sound waits for. A silent machine renders silence rather than
+ * nothing. */
 static void push_audio(void)
 {
-    aud_render(audio_out, RETRO_AUD_FRAMES);
-    for (int i = 0; i < RETRO_AUD_FRAMES * 2; i++)
+    int n = aud_ready();
+    if (n > RETRO_AUD_MAX)
+        n = RETRO_AUD_MAX;
+    aud_render(audio_out, n);
+    for (int i = 0; i < n * 2; i++)
         audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
-    audio_batch_cb(audio_buf, RETRO_AUD_FRAMES);
+    audio_batch_cb(audio_buf, (size_t)n);
 }
 
 void retro_run(void)
@@ -678,12 +683,10 @@ void retro_run(void)
         swizzle(frame_buf, (size_t)w * (size_t)h);
     video_cb(frame_buf, (unsigned)w, (unsigned)h, (size_t)w * sizeof *frame_buf);
 
-    /* RETRO_AV_ENABLE_AUDIO clear only discards this frame's sound, and
-     * libretro.h requires the next frame to sound no different for it, so the
-     * mixer is still clocked; aud_render is what advances it.
-     * RETRO_AV_ENABLE_HARD_DISABLE_AUDIO is the frontend promising it will
-     * never want audio again, which is the one that allows synthesizing
-     * nothing. */
+    /* The frame stepped the mixer whether or not its sound is wanted.
+     * RETRO_AV_ENABLE_AUDIO clear only discards this frame's sound, so it is
+     * still handed over; RETRO_AV_ENABLE_HARD_DISABLE_AUDIO is the frontend
+     * promising it will never want audio again, so nothing is. */
     if (!(av & RETRO_AV_ENABLE_HARD_DISABLE_AUDIO))
         push_audio();
 

@@ -26,23 +26,24 @@ core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init star
 core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/mix.c aud_engine_held: not carried: held only across a sample or a write, never across a walk
+core/aud/mix.c aud_buf: not carried: what waits for the host's sink is the host's
+core/aud/mix.c aud_fill_avg: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
+core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
+core/aud/mix.c aud_made: the AUD chunk
+core/aud/mix.c aud_on: not carried: --mute is a session setting
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
-core/aud/mix.c g_enabled: not carried: --mute is a session setting
-core/aud/mix.c g_last_l: the AUD chunk
-core/aud/mix.c g_last_r: the AUD chunk
-core/aud/mix.c g_park: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_park_ack: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_park_gen: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_pend_i: the AUD chunk
-core/aud/mix.c g_pend_l: the AUD chunk
-core/aud/mix.c g_pend_n: the AUD chunk
-core/aud/mix.c g_pend_r: the AUD chunk
-core/aud/mix.c g_rs_l: the AUD chunk
-core/aud/mix.c g_rs_r: the AUD chunk
-core/aud/mix.c g_sink_rate: not carried: what the host's device answered
-core/aud/mix.c g_viz: not carried: a display of what was rendered
-core/aud/mix.c g_viz_pos: not carried: a display of what was rendered
+core/aud/mix.c aud_r: not carried: what waits for the host's sink is the host's
+core/aud/mix.c aud_refill: not carried: the streaming sink's state, the host's
+core/aud/mix.c aud_rs_l: the AUD chunk
+core/aud/mix.c aud_rs_r: the AUD chunk
+core/aud/mix.c aud_sink_frames: not carried: what the host's device answered
+core/aud/mix.c aud_sink_rate: not carried: what the host's device answered
+core/aud/mix.c aud_trim: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_trim_i: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_viz: not carried: a display of what was rendered
+core/aud/mix.c aud_viz_at: not carried: a display of what was rendered
+core/aud/mix.c aud_w: not carried: what waits for the host's sink is the host's
 core/aud/opl.c opl_chip: the OPL chunk
 core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
@@ -248,6 +249,10 @@ core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk
 core/wdc/bus.c bus_addr: the BUS chunk
+core/wdc/bus.c bus_at_cycle: derived; bus_sst_load sets it from the BUS chunk
+core/wdc/bus.c bus_at_khz: derived; bus_sst_load sets it from the PHI2 chunk
+core/wdc/bus.c bus_at_line: derived; bus_sst_load sets it from the BUS chunk
+core/wdc/bus.c bus_at_off: derived; bus_sst_load sets it from the BUS chunk
 core/wdc/bus.c bus_cycle_count: the BUS chunk
 core/wdc/bus.c bus_data: the BUS chunk
 core/wdc/bus.c bus_lines: the BUS chunk

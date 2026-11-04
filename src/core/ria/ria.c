@@ -96,8 +96,8 @@ static uint8_t rw_read(int which)
 
 void ria_xram_write(uint16_t addr, uint8_t data)
 {
-    xram[addr] = data;
     aud_xram_write(addr, data);
+    xram[addr] = data;
 }
 
 static void rw_write(int which, uint8_t data)

@@ -50,7 +50,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222408);
+    ASSERT_EQ(sst_size(), (size_t)222346);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -195,12 +195,12 @@ UTEST(sst, a_program_picks_up_where_it_was)
     ASSERT_EQ(bus_cycles() - at_save, reference);
 }
 
-/* What rw_write does, without a 6502 to do it: XRAM, then the engine mapped
- * on the page, if one is. */
+/* What rw_write does, without a 6502 to do it: the engine mapped on the
+ * page, if one is, then XRAM. */
 static void aud_poke(uint16_t at, uint8_t val)
 {
-    xram[at] = val;
     aud_xram_write(at, val);
+    xram[at] = val;
 }
 
 static void aud_note(uint16_t at)
@@ -216,10 +216,42 @@ static void aud_note(uint16_t at)
     xram[at + 6] = 0x00; /* psg_sample starts a note only from a reported write */
 }
 
-static void aud_pull(float *dst, int frames)
+/* The most sound a frame makes at 48 kHz. */
+#define AUD_FRAME_MAX 801
+#define AUD_PULL_MAX (AUD_FRAME_MAX * 4)
+
+/* What the machine made since the last take, as a sink on its thread takes
+ * it: everything, up to a frame's worth, and older sound is dropped. */
+static size_t aud_take(float *dst)
 {
+    const int n = aud_ready();
+    return (size_t)aud_render(dst, n < AUD_FRAME_MAX ? n : AUD_FRAME_MAX);
+}
+
+/* Frames run and their sound taken. Returns the frames of sound. */
+static size_t aud_pull(float *dst, int frames)
+{
+    size_t at = 0;
     for (int i = 0; i < frames; i++)
-        aud_render(dst + i * 2 * 64, 64);
+    {
+        emu_frames(1);
+        at += aud_take(dst + at * 2);
+    }
+    return at;
+}
+
+/* Scanlines run short of a frame, the mix stepped up to them, and their sound
+ * taken. */
+static size_t aud_pull_lines(float *dst, int lines)
+{
+    for (int i = 0; i < lines; i++)
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
+    aud_step();
+    return aud_take(dst);
 }
 
 static bool aud_sounded(const float *buf, size_t n)
@@ -232,33 +264,33 @@ static bool aud_sounded(const float *buf, size_t n)
 
 UTEST(sst, a_note_in_flight_comes_back)
 {
-    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
 
     aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
     aud_poke(0x3006, 0x01); /* pan centre, gate on */
-    aud_pull(went, 8);
+    aud_pull(went, 1);
     ASSERT_EQ(take(), (const char *)NULL);
 
-    aud_pull(went, 32);
+    const size_t n = aud_pull(went, 3);
 
     ASSERT_TRUE(opl_xreg(0x4000));
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
-    aud_pull(came, 16);
+    aud_pull(came, 2);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
-    aud_pull(came, 32);
-    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
-    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
 }
 
 UTEST(sst, an_opl_chord_comes_back)
 {
-    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
     ASSERT_TRUE(opl_xreg(0x4000));
@@ -269,22 +301,22 @@ UTEST(sst, an_opl_chord_comes_back)
     };
     for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
         aud_poke(0x4000 + regs[i][0], regs[i][1]);
-    aud_pull(went, 8);
+    aud_pull(went, 1);
     ASSERT_EQ(take(), (const char *)NULL);
-    aud_pull(went, 32);
+    const size_t n = aud_pull(went, 3);
 
     aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
     aud_poke(0x3006, 0x01);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
-    aud_pull(came, 16);
+    aud_pull(came, 2);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
-    aud_pull(came, 32);
-    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
-    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
 }
 
 /* A burst too big for the OPL2's queue, saved while the queue drains: the
@@ -292,7 +324,7 @@ UTEST(sst, an_opl_chord_comes_back)
  * burst after it plays and drops as it did after the save. */
 UTEST(sst, an_opl_burst_comes_back_mid_flight)
 {
-    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
     ASSERT_TRUE(opl_xreg(0x4000));
@@ -305,24 +337,24 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
         aud_poke(0x4000 + regs[i][0], regs[i][1]);
     for (int k = 0; k < 300; k++)
         aud_poke((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
-    aud_pull(went, 1);
+    aud_pull_lines(went, 40);
     ASSERT_GT(opl_queue.count, 0);
     ASSERT_GT(opl_queue.drops, 0u);
     ASSERT_EQ(take(), (const char *)NULL);
     for (int k = 0; k < 300; k++)
         aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
-    aud_pull(went, 32);
+    const size_t n = aud_pull(went, 3);
     const uint32_t drops = opl_queue.drops;
 
     ASSERT_TRUE(opl_xreg(0x4000));
-    aud_pull(came, 4);
+    aud_pull(came, 1);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     for (int k = 0; k < 300; k++)
         aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
-    aud_pull(came, 32);
-    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
-    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
     ASSERT_EQ(opl_queue.drops, drops);
 }
 

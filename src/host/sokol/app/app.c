@@ -9,7 +9,6 @@
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
-#include "host/sokol/cli/state.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -117,7 +116,8 @@ static void update_title(void)
 }
 
 /* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
- * AAudio, and on the browser's main thread on WebAudio. */
+ * AAudio, and on the browser's main thread on WebAudio. It plays what the
+ * frames have made. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
 {
     (void)num_channels;
@@ -143,25 +143,24 @@ void app_init(void)
          * of that rate is 10.7 ms of device latency, where sokol's default of
          * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
          * which stops while the window moves, and its size must be a power of
-         * two, so the web build uses 1024 frames, 21.3 ms. */
+         * two, so the web build uses 1024 frames, 21.3 ms. The mixer keeps
+         * one buffer and one frame waiting ahead of the callback. */
+#ifdef __EMSCRIPTEN__
+        const int buffer_frames = 1024;
+#else
+        const int buffer_frames = 512;
+#endif
+        aud_set_sink_buffer(buffer_frames);
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
-#ifdef __EMSCRIPTEN__
-            .buffer_frames = 1024,
-#else
-            .buffer_frames = 512,
-#endif
+            .buffer_frames = buffer_frames,
             .stream_cb = stream_cb,
             .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
-        /* The callback runs on the device's own thread on every backend but
-         * WebAudio, so saving or loading a state has to park it out of the
-         * engines. The flag is set on WebAudio too, where the callback shares
-         * the main thread and the park goes unanswered until state_park's spin
-         * bound runs out. */
-        state_audio_is_threaded(true);
+        if (saudio_buffer_frames() > 0)
+            aud_set_sink_buffer(saudio_buffer_frames());
     }
     gfx_setup();
     host_window_init();

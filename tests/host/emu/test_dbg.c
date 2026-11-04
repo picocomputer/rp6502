@@ -44,14 +44,14 @@ static bool held_at(float l, float r)
 
 UTEST(dbg, a_pause_holds_the_machine_but_an_exit_stop_does_not)
 {
-    ASSERT_TRUE(load());
-
     bel_add(&bel_teletype);
+    emu_frames(1);
     int n = aud_render(g_out, 800);
     ASSERT_GT(n, 0);
     ASSERT_FALSE(held_at(g_out[0], g_out[1]));
     const float last_l = g_out[(n - 1) * 2], last_r = g_out[(n - 1) * 2 + 1];
 
+    ASSERT_TRUE(load());
     dbg_set_active(true);
     dbg_add_breakpoint(entry_pc());
     emu_frames(1);
@@ -67,6 +67,7 @@ UTEST(dbg, a_pause_holds_the_machine_but_an_exit_stop_does_not)
 
     dbg_clear_breakpoints();
     dbg_continue();
+    emu_frames(1);
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_FALSE(held_at(last_l, last_r));
 
@@ -76,9 +77,9 @@ UTEST(dbg, a_pause_holds_the_machine_but_an_exit_stop_does_not)
     dbg_note_stop(0);
     ASSERT_TRUE(dbg_is_stopped());
     const unsigned long exited_at = vga_frame_count();
+    bel_add(&bel_teletype);
     emu_frames(1);
     ASSERT_EQ(vga_frame_count(), exited_at + 1);
-    bel_add(&bel_teletype);
     ASSERT_EQ(aud_render(g_out, 800), 800);
     ASSERT_FALSE(held_at(g_out[0], g_out[1]));
 

@@ -789,9 +789,8 @@ static void script_put_le(uint32_t v, int bytes)
         fputc((int)(v >> (8 * i)) & 0xFF, script_wav);
 }
 
-/* One frame of sound, pulled after every frame the script runs the way a
- * sink pulls it, so the engines keep time with the machine whether or not a
- * wav is being written. With --mute it is silence and costs nothing. */
+/* The frame of sound the frame just run made, taken after every frame the
+ * script runs. With --mute it is silence. */
 void script_listen(void)
 {
     float out[SCRIPT_AUD_FRAMES * 2];

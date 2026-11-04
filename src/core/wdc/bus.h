@@ -10,10 +10,13 @@
 #include "core/sys/sst.h"
 #include <stdint.h>
 
-/* 6502 cycles this machine has run, ever. Nothing in the machine reads this;
- * it is here so that a test can say how many cycles a frame was worth, which
- * is otherwise unobservable from outside. */
+/* 6502 cycles this machine has run, ever, counted as each one runs. */
 uint64_t bus_cycles(void);
+
+/* The machine's present as a count of whole periods of an hz clock that
+ * started with scanline 0: the period the cycle now running starts in, or
+ * between scanlines the one the next cycle will start in. */
+uint64_t bus_now(uint32_t hz);
 
 void bus_reset(void);
 

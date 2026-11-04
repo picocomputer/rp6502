@@ -169,6 +169,10 @@ rp6502_add_test(log SINK
 
 rp6502_add_test(render LIBS emu_core ROM ${ADVENTURE_ROM})
 
+rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
+    DEFS AUD_ROM_OPL_SPREAD="${OPL_SPREAD_ROM}" AUD_ROM_OPL_FLAT="${OPL_FLAT_ROM}"
+    DEPENDS aud_roms)
+
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
 
