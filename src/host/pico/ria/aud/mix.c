@@ -83,14 +83,17 @@ static uint16_t aud_level_r = AUD_PWM_CENTER;
  * interrupt, so its counter at the end of aud_irq is the period used,
  * entry latency and higher-priority interrupts included. A wrap flag set
  * again by then is an overrun, and the counter has wrapped with it.
- * Each second is published whole so a reader never sees a half-summed one;
- * peak_max holds until something writes it back to zero. */
+ * The pair peak is the most two samples running both used, the less of the
+ * two. Each second is published whole so a reader never sees a half-summed
+ * one; the maxima hold until something writes them back to zero. */
 static struct
 {
     uint32_t samples;
     uint32_t sum;
     uint32_t peak;
     uint32_t overruns;
+    uint32_t last;
+    uint32_t pair;
 } aud_load_acc;
 
 volatile struct
@@ -100,6 +103,8 @@ volatile struct
     uint32_t peak;
     uint32_t overruns;
     uint32_t peak_max;
+    uint32_t pair;
+    uint32_t pair_max;
 } aud_load;
 
 static inline void aud_load_measure(void)
@@ -113,6 +118,10 @@ static inline void aud_load_measure(void)
     aud_load_acc.sum += used;
     if (used > aud_load_acc.peak)
         aud_load_acc.peak = used;
+    const uint32_t pair = used < aud_load_acc.last ? used : aud_load_acc.last;
+    aud_load_acc.last = used;
+    if (pair > aud_load_acc.pair)
+        aud_load_acc.pair = pair;
     if (++aud_load_acc.samples == AUD_NATIVE_RATE)
     {
         aud_load.sum = aud_load_acc.sum;
@@ -120,11 +129,15 @@ static inline void aud_load_measure(void)
         aud_load.overruns = aud_load_acc.overruns;
         if (aud_load_acc.peak > aud_load.peak_max)
             aud_load.peak_max = aud_load_acc.peak;
+        aud_load.pair = aud_load_acc.pair;
+        if (aud_load_acc.pair > aud_load.pair_max)
+            aud_load.pair_max = aud_load_acc.pair;
         aud_load.seconds++;
         aud_load_acc.samples = 0;
         aud_load_acc.sum = 0;
         aud_load_acc.peak = 0;
         aud_load_acc.overruns = 0;
+        aud_load_acc.pair = 0;
     }
 }
 
