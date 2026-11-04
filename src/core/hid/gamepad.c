@@ -529,9 +529,9 @@ bool gamepad_xreg(uint16_t word)
     return mapped || word == 0xFFFF;
 }
 
-bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connection_t *desc,
-                                       uint16_t vendor_id, uint16_t product_id,
-                                       uint8_t button_type)
+bool gamepad_mount(int slot, const gamepad_connection_t *desc,
+                   uint16_t vendor_id, uint16_t product_id,
+                   uint8_t button_type)
 {
     /* A Sony controller is recognized by its ids alone, because the descriptor
      * it offers is wrong. Anything else has to have been read as a gamepad

@@ -210,8 +210,8 @@ void keyboard_stop(void)
     keyboard_xram = 0xFFFF;
 }
 
-bool HOST_IN_FLASH("keyboard_mount") keyboard_mount(int slot, const keyboard_connection_t *desc,
-                                       uint16_t vendor_id, uint16_t product_id)
+bool keyboard_mount(int slot, const keyboard_connection_t *desc,
+                    uint16_t vendor_id, uint16_t product_id)
 {
     if (!desc->valid)
         return false;
