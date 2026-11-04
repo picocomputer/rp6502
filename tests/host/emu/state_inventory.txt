@@ -135,10 +135,10 @@ core/rom/rom.c buf.0: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
-core/str/rln.c history.4: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c lastkey.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c line.3: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c poke.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c history.6: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c lastkey.4: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c line.5: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c poke.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/str/rln.c rln_action_taken: the RLN chunk
 core/str/rln.c rln_buf: the RLN chunk
 core/str/rln.c rln_buflen: the RLN chunk
@@ -178,7 +178,7 @@ core/str/rln.c rln_suppress_newline: the RLN chunk
 core/str/rln.c rln_term_height: the RLN chunk
 core/str/rln.c rln_term_width: the RLN chunk
 core/str/rln.c rln_width_override: the RLN chunk
-core/str/rln.c sources.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c sources.3: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/str/str.c str_buf: parse scratch, dead at every frame boundary
 core/str/str.c str_locale_index: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_locale_names: the linked table image and a parse buffer dead at every frame boundary
@@ -225,10 +225,10 @@ core/term/font.c font_code_page: derived: the OEM chunk's load installs it throu
 core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/term.c term40_alt_mem.5: the TERM chunk
-core/term/term.c term40_pri_mem.6: the TERM chunk
-core/term/term.c term80_alt_mem.3: the TERM chunk
-core/term/term.c term80_pri_mem.4: the TERM chunk
+core/term/term.c term40_alt_mem.2: the TERM chunk
+core/term/term.c term40_pri_mem.3: the TERM chunk
+core/term/term.c term80_alt_mem.0: the TERM chunk
+core/term/term.c term80_pri_mem.1: the TERM chunk
 core/term/term.c term_40: the TERM chunk
 core/term/term.c term_80: the TERM chunk
 core/vga/canvas.c canvas_code: the VGA chunk
