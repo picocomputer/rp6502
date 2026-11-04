@@ -44,15 +44,14 @@ void vtkeys_alt_char(char ch, bool ctrl);
 void vtkeys_paste(const char *utf8);
 void vtkeys_paste_cancel(void);
 
+/* Clear the keyboard source: the ring and the rest of the paste. */
+void vtkeys_clear(void);
+#define VTKEYS_COM_SOURCE {.read = com_keyboard_read, .clear = vtkeys_clear, .dwell_us = COM_WIRE_DWELL_US}
+
 bool vtkeys_paste_busy(void);
 
 void vtkeys_task(void);
 
-/* The paste is type-ahead, so it goes wherever the console's input goes: a
- * break cancels it, and so does a stop that is not an exec's handover. A
- * paste left running would refill the ring with the rest of what was meant
- * for the program that just ended. */
-void vtkeys_stop(void);
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, vtkeys_stop, vtkeys_paste_cancel, nul_config, nul_config, nul_sst)
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
 
 #endif /* _CORE_HID_VTKEYS_H_ */

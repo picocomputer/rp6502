@@ -7,7 +7,6 @@
 
 #include "core/sys/ria.h"
 #include "core/com/com.h"
-#include "core/api/proc.h"
 #include "core/sys/com_term.h"
 #include "core/com/tty.h"
 #include "core/aud/bel.h"
@@ -372,12 +371,7 @@ void com_break(void)
     com_rx_clear();
 }
 
-/* Unless the stop is an exec's handover, everything typed for the stopped
- * program that it never read is dropped, from every source at once, as a
- * break does. */
 void com_stop(void)
 {
     com_printf("%s", STR_TERM_SOFT_RESET);
-    if (!proc_exec_handover())
-        com_rx_clear();
 }

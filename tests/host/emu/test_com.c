@@ -172,22 +172,19 @@ UTEST(com, a_break_drops_what_the_window_staged)
 }
 
 /* An arrow pressed in a program that reads only the keyboard bitmap: its ESC
- * waits in the window and the rest in the keyboard's queue. A stop drops
- * all of it, so no part of the key reaches the monitor. Reading $FFE0 would
- * stage the next byte if one were left anywhere. */
+ * waits in the window and the rest in the keyboard's queue. A stop with no ROM
+ * launching drops all of it. */
 UTEST(com, a_stop_drops_what_the_program_never_read)
 {
     com_init();
     com_keyboard_push("\33[A", 3);
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
-    com_stop();
+    ASSERT_FALSE(proc_stop());
     ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
 }
 
-/* An exec hands the console to the program it names, so the stop it makes
- * keeps the type-ahead, the byte in the window included. The next program's
- * start ends the handover, and a stop after that drops what is left. */
+/* A stop for an exec keeps the type-ahead, the byte in the window included. */
 UTEST(com, an_exec_keeps_the_type_ahead)
 {
     com_init();
@@ -197,18 +194,30 @@ UTEST(com, an_exec_keeps_the_type_ahead)
     arg_append("next.rp6502");
     arg_push_xstack();
     proc_api_exec();
-    ASSERT_TRUE(proc_exec_handover());
-    com_stop();
+    ASSERT_TRUE(proc_stop());
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), 'a');
-
     proc_exec_init();
     arg_clear();
-    proc_run();
-    ASSERT_FALSE(proc_exec_handover());
-    com_stop();
-    ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
+    ASSERT_FALSE(proc_stop());
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
+}
+
+/* A paste goes with the rest of the type-ahead. */
+UTEST(com, a_paste_goes_only_where_the_type_ahead_goes)
+{
+    com_init();
+    vtkeys_paste("for the program");
+    arg_clear();
+    arg_append("next.rp6502");
+    arg_push_xstack();
+    proc_api_exec();
+    ASSERT_TRUE(proc_stop());
+    ASSERT_TRUE(vtkeys_paste_busy());
+    proc_exec_init();
+    arg_clear();
+    ASSERT_FALSE(proc_stop());
+    ASSERT_FALSE(vtkeys_paste_busy());
 }
 
 static const char *wire_data;

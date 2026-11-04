@@ -63,7 +63,7 @@
  * reach the UART source are the terminal's replies to a program's queries,
  * which core/com/com.c promotes into that ring. */
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = COM_KEYBOARD_SOURCE, \
+    [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
     [COM_SOURCE_UART] = COM_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

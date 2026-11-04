@@ -14,7 +14,6 @@
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include "core/hid/vtkeys.h"
-#include "core/api/proc.h"
 #include "core/hid/usage.h"
 #include "core/com/com.h"
 #include "core/hid/keyboard.h"
@@ -126,16 +125,16 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 static char *vtkeys_paste_buf;
 static size_t vtkeys_paste_len, vtkeys_paste_pos;
 
-void vtkeys_stop(void)
-{
-    if (!proc_exec_handover())
-        vtkeys_paste_cancel();
-}
-
 void vtkeys_paste_cancel(void)
 {
     free(vtkeys_paste_buf);
     vtkeys_paste_buf = NULL;
+}
+
+void vtkeys_clear(void)
+{
+    vtkeys_paste_cancel();
+    com_keyboard_clear();
 }
 
 void vtkeys_paste(const char *utf8)

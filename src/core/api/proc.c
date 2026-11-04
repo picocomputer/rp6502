@@ -9,6 +9,7 @@
 #include "core/api/proc.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
+#include "core/sys/com.h"
 #include "core/sys/sys.h"
 #include "osal/dir.h"
 
@@ -25,19 +26,9 @@ static void set_path(char **slot, const char *path)
     *slot = path && path[0] ? os_dir_path_hold(path) : NULL;
 }
 
-/* Not carried by a savestate: it is read only by the stop fan-out of the
- * exec that sets it, and the next program's start clears it. */
-static bool proc_handover;
-
 void proc_run(void)
 {
-    proc_handover = false;
     set_path(&proc_running_path, arg_index(0));
-}
-
-bool proc_exec_handover(void)
-{
-    return proc_handover;
 }
 
 const char *proc_running(void)
@@ -107,6 +98,8 @@ bool proc_stop(void)
     if (!relaunch)
     {
         set_path(&proc_launcher_path, NULL);
+        /* No ROM is launching, so the type-ahead goes. */
+        com_rx_clear();
         return false;
     }
     arg_clear();
@@ -136,7 +129,6 @@ bool proc_api_exec(void)
         arg_clear();
         return api_return_errno(API_EINVAL);
     }
-    proc_handover = true;
     proc_exec_start();
     return api_return_ax(0);
 }
