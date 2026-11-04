@@ -224,8 +224,7 @@ static void aud_note(uint16_t at)
  * it: everything, up to a frame's worth, and older sound is dropped. */
 static size_t aud_take(float *dst)
 {
-    const int n = aud_ready();
-    return (size_t)aud_render(dst, n < AUD_FRAME_MAX ? n : AUD_FRAME_MAX);
+    return (size_t)aud_render(dst, AUD_FRAME_MAX);
 }
 
 /* Frames run and their sound taken. Returns the frames of sound. */
@@ -379,9 +378,11 @@ UTEST(sst, an_old_opl_chunk_is_refused)
 
 UTEST(sst, both_engines_come_back)
 {
+    static float out[AUD_FRAME_MAX * 2];
     aud_set_enabled(true);
     ASSERT_TRUE(psg_xreg(0x3000));
     ASSERT_TRUE(opl_xreg(0x4000));
+    aud_take(out);
     ASSERT_EQ(take(), (const char *)NULL);
     aud_stop();
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);

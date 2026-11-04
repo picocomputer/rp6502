@@ -116,8 +116,8 @@ static void update_title(void)
 }
 
 /* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
- * AAudio, and on the browser's main thread on WebAudio. It plays what the
- * frames have made. */
+ * AAudio, and on the browser's main thread on WebAudio. It makes what it
+ * plays on the spot, from what the frames have stamped. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
 {
     (void)num_channels;
@@ -143,14 +143,13 @@ void app_init(void)
          * of that rate is 10.7 ms of device latency, where sokol's default of
          * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
          * which stops while the window moves, and its size must be a power of
-         * two, so the web build uses 1024 frames, 21.3 ms. The mixer keeps
-         * one buffer and one frame waiting ahead of the callback. */
+         * two, so the web build uses 1024 frames, 21.3 ms. */
 #ifdef __EMSCRIPTEN__
         const int buffer_frames = 1024;
 #else
         const int buffer_frames = 512;
 #endif
-        aud_set_sink_buffer(buffer_frames);
+        aud_set_streaming(true);
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
@@ -159,8 +158,6 @@ void app_init(void)
             .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
-        if (saudio_buffer_frames() > 0)
-            aud_set_sink_buffer(saudio_buffer_frames());
     }
     gfx_setup();
     host_window_init();

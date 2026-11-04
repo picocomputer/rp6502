@@ -10,19 +10,23 @@
 #include "core/wdc/bus.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/phi2.h"
+#include "chips/chips/w65c02.h"
 #include "emu_boot.h"
 #include <stdio.h>
 #include <string.h>
 
 /* ---------------- OPL2 writes in the machine's time ---------------- */
 
-/* Each write the engine took: the cycle count just after it, the scanline its
- * batch ran to and the sample it was handed over before. Then each sample
- * that applied a write. */
+/* Each write the ROM made to RW0: the cycle count just after it, the
+ * scanline its batch ran to and the sample it was stamped for. Then each
+ * sample that applied a write. */
 #define MIX_WRITES 1024
 static uint64_t mix_cycle[MIX_WRITES], mix_line[MIX_WRITES], mix_at[MIX_WRITES];
 static uint64_t mix_applied_at[MIX_WRITES];
 static int mix_writes, mix_applied;
+
+/* The stamp a write in the cycle about to run gets. */
+static uint64_t mix_next;
 
 /* The OPL2 as mix() steps it, noting each sample that applies a write. */
 static void mix_probe(int16_t *l, int16_t *r)
@@ -35,17 +39,15 @@ static void mix_probe(int16_t *l, int16_t *r)
         mix_applied_at[mix_applied++] = aud_samples();
 }
 
-/* Writes queued, applied and dropped only ever grow by the writes taken. */
 static void mix_cycle_cb(uint64_t pins)
 {
-    (void)pins;
-    const int taken = opl_queue.count + (int)opl_queue.drops + mix_applied;
-    for (; mix_writes < taken; mix_writes++)
+    if (!(pins & W65C02_RW) && W65C02_GET_ADDR(pins) == 0xFFE4 && mix_writes < MIX_WRITES)
     {
         mix_cycle[mix_writes] = bus_cycles();
         mix_line[mix_writes] = vga_beam_lines();
-        mix_at[mix_writes] = aud_samples();
+        mix_at[mix_writes++] = mix_next;
     }
+    mix_next = bus_now(AUD_NATIVE_RATE);
 }
 
 /* The ROM run for some frames with every write watched, taking a frame of
@@ -103,7 +105,7 @@ static bool mix_on_the_clock(void)
     return lo < hi;
 }
 
-/* The Pico's rule from the samples the writes were handed over before: up to
+/* The Pico's rule from the samples the writes were stamped for: up to
  * 256 wait in order, and before each sample the oldest applies when the
  * credit is at least 96, which costs 96; then the credit gains 72, up to 192
  * while writes wait and 96 while none do. Register 40 never applies a late
@@ -193,91 +195,128 @@ UTEST(mix, a_muted_flat_out_burst_still_drops_in_time)
 
 /* ---------------- a streaming sink ---------------- */
 
-/* The level a sink pulling 512 frames at 48 kHz is held at: its buffer and a
- * frame. */
-#define MIX_TARGET (512 + 800)
+/* Native samples in 512 frames at 48 kHz. */
+#define MIX_NEED (512.0 * AUD_NATIVE_RATE / 48000)
+
+/* Renders in half a second, the trim's window. */
+#define MIX_WINDOW 47
 
 typedef struct
 {
-    long underruns;
-    int lo, hi;
-    double first_minute, last_minute;
+    long moves;
+    double lo, hi;
 } mix_stream_t;
 
-/* An idle machine paced at exactly 60 frames a second, and a device pulling
- * 512 frames at a time at 48 kHz on a crystal off by `drift`. After the first
- * minute: callbacks short of 512, the buffer's least and most before a
- * callback, and its mean over the second minute and the last. */
+/* The render index each write to register 40 applied at less the stamp it
+ * had, which is aud_off while the write was on time. */
+static int64_t mix_gap;
+static bool mix_gap_seen;
+static long mix_gap_moves;
+
+/* Each write's value picks its stamp out of these. */
+static uint64_t mix_stamp[256];
+
+static void mix_gap_probe(int16_t *l, int16_t *r)
+{
+    const uint16_t waiting = opl_queue.count;
+    const uint8_t v = (uint8_t)(opl_queue.entry[opl_queue.head] >> 8);
+    *l = *r = opl_sample();
+    if (opl_queue.count < waiting)
+    {
+        const int64_t gap = (int64_t)aud_samples() - (int64_t)mix_stamp[v];
+        if (mix_gap_seen && gap != mix_gap)
+            mix_gap_moves++;
+        mix_gap = gap, mix_gap_seen = true;
+    }
+}
+
+/* An idle machine paced at exactly 60 frames a second writing register 40 at
+ * the end of every frame, and a device pulling 512 frames at a time at
+ * 48 kHz on a crystal off by `drift`. A render's headroom is what the machine
+ * had stamped past the end of what it asked for, in native samples. After
+ * the first 20 seconds: the times the gap from stamp to render moved, and
+ * the least and most of each half second's least headroom. */
 static mix_stream_t mix_stream(double drift, int minutes)
 {
     static float out[512 * 2];
-    mix_stream_t s = {0, MIX_TARGET * 4, 0, 0, 0};
+    mix_stream_t s = {0, 1e9, -1e9};
     sys_stop();
     sys_commit();
-    aud_setup_probe(NULL);
     vga_set_scanout(false);
     aud_set_sink_rate(48000);
-    aud_set_sink_buffer(512);
+    aud_set_streaming(true);
+    opl_xreg(0x4000);
+    aud_setup_probe(mix_gap_probe);
+    mix_gap_seen = false;
     const double frame = 1.0 / 60, pull = 512 / (48000 * (1 + drift));
     const uint64_t frames = (uint64_t)minutes * 3600;
-    double sum[2] = {0, 0};
-    long count[2] = {0, 0};
     uint64_t f = 0, p = 0;
+    uint8_t v = 0;
+    bool settled = false;
+    double low = 1e9;
+    int renders = 0;
     while (f < frames)
     {
         if (f * frame <= p * pull)
         {
             emu_frames(1);
+            mix_stamp[v] = bus_now(AUD_NATIVE_RATE);
+            aud_xram_write(0x4040, v++);
             f++;
             continue;
         }
         const double t = p++ * pull;
-        const int have = aud_ready();
-        const int n = aud_render(out, 512);
-        if (t < 60)
+        const double lead = (double)(int64_t)(bus_now(AUD_NATIVE_RATE) - aud_samples());
+        aud_render(out, 512);
+        if (!mix_gap_seen)
             continue;
-        if (n < 512)
-            s.underruns++;
-        if (have < s.lo)
-            s.lo = have;
-        if (have > s.hi)
-            s.hi = have;
-        const int minute = (int)(t / 60);
-        if (minute == 1 || minute == minutes - 1)
-            sum[minute != 1] += have, count[minute != 1]++;
+        const double h = lead + (double)mix_gap - MIX_NEED;
+        if (h < low)
+            low = h;
+        if (++renders < MIX_WINDOW)
+            continue;
+        if (settled)
+        {
+            if (low < s.lo)
+                s.lo = low;
+            if (low > s.hi)
+                s.hi = low;
+        }
+        else if (t >= 20)
+            mix_gap_moves = 0, settled = true;
+        low = 1e9, renders = 0;
     }
-    s.first_minute = sum[0] / count[0];
-    s.last_minute = sum[1] / count[1];
-    aud_set_sink_buffer(0);
+    s.moves = mix_gap_moves;
+    aud_setup_probe(NULL);
+    aud_set_streaming(false);
     vga_set_scanout(true);
-    printf("drift %+.1f%%: %ld underruns, buffer %d to %d, mean %.0f then %.0f\n",
-           drift * 100, s.underruns, s.lo, s.hi, s.first_minute, s.last_minute);
+    printf("drift %+.2f%%: gap moved %ld times, least headroom %.0f to %.0f\n",
+           drift * 100, s.moves, s.lo, s.hi);
     return s;
 }
 
-/* The buffer never runs dry or past twice its target once settled, and its
- * mean holds still from the second minute to the last. */
+/* Once settled the gap holds still and the least headroom stays within a
+ * millisecond of none: writes land on their samples or within that of them,
+ * and wait no longer than that past what they have to. */
 static void mix_steady(int *utest_result, double drift)
 {
     const mix_stream_t s = mix_stream(drift, 10);
-    ASSERT_EQ(s.underruns, 0);
-    ASSERT_GE(s.lo, 512);
-    ASSERT_LE(s.hi, 2 * MIX_TARGET);
-    ASSERT_LT(s.last_minute - s.first_minute, 16.0);
-    ASSERT_GT(s.last_minute - s.first_minute, -16.0);
+    ASSERT_EQ(s.moves, 0);
+    ASSERT_GE(s.lo, -(double)AUD_NATIVE_RATE / 1000);
+    ASSERT_LE(s.hi, (double)AUD_NATIVE_RATE / 1000);
 }
 
-UTEST(mix, a_device_half_a_percent_fast_keeps_a_steady_buffer)
+UTEST(mix, a_device_a_quarter_percent_fast_streams_on_time)
 {
-    mix_steady(utest_result, 0.005);
+    mix_steady(utest_result, 0.0025);
 }
 
-UTEST(mix, a_device_half_a_percent_slow_keeps_a_steady_buffer)
+UTEST(mix, a_device_a_quarter_percent_slow_streams_on_time)
 {
-    mix_steady(utest_result, -0.005);
+    mix_steady(utest_result, -0.0025);
 }
 
-UTEST(mix, a_device_on_time_keeps_a_steady_buffer)
+UTEST(mix, a_device_on_time_streams_on_time)
 {
     mix_steady(utest_result, 0);
 }

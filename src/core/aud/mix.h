@@ -40,19 +40,25 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
 /* Every 6502 write to XRAM, handed to the engine mapped on its page, if one
  * is. A software machine calls it where the write happens, before XRAM takes
- * the byte, and the write applies from the sample its cycle falls in; the
- * Pico's RW engine is core1, which queues every write for the audio
+ * the byte. It stamps the write with the sample its cycle falls in and the
+ * mix applies it before making that sample, whenever the sink asks for it.
+ * The Pico's RW engine is core1, which queues every write for the audio
  * interrupt on core0 instead. */
 void aud_xram_write(uint16_t addr, uint8_t val);
 
-/* A software machine's mix, brought up to the machine's present: every
- * native sample whose period ends by the start of the bus's next cycle is
- * made. Each frame ends with it, and the engine lock calls it before an
- * engine changes. */
+/* An engine's xreg mapping it at word or parking it, 0xFFFF, and resetting
+ * it either way. The Pico does it at once under the engine lock; a software
+ * machine stamps it as it stamps a write. */
+void aud_psg_map(uint16_t word);
+void aud_opl_map(uint16_t word);
+
+/* A software machine's present, at the end of each frame: the stamps before
+ * it are all in. A sink on the machine's thread that did not take the frame
+ * before has it dropped, unless a debugger holds the machine, and a muted
+ * mix is stepped up to here. */
 void aud_step(void);
 
-/* Native samples made since scanline 0; while one is being made, its
- * index. */
+/* Native samples the mix has made; while one is being made, its index. */
 uint64_t aud_samples(void);
 
 /* The phase increment of a frequency register that holds hertz times three,
@@ -66,10 +72,9 @@ static inline uint32_t aud_phase_inc(uint16_t freq)
     return (uint32_t)(((uint64_t)freq * AUD_PHASE_MUL) >> 31);
 }
 
-/* Taken by the side that programs the engines across each change. The Pico
- * holds its audio interrupt off. A software machine makes samples on the
- * thread that programs, so its lock steps the mix up to the present and the
- * change lands where the Pico's interrupt would see it. */
+/* Held across anything that reaches into the engines from outside the mix.
+ * The Pico holds its audio interrupt off; a software machine holds off the
+ * sink's render. */
 void aud_engine_lock(void);
 void aud_engine_unlock(void);
 
@@ -97,28 +102,23 @@ void aud_set_enabled(bool on);
 bool aud_enabled(void);
 
 /* What the host's converter actually runs at, once the audio backend has
- * been opened and answered. aud_step reads it for each run of samples, so the
- * rate can change at any time. */
+ * been opened and answered. aud_render reads it for each run of samples, so
+ * the rate can change at any time. */
 void aud_set_sink_rate(uint32_t rate);
 
-/* A sink that pulls on its own clock, `frames` at a time, such as an audio
- * device's callback: aud_render plays what the machine made in order, and
- * the resampler's ratio is trimmed to keep one device buffer and one video
- * frame of the sink's rate waiting. 0, the default, is a sink that pulls
- * once a frame on the machine's thread. */
-void aud_set_sink_buffer(int frames);
+/* A sink that pulls on its own clock, such as an audio device's callback,
+ * on its own thread. Its render makes what it asks for on the spot, and the
+ * resampler's ratio is trimmed so that what it asks for has just been
+ * stamped. Off, the default, is a sink that pulls once a frame on the
+ * machine's thread. */
+void aud_set_streaming(bool on);
 
-/* Frames the machine has made at the sink's rate that aud_render has not
- * taken. */
-int aud_ready(void);
-
-/* Fills the sink's buffer with exactly this many frames at the sink's rate
- * and returns how many the machine made; the rest repeat the level as it
- * stands, since dropping to silence would click. A sink that pulls once a
- * frame takes the newest and drops anything older. A streaming sink takes
- * them in order: it waits for its target before it starts, and again after
- * running dry, and skips ahead to its target when three times that waits.
- * Muted, it is silence; held by a debugger, the level repeats. */
+/* Fills the sink's buffer with this many frames at the sink's rate, made on
+ * the spot. A streaming sink gets them all. A sink that pulls once a frame
+ * gets the samples up to the machine's present and the count is returned,
+ * the newest kept if there are more; the rest repeat the level as it stands,
+ * since dropping to silence would click. Muted, it is silence; held by a
+ * debugger, the level repeats. Both return 0 then. */
 int aud_render(float *dst, int samples);
 
 /* Rolling mono downmix of what was rendered, for waveform display. */
@@ -126,8 +126,8 @@ const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void);
 
 /* The mix as it stands: which engines are sounding, the two resamplers whose
- * phase is continuous across runs, and the native samples made. What waits
- * for the sink is the host's, and stays where it is.
+ * phase is continuous across runs, and the native samples made. It is saved
+ * with the sink's sound taken, so no stamped change is still waiting.
  *
  * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
  *

@@ -607,15 +607,12 @@ static void swizzle(uint32_t *px, size_t n)
     }
 }
 
-/* Everything the frame made, about a frame's worth, which is what a frontend
- * syncing on sound waits for. A silent machine renders silence rather than
+/* The frame's sound, about a frame's worth, which is what a frontend syncing
+ * on sound waits for. A silent machine renders silence rather than
  * nothing. */
 static void push_audio(void)
 {
-    int n = aud_ready();
-    if (n > RETRO_AUD_MAX)
-        n = RETRO_AUD_MAX;
-    aud_render(audio_out, n);
+    const int n = aud_render(audio_out, RETRO_AUD_MAX);
     for (int i = 0; i < n * 2; i++)
         audio_buf[i] = (int16_t)(audio_out[i] * 32767.0f);
     audio_batch_cb(audio_buf, (size_t)n);

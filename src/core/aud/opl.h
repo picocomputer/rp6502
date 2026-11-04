@@ -41,11 +41,16 @@ extern opl_queue_t opl_queue;
 /* Bit reg & 7 of byte reg >> 3 is set for the offsets the engine acts on. */
 extern const uint8_t opl_regs[32];
 
+static inline bool opl_is_reg(uint8_t reg)
+{
+    return (opl_regs[reg >> 3] >> (reg & 7)) & 1;
+}
+
 static inline void opl_push(uint8_t reg, uint8_t val)
 {
     opl_queue_t *q = &opl_queue;
     const uint32_t n = q->count;
-    if (!((opl_regs[reg >> 3] >> (reg & 7)) & 1))
+    if (!opl_is_reg(reg))
         return;
     if (n == OPL_QUEUE_SIZE)
     {
@@ -68,13 +73,16 @@ int16_t opl_sample(void);
 uint32_t opl_take_drops(void);
 
 /* One write the RW engine landed on this engine's page, the low byte of its
- * address and its value, pushed on the queue. Reached through aud_xram_write,
- * which holds the engine lock. */
+ * address and its value, pushed on the queue. */
 void opl_xram_write(uint8_t reg, uint8_t val);
 
-/* Resets the engine. A word that starts a page maps the engine there and
- * clears the page; any other parks it, and only 0xFFFF is not an error. */
+/* A word that starts a page clears the page and goes to aud_opl_map; any
+ * other parks the engine there as 0xFFFF, and only 0xFFFF is not an error. */
 bool opl_xreg(uint16_t word);
+
+/* Resets the engine and maps it at word, 0xFFFF for parked. Reached through
+ * aud_opl_map. */
+void opl_map(uint16_t word);
 
 /* Where this engine's register page sits in XRAM, 0xFFFF for parked. */
 uint16_t opl_xaddr_get(void);

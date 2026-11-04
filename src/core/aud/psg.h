@@ -12,25 +12,33 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* One stereo sample, and the engine advanced by one. The phase and envelope
- * steps are derived from AUD_NATIVE_RATE, so a mixer has to call this once
- * per sample at that rate. */
-void psg_sample(int16_t *left, int16_t *right);
+/* The channel block: eight channels of eight bytes. */
+#define PSG_REGS_SIZE 64
+
+/* One stereo sample from the channel block at regs, and the engine advanced
+ * by one. The Pico passes the block in XRAM; a software machine passes the
+ * mix's copy, which its writes reach on the sample they are stamped for. The
+ * phase and envelope steps are derived from AUD_NATIVE_RATE, so a mixer has
+ * to call this once per sample at that rate. */
+void psg_sample(const void *regs, int16_t *left, int16_t *right);
 
 /* One write the RW engine landed on this engine's page, the low byte of its
- * address and its value. Reached through aud_xram_write, which holds the
- * engine lock. */
+ * address and its value. */
 void psg_xram_write(uint8_t loc, uint8_t val);
 
+/* Checks the word and hands it to aud_psg_map, 0xFFFF for any that is not a
+ * channel block's start. */
 bool psg_xreg(uint16_t word);
+
+/* Resets the eight channels and points the engine at the block at word,
+ * 0xFFFF for parked. Reached through aud_psg_map. */
+void psg_map(uint16_t word);
 
 /* Where this engine's channel block sits in XRAM, 0xFFFF for parked. */
 uint16_t psg_xaddr_get(void);
 
 /* Release the pointer, which takes the PSG out of the mix. The caller holds
- * the engine lock: psg_sample reads the 64-byte channel block at psg_xaddr,
- * and 0xFFFF runs 63 bytes past the end of XRAM, so the mix must never see
- * the pointer change under it. */
+ * the engine lock. */
 void psg_park(void);
 
 /* The pointer and the eight channels behind it. The channel blocks

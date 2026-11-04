@@ -997,15 +997,18 @@ void opl_shutdown(void)
     opl_reset();
 }
 
+void opl_map(uint16_t word)
+{
+    opl_reset();
+    opl_xaddr = word;
+}
+
 bool opl_xreg(uint16_t word)
 {
     const bool map = !(word & 0x00FF);
-    aud_engine_lock();
-    opl_reset();
-    opl_xaddr = map ? word : 0xFFFF;
     if (map)
         memset((uint8_t *)&xram[word], 0, 256);
-    aud_engine_unlock();
+    aud_opl_map(map ? word : 0xFFFF);
     return map || word == 0xFFFF;
 }
 

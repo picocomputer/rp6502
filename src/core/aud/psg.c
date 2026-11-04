@@ -80,6 +80,17 @@ struct psg_channel
     uint8_t unused;
 };
 
+_Static_assert(PSG_CHANNELS * sizeof(struct psg_channel) == PSG_REGS_SIZE, "the block psg_sample reads");
+
+/* A block starts even, because a channel begins with a uint16_t, ends inside
+ * XRAM, and stays inside one page, because psg.sv recognises a write to it
+ * by comparing pages. */
+static bool psg_block_ok(uint16_t word)
+{
+    return !(word & 1) && word <= 0x10000 - PSG_REGS_SIZE &&
+           (word >> 8) == ((word + PSG_REGS_SIZE - 1) >> 8);
+}
+
 static struct
 {
     int16_t sample;
@@ -98,9 +109,9 @@ static struct
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-void psg_sample(int16_t *left, int16_t *right)
+void psg_sample(const void *regs, int16_t *left, int16_t *right)
 {
-    struct psg_channel *channels = (void *)&xram[psg_xaddr];
+    const struct psg_channel *channels = regs;
 
     /* The mix comes first, from the wave and envelope the last step left
      * and the registers as they stand now; the step comes after. That is
@@ -295,16 +306,7 @@ bool psg_sst_load(sst_cursor_t *c, unsigned flags)
         if (ch[i].adsr > sustain)
             return false;
     }
-    /* psg_sample reads the 64-byte block at &xram[psg_xaddr] once a sample
-     * with nothing guarding it, so a restored pointer has to pass the three
-     * tests psg_xreg applies to a written one unless it is the parked
-     * 0xFFFF: the address is even, because a channel begins with a uint16_t;
-     * the block ends inside XRAM; and the block stays inside one page,
-     * because psg.sv recognises a write to it by comparing pages. */
-    if (!sst_ok(c) ||
-        (at != 0xFFFF &&
-         (at & 1 || at > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-          (at >> 8) != ((at + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8))))
+    if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
         return false;
     psg_xaddr = at;
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
@@ -312,7 +314,7 @@ bool psg_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-bool psg_xreg(uint16_t word)
+void psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
      * inherits the last one's envelopes. psg.sv does the same: it resets
@@ -321,7 +323,6 @@ bool psg_xreg(uint16_t word)
      * The noise generator's starting constants come from
      * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
      */
-    aud_engine_lock();
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         psg_channel_state[i].noise1 = 0x67452301;
@@ -331,18 +332,12 @@ bool psg_xreg(uint16_t word)
         psg_channel_state[i].freq = 0;
         psg_channel_state[i].phase_inc = 0;
     }
-    if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
-    {
-        /* Parked, the mix leaves the PSG out; it would otherwise go on
-         * reading the 64-byte channel block at 0xFFFF, which runs 63 bytes
-         * past the end of XRAM. */
-        psg_xaddr = 0xFFFF;
-        aud_engine_unlock();
-        return word == 0xFFFF;
-    }
     psg_xaddr = word;
-    aud_engine_unlock();
-    return true;
+}
+
+bool psg_xreg(uint16_t word)
+{
+    const bool ok = psg_block_ok(word);
+    aud_psg_map(ok ? word : 0xFFFF);
+    return ok || word == 0xFFFF;
 }

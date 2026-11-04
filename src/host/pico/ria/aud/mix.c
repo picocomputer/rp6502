@@ -10,6 +10,7 @@
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
 #include "core/sys/ria.h"
+#include "core/sys/xram.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/rp2350.h"
 #include <pico/stdlib.h>
@@ -123,9 +124,10 @@ static void __isr __time_critical_func(aud_irq)(void)
     int32_t sl = bel_sample();
     int32_t sr = sl;
     int16_t l, r;
-    if (psg_xaddr_get() != 0xFFFF)
+    const uint16_t psg = psg_xaddr_get();
+    if (psg != 0xFFFF)
     {
-        psg_sample(&l, &r);
+        psg_sample((const void *)&xram[psg], &l, &r);
         sl += l, sr += r;
     }
     if (opl_xaddr_get() != 0xFFFF)
@@ -216,4 +218,18 @@ void aud_engine_lock(void)
 }
 
 void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
+
+void aud_psg_map(uint16_t word)
+{
+    aud_engine_lock();
+    psg_map(word);
+    aud_engine_unlock();
+}
+
+void aud_opl_map(uint16_t word)
+{
+    aud_engine_lock();
+    opl_map(word);
+    aud_engine_unlock();
+}
 
