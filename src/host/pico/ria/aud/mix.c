@@ -180,7 +180,9 @@ void __in_flash("aud_init") aud_init(void)
     /* The IRQ slice has a period of 5149 system clocks, which is 49718 Hz and
      * 0.005% above AUD_NATIVE_RATE. The L and R pins are on other slices, so
      * their 250 kHz carrier does not change with the IRQ slice's period. */
-    irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
+    /* Below the VGA interrupts, above USB and everything else at the
+     * default. */
+    irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
     pwm_clear_irq(AUD_IRQ_SLICE);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);
     pwm_set_wrap(AUD_IRQ_SLICE, (SYS_RP2350_KHZ * 1000u) / AUD_NATIVE_RATE - 1);
