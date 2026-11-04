@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
+#include "machine.h"
 
 #define MSC_LOG_VOL(vol, LEVEL, fmt, ...) \
     RP6502_LOG(msc, LEVEL, "vol %u: " fmt, (unsigned)(vol), ##__VA_ARGS__)
@@ -1817,7 +1818,8 @@ static void msc_inquiry_rtrim(uint8_t *s, size_t l)
     }
 }
 
-int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("msc_status_response") msc_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     if (state < 0 || state >= FF_VOLUMES)
         return -1;

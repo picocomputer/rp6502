@@ -13,6 +13,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/rp2350.h"
+#include "machine.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 #include <stdio.h>
@@ -173,7 +174,8 @@ void cyw_apply_rf_enable(uint8_t rf, bool changed)
         cyw_reset_radio();
 }
 
-int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("cyw_rf_enable_response") cyw_rf_enable_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned width)
 {
     (void)state;
     (void)width;
@@ -201,7 +203,10 @@ void cyw_apply_rf_country_code(const char *rfcc, bool changed)
         cyw_reset_radio();
 }
 
-int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("cyw_rf_country_code_response") cyw_rf_country_code_response(char *buf,
+                                                                                    size_t buf_size,
+                                                                                    int state,
+                                                                                    unsigned width)
 {
     (void)state;
     (void)width;

@@ -29,6 +29,7 @@
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
+#include "machine.h"
 #include <fatfs/ff.h>
 #include <assert.h>
 #include <ctype.h>
@@ -610,7 +611,8 @@ void rom_stop(void)
     }
 }
 
-int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("rom_installed_response") rom_installed_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned)
 {
     if (state < 0)
         return state;

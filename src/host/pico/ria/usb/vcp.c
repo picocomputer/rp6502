@@ -10,6 +10,7 @@
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
@@ -63,7 +64,8 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
-int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("vcp_status_response") vcp_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
         return -1;

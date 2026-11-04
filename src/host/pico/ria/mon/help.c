@@ -14,6 +14,7 @@
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
+#include "machine.h"
 #include <pico.h>
 #include <string.h>
 
@@ -138,7 +139,8 @@ const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
 
 // str_parse_string returns static storage that its next call overwrites, so
 // word is copied before the sub-key is parsed.
-static void help_split(const char *args, char *word, size_t word_size, const char **sub)
+static void HOST_IN_FLASH_FUNC("help_split") help_split(const char *args, char *word,
+                                                        size_t word_size, const char **sub)
 {
     const char *tok = str_parse_string(&args);
     strncpy(word, tok ? tok : "", word_size - 1);
@@ -148,7 +150,7 @@ static void help_split(const char *args, char *word, size_t word_size, const cha
         *sub = str_parse_string(&args);
 }
 
-void help_mon_help(const char *args)
+void HOST_IN_FLASH_FUNC("help_mon_help") help_mon_help(const char *args)
 {
     if (!*args)
     {
@@ -177,7 +179,7 @@ void help_mon_help(const char *args)
         mon_add_response_fn(fn);
 }
 
-bool help_topic_exists(const char *buf)
+bool HOST_IN_FLASH_FUNC("help_topic_exists") help_topic_exists(const char *buf)
 {
     char word[16];
     const char *sub;

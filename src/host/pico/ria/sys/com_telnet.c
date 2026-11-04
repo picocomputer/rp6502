@@ -18,6 +18,7 @@
 #include "core/sys/driver.h"
 #include "core/sys/timer.h"
 #include "ria-w/net/wifi.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -297,7 +298,10 @@ static bool com_telnet_on_accept(uint16_t port)
 
 
 
-int com_telnet_port_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("com_telnet_port_response") com_telnet_port_response(char *buf,
+                                                                            size_t buf_size,
+                                                                            int state,
+                                                                            unsigned width)
 {
     (void)width;
     if (state == 0)
@@ -310,7 +314,9 @@ int com_telnet_port_response(char *buf, size_t buf_size, int state, unsigned wid
     return com_telnet_key_response(buf, buf_size, 0, width);
 }
 
-int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("com_telnet_key_response") com_telnet_key_response(char *buf,
+                                                                          size_t buf_size,
+                                                                          int state, unsigned width)
 {
     (void)state;
     (void)width;

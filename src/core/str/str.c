@@ -185,7 +185,8 @@ void HOST_IN_FLASH("str_init") str_init(void)
     str_apply_locale(str_get_locale(), true);
 }
 
-int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("str_locales_response") str_locales_response(char *buf, size_t buf_size,
+                                                                    int state, unsigned width)
 {
     (void)width;
     const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
@@ -205,7 +206,8 @@ int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-int str_locale_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("str_locale_response") str_locale_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned width)
 {
     (void)state;
     (void)width;

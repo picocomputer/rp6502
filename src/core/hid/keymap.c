@@ -511,7 +511,9 @@ void keymap_task(void)
 
 /* The width the caller asks for is ignored, because the list is laid out from
  * the longest layout name it has. */
-int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("keymap_layouts_response") keymap_layouts_response(char *buf,
+                                                                          size_t buf_size,
+                                                                          int state, unsigned width)
 {
     (void)width;
     if (state < 0 || state >= layout_count())
@@ -606,7 +608,10 @@ void keymap_apply_layout_list(const char *list, bool changed)
     keymap_apply_active();
 }
 
-int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("keymap_layout_list_response") keymap_layout_list_response(char *buf,
+                                                                                  size_t buf_size,
+                                                                                  int state,
+                                                                                  unsigned width)
 {
     (void)state;
     (void)width;

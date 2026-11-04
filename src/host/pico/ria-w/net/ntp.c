@@ -10,6 +10,7 @@
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
+#include "machine.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>
 #include <pico/aon_timer.h>
@@ -249,7 +250,8 @@ static const char *ntp_status_str(void)
     }
 }
 
-int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("ntp_status_response") ntp_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     oem_snprintf(buf, buf_size, STR_STATUS_NTP, ntp_status_str());

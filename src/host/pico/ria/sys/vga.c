@@ -16,6 +16,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/timer.h>
@@ -403,14 +404,16 @@ bool vga_connected(void)
            vga_state == VGA_NO_VERSION;
 }
 
-int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("vga_boot_response") vga_boot_response(char *buf, size_t buf_size, int state,
+                                                              unsigned width)
 {
     if (!vga_connected())
         return -1;
     return vga_status_response(buf, buf_size, state, width);
 }
 
-int vga_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("vga_status_response") vga_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     const char *msg = STR_VGA_SEARCHING;
@@ -448,7 +451,10 @@ void vga_apply_display_type(uint8_t display_type, bool changed)
         vga_needs_reset = true;
 }
 
-int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("vga_display_type_response") vga_display_type_response(char *buf,
+                                                                              size_t buf_size,
+                                                                              int state,
+                                                                              unsigned width)
 {
     (void)state;
     (void)width;
