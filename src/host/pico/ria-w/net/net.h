@@ -11,7 +11,7 @@
  */
 
 #include "ria-w/lwipopts.h"
-#include <lwip/ip_addr.h>
+#include <lwip/ip.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
