@@ -370,19 +370,21 @@ void ria_break(void)
 }
 
 ria_aud_ring_t ria_aud;
+volatile uint32_t ria_aud_watch[32];
 
 /* The drain pairs an acquire barrier with the one here, so the entry has to
  * be written before the head that publishes it. */
-static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint8_t data)
+static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint32_t pix)
 {
+    if (!(ria_aud_watch[addr >> 11] & (1u << ((addr >> 6) & 31))))
+        return;
     uint8_t next = (ria_aud.head + 1) & (RIA_AUD_RING_SIZE - 1);
     if (next == ria_aud.tail)
     {
         ria_aud.lost++;
         return;
     }
-    ria_aud.addr[next] = addr;
-    ria_aud.data[next] = data;
+    ria_aud.entry[next] = pix;
     __dmb();
     ria_aud.head = next;
 }
@@ -488,10 +490,11 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                      * read of RW1. */
                     uint16_t addr = RIA_ADDR1;
                     xram[addr] = data;
-                    PIX_SEND_XRAM(addr, data);
+                    const uint32_t pix = PIX_MESSAGE(PIX_DEVICE_XRAM, 0, data, addr);
+                    PIX_PIO->txf[PIX_SM] = pix;
                     RIA_ADDR1 = addr + RIA_STEP1;
                     RIA_RW1 = xram[RIA_ADDR1];
-                    ria_aud_push(addr, data);
+                    ria_aud_push(addr, pix);
                     break;
                 }
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -501,10 +504,11 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 {
                     uint16_t addr = RIA_ADDR0;
                     xram[addr] = data;
-                    PIX_SEND_XRAM(addr, data);
+                    const uint32_t pix = PIX_MESSAGE(PIX_DEVICE_XRAM, 0, data, addr);
+                    PIX_PIO->txf[PIX_SM] = pix;
                     RIA_ADDR0 = addr + RIA_STEP0;
                     RIA_RW0 = xram[RIA_ADDR0];
-                    ria_aud_push(addr, data);
+                    ria_aud_push(addr, pix);
                     break;
                 }
                 case CASE_READ(0xFFE4): // R XRAM0
