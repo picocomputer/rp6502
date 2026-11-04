@@ -6,12 +6,15 @@
 
 #include "core/api/api.h"
 #include "core/api/attr.h"
+#include "core/aud/mix.h"
+#include "core/aud/opl.h"
 #include "core/ria/regs.h"
 #include "utest.h"
 #include <string.h>
 
 #define ATTR_PHI2_KHZ 0x01
 #define ATTR_CODE_PAGE 0x02
+#define ATTR_OPL_DROPS 0x0D
 
 static int16_t attr_set(uint8_t id, uint32_t value)
 {
@@ -59,6 +62,24 @@ UTEST(attr, a_value_that_is_not_a_code_page_fails_with_einval)
     }
     ASSERT_EQ(attr_set(ATTR_CODE_PAGE, 437), 0);
     ASSERT_EQ(attr_get(ATTR_CODE_PAGE), 437);
+}
+
+/* 300 writes to one register before a sample: the queue holds 256, so 44
+ * are dropped. The count is read once the render has reached them, and
+ * reading clears it; it is read-only. */
+UTEST(attr, opl_drops_counts_the_writes_the_queue_could_not_take)
+{
+    static float out[16];
+    api_set_errno_opt(2);
+    ASSERT_TRUE(opl_xreg(0x4000));
+    for (int i = 0; i < 300; i++)
+        aud_xram_write(0x4040, (uint8_t)i);
+    aud_render(out, 8);
+    ASSERT_EQ(attr_get(ATTR_OPL_DROPS), 300 - OPL_QUEUE_SIZE);
+    ASSERT_EQ(attr_get(ATTR_OPL_DROPS), 0);
+    ASSERT_EQ(attr_set(ATTR_OPL_DROPS, 0), -1);
+    ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
+    ASSERT_TRUE(opl_xreg(0xFFFF));
 }
 
 UTEST_MAIN();

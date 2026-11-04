@@ -46,6 +46,14 @@ static inline bool opl_is_reg(uint8_t reg)
     return (opl_regs[reg >> 3] >> (reg & 7)) & 1;
 }
 
+/* Whether applying a write to reg holds the queue for a sample: the
+ * modulator half of A0-A2, B0-B2, C0-C2, AE, AF, BE, BF, CE or CF. */
+static inline bool opl_is_late(uint8_t reg)
+{
+    const uint8_t g = reg >> 4, lo = reg & 15;
+    return g >= 0xA && g <= 0xC && (lo <= 2 || lo >= 14);
+}
+
 static inline void opl_push(uint8_t reg, uint8_t val)
 {
     opl_queue_t *q = &opl_queue;
@@ -71,6 +79,9 @@ int16_t opl_sample(void);
 
 /* Writes dropped since the last call, saturating at 0x7FFFFFFF. */
 uint32_t opl_take_drops(void);
+
+/* The pacing credit, and whether the next sample is held for a late half. */
+void opl_pace_get(uint32_t *credit, bool *late);
 
 /* One write the RW engine landed on this engine's page, the low byte of its
  * address and its value, pushed on the queue. */

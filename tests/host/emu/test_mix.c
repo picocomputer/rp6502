@@ -25,6 +25,9 @@ static uint64_t mix_cycle[MIX_WRITES], mix_line[MIX_WRITES], mix_at[MIX_WRITES];
 static uint64_t mix_applied_at[MIX_WRITES];
 static int mix_writes, mix_applied;
 
+/* The drop count when the run ended, before the stop clears it. */
+static uint32_t mix_drops;
+
 /* The stamp a write in the cycle about to run gets. */
 static uint64_t mix_next;
 
@@ -69,6 +72,7 @@ static bool mix_run(const char *rom, int frames, bool muted)
     }
     cpu_dbg_cycle_cb = NULL;
     dbg_set_active(false);
+    mix_drops = aud_opl_drops();
     sys_stop();
     sys_commit();
     aud_setup_probe(NULL);
@@ -142,7 +146,7 @@ static bool mix_is_pico(void)
     static uint64_t at[MIX_WRITES];
     int applied;
     const uint32_t drops = mix_pico(at, &applied);
-    return drops == opl_queue.drops && applied == mix_applied &&
+    return drops == mix_drops && applied == mix_applied &&
            !memcmp(at, mix_applied_at, (size_t)applied * sizeof *at);
 }
 
@@ -154,7 +158,7 @@ static void mix_spread(int *utest_result, bool muted)
     for (int i = 0; i < mix_writes; i++)
         ASSERT_TRUE(mix_in_line(i));
     ASSERT_TRUE(mix_on_the_clock());
-    ASSERT_EQ(opl_queue.drops, 0u);
+    ASSERT_EQ(mix_drops, 0u);
     ASSERT_EQ(mix_applied, 300);
     for (int i = 0; i < mix_writes; i++)
         ASSERT_EQ(mix_applied_at[i], mix_at[i]);
@@ -168,7 +172,7 @@ static void mix_flat(int *utest_result, bool muted)
     for (int i = 0; i < mix_writes; i++)
         ASSERT_TRUE(mix_in_line(i));
     ASSERT_TRUE(mix_on_the_clock());
-    ASSERT_GT(opl_queue.drops, 0u);
+    ASSERT_GT(mix_drops, 0u);
     ASSERT_EQ(opl_queue.count, 0);
     ASSERT_TRUE(mix_is_pico());
 }
@@ -203,15 +207,14 @@ UTEST(mix, a_muted_flat_out_burst_still_drops_in_time)
 
 typedef struct
 {
-    long moves;
+    int64_t spread;
     double lo, hi;
 } mix_stream_t;
 
 /* The render index each write to register 40 applied at less the stamp it
- * had, which is aud_off while the write was on time. */
-static int64_t mix_gap;
+ * had, which is aud_off, and its least and most once settled. */
+static int64_t mix_gap, mix_gap_lo, mix_gap_hi;
 static bool mix_gap_seen;
-static long mix_gap_moves;
 
 /* Each write's value picks its stamp out of these. */
 static uint64_t mix_stamp[256];
@@ -224,8 +227,10 @@ static void mix_gap_probe(int16_t *l, int16_t *r)
     if (opl_queue.count < waiting)
     {
         const int64_t gap = (int64_t)aud_samples() - (int64_t)mix_stamp[v];
-        if (mix_gap_seen && gap != mix_gap)
-            mix_gap_moves++;
+        if (gap < mix_gap_lo)
+            mix_gap_lo = gap;
+        if (gap > mix_gap_hi)
+            mix_gap_hi = gap;
         mix_gap = gap, mix_gap_seen = true;
     }
 }
@@ -234,7 +239,7 @@ static void mix_gap_probe(int16_t *l, int16_t *r)
  * the end of every frame, and a device pulling 512 frames at a time at
  * 48 kHz on a crystal off by `drift`. A render's headroom is what the machine
  * had stamped past the end of what it asked for, in native samples. After
- * the first 20 seconds: the times the gap from stamp to render moved, and
+ * the first 20 seconds: how far the gap from stamp to render wandered, and
  * the least and most of each half second's least headroom. */
 static mix_stream_t mix_stream(double drift, int minutes)
 {
@@ -283,27 +288,29 @@ static mix_stream_t mix_stream(double drift, int minutes)
                 s.hi = low;
         }
         else if (t >= 20)
-            mix_gap_moves = 0, settled = true;
+            mix_gap_lo = INT64_MAX, mix_gap_hi = INT64_MIN, settled = true;
         low = 1e9, renders = 0;
     }
-    s.moves = mix_gap_moves;
+    s.spread = mix_gap_hi - mix_gap_lo;
     aud_setup_probe(NULL);
     aud_set_streaming(false);
     vga_set_scanout(true);
-    printf("drift %+.2f%%: gap moved %ld times, least headroom %.0f to %.0f\n",
-           drift * 100, s.moves, s.lo, s.hi);
+    printf("drift %+.2f%%: gap wandered %lld, least headroom %.0f to %.0f\n",
+           drift * 100, (long long)s.spread, s.lo, s.hi);
     return s;
 }
 
-/* Once settled the gap holds still and the least headroom stays within a
- * millisecond of none: writes land on their samples or within that of them,
- * and wait no longer than that past what they have to. */
+/* No write lands after its sample: a render short of headroom moves the gap
+ * on first. Once settled the gap wanders less than two milliseconds, and the
+ * least headroom of each half second stays between a millisecond below none
+ * and two above, so writes wait no longer than that past what they have
+ * to. */
 static void mix_steady(int *utest_result, double drift)
 {
     const mix_stream_t s = mix_stream(drift, 10);
-    ASSERT_EQ(s.moves, 0);
+    ASSERT_LT(s.spread, (int64_t)AUD_NATIVE_RATE / 500);
     ASSERT_GE(s.lo, -(double)AUD_NATIVE_RATE / 1000);
-    ASSERT_LE(s.hi, (double)AUD_NATIVE_RATE / 1000);
+    ASSERT_LE(s.hi, (double)AUD_NATIVE_RATE / 500);
 }
 
 UTEST(mix, a_device_a_quarter_percent_fast_streams_on_time)

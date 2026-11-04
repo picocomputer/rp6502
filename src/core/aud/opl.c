@@ -976,6 +976,12 @@ void opl_reset(void)
     opl_rebuild();
 }
 
+void opl_pace_get(uint32_t *credit, bool *late)
+{
+    *credit = opl_chip.credit;
+    *late = opl_chip.lag & 7;
+}
+
 uint32_t opl_take_drops(void)
 {
     const uint32_t d = opl_queue.drops;

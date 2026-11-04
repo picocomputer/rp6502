@@ -229,8 +229,19 @@ void aud_stop(void)
     aud_engine_lock();
     psg_park();
     opl_park();
+    opl_take_drops();
     aud_watch();
     aud_engine_unlock();
+}
+
+/* The lock drains the ring first, so every write core1 queued before the
+ * call is counted. */
+uint32_t aud_opl_drops(void)
+{
+    aud_engine_lock();
+    const uint32_t drops = opl_take_drops();
+    aud_engine_unlock();
+    return drops;
 }
 
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever

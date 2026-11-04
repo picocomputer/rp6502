@@ -36,12 +36,14 @@ core/aud/mix.c aud_ev_w: not carried: a state is saved with the sound taken, the
 core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
 core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
 core/aud/mix.c aud_low: not carried: the streaming sink's trim, the host's
-core/aud/mix.c aud_low_was: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_lows: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_made: the AUD chunk
 core/aud/mix.c aud_now: not carried: set to the AUD chunk's samples made on load
 core/aud/mix.c aud_off: not carried: the streaming sink's trim, the host's; 0 on load
 core/aud/mix.c aud_on: not carried: --mute is a session setting
 core/aud/mix.c aud_opl_at: not carried: rebuilt from the OPL chunk on load
+core/aud/mix.c aud_oq: the AUD chunk carries the drops; the rest is rebuilt from the OPL chunk's queue on load
+core/aud/mix.c aud_owed: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
 core/aud/mix.c aud_psg_regs: not carried: rebuilt from the XRAM chunk on load

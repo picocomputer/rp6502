@@ -55,6 +55,58 @@ static _Atomic uint32_t aud_ev_w, aud_ev_r;
  * once it makes the sample each map is stamped for. */
 static uint16_t aud_psg_at = 0xFFFF, aud_opl_at = 0xFFFF;
 
+/* The OPL2's queue as the machine sees it. A write is kept or dropped here,
+ * by the rule opl.h gives and in the machine's own time, so the count is
+ * right the moment the 6502 asks for it and nothing the sink does can change
+ * it. The render's queue is handed the kept writes on the same samples, so
+ * it takes and applies them on the same samples and never fills. */
+static struct
+{
+    uint64_t at; /* the next sample to step */
+    uint8_t reg[OPL_QUEUE_SIZE];
+    uint16_t count;
+    uint8_t head;
+    bool late;
+    uint32_t credit;
+    uint32_t drops;
+} aud_oq;
+
+static void aud_oq_reset(uint64_t at)
+{
+    aud_oq.at = at;
+    aud_oq.count = 0;
+    aud_oq.head = 0;
+    aud_oq.late = false;
+    aud_oq.credit = 96;
+    aud_oq.drops = 0;
+}
+
+/* Every sample before `to`, as opl_commit steps them. */
+static void aud_oq_step(uint64_t to)
+{
+    while (aud_oq.at < to)
+    {
+        if (!aud_oq.count && !aud_oq.late && aud_oq.credit == 96)
+        {
+            aud_oq.at = to;
+            return;
+        }
+        const bool held = aud_oq.late;
+        aud_oq.late = false;
+        if (!held && aud_oq.count && aud_oq.credit >= 96)
+        {
+            aud_oq.late = opl_is_late(aud_oq.reg[aud_oq.head++]);
+            aud_oq.count--;
+            aud_oq.credit -= 96;
+        }
+        aud_oq.credit += 72;
+        const uint32_t cap = aud_oq.count ? 192 : 96;
+        if (aud_oq.credit > cap)
+            aud_oq.credit = cap;
+        aud_oq.at++;
+    }
+}
+
 /* The native sample the machine had reached at the end of its last frame. */
 static _Atomic uint64_t aud_now;
 
@@ -96,21 +148,25 @@ static bool aud_on = true;
 static _Atomic bool aud_streaming;
 
 /* The streaming trim works on headroom: at each render, how many native
- * samples past the end of what it asks for the machine has stamped. Each
- * half second the least of it is taken. Below zero, changes for samples the
- * render made had not been stamped yet and landed late; above, they waited
- * longer than they had to. A PI loop on it, critically damped with a natural
- * frequency of a quarter radian a second, stretches the resampler's step by
- * at most 0.5%, the deviation Arntzen's dynamic rate control for emulators
- * found no listener could detect. A least beyond what that trim takes a
- * second to remove, two windows running, moves aud_off instead: the start,
- * or a machine held up, where a gap or a skip in the sound would be heard
- * and changes landing a little early or late are not. */
+ * samples past the end of what it asks for the machine has stamped. A render
+ * that finds less than none first moves aud_off on by the shortfall, so a
+ * change never lands after its sample; that headroom is owed. The trim sees
+ * the headroom less what is owed, as if nothing had moved: each half second
+ * the least is taken. A PI loop on it, critically
+ * damped with a natural frequency of half a radian a second, stretches the
+ * resampler's step by at most 0.5%, the deviation Arntzen's dynamic rate
+ * control for emulators found no listener could detect. What is owed past the
+ * deepest shortfall of the last four seconds is given back, and so is a least
+ * beyond what the trim takes a second to remove two windows running, by
+ * moving aud_off back. That
+ * waits for the OPL2's queue to be empty and goes only up to the next stamped
+ * change, so the queue never sees two writes closer than the machine made
+ * them and keeps or drops each as the Pico would. */
 #define AUD_TRIM_W 0.5
 #define AUD_TRIM_MAX 0.005
 #define AUD_JUMP ((int64_t)(AUD_TRIM_MAX * AUD_NATIVE_RATE))
 static bool aud_anchored;
-static int64_t aud_low, aud_low_was;
+static int64_t aud_owed, aud_low, aud_lows[8];
 static uint32_t aud_window;
 static double aud_trim_i, aud_trim;
 
@@ -144,6 +200,7 @@ void aud_init(void)
     aud_opl_at = opl_xaddr_get();
     aud_made = bus_now(AUD_NATIVE_RATE);
     atomic_store(&aud_now, aud_made);
+    aud_oq_reset(aud_made);
     aud_off = 0;
     aud_anchored = false;
     aud_carry_n = 0;
@@ -159,6 +216,7 @@ void aud_stop(void)
     psg_park();
     opl_park();
     aud_psg_at = aud_opl_at = 0xFFFF;
+    aud_oq_reset(bus_now(AUD_NATIVE_RATE));
     aud_unlock();
 }
 
@@ -178,6 +236,13 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right))
 
 void aud_engine_lock(void) { aud_lock(); }
 void aud_engine_unlock(void) { aud_unlock(); }
+
+uint32_t aud_opl_drops(void)
+{
+    const uint32_t drops = aud_oq.drops;
+    aud_oq.drops = 0;
+    return drops;
+}
 
 static void aud_apply(const aud_ev_t *e)
 {
@@ -307,13 +372,18 @@ static void aud_overflow(uint32_t w)
     aud_unlock();
 }
 
-static void aud_push(uint8_t kind, uint16_t addr, uint8_t val)
+static void aud_push_at(uint64_t at, uint8_t kind, uint16_t addr, uint8_t val)
 {
     const uint32_t w = atomic_load_explicit(&aud_ev_w, memory_order_relaxed);
     if (w - atomic_load_explicit(&aud_ev_r, memory_order_acquire) == AUD_EV_SIZE)
         aud_overflow(w);
-    aud_ev[w % AUD_EV_SIZE] = (aud_ev_t){(uint32_t)bus_now(AUD_NATIVE_RATE), addr, val, kind};
+    aud_ev[w % AUD_EV_SIZE] = (aud_ev_t){(uint32_t)at, addr, val, kind};
     atomic_store_explicit(&aud_ev_w, w + 1, memory_order_release);
+}
+
+static void aud_push(uint8_t kind, uint16_t addr, uint8_t val)
+{
+    aud_push_at(bus_now(AUD_NATIVE_RATE), kind, addr, val);
 }
 
 void aud_xram_write(uint16_t addr, uint8_t val)
@@ -321,10 +391,26 @@ void aud_xram_write(uint16_t addr, uint8_t val)
     uint8_t kind = 0;
     if (aud_psg_at != 0xFFFF && (uint16_t)(addr - aud_psg_at) < PSG_REGS_SIZE)
         kind |= AUD_EV_PSG;
-    if ((addr & 0xFF00) == aud_opl_at && opl_is_reg((uint8_t)addr))
-        kind |= AUD_EV_OPL;
+    const bool to_opl = (addr & 0xFF00) == aud_opl_at && opl_is_reg((uint8_t)addr);
+    if (!kind && !to_opl)
+        return;
+    const uint64_t at = bus_now(AUD_NATIVE_RATE);
+    if (to_opl)
+    {
+        aud_oq_step(at);
+        if (aud_oq.count == OPL_QUEUE_SIZE)
+        {
+            if (aud_oq.drops < 0x7FFFFFFF)
+                aud_oq.drops++;
+        }
+        else
+        {
+            aud_oq.reg[(uint8_t)(aud_oq.head + aud_oq.count++)] = (uint8_t)addr;
+            kind |= AUD_EV_OPL;
+        }
+    }
     if (kind)
-        aud_push(kind, addr, val);
+        aud_push_at(at, kind, addr, val);
 }
 
 /* The render reads the PSG's block from its own copy, so a map sends the
@@ -347,8 +433,10 @@ void aud_psg_map(uint16_t word)
  * there. */
 void aud_opl_map(uint16_t word)
 {
+    const uint64_t at = bus_now(AUD_NATIVE_RATE);
     aud_opl_at = word;
-    aud_push(AUD_EV_OPL_MAP, word, 0);
+    aud_oq_reset(at);
+    aud_push_at(at, AUD_EV_OPL_MAP, word, 0);
     if (word != 0xFFFF && aud_psg_at != 0xFFFF && (aud_psg_at & 0xFF00) == word)
         aud_psg_send();
 }
@@ -401,18 +489,42 @@ uint64_t aud_samples(void) { return aud_made; }
 /* The end of a window of the streaming trim. */
 static void aud_settle(uint32_t rate)
 {
-    const int64_t low = aud_low, was = aud_low_was;
     const double dt = (double)aud_window / rate;
+    memmove(&aud_lows[1], &aud_lows[0], 7 * sizeof *aud_lows);
+    int64_t low = aud_lows[0] = aud_low, deep = INT64_MAX;
     aud_low = INT64_MAX;
     aud_window = 0;
-    if ((low > AUD_JUMP && was > AUD_JUMP) || (low < -AUD_JUMP && was < -AUD_JUMP))
+    for (int i = 0; i < 8; i++)
+        if (aud_lows[i] < deep)
+            deep = aud_lows[i];
+    const int64_t spare = aud_owed - (deep < 0 ? -deep : 0);
+    int64_t by = spare > 0 ? spare : 0;
+    const bool over = low > AUD_JUMP && aud_lows[1] > AUD_JUMP && aud_lows[1] != INT64_MAX;
+    if (over)
+        by += low < aud_lows[1] ? low : aud_lows[1];
+    if (by > 0 && !opl_queue.count)
     {
-        const int64_t by = low > 0 ? (low < was ? low : was) : (low > was ? low : was);
-        aud_off -= by;
-        aud_low_was = low - by;
-        return;
+        const uint32_t r = atomic_load_explicit(&aud_ev_r, memory_order_relaxed);
+        if (r != atomic_load_explicit(&aud_ev_w, memory_order_acquire))
+        {
+            /* The queue's credit is back to idle two samples after it
+             * empties. */
+            const uint32_t due = (uint32_t)(aud_made - (uint64_t)aud_off);
+            const int64_t room = (int32_t)(aud_ev[r % AUD_EV_SIZE].at - due) - 2;
+            if (room < by)
+                by = room;
+        }
+        if (by > 0)
+        {
+            aud_off -= by;
+            const int64_t owed = spare <= 0 ? 0 : by < spare ? by : spare;
+            aud_owed -= owed;
+            for (int i = 0; i < 8; i++)
+                if (aud_lows[i] != INT64_MAX)
+                    aud_lows[i] -= by - owed;
+            low -= by - owed;
+        }
     }
-    aud_low_was = low;
     const double e = (double)(low > AUD_JUMP ? AUD_JUMP : low < -AUD_JUMP ? -AUD_JUMP : low);
     const double r = AUD_NATIVE_RATE;
     aud_trim_i += AUD_TRIM_W * AUD_TRIM_W / r * e * dt;
@@ -427,26 +539,32 @@ static void aud_settle(uint32_t rate)
         aud_trim = -AUD_TRIM_MAX;
 }
 
-/* A streaming render: everything asked for, made now. The first sets
- * aud_off so that what it asks for has just been stamped. */
+/* A streaming render: everything asked for, made now. */
 static int aud_stream(float *dst, int samples)
 {
     const uint32_t rate = atomic_load(&aud_sink_rate);
     uint64_t step = aud_ratio();
     step += (uint64_t)(int64_t)((double)step * aud_trim);
     const int64_t need = (int64_t)(((uint64_t)samples * step) >> 32);
-    int64_t h = (int64_t)atomic_load(&aud_now) + aud_off - (int64_t)aud_made - need;
+    const int64_t h = (int64_t)atomic_load(&aud_now) + aud_off - (int64_t)aud_made - need;
     if (!aud_anchored)
     {
+        /* The first render starts with none. */
         aud_off -= h;
-        h = 0;
         aud_anchored = true;
+        aud_owed = 0;
         aud_low = INT64_MAX;
-        aud_low_was = 0;
+        for (int i = 0; i < 8; i++)
+            aud_lows[i] = INT64_MAX;
         aud_window = 0;
     }
-    if (h < aud_low)
-        aud_low = h;
+    else
+    {
+        if (h - aud_owed < aud_low)
+            aud_low = h - aud_owed;
+        if (h < 0)
+            aud_off -= h, aud_owed -= h;
+    }
     int at = 0, kept = 0;
     for (int i = 0; i < aud_carry_n; i++)
         if (at < samples)
@@ -562,6 +680,7 @@ void aud_sst_save(sst_cursor_t *c, unsigned flags)
     aud_put_rsmp(c, &aud_rs_l);
     aud_put_rsmp(c, &aud_rs_r);
     sst_put_u64(c, aud_made);
+    sst_put_u32(c, aud_oq.drops);
     bel_sst_save(c, flags);
 }
 
@@ -572,7 +691,8 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_get_rsmp(c, &l);
     aud_get_rsmp(c, &r);
     uint64_t made = sst_get_u64(c);
-    if (!sst_ok(c) || engines > 3)
+    uint32_t drops = sst_get_u32(c);
+    if (!sst_ok(c) || engines > 3 || drops > 0x7FFFFFFF)
         return false;
     /* This row loads after the engines' own, and an engine it names has to
      * have come back mapped. */
@@ -590,6 +710,15 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_opl_at = opl_xaddr_get();
     if (aud_psg_at != 0xFFFF)
         memcpy(aud_psg_regs, (const void *)&xram[aud_psg_at], PSG_REGS_SIZE);
+    /* The machine's queue is the render's, which was saved with the sound
+     * taken. */
+    aud_oq_reset(made);
+    aud_oq.drops = drops;
+    aud_oq.count = opl_queue.count;
+    aud_oq.head = opl_queue.head;
+    for (unsigned i = 0; i < opl_queue.count; i++)
+        aud_oq.reg[(uint8_t)(opl_queue.head + i)] = (uint8_t)opl_queue.entry[(uint8_t)(opl_queue.head + i)];
+    opl_pace_get(&aud_oq.credit, &aud_oq.late);
     aud_probe = NULL;
     aud_rs_l = l;
     aud_rs_r = r;

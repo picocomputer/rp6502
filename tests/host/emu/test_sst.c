@@ -50,7 +50,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222346);
+    ASSERT_EQ(sst_size(), (size_t)222350);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -338,12 +338,12 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
         aud_poke((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
     aud_pull_lines(went, 40);
     ASSERT_GT(opl_queue.count, 0);
-    ASSERT_GT(opl_queue.drops, 0u);
     ASSERT_EQ(take(), (const char *)NULL);
     for (int k = 0; k < 300; k++)
         aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
     const size_t n = aud_pull(went, 3);
-    const uint32_t drops = opl_queue.drops;
+    const uint32_t drops = aud_opl_drops();
+    ASSERT_GT(drops, 0u);
 
     ASSERT_TRUE(opl_xreg(0x4000));
     aud_pull(came, 1);
@@ -354,7 +354,7 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     ASSERT_EQ(aud_pull(came, 3), n);
     ASSERT_TRUE(aud_sounded(went, n * 2));
     ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
-    ASSERT_EQ(opl_queue.drops, drops);
+    ASSERT_EQ(aud_opl_drops(), drops);
 }
 
 /* A blob whose OPL chunk is version 1, as older builds wrote it, with its sum

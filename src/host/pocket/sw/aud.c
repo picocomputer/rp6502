@@ -40,6 +40,9 @@ void aud_stop(void)
     aud_opl_at = 0xFFFF;
 }
 
+/* opl.sv takes every write as it comes, so nothing is dropped. */
+uint32_t aud_opl_drops(void) { return 0; }
+
 /* The engines never read XRAM and take their registers only from the
  * XRAM writes they snoop, so writing each byte of a block over itself
  * loads that block into the engine. */

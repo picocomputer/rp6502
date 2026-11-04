@@ -13,6 +13,7 @@
 void aud_init(void);
 void aud_stop(void);
 void aud_restore(void);
+uint32_t aud_opl_drops(void);
 
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"

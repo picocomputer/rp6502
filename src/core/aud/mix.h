@@ -78,6 +78,13 @@ static inline uint32_t aud_phase_inc(uint16_t freq)
 void aud_engine_lock(void);
 void aud_engine_unlock(void);
 
+/* OPL2 writes dropped since the last call, saturating at 0x7FFFFFFF: the
+ * writes a program made faster than the queue's pace let it hold. A map,
+ * an unmap and aud_stop clear it. A software machine decides each write as
+ * the 6502 makes it, so nothing the host does adds one. The Pocket has no
+ * queue and returns 0. */
+uint32_t aud_opl_drops(void);
+
 /* Full scale of the shared sample path, sixteen bits, which is what the
  * Pocket's I2S wants. The RP2350's PWM is narrower and narrows in its own
  * mixer.
@@ -132,9 +139,9 @@ int aud_viz_pos(void);
  * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
  *
  * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8 samples made, then the bell. */
+ * 8 samples made, 4 OPL2 drops, then the bell. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + BEL_SST_SIZE)
+#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + BEL_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
