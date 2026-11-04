@@ -63,8 +63,16 @@ int com_getchar(com_source_t *src)
 
 int com_peekchar(com_source_t src)
 {
-    if (src >= COM_SOURCE_COUNT)
+    if (src == COM_SOURCE_ANY)
+    {
+        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+        {
+            int c = com_peekchar(s);
+            if (c >= 0)
+                return c;
+        }
         return -1;
+    }
     int c = com_rx_peek(src);
     if (c >= 0)
         return c;

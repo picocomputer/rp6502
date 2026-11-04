@@ -669,13 +669,12 @@ void mon_task(void)
             rln_read_line(mon_enter);
         return;
     }
-    if (ria_get_sigint())
+    // A Ctrl-C cancels the line once no input is pending.
+    if (com_peekchar(COM_SOURCE_ANY) < 0 && ria_get_sigint())
     {
         mon_needs_prompt = true;
         mon_needs_read_line = true;
         rln_poke("\x03");
-        while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-            tight_loop_contents();
     }
 }
 
