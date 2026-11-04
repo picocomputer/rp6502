@@ -76,7 +76,7 @@ void aud_restore(void)
         aud_replay(psg, 64);
         AUD_PSG_REPLAY = 0;
     }
-    else if (opl != 0xFFFF)
+    if (opl != 0xFFFF)
     {
         AUD_OPL_XADDR = opl;
         /* Writing the pointer also resets the chip, and opl.sv holds
@@ -100,12 +100,11 @@ bool psg_xreg(uint16_t word)
     if (word & 0x0001 || word > 0x10000 - 64 ||
         ((word >> 8) != ((word + 63) >> 8)))
     {
-        aud_stop();
+        AUD_PSG_XADDR = 0xFFFF;
+        aud_psg_at = 0xFFFF;
         return word == 0xFFFF;
     }
-    AUD_OPL_XADDR = 0xFFFF;
     AUD_PSG_XADDR = word;
-    aud_opl_at = 0xFFFF;
     aud_psg_at = word;
     /* While AUD_PSG_REPLAY is clear, the PSG starts or releases a voice
      * from its gate bit only on a 6502 write. AUD_PSG_REPLAY is set only
@@ -119,13 +118,12 @@ bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {
-        aud_stop();
+        AUD_OPL_XADDR = 0xFFFF;
+        aud_opl_at = 0xFFFF;
         return word == 0xFFFF;
     }
     memset((void *)&XRAM_WIN[word], 0, 256);
-    AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = word;
-    aud_psg_at = 0xFFFF;
     aud_opl_at = word;
     return true;
 }

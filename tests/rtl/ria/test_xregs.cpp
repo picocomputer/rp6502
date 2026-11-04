@@ -34,10 +34,9 @@ UTEST(xregs, the_program_reaches_the_devices)
      * unmuted, so the bell strikes once. */
     ASSERT_EQ(strikes, 1);
 
-    /* The program points the PSG at 0x8000 and then the OPL at 0xF000.
-     * The firmware writes 0xFFFF to one engine's pointer whenever it sets
-     * the other's, so the PSG's xaddr reads 0xFFFF. */
-    ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0xFFFF);
+    /* The program points the PSG at 0x8000 and then the OPL at 0xF000,
+     * and the two sound together. */
+    ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0x8000);
     ASSERT_TRUE(dut->rootp->wiring__DOT__opl__DOT__enabled);
     ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__page, 0xF0);
 
