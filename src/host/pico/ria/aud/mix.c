@@ -130,8 +130,8 @@ static void __isr __time_critical_func(aud_irq)(void)
     }
     if (opl_xaddr_get() != 0xFFFF)
     {
-        opl_stereo(&l, &r);
-        sl += l, sr += r;
+        const int32_t o = opl_sample();
+        sl += o, sr += o;
     }
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;

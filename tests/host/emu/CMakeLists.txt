@@ -111,18 +111,18 @@ rp6502_add_test(sys LIBS emu_core)
 rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # YM3812-LLE, nukeykt's gate-level model of the die, is the oracle for the
-# YM3812 engine. It is GPL-2 and is compiled into this test only.
+# OPL2 engine. It is GPL-2 and is compiled into this test only.
 rp6502_submodule(vendor/YM3812-LLE SENTINEL fmopl2.c
-    WANTS "the YM3812 test" OPTIONAL RESULT RP6502_HAVE_LLE)
+    WANTS "the OPL2 test" OPTIONAL RESULT RP6502_HAVE_LLE)
 if(RP6502_HAVE_LLE)
     set(_lle ${RP6502_VENDOR}/YM3812-LLE)
-    rp6502_add_test(ym3812 SPLIT TIMEOUT 120
-        SOURCES test_ym3812.c ym3812_traced.c ym3812_lle.c ym3812_model.c
-            ym3812_script.c ${_lle}/fmopl2.c
-        INCLUDES ${_lle} ${YM3812_ROM_DIR})
-    add_dependencies(test_ym3812 ym3812_rom)
+    rp6502_add_test(opl SPLIT TIMEOUT 120
+        SOURCES test_opl.c opl_traced.c opl_shim.c opl_lle.c opl_model.c
+            opl_script.c ${_lle}/fmopl2.c
+        INCLUDES ${_lle} ${OPL_ROM_DIR})
+    add_dependencies(test_opl opl_rom)
     if(NOT WIN32)
-        target_link_libraries(test_ym3812 PRIVATE m)
+        target_link_libraries(test_opl PRIVATE m)
     endif()
     # The die model runs 3x slower unoptimised. An MSVC Debug build keeps its
     # flags, because /RTC1 refuses /O2.
@@ -134,9 +134,9 @@ if(RP6502_HAVE_LLE)
             COMPILE_OPTIONS "-O2;-w")
     endif()
     # About 11 s of audio across the envelope timer's wrap.
-    set_property(TEST ym3812.lle_eg_wrap APPEND PROPERTY LABELS slow)
+    set_property(TEST opl.lle_eg_wrap APPEND PROPERTY LABELS slow)
 else()
-    message(WARNING "YM3812-LLE absent — the YM3812 test skipped.")
+    message(WARNING "YM3812-LLE absent — the OPL2 test skipped.")
 endif()
 
 # The state_inventory test runs only with GCC because Clang can merge

@@ -7,8 +7,8 @@
 /* The YM3812 per-sample spec as plain code: slow, written for reading, and
  * independent of the engine. It renders a schedule of applied writes. */
 
-#ifndef _TESTS_HOST_EMU_YM3812_MODEL_H_
-#define _TESTS_HOST_EMU_YM3812_MODEL_H_
+#ifndef _TESTS_HOST_EMU_OPL_MODEL_H_
+#define _TESTS_HOST_EMU_OPL_MODEL_H_
 
 #include <stdint.h>
 
@@ -18,4 +18,4 @@ void model_write(uint8_t reg, uint8_t val);
 /* Renders one chip sample and returns its YM3014B word. */
 int16_t model_sample(void);
 
-#endif /* _TESTS_HOST_EMU_YM3812_MODEL_H_ */
+#endif /* _TESTS_HOST_EMU_OPL_MODEL_H_ */

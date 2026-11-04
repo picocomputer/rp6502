@@ -11,6 +11,11 @@
 #include <cstdint>
 #include <cstdlib>
 
+extern "C"
+{
+#include "core/aud/opl.h"
+}
+
 static Vopl *dut;
 
 static void tick()
@@ -93,19 +98,43 @@ static uint64_t energy(int samples)
 }
 
 /* Channel 0's modulator is operator slot 0 and its carrier is slot 3. */
+static const uint8_t note[11][2] = {
+    {0x20, 0x01}, /* modulator: mult 1              */
+    {0x23, 0x01}, /* carrier:   mult 1              */
+    {0x40, 0x10}, /* modulator: total level 16      */
+    {0x43, 0x00}, /* carrier:   full volume         */
+    {0x60, 0xF0}, /* fast attack, no decay          */
+    {0x63, 0xF0},
+    {0x80, 0x77}, /* sustain level 7, release 7     */
+    {0x83, 0x77},
+    {0xC0, 0x0E}, /* feedback 7, FM connection      */
+    {0xA0, 0x98}, /* f-number low                   */
+    {0xB0, 0x31}, /* key on, block 4, f-number high */
+};
+
 static void note_on(uint16_t page)
 {
-    poke(page, 0x20, 0x01); /* modulator: mult 1              */
-    poke(page, 0x23, 0x01); /* carrier:   mult 1              */
-    poke(page, 0x40, 0x10); /* modulator: total level 16      */
-    poke(page, 0x43, 0x00); /* carrier:   full volume         */
-    poke(page, 0x60, 0xF0); /* fast attack, no decay          */
-    poke(page, 0x63, 0xF0);
-    poke(page, 0x80, 0x77); /* sustain level 7, release 7     */
-    poke(page, 0x83, 0x77);
-    poke(page, 0xC0, 0x0E); /* feedback 7, FM connection      */
-    poke(page, 0xA0, 0x98); /* f-number low                   */
-    poke(page, 0xB0, 0x31); /* key on, block 4, f-number high */
+    for (const auto &w : note)
+        poke(page, w[0], w[1]);
+}
+
+/* opl.c's peak over the samples a_note_makes_sound measures, after the same
+ * note. */
+static uint64_t c_peak()
+{
+    opl_reset();
+    for (const auto &w : note)
+        opl_push(w[0], w[1]);
+    for (int i = 0; i < 64; i++)
+        opl_sample();
+    uint64_t peak = 0;
+    for (int i = 0; i < 512; i++)
+    {
+        uint64_t d = (uint64_t)std::abs((int)opl_sample());
+        if (d > peak)
+            peak = d;
+    }
+    return peak;
 }
 
 UTEST(opl, silent_until_the_pointer_is_programmed)
@@ -124,14 +153,12 @@ UTEST(opl, a_note_makes_sound)
     note_on(0x12);
     energy(64);
     ASSERT_GT(energy(512), (uint64_t)512);
-    /* The peak bounds hold this engine to the level of core/aud/opl.c,
-     * which multiplies emu8950's output by four to match this engine. The
-     * 8172 in the message below is emu8950's peak with these registers
-     * after that multiplication. */
-    fprintf(stderr, "  opl peak %llu (emu8950 with these registers: 8172)\n",
-            (unsigned long long)last_peak);
-    ASSERT_GT(last_peak, (uint64_t)6000);
-    ASSERT_LT(last_peak, (uint64_t)11000);
+    /* This engine's peak is held to opl.c's, which is a real YM3812's. */
+    const uint64_t c = c_peak();
+    fprintf(stderr, "  opl peak %llu, opl.c %llu\n",
+            (unsigned long long)last_peak, (unsigned long long)c);
+    ASSERT_GT(last_peak, c - c / 16);
+    ASSERT_LT(last_peak, c + c / 16);
 }
 
 UTEST(opl, the_pointer_gates_the_page_it_names)

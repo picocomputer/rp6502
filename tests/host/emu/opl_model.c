@@ -10,7 +10,7 @@
  * with the die's one-sample lags: the modulator side of channels 0-2 and the
  * feedback of channels 3-5 take a channel write one sample later. */
 
-#include "ym3812_model.h"
+#include "opl_model.h"
 
 #include <math.h>
 #include <stdbool.h>

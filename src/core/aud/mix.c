@@ -86,8 +86,7 @@ void aud_stop(void)
 }
 
 /* For a host that unloads the library rather than ending the process. The
- * engines are parked first, so no later render reaches one that has just
- * given its memory back. */
+ * engines are parked first, so no later render reaches one being reset. */
 void aud_shutdown(void)
 {
     aud_probe = NULL;
@@ -172,8 +171,8 @@ static void mix(int32_t *left, int32_t *right)
         }
         if (opl_xaddr_get() != 0xFFFF)
         {
-            opl_stereo(&l, &r);
-            sl += l, sr += r;
+            const int32_t o = opl_sample();
+            sl += o, sr += o;
         }
     }
     aud_engine_unlock();

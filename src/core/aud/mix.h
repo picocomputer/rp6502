@@ -27,8 +27,8 @@
 void aud_init(void);
 void aud_stop(void);
 
-/* Park every engine and give back what they hold. For a host that unloads
- * this library; a host that exits needs nothing. */
+/* Park every engine and reset the OPL2. For a host that unloads this library;
+ * a host that exits needs nothing. */
 void aud_shutdown(void);
 
 /* An engine sounds while its pointer is mapped, as psg.sv and opl.sv do, so

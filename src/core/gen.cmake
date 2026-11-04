@@ -23,17 +23,17 @@ function(rp6502_gen_rsmp_coef target)
     set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
-function(rp6502_gen_ym3812_rom target)
-    set(gen ${RP6502_CORE_DIR}/gen/ym3812_rom_gen.py)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/ym3812_rom.h)
+function(rp6502_gen_opl_rom target)
+    set(gen ${RP6502_CORE_DIR}/gen/opl_rom_gen.py)
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/opl_rom.h)
     add_custom_command(OUTPUT ${out}
         COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out}
         DEPENDS ${gen}
-        COMMENT "Generating the YM3812 ROM tables"
+        COMMENT "Generating the OPL2 ROM tables"
         VERBATIM)
     add_custom_target(${target} DEPENDS ${out})
-    set(YM3812_ROM_H ${out} PARENT_SCOPE)
-    set(YM3812_ROM_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+    set(OPL_ROM_H ${out} PARENT_SCOPE)
+    set(OPL_ROM_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
 function(rp6502_gen_oemcp target)

@@ -22,14 +22,10 @@ module opl #(
      * DAC_LEFT_SHIFT = 5, so core_sample is channel <<< 5 and its real
      * range is 2^20 — the whole mix, not one voice.
      *
-     * Five is unity, so this engine adds no gain. The RTL YM3812 sets
-     * the level and opl.c multiplies emu8950 by four to reach it.
-     *
-     * THE TWO CONSTANTS ARE NOT INDEPENDENT: move opl.c's four or this
-     * five alone and the platforms diverge by 12 dB with every test
-     * still passing. They clip together at the same 8192 in emu8950
-     * units. */
-    parameter int SAMPLE_SHIFT = 5
+     * Six puts this core at the level of a real YM3812, which is the
+     * level opl.c makes. tests/rtl/aud/test_opl.cpp holds the two
+     * peaks together. */
+    parameter int SAMPLE_SHIFT = 6
 ) (
     input logic clk,
 

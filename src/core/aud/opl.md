@@ -8,10 +8,10 @@ formulas (chip data).
 
 ## Status: verified
 
-`core/aud/ym3812.c` implements these rules. `tests/host/emu/test_ym3812.c` checks it
+`core/aud/opl.c` implements these rules. `tests/host/emu/test_opl.c` checks it
 against LLE sample by sample, LLE driven only through its pins by
-`tests/host/emu/ym3812_lle.c` with writes at the phases of section 7.6, on both the
-engine's output and that of `tests/host/emu/ym3812_model.c`, this spec as plain code.
+`tests/host/emu/opl_lle.c` with writes at the phases of section 7.6, on both the
+engine's output and that of `tests/host/emu/opl_model.c`, this spec as plain code.
 The cycle-level rules of sections 7.2-7.5 were measured on LLE with writes at random
 cycle phases. Not covered: timers and CSM (section 8.4).
 
@@ -766,7 +766,7 @@ sample():
     N = 18 LFSR steps (1.3)
 ```
 `w(r, s)` is 2 when r is set and s ≥ 12, else 1.
-`tests/host/emu/ym3812_model.c` is the executable version: it runs each chip sample
+`tests/host/emu/opl_model.c` is the executable version: it runs each chip sample
 cycle by cycle, reading every field at its cycle of 1.1, with writes applied between
 samples as in 7.6.
 

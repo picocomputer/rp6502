@@ -20,8 +20,6 @@ static const char EMU_CREDITS[] =
     "  Pi Pico SDK                  BSD-3   (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "  floooh/chips                 zlib    (c) 2018 Andre Weissflog\n"
     "  floooh/sokol                 zlib    (c) 2018 Andre Weissflog\n"
-    "  emu8950 (OPL audio)          MIT     (c) 2001-2020 Mitsutaka Okazaki;\n"
-    "                                       (c) 2021-2022 Graham Sanderson\n"
 #ifdef EMU_WITH_DEBUGGER
     "  Dear ImGui                   MIT     (c) 2014-2026 Omar Cornut\n"
     "  cppdap                       Apache  (c) 2019 Google LLC\n"
@@ -58,6 +56,7 @@ static const char EMU_CREDITS[] =
     "DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n"
     "FOR ANY DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE.\n"
     "\n"
+#if defined(EMU_WITH_DEBUGGER) || defined(__EMSCRIPTEN__)
     "------------------------------------------------------------\n"
     "MIT License  (applies to the MIT components listed above)\n"
     "------------------------------------------------------------\n"
@@ -71,6 +70,7 @@ static const char EMU_CREDITS[] =
     "all copies or substantial portions of the Software.\n"
     "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND.\n"
     "\n"
+#endif
 #if defined(EMU_WITH_DEBUGGER) || (defined(__clang__) && !defined(__EMSCRIPTEN__))
     "------------------------------------------------------------\n"
     "Apache License 2.0  (applies to the Apache components listed above)\n"

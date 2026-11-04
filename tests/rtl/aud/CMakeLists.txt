@@ -33,6 +33,7 @@ rp6502_add_module_test(opl
     TOP opl
     RTL ${OPL2_SOURCES}
         ${RP6502_SRC}/core/aud/opl.sv
-    INCLUDES ${RP6502_BENCH}
-    DEPENDS opl2_lut_rom
+    SOURCES test_opl.cpp opl_shim.c ${RP6502_SRC}/core/aud/opl.c
+    INCLUDES ${RP6502_BENCH} ${OPL_ROM_DIR}
+    DEPENDS opl2_lut_rom opl_rom
     TIMEOUT 300)

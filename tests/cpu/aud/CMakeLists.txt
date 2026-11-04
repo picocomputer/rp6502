@@ -11,6 +11,7 @@ if(RP6502_SOFT_CPU)
         DEFS AUD_ROM_PSG="${PSG_ROM}" AUD_ROM_OPL="${OPL_ROM}"
             AUD_ROM_PSG_PRE="${PSG_PRE_ROM}"
             AUD_ROM_OPL_EXIT="${OPL_EXIT_ROM}"
+            AUD_ROM_OPL_INIT="${OPL_INIT_ROM}"
             AUD_ROM_BEL="${BEL_ROM}" AUD_ROM_OPL_BEL="${OPL_BEL_ROM}"
         DEPENDS aud_roms
         TIMEOUT 600)

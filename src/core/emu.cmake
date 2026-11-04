@@ -12,7 +12,7 @@ endif()
 include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_rsmp_coef(rsmp_coef)
-rp6502_gen_ym3812_rom(ym3812_rom)
+rp6502_gen_opl_rom(opl_rom)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
@@ -70,7 +70,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/aud/bel_presets.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
-    ${RP6502_SRC}/core/aud/ym3812.c
     ${RP6502_SRC}/core/str/rln.c
     ${RP6502_SRC}/core/str/str.c
     ${RP6502_SRC}/core/vga/prog.c
@@ -85,7 +84,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/color.c
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
-    ${RP6502_VENDOR}/emu8950/emu8950.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -117,18 +115,7 @@ elseif(MSVC)
     )
 endif()
 
-set_source_files_properties(
-    ${RP6502_VENDOR}/emu8950/emu8950.c
-    PROPERTIES COMPILE_DEFINITIONS "USE_EMU8950_OPL=1"
-)
-if(MSVC)
-    set_source_files_properties(
-        ${RP6502_VENDOR}/emu8950/emu8950.c
-        PROPERTIES COMPILE_OPTIONS "/wd4005"
-    )
-endif()
-
-add_dependencies(emu_core rsmp_coef ym3812_rom)
+add_dependencies(emu_core rsmp_coef opl_rom)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}

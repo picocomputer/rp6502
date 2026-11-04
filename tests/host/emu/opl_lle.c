@@ -7,7 +7,7 @@
 /* Only the die's pins are used: master clock, CS, WR, RD, IC, A0 and the
  * data bus in; SY, SH and MO, the serial feed to its YM3014B DAC, out. */
 
-#include "ym3812_lle.h"
+#include "opl_lle.h"
 
 #include "fmopl2.h"
 
@@ -96,20 +96,20 @@ static int lle_phase(uint8_t reg)
     return -19;
 }
 
-static int64_t lle_write1(const ym_write_t *w)
+static int64_t lle_write1(const opl_write_t *w)
 {
     return (int64_t)w->n * 18 + lle_phase(w->reg);
 }
 
-bool lle_takes(const ym_write_t *prev, const ym_write_t *w)
+bool lle_takes(const opl_write_t *prev, const opl_write_t *w)
 {
     return lle_write1(w) - LLE_ADDR_LEAD >= lle_write1(prev) + (lle_global(prev->reg) ? 4 : 19);
 }
 
-const char *lle_run(const ym_script_t *schedule, unsigned ic_frames, int16_t *out)
+const char *lle_run(const opl_script_t *schedule, unsigned ic_frames, int16_t *out)
 {
     static char why[96];
-    const ym_write_t *w = schedule->w;
+    const opl_write_t *w = schedule->w;
     size_t count = schedule->count;
 
     /* Nothing goes on the bus before the release. */

@@ -145,12 +145,25 @@ UTEST(aud, opl_makes_a_noise)
     int at = frames_to_sound(8);
     ASSERT_NE(at, -1);
     ASSERT_LT(at, 3);
-    ASSERT_GT(g_peak, 4096);
+    /* One OPL2 voice at full volume peaks near 4088, a real YM3812's
+     * level. */
+    ASSERT_GT(g_peak, 2048);
     ASSERT_GT(g_valids, (long)0);
     run_frame();
     run_frame();
     run_frame();
     ASSERT_GT(g_cross, (long)10);
+}
+
+/* The note after the page clear sounds, and the burst after the note, which
+ * a machine with a queue drops, changes nothing here. */
+UTEST(aud, opl_init_sounds_after_a_page_clear)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL_INIT));
+    int at = frames_to_sound(8);
+    ASSERT_NE(at, -1);
+    ASSERT_LT(at, 3);
+    ASSERT_GT(g_peak, 2048);
 }
 
 UTEST(aud, the_bell_rings_with_no_program)

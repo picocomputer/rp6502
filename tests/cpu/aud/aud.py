@@ -137,12 +137,10 @@ def opl_exit_prog():
 
 
 def opl_init_prog():
-    """The note comes after a preamble of about 2,300 stores onto the OPL's
-    page: the whole register file cleared, then register 1 written over and
-    over. Every one of them reaches the chip where the program makes it, so
-    the eleven writes of the note that follows sound. A machine that buffered
-    them instead would have to hold the lot, and the eleven would be the ones
-    it lost."""
+    """The page is cleared through RW0, which queues the 135 offsets that are
+    registers, then the eleven writes of a note, which the queue of 256 also
+    holds. Then register 1 is written with zero 2,040 times, which overflows
+    the queue and changes nothing a machine without one plays."""
     p = Prog()
     page = 0xF000
     p.xreg(0, 1, 1, page)
@@ -155,6 +153,12 @@ def opl_init_prog():
     p.sta_abs(RW0_DATA)
     p.dex()
     p.bne(clear)
+    for reg, val in (
+        (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
+        (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
+        (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
+    ):
+        p.poke(page + reg, val)
     # A step of zero holds the address on one register, so the burst stays on
     # the page however long it runs.
     p.store(RW0_STEP, 0x00)
@@ -172,12 +176,6 @@ def opl_init_prog():
     p.dey()
     p.bne(out)
     p.store(RW0_STEP, 0x01)
-    for reg, val in (
-        (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
-        (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
-        (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
-    ):
-        p.poke(page + reg, val)
     p.spin()
     return p
 
@@ -228,11 +226,11 @@ def opl_bel_prog():
 
 
 
-# The recordings are 48 kHz, 800 samples to a frame. These bars are the ones
-# the C audio tests used: one PSG voice at full volume peaks near 16127, far
-# over LOUD, and BELL is a level no silence reaches.
+# The recordings are 48 kHz, 800 samples to a frame. One PSG voice at full
+# volume peaks near 16127, and one OPL2 voice at a real YM3812's level near
+# 4088, both over LOUD. BELL is a level no silence reaches.
 FRAME = 800
-LOUD = 4096
+LOUD = 2048
 BELL = 32
 
 
@@ -276,6 +274,16 @@ def record(name, *lines):
             e.cmd(line)
 
 
+def opl_drops(path):
+    """The OPL2's drop count from a savestate: the last field of the OPL_
+    chunk, whose id, version 2 and length come before its fields."""
+    with open(path, "rb") as f:
+        blob = f.read()
+    at = blob.index(b"OPL_\x00\x02") + 10
+    end = at + int.from_bytes(blob[at - 4:at], "big")
+    return int.from_bytes(blob[end - 4:end], "big")
+
+
 def test_psg():
     """The note starts within three frames, loud, and the twelve frames after
     its first are 440 Hz within a tenth. Then the gate byte is cleared twice.
@@ -316,12 +324,14 @@ def test_opl():
 
 
 def test_opl_init():
-    """A burst that clears every OPL register before the note loses no write
-    of the note's own."""
-    record("opl_init", 'wav "init.wav" 3')
+    """The clear and the note fit the queue, so the note sounds, and the burst
+    after them is counted as drops."""
+    record("opl_init", 'wav "init.wav" 3', 'state save "init.sst"')
     p = peaks(mono("init.wav"))
     at = onset(p)
     assert at >= 0 and p[at] > LOUD, f"no loud note in frames 0-2: peaks {p}"
+    drops = opl_drops("init.sst")
+    assert 0 < drops <= 2040, f"{drops} drops"
 
 
 def test_psg_pre():

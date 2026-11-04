@@ -43,14 +43,12 @@ core/aud/mix.c g_rs_r: the AUD chunk
 core/aud/mix.c g_sink_rate: not carried: what the host's device answered
 core/aud/mix.c g_viz: not carried: a display of what was rendered
 core/aud/mix.c g_viz_pos: not carried: a display of what was rendered
-core/aud/opl.c opl_emu8950: the OPL chunk
-core/aud/opl.c opl_wave_base: the OPL chunk
+core/aud/opl.c opl_chip: the OPL chunk
+core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
 core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
-core/aud/ym3812.c ym3812_chip: not carried: no machine runs this engine yet
-core/aud/ym3812.c ym3812_queue: not carried: no machine runs this engine yet
 core/com/com.c com_bel_enabled: the COM chunk
 core/com/com.c com_crlf_last: the COM chunk
 core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all

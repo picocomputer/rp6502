@@ -12,6 +12,7 @@
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/term/term.h"
+#include "host/host.h"
 
 #include "emu_boot.h"
 
@@ -49,7 +50,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222856);
+    ASSERT_EQ(sst_size(), (size_t)222408);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -284,6 +285,64 @@ UTEST(sst, an_opl_chord_comes_back)
     aud_pull(came, 32);
     ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
     ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+}
+
+/* A burst too big for the OPL2's queue, saved while the queue drains: the
+ * load brings back the writes still waiting and the drop count, so a second
+ * burst after it plays and drops as it did after the save. */
+UTEST(sst, an_opl_burst_comes_back_mid_flight)
+{
+    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(opl_xreg(0x4000));
+    static const uint8_t regs[][2] = {
+        {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
+        {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
+        {0xA0, 0x98}, {0xB0, 0x31},
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+    for (int k = 0; k < 300; k++)
+        aud_poke((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
+    aud_pull(went, 1);
+    ASSERT_GT(opl_queue.count, 0);
+    ASSERT_GT(opl_queue.drops, 0u);
+    ASSERT_EQ(take(), (const char *)NULL);
+    for (int k = 0; k < 300; k++)
+        aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+    aud_pull(went, 32);
+    const uint32_t drops = opl_queue.drops;
+
+    ASSERT_TRUE(opl_xreg(0x4000));
+    aud_pull(came, 4);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    for (int k = 0; k < 300; k++)
+        aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+    aud_pull(came, 32);
+    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
+    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(opl_queue.drops, drops);
+}
+
+/* A blob whose OPL chunk is version 1, as older builds wrote it, with its sum
+ * made good again: the load refuses it and leaves the machine as it was. */
+UTEST(sst, an_old_opl_chunk_is_refused)
+{
+    ASSERT_EQ(take(), (const char *)NULL);
+    scrub();
+    const size_t total = sst_size();
+    size_t at = 0;
+    while (at + 6 <= total && memcmp(blob + at, "OPL_\x00\x02", 6))
+        at++;
+    ASSERT_LT(at + 6, total);
+    blob[at + 5] = 1;
+    const uint32_t sum = host_crc32(0, blob, total - 8);
+    for (int i = 0; i < 4; i++)
+        blob[total - 8 + i] = (uint8_t)(sum >> (24 - 8 * i));
+    ASSERT_NE(sst_load(blob, total, 0), (const char *)NULL);
+    ASSERT_TRUE(scrub_intact());
 }
 
 UTEST(sst, both_engines_come_back)
