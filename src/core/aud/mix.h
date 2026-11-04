@@ -27,39 +27,33 @@
 void aud_init(void);
 void aud_stop(void);
 
-/* Drop the device and give back what the engines hold. For a host that unloads
+/* Park every engine and give back what they hold. For a host that unloads
  * this library; a host that exits needs nothing. */
 void aud_shutdown(void);
 
-/* The device to mix, or none. psg_xreg and opl_xreg register themselves here
- * and aud_stop stops whichever is registered, which is one of them: taking
- * either engine parks the other. The bell is not a device, so every mixer
- * adds it whatever this says.
- * The engine is named rather than passed as a function pointer because a
- * savestate has to say which one is sounding in bytes another build will
- * read back.
- */
+/* An engine sounds while its pointer is mapped, as psg.sv and opl.sv do, so
+ * the PSG and the OPL2 can sound at once and their outputs sum. The bell is
+ * not an engine and every mixer adds it. aud_stop parks both engines. */
 
-typedef enum
-{
-    aud_dev_none = 0,
-    aud_dev_psg,
-    aud_dev_opl,
-} aud_dev_t;
-
-void aud_setup(aud_dev_t dev);
-aud_dev_t aud_device(void);
-
-/* aud_device answers none while a probe is installed, so a savestate never
- * names it. */
+/* While a probe is installed it is the only engine mixed. */
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
-/* A 6502 write the RW engine saw on the watched page, applied to whichever
- * engine is sounding. ria_aud_watch is what arms this. A software machine
- * calls it where the write happens rather than leaving the write somewhere
- * for the mixer to find, because a buffer between the two would have to be
- * deep enough for a whole frame of a program's preamble. */
+/* Every 6502 write to XRAM, handed to the engine mapped on its page, if one
+ * is. A software machine calls it where the write happens; the Pico's RW
+ * engine is core1, which queues every write for the audio interrupt on
+ * core0 instead. */
 void aud_xram_write(uint16_t addr, uint8_t val);
+
+/* The phase increment of a frequency register that holds hertz times three,
+ * as the PSG and the bell keep theirs: freq * 2^32 / (3 * AUD_NATIVE_RATE),
+ * floored. The divide is done as a multiply by the reciprocal rounded up,
+ * which gives the same result for every 16-bit freq at both rates this is
+ * built for, 49716 Hz and the 48000 Hz of tests/rtl/aud. */
+#define AUD_PHASE_MUL ((((uint64_t)1 << 63) + 3u * AUD_NATIVE_RATE - 1) / (3u * AUD_NATIVE_RATE))
+static inline uint32_t aud_phase_inc(uint16_t freq)
+{
+    return (uint32_t)(((uint64_t)freq * AUD_PHASE_MUL) >> 31);
+}
 
 /* Held across one sample by the thread that generates and across one write by
  * the thread that programs, so the engines are never stepped and written at
@@ -124,11 +118,14 @@ void aud_park_release(void);
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void);
 
-/* The mix as it stands: which engine is sounding, the two resamplers whose
+/* The mix as it stands: which engines are sounding, the two resamplers whose
  * phase is continuous across renders, whatever the last input left pending,
  * and the level a held machine repeats.
  *
- * 1 device, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
+ * The engines are one byte, bit 0 the PSG and bit 1 the OPL2. A build that
+ * mixed one engine at a time wrote 0, 1 or 2 there, which read the same.
+ *
+ * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
  * 8+8 pending of 4 with a count and an index, the held pair as two i16,
  * then the bell. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)

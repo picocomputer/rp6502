@@ -27,11 +27,10 @@ bool psg_xreg(uint16_t word);
 /* Where this engine's channel block sits in XRAM, 0xFFFF for parked. */
 uint16_t psg_xaddr_get(void);
 
-/* Release the pointer without stopping the mix, for the other engine taking
- * over. See opl_park. The caller holds the engine lock across this and the
- * aud_setup that goes with it: psg_sample reads the 64-byte channel block at
- * psg_xaddr, 0xFFFF runs 63 bytes past the end of XRAM, and mix reads aud_dev
- * under that same lock, so the two have to move together. */
+/* Release the pointer, which takes the PSG out of the mix. The caller holds
+ * the engine lock: psg_sample reads the 64-byte channel block at psg_xaddr,
+ * and 0xFFFF runs 63 bytes past the end of XRAM, so the mix must never see
+ * the pointer change under it. */
 void psg_park(void);
 
 /* The pointer and the eight channels behind it. The channel blocks

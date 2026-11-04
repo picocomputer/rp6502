@@ -12,7 +12,6 @@
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
 #include "core/dap/dbg.h"
-#include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include <string.h>
 
@@ -22,7 +21,6 @@
 #define AUD_SINK_RATE 48000
 static uint32_t g_sink_rate = AUD_SINK_RATE;
 
-static aud_dev_t aud_dev;
 static void (*aud_probe)(int16_t *left, int16_t *right);
 
 /* One resampler per channel, carried across renders so the phase is
@@ -76,38 +74,29 @@ void aud_init(void)
     rsmp_reset(&g_rs_r);
     g_pend_n = g_pend_i = 0;
     g_last_l = g_last_r = 0;
-    aud_dev = aud_dev_none;
     aud_probe = NULL;
 }
 
 void aud_stop(void)
 {
-    aud_dev = aud_dev_none;
-    ria_aud_watch(0xFFFF);
+    aud_engine_lock();
+    psg_park();
+    opl_park();
+    aud_engine_unlock();
 }
 
 /* For a host that unloads the library rather than ending the process. The
- * device is dropped first, so no later render reaches an engine that has just
+ * engines are parked first, so no later render reaches one that has just
  * given its memory back. */
 void aud_shutdown(void)
 {
-    aud_dev = aud_dev_none;
-    ria_aud_watch(0xFFFF);
     aud_probe = NULL;
+    aud_stop();
     opl_shutdown();
 }
 
-void aud_setup(aud_dev_t dev)
-{
-    aud_dev = dev;
-    aud_probe = NULL;
-}
-
-aud_dev_t aud_device(void) { return aud_dev; }
-
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right))
 {
-    aud_dev = aud_dev_none;
     aud_probe = sample;
 }
 
@@ -124,15 +113,22 @@ void aud_engine_unlock(void)
     atomic_flag_clear_explicit(&aud_engine_held, memory_order_release);
 }
 
+/* The pointers move only on this thread, in psg_xreg and opl_xreg, so they
+ * are read without the lock and most writes, which miss both pages, never
+ * take it. */
 void aud_xram_write(uint16_t addr, uint8_t val)
 {
+    uint16_t page = addr & 0xFF00;
+    uint16_t psg = psg_xaddr_get();
+    bool to_psg = psg != 0xFFFF && page == (psg & 0xFF00);
+    bool to_opl = page == opl_xaddr_get();
+    if (!to_psg && !to_opl)
+        return;
     aud_engine_lock();
-    switch (aud_dev)
-    {
-    case aud_dev_psg: psg_xram_write((uint8_t)addr, val); break;
-    case aud_dev_opl: opl_xram_write((uint8_t)addr, val); break;
-    case aud_dev_none: break;
-    }
+    if (to_psg)
+        psg_xram_write((uint8_t)addr, val);
+    if (to_opl)
+        opl_xram_write((uint8_t)addr, val);
     aud_engine_unlock();
 }
 
@@ -153,26 +149,38 @@ static inline float to_f(int32_t v)
     return (float)v / 32768.0f;
 }
 
-/* mix() writes one frame at AUD_NATIVE_RATE, clamped to sixteen bits as
- * wiring.sv clamps the audio sum in the fabric. */
+/* mix() writes one frame at AUD_NATIVE_RATE: every mapped engine and the
+ * bell summed, then clamped to sixteen bits as wiring.sv clamps the audio
+ * sum in the fabric. */
 static void mix(int32_t *left, int32_t *right)
 {
-    int16_t l = 0, r = 0;
+    int32_t sl = 0, sr = 0;
+    int16_t l, r;
     aud_engine_lock();
     if (aud_probe)
+    {
+        l = r = 0;
         aud_probe(&l, &r);
+        sl += l, sr += r;
+    }
     else
-        switch (aud_dev)
+    {
+        if (psg_xaddr_get() != 0xFFFF)
         {
-        case aud_dev_psg: psg_sample(&l, &r); break;
-        case aud_dev_opl: opl_stereo(&l, &r); break;
-        case aud_dev_none: break;
+            psg_sample(&l, &r);
+            sl += l, sr += r;
         }
+        if (opl_xaddr_get() != 0xFFFF)
+        {
+            opl_stereo(&l, &r);
+            sl += l, sr += r;
+        }
+    }
     aud_engine_unlock();
     /* The bell is outside the lock: nothing programs it through XRAM. */
     const int32_t bel = bel_sample();
-    int32_t sl = l + bel;
-    int32_t sr = r + bel;
+    sl += bel;
+    sr += bel;
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
     if (sl > AUD_SAMPLE_MAX)
@@ -274,7 +282,8 @@ static int16_t aud_to_i16(float v)
 
 void aud_sst_save(sst_cursor_t *c, unsigned flags)
 {
-    sst_put_u8(c, (uint8_t)aud_dev);
+    sst_put_u8(c, (uint8_t)((psg_xaddr_get() != 0xFFFF ? 1 : 0) |
+                            (opl_xaddr_get() != 0xFFFF ? 2 : 0)));
     aud_put_rsmp(c, &g_rs_l);
     aud_put_rsmp(c, &g_rs_r);
     for (int i = 0; i < 8; i++)
@@ -290,7 +299,7 @@ void aud_sst_save(sst_cursor_t *c, unsigned flags)
 
 bool aud_sst_load(sst_cursor_t *c, unsigned flags)
 {
-    uint8_t dev = sst_get_u8(c);
+    uint8_t engines = sst_get_u8(c);
     rsmp_t l, r;
     aud_get_rsmp(c, &l);
     aud_get_rsmp(c, &r);
@@ -302,17 +311,21 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t n = sst_get_u8(c), at = sst_get_u8(c);
     int16_t last_l = (int16_t)sst_get_u16(c);
     int16_t last_r = (int16_t)sst_get_u16(c);
-    if (!sst_ok(c) || dev > aud_dev_opl || n > 8 || at > n)
+    if (!sst_ok(c) || engines > 3 || n > 8 || at > n)
         return false;
+    /* This row loads after the engines' own. A build that mixed one engine
+     * at a time could leave the other's pointer mapped but unmixed, so an
+     * engine this byte does not name is parked, and one it names has to have
+     * come back mapped. */
+    if (((engines & 1) && psg_xaddr_get() == 0xFFFF) ||
+        ((engines & 2) && opl_xaddr_get() == 0xFFFF))
+        return false;
+    if (!(engines & 1))
+        psg_park();
+    if (!(engines & 2))
+        opl_park();
 
-    aud_dev = (aud_dev_t)dev;
     aud_probe = NULL;
-    /* What the RW engine watches is not carried: this row loads after the
-     * engines' own, so it is the one place that knows both which engine is
-     * sounding and where that engine's block ended up. */
-    ria_aud_watch(aud_dev == aud_dev_psg   ? psg_xaddr_get()
-                  : aud_dev == aud_dev_opl ? opl_xaddr_get()
-                                           : 0xFFFF);
     g_rs_l = l;
     g_rs_r = r;
     memcpy(g_pend_l, pl, sizeof g_pend_l);

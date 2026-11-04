@@ -26,7 +26,6 @@ core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init star
 core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/mix.c aud_dev: the AUD chunk
 core/aud/mix.c aud_engine_held: not carried: held only across a sample or a write, never across a walk
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c g_enabled: not carried: --mute is a session setting
@@ -125,7 +124,6 @@ core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk
 core/ria/ria.c ria: the RIA chunk
-core/ria/ria.c ria_aud_page: not carried: aud_sst_load asks for it again from the engine the AUD chunk names
 core/ria/ria.c ria_uart_rx_src: the RIA chunk
 core/ria/ria.c stack.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting

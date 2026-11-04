@@ -6,8 +6,6 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
-#include "core/aud/psg.h"
-#include "core/sys/ria.h"
 #include "core/sys/xram.h"
 #include <assert.h>
 #include <string.h>
@@ -76,13 +74,12 @@ bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {
-        /* Giving up the engine resets the chip and hands the mix back, so
-         * a stopped program's last chord does not hold. */
+        /* Giving up the engine resets the chip and parks it, so a stopped
+         * program's last chord does not hold. */
         aud_engine_lock();
         if (opl_emu8950)
             OPL_reset(opl_emu8950);
         opl_xaddr = 0xFFFF;
-        aud_stop();
         aud_engine_unlock();
         return word == 0xFFFF;
     }
@@ -93,22 +90,13 @@ bool opl_xreg(uint16_t word)
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, AUD_NATIVE_RATE);
     assert(opl_emu8950); // OPL_new returns NULL only when its calloc fails
-    /* The whole handover is behind the lock the engines are stepped under, so
-     * the mix never runs against half of it -- see psg_park for the half that
-     * would read past the end of XRAM. */
+    /* The reset and the new pointer go in together behind the lock the
+     * engines are stepped under, so the mix never runs a half-reset chip. */
     aud_engine_lock();
     OPL_reset(opl_emu8950);
     opl_wave_base = opl_emu8950->slot[0].wav_or_table;
     opl_xaddr = word;
     memset((uint8_t *)&xram[word], 0, 256);
-    /* One engine sounds at a time; see psg_xreg. */
-    psg_park();
-    aud_setup(aud_dev_opl);
-    /* Watching is what arms the reporting, so it is asked for after the
-     * device those reports go to, and inside the lock: on the Pico it is
-     * also what drops whatever the RW engine queued for the engine being
-     * put away, which must not reach this one. */
-    ria_aud_watch(word);
     aud_engine_unlock();
     return true;
 }
@@ -245,7 +233,8 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
     (void)flags;
     bool present = sst_get_bool(c);
     uint16_t at = sst_get_u16(c);
-    if (!sst_ok(c) || (at != 0xFFFF && (at & 0x00FF)))
+    /* A mapped pointer is mixed, so it needs a chip behind it. */
+    if (!sst_ok(c) || (at != 0xFFFF && ((at & 0x00FF) || !present)))
         return false;
     opl_xaddr = at;
     if (!present)

@@ -164,10 +164,10 @@ void bel_add(const ria_bel_t *sound)
         /* No barrier, though bel_sample may be on the audio thread. The
          * queue entry is written before bel_queue_head advances, and an idle
          * bel_sample returns at the active test without reading anything
-         * else. Once it starts, every transition it makes waits on elapsed_ms
-         * reaching restrike_ms, release_ms or end_ms, and one millisecond is
-         * about fifty samples at 49716 Hz, so a field still in flight can
-         * only alter the first sample or two of the note. */
+         * else. Once it starts, every transition it makes waits on the time
+         * elapsed reaching restrike_ms, release_ms or end_ms, and one
+         * millisecond is about fifty samples at 49716 Hz, so a field still
+         * in flight can only alter the first sample or two of the note. */
         bel_state.active = true;
     }
 }
@@ -181,10 +181,15 @@ int16_t bel_sample(void)
 
     ria_bel_t *snd = &bel_queue[bel_queue_tail];
 
+    /* Milliseconds are compared without dividing: elapsed * 1000 / rate
+     * reaching ms, floored, is elapsed * 1000 reaching ms * rate. Both
+     * products fit in 32 bits, the first wrapping exactly as it did when it
+     * was divided. */
     bel_state.elapsed_samples++;
-    uint32_t elapsed_ms = (uint32_t)bel_state.elapsed_samples * 1000 / AUD_NATIVE_RATE;
+    uint32_t elapsed_k = (uint32_t)bel_state.elapsed_samples * 1000;
+#define BEL_REACHED(ms) (elapsed_k >= (uint32_t)(ms) * AUD_NATIVE_RATE)
 
-    if (snd->restrike_ms > 0 && elapsed_ms >= snd->restrike_ms)
+    if (snd->restrike_ms > 0 && BEL_REACHED(snd->restrike_ms))
     {
         uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_queue_head)
@@ -202,13 +207,13 @@ int16_t bel_sample(void)
         }
     }
 
-    if (snd->release_ms > 0 && elapsed_ms >= snd->release_ms &&
+    if (snd->release_ms > 0 && BEL_REACHED(snd->release_ms) &&
         bel_state.adsr != release)
     {
         bel_state.adsr = release;
     }
 
-    if (snd->end_ms > 0 && elapsed_ms >= snd->end_ms)
+    if (snd->end_ms > 0 && BEL_REACHED(snd->end_ms))
     {
         uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_queue_head)
@@ -227,12 +232,11 @@ int16_t bel_sample(void)
             return 0;
         }
     }
+#undef BEL_REACHED
 
 generate:;
-    /* As psg.c, freq is Hertz times three, so the increment divides by
-     * three times the sample rate. */
-    uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * snd->freq / 3 / AUD_NATIVE_RATE;
-    bel_state.phase += phase_inc;
+    /* As psg.c, freq is Hertz times three. */
+    bel_state.phase += aud_phase_inc(snd->freq);
     uint32_t phase = bel_state.phase >> 24;
     uint32_t duty = snd->duty;
 

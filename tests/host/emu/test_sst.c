@@ -194,8 +194,8 @@ UTEST(sst, a_program_picks_up_where_it_was)
     ASSERT_EQ(bus_cycles() - at_save, reference);
 }
 
-/* What rw_write does, without a 6502 to do it. Every caller writes the block
- * the sounding engine was given, so there is no page to test. */
+/* What rw_write does, without a 6502 to do it: XRAM, then the engine mapped
+ * on the page, if one is. */
 static void aud_poke(uint16_t at, uint8_t val)
 {
     xram[at] = val;
@@ -233,10 +233,10 @@ UTEST(sst, a_note_in_flight_comes_back)
 {
     static float went[64 * 2 * 32], came[64 * 2 * 32];
     aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
 
     aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
-    ASSERT_EQ(aud_device(), aud_dev_psg);
     aud_poke(0x3006, 0x01); /* pan centre, gate on */
     aud_pull(went, 8);
     ASSERT_EQ(take(), (const char *)NULL);
@@ -244,12 +244,10 @@ UTEST(sst, a_note_in_flight_comes_back)
     aud_pull(went, 32);
 
     ASSERT_TRUE(opl_xreg(0x4000));
-    ASSERT_EQ(aud_device(), aud_dev_opl);
-    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     aud_pull(came, 16);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(aud_device(), aud_dev_psg);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
     aud_pull(came, 32);
@@ -261,6 +259,7 @@ UTEST(sst, an_opl_chord_comes_back)
 {
     static float went[64 * 2 * 32], came[64 * 2 * 32];
     aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
     ASSERT_TRUE(opl_xreg(0x4000));
     static const uint8_t regs[][2] = {
         {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
@@ -276,14 +275,29 @@ UTEST(sst, an_opl_chord_comes_back)
     aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
     aud_poke(0x3006, 0x01);
-    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     aud_pull(came, 16);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(aud_device(), aud_dev_opl);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
     aud_pull(came, 32);
     ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
     ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+}
+
+UTEST(sst, both_engines_come_back)
+{
+    aud_set_enabled(true);
+    ASSERT_TRUE(psg_xreg(0x3000));
+    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_EQ(take(), (const char *)NULL);
+    aud_stop();
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
 }
 
 /* Whether the machine is on the console canvas, the console is w by h, and

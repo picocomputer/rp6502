@@ -25,26 +25,88 @@
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
-static aud_dev_t aud_dev;
-
-/* Everything the RW engine left since the last interrupt, which is a dozen
- * writes from a 6502 in a tight store loop and nothing at all the rest of the
- * time. It runs before the sample so that a write takes effect on the sample
- * it arrived for, as it does in the fabric. */
-static void aud_drain(void)
+/* Every XRAM write core1 queued since the last interrupt, each handed to the
+ * engine mapped on its page, if one is. It runs before the sample so that a
+ * write takes effect on the sample it arrived for, as it does in the fabric.
+ * It stops at the head it found on entry: a 6502 writing flat out can queue
+ * the next write before an expensive OPL register is applied, and a drain
+ * that chased it would never return. The pages cannot move while it runs,
+ * because a mapping changes only under aud_engine_lock. */
+static void __time_critical_func(aud_drain)(void)
 {
-    uint8_t loc, val;
-    while (ria_aud_next(&loc, &val))
-        switch (aud_dev)
-        {
-        case aud_dev_psg: psg_xram_write(loc, val); break;
-        case aud_dev_opl: opl_xram_write(loc, val); break;
-        case aud_dev_none: break;
-        }
+    uint8_t head = ria_aud.head;
+    /* Pairs with the barrier core1 puts before it publishes head. */
+    __dmb();
+    uint8_t tail = ria_aud.tail;
+    uint16_t psg = psg_xaddr_get();
+    uint16_t psg_page = psg == 0xFFFF ? 0xFFFF : psg & 0xFF00;
+    uint16_t opl_page = opl_xaddr_get();
+    while (tail != head)
+    {
+        tail = (tail + 1) & (RIA_AUD_RING_SIZE - 1);
+        uint16_t addr = ria_aud.addr[tail];
+        uint16_t page = addr & 0xFF00;
+        if (page == psg_page)
+            psg_xram_write((uint8_t)addr, ria_aud.data[tail]);
+        if (page == opl_page)
+            opl_xram_write((uint8_t)addr, ria_aud.data[tail]);
+    }
+    ria_aud.tail = tail;
 }
 
 static uint16_t aud_level_l = AUD_PWM_CENTER;
 static uint16_t aud_level_r = AUD_PWM_CENTER;
+
+/* How much of each sample period aud_irq uses, for reading over SWD while a
+ * program runs: nothing on the console or the 6502 side can see it then.
+ * The IRQ slice counts system clocks from the wrap that raised the
+ * interrupt, so its counter at the end of aud_irq is the period used,
+ * entry latency and higher-priority interrupts included. A wrap flag set
+ * again by then is an overrun, and the counter has wrapped with it.
+ * Each second is published whole so a reader never sees a half-summed one;
+ * peak_max holds until something writes it back to zero. */
+static struct
+{
+    uint32_t samples;
+    uint32_t sum;
+    uint32_t peak;
+    uint32_t overruns;
+} aud_load_acc;
+
+volatile struct
+{
+    uint32_t seconds;
+    uint32_t sum;
+    uint32_t peak;
+    uint32_t overruns;
+    uint32_t peak_max;
+} aud_load;
+
+static inline void aud_load_measure(void)
+{
+    uint32_t used = pwm_get_counter(AUD_IRQ_SLICE);
+    if (pwm_hw->intr & (1u << AUD_IRQ_SLICE))
+    {
+        used += pwm_hw->slice[AUD_IRQ_SLICE].top + 1;
+        aud_load_acc.overruns++;
+    }
+    aud_load_acc.sum += used;
+    if (used > aud_load_acc.peak)
+        aud_load_acc.peak = used;
+    if (++aud_load_acc.samples == AUD_NATIVE_RATE)
+    {
+        aud_load.sum = aud_load_acc.sum;
+        aud_load.peak = aud_load_acc.peak;
+        aud_load.overruns = aud_load_acc.overruns;
+        if (aud_load_acc.peak > aud_load.peak_max)
+            aud_load.peak_max = aud_load_acc.peak;
+        aud_load.seconds++;
+        aud_load_acc.samples = 0;
+        aud_load_acc.sum = 0;
+        aud_load_acc.peak = 0;
+        aud_load_acc.overruns = 0;
+    }
+}
 
 /* The levels computed by the previous interrupt are written first, so the
  * write lands at a fixed offset from the interrupt however long the sample
@@ -58,16 +120,19 @@ static void __isr __time_critical_func(aud_irq)(void)
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     aud_drain();
-    int16_t l = 0, r = 0;
-    switch (aud_dev)
+    int32_t sl = bel_sample();
+    int32_t sr = sl;
+    int16_t l, r;
+    if (psg_xaddr_get() != 0xFFFF)
     {
-    case aud_dev_psg: psg_sample(&l, &r); break;
-    case aud_dev_opl: opl_stereo(&l, &r); break;
-    case aud_dev_none: break;
+        psg_sample(&l, &r);
+        sl += l, sr += r;
     }
-    const int32_t bel = bel_sample();
-    int32_t sl = l + bel;
-    int32_t sr = r + bel;
+    if (opl_xaddr_get() != 0xFFFF)
+    {
+        opl_stereo(&l, &r);
+        sl += l, sr += r;
+    }
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
     if (sl > AUD_SAMPLE_MAX)
@@ -86,6 +151,7 @@ static void __isr __time_critical_func(aud_irq)(void)
         nr = AUD_PWM_CENTER - 1;
     aud_level_l = (uint16_t)(nl + AUD_PWM_CENTER);
     aud_level_r = (uint16_t)(nr + AUD_PWM_CENTER);
+    aud_load_measure();
 }
 
 void __in_flash("aud_init") aud_init(void)
@@ -124,19 +190,17 @@ void __in_flash("aud_init") aud_init(void)
 
 void aud_stop(void)
 {
-    aud_dev = aud_dev_none;
-    ria_aud_watch(0xFFFF);
-}
-
-void aud_setup(aud_dev_t dev)
-{
-    aud_dev = dev;
+    aud_engine_lock();
+    psg_park();
+    opl_park();
+    aud_engine_unlock();
 }
 
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever
  * reaches an engine here is aud_irq, and holding the engines still means
  * holding that off. Nothing on this side of the lock runs per write; it is
- * taken to reset a chip, which silences it anyway. */
+ * taken to map, park or reset an engine. Whatever core1 queued before then
+ * is applied first, under the mapping it was written for. */
 void aud_engine_lock(void)
 {
     irq_set_enabled(PWM_IRQ_WRAP_0, false);
@@ -146,8 +210,8 @@ void aud_engine_lock(void)
      * no barrier: the interrupt coming back late costs nothing. */
     __dsb();
     __isb();
+    aud_drain();
 }
 
 void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
 
-aud_dev_t aud_device(void) { return aud_dev; }

@@ -5,21 +5,13 @@
  */
 
 #include "core/aud/mix.h"
-#include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
-#include "core/sys/ria.h"
 #include "core/sys/xram.h"
-#include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
 #define PSG_CHANNELS 8
-
-/* The divisor the phase increments come out of. A channel's freq register
- * is Hertz times three, for a resolution of a third of a hertz, so an
- * increment divides by three times the sample rate. */
-#define PSG_PHASE_DIV (3u * AUD_NATIVE_RATE)
 
 /* Full scale of a generated wave, and the value a closed duty gate rails
  * to. The rail is -PSG_PEAK rather than the true minimum, so that it is
@@ -35,7 +27,8 @@ enum psg_adsr_state
     sustain,
 };
 
-static volatile uint16_t psg_xaddr;
+/* Parked, so nothing is mixed from XRAM until a program maps the PSG. */
+static volatile uint16_t psg_xaddr = 0xFFFF;
 
 static const uint32_t psg_vol_table[] = {
     256 << 16,
@@ -96,9 +89,8 @@ static struct
     uint32_t noise1;
     uint32_t noise2;
     /* The last frequency this channel was written and the increment it
-     * divides out to. The step loop divides only when the register has
-     * changed, so a new note costs the divide and every sample after it
-     * does not. Zero and zero is a correct pair, so no validity flag is
+     * comes to. The step loop works it out only when the register has
+     * changed. Zero and zero is a correct pair, so no validity flag is
      * needed. */
     uint16_t freq;
     uint32_t phase_inc;
@@ -158,8 +150,7 @@ void psg_sample(int16_t *left, int16_t *right)
         if (channels[i].freq != psg_channel_state[i].freq)
         {
             psg_channel_state[i].freq = channels[i].freq;
-            psg_channel_state[i].phase_inc =
-                (uint32_t)(((uint64_t)channels[i].freq << 32) / PSG_PHASE_DIV);
+            psg_channel_state[i].phase_inc = aud_phase_inc(channels[i].freq);
         }
         psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
         uint32_t phase = psg_channel_state[i].phase >> 24;
@@ -344,24 +335,14 @@ bool psg_xreg(uint16_t word)
         word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
         ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
     {
+        /* Parked, the mix leaves the PSG out; it would otherwise go on
+         * reading the 64-byte channel block at 0xFFFF, which runs 63 bytes
+         * past the end of XRAM. */
         psg_xaddr = 0xFFFF;
-        /* Hand the mix back as well, because psg_sample would otherwise go
-         * on reading the 64-byte channel block at 0xFFFF, which runs 63
-         * bytes past the end of XRAM. */
-        aud_stop();
         aud_engine_unlock();
         return word == 0xFFFF;
     }
     psg_xaddr = word;
-    /* Taking the PSG releases the OPL's pointer, since aud_dev names one
-     * device and only that one is mixed. */
-    opl_park();
-    aud_setup(aud_dev_psg);
-    /* Watching is what arms the reporting, so it is asked for after the
-     * device those reports go to, and inside the lock: on the Pico it is
-     * also what drops whatever the RW engine queued for the engine being
-     * put away, which must not reach this one. */
-    ria_aud_watch(word);
     aud_engine_unlock();
     return true;
 }

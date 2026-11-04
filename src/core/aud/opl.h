@@ -26,8 +26,9 @@ bool opl_xreg(uint16_t word);
 /* Where this engine's register page sits in XRAM, 0xFFFF for parked. */
 uint16_t opl_xaddr_get(void);
 
-/* Release the pointer without stopping the mix, for the other engine
- * taking over. */
+/* Release the pointer, which takes the OPL2 out of the mix. The chip keeps
+ * its state until the next opl_xreg resets it. The caller holds the engine
+ * lock. */
 void opl_park(void);
 
 /* Give the chip back, for a host that unloads the library it lives in. The
