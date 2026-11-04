@@ -43,6 +43,7 @@ static uint16_t com_telnet_active_port;
 
 static char com_telnet_auth_buf[COM_TELNET_KEY_SIZE];
 static uint8_t com_telnet_auth_len;
+static uint8_t com_telnet_auth_end; // the CR or LF that ended the passkey
 
 #define COM_TELNET_TX_BUF_SIZE 32
 static char com_telnet_tx_buf[COM_TELNET_TX_BUF_SIZE];
@@ -146,6 +147,7 @@ static void com_telnet_handle_auth(uint8_t ch)
         {
             telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
+            com_telnet_auth_end = ch;
             vga_set_tel_console_active(true);
             RP6502_LOG(telnet, INFO, "console authenticated");
         }
@@ -204,11 +206,16 @@ static void com_telnet_drain_rx(void)
         if (com_telnet_state == COM_TELNET_STATE_AUTH)
         {
             com_telnet_handle_auth(ch);
-            if (com_telnet_state != COM_TELNET_STATE_AUTH)
+            if (com_telnet_state == COM_TELNET_STATE_LISTENING)
                 return;
         }
         else if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
         {
+            // The other half of the passkey's CR LF is not input.
+            uint8_t end = com_telnet_auth_end;
+            com_telnet_auth_end = 0;
+            if ((ch == '\r' || ch == '\n') && end && ch != end)
+                continue;
             if (ch == 0x03)
                 ria_trigger_sigint();
             if (drop_mode)
@@ -250,6 +257,9 @@ static void com_telnet_teardown(com_telnet_state_t target)
     }
     com_telnet_state = target;
     com_telnet_clear_rings();
+    // The byte the session left in the RX latch goes with it.
+    char waiting;
+    com_rx_reclaim(&waiting, 1, COM_SOURCE_TEL);
 }
 
 static void com_telnet_shutdown(void)
@@ -278,6 +288,7 @@ static bool com_telnet_on_accept(uint16_t port)
     telnet_tx(NET_TELNET_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
 
     com_telnet_auth_len = 0;
+    com_telnet_auth_end = 0;
     com_telnet_clear_rings();
     com_telnet_state = COM_TELNET_STATE_AUTH;
     RP6502_LOG(telnet, INFO, "console accepted, awaiting auth");
