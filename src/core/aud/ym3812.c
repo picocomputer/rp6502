@@ -7,11 +7,12 @@
 /* Section numbers refer to ym3812.md, the per-sample YM3812 specification.
  *
  * A write is applied before the sample it first affects (spec 7.6). Its
- * effects are cached where they are needed: per slot the phase increment, the
- * KSL + TL term, the rate indices and the waveform; per channel the views the
- * slots read. Each slot keeps an envelope record for its state (rate code,
- * level range); inside the range a sample is one table step, leaving it is a
- * stage change, and span 0 makes the slot re-evaluate the whole rule next. */
+ * effects are cached where they are needed: per slot the phase increment of
+ * each vibrato variant, the KSL + TL term, the rate indices and the waveform;
+ * per channel the views the slots read. Each slot keeps an envelope record for
+ * its state (rate code, level range); inside the range a sample is one table
+ * step, leaving it is a stage change, and span 0 makes the slot re-evaluate the
+ * whole rule next. */
 
 #include "core/aud/ym3812.h"
 #include <string.h>
@@ -112,17 +113,14 @@ typedef struct
     uint8_t rc;        /* rate code: step table index, ATTK + rate index in attack */
     uint8_t state;
     uint8_t key;
-    uint8_t qm;    /* muted at a fixed point */
-    uint32_t ta;   /* KSL + 4 TL | AM mask (0 or 0xff) << 16 */
-    uint32_t wav;  /* zero mask (0x100 or 0x200) | 1 << 31 for the NOT half */
-    int32_t mute;  /* -1 summed, 0 muted, this sample */
-    uint32_t inc;  /* increment << 13 at the view's F-number */
-    uint32_t mul;  /* (f & km) * mul, bit 12 cleared, is the increment << 13 at f */
-    uint16_t fnum; /* the view's F-number, which vibrato offsets */
-    uint16_t km;
-    uint32_t r6w; /* rate index per state, byte per state */
-    uint8_t slv;  /* SL, 31 for 15 */
-    uint8_t nsx;  /* NTS flips bit 0 of the rate indices */
+    uint8_t qm;      /* muted at a fixed point */
+    uint32_t ta;     /* KSL + 4 TL | AM mask (0 or 0xff) << 16 */
+    uint32_t wav;    /* zero mask (0x100 or 0x200) | 1 << 31 for the NOT half */
+    int32_t mute;    /* -1 summed, 0 muted, this sample */
+    uint32_t inc[7]; /* increment << 13 per vibrato variant (VMAP) */
+    uint32_t r6w;    /* rate index per state, byte per state */
+    uint8_t slv;     /* SL, 31 for 15 */
+    uint8_t nsx;     /* NTS flips bit 0 of the rate indices */
     uint8_t r20, r40, r60, r80, ws;
     const view_t *v; /* the channel view this slot reads (spec 7.6) */
 } slot_t;
@@ -171,8 +169,9 @@ static const uint8_t OFF2SLOT[22] = {0, 1, 2, 3, 4, 5, 0, 0, 6, 7, 8, 9, 10, 11,
 static const uint8_t SLOTCH[18] = {0, 1, 2, 0, 1, 2, 3, 4, 5, 3, 4, 5, 6, 7, 8, 6, 7, 8};
 static const uint8_t MSLOT[9] = {0, 1, 2, 6, 7, 8, 12, 13, 14};
 static const uint8_t DRUMBIT[6] = {16, 1, 4, 16, 8, 2};
-/* vibrato offset fnum >> VSH[DVB][position] (10: none), negative at positions 4-7 */
-static const uint8_t VSH[2][8] = {{10, 9, 8, 9, 10, 9, 8, 9}, {10, 8, 7, 8, 10, 8, 7, 8}};
+/* vibrato variant per [DVB][position]: 0 f, 1 f+c, 2 f+b, 3 f+a, 4 f-c, 5 f-b,
+ * 6 f-a, where a, b, c are the F-number's top 3, 2, 1 bits (spec 2) */
+static const uint8_t VMAP[2][8] = {{0, 1, 2, 1, 0, 4, 5, 4}, {0, 2, 3, 2, 0, 5, 6, 5}};
 /* attack multipliers (2, 4, 8 for step sizes 1, 2, 4) for rates 48..63 by [sub][eglow];
  * the linear steps are half of these */
 static const uint32_t HIROW[2][4][4] = {
@@ -197,21 +196,6 @@ static inline int is_mod(int s) { return (s % 6) < 3; }
 static inline uint32_t r6(const slot_t *s, uint32_t st)
 {
     return (s->r6w >> (st * 8)) & 0xff;
-}
-
-/* the increment << 13 at F-number f (spec 2) */
-static inline uint32_t inc_at(const slot_t *s, uint32_t f)
-{
-    return ((f & s->km) * s->mul) & ~0x1000u;
-}
-
-/* this sample's increment: vibrato offset fnum >> vsh, negated when vs is ~0 */
-YM_HOT uint32_t slot_inc(const slot_t *s, uint32_t vsh, uint32_t vs)
-{
-    if (!(s->r20 & 0x40))
-        return s->inc;
-    const uint32_t f = s->fnum;
-    return inc_at(s, f + (((f >> vsh) ^ vs) - vs));
 }
 
 /* ---------------- envelope events ---------------- */
@@ -259,14 +243,12 @@ static void eg_rec(slot_t *s)
 /* span 0: a write or key change: the whole of spec 3.4 for this sample */
 YM_COLD void eg_forced(slot_t *s, uint32_t inc)
 {
-    if (ym.v0fix && s == ym.sl)
+    if (ym.v0fix)
     {
-        /* test bit 7 rose: slot 0 still steps at the old vibrato position */
-        const uint32_t pos = ym.v0fix;
-        const uint32_t d = slot_inc(s, VSH[ym.dvb][pos], 0u - (pos >> 2)) - inc;
+        /* test bit 7 rose: slot 0, forced and run first, still steps at the
+         * old vibrato position */
+        s->P += s->inc[VMAP[ym.dvb][ym.v0fix]] - inc;
         ym.v0fix = 0;
-        s->P += d;
-        inc += d;
     }
     const int st = s->state, k = s->key, lv = s->level;
     if (st == REL && k)
@@ -395,12 +377,12 @@ YM_HOT int32_t op(const slot_t *s, uint32_t p, uint32_t eo)
 
 /* One melodic channel: returns the modulator's contribution, the carrier's
  * in *car (channels 6-8 hold it for the next output). */
-YM_HOT int32_t chan(const int c, uint32_t amv, uint32_t vsh, uint32_t vs, int32_t *car)
+YM_HOT int32_t chan(const int c, uint32_t amv, uint32_t vi, int32_t *car)
 {
     slot_t *m = &ym.sl[MSLOT[c]], *k = m + 3;
     chan_t *h = &ym.ch[c];
     const uint32_t pm = m->P, pk = k->P;
-    const uint32_t im = slot_inc(m, vsh, vs), ik = slot_inc(k, vsh, vs);
+    const uint32_t im = m->inc[vi], ik = k->inc[vi];
     m->P = pm + im;
     k->P = pk + ik;
     const uint32_t hs = h->hist;
@@ -423,7 +405,7 @@ YM_HOT int32_t chan(const int c, uint32_t amv, uint32_t vsh, uint32_t vs, int32_
 }
 
 /* Channels 6-8 in rhythm mode (spec 5): returns HH + TOM, holds BD, SD, TC. */
-YM_HOT int32_t rhythm(uint32_t amv, uint32_t vsh, uint32_t vs)
+YM_HOT int32_t rhythm(uint32_t amv, uint32_t vi)
 {
     slot_t *s = ym.sl;
     int32_t acc;
@@ -431,7 +413,7 @@ YM_HOT int32_t rhythm(uint32_t amv, uint32_t vsh, uint32_t vs)
         slot_t *m = &s[12], *k = &s[15];
         chan_t *h = &ym.ch[6];
         const uint32_t pm = m->P, pk = k->P;
-        const uint32_t im = slot_inc(m, vsh, vs), ik = slot_inc(k, vsh, vs);
+        const uint32_t im = m->inc[vi], ik = k->inc[vi];
         m->P = pm + im;
         k->P = pk + ik;
         const uint32_t hs = h->hist;
@@ -448,7 +430,7 @@ YM_HOT int32_t rhythm(uint32_t amv, uint32_t vsh, uint32_t vs)
     uint32_t hb;
     {
         slot_t *m = &s[13];
-        const uint32_t p = m->P, i = slot_inc(m, vsh, vs);
+        const uint32_t p = m->P, i = m->inc[vi];
         m->P = p + i;
         const uint32_t e = eg(m, amv, i);
         hb = p >> 22;
@@ -459,7 +441,7 @@ YM_HOT int32_t rhythm(uint32_t amv, uint32_t vsh, uint32_t vs)
     }
     {
         slot_t *k = &s[16];
-        const uint32_t p = k->P, i = slot_inc(k, vsh, vs);
+        const uint32_t p = k->P, i = k->inc[vi];
         k->P = p + i;
         const uint32_t e = eg(k, amv, i);
         const uint32_t h8 = (hb >> 8) & 1;
@@ -467,14 +449,14 @@ YM_HOT int32_t rhythm(uint32_t amv, uint32_t vsh, uint32_t vs)
     }
     {
         slot_t *m = &s[14];
-        const uint32_t p = m->P, i = slot_inc(m, vsh, vs);
+        const uint32_t p = m->P, i = m->inc[vi];
         m->P = p + i;
         const uint32_t e = eg(m, amv, i);
         acc += 2 * (op(m, p >> 22, e) & m->mute);
     }
     {
         slot_t *k = &s[17];
-        const uint32_t p = k->P, i = slot_inc(k, vsh, vs);
+        const uint32_t p = k->P, i = k->inc[vi];
         k->P = p + i;
         const uint32_t e = eg(k, amv, i);
         const uint32_t cb = p >> 22;
@@ -509,15 +491,17 @@ static void view_k6(view_t *v)
 }
 
 /* inc << 13 = ((((f << blk) >> 1) * mt) >> 1) << 13 = ((f & km) * (mt << (11 + blk)))
- * with bit 12 cleared, km clearing bit 0 when blk = 0 (mod 2^32) */
+ * with bit 12 cleared, km clearing bit 0 when blk = 0 (mod 2^32), at each
+ * vibrato variant of f; all seven are f's without VIB */
 static void slot_pg(slot_t *s)
 {
     const view_t *v = s->v;
-    const uint32_t bk = v->blk;
-    s->fnum = v->fnum;
-    s->km = bk ? 0xffff : 0xfffe;
-    s->mul = (uint32_t)MT[s->r20 & 15] << (11 + bk);
-    s->inc = inc_at(s, s->fnum);
+    const uint32_t f = v->fnum, bk = v->blk;
+    const uint32_t mul = (uint32_t)MT[s->r20 & 15] << (11 + bk), km = bk ? ~0u : ~1u;
+    const uint32_t a = (s->r20 & 0x40) ? f >> 7 : 0;
+    const uint32_t d[7] = {0, a >> 2, a >> 1, a, 0u - (a >> 2), 0u - (a >> 1), 0u - a};
+    for (int i = 0; i < 7; i++)
+        s->inc[i] = (((f + d[i]) & km) * mul) & ~0x1000u;
 }
 
 static inline void slot_ksl(slot_t *s)
@@ -782,7 +766,7 @@ static void apply(uint32_t a, uint32_t v)
 /* ---------------- write path ---------------- */
 
 /* The views that follow by one sample, then the oldest write if the credit
- * covers it. */
+ * covers it and no channel 0-2 late half was applied. */
 YM_COLD void commit(void)
 {
     const uint32_t lag = ym.lag;
@@ -801,7 +785,7 @@ YM_COLD void commit(void)
     }
     ym3812_queue_t *q = &ym3812_queue;
     uint32_t credit = ym.credit;
-    if (q->count && credit >= 96)
+    if (!(lag & 7) && q->count && credit >= 96)
     {
         const uint32_t e = q->entry[q->head];
         q->head++;
@@ -810,9 +794,8 @@ YM_COLD void commit(void)
         apply(e & 0xff, e >> 8);
     }
     credit += 72;
-    if (!q->count && credit > 96)
-        credit = 96;
-    ym.credit = (uint8_t)credit;
+    const uint32_t cap = q->count ? 192 : 96;
+    ym.credit = (uint8_t)(credit > cap ? cap : credit);
 }
 
 /* ---------------- one sample ---------------- */
@@ -834,8 +817,7 @@ int16_t ym3812_sample(void)
     if (test & 0x80)
         ym.tv = 0, ym.tdir = 0;
     const uint32_t amv = ym.dam ? tout >> 2 : tout >> 4;
-    const uint32_t vsh = VSH[ym.dvb][ym.vib];
-    const uint32_t vs = 0u - (uint32_t)(ym.vib >> 2);
+    const uint32_t vi = VMAP[ym.dvb][ym.vib];
 
     /* step table for this sample (spec 3.3) */
     {
@@ -866,20 +848,20 @@ int16_t ym3812_sample(void)
 
     int32_t acc = ym.held15 + (ym.rhy ? 2 * ym.held1617 : ym.held1617);
     int32_t car;
-    acc += chan(0, amv, vsh, vs, &car), acc += car;
-    acc += chan(1, amv, vsh, vs, &car), acc += car;
-    acc += chan(2, amv, vsh, vs, &car), acc += car;
-    acc += chan(3, amv, vsh, vs, &car), acc += car;
-    acc += chan(4, amv, vsh, vs, &car), acc += car;
-    acc += chan(5, amv, vsh, vs, &car), acc += car;
+    acc += chan(0, amv, vi, &car), acc += car;
+    acc += chan(1, amv, vi, &car), acc += car;
+    acc += chan(2, amv, vi, &car), acc += car;
+    acc += chan(3, amv, vi, &car), acc += car;
+    acc += chan(4, amv, vi, &car), acc += car;
+    acc += chan(5, amv, vi, &car), acc += car;
     if (ym.rhy)
-        acc += rhythm(amv, vsh, vs);
+        acc += rhythm(amv, vi);
     else
     {
         int32_t c6, c7, c8;
-        acc += chan(6, amv, vsh, vs, &c6);
-        acc += chan(7, amv, vsh, vs, &c7);
-        acc += chan(8, amv, vsh, vs, &c8);
+        acc += chan(6, amv, vi, &c6);
+        acc += chan(7, amv, vi, &c7);
+        acc += chan(8, amv, vi, &c8);
         ym.held15 = c6;
         ym.held1617 = c7 + c8;
     }
@@ -1118,7 +1100,7 @@ bool ym3812_sst_load(sst_cursor_t *c)
     }
     ym.credit = sst_get_u8(c);
     q->drops = sst_get_u32(c);
-    ok &= ym.credit <= 144 && !(ym.credit % 24) && (q->count || ym.credit <= 96);
+    ok &= ym.credit >= 72 && ym.credit <= (q->count ? 192 : 96) && !(ym.credit % 24);
     ok &= q->drops <= 0x7FFFFFFF;
     if (!ok || !sst_ok(c))
     {

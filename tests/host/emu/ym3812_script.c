@@ -37,14 +37,24 @@ bool ym_is_reg(uint8_t reg)
     return false;
 }
 
+/* The channel registers of channels 0-2, A0-A2, B0-B2 and C0-C2, and AE, AF,
+ * BE, BF, CE and CF, which write channels 0-1 the same way. The modulator half
+ * of such a write applies in the sample after it. */
+static bool ym_late(uint8_t reg)
+{
+    return reg >= 0xA0 && reg < 0xD0 && ((reg & 0x0F) < 3 || (reg & 0x0F) >= 0x0E);
+}
+
 /* Up to 256 writes wait in order. Before each sample, the oldest is applied
- * if the credit is at least 96, which costs 96; then the credit gains 72, up
- * to 96 while nothing waits. */
+ * if the credit is at least 96, which costs 96, unless the sample applies the
+ * modulator half of a channel 0-2 write; then the credit gains 72, up to 192
+ * while writes wait and 96 while none do. */
 uint32_t ym_pace(const ym_script_t *pushes, uint32_t *at, ym_script_t *schedule)
 {
     size_t wait[256], head = 0, waiting = 0, i = 0;
     uint32_t drops = 0;
     int credit = 96;
+    bool half = false;
     schedule->count = 0;
     schedule->samples = pushes->samples;
     for (uint32_t n = 0; n < pushes->samples; n++)
@@ -59,7 +69,9 @@ uint32_t ym_pace(const ym_script_t *pushes, uint32_t *at, ym_script_t *schedule)
             else
                 wait[(head + waiting++) % 256] = i;
         }
-        if (waiting && credit >= 96)
+        if (half)
+            half = false;
+        else if (waiting && credit >= 96)
         {
             size_t k = wait[head];
             head = (head + 1) % 256;
@@ -67,10 +79,11 @@ uint32_t ym_pace(const ym_script_t *pushes, uint32_t *at, ym_script_t *schedule)
             at[k] = n;
             ym_script_add(schedule, n, pushes->w[k].reg, pushes->w[k].val);
             credit -= 96;
+            half = ym_late(pushes->w[k].reg);
         }
         credit += 72;
-        if (!waiting && credit > 96)
-            credit = 96;
+        if (credit > (waiting ? 192 : 96))
+            credit = waiting ? 192 : 96;
     }
     for (; i < pushes->count; i++)
         at[i] = YM_WAITING;
@@ -268,7 +281,7 @@ static uint32_t ym_lfo0;
 /* Pushes the write so that it is applied at the first sample, at least
  * 1 + gap after the last one, that the pacing reaches and the bus allows. A
  * write that can follow at once is pushed as the last one is applied, so it
- * waits behind it. */
+ * waits behind it. The sample after a channel 0-2 write applies none. */
 static void ym_dense(int reg, int val, uint32_t gap)
 {
     for (uint32_t p = ym_last.n;; p++)
@@ -286,6 +299,11 @@ static void ym_dense(int reg, int val, uint32_t gap)
             if (credit > 96)
                 credit = 96;
             a = p;
+        }
+        if (a == ym_last.n + 1 && ym_late(ym_last.reg))
+        {
+            credit = credit + 72 > 192 ? 192 : credit + 72;
+            a++;
         }
         for (; credit < 96; credit += 72)
             a++;

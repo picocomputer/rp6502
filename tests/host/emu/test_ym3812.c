@@ -345,6 +345,8 @@ UTEST(ym3812, lle_eg_wrap)
 
 /* ---------------- pacing ---------------- */
 
+static uint32_t engine_credit(void);
+
 /* The rule's consequences, worked out by hand, from the reference and from
  * the engine. */
 UTEST(ym3812, pacing_rule)
@@ -378,6 +380,38 @@ UTEST(ym3812, pacing_rule)
     const size_t steady = s.count;
     for (uint32_t n = 1000; n < 1100; n++)
         ym_script_add(&s, n, 0x42, (uint8_t)n);
+    /* Five at once from rest, A0 third: its late half takes sample 4, so the
+     * operator write behind it moves from 4 to 5 and the last is still at 6. */
+    const size_t moved = s.count;
+    static const uint32_t moved_at[5] = {0, 2, 3, 5, 6};
+    for (int k = 0; k < 5; k++)
+        ym_script_add(&s, 1200, (uint8_t)(k == 2 ? 0xA0 : 0x41), (uint8_t)k);
+    /* Seven at once from rest at 0, 2, 3, 4, 6, 7 and 8; with B0 second, its
+     * late half takes sample 3 and the rest apply at 4, 5, 6, 7 and 8. */
+    const size_t seven = s.count;
+    static const uint32_t seven_at[2][7] = {{0, 2, 3, 4, 6, 7, 8}, {0, 2, 4, 5, 6, 7, 8}};
+    for (int k = 0; k < 7; k++)
+        ym_script_add(&s, 1300, 0x42, (uint8_t)k);
+    for (int k = 0; k < 7; k++)
+        ym_script_add(&s, 1400, (uint8_t)(k == 1 ? 0xB0 : 0x42), (uint8_t)k);
+    /* Channel 0-2 writes alone, every form, at once: one per two samples while
+     * the credit climbs to 192. The operator writes behind them apply 5 in a
+     * row on it, then 3 in every 4. */
+    static const uint8_t ch02[15] = {0xA0, 0xA1, 0xA2, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2,
+                                     0xBE, 0xBF, 0xC0, 0xC1, 0xC2, 0xCE, 0xCF};
+    static const uint32_t after_at[8] = {30, 31, 32, 33, 34, 36, 37, 38};
+    const size_t run = s.count;
+    for (int k = 0; k < 15; k++)
+        ym_script_add(&s, 1500, ch02[k], (uint8_t)k);
+    for (int k = 0; k < 8; k++)
+        ym_script_add(&s, 1500, 0x42, (uint8_t)k);
+    /* The aliases and C3-C5 hold nothing back: from rest, with an operator
+     * write every third, each applies just before a sample that applies one. */
+    static const uint8_t unheld_regs[12] = {0xA9, 0xAA, 0xAB, 0xB9, 0xBA, 0xBB,
+                                            0xC9, 0xCA, 0xCB, 0xC3, 0xC4, 0xC5};
+    const size_t unheld = s.count;
+    for (int k = 0; k < 19; k++)
+        ym_script_add(&s, 1600, k % 3 ? unheld_regs[k - k / 3 - 1] : 0x42, (uint8_t)k);
     ASSERT_LE(s.count, sizeof at / sizeof *at);
 
     ASSERT_EQ(ym_pace(&s, at, &schedule), 1u);
@@ -394,17 +428,43 @@ UTEST(ym3812, pacing_rule)
     ASSERT_EQ(at[full + 256], YM_DROPPED);
     for (uint32_t k = 0; k < 100; k++)
         ASSERT_EQ(at[steady + k], 1000 + (4 * k + 2) / 3);
+    for (size_t k = 0; k < 5; k++)
+        ASSERT_EQ(at[moved + k], 1200 + moved_at[k]);
+    for (size_t k = 0; k < 7; k++)
+    {
+        ASSERT_EQ(at[seven + k], 1300 + seven_at[0][k]);
+        ASSERT_EQ(at[seven + 7 + k], 1400 + seven_at[1][k]);
+    }
+    for (uint32_t k = 0; k < 15; k++)
+        ASSERT_EQ(at[run + k], 1500 + 2 * k);
+    for (size_t k = 0; k < 8; k++)
+        ASSERT_EQ(at[run + 15 + k], 1500 + after_at[k]);
+    for (uint32_t k = 0; k < 19; k++)
+        ASSERT_EQ(at[unheld + k], 1600 + (4 * k + 2) / 3);
 
     int16_t *out = malloc(s.samples * sizeof *out);
     engine_run(&s, out);
     free(out);
     const char *r = same_schedule(&schedule);
-    uint32_t drops = ym3812_take_drops();
+    const uint32_t drops = ym3812_take_drops(), again = ym3812_take_drops();
+    /* Again, reading the engine's credit after every sample: it reaches 192
+     * and never passes it. */
+    uint32_t top = 0;
+    ym3812_reset();
+    for (size_t n = 0, i = 0; n < s.samples; n++)
+    {
+        for (; i < s.count && s.w[i].n == n; i++)
+            ym3812_push(s.w[i].reg, s.w[i].val);
+        ym3812_sample();
+        const uint32_t c = engine_credit();
+        top = c > top ? c : top;
+    }
     ym_script_free(&s);
     ym_script_free(&schedule);
     ASSERT_OK(r);
     ASSERT_EQ(drops, 1u);
-    ASSERT_EQ(ym3812_take_drops(), 0u);
+    ASSERT_EQ(again, 0u);
+    ASSERT_EQ(top, 192u);
 }
 
 /* ---------------- against the model, in bursts ---------------- */
@@ -460,6 +520,13 @@ static bool load(size_t len)
 #define SST_QUEUE (YM3812_SST_SIZE - (2 + 2 * YM3812_QUEUE_SIZE + 1 + 4))
 #define SST_CREDIT (YM3812_SST_SIZE - 5)
 #define SST_DROPS (YM3812_SST_SIZE - 4)
+
+/* The engine's credit, from a saved state. */
+static uint32_t engine_credit(void)
+{
+    save();
+    return blob[SST_CREDIT];
+}
 
 static void put_be(uint8_t *p, unsigned len, uint32_t v)
 {
@@ -667,7 +734,8 @@ UTEST(ym3812, sst_refuses_out_of_range)
         {SST_QUEUE + 2, 2, false, 0x2016, "a write to offset 16"},
         {SST_QUEUE + 2, 2, false, 0x2002, "a write to timer 1"},
         {SST_CREDIT, 1, false, 25, "a credit that is not a multiple of 24"},
-        {SST_CREDIT, 1, false, 168, "a credit past 144"},
+        {SST_CREDIT, 1, false, 48, "a credit below 72"},
+        {SST_CREDIT, 1, false, 216, "a credit past 192"},
         {SST_DROPS, 4, false, 0x80000000, "more drops than the count holds"},
     };
     for (size_t k = 0; k < sizeof bad / sizeof *bad; k++)

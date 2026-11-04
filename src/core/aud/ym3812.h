@@ -11,11 +11,14 @@
  * at its output word.
  *
  * Writes wait in a queue and apply in order, at most one a sample and one per
- * 96 master clocks: a credit gains 72 a sample, stops at 96 while the queue is
- * empty, and pays 96 for each write. A write to an offset that is not a
- * register the engine implements never enters the queue; one that finds the
- * queue full is dropped and counted. Timers (02-04), CSM (08 bit 7), status and
- * test bits 0 and 2 are not implemented. */
+ * 96 master clocks. Before each sample the oldest write applies if the credit
+ * is at least 96 and pays 96, unless the sample applies a late half: the
+ * modulator half of a write to A0-A2, B0-B2, C0-C2, AE, AF, BE, BF, CE or CF
+ * (channels 0-2) applied before the previous sample. Then the credit gains 72
+ * and stops at 192 while writes wait, 96 while none do (spec 7.8). A write to
+ * an offset that is not a register the engine implements never enters the
+ * queue; one that finds the queue full is dropped and counted. Timers (02-04),
+ * CSM (08 bit 7), status and test bits 0 and 2 are not implemented. */
 
 #include "core/sys/sst.h"
 #include <stdbool.h>
