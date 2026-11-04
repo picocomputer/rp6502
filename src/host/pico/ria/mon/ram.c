@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#define RAM_TIMEOUT_MS 200
+#define RAM_TIMEOUT_MS 1000
 
 static enum {
     RAM_IDLE,

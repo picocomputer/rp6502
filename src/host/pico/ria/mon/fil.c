@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FIL_TIMEOUT_MS 500
+#define FIL_TIMEOUT_MS 1000
 
 static enum {
     FIL_IDLE,
