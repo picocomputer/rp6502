@@ -20,6 +20,7 @@
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
@@ -97,7 +98,10 @@ void ria_run(void)
     REGS(0xFFF0) = 0;
 }
 
-static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_response(char *buf,
+                                                                                     size_t buf_size,
+                                                                                     int state,
+                                                                                     unsigned)
 {
     oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
     return -1;

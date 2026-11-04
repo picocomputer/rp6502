@@ -22,6 +22,7 @@
 #include <string.h>
 #include "ff.h"			/* Basic definitions and declarations of API */
 #include "diskio.h"		/* Declarations of MAI */
+#include "machine.h"		/* RP6502: HOST_IN_FLASH_FUNC */
 
 /*--------------------------------------------------------------------------
 
@@ -6135,7 +6136,8 @@ static FRESULT create_partition (
    nothing written). Re-apply on a FatFs upgrade. (Defined in mon/drive.c.) */
 int drive_mkfs_capture (BYTE fsty, DWORD au_sectors);
 
-FRESULT f_mkfs (
+/* RP6502: in flash, the monitor's DISK command is its only caller */
+FRESULT HOST_IN_FLASH_FUNC("f_mkfs") f_mkfs (
 	const TCHAR* path,		/* Logical drive number */
 	const MKFS_PARM* opt,	/* Format options */
 	void* work,				/* Pointer to working buffer (null: use len bytes of heap memory) */
