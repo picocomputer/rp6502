@@ -19,7 +19,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FIL_TIMEOUT_MS 1000
+/* A transfer over telnet outlasts three packets lost in a row: TCP waits
+ * out seven of its retransmit timeouts, 1.4 s at the RIA-W's 200 ms and up
+ * to about 1.8 s at a PC's, which grows with the link's jitter. */
+#define FIL_TIMEOUT_MS 2000
 
 static enum {
     FIL_IDLE,
