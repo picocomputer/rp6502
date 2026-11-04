@@ -145,6 +145,9 @@ void cyw_init(void)
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 
+    /* Loading the config file does not apply it, so the country is looked up
+     * here, where the radio comes up. */
+    cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
     uint32_t country = CYW43_COUNTRY_WORLDWIDE;
     if (cyw_country >= 0)
         country = CYW43_COUNTRY(
