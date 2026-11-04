@@ -48,10 +48,9 @@ bool vtkeys_paste_busy(void);
 
 void vtkeys_task(void);
 
-/* There is no stop hook because type-ahead survives an exec on purpose. A
- * break cancels the paste, because the console's break clears the ring and a
- * paste left running would refill it with the rest of what the user just
- * interrupted. */
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, vtkeys_paste_cancel, nul_config, nul_config, nul_sst)
+/* A stop and a break both cancel the paste, because the console clears the
+ * ring at both and a paste left running would refill it with the rest of what
+ * was meant for the program that just ended. */
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, vtkeys_paste_cancel, vtkeys_paste_cancel, nul_config, nul_config, nul_sst)
 
 #endif /* _CORE_HID_VTKEYS_H_ */

@@ -97,12 +97,6 @@ void ria_run(void)
     REGS(0xFFF0) = 0;
 }
 
-void ria_stop(void)
-{
-    irq_enabled = 0;
-    gpio_put(CPU_IRQB_PIN, true);
-}
-
 static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
 {
     oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
@@ -360,8 +354,16 @@ static void ria_uart_rx_clear(void)
     REGS(0xFFE2) = 0;
 }
 
-/* sys_commit calls sys_stop, which lowers RESB, before it calls the break
- * hooks, so the 6502 is held in reset when ria_break closes the transfer. */
+/* sys_stop lowers RESB before the stop and break hooks run, so the 6502 is
+ * held in reset, and act_loop leaves $FFE0 and $FFE2 alone, while these drop
+ * the byte the stopped program never read and close any transfer. */
+void ria_stop(void)
+{
+    irq_enabled = 0;
+    gpio_put(CPU_IRQB_PIN, true);
+    ria_uart_rx_clear();
+}
+
 void ria_break(void)
 {
     action_callback = NULL;

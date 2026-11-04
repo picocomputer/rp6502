@@ -168,6 +168,21 @@ UTEST(com, a_break_drops_what_the_window_staged)
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
 }
 
+/* An arrow pressed in a program that reads only the keyboard bitmap: its ESC
+ * waits in the window and the rest in the keyboard's queue. A stop drops
+ * all of it, so no part of the key reaches the monitor. Reading $FFE0 would
+ * stage the next byte if one were left anywhere. */
+UTEST(com, a_stop_drops_what_the_program_never_read)
+{
+    com_init();
+    com_keyboard_push("\33[A", 3);
+    ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
+    com_stop();
+    ria_stop();
+    ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
+}
+
 static const char *wire_data;
 static size_t wire_len, wire_pos, wire_asked_max;
 

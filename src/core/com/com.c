@@ -371,7 +371,10 @@ void com_break(void)
     com_rx_clear();
 }
 
+/* Everything typed for the stopped program that it never read is dropped,
+ * from every source at once, as a break does. */
 void com_stop(void)
 {
     com_printf("%s", STR_TERM_SOFT_RESET);
+    com_rx_clear();
 }

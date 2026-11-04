@@ -149,10 +149,15 @@ int com_rx_peek(com_source_t src)
     return regs[0x02];
 }
 
-void ria_break(void)
+void ria_stop(void)
 {
     regs[0x00] &= ~RIA_UART_RX_READY;
     regs[0x02] = 0;
+}
+
+void ria_break(void)
+{
+    ria_stop();
 }
 
 uint8_t ria_reg_read(uint16_t addr)

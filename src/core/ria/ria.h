@@ -63,9 +63,11 @@ void *ria_chip(void); /* ria_t *, for the debugger UI */
 
 bool ria_irq_asserted(void);
 
-/* Drops the byte the $FFE2 latch is holding. The console clears its own queues
- * on a break, but this byte has already left them, so nothing else can drop it
- * and the next program would read what was typed at the one just stopped. */
+/* Drop the byte the $FFE2 latch is holding, at a stop and at a break. The
+ * console clears its own queues at both, but this byte has already left them,
+ * so nothing else can drop it and the next program would read what was typed
+ * at the one just stopped. */
+void ria_stop(void);
 void ria_break(void);
 
 #ifdef __cplusplus
@@ -79,7 +81,7 @@ void ria_break(void);
 void ria_sst_save(sst_cursor_t *c, unsigned flags);
 bool ria_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, ria_break, \
+#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, ria_stop, ria_break, \
     nul_config, nul_config, SST(RIA_, 1, RIA_SST_SIZE, ria_sst_save, ria_sst_load))
 
 #endif /* _CORE_RIA_RIA_H_ */

@@ -352,17 +352,19 @@ static bool keymap_chord(const keymap_press_t *k)
             return true;
         }
         break;
+    /* The stop and the break these start drop every source's unread input,
+     * this keyboard's included, so the chords only have to not repeat. */
     case HID_KEY_F4:
         if (k->alt && sys_break_to_launcher())
         {
-            keymap_abandon();
+            keymap_repeat_keycode = 0;
             return true;
         }
         break;
     case HID_KEY_DELETE:
         if (k->ctrl && k->alt && sys_break())
         {
-            keymap_abandon();
+            keymap_repeat_keycode = 0;
             return true;
         }
         break;

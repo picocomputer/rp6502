@@ -272,6 +272,9 @@ void com_run(void)
     com_bel_enabled = true;
 }
 
+/* Everything the stopped program printed goes out first. Everything typed
+ * for it that it never read is dropped, from every source at once, so no
+ * part of a key sequence outlives the rest of it into the monitor. */
 void com_stop(void)
 {
     while (!ria_uart_tx_empty())
@@ -279,6 +282,7 @@ void com_stop(void)
     printf(STR_TERM_SOFT_RESET);
     while (!com_putchar_ready())
         com_stdio_pump();
+    com_rx_clear();
 }
 
 static void com_ensure_newline(void)
