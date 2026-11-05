@@ -84,7 +84,7 @@ endfunction()
 
 rp6502_test_roms(aud_roms cpu/aud/aud.py
     psg psg_pre opl opl_exit opl_init opl_spread opl_flat opl_drops bel bel_off
-    opl_bel pcm)
+    opl_bel pcm pcm_rules pcm_order)
 rp6502_test_roms(dir_roms cpu/fs/dir.py dir)
 rp6502_test_roms(drive_roms cpu/fs/drive.py drive)
 rp6502_test_roms(execrel_roms cpu/fs/execrel.py execrel)

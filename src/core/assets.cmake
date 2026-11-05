@@ -72,10 +72,12 @@ rp6502_core_asset(opl_rom_pkg GEN ${RP6502_SRC}/core/gen/opl_rom_gen.py
     OUTPUTS ${OPL_ROM_PKG}
     COMMENT "Generating the OPL2 ROM package")
 
+# rsmp_half.h holds rows 0 to 64, which core/aud/pcm.c includes.
 set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
+set(RSMP_HALF_H ${RP6502_ASSETS}/rsmp_half.h)
 rp6502_core_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py
-    ARGS --emit-sv ${RSMP_COEF_PKG}
-    OUTPUTS ${RSMP_COEF_PKG}
+    ARGS --emit-sv ${RSMP_COEF_PKG} --emit-half-h ${RSMP_HALF_H}
+    OUTPUTS ${RSMP_COEF_PKG} ${RSMP_HALF_H}
     COMMENT "Generating the resampler coefficient package")
 
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)

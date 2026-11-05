@@ -8,6 +8,7 @@
 #include "bel.h"
 #include "mmio.h"
 
+#include "core/aud/mix.h"
 #include "host/host.h"
 
 
@@ -19,26 +20,73 @@
 static uint16_t aud_psg_at = 0xFFFF;
 static uint16_t aud_opl_at = 0xFFFF;
 
+/* The open PCM: device's AUD_PCM_CTRL and AUD_PCM_STEP, kept for the same
+ * reason. The control word is 0 while it is closed. */
+static uint32_t aud_pcm_ctrl;
+static uint32_t aud_pcm_step;
 
-/* The PSG, the OPL and the bell voice have no reset input, so they keep
- * sounding through a machine reset until their registers are written.
+/* The PSG, the OPL, the bell voice and PCM have no reset input, so they
+ * keep sounding through a machine reset until their registers are written.
  * Writing the OPL's pointer register, 0xFFFF included, silences the OPL,
- * and writing the PSG's silences its first eight voices. The bell voice is
- * the PSG's ninth voice and a pointer write does not silence it, so
- * bel_init clears its registers. */
+ * writing the PSG's silences its first eight voices, and a close silences
+ * PCM. The bell voice is the PSG's ninth voice and a pointer write does not
+ * silence it, so bel_init clears its registers. */
 void aud_init(void)
 {
     aud_stop();
+    AUD_PCM_CTRL = 0;
     bel_init();
 }
 
+/* A program's end takes its sound with it, so the close that std_stop makes
+ * next has nothing to wait for. */
 void aud_stop(void)
 {
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
     aud_psg_at = 0xFFFF;
     aud_opl_at = 0xFFFF;
+    AUD_PCM_CLEAR = 0;
 }
+
+bool aud_pcm_open(const pcm_fmt_t *fmt)
+{
+    if (aud_pcm_ctrl)
+        return false;
+    aud_pcm_step = (uint32_t)(pcm_step(fmt->rate) - 1);
+    aud_pcm_ctrl = 1u | (fmt->bits == 16 ? 2u : 0u) | (fmt->channels == 2 ? 4u : 0u);
+    AUD_PCM_STEP = aud_pcm_step;
+    AUD_PCM_CTRL = aud_pcm_ctrl;
+    return true;
+}
+
+void aud_pcm_close(void)
+{
+    aud_pcm_ctrl = 0;
+    AUD_PCM_CTRL = 0;
+}
+
+/* The player only takes, so the room read first is never too much. buf is
+ * in XRAM or the xstack, and a word load from XRAM gives one byte four
+ * times, so each byte is a load of its own. */
+uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
+{
+    const volatile uint8_t *src = buf;
+    const uint32_t room = PCM_BUF_SIZE - AUD_PCM_LEVEL;
+    if (n > room)
+        n = room;
+    uint32_t i = 0;
+    for (; i + 4 <= n; i += 4)
+        AUD_PCM_DATA = (uint32_t)src[i] | (uint32_t)src[i + 1] << 8 |
+                       (uint32_t)src[i + 2] << 16 | (uint32_t)src[i + 3] << 24;
+    for (; i < n; i++)
+        AUD_PCM_BYTE = src[i];
+    return n;
+}
+
+uint16_t aud_pcm_level(void) { return (uint16_t)AUD_PCM_LEVEL; }
+
+void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 
 uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
 
@@ -101,6 +149,14 @@ void aud_restore(void)
     }
     aud_psg_at = psg;
     aud_opl_at = opl;
+    /* The blob holds neither the PCM buffer nor its player, so an open
+     * device opens again, empty. */
+    AUD_PCM_CTRL = 0;
+    if (aud_pcm_ctrl)
+    {
+        AUD_PCM_STEP = aud_pcm_step;
+        AUD_PCM_CTRL = aud_pcm_ctrl;
+    }
     bel_init();
 }
 

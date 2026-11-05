@@ -27,12 +27,15 @@ if(RP6502_SOFT_CPU)
             AUD_ROM_OPL_INIT="${OPL_INIT_ROM}"
             AUD_ROM_OPL_DROPS="${OPL_DROPS_ROM}"
             AUD_ROM_BEL="${BEL_ROM}" AUD_ROM_OPL_BEL="${OPL_BEL_ROM}"
+            AUD_ROM_PCM="${PCM_ROM}" AUD_ROM_PCM_RULES="${PCM_RULES_ROM}"
+            AUD_ROM_PCM_ORDER="${PCM_ORDER_ROM}"
         DEPENDS aud_roms
         TIMEOUT 600)
 endif()
 
 if(TARGET rp6502-emu)
-    foreach(test psg psg_pre opl opl_init opl_exit bel opl_bel bel_off pcm)
+    foreach(test psg psg_pre opl opl_init opl_exit bel opl_bel bel_off pcm
+            pcm_rules)
         rp6502_add_script_test(NAME ${test} COMMAND aud.py)
     endforeach()
 endif()

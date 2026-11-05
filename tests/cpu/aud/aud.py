@@ -10,8 +10,10 @@ import rp6502
 import math
 
 from rp6502_asm import (API_A, API_ERRNO, API_OP, API_X, OP_ATTR_GET,
-                        OP_ATTR_SET, OP_OPEN, OP_WRITE_XRAM, O_WRONLY, RIA_TX,
-                        RW0_ADDR, RW0_DATA, RW0_STEP, XSTACK, Asm)
+                        OP_ATTR_SET, OP_CLOSE, OP_ERRNO_OPT, OP_EXIT, OP_LSEEK,
+                        OP_OPEN, OP_SYNCFS, OP_WRITE_XRAM, OP_WRITE_XSTACK,
+                        O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP,
+                        SEEK_CUR, SEEK_END, SEEK_SET, XSTACK, Asm)
 from rp6502_rom import main, rom
 
 PSG = 0x8000
@@ -392,6 +394,172 @@ def pcm_prog():
     return p
 
 
+# pcm_rules_prog's answers, a word each from RULES, then 1 at RULES_DONE.
+RULES = 0x0220
+(R_OPEN_48001, R_ERRNO_48001, R_OPEN_48000, R_OPEN_BUSY, R_ERRNO_BUSY,
+ R_END, R_WRITE, R_CUR0, R_CUR1, R_CUR2, R_SYNC, R_CUR_SYNCED, R_REFILL,
+ R_SET, R_CUR_SET, R_CLOSE, R_REOPEN, R_WRITE_800, R_VSYNC0, R_CLOSE_800,
+ R_VSYNC1, R_WRITE_EXIT) = range(22)
+RULES_DONE = RULES + 2 * 22
+ERRNO_OPT_LLVM = 2
+EBUSY = 16
+EINVAL = 22
+# The bytes 48000 Hz 16-bit stereo plays in delay(25), 32,150 cycles at the
+# default 8 MHz.
+CUR_FALL = 771
+
+
+def pcm_rules_prog():
+    """The PCM: device's rules as a program sees them. 48001 Hz is refused,
+    48000 Hz opens and a second open is refused. A write of 8192 bytes takes
+    the 4096 that fit, SEEK_CUR falls as they play and fsync waits until they
+    have. SEEK_SET empties the buffer. 800 bytes at 8000 Hz play for 100 ms,
+    six frames, which their close waits out. Then the program exits with
+    4096 bytes at 8000 Hz waiting, half a second, and the exit does not wait
+    for them."""
+    p = Prog()
+    fd = 0x12
+    p.store(API_A, ERRNO_OPT_LLVM)
+    p.call(OP_ERRNO_OPT)
+
+    def keep(i):
+        p.sta_abs(RULES + 2 * i)
+        p.stx_abs(RULES + 2 * i + 1)
+
+    def keep_errno(i):
+        p.lda_abs(API_ERRNO)
+        p.ldx_abs(API_ERRNO + 1)
+        keep(i)
+
+    def open_pcm(args):
+        p.push_str(f"PCM:{args}")
+        p.call_a(OP_OPEN, O_WRONLY)
+
+    def on_fd(op):
+        p.lda_zp(fd)
+        p.sta_abs(API_A)
+        p.call(op)
+
+    def seek(whence):
+        p.pushl(0)
+        p.push(whence)
+        on_fd(OP_LSEEK)
+
+    def write(size):
+        p.pushw(PCM_TABLE)
+        p.pushw(size)
+        on_fd(OP_WRITE_XRAM)
+
+    def vsync(i):
+        p.lda_abs(VSYNC)
+        p.ldx_imm(0)
+        keep(i)
+
+    open_pcm("48001,16,2")
+    keep(R_OPEN_48001)
+    keep_errno(R_ERRNO_48001)
+    open_pcm("48000,16,2")
+    keep(R_OPEN_48000)
+    p.sta_zp(fd)
+    open_pcm("8000,8,1")
+    keep(R_OPEN_BUSY)
+    keep_errno(R_ERRNO_BUSY)
+    seek(SEEK_END)
+    keep(R_END)
+    write(8192)
+    keep(R_WRITE)
+    seek(SEEK_CUR)
+    keep(R_CUR0)
+    p.delay(25)
+    seek(SEEK_CUR)
+    keep(R_CUR1)
+    p.delay(25)
+    seek(SEEK_CUR)
+    keep(R_CUR2)
+    on_fd(OP_SYNCFS)
+    keep(R_SYNC)
+    seek(SEEK_CUR)
+    keep(R_CUR_SYNCED)
+    write(4096)
+    keep(R_REFILL)
+    seek(SEEK_SET)
+    keep(R_SET)
+    seek(SEEK_CUR)
+    keep(R_CUR_SET)
+    on_fd(OP_CLOSE)
+    keep(R_CLOSE)
+    open_pcm("8000,8,1")
+    keep(R_REOPEN)
+    p.sta_zp(fd)
+    write(800)
+    keep(R_WRITE_800)
+    vsync(R_VSYNC0)
+    on_fd(OP_CLOSE)
+    keep(R_CLOSE_800)
+    vsync(R_VSYNC1)
+    open_pcm("8000,8,1")
+    p.sta_zp(fd)
+    write(4096)
+    keep(R_WRITE_EXIT)
+    p.store(RULES_DONE, 1)
+    p.store(API_A, 0)
+    p.store(API_X, 0)
+    p.call(OP_EXIT)
+    p.spin()
+    return p
+
+
+# pcm_order_prog's writes, from XRAM and then from the xstack. Each count
+# written is kept as a word from ORDER, then 1 at ORDER_DONE.
+ORDER = 0x0250
+ORDER_XRAM = [1, 3, 2, 5, 7, 4, 9, 6, 11, 13, 8, 1, 1, 1, 17, 30, 2, 3]
+ORDER_XSTACK = [1, 2, 3, 5, 7, 4, 6, 1, 3]
+ORDER_DONE = ORDER + 2 * (len(ORDER_XRAM) + len(ORDER_XSTACK))
+
+
+def order_byte(i):
+    """Byte i of pcm_order_prog's stream."""
+    return (i * 7 + 3) & 0xFF
+
+
+def pcm_order_prog():
+    """PCM:1,8,1 takes a byte a second, so the buffer still holds every byte
+    of these writes, which start at every alignment and leave every
+    remainder. The stream is order_byte(0) onward."""
+    p = Prog()
+    n = sum(ORDER_XRAM)
+    p.rom.add_binary_data(bytes(order_byte(i) for i in range(n)), 0x10000 + PCM_TABLE)
+    fd = 0x12
+    p.push_str("PCM:1,8,1")
+    p.call_a(OP_OPEN, O_WRONLY)
+    p.sta_zp(fd)
+    keep = ORDER
+
+    def write(op):
+        nonlocal keep
+        p.lda_zp(fd)
+        p.sta_abs(API_A)
+        p.call(op)
+        p.sta_abs(keep)
+        p.stx_abs(keep + 1)
+        keep += 2
+
+    at = 0
+    for size in ORDER_XRAM:
+        p.pushw(PCM_TABLE + at)
+        p.pushw(size)
+        write(OP_WRITE_XRAM)
+        at += size
+    for size in ORDER_XSTACK:
+        for i in reversed(range(at, at + size)):
+            p.push(order_byte(i))
+        write(OP_WRITE_XSTACK)
+        at += size
+    p.store(ORDER_DONE, 1)
+    p.spin()
+    return p
+
+
 def mono(path):
     """The wav's samples, left and right averaged."""
     with wave.open(path, "rb") as w:
@@ -554,14 +722,51 @@ def test_pcm():
     assert abs(peak - PCM_PEAK) < PCM_PEAK * 0.02, f"peak {peak}"
 
 
+def check_pcm_rules(w):
+    """pcm_rules_prog's answers, as words, on any machine."""
+    assert (w[R_OPEN_48001], w[R_ERRNO_48001]) == (0xFFFF, EINVAL), \
+        f"open 48001: {w[R_OPEN_48001]:04X} errno {w[R_ERRNO_48001]}"
+    assert w[R_OPEN_48000] < 0x8000, f"open 48000: {w[R_OPEN_48000]:04X}"
+    assert (w[R_OPEN_BUSY], w[R_ERRNO_BUSY]) == (0xFFFF, EBUSY), \
+        f"second open: {w[R_OPEN_BUSY]:04X} errno {w[R_ERRNO_BUSY]}"
+    assert (w[R_END], w[R_WRITE]) == (4096, 4096), \
+        f"SEEK_END {w[R_END]}, write took {w[R_WRITE]}"
+    cur = w[R_CUR0:R_CUR2 + 1]
+    assert 4096 >= cur[0] > cur[1] > cur[2] > 0 \
+        and all(c % 4 == 0 for c in cur) \
+        and all(abs(a - b - CUR_FALL) < CUR_FALL // 8
+                for a, b in zip(cur, cur[1:])), f"SEEK_CUR {cur}"
+    assert (w[R_SYNC], w[R_CUR_SYNCED]) == (0, 0), \
+        f"fsync {w[R_SYNC]:04X}, SEEK_CUR after it {w[R_CUR_SYNCED]}"
+    assert (w[R_REFILL], w[R_SET], w[R_CUR_SET]) == (4096, 0, 0), \
+        f"write {w[R_REFILL]}, SEEK_SET {w[R_SET]}, SEEK_CUR {w[R_CUR_SET]}"
+    assert w[R_CLOSE] == 0, f"close {w[R_CLOSE]:04X}"
+    assert w[R_REOPEN] < 0x8000 and w[R_WRITE_800] == 800 \
+        and w[R_CLOSE_800] == 0, \
+        f"open {w[R_REOPEN]:04X}, write {w[R_WRITE_800]}, close {w[R_CLOSE_800]:04X}"
+    frames = (w[R_VSYNC1] - w[R_VSYNC0]) & 0xFF
+    assert 5 <= frames <= 7, f"the close of 100 ms took {frames} frames"
+    assert w[R_WRITE_EXIT] == 4096, f"the last write took {w[R_WRITE_EXIT]}"
+
+
+def test_pcm_rules():
+    with rp6502.Emu(rom("pcm_rules")) as e:
+        e.cmd("wait RULES_DONE 1 60")
+        got = bytes.fromhex(e.cmd(f"dump RULES {RULES_DONE - RULES}"))
+        e.cmd("wait exit 2")
+        e.cmd("expect exit 0")
+    check_pcm_rules([got[i] | got[i + 1] << 8 for i in range(0, len(got), 2)])
+
+
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
         "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
         "opl_drops": opl_drops_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
-        "pcm": pcm_prog}
+        "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
+        "pcm_order": pcm_order_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
          "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,
-         "pcm": test_pcm}
+         "pcm": test_pcm, "pcm_rules": test_pcm_rules}
 main(globals())

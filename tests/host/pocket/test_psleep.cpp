@@ -987,6 +987,64 @@ UTEST(psleep, the_opl_registers_come_back)
     teardown();
 }
 
+/* The blob holds neither PCM's buffer nor its player, so wake_task's
+ * aud_restore opens the device again, empty, with the step and format the
+ * program opened it with. The program refills it on its next frame, and in
+ * three frames, about 6.2 million steps, its 1050 Hz tone swings through a
+ * gate of 512 about 100 times. */
+UTEST(psleep, a_pcm_stream_plays_on_after_a_wake)
+{
+    std::vector<uint8_t> rom = read_file(PCM_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    long guard = 0;
+    while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    for (long i = 0; i < 1000000L; i++)
+        step();
+    const uint32_t step_pre = MEM(pcm__DOT__step_m1);
+    ASSERT_EQ((uint32_t)((22050ull << 32) / 48000 - 1), step_pre);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    step_to_save_point();
+    ASSERT_FALSE((int)MEM(pcm__DOT__open));
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    ASSERT_TRUE((int)MEM(pcm__DOT__open));
+    ASSERT_EQ(step_pre, (uint32_t)MEM(pcm__DOT__step_m1));
+    ASSERT_EQ(1, (int)MEM(pcm__DOT__b16));
+    ASSERT_EQ(0, (int)MEM(pcm__DOT__st));
+
+    long cross = 0;
+    int side = 0;
+    for (long i = 0; i < 6200000L; i++)
+    {
+        step();
+        const int l = (int16_t)dut->rootp->tb_pocket__DOT__core__DOT__aud_l;
+        if (l > 512)
+            cross += side < 0, side = 1;
+        else if (l < -512)
+            cross += side > 0, side = -1;
+    }
+    fprintf(stderr, "  %ld swings after the wake\n", cross);
+    ASSERT_TRUE((int)MEM(resb));
+    ASSERT_GT(cross, 80L);
+    teardown();
+}
+
 UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);

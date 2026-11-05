@@ -88,7 +88,8 @@ if(RP6502_SOFT_CPU)
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
-            OPL_ROM="${OPL_ROM}" ROMS_DIR="${RP6502_TEST_CORPUS}"
+            OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
+            ROMS_DIR="${RP6502_TEST_CORPUS}"
         DEPENDS file_roms stream_roms aud_roms
         TIMEOUT 1200)
 

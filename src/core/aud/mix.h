@@ -17,8 +17,8 @@
 
 /* The rate the soft machine makes samples at: a YM3812's 3579552 / 72, which
  * is 49716 exactly, and which the PSG and the bell adopted so that nothing
- * has to be converted before the mix. One build overrides it, tests/rtl/aud,
- * to hold the C at the 48 kHz its fabric model is elaborated at.
+ * has to be converted before the mix. The Pocket's firmware and tests/rtl/aud
+ * override it with the 48 kHz the fabric mixes at.
  */
 
 #ifndef AUD_NATIVE_RATE
