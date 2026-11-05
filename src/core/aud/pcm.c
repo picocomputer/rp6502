@@ -15,8 +15,8 @@
 #include <string.h>
 #include <strings.h>
 
-/* A frame is taken at most once a sample, so the step stays under one. */
-static_assert(PCM_RATE_MAX < AUD_NATIVE_RATE, "PCM must upsample");
+/* A frame is taken at most once a sample, so the step is one at most. */
+static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 static_assert((PCM_BUF_SIZE & (PCM_BUF_SIZE - 1)) == 0, "PCM buffer is a power of two");
 static_assert(PCM_BUF_SIZE <= 0x8000, "PCM buffer counts in 16 bits");
 
@@ -60,9 +60,9 @@ bool pcm_parse(const char *args, pcm_fmt_t *fmt)
     return true;
 }
 
-uint32_t pcm_step(uint32_t rate)
+uint64_t pcm_step(uint32_t rate)
 {
-    return (uint32_t)(((uint64_t)rate << 32) / AUD_NATIVE_RATE);
+    return ((uint64_t)rate << 32) / AUD_NATIVE_RATE;
 }
 
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
@@ -99,7 +99,7 @@ void pcm_clear(pcm_t *s)
     s->tail = s->head;
 }
 
-uint64_t pcm_takes(uint64_t *phase, uint32_t step, uint64_t n)
+uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
 {
     if (!n)
         return 0;

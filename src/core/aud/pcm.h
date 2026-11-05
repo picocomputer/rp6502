@@ -44,9 +44,9 @@ typedef struct
 {
     pcm_fmt_t fmt;
     uint8_t frame;  /* bytes per frame */
-    uint32_t step;  /* frames per native sample, Q32, under one */
-    uint64_t phase; /* Q32; at one or more the next sample takes a frame */
     uint8_t at;     /* where hist takes the next sample */
+    uint64_t step;  /* frames per native sample, Q32, one at most */
+    uint64_t phase; /* Q32; at one or more the next sample takes a frame */
     /* Each channel's last RSMP_TAPS samples, every one written twice, at at
      * and at + RSMP_TAPS, so the newest RSMP_TAPS always lie in a row. */
     int32_t hist[2][2 * RSMP_TAPS];
@@ -55,7 +55,7 @@ typedef struct
 } pcm_t;
 
 /* Frames per native sample at rate, Q32. */
-uint32_t pcm_step(uint32_t rate);
+uint64_t pcm_step(uint32_t rate);
 
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt);
 
@@ -78,7 +78,7 @@ void pcm_sample(pcm_t *s, int32_t *left, int32_t *right);
 /* How many frames pcm_sample takes over the next n samples, with the phase
  * moved on past them, buffer or no buffer. A machine that answers the
  * program in its own time, ahead of the player, counts with this. */
-uint64_t pcm_takes(uint64_t *phase, uint32_t step, uint64_t n);
+uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n);
 
 /* The device's rows, which open() reaches by name. Each machine's mixer
  * keeps the sound; core/aud/mix.h declares what it gives this file. */

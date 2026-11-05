@@ -127,7 +127,7 @@ static struct
     bool on;
     pcm_fmt_t fmt;
     uint8_t frame;
-    uint32_t step;
+    uint64_t step;
     uint64_t at; /* the next sample to step */
     uint64_t phase;
     uint16_t level;

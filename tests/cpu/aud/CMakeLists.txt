@@ -12,6 +12,13 @@ rp6502_add_test(pcm
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0)
 add_dependencies(test_pcm rsmp_coef)
 
+# At the 48 kHz the Pocket plays at, where 48000 Hz is a step of one.
+rp6502_add_test(pcm48
+    SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c ${RP6502_SRC}/core/aud/rsmp.c
+    INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
+    DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000)
+add_dependencies(test_pcm48 rsmp_coef)
+
 if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(aud FIRMWARE
         DEFS AUD_ROM_PSG="${PSG_ROM}" AUD_ROM_OPL="${OPL_ROM}"
