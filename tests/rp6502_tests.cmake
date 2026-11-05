@@ -182,6 +182,9 @@ function(rp6502_add_test name)
     endif()
 
     add_executable(test_${name} ${T_SOURCES})
+    if(COMMAND rp6502_msvc_dialect)
+        rp6502_msvc_dialect(test_${name})
+    endif()
     target_include_directories(test_${name} PRIVATE
         ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${RP6502_SRC} ${T_INCLUDES})
 
