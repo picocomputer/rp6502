@@ -123,15 +123,23 @@ static void std_bind(std_fd_t *f, uint8_t row, int desc, uint8_t mode)
 
 void std_sst_save(sst_cursor_t *c, unsigned flags)
 {
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         std_fd_t *f = &std_fd_pool[fd];
+        /* Before std_left_out, so a netplay state refuses a writer too
+         * rather than leaving it out. */
+        if (f->is_open && fd >= STD_FD_FIRST_FREE && f->write &&
+            !drivers[f->driver].resumes_writes)
+        {
+            sst_fail(c);
+            return;
+        }
         bool carried = f->is_open && fd >= STD_FD_FIRST_FREE && !std_left_out(f, flags);
         sst_put_bool(c, carried);
         if (!carried)
             continue;
-        size_t count;
-        const std_driver_t *drivers = std_drivers(&count);
         if (f->driver >= count || !drivers[f->driver].ident)
         {
             sst_fail(c);

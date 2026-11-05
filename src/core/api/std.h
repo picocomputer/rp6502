@@ -77,6 +77,10 @@ typedef struct
     // machine with one of those open refuses to be saved.
     bool (*ident)(int desc, sst_cursor_t *);
     int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
+    // A descriptor open for writing refuses the savestate unless its driver
+    // sets this. A write in progress, such as a game saving its progress,
+    // cannot be caught whole, but sound can always resume.
+    bool resumes_writes;
 } std_driver_t;
 
 const std_driver_t *std_drivers(size_t *count);

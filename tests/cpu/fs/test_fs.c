@@ -1181,21 +1181,30 @@ UTEST(fs, directories_fail_as_posix_says)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
 }
 
-UTEST(fs, a_savestate_keeps_the_open_mode)
+/* A write in progress, such as a game saving its progress, cannot be caught
+ * whole, so a file open for writing refuses the savestate, a SAVE: one and a
+ * netplay state's too. Closing it lets the save go ahead. */
+UTEST(fs, a_file_open_for_writing_refuses_a_savestate)
 {
-    ASSERT_TRUE(fresh_cwd());
-    int w = ssys_open("w.txt", O_WR | O_CREAT_);
-    ASSERT_TRUE(w >= 0);
-    static uint8_t blob[STD_SST_SIZE];
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    std_sst_save(&c, 0);
-    ASSERT_TRUE(sst_ok(&c));
-    sst_cursor_t r = {blob, c.at, false};
-    ASSERT_TRUE(std_sst_load(&r, 0));
-    char buf[1];
-    ASSERT_TRUE(ssys_read(w, buf, 1) < 0);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
-    ASSERT_EQ(ssys_write(w, "x", 1), 1);
+    static const struct
+    {
+        const char *path;
+        unsigned flags;
+    } cases[] = {{"w.txt", 0}, {"SAVE:w.sav", 0}, {"w.txt", SST_SHARED}};
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++)
+    {
+        ASSERT_TRUE(fresh_cwd());
+        int w = ssys_open(cases[i].path, O_WR | O_CREAT_);
+        ASSERT_TRUE(w >= 0);
+        static uint8_t blob[STD_SST_SIZE];
+        sst_cursor_t c = {blob, blob + sizeof blob, false};
+        std_sst_save(&c, cases[i].flags);
+        ASSERT_FALSE(sst_ok(&c));
+        ASSERT_EQ(ssys_close(w), 0);
+        c = (sst_cursor_t){blob, blob + sizeof blob, false};
+        std_sst_save(&c, cases[i].flags);
+        ASSERT_TRUE(sst_ok(&c));
+    }
 }
 
 static uint8_t g_blob[STD_SST_SIZE];
