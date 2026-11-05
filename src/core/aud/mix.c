@@ -8,6 +8,7 @@
 #include "core/aud/bel.h"
 #include "core/aud/rsmp.h"
 #include "core/aud/opl.h"
+#include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
 #include "core/dap/dbg.h"
@@ -38,6 +39,15 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
 #define AUD_EV_PSG_REG 0x04 /* byte addr of the PSG's block as XRAM held it */
 #define AUD_EV_PSG_MAP 0x08 /* psg_map(addr) */
 #define AUD_EV_OPL_MAP 0x10 /* opl_map(addr) */
+/* The PCM: device: opened at rate addr, 16-bit if val's bit 0 and stereo
+ * if its bit 1; bytes written, addr's low then high byte then val, as many
+ * as the kind says; the buffer emptied; and closed. */
+#define AUD_EV_PCM_OPEN 0x20
+#define AUD_EV_PCM_DATA1 0x21
+#define AUD_EV_PCM_DATA2 0x22
+#define AUD_EV_PCM_DATA3 0x23
+#define AUD_EV_PCM_CLEAR 0x24
+#define AUD_EV_PCM_CLOSE 0x25
 
 typedef struct
 {
@@ -107,6 +117,36 @@ static void aud_oq_step(uint64_t to)
     }
 }
 
+/* The PCM: device's buffer as the machine sees it, by the rule pcm_sample
+ * takes frames with, so what a write takes and what SEEK_CUR says are the
+ * machine's own and nothing the sink does can change them. The render's
+ * buffer is handed the same bytes on the same samples and takes them on the
+ * same samples. */
+static struct
+{
+    bool on;
+    pcm_fmt_t fmt;
+    uint8_t frame;
+    uint32_t step;
+    uint64_t at; /* the next sample to step */
+    uint64_t phase;
+    uint16_t level;
+} aud_pm;
+
+/* Every sample before `to`. A take with no whole frame to take is silence. */
+static void aud_pm_step(uint64_t to)
+{
+    if (aud_pm.on && to > aud_pm.at)
+    {
+        uint64_t takes = pcm_takes(&aud_pm.phase, aud_pm.step, to - aud_pm.at);
+        const uint64_t frames = aud_pm.level / aud_pm.frame;
+        if (takes > frames)
+            takes = frames;
+        aud_pm.level = (uint16_t)(aud_pm.level - takes * aud_pm.frame);
+    }
+    aud_pm.at = to;
+}
+
 /* The native sample the machine had reached at the end of its last frame. */
 static _Atomic uint64_t aud_now;
 
@@ -126,6 +166,15 @@ static int64_t aud_off;
 /* One resampler per channel, carried across runs so the phase is
  * continuous. */
 static rsmp_t aud_rs_l, aud_rs_r;
+
+/* The PCM: device's sound as the render has it. It steps by the machine's
+ * samples, aud_made - aud_off, rather than the render's, so when aud_off
+ * moves it holds or catches up and its buffer stays the machine's. due is
+ * the machine sample its next step makes, and l and r what the last made. */
+static pcm_t aud_pcm;
+static bool aud_pcm_play;
+static uint32_t aud_pcm_due;
+static int32_t aud_pcm_l, aud_pcm_r;
 
 /* The PSG's channel block as the render has it. */
 static uint8_t aud_psg_regs[PSG_REGS_SIZE];
@@ -201,6 +250,8 @@ void aud_init(void)
     aud_made = bus_now(AUD_NATIVE_RATE);
     atomic_store(&aud_now, aud_made);
     aud_oq_reset(aud_made);
+    aud_pm.on = false;
+    aud_pcm_play = false;
     aud_off = 0;
     aud_anchored = false;
     aud_carry_n = 0;
@@ -209,6 +260,8 @@ void aud_init(void)
     aud_unlock();
 }
 
+/* A program's end takes its sound with it, so the close that std_stop makes
+ * next has nothing to wait for. */
 void aud_stop(void)
 {
     aud_lock();
@@ -216,7 +269,11 @@ void aud_stop(void)
     psg_park();
     opl_park();
     aud_psg_at = aud_opl_at = 0xFFFF;
-    aud_oq_reset(bus_now(AUD_NATIVE_RATE));
+    const uint64_t now = bus_now(AUD_NATIVE_RATE);
+    aud_oq_reset(now);
+    aud_pm_step(now);
+    aud_pm.level = 0;
+    pcm_clear(&aud_pcm);
     aud_unlock();
 }
 
@@ -256,6 +313,30 @@ static void aud_apply(const aud_ev_t *e)
         return;
     case AUD_EV_PSG_REG:
         aud_psg_regs[e->addr] = e->val;
+        return;
+    case AUD_EV_PCM_OPEN:
+    {
+        const pcm_fmt_t fmt = {e->addr, (uint8_t)(e->val & 1 ? 16 : 8),
+                               (uint8_t)(e->val & 2 ? 2 : 1)};
+        pcm_reset(&aud_pcm, &fmt);
+        aud_pcm_play = true;
+        aud_pcm_due = e->at;
+        aud_pcm_l = aud_pcm_r = 0;
+        return;
+    }
+    case AUD_EV_PCM_DATA1:
+    case AUD_EV_PCM_DATA2:
+    case AUD_EV_PCM_DATA3:
+    {
+        const uint8_t b[3] = {(uint8_t)e->addr, (uint8_t)(e->addr >> 8), e->val};
+        pcm_put(&aud_pcm, b, (uint32_t)(e->kind - AUD_EV_PCM_DATA1 + 1));
+        return;
+    }
+    case AUD_EV_PCM_CLEAR:
+        pcm_clear(&aud_pcm);
+        return;
+    case AUD_EV_PCM_CLOSE:
+        aud_pcm_play = false;
         return;
     }
     if (e->kind & AUD_EV_PSG)
@@ -301,6 +382,13 @@ static void mix(int32_t *left, int32_t *right)
         {
             const int32_t o = opl_sample();
             sl += o, sr += o;
+        }
+        if (aud_pcm_play)
+        {
+            const uint32_t due = (uint32_t)(aud_made - (uint64_t)aud_off);
+            for (; (int32_t)(due - aud_pcm_due) >= 0; aud_pcm_due++)
+                pcm_sample(&aud_pcm, &aud_pcm_l, &aud_pcm_r);
+            sl += aud_pcm_l, sr += aud_pcm_r;
         }
     }
     const int32_t bel = bel_sample();
@@ -439,6 +527,61 @@ void aud_opl_map(uint16_t word)
     aud_push_at(at, AUD_EV_OPL_MAP, word, 0);
     if (word != 0xFFFF && aud_psg_at != 0xFFFF && (aud_psg_at & 0xFF00) == word)
         aud_psg_send();
+}
+
+bool aud_pcm_open(const pcm_fmt_t *fmt)
+{
+    if (aud_pm.on)
+        return false;
+    const uint64_t at = bus_now(AUD_NATIVE_RATE);
+    aud_pm.on = true;
+    aud_pm.fmt = *fmt;
+    aud_pm.frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
+    aud_pm.step = pcm_step(fmt->rate);
+    aud_pm.at = at;
+    aud_pm.phase = (uint64_t)1 << 32;
+    aud_pm.level = 0;
+    aud_push_at(at, AUD_EV_PCM_OPEN, (uint16_t)fmt->rate,
+                (uint8_t)((fmt->bits == 16 ? 1 : 0) | (fmt->channels == 2 ? 2 : 0)));
+    return true;
+}
+
+void aud_pcm_close(void)
+{
+    aud_pm.on = false;
+    aud_push(AUD_EV_PCM_CLOSE, 0, 0);
+}
+
+uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
+{
+    const uint64_t at = bus_now(AUD_NATIVE_RATE);
+    aud_pm_step(at);
+    const uint32_t room = PCM_BUF_SIZE - aud_pm.level;
+    if (n > room)
+        n = room;
+    aud_pm.level = (uint16_t)(aud_pm.level + n);
+    for (uint32_t i = 0; i < n; i += 3)
+    {
+        const uint32_t left = n - i;
+        const uint8_t b1 = left > 1 ? buf[i + 1] : 0;
+        const uint8_t b2 = left > 2 ? buf[i + 2] : 0;
+        aud_push_at(at, (uint8_t)(AUD_EV_PCM_DATA1 + (left > 2 ? 2 : left - 1)),
+                    (uint16_t)(buf[i] | b1 << 8), b2);
+    }
+    return n;
+}
+
+uint16_t aud_pcm_level(void)
+{
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
+    return aud_pm.level;
+}
+
+void aud_pcm_clear(void)
+{
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
+    aud_pm.level = 0;
+    aud_push(AUD_EV_PCM_CLEAR, 0, 0);
 }
 
 void aud_set_sink_rate(uint32_t rate)
@@ -673,8 +816,85 @@ static void aud_get_rsmp(sst_cursor_t *c, rsmp_t *r)
     r->primed = sst_get_bool(c);
 }
 
+/* The PCM: device's sound, from the render, which was saved with the sound
+ * taken. Its history goes oldest first and its bytes from the oldest, so the
+ * load puts both back at the start of their rings. An open the render has
+ * yet to take is saved as just opened. */
+static void aud_pcm_save(sst_cursor_t *c)
+{
+    const pcm_t *p = &aud_pcm;
+    const bool play = aud_pm.on && aud_pcm_play;
+    sst_put_bool(c, aud_pm.on);
+    sst_put_u32(c, aud_pm.on ? aud_pm.fmt.rate : 0);
+    sst_put_u8(c, aud_pm.on ? aud_pm.fmt.bits : 0);
+    sst_put_u8(c, aud_pm.on ? aud_pm.fmt.channels : 0);
+    sst_put_u64(c, play ? p->phase : (uint64_t)1 << 32);
+    for (int ch = 0; ch < 2; ch++)
+        for (int i = 0; i < RSMP_TAPS; i++)
+            sst_put_i32(c, play ? p->hist[ch][p->at + i] : 0);
+    const uint16_t level = play ? pcm_level(p) : 0;
+    sst_put_u16(c, level);
+    for (unsigned i = 0; i < PCM_BUF_SIZE; i++)
+        sst_put_u8(c, i < level ? p->buf[(uint16_t)(p->tail + i) & (PCM_BUF_SIZE - 1)] : 0);
+}
+
+/* After the STD row, whose reopen has opened the device again in the
+ * format it was saved in. */
+static bool aud_pcm_load(sst_cursor_t *c, uint64_t made)
+{
+    pcm_fmt_t fmt;
+    const bool on = sst_get_bool(c);
+    fmt.rate = sst_get_u32(c);
+    fmt.bits = sst_get_u8(c);
+    fmt.channels = sst_get_u8(c);
+    const uint64_t phase = sst_get_u64(c);
+    int32_t hist[2][RSMP_TAPS];
+    bool ok = true;
+    for (int ch = 0; ch < 2; ch++)
+        for (int i = 0; i < RSMP_TAPS; i++)
+        {
+            hist[ch][i] = sst_get_i32(c);
+            if (hist[ch][i] < AUD_SAMPLE_MIN || hist[ch][i] > AUD_SAMPLE_MAX)
+                ok = false;
+        }
+    const uint16_t level = sst_get_u16(c);
+    if (!sst_ok(c) || !ok || on != aud_pm.on || level > PCM_BUF_SIZE)
+        return false;
+    if (on && (fmt.rate != aud_pm.fmt.rate || fmt.bits != aud_pm.fmt.bits ||
+               fmt.channels != aud_pm.fmt.channels ||
+               phase > ((uint64_t)1 << 32) + aud_pm.step))
+        return false;
+    /* The bytes go straight into the render's buffer, which a state that
+     * does not load is put back over anyway. */
+    if (on)
+        pcm_reset(&aud_pcm, &fmt);
+    for (unsigned i = 0; i < PCM_BUF_SIZE; i++)
+        aud_pcm.buf[i] = sst_get_u8(c);
+    if (!sst_ok(c))
+        return false;
+    aud_pcm_play = on;
+    if (!on)
+        return true;
+    aud_pcm.phase = phase;
+    for (int ch = 0; ch < 2; ch++)
+        for (int i = 0; i < RSMP_TAPS; i++)
+            aud_pcm.hist[ch][i] = aud_pcm.hist[ch][i + RSMP_TAPS] = hist[ch][i];
+    aud_pcm.head = level;
+    aud_pcm_due = (uint32_t)made;
+    aud_pcm_l = aud_pcm_r = 0;
+    aud_pm.at = made;
+    aud_pm.phase = phase;
+    aud_pm.level = level;
+    return true;
+}
+
 void aud_sst_save(sst_cursor_t *c, unsigned flags)
 {
+    aud_lock();
+    /* What the machine stamped since the sound was taken is for the next
+     * sample, so it is taken now rather than left on the ring a load
+     * empties. A PCM: write made between frames is such a change. */
+    aud_due();
     sst_put_u8(c, (uint8_t)((psg_xaddr_get() != 0xFFFF ? 1 : 0) |
                             (opl_xaddr_get() != 0xFFFF ? 2 : 0)));
     aud_put_rsmp(c, &aud_rs_l);
@@ -682,6 +902,8 @@ void aud_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, aud_made);
     sst_put_u32(c, aud_oq.drops);
     bel_sst_save(c, flags);
+    aud_pcm_save(c);
+    aud_unlock();
 }
 
 bool aud_sst_load(sst_cursor_t *c, unsigned flags)
@@ -727,7 +949,7 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_off = 0;
     aud_anchored = false;
     aud_carry_n = 0;
-    const bool ok = bel_sst_load(c, flags);
+    const bool ok = bel_sst_load(c, flags) && aud_pcm_load(c, made);
     aud_unlock();
     return ok;
 }

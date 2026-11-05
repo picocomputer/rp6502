@@ -44,6 +44,12 @@ core/aud/mix.c aud_on: not carried: --mute is a session setting
 core/aud/mix.c aud_opl_at: not carried: rebuilt from the OPL chunk on load
 core/aud/mix.c aud_oq: the AUD chunk carries the drops; the rest is rebuilt from the OPL chunk's queue on load
 core/aud/mix.c aud_owed: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_pcm: the AUD chunk
+core/aud/mix.c aud_pcm_due: not carried: the render steps on from the AUD chunk's samples made
+core/aud/mix.c aud_pcm_l: not carried: what the PCM: device's last step made, made again on the next
+core/aud/mix.c aud_pcm_play: the AUD chunk
+core/aud/mix.c aud_pcm_r: not carried: what the PCM: device's last step made, made again on the next
+core/aud/mix.c aud_pm: rebuilt on load from the STD chunk's reopen and the AUD chunk's PCM: device
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
 core/aud/mix.c aud_psg_regs: not carried: rebuilt from the XRAM chunk on load
@@ -59,6 +65,7 @@ core/aud/mix.c aud_window: not carried: the streaming sink's trim, the host's
 core/aud/opl.c opl_chip: the OPL chunk
 core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
+core/aud/pcm.c pcm_fmt: the STD chunk; the descriptor's ident carries it and its reopen sets it
 core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after

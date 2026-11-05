@@ -60,11 +60,16 @@ bool pcm_parse(const char *args, pcm_fmt_t *fmt)
     return true;
 }
 
+uint32_t pcm_step(uint32_t rate)
+{
+    return (uint32_t)(((uint64_t)rate << 32) / AUD_NATIVE_RATE);
+}
+
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
 {
     s->fmt = *fmt;
     s->frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
-    s->step = (uint32_t)(((uint64_t)fmt->rate << 32) / AUD_NATIVE_RATE);
+    s->step = pcm_step(fmt->rate);
     /* The first sample takes the first frame. */
     s->phase = (uint64_t)1 << 32;
     s->at = 0;
@@ -194,8 +199,19 @@ bool pcm_std_handles(const char *path)
     return strncasecmp(path, STR_PCM_COLON, STR_PCM_COLON_LEN) == 0;
 }
 
-/* Bytes per frame of the open device. */
-static uint8_t pcm_frame;
+/* The open device's format. */
+static pcm_fmt_t pcm_fmt;
+
+static bool pcm_open_fmt(const pcm_fmt_t *fmt, api_errno *err)
+{
+    if (!aud_pcm_open(fmt))
+    {
+        *err = API_EBUSY;
+        return false;
+    }
+    pcm_fmt = *fmt;
+    return true;
+}
 
 int pcm_std_open(const char *path, uint8_t flags, api_errno *err)
 {
@@ -205,19 +221,13 @@ int pcm_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EINVAL;
         return -1;
     }
-    if (!aud_pcm_open(&fmt))
-    {
-        *err = API_EBUSY;
-        return -1;
-    }
-    pcm_frame = (uint8_t)(fmt.bits / 8 * fmt.channels);
-    return 0;
+    return pcm_open_fmt(&fmt, err) ? 0 : -1;
 }
 
 /* A last partial frame never plays, so it does not hold up a close. */
 static bool pcm_playing(void)
 {
-    return aud_pcm_level() >= pcm_frame;
+    return aud_pcm_level() >= pcm_fmt.bits / 8 * pcm_fmt.channels;
 }
 
 std_rw_result pcm_std_close(int desc, api_errno *err)
@@ -269,4 +279,28 @@ int pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
     }
     *err = API_EINVAL;
     return -1;
+}
+
+bool pcm_std_ident(int desc, sst_cursor_t *c)
+{
+    (void)desc;
+    sst_put_u32(c, pcm_fmt.rate);
+    sst_put_u8(c, pcm_fmt.bits);
+    sst_put_u8(c, pcm_fmt.channels);
+    return sst_ok(c);
+}
+
+int pcm_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
+{
+    pcm_fmt_t fmt;
+    fmt.rate = sst_get_u32(c);
+    fmt.bits = sst_get_u8(c);
+    fmt.channels = sst_get_u8(c);
+    if (!sst_ok(c) || mode != FS_WR || !fmt.rate || fmt.rate > PCM_RATE_MAX ||
+        (fmt.bits != 8 && fmt.bits != 16) || (fmt.channels != 1 && fmt.channels != 2))
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    return pcm_open_fmt(&fmt, err) ? 0 : -1;
 }

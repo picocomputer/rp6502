@@ -24,7 +24,7 @@ if(RP6502_SOFT_CPU)
 endif()
 
 if(TARGET rp6502-emu)
-    foreach(test psg psg_pre opl opl_init opl_exit bel opl_bel bel_off)
+    foreach(test psg psg_pre opl opl_init opl_exit bel opl_bel bel_off pcm)
         rp6502_add_script_test(NAME ${test} COMMAND aud.py)
     endforeach()
 endif()

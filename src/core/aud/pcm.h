@@ -54,6 +54,9 @@ typedef struct
     uint8_t buf[PCM_BUF_SIZE];
 } pcm_t;
 
+/* Frames per native sample at rate, Q32. */
+uint32_t pcm_step(uint32_t rate);
+
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt);
 
 static inline uint16_t pcm_level(const pcm_t *s)
@@ -86,7 +89,11 @@ std_rw_result pcm_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err);
 std_rw_result pcm_std_sync(int desc, api_errno *err);
 int pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
+bool pcm_std_ident(int desc, sst_cursor_t *c);
+int pcm_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
+/* Sound can always resume, so a savestate carries the device and the mixer's
+ * row carries its buffer. */
 #define PCM_STD_DRIVER              \
     {                               \
         .handles = pcm_std_handles, \
@@ -95,6 +102,9 @@ int pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
         .write = pcm_std_write,     \
         .sync = pcm_std_sync,       \
         .lseek = pcm_std_lseek,     \
+        .ident = pcm_std_ident,     \
+        .reopen = pcm_std_reopen,   \
+        .resumes_writes = true,     \
     }
 
 #endif /* _CORE_AUD_PCM_H_ */

@@ -41,6 +41,9 @@ void resb_init(void) { resb_down = true; }
 void resb_assert(void) { resb_down = true; }
 void resb_release(void) { resb_down = false; }
 
+/* sst_load empties the PCM: device first, and the roster has none. */
+void aud_pcm_clear(void) {}
+
 const std_driver_t *std_drivers(size_t *count)
 {
     static const std_driver_t none[1];

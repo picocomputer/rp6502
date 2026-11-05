@@ -150,13 +150,16 @@ int aud_viz_pos(void);
  * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
  *
  * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8 samples made, 4 OPL2 drops, then the bell. */
+ * 8 samples made, 4 OPL2 drops, the bell, then the PCM: device: open, its
+ * rate, bits and channels, the Q32 phase, both channels' 24 samples of
+ * history, the bytes buffered and PCM_BUF_SIZE of them. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + BEL_SST_SIZE)
+#define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
+#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 2, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+    nul_config, nul_config, SST(AUD_, 3, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

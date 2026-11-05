@@ -7,8 +7,11 @@ import struct
 import wave
 
 import rp6502
-from rp6502_asm import (API_OP, OP_ATTR_SET, RIA_TX, RW0_ADDR, RW0_DATA,
-                        RW0_STEP, Asm)
+import math
+
+from rp6502_asm import (API_A, API_OP, OP_ATTR_SET, OP_OPEN, OP_WRITE_XRAM,
+                        O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, XSTACK,
+                        Asm)
 from rp6502_rom import main, rom
 
 PSG = 0x8000
@@ -280,6 +283,79 @@ FRAME = 800
 LOUD = 2048
 BELL = 32
 
+# 97 whole cycles of 1050 Hz at 22050 Hz, 21 samples each, in XRAM.
+PCM_RATE = 22050
+PCM_HZ = 1050
+PCM_TABLE = 0x1000
+PCM_LEN = 97 * 21 * 2
+PCM_PEAK = 16000
+VSYNC = 0xFFE3
+
+
+def pcm_prog():
+    """PCM:22050,16,1 fed once a frame from a looped table in XRAM, each
+    write picking up where the buffer last stopped taking."""
+    p = Prog()
+    table = b"".join(
+        int(round(PCM_PEAK * math.sin(2 * math.pi * i / 21))).to_bytes(2, "little", signed=True)
+        for i in range(PCM_LEN // 2))
+    p.rom.add_binary_data(table, 0x10000 + PCM_TABLE)
+    pos, fd, frame = 0x10, 0x12, 0x13
+    p.push_str(f"PCM:{PCM_RATE},16,1")
+    p.call_a(OP_OPEN, O_WRONLY)
+    p.sta_zp(fd)
+    p.lda_imm(0)
+    p.sta_zp(pos)
+    p.sta_zp(pos + 1)
+    p.symbol("frame")
+    p.lda_abs(VSYNC)
+    p.sta_zp(frame)
+    p.symbol("wait")
+    p.lda_abs(VSYNC)
+    p.cmp_zp(frame)
+    p.beq("wait")
+    p.symbol("fill")
+    # The address, PCM_TABLE + pos, then the count, PCM_LEN - pos, each
+    # pushed high byte first.
+    p.clc()
+    p.lda_zp(pos)
+    p.adc_imm(PCM_TABLE & 0xFF)
+    p.tay()
+    p.lda_zp(pos + 1)
+    p.adc_imm(PCM_TABLE >> 8)
+    p.sta_abs(XSTACK)
+    p.sty_abs(XSTACK)
+    p.sec()
+    p.lda_imm(PCM_LEN & 0xFF)
+    p.sbc_zp(pos)
+    p.tay()
+    p.lda_imm(PCM_LEN >> 8)
+    p.sbc_zp(pos + 1)
+    p.sta_abs(XSTACK)
+    p.sty_abs(XSTACK)
+    p.lda_zp(fd)
+    p.sta_abs(API_A)
+    p.call(OP_WRITE_XRAM)
+    # pos += what the buffer took, the count in A and X.
+    p.clc()
+    p.adc_zp(pos)
+    p.sta_zp(pos)
+    p.txa()
+    p.adc_zp(pos + 1)
+    p.sta_zp(pos + 1)
+    p.lda_zp(pos)
+    p.cmp_imm(PCM_LEN & 0xFF)
+    with p.branch("bne"):
+        p.lda_zp(pos + 1)
+        p.cmp_imm(PCM_LEN >> 8)
+        with p.branch("bne"):
+            p.lda_imm(0)
+            p.sta_zp(pos)
+            p.sta_zp(pos + 1)
+            p.jmp_abs("fill")
+    p.jmp_abs("frame")
+    return p
+
 
 def mono(path):
     """The wav's samples, left and right averaged."""
@@ -324,11 +400,11 @@ def record(name, *lines):
 def opl_drops(path):
     """The OPL2's drop count from a savestate. A software machine decides each
     write as the 6502 makes it and keeps the count in the AUD_ chunk, whose
-    id, version 2 and length come before its fields: the engines byte, two
+    id, version 3 and length come before its fields: the engines byte, two
     resamplers of 105 bytes and the 8-byte samples made come before it."""
     with open(path, "rb") as f:
         blob = f.read()
-    at = blob.index(b"AUD_\x00\x02") + 10 + 1 + 2 * 105 + 8
+    at = blob.index(b"AUD_\x00\x03") + 10 + 1 + 2 * 105 + 8
     return int.from_bytes(blob[at:at + 4], "big")
 
 
@@ -431,11 +507,25 @@ def test_opl_exit():
     assert not max(peaks(mono("off.wav"))), "sound after the exit"
 
 
+def test_pcm():
+    """Ten frames of the tone, after it has had two to start, are 1050 Hz
+    within a tenth and as loud as the table."""
+    record("pcm", "run 2", 'wav "pcm.wav" 10')
+    m = mono("pcm.wav")
+    cross = crossings(m)
+    hz = cross / 2 * 48000 / len(m)
+    peak = max(abs(v) for v in m)
+    assert abs(hz - PCM_HZ) < PCM_HZ / 10, f"{cross} crossings, {hz:.1f} Hz"
+    assert abs(peak - PCM_PEAK) < PCM_PEAK * 0.02, f"peak {peak}"
+
+
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
         "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
-        "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog}
+        "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
+        "pcm": pcm_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
-         "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel}
+         "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,
+         "pcm": test_pcm}
 main(globals())
