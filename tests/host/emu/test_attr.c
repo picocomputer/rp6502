@@ -14,7 +14,7 @@
 
 #define ATTR_PHI2_KHZ 0x01
 #define ATTR_CODE_PAGE 0x02
-#define ATTR_OPL_DROPS 0x0D
+#define ATTR_OPL_DROPS 0x0F
 
 static int16_t attr_set(uint8_t id, uint32_t value)
 {
