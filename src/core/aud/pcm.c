@@ -103,6 +103,10 @@ uint64_t pcm_takes(uint64_t *phase, uint32_t step, uint64_t n)
     return takes;
 }
 
+/* The player is in the Pico's audio interrupt, every sample. */
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+
 static int32_t pcm_decode(const pcm_t *s, uint32_t at)
 {
     if (s->fmt.bits == 8)
@@ -182,6 +186,8 @@ void pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
     *right = pcm_blend(ar, br, f);
     s->phase += s->step;
 }
+
+#pragma GCC pop_options
 
 bool pcm_std_handles(const char *path)
 {

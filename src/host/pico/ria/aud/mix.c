@@ -9,6 +9,7 @@
 #include "core/aud/psg.h"
 #include "core/aud/bel.h"
 #include "core/aud/sine.h"
+#include "core/aud/pcm.h"
 #include "core/sys/ria.h"
 #include "core/sys/xram.h"
 #include "ria/sys/ria.h"
@@ -73,6 +74,12 @@ static void aud_watch(void)
     for (int i = 0; i < 32; i++)
         ria_aud_watch[i] = watch[i];
 }
+
+/* The PCM: device's sound. pcm_put on the main loop and the interrupt's
+ * pcm_sample share it as pcm.h describes; everything else on it, and
+ * aud_pcm_on, changes under aud_engine_lock. */
+static pcm_t aud_pcm;
+static bool aud_pcm_on;
 
 static uint16_t aud_level_l = AUD_PWM_CENTER;
 static uint16_t aud_level_r = AUD_PWM_CENTER;
@@ -167,6 +174,12 @@ static void __isr __time_critical_func(aud_irq)(void)
         const int32_t o = opl_sample();
         sl += o, sr += o;
     }
+    if (aud_pcm_on)
+    {
+        int32_t pl, pr;
+        pcm_sample(&aud_pcm, &pl, &pr);
+        sl += pl, sr += pr;
+    }
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
     if (sl > AUD_SAMPLE_MAX)
@@ -224,6 +237,8 @@ void __in_flash("aud_init") aud_init(void)
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
+/* A program's end takes its sound with it, so the close that std_stop makes
+ * next has nothing to wait for. */
 void aud_stop(void)
 {
     aud_engine_lock();
@@ -231,6 +246,7 @@ void aud_stop(void)
     opl_park();
     opl_take_drops();
     aud_watch();
+    pcm_clear(&aud_pcm);
     aud_engine_unlock();
 }
 
@@ -279,3 +295,37 @@ void aud_opl_map(uint16_t word)
     aud_engine_unlock();
 }
 
+bool aud_pcm_open(const pcm_fmt_t *fmt)
+{
+    if (aud_pcm_on)
+        return false;
+    aud_engine_lock();
+    pcm_reset(&aud_pcm, fmt);
+    aud_pcm_on = true;
+    aud_engine_unlock();
+    return true;
+}
+
+void aud_pcm_close(void)
+{
+    aud_engine_lock();
+    aud_pcm_on = false;
+    aud_engine_unlock();
+}
+
+uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
+{
+    return pcm_put(&aud_pcm, buf, n);
+}
+
+uint16_t aud_pcm_level(void)
+{
+    return pcm_level(&aud_pcm);
+}
+
+void aud_pcm_clear(void)
+{
+    aud_engine_lock();
+    pcm_clear(&aud_pcm);
+    aud_engine_unlock();
+}

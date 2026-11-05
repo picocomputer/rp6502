@@ -5,6 +5,7 @@ include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_kbdlay(kbdlay)
 rp6502_gen_opl_rom(opl_rom)
+rp6502_gen_rsmp_coef(rsmp_coef)
 
 set(HID_USAGE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_usage.stamp)
 set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
@@ -20,7 +21,7 @@ add_custom_command(OUTPUT ${HID_USAGE_STAMP}
 add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})
 
 add_executable(${RIA_TARGET})
-add_dependencies(${RIA_TARGET} hid_usage opl_rom)
+add_dependencies(${RIA_TARGET} hid_usage opl_rom rsmp_coef)
 rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
@@ -98,6 +99,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/aud/bel_presets.c
     ${RP6502_ROOT}/src/core/aud/opl.c
+    ${RP6502_ROOT}/src/core/aud/pcm.c
     ${RP6502_ROOT}/src/core/aud/psg.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
