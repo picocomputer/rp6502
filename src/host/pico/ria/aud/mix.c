@@ -54,7 +54,8 @@ static inline uint32_t aud_pwm_word(uint32_t level)
  * rounding noise above the audio band, where the output's filter takes it,
  * and triangular dither keeps the error from following the signal. The
  * error stays within 95 and the dither within 63, so a sample taken down by
- * 1/64 leaves room for both and no level ever clips. */
+ * 1/64, rounded so -1 stays -1, leaves room for both and no level ever
+ * clips. */
 static uint32_t aud_dither = 1;
 static int32_t aud_err[2][2];
 static uint32_t aud_words[2][AUD_PWM_PER_SAMPLE];
@@ -62,8 +63,8 @@ static uint aud_sm[2];
 
 __attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int32_t sl, int32_t sr)
 {
-    sl -= sl >> 6;
-    sr -= sr >> 6;
+    sl -= (sl + 32) >> 6;
+    sr -= (sr + 32) >> 6;
     int32_t l0 = aud_err[0][0], l1 = aud_err[0][1];
     int32_t r0 = aud_err[1][0], r1 = aud_err[1][1];
     uint32_t x = aud_dither;
