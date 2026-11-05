@@ -27,6 +27,19 @@
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
+/* Every sample lasts exactly AUD_PWM_PER_SAMPLE carrier periods. A carrier
+ * running free of the sample clock slips against it, so the levels change
+ * up to a carrier period late, by an amount that sweeps, and every tone
+ * grows sidebands. A period of 1030 holds the 1024 levels with room to
+ * spare and makes a sample 5150 clocks, 49709 Hz at 256 MHz. */
+#define AUD_PWM_PERIOD 1030
+#define AUD_PWM_PER_SAMPLE 5
+#define AUD_PWM_RATE (SYS_RP2350_KHZ * 1000u / (AUD_PWM_PER_SAMPLE * AUD_PWM_PERIOD))
+static_assert(AUD_PWM_PERIOD >= (1u << AUD_PWM_BITS), "PWM levels fit the carrier");
+static_assert(AUD_PWM_RATE > AUD_NATIVE_RATE - AUD_NATIVE_RATE / 1000 &&
+                  AUD_PWM_RATE < AUD_NATIVE_RATE + AUD_NATIVE_RATE / 1000,
+              "the sample rate is within 0.1% of AUD_NATIVE_RATE");
+
 /* Every XRAM write core1 queued since the last interrupt, each handed to the
  * engine mapped on its page, if one is. It runs before the sample so that a
  * write takes effect on the sample it arrived for, as it does in the fabric.
@@ -150,7 +163,8 @@ static inline void aud_load_measure(void)
 
 /* The levels computed by the previous interrupt are written first, so the
  * write lands at a fixed offset from the interrupt however long the sample
- * generators take after it. The narrowing from sixteen bits to ten rounds
+ * generators take after it. The interrupt and the carrier wrap together, so
+ * the levels take hold one carrier period later, every sample. The narrowing from sixteen bits to ten rounds
  * rather than floors, because a floor biases every sample down by half a
  * step on average, which is a DC offset and not noise. */
 static void __isr __time_critical_func(aud_irq)(void)
@@ -204,10 +218,11 @@ static void __isr __time_critical_func(aud_irq)(void)
 void __in_flash("aud_init") aud_init(void)
 {
     pwm_config config = pwm_get_default_config();
-    pwm_config_set_wrap(&config, ((1u << AUD_PWM_BITS) - 1));
-    pwm_init(AUD_L_SLICE, &config, true);
-    pwm_init(AUD_R_SLICE, &config, true);
-    pwm_init(AUD_IRQ_SLICE, &config, true);
+    pwm_config_set_wrap(&config, AUD_PWM_PERIOD - 1);
+    pwm_init(AUD_L_SLICE, &config, false);
+    pwm_init(AUD_R_SLICE, &config, false);
+    pwm_config_set_wrap(&config, AUD_PWM_PER_SAMPLE * AUD_PWM_PERIOD - 1);
+    pwm_init(AUD_IRQ_SLICE, &config, false);
 
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
@@ -224,17 +239,15 @@ void __in_flash("aud_init") aud_init(void)
     sine_init();
     bel_init();
 
-    /* The IRQ slice has a period of 5149 system clocks, which is 49718 Hz and
-     * 0.005% above AUD_NATIVE_RATE. The L and R pins are on other slices, so
-     * their 250 kHz carrier does not change with the IRQ slice's period. */
     /* Below the VGA interrupts, above USB and everything else at the
      * default. */
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
     pwm_clear_irq(AUD_IRQ_SLICE);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);
-    pwm_set_wrap(AUD_IRQ_SLICE, (SYS_RP2350_KHZ * 1000u) / AUD_NATIVE_RATE - 1);
     pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
+    /* One write starts all three counters from zero on the same clock. */
+    hw_set_bits(&pwm_hw->en, (1u << AUD_L_SLICE) | (1u << AUD_R_SLICE) | (1u << AUD_IRQ_SLICE));
 }
 
 /* A program's end takes its sound with it, so the close that std_stop makes

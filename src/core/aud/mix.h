@@ -104,9 +104,9 @@ uint32_t aud_opl_drops(void);
 #define AUD_SAMPLE_MAX 32767
 #define AUD_SAMPLE_MIN (-32768)
 
-/* Sample depth and centre of the RP2350's PWM. A wrap of 1023 at 256 MHz
- * puts the carrier at 250 kHz, and widening walks that down toward the audio
- * band, so ten bits is this chip's answer and nobody else's. Only
+/* Sample depth and centre of the RP2350's PWM. A carrier of 1030 clocks at
+ * 256 MHz is 248.5 kHz, and widening walks that down toward the audio band,
+ * so ten bits is this chip's answer and nobody else's. Only
  * host/pico/ria/aud/mix.c may use these.
  */
 
