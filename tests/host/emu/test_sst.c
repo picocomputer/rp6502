@@ -7,6 +7,7 @@
 #include "core/sys/sst.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
+#include "core/aud/bel.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
@@ -15,8 +16,13 @@
 #include "host/host.h"
 
 #include "emu_boot.h"
+#include "stdsys.h"
 
 #include <string.h>
+
+#define O_WR 0x02
+#define WHENCE_SET 0
+#define WHENCE_CUR 1
 
 static uint8_t blob[1 << 20];
 
@@ -390,6 +396,169 @@ UTEST(sst, both_engines_come_back)
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+}
+
+/* Frames run and their sound taken and let go. */
+static void aud_pass(int frames)
+{
+    static float out[AUD_FRAME_MAX * 2];
+    for (int i = 0; i < frames; i++)
+        aud_pull(out, 1);
+}
+
+/* Whether the bell is silent once the teletype's restrike has had its
+ * 800 ms. */
+static bool aud_rung_out(void)
+{
+    static float out[AUD_FRAME_MAX * 2];
+    aud_pass(56);
+    return !aud_sounded(out, aud_pull(out, 1) * 2);
+}
+
+/* Whether a bell an earlier case left sounding has rung out, so a case
+ * that strikes its own starts from silence. */
+static bool aud_bell_quiet(void)
+{
+    bool quiet = false;
+    for (int i = 0; i < 8 && !quiet; i++)
+        quiet = aud_rung_out();
+    return quiet;
+}
+
+/* The bell struck twice, as a held BEL strikes it, and saved as the first
+ * strike releases: the load brings back the tone, its envelope and the
+ * restrike waiting in the queue. */
+UTEST(sst, a_bell_mid_tone_comes_back)
+{
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
+    aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(aud_bell_quiet());
+    bel_add(&bel_teletype);
+    bel_add(&bel_teletype);
+    aud_pass(5); /* past the release at 20 ms, short of the restrike at 100 */
+    ASSERT_EQ(take(), (const char *)NULL);
+    const size_t n = aud_pull(went, 3);
+
+    bel_add(&bel_nfc_fail);
+    aud_pull(came, 2);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+    ASSERT_TRUE(aud_rung_out());
+}
+
+/* A PCM: stream from a table at $1000 of XRAM, looped: 16-bit stereo, a
+ * triangle 50 frames long on the left and the same inverted at half the
+ * size on the right. */
+#define AUD_TABLE 0x1000
+#define AUD_TABLE_LEN (40 * 50 * 4)
+static uint16_t aud_table_at;
+
+static void aud_table(void)
+{
+    for (int i = 0; i < AUD_TABLE_LEN / 4; i++)
+    {
+        const int t = i % 50;
+        const int16_t l = (int16_t)((t < 25 ? t : 50 - t) * 1000 - 12500);
+        const int16_t r = (int16_t)(-l / 2);
+        const uint16_t at = (uint16_t)(AUD_TABLE + i * 4);
+        xram[at] = (uint8_t)l;
+        xram[at + 1] = (uint8_t)((uint16_t)l >> 8);
+        xram[at + 2] = (uint8_t)r;
+        xram[at + 3] = (uint8_t)((uint16_t)r >> 8);
+    }
+    aud_table_at = 0;
+}
+
+/* As much of the looped table as the device takes, from where it left
+ * off. */
+static void aud_top_up(int fd)
+{
+    for (;;)
+    {
+        const int n = ssys_write_xram(fd, (uint16_t)(AUD_TABLE + aud_table_at),
+                                      (uint16_t)(AUD_TABLE_LEN - aud_table_at));
+        if (n <= 0)
+            return;
+        aud_table_at = (uint16_t)((aud_table_at + n) % AUD_TABLE_LEN);
+        if (aud_table_at)
+            return;
+    }
+}
+
+/* Frames run and their sound taken, the stream topped up after each. */
+static size_t aud_pull_pcm(int fd, float *dst, int frames)
+{
+    size_t at = 0;
+    for (int i = 0; i < frames; i++)
+    {
+        at += aud_pull(dst + at * 2, 1);
+        aud_top_up(fd);
+    }
+    return at;
+}
+
+/* The PSG's note, the OPL2's note with vibrato and tremolo, the bell and a
+ * PCM: stream, all playing and saved mid-note: the load brings every engine
+ * back, so the mix after it is the mix of the run that never saved. */
+UTEST(sst, every_engine_comes_back_at_once)
+{
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
+    aud_set_enabled(true);
+    /* The stream's calls are made here as a 6502 makes them, so no program
+     * is left running to make its own. */
+    sys_stop_now();
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(aud_bell_quiet());
+
+    aud_note(0x3000);
+    xram[0x3003] = 0x64; /* six steps down, attack rate 4 */
+    ASSERT_TRUE(psg_xreg(0x3000));
+    aud_poke(0x3006, 0x01);
+
+    ASSERT_TRUE(opl_xreg(0x4000));
+    static const uint8_t regs[][2] = {
+        {0x20, 0xE1}, {0x23, 0xE1}, {0x40, 0x1A}, {0x43, 0x08},
+        {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
+        {0xBD, 0xC0}, {0xA0, 0x98}, {0xB0, 0x31},
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+
+    aud_table();
+    const int fd = ssys_open("PCM:22050,16,2", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    aud_top_up(fd);
+
+    bel_add(&bel_teletype);
+    bel_add(&bel_teletype);
+    aud_pull_pcm(fd, went, 3); /* the restrike at 100 ms is still to come */
+    const uint16_t saved_at = aud_table_at;
+    const int32_t level = ssys_lseek(fd, 0, WHENCE_CUR);
+    ASSERT_GT(level, 0);
+    ASSERT_EQ(take(), (const char *)NULL);
+    const size_t n = aud_pull_pcm(fd, went, 4);
+
+    aud_stop();
+    bel_add(&bel_nfc_fail);
+    aud_pull_pcm(fd, came, 1);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    aud_table_at = saved_at;
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), level);
+    ASSERT_EQ(aud_pull_pcm(fd, came, 4), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_SET), 0);
+    ASSERT_EQ(ssys_close(fd), 0);
+    aud_stop();
+    ASSERT_TRUE(aud_rung_out());
 }
 
 /* Whether the machine is on the console canvas, the console is w by h, and
