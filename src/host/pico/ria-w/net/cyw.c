@@ -160,6 +160,9 @@ void cyw_init(void)
     {
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+        /* The 3.3 V regulator in PWM mode, as aud_init sets it on a Pico 2:
+         * its power save mode's bursts ride out on the audio pins. */
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_SMPS_PIN, true);
     }
     // Upload the bluetooth firmware now so it doesn't lazy load.
     cyw43_bluetooth_hci_init();

@@ -284,6 +284,14 @@ void __in_flash("aud_init") aud_init(void)
         pio_gpio_init(AUD_PIO, pins[i]);
     }
 
+#ifdef PICO_SMPS_MODE_PIN
+    /* The 3.3 V regulator's power save mode switches in bursts, and their
+     * ripple rides out on the audio pins; held high, it switches steadily. */
+    gpio_init(PICO_SMPS_MODE_PIN);
+    gpio_set_dir(PICO_SMPS_MODE_PIN, GPIO_OUT);
+    gpio_put(PICO_SMPS_MODE_PIN, 1);
+#endif
+
     sine_init();
     bel_init();
 
