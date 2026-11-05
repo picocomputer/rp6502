@@ -678,19 +678,6 @@ void fs_std_settle(void)
 {
 }
 
-bool fs_std_ident(int desc, sst_cursor_t *c)
-{
-    (void)desc, (void)c;
-    return false;
-}
-
-int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
-{
-    (void)c, (void)mode;
-    *err = API_ENOSYS;
-    return -1;
-}
-
 /* close does not wait for fs_restore, because std_stop calls it in a loop
  * that runs no other task, and a Flush of whatever file a stale slot holds
  * changes no data. */

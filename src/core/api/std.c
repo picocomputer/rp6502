@@ -76,25 +76,6 @@ static void std_rln_callback(bool timeout, const char *buf)
     std_rln_needs_nl = true;
 }
 
-/* Which of xstack and xram a transfer is landing in. A savestate has to
- * record where the buffer started, because it cannot be worked back out: a
- * read into xram advances std_xram_addr as std_task drains it, and a write
- * into xram never records the address at all. */
-#define STD_BUF_NONE 0
-#define STD_BUF_XSTACK 1
-#define STD_BUF_XRAM 2
-
-/* A savestate sent to another machine for netplay (SST_SHARED) does not
- * record files opened by path, because that path may not exist on the other
- * machine, and loading the state closes them. A SAVE: file is recorded by its
- * name, which opens the same save on every machine. */
-static bool std_left_out(const std_fd_t *f, unsigned flags)
-{
-    size_t count;
-    return (flags & SST_SHARED) && f >= &std_fd_pool[STD_FD_FIRST_FREE] &&
-           std_drivers(&count)[f->driver].open == fs_std_open;
-}
-
 /* A close that returns STD_PENDING is called again until it finishes,
  * because no later dispatch repeats it. */
 static void std_close_now(std_fd_t *f)
@@ -119,6 +100,27 @@ static void std_bind(std_fd_t *f, uint8_t row, int desc, uint8_t mode)
     f->lseek = d->lseek;
     f->desc = desc;
     f->driver = row;
+}
+
+#ifdef RP6502_SST
+
+/* Which of xstack and xram a transfer is landing in. A savestate has to
+ * record where the buffer started, because it cannot be worked back out: a
+ * read into xram advances std_xram_addr as std_task drains it, and a write
+ * into xram never records the address at all. */
+#define STD_BUF_NONE 0
+#define STD_BUF_XSTACK 1
+#define STD_BUF_XRAM 2
+
+/* A savestate sent to another machine for netplay (SST_SHARED) does not
+ * record files opened by path, because that path may not exist on the other
+ * machine, and loading the state closes them. A SAVE: file is recorded by its
+ * name, which opens the same save on every machine. */
+static bool std_left_out(const std_fd_t *f, unsigned flags)
+{
+    size_t count;
+    return (flags & SST_SHARED) && f >= &std_fd_pool[STD_FD_FIRST_FREE] &&
+           std_drivers(&count)[f->driver].open == fs_std_open;
 }
 
 void std_sst_save(sst_cursor_t *c, unsigned flags)
@@ -262,6 +264,8 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     std_rln_buf = rln_line();
     return true;
 }
+
+#endif /* RP6502_SST */
 
 rln_read_callback_t std_rln_reader(void)
 {

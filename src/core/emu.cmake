@@ -124,6 +124,7 @@ target_include_directories(emu_core PUBLIC
 )
 target_compile_definitions(emu_core PUBLIC
     ROM_ALIAS_MAX=16 # --install is documented as repeatable to sixteen.
+    RP6502_SST # This library builds core/sys/sst.c.
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN

@@ -102,9 +102,7 @@ int pcm_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
         .write = pcm_std_write,     \
         .sync = pcm_std_sync,       \
         .lseek = pcm_std_lseek,     \
-        .ident = pcm_std_ident,     \
-        .reopen = pcm_std_reopen,   \
-        .resumes_writes = true,     \
+        STD_SST_COLS(pcm_std_ident, pcm_std_reopen, true) \
     }
 
 #endif /* _CORE_AUD_PCM_H_ */
