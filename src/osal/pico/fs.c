@@ -421,7 +421,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errn
         *err = API_ERANGE;
         return -1;
     }
-    if (absolute_offset > f_size(fp) && (fp->flag & FA_WRITE))
+    if ((FSIZE_t)absolute_offset > f_size(fp) && (fp->flag & FA_WRITE))
         return fat_extend(fp, absolute_offset, pos, err);
     FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)
