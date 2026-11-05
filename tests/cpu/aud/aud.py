@@ -9,13 +9,17 @@ import wave
 import rp6502
 import math
 
-from rp6502_asm import (API_A, API_OP, OP_ATTR_SET, OP_OPEN, OP_WRITE_XRAM,
-                        O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, XSTACK,
-                        Asm)
+from rp6502_asm import (API_A, API_ERRNO, API_OP, API_X, OP_ATTR_GET,
+                        OP_ATTR_SET, OP_OPEN, OP_WRITE_XRAM, O_WRONLY, RIA_TX,
+                        RW0_ADDR, RW0_DATA, RW0_STEP, XSTACK, Asm)
 from rp6502_rom import main, rom
 
 PSG = 0x8000
 GO = 0x0200
+ATTR_OPL_DROPS = 0x0F
+# opl_drops_prog's answers: A and X of each call, the errno of the last,
+# then 1 once all are in.
+GOT = 0x0210
 
 
 class Prog(Asm):
@@ -226,6 +230,37 @@ def opl_flat_prog():
     p.bne(loop)
     p.dey()
     p.bne(loop)
+    p.spin()
+    return p
+
+
+def opl_drops_prog():
+    """300 writes to register 40, 4 cycles apart, more than the queue of 256
+    holds. Then the drop count is read twice and written once through the
+    attribute."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    p.store(RW0_STEP, 0x00)
+    p.store(RW0_ADDR, 0x40)
+    p.store(RW0_ADDR + 1, page >> 8)
+    for _ in range(300):
+        p.sta_abs(RW0_DATA)
+    p.store(RW0_STEP, 0x01)
+    p.call_a(OP_ATTR_GET, ATTR_OPL_DROPS)
+    for i, reg in enumerate((API_A, API_X)):
+        p.lda_abs(reg)
+        p.sta_abs(GOT + i)
+    p.call_a(OP_ATTR_GET, ATTR_OPL_DROPS)
+    for i, reg in enumerate((API_A, API_X)):
+        p.lda_abs(reg)
+        p.sta_abs(GOT + 2 + i)
+    p.pushl(0)
+    p.call_a(OP_ATTR_SET, ATTR_OPL_DROPS)
+    for i, reg in enumerate((API_A, API_X, API_ERRNO)):
+        p.lda_abs(reg)
+        p.sta_abs(GOT + 4 + i)
+    p.store(GOT + 7, 1)
     p.spin()
     return p
 
@@ -522,6 +557,7 @@ def test_pcm():
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
         "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
+        "opl_drops": opl_drops_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,

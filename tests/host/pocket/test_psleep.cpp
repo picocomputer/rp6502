@@ -931,6 +931,62 @@ UTEST(psleep, the_raster_registers_come_back)
     teardown();
 }
 
+/* The blob holds the OPL's page but not the engine, so wake_task's
+ * aud_restore maps the OPL again and replays the page. The program plays
+ * channel 0 and never writes an alias of it, so every register of the
+ * engine comes back as it was. */
+UTEST(psleep, the_opl_registers_come_back)
+{
+    std::vector<uint8_t> rom = read_file(OPL_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    long guard = 0;
+    while (!(MEM(opl__DOT__regs)[0xB0] == 0x31 && !MEM(opl__DOT__q_count))
+           && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    /* The views of channel 0's modulator follow a sample later. */
+    for (long i = 0; i < 20000L; i++)
+        step();
+    uint8_t pre[256];
+    for (int i = 0; i < 256; i++)
+        pre[i] = MEM(opl__DOT__regs)[i];
+    ASSERT_EQ(0x31, (int)pre[0xB9]);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    step_to_save_point();
+    ASSERT_EQ(0, (int)MEM(opl__DOT__regs)[0xB0]);
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    /* The replay is queued by now, and drains at the chip's pace. */
+    guard = 0;
+    while (MEM(opl__DOT__q_count) && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    for (long i = 0; i < 20000L; i++)
+        step();
+    for (int i = 0; i < 256; i++)
+    {
+        if (MEM(opl__DOT__regs)[i] != pre[i])
+            fprintf(stderr, "register %02X: %02X after the load, %02X before\n", i,
+                    (int)MEM(opl__DOT__regs)[i], (int)pre[i]);
+        ASSERT_EQ((int)pre[i], (int)MEM(opl__DOT__regs)[i]);
+    }
+    teardown();
+}
+
 UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);

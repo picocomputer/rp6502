@@ -92,8 +92,8 @@ void aud_engine_unlock(void);
 /* OPL2 writes dropped since the last call, saturating at 0x7FFFFFFF: the
  * writes a program made faster than the queue's pace let it hold. A map,
  * an unmap and aud_stop clear it. A software machine decides each write as
- * the 6502 makes it, so nothing the host does adds one. The Pocket has no
- * queue and returns 0. */
+ * the 6502 makes it, so nothing the host does adds one. The Pocket counts
+ * them in the fabric. */
 uint32_t aud_opl_drops(void);
 
 /* Full scale of the shared sample path, sixteen bits, which is what the

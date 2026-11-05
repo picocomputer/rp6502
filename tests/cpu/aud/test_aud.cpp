@@ -156,7 +156,7 @@ UTEST(aud, opl_makes_a_noise)
 }
 
 /* The note after the page clear sounds, and the burst after the note, which
- * a machine with a queue drops, changes nothing here. */
+ * the queue drops, changes nothing. */
 UTEST(aud, opl_init_sounds_after_a_page_clear)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_INIT));
@@ -164,6 +164,46 @@ UTEST(aud, opl_init_sounds_after_a_page_clear)
     ASSERT_NE(at, -1);
     ASSERT_LT(at, 3);
     ASSERT_GT(g_peak, 2048);
+}
+
+/* 300 writes to one register, 4 cycles apart at 8 MHz, against a queue of
+ * 256. They take about 7.5 samples to arrive and the engine applies some
+ * of them meanwhile, so 44 less those are dropped. The attribute returns
+ * the count and clears it, and refuses a write. */
+UTEST(aud, opl_drops_counts_the_writes_the_queue_could_not_take)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL_DROPS));
+    auto *r = dut->rootp;
+    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    const uint16_t got = 0x0210;
+    ram[got + 7] = 0;
+    /* Each clock's push, drop and pop land on the next edge; a pop frees a
+     * place only for the writes after its edge. */
+    long pushed = 0, dropped = 0, taken = 0, frames = 0;
+    while (!ram[got + 7] && frames < 20)
+    {
+        const int line = dut->wiring_scanline;
+        aud_clock();
+        const long seen = pushed + dropped;
+        const int push = r->wiring__DOT__opl__DOT__q_push;
+        const int drop = r->wiring__DOT__opl__DOT__q_drop;
+        if (seen > 0 && seen + push + drop < 300)
+            taken += r->wiring__DOT__opl__DOT__q_take;
+        pushed += push;
+        dropped += drop;
+        if (line == 524 && dut->wiring_scanline == 0)
+            frames++;
+    }
+    fprintf(stderr, "  %ld queued, %ld applied during the burst, %ld dropped\n",
+            pushed, taken, dropped);
+    ASSERT_EQ(ram[got + 7], 1);
+    ASSERT_EQ(pushed + dropped, 300L);
+    ASSERT_GT(dropped, 0L);
+    ASSERT_EQ(dropped, 300 - 256 - taken);
+    ASSERT_EQ(ram[got] | ram[got + 1] << 8, (int)dropped);
+    ASSERT_EQ(ram[got + 2] | ram[got + 3] << 8, 0);
+    ASSERT_EQ(ram[got + 4] | ram[got + 5] << 8, 0xFFFF);
+    ASSERT_NE(ram[got + 6], 0);
 }
 
 UTEST(aud, the_bell_rings_with_no_program)

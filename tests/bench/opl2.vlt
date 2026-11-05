@@ -1,7 +1,0 @@
-// Copyright (c) 2026 Rumbledethumps
-// SPDX-License-Identifier: BSD-3-Clause
-`verilator_config
-lint_off -file "*opl2_fpga*"
-lint_off -rule TIMESCALEMOD
-lint_off -rule GENUNNAMED
-lint_off -rule UNOPTFLAT

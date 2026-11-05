@@ -146,6 +146,8 @@ static inline int32_t set_tz_minutes(void)
  * whose gate bit was set when the blob was made starts again. */
 #define AUD_PSG_REPLAY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
+/* The OPL's writes dropped since the last read, which clears it. */
+#define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)

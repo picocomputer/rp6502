@@ -40,8 +40,7 @@ void aud_stop(void)
     aud_opl_at = 0xFFFF;
 }
 
-/* opl.sv takes every write as it comes, so nothing is dropped. */
-uint32_t aud_opl_drops(void) { return 0; }
+uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
 
 /* The engines never read XRAM and take their registers only from the
  * XRAM writes they snoop, so writing each byte of a block over itself
@@ -50,6 +49,23 @@ static void aud_replay(uint16_t at, uint16_t len)
 {
     for (uint16_t i = 0; i < len; i++)
     {
+        uint8_t v = XRAM_WIN[at + i];
+        XRAM_WIN[at + i] = v;
+    }
+}
+
+/* A9-AB and AE-AF, and the same in rows B and C, are aliases of channels
+ * 0-2, so those channels hold whichever of their addresses was written
+ * last, which the page cannot tell. The replay leaves the aliases out and
+ * takes the channels from A0-C8, which is exact for a program that never
+ * writes an alias. */
+static void aud_opl_replay(uint16_t at)
+{
+    for (uint16_t i = 0; i < 256; i++)
+    {
+        uint8_t lo = i & 0x0F;
+        if (i >= 0xA0 && i < 0xD0 && ((lo >= 9 && lo <= 11) || lo >= 14))
+            continue;
         uint8_t v = XRAM_WIN[at + i];
         XRAM_WIN[at + i] = v;
     }
@@ -78,17 +94,10 @@ void aud_restore(void)
     }
     if (opl != 0xFFFF)
     {
+        /* Writing the pointer resets the chip and empties its queue, and
+         * the replay's writes queue behind it. */
         AUD_OPL_XADDR = opl;
-        /* Writing the pointer also resets the chip, and opl.sv holds
-         * that reset for 255 clocks and drops every register write that
-         * arrives during it. 255 clocks at 50.4 MHz is 5.06 us.
-         * host_clock_us counts whole microseconds, so a deadline N ahead
-         * is only certain to be N - 1 us away, and 7 is the smallest N
-         * for which N - 1 exceeds 5.06. */
-        uint64_t until = host_clock_us() + 7;
-        while (host_clock_us() < until)
-            ;
-        aud_replay(opl, 256);
+        aud_opl_replay(opl);
     }
     aud_psg_at = psg;
     aud_opl_at = opl;

@@ -6,17 +6,14 @@
 # two they name are counted once, and a number here can be lower than
 # the structure count in the report.
 #
-# R101  opl.sv's Equal2~1 is the chip_rst == 0 comparator, which drives
-#       the write-side reset of the vendored OPL's afifo. chip_rst is a
-#       counter on clk_mach, which also clocks that write side.
-#       wiring.sv's resb_eff is the AND of resb and the inverse of the
+# R101  wiring.sv's resb_eff is the AND of resb and the inverse of the
 #       savestate engine's hold_res, and it drives the asynchronous
 #       resets of the 6502 and the 6522, which run on clk_mach. resb is a
 #       flop on clk_mach, and hold_res is a flop on clk_sys. clk_mach is
 #       clk_sys through a clock gate, so each reset changes just after a
 #       rising edge of clk_sys, and its release is timed against the
 #       registers it resets as recovery and removal.
-R101 2
+R101 1
 #
 # D101  Every finding is a crossing between clk_74a and clk_sys, in one
 #       direction or the other:

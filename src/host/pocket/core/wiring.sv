@@ -617,11 +617,13 @@ module wiring
     logic soc_ctl_api;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
+    logic [31:0] aud_rdata, aud_q;
     logic [2:0] soc_rsel;
     initial begin
         soc_rsel = 3'd0;
         soc_ctl_api = 1'b0;
         stage_addr_q = '0;
+        aud_q = '0;
     end
     always_ff @(posedge clk_mach) begin
         if (soc_stb) begin
@@ -630,13 +632,16 @@ module wiring
                 : (soc_sel_stage ? 3'd3
                 : (soc_sel_vid ? 3'd4
                 : (soc_sel_xram ? 3'd5
-                : (soc_sel_host ? 3'd6 : 3'd0)))));
+                : (soc_sel_host ? 3'd6
+                : (soc_sel_aud ? 3'd7 : 3'd0))))));
             soc_ctl_api <= soc_addr[2];
             stage_addr_q <= soc_addr[27:0];
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge
              * and regs_b_rdata then shows the next byte. */
             regs_b_q <= regs_b_rdata;
+            /* The same for the OPL's drop count, which the read clears. */
+            aud_q <= aud_rdata;
         end
     end
 
@@ -659,7 +664,8 @@ module wiring
         endcase
         soc_rdata = soc_rsel == 3'd1 ? regs_b_q
             : (soc_rsel == 3'd4 ? vid_b_rdata
-               : (soc_rsel == 3'd6 ? host_rdata : {4{soc_rbyte}}));
+               : (soc_rsel == 3'd6 ? host_rdata
+                  : (soc_rsel == 3'd7 ? aud_q : {4{soc_rbyte}})));
     end
 
     logic [7:0] ria_data;
@@ -1066,8 +1072,19 @@ module wiring
         .a_rdata(xram_s_rdata)
     );
 
-    logic aud_we;
-    always_comb aud_we = soc_stb && soc_we && soc_sel_aud;
+    logic aud_we, aud_rd;
+    always_comb begin
+        aud_we = soc_stb && soc_we && soc_sel_aud;
+        aud_rd = soc_stb && !soc_we && soc_sel_aud;
+    end
+
+    /* The audio window's readable words, by soc_addr[5:2]. */
+    logic [30:0] opl_drops;
+    always_comb
+        case (soc_addr[5:2])
+            4'h3: aud_rdata = {1'b0, opl_drops};
+            default: aud_rdata = '0;
+        endcase
 
     logic psg_tick;
 
@@ -1107,9 +1124,11 @@ module wiring
         .q_we(qs_we),
         .q_addr(qs_addr),
         .q_val(qs_val),
+        .drops_take(aud_rd && soc_addr[5:2] == 4'h3),
         .opl_out(opl_l),
         .opl_valid(opl_valid),
-        .opl_enabled()
+        .opl_enabled(),
+        .opl_drops(opl_drops)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
