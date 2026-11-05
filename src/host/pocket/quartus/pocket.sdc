@@ -109,6 +109,13 @@ set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
 set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
     -to [get_registers {*pocket_sst*|hold[*]}] 0
 
+# sst_engine writes flopreg and ria_xr in a load's first pass and holds
+# them until the next load. Every register that takes one, on the jams,
+# on os_jam or through SST_SAVED_US, takes it in a later state of the
+# load, so none takes a word on the edge that writes it.
+set_false_path -hold -from [get_registers {*sst_engine:*|flopreg[*]}]
+set_false_path -hold -from [get_registers {*sst_engine:*|ria_xr[*]}]
+
 # mach_clk_en is a clk_74a register. The clock gate takes it into an
 # enable register inside the clkctrl cell on the falling edge of clk_sys,
 # and every other reader passes it through an _s1 synchronizer first.
