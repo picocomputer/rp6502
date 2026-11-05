@@ -84,7 +84,7 @@ endfunction()
 
 rp6502_test_roms(aud_roms cpu/aud/aud.py
     psg psg_pre opl opl_exit opl_init opl_spread opl_flat opl_drops bel bel_off
-    opl_bel pcm pcm_rules pcm_order)
+    opl_bel pcm pcm_rules pcm_order aud_sst aud_snoop)
 rp6502_test_roms(dir_roms cpu/fs/dir.py dir)
 rp6502_test_roms(drive_roms cpu/fs/drive.py drive)
 rp6502_test_roms(execrel_roms cpu/fs/execrel.py execrel)
@@ -108,6 +108,7 @@ rp6502_test_roms(zeroread_roms cpu/ria/zeroread.py zeroread)
 rp6502_test_roms(vsync_roms cpu/vga/vsync.py vsync)
 rp6502_test_roms(bigfile_roms host/pocket/bigfile.py bigfile)
 rp6502_test_roms(probe_roms host/pocket/probe.py probe)
+rp6502_test_roms(wakeclk_roms host/pocket/wakeclk.py wakeclk)
 rp6502_test_roms(sleepasset_roms host/pocket/sleepasset.py
     sleepasset-a sleepasset-b)
 rp6502_test_roms(sleepfile_roms host/pocket/sleepfile.py sleepfile)

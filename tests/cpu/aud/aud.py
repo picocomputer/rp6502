@@ -13,7 +13,9 @@ from rp6502_asm import (API_A, API_ERRNO, API_OP, API_X, OP_ATTR_GET,
                         OP_ATTR_SET, OP_CLOSE, OP_ERRNO_OPT, OP_EXIT, OP_LSEEK,
                         OP_OPEN, OP_SYNCFS, OP_WRITE_XRAM, OP_WRITE_XSTACK,
                         O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP,
-                        SEEK_CUR, SEEK_END, SEEK_SET, XSTACK, Asm)
+                        RW1_ADDR, RW1_DATA, RW1_STEP, SEEK_CUR, SEEK_END, SEEK_SET, VIA_ACR, VIA_IFR,
+                        VIA_T1_HI, VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, XSTACK,
+                        Asm)
 from rp6502_rom import main, rom
 
 PSG = 0x8000
@@ -394,6 +396,160 @@ def pcm_prog():
     return p
 
 
+# aud_sst_prog's PCM table in XRAM, 768 stereo frames of two tones.
+SST_PCM_TABLE = 0x2000
+SST_PCM_LEN = 3072
+# The loop's VIA T1 period, 256 us at the default 8 MHz.
+SST_T1 = 0x0800
+SST_OPL = 0xF000
+
+
+def aud_sst_prog():
+    """Every engine at once, for a savestate taken mid-note: a PSG tone and
+    a noise voice, the OPL in rhythm mode with feedback, vibrato and
+    tremolo, and the bell, rung well before PCM 22050 Hz 16-bit stereo is
+    opened and filled three quarters full. Then W on the console, and a
+    loop that makes no API call: each VIA T1 period it writes one entry of
+    a table through RW0, PSG gates and frequencies and OPL keys and drums,
+    and every sixteenth period a burst of 24 into the OPL's queue."""
+    p = Prog()
+    frames = []
+    for i in range(SST_PCM_LEN // 4):
+        left = int(round(12000 * math.sin(2 * math.pi * i / 21)))
+        right = int(round(9000 * math.sin(2 * math.pi * i / 34)))
+        frames.append(left.to_bytes(2, "little", signed=True)
+                      + right.to_bytes(2, "little", signed=True))
+    p.rom.add_binary_data(b"".join(frames), 0x10000 + SST_PCM_TABLE)
+    entries = []
+    for i in range(32):
+        entries += [
+            (PSG + 0, 0x28 + 8 * (i % 5)),
+            (PSG + 6, 0x01 if i % 3 else 0x00),
+            (SST_OPL + 0xB0, 0x31 if i % 2 else 0x11),
+            (SST_OPL + 0xBD, 0xE0 | (i & 0x1F)),
+            (PSG + 8, 0x40 + 16 * (i % 7)),
+            (SST_OPL + 0xA0, 0x80 + 4 * (i % 9)),
+        ]
+    entries = entries[:255]
+    fd, count = 0x10, 0x11
+    p.jmp_abs("main")
+    p.symbol("tab_lo")
+    p.data(bytes(a & 0xFF for a, _ in entries))
+    p.symbol("tab_hi")
+    p.data(bytes(a >> 8 for a, _ in entries))
+    p.symbol("tab_val")
+    p.data(bytes(v for _, v in entries))
+    p.symbol("main")
+
+    p.xreg(0, 1, 0, PSG)
+    p.settle()
+    for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
+                    (5, 0x10), (6, 0x01),
+                    (8, 0x00), (9, 0x30), (10, 0xC0), (11, 0x20),
+                    (12, 0x20), (13, 0x43), (14, 0x41)):
+        p.poke(PSG + at, val)
+    p.xreg(0, 1, 1, SST_OPL)
+    for reg, val in (
+        (0x01, 0x20), (0x20, 0xE1), (0x23, 0xC1), (0x40, 0x10), (0x43, 0x00),
+        (0x60, 0xF4), (0x63, 0xF4), (0x80, 0x57), (0x83, 0x57), (0xE0, 0x00),
+        (0xE3, 0x02), (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
+        (0x30, 0x01), (0x31, 0x02), (0x32, 0x01), (0x33, 0x01), (0x34, 0x01),
+        (0x35, 0x01), (0x70, 0xF6), (0x71, 0xF6), (0x72, 0xF6), (0x73, 0xF6),
+        (0x74, 0xF6), (0x75, 0xF6), (0x90, 0x46), (0x91, 0x46), (0x92, 0x46),
+        (0x93, 0x46), (0x94, 0x46), (0x95, 0x46), (0xA6, 0x50), (0xB6, 0x09),
+        (0xA7, 0x60), (0xB7, 0x09), (0xA8, 0x70), (0xB8, 0x09), (0xC6, 0x0B),
+        (0xBD, 0xFF),
+    ):
+        p.poke(SST_OPL + reg, val)
+
+    # The bell's 20 ms release is past before the delay ends.
+    p.lda_imm(0x07)
+    p.putc_a()
+    p.delay(255)
+
+    p.push_str("PCM:22050,16,2")
+    p.call_a(OP_OPEN, O_WRONLY)
+    p.sta_zp(fd)
+    p.pushw(SST_PCM_TABLE)
+    p.pushw(SST_PCM_LEN)
+    p.lda_zp(fd)
+    p.sta_abs(API_A)
+    p.call(OP_WRITE_XRAM)
+
+    p.lda_imm(ord("W"))
+    p.putc_a()
+
+    p.store(RW0_STEP, 0x00)
+    p.store(VIA_T1L_LO, SST_T1 & 0xFF)
+    p.store(VIA_T1L_HI, SST_T1 >> 8)
+    p.store(VIA_T1_LO, SST_T1 & 0xFF)
+    p.store(VIA_T1_HI, SST_T1 >> 8)
+    p.store(VIA_ACR, 0x40)
+    p.store(count, 0)
+    p.ldx_imm(0)
+    p.symbol("period")
+    p.lda_abs(VIA_IFR)
+    p.and_imm(0x40)
+    p.beq("period")
+    p.lda_abs(VIA_T1_LO)
+    p.lda_abx("tab_lo")
+    p.sta_abs(RW0_ADDR)
+    p.lda_abx("tab_hi")
+    p.sta_abs(RW0_ADDR + 1)
+    p.lda_abx("tab_val")
+    p.sta_abs(RW0_DATA)
+    p.inx()
+    p.cpx_imm(len(entries))
+    with p.branch("bne"):
+        p.ldx_imm(0)
+    p.inc_zp(count)
+    p.lda_zp(count)
+    p.and_imm(0x0F)
+    p.bne("period")
+    p.store(RW0_ADDR, 0xA1)
+    p.store(RW0_ADDR + 1, SST_OPL >> 8)
+    for k in range(24):
+        p.store(RW0_DATA, 0x60 + k)
+    p.jmp_abs("period")
+    return p
+
+
+def aud_snoop_prog():
+    """The PSG and the OPL playing, then W on the console and RW0 and RW1
+    writing them back to back, so a stop often finds a 6502 write in
+    flight: RW0 into voice 0's frequency once in eight, RW1 into the OPL's
+    queue, which overflows, the rest."""
+    p = Prog()
+    p.xreg(0, 1, 0, PSG)
+    p.settle()
+    for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
+                    (5, 0x30), (6, 0x01)):
+        p.poke(PSG + at, val)
+    p.xreg(0, 1, 1, SST_OPL)
+    for reg, val in (
+        (0x20, 0x21), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00), (0x60, 0xF4),
+        (0x63, 0xF4), (0x80, 0x57), (0x83, 0x57), (0xC0, 0x0A), (0xA0, 0x98),
+        (0xB0, 0x31),
+    ):
+        p.poke(SST_OPL + reg, val)
+    p.store(RW0_STEP, 0x00)
+    p.store(RW0_ADDR, PSG & 0xFF)
+    p.store(RW0_ADDR + 1, PSG >> 8)
+    p.store(RW1_STEP, 0x00)
+    p.store(RW1_ADDR, 0xA0)
+    p.store(RW1_ADDR + 1, SST_OPL >> 8)
+    p.lda_imm(ord("W"))
+    p.putc_a()
+    p.ldx_imm(0)
+    p.symbol("flood")
+    p.stx_abs(RW0_DATA)
+    for _ in range(7):
+        p.stx_abs(RW1_DATA)
+    p.inx()
+    p.jmp_abs("flood")
+    return p
+
+
 # pcm_rules_prog's answers, a word each from RULES, then 1 at RULES_DONE.
 RULES = 0x0220
 (R_OPEN_48001, R_ERRNO_48001, R_OPEN_48000, R_OPEN_BUSY, R_ERRNO_BUSY,
@@ -764,7 +920,8 @@ ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_drops": opl_drops_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
-        "pcm_order": pcm_order_prog}
+        "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,
+        "aud_snoop": aud_snoop_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
          "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,

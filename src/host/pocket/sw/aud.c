@@ -9,21 +9,11 @@
 #include "mmio.h"
 
 #include "core/aud/mix.h"
-#include "host/host.h"
-
 
 #include <string.h>
 
-/* The pointer registers cannot be read back and the savestate does not
- * include them, so each pointer is also kept here in the TCM, which the
- * savestate does include. */
-static uint16_t aud_psg_at = 0xFFFF;
-static uint16_t aud_opl_at = 0xFFFF;
-
-/* The open PCM: device's AUD_PCM_CTRL and AUD_PCM_STEP, kept for the same
- * reason. The control word is 0 while it is closed. */
+/* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
-static uint32_t aud_pcm_step;
 
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
  * keep sounding through a machine reset until their registers are written.
@@ -44,8 +34,6 @@ void aud_stop(void)
 {
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
-    aud_psg_at = 0xFFFF;
-    aud_opl_at = 0xFFFF;
     AUD_PCM_CLEAR = 0;
 }
 
@@ -53,9 +41,8 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
 {
     if (aud_pcm_ctrl)
         return false;
-    aud_pcm_step = (uint32_t)(pcm_step(fmt->rate) - 1);
     aud_pcm_ctrl = 1u | (fmt->bits == 16 ? 2u : 0u) | (fmt->channels == 2 ? 4u : 0u);
-    AUD_PCM_STEP = aud_pcm_step;
+    AUD_PCM_STEP = (uint32_t)(pcm_step(fmt->rate) - 1);
     AUD_PCM_CTRL = aud_pcm_ctrl;
     return true;
 }
@@ -102,79 +89,17 @@ static void aud_replay(uint16_t at, uint16_t len)
     }
 }
 
-/* A9-AB and AE-AF, and the same in rows B and C, are aliases of channels
- * 0-2, so those channels hold whichever of their addresses was written
- * last, which the page cannot tell. The replay leaves the aliases out and
- * takes the channels from A0-C8, which is exact for a program that never
- * writes an alias. */
-static void aud_opl_replay(uint16_t at)
-{
-    for (uint16_t i = 0; i < 256; i++)
-    {
-        uint8_t lo = i & 0x0F;
-        if (i >= 0xA0 && i < 0xD0 && ((lo >= 9 && lo <= 11) || lo >= 14))
-            continue;
-        uint8_t v = XRAM_WIN[at + i];
-        XRAM_WIN[at + i] = v;
-    }
-}
-
-void aud_restore(void)
-{
-    uint16_t psg = aud_psg_at, opl = aud_opl_at;
-    AUD_PSG_XADDR = 0xFFFF;
-    AUD_OPL_XADDR = 0xFFFF;
-    if (psg != 0xFFFF)
-    {
-        AUD_PSG_XADDR = psg;
-        /* Writing the pointer releases the PSG's first eight voices the
-         * next time the engine is in its idle state, which is within one
-         * 48 kHz sample period of 20.8 us. The replay has to come after
-         * that, or the notes it starts are released. host_clock_us counts
-         * whole microseconds, so a deadline 25 us ahead is at least 24 us
-         * away. */
-        uint64_t until = host_clock_us() + 25;
-        while (host_clock_us() < until)
-            ;
-        AUD_PSG_REPLAY = 1;
-        aud_replay(psg, 64);
-        AUD_PSG_REPLAY = 0;
-    }
-    if (opl != 0xFFFF)
-    {
-        /* Writing the pointer resets the chip and empties its queue, and
-         * the replay's writes queue behind it. */
-        AUD_OPL_XADDR = opl;
-        aud_opl_replay(opl);
-    }
-    aud_psg_at = psg;
-    aud_opl_at = opl;
-    /* The blob holds neither the PCM buffer nor its player, so an open
-     * device opens again, empty. */
-    AUD_PCM_CTRL = 0;
-    if (aud_pcm_ctrl)
-    {
-        AUD_PCM_STEP = aud_pcm_step;
-        AUD_PCM_CTRL = aud_pcm_ctrl;
-    }
-    bel_init();
-}
-
 bool psg_xreg(uint16_t word)
 {
     if (word & 0x0001 || word > 0x10000 - 64 ||
         ((word >> 8) != ((word + 63) >> 8)))
     {
         AUD_PSG_XADDR = 0xFFFF;
-        aud_psg_at = 0xFFFF;
         return word == 0xFFFF;
     }
     AUD_PSG_XADDR = word;
-    aud_psg_at = word;
-    /* While AUD_PSG_REPLAY is clear, the PSG starts or releases a voice
-     * from its gate bit only on a 6502 write. AUD_PSG_REPLAY is set only
-     * inside aud_restore, so this replay from the soft CPU starts no note
-     * even where a gate bit in the block is set. */
+    /* The PSG starts or releases a voice from its gate bit only on a 6502
+     * write, so this import from the soft CPU starts no note. */
     aud_replay(word, 64);
     return true;
 }
@@ -184,11 +109,9 @@ bool opl_xreg(uint16_t word)
     if (word & 0x00FF)
     {
         AUD_OPL_XADDR = 0xFFFF;
-        aud_opl_at = 0xFFFF;
         return word == 0xFFFF;
     }
     memset((void *)&XRAM_WIN[word], 0, 256);
     AUD_OPL_XADDR = word;
-    aud_opl_at = word;
     return true;
 }

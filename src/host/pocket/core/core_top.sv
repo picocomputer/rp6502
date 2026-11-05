@@ -260,12 +260,13 @@ end
     // is the whole blob window rather than the blob's size, because the
     // host writes back the file it saved, which has the Pocket OS's header
     // in front of the blob and a thumbnail behind it, and sst_engine scans
-    // that file for the blob's magic. One saved file measured 378304
-    // bytes. stage_map_gate.py checks the size against sst_engine and
-    // pocket_sst, and the address and the load size against mmio.h.
+    // that file for the blob's magic. One saved file had a 596-byte
+    // header and a 52764-byte thumbnail. stage_map_gate.py checks the size
+    // against sst_engine and pocket_sst, and the address and the load size
+    // against mmio.h.
     wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03F0_0000;
-    wire    [31:0]  savestate_size = 32'd324944;
+    wire    [31:0]  savestate_size = 32'd333136;
     wire    [31:0]  savestate_maxloadsize = 32'd655360;
 
     wire            savestate_start;

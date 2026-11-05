@@ -24,6 +24,7 @@ rp6502_add_module_test(rsmp_rtl
     SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/aud/rsmp.c
     INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
     DEPENDS rsmp_coef rsmp_coef_pkg
+    ARGS -GSST_CLK=0
     TIMEOUT 300)
 
 rp6502_add_module_test(pcm_rtl
@@ -33,6 +34,7 @@ rp6502_add_module_test(pcm_rtl
     INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RSMP_COEF_DIR}
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000
     DEPENDS rsmp_coef rsmp_coef_pkg
+    ARGS -GSST_CLK=0
     TIMEOUT 600)
 
 # YM3812-LLE, nukeykt's die model, is the oracle opl.sv is held to, as opl.c
@@ -49,9 +51,33 @@ if(RP6502_HAVE_LLE)
             ${_emu}/opl_script.c ${_emu}/opl_lle.c ${_lle}/fmopl2.c
         INCLUDES ${OPL_ROM_DIR} ${_emu} ${_lle}
         DEPENDS opl_rom opl_rom_pkg
+        ARGS -GSST_CLK=0
         TIMEOUT 600)
     set_source_files_properties(${_lle}/fmopl2.c PROPERTIES
         COMPILE_OPTIONS "-O2;-w")
 else()
     message(WARNING "YM3812-LLE absent -- the OPL2 RTL test skipped.")
 endif()
+
+# The savestate port of each engine: two sessions, one restored from the
+# other's image, held to each other sample for sample.
+rp6502_add_module_test(opl_sst SPLIT
+    TOP opl
+    PREFIX Vopl_sst
+    RTL ${OPL_ROM_PKG} ${RP6502_SRC}/core/aud/opl.sv
+    DEPENDS opl_rom_pkg
+    TIMEOUT 600)
+
+rp6502_add_module_test(psg_sst SPLIT
+    TOP psg
+    PREFIX Vpsg_sst
+    RTL ${AUD_SINE_PKG} ${RP6502_SRC}/core/aud/psg.sv
+    DEPENDS aud_sine_rom
+    TIMEOUT 600)
+
+rp6502_add_module_test(aud_sst SPLIT
+    TOP tb_aud
+    PREFIX Vtb_aud_sst
+    RTL ${AUD_BENCH_RTL}
+    DEPENDS rsmp_coef_pkg
+    TIMEOUT 600)

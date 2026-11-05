@@ -16,12 +16,18 @@
  * Everything that reads the FIFO and the phase happens on the tick's
  * edge, so a write, clear, open or close lands before a sample or after
  * it. One on the tick's own clock is after it.
+ *
+ * A savestate reads and writes the FIFO through the sst port at savestate
+ * offset 0, a row of four bytes a word, the history at 0x600 and the
+ * flops at 0x790. Its word comes in on wdata. Between samples every other
+ * flop and every registered read is dead, so only that state is kept.
  */
 
 module pcm
     import rsmp_coef_pkg::*;
 (
     input logic clk,
+    input logic clk_sys,
     input logic tick,
 
     /* Bit 0 open, bit 1 16-bit, bit 2 stereo. Opening empties the FIFO
@@ -35,6 +41,7 @@ module pcm
     input logic byte_we,
     /* Empties the FIFO; the history plays out. */
     input logic clear_we,
+    /* The register's word, and the savestate's on sst_we or sst_st_we. */
     input logic [31:0] wdata,
 
     /* rsmp_rom's port, read a clock after the address. */
@@ -46,8 +53,25 @@ module pcm
     output logic [12:0] pcm_level,
     /* Held from the end of a sample's filter to the next tick's. */
     output logic signed [RSMP_OUT_W-1:0] pcm_l,
-    output logic signed [RSMP_OUT_W-1:0] pcm_r
+    output logic signed [RSMP_OUT_W-1:0] pcm_r,
+
+    /* sst_own gives the FIFO's and the history's ports to sst_addr,
+     * written on sst_we. sst_st_we writes the flop word at sst_addr on
+     * clk. */
+    input logic sst_own,
+    input logic [10:0] sst_addr,
+    input logic sst_we,
+    input logic sst_st_we,
+    output logic [31:0] pcm_sst_rdata,
+    output logic pcm_quiet
 );
+
+    logic sel_f, sel_h, sel_st;
+    always_comb begin
+        sel_f = !sst_addr[10];
+        sel_h = sst_addr[10:6] == 5'h18;
+        sel_st = sst_addr[10:3] == 8'hF2;
+    end
 
     localparam logic [32:0] ONE = 33'h1_0000_0000;
     localparam int DH_W = RSMP_DIFF_W - 16;
@@ -59,7 +83,7 @@ module pcm
     typedef enum logic [2:0] {
         S_IDLE, S_PUSH, S_MAC, S_DRAIN, S_SCALE, S_SUM
     } state_t;
-    state_t state;
+    state_t state /*verilator public_flat_rd*/;
 
     logic [32:0] phase, ph;
     always_comb ph = rst_pend ? ONE : phase;
@@ -67,7 +91,8 @@ module pcm
     always_comb go = tick && open && state == S_IDLE;
 
     /* FIFO byte i is bank i & 3, row i >> 2, so any four bytes in a row
-     * are one per bank. */
+     * are one per bank. The savestate's row takes byte b of its word into
+     * bank b through the same lanes. */
     logic [12:0] head, tail;
     always_comb pcm_level = head - tail;
     logic [2:0] frame;
@@ -81,22 +106,26 @@ module pcm
     logic [1:0] w_k[4];
     always_comb
         for (int b = 0; b < 4; b++) begin
-            w_k[b] = 2'(b) - head[1:0];
-            w_en[b] = data_we || (byte_we && w_k[b] == 2'd0);
-            w_row[b] = head[11:2] + 10'(2'(b) < head[1:0]);
+            w_k[b] = sst_own ? 2'(b) : 2'(b) - head[1:0];
+            w_en[b] = sst_own ? sst_we && sel_f
+                : data_we || (byte_we && w_k[b] == 2'd0);
+            w_row[b] = sst_own ? sst_addr[9:0]
+                : head[11:2] + 10'(2'(b) < head[1:0]);
             w_byte[b] = wdata[{w_k[b], 3'd0}+:8];
             r_row[b] = tail[11:2] + 10'(2'(b) < tail[1:0]);
         end
 
-    logic [7:0] fq[4];
+    logic [7:0] fq[4], fa_q[4];
     genvar gb;
     generate
         for (gb = 0; gb < 4; gb++) begin : gen_bank
             pcm_bank bank (
+                .clk_a(clk_sys),
                 .clk(clk),
                 .we(w_en[gb]),
                 .waddr(w_row[gb]),
                 .wdata(w_byte[gb]),
+                .pcm_bank_a_q(fa_q[gb]),
                 .re(tick),
                 .raddr(r_row[gb]),
                 .pcm_bank_q(fq[gb])
@@ -132,14 +161,17 @@ module pcm
 
     (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] hist[64];
-    always_ff @(posedge clk)
-        if (state == S_PUSH)
-            hist[{ch, at}] <= dec;
-    logic [5:0] h_ra;
+    logic [5:0] hw_a;
+    always_comb hw_a = sst_own ? sst_addr[5:0] : {ch, at};
+    always_ff @(posedge clk_sys)
+        if (sst_own ? sst_we && sel_h : state == S_PUSH)
+            hist[hw_a] <= sst_own ? wdata[15:0] : dec;
+    logic [5:0] h_ra, hr_a;
     logic signed [15:0] h_rd, hist_q;
     always_comb begin
         h_ra = {ch, at + 5'(32 - RSMP_TAPS) + tap};
-        h_rd = hist[h_ra];
+        hr_a = sst_own ? sst_addr[5:0] : h_ra;
+        h_rd = hist[hr_a];
     end
 
     always_comb begin
@@ -222,6 +254,12 @@ module pcm
             head <= '0;
             tail <= '0;
         end
+        if (sst_st_we && sel_st)
+            case (sst_addr[2:0])
+                3'd0: step_m1 <= wdata;
+                3'd2: {rst_pend, head, tail, st, b16, open} <= wdata[29:0];
+                default: ;
+            endcase
     end
 
     always_ff @(posedge clk) begin
@@ -299,6 +337,32 @@ module pcm
 
             default: state <= S_IDLE;
         endcase
+
+        if (sst_st_we && sel_st)
+            case (sst_addr[2:0])
+                3'd1: phase[31:0] <= wdata;
+                3'd2: phase[32] <= wdata[30];
+                3'd3: {at, cold, pcm_l} <= wdata[27:0];
+                3'd4: pcm_r <= wdata[RSMP_OUT_W-1:0];
+                default: ;
+            endcase
+    end
+
+    logic [31:0] st_rd;
+    always_comb begin
+        case (sst_addr[2:0])
+            3'd0: st_rd = step_m1;
+            3'd1: st_rd = phase[31:0];
+            3'd2: st_rd = {1'b0, phase[32], rst_pend, head, tail, st, b16,
+                           open};
+            3'd3: st_rd = {4'd0, at, cold, pcm_l};
+            3'd4: st_rd = {14'd0, pcm_r};
+            default: st_rd = '0;
+        endcase
+        pcm_quiet = state == S_IDLE;
+        pcm_sst_rdata = sel_f ? {fa_q[3], fa_q[2], fa_q[1], fa_q[0]}
+            : sel_h ? {16'd0, h_rd}
+            : sel_st ? st_rd : '0;
     end
 
 endmodule

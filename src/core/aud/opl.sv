@@ -11,15 +11,26 @@
  * Writes on the page wait in a queue of 256 and apply in order, at most one
  * before a sample, at the chip's pace (opl.md 7.8). A pointer write empties
  * the queue at once, and the next pop resets the engine instead.
+ *
+ * A savestate reads and writes the whole chip through the sst port at
+ * savestate offsets: the queue at 0x400, the register file at 0x500, the
+ * slots at 0x680, the channels at 0x6C0 and the flops at 0x780. The
+ * arrays' write ports run on clk_sys, the flops on clk. Between frames
+ * every other flop and every registered read is dead, so only that state
+ * is kept.
  */
 
 module opl
     import opl_rom_pkg::*;
 #(
     /* 50.4 MHz / 1014 is 49,704 samples a second. */
-    parameter int TICKS_PER_SAMPLE = 1014
+    parameter int TICKS_PER_SAMPLE = 1014,
+    /* Clear for a bench with no clk_sys: the arrays' ports then run on
+     * clk. */
+    parameter bit SST_CLK = 1'b1
 ) (
     input logic clk,
+    input logic clk_sys,
 
     /* Page-aligned or 0xFFFF. */
     input logic xaddr_we,
@@ -37,8 +48,39 @@ module opl
     output logic opl_valid,
     output logic opl_enabled,
     /* Writes that found the queue full, saturating at 0x7FFFFFFF. */
-    output logic [30:0] opl_drops
+    output logic [30:0] opl_drops,
+
+    /* sst_own gives the arrays' ports to sst_addr, written on sst_we.
+     * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
+     * the sample counter, so no frame starts. */
+    input logic sst_own,
+    input logic [10:0] sst_addr,
+    input logic sst_we,
+    input logic sst_st_we,
+    input logic [31:0] sst_wdata,
+    input logic sst_park,
+    output logic [31:0] opl_sst_rdata,
+    /* Idle, with no frame due for QUIET_LEAD clocks. */
+    output logic opl_quiet
 );
+
+    logic clk_a;
+    assign clk_a = SST_CLK ? clk_sys : clk;
+
+    logic sel_q, sel_r, sel_s, sel_c, sel_st;
+    logic [2:0] st_k;
+    always_comb begin
+        sel_q = sst_addr[10:8] == 3'h4;
+        sel_r = sst_addr[10:8] == 3'h5;
+        sel_s = sst_addr[10:5] == 6'h34;
+        sel_c = sst_addr[10:4] == 7'h6C;
+        sel_st = sst_addr[10:3] == 8'hF0;
+        st_k = sst_addr[2:0];
+    end
+
+    /* A stop lands within a few clocks of opl_quiet, and no frame may
+     * start before it does. */
+    localparam int QUIET_LEAD = 24;
 
     localparam logic [1:0] EG_ATT = 2'd0;
     localparam logic [1:0] EG_DEC = 2'd1;
@@ -58,6 +100,8 @@ module opl
     };
 
     localparam int TICK_W = $clog2(TICKS_PER_SAMPLE);
+    initial if (TICK_W > 10)
+        $fatal(1, "opl: the sample counter outgrew its flop word");
 
     /* ---------------- pointer and queue ---------------- */
 
@@ -91,12 +135,16 @@ module opl
         q_push = snoop && !q_count[8];
         q_drop = snoop && q_count[8];
     end
-    logic [15:0] q_rd;
-    always_ff @(posedge clk) begin
-        if (q_push)
-            queue[q_tail] <= {q_val, q_addr[7:0]};
-        q_rd <= queue[q_head];
+    logic [7:0] qa_a;
+    logic [15:0] q_rd, qa_q;
+    always_comb qa_a = sst_own ? sst_addr[7:0] : q_tail;
+    always_ff @(posedge clk_a) begin
+        if (sst_own ? sst_we && sel_q : q_push)
+            queue[qa_a] <= sst_own ? sst_wdata[15:0] : {q_val, q_addr[7:0]};
+        qa_q <= queue[qa_a];
     end
+    always_ff @(posedge clk)
+        q_rd <= queue[q_head];
 
     initial begin
         page = 8'd0;
@@ -127,6 +175,13 @@ module opl
             else if (q_drop && opl_drops != 31'h7FFFFFFF)
                 opl_drops <= opl_drops + 31'd1;
         end
+        if (sst_st_we && sel_st)
+            case (st_k)
+                3'd0: {enabled, q_tail, q_head, page} <= sst_wdata[24:0];
+                3'd1: opl_drops <= sst_wdata[30:0];
+                3'd2: q_count <= sst_wdata[8:0];
+                default: ;
+            endcase
     end
 
     /* ---------------- memories ---------------- */
@@ -138,35 +193,46 @@ module opl
      * which is copied at once. */
     (* ramstyle = "M10K, no_rw_check" *)
     logic [7:0] regs[256] /*verilator public_flat_rd*/;
-    logic [7:0] rr_a, rw_a, rw_d, regs_q;
+    logic [7:0] rr_a, rw_a, rw_d, regs_q, ra_a, ra_q;
     logic rw_we;
-    always_ff @(posedge clk) begin
-        if (rw_we)
-            regs[rw_a] <= rw_d;
-        regs_q <= regs[rr_a];
+    always_comb ra_a = sst_own ? sst_addr[7:0] : rw_a;
+    always_ff @(posedge clk_a) begin
+        if (sst_own ? sst_we && sel_r : rw_we)
+            regs[ra_a] <= sst_own ? sst_wdata[7:0] : rw_d;
+        ra_q <= regs[ra_a];
     end
+    always_ff @(posedge clk)
+        regs_q <= regs[rr_a];
 
     /* {state, level, phase accumulator} by operator offset. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [29:0] slot_mem[32];
-    logic [4:0] sl_ra, sl_wa;
+    logic [4:0] sl_ra, sl_wa, sl_a, sl_w;
     logic [29:0] sl_q, sl_wd;
     logic sl_we;
-    always_comb sl_q = slot_mem[sl_ra];
-    always_ff @(posedge clk)
-        if (sl_we)
-            slot_mem[sl_wa] <= sl_wd;
+    always_comb begin
+        sl_a = sst_own ? sst_addr[4:0] : sl_ra;
+        sl_w = sst_own ? sst_addr[4:0] : sl_wa;
+        sl_q = slot_mem[sl_a];
+    end
+    always_ff @(posedge clk_a)
+        if (sst_own ? sst_we && sel_s : sl_we)
+            slot_mem[sl_w] <= sst_own ? sst_wdata[29:0] : sl_wd;
 
     /* A modulator's last two outputs, {h2, h1}, by {slot / 6, slot % 3}. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [25:0] chan_mem[16];
-    logic [3:0] ch_ra, ch_wa;
+    logic [3:0] ch_ra, ch_wa, cm_a, cm_w;
     logic [25:0] ch_q, ch_wd;
     logic ch_we;
-    always_comb ch_q = chan_mem[ch_ra];
-    always_ff @(posedge clk)
-        if (ch_we)
-            chan_mem[ch_wa] <= ch_wd;
+    always_comb begin
+        cm_a = sst_own ? sst_addr[3:0] : ch_ra;
+        cm_w = sst_own ? sst_addr[3:0] : ch_wa;
+        ch_q = chan_mem[cm_a];
+    end
+    always_ff @(posedge clk_a)
+        if (sst_own ? sst_we && sel_c : ch_we)
+            chan_mem[cm_w] <= sst_own ? sst_wdata[25:0] : ch_wd;
 
     /* log-sin at 0, (exp | 1024) << 1 at 256 (opl.md 4.1). */
     (* ramstyle = "M10K, no_rw_check" *)
@@ -239,7 +305,7 @@ module opl
 
     logic [TICK_W-1:0] tickctr /*verilator public_flat_rd*/;
     logic tick;
-    always_comb tick = tickctr == TICK_W'(TICKS_PER_SAMPLE - 1);
+    always_comb tick = tickctr == TICK_W'(TICKS_PER_SAMPLE - 1) && !sst_park;
 
     /* The walk's slot: s = 6 * grp + m6. */
     logic [1:0] grp;
@@ -724,7 +790,8 @@ module opl
     end
     always_ff @(posedge clk) begin
         opl_valid <= 1'b0;
-        tickctr <= tick ? '0 : tickctr + TICK_W'(1);
+        if (!sst_park)
+            tickctr <= tick ? '0 : tickctr + TICK_W'(1);
 
         /* A frame that outlasts its tick loses a sample. */
         if (tick && fstate != F_IDLE)
@@ -933,11 +1000,51 @@ module opl
          * since the reset began. */
         if (xaddr_we && fstate != F_CLEAR && !(fstate == F_POP && rst_pend))
             rst_pend <= 1'b1;
+
+        if (sst_st_we && sel_st)
+            case (st_k)
+                3'd0: {rst_pend, credit} <= sst_wdata[29:25];
+                3'd2: {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
+                       test7, wse, test3, lag} <= sst_wdata[31:9];
+                3'd3: begin
+                    {tv, vib, lfo} <= sst_wdata[21:0];
+                    tickctr <= TICK_W'(sst_wdata[31:22]);
+                end
+                3'd4: {eglow, egshift, sub, egc, egt} <= sst_wdata[25:0];
+                3'd5: noise <= sst_wdata[22:0];
+                3'd6: {held1617, held15} <= sst_wdata[29:0];
+                default: ;
+            endcase
+    end
+
+    always_comb
+        opl_quiet = fstate == F_IDLE && !opl_valid
+            && tickctr < TICK_W'(TICKS_PER_SAMPLE - 1 - QUIET_LEAD);
+
+    logic [31:0] st_rd;
+    always_comb begin
+        case (st_k)
+            3'd0: st_rd = {2'd0, rst_pend, credit, enabled, q_tail, q_head,
+                           page};
+            3'd1: st_rd = {1'b0, opl_drops};
+            3'd2: st_rd = {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
+                           test7, wse, test3, lag, q_count};
+            3'd3: st_rd = {10'(tickctr), tv, vib, lfo};
+            3'd4: st_rd = {6'd0, eglow, egshift, sub, egc, egt};
+            3'd5: st_rd = {9'd0, noise};
+            3'd6: st_rd = {2'd0, held1617, held15};
+            default: st_rd = '0;
+        endcase
+        opl_sst_rdata = sel_q ? {16'd0, qa_q}
+            : sel_r ? {24'd0, ra_q}
+            : sel_s ? {2'd0, sl_q}
+            : sel_c ? {6'd0, ch_q}
+            : sel_st ? st_rd : '0;
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_opl;
-    always_comb unused_opl = ^{e2_prod[21:20], e2_prod[0], e2_fs[0],
+    always_comb unused_opl = ^{clk_sys, e2_prod[21:20], e2_prod[0], e2_fs[0],
                                e2_fbsh[13:10], e2_lvs[9], e1_kt[7:6]};
     /* verilator lint_on UNUSEDSIGNAL */
 

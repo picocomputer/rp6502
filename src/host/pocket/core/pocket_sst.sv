@@ -20,7 +20,7 @@ module pocket_sst #(
      * the three agree. No host command marks the end of reading the
      * blob, so the save request is dropped when the word at the last
      * index arrives from sst_engine. */
-    parameter int BLOB_WORDS = 81236
+    parameter int BLOB_WORDS = 83284
 ) (
     input logic clk_sys,
     input logic stb,

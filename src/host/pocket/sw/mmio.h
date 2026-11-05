@@ -140,11 +140,6 @@ static inline int32_t set_tz_minutes(void)
 #define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
-/* The PSG acts on the gate bit in a write to a channel block in XRAM only
- * when the 6502 made the write, unless this is set. aud_restore sets it
- * while it replays the channel blocks and clears it after, so a voice
- * whose gate bit was set when the blob was made starts again. */
-#define AUD_PSG_REPLAY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
 /* The OPL's writes dropped since the last read, which clears it. */
 #define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)
@@ -168,5 +163,8 @@ static inline int32_t set_tz_minutes(void)
 #define AUD_PCM_LEVEL (*(volatile uint32_t *)0x7000002Cu)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
+/* The low word of the mtime that the last savestate load restored, which
+ * the soft CPU resumed at, so a wake can measure how long it ran. */
+#define SST_SAVED_US (*(volatile uint32_t *)0x40000008u)
 
 #endif /* _HOST_POCKET_SW_MMIO_H_ */

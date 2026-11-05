@@ -100,12 +100,23 @@ module tb_pocket (
     /* On hardware this gate is an altclkctrl block, which registers its
      * enable on the falling edge of clk_sys. en_sys follows the enable
      * only while clk_sys is low, so no high phase of clk_mach is cut
-     * short. */
+     * short. The request crosses into clk_74a through three flops first,
+     * as core_top's synch_3 does, so the gate moves as late after it as
+     * on hardware. */
+    logic [2:0] stop_s;
     logic mach_clk_en;
-    initial mach_clk_en = 1'b1;
+    initial begin
+        stop_s = '0;
+        mach_clk_en = 1'b1;
+    end
     always_ff @(posedge clk_74a or negedge arst_n) begin
-        if (!arst_n) mach_clk_en <= 1'b1;
-        else mach_clk_en <= !tb_pocket_stop_req;
+        if (!arst_n) begin
+            stop_s <= '0;
+            mach_clk_en <= 1'b1;
+        end else begin
+            stop_s <= {stop_s[1:0], tb_pocket_stop_req};
+            mach_clk_en <= !stop_s[2];
+        end
     end
     logic en_sys;
     always_latch if (!clk_sys) en_sys = mach_clk_en;

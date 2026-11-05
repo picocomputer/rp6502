@@ -20,6 +20,11 @@ void clk_run(void)
     clk_start_us = host_clock_us();
 }
 
+void clk_wake(uint64_t us)
+{
+    clk_start_us += us;
+}
+
 void clk_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;

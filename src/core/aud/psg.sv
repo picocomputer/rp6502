@@ -20,6 +20,12 @@
  * logic in the module before they were a read.
  *
  * psg_tick is the sample divider, not the end of a walk.
+ *
+ * A savestate reads and writes the voices through the sst port at
+ * savestate offsets: the structures at 0x640, the voice arrays at 0x700
+ * and the flops at 0x788. The arrays' write ports run on clk_sys, the
+ * flops on clk. Between walks every other flop and every registered read
+ * is dead, so only that state is kept.
  */
 
 module psg
@@ -32,21 +38,11 @@ module psg
     parameter int TICKS_PER_SAMPLE = 1050
 ) (
     input logic clk,
+    input logic clk_sys,
 
     /* The device register: the sw's validated pointer, 0xFFFF off. */
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
-
-    /* The restore's key. A gate is an edge and only the 6502 makes one,
-     * which is right for a program and wrong for the one thing that is
-     * not one: the firmware replaying a channel block after a wake
-     * carries the same bytes, gate bit and all, and without this the
-     * note in them never strikes. A voice that was sounding when the
-     * blob was taken then stays silent for the rest of the program's
-     * life -- not for an envelope, for good. Held for the replay and
-     * dropped after it. */
-    input logic gate_any_we,
-    input logic gate_any_wdata,
 
     /* Every write to XRAM. q_host marks the 6502's own, which are the
      * only ones a gate answers. */
@@ -65,8 +61,37 @@ module psg
     output logic signed [15:0] psg_r,
     output logic psg_valid,
 
-    output logic psg_tick
+    output logic psg_tick,
+
+    /* sst_own gives the arrays' ports to sst_addr, written on sst_we.
+     * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
+     * the sample counter, so no walk starts and psg_tick stays low. */
+    input logic sst_own,
+    input logic [10:0] sst_addr,
+    input logic sst_we,
+    input logic sst_st_we,
+    input logic [31:0] sst_wdata,
+    input logic sst_park,
+    output logic [31:0] psg_sst_rdata,
+    /* Idle, with no walk due for QUIET_LEAD clocks. */
+    output logic psg_quiet
 );
+
+    /* Voice v of array k at 0x700 + 16k + v, k = 0 to 4 in the order
+     * sample, volume, phase, noise1, noise2. */
+    logic sel_cfg, sel_v, sel_st;
+    logic [2:0] v_k, st_k;
+    always_comb begin
+        sel_cfg = sst_addr[10:6] == 5'h19;
+        sel_v = sst_addr[10:7] == 4'hE && sst_addr[3:0] < 4'd9;
+        sel_st = sst_addr[10:3] == 8'hF1;
+        v_k = sst_addr[6:4];
+        st_k = sst_addr[2:0];
+    end
+
+    /* A stop lands within a few clocks of psg_quiet, and no walk may
+     * start before it does. */
+    localparam int QUIET_LEAD = 24;
 
     /* The C's entries are all N << 16 with N no wider than nine bits, so
      * nine bits is stored and the zeros go back on at the read. */
@@ -128,19 +153,16 @@ module psg
     always_comb snoop_ch = snoop_off[5:3];
     logic snoop_cfg;
     always_comb snoop_cfg = snoop && snoop_off[15:6] == 10'd0;
-    /* A gate is an edge, and only the 6502 makes one -- or the restore
-     * below, which is the firmware standing in for the 6502 that made
-     * the last one before the sleep. */
-    logic gate_any;
-    initial gate_any = 1'b0;
+    /* A gate is an edge, and only the 6502 makes one. */
     logic snoop_gate;
-    always_comb snoop_gate = snoop_cfg && (q_host || gate_any)
-        && snoop_off[2:0] == 3'd6;
+    always_comb snoop_gate = snoop_cfg && q_host && snoop_off[2:0] == 3'd6;
 
     /* One array a field, never one wide array: a wide enough array runs
      * past LUT memory and falls back to a block. Two addresses (w_ch and
      * ch) because one address is a single port, which has no
-     * asynchronous read to offer.
+     * asynchronous read to offer. Each array has one read, which the
+     * savestate shares: a second read of an array is a second copy of
+     * it.
      *
      * Initialized rather than reset, which is what lets them be memory at
      * all. The gate stays flops: the snoop writes it at whatever index
@@ -209,11 +231,28 @@ module psg
      * an envelope that never releases. */
     logic fwd;
     always_comb fwd = snoop_cfg && !ch[3] && snoop_ch == ch[2:0];
-    logic [63:0] cfg_word;
+    logic [3:0] cr_a;
+    logic [2:0] cr_c;
     always_comb begin
-        cfg_word = {8'd0, cfg_pan[ch[2:0]], cfg_wr[ch[2:0]], cfg_vd[ch[2:0]],
-                    cfg_va[ch[2:0]], cfg_duty[ch[2:0]], cfg_freq_hi[ch[2:0]],
-                    cfg_freq_lo[ch[2:0]]};
+        cr_a = sst_own ? sst_addr[3:0] : ch;
+        cr_c = sst_own ? sst_addr[5:3] : ch[2:0];
+    end
+    logic signed [15:0] rd_smp;
+    logic [VOL_W-1:0] rd_vol;
+    logic [31:0] rd_ph, rd_n1, rd_n2;
+    always_comb begin
+        rd_smp = ch_sample[cr_a];
+        rd_vol = ch_vol[cr_a];
+        rd_ph = ch_phase[cr_a];
+        rd_n1 = ch_noise1[cr_a];
+        rd_n2 = ch_noise2[cr_a];
+    end
+    logic [63:0] cfg_raw, cfg_word;
+    always_comb begin
+        cfg_raw = {8'd0, cfg_pan[cr_c], cfg_wr[cr_c], cfg_vd[cr_c],
+                   cfg_va[cr_c], cfg_duty[cr_c], cfg_freq_hi[cr_c],
+                   cfg_freq_lo[cr_c]};
+        cfg_word = cfg_raw;
         if (fwd)
             cfg_word[{snoop_off[2:0], 3'd0}+:8] = q_val;
     end
@@ -232,7 +271,7 @@ module psg
      * has to survive. */
     logic clr;
     logic [VOL_W-1:0] ld_vol;
-    always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
+    always_comb ld_vol = clr && !ch[3] ? '0 : rd_vol;
 
     logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
@@ -248,9 +287,9 @@ module psg
     typedef enum logic [2:0] {
         P_IDLE, P_MIX, P_OUT, P_LOAD, P_PH, P_STEP
     } state_t;
-    state_t state;
+    state_t state /*verilator public_flat_rd*/;
 
-    logic [12:0] tickctr;
+    logic [12:0] tickctr /*verilator public_flat_rd*/;
 
     localparam logic signed [26:0] MIX_ROUND = 27'sd64;
     logic signed [26:0] mix_l, mix_r;
@@ -274,7 +313,7 @@ module psg
     logic signed [13:0] mul_b;
     logic signed [30:0] mul_p;
     always_comb begin
-        mul_a = mix_i == 2'd0 ? 17'(ch_sample[ch]) : mix_s;
+        mul_a = mix_i == 2'd0 ? 17'(rd_smp) : mix_s;
         case (mix_i)
             /* Thirteen bits of the Q24 envelope, not nine: at nine a long
              * release moved the gain in 256 visible steps. */
@@ -438,23 +477,43 @@ module psg
     end
 
     /* Unreset: a reset here would make these flops again. */
-    always_ff @(posedge clk) begin
-        if (state == P_STEP) begin
-            ch_sample[w_ch] <= wave;
-            ch_vol[w_ch] <= vol_next;
-            ch_phase[w_ch] <= w_phase;
-            ch_noise1[w_ch] <= noise_step ? noise1_x : w_noise1;
-            ch_noise2[w_ch] <= noise_step ? w_noise2 + noise1_x : w_noise2;
-        end
-        if (snoop_cfg) begin
-            case (snoop_off[2:0])
-                3'd0: cfg_freq_lo[snoop_ch] <= q_val;
-                3'd1: cfg_freq_hi[snoop_ch] <= q_val;
-                3'd2: cfg_duty[snoop_ch] <= q_val;
-                3'd3: cfg_va[snoop_ch] <= q_val;
-                3'd4: cfg_vd[snoop_ch] <= q_val;
-                3'd5: cfg_wr[snoop_ch] <= q_val;
-                3'd6: cfg_pan[snoop_ch] <= q_val;
+    logic [3:0] cw_a;
+    logic [2:0] cw_c, cw_k;
+    logic [7:0] cw_d;
+    logic cw_e, step_w;
+    logic [4:0] sw_e;
+    always_comb begin
+        cw_a = sst_own ? sst_addr[3:0] : w_ch;
+        cw_c = sst_own ? sst_addr[5:3] : snoop_ch;
+        cw_k = sst_own ? sst_addr[2:0] : snoop_off[2:0];
+        cw_d = sst_own ? sst_wdata[7:0] : q_val;
+        cw_e = sst_own ? sst_we && sel_cfg : snoop_cfg;
+        step_w = state == P_STEP;
+        for (int k = 0; k < 5; k++)
+            sw_e[k] = sst_own ? sst_we && sel_v && v_k == 3'(k) : step_w;
+    end
+    always_ff @(posedge clk_sys) begin
+        if (sw_e[0])
+            ch_sample[cw_a] <= sst_own ? sst_wdata[15:0] : wave;
+        if (sw_e[1])
+            ch_vol[cw_a] <= sst_own ? sst_wdata[VOL_W-1:0] : vol_next;
+        if (sw_e[2])
+            ch_phase[cw_a] <= sst_own ? sst_wdata : w_phase;
+        if (sw_e[3])
+            ch_noise1[cw_a] <= sst_own ? sst_wdata
+                : noise_step ? noise1_x : w_noise1;
+        if (sw_e[4])
+            ch_noise2[cw_a] <= sst_own ? sst_wdata
+                : noise_step ? w_noise2 + noise1_x : w_noise2;
+        if (cw_e) begin
+            case (cw_k)
+                3'd0: cfg_freq_lo[cw_c] <= cw_d;
+                3'd1: cfg_freq_hi[cw_c] <= cw_d;
+                3'd2: cfg_duty[cw_c] <= cw_d;
+                3'd3: cfg_va[cw_c] <= cw_d;
+                3'd4: cfg_vd[cw_c] <= cw_d;
+                3'd5: cfg_wr[cw_c] <= cw_d;
+                3'd6: cfg_pan[cw_c] <= cw_d;
                 default: ;  /* the structure's padding */
             endcase
         end
@@ -492,15 +551,17 @@ module psg
     end
     always_ff @(posedge clk) begin
         psg_valid <= 1'b0;
-        psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
+        psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1) && !sst_park;
 
-        if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
+        if (sst_park)
+            ;
+        else if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
             tickctr <= '0;
         else
             tickctr <= tickctr + 13'd1;
 
         /* A walk that outlasts its tick drops the sample silently. */
-        if (tickctr == 13'd0 && state != P_IDLE)
+        if (tickctr == 13'd0 && !sst_park && state != P_IDLE)
             $fatal(1, "psg walk overrun");
 
         case (state)
@@ -513,7 +574,7 @@ module psg
                     for (int i = 0; i < 8; i++)
                         ch_adsr[i] <= ADSR_RELEASE;
                 end
-                if (tickctr == 13'd0) begin
+                if (tickctr == 13'd0 && !sst_park) begin
                     /* Always runs: the bell does not wait on a program. */
                     ch <= '0;
                     mix_l <= MIX_ROUND;
@@ -549,10 +610,10 @@ module psg
             P_LOAD: begin
                 /* cf is already reading the frequency at this address. */
                 w_ch <= ch;
-                w_phase <= ch_phase[ch];
+                w_phase <= rd_ph;
                 w_vol <= ld_vol;
-                w_noise1 <= clr && !ch[3] ? 32'h67452301 : ch_noise1[ch];
-                w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : ch_noise2[ch];
+                w_noise1 <= clr && !ch[3] ? 32'h67452301 : rd_n1;
+                w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : rd_n2;
                 w_inc <= 32'(inc_prod[56:PHASE_SHIFT]);
                 state <= P_PH;
             end
@@ -605,8 +666,49 @@ module psg
             xaddr <= xaddr_wdata;
             xreg_pend <= 1'b1;
         end
-        if (gate_any_we)
-            gate_any <= gate_any_wdata;
+
+        if (sst_st_we && sel_st)
+            case (st_k)
+                3'd0: bel_lo <= sst_wdata;
+                3'd1: {clr, bel_gate_q, bel_hi} <= sst_wdata[25:0];
+                3'd2: begin
+                    xaddr <= sst_wdata[15:0];
+                    for (int i = 0; i < 8; i++)
+                        ch_adsr[i] <= sst_wdata[16 + 2 * i+:2];
+                end
+                3'd3: {psg_r, psg_l} <= sst_wdata;
+                3'd4: {ch_adsr[8], tickctr} <= sst_wdata[14:0];
+                default: ;
+            endcase
+    end
+
+    always_comb
+        psg_quiet = state == P_IDLE && !xreg_pend && tickctr != 13'd0
+            && tickctr < 13'(TICKS_PER_SAMPLE - 1 - QUIET_LEAD);
+
+    logic [31:0] st_rd, v_rd;
+    always_comb begin
+        case (st_k)
+            3'd0: st_rd = bel_lo;
+            3'd1: st_rd = {6'd0, clr, bel_gate_q, bel_hi};
+            3'd2: st_rd = {ch_adsr[7], ch_adsr[6], ch_adsr[5], ch_adsr[4],
+                           ch_adsr[3], ch_adsr[2], ch_adsr[1], ch_adsr[0],
+                           xaddr};
+            3'd3: st_rd = {psg_r, psg_l};
+            3'd4: st_rd = {17'd0, ch_adsr[8], tickctr};
+            default: st_rd = '0;
+        endcase
+        case (v_k)
+            3'd0: v_rd = {16'd0, rd_smp};
+            3'd1: v_rd = 32'(rd_vol);
+            3'd2: v_rd = rd_ph;
+            3'd3: v_rd = rd_n1;
+            3'd4: v_rd = rd_n2;
+            default: v_rd = '0;
+        endcase
+        psg_sst_rdata = sel_cfg ? {24'd0, cfg_raw[{sst_addr[2:0], 3'd0}+:8]}
+            : sel_v ? v_rd
+            : sel_st ? st_rd : '0;
     end
 
     function automatic logic signed [15:0] clamped(logic signed [20:0] s);

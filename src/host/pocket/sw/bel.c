@@ -46,6 +46,16 @@ void bel_init(void)
     AUD_BEL_HI = 0;
 }
 
+void bel_wake(uint64_t us)
+{
+    if (bel_restrike_at)
+        bel_restrike_at += us;
+    if (bel_release_at)
+        bel_release_at += us;
+    if (bel_end_at)
+        bel_end_at += us;
+}
+
 static void bel_strike(void)
 {
     const ria_bel_t *snd = &bel_queue[bel_tail];
@@ -71,7 +81,9 @@ void bel_add(const ria_bel_t *sound)
 
 void bel_task(void)
 {
-    if (!bel_active)
+    /* The voice is parked until the wake ends, and bel_wake moves the
+     * deadlines then. */
+    if (!bel_active || (SST_CTL & SST_RESTORED))
         return;
 
     if (bel_due(bel_restrike_at))

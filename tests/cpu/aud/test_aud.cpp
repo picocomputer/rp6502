@@ -119,10 +119,9 @@ UTEST(aud, psg_makes_a_noise)
 
 /* The PSG takes its registers only from the XRAM writes it snoops, so a
  * block written before xreg is loaded into it by the replay in the
- * firmware's psg_xreg. While AUD_PSG_REPLAY is clear, the PSG starts or
- * releases a voice from a gate bit only on a 6502 write. psg_xreg replays
- * the block with AUD_PSG_REPLAY clear, so the replay starts no note, and
- * the note starts on the gate written afterwards. */
+ * firmware's psg_xreg. The PSG starts or releases a voice from a gate bit
+ * only on a 6502 write, so the replay starts no note, and the note starts
+ * on the gate written afterwards. */
 UTEST(aud, a_psg_block_programmed_before_its_pointer)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PSG_PRE));

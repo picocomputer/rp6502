@@ -61,8 +61,8 @@ set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
 set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
     -to [get_registers {*cpu:*}] 1
 
-set_multicycle_path -setup -from [get_registers {*regs*}] 4
-set_multicycle_path -hold  -from [get_registers {*regs*}] 3
+set_multicycle_path -setup -from [get_registers {*regs:*}] 4
+set_multicycle_path -hold  -from [get_registers {*regs:*}] 3
 
 set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 4
 set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3

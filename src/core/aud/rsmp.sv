@@ -20,6 +20,11 @@
  * between input samples.
  *
  * The coefficients come from one of rsmp_rom's ports; pcm has the other.
+ *
+ * A savestate reads and writes the history through the sst port at
+ * savestate offset 0x6A0, and the flops at 0x798. Between outputs every
+ * other flop and every registered read is dead, so only that state is
+ * kept.
  */
 
 module rsmp
@@ -33,6 +38,7 @@ module rsmp
     parameter int STEP_DEN = 1014
 ) (
     input logic clk,
+    input logic clk_sys,
 
     input logic signed [15:0] in_sample,
     input logic in_valid,
@@ -45,8 +51,24 @@ module rsmp
     input logic signed [RSMP_COEF_W-1:0] coef_q,
 
     output logic signed [15:0] rsmp_out,
-    output logic rsmp_valid
+    output logic rsmp_valid,
+
+    /* sst_own gives the history's ports to sst_addr, written on sst_we.
+     * sst_st_we writes the flop word at sst_addr on clk. */
+    input logic sst_own,
+    input logic [10:0] sst_addr,
+    input logic sst_we,
+    input logic sst_st_we,
+    input logic [31:0] sst_wdata,
+    output logic [31:0] rsmp_sst_rdata,
+    output logic rsmp_quiet
 );
+
+    logic sel_h, sel_st;
+    always_comb begin
+        sel_h = sst_addr[10:5] == 6'h35;
+        sel_st = sst_addr[10:3] == 8'hF3;
+    end
 
     /* Q32, and above 1.0 whenever the source outruns the sink — which is
      * the case this exists for — so the phase needs a bit above the
@@ -71,7 +93,7 @@ module rsmp
     typedef enum logic [2:0] {
         R_IDLE, R_MAC, R_DRAIN, R_SCALE, R_EMIT
     } state_t;
-    state_t state;
+    state_t state /*verilator public_flat_rd*/;
 
     logic [PH_W-1:0] phase;
     logic [PH_W-1:0] phase_next;
@@ -97,12 +119,17 @@ module rsmp
         hist_ra = !full && hist_addr >= wptr ? 5'd0 : hist_addr;
     end
 
-    always_ff @(posedge clk)
-        if (in_valid)
-            hist[wptr] <= in_sample;
+    logic [4:0] hw_a, hr_a;
+    always_comb begin
+        hw_a = sst_own ? sst_addr[4:0] : wptr;
+        hr_a = sst_own ? sst_addr[4:0] : hist_ra;
+    end
+    always_ff @(posedge clk_sys)
+        if (sst_own ? sst_we && sel_h : in_valid)
+            hist[hw_a] <= sst_own ? sst_wdata[15:0] : in_sample;
 
     logic signed [15:0] hist_rd, hist_q;
-    always_comb hist_rd = hist[hist_ra];
+    always_comb hist_rd = hist[hr_a];
     always_ff @(posedge clk) hist_q <= hist_rd;
 
     logic mac_en;
@@ -238,6 +265,26 @@ module rsmp
 
             default: state <= R_IDLE;
         endcase
+
+        if (sst_st_we && sel_st)
+            case (sst_addr[2:0])
+                3'd0: phase[31:0] <= sst_wdata;
+                3'd1: {phase[33:32], wptr, rptr, primed, full, rsmp_out}
+                    <= sst_wdata[29:0];
+                default: ;
+            endcase
+    end
+
+    logic [31:0] st_rd;
+    always_comb begin
+        case (sst_addr[2:0])
+            3'd0: st_rd = phase[31:0];
+            3'd1: st_rd = {2'd0, phase[33:32], wptr, rptr, primed, full,
+                           rsmp_out};
+            default: st_rd = '0;
+        endcase
+        rsmp_quiet = state == R_IDLE;
+        rsmp_sst_rdata = sel_h ? {16'd0, hist_rd} : sel_st ? st_rd : '0;
     end
 
 endmodule
