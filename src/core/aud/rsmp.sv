@@ -19,8 +19,7 @@
  * read per tap instead of two. Forty-eight cycles of the thousand
  * between input samples.
  *
- * Only rows 0..64 are stored; the rest are those read backwards, exact
- * because a windowed sinc is even in its argument.
+ * The coefficients come from one of rsmp_rom's ports; pcm has the other.
  */
 
 module rsmp
@@ -40,6 +39,11 @@ module rsmp
 
     input logic step,
 
+    /* rsmp_rom's port, read a clock after the address. */
+    output logic [7:0] rsmp_coef_row,
+    output logic [4:0] rsmp_coef_tap,
+    input logic signed [RSMP_COEF_W-1:0] coef_q,
+
     output logic signed [15:0] rsmp_out,
     output logic rsmp_valid
 );
@@ -53,21 +57,16 @@ module rsmp
     localparam logic [PH_W-1:0] ONE = PH_W'(64'd1 << 32);
     localparam logic [PH_W-1:0] TWO = PH_W'(64'd2 << 32);
 
-    localparam int HALF_ROWS = RSMP_PHASES / 2;  /* rows 0..64 are stored */
-
-    /* A circular buffer, not a shift register: 24 taps read one per cycle
-     * is 384 flops as a shift register, and a small memory plus a counter
-     * either way the fitter builds it. */
-    (* ramstyle = "no_rw_check" *)
+    /* A circular buffer in MLAB, one write port and one asynchronous
+     * read. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] hist[32];
     logic [4:0] wptr;
     logic primed;
-
-    (* ramstyle = "no_rw_check" *)
-    logic signed [RSMP_COEF_W-1:0] coef[RSMP_HALF_N];
-    initial begin
-        for (int i = 0; i < RSMP_HALF_N; i++) coef[i] = RSMP_HALF[i];
-    end
+    /* Every entry written since the first sample. Until then an entry at
+     * or past wptr reads entry 0, the first sample, as if it filled all
+     * 32. */
+    logic full;
 
     typedef enum logic [2:0] {
         R_IDLE, R_MAC, R_DRAIN, R_SCALE, R_EMIT
@@ -77,44 +76,34 @@ module rsmp
     logic [PH_W-1:0] phase;
     logic [PH_W-1:0] phase_next;
     always_comb phase_next = phase + PH_W'(STEP);
-    logic [5:0] tap;        /* 0..23 within a pass */
+    logic [4:0] tap;        /* 0..23 within a pass */
     logic pass;             /* 0: row p, 1: row p+1 */
 
     /* Accumulators. A coefficient reaches 2^17 and a sample 2^15; twenty-
      * four of those products need 38 bits signed. */
     logic signed [39:0] acc_a, acc_b;
 
-    logic [7:0] row;
-    always_comb row = 8'(phase[31:25]) + 8'(pass);
-
-    /* Rows past the midpoint are the mirrored rows read backwards. */
-    logic [7:0] src_row;
-    logic [4:0] src_tap;
     always_comb begin
-        if (row <= 8'(HALF_ROWS)) begin
-            src_row = row;
-            src_tap = 5'(tap);
-        end else begin
-            src_row = 8'(RSMP_PHASES) - row;
-            src_tap = 5'(RSMP_TAPS - 1) - 5'(tap);
-        end
+        rsmp_coef_row = 8'(phase[31:25]) + 8'(pass);
+        rsmp_coef_tap = tap;
     end
-
-    logic [10:0] coef_addr;
-    always_comb coef_addr = 11'(src_row) * 11'(RSMP_TAPS) + 11'(src_tap);
 
     /* rptr trails wptr by under a sample: two pointers is what pulling
      * costs, and the history is 32 deep against 24 taps. */
     logic [4:0] rptr;
-    logic [4:0] hist_addr;
-    always_comb hist_addr = rptr - 5'(RSMP_TAPS) + 5'(tap);
-
-    logic signed [RSMP_COEF_W-1:0] coef_q;
-    logic signed [15:0] hist_q;
-    always_ff @(posedge clk) begin
-        coef_q <= coef[coef_addr];
-        hist_q <= hist[hist_addr];
+    logic [4:0] hist_addr, hist_ra;
+    always_comb begin
+        hist_addr = rptr - 5'(RSMP_TAPS) + tap;
+        hist_ra = !full && hist_addr >= wptr ? 5'd0 : hist_addr;
     end
+
+    always_ff @(posedge clk)
+        if (in_valid)
+            hist[wptr] <= in_sample;
+
+    logic signed [15:0] hist_rd, hist_q;
+    always_comb hist_rd = hist[hist_ra];
+    always_ff @(posedge clk) hist_q <= hist_rd;
 
     logic mac_en;
     logic mac_pass;
@@ -159,6 +148,7 @@ module rsmp
         wptr = '0;
         rptr = '0;
         primed = 1'b0;
+        full = 1'b0;
         tap = '0;
         pass = 1'b0;
         acc_a = '0;
@@ -184,12 +174,11 @@ module rsmp
             /* A cold filter rings against 23 zeros and clicks at the
              * start of every sound, so the first sample fills it. */
             if (!primed) begin
-                for (int i = 0; i < 32; i++) hist[i] <= in_sample;
                 rptr <= 5'd1;
                 primed <= 1'b1;
-            end else begin
-                hist[wptr] <= in_sample;
             end
+            if (&wptr)
+                full <= 1'b1;
             wptr <= wptr + 5'd1;
         end
 
@@ -211,7 +200,7 @@ module rsmp
             R_MAC: begin
                 mac_en <= 1'b1;
                 mac_pass <= pass;
-                if (tap == 6'(RSMP_TAPS - 1)) begin
+                if (tap == 5'(RSMP_TAPS - 1)) begin
                     tap <= '0;
                     if (!pass) begin
                         pass <= 1'b1;
@@ -220,7 +209,7 @@ module rsmp
                         state <= R_DRAIN;
                     end
                 end else begin
-                    tap <= tap + 6'd1;
+                    tap <= tap + 5'd1;
                 end
             end
 

@@ -111,6 +111,18 @@ def check_half(rs):
             raise SystemExit(f"row {p} is not row {PHASES - p} reversed")
 
 
+def widths(rs):
+    """Signed widths for full-scale 16-bit samples, each with the rounding
+    half: a row's dot, the difference of adjacent rows' dots, and the
+    rounded output."""
+    full = 1 << 15
+    half = 1 << (Q - 1)
+    dot = max(sum(abs(c) for c in row) for row in rs) * full + half
+    diff = max(sum(abs(a - b) for a, b in zip(rs[p + 1], rs[p]))
+               for p in range(PHASES)) * full + half
+    return dot.bit_length() + 1, diff.bit_length() + 1, (dot >> Q).bit_length() + 1
+
+
 def emit_sv(path, rs, peak):
     """Only rows 0 to PHASES/2 are written, and rsmp.sv reads the rest
     backwards.
@@ -127,6 +139,7 @@ def emit_sv(path, rs, peak):
     where a block is five bits wide.
     """
     width = max(2, peak.bit_length() + 1)
+    dot_w, diff_w, out_w = widths(rs)
     half = PHASES // 2 + 1
     flat = [c for row in rs[:half] for c in row]
     with open(path, "w") as f:
@@ -138,6 +151,9 @@ def emit_sv(path, rs, peak):
         f.write(f"localparam int RSMP_Q = {Q};\n")
         f.write(f"localparam int RSMP_COEF_W = {width};\n")
         f.write(f"localparam int RSMP_HALF_N = {len(flat)};\n")
+        f.write(f"localparam int RSMP_DOT_W = {dot_w};\n")
+        f.write(f"localparam int RSMP_DIFF_W = {diff_w};\n")
+        f.write(f"localparam int RSMP_OUT_W = {out_w};\n")
         f.write(f"localparam logic signed [{width - 1}:0] "
                 f"RSMP_HALF[{len(flat)}] = '{{\n")
         for i in range(0, len(flat), 8):

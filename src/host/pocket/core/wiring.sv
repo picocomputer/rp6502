@@ -1080,9 +1080,11 @@ module wiring
 
     /* The audio window's readable words, by soc_addr[5:2]. */
     logic [30:0] opl_drops;
+    logic [12:0] pcm_level;
     always_comb
         case (soc_addr[5:2])
             4'h3: aud_rdata = {1'b0, opl_drops};
+            4'hB: aud_rdata = {19'd0, pcm_level};
             default: aud_rdata = '0;
         endcase
 
@@ -1132,6 +1134,20 @@ module wiring
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
+    /* The resampler's coefficients, one port for rsmp and one for pcm. */
+    logic [7:0] rsmp_coef_row, pcm_coef_row;
+    logic [4:0] rsmp_coef_tap, pcm_coef_tap;
+    logic signed [rsmp_coef_pkg::RSMP_COEF_W-1:0] rsmp_rom_a_q, rsmp_rom_b_q;
+    rsmp_rom rsmp_rom (
+        .clk(clk_mach),
+        .a_row(rsmp_coef_row),
+        .a_tap(rsmp_coef_tap),
+        .rsmp_rom_a_q(rsmp_rom_a_q),
+        .b_row(pcm_coef_row),
+        .b_tap(pcm_coef_tap),
+        .rsmp_rom_b_q(rsmp_rom_b_q)
+    );
+
     /* The OPL produces a sample every 1014 clocks and the audio output
      * takes one on each psg_tick, every 1050 clocks, so the OPL output
      * is resampled onto the tick. One resampler serves both channels
@@ -1143,6 +1159,9 @@ module wiring
         .in_sample(opl_l),
         .in_valid(opl_valid),
         .step(psg_tick),
+        .rsmp_coef_row(rsmp_coef_row),
+        .rsmp_coef_tap(rsmp_coef_tap),
+        .coef_q(rsmp_rom_a_q),
         .rsmp_out(opl_rs),
         /* rsmp_valid is unused because rsmp updates rsmp_out 52 clocks
          * after a psg_tick that it acts on, and rsmp_out holds that value
@@ -1151,14 +1170,39 @@ module wiring
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    logic signed [16:0] eng_l, eng_r;
+    /* The PCM: device, by soc_addr[5:2]: 6 control, 7 step, 8 four
+     * bytes, 9 one byte, 10 clear; 11 reads the level. */
+    localparam int PCM_W = rsmp_coef_pkg::RSMP_OUT_W;
+    logic signed [PCM_W-1:0] pcm_l, pcm_r;
+    pcm pcm (
+        .clk(clk_mach),
+        .tick(psg_tick),
+        .ctrl_we(aud_we && soc_addr[5:2] == 4'h6),
+        .step_we(aud_we && soc_addr[5:2] == 4'h7),
+        .data_we(aud_we && soc_addr[5:2] == 4'h8),
+        .byte_we(aud_we && soc_addr[5:2] == 4'h9),
+        .clear_we(aud_we && soc_addr[5:2] == 4'hA),
+        .wdata(soc_wdata),
+        .pcm_coef_row(pcm_coef_row),
+        .pcm_coef_tap(pcm_coef_tap),
+        .coef_q(rsmp_rom_b_q),
+        .pcm_level(pcm_level),
+        .pcm_l(pcm_l),
+        .pcm_r(pcm_r)
+    );
+
+    /* Two 16-bit engines and pcm's PCM_W bits add in PCM_W + 1. */
+    localparam int ENG_W = PCM_W + 1;
+    localparam logic signed [ENG_W-1:0] ENG_MIN = ENG_W'(-32768),
+        ENG_MAX = ENG_W'(32767);
+    logic signed [ENG_W-1:0] eng_l, eng_r;
     always_comb begin
-        eng_l = 17'(opl_rs) + 17'(psg_l);
-        eng_r = 17'(opl_rs) + 17'(psg_r);
-        wiring_aud_l = eng_l < -17'sd32768 ? -16'sd32768
-            : eng_l > 17'sd32767 ? 16'sd32767 : 16'(eng_l);
-        wiring_aud_r = eng_r < -17'sd32768 ? -16'sd32768
-            : eng_r > 17'sd32767 ? 16'sd32767 : 16'(eng_r);
+        eng_l = ENG_W'(opl_rs) + ENG_W'(psg_l) + ENG_W'(pcm_l);
+        eng_r = ENG_W'(opl_rs) + ENG_W'(psg_r) + ENG_W'(pcm_r);
+        wiring_aud_l = eng_l < ENG_MIN ? -16'sd32768
+            : eng_l > ENG_MAX ? 16'sd32767 : 16'(eng_l);
+        wiring_aud_r = eng_r < ENG_MIN ? -16'sd32768
+            : eng_r > ENG_MAX ? 16'sd32767 : 16'(eng_r);
         wiring_aud_valid = psg_tick;
     end
 

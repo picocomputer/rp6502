@@ -13,13 +13,27 @@ rp6502_add_module_test(psg
     ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
     TIMEOUT 300)
 
+# rsmp and pcm on one rsmp_rom, as wiring.sv has them.
+set(AUD_BENCH_RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/core/aud/rsmp_rom.sv
+    ${RP6502_SRC}/core/aud/rsmp.sv ${RP6502_SRC}/core/aud/pcm_bank.sv
+    ${RP6502_SRC}/core/aud/pcm.sv ${CMAKE_CURRENT_LIST_DIR}/tb_aud.sv)
+
 rp6502_add_module_test(rsmp_rtl
-    TOP rsmp
-    RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/core/aud/rsmp.sv
+    TOP tb_aud
+    RTL ${AUD_BENCH_RTL}
     SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/aud/rsmp.c
     INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
     DEPENDS rsmp_coef rsmp_coef_pkg
     TIMEOUT 300)
+
+rp6502_add_module_test(pcm_rtl
+    TOP tb_aud
+    RTL ${AUD_BENCH_RTL}
+    SOURCES test_pcm_rtl.cpp pcm_shim.c ${RP6502_SRC}/core/aud/rsmp.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RSMP_COEF_DIR}
+    DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000
+    DEPENDS rsmp_coef rsmp_coef_pkg
+    TIMEOUT 600)
 
 # YM3812-LLE, nukeykt's die model, is the oracle opl.sv is held to, as opl.c
 # is. It is GPL-2 and is compiled into this test only.

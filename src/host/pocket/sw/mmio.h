@@ -150,6 +150,22 @@ static inline int32_t set_tz_minutes(void)
 #define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
+/* The PCM: device. Bit 0 opens or closes, bit 1 is 16-bit and bit 2 is
+ * stereo. An open empties the buffer; the sound restarts at the next
+ * sample. */
+#define AUD_PCM_CTRL (*(volatile uint32_t *)0x70000018u)
+/* Frames per 48 kHz sample, Q32, less one: pcm_step(rate) - 1. Written
+ * while closed. */
+#define AUD_PCM_STEP (*(volatile uint32_t *)0x7000001Cu)
+/* Four bytes into the buffer, the low byte first. */
+#define AUD_PCM_DATA (*(volatile uint32_t *)0x70000020u)
+/* One byte into the buffer. */
+#define AUD_PCM_BYTE (*(volatile uint32_t *)0x70000024u)
+/* Empties the buffer. */
+#define AUD_PCM_CLEAR (*(volatile uint32_t *)0x70000028u)
+/* The bytes waiting to play, 0 to 4096. Nothing checks a write against
+ * the room, 4096 less this. */
+#define AUD_PCM_LEVEL (*(volatile uint32_t *)0x7000002Cu)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 

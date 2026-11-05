@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "Vrsmp.h"
+#include "Vtb_aud.h"
 #include "verilated.h"
 
 extern "C"
@@ -27,7 +27,7 @@ UTEST_MAIN();
 #define POCKET_OUT 1014
 #define POCKET_IN_HZ 49704
 
-static Vrsmp *dut;
+static Vtb_aud *dut;
 
 static void tick()
 {
@@ -44,7 +44,7 @@ static void fresh()
         dut->final();
         delete dut;
     }
-    dut = new Vrsmp;
+    dut = new Vtb_aud;
     dut->clk = 0;
     dut->in_valid = 0;
     dut->in_sample = 0;
@@ -65,7 +65,8 @@ static int16_t clamp16(int32_t v)
     return (int16_t)v;
 }
 
-static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
+/* The first input at clock off and the first step at POCKET_OUT. */
+static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in, long off = 0, bool quiet = false)
 {
     fresh();
     rsmp_t r;
@@ -73,11 +74,11 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
     const uint64_t step = rsmp_step(POCKET_IN, POCKET_OUT);
 
     std::vector<int16_t> cbuf, rbuf;
-    long next_in = 0;
+    long next_in = off;
     long next_step = POCKET_OUT;
     int in_i = 0;
 
-    const long clocks = (long)(n_in + 2) * POCKET_OUT;
+    const long clocks = (long)(n_in + 2) * POCKET_OUT + off;
     for (long t = 0; t < clocks; t++)
     {
         const bool do_in = in_i < n_in && t == next_in;
@@ -110,12 +111,13 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
     for (size_t k = 0; k < n; k++)
     {
         if (rbuf[k] != cbuf[k])
-            fprintf(stderr, "diff at out %zu: rtl=%d c=%d\n",
-                    k, rbuf[k], cbuf[k]);
+            fprintf(stderr, "offset %ld diff at out %zu: rtl=%d c=%d\n",
+                    off, k, rbuf[k], cbuf[k]);
         ASSERT_EQ(rbuf[k], cbuf[k]);
     }
-    fprintf(stderr, "  %zu samples matched (rtl %zu, c %zu)\n",
-            n, rbuf.size(), cbuf.size());
+    if (!quiet)
+        fprintf(stderr, "  %zu samples matched (rtl %zu, c %zu)\n",
+                n, rbuf.size(), cbuf.size());
     ASSERT_GT((long)n, (long)(n_in / 2));
 }
 
@@ -149,4 +151,26 @@ UTEST(rsmp_rtl, a_tone_agrees)
 UTEST(rsmp_rtl, the_hard_edges_agree)
 {
     lockstep(utest_result, gen_square, 2000);
+}
+
+static int32_t gen_noise(int n)
+{
+    uint32_t x = 0x9E3779B9u * (uint32_t)(n + 1);
+    x ^= x >> 15;
+    x *= 0x2C1B3C6Du;
+    x ^= x >> 12;
+    return (int32_t)(x & 0xFFFF) - 32768;
+}
+
+/* The first input on every clock of an input period, so inputs land at
+ * every offset from the steps and not only at multiples of 6 clocks. */
+UTEST(rsmp_rtl, every_offset_agrees)
+{
+    for (long off = 0; off < POCKET_OUT; off++)
+    {
+        lockstep(utest_result, gen_noise, 60, off, true);
+        if (*utest_result)
+            return;
+    }
+    fprintf(stderr, "  %d offsets matched\n", POCKET_OUT);
 }
