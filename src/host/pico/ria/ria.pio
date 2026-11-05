@@ -144,3 +144,25 @@ wait 1 pin 0        ; Line idle
 wait 0 pin 0        ; Start bit
 irq 0
 .wrap
+
+
+; Audio PWM. Each word is one carrier period: three 10-bit counts that hold
+; the pin low for the first + 4 clocks, high for the second + 2 and low for
+; the third + 2, so a period takes the three counts + 8 clocks. An empty
+; FIFO repeats the last word.
+.program aud_pwm
+.side_set 1
+
+.wrap_target
+pull noblock    side 0
+mov x osr       side 0
+out y 10        side 0
+lead:
+jmp y-- lead    side 0
+out y 10        side 1
+pulse:
+jmp y-- pulse   side 1
+out y 10        side 0
+trail:
+jmp y-- trail   side 0
+.wrap
