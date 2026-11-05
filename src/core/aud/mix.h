@@ -8,6 +8,7 @@
 #define _CORE_AUD_MIX_H_
 
 #include "core/aud/bel.h"
+#include "core/aud/pcm.h"
 #include "core/aud/rsmp.h"
 #include "core/sys/sst.h"
 #include <stddef.h>
@@ -51,6 +52,16 @@ void aud_xram_write(uint16_t addr, uint8_t val);
  * machine stamps it as it stamps a write. */
 void aud_psg_map(uint16_t word);
 void aud_opl_map(uint16_t word);
+
+/* The PCM: device's sound, which each machine's mixer keeps for
+ * core/aud/pcm.c. aud_pcm_open fails while one is open. aud_pcm_level is the
+ * bytes waiting to play as the program sees them, at the machine's present,
+ * and aud_pcm_clear empties them. */
+bool aud_pcm_open(const pcm_fmt_t *fmt);
+void aud_pcm_close(void);
+uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n);
+uint16_t aud_pcm_level(void);
+void aud_pcm_clear(void);
 
 /* A software machine's present, at the end of each frame: the stamps before
  * it are all in. A sink on the machine's thread that did not take the frame
