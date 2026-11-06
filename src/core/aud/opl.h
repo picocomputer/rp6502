@@ -83,19 +83,20 @@ uint32_t opl_take_drops(void);
 /* The pacing credit, and whether the next sample is held for a late half. */
 void opl_pace_get(uint32_t *credit, bool *late);
 
-/* One write the RW engine landed on this engine's page, the low byte of its
- * address and its value, pushed on the queue. */
+/* One write the RW engine landed in this engine's 256 bytes, the register
+ * it is to and its value, pushed on the queue. */
 void opl_xram_write(uint8_t reg, uint8_t val);
 
-/* A word that starts a page clears the page and goes to aud_opl_map; any
- * other parks the engine there as 0xFFFF, and only 0xFFFF is not an error. */
+/* A word whose 256 bytes fit in XRAM clears them and goes to aud_opl_map;
+ * any other parks the engine there as 0xFFFF, and only 0xFFFF is not an
+ * error. */
 bool opl_xreg(uint16_t word);
 
 /* Resets the engine and maps it at word, 0xFFFF for parked. Reached through
  * aud_opl_map. */
 void opl_map(uint16_t word);
 
-/* Where this engine's register page sits in XRAM, 0xFFFF for parked. */
+/* Where this engine's 256 bytes start in XRAM, 0xFFFF for parked. */
 uint16_t opl_xaddr_get(void);
 
 /* Release the pointer, which takes the OPL2 out of the mix. The chip keeps

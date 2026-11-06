@@ -85,13 +85,10 @@ struct psg_channel
 
 _Static_assert(PSG_CHANNELS * sizeof(struct psg_channel) == PSG_REGS_SIZE, "the block psg_sample reads");
 
-/* A block starts even, because a channel begins with a uint16_t, ends inside
- * XRAM, and stays inside one page, because psg.sv recognises a write to it
- * by comparing pages. */
+/* A block may start anywhere it ends inside XRAM. */
 static bool psg_block_ok(uint16_t word)
 {
-    return !(word & 1) && word <= 0x10000 - PSG_REGS_SIZE &&
-           (word >> 8) == ((word + PSG_REGS_SIZE - 1) >> 8);
+    return word <= 0x10000 - PSG_REGS_SIZE;
 }
 
 /* The noise words are sixteen bits: an XOR and an add carry only upward,
@@ -292,11 +289,10 @@ void psg_reg_put(uint8_t i, uint8_t val)
         ((uint8_t *)psg_regs)[i] = val;
 }
 
-void psg_xram_write(uint8_t loc, uint8_t val)
+void psg_xram_write(uint16_t addr, uint8_t val)
 {
-    uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
-    uint16_t offset = xaddr - psg_xaddr;
-    if (offset >= PSG_REGS_SIZE)
+    uint16_t offset = addr - psg_xaddr;
+    if (psg_xaddr == 0xFFFF || offset >= PSG_REGS_SIZE)
         return;
     ((uint8_t *)psg_regs)[offset] = val;
     if ((offset % sizeof(struct psg_channel)) == offsetof(struct psg_channel, pan_gate))

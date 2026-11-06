@@ -1009,9 +1009,11 @@ void opl_map(uint16_t word)
     opl_xaddr = word;
 }
 
+/* The 256 bytes may start anywhere they end inside XRAM, and register n is
+ * byte n of them. */
 bool opl_xreg(uint16_t word)
 {
-    const bool map = !(word & 0x00FF);
+    const bool map = word <= 0x10000 - 256;
     if (map)
         memset((uint8_t *)&xram[word], 0, 256);
     aud_opl_map(map ? word : 0xFFFF);

@@ -373,14 +373,13 @@ void ria_break(void)
     ria_uart_rx_clear();
 }
 
-ria_aud_ring_t ria_aud;
-volatile uint32_t ria_aud_watch[32];
+ria_aud_ring_t ria_aud = {.psg_at = 0x10000, .opl_at = 0x10000};
 
 /* The drain pairs an acquire barrier with the one here, so the entry has to
  * be written before the head that publishes it. */
 static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint32_t pix)
 {
-    if (!(ria_aud_watch[addr >> 11] & (1u << ((addr >> 6) & 31))))
+    if (addr - ria_aud.psg_at >= 64 && addr - ria_aud.opl_at >= 256)
         return;
     uint8_t next = (ria_aud.head + 1) & (RIA_AUD_RING_SIZE - 1);
     if (next == ria_aud.tail)

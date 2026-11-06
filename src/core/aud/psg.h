@@ -33,10 +33,9 @@ void psg_bel_put(unsigned i, uint8_t val);
 /* True while the bell steps to the same state every sample. */
 bool psg_bel_idle(void);
 
-/* One write the RW engine landed on this engine's page, the low byte of its
- * address and its value. A write to the block lands in the engine's copy,
- * and one to a gate strikes or releases it. */
-void psg_xram_write(uint8_t loc, uint8_t val);
+/* One write the RW engine landed in XRAM. A write to the block lands in the
+ * engine's copy, and one to a gate strikes or releases it. */
+void psg_xram_write(uint16_t addr, uint8_t val);
 
 /* Checks the word and hands it to aud_psg_map, 0xFFFF for any that is not a
  * channel block's start. */

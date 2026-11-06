@@ -41,9 +41,7 @@ void shim_sample(int16_t *l, int16_t *r) { psg_sample(l, r); }
 void shim_xram_write(uint16_t addr, uint8_t val)
 {
     xram_backing[addr] = val;
-    uint16_t psg = psg_xaddr_get();
-    if (psg != 0xFFFF && (addr & 0xFF00) == (psg & 0xFF00))
-        psg_xram_write((uint8_t)addr, val);
+    psg_xram_write(addr, val);
 }
 
 uint8_t shim_xram_read(uint16_t addr)

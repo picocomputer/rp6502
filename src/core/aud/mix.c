@@ -354,9 +354,9 @@ static void aud_apply(const aud_ev_t *e)
         return;
     }
     if (e->kind & AUD_EV_PSG)
-        psg_xram_write((uint8_t)e->addr, e->val);
+        psg_xram_write(e->addr, e->val);
     if (e->kind & AUD_EV_OPL)
-        opl_xram_write((uint8_t)e->addr, e->val);
+        opl_xram_write((uint8_t)(e->addr - opl_xaddr_get()), e->val);
 }
 
 /* Sixteen bits: the mix's sum, as wiring.sv clamps it in the fabric, and the
@@ -487,7 +487,9 @@ void aud_xram_write(uint16_t addr, uint8_t val)
     uint8_t kind = 0;
     if (aud_psg_at != 0xFFFF && (uint16_t)(addr - aud_psg_at) < PSG_REGS_SIZE)
         kind |= AUD_EV_PSG;
-    const bool to_opl = (addr & 0xFF00) == aud_opl_at && opl_is_reg((uint8_t)addr);
+    const uint8_t reg = (uint8_t)(addr - aud_opl_at);
+    const bool to_opl = aud_opl_at != 0xFFFF && (uint16_t)(addr - aud_opl_at) < 256 &&
+                        opl_is_reg(reg);
     if (!kind && !to_opl)
         return;
     const uint64_t at = bus_now(AUD_NATIVE_RATE);
@@ -501,7 +503,7 @@ void aud_xram_write(uint16_t addr, uint8_t val)
         }
         else
         {
-            aud_oq.reg[(uint8_t)(aud_oq.head + aud_oq.count++)] = (uint8_t)addr;
+            aud_oq.reg[(uint8_t)(aud_oq.head + aud_oq.count++)] = reg;
             kind |= AUD_EV_OPL;
         }
     }
@@ -532,15 +534,16 @@ void aud_psg_map(uint16_t word)
         aud_psg_send();
 }
 
-/* opl_xreg has cleared the page by now, the PSG's block too if it is
- * there. */
+/* opl_xreg has cleared its 256 bytes by now, and any of the PSG's block
+ * among them. */
 void aud_opl_map(uint16_t word)
 {
     const uint64_t at = bus_now(AUD_NATIVE_RATE);
     aud_opl_at = word;
     aud_oq_reset(at);
     aud_push_at(at, AUD_EV_OPL_MAP, word, 0);
-    if (word != 0xFFFF && aud_psg_at != 0xFFFF && (aud_psg_at & 0xFF00) == word)
+    if (word != 0xFFFF && aud_psg_at != 0xFFFF &&
+        aud_psg_at < (uint32_t)word + 256 && word < (uint32_t)aud_psg_at + PSG_REGS_SIZE)
         aud_psg_send();
 }
 

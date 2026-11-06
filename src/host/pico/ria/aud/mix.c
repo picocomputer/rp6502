@@ -104,37 +104,29 @@ __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void
     /* Pairs with the barrier core1 puts before it publishes head. */
     __dmb();
     uint8_t tail = ria_aud.tail;
-    uint16_t psg = psg_xaddr_get();
-    uint16_t psg_page = psg == 0xFFFF ? 0xFFFF : psg & 0xFF00;
-    uint16_t opl_page = opl_xaddr_get();
+    const uint32_t psg_at = ria_aud.psg_at;
+    const uint32_t opl_at = ria_aud.opl_at;
     while (tail != head)
     {
         tail = (tail + 1) & (RIA_AUD_RING_SIZE - 1);
         const uint32_t pix = ria_aud.entry[tail];
-        const uint16_t page = pix & 0xFF00;
+        const uint32_t addr = pix & 0xFFFF;
         const uint8_t val = (uint8_t)(pix >> 16);
-        if (page == psg_page)
-            psg_xram_write((uint8_t)pix, val);
-        if (page == opl_page)
-            opl_push((uint8_t)pix, val);
+        if (addr - psg_at < PSG_REGS_SIZE)
+            psg_xram_write((uint16_t)addr, val);
+        if (addr - opl_at < 256)
+            opl_push((uint8_t)(addr - opl_at), val);
     }
     ria_aud.tail = tail;
 }
 
-/* The blocks the mapped engines are written through: the PSG's channel
- * block, which can straddle two, and the OPL2's page of four. */
+/* The bytes the mapped engines are written through, for act_loop to queue. */
 static void aud_watch(void)
 {
-    uint32_t watch[32] = {0};
     const uint16_t psg = psg_xaddr_get();
-    if (psg != 0xFFFF)
-        for (unsigned b = psg >> 6; b <= (unsigned)(psg + PSG_REGS_SIZE - 1) >> 6; b++)
-            watch[b >> 5] |= 1u << (b & 31);
     const uint16_t opl = opl_xaddr_get();
-    if (opl != 0xFFFF)
-        watch[opl >> 11] |= 0xFu << ((opl >> 6) & 31);
-    for (int i = 0; i < 32; i++)
-        ria_aud_watch[i] = watch[i];
+    ria_aud.psg_at = psg == 0xFFFF ? 0x10000 : psg;
+    ria_aud.opl_at = opl == 0xFFFF ? 0x10000 : opl;
 }
 
 /* The PCM: device's sound. pcm_put on the main loop and the interrupt's
@@ -361,22 +353,34 @@ void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
 
 /* The block is copied after aud_watch, so a write that lands during the
  * copy is also queued, and the drain applies it after. */
+static void aud_psg_copy(void)
+{
+    const uint16_t psg = psg_xaddr_get();
+    if (psg != 0xFFFF)
+        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
+            psg_reg_put(i, xram[psg + i]);
+}
+
 void aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
     aud_watch();
-    if (word != 0xFFFF)
-        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
-            psg_reg_put(i, xram[word + i]);
+    aud_psg_copy();
     aud_engine_unlock();
 }
 
+/* opl_xreg has cleared its 256 bytes by now, and any of the PSG's block
+ * among them. */
 void aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
     opl_map(word);
     aud_watch();
+    const uint16_t psg = psg_xaddr_get();
+    if (word != 0xFFFF && psg != 0xFFFF &&
+        psg < (uint32_t)word + 256 && word < (uint32_t)psg + PSG_REGS_SIZE)
+        aud_psg_copy();
     aud_engine_unlock();
 }
 

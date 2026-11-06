@@ -335,7 +335,7 @@ UTEST(psg, lockstep_bit_exact)
     ASSERT_TRUE(psg_xreg(base));
     run_lockstep(utest_result, 600);
 
-    ASSERT_FALSE(psg_xreg(0x80F2)); /* the block crosses into page 0x81 */
+    ASSERT_FALSE(psg_xreg(0xFFC1)); /* the block runs past the end of XRAM */
     rtl_xaddr(0xFFFF);
     ASSERT_TRUE(psg_xreg(0xFFFF));
     rtl_xaddr(0xFFFF);
