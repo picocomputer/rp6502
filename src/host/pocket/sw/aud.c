@@ -105,7 +105,7 @@ uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
  * at zero. */
 bool psg_xreg(uint16_t word)
 {
-    const bool ok = word <= 0x10000 - 64;
+    const bool ok = psg_block_ok(word);
     aud_psg_point(ok ? word : 0xFFFF);
     return ok || word == 0xFFFF;
 }
@@ -113,7 +113,7 @@ bool psg_xreg(uint16_t word)
 /* The OPL holds writes in its queue while it clears its registers. */
 bool opl_xreg(uint16_t word)
 {
-    const bool ok = word <= 0x10000 - 256;
+    const bool ok = opl_block_ok(word);
     AUD_OPL_XADDR = ok ? word : 0xFFFF;
     return ok || word == 0xFFFF;
 }

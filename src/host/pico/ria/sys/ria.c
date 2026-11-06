@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
@@ -379,7 +381,7 @@ ria_aud_ring_t ria_aud = {.psg_at = 0x10000, .opl_at = 0x10000};
  * be written before the head that publishes it. */
 static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint32_t pix)
 {
-    if (addr - ria_aud.psg_at >= 64 && addr - ria_aud.opl_at >= 256)
+    if (addr - ria_aud.psg_at >= PSG_REGS_SIZE && addr - ria_aud.opl_at >= OPL_REGS_SIZE)
         return;
     uint8_t next = (ria_aud.head + 1) & (RIA_AUD_RING_SIZE - 1);
     if (next == ria_aud.tail)

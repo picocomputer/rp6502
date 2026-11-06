@@ -84,12 +84,6 @@ struct psg_channel
 
 _Static_assert(PSG_CHANNELS * sizeof(struct psg_channel) == PSG_REGS_SIZE, "the block psg_sample reads");
 
-/* A block may start anywhere it ends inside XRAM. */
-static bool psg_block_ok(uint16_t word)
-{
-    return word <= 0x10000 - PSG_REGS_SIZE;
-}
-
 /* The noise words are sixteen bits: an XOR and an add carry only upward,
  * and only noise2's low half is played. */
 static struct

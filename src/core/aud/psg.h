@@ -15,6 +15,12 @@
 /* The channel block: eight channels of eight bytes. */
 #define PSG_REGS_SIZE 64
 
+/* A block may start anywhere it ends inside XRAM. */
+static inline bool psg_block_ok(uint16_t word)
+{
+    return word <= 0x10000 - PSG_REGS_SIZE;
+}
+
 /* One stereo sample from the engine's channel structures, the bell's
  * included, and the engine advanced by one. The phase and envelope steps
  * are derived from AUD_NATIVE_RATE, so a mixer has to call this once per

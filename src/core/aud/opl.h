@@ -27,6 +27,15 @@
 
 #define OPL_QUEUE_SIZE 256
 
+/* The 256 bytes whose byte n is register n. */
+#define OPL_REGS_SIZE 256
+
+/* A block may start anywhere it ends inside XRAM. */
+static inline bool opl_block_ok(uint16_t word)
+{
+    return word <= 0x10000 - OPL_REGS_SIZE;
+}
+
 /* Entries are reg | val << 8, the oldest at head. */
 typedef struct
 {

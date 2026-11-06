@@ -768,7 +768,7 @@ UTEST(opl, sst_refuses_out_of_range)
         uint32_t val;
         const char *what;
     } bad[] = {
-        {0, 2, false, 0x4080, "a pointer inside a page"},
+        {0, 2, false, 0xFF01, "a block past the end of XRAM"},
         {SST_SLOT(3, 0), 4, true, 1, "a phase with bits below its 19"},
         {SST_SLOT(3, 4), 2, false, 0x200, "a 10-bit level"},
         {SST_SLOT(3, 6), 1, false, 4, "a fifth envelope state"},
@@ -833,6 +833,16 @@ UTEST(opl, sst_refuses_out_of_range)
         put_be(blob + SST_QUEUE + 2 + 2 * k, 2, 0x2040);
     put_be(blob + SST_QUEUE, 2, OPL_QUEUE_SIZE + 1);
     ASSERT_OK(refuses("more writes than the queue holds"));
+
+    /* A block may start anywhere it ends inside XRAM. */
+    for (unsigned at = 0x4001; at <= 0xFF00; at += 0xBEFF)
+    {
+        memcpy(blob, good, sizeof good);
+        put_be(blob, 2, at);
+        opl_reset();
+        EXPECT_TRUE_MSG(load(OPL_SST_SIZE), "an unaligned block refused");
+        ASSERT_EQ(opl_xaddr_get(), (uint16_t)at);
+    }
 
     memcpy(blob, good, sizeof good);
     opl_reset();

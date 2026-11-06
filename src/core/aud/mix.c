@@ -483,7 +483,7 @@ void aud_xram_write(uint16_t addr, uint8_t val)
     if (aud_psg_at != 0xFFFF && (uint16_t)(addr - aud_psg_at) < PSG_REGS_SIZE)
         kind |= AUD_EV_PSG;
     const uint8_t reg = (uint8_t)(addr - aud_opl_at);
-    const bool to_opl = aud_opl_at != 0xFFFF && (uint16_t)(addr - aud_opl_at) < 256 &&
+    const bool to_opl = aud_opl_at != 0xFFFF && (uint16_t)(addr - aud_opl_at) < OPL_REGS_SIZE &&
                         opl_is_reg(reg);
     if (!kind && !to_opl)
         return;

@@ -113,7 +113,7 @@ __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void
         const uint8_t val = (uint8_t)(pix >> 16);
         if (addr - psg_at < PSG_REGS_SIZE)
             psg_xram_write((uint16_t)addr, val);
-        if (addr - opl_at < 256)
+        if (addr - opl_at < OPL_REGS_SIZE)
             opl_push((uint8_t)(addr - opl_at), val);
     }
     ria_aud.tail = tail;

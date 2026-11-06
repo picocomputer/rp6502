@@ -1014,7 +1014,7 @@ void opl_map(uint16_t word)
  * byte n of them. */
 bool opl_xreg(uint16_t word)
 {
-    const bool map = word <= 0x10000 - 256;
+    const bool map = opl_block_ok(word);
     aud_opl_map(map ? word : 0xFFFF);
     return map || word == 0xFFFF;
 }
@@ -1106,7 +1106,7 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
     const uint16_t at = sst_get_u16(c);
     memset(&opl_chip, 0, sizeof opl_chip);
     memset(&opl_queue, 0, sizeof opl_queue);
-    bool ok = at == 0xFFFF || !(at & 0x00FF);
+    bool ok = at == 0xFFFF || opl_block_ok(at);
     for (int i = 0; i < 18; i++)
     {
         opl_slot_t *s = &opl_chip.sl[i];
