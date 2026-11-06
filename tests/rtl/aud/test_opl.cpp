@@ -118,17 +118,19 @@ static uint32_t rnd()
 }
 static int rr(int lo, int hi) { return lo + (int)(rnd() % (uint32_t)(hi - lo + 1)); }
 
-/* A script's pushes on page, mapped before sample 0, with the drops read
- * every 1000 samples and at the end. */
+/* A script's pushes to 256 bytes starting at page * 257, so that only
+ * page 0 starts a page, mapped before sample 0, with the drops read every
+ * 1000 samples and at the end. */
 static void ev_script(const opl_script_t *s, uint8_t page)
 {
+    const uint16_t at = (uint16_t)(page << 8 | page);
     evs.clear();
-    ev_map(0, (uint16_t)(page << 8));
+    ev_map(0, at);
     size_t i = 0;
     for (uint32_t n = 0; n < s->samples; n++)
     {
         for (; i < s->count && s->w[i].n == n; i++)
-            ev_write(n, (uint16_t)(page << 8 | s->w[i].reg), s->w[i].val);
+            ev_write(n, (uint16_t)(at + s->w[i].reg), s->w[i].val);
         if (n % 1000 == 999 || n + 1 == s->samples)
             ev_drops(n);
     }
@@ -153,8 +155,8 @@ static const char *inject(const opl_ev &e, uint16_t *at, uint32_t n)
         dut->q_we = 1;
         dut->q_addr = e.word;
         dut->q_val = e.val;
-        if (*at != 0xFFFF && (e.word >> 8) == (*at >> 8))
-            opl_xram_write((uint8_t)e.word, e.val);
+        if (*at != 0xFFFF && (uint16_t)(e.word - *at) < 256)
+            opl_xram_write((uint8_t)(e.word - *at), e.val);
     }
     else if (e.kind == EV_MAP)
     {

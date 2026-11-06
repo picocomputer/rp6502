@@ -100,8 +100,7 @@ static void aud_replay(uint16_t at, uint16_t len)
 
 bool psg_xreg(uint16_t word)
 {
-    if (word & 0x0001 || word > 0x10000 - 64 ||
-        ((word >> 8) != ((word + 63) >> 8)))
+    if (word > 0x10000 - 64)
     {
         AUD_PSG_XADDR = 0xFFFF;
         return word == 0xFFFF;
@@ -115,7 +114,7 @@ bool psg_xreg(uint16_t word)
 
 bool opl_xreg(uint16_t word)
 {
-    if (word & 0x00FF)
+    if (word > 0x10000 - 256)
     {
         AUD_OPL_XADDR = 0xFFFF;
         return word == 0xFFFF;

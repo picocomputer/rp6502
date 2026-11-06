@@ -8,7 +8,7 @@
  * algorithm of core/aud/opl.md section 10 one slot at a time, every field
  * read from the register file, so nothing is cached.
  *
- * Writes on the page wait in a queue of 256 and apply in order, at most one
+ * Writes to the 256 bytes wait in a queue of 256 and apply in order, at most one
  * before a sample, at the chip's pace (opl.md 7.8). A pointer write empties
  * the queue at once, and the next pop resets the engine instead.
  *
@@ -105,7 +105,8 @@ module opl
 
     /* ---------------- pointer and queue ---------------- */
 
-    logic [7:0] page /*verilator public_flat_rd*/;
+    /* Where the 256 bytes start; register n is byte n of them. */
+    logic [15:0] xaddr /*verilator public_flat_rd*/;
     logic enabled /*verilator public_flat_rd*/;
     always_comb opl_enabled = enabled;
 
@@ -127,11 +128,12 @@ module opl
     logic [8:0] q_count /*verilator public_flat_rd*/;
     logic q_take /*verilator public_flat_rd*/;
     logic snoop;
+    logic [15:0] q_off;
     logic q_push /*verilator public_flat_rd*/;
     logic q_drop /*verilator public_flat_rd*/;
     always_comb begin
-        snoop = q_we && enabled && q_addr[15:8] == page
-            && is_reg(q_addr[7:0]);
+        q_off = q_addr - xaddr;
+        snoop = q_we && enabled && q_off[15:8] == 8'd0 && is_reg(q_off[7:0]);
         q_push = snoop && !q_count[8];
         q_drop = snoop && q_count[8];
     end
@@ -140,14 +142,14 @@ module opl
     always_comb qa_a = sst_own ? sst_addr[7:0] : q_tail;
     always_ff @(posedge clk_a) begin
         if (sst_own ? sst_we && sel_q : q_push)
-            queue[qa_a] <= sst_own ? sst_wdata[15:0] : {q_val, q_addr[7:0]};
+            queue[qa_a] <= sst_own ? sst_wdata[15:0] : {q_val, q_off[7:0]};
         qa_q <= queue[qa_a];
     end
     always_ff @(posedge clk)
         q_rd <= queue[q_head];
 
     initial begin
-        page = 8'd0;
+        xaddr = 16'd0;
         enabled = 1'b0;
         q_head = '0;
         q_tail = '0;
@@ -158,7 +160,7 @@ module opl
     end
     always_ff @(posedge clk) begin
         if (xaddr_we) begin
-            page <= xaddr_wdata[15:8];
+            xaddr <= xaddr_wdata;
             enabled <= xaddr_wdata != 16'hFFFF;
             q_head <= '0;
             q_tail <= '0;
@@ -177,9 +179,10 @@ module opl
         end
         if (sst_st_we && sel_st)
             case (st_k)
-                3'd0: {enabled, q_tail, q_head, page} <= sst_wdata[24:0];
+                3'd0: {enabled, q_tail, q_head, xaddr[15:8]} <= sst_wdata[24:0];
                 3'd1: opl_drops <= sst_wdata[30:0];
                 3'd2: q_count <= sst_wdata[8:0];
+                3'd7: xaddr[7:0] <= sst_wdata[7:0];
                 default: ;
             endcase
     end
@@ -1025,7 +1028,7 @@ module opl
     always_comb begin
         case (st_k)
             3'd0: st_rd = {2'd0, rst_pend, credit, enabled, q_tail, q_head,
-                           page};
+                           xaddr[15:8]};
             3'd1: st_rd = {1'b0, opl_drops};
             3'd2: st_rd = {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
                            test7, wse, test3, lag, q_count};
@@ -1033,6 +1036,9 @@ module opl
             3'd4: st_rd = {6'd0, eglow, egshift, sub, egc, egt};
             3'd5: st_rd = {9'd0, noise};
             3'd6: st_rd = {2'd0, held1617, held15};
+            /* The start's low byte, zero in a blob from when it started a
+             * page. */
+            3'd7: st_rd = {24'd0, xaddr[7:0]};
             default: st_rd = '0;
         endcase
         opl_sst_rdata = sel_q ? {16'd0, qa_q}

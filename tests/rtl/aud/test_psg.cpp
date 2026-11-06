@@ -335,6 +335,25 @@ UTEST(psg, lockstep_bit_exact)
     ASSERT_TRUE(psg_xreg(base));
     run_lockstep(utest_result, 600);
 
+    /* A block may start anywhere: here at an odd address, across a page. */
+    const uint16_t base3 = 0x80E1;
+    config(base3, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);
+    config(base3, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);
+    config(base3, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);
+    config(base3, 3, 431, 255, 0x93, 0x71, 0x39, 0x7E);
+    config(base3, 4, 9999, 180, 0x05, 0x55, 0x44, 0x81);
+    config(base3, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);
+    config(base3, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);
+    config(base3, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);
+    ASSERT_TRUE(psg_xreg(base3));
+    rtl_xaddr(base3);
+    for (int ch = 0; ch < 8; ch++)
+        xram_write((uint16_t)(base3 + ch * 8 + 6), 0x01);
+    run_lockstep(utest_result, 1200);
+    for (int ch = 0; ch < 8; ch++)
+        xram_write((uint16_t)(base3 + ch * 8 + 6), 0x00);
+    run_lockstep(utest_result, 600);
+
     ASSERT_FALSE(psg_xreg(0xFFC1)); /* the block runs past the end of XRAM */
     rtl_xaddr(0xFFFF);
     ASSERT_TRUE(psg_xreg(0xFFFF));

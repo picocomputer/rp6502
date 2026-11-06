@@ -158,17 +158,14 @@ module psg
      * lands, which is a second write port. */
     logic [1:0] ch_adsr[9] /*verilator public_flat_rd*/;
 
-    /* Software rejects an odd pointer and a block crossing its page, so
-     * the offset is taken within the page: a write under the base wraps
-     * past sixty-four and is not a write to the structure. */
-    logic snoop;
-    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
-    logic [7:0] snoop_off;
-    always_comb snoop_off = q_addr[7:0] - xaddr[7:0];
+    /* The block may start anywhere, so a write is the structure's when its
+     * offset from the start is under sixty-four. */
+    logic [15:0] snoop_off;
+    always_comb snoop_off = q_addr - xaddr;
     logic [2:0] snoop_ch;
     always_comb snoop_ch = snoop_off[5:3];
     logic snoop_cfg;
-    always_comb snoop_cfg = snoop && snoop_off[7:6] == 2'd0;
+    always_comb snoop_cfg = q_we && enabled && snoop_off[15:6] == 10'd0;
     /* A gate is an edge, and only the 6502 makes one. */
     logic snoop_gate;
     always_comb snoop_gate = snoop_cfg && q_host && snoop_off[2:0] == 3'd6;

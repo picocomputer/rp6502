@@ -37,7 +37,7 @@ static std::vector<int> arrays()
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x780; a < 0x787; a++)
+    for (int a = 0x780; a < 0x788; a++)
         v.push_back(a);
     return v;
 }
@@ -501,7 +501,7 @@ UTEST(opl_sst, every_saved_item_matters)
 {
     for (int skip = 0; skip < SKIP_ARRAY + 4; skip++)
     {
-        if (skip == 7)
+        if (skip == 8)
             skip = SKIP_ARRAY;
         Case c;
         c.seed = 21;

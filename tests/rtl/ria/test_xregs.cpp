@@ -37,7 +37,7 @@ UTEST(xregs, the_program_reaches_the_devices)
      * and the two sound together. */
     ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0x8000);
     ASSERT_TRUE(dut->rootp->wiring__DOT__opl__DOT__enabled);
-    ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__page, 0xF0);
+    ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__xaddr, 0xF000);
 
     /* The scanline program's arrays are indexed by line * 4 + plane. Mode 3
      * is set on plane 0 over the whole of canvas 1, which is 240 lines tall,
