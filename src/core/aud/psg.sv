@@ -166,7 +166,10 @@ module psg
      *
      * Initialized rather than reset, which is what lets them be memory at
      * all. The gate stays flops: the snoop writes it at whatever index
-     * and clock the 6502 chose, which is a second write port. */
+     * and clock the 6502 chose, which is a second write port.
+     *
+     * The noise words are the low halves of psg.c's. An XOR and an add
+     * carry only upward, and only noise2's low half is played. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] ch_sample[9];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -174,9 +177,9 @@ module psg
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [31:0] ch_phase[9];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] ch_noise1[9];
+    logic [15:0] ch_noise1[9];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] ch_noise2[9];
+    logic [15:0] ch_noise2[9];
     initial begin
         for (int i = 0; i < 9; i++) begin
             ch_sample[i] = '0;
@@ -239,7 +242,8 @@ module psg
     end
     logic signed [15:0] rd_smp;
     logic [VOL_W-1:0] rd_vol;
-    logic [31:0] rd_ph, rd_n1, rd_n2;
+    logic [31:0] rd_ph;
+    logic [15:0] rd_n1, rd_n2;
     always_comb begin
         rd_smp = ch_sample[cr_a];
         rd_vol = ch_vol[cr_a];
@@ -260,7 +264,8 @@ module psg
 
     /* The address is registered rather than retaken from the cursor: two
      * addresses is a dual port and a dual port is an MLAB. */
-    logic [31:0] w_phase, w_noise1, w_noise2;
+    logic [31:0] w_phase;
+    logic [15:0] w_noise1, w_noise2;
     logic [31:0] w_inc;
     logic [VOL_W-1:0] w_vol;
     logic [3:0] w_ch;
@@ -416,15 +421,14 @@ module psg
             4'd2: wave = past_duty ? -16'sd32767 : saw;
             4'd3: wave = off_window ? -16'sd32767
                 : ph[7] ? tri_down : tri_up;
-            4'd4: wave = past_duty ? -16'sd32767
-                : $signed(w_noise2[15:0]);
+            4'd4: wave = past_duty ? -16'sd32767 : $signed(w_noise2);
             default: wave = 16'sd0;
         endcase
     end
 
     logic noise_step;
     always_comb noise_step = cf_wr[7:4] == 4'd4 && !past_duty;
-    logic [31:0] noise1_x;
+    logic [15:0] noise1_x;
     always_comb noise1_x = w_noise1 ^ w_noise2;
 
     logic [VOL_W-1:0] vol_peak, vol_sus;
@@ -500,10 +504,10 @@ module psg
         if (sw_e[2])
             ch_phase[cw_a] <= sst_own ? sst_wdata : w_phase;
         if (sw_e[3])
-            ch_noise1[cw_a] <= sst_own ? sst_wdata
+            ch_noise1[cw_a] <= sst_own ? sst_wdata[15:0]
                 : noise_step ? noise1_x : w_noise1;
         if (sw_e[4])
-            ch_noise2[cw_a] <= sst_own ? sst_wdata
+            ch_noise2[cw_a] <= sst_own ? sst_wdata[15:0]
                 : noise_step ? w_noise2 + noise1_x : w_noise2;
         if (cw_e) begin
             case (cw_k)
@@ -612,8 +616,8 @@ module psg
                 w_ch <= ch;
                 w_phase <= rd_ph;
                 w_vol <= ld_vol;
-                w_noise1 <= clr && !ch[3] ? 32'h67452301 : rd_n1;
-                w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : rd_n2;
+                w_noise1 <= clr && !ch[3] ? 16'h2301 : rd_n1;
+                w_noise2 <= clr && !ch[3] ? 16'hAB89 : rd_n2;
                 w_inc <= 32'(inc_prod[56:PHASE_SHIFT]);
                 state <= P_PH;
             end
@@ -702,8 +706,8 @@ module psg
             3'd0: v_rd = {16'd0, rd_smp};
             3'd1: v_rd = 32'(rd_vol);
             3'd2: v_rd = rd_ph;
-            3'd3: v_rd = rd_n1;
-            3'd4: v_rd = rd_n2;
+            3'd3: v_rd = {16'd0, rd_n1};
+            3'd4: v_rd = {16'd0, rd_n2};
             default: v_rd = '0;
         endcase
         psg_sst_rdata = sel_cfg ? {24'd0, cfg_raw[{sst_addr[2:0], 3'd0}+:8]}
