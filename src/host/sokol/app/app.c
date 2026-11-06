@@ -250,9 +250,13 @@ void app_frame(void)
     update_title();
     /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
      * the halt it shows is not a program exiting and must not close the
-     * window. */
+     * window. The frame that saw the exit drew the lines above the beam
+     * before the program's last writes, so one more frame is drawn after it
+     * to be the last picture presented. */
     if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
     {
+        vga_run_frame();
+        ran_frame = true;
         app_quit_asked = true;
         sapp_request_quit();
     }
