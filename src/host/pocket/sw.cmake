@@ -31,7 +31,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/trap.c ${RP6502_SW_TTY} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${RP6502_SRC}/core/aud/pcm.c
-        ${SW_SRC}/bel.c
+        ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c

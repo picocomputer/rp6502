@@ -5,8 +5,7 @@ rp6502_add_module_test(psg
     TOP psg
     RTL ${AUD_SINE_PKG} ${RP6502_SRC}/core/aud/psg.sv
     SOURCES test_psg.cpp psg_shim.c
-        ${RP6502_SRC}/core/aud/psg.c ${RP6502_SRC}/core/aud/bel.c
-        ${RP6502_SRC}/core/aud/bel_presets.c
+        ${RP6502_SRC}/core/aud/psg.c
     INCLUDES ${AUD_SHIM_INCLUDES}
     DEFS AUD_NATIVE_RATE=48000
     DEPENDS aud_sine_rom aud_sine_tables

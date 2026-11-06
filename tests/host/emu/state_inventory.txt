@@ -22,10 +22,13 @@ core/api/std.c std_stdin_closed: not carried: the host re-asserts it
 core/api/std.c std_xram_addr: the STD chunk
 core/api/std.c std_xram_len: the STD chunk
 core/api/xreg1.c xregs: the XREG chunk
+core/aud/bel.c bel_active: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_end_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_head: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_release_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_restrike_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_tail: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/mix.c aud_anchored: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_busy: not carried: a lock, free between frames
 core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
@@ -52,7 +55,6 @@ core/aud/mix.c aud_pcm_r: not carried: what the PCM: device's last step made, ma
 core/aud/mix.c aud_pm: rebuilt on load from the STD chunk's reopen and the AUD chunk's PCM: device
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
-core/aud/mix.c aud_psg_regs: not carried: rebuilt from the XRAM chunk on load
 core/aud/mix.c aud_rs_l: the AUD chunk
 core/aud/mix.c aud_rs_r: the AUD chunk
 core/aud/mix.c aud_sink_rate: not carried: what the host's device answered
@@ -67,6 +69,7 @@ core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
 core/aud/pcm.c pcm_fmt: the STD chunk; the descriptor's ident carries it and its reopen sets it
 core/aud/psg.c psg_channel_state: the PSG chunk
+core/aud/psg.c psg_regs: the bell's row in the PSG chunk; the program's eight rebuilt from the XRAM chunk on load
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
 core/aud/sine.c sine_pan: derived; sine_init builds it and nothing writes it after

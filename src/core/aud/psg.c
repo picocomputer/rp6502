@@ -12,6 +12,9 @@
 #include <string.h>
 
 #define PSG_CHANNELS 8
+/* The eight and the bell, which is the ninth voice here as in psg.sv. */
+#define PSG_VOICES 9
+#define PSG_BEL 8
 
 /* Full scale of a generated wave, and the value a closed duty gate rails
  * to. The rail is -PSG_PEAK rather than the true minimum, so that it is
@@ -91,27 +94,50 @@ static bool psg_block_ok(uint16_t word)
            (word >> 8) == ((word + PSG_REGS_SIZE - 1) >> 8);
 }
 
+/* The noise words are sixteen bits: an XOR and an add carry only upward,
+ * and only noise2's low half is played. */
 static struct
 {
     int16_t sample;
     uint8_t adsr;
     uint32_t vol;
     uint32_t phase;
-    uint32_t noise1;
-    uint32_t noise2;
+    uint16_t noise1;
+    uint16_t noise2;
     /* The last frequency this channel was written and the increment it
      * comes to. The step loop works it out only when the register has
      * changed. Zero and zero is a correct pair, so no validity flag is
      * needed. */
     uint16_t freq;
     uint32_t phase_inc;
-} psg_channel_state[PSG_CHANNELS];
+} psg_channel_state[PSG_VOICES] = {
+    /* Nothing clears the bell's noise, so it starts seeded. */
+    [PSG_BEL] = {.noise1 = 0x2301, .noise2 = 0xAB89},
+};
+
+/* The engine's own channel structures, as psg.sv's are: the program's
+ * eight, which a map copies from XRAM and every write to the block reaches
+ * through psg_xram_write, then the bell's, which its sequencer writes
+ * through aud_bel_put. */
+static struct psg_channel psg_regs[PSG_VOICES];
+
+/* A silent bell with no frequency and no noise steps to the same state
+ * every sample, so the mix skips it. psg.sv's walk steps it anyway, to the
+ * same end. */
+bool psg_bel_idle(void)
+{
+    return psg_channel_state[PSG_BEL].adsr == release &&
+           !psg_channel_state[PSG_BEL].vol && !psg_regs[PSG_BEL].freq &&
+           (psg_regs[PSG_BEL].wave_release >> 4) != 4;
+}
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-void psg_sample(const void *regs, int16_t *left, int16_t *right)
+void psg_sample(int16_t *left, int16_t *right)
 {
-    const struct psg_channel *channels = regs;
+    /* The eight while a program maps them, then the bell while it sounds. */
+    const unsigned lo = psg_xaddr != 0xFFFF ? 0 : PSG_BEL;
+    const unsigned hi = psg_bel_idle() ? PSG_BEL : PSG_VOICES;
 
     /* The mix comes first, from the wave and envelope the last step left
      * and the registers as they stand now; the step comes after. That is
@@ -124,13 +150,14 @@ void psg_sample(const void *regs, int16_t *left, int16_t *right)
      * 256 << 16, so a shift of twelve makes full volume unity gain. */
     int32_t acc_l = 0;
     int32_t acc_r = 0;
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = lo; i < hi; i++)
     {
+        const struct psg_channel *ch = &psg_regs[i];
         int32_t sample = ((int32_t)psg_channel_state[i].sample
                               * (int32_t)(psg_channel_state[i].vol >> 12)
                           + (1 << 11))
                          >> 12;
-        int8_t pan = (int8_t)channels[i].pan_gate / 2;
+        int8_t pan = (int8_t)ch->pan_gate / 2;
         /* A pan_gate of 0x80 halves to -64, one past the documented
          * -63 to 63, and drops the channel from the mix. psg.sv reads
          * zero weights for the same value. */
@@ -155,17 +182,18 @@ void psg_sample(const void *regs, int16_t *left, int16_t *right)
     *left = (int16_t)acc_l;
     *right = (int16_t)acc_r;
 
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = lo; i < hi; i++)
     {
-        if (channels[i].freq != psg_channel_state[i].freq)
+        const struct psg_channel *ch = &psg_regs[i];
+        if (ch->freq != psg_channel_state[i].freq)
         {
-            psg_channel_state[i].freq = channels[i].freq;
-            psg_channel_state[i].phase_inc = aud_phase_inc(channels[i].freq);
+            psg_channel_state[i].freq = ch->freq;
+            psg_channel_state[i].phase_inc = aud_phase_inc(ch->freq);
         }
         psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
         uint32_t phase = psg_channel_state[i].phase >> 24;
-        uint32_t duty = channels[i].duty;
-        switch (channels[i].wave_release >> 4)
+        uint32_t duty = ch->duty;
+        switch (ch->wave_release >> 4)
         {
         case 0: // sine
             duty >>= 1;
@@ -217,52 +245,71 @@ void psg_sample(const void *regs, int16_t *left, int16_t *right)
         switch (psg_channel_state[i].adsr)
         {
         case attack:
-            psg_channel_state[i].vol += psg_attack_table[channels[i].vol_attack & 0xF];
-            if (psg_channel_state[i].vol >= psg_vol_table[channels[i].vol_attack >> 4])
+            psg_channel_state[i].vol += psg_attack_table[ch->vol_attack & 0xF];
+            if (psg_channel_state[i].vol >= psg_vol_table[ch->vol_attack >> 4])
             {
-                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_attack >> 4];
+                psg_channel_state[i].vol = psg_vol_table[ch->vol_attack >> 4];
                 psg_channel_state[i].adsr = decay;
             }
             break;
         case decay:
-            if (psg_channel_state[i].vol <= psg_decay_release_table[channels[i].vol_decay & 0xF])
+            if (psg_channel_state[i].vol <= psg_decay_release_table[ch->vol_decay & 0xF])
                 psg_channel_state[i].vol = 0;
             else
-                psg_channel_state[i].vol -= psg_decay_release_table[channels[i].vol_decay & 0xF];
-            if (psg_channel_state[i].vol > psg_vol_table[channels[i].vol_decay >> 4])
+                psg_channel_state[i].vol -= psg_decay_release_table[ch->vol_decay & 0xF];
+            if (psg_channel_state[i].vol > psg_vol_table[ch->vol_decay >> 4])
                 break;
             psg_channel_state[i].adsr = sustain;
             __attribute__((fallthrough));
         case sustain:
-            if (psg_vol_table[channels[i].vol_decay >> 4] <= psg_vol_table[channels[i].vol_attack >> 4])
-                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_decay >> 4];
+            if (psg_vol_table[ch->vol_decay >> 4] <= psg_vol_table[ch->vol_attack >> 4])
+                psg_channel_state[i].vol = psg_vol_table[ch->vol_decay >> 4];
             break;
         case release:
-            if (psg_channel_state[i].vol <= psg_decay_release_table[channels[i].wave_release & 0xF])
+            if (psg_channel_state[i].vol <= psg_decay_release_table[ch->wave_release & 0xF])
                 psg_channel_state[i].vol = 0;
             else
-                psg_channel_state[i].vol -= psg_decay_release_table[channels[i].wave_release & 0xF];
+                psg_channel_state[i].vol -= psg_decay_release_table[ch->wave_release & 0xF];
             break;
         }
     }
 }
 
 /* Only the gate bit of pan_gate has to be caught as it happens, because it
- * starts and releases a note; every other byte is read from XRAM by the mix,
- * where a change simply takes effect on the next sample. */
-void psg_xram_write(uint8_t loc, uint8_t val)
+ * starts and releases a note; every other byte lands in the structure and
+ * takes effect on the next sample. */
+static void psg_gate(unsigned i, uint8_t val)
 {
-    uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
-    uint16_t offset = xaddr - psg_xaddr;
-    if ((offset % sizeof(struct psg_channel)) != offsetof(struct psg_channel, pan_gate))
-        return;
-    unsigned i = offset / sizeof(struct psg_channel);
-    if (i >= PSG_CHANNELS)
-        return;
     if (!(val & 0x01) && psg_channel_state[i].adsr != release)
         psg_channel_state[i].adsr = release;
     if ((val & 0x01) && psg_channel_state[i].adsr == release)
         psg_channel_state[i].adsr = attack;
+}
+
+void psg_reg_put(uint8_t i, uint8_t val)
+{
+    if (i < PSG_REGS_SIZE)
+        ((uint8_t *)psg_regs)[i] = val;
+}
+
+void psg_xram_write(uint8_t loc, uint8_t val)
+{
+    uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
+    uint16_t offset = xaddr - psg_xaddr;
+    if (offset >= PSG_REGS_SIZE)
+        return;
+    ((uint8_t *)psg_regs)[offset] = val;
+    if ((offset % sizeof(struct psg_channel)) == offsetof(struct psg_channel, pan_gate))
+        psg_gate(offset / sizeof(struct psg_channel), val);
+}
+
+/* As a 6502 write does a program voice's, a write of the gate byte strikes
+ * or releases the bell. */
+void psg_bel_put(unsigned i, uint8_t val)
+{
+    ((uint8_t *)&psg_regs[PSG_BEL])[i] = val;
+    if (i == offsetof(struct psg_channel, pan_gate))
+        psg_gate(PSG_BEL, val);
 }
 #pragma GCC pop_options
 
@@ -274,42 +321,49 @@ void psg_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put_u16(c, psg_xaddr);
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = 0; i < PSG_VOICES; i++)
     {
         sst_put_u16(c, (uint16_t)psg_channel_state[i].sample);
         sst_put_u8(c, psg_channel_state[i].adsr);
         sst_put_u32(c, psg_channel_state[i].vol);
         sst_put_u32(c, psg_channel_state[i].phase);
-        sst_put_u32(c, psg_channel_state[i].noise1);
-        sst_put_u32(c, psg_channel_state[i].noise2);
+        sst_put_u16(c, psg_channel_state[i].noise1);
+        sst_put_u16(c, psg_channel_state[i].noise2);
         sst_put_u16(c, psg_channel_state[i].freq);
         sst_put_u32(c, psg_channel_state[i].phase_inc);
     }
+    for (unsigned i = 0; i < offsetof(struct psg_channel, unused); i++)
+        sst_put_u8(c, ((const uint8_t *)&psg_regs[PSG_BEL])[i]);
 }
 
 bool psg_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     uint16_t at = sst_get_u16(c);
-    __typeof__(psg_channel_state[0]) ch[PSG_CHANNELS];
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    __typeof__(psg_channel_state[0]) ch[PSG_VOICES];
+    for (unsigned i = 0; i < PSG_VOICES; i++)
     {
         ch[i].sample = (int16_t)sst_get_u16(c);
         ch[i].adsr = sst_get_u8(c);
         ch[i].vol = sst_get_u32(c);
         ch[i].phase = sst_get_u32(c);
-        ch[i].noise1 = sst_get_u32(c);
-        ch[i].noise2 = sst_get_u32(c);
+        ch[i].noise1 = sst_get_u16(c);
+        ch[i].noise2 = sst_get_u16(c);
         ch[i].freq = sst_get_u16(c);
         ch[i].phase_inc = sst_get_u32(c);
         if (ch[i].adsr > sustain)
             return false;
     }
+    uint8_t bel[offsetof(struct psg_channel, unused)];
+    for (unsigned i = 0; i < sizeof bel; i++)
+        bel[i] = sst_get_u8(c);
     if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
         return false;
     psg_xaddr = at;
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = 0; i < PSG_VOICES; i++)
         psg_channel_state[i] = ch[i];
+    for (unsigned i = 0; i < sizeof bel; i++)
+        ((uint8_t *)&psg_regs[PSG_BEL])[i] = bel[i];
     return true;
 }
 
@@ -317,16 +371,18 @@ void psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
      * inherits the last one's envelopes. psg.sv does the same: it resets
-     * on any write to its pointer register, 0xFFFF included.
+     * on any write to its pointer register, 0xFFFF included. The phase goes
+     * too, because psg.sv steps the eight while parked and this does not.
      *
-     * The noise generator's starting constants come from
+     * The noise generator's starting constants are the low halves of
      * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
      */
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        psg_channel_state[i].noise1 = 0x67452301;
-        psg_channel_state[i].noise2 = 0xEFCDAB89;
+        psg_channel_state[i].noise1 = 0x2301;
+        psg_channel_state[i].noise2 = 0xAB89;
         psg_channel_state[i].vol = 0;
+        psg_channel_state[i].phase = 0;
         psg_channel_state[i].adsr = release;
         psg_channel_state[i].freq = 0;
         psg_channel_state[i].phase_inc = 0;

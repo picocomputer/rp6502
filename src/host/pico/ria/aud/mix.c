@@ -220,13 +220,12 @@ static void __isr __time_critical_func(aud_irq)(void)
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     aud_drain();
-    int32_t sl = bel_sample();
-    int32_t sr = sl;
+    int32_t sl = 0, sr = 0;
     int16_t l, r;
     const uint16_t psg = psg_xaddr_get();
-    if (psg != 0xFFFF)
+    if (psg != 0xFFFF || !psg_bel_idle())
     {
-        psg_sample((const void *)&xram[psg], &l, &r);
+        psg_sample(&l, &r);
         sl += l, sr += r;
     }
     if (opl_xaddr_get() != 0xFFFF)
@@ -311,6 +310,13 @@ void __in_flash("aud_init") aud_init(void)
     pio_enable_sm_mask_in_sync(AUD_PIO, (1u << aud_sm[0]) | (1u << aud_sm[1]));
 }
 
+void aud_task(void) { bel_task(); }
+
+/* From the main loop, beside aud_irq on core 0. The gate's read and write
+ * need no lock, because aud_irq never moves the bell into or out of
+ * release. */
+void aud_bel_put(unsigned i, uint8_t val) { psg_bel_put(i, val); }
+
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
 void aud_stop(void)
@@ -353,11 +359,16 @@ void aud_engine_lock(void)
 
 void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
 
+/* The block is copied after aud_watch, so a write that lands during the
+ * copy is also queued, and the drain applies it after. */
 void aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
     aud_watch();
+    if (word != 0xFFFF)
+        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
+            psg_reg_put(i, xram[word + i]);
     aud_engine_unlock();
 }
 

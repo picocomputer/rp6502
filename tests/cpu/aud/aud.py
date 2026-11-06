@@ -759,11 +759,11 @@ def record(name, *lines):
 def opl_drops(path):
     """The OPL2's drop count from a savestate. A software machine decides each
     write as the 6502 makes it and keeps the count in the AUD_ chunk, whose
-    id, version 3 and length come before its fields: the engines byte, two
+    id, version 4 and length come before its fields: the engines byte, two
     resamplers of 105 bytes and the 8-byte samples made come before it."""
     with open(path, "rb") as f:
         blob = f.read()
-    at = blob.index(b"AUD_\x00\x03") + 10 + 1 + 2 * 105 + 8
+    at = blob.index(b"AUD_\x00\x04") + 10 + 1 + 2 * 105 + 8
     return int.from_bytes(blob[at:at + 4], "big")
 
 

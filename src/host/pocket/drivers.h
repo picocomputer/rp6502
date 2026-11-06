@@ -32,7 +32,6 @@
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
 #include "sw/wake.h"
-#include "sw/bel.h"
 #include "sw/cfg.h"
 #include "sw/fs.h"
 #include "sw/vid.h"
@@ -53,7 +52,7 @@
     CFG_DRIVER, PROC_DRIVER,                            \
     STR_DRIVER,                                         \
     COM_DRIVER, STD_DRIVER, FS_DRIVER,                  \
-    AUD_DRIVER, BEL_DRIVER,                             \
+    AUD_DRIVER,                                         \
     RLN_DRIVER, TERM_DRIVER,                            \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \

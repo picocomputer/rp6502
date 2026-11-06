@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * psg.sv mixes the bell into its output as a ninth voice and psg.c does
- * not, so the two agree only while the bell is silent. Nothing in this
- * file writes the bell's registers.
+ * psg.c and psg.sv, the bell included as both models' ninth voice, sample
+ * for sample. Every write lands between two samples on both.
  */
 
 #include "Vpsg.h"
@@ -16,7 +15,6 @@
 
 extern "C"
 {
-#include "core/aud/bel.h"
 #include "core/aud/psg.h"
 }
 
@@ -129,6 +127,59 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
         rtl_import(word);
 }
 
+/* A byte of the bell's structure into both models, as the sequencer puts
+ * it. */
+static void bel_put(unsigned i, uint8_t val)
+{
+    psg_bel_put(i, val);
+    dut->bel_we = 1;
+    dut->bel_idx = (uint8_t)i;
+    dut->bel_val = val;
+    clock_cycle();
+    dut->bel_we = 0;
+}
+
+/* A strike as bel.c makes it: the gate down, the sound, the gate up. */
+static void bel_strike(uint16_t freq, uint8_t duty, uint8_t va, uint8_t vd,
+                       uint8_t wr)
+{
+    bel_put(6, 0);
+    bel_put(0, (uint8_t)freq);
+    bel_put(1, (uint8_t)(freq >> 8));
+    bel_put(2, duty);
+    bel_put(3, va);
+    bel_put(4, vd);
+    bel_put(5, wr);
+    bel_put(6, 1);
+}
+
+static void bel_silence()
+{
+    bel_put(6, 0);
+    for (unsigned i = 0; i < 6; i++)
+        bel_put(i, 0);
+}
+
+/* The teletype at 48 kHz: struck, released at 20 ms, restruck at 100 ms
+ * from what its release left, and silenced at 800 ms, then a noise bell. */
+static void bel_ring(int *utest_result)
+{
+    bel_strike(1760, 215, 0x51, 0x60, 0x39);
+    run_lockstep(utest_result, 960);
+    bel_put(6, 0);
+    run_lockstep(utest_result, 3840);
+    bel_strike(1760, 215, 0x51, 0x60, 0x39);
+    run_lockstep(utest_result, 960);
+    bel_put(6, 0);
+    run_lockstep(utest_result, 33600);
+    bel_silence();
+    run_lockstep(utest_result, 200);
+    bel_strike(4000, 180, 0x30, 0x80, 0x45);
+    run_lockstep(utest_result, 2000);
+    bel_silence();
+    run_lockstep(utest_result, 2000);
+}
+
 static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
                    uint8_t va, uint8_t vd, uint8_t wr, uint8_t pan_gate)
 {
@@ -146,9 +197,9 @@ static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
 UTEST(psg, lockstep_bit_exact)
 {
     shim_init();
-    bel_init();
 
     run_lockstep(utest_result, 200);
+    bel_ring(utest_result);
 
     const uint16_t base = 0x8000;
     config(base, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);  /* sine */
@@ -260,6 +311,7 @@ UTEST(psg, lockstep_bit_exact)
         xram_write((uint16_t)(base + ch * 8 + 6),
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 3200);
+    bel_ring(utest_result);
 
     /* psg.sv spends 136 clocks on a sample, fifteen a voice and one to
      * output, and each of these depths lands the pointer write inside that

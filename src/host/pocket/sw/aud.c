@@ -5,9 +5,9 @@
  */
 
 #include "aud.h"
-#include "bel.h"
 #include "mmio.h"
 
+#include "core/aud/bel.h"
 #include "core/aud/mix.h"
 
 #include <string.h>
@@ -27,6 +27,15 @@ void aud_init(void)
     AUD_PCM_CTRL = 0;
     bel_init();
 }
+
+/* The bell waits out a wake, until wake_task has moved its deadlines. */
+void aud_task(void)
+{
+    if (!(SST_CTL & SST_RESTORED))
+        bel_task();
+}
+
+void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
 
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */

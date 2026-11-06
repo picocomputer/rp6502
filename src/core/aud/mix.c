@@ -48,6 +48,7 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
 #define AUD_EV_PCM_DATA3 0x23
 #define AUD_EV_PCM_CLEAR 0x24
 #define AUD_EV_PCM_CLOSE 0x25
+#define AUD_EV_BEL 0x30 /* byte addr of the bell's structure */
 
 typedef struct
 {
@@ -176,9 +177,6 @@ static bool aud_pcm_play;
 static uint32_t aud_pcm_due;
 static int32_t aud_pcm_l, aud_pcm_r;
 
-/* The PSG's channel block as the render has it. */
-static uint8_t aud_psg_regs[PSG_REGS_SIZE];
-
 /* Frames a native sample made past the end of a streaming render, the first
  * of the next. */
 static int16_t aud_carry[8][2];
@@ -237,6 +235,19 @@ static void aud_unlock(void)
 void aud_set_enabled(bool on) { aud_on = on; }
 bool aud_enabled(void) { return aud_on; }
 
+static void aud_apply(const aud_ev_t *e);
+
+/* A stop or a reset empties what was stamped, but the bell is not the
+ * program's and outlives both, so its bytes are taken now. */
+static void aud_keep_bel(void)
+{
+    const uint32_t w = atomic_load(&aud_ev_w);
+    for (uint32_t r = atomic_load(&aud_ev_r); r != w; r++)
+        if (aud_ev[r % AUD_EV_SIZE].kind == AUD_EV_BEL)
+            aud_apply(&aud_ev[r % AUD_EV_SIZE]);
+    atomic_store(&aud_ev_r, w);
+}
+
 void aud_init(void)
 {
     aud_lock();
@@ -244,7 +255,7 @@ void aud_init(void)
     bel_init();
     rsmp_reset(&aud_rs_l);
     rsmp_reset(&aud_rs_r);
-    atomic_store(&aud_ev_r, atomic_load(&aud_ev_w));
+    aud_keep_bel();
     aud_psg_at = psg_xaddr_get();
     aud_opl_at = opl_xaddr_get();
     aud_made = bus_now(AUD_NATIVE_RATE);
@@ -265,7 +276,7 @@ void aud_init(void)
 void aud_stop(void)
 {
     aud_lock();
-    atomic_store(&aud_ev_r, atomic_load(&aud_ev_w));
+    aud_keep_bel();
     psg_park();
     opl_park();
     aud_psg_at = aud_opl_at = 0xFFFF;
@@ -312,7 +323,7 @@ static void aud_apply(const aud_ev_t *e)
         opl_map(e->addr);
         return;
     case AUD_EV_PSG_REG:
-        aud_psg_regs[e->addr] = e->val;
+        psg_reg_put((uint8_t)e->addr, e->val);
         return;
     case AUD_EV_PCM_OPEN:
     {
@@ -338,12 +349,12 @@ static void aud_apply(const aud_ev_t *e)
     case AUD_EV_PCM_CLOSE:
         aud_pcm_play = false;
         return;
+    case AUD_EV_BEL:
+        psg_bel_put(e->addr, e->val);
+        return;
     }
     if (e->kind & AUD_EV_PSG)
-    {
-        aud_psg_regs[(uint16_t)(e->addr - psg_xaddr_get())] = e->val;
         psg_xram_write((uint8_t)e->addr, e->val);
-    }
     if (e->kind & AUD_EV_OPL)
         opl_xram_write((uint8_t)e->addr, e->val);
 }
@@ -359,8 +370,8 @@ static inline int16_t aud_clip(int32_t v)
     return (int16_t)v;
 }
 
-/* mix() writes one frame at AUD_NATIVE_RATE: every mapped engine and the
- * bell summed, then clamped to sixteen bits. */
+/* mix() writes one frame at AUD_NATIVE_RATE: every mapped engine summed,
+ * the bell inside the PSG's, then clamped to sixteen bits. */
 static void mix(int32_t *left, int32_t *right)
 {
     int32_t sl = 0, sr = 0;
@@ -373,9 +384,9 @@ static void mix(int32_t *left, int32_t *right)
     }
     else
     {
-        if (psg_xaddr_get() != 0xFFFF)
+        if (psg_xaddr_get() != 0xFFFF || !psg_bel_idle())
         {
-            psg_sample(aud_psg_regs, &l, &r);
+            psg_sample(&l, &r);
             sl += l, sr += r;
         }
         if (opl_xaddr_get() != 0xFFFF)
@@ -391,9 +402,6 @@ static void mix(int32_t *left, int32_t *right)
             sl += aud_pcm_l, sr += aud_pcm_r;
         }
     }
-    const int32_t bel = bel_sample();
-    sl += bel;
-    sr += bel;
     *left = aud_clip(sl);
     *right = aud_clip(sr);
 }
@@ -501,12 +509,19 @@ void aud_xram_write(uint16_t addr, uint8_t val)
         aud_push_at(at, kind, addr, val);
 }
 
-/* The render reads the PSG's block from its own copy, so a map sends the
- * block as XRAM has it with the map's stamp. */
+/* The PSG keeps its own copy of the block, so a map sends the block as
+ * XRAM has it with the map's stamp. */
 static void aud_psg_send(void)
 {
     for (uint16_t i = 0; i < PSG_REGS_SIZE; i++)
         aud_push(AUD_EV_PSG_REG, i, xram[aud_psg_at + i]);
+}
+
+void aud_task(void) { bel_task(); }
+
+void aud_bel_put(unsigned i, uint8_t val)
+{
+    aud_push(AUD_EV_BEL, (uint16_t)i, val);
 }
 
 void aud_psg_map(uint16_t word)
@@ -931,7 +946,8 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_psg_at = psg_xaddr_get();
     aud_opl_at = opl_xaddr_get();
     if (aud_psg_at != 0xFFFF)
-        memcpy(aud_psg_regs, (const void *)&xram[aud_psg_at], PSG_REGS_SIZE);
+        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
+            psg_reg_put(i, xram[aud_psg_at + i]);
     /* The machine's queue is the render's, which was saved with the sound
      * taken. */
     aud_oq_reset(made);

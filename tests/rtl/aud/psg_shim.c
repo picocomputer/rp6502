@@ -20,7 +20,13 @@ int16_t sine_table[256];
 uint16_t sine_pan[127];
 
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
-void aud_psg_map(uint16_t word) { psg_map(word); }
+void aud_psg_map(uint16_t word)
+{
+    psg_map(word);
+    if (word != 0xFFFF)
+        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
+            psg_reg_put(i, xram_backing[word + i]);
+}
 
 void shim_init(void)
 {
@@ -30,10 +36,7 @@ void shim_init(void)
         sine_pan[i] = AUD_PAN_TABLE[i];
 }
 
-void shim_sample(int16_t *l, int16_t *r)
-{
-    psg_sample(&xram_backing[psg_xaddr_get()], l, r);
-}
+void shim_sample(int16_t *l, int16_t *r) { psg_sample(l, r); }
 
 void shim_xram_write(uint16_t addr, uint8_t val)
 {

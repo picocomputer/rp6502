@@ -9,7 +9,6 @@
 
 #include "apf.h"
 #include "aud.h"
-#include "bel.h"
 #include "cfg.h"
 #include "com.h"
 #include "font.h"

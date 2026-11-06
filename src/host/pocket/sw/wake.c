@@ -14,7 +14,6 @@
 
 #include "wake.h"
 
-#include "bel.h"
 #include "com.h"
 #include "font.h"
 #include "main.h"
@@ -26,6 +25,7 @@
 #include "vid.h"
 
 #include "core/api/clk.h"
+#include "core/aud/bel.h"
 #include "core/api/tim.h"
 #include "core/sys/debug_log.h"
 #include "host/host.h"

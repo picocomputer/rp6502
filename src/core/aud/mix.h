@@ -28,6 +28,13 @@
 void aud_init(void);
 void aud_stop(void);
 
+/* Polls the bell's sequencer. */
+void aud_task(void);
+
+/* Byte i of the bell voice's channel structure, from the bell's sequencer.
+ * Each machine takes it to its PSG on its own path. */
+void aud_bel_put(unsigned i, uint8_t val);
+
 /* Park every engine and reset the OPL2. For a host that unloads this library;
  * a host that exits needs nothing. */
 void aud_shutdown(void);
@@ -150,7 +157,7 @@ int aud_viz_pos(void);
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 3, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+#define AUD_DRIVER DRIVER(aud_init, aud_task, nul_task, nul_run, aud_stop, nul_break, \
+    nul_config, nul_config, SST(AUD_, 4, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

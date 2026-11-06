@@ -565,8 +565,8 @@ module psg
         case (state)
             P_IDLE: begin
                 if (xreg_pend) begin
-                    /* The phase persists across an xreg; the envelopes
-                     * and noise go with clr. */
+                    /* The envelopes, the noise and the phase go with
+                     * clr, as psg.c's psg_map resets them. */
                     xreg_pend <= 1'b0;
                     clr <= 1'b1;
                     for (int i = 0; i < 8; i++)
@@ -586,7 +586,7 @@ module psg
                 case (t)
                     4'd1: r_smp <= $signed(vq[15:0]);
                     4'd2: w_vol <= clr && !ch[3] ? '0 : vq[VOL_W-1:0];
-                    4'd3: w_phase <= vq;
+                    4'd3: w_phase <= clr && !ch[3] ? '0 : vq;
                     4'd4: w_noise1 <= clr && !ch[3] ? 16'h2301 : vq[15:0];
                     4'd5: w_noise2 <= clr && !ch[3] ? 16'hAB89 : vq[15:0];
                     4'd8: begin
