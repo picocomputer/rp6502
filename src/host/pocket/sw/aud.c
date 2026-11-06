@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud.h"
 #include "mmio.h"
 
 #include "core/aud/bel.h"
@@ -40,19 +39,22 @@ void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
 /* A pointer write zeroes the PSG's eight voices' registers in a pass of
  * about 64 clocks, which a write of the bell's or a program's would race,
  * so nothing goes on until it is done. */
-static void aud_psg_point(uint16_t word)
+void aud_psg_map(uint16_t word)
 {
     AUD_PSG_XADDR = word;
     while (AUD_PSG_BUSY)
         ;
 }
 
+/* The OPL holds writes in its queue while it clears its registers. */
+void aud_opl_map(uint16_t word) { AUD_OPL_XADDR = word; }
+
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
 void aud_stop(void)
 {
-    aud_psg_point(0xFFFF);
-    AUD_OPL_XADDR = 0xFFFF;
+    aud_psg_map(0xFFFF);
+    aud_opl_map(0xFFFF);
     AUD_PCM_CLEAR = 0;
 }
 
@@ -100,20 +102,3 @@ uint16_t aud_pcm_level(void) { return (uint16_t)AUD_PCM_LEVEL; }
 void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 
 uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
-
-/* The engines never read XRAM, and a pointer write starts their registers
- * at zero. */
-bool psg_xreg(uint16_t word)
-{
-    const bool ok = psg_block_ok(word);
-    aud_psg_point(ok ? word : 0xFFFF);
-    return ok || word == 0xFFFF;
-}
-
-/* The OPL holds writes in its queue while it clears its registers. */
-bool opl_xreg(uint16_t word)
-{
-    const bool ok = opl_block_ok(word);
-    AUD_OPL_XADDR = ok ? word : 0xFFFF;
-    return ok || word == 0xFFFF;
-}

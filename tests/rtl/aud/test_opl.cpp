@@ -156,7 +156,7 @@ static const char *inject(const opl_ev &e, uint16_t *at, uint32_t n)
         dut->q_addr = e.word;
         dut->q_val = e.val;
         if (*at != 0xFFFF && (uint16_t)(e.word - *at) < 256)
-            opl_xram_write((uint8_t)(e.word - *at), e.val);
+            opl_push((uint8_t)(e.word - *at), e.val);
     }
     else if (e.kind == EV_MAP)
     {
@@ -213,11 +213,11 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
         if (guard >= 4 * TICKS)
             return "no frame reached its pop";
         frame[n] = frames;
-        /* An event due on the pop's own clock is after the sample, but for
-         * a write that the full queue drops, which is before it. */
+        /* An event due on the pop's own clock is after the sample, but a
+         * write with the queue full goes before it, where the full queue
+         * drops it as opl.sv does; one the engine ignores lands alike. */
         bool due = i < evs.size() && evs[i].n <= n + 1 && evs[i].clk == tickctr();
-        if (due && (evs[i].kind == EV_WRITE || evs[i].kind == EV_WRITE_DROPS) && at != 0xFFFF
-            && (evs[i].word >> 8) == (at >> 8) && opl_is_reg((uint8_t)evs[i].word)
+        if (due && (evs[i].kind == EV_WRITE || evs[i].kind == EV_WRITE_DROPS)
             && dut->rootp->opl__DOT__q_count == 256)
         {
             if (const char *r = inject(evs[i++], &at, n))

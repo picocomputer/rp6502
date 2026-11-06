@@ -21,8 +21,6 @@ extern "C"
 #include <cstdio>
 #include <cstring>
 
-extern "C" bool psg_xreg(uint16_t word);
-
 static Vpsg *dut;
 
 static void clock_cycle()
@@ -52,8 +50,8 @@ static void rtl_pointer(uint16_t word)
     dut->xaddr_we = 0;
 }
 
-/* The Pocket's psg_xreg: the pointer, then a wait while psg.sv zeroes the
- * eight voices' registers. The pass is over well before the next sample,
+/* The Pocket's aud_psg_map: the pointer, then a wait while psg.sv zeroes
+ * the eight voices' registers. The pass is over well before the next sample,
  * so a lockstep run loses none. */
 static void rtl_xaddr(uint16_t word)
 {
@@ -63,8 +61,8 @@ static void rtl_xaddr(uint16_t word)
 }
 
 /* Both models strike the gate on the write. psg.sv does it on the clock the
- * write lands, and the shim hands the byte straight to psg_xram_write, which
- * is what the RW engine does on every machine but the Pico. */
+ * write lands, and the shim finds the byte in the block as the machines'
+ * mixers do and hands it to psg_put. */
 static void xram_write(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
@@ -77,7 +75,7 @@ static void run_lockstep(int *utest_result, int n)
     for (int i = 0; i < n; i++)
     {
         int16_t cl, cr;
-        shim_sample(&cl, &cr);
+        psg_sample(&cl, &cr);
         int guard = 0;
         while (!dut->psg_valid && guard++ < 4000)
             clock_cycle();
@@ -96,7 +94,7 @@ static void run_lockstep(int *utest_result, int n)
 
 /* A pointer write that lands while psg.sv computes a sample does not
  * reset the eight channels before psg.sv next enters P_IDLE, so that
- * sample finishes on the old state. The caller runs psg_xreg only after
+ * sample finishes on the old state. The caller runs psg_map only after
  * this function returns, so psg.c also finishes that sample on the old
  * state. */
 static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
@@ -113,7 +111,7 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
  * it. */
 static void bel_put(unsigned i, uint8_t val)
 {
-    psg_bel_put(i, val);
+    psg_put(PSG_REGS_SIZE + i, val);
     dut->bel_we = 1;
     dut->bel_idx = (uint8_t)i;
     dut->bel_val = val;
@@ -184,7 +182,7 @@ UTEST(psg, lockstep_bit_exact)
     bel_ring(utest_result);
 
     const uint16_t base = 0x8000;
-    ASSERT_TRUE(psg_xreg(base));
+    psg_map(base);
     rtl_xaddr(base);
     config(base, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);  /* sine */
     config(base, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);  /* square */
@@ -212,7 +210,7 @@ UTEST(psg, lockstep_bit_exact)
     run_lockstep(utest_result, 2000);
 
     const uint16_t base2 = 0x7002;
-    ASSERT_TRUE(psg_xreg(base2));
+    psg_map(base2);
     rtl_xaddr(base2);
     config(base2, 0, 880, 255, 0x00, 0x00, 0x00, 0x01);
     config(base2, 1, 440, 128, 0x02, 0x30, 0x11, 0x20);
@@ -242,7 +240,7 @@ UTEST(psg, lockstep_bit_exact)
     for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 8 + (i % 6)), (uint8_t)(i * 7));
     /* The write to base2 + 0x46 is at the pan_gate offset of a channel past
-     * the block's eight, so psg.c and psg.sv both ignore it. */
+     * the block's eight, so the shim's filter and psg.sv both ignore it. */
     xram_write((uint16_t)(base2 + 0x46), 0x01);
     xram_write((uint16_t)(base2 + 2 * 8 + 6), 0x01);
     for (int i = 0; i < 20; i++)
@@ -261,7 +259,7 @@ UTEST(psg, lockstep_bit_exact)
     xram_write((uint16_t)(base2 + 6), 0x00);
     run_lockstep(utest_result, 200);
 
-    ASSERT_TRUE(psg_xreg(base));
+    psg_map(base);
     rtl_xaddr(base);
     config(base, 0, 900, 0, 0x04, 0x00, 0x06, 0x10);
     config(base, 1, 1800, 255, 0x06, 0x00, 0x18, 0xF0);
@@ -278,7 +276,7 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 500);
 
-    ASSERT_TRUE(psg_xreg(base));
+    psg_map(base);
     rtl_xaddr(base);
     config(base, 0, 900, 200, 0x00, 0x46, 0x00, 0x10);
     config(base, 1, 1800, 128, 0x00, 0x68, 0x10, 0xF0);
@@ -308,21 +306,21 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
         run_lockstep(utest_result, 30);
         rtl_xaddr_mid_walk(utest_result, base, depths[i]);
-        ASSERT_TRUE(psg_xreg(base));
+        psg_map(base);
         run_lockstep(utest_result, 60);
     }
 
-    ASSERT_TRUE(psg_xreg(0xFFFF));
+    psg_map(0xFFFF);
     rtl_xaddr(0xFFFF);
     run_lockstep(utest_result, 10);
     run_lockstep(utest_result, 10);
     rtl_xaddr_mid_walk(utest_result, base, 0);
-    ASSERT_TRUE(psg_xreg(base));
+    psg_map(base);
     run_lockstep(utest_result, 600);
 
     /* A block may start anywhere: here at an odd address, across a page. */
     const uint16_t base3 = 0x80E1;
-    ASSERT_TRUE(psg_xreg(base3));
+    psg_map(base3);
     rtl_xaddr(base3);
     config(base3, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);
     config(base3, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);
@@ -339,9 +337,7 @@ UTEST(psg, lockstep_bit_exact)
         xram_write((uint16_t)(base3 + ch * 8 + 6), 0x00);
     run_lockstep(utest_result, 600);
 
-    ASSERT_FALSE(psg_xreg(0xFFC1)); /* the block runs past the end of XRAM */
-    rtl_xaddr(0xFFFF);
-    ASSERT_TRUE(psg_xreg(0xFFFF));
+    psg_map(0xFFFF);
     rtl_xaddr(0xFFFF);
 }
 

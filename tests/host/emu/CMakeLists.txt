@@ -117,7 +117,7 @@ rp6502_submodule(vendor/YM3812-LLE SENTINEL fmopl2.c
 if(RP6502_HAVE_LLE)
     set(_lle ${RP6502_VENDOR}/YM3812-LLE)
     rp6502_add_test(opl SPLIT TIMEOUT 120
-        SOURCES test_opl.c opl_traced.c opl_shim.c opl_lle.c opl_model.c
+        SOURCES test_opl.c opl_traced.c opl_lle.c opl_model.c
             opl_script.c ${_lle}/fmopl2.c
         INCLUDES ${_lle} ${OPL_ROM_DIR})
     add_dependencies(test_opl opl_rom)

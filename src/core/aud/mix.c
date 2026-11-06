@@ -33,8 +33,11 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
  * them at aud_ev_r. A 6502 at 8 MHz storing to RW0 flat out makes one every
  * four cycles, 33,300 a frame, and the ring holds that and the sink's lead
  * behind it. */
-#define AUD_EV_PSG 0x01     /* a write to the PSG's block */
-#define AUD_EV_OPL 0x02     /* a write to a register on the OPL2's page */
+/* A write to the PSG's 64 bytes and one to a register in the OPL2's 256
+ * share an event, whose addr is the byte's offset in the PSG's block over
+ * its offset in the OPL2's. */
+#define AUD_EV_PSG 0x01
+#define AUD_EV_OPL 0x02
 #define AUD_EV_PSG_MAP 0x08 /* psg_map(addr) */
 #define AUD_EV_OPL_MAP 0x10 /* opl_map(addr) */
 /* The PCM: device: opened at rate addr, 16-bit if val's bit 0 and stereo
@@ -286,22 +289,10 @@ void aud_stop(void)
     aud_unlock();
 }
 
-/* For a host that unloads the library rather than ending the process. The
- * engines are parked first, so no later step reaches one being reset. */
-void aud_shutdown(void)
-{
-    aud_probe = NULL;
-    aud_stop();
-    opl_shutdown();
-}
-
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right))
 {
     aud_probe = sample;
 }
-
-void aud_engine_lock(void) { aud_lock(); }
-void aud_engine_unlock(void) { aud_unlock(); }
 
 uint32_t aud_opl_drops(void)
 {
@@ -345,13 +336,13 @@ static void aud_apply(const aud_ev_t *e)
         aud_pcm_play = false;
         return;
     case AUD_EV_BEL:
-        psg_bel_put(e->addr, e->val);
+        psg_put(PSG_REGS_SIZE + e->addr, e->val);
         return;
     }
     if (e->kind & AUD_EV_PSG)
-        psg_xram_write(e->addr, e->val);
+        psg_put(e->addr >> 8, e->val);
     if (e->kind & AUD_EV_OPL)
-        opl_xram_write((uint8_t)(e->addr - opl_xaddr_get()), e->val);
+        opl_push((uint8_t)e->addr, e->val);
 }
 
 /* Sixteen bits: the mix's sum, as wiring.sv clamps it in the fabric, and the
@@ -365,9 +356,9 @@ static inline int16_t aud_clip(int32_t v)
     return (int16_t)v;
 }
 
-/* mix() writes one frame at AUD_NATIVE_RATE: every mapped engine summed,
+/* aud_mix writes one frame at AUD_NATIVE_RATE: every mapped engine summed,
  * the bell inside the PSG's, then clamped to sixteen bits. */
-static void mix(int32_t *left, int32_t *right)
+static void aud_mix(int32_t *left, int32_t *right)
 {
     int32_t sl = 0, sr = 0;
     int16_t l, r;
@@ -415,7 +406,7 @@ static void aud_due(void)
 static void aud_next(int32_t *left, int32_t *right)
 {
     aud_due();
-    mix(left, right);
+    aud_mix(left, right);
     aud_made++;
 }
 
@@ -480,11 +471,12 @@ static void aud_push(uint8_t kind, uint16_t addr, uint8_t val)
 void aud_xram_write(uint16_t addr, uint8_t val)
 {
     uint8_t kind = 0;
-    if (aud_psg_at != 0xFFFF && (uint16_t)(addr - aud_psg_at) < PSG_REGS_SIZE)
+    const uint16_t psg = (uint16_t)(addr - aud_psg_at);
+    const uint16_t opl = (uint16_t)(addr - aud_opl_at);
+    if (aud_psg_at != 0xFFFF && psg < PSG_REGS_SIZE)
         kind |= AUD_EV_PSG;
-    const uint8_t reg = (uint8_t)(addr - aud_opl_at);
-    const bool to_opl = aud_opl_at != 0xFFFF && (uint16_t)(addr - aud_opl_at) < OPL_REGS_SIZE &&
-                        opl_is_reg(reg);
+    const uint8_t reg = (uint8_t)opl;
+    const bool to_opl = aud_opl_at != 0xFFFF && opl < OPL_REGS_SIZE && opl_is_reg(reg);
     if (!kind && !to_opl)
         return;
     const uint64_t at = bus_now(AUD_NATIVE_RATE);
@@ -503,7 +495,7 @@ void aud_xram_write(uint16_t addr, uint8_t val)
         }
     }
     if (kind)
-        aud_push_at(at, kind, addr, val);
+        aud_push_at(at, kind, (uint16_t)(psg << 8 | reg), val);
 }
 
 void aud_task(void) { bel_task(); }

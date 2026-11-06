@@ -8,7 +8,6 @@
 #include "drivers.h"
 
 #include "apf.h"
-#include "aud.h"
 #include "cfg.h"
 #include "com.h"
 #include "font.h"

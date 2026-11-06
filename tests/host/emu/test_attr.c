@@ -6,6 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/attr.h"
+#include "core/api/xreg.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/ria/regs.h"
@@ -71,7 +72,7 @@ UTEST(attr, opl_drops_counts_the_writes_the_queue_could_not_take)
 {
     static float out[16];
     api_set_errno_opt(2);
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     for (int i = 0; i < 300; i++)
         aud_xram_write(0x4040, (uint8_t)i);
     aud_render(out, 8);
@@ -79,7 +80,7 @@ UTEST(attr, opl_drops_counts_the_writes_the_queue_could_not_take)
     ASSERT_EQ(attr_get(ATTR_OPL_DROPS), 0);
     ASSERT_EQ(attr_set(ATTR_OPL_DROPS, 0), -1);
     ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
-    ASSERT_TRUE(opl_xreg(0xFFFF));
+    ASSERT_TRUE(xreg0(1, 1, 0xFFFF));
 }
 
 UTEST_MAIN();

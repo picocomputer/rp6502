@@ -924,11 +924,6 @@ int16_t opl_sample(void)
     return (int16_t)(int32_t)((uint32_t)(s >> sh) << sh);
 }
 
-void opl_xram_write(uint8_t reg, uint8_t val)
-{
-    opl_push(reg, val);
-}
-
 #pragma GCC pop_options
 
 /* ---------------- reset ---------------- */
@@ -988,7 +983,7 @@ uint32_t opl_take_drops(void)
     return d;
 }
 
-/* ---------------- the page ---------------- */
+/* ---------------- the mapping ---------------- */
 
 static uint16_t opl_xaddr = 0xFFFF;
 
@@ -998,25 +993,10 @@ void opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
 
 void opl_park(void) { opl_xaddr = 0xFFFF; }
 
-void opl_shutdown(void)
-{
-    opl_xaddr = 0xFFFF;
-    opl_reset();
-}
-
 void opl_map(uint16_t word)
 {
     opl_reset();
     opl_xaddr = word;
-}
-
-/* The 256 bytes may start anywhere they end inside XRAM, and register n is
- * byte n of them. */
-bool opl_xreg(uint16_t word)
-{
-    const bool map = opl_block_ok(word);
-    aud_opl_map(map ? word : 0xFFFF);
-    return map || word == 0xFFFF;
 }
 
 /* ---------------- savestate ---------------- */

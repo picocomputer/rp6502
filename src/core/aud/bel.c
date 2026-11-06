@@ -16,7 +16,7 @@
 
 #define BEL_QUEUE_SIZE 8
 
-static ria_bel_t bel_queue[BEL_QUEUE_SIZE];
+static bel_sound_t bel_queue[BEL_QUEUE_SIZE];
 static uint8_t bel_head, bel_tail;
 static bool bel_active;
 static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
@@ -33,7 +33,7 @@ static bool bel_due(uint64_t at)
 
 /* The gate drops first and rises last, so every strike attacks from the
  * volume left, as a PSG voice's does, and lands on the new sound. */
-static void bel_voice(const ria_bel_t *snd)
+static void bel_voice(const bel_sound_t *snd)
 {
     aud_bel_put(6, 0);
     aud_bel_put(0, (uint8_t)snd->freq);
@@ -73,7 +73,7 @@ void bel_wake(uint64_t us)
 
 static void bel_strike(void)
 {
-    const ria_bel_t *snd = &bel_queue[bel_tail];
+    const bel_sound_t *snd = &bel_queue[bel_tail];
     bel_voice(snd);
     bel_restrike_at = snd->restrike_ms
                           ? bel_in_ms(snd->restrike_ms) : 0;
@@ -83,7 +83,7 @@ static void bel_strike(void)
     bel_active = true;
 }
 
-void bel_add(const ria_bel_t *sound)
+void bel_add(const bel_sound_t *sound)
 {
     uint8_t next = (bel_head + 1) % BEL_QUEUE_SIZE;
     if (next == bel_tail)
@@ -135,7 +135,7 @@ void bel_task(void)
     }
 }
 
-static void bel_put_sound(sst_cursor_t *c, const ria_bel_t *b)
+static void bel_put_sound(sst_cursor_t *c, const bel_sound_t *b)
 {
     sst_put_u16(c, b->freq);
     sst_put_u8(c, b->duty);
@@ -147,7 +147,7 @@ static void bel_put_sound(sst_cursor_t *c, const ria_bel_t *b)
     sst_put_u16(c, b->end_ms);
 }
 
-static void bel_get_sound(sst_cursor_t *c, ria_bel_t *b)
+static void bel_get_sound(sst_cursor_t *c, bel_sound_t *b)
 {
     b->freq = sst_get_u16(c);
     b->duty = sst_get_u8(c);
@@ -175,7 +175,7 @@ void bel_sst_save(sst_cursor_t *c, unsigned flags)
 bool bel_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    ria_bel_t queue[BEL_QUEUE_SIZE];
+    bel_sound_t queue[BEL_QUEUE_SIZE];
     for (int i = 0; i < BEL_QUEUE_SIZE; i++)
         bel_get_sound(c, &queue[i]);
     uint8_t head = sst_get_u8(c), tail = sst_get_u8(c);

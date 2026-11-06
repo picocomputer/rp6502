@@ -35,29 +35,27 @@ void aud_task(void);
  * Each machine takes it to its PSG on its own path. */
 void aud_bel_put(unsigned i, uint8_t val);
 
-/* Park every engine and reset the OPL2. For a host that unloads this library;
- * a host that exits needs nothing. */
-void aud_shutdown(void);
-
 /* An engine sounds while its pointer is mapped, as psg.sv and opl.sv do, so
  * the PSG and the OPL2 can sound at once and their outputs sum. The bell is
- * not an engine and every mixer adds it. aud_stop parks both engines. */
+ * the PSG's ninth voice, so a mixer runs psg_sample while the PSG is mapped
+ * or the bell sounds. aud_stop parks both engines and leaves the bell. */
 
 /* While a probe is installed it is the only engine mixed. */
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
-/* Every 6502 write to XRAM, handed to the engine mapped on its page, if one
- * is. A software machine calls it where the write happens, before XRAM takes
- * the byte. It stamps the write with the sample its cycle falls in and the
- * mix applies it before making that sample, whenever the sink asks for it.
- * The Pico's RW engine is core1, which queues every write for the audio
+/* Every 6502 write to XRAM, handed to each engine whose bytes it lands in. A
+ * software machine calls it where the write happens, before XRAM takes the
+ * byte. It stamps the write with the sample its cycle falls in and the mix
+ * applies it before making that sample, whenever the sink asks for it. The
+ * Pico's RW engine is core1, which queues those writes for the audio
  * interrupt on core0 instead. */
 void aud_xram_write(uint16_t addr, uint8_t val);
 
 /* An engine's xreg mapping it at word or parking it, 0xFFFF, and resetting
  * it either way. The Pico does it at once under the engine lock, all but the
  * OPL2's reset, which is longer than a sample; a software machine stamps it
- * as it stamps a write. */
+ * as it stamps a write; the Pocket writes the fabric's pointer and, for the
+ * PSG, waits out the pass that zeroes its registers. */
 void aud_psg_map(uint16_t word);
 void aud_opl_map(uint16_t word);
 
@@ -79,23 +77,6 @@ void aud_step(void);
 
 /* Native samples the mix has made; while one is being made, its index. */
 uint64_t aud_samples(void);
-
-/* The phase increment of a frequency register that holds hertz times three,
- * as the PSG and the bell keep theirs: freq * 2^32 / (3 * AUD_NATIVE_RATE),
- * floored. The divide is done as a multiply by the reciprocal rounded up,
- * which gives the same result for every 16-bit freq at both rates this is
- * built for, 49716 Hz and the 48000 Hz of tests/rtl/aud. */
-#define AUD_PHASE_MUL ((((uint64_t)1 << 63) + 3u * AUD_NATIVE_RATE - 1) / (3u * AUD_NATIVE_RATE))
-static inline uint32_t aud_phase_inc(uint16_t freq)
-{
-    return (uint32_t)(((uint64_t)freq * AUD_PHASE_MUL) >> 31);
-}
-
-/* Held across anything that reaches into the engines from outside the mix.
- * The Pico holds its audio interrupt off; a software machine holds off the
- * sink's render. */
-void aud_engine_lock(void);
-void aud_engine_unlock(void);
 
 /* OPL2 writes dropped since the last call, saturating at 0x7FFFFFFF: the
  * writes a program made faster than the queue's pace let it hold. A map,

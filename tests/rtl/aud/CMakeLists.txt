@@ -45,7 +45,7 @@ if(RP6502_HAVE_LLE)
     rp6502_add_module_test(opl SPLIT
         TOP opl
         RTL ${OPL_ROM_PKG} ${RP6502_SRC}/core/aud/opl.sv
-        SOURCES test_opl.cpp opl_shim.c ${RP6502_SRC}/core/aud/opl.c
+        SOURCES test_opl.cpp ${RP6502_SRC}/core/aud/opl.c
             ${_emu}/opl_script.c ${_emu}/opl_lle.c ${_lle}/fmopl2.c
         INCLUDES ${OPL_ROM_DIR} ${_emu} ${_lle}
         DEPENDS opl_rom opl_rom_pkg

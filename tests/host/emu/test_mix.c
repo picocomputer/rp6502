@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/xreg.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/dap/dbg.h"
@@ -60,7 +61,7 @@ static bool mix_run(const char *rom, int frames, bool muted)
     static float out[800 * 2];
     aud_set_enabled(!muted);
     aud_setup_probe(mix_probe);
-    opl_xreg(0xFFFF);
+    xreg0(1, 1, 0xFFFF);
     mix_writes = mix_applied = 0;
     dbg_set_active(true);
     cpu_dbg_cycle_cb = mix_cycle_cb;
@@ -250,7 +251,7 @@ static mix_stream_t mix_stream(double drift, int minutes)
     vga_set_scanout(false);
     aud_set_sink_rate(48000);
     aud_set_streaming(true);
-    opl_xreg(0x4000);
+    xreg0(1, 1, 0x4000);
     aud_setup_probe(mix_gap_probe);
     mix_gap_seen = false;
     const double frame = 1.0 / 60, pull = 512 / (48000 * (1 + drift));

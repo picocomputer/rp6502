@@ -63,6 +63,7 @@ static inline bool opl_is_late(uint8_t reg)
     return g >= 0xA && g <= 0xC && (lo <= 2 || lo >= 14);
 }
 
+/* A write to byte reg of the engine's 256, queued for opl_sample. */
 static inline void opl_push(uint8_t reg, uint8_t val)
 {
     opl_queue_t *q = &opl_queue;
@@ -92,14 +93,6 @@ uint32_t opl_take_drops(void);
 /* The pacing credit, and whether the next sample is held for a late half. */
 void opl_pace_get(uint32_t *credit, bool *late);
 
-/* One write the RW engine landed in this engine's 256 bytes, the register
- * it is to and its value, pushed on the queue. */
-void opl_xram_write(uint8_t reg, uint8_t val);
-
-/* A word whose 256 bytes fit in XRAM goes to aud_opl_map; any other parks
- * the engine there as 0xFFFF, and only 0xFFFF is not an error. */
-bool opl_xreg(uint16_t word);
-
 /* Resets the engine and maps it at word, 0xFFFF for parked. A software
  * machine reaches it through aud_opl_map. */
 void opl_map(uint16_t word);
@@ -113,13 +106,9 @@ uint16_t opl_xaddr_get(void);
 void opl_xaddr_set(uint16_t word);
 
 /* Release the pointer, which takes the OPL2 out of the mix. The chip keeps
- * its state until the next opl_xreg resets it. The caller holds the engine
+ * its state until the next map resets it. The caller holds the engine
  * lock. */
 void opl_park(void);
-
-/* Park and reset, for a host that unloads the library this lives in. The
- * mixer must not be running; aud_shutdown is what arranges that. */
-void opl_shutdown(void);
 
 /* The pointer, 18 slots of 12, 9 channels of 10, 33 of globals and counters,
  * then the queue: its count, 256 entries of 2, the credit and the drop count.

@@ -7,7 +7,7 @@
 #include "core/aud/bel.h"
 #include "machine.h"
 
-HOST_IN_FLASH("bel_teletype") const ria_bel_t bel_teletype = {
+HOST_IN_FLASH("bel_teletype") const bel_sound_t bel_teletype = {
     .freq = 1760,
     .duty = 215,          // gate open for 214 of 256 phase steps
     .vol_attack = 0x51,   // attack to -5vol, 8ms full-swing rate
@@ -18,7 +18,7 @@ HOST_IN_FLASH("bel_teletype") const ria_bel_t bel_teletype = {
     .end_ms = 800,
 };
 
-HOST_IN_FLASH("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
+HOST_IN_FLASH("bel_nfc_fail") const bel_sound_t bel_nfc_fail = {
     .freq = 330,
     .duty = 127,          // 50% square
     .vol_attack = 0x80,   // attack to -8vol, 2ms full-swing rate
@@ -29,7 +29,7 @@ HOST_IN_FLASH("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
     .end_ms = 420,
 };
 
-HOST_IN_FLASH("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
+HOST_IN_FLASH("bel_nfc_success_1") const bel_sound_t bel_nfc_success_1 = {
     .freq = 784,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
@@ -40,7 +40,7 @@ HOST_IN_FLASH("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
     .end_ms = 170,
 };
 
-HOST_IN_FLASH("bel_nfc_success_2") const ria_bel_t bel_nfc_success_2 = {
+HOST_IN_FLASH("bel_nfc_success_2") const bel_sound_t bel_nfc_success_2 = {
     .freq = 1568,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate

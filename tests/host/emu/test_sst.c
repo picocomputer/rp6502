@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/xreg.h"
+#include "core/ria/ria.h"
 #include "core/sys/sst.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
@@ -201,24 +203,16 @@ UTEST(sst, a_program_picks_up_where_it_was)
     ASSERT_EQ(bus_cycles() - at_save, reference);
 }
 
-/* What rw_write does, without a 6502 to do it: the engine mapped on the
- * page, if one is, then XRAM. */
-static void aud_poke(uint16_t at, uint8_t val)
-{
-    aud_xram_write(at, val);
-    xram[at] = val;
-}
-
 /* Channel 0's note but its gate, written once the PSG is mapped, as a
  * program writes it. */
 static void aud_note(uint16_t at)
 {
-    aud_poke(at + 0, 0x00);
-    aud_poke(at + 1, 0x04); /* 0x0400 thirds of a hertz, about 341 Hz */
-    aud_poke(at + 2, 0x80); /* duty */
-    aud_poke(at + 3, 0x04); /* full volume (the table descends), attack rate 4 */
-    aud_poke(at + 4, 0x28); /* sustain two steps down, decay rate 8 */
-    aud_poke(at + 5, 0x08); /* sine, release rate 8 */
+    ria_xram_write(at + 0, 0x00);
+    ria_xram_write(at + 1, 0x04); /* 0x0400 thirds of a hertz, about 341 Hz */
+    ria_xram_write(at + 2, 0x80); /* duty */
+    ria_xram_write(at + 3, 0x04); /* full volume (the table descends), attack rate 4 */
+    ria_xram_write(at + 4, 0x28); /* sustain two steps down, decay rate 8 */
+    ria_xram_write(at + 5, 0x08); /* sine, release rate 8 */
 }
 
 /* The most sound a frame makes at 48 kHz. */
@@ -272,19 +266,19 @@ UTEST(sst, a_note_in_flight_comes_back)
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
 
-    ASSERT_TRUE(psg_xreg(0x3000));
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
     aud_note(0x3000);
-    aud_poke(0x3006, 0x01); /* pan centre, gate on */
+    ria_xram_write(0x3006, 0x01); /* pan centre, gate on */
     aud_pull(went, 1);
     /* Still on the ring when the save starts, for the next sample. */
-    aud_poke(0x3001, 0x05);
+    ria_xram_write(0x3001, 0x05);
     ASSERT_EQ(take(), (const char *)NULL);
 
     const size_t n = aud_pull(went, 3);
 
     /* A map zeroes the registers, so only the PSG's row brings them back. */
-    ASSERT_TRUE(psg_xreg(0x3000));
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     aud_pull(came, 2);
 
@@ -301,21 +295,21 @@ UTEST(sst, an_opl_chord_comes_back)
     static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     static const uint8_t regs[][2] = {
         {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
         {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
         {0xA0, 0x98}, {0xB0, 0x31},
     };
     for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
-        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
     aud_pull(went, 1);
     ASSERT_EQ(take(), (const char *)NULL);
     const size_t n = aud_pull(went, 3);
 
-    ASSERT_TRUE(psg_xreg(0x3000));
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
     aud_note(0x3000);
-    aud_poke(0x3006, 0x01);
+    ria_xram_write(0x3006, 0x01);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     aud_pull(came, 2);
 
@@ -335,31 +329,31 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     static const uint8_t regs[][2] = {
         {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
         {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
         {0xA0, 0x98}, {0xB0, 0x31},
     };
     for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
-        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
     for (int k = 0; k < 300; k++)
-        aud_poke((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
+        ria_xram_write((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
     aud_pull_lines(went, 40);
     ASSERT_GT(opl_queue.count, 0);
     ASSERT_EQ(take(), (const char *)NULL);
     for (int k = 0; k < 300; k++)
-        aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+        ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
     const size_t n = aud_pull(went, 3);
     const uint32_t drops = aud_opl_drops();
     ASSERT_GT(drops, 0u);
 
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     aud_pull(came, 1);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     for (int k = 0; k < 300; k++)
-        aud_poke((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+        ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
     ASSERT_EQ(aud_pull(came, 3), n);
     ASSERT_TRUE(aud_sounded(went, n * 2));
     ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
@@ -389,8 +383,8 @@ UTEST(sst, both_engines_come_back)
 {
     static float out[AUD_FRAME_MAX * 2];
     aud_set_enabled(true);
-    ASSERT_TRUE(psg_xreg(0x3000));
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     aud_take(out);
     ASSERT_EQ(take(), (const char *)NULL);
     aud_stop();
@@ -517,19 +511,19 @@ UTEST(sst, every_engine_comes_back_at_once)
     aud_stop(); /* an earlier test may have left an engine mapped */
     ASSERT_TRUE(aud_bell_quiet());
 
-    ASSERT_TRUE(psg_xreg(0x3000));
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
     aud_note(0x3000);
-    aud_poke(0x3003, 0x64); /* six steps down, attack rate 4 */
-    aud_poke(0x3006, 0x01);
+    ria_xram_write(0x3003, 0x64); /* six steps down, attack rate 4 */
+    ria_xram_write(0x3006, 0x01);
 
-    ASSERT_TRUE(opl_xreg(0x4000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     static const uint8_t regs[][2] = {
         {0x20, 0xE1}, {0x23, 0xE1}, {0x40, 0x1A}, {0x43, 0x08},
         {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
         {0xBD, 0xC0}, {0xA0, 0x98}, {0xB0, 0x31},
     };
     for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
-        aud_poke(0x4000 + regs[i][0], regs[i][1]);
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
 
     aud_table();
     const int fd = ssys_open("PCM:22050,16,2", O_WR);

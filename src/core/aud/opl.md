@@ -654,7 +654,7 @@ left there.
 - Timer 1 (8 bit) counts on samples where `lfo & 3 == 3` (every 4 samples, aligned to the
   LFO counter), timer 2 where `lfo & 15 == 15`; on overflow they reload the preset and set
   a status flag unless masked; a stopped timer reads 0; register 04 bit 7 clears flags.
-- Status and IRQ are read paths. The RP6502 OPL2 is a write-only XRAM page with no status
+- Status and IRQ are read paths. The RP6502 OPL2 is a write-only block of XRAM with no status
   read and no IRQ, and the user docs already say "no timers, interrupts, or status
   register". So 02, 03, 04 have no observable effect.
 - CSM (08 bit 7) is the one audible use: when timer 1 loads (overflow or start edge), all

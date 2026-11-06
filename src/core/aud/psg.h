@@ -28,20 +28,14 @@ static inline bool psg_block_ok(uint16_t word)
  * psg_bel_idle. */
 void psg_sample(int16_t *left, int16_t *right);
 
-/* Byte i of the bell's channel structure, from the bell's sequencer. Byte 6
- * strikes or releases its gate. */
-void psg_bel_put(unsigned i, uint8_t val);
-
 /* True while the bell steps to the same state every sample. */
 bool psg_bel_idle(void);
 
-/* One write the RW engine landed in XRAM. A write to the block lands in the
- * engine's registers, and one to a gate strikes or releases it. */
-void psg_xram_write(uint16_t addr, uint8_t val);
-
-/* Checks the word and hands it to aud_psg_map, 0xFFFF for any that is not a
- * channel block's start. */
-bool psg_xreg(uint16_t word);
+/* Byte offset of the nine voices' structures: the program's eight at 0 to
+ * 63, where the machine found the write in the block, then the bell's from
+ * PSG_REGS_SIZE, from its sequencer. A write to a gate byte strikes or
+ * releases that voice. */
+void psg_put(unsigned offset, uint8_t val);
 
 /* Resets the eight channels, their registers included, and points the
  * engine at the block at word, 0xFFFF for parked. Reached through

@@ -88,12 +88,12 @@ __attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int3
     aud_dither = x;
 }
 
-/* Every XRAM write core1 queued since the last interrupt, each handed to the
- * engine mapped on its page, if one is. It runs before the sample so that a
+/* Every XRAM write core1 queued since the last interrupt, each handed to
+ * each engine whose bytes it lands in. It runs before the sample so that a
  * write takes effect on the sample it arrived for, as it does in the fabric.
  * It stops at the head it found on entry: a 6502 writing flat out can queue
  * the next write before an expensive OPL register is applied, and a drain
- * that chased it would never return. The pages cannot move while it runs,
+ * that chased it would never return. The engines cannot move while it runs,
  * because a mapping changes only under aud_engine_lock. At -O3 the OPL2's
  * push is inlined into the loop; at -Os it is a call per write, which a
  * full ring of 40 on the worst sample cannot afford. */
@@ -111,21 +111,14 @@ __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void
         const uint32_t pix = ria_aud.entry[tail];
         const uint32_t addr = pix & 0xFFFF;
         const uint8_t val = (uint8_t)(pix >> 16);
-        if (addr - psg_at < PSG_REGS_SIZE)
-            psg_xram_write((uint16_t)addr, val);
-        if (addr - opl_at < OPL_REGS_SIZE)
-            opl_push((uint8_t)(addr - opl_at), val);
+        const uint32_t psg = addr - psg_at;
+        const uint32_t opl = addr - opl_at;
+        if (psg < PSG_REGS_SIZE)
+            psg_put(psg, val);
+        if (opl < OPL_REGS_SIZE)
+            opl_push((uint8_t)opl, val);
     }
     ria_aud.tail = tail;
-}
-
-/* The bytes the mapped engines are written through, for act_loop to queue. */
-static void aud_watch(void)
-{
-    const uint16_t psg = psg_xaddr_get();
-    const uint16_t opl = opl_xaddr_get();
-    ria_aud.psg_at = psg == 0xFFFF ? 0x10000 : psg;
-    ria_aud.opl_at = opl == 0xFFFF ? 0x10000 : opl;
 }
 
 /* The PCM: device's sound. pcm_put on the main loop and the interrupt's
@@ -306,7 +299,39 @@ void aud_task(void) { bel_task(); }
 /* From the main loop, beside aud_irq on core 0. The gate's read and write
  * need no lock, because aud_irq never moves the bell into or out of
  * release. */
-void aud_bel_put(unsigned i, uint8_t val) { psg_bel_put(i, val); }
+void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
+
+/* Core1 queues rather than calling aud_xram_write, so the only thing that ever
+ * reaches an engine here is aud_irq, and holding the engines still means
+ * holding that off. Nothing on this side of the lock runs per write; it is
+ * taken to map or park an engine, and held for well under a sample: two
+ * wraps in one hold raise one interrupt, and a sample is lost. Whatever
+ * core1 queued before then is applied first, under the mapping it was
+ * written for. */
+static void aud_engine_lock(void)
+{
+    irq_set_enabled(PWM_IRQ_WRAP_0, false);
+    /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
+     * own, so without these the interrupt can still be taken after it
+     * returns, which is the one thing this is here to stop. */
+    __dsb();
+    __isb();
+    aud_drain();
+}
+
+/* Letting go publishes where the engines now sit, for act_loop to queue
+ * by. The interrupt coming back late costs nothing, so it needs no hardware
+ * barrier, only the compiler to have stored everything the lock covered,
+ * the engines' plain statics among them. */
+static void aud_engine_unlock(void)
+{
+    const uint16_t psg = psg_xaddr_get();
+    const uint16_t opl = opl_xaddr_get();
+    ria_aud.psg_at = psg == 0xFFFF ? 0x10000 : psg;
+    ria_aud.opl_at = opl == 0xFFFF ? 0x10000 : opl;
+    __compiler_memory_barrier();
+    irq_set_enabled(PWM_IRQ_WRAP_0, true);
+}
 
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
@@ -316,7 +341,6 @@ void aud_stop(void)
     psg_park();
     opl_park();
     opl_take_drops();
-    aud_watch();
     pcm_clear(&aud_pcm);
     aud_engine_unlock();
 }
@@ -331,38 +355,10 @@ uint32_t aud_opl_drops(void)
     return drops;
 }
 
-/* Core1 queues rather than calling aud_xram_write, so the only thing that ever
- * reaches an engine here is aud_irq, and holding the engines still means
- * holding that off. Nothing on this side of the lock runs per write; it is
- * taken to map or park an engine, and held for well under a sample: two
- * wraps in one hold raise one interrupt, and a sample is lost. Whatever
- * core1 queued before then is applied first, under the mapping it was
- * written for. */
-void aud_engine_lock(void)
-{
-    irq_set_enabled(PWM_IRQ_WRAP_0, false);
-    /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
-     * own, so without these the interrupt can still be taken after it
-     * returns, which is the one thing this is here to stop. */
-    __dsb();
-    __isb();
-    aud_drain();
-}
-
-/* The interrupt coming back late costs nothing, so letting go needs no
- * hardware barrier. It does need the compiler to have stored everything the
- * lock covered, the engines' plain statics among them. */
-void aud_engine_unlock(void)
-{
-    __compiler_memory_barrier();
-    irq_set_enabled(PWM_IRQ_WRAP_0, true);
-}
-
 void aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
-    aud_watch();
     aud_engine_unlock();
 }
 
@@ -373,12 +369,10 @@ void aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
     opl_park();
-    aud_watch();
     aud_engine_unlock();
     opl_reset();
     aud_engine_lock();
     opl_xaddr_set(word);
-    aud_watch();
     aud_engine_unlock();
 }
 

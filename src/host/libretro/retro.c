@@ -377,9 +377,7 @@ void retro_deinit(void)
     log_cb = NULL;
     /* A frontend that unloads this library drops every pointer with it, so
      * what the machine and this file hold is given back here rather than at
-     * exit. retro_run cannot be in flight: a frontend calls this after the
-     * game is unloaded, on the thread it calls everything else on. */
-    aud_shutdown();
+     * exit. */
     free(log_text), log_text = NULL, log_cap = 0;
 }
 

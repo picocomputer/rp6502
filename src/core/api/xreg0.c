@@ -7,6 +7,7 @@
  */
 
 #include "core/sys/driver.h"
+#include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/hid/hid.h"
@@ -44,11 +45,23 @@ bool xreg0(uint8_t channel, uint8_t index, uint16_t word)
     }
     if (channel == 1)
     {
+        /* A sound generator's block may start anywhere it ends inside
+         * XRAM. Any other word parks the engine, and only 0xFFFF is not an
+         * error. */
+        bool ok;
         if (index == 0)
-            return psg_xreg(word);
-        if (index == 1)
-            return opl_xreg(word);
-        return false;
+        {
+            ok = psg_block_ok(word);
+            aud_psg_map(ok ? word : 0xFFFF);
+        }
+        else if (index == 1)
+        {
+            ok = opl_block_ok(word);
+            aud_opl_map(ok ? word : 0xFFFF);
+        }
+        else
+            return false;
+        return ok || word == 0xFFFF;
     }
     return false;
 }
