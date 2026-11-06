@@ -324,11 +324,14 @@ generate:;
 
     /* As psg.c: thirteen bits of the Q24 volume, rounded rather than
      * truncated. bel_vol_table peaks at 256 << 16, so a shift of twelve
-     * makes full volume unity gain. */
-    return (int16_t)(((int32_t)bel_state.sample
-                          * (int32_t)(bel_state.vol >> 12)
-                      + (1 << 11))
-                     >> 12);
+     * makes full volume unity gain. Then a centred PSG voice's weight,
+     * 63/128 a side, rounded as psg.c rounds its mix, which is the level
+     * psg.sv plays the bell at as its ninth voice. */
+    const int32_t s = ((int32_t)bel_state.sample
+                           * (int32_t)(bel_state.vol >> 12)
+                       + (1 << 11))
+                      >> 12;
+    return (int16_t)((s * 63 + 64) >> 7);
 }
 #pragma GCC pop_options
 
