@@ -15,11 +15,12 @@
  * start nothing. The ninth voice is the bell, which has to ring whether
  * or not a program installed a pointer.
  *
- * One multiplier for the mix, one for the phase, a subtractor, and the
- * voice state in memories the cursor addresses. The constants are
- * memories too, read a clock ahead of the step that spends them: a
- * table indexed by a register is a mux, and these were the largest
- * logic in the module before they were a read.
+ * A multiplier for the envelope, one a side for the mix, one for the
+ * phase, one adder and one comparator for the envelope, and the voice
+ * state in memories the cursor addresses. The constants, the pan
+ * weights among them, are memories too, read a clock ahead of the step
+ * that spends them: a table indexed by a register is a mux, and these
+ * were the largest logic in the module before they were a read.
  *
  * psg_tick is the sample divider, not the end of a walk.
  *
@@ -288,37 +289,23 @@ module psg
 
     logic [12:0] tickctr /*verilator public_flat_rd*/;
 
-    localparam logic signed [26:0] MIX_ROUND = 27'sd64;
-    logic signed [26:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. Taken once per
-     * channel, on the clock its envelope is: a write landing between the
-     * two sides would otherwise place the same voice twice. */
+    /* Each side's sum is a multiply-accumulate, loaded with the
+     * rounding on voice 0. Nine voices at full scale and full weight come
+     * to under 2^29. */
+    localparam logic signed [29:0] MIX_ROUND = 30'sd2048;
+    logic signed [29:0] mix_l, mix_r;
+    /* The oracle's int8 division truncates toward zero. */
     logic signed [7:0] pan_c;
     always_comb pan_c = cf_pan[7]
         ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
         : 8'($signed(cf_pan) >>> 1);
-    logic signed [7:0] pan;
-    /* One multiplier walked three times a channel, on clocks 8 to 10: the
-     * envelope's product, then that against each side's pan. In series
-     * on one clock it was the module's longest path.
-     *
-     * 17x14: sample and mix are both 17 signed, and the widest second
-     * operand is the envelope's 13-bit slice. */
+    /* The envelope's product, on clock 8. Thirteen bits of the Q24
+     * envelope, not nine: at nine a long release moved the gain in 256
+     * visible steps. */
     logic signed [16:0] mix_s;
-    logic signed [16:0] mul_a;
-    logic signed [13:0] mul_b;
-    logic signed [30:0] mul_p;
-    always_comb begin
-        mul_a = t == 4'd8 ? 17'(r_smp) : mix_s;
-        case (t)
-            /* Thirteen bits of the Q24 envelope, not nine: at nine a long
-             * release moved the gain in 256 visible steps. */
-            4'd8: mul_b = $signed({1'b0, w_vol[VOL_W-1:12]});
-            4'd9: mul_b = 14'sd63 - 14'(pan);
-            default: mul_b = 14'sd63 + 14'(pan);
-        endcase
-        mul_p = 31'(mul_a) * 31'(mul_b);
-    end
+    logic signed [30:0] env_p;
+    always_comb
+        env_p = 31'(r_smp) * 31'($signed({1'b0, w_vol[VOL_W-1:12]}));
 
     /* The phase increment: freq * 2^32 over three times the rate, which
      * the oracle divides for and this multiplies for.
@@ -389,6 +376,10 @@ module psg
     localparam int ROM_W = 20;
     localparam int ROM_ATK = 256;
     localparam int ROM_DR = 272;
+    /* The pan weights, read on clock 8 at ROM_PAN + 63 - pan for the left
+     * and + 63 + pan for the right. The zeros either side of the table are
+     * the weights at pan -64, which mutes the voice. */
+    localparam int ROM_PAN = 289;
     (* ramstyle = "M10K, no_rw_check" *)
     logic [ROM_W-1:0] aud_rom[512];
     initial begin
@@ -400,6 +391,19 @@ module psg
             aud_rom[ROM_ATK+i] = ROM_W'(ATTACK_TABLE[i]);
             aud_rom[ROM_DR+i] = ROM_W'(DR_TABLE[i]);
         end
+        for (int i = 0; i < 127; i++)
+            aud_rom[ROM_PAN+i] = ROM_W'(AUD_PAN[i]);
+    end
+    logic [8:0] pan_l_a, pan_r_a;
+    always_comb begin
+        pan_l_a = 9'(ROM_PAN + 63) - 9'(pan_c);
+        pan_r_a = 9'(ROM_PAN + 63) + 9'(pan_c);
+    end
+    /* The weights, a clock after their read. */
+    logic signed [11:0] w_l, w_r;
+    always_comb begin
+        w_l = $signed({1'b0, sine_q[10:0]});
+        w_r = $signed({1'b0, env_q[10:0]});
     end
     logic signed [15:0] sine;
     always_comb sine = $signed(sine_q[15:0]);
@@ -439,11 +443,24 @@ module psg
     always_comb env_addr = ch_adsr[ch] == ADSR_ATTACK
         ? 9'(ROM_ATK) + {5'd0, cf_va[3:0]}
         : 9'(ROM_DR) + {5'd0, dr_idx};
-    logic [VOL_W-1:0] dr_val, dr_next;
+    /* One adder for the three steps: attack adds the rate, decay and
+     * release subtract it and stop at zero, where the borrow says so. */
+    logic [VOL_W-1:0] rate;
+    logic env_sub;
+    logic [VOL_W:0] env_s;
+    logic [VOL_W-1:0] dr_next;
     always_comb begin
-        dr_val = VOL_W'(env_q[ENV_W-1:0]);
-        dr_next = w_vol <= dr_val ? '0 : w_vol - dr_val;
+        rate = VOL_W'(env_q[ENV_W-1:0]);
+        env_sub = ch_adsr[ch] != ADSR_ATTACK;
+        env_s = env_sub ? {1'b0, w_vol} - {1'b0, rate}
+                        : {1'b0, w_vol} + {1'b0, rate};
+        dr_next = env_s[VOL_W] ? '0 : env_s[VOL_W-1:0];
     end
+    /* One comparator too: attack's sum against the peak, or the sustain
+     * against decay's difference. */
+    logic env_ge;
+    always_comb env_ge = env_sub ? vol_sus >= dr_next
+                                 : env_s[VOL_W-1:0] >= vol_peak;
 
     logic [VOL_W-1:0] vol_next;
     logic [1:0] adsr_next;
@@ -452,15 +469,15 @@ module psg
         adsr_next = ch_adsr[ch];
         case (ch_adsr[ch])
             ADSR_ATTACK: begin
-                vol_next = w_vol + VOL_W'(env_q[ENV_W-1:0]);
-                if (vol_next >= vol_peak) begin
+                vol_next = env_s[VOL_W-1:0];
+                if (env_ge) begin
                     vol_next = vol_peak;
                     adsr_next = ADSR_DECAY;
                 end
             end
             ADSR_DECAY: begin
                 vol_next = dr_next;
-                if (dr_next <= vol_sus) begin
+                if (env_ge) begin
                     adsr_next = ADSR_SUSTAIN;
                     if (sus_le_peak)
                         vol_next = vol_sus;
@@ -519,7 +536,6 @@ module psg
         t = '0;
         state = P_IDLE;
         tickctr = '0;
-        pan = '0;
         mix_l = MIX_ROUND;
         mix_r = MIX_ROUND;
         mix_s = '0;
@@ -560,8 +576,6 @@ module psg
                     /* Always runs: the bell does not wait on a program. */
                     ch <= '0;
                     t <= '0;
-                    mix_l <= MIX_ROUND;
-                    mix_r <= MIX_ROUND;
                     state <= P_VOICE;
                 end
             end
@@ -576,24 +590,23 @@ module psg
                     4'd4: w_noise1 <= clr && !ch[3] ? 16'h2301 : vq[15:0];
                     4'd5: w_noise2 <= clr && !ch[3] ? 16'hAB89 : vq[15:0];
                     4'd8: begin
-                        mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
-                        pan <= pan_c;
+                        mix_s <= 17'((env_p + 31'sd2048) >>> 12);
                         w_inc <= 32'(inc_prod[56:PHASE_SHIFT]);
+                        sine_q <= aud_rom[pan_l_a];
+                        env_q <= aud_rom[pan_r_a];
                     end
                     4'd9: begin
-                        if (pan != -8'sd64)
-                            mix_l <= mix_l + 27'(mul_p);
+                        mix_l <= (ch == 4'd0 ? MIX_ROUND : mix_l)
+                            + 30'(mix_s) * 30'(w_l);
+                        mix_r <= (ch == 4'd0 ? MIX_ROUND : mix_r)
+                            + 30'(mix_s) * 30'(w_r);
                         /* A clock of its own, so the wave reads a standing
                          * phase rather than a 32-bit add. */
                         w_phase <= ph_next;
                         sine_q <= aud_rom[{1'b0, ph_next[31:24]}];
                         env_q <= aud_rom[env_addr];
                     end
-                    4'd10: begin
-                        if (pan != -8'sd64)
-                            mix_r <= mix_r + 27'(mul_p);
-                        ch_adsr[ch] <= adsr_next;
-                    end
+                    4'd10: ch_adsr[ch] <= adsr_next;
                     default: ;
                 endcase
                 t <= t + 4'd1;
@@ -605,8 +618,8 @@ module psg
                 end
             end
             P_OUT: begin
-                psg_l <= clamped(21'(mix_l >>> 7));
-                psg_r <= clamped(21'(mix_r >>> 7));
+                psg_l <= clamped(21'(mix_l >>> 12));
+                psg_r <= clamped(21'(mix_r >>> 12));
                 psg_valid <= 1'b1;
                 clr <= 1'b0;
                 ch <= '0;

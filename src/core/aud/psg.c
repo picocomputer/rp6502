@@ -132,19 +132,18 @@ void psg_sample(const void *regs, int16_t *left, int16_t *right)
                          >> 12;
         int8_t pan = (int8_t)channels[i].pan_gate / 2;
         /* A pan_gate of 0x80 halves to -64, one past the documented
-         * -63 to 63, and drops the channel from the mix. psg.sv tests for
-         * the same value. */
+         * -63 to 63, and drops the channel from the mix. psg.sv reads
+         * zero weights for the same value. */
         if (pan != -64)
         {
-            acc_l += sample * (63 - pan);
-            acc_r += sample * (63 + pan);
+            acc_l += sample * sine_pan[63 - pan];
+            acc_r += sample * sine_pan[63 + pan];
         }
     }
-    /* The pan weights run from 0 to 126 against a shift of 128, so a
-     * centred channel puts 63/128 on each side and a hard-panned one keeps
-     * 126/128 of full scale. */
-    acc_l = (acc_l + 64) >> 7;
-    acc_r = (acc_r + 64) >> 7;
+    /* Constant-power weights out of 4096: a centred channel puts 1/4 on
+     * each side and a hard-panned one 0.354 on one, the same power. */
+    acc_l = (acc_l + 2048) >> 12;
+    acc_r = (acc_r + 2048) >> 12;
     if (acc_l < AUD_SAMPLE_MIN)
         acc_l = AUD_SAMPLE_MIN;
     if (acc_l > AUD_SAMPLE_MAX)

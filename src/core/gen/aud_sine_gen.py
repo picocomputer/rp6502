@@ -24,6 +24,12 @@ def table():
             for i in range(256)]
 
 
+# The constant-power pan law, as sine_init computes sine_pan.
+def pan():
+    return [lround(1024.0 * math.sqrt(2.0) * math.sin(math.pi / 2 * i / 126))
+            for i in range(127)]
+
+
 def emit_sv(path):
     t = table()
     with open(path, "w") as f:
@@ -34,6 +40,12 @@ def emit_sv(path):
         for i in range(0, len(t), 8):
             row = ", ".join(f"16'h{v & 0xFFFF:04X}" for v in t[i:i + 8])
             f.write(f"    {row}{',' if i + 8 < len(t) else ''}\n")
+        f.write("};\n")
+        p = pan()
+        f.write(f"localparam logic [10:0] AUD_PAN[{len(p)}] = '{{\n")
+        for i in range(0, len(p), 8):
+            row = ", ".join(f"11'd{v}" for v in p[i:i + 8])
+            f.write(f"    {row}{',' if i + 8 < len(p) else ''}\n")
         f.write("};\n")
         f.write("/* verilator lint_on UNUSEDPARAM */\n")
         f.write("endpackage\n")
@@ -48,6 +60,12 @@ def emit_h(path):
         for i in range(0, 256, 8):
             row = ", ".join(str(v) for v in t[i:i + 8])
             f.write(f"    {row}{',' if i + 8 < 256 else ''}\n")
+        f.write("};\n")
+        p = pan()
+        f.write(f"static const uint16_t AUD_PAN_TABLE[{len(p)}] = {{\n")
+        for i in range(0, len(p), 8):
+            row = ", ".join(str(v) for v in p[i:i + 8])
+            f.write(f"    {row}{',' if i + 8 < len(p) else ''}\n")
         f.write("};\n")
 
 

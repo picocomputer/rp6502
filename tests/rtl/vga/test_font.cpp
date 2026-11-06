@@ -47,6 +47,8 @@ UTEST(font, generated_sine_matches_sine_init)
 {
     for (int i = 0; i < 256; i++)
         ASSERT_EQ(AUD_SINE_TABLE[i], sine_table[i]);
+    for (int i = 0; i < 127; i++)
+        ASSERT_EQ(AUD_PAN_TABLE[i], sine_pan[i]);
 }
 
 UTEST_STATE();

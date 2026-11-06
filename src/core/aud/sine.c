@@ -9,9 +9,12 @@
 #include <math.h>
 
 int16_t sine_table[256];
+uint16_t sine_pan[127];
 
 void sine_init(void)
 {
     for (unsigned i = 0; i < 256; i++)
         sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
+    for (unsigned i = 0; i < 127; i++)
+        sine_pan[i] = (uint16_t)lround(1024.0 * sqrt(2.0) * sin(M_PI / 2 * i / 126));
 }

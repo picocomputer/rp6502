@@ -17,6 +17,7 @@ static uint8_t xram_backing[0x10000];
 volatile uint8_t *const xram = xram_backing;
 
 int16_t sine_table[256];
+uint16_t sine_pan[127];
 
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right)) { (void)sample; }
 void aud_psg_map(uint16_t word) { psg_map(word); }
@@ -25,6 +26,8 @@ void shim_init(void)
 {
     for (int i = 0; i < 256; i++)
         sine_table[i] = AUD_SINE_TABLE[i];
+    for (int i = 0; i < 127; i++)
+        sine_pan[i] = AUD_PAN_TABLE[i];
 }
 
 void shim_sample(int16_t *l, int16_t *r)
