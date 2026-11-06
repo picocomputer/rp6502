@@ -14,7 +14,6 @@
 int16_t sine_table[256];
 uint16_t sine_pan[127];
 
-
 void shim_init(void)
 {
     for (int i = 0; i < 256; i++)
@@ -22,7 +21,6 @@ void shim_init(void)
     for (int i = 0; i < 127; i++)
         sine_pan[i] = AUD_PAN_TABLE[i];
 }
-
 
 /* A write found in the block, as the machines' mixers find it. */
 void shim_xram_write(uint16_t addr, uint8_t val)

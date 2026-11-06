@@ -32,7 +32,7 @@ static uint32_t mix_drops;
 /* The stamp a write in the cycle about to run gets. */
 static uint64_t mix_next;
 
-/* The OPL2 as mix() steps it, noting each sample that applies a write. */
+/* The OPL2 as aud_mix steps it, noting each sample that applies a write. */
 static void mix_probe(int16_t *l, int16_t *r)
 {
     if (opl_xaddr_get() == 0xFFFF)

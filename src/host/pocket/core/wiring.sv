@@ -659,7 +659,8 @@ module wiring
              * 16 of the regs window pops the console queue on this edge
              * and regs_b_rdata then shows the next byte. */
             regs_b_q <= regs_b_rdata;
-            /* The same for the OPL's drop count, which the read clears. */
+            /* The same for the OPL's drop count and PCM's underruns, which
+             * their reads clear. */
             aud_q <= aud_rdata;
         end
     end
@@ -1200,8 +1201,8 @@ module wiring
      * stream serves both channels because a YM3812 is mono.
      *
      * The PCM: device, by soc_addr[5:2]: 6 control, 7 step, 8 four
-     * bytes, 9 one byte, 10 clear; 11 reads the level and 12 the
-     * underruns, which the read clears. */
+     * bytes, 9 one byte, 10 clear, 13 commit; 11 reads the level and 12
+     * the underruns, which the read clears. */
     localparam int PCM_W = rsmp_coef_pkg::RSMP_OUT_W;
     logic signed [15:0] opl_rs;
     logic signed [PCM_W-1:0] pcm_l, pcm_r;
@@ -1215,6 +1216,7 @@ module wiring
         .data_we(aud_we && soc_addr[5:2] == 4'h8),
         .byte_we(aud_we && soc_addr[5:2] == 4'h9),
         .clear_we(aud_we && soc_addr[5:2] == 4'hA),
+        .commit_we(aud_we && soc_addr[5:2] == 4'hD),
         .wdata(aud_wdata),
         .under_take(aud_rd && soc_addr[5:2] == 4'hC),
         .pcm_level(pcm_level),

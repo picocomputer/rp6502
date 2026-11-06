@@ -52,7 +52,7 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 void aud_xram_write(uint16_t addr, uint8_t val);
 
 /* An engine's xreg mapping it at word or parking it, 0xFFFF, and resetting
- * it either way. The Pico does it at once under the engine lock, all but the
+ * it either way. The Pico does it at once under its engine lock, all but the
  * OPL2's reset, which is longer than a sample; a software machine stamps it
  * as it stamps a write; the Pocket writes the fabric's pointer and, for the
  * PSG, waits out the pass that zeroes its registers. */

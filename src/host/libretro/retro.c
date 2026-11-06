@@ -356,7 +356,9 @@ void retro_init(void)
 }
 
 /* A frontend may call retro_init again after this, so the machine is stopped
- * here and the last session's ROM, geometry and seed are dropped. */
+ * here and the last session's ROM, geometry and seed are dropped. A frontend
+ * that unloads this library drops every pointer with it, so what the machine
+ * and this file hold is given back here rather than at exit. */
 void retro_deinit(void)
 {
     if (machine_inited)
@@ -375,9 +377,6 @@ void retro_deinit(void)
     run_seed_taken = false;
     input_reset();
     log_cb = NULL;
-    /* A frontend that unloads this library drops every pointer with it, so
-     * what the machine and this file hold is given back here rather than at
-     * exit. */
     free(log_text), log_text = NULL, log_cap = 0;
 }
 

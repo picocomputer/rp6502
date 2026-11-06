@@ -56,6 +56,7 @@ void aud_stop(void)
     aud_psg_map(0xFFFF);
     aud_opl_map(0xFFFF);
     AUD_PCM_CLEAR = 0;
+    /* A read clears the underrun count. */
     (void)AUD_PCM_UNDERRUNS;
 }
 
@@ -79,8 +80,9 @@ void aud_pcm_close(void)
 /* The player only takes, so the room read first is never too much. buf is
  * in XRAM or the xstack, and a word load from XRAM gives one byte four
  * times, so each byte is a load of its own. A word lands on a word of the
- * FIFO, so bytes go one at a time, in every lane, until the head is on
- * one; aud_pcm_head counts the head's place in its word. */
+ * FIFO, so bytes go one at a time, in every lane, until the write pointer
+ * is on one; aud_pcm_head counts its place in its word. The commit makes
+ * the write playable whole, as on the other machines. */
 uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
 {
     const volatile uint8_t *src = buf;
@@ -95,6 +97,7 @@ uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
                        (uint32_t)src[i + 2] << 16 | (uint32_t)src[i + 3] << 24;
     for (; i < n; i++, aud_pcm_head++)
         AUD_PCM_BYTE = src[i] * 0x01010101u;
+    AUD_PCM_COMMIT = 0;
     return n;
 }
 

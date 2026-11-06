@@ -155,7 +155,7 @@ static const char *inject(const opl_ev &e, uint16_t *at, uint32_t n)
         dut->q_we = 1;
         dut->q_addr = e.word;
         dut->q_val = e.val;
-        if (*at != 0xFFFF && (uint16_t)(e.word - *at) < 256)
+        if (*at != 0xFFFF && (uint16_t)(e.word - *at) < OPL_REGS_SIZE)
             opl_push((uint8_t)(e.word - *at), e.val);
     }
     else if (e.kind == EV_MAP)
@@ -218,7 +218,7 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
          * drops it as opl.sv does; one the engine ignores lands alike. */
         bool due = i < evs.size() && evs[i].n <= n + 1 && evs[i].clk == tickctr();
         if (due && (evs[i].kind == EV_WRITE || evs[i].kind == EV_WRITE_DROPS)
-            && dut->rootp->opl__DOT__q_count == 256)
+            && dut->rootp->opl__DOT__q_count == OPL_QUEUE_SIZE)
         {
             if (const char *r = inject(evs[i++], &at, n))
                 return r;

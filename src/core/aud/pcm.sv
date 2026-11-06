@@ -22,7 +22,9 @@
  * The soft CPU writes PCM frames into a 4096-byte FIFO, reading the level
  * first so that it never overruns it. A word lands on a word of the FIFO,
  * and a byte comes in every lane, so the soft CPU sends bytes until the
- * head is on a word. A tick whose phase reaches one takes a frame, or
+ * write pointer is on a word. A commit after the write's last store moves
+ * the head to the write pointer, so the player sees a write whole, as
+ * pcm.c's pcm_put publishes its head once. A tick whose phase reaches one takes a frame, or
  * silence when none is whole. Everything that reads the FIFO and the phase
  * happens on the tick's edge, so a write, clear, open or close lands
  * before a sample or after it. One on the tick's own clock is after it.
@@ -59,8 +61,11 @@ module pcm
     /* One byte, in every lane of wdata. */
     input logic byte_we,
     input logic clear_we,
+    /* Makes the bytes stored since the last commit playable. */
+    input logic commit_we,
     input logic [31:0] wdata,
-    /* Clears pcm_under on this clock. */
+    /* Clears pcm_under on this clock; a take that runs the FIFO dry on the
+     * same clock leaves one. */
     input logic under_take,
 
     output logic [12:0] pcm_level,
@@ -126,7 +131,7 @@ module pcm
     always_comb o_go = step && primed && wptr != rptr && state == S_IDLE;
 
     /* FIFO: four banks, words aligned. */
-    logic [12:0] head, tail;
+    logic [12:0] head, tail, wr;
     always_comb pcm_level = head - tail;
     logic [2:0] frame;
     always_comb frame = 3'd1 << (2'(b16) + 2'(st));
@@ -140,10 +145,10 @@ module pcm
     logic [3:0] w_en;
     logic [9:0] w_row, r_row[4];
     always_comb begin
-        w_row = sst_own ? sst_addr[9:0] : head[11:2];
+        w_row = sst_own ? sst_addr[9:0] : wr[11:2];
         for (int b = 0; b < 4; b++) begin
             w_en[b] = sst_own ? sst_we && sel_f
-                : data_we || (byte_we && head[1:0] == 2'(b));
+                : data_we || (byte_we && wr[1:0] == 2'(b));
             r_row[b] = tail[11:2] + 10'(2'(b) < tail[1:0]);
         end
     end
@@ -291,6 +296,7 @@ module pcm
         phase = '0;
         head = '0;
         tail = '0;
+        wr = '0;
         pcm_under = '0;
         tk_has = 1'b0;
         tk_16 = 1'b0;
@@ -335,7 +341,9 @@ module pcm
             rst_pend <= 1'b0;
 
         if (data_we || byte_we)
-            head <= head + {10'd0, data_we, 1'b0, !data_we};
+            wr <= wr + {10'd0, data_we, 1'b0, !data_we};
+        if (commit_we)
+            head <= wr;
         if (go && ph[32] && has)
             tail <= tail + 13'(frame);
         if (clear_we)
@@ -347,6 +355,7 @@ module pcm
         if (ctrl_we && wdata[0]) begin
             head <= '0;
             tail <= '0;
+            wr <= '0;
             pcm_under <= '0;
         end
         if (sst_st_we && sel_st)
@@ -354,6 +363,7 @@ module pcm
                 3'd0: step_m1 <= wdata;
                 3'd2: {rst_pend, head, tail, st, b16, open} <= wdata[29:0];
                 3'd5: pcm_under <= wdata[30:0];
+                3'd6: wr <= wdata[12:0];
                 default: ;
             endcase
     end
@@ -491,6 +501,7 @@ module pcm
             4'h3: st_rd = {4'd0, at, cold, pcm_l};
             4'h4: st_rd = {14'd0, pcm_r};
             4'h5: st_rd = {1'b0, pcm_under};
+            4'h6: st_rd = {19'd0, wr};
             4'h8: st_rd = o_phase[31:0];
             4'h9: st_rd = {2'd0, o_phase[33:32], wptr, rptr, primed, full,
                            rsmp_out};

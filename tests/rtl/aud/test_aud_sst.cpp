@@ -39,7 +39,7 @@ static std::vector<int> arrays()
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x790; a < 0x796; a++)
+    for (int a = 0x790; a < 0x797; a++)
         v.push_back(a);
     for (int a = 0x798; a < 0x79A; a++)
         v.push_back(a);
@@ -84,6 +84,7 @@ static void edge(Vtb_aud_sst *d, bool mach)
     d->data_we = 0;
     d->byte_we = 0;
     d->clear_we = 0;
+    d->commit_we = 0;
     d->sst_we = 0;
     d->sst_st_we = 0;
 }
@@ -97,14 +98,16 @@ static Vtb_aud_sst *make(const char *name)
     return d;
 }
 
-/* The two rates and the PCM writes. The rates' counters belong to the
- * machine, so they carry on from A's through the restore. */
+/* The two rates and the PCM writes, committed now and then, so a save
+ * often finds bytes stored and not yet committed. The rates' counters
+ * belong to the machine, so they carry on from A's through the restore. */
 struct Stream
 {
     std::mt19937 r;
     long opl = 0, psg = 0;
     bool in_valid = false, tick = false, data = false, byte = false;
-    bool clear = false, open = false;
+    bool clear = false, open = false, commit = false;
+    unsigned staged = 0, staged_was = 0;
     int16_t sample = 0;
     uint32_t word = 0;
     Stream(unsigned seed) : r(seed) {}
@@ -118,10 +121,13 @@ struct Stream
             psg = 0;
         sample = (int16_t)r();
         word = (uint32_t)r();
-        data = level <= 4096 - 4 && (r() % 300) == 0;
-        byte = !data && level < 4096 && (r() % 3000) == 0;
+        data = level + staged <= 4096 - 4 && (r() % 300) == 0;
+        byte = !data && level + staged < 4096 && (r() % 3000) == 0;
         clear = (r() % 4000000) == 0;
+        commit = !data && !byte && (r() % 1500) == 0;
         open = false;
+        staged_was = staged;
+        staged = commit ? 0 : staged + (data ? 4 : byte ? 1 : 0);
     }
     void apply(Vtb_aud_sst *d) const
     {
@@ -132,6 +138,7 @@ struct Stream
         d->data_we = data;
         d->byte_we = byte;
         d->clear_we = clear;
+        d->commit_we = commit;
         if (data || byte)
             d->wdata = word;
     }
@@ -158,7 +165,10 @@ static void run(Vtb_aud_sst *d, Stream &s, long n, bool halted = false)
     {
         s.next(d->pcm_level);
         if (halted)
-            s.data = s.byte = s.clear = false;
+        {
+            s.data = s.byte = s.clear = s.commit = false;
+            s.staged = s.staged_was;
+        }
         s.apply(d);
         edge(d, true);
     }
@@ -382,11 +392,12 @@ UTEST(aud_sst, every_save_point_in_a_sample_comes_back)
 }
 
 /* Each flop word and each array, left out, changes the sound, the level
- * or the underrun count. */
+ * or the underrun count: the write pointer by where the bytes stored and
+ * not yet committed land. */
 UTEST(aud_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 0; k < 6; k++)
+    for (int k = 0; k < 7; k++)
         items.push_back(SKIP_WORD + k);
     for (int k = 8; k < 10; k++)
         items.push_back(SKIP_WORD + k);

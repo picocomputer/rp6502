@@ -33,11 +33,10 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
  * them at aud_ev_r. A 6502 at 8 MHz storing to RW0 flat out makes one every
  * four cycles, 33,300 a frame, and the ring holds that and the sink's lead
  * behind it. */
-/* A write to the PSG's 64 bytes and one to a register in the OPL2's 256
- * share an event, whose addr is the byte's offset in the PSG's block over
- * its offset in the OPL2's. */
-#define AUD_EV_PSG 0x01
-#define AUD_EV_OPL 0x02
+#define AUD_EV_PSG 0x01 /* a write to the PSG's 64 bytes */
+#define AUD_EV_OPL 0x02 /* a write to a register in the OPL2's 256 */
+/* A write is one event with either kind or both, its addr the byte's offset
+ * in the PSG's block in the high byte and in the OPL2's in the low. */
 #define AUD_EV_PSG_MAP 0x08 /* psg_map(addr) */
 #define AUD_EV_OPL_MAP 0x10 /* opl_map(addr) */
 /* The PCM: device: opened at rate addr, 16-bit if val's bit 0 and stereo
@@ -120,8 +119,9 @@ static void aud_oq_step(uint64_t to)
 }
 
 /* The PCM: device's buffer as the machine sees it, by the rule pcm_sample
- * takes frames with, so what a write takes and what SEEK_CUR says are the
- * machine's own and nothing the sink does can change them. The render's
+ * takes frames with, so what a write takes, what SEEK_CUR says and the
+ * underruns counted are the machine's own and nothing the sink does can
+ * change them. The render's
  * buffer is handed the same bytes on the same samples and takes them on the
  * same samples. */
 static struct
@@ -908,6 +908,11 @@ void aud_sst_settle(void)
 void aud_sst_save(sst_cursor_t *c, unsigned flags)
 {
     aud_lock();
+    /* The load starts the PCM: device's model where the render is, so the
+     * underruns it saves are the ones up to there. */
+    const uint64_t due = aud_made - (uint64_t)aud_off;
+    if (due > aud_pm.at)
+        aud_pm_step(due);
     sst_put_u8(c, (uint8_t)((psg_xaddr_get() != 0xFFFF ? 1 : 0) |
                             (opl_xaddr_get() != 0xFFFF ? 2 : 0)));
     aud_put_rsmp(c, &aud_rs_l);

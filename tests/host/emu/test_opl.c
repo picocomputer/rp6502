@@ -840,7 +840,7 @@ UTEST(opl, sst_refuses_out_of_range)
         memcpy(blob, good, sizeof good);
         put_be(blob, 2, at);
         opl_reset();
-        EXPECT_TRUE_MSG(load(OPL_SST_SIZE), "an unaligned block refused");
+        EXPECT_TRUE_MSG(load(OPL_SST_SIZE), "a block that fits refused");
         ASSERT_EQ(opl_xaddr_get(), (uint16_t)at);
     }
 

@@ -304,8 +304,9 @@ void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever
  * reaches an engine here is aud_irq, and holding the engines still means
  * holding that off. Nothing on this side of the lock runs per write; it is
- * taken to map or park an engine, and held for well under a sample: two
- * wraps in one hold raise one interrupt, and a sample is lost. Whatever
+ * taken to map or park an engine, read a counter, or open, close or empty
+ * the PCM: device, and held for well under a sample: two wraps in one hold
+ * raise one interrupt, and a sample is lost. Whatever
  * core1 queued before then is applied first, under the mapping it was
  * written for. */
 static void aud_engine_lock(void)

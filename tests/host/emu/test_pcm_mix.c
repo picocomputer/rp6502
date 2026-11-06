@@ -273,6 +273,22 @@ UTEST(pcm_mix, each_time_the_buffer_runs_dry_is_an_underrun)
     ASSERT_EQ(ssys_close(fd), 0);
 }
 
+/* The buffer runs dry with no PCM: call after it, then a save and a load
+ * bring the underrun back with the state. */
+UTEST(pcm_mix, an_underrun_before_a_save_comes_back)
+{
+    fresh();
+    make_tone(22050, 1050, 16, 1, 20);
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+    pull(0, 4);
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(underruns(), 1);
+    ASSERT_EQ(ssys_close(fd), 0);
+}
+
 /* close and fsync wait, as MIDI: does, until the buffer has played. */
 UTEST(pcm_mix, close_waits_for_the_sound)
 {

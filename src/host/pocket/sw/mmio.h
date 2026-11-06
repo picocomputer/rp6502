@@ -168,6 +168,9 @@ static inline int32_t set_tz_minutes(void)
 /* Times the buffer ran dry since the last read or open. A read clears
  * it. */
 #define AUD_PCM_UNDERRUNS (*(volatile uint32_t *)0x70000030u)
+/* Makes the bytes written since the last commit playable at once, as one
+ * write. */
+#define AUD_PCM_COMMIT (*(volatile uint32_t *)0x70000034u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 /* The low word of the mtime that the last savestate load restored, which

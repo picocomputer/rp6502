@@ -124,7 +124,8 @@ static int32_t pcm_decode(const pcm_t *s, uint32_t at)
 static void pcm_take(pcm_t *s)
 {
     int32_t l = 0, r = 0;
-    if (pcm_level(s) >= s->frame)
+    const uint16_t level = pcm_level(s);
+    if (level >= s->frame)
     {
         const uint16_t tail = s->tail;
         l = pcm_decode(s, tail);
@@ -132,7 +133,7 @@ static void pcm_take(pcm_t *s)
         /* The bytes are read before the writer may reuse them. */
         atomic_signal_fence(memory_order_acquire);
         s->tail = (uint16_t)(tail + s->frame);
-        if (pcm_level(s) < s->frame && s->underruns < 0x7FFFFFFF)
+        if (level < 2u * s->frame && s->underruns < 0x7FFFFFFF)
             s->underruns++;
     }
     const unsigned at = s->at;

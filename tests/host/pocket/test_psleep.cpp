@@ -1773,9 +1773,9 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 4, is refused, and the session
+/* A blob from before this format, version 5, is refused, and the session
  * that was running carries on. */
-UTEST(psleep, a_version_4_blob_is_refused)
+UTEST(psleep, a_version_5_blob_is_refused)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -1784,8 +1784,8 @@ UTEST(psleep, a_version_4_blob_is_refused)
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
-    ASSERT_EQ(5u, blob_get(blob, 1));
-    blob_put(blob, 1, 4);
+    ASSERT_EQ(6u, blob_get(blob, 1));
+    blob_put(blob, 1, 5);
     blob_reseal(blob);
 
     boot(rom);

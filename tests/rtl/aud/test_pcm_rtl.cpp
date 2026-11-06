@@ -63,7 +63,8 @@ enum
     OP_CLOSE,
     OP_DATA,
     OP_BYTE,
-    OP_CLEAR
+    OP_CLEAR,
+    OP_COMMIT
 };
 
 struct op_t
@@ -98,7 +99,9 @@ struct sim_t
     long samples = 0, taken_ops = 0;
     /* Ops that landed on the tick's clock and in the player's 110, by
      * kind. */
-    long on_tick[6] = {}, in_work[6] = {};
+    long on_tick[7] = {}, in_work[7] = {};
+    /* Bytes stored since the last commit, which pcm.c gets at it. */
+    std::vector<uint8_t> staged;
     /* Takes of a whole frame and of silence, ticks with the FIFO full,
      * and underruns counted. */
     long whole = 0, dry = 0, brim = 0, under = 0;
@@ -166,6 +169,7 @@ static void apply(sim_t &s, const op_t &o)
         dut->ctrl_we = 1;
         dut->wdata = 1u | (o.fmt.bits == 16 ? 2u : 0u) | (o.fmt.channels == 2 ? 4u : 0u);
         shim_pcm_reset(o.fmt.rate, o.fmt.bits, o.fmt.channels);
+        s.staged.clear();
         s.opened = true;
         s.open = true;
         s.fmt = o.fmt;
@@ -179,33 +183,37 @@ static void apply(sim_t &s, const op_t &o)
     {
         const uint8_t b[4] = {(uint8_t)o.v, (uint8_t)(o.v >> 8), (uint8_t)(o.v >> 16),
                               (uint8_t)(o.v >> 24)};
-        s.align[dut->rootp->tb_aud__DOT__pcm__DOT__head & 3]++;
-        if (dut->rootp->tb_aud__DOT__pcm__DOT__head & 3)
+        s.align[dut->rootp->tb_aud__DOT__pcm__DOT__wr & 3]++;
+        if (dut->rootp->tb_aud__DOT__pcm__DOT__wr & 3)
         {
             /* A word lands aligned: this one goes as its bytes. */
             for (int k = 3; k >= 1; k--)
                 s.q.push_front({s.clock, OP_BYTE, b[k], {}});
             dut->byte_we = 1;
             dut->wdata = b[0] * 0x01010101u;
-            shim_pcm_put(b, 1);
+            s.staged.push_back(b[0]);
             break;
         }
         dut->data_we = 1;
         dut->wdata = o.v;
-        shim_pcm_put(b, 4);
+        s.staged.insert(s.staged.end(), b, b + 4);
         break;
     }
     case OP_BYTE:
     {
         dut->byte_we = 1;
         dut->wdata = (o.v & 0xFF) * 0x01010101u;
-        const uint8_t b = (uint8_t)o.v;
-        shim_pcm_put(&b, 1);
+        s.staged.push_back((uint8_t)o.v);
         break;
     }
     case OP_CLEAR:
         dut->clear_we = 1;
         shim_pcm_clear();
+        break;
+    case OP_COMMIT:
+        dut->commit_we = 1;
+        shim_pcm_put(s.staged.data(), (uint32_t)s.staged.size());
+        s.staged.clear();
         break;
     }
 }
@@ -315,6 +323,7 @@ static const char *clock(sim_t &s)
     dut->tick = dut->step = 0;
     dut->under_take = 0;
     dut->ctrl_we = dut->step_we = dut->data_we = dut->byte_we = dut->clear_we = 0;
+    dut->commit_we = 0;
     dut->in_valid = 0;
     dut->eval();
     s.clock++;
@@ -359,9 +368,12 @@ static uint8_t byte_of(sim_t &s, uint32_t i)
     return (uint8_t)((uint16_t)p.val >> (8 * in_s));
 }
 
-/* n bytes queued from at as words and single bytes, gap clocks apart. */
+/* n bytes queued from at as words and single bytes, gap clocks apart, then
+ * their commit. */
 static void queue_bytes(sim_t &s, long at, uint32_t n, int byte_pct, int gap_lo, int gap_hi)
 {
+    if (!n)
+        return;
     while (n)
     {
         if (n >= 4 && rr(0, 99) >= byte_pct)
@@ -379,6 +391,7 @@ static void queue_bytes(sim_t &s, long at, uint32_t n, int byte_pct, int gap_lo,
         }
         at = s.last + rr(gap_lo, gap_hi);
     }
+    push(s, at, OP_COMMIT);
 }
 
 /* The clocks where the player changes state, with a push and without. */
@@ -489,7 +502,7 @@ static const char *run(const case_t &k, int32_t *peak = NULL)
                 uint32_t queued = 0;
                 for (const op_t &o : s.q)
                     queued += o.kind == OP_DATA ? 4 : o.kind == OP_BYTE ? 1 : 0;
-                const uint32_t room = BUF - shim_pcm_level() - queued;
+                const uint32_t room = BUF - shim_pcm_level() - queued - (uint32_t)s.staged.size();
                 uint32_t want = fill ? room : (uint32_t)rr(1, k.chunk);
                 if (want > room)
                     want = room;

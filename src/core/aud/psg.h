@@ -46,7 +46,7 @@ void psg_map(uint16_t word);
 uint16_t psg_xaddr_get(void);
 
 /* Release the pointer, which takes the eight channels out of the mix and
- * leaves the bell. The caller holds the engine lock. */
+ * leaves the bell. The mixer calls it with its engines held still. */
 void psg_park(void);
 
 /* The pointer, the eight channels behind it and the bell. XRAM need not
