@@ -1114,13 +1114,13 @@ module wiring
     logic [31:0] aud_wdata;
     always_comb aud_wdata = (eng_arr_own || eng_aud_mask) ? eng_mem_wdata
                                                           : soc_wdata;
-    logic [31:0] psg_sst_rdata, opl_sst_rdata, rsmp_sst_rdata, pcm_sst_rdata;
-    logic psg_quiet, opl_quiet, rsmp_quiet, pcm_quiet;
+    logic [31:0] psg_sst_rdata, opl_sst_rdata, pcm_sst_rdata;
+    logic psg_quiet, opl_quiet, pcm_quiet;
     always_comb begin
-        aud_sst_rdata = psg_sst_rdata | opl_sst_rdata | rsmp_sst_rdata
-            | pcm_sst_rdata | (eng_mem_addr[10:0] == 11'h7A0
+        aud_sst_rdata = psg_sst_rdata | opl_sst_rdata | pcm_sst_rdata
+            | (eng_mem_addr[10:0] == 11'h7A0
                 ? {6'd0, qs_we, qs_host, qs_addr, qs_val} : 32'd0);
-        aud_quiet = psg_quiet && opl_quiet && rsmp_quiet && pcm_quiet;
+        aud_quiet = psg_quiet && opl_quiet && pcm_quiet;
     end
 
     /* The audio window's readable words, by soc_addr[5:2]. */
@@ -1193,54 +1193,17 @@ module wiring
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The resampler's coefficients, one port for rsmp and one for pcm. */
-    logic [7:0] rsmp_coef_row, pcm_coef_row;
-    logic [4:0] rsmp_coef_tap, pcm_coef_tap;
-    logic signed [rsmp_coef_pkg::RSMP_COEF_W-1:0] rsmp_rom_a_q, rsmp_rom_b_q;
-    rsmp_rom rsmp_rom (
-        .clk(clk_mach),
-        .a_row(rsmp_coef_row),
-        .a_tap(rsmp_coef_tap),
-        .rsmp_rom_a_q(rsmp_rom_a_q),
-        .b_row(pcm_coef_row),
-        .b_tap(pcm_coef_tap),
-        .rsmp_rom_b_q(rsmp_rom_b_q)
-    );
-
     /* The OPL produces a sample every 1014 clocks and the audio output
      * takes one on each psg_tick, every 1050 clocks, so the OPL output
-     * is resampled onto the tick. One resampler serves both channels
-     * because a YM3812 is mono. */
-    logic signed [15:0] opl_rs;
-    /* verilator lint_off PINCONNECTEMPTY */
-    rsmp rsmp (
-        .clk(clk_mach),
-        .clk_sys(clk_sys),
-        .in_sample(opl_l),
-        .in_valid(opl_valid),
-        .step(psg_tick),
-        .rsmp_coef_row(rsmp_coef_row),
-        .rsmp_coef_tap(rsmp_coef_tap),
-        .coef_q(rsmp_rom_a_q),
-        .rsmp_out(opl_rs),
-        /* rsmp_valid is unused because rsmp updates rsmp_out 52 clocks
-         * after a psg_tick that it acts on, and rsmp_out holds that value
-         * until the audio output takes it on the next tick. */
-        .rsmp_valid(),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr[10:0]),
-        .sst_we(eng_aud_we),
-        .sst_st_we(eng_aud_st_we),
-        .sst_wdata(eng_mem_wdata),
-        .rsmp_sst_rdata(rsmp_sst_rdata),
-        .rsmp_quiet(rsmp_quiet)
-    );
-    /* verilator lint_on PINCONNECTEMPTY */
-
-    /* The PCM: device, by soc_addr[5:2]: 6 control, 7 step, 8 four
+     * is resampled onto the tick, on one filter with the PCM: device. One
+     * stream serves both channels because a YM3812 is mono.
+     *
+     * The PCM: device, by soc_addr[5:2]: 6 control, 7 step, 8 four
      * bytes, 9 one byte, 10 clear; 11 reads the level. */
     localparam int PCM_W = rsmp_coef_pkg::RSMP_OUT_W;
+    logic signed [15:0] opl_rs;
     logic signed [PCM_W-1:0] pcm_l, pcm_r;
+    /* verilator lint_off PINCONNECTEMPTY */
     pcm pcm (
         .clk(clk_mach),
         .clk_sys(clk_sys),
@@ -1251,12 +1214,16 @@ module wiring
         .byte_we(aud_we && soc_addr[5:2] == 4'h9),
         .clear_we(aud_we && soc_addr[5:2] == 4'hA),
         .wdata(aud_wdata),
-        .pcm_coef_row(pcm_coef_row),
-        .pcm_coef_tap(pcm_coef_tap),
-        .coef_q(rsmp_rom_b_q),
         .pcm_level(pcm_level),
         .pcm_l(pcm_l),
         .pcm_r(pcm_r),
+        .in_sample(opl_l),
+        .in_valid(opl_valid),
+        .step(psg_tick),
+        .rsmp_out(opl_rs),
+        /* rsmp_valid is unused because opl_rs holds its value until the
+         * audio output takes it on the next tick. */
+        .rsmp_valid(),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr[10:0]),
         .sst_we(eng_aud_we),
@@ -1264,6 +1231,7 @@ module wiring
         .pcm_sst_rdata(pcm_sst_rdata),
         .pcm_quiet(pcm_quiet)
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     /* Two 16-bit engines and pcm's PCM_W bits add in PCM_W + 1. */
     localparam int ENG_W = PCM_W + 1;

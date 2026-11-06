@@ -173,18 +173,28 @@ static void apply(sim_t &s, const op_t &o)
         break;
     case OP_DATA:
     {
-        dut->data_we = 1;
-        dut->wdata = o.v;
         const uint8_t b[4] = {(uint8_t)o.v, (uint8_t)(o.v >> 8), (uint8_t)(o.v >> 16),
                               (uint8_t)(o.v >> 24)};
         s.align[dut->rootp->tb_aud__DOT__pcm__DOT__head & 3]++;
+        if (dut->rootp->tb_aud__DOT__pcm__DOT__head & 3)
+        {
+            /* A word lands aligned: this one goes as its bytes. */
+            for (int k = 3; k >= 1; k--)
+                s.q.push_front({s.clock, OP_BYTE, b[k], {}});
+            dut->byte_we = 1;
+            dut->wdata = b[0] * 0x01010101u;
+            shim_pcm_put(b, 1);
+            break;
+        }
+        dut->data_we = 1;
+        dut->wdata = o.v;
         shim_pcm_put(b, 4);
         break;
     }
     case OP_BYTE:
     {
         dut->byte_we = 1;
-        dut->wdata = o.v;
+        dut->wdata = (o.v & 0xFF) * 0x01010101u;
         const uint8_t b = (uint8_t)o.v;
         shim_pcm_put(&b, 1);
         break;
@@ -207,7 +217,7 @@ static const char *clock(sim_t &s)
                  (unsigned)dut->pcm_level, (unsigned)shim_pcm_level());
         return why;
     }
-    if (dut->rootp->tb_aud__DOT__pcm__DOT__state == S_SUM)
+    if (dut->rootp->tb_aud__DOT__pcm__DOT__state == S_SUM && !dut->rootp->tb_aud__DOT__pcm__DOT__so)
     {
         const int ch = dut->rootp->tb_aud__DOT__pcm__DOT__ch;
         const int64_t want = s.want_v[ch] + (1 << (RSMP_Q - 1));

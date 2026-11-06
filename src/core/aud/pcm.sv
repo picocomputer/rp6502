@@ -3,29 +3,48 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The PCM: device's sound, bit-exact with core/aud/pcm.c built with
- * AUD_NATIVE_RATE 48000: pcm_sample on every tick.
+ * Sound resampled to the codec's 48,000 a second: the OPL2's 49,704, and
+ * the PCM: device's frames. The OPL2's stream is bit-exact with
+ * core/aud/rsmp.c and PCM's with core/aud/pcm.c built with AUD_NATIVE_RATE
+ * 48000, off the same generated coefficients.
  *
- * The soft CPU writes frames into a 4096-byte FIFO, reading the level
- * first so that it never overruns it. A tick whose phase reaches one
- * takes a frame, or silence when none is whole, into a history of the
- * last 24 per channel, and every tick filters it with two rows of
- * rsmp_rom's coefficients and blends them as pcm_blend does, in about
- * 105 of the tick's 1050 clocks.
+ * The three streams, the OPL2's and PCM's left and right, take turns on
+ * one filter after each tick, the OPL2's first. Each is two rows of 24
+ * taps, the rows either side of its phase, one multiply-accumulate walked
+ * twice and blended as pcm_blend does. That is about 155 of the tick's
+ * 1050 clocks.
  *
- * Everything that reads the FIFO and the phase happens on the tick's
- * edge, so a write, clear, open or close lands before a sample or after
- * it. One on the tick's own clock is after it.
+ * A YM3812 runs at its own rate or it is not a YM3812, so its samples
+ * arrive on in_valid and are resampled onto the tick. 1014 and 1050 off
+ * the same 50.4 MHz is exactly 175/169, a phase sequence that cannot
+ * drift.
+ *
+ * The soft CPU writes PCM frames into a 4096-byte FIFO, reading the level
+ * first so that it never overruns it. A word lands on a word of the FIFO,
+ * and a byte comes in every lane, so the soft CPU sends bytes until the
+ * head is on a word. A tick whose phase reaches one takes a frame, or
+ * silence when none is whole. Everything that reads the FIFO and the phase
+ * happens on the tick's edge, so a write, clear, open or close lands
+ * before a sample or after it. One on the tick's own clock is after it.
+ *
+ * The histories share one M10K: the OPL2's at 0-31, PCM's at 64-127, and
+ * 32-63 never written, so a tap before the first frame reads 32's zero.
  *
  * A savestate reads and writes the FIFO through the sst port at savestate
- * offset 0, a row of four bytes a word, the history at 0x600 and the
- * flops at 0x790. Its word comes in on wdata. Between samples every other
- * flop and every registered read is dead, so only that state is kept.
+ * offset 0, a row of four bytes a word, PCM's history at 0x600, the
+ * OPL2's at 0x6A0, PCM's flops at 0x790 and the OPL2's at 0x798. Its word
+ * comes in on wdata. Between samples every other flop and every registered
+ * read is dead, so only that state is kept.
  */
 
 module pcm
     import rsmp_coef_pkg::*;
-(
+#(
+    /* The two clock divisors, not two frequencies: rounded Hz slips a
+     * sample every seven seconds. */
+    parameter int STEP_NUM = 1050,
+    parameter int STEP_DEN = 1014
+) (
     input logic clk,
     input logic clk_sys,
     input logic tick,
@@ -35,29 +54,24 @@ module pcm
     input logic ctrl_we,
     /* Frames per sample, Q32, less one. Written while closed. */
     input logic step_we,
-    /* Four bytes, wdata[7:0] first. */
+    /* Four bytes, wdata[7:0] first, at a word of the FIFO. */
     input logic data_we,
-    /* wdata[7:0]. */
+    /* One byte, in every lane of wdata. */
     input logic byte_we,
-    /* Empties the FIFO; the history plays out. */
     input logic clear_we,
-    /* The register's word, and the savestate's on sst_we or sst_st_we. */
     input logic [31:0] wdata,
 
-    /* rsmp_rom's port, read a clock after the address. */
-    output logic [7:0] pcm_coef_row,
-    output logic [4:0] pcm_coef_tap,
-    input logic signed [RSMP_COEF_W-1:0] coef_q,
-
-    /* Bytes waiting to play, 0..4096. */
     output logic [12:0] pcm_level,
-    /* Held from the end of a sample's filter to the next tick's. */
     output logic signed [RSMP_OUT_W-1:0] pcm_l,
     output logic signed [RSMP_OUT_W-1:0] pcm_r,
 
-    /* sst_own gives the FIFO's and the history's ports to sst_addr,
-     * written on sst_we. sst_st_we writes the flop word at sst_addr on
-     * clk. */
+    /* The OPL2's samples, and the tick it is resampled onto. */
+    input logic signed [15:0] in_sample,
+    input logic in_valid,
+    input logic step,
+    output logic signed [15:0] rsmp_out,
+    output logic rsmp_valid,
+
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic sst_we,
@@ -66,15 +80,24 @@ module pcm
     output logic pcm_quiet
 );
 
-    logic sel_f, sel_h, sel_st;
+    logic sel_f, sel_hp, sel_ho, sel_h, sel_st, sel_so;
     always_comb begin
         sel_f = !sst_addr[10];
-        sel_h = sst_addr[10:6] == 5'h18;
+        sel_hp = sst_addr[10:6] == 5'h18;
+        sel_ho = sst_addr[10:5] == 6'h35;
+        sel_h = sel_hp || sel_ho;
         sel_st = sst_addr[10:3] == 8'hF2;
+        sel_so = sst_addr[10:3] == 8'hF3;
     end
 
     localparam logic [32:0] ONE = 33'h1_0000_0000;
     localparam int DH_W = RSMP_DIFF_W - 16;
+
+    localparam longint unsigned O_STEP =
+        ((64'(STEP_NUM) << 32) / 64'(STEP_DEN));
+    localparam int OPH_W = 34;
+    localparam logic [OPH_W-1:0] O_ONE = OPH_W'(64'd1 << 32);
+    localparam logic [OPH_W-1:0] O_TWO = OPH_W'(64'd2 << 32);
 
     logic open, b16, st;
     logic [31:0] step_m1;
@@ -90,9 +113,14 @@ module pcm
     logic go;
     always_comb go = tick && open && state == S_IDLE;
 
-    /* FIFO byte i is bank i & 3, row i >> 2, so any four bytes in a row
-     * are one per bank. The savestate's row takes byte b of its word into
-     * bank b through the same lanes. */
+    /* The OPL's stream. */
+    logic [OPH_W-1:0] o_phase;
+    logic [4:0] wptr, rptr;
+    logic primed, full;
+    logic o_go;
+    always_comb o_go = step && primed && wptr != rptr && state == S_IDLE;
+
+    /* FIFO: four banks, words aligned. */
     logic [12:0] head, tail;
     always_comb pcm_level = head - tail;
     logic [2:0] frame;
@@ -101,19 +129,15 @@ module pcm
     always_comb has = pcm_level >= 13'(frame);
 
     logic [3:0] w_en;
-    logic [9:0] w_row[4], r_row[4];
-    logic [7:0] w_byte[4];
-    logic [1:0] w_k[4];
-    always_comb
+    logic [9:0] w_row, r_row[4];
+    always_comb begin
+        w_row = sst_own ? sst_addr[9:0] : head[11:2];
         for (int b = 0; b < 4; b++) begin
-            w_k[b] = sst_own ? 2'(b) : 2'(b) - head[1:0];
             w_en[b] = sst_own ? sst_we && sel_f
-                : data_we || (byte_we && w_k[b] == 2'd0);
-            w_row[b] = sst_own ? sst_addr[9:0]
-                : head[11:2] + 10'(2'(b) < head[1:0]);
-            w_byte[b] = wdata[{w_k[b], 3'd0}+:8];
+                : data_we || (byte_we && head[1:0] == 2'(b));
             r_row[b] = tail[11:2] + 10'(2'(b) < tail[1:0]);
         end
+    end
 
     logic [7:0] fq[4], fa_q[4];
     genvar gb;
@@ -123,8 +147,8 @@ module pcm
                 .clk_a(clk_sys),
                 .clk(clk),
                 .we(w_en[gb]),
-                .waddr(w_row[gb]),
-                .wdata(w_byte[gb]),
+                .waddr(w_row),
+                .wdata(wdata[8*gb+:8]),
                 .pcm_bank_a_q(fa_q[gb]),
                 .re(tick),
                 .raddr(r_row[gb]),
@@ -133,15 +157,14 @@ module pcm
         end
     endgenerate
 
-    /* The take's frame: whether it was whole, its format and where in
-     * the four banks it starts. */
     logic tk_has, tk_16, tk_st;
     logic [1:0] tk_t;
 
+    /* so: the stream is the OPL's. p_pend: PCM's follow it, p_push with
+     * a push first. */
+    logic so, p_pend, p_push;
     logic ch, pass;
     logic [4:0] tap;
-    /* Where the next push goes, and the window's taps below cold read
-     * zero: the pushes since a reset are 24 - cold. */
     logic [4:0] at, cold;
 
     logic [1:0] d_o;
@@ -159,48 +182,95 @@ module pcm
             dec = {~d_lo[7], d_lo[6:0], 8'd0};
     end
 
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic signed [15:0] hist[64];
-    logic [5:0] hw_a;
-    always_comb hw_a = sst_own ? sst_addr[5:0] : {ch, at};
+    /* The histories, one M10K on clk_sys. The OPL's write wins a clock;
+     * a push waits it out. */
+    (* ramstyle = "M10K" *)
+    logic signed [15:0] hist[128];
+    initial for (int i = 0; i < 128; i++) hist[i] = '0;
+    logic [6:0] s_ha;
+    always_comb s_ha = sel_hp ? {1'b1, sst_addr[5:0]} : {2'b00, sst_addr[4:0]};
+    logic h_we;
+    logic [6:0] h_wa;
+    logic signed [15:0] h_wd;
+    always_comb begin
+        h_we = sst_own ? sst_we && sel_h : in_valid || state == S_PUSH;
+        h_wa = sst_own ? s_ha : in_valid ? {2'b00, wptr} : {1'b1, ch, at};
+        h_wd = sst_own ? wdata[15:0] : in_valid ? in_sample : dec;
+    end
     always_ff @(posedge clk_sys)
-        if (sst_own ? sst_we && sel_h : state == S_PUSH)
-            hist[hw_a] <= sst_own ? wdata[15:0] : dec;
-    logic [5:0] h_ra, hr_a;
-    logic signed [15:0] h_rd, hist_q;
-    always_comb begin
-        h_ra = {ch, at + 5'(32 - RSMP_TAPS) + tap};
-        hr_a = sst_own ? sst_addr[5:0] : h_ra;
-        h_rd = hist[hr_a];
-    end
+        if (h_we)
+            hist[h_wa] <= h_wd;
 
+    logic [4:0] h_b, h_t;
+    logic [6:0] e_ra, h_ra;
     always_comb begin
-        pcm_coef_row = 8'(phase[31:25]) + 8'(pass);
-        pcm_coef_tap = tap;
+        h_b = so ? rptr : at;
+        h_t = h_b + 5'(32 - RSMP_TAPS) + tap;
+        if (so)
+            e_ra = {2'b00, !full && h_t >= wptr ? 5'd0 : h_t};
+        else
+            e_ra = tap < cold ? 7'h20 : {1'b1, ch, h_t};
+        h_ra = sst_own ? s_ha : e_ra;
     end
+    logic signed [15:0] hist_q;
+    always_ff @(posedge clk_sys) hist_q <= hist[h_ra];
 
-    /* Row p is subtracted and row p + 1 added: acc ends at d, their
-     * difference, and acc_a holds row p's dot negated. */
-    logic mac_en, mac_add, mac_cap;
+    /* The coefficients, one port. */
+    localparam int AW = $clog2(RSMP_HALF_N);
+    logic signed [RSMP_COEF_W-1:0] coef[RSMP_HALF_N];
+    initial begin
+        for (int i = 0; i < RSMP_HALF_N; i++) coef[i] = RSMP_HALF[i];
+    end
+    logic [7:0] c_row, c_r;
+    logic [4:0] c_t;
+    logic [AW-1:0] c_a;
+    logic [6:0] p_row;
+    logic [15:0] f;
+    always_comb begin
+        p_row = so ? o_phase[31:25] : phase[31:25];
+        f = so ? o_phase[24:9] : phase[24:9];
+        c_row = 8'(p_row) + 8'(pass);
+        if (c_row <= 8'(RSMP_PHASES / 2)) begin
+            c_r = c_row;
+            c_t = tap;
+        end else begin
+            c_r = 8'(RSMP_PHASES) - c_row;
+            c_t = 5'(RSMP_TAPS - 1) - tap;
+        end
+        c_a = AW'(c_r) * AW'(RSMP_TAPS) + AW'(c_t);
+    end
+    logic signed [RSMP_COEF_W-1:0] coef_q;
+    always_ff @(posedge clk) coef_q <= coef[c_a];
+
+    /* The first product of a stream loads the accumulator, which is the
+     * DSP's own load control. */
+    logic mac_en, mac_add, mac_cap, mac_first;
     logic signed [RSMP_DOT_W-1:0] acc, acc_a, prod;
     always_comb prod = RSMP_DOT_W'(coef_q) * RSMP_DOT_W'(hist_q);
 
-    /* s = (d * f) >> 16 = dh * f + ((dl * f) >> 16), two products that fit
-     * an 18x19 multiplier each, plus the rounding half. */
     logic signed [RSMP_DIFF_W-1:0] s_q;
     logic signed [DH_W-1:0] dh;
-    logic [15:0] dl, f;
+    logic [15:0] dl;
     logic signed [RSMP_DIFF_W-1:0] s_hi;
     logic [15:0] s_lo;
     always_comb begin
         {dh, dl} = acc[RSMP_DIFF_W-1:0];
-        f = phase[24:9];
         s_hi = RSMP_DIFF_W'(dh) * RSMP_DIFF_W'($signed({1'b0, f}));
         s_lo = 16'((32'(dl) * 32'(f)) >> 16);
     end
 
+    /* One adder steps both phases: the OPL2's in its S_SUM, PCM's in the
+     * right channel's. */
+    logic [OPH_W-1:0] ph_sum;
+    always_comb ph_sum = (so ? o_phase : OPH_W'(phase))
+        + (so ? OPH_W'(O_STEP) : OPH_W'(step_m1)) + OPH_W'(!so);
+
     logic signed [RSMP_DOT_W-1:0] v;
-    always_comb v = RSMP_DOT_W'(s_q) - acc_a;
+    logic signed [RSMP_OUT_W-1:0] vr;
+    always_comb begin
+        v = RSMP_DOT_W'(s_q) - acc_a;
+        vr = RSMP_OUT_W'(v >>> RSMP_Q);
+    end
 
     initial begin
         open = 1'b0;
@@ -216,6 +286,9 @@ module pcm
         tk_16 = 1'b0;
         tk_st = 1'b0;
         tk_t = '0;
+        so = 1'b0;
+        p_pend = 1'b0;
+        p_push = 1'b0;
         ch = 1'b0;
         pass = 1'b0;
         tap = '0;
@@ -224,12 +297,21 @@ module pcm
         mac_en = 1'b0;
         mac_add = 1'b0;
         mac_cap = 1'b0;
+        mac_first = 1'b0;
         acc = '0;
         acc_a = '0;
         hist_q = '0;
+        coef_q = '0;
         s_q = '0;
         pcm_l = '0;
         pcm_r = '0;
+        o_phase = '0;
+        wptr = '0;
+        rptr = '0;
+        primed = 1'b0;
+        full = 1'b0;
+        rsmp_out = '0;
+        rsmp_valid = 1'b0;
     end
 
     always_ff @(posedge clk) begin
@@ -242,10 +324,8 @@ module pcm
         else if (go)
             rst_pend <= 1'b0;
 
-        if (data_we)
-            head <= head + 13'd4;
-        else if (byte_we)
-            head <= head + 13'd1;
+        if (data_we || byte_we)
+            head <= head + {10'd0, data_we, 1'b0, !data_we};
         if (go && ph[32] && has)
             tail <= tail + 13'(frame);
         if (clear_we)
@@ -263,20 +343,31 @@ module pcm
     end
 
     always_ff @(posedge clk) begin
-        hist_q <= tap < cold ? '0 : h_rd;
+        rsmp_valid <= 1'b0;
         mac_en <= 1'b0;
         mac_cap <= 1'b0;
         if (mac_en)
-            acc <= mac_add ? acc + prod : acc - prod;
+            acc <= (mac_first ? '0 : acc) + (mac_add ? prod : -prod);
         if (mac_cap)
             acc_a <= acc;
 
+        if (in_valid) begin
+            if (!primed) begin
+                rptr <= 5'd1;
+                primed <= 1'b1;
+            end
+            if (&wptr)
+                full <= 1'b1;
+            wptr <= wptr + 5'd1;
+        end
+
         case (state)
-            S_IDLE:
+            S_IDLE: begin
                 if (tick && !open) begin
                     pcm_l <= '0;
                     pcm_r <= '0;
-                end else if (go) begin
+                end
+                if (go) begin
                     phase <= {1'b0, ph[31:0]};
                     if (rst_pend)
                         cold <= 5'(RSMP_TAPS);
@@ -284,26 +375,33 @@ module pcm
                     tk_16 <= b16;
                     tk_st <= st;
                     tk_t <= tail[1:0];
+                end
+                if (o_go || go) begin
+                    so <= o_go;
+                    p_pend <= go;
+                    p_push <= ph[32];
                     ch <= 1'b0;
                     pass <= 1'b0;
                     tap <= '0;
-                    acc <= '0;
-                    state <= ph[32] ? S_PUSH : S_MAC;
-                end
-
-            S_PUSH: begin
-                ch <= !ch;
-                if (ch) begin
-                    at <= at + 5'd1;
-                    if (cold != '0)
-                        cold <= cold - 5'd1;
-                    state <= S_MAC;
+                    state <= !o_go && ph[32] ? S_PUSH : S_MAC;
                 end
             end
+
+            S_PUSH:
+                if (!in_valid) begin
+                    ch <= !ch;
+                    if (ch) begin
+                        at <= at + 5'd1;
+                        if (cold != '0)
+                            cold <= cold - 5'd1;
+                        state <= S_MAC;
+                    end
+                end
 
             S_MAC: begin
                 mac_en <= 1'b1;
                 mac_add <= pass;
+                mac_first <= !pass && tap == '0;
                 mac_cap <= pass && tap == '0;
                 if (tap == 5'(RSMP_TAPS - 1)) begin
                     tap <= '0;
@@ -323,14 +421,26 @@ module pcm
             end
 
             S_SUM: begin
-                if (!ch) begin
-                    pcm_l <= RSMP_OUT_W'(v >>> RSMP_Q);
+                if (so) begin
+                    rsmp_out <= vr < -18'sd32768 ? -16'sd32768
+                        : vr > 18'sd32767 ? 16'sd32767 : 16'(vr);
+                    rsmp_valid <= 1'b1;
+                    if (ph_sum >= O_TWO) begin
+                        o_phase <= ph_sum - O_TWO;
+                        rptr <= rptr + 5'd2;
+                    end else begin
+                        o_phase <= ph_sum - O_ONE;
+                        rptr <= rptr + 5'd1;
+                    end
+                    so <= 1'b0;
+                    state <= !p_pend ? S_IDLE : p_push ? S_PUSH : S_MAC;
+                end else if (!ch) begin
+                    pcm_l <= vr;
                     ch <= 1'b1;
-                    acc <= '0;
                     state <= S_MAC;
                 end else begin
-                    pcm_r <= RSMP_OUT_W'(v >>> RSMP_Q);
-                    phase <= phase + {1'b0, step_m1} + 33'd1;
+                    pcm_r <= vr;
+                    phase <= ph_sum[32:0];
                     state <= S_IDLE;
                 end
             end
@@ -346,23 +456,33 @@ module pcm
                 3'd4: pcm_r <= wdata[RSMP_OUT_W-1:0];
                 default: ;
             endcase
+        if (sst_st_we && sel_so)
+            case (sst_addr[2:0])
+                3'd0: o_phase[31:0] <= wdata;
+                3'd1: {o_phase[33:32], wptr, rptr, primed, full, rsmp_out}
+                    <= wdata[29:0];
+                default: ;
+            endcase
     end
 
     logic [31:0] st_rd;
     always_comb begin
-        case (sst_addr[2:0])
-            3'd0: st_rd = step_m1;
-            3'd1: st_rd = phase[31:0];
-            3'd2: st_rd = {1'b0, phase[32], rst_pend, head, tail, st, b16,
+        case ({sel_so, sst_addr[2:0]})
+            4'h0: st_rd = step_m1;
+            4'h1: st_rd = phase[31:0];
+            4'h2: st_rd = {1'b0, phase[32], rst_pend, head, tail, st, b16,
                            open};
-            3'd3: st_rd = {4'd0, at, cold, pcm_l};
-            3'd4: st_rd = {14'd0, pcm_r};
+            4'h3: st_rd = {4'd0, at, cold, pcm_l};
+            4'h4: st_rd = {14'd0, pcm_r};
+            4'h8: st_rd = o_phase[31:0];
+            4'h9: st_rd = {2'd0, o_phase[33:32], wptr, rptr, primed, full,
+                           rsmp_out};
             default: st_rd = '0;
         endcase
         pcm_quiet = state == S_IDLE;
         pcm_sst_rdata = sel_f ? {fa_q[3], fa_q[2], fa_q[1], fa_q[0]}
-            : sel_h ? {16'd0, h_rd}
-            : sel_st ? st_rd : '0;
+            : sel_h ? {16'd0, hist_q}
+            : sel_st || sel_so ? st_rd : '0;
     end
 
 endmodule

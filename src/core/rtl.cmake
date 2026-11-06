@@ -24,8 +24,6 @@ set(RP6502_RTL_SOURCES
     ${OPL_ROM_PKG}
     ${RP6502_SRC}/core/aud/opl.sv
     ${RSMP_COEF_PKG}
-    ${RP6502_SRC}/core/aud/rsmp_rom.sv
-    ${RP6502_SRC}/core/aud/rsmp.sv
     ${RP6502_SRC}/core/aud/pcm_bank.sv
     ${RP6502_SRC}/core/aud/pcm.sv
     ${VID_PALETTE_PKG}

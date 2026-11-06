@@ -700,7 +700,6 @@ UTEST(sst, every_stop_finds_the_audio_quiet)
         ASSERT_TRUE((int)dut->wiring_sst_stop_req);
         ASSERT_EQ(0, (int)r->wiring__DOT__opl__DOT__fstate);
         ASSERT_EQ(0, (int)r->wiring__DOT__psg__DOT__state);
-        ASSERT_EQ(0, (int)r->wiring__DOT__rsmp__DOT__state);
         ASSERT_EQ(0, (int)r->wiring__DOT__pcm__DOT__state);
         ASSERT_LT((int)r->wiring__DOT__opl__DOT__tickctr, 1014 - 20);
         ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 1050 - 20);

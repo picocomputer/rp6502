@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * rsmp.sv's and pcm.sv's savestate ports, on one rsmp_rom as wiring.sv has
- * them. Session A plays and stops at a quiet point; session B has played
+ * pcm.sv's savestate port, the OPL2's resampler and PCM, as wiring.sv has
+ * it. Session A plays and stops at a quiet point; session B has played
  * something else, takes A's image, and then both take one stream of input
  * and writes and must agree on every clock. B has random words written
  * over everything first, so an item the restore leaves out shows.

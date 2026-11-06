@@ -3,7 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * rsmp and pcm on one rsmp_rom, as wiring.sv connects them. SST_CLK
+ * pcm, the OPL2's resampler and PCM on one filter, as wiring.sv connects
+ * it. SST_CLK
  * gives the arrays' ports clk_sys, as wiring.sv does; clear, they run on
  * clk. wdata carries the savestate's word too, as in wiring.sv.
  */
@@ -49,39 +50,6 @@ module tb_aud
     logic clk_a;
     assign clk_a = SST_CLK ? clk_sys : clk;
 
-    logic [7:0] rsmp_coef_row, pcm_coef_row;
-    logic [4:0] rsmp_coef_tap, pcm_coef_tap;
-    logic signed [RSMP_COEF_W-1:0] rsmp_rom_a_q, rsmp_rom_b_q;
-    rsmp_rom rsmp_rom (
-        .clk(clk),
-        .a_row(rsmp_coef_row),
-        .a_tap(rsmp_coef_tap),
-        .rsmp_rom_a_q(rsmp_rom_a_q),
-        .b_row(pcm_coef_row),
-        .b_tap(pcm_coef_tap),
-        .rsmp_rom_b_q(rsmp_rom_b_q)
-    );
-
-    rsmp rsmp (
-        .clk(clk),
-        .clk_sys(clk_a),
-        .in_sample(in_sample),
-        .in_valid(in_valid),
-        .step(step),
-        .rsmp_coef_row(rsmp_coef_row),
-        .rsmp_coef_tap(rsmp_coef_tap),
-        .coef_q(rsmp_rom_a_q),
-        .rsmp_out(rsmp_out),
-        .rsmp_valid(rsmp_valid),
-        .sst_own(sst_own),
-        .sst_addr(sst_addr),
-        .sst_we(sst_we),
-        .sst_st_we(sst_st_we),
-        .sst_wdata(wdata),
-        .rsmp_sst_rdata(rsmp_sst_rdata),
-        .rsmp_quiet(rsmp_quiet)
-    );
-
     logic signed [RSMP_OUT_W-1:0] pcm_out_l, pcm_out_r;
     pcm pcm (
         .clk(clk),
@@ -93,12 +61,14 @@ module tb_aud
         .byte_we(byte_we),
         .clear_we(clear_we),
         .wdata(wdata),
-        .pcm_coef_row(pcm_coef_row),
-        .pcm_coef_tap(pcm_coef_tap),
-        .coef_q(rsmp_rom_b_q),
         .pcm_level(pcm_level),
         .pcm_l(pcm_out_l),
         .pcm_r(pcm_out_r),
+        .in_sample(in_sample),
+        .in_valid(in_valid),
+        .step(step),
+        .rsmp_out(rsmp_out),
+        .rsmp_valid(rsmp_valid),
         .sst_own(sst_own),
         .sst_addr(sst_addr),
         .sst_we(sst_we),
@@ -106,6 +76,12 @@ module tb_aud
         .pcm_sst_rdata(pcm_sst_rdata),
         .pcm_quiet(pcm_quiet)
     );
+    /* The OPL2's stream is pcm's too, so its savestate words come out on
+     * pcm_sst_rdata. */
+    always_comb begin
+        rsmp_sst_rdata = '0;
+        rsmp_quiet = 1'b1;
+    end
     always_comb begin
         pcm_l = 32'(pcm_out_l);
         pcm_r = 32'(pcm_out_r);

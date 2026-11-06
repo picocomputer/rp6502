@@ -153,9 +153,9 @@ static inline int32_t set_tz_minutes(void)
 /* Frames per 48 kHz sample, Q32, less one: pcm_step(rate) - 1. Written
  * while closed. */
 #define AUD_PCM_STEP (*(volatile uint32_t *)0x7000001Cu)
-/* Four bytes into the buffer, the low byte first. */
+/* Four bytes into the buffer, the low byte first, at a word of it. */
 #define AUD_PCM_DATA (*(volatile uint32_t *)0x70000020u)
-/* One byte into the buffer. */
+/* One byte into the buffer, in every lane of the word. */
 #define AUD_PCM_BYTE (*(volatile uint32_t *)0x70000024u)
 /* Empties the buffer. */
 #define AUD_PCM_CLEAR (*(volatile uint32_t *)0x70000028u)

@@ -14,6 +14,8 @@
 
 /* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
+/* Bytes written since the open, which empties the FIFO, modulo 4. */
+static uint8_t aud_pcm_head;
 
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
  * keep sounding through a machine reset until their registers are written.
@@ -53,6 +55,7 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     aud_pcm_ctrl = 1u | (fmt->bits == 16 ? 2u : 0u) | (fmt->channels == 2 ? 4u : 0u);
     AUD_PCM_STEP = (uint32_t)(pcm_step(fmt->rate) - 1);
     AUD_PCM_CTRL = aud_pcm_ctrl;
+    aud_pcm_head = 0;
     return true;
 }
 
@@ -64,7 +67,9 @@ void aud_pcm_close(void)
 
 /* The player only takes, so the room read first is never too much. buf is
  * in XRAM or the xstack, and a word load from XRAM gives one byte four
- * times, so each byte is a load of its own. */
+ * times, so each byte is a load of its own. A word lands on a word of the
+ * FIFO, so bytes go one at a time, in every lane, until the head is on
+ * one; aud_pcm_head counts the head's place in its word. */
 uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
 {
     const volatile uint8_t *src = buf;
@@ -72,11 +77,13 @@ uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
     if (n > room)
         n = room;
     uint32_t i = 0;
+    for (; i < n && (aud_pcm_head & 3); i++, aud_pcm_head++)
+        AUD_PCM_BYTE = src[i] * 0x01010101u;
     for (; i + 4 <= n; i += 4)
         AUD_PCM_DATA = (uint32_t)src[i] | (uint32_t)src[i + 1] << 8 |
                        (uint32_t)src[i + 2] << 16 | (uint32_t)src[i + 3] << 24;
-    for (; i < n; i++)
-        AUD_PCM_BYTE = src[i];
+    for (; i < n; i++, aud_pcm_head++)
+        AUD_PCM_BYTE = src[i] * 0x01010101u;
     return n;
 }
 
