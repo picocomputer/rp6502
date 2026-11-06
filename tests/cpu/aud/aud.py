@@ -27,19 +27,6 @@ GOT = 0x0210
 
 
 class Prog(Asm):
-    def settle(self):
-        """The loop takes about 1,280 cycles, which is 160 us at the
-        default 8 MHz. psg.sv releases its eight program voices at most one
-        48 kHz sample period of 20.8 us after its pointer register is
-        written, and a gate written before then is released with them. The
-        pointer is written before the xreg call returns, so a gate written
-        after this loop starts its note."""
-        loop = self.local("settle")
-        self.ldx_imm(0)
-        self.symbol(loop)
-        self.dex()
-        self.bne(loop)
-
     def spin(self):
         self.jmp_abs(self.here())
 
@@ -65,7 +52,6 @@ def psg_prog():
     p = Prog()
     page = PSG
     p.xreg(0, 1, 0, page)
-    p.settle()
     # The frequency register holds hertz times three, so 0x0528 is 440 Hz.
     # A duty of 0x80 is half of each cycle. Volume 0 is the loudest because
     # the volume nibble selects from a table that runs from 256 down to 0,
@@ -92,13 +78,17 @@ def psg_pre_prog():
     p.poke(page + 5, 0x00)
     p.poke(page + 6, 0x01)
     p.xreg(0, 1, 0, page)
-    p.settle()
-    # The two delays last about 656,000 cycles, which is about five frames
-    # at the default 8 MHz, so a test can measure whole frames of silence
-    # before the note starts.
+    # Each pair of delays lasts about 656,000 cycles, which is about five
+    # frames at the default 8 MHz, so a test can measure whole frames
+    # between the steps.
     p.delay(255)
     p.delay(255)
     p.poke(page + 6, 0x01)
+    p.delay(255)
+    p.delay(255)
+    p.poke(page + 0, 0x28)
+    p.poke(page + 1, 0x05)
+    p.poke(page + 2, 0x80)
     p.spin()
     return p
 
@@ -442,7 +432,6 @@ def aud_sst_prog():
     p.symbol("main")
 
     p.xreg(0, 1, 0, PSG)
-    p.settle()
     for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
                     (5, 0x10), (6, 0x01),
                     (8, 0x00), (9, 0x30), (10, 0xC0), (11, 0x20),
@@ -521,7 +510,6 @@ def aud_snoop_prog():
     queue, which overflows, the rest."""
     p = Prog()
     p.xreg(0, 1, 0, PSG)
-    p.settle()
     for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
                     (5, 0x30), (6, 0x01)):
         p.poke(PSG + at, val)
@@ -770,8 +758,8 @@ def opl_drops(path):
 def test_psg():
     """The note starts within three frames, loud, and the twelve frames after
     its first are 440 Hz within a tenth. Then the gate byte is cleared twice.
-    A plain poke changes XRAM, and the PSG, which catches the gate only as
-    the RIA writes it, plays on. xbus: writes it the way the RIA does, and
+    A plain poke changes XRAM only, and the PSG, which takes its registers
+    only as the RIA writes them, plays on. xbus: writes it the way the RIA does, and
     the note is released."""
     record("psg", 'wav "psg.wav" 15',
            "poke xram:PSG+6 $00", 'wav "plain.wav" 2',
@@ -818,14 +806,20 @@ def test_opl_init():
 
 
 def test_psg_pre():
-    """The block is programmed, gate and all, before xreg names it, so no note
-    starts until the program writes the gate again about five frames later."""
+    """The block is programmed, gate and all, before xreg names it. The map
+    starts the PSG's registers at zero whatever XRAM holds, so the gate
+    struck about five frames later plays no tone, and the tone starts only
+    when the program writes the frequency and duty about five frames after
+    that."""
     record("psg_pre", 'wav "pre.wav" 20')
-    p = peaks(mono("pre.wav"))
+    m = mono("pre.wav")
+    p = peaks(m)
     assert not any(p[1:4]), f"sound in frames 1-3: peaks {p[1:4]}"
-    at = onset(p, 4)
+    tone = [crossings(m[i:i + FRAME]) for i in range(0, len(m), FRAME)]
+    assert not any(tone[:9]), f"a tone in frames 0-8: swings {tone[:9]}"
+    at = next((i for i in range(9, len(tone)) if tone[i] > 10), -1)
     assert at >= 0 and p[at] > LOUD, \
-        f"no loud note in frames 4-19: peaks {p[4:]}"
+        f"no tone in frames 9-19: swings {tone[9:]}, peaks {p[9:]}"
 
 
 def test_bel():

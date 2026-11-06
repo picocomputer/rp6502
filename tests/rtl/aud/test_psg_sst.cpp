@@ -90,10 +90,9 @@ static Vpsg_sst *make(const char *name)
     return d;
 }
 
-static void snoop(Vpsg_sst *d, uint16_t addr, uint8_t val, bool host)
+static void snoop(Vpsg_sst *d, uint16_t addr, uint8_t val)
 {
     d->q_we = 1;
-    d->q_host = host;
     d->q_addr = addr;
     d->q_val = val;
     edge(d, true);
@@ -111,13 +110,13 @@ static void program(Vpsg_sst *d, uint16_t at, std::mt19937 &r, bool bell)
     {
         uint16_t b = (uint16_t)(at + 8 * v);
         uint16_t f = (uint16_t)(600 + (r() % 4000));
-        snoop(d, b + 0, (uint8_t)f, true);
-        snoop(d, b + 1, (uint8_t)(f >> 8), true);
-        snoop(d, b + 2, (uint8_t)(0x40 + (r() % 0x80)), true);
-        snoop(d, b + 3, (uint8_t)(0x13 + 16 * (r() % 4)), true);
-        snoop(d, b + 4, (uint8_t)(0x45 + 16 * (r() % 4)), true);
-        snoop(d, b + 5, (uint8_t)(v == 3 ? 0x46 : (r() % 4) << 4 | 6), true);
-        snoop(d, b + 6, (uint8_t)((r() & 0xFE) | 1), true);
+        snoop(d, b + 0, (uint8_t)f);
+        snoop(d, b + 1, (uint8_t)(f >> 8));
+        snoop(d, b + 2, (uint8_t)(0x40 + (r() % 0x80)));
+        snoop(d, b + 3, (uint8_t)(0x13 + 16 * (r() % 4)));
+        snoop(d, b + 4, (uint8_t)(0x45 + 16 * (r() % 4)));
+        snoop(d, b + 5, (uint8_t)(v == 3 ? 0x46 : (r() % 4) << 4 | 6));
+        snoop(d, b + 6, (uint8_t)((r() & 0xFE) | 1));
     }
     const uint16_t bf = (uint16_t)(2000 + (r() % 1000));
     const uint8_t bell_bytes[7] = {(uint8_t)bf, (uint8_t)(bf >> 8), 0x80,
@@ -131,13 +130,13 @@ static void program(Vpsg_sst *d, uint16_t at, std::mt19937 &r, bool bell)
     }
 }
 
-/* A write stream into the structures: a byte about every few samples, a
- * gate now and then, from the 6502 or not. */
+/* A write stream into the structures: a byte about every few samples and
+ * a gate now and then. */
 struct Stream
 {
     std::mt19937 r;
     uint16_t at;
-    bool we = false, host = false;
+    bool we = false;
     uint16_t addr = 0;
     uint8_t val = 0;
     Stream(unsigned seed, uint16_t base) : r(seed), at(base) {}
@@ -147,7 +146,6 @@ struct Stream
         if (!we)
             return;
         int v = (int)(r() % 8), b = (int)(r() % 7);
-        host = (r() % 4) != 0;
         addr = (uint16_t)(at + 8 * v + b);
         val = (uint8_t)r();
         if (b == 5 && v == 3)
@@ -158,7 +156,6 @@ struct Stream
     void apply(Vpsg_sst *d) const
     {
         d->q_we = we;
-        d->q_host = host;
         d->q_addr = addr;
         d->q_val = val;
     }
@@ -391,7 +388,7 @@ UTEST(psg_sst, every_saved_item_matters)
     for (int skip : items)
     {
         Case c;
-        c.seed = 21;
+        c.seed = 23;
         c.offset = 200;
         c.skip = skip;
         c.samples = 600;

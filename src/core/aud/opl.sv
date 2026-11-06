@@ -33,10 +33,11 @@ module opl
     input logic clk,
     input logic clk_sys,
 
-    /* Page-aligned or 0xFFFF. */
+    /* Where the 256 bytes start, or 0xFFFF. */
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
+    /* Every write the 6502 makes to XRAM through RW0 or RW1. */
     input logic q_we,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,

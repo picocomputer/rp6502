@@ -13,7 +13,6 @@
 #include "core/aud/sine.h"
 #include "core/dap/dbg.h"
 #include "core/sys/sys.h"
-#include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
 #include <stdatomic.h>
@@ -36,7 +35,6 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
  * behind it. */
 #define AUD_EV_PSG 0x01     /* a write to the PSG's block */
 #define AUD_EV_OPL 0x02     /* a write to a register on the OPL2's page */
-#define AUD_EV_PSG_REG 0x04 /* byte addr of the PSG's block as XRAM held it */
 #define AUD_EV_PSG_MAP 0x08 /* psg_map(addr) */
 #define AUD_EV_OPL_MAP 0x10 /* opl_map(addr) */
 /* The PCM: device: opened at rate addr, 16-bit if val's bit 0 and stereo
@@ -322,9 +320,6 @@ static void aud_apply(const aud_ev_t *e)
     case AUD_EV_OPL_MAP:
         opl_map(e->addr);
         return;
-    case AUD_EV_PSG_REG:
-        psg_reg_put((uint8_t)e->addr, e->val);
-        return;
     case AUD_EV_PCM_OPEN:
     {
         const pcm_fmt_t fmt = {e->addr, (uint8_t)(e->val & 1 ? 16 : 8),
@@ -511,14 +506,6 @@ void aud_xram_write(uint16_t addr, uint8_t val)
         aud_push_at(at, kind, addr, val);
 }
 
-/* The PSG keeps its own copy of the block, so a map sends the block as
- * XRAM has it with the map's stamp. */
-static void aud_psg_send(void)
-{
-    for (uint16_t i = 0; i < PSG_REGS_SIZE; i++)
-        aud_push(AUD_EV_PSG_REG, i, xram[aud_psg_at + i]);
-}
-
 void aud_task(void) { bel_task(); }
 
 void aud_bel_put(unsigned i, uint8_t val)
@@ -530,21 +517,14 @@ void aud_psg_map(uint16_t word)
 {
     aud_psg_at = word;
     aud_push(AUD_EV_PSG_MAP, word, 0);
-    if (word != 0xFFFF)
-        aud_psg_send();
 }
 
-/* opl_xreg has cleared its 256 bytes by now, and any of the PSG's block
- * among them. */
 void aud_opl_map(uint16_t word)
 {
     const uint64_t at = bus_now(AUD_NATIVE_RATE);
     aud_opl_at = word;
     aud_oq_reset(at);
     aud_push_at(at, AUD_EV_OPL_MAP, word, 0);
-    if (word != 0xFFFF && aud_psg_at != 0xFFFF &&
-        aud_psg_at < (uint32_t)word + 256 && word < (uint32_t)aud_psg_at + PSG_REGS_SIZE)
-        aud_psg_send();
 }
 
 bool aud_pcm_open(const pcm_fmt_t *fmt)
@@ -906,13 +886,20 @@ static bool aud_pcm_load(sst_cursor_t *c, uint64_t made)
     return true;
 }
 
+/* What the machine stamped since the sound was taken is for the next
+ * sample, so a save takes it before the engines' rows rather than leave it
+ * on the ring a load empties. A PCM: write made between frames is such a
+ * change. */
+void aud_sst_settle(void)
+{
+    aud_lock();
+    aud_due();
+    aud_unlock();
+}
+
 void aud_sst_save(sst_cursor_t *c, unsigned flags)
 {
     aud_lock();
-    /* What the machine stamped since the sound was taken is for the next
-     * sample, so it is taken now rather than left on the ring a load
-     * empties. A PCM: write made between frames is such a change. */
-    aud_due();
     sst_put_u8(c, (uint8_t)((psg_xaddr_get() != 0xFFFF ? 1 : 0) |
                             (opl_xaddr_get() != 0xFFFF ? 2 : 0)));
     aud_put_rsmp(c, &aud_rs_l);
@@ -948,9 +935,6 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     atomic_store(&aud_ev_r, atomic_load(&aud_ev_w));
     aud_psg_at = psg_xaddr_get();
     aud_opl_at = opl_xaddr_get();
-    if (aud_psg_at != 0xFFFF)
-        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
-            psg_reg_put(i, xram[aud_psg_at + i]);
     /* The machine's queue is the render's, which was saved with the sound
      * taken. */
     aud_oq_reset(made);

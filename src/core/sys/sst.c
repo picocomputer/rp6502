@@ -222,6 +222,7 @@ static const char *sst_write(uint8_t *buf, unsigned flags)
     buf[16] = latch.state;
     buf[17] = (uint8_t)((latch.held ? 1 : 0) | (latch.breaking ? 2 : 0));
 
+    aud_sst_settle();
     sst_body = buf + SST_HEADER_LEN;
     sst_offset = 0;
     sst_walk_bad = false;

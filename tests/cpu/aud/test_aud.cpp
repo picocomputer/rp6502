@@ -117,11 +117,10 @@ UTEST(aud, psg_makes_a_noise)
     ASSERT_GT(g_cross, (long)10);
 }
 
-/* The PSG takes its registers only from the XRAM writes it snoops, so a
- * block written before xreg is loaded into it by the replay in the
- * firmware's psg_xreg. The PSG starts or releases a voice from a gate bit
- * only on a 6502 write, so the replay starts no note, and the note starts
- * on the gate written afterwards. */
+/* The block is programmed, gate and all, before xreg. A pointer write
+ * starts the PSG's registers at zero, so the gate struck about five frames
+ * after xreg plays no tone, and the tone starts when the program writes the
+ * frequency and duty about five frames after that. */
 UTEST(aud, a_psg_block_programmed_before_its_pointer)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PSG_PRE));
@@ -129,16 +128,25 @@ UTEST(aud, a_psg_block_programmed_before_its_pointer)
      * test continues through tb_reset until the firmware writes their
      * pointer registers. */
     run_frame();
-    /* The program writes the second gate about five frames after xreg, at
-     * the default 8 MHz. */
     for (int i = 0; i < 3; i++)
     {
-        g_energy = 0;
         g_peak = 0;
         run_frame();
         ASSERT_EQ(g_peak, 0);
     }
-    int at = frames_to_sound(16);
+    g_cross = 0;
+    for (int i = 0; i < 5; i++)
+        run_frame();
+    ASSERT_EQ(g_cross, (long)0);
+    int at = -1;
+    for (int i = 0; i < 12 && at < 0; i++)
+    {
+        g_cross = 0;
+        g_peak = 0;
+        run_frame();
+        if (g_cross > 10)
+            at = i;
+    }
     ASSERT_NE(at, -1);
     ASSERT_GT(g_peak, 4096);
 }

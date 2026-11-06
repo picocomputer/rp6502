@@ -10,8 +10,6 @@
 #include "core/aud/bel.h"
 #include "core/aud/mix.h"
 
-#include <string.h>
-
 /* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
 /* Bytes written since the open, which empties the FIFO, modulo 4. */
@@ -39,11 +37,21 @@ void aud_task(void)
 
 void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
 
+/* A pointer write zeroes the PSG's eight voices' registers in a pass of
+ * about 64 clocks, which a write of the bell's or a program's would race,
+ * so nothing goes on until it is done. */
+static void aud_psg_point(uint16_t word)
+{
+    AUD_PSG_XADDR = word;
+    while (AUD_PSG_BUSY)
+        ;
+}
+
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
 void aud_stop(void)
 {
-    AUD_PSG_XADDR = 0xFFFF;
+    aud_psg_point(0xFFFF);
     AUD_OPL_XADDR = 0xFFFF;
     AUD_PCM_CLEAR = 0;
 }
@@ -93,40 +101,19 @@ void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 
 uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
 
-/* The engines never read XRAM and take their registers only from the
- * XRAM writes they snoop, so writing each byte of a block over itself
- * loads that block into the engine. */
-static void aud_replay(uint16_t at, uint16_t len)
-{
-    for (uint16_t i = 0; i < len; i++)
-    {
-        uint8_t v = XRAM_WIN[at + i];
-        XRAM_WIN[at + i] = v;
-    }
-}
-
+/* The engines never read XRAM, and a pointer write starts their registers
+ * at zero. */
 bool psg_xreg(uint16_t word)
 {
-    if (word > 0x10000 - 64)
-    {
-        AUD_PSG_XADDR = 0xFFFF;
-        return word == 0xFFFF;
-    }
-    AUD_PSG_XADDR = word;
-    /* The PSG starts or releases a voice from its gate bit only on a 6502
-     * write, so this import from the soft CPU starts no note. */
-    aud_replay(word, 64);
-    return true;
+    const bool ok = word <= 0x10000 - 64;
+    aud_psg_point(ok ? word : 0xFFFF);
+    return ok || word == 0xFFFF;
 }
 
+/* The OPL holds writes in its queue while it clears its registers. */
 bool opl_xreg(uint16_t word)
 {
-    if (word > 0x10000 - 256)
-    {
-        AUD_OPL_XADDR = 0xFFFF;
-        return word == 0xFFFF;
-    }
-    memset((void *)&XRAM_WIN[word], 0, 256);
-    AUD_OPL_XADDR = word;
-    return true;
+    const bool ok = word <= 0x10000 - 256;
+    AUD_OPL_XADDR = ok ? word : 0xFFFF;
+    return ok || word == 0xFFFF;
 }

@@ -140,6 +140,9 @@ static inline int32_t set_tz_minutes(void)
 #define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
+/* 1 from a write to AUD_PSG_XADDR until the PSG has zeroed its eight
+ * voices' registers, about 64 clocks after any sample in progress ends. */
+#define AUD_PSG_BUSY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
 /* The OPL's writes dropped since the last read, which clears it. */
 #define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)

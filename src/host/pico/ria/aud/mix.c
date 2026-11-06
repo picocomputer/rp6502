@@ -11,7 +11,6 @@
 #include "core/aud/sine.h"
 #include "core/aud/pcm.h"
 #include "core/sys/ria.h"
-#include "core/sys/xram.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/rp2350.h"
 #include "ria.pio.h"
@@ -359,30 +358,17 @@ void aud_engine_unlock(void)
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
-/* The block is copied after aud_watch, so a write that lands during the
- * copy is also queued, and the drain applies it after. */
-static void aud_psg_copy(void)
-{
-    const uint16_t psg = psg_xaddr_get();
-    if (psg != 0xFFFF)
-        for (uint8_t i = 0; i < PSG_REGS_SIZE; i++)
-            psg_reg_put(i, xram[psg + i]);
-}
-
 void aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
     aud_watch();
-    aud_psg_copy();
     aud_engine_unlock();
 }
 
 /* opl_reset takes longer than a sample, so it runs between two holds of the
  * lock, on a parked engine that aud_irq leaves alone and core1 queues
- * nothing for. opl_xreg has cleared the 256 bytes by now, and any of the
- * PSG's block among them. A write to them before the second aud_watch stays
- * in XRAM and never reaches the engine. */
+ * nothing for. */
 void aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
@@ -393,10 +379,6 @@ void aud_opl_map(uint16_t word)
     aud_engine_lock();
     opl_xaddr_set(word);
     aud_watch();
-    const uint16_t psg = psg_xaddr_get();
-    if (word != 0xFFFF && psg != 0xFFFF &&
-        psg < (uint32_t)word + 256 && word < (uint32_t)psg + PSG_REGS_SIZE)
-        aud_psg_copy();
     aud_engine_unlock();
 }
 

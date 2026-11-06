@@ -56,7 +56,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)226652);
+    ASSERT_EQ(sst_size(), (size_t)226663);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -209,17 +209,16 @@ static void aud_poke(uint16_t at, uint8_t val)
     xram[at] = val;
 }
 
+/* Channel 0's note but its gate, written once the PSG is mapped, as a
+ * program writes it. */
 static void aud_note(uint16_t at)
 {
-    for (int i = 0; i < 8 * 8; i++)
-        xram[at + i] = 0;
-    xram[at + 0] = 0x00;
-    xram[at + 1] = 0x04; /* 0x0400 thirds of a hertz, about 341 Hz */
-    xram[at + 2] = 0x80; /* duty */
-    xram[at + 3] = 0x04; /* full volume (the table descends), attack rate 4 */
-    xram[at + 4] = 0x28; /* sustain two steps down, decay rate 8 */
-    xram[at + 5] = 0x08; /* sine, release rate 8 */
-    xram[at + 6] = 0x00; /* psg_sample starts a note only from a reported write */
+    aud_poke(at + 0, 0x00);
+    aud_poke(at + 1, 0x04); /* 0x0400 thirds of a hertz, about 341 Hz */
+    aud_poke(at + 2, 0x80); /* duty */
+    aud_poke(at + 3, 0x04); /* full volume (the table descends), attack rate 4 */
+    aud_poke(at + 4, 0x28); /* sustain two steps down, decay rate 8 */
+    aud_poke(at + 5, 0x08); /* sine, release rate 8 */
 }
 
 /* The most sound a frame makes at 48 kHz. */
@@ -273,14 +272,18 @@ UTEST(sst, a_note_in_flight_comes_back)
     aud_set_enabled(true);
     aud_stop(); /* an earlier test may have left an engine mapped */
 
-    aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
+    aud_note(0x3000);
     aud_poke(0x3006, 0x01); /* pan centre, gate on */
     aud_pull(went, 1);
+    /* Still on the ring when the save starts, for the next sample. */
+    aud_poke(0x3001, 0x05);
     ASSERT_EQ(take(), (const char *)NULL);
 
     const size_t n = aud_pull(went, 3);
 
+    /* A map zeroes the registers, so only the PSG's row brings them back. */
+    ASSERT_TRUE(psg_xreg(0x3000));
     ASSERT_TRUE(opl_xreg(0x4000));
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     aud_pull(came, 2);
@@ -310,8 +313,8 @@ UTEST(sst, an_opl_chord_comes_back)
     ASSERT_EQ(take(), (const char *)NULL);
     const size_t n = aud_pull(went, 3);
 
-    aud_note(0x3000);
     ASSERT_TRUE(psg_xreg(0x3000));
+    aud_note(0x3000);
     aud_poke(0x3006, 0x01);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     aud_pull(came, 2);
@@ -514,9 +517,9 @@ UTEST(sst, every_engine_comes_back_at_once)
     aud_stop(); /* an earlier test may have left an engine mapped */
     ASSERT_TRUE(aud_bell_quiet());
 
-    aud_note(0x3000);
-    xram[0x3003] = 0x64; /* six steps down, attack rate 4 */
     ASSERT_TRUE(psg_xreg(0x3000));
+    aud_note(0x3000);
+    aud_poke(0x3003, 0x64); /* six steps down, attack rate 4 */
     aud_poke(0x3006, 0x01);
 
     ASSERT_TRUE(opl_xreg(0x4000));

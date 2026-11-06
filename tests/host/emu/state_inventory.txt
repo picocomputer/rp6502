@@ -69,7 +69,7 @@ core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
 core/aud/pcm.c pcm_fmt: the STD chunk; the descriptor's ident carries it and its reopen sets it
 core/aud/psg.c psg_channel_state: the PSG chunk
-core/aud/psg.c psg_regs: the bell's row in the PSG chunk; the program's eight rebuilt from the XRAM chunk on load
+core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
 core/aud/sine.c sine_pan: derived; sine_init builds it and nothing writes it after

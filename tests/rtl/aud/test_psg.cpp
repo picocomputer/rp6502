@@ -35,39 +35,31 @@ static void clock_cycle()
     dut->eval();
 }
 
-static void snoop_dut(uint16_t addr, uint8_t val, bool host)
+static void snoop_dut(uint16_t addr, uint8_t val)
 {
     dut->q_we = 1;
-    dut->q_host = host;
     dut->q_addr = addr;
     dut->q_val = val;
     clock_cycle();
     dut->q_we = 0;
-    dut->q_host = 1;
 }
 
-/* The Pocket's psg_xreg loads the block into psg.sv by writing each byte
- * over itself, because psg.sv takes the channel registers only from the
- * XRAM writes it snoops. Those writes come from the soft CPU with q_host
- * low, so they strike no gate. The shim's XRAM is not written, because a
- * write there would strike gates on psg.c that never happen on the
- * RP2350. */
-static void rtl_import(uint16_t base)
-{
-    for (uint16_t i = 0; i < 64; i++)
-        snoop_dut((uint16_t)(base + i), shim_xram_read((uint16_t)(base + i)),
-                  false);
-}
-
-static void rtl_xaddr(uint16_t word)
+static void rtl_pointer(uint16_t word)
 {
     dut->xaddr_we = 1;
     dut->xaddr_wdata = word;
     clock_cycle();
     dut->xaddr_we = 0;
-    clock_cycle();
-    if (word != 0xFFFF)
-        rtl_import(word);
+}
+
+/* The Pocket's psg_xreg: the pointer, then a wait while psg.sv zeroes the
+ * eight voices' registers. The pass is over well before the next sample,
+ * so a lockstep run loses none. */
+static void rtl_xaddr(uint16_t word)
+{
+    rtl_pointer(word);
+    while (dut->psg_busy)
+        clock_cycle();
 }
 
 /* Both models strike the gate on the write. psg.sv does it on the clock the
@@ -76,7 +68,7 @@ static void rtl_xaddr(uint16_t word)
 static void xram_write(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
-    snoop_dut(addr, val, true);
+    snoop_dut(addr, val);
 }
 
 static long g_sample;
@@ -113,18 +105,8 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
         clock_cycle();
     for (int i = 0; i < depth; i++)
         clock_cycle();
-    dut->xaddr_we = 1;
-    dut->xaddr_wdata = word;
-    clock_cycle();
-    dut->xaddr_we = 0;
-    /* The sample in progress is compared before the import, because the
-     * import takes 64 clocks and can outlast the rest of the walk.
-     * psg_valid is high for one clock, so importing first would let this
-     * sample's pulse end before run_lockstep polls for it, and run_lockstep
-     * would compare psg.c's sample with psg.sv's next one. */
+    rtl_pointer(word);
     run_lockstep(utest_result, 1);
-    if (word != 0xFFFF)
-        rtl_import(word);
 }
 
 /* A byte of the bell's structure into both models, as the sequencer puts
@@ -202,6 +184,8 @@ UTEST(psg, lockstep_bit_exact)
     bel_ring(utest_result);
 
     const uint16_t base = 0x8000;
+    ASSERT_TRUE(psg_xreg(base));
+    rtl_xaddr(base);
     config(base, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);  /* sine */
     config(base, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);  /* square */
     config(base, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);    /* saw, left */
@@ -210,9 +194,6 @@ UTEST(psg, lockstep_bit_exact)
     config(base, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);  /* square, muted */
     config(base, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);     /* bad wave 7 */
     config(base, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);   /* saw */
-
-    ASSERT_TRUE(psg_xreg(base));
-    rtl_xaddr(base);
     run_lockstep(utest_result, 50);
 
     for (int ch = 0; ch < 8; ch++)
@@ -231,6 +212,8 @@ UTEST(psg, lockstep_bit_exact)
     run_lockstep(utest_result, 2000);
 
     const uint16_t base2 = 0x7002;
+    ASSERT_TRUE(psg_xreg(base2));
+    rtl_xaddr(base2);
     config(base2, 0, 880, 255, 0x00, 0x00, 0x00, 0x01);
     config(base2, 1, 440, 128, 0x02, 0x30, 0x11, 0x20);
     config(base2, 2, 660, 90, 0x11, 0x50, 0x22, 0xE0);
@@ -239,8 +222,6 @@ UTEST(psg, lockstep_bit_exact)
     config(base2, 5, 110, 30, 0x21, 0x10, 0x05, 0x40);
     config(base2, 6, 550, 200, 0x12, 0x40, 0x16, 0x02);
     config(base2, 7, 1100, 64, 0x01, 0x60, 0x27, 0x30);
-    ASSERT_TRUE(psg_xreg(base2));
-    rtl_xaddr(base2);
     run_lockstep(utest_result, 50);
     xram_write((uint16_t)(base2 + 1 * 8 + 6), 0x21);
     xram_write((uint16_t)(base2 + 5 * 8 + 6), 0x41);
@@ -280,6 +261,8 @@ UTEST(psg, lockstep_bit_exact)
     xram_write((uint16_t)(base2 + 6), 0x00);
     run_lockstep(utest_result, 200);
 
+    ASSERT_TRUE(psg_xreg(base));
+    rtl_xaddr(base);
     config(base, 0, 900, 0, 0x04, 0x00, 0x06, 0x10);
     config(base, 1, 1800, 255, 0x06, 0x00, 0x18, 0xF0);
     config(base, 2, 2700, 0, 0x07, 0x00, 0x2D, 0x00);
@@ -290,13 +273,13 @@ UTEST(psg, lockstep_bit_exact)
     config(base, 7, 125, 64, 0x0E, 0x00, 0x2D, 0xC0);
     static const uint8_t pans_a[8] =
         {0x10, 0xF0, 0x00, 0x20, 0xE0, 0x00, 0x40, 0xC0};
-    ASSERT_TRUE(psg_xreg(base));
-    rtl_xaddr(base);
     for (int ch = 0; ch < 8; ch++)
         xram_write((uint16_t)(base + ch * 8 + 6),
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 500);
 
+    ASSERT_TRUE(psg_xreg(base));
+    rtl_xaddr(base);
     config(base, 0, 900, 200, 0x00, 0x46, 0x00, 0x10);
     config(base, 1, 1800, 128, 0x00, 0x68, 0x10, 0xF0);
     config(base, 2, 2700, 200, 0x00, 0xAD, 0x20, 0x00);
@@ -305,8 +288,6 @@ UTEST(psg, lockstep_bit_exact)
     config(base, 5, 7200, 200, 0x0F, 0xD0, 0x00, 0x00);
     config(base, 6, 250, 128, 0x00, 0xE1, 0x10, 0x40);
     config(base, 7, 125, 200, 0x00, 0xF3, 0x20, 0xC0);
-    ASSERT_TRUE(psg_xreg(base));
-    rtl_xaddr(base);
     for (int ch = 0; ch < 8; ch++)
         xram_write((uint16_t)(base + ch * 8 + 6),
                    (uint8_t)(pans_a[ch] | 0x01));
@@ -315,13 +296,17 @@ UTEST(psg, lockstep_bit_exact)
 
     /* psg.sv spends 136 clocks on a sample, fifteen a voice and one to
      * output, and each of these depths lands the pointer write inside that
-     * span. */
+     * span. The eight sound a different chord each time, each voice at a
+     * quarter of full volume, so the sample in flight shows a tear. */
     static const int depths[] = {1, 5, 15, 30, 50, 80, 110, 130};
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); i++)
     {
         for (int ch = 0; ch < 8; ch++)
-            xram_write((uint16_t)(base + ch * 8 + 6),
-                       (uint8_t)((i & 1) ? 0x00 : 0x01));
+            config(base, ch, (uint16_t)(600 + 170 * ch + 90 * i),
+                   (uint8_t)(64 + 24 * ch), 0x90, 0x90,
+                   (uint8_t)(((ch + i) % 5) << 4 | 0x02),
+                   (uint8_t)(pans_a[ch] | 0x01));
+        run_lockstep(utest_result, 30);
         rtl_xaddr_mid_walk(utest_result, base, depths[i]);
         ASSERT_TRUE(psg_xreg(base));
         run_lockstep(utest_result, 60);
@@ -337,6 +322,8 @@ UTEST(psg, lockstep_bit_exact)
 
     /* A block may start anywhere: here at an odd address, across a page. */
     const uint16_t base3 = 0x80E1;
+    ASSERT_TRUE(psg_xreg(base3));
+    rtl_xaddr(base3);
     config(base3, 0, 1320, 200, 0x38, 0x9A, 0x05, 0x00);
     config(base3, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);
     config(base3, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);
@@ -345,8 +332,6 @@ UTEST(psg, lockstep_bit_exact)
     config(base3, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);
     config(base3, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);
     config(base3, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);
-    ASSERT_TRUE(psg_xreg(base3));
-    rtl_xaddr(base3);
     for (int ch = 0; ch < 8; ch++)
         xram_write((uint16_t)(base3 + ch * 8 + 6), 0x01);
     run_lockstep(utest_result, 1200);
@@ -363,7 +348,7 @@ UTEST(psg, lockstep_bit_exact)
 static void snoop_now(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
-    snoop_dut(addr, val, true);
+    snoop_dut(addr, val);
 }
 
 static int rtl_sample()
@@ -386,7 +371,6 @@ static void rtl_reset()
     dut = new Vpsg;
     dut->clk = 0;
     dut->q_we = 0;
-    dut->q_host = 1;
     dut->xaddr_we = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
@@ -395,10 +379,8 @@ static void rtl_reset()
 
 static void one_loud_channel(uint16_t base)
 {
-    for (int ch = 1; ch < 8; ch++)
-        config(base, ch, 0, 0, 0, 0, 0, 0);
-    config(base, 0, 1000, 255, 0x0F, 0x00, 0x02, 0x00);
     rtl_xaddr(base);
+    config(base, 0, 1000, 255, 0x0F, 0x00, 0x02, 0x00);
 }
 
 #define ADSR_RELEASE 0
@@ -456,10 +438,8 @@ UTEST(psg, a_write_mid_walk_is_heard_by_the_next_sample)
     shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
-    for (int ch = 1; ch < 8; ch++)
-        config(base, ch, 0, 0, 0, 0, 0, 0);
-    config(base, 0, 1000, 255, 0x0F, 0x00, 0x10, 0x00);
     rtl_xaddr(base);
+    config(base, 0, 1000, 255, 0x0F, 0x00, 0x10, 0x00);
     rtl_sample();
     rtl_sample();
     ASSERT_EQ(32767, rtl_sample0());
@@ -468,30 +448,35 @@ UTEST(psg, a_write_mid_walk_is_heard_by_the_next_sample)
            || dut->rootp->psg__DOT__ch != 0
            || dut->rootp->psg__DOT__t != PSG_T_STEP)
         clock_cycle();
-    snoop_dut(base + 5, 0x50, false);
+    snoop_dut(base + 5, 0x50);
     rtl_sample();
     ASSERT_EQ(32767, rtl_sample0());
     rtl_sample();
     ASSERT_EQ(0, rtl_sample0());
 }
 
-UTEST(psg, an_imported_block_carries_no_gate)
+/* Eight sounding voices, then a pointer write, which releases them and
+ * zeroes their registers, and leaves the bell's row. */
+UTEST(psg, a_pointer_write_clears_the_registers)
 {
     shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
+    rtl_xaddr(base);
     for (int ch = 0; ch < 8; ch++)
         config(base, ch, 1000, 255, 0x0F, 0x00, 0x10,
                (uint8_t)(0x01 | (ch << 4)));
-    rtl_xaddr(base);
-    rtl_sample();
+    bel_put(0, 0x5A);
     rtl_sample();
     for (int ch = 0; ch < 8; ch++)
-        ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[ch]);
+        ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[ch]);
 
-    snoop_now(base + 6, 0x01);
-    ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
-    ASSERT_EQ(32767, rtl_sample0());
+    rtl_xaddr(base);
+    for (int i = 0; i < 64; i++)
+        ASSERT_EQ(0, dut->rootp->psg__DOT__cfg[i]);
+    ASSERT_EQ(0x5A, dut->rootp->psg__DOT__cfg[64]);
+    for (int ch = 0; ch < 8; ch++)
+        ASSERT_EQ(ADSR_RELEASE, dut->rootp->psg__DOT__ch_adsr[ch]);
 }
 
 /* The constants are PHASE_MAGIC and PHASE_SHIFT from psg.sv, and 144000
@@ -515,7 +500,6 @@ int main(int argc, const char *const argv[])
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vpsg;
     dut->clk = 0;
-    dut->q_host = 1;
     dut->eval();
     for (int i = 0; i < 4; i++)
         clock_cycle();

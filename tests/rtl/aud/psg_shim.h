@@ -17,7 +17,6 @@ extern "C"
     void shim_init(void);
     void shim_sample(int16_t *l, int16_t *r);
     void shim_xram_write(uint16_t addr, uint8_t val);
-    uint8_t shim_xram_read(uint16_t addr);
 
 #ifdef __cplusplus
 }

@@ -1524,11 +1524,10 @@ UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
 /* Voice 0's gate byte in the audio session's PSG block. */
 #define PSG_GATE0 0x8006u
 
-/* At a stop, the blob holds the snoop's mark of a 6502 write and the RW
- * engine's pending byte as the machine held them. A blob holding a 6502
- * write that gates a released voice 0, in the snoop or pending in the RW
- * engine, starts the voice once it loads; the PSG takes a gate only from
- * the 6502, so a lost mark, or a lost byte, leaves it silent. */
+/* At a stop, the blob holds the snoop's write and the RW engine's pending
+ * byte as the machine held them. A blob holding a write that gates a
+ * released voice 0, in the snoop or pending in the RW engine, starts the
+ * voice once it loads, so a lost write leaves it silent. */
 UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
 {
     std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
@@ -1543,10 +1542,9 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
         ASSERT_TRUE(save_ready());
         bool released = MEM(psg__DOT__ch_adsr)[0] == 0 && !MEM(qs_we)
                         && !MEM(ria__DOT__xr_wr_pend);
-        if (released && MEM(qs_host) && MEM(ria__DOT__xr_wr_byte))
+        if (released && MEM(xr_busy) && MEM(ria__DOT__xr_wr_byte))
         {
             read_blob(blob);
-            ASSERT_EQ(1u, blob_get(blob, B_AUD + 0x7A0) >> 24 & 1);
             ASSERT_EQ((uint32_t)MEM(ria__DOT__xr_wr_byte),
                       blob_get(blob, B_REGS + REGS_XR) >> 16 & 0xFF);
         }
@@ -1566,7 +1564,7 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
         std::vector<uint8_t> held = blob;
         if (k == 0)
             blob_put(held, B_AUD + 0x7A0,
-                     1u << 25 | 1u << 24 | PSG_GATE0 << 8 | 0x01u);
+                     1u << 25 | PSG_GATE0 << 8 | 0x01u);
         else
             blob_put(held, B_REGS + REGS_XR,
                      1u << 24 | 0x01u << 16 | PSG_GATE0);

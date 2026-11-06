@@ -87,9 +87,8 @@ void opl_pace_get(uint32_t *credit, bool *late);
  * it is to and its value, pushed on the queue. */
 void opl_xram_write(uint8_t reg, uint8_t val);
 
-/* A word whose 256 bytes fit in XRAM clears them and goes to aud_opl_map;
- * any other parks the engine there as 0xFFFF, and only 0xFFFF is not an
- * error. */
+/* A word whose 256 bytes fit in XRAM goes to aud_opl_map; any other parks
+ * the engine there as 0xFFFF, and only 0xFFFF is not an error. */
 bool opl_xreg(uint16_t word);
 
 /* Resets the engine and maps it at word, 0xFFFF for parked. A software

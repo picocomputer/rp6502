@@ -9,11 +9,10 @@
  * mixes all eight and then steps all eight, which comes to the same
  * thing because no voice reads another's state.
  *
- * Eight voices are the program's. Their registers arrive as writes and
- * are held here, so the engine never reads XRAM. Only the 6502's writes
- * strike a gate; the soft CPU's import carries the same bytes and must
- * start nothing. The ninth voice is the bell, which has to ring whether
- * or not a program installed a pointer.
+ * Eight voices are the program's. Their registers arrive as the 6502's
+ * writes and are held here, so the engine never reads XRAM, and a pointer
+ * write starts them at zero. The ninth voice is the bell, which has to
+ * ring whether or not a program installed a pointer.
  *
  * A multiplier for the envelope, one a side for the mix, one for the
  * phase, one adder and one comparator for the envelope, and the voice
@@ -47,10 +46,9 @@ module psg
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
-    /* Every write to XRAM. q_host marks the 6502's own, which are the
-     * only ones a gate answers. */
+    /* Every write the 6502 makes to XRAM through RW0 or RW1, the only
+     * writes that reach the engine on any machine. */
     input logic q_we,
-    input logic q_host,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
@@ -66,6 +64,10 @@ module psg
     output logic psg_valid,
 
     output logic psg_tick,
+
+    /* High from a pointer write until the eight voices' registers are
+     * zero. A write to the block before then may be lost. */
+    output logic psg_busy,
 
     /* sst_own gives the memories' ports to sst_addr, written on sst_we.
      * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
@@ -146,9 +148,9 @@ module psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
-    /* The pointer moves on the write, because the import that follows has
-     * to land inside the new window. What it resets is held to the next
-     * walk boundary; a clear landing mid-walk would tear the sample. */
+    /* The pointer moves on the write. What it resets is held to the next
+     * idle clock that starts no walk; a clear landing mid-walk would tear
+     * the sample. */
     logic xreg_pend;
 
     /* The voice the walk stands on, and its clock within that voice. */
@@ -166,9 +168,9 @@ module psg
     always_comb snoop_ch = snoop_off[5:3];
     logic snoop_cfg;
     always_comb snoop_cfg = q_we && enabled && snoop_off[15:6] == 10'd0;
-    /* A gate is an edge, and only the 6502 makes one. */
+    /* A gate is an edge, struck or released on the clock it lands. */
     logic snoop_gate;
-    always_comb snoop_gate = snoop_cfg && q_host && snoop_off[2:0] == 3'd6;
+    always_comb snoop_gate = snoop_cfg && snoop_off[2:0] == 3'd6;
 
     /* The channel structures a byte a word, the bell's as row 8. Written
      * and read on one clock with no read-write check waived, so a byte
@@ -183,6 +185,18 @@ module psg
     initial
         for (int i = 0; i < 128; i++)
             cfg[i] = '0;
+
+    /* A pointer write zeroes the eight voices' bytes, byte zc on each
+     * clock, in a pass of its own, which neither the sample tick nor the
+     * park holds up. It writes eight bytes a voice where a walk reads one a
+     * voice every fifteen clocks, so a walk that starts behind it reads
+     * zeros. */
+    logic zing;
+    logic [5:0] zc;
+    initial begin
+        zing = 1'b0;
+        zc = '0;
+    end
 
     /* A bell byte that lands on a snooped byte's clock waits one clock.
      * One is enough: the 6502 writes a PHI2 apart, the soft CPU's strobes
@@ -208,6 +222,10 @@ module psg
             cw_e = sst_we && (sel_cfg || sel_bel);
             cw_a = sst_cfg_a;
             cw_d = sst_wdata[7:0];
+        end else if (zing) begin
+            cw_e = 1'b1;
+            cw_a = {1'b0, zc};
+            cw_d = '0;
         end else if (snoop_cfg) begin
             cw_e = 1'b1;
             cw_a = {1'b0, snoop_ch, snoop_off[2:0]};
@@ -559,13 +577,22 @@ module psg
         if (tickctr == 13'd0 && !sst_park && state != P_IDLE)
             $fatal(1, "psg walk overrun");
 
+        if (zing) begin
+            zc <= zc + 6'd1;
+            if (zc == 6'd63)
+                zing <= 1'b0;
+        end
+
         case (state)
             P_IDLE: begin
-                if (xreg_pend) begin
+                if (xreg_pend && tickctr != 13'd0) begin
                     /* The envelopes, the noise and the phase go with
-                     * clr, as psg.c's psg_map resets them. */
+                     * clr and the registers with the pass, as psg.c's
+                     * psg_map resets them. */
                     xreg_pend <= 1'b0;
                     clr <= 1'b1;
+                    zing <= 1'b1;
+                    zc <= '0;
                     for (int i = 0; i < 8; i++)
                         ch_adsr[i] <= ADSR_RELEASE;
                 end
@@ -661,8 +688,12 @@ module psg
             endcase
     end
 
+    /* The soft CPU waits on this after a pointer write, so no bell byte
+     * comes while the pass has the registers' port. */
+    always_comb psg_busy = xreg_pend || zing;
+
     always_comb
-        psg_quiet = state == P_IDLE && !xreg_pend && tickctr != 13'd0
+        psg_quiet = state == P_IDLE && !xreg_pend && !zing && tickctr != 13'd0
             && tickctr < 13'(TICKS_PER_SAMPLE - 1 - QUIET_LEAD);
 
     /* Word 0x788 is empty, and clr is bit 25 of 0x789. */

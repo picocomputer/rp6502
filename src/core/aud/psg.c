@@ -7,7 +7,6 @@
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
 #include "core/aud/sine.h"
-#include "core/sys/xram.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -30,7 +29,7 @@ enum psg_adsr_state
     sustain,
 };
 
-/* Parked, so nothing is mixed from XRAM until a program maps the PSG. */
+/* Parked, so the eight are not mixed until a program maps the PSG. */
 static volatile uint16_t psg_xaddr = 0xFFFF;
 
 static const uint32_t psg_vol_table[] = {
@@ -101,21 +100,15 @@ static struct
     uint32_t phase;
     uint16_t noise1;
     uint16_t noise2;
-    /* The last frequency this channel was written and the increment it
-     * comes to. The step loop works it out only when the register has
-     * changed. Zero and zero is a correct pair, so no validity flag is
-     * needed. */
-    uint16_t freq;
-    uint32_t phase_inc;
 } psg_channel_state[PSG_VOICES] = {
     /* Nothing clears the bell's noise, so it starts seeded. */
     [PSG_BEL] = {.noise1 = 0x2301, .noise2 = 0xAB89},
 };
 
 /* The engine's own channel structures, as psg.sv's are: the program's
- * eight, which a map copies from XRAM and every write to the block reaches
- * through psg_xram_write, then the bell's, which its sequencer writes
- * through aud_bel_put. */
+ * eight, which a map clears and every write to the block reaches through
+ * psg_xram_write, then the bell's, which its sequencer writes through
+ * aud_bel_put. XRAM is the program's and is never read. */
 static struct psg_channel psg_regs[PSG_VOICES];
 
 /* A silent bell with no frequency and no noise steps to the same state
@@ -182,12 +175,7 @@ void psg_sample(int16_t *left, int16_t *right)
     for (unsigned i = lo; i < hi; i++)
     {
         const struct psg_channel *ch = &psg_regs[i];
-        if (ch->freq != psg_channel_state[i].freq)
-        {
-            psg_channel_state[i].freq = ch->freq;
-            psg_channel_state[i].phase_inc = aud_phase_inc(ch->freq);
-        }
-        psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
+        psg_channel_state[i].phase += aud_phase_inc(ch->freq);
         uint32_t phase = psg_channel_state[i].phase >> 24;
         uint32_t duty = ch->duty;
         switch (ch->wave_release >> 4)
@@ -283,12 +271,6 @@ static void psg_gate(unsigned i, uint8_t val)
         psg_channel_state[i].adsr = attack;
 }
 
-void psg_reg_put(uint8_t i, uint8_t val)
-{
-    if (i < PSG_REGS_SIZE)
-        ((uint8_t *)psg_regs)[i] = val;
-}
-
 void psg_xram_write(uint16_t addr, uint8_t val)
 {
     uint16_t offset = addr - psg_xaddr;
@@ -325,11 +307,9 @@ void psg_sst_save(sst_cursor_t *c, unsigned flags)
         sst_put_u32(c, psg_channel_state[i].phase);
         sst_put_u16(c, psg_channel_state[i].noise1);
         sst_put_u16(c, psg_channel_state[i].noise2);
-        sst_put_u16(c, psg_channel_state[i].freq);
-        sst_put_u32(c, psg_channel_state[i].phase_inc);
     }
-    for (unsigned i = 0; i < offsetof(struct psg_channel, unused); i++)
-        sst_put_u8(c, ((const uint8_t *)&psg_regs[PSG_BEL])[i]);
+    for (unsigned i = 0; i < sizeof psg_regs; i++)
+        sst_put_u8(c, ((const uint8_t *)psg_regs)[i]);
 }
 
 bool psg_sst_load(sst_cursor_t *c, unsigned flags)
@@ -345,21 +325,18 @@ bool psg_sst_load(sst_cursor_t *c, unsigned flags)
         ch[i].phase = sst_get_u32(c);
         ch[i].noise1 = sst_get_u16(c);
         ch[i].noise2 = sst_get_u16(c);
-        ch[i].freq = sst_get_u16(c);
-        ch[i].phase_inc = sst_get_u32(c);
         if (ch[i].adsr > sustain)
             return false;
     }
-    uint8_t bel[offsetof(struct psg_channel, unused)];
-    for (unsigned i = 0; i < sizeof bel; i++)
-        bel[i] = sst_get_u8(c);
+    uint8_t regs[sizeof psg_regs];
+    for (unsigned i = 0; i < sizeof regs; i++)
+        regs[i] = sst_get_u8(c);
     if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
         return false;
     psg_xaddr = at;
     for (unsigned i = 0; i < PSG_VOICES; i++)
         psg_channel_state[i] = ch[i];
-    for (unsigned i = 0; i < sizeof bel; i++)
-        ((uint8_t *)&psg_regs[PSG_BEL])[i] = bel[i];
+    memcpy(psg_regs, regs, sizeof regs);
     return true;
 }
 
@@ -380,9 +357,9 @@ void psg_map(uint16_t word)
         psg_channel_state[i].vol = 0;
         psg_channel_state[i].phase = 0;
         psg_channel_state[i].adsr = release;
-        psg_channel_state[i].freq = 0;
-        psg_channel_state[i].phase_inc = 0;
     }
+    /* The registers start at zero, whatever XRAM holds. */
+    memset(psg_regs, 0, PSG_REGS_SIZE);
     psg_xaddr = word;
 }
 

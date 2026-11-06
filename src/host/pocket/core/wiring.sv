@@ -834,17 +834,16 @@ module wiring
     always_comb xram_go = !xr_busy
         && ((soc_stb && soc_sel_xram) || xram_owed);
 
-    /* The PSG and the OPL snoop the RW engine's and the soft CPU's XRAM
-     * writes through a registered copy of these signals. xw_host marks a
-     * write from the RW engine, which only the 6502 drives, because the
-     * PSG starts or releases a voice from its gate bit only on a 6502
-     * write. The park holds the RW engine's write through the jam, so a
-     * restored pending write lands on the 6502's first edge. */
-    logic xw_we, xw_host;
+    /* The XRAM writes on port B, the RW engine's and the soft CPU's. The
+     * PSG and the OPL snoop the RW engine's alone, the 6502's writes
+     * through RW0 and RW1, as on every machine; a write the OS makes, such
+     * as read_xram's, reaches XRAM only. The park holds the RW engine's
+     * write through the jam, so a restored pending write lands on the
+     * 6502's first edge. */
+    logic xw_we;
     logic [15:0] xw_addr;
     logic [7:0] xw_wdata;
     always_comb begin
-        xw_host = xr_busy;
         xw_we = xr_busy ? (xr_we && !eng_arr_own && !eng_park)
                         : (xram_go && soc_we && !eng_arr_own);
         xw_addr = xr_busy ? xr_addr : soc_addr[15:0];
@@ -874,24 +873,25 @@ module wiring
      * the OPL reads XRAM, so a one-clock delay on the snooped write
      * cannot put either out of step with the array.
      *
-     * A savestate keeps it as the audio region's word 0x7A0. On a load it
-     * is held and masked until the second pass has put it back, and the
-     * engines take it on the first edge after. */
-    logic qs_we, qs_host, qs_go;
+     * A savestate keeps it as the audio region's word 0x7A0, qs_we in bit
+     * 25 and bit 24 zero. On a load it is held and masked until the second
+     * pass has put it back, and the engines take it on the first edge
+     * after. */
+    logic qs_we, qs_go;
     logic [15:0] qs_addr;
     logic [7:0] qs_val;
     initial begin
         qs_we = 1'b0;
-        qs_host = 1'b0;
         qs_addr = '0;
         qs_val = '0;
     end
     always_ff @(posedge clk_mach)
         if (eng_aud_st_we && eng_mem_addr[10:0] == 11'h7A0)
-            {qs_we, qs_host, qs_addr, qs_val} <= eng_mem_wdata[25:0];
+            {qs_we, qs_addr, qs_val}
+                <= {eng_mem_wdata[25], eng_mem_wdata[23:0]};
         else if (!eng_aud_mask)
-            {qs_we, qs_host, qs_addr, qs_val}
-                <= {xw_we, xw_host, xw_addr, xw_wdata};
+            {qs_we, qs_addr, qs_val}
+                <= {xw_we && xr_busy, xw_addr, xw_wdata};
     always_comb qs_go = qs_we && !eng_aud_mask;
     xram xram (
         .clk(clk_sys),
@@ -1119,15 +1119,17 @@ module wiring
     always_comb begin
         aud_sst_rdata = psg_sst_rdata | opl_sst_rdata | pcm_sst_rdata
             | (eng_mem_addr[10:0] == 11'h7A0
-                ? {6'd0, qs_we, qs_host, qs_addr, qs_val} : 32'd0);
+                ? {6'd0, qs_we, 1'b0, qs_addr, qs_val} : 32'd0);
         aud_quiet = psg_quiet && opl_quiet && pcm_quiet;
     end
 
     /* The audio window's readable words, by soc_addr[5:2]. */
+    logic psg_busy;
     logic [30:0] opl_drops;
     logic [12:0] pcm_level;
     always_comb
         case (soc_addr[5:2])
+            4'h1: aud_rdata = {31'd0, psg_busy};
             4'h3: aud_rdata = {1'b0, opl_drops};
             4'hB: aud_rdata = {19'd0, pcm_level};
             default: aud_rdata = '0;
@@ -1143,7 +1145,6 @@ module wiring
         .xaddr_we(aud_we && soc_addr[5:2] == 4'h0),
         .xaddr_wdata(aud_wdata[15:0]),
         .q_we(qs_go),
-        .q_host(qs_host),
         .q_addr(qs_addr),
         .q_val(qs_val),
         .bel_we(aud_we && soc_addr[5:2] == 4'h4),
@@ -1153,6 +1154,7 @@ module wiring
         .psg_r(psg_r),
         .psg_valid(),
         .psg_tick(psg_tick),
+        .psg_busy(psg_busy),
         .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr[10:0]),
         .sst_we(eng_aud_we),
@@ -1172,8 +1174,6 @@ module wiring
         .clk_sys(clk_sys),
         .xaddr_we(aud_we && soc_addr[5:2] == 4'h2),
         .xaddr_wdata(aud_wdata[15:0]),
-        /* The OPL takes every XRAM write to its page, the soft CPU's
-         * included, because a program can fill XRAM through the OS. */
         .q_we(qs_go),
         .q_addr(qs_addr),
         .q_val(qs_val),

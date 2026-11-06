@@ -16,7 +16,6 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
-#include "core/sys/xram.h"
 #include <string.h>
 
 /* A test that compiles this file defines this to see each write as it is
@@ -1016,8 +1015,6 @@ void opl_map(uint16_t word)
 bool opl_xreg(uint16_t word)
 {
     const bool map = word <= 0x10000 - 256;
-    if (map)
-        memset((uint8_t *)&xram[word], 0, 256);
     aud_opl_map(map ? word : 0xFFFF);
     return map || word == 0xFFFF;
 }
