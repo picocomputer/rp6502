@@ -15,7 +15,8 @@
  * A savestate reads and writes the whole chip through the sst port at
  * savestate offsets: the queue at 0x400, the register file at 0x500, the
  * slots at 0x680, the channels at 0x6C0 and the flops at 0x780. The
- * arrays' write ports run on clk_sys, the flops on clk. Between frames
+ * arrays' write ports run on clk_sys, and so do the slot and channel
+ * reads, the flops on clk. Between frames
  * every other flop and every registered read is dead, so only that state
  * is kept.
  */
@@ -125,6 +126,8 @@ module opl
     (* ramstyle = "M10K, no_rw_check" *)
     logic [15:0] queue[256];
     logic [7:0] q_head, q_tail;
+    logic [31:0] drops_inc;
+    always_comb drops_inc = {1'b0, opl_drops} + 32'd1;
     logic [8:0] q_count /*verilator public_flat_rd*/;
     logic q_take /*verilator public_flat_rd*/;
     logic snoop;
@@ -174,8 +177,8 @@ module opl
             q_count <= q_count + {8'd0, q_push} - {8'd0, q_take};
             if (drops_take)
                 opl_drops <= {30'd0, q_drop};
-            else if (q_drop && opl_drops != 31'h7FFFFFFF)
-                opl_drops <= opl_drops + 31'd1;
+            else if (q_drop && !drops_inc[31])
+                opl_drops <= drops_inc[30:0];
         end
         if (sst_st_we && sel_st)
             case (st_k)
@@ -207,8 +210,10 @@ module opl
     always_ff @(posedge clk)
         regs_q <= regs[rr_a];
 
-    /* {state, level, phase accumulator} by operator offset. */
-    (* ramstyle = "MLAB, no_rw_check" *)
+    /* {state, level, phase accumulator} by operator offset. The walk holds
+     * the slot's address for all 15 clocks, so the registered read is the
+     * slot's word from clock 1 on. */
+    (* ramstyle = "M10K" *)
     logic [29:0] slot_mem[32];
     logic [4:0] sl_ra, sl_wa, sl_a, sl_w;
     logic [29:0] sl_q, sl_wd;
@@ -216,14 +221,15 @@ module opl
     always_comb begin
         sl_a = sst_own ? sst_addr[4:0] : sl_ra;
         sl_w = sst_own ? sst_addr[4:0] : sl_wa;
-        sl_q = slot_mem[sl_a];
     end
     always_ff @(posedge clk_a)
         if (sst_own ? sst_we && sel_s : sl_we)
             slot_mem[sl_w] <= sst_own ? sst_wdata[29:0] : sl_wd;
+    always_ff @(posedge clk_a)
+        sl_q <= slot_mem[sl_a];
 
     /* A modulator's last two outputs, {h2, h1}, by {slot / 6, slot % 3}. */
-    (* ramstyle = "MLAB, no_rw_check" *)
+    (* ramstyle = "M10K" *)
     logic [25:0] chan_mem[16];
     logic [3:0] ch_ra, ch_wa, cm_a, cm_w;
     logic [25:0] ch_q, ch_wd;
@@ -231,11 +237,12 @@ module opl
     always_comb begin
         cm_a = sst_own ? sst_addr[3:0] : ch_ra;
         cm_w = sst_own ? sst_addr[3:0] : ch_wa;
-        ch_q = chan_mem[cm_a];
     end
     always_ff @(posedge clk_a)
         if (sst_own ? sst_we && sel_c : ch_we)
             chan_mem[cm_w] <= sst_own ? sst_wdata[25:0] : ch_wd;
+    always_ff @(posedge clk_a)
+        ch_q <= chan_mem[cm_a];
 
     /* log-sin at 0, (exp | 1024) << 1 at 256 (opl.md 4.1). */
     (* ramstyle = "M10K, no_rw_check" *)
@@ -252,6 +259,8 @@ module opl
             slot_mem[i] = SLOT_RESET;
         for (int i = 0; i < 16; i++)
             chan_mem[i] = '0;
+        sl_q = '0;
+        ch_q = '0;
         for (int i = 0; i < 512; i++)
             rom[i] = OPL_ROM[i];
         regs_q = '0;
@@ -346,6 +355,11 @@ module opl
     always_comb begin
         fnum = {wb[1:0], wa};
         blk = wb[4:2];
+        w_p = sl_q[18:0];
+        w_lv = sl_q[27:19];
+        w_st = sl_q[29:28];
+        w_h1 = $signed(ch_q[12:0]);
+        w_h2 = $signed(ch_q[25:13]);
     end
 
     /* Step 9: key, rate, KSL and vibrato (opl.md 2, 3.2, 3.5). */
@@ -403,15 +417,22 @@ module opl
     logic e2_slreach, e2_zero, e2_silent, e2_linear, e2_expo, e2_mute;
     logic [1:0] e2_next;
     logic [8:0] e2_base, e2_lv, e2_eg;
-    logic signed [9:0] e2_add, e2_inc, e2_lvs;
+    logic signed [9:0] e2_add;
+    logic [2:0] e2_m;
+    (* multstyle = "dsp" *)
+    logic signed [12:0] e2_lvs;
     logic [7:0] e2_kslv;
     logic [4:0] e2_am;
     logic [9:0] e2_tot;
-    logic [17:0] e2_fs;
-    logic signed [13:0] e2_fbsum, e2_fbsh;
-    logic [9:0] e2_fbmod;
+    logic [10:0] e2_fx;
+    logic [11:0] e2_mb;
     (* multstyle = "dsp" *)
-    logic [21:0] e2_prod;
+    logic [20:0] e2_ph;
+    logic signed [13:0] e2_fbsum;
+    logic [6:0] e2_fbm;
+    (* multstyle = "dsp" *)
+    logic signed [21:0] e2_fbp;
+    logic [9:0] e2_fbmod;
     always_comb begin
         e2_x = {1'b0, e_rhi} + {1'b0, egshift};
         case (e_rlo)
@@ -461,10 +482,10 @@ module opl
         e2_base = e2_mute ? 9'h1FF : (e_dokon && e_rhi == 4'd15) ? 9'd0 : w_lv;
         e2_add = e2_expo ? $signed(~{1'b0, w_lv}) >>> 1
                : e2_linear ? 10'sd4 : 10'sd0;
-        e2_inc = e2_st1 ? e2_add >>> 2 : e2_st2 ? e2_add >>> 1
-               : e2_st3 ? e2_add : 10'sd0;
-        e2_lvs = $signed({1'b0, e2_base}) + e2_inc;
-        e2_lv = e2_lvs[8:0];
+        e2_m = {e2_st3, e2_st2, e2_st1};
+        e2_lvs = $signed({2'b00, e2_base, 2'b00})
+            + 13'(e2_add) * $signed({10'd0, e2_m});
+        e2_lv = e2_lvs[10:2];
 
         case (w40[7:6])
             2'd0: e2_kslv = 8'd0;
@@ -477,17 +498,22 @@ module opl
             + {5'd0, e2_am};
         e2_eg = e2_tot[9] ? 9'h1FF : e2_tot[8:0];
 
-        e2_fs = {7'd0, e_f} << blk;
-        e2_prod = {5'd0, e2_fs[17:1]} * {17'd0, MT[w20[3:0]]};
+        /* The block shift moves onto MULT, and the phase add rides the
+         * product: (f << blk) / 2 * mt, over 2, is x * (mt << blk) / 4. */
+        e2_fx = {e_f[10:1], e_f[0] && blk != 3'd0};
+        e2_mb = {7'd0, MT[w20[3:0]]} << blk;
+        e2_ph = {(e_dokon ? 19'd0 : w_p), 2'b00}
+            + 21'(e2_fx) * 21'(e2_mb);
 
+        /* >>> (9 - fb) is * 2^(fb - 1) >>> 8. */
         e2_fbsum = 14'(w_h1) + 14'(w_h2);
-        e2_fbsh = e2_fbsum >>> (4'd9 - {1'b0, wc[3:1]});
-        e2_fbmod = wc[3:1] == 3'd0 ? 10'd0 : e2_fbsh[9:0];
+        e2_fbm = wc[3:1] == 3'd0 ? 7'd0 : 7'd1 << (wc[3:1] - 3'd1);
+        e2_fbp = 22'(e2_fbsum) * $signed({15'd0, e2_fbm});
+        e2_fbmod = e2_fbp[17:8];
     end
     logic [8:0] e_lv, e_eg;
     logic [1:0] e_st;
     logic e_mute;
-    logic [18:0] e_pinc;
     logic [9:0] e_fbmod;
 
     /* Step 11: the phase this sample, rhythm substitution, modulation and
@@ -532,10 +558,14 @@ module opl
     logic [3:0] e_ash;
 
     /* Step 13: the shift and the waveform. */
-    logic [11:0] e5_v;
+    logic [11:0] e5_v, e5_m;
+    (* multstyle = "dsp" *)
+    logic [23:0] e5_p;
     logic signed [12:0] e5_pos, e5_out;
     always_comb begin
-        e5_v = rom_q >> e_ash;
+        e5_m = e_ash > 4'd11 ? 12'd0 : 12'd1 << (4'd11 - e_ash);
+        e5_p = 24'(rom_q) * 24'(e5_m);
+        e5_v = e5_p[22:11];
         e5_pos = $signed({1'b0, e5_v});
         case (wws)
             2'd0: e5_out = e_p9 ? ~e5_pos : e5_pos;
@@ -762,11 +792,6 @@ module opl
         wb = '0;
         wc = '0;
         wws = '0;
-        w_p = '0;
-        w_lv = '0;
-        w_st = '0;
-        w_h1 = '0;
-        w_h2 = '0;
         e_key = 1'b0;
         e_dokon = 1'b0;
         e_rnz = 1'b0;
@@ -778,7 +803,6 @@ module opl
         e_eg = '0;
         e_st = '0;
         e_mute = 1'b0;
-        e_pinc = '0;
         e_fbmod = '0;
         e_pn = '0;
         e_p9 = 1'b0;
@@ -908,13 +932,6 @@ module opl
 
             F_WALK: begin
                 case (cnt[3:0])
-                    4'd0: begin
-                        w_p <= sl_q[18:0];
-                        w_lv <= sl_q[27:19];
-                        w_st <= sl_q[29:28];
-                        w_h1 <= $signed(ch_q[12:0]);
-                        w_h2 <= $signed(ch_q[25:13]);
-                    end
                     4'd1: w20 <= regs_q;
                     4'd2: w40 <= regs_q;
                     4'd3: w60 <= regs_q;
@@ -937,11 +954,10 @@ module opl
                         e_st <= e2_next;
                         e_mute <= e2_mute;
                         e_eg <= e2_eg;
-                        e_pinc <= e2_prod[19:1];
+                        e_pn <= e2_ph[20:2];
                         e_fbmod <= e2_fbmod;
                     end
                     4'd11: begin
-                        e_pn <= (e_dokon ? 19'd0 : w_p) + e_pinc;
                         e_p9 <= e3_p[9];
                         e_p8 <= e3_p[8];
                         if (s13)
@@ -1050,8 +1066,9 @@ module opl
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_opl;
-    always_comb unused_opl = ^{clk_sys, e2_prod[21:20], e2_prod[0], e2_fs[0],
-                               e2_fbsh[13:10], e2_lvs[9], e1_kt[7:6]};
+    always_comb unused_opl = ^{clk_sys, e2_ph[1:0], e2_fbp[21:18],
+                               e2_fbp[7:0], e2_lvs[12:11], e2_lvs[1:0],
+                               e5_p[23], e5_p[10:0], e1_kt[7:6]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
