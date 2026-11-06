@@ -335,21 +335,29 @@ uint32_t aud_opl_drops(void)
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever
  * reaches an engine here is aud_irq, and holding the engines still means
  * holding that off. Nothing on this side of the lock runs per write; it is
- * taken to map, park or reset an engine. Whatever core1 queued before then
- * is applied first, under the mapping it was written for. */
+ * taken to map or park an engine, and held for well under a sample: two
+ * wraps in one hold raise one interrupt, and a sample is lost. Whatever
+ * core1 queued before then is applied first, under the mapping it was
+ * written for. */
 void aud_engine_lock(void)
 {
     irq_set_enabled(PWM_IRQ_WRAP_0, false);
     /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
      * own, so without these the interrupt can still be taken after it
-     * returns, which is the one thing this is here to stop. Letting go needs
-     * no barrier: the interrupt coming back late costs nothing. */
+     * returns, which is the one thing this is here to stop. */
     __dsb();
     __isb();
     aud_drain();
 }
 
-void aud_engine_unlock(void) { irq_set_enabled(PWM_IRQ_WRAP_0, true); }
+/* The interrupt coming back late costs nothing, so letting go needs no
+ * hardware barrier. It does need the compiler to have stored everything the
+ * lock covered, the engines' plain statics among them. */
+void aud_engine_unlock(void)
+{
+    __compiler_memory_barrier();
+    irq_set_enabled(PWM_IRQ_WRAP_0, true);
+}
 
 /* The block is copied after aud_watch, so a write that lands during the
  * copy is also queued, and the drain applies it after. */
@@ -370,12 +378,20 @@ void aud_psg_map(uint16_t word)
     aud_engine_unlock();
 }
 
-/* opl_xreg has cleared its 256 bytes by now, and any of the PSG's block
- * among them. */
+/* opl_reset takes longer than a sample, so it runs between two holds of the
+ * lock, on a parked engine that aud_irq leaves alone and core1 queues
+ * nothing for. opl_xreg has cleared the 256 bytes by now, and any of the
+ * PSG's block among them. A write to them before the second aud_watch stays
+ * in XRAM and never reaches the engine. */
 void aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
-    opl_map(word);
+    opl_park();
+    aud_watch();
+    aud_engine_unlock();
+    opl_reset();
+    aud_engine_lock();
+    opl_xaddr_set(word);
     aud_watch();
     const uint16_t psg = psg_xaddr_get();
     if (word != 0xFFFF && psg != 0xFFFF &&

@@ -53,9 +53,11 @@ typedef struct
     volatile uint32_t lost;
     /* Where the PSG's 64 bytes and the OPL2's 256 start, or 0x10000, which
      * no address reaches, while parked. A store anywhere else, graphics
-     * most of all, is never queued. core0 sets them under the engine lock,
-     * which a 6502 waiting on an xreg call cannot write through. Beside the
-     * ring, so act_loop reads both with the pointer it already holds. */
+     * most of all, is never queued. core0 sets them under the engine lock.
+     * The 6502 can write XRAM all through an xreg call, from an interrupt
+     * handler or while it polls RIA_BUSY, so a write is queued or not by the
+     * values act_loop reads as it lands. Beside the ring, so act_loop reads
+     * both with the pointer it already holds. */
     volatile uint32_t psg_at;
     volatile uint32_t opl_at;
 } ria_aud_ring_t;

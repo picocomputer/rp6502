@@ -995,6 +995,8 @@ static uint16_t opl_xaddr = 0xFFFF;
 
 uint16_t opl_xaddr_get(void) { return opl_xaddr; }
 
+void opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
+
 void opl_park(void) { opl_xaddr = 0xFFFF; }
 
 void opl_shutdown(void)

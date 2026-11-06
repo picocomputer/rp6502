@@ -92,12 +92,17 @@ void opl_xram_write(uint8_t reg, uint8_t val);
  * error. */
 bool opl_xreg(uint16_t word);
 
-/* Resets the engine and maps it at word, 0xFFFF for parked. Reached through
- * aud_opl_map. */
+/* Resets the engine and maps it at word, 0xFFFF for parked. A software
+ * machine reaches it through aud_opl_map. */
 void opl_map(uint16_t word);
 
 /* Where this engine's 256 bytes start in XRAM, 0xFFFF for parked. */
 uint16_t opl_xaddr_get(void);
+
+/* Maps the engine at word without resetting it. The Pico resets the engine
+ * while it is parked, outside the engine lock, then maps it with this under
+ * the lock. */
+void opl_xaddr_set(uint16_t word);
 
 /* Release the pointer, which takes the OPL2 out of the mix. The chip keeps
  * its state until the next opl_xreg resets it. The caller holds the engine

@@ -55,8 +55,9 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 void aud_xram_write(uint16_t addr, uint8_t val);
 
 /* An engine's xreg mapping it at word or parking it, 0xFFFF, and resetting
- * it either way. The Pico does it at once under the engine lock; a software
- * machine stamps it as it stamps a write. */
+ * it either way. The Pico does it at once under the engine lock, all but the
+ * OPL2's reset, which is longer than a sample; a software machine stamps it
+ * as it stamps a write. */
 void aud_psg_map(uint16_t word);
 void aud_opl_map(uint16_t word);
 
