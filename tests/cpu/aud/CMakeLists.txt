@@ -29,6 +29,7 @@ if(RP6502_SOFT_CPU)
             AUD_ROM_BEL="${BEL_ROM}" AUD_ROM_OPL_BEL="${OPL_BEL_ROM}"
             AUD_ROM_PCM="${PCM_ROM}" AUD_ROM_PCM_RULES="${PCM_RULES_ROM}"
             AUD_ROM_PCM_ORDER="${PCM_ORDER_ROM}"
+            AUD_ROM_PCM_DRY="${PCM_DRY_ROM}"
         DEPENDS aud_roms
         TIMEOUT 600)
 endif()

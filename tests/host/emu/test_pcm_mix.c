@@ -10,6 +10,8 @@
 
 #define _USE_MATH_DEFINES
 
+#include "core/api/api.h"
+#include "core/api/attr.h"
 #include "core/aud/mix.h"
 #include "core/aud/pcm.h"
 #include "core/sys/sst.h"
@@ -220,6 +222,54 @@ UTEST(pcm_mix, an_underrun_is_a_gap)
     tone_of(out, n, 2, &hz, &peak);
     ASSERT_GT(peak, 0.4);
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_SET), 0);
+    ASSERT_EQ(ssys_close(fd), 0);
+}
+
+/* RIA_ATTR_PCM_UNDERRUNS, as ria_attr_get reads it. */
+static uint16_t underruns(void)
+{
+    API_A = 0x0E;
+    attr_api_get();
+    return API_AX;
+}
+
+/* Each time the buffer runs dry is one underrun, however long it then stays
+ * empty, so a one-shot sound adds one as it ends. An emptying lseek is not
+ * a take and adds none. Reading the count clears it, and so do an open and
+ * a program's end. */
+UTEST(pcm_mix, each_time_the_buffer_runs_dry_is_an_underrun)
+{
+    fresh();
+    make_tone(22050, 1050, 16, 1, 20);
+    int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(underruns(), 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+    pull(0, 4);
+    ASSERT_EQ(underruns(), 1);
+    ASSERT_EQ(underruns(), 0);
+    pull(0, 2);
+    ASSERT_EQ(underruns(), 0);
+    for (int i = 0; i < 2; i++)
+    {
+        ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+        pull(0, 4);
+    }
+    ASSERT_EQ(underruns(), 2);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_SET), 0);
+    pull(0, 2);
+    ASSERT_EQ(underruns(), 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+    pull(0, 4);
+    ASSERT_EQ(ssys_close(fd), 0);
+    fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(underruns(), 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
+    pull(0, 4);
+    aud_stop();
+    ASSERT_EQ(underruns(), 0);
     ASSERT_EQ(ssys_close(fd), 0);
 }
 

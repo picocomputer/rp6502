@@ -30,7 +30,9 @@ module tb_aud
     input logic byte_we,
     input logic clear_we,
     input logic [31:0] wdata,
+    input logic under_take,
     output logic [12:0] pcm_level,
+    output logic [30:0] pcm_under,
     /* pcm's outputs, and its blend before the rounding shift that its
      * sum state takes, sign-extended. */
     output logic signed [31:0] pcm_l,
@@ -61,7 +63,9 @@ module tb_aud
         .byte_we(byte_we),
         .clear_we(clear_we),
         .wdata(wdata),
+        .under_take(under_take),
         .pcm_level(pcm_level),
+        .pcm_under(pcm_under),
         .pcm_l(pcm_out_l),
         .pcm_r(pcm_out_r),
         .in_sample(in_sample),

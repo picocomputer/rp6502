@@ -1125,13 +1125,14 @@ module wiring
 
     /* The audio window's readable words, by soc_addr[5:2]. */
     logic psg_busy;
-    logic [30:0] opl_drops;
+    logic [30:0] opl_drops, pcm_under;
     logic [12:0] pcm_level;
     always_comb
         case (soc_addr[5:2])
             4'h1: aud_rdata = {31'd0, psg_busy};
             4'h3: aud_rdata = {1'b0, opl_drops};
             4'hB: aud_rdata = {19'd0, pcm_level};
+            4'hC: aud_rdata = {1'b0, pcm_under};
             default: aud_rdata = '0;
         endcase
 
@@ -1199,7 +1200,8 @@ module wiring
      * stream serves both channels because a YM3812 is mono.
      *
      * The PCM: device, by soc_addr[5:2]: 6 control, 7 step, 8 four
-     * bytes, 9 one byte, 10 clear; 11 reads the level. */
+     * bytes, 9 one byte, 10 clear; 11 reads the level and 12 the
+     * underruns, which the read clears. */
     localparam int PCM_W = rsmp_coef_pkg::RSMP_OUT_W;
     logic signed [15:0] opl_rs;
     logic signed [PCM_W-1:0] pcm_l, pcm_r;
@@ -1214,7 +1216,9 @@ module wiring
         .byte_we(aud_we && soc_addr[5:2] == 4'h9),
         .clear_we(aud_we && soc_addr[5:2] == 4'hA),
         .wdata(aud_wdata),
+        .under_take(aud_rd && soc_addr[5:2] == 4'hC),
         .pcm_level(pcm_level),
+        .pcm_under(pcm_under),
         .pcm_l(pcm_l),
         .pcm_r(pcm_r),
         .in_sample(opl_l),

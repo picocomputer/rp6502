@@ -85,6 +85,12 @@ uint64_t aud_samples(void);
  * them in the fabric. */
 uint32_t aud_opl_drops(void);
 
+/* Times the PCM: device's buffer ran dry since the last call, saturating at
+ * 0x7FFFFFFF: each take of a frame that left less than one. An open and
+ * aud_stop clear it. A software machine counts by the machine's present, as
+ * it answers aud_pcm_level. */
+uint32_t aud_pcm_underruns(void);
+
 /* Full scale of the shared sample path, sixteen bits, which is what the
  * Pocket's I2S wants. The RP2350's PWM is narrower and narrows in its own
  * mixer.
@@ -130,12 +136,12 @@ int aud_viz_pos(void);
  * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
  *
  * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8 samples made, 4 OPL2 drops, the bell, then the PCM: device: open, its
- * rate, bits and channels, the Q32 phase, both channels' 24 samples of
- * history, the bytes buffered and PCM_BUF_SIZE of them. */
+ * 8 samples made, 4 OPL2 drops, 4 PCM: underruns, the bell, then the PCM:
+ * device: open, its rate, bits and channels, the Q32 phase, both channels'
+ * 24 samples of history, the bytes buffered and PCM_BUF_SIZE of them. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
 #define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
+#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -144,6 +150,6 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 void aud_sst_settle(void);
 
 #define AUD_DRIVER DRIVER(aud_init, aud_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 4, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+    nul_config, nul_config, SST(AUD_, 5, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

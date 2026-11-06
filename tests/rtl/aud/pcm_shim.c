@@ -40,6 +40,8 @@ void shim_pcm_reset(uint32_t rate, uint8_t bits, uint8_t channels)
 uint32_t shim_pcm_put(const uint8_t *src, uint32_t n) { return pcm_put(&shim, src, n); }
 void shim_pcm_clear(void) { pcm_clear(&shim); }
 uint16_t shim_pcm_level(void) { return pcm_level(&shim); }
+uint32_t shim_pcm_underruns(void) { return shim.underruns; }
+void shim_pcm_set_underruns(uint32_t n) { shim.underruns = n; }
 void shim_pcm_sample(int32_t *l, int32_t *r) { pcm_sample(&shim, l, r); }
 
 void shim_pcm_v(int64_t *vl, int64_t *vr)

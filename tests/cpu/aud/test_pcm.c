@@ -206,6 +206,42 @@ UTEST(pcm, an_underrun_is_silence_and_play_resumes)
     ASSERT_EQ(l, r);
 }
 
+/* The take that leaves less than a frame is an underrun, once each time
+ * the buffer runs dry: a byte short of a frame plays nothing more, and
+ * the silent takes after it add none. A clear is not a take, and an open
+ * starts the count over. */
+UTEST(pcm, a_take_that_runs_the_buffer_dry_is_an_underrun)
+{
+    const pcm_fmt_t fmt = {22050, 16, 1};
+    pcm_reset(&stub, &fmt);
+    static const uint8_t frames[7];
+    int32_t l, r;
+    pcm_put(&stub, frames, 7);
+    for (int i = 0; i < 20; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_EQ(pcm_level(&stub), 1);
+    ASSERT_EQ(stub.underruns, 1u);
+    for (int i = 0; i < 200; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_EQ(stub.underruns, 1u);
+    pcm_put(&stub, frames, 1);
+    for (int i = 0; i < 20; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_EQ(stub.underruns, 2u);
+    pcm_put(&stub, frames, 6);
+    pcm_clear(&stub);
+    for (int i = 0; i < 20; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_EQ(stub.underruns, 2u);
+    stub.underruns = 0x7FFFFFFF;
+    pcm_put(&stub, frames, 2);
+    for (int i = 0; i < 20; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_EQ(stub.underruns, 0x7FFFFFFFu);
+    pcm_reset(&stub, &fmt);
+    ASSERT_EQ(stub.underruns, 0u);
+}
+
 UTEST(pcm, a_put_takes_what_fits)
 {
     const pcm_fmt_t fmt = {48000, 16, 2};

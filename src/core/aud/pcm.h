@@ -50,6 +50,9 @@ typedef struct
     /* Each channel's last RSMP_TAPS samples, every one written twice, at at
      * and at + RSMP_TAPS, so the newest RSMP_TAPS always lie in a row. */
     int32_t hist[2][2 * RSMP_TAPS];
+    /* Takes that left less than a frame, saturating at 0x7FFFFFFF: each
+     * time the buffer ran dry. Only the player counts. */
+    uint32_t underruns;
     volatile uint16_t head, tail;
     uint8_t buf[PCM_BUF_SIZE];
 } pcm_t;

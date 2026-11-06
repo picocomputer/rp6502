@@ -99,9 +99,12 @@ struct sim_t
     /* Ops that landed on the tick's clock and in the player's 110, by
      * kind. */
     long on_tick[6] = {}, in_work[6] = {};
-    /* Takes of a whole frame and of silence, and ticks with the FIFO
-     * full. */
-    long whole = 0, dry = 0, brim = 0;
+    /* Takes of a whole frame and of silence, ticks with the FIFO full,
+     * and underruns counted. */
+    long whole = 0, dry = 0, brim = 0, under = 0;
+    /* This clock's underrun, and whether it opened the device. */
+    uint32_t inc = 0;
+    bool opened = false;
     fmt_t fmt = {};
     uint8_t align[4] = {};
     /* The last sample's unrounded blend, both channels; the most
@@ -163,6 +166,7 @@ static void apply(sim_t &s, const op_t &o)
         dut->ctrl_we = 1;
         dut->wdata = 1u | (o.fmt.bits == 16 ? 2u : 0u) | (o.fmt.channels == 2 ? 4u : 0u);
         shim_pcm_reset(o.fmt.rate, o.fmt.bits, o.fmt.channels);
+        s.opened = true;
         s.open = true;
         s.fmt = o.fmt;
         break;
@@ -217,6 +221,15 @@ static const char *clock(sim_t &s)
                  (unsigned)dut->pcm_level, (unsigned)shim_pcm_level());
         return why;
     }
+    s.inc = 0;
+    s.opened = false;
+    const uint32_t under = shim_pcm_underruns();
+    if (dut->pcm_under != under)
+    {
+        snprintf(why, sizeof why, "clock %ld (sample %ld + %ld): underruns %u, pcm.c %u", s.clock, n, c,
+                 (unsigned)dut->pcm_under, (unsigned)under);
+        return why;
+    }
     if (dut->rootp->tb_aud__DOT__pcm__DOT__state == S_SUM && !dut->rootp->tb_aud__DOT__pcm__DOT__so)
     {
         const int ch = dut->rootp->tb_aud__DOT__pcm__DOT__ch;
@@ -257,6 +270,7 @@ static const char *clock(sim_t &s)
             if (shim_pcm_level() == BUF)
                 s.brim++;
             shim_pcm_sample(&s.want_l, &s.want_r);
+            s.inc = shim_pcm_underruns() - under;
             shim_pcm_v(&s.want_v[0], &s.want_v[1]);
         }
         s.samples++;
@@ -285,12 +299,21 @@ static const char *clock(sim_t &s)
             s.rc.push_back((int16_t)(o[k] < -32768 ? -32768 : o[k] > 32767 ? 32767 : o[k]));
         s.r_next += 1014;
     }
+    /* A read of the count now and then, which clears it on this clock: an
+     * underrun on the same clock leaves one, and an open none. */
+    if (rnd() % 997 == 0)
+    {
+        dut->under_take = 1;
+        shim_pcm_set_underruns(s.opened ? 0 : s.inc);
+    }
+    s.under += s.inc;
     dut->clk = 1;
     dut->eval();
     if (dut->rsmp_valid)
         s.rv.push_back((int16_t)dut->rsmp_out);
     dut->clk = 0;
     dut->tick = dut->step = 0;
+    dut->under_take = 0;
     dut->ctrl_we = dut->step_we = dut->data_we = dut->byte_we = dut->clear_we = 0;
     dut->in_valid = 0;
     dut->eval();
@@ -500,11 +523,11 @@ static const char *run(const case_t &k, int32_t *peak = NULL)
     if (peak && s.peak > *peak)
         *peak = s.peak;
     fprintf(stderr,
-            "  %ld samples equal, %ld unrounded; peak %d; takes %ld whole, %ld dry; %ld ticks full; %ld ops; "
+            "  %ld samples equal, %ld unrounded; peak %d; takes %ld whole, %ld dry; %ld underruns; %ld ticks full; %ld ops; "
             "words at head%%4 %u %u %u %u\n"
             "    on a tick / in the filter's clocks: step %ld/%ld open %ld/%ld close %ld/%ld data "
             "%ld/%ld byte %ld/%ld clear %ld/%ld\n",
-            s.samples, s.v_checked, s.peak, s.whole, s.dry, s.brim, s.taken_ops, s.align[0], s.align[1],
+            s.samples, s.v_checked, s.peak, s.whole, s.dry, s.under, s.brim, s.taken_ops, s.align[0], s.align[1],
             s.align[2], s.align[3],
             s.on_tick[OP_STEP], s.in_work[OP_STEP], s.on_tick[OP_OPEN], s.in_work[OP_OPEN],
             s.on_tick[OP_CLOSE], s.in_work[OP_CLOSE], s.on_tick[OP_DATA], s.in_work[OP_DATA],

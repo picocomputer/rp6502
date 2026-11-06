@@ -165,6 +165,9 @@ static inline int32_t set_tz_minutes(void)
 /* The bytes waiting to play, 0 to 4096. Nothing checks a write against
  * the room, 4096 less this. */
 #define AUD_PCM_LEVEL (*(volatile uint32_t *)0x7000002Cu)
+/* Times the buffer ran dry since the last read or open. A read clears
+ * it. */
+#define AUD_PCM_UNDERRUNS (*(volatile uint32_t *)0x70000030u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 /* The low word of the mtime that the last savestate load restored, which

@@ -15,6 +15,7 @@
 
 #define ATTR_PHI2_KHZ 0x01
 #define ATTR_CODE_PAGE 0x02
+#define ATTR_PCM_UNDERRUNS 0x0E
 #define ATTR_OPL_DROPS 0x0F
 
 static int16_t attr_set(uint8_t id, uint32_t value)
@@ -81,6 +82,15 @@ UTEST(attr, opl_drops_counts_the_writes_the_queue_could_not_take)
     ASSERT_EQ(attr_set(ATTR_OPL_DROPS, 0), -1);
     ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
     ASSERT_TRUE(xreg0(1, 1, 0xFFFF));
+}
+
+/* With no PCM: device open the count is zero, and it is read-only. */
+UTEST(attr, pcm_underruns_is_read_only)
+{
+    api_set_errno_opt(2);
+    ASSERT_EQ(attr_get(ATTR_PCM_UNDERRUNS), 0);
+    ASSERT_EQ(attr_set(ATTR_PCM_UNDERRUNS, 0), -1);
+    ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
 }
 
 UTEST_MAIN();

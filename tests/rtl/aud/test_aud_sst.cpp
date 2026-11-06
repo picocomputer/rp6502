@@ -39,7 +39,7 @@ static std::vector<int> arrays()
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x790; a < 0x795; a++)
+    for (int a = 0x790; a < 0x796; a++)
         v.push_back(a);
     for (int a = 0x798; a < 0x79A; a++)
         v.push_back(a);
@@ -226,6 +226,7 @@ struct Case
     int cut_at = -1;      // a flop word B takes with cut cleared
     uint32_t cut = 0;
     long samples = 2000;
+    uint32_t under = 0;   // A's underrun count, set before the request
 };
 
 static unsigned g_rst_pend, g_level, g_cold;
@@ -254,6 +255,13 @@ static long run_case(const Case &c, bool check_image = true)
     while (sa.psg != 0)
         run(a, sa, 1);
     run(a, sa, c.offset);
+    if (c.under)
+    {
+        a->sst_addr = 0x795;
+        a->wdata = c.under;
+        a->sst_st_we = 1;
+        edge(a, true);
+    }
     if (c.reopen)
     {
         a->ctrl_we = 1;
@@ -301,7 +309,7 @@ static long run_case(const Case &c, bool check_image = true)
         edge(b, true);
         if (a->rsmp_out != b->rsmp_out || a->rsmp_valid != b->rsmp_valid
             || a->pcm_l != b->pcm_l || a->pcm_r != b->pcm_r
-            || a->pcm_level != b->pcm_level)
+            || a->pcm_level != b->pcm_level || a->pcm_under != b->pcm_under)
         {
             bad = n;
             break;
@@ -320,6 +328,7 @@ UTEST(aud_sst, a_save_mid_stream_comes_back)
     Case c;
     c.seed = 11;
     c.offset = 300;
+    c.under = 0x5A5A5A5;
     ASSERT_EQ(-1L, run_case(c));
     ASSERT_GT(g_level, 2048u);
 }
@@ -372,12 +381,12 @@ UTEST(aud_sst, every_save_point_in_a_sample_comes_back)
     }
 }
 
-/* Each flop word and each array, left out, changes the sound or the
- * level. */
+/* Each flop word and each array, left out, changes the sound, the level
+ * or the underrun count. */
 UTEST(aud_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 0; k < 5; k++)
+    for (int k = 0; k < 6; k++)
         items.push_back(SKIP_WORD + k);
     for (int k = 8; k < 10; k++)
         items.push_back(SKIP_WORD + k);
@@ -390,6 +399,7 @@ UTEST(aud_sst, every_saved_item_matters)
         c.offset = 200;
         c.skip = skip;
         c.samples = 600;
+        c.under = 3;
         long bad = run_case(c, false);
         fprintf(stderr, "  without %s %03X: differs at %ld\n",
                 skip < SKIP_ARRAY ? "word" : "array",

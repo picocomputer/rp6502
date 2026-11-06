@@ -218,6 +218,23 @@ UTEST(aud, opl_drops_counts_the_writes_the_queue_could_not_take)
     ASSERT_NE(ram[got + 6], 0);
 }
 
+/* 10 ms of PCM run dry within a frame. The attribute returns the one
+ * underrun and clears it, and refuses a write. */
+UTEST(aud, pcm_underruns_counts_the_buffer_running_dry)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_PCM_DRY));
+    auto &ram = dut->rootp->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    const uint16_t got = 0x0210;
+    ram[got + 7] = 0;
+    for (int frames = 0; frames < 12 && !ram[got + 7]; frames++)
+        run_frame();
+    ASSERT_EQ(ram[got + 7], 1);
+    ASSERT_EQ(ram[got] | ram[got + 1] << 8, 1);
+    ASSERT_EQ(ram[got + 2] | ram[got + 3] << 8, 0);
+    ASSERT_EQ(ram[got + 4] | ram[got + 5] << 8, 0xFFFF);
+    ASSERT_NE(ram[got + 6], 0);
+}
+
 UTEST(aud, the_bell_rings_with_no_program)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_BEL));

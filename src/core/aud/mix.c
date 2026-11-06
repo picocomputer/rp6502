@@ -133,15 +133,20 @@ static struct
     uint64_t at; /* the next sample to step */
     uint64_t phase;
     uint16_t level;
+    uint32_t underruns;
 } aud_pm;
 
-/* Every sample before `to`. A take with no whole frame to take is silence. */
+/* Every sample before `to`. A take with no whole frame to take is silence,
+ * and nothing is written between two steps, so the buffer runs dry at most
+ * once in one. */
 static void aud_pm_step(uint64_t to)
 {
     if (aud_pm.on && to > aud_pm.at)
     {
         uint64_t takes = pcm_takes(&aud_pm.phase, aud_pm.step, to - aud_pm.at);
         const uint64_t frames = aud_pm.level / aud_pm.frame;
+        if (frames && takes >= frames && aud_pm.underruns < 0x7FFFFFFF)
+            aud_pm.underruns++;
         if (takes > frames)
             takes = frames;
         aud_pm.level = (uint16_t)(aud_pm.level - takes * aud_pm.frame);
@@ -263,6 +268,7 @@ void aud_init(void)
     atomic_store(&aud_now, aud_made);
     aud_oq_reset(aud_made);
     aud_pm.on = false;
+    aud_pm.underruns = 0;
     aud_pcm_play = false;
     aud_off = 0;
     aud_anchored = false;
@@ -285,6 +291,7 @@ void aud_stop(void)
     aud_oq_reset(now);
     aud_pm_step(now);
     aud_pm.level = 0;
+    aud_pm.underruns = 0;
     pcm_clear(&aud_pcm);
     aud_unlock();
 }
@@ -531,6 +538,7 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     aud_pm.at = at;
     aud_pm.phase = (uint64_t)1 << 32;
     aud_pm.level = 0;
+    aud_pm.underruns = 0;
     aud_push_at(at, AUD_EV_PCM_OPEN, (uint16_t)fmt->rate,
                 (uint8_t)((fmt->bits == 16 ? 1 : 0) | (fmt->channels == 2 ? 2 : 0)));
     return true;
@@ -572,6 +580,14 @@ void aud_pcm_clear(void)
     aud_pm_step(bus_now(AUD_NATIVE_RATE));
     aud_pm.level = 0;
     aud_push(AUD_EV_PCM_CLEAR, 0, 0);
+}
+
+uint32_t aud_pcm_underruns(void)
+{
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
+    const uint32_t underruns = aud_pm.underruns;
+    aud_pm.underruns = 0;
+    return underruns;
 }
 
 void aud_set_sink_rate(uint32_t rate)
@@ -898,6 +914,7 @@ void aud_sst_save(sst_cursor_t *c, unsigned flags)
     aud_put_rsmp(c, &aud_rs_r);
     sst_put_u64(c, aud_made);
     sst_put_u32(c, aud_oq.drops);
+    sst_put_u32(c, aud_pm.underruns);
     bel_sst_save(c, flags);
     aud_pcm_save(c);
     aud_unlock();
@@ -911,7 +928,8 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_get_rsmp(c, &r);
     uint64_t made = sst_get_u64(c);
     uint32_t drops = sst_get_u32(c);
-    if (!sst_ok(c) || engines > 3 || drops > 0x7FFFFFFF)
+    uint32_t underruns = sst_get_u32(c);
+    if (!sst_ok(c) || engines > 3 || drops > 0x7FFFFFFF || underruns > 0x7FFFFFFF)
         return false;
     /* This row loads after the engines' own, and an engine it names has to
      * have come back mapped. */
@@ -931,6 +949,7 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
      * taken. */
     aud_oq_reset(made);
     aud_oq.drops = drops;
+    aud_pm.underruns = underruns;
     aud_oq.count = opl_queue.count;
     aud_oq.head = opl_queue.head;
     for (unsigned i = 0; i < opl_queue.count; i++)

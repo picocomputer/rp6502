@@ -342,6 +342,7 @@ void aud_stop(void)
     opl_park();
     opl_take_drops();
     pcm_clear(&aud_pcm);
+    aud_pcm.underruns = 0;
     aud_engine_unlock();
 }
 
@@ -353,6 +354,15 @@ uint32_t aud_opl_drops(void)
     const uint32_t drops = opl_take_drops();
     aud_engine_unlock();
     return drops;
+}
+
+uint32_t aud_pcm_underruns(void)
+{
+    aud_engine_lock();
+    const uint32_t underruns = aud_pcm.underruns;
+    aud_pcm.underruns = 0;
+    aud_engine_unlock();
+    return underruns;
 }
 
 void aud_psg_map(uint16_t word)

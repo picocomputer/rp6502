@@ -20,9 +20,10 @@ from rp6502_rom import main, rom
 
 PSG = 0x8000
 GO = 0x0200
+ATTR_PCM_UNDERRUNS = 0x0E
 ATTR_OPL_DROPS = 0x0F
-# opl_drops_prog's answers: A and X of each call, the errno of the last,
-# then 1 once all are in.
+# opl_drops_prog's and pcm_dry_prog's answers: A and X of each call, the
+# errno of the last, then 1 once all are in.
 GOT = 0x0210
 
 
@@ -241,20 +242,62 @@ def opl_drops_prog():
     for _ in range(300):
         p.sta_abs(RW0_DATA)
     p.store(RW0_STEP, 0x01)
-    p.call_a(OP_ATTR_GET, ATTR_OPL_DROPS)
+    attr_answers(p, ATTR_OPL_DROPS)
+    p.spin()
+    return p
+
+
+def attr_answers(p, attr):
+    """The attribute read twice and written once, into GOT."""
+    p.call_a(OP_ATTR_GET, attr)
     for i, reg in enumerate((API_A, API_X)):
         p.lda_abs(reg)
         p.sta_abs(GOT + i)
-    p.call_a(OP_ATTR_GET, ATTR_OPL_DROPS)
+    p.call_a(OP_ATTR_GET, attr)
     for i, reg in enumerate((API_A, API_X)):
         p.lda_abs(reg)
         p.sta_abs(GOT + 2 + i)
     p.pushl(0)
-    p.call_a(OP_ATTR_SET, ATTR_OPL_DROPS)
+    p.call_a(OP_ATTR_SET, attr)
     for i, reg in enumerate((API_A, API_X, API_ERRNO)):
         p.lda_abs(reg)
         p.sta_abs(GOT + 4 + i)
     p.store(GOT + 7, 1)
+
+
+# pcm_dry_prog's 10 ms of silence.
+PCM_DRY_LEN = 480
+
+
+def pcm_dry_prog():
+    """10 ms at 48000 Hz, 8-bit mono, which play out within a frame. Three
+    frames later the underrun count is read twice and written once through
+    the attribute."""
+    p = Prog()
+    p.rom.add_binary_data(bytes([128]) * PCM_DRY_LEN, 0x10000 + PCM_TABLE)
+    fd, frame = 0x12, 0x13
+    p.push_str("PCM:48000,8,1")
+    p.call_a(OP_OPEN, O_WRONLY)
+    p.sta_zp(fd)
+    for v in (PCM_TABLE, PCM_DRY_LEN):
+        p.lda_imm(v >> 8)
+        p.sta_abs(XSTACK)
+        p.lda_imm(v & 0xFF)
+        p.sta_abs(XSTACK)
+    p.lda_zp(fd)
+    p.sta_abs(API_A)
+    p.call(OP_WRITE_XRAM)
+    p.ldx_imm(3)
+    p.symbol("frame")
+    p.lda_abs(VSYNC)
+    p.sta_zp(frame)
+    p.symbol("wait")
+    p.lda_abs(VSYNC)
+    p.cmp_zp(frame)
+    p.beq("wait")
+    p.dex()
+    p.bne("frame")
+    attr_answers(p, ATTR_PCM_UNDERRUNS)
     p.spin()
     return p
 
@@ -747,11 +790,11 @@ def record(name, *lines):
 def opl_drops(path):
     """The OPL2's drop count from a savestate. A software machine decides each
     write as the 6502 makes it and keeps the count in the AUD_ chunk, whose
-    id, version 4 and length come before its fields: the engines byte, two
+    id, version 5 and length come before its fields: the engines byte, two
     resamplers of 105 bytes and the 8-byte samples made come before it."""
     with open(path, "rb") as f:
         blob = f.read()
-    at = blob.index(b"AUD_\x00\x04") + 10 + 1 + 2 * 105 + 8
+    at = blob.index(b"AUD_\x00\x05") + 10 + 1 + 2 * 105 + 8
     return int.from_bytes(blob[at:at + 4], "big")
 
 
@@ -759,8 +802,8 @@ def test_psg():
     """The note starts within three frames, loud, and the twelve frames after
     its first are 440 Hz within a tenth. Then the gate byte is cleared twice.
     A plain poke changes XRAM only, and the PSG, which takes its registers
-    only as the RIA writes them, plays on. xbus: writes it the way the RIA does, and
-    the note is released."""
+    only as the RIA writes them, plays on. xbus: writes it the way the RIA
+    does, and the note is released."""
     record("psg", 'wav "psg.wav" 15',
            "poke xram:PSG+6 $00", 'wav "plain.wav" 2',
            "poke xbus:PSG+6 $00", "run 1", 'wav "released.wav" 2')
@@ -911,7 +954,7 @@ def test_pcm_rules():
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
         "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
-        "opl_drops": opl_drops_prog,
+        "opl_drops": opl_drops_prog, "pcm_dry": pcm_dry_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
         "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,

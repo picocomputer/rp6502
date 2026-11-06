@@ -20,6 +20,8 @@ extern "C"
     uint32_t shim_pcm_put(const uint8_t *src, uint32_t n);
     void shim_pcm_clear(void);
     uint16_t shim_pcm_level(void);
+    uint32_t shim_pcm_underruns(void);
+    void shim_pcm_set_underruns(uint32_t n);
     void shim_pcm_sample(int32_t *l, int32_t *r);
     /* The last sample's pcm_blend before its rounding. */
     void shim_pcm_v(int64_t *vl, int64_t *vr);

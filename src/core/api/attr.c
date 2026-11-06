@@ -32,6 +32,7 @@
 #define ATTR_RLN_WIDTH 0x0A
 #define ATTR_RLN_HEIGHT 0x0B
 #define ATTR_RLN_SUPPRESS_NL 0x0C
+#define ATTR_PCM_UNDERRUNS 0x0E
 #define ATTR_OPL_DROPS 0x0F
 #define ATTR_CLK_RUN_MS 0x10
 #define ATTR_CLK_RUN_CS 0x11
@@ -69,6 +70,8 @@ bool attr_api_get(void)
         return api_return_axsreg(rln_get_term_height());
     case ATTR_RLN_SUPPRESS_NL:
         return api_return_axsreg(rln_get_suppress_nl());
+    case ATTR_PCM_UNDERRUNS:
+        return api_return_axsreg(aud_pcm_underruns());
     case ATTR_OPL_DROPS:
         return api_return_axsreg(aud_opl_drops());
     case ATTR_CLK_RUN_MS:
@@ -145,6 +148,7 @@ bool attr_api_set(void)
     case ATTR_LRAND:
     case ATTR_EXIT_CODE:
     case ATTR_SIGINT:
+    case ATTR_PCM_UNDERRUNS:
     case ATTR_OPL_DROPS:
     case ATTR_CLK_RUN_MS:
     case ATTR_CLK_RUN_CS:

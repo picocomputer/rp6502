@@ -74,6 +74,7 @@ void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
     s->phase = (uint64_t)1 << 32;
     s->at = 0;
     memset(s->hist, 0, sizeof s->hist);
+    s->underruns = 0;
     s->head = 0;
     s->tail = 0;
 }
@@ -131,6 +132,8 @@ static void pcm_take(pcm_t *s)
         /* The bytes are read before the writer may reuse them. */
         atomic_signal_fence(memory_order_acquire);
         s->tail = (uint16_t)(tail + s->frame);
+        if (pcm_level(s) < s->frame && s->underruns < 0x7FFFFFFF)
+            s->underruns++;
     }
     const unsigned at = s->at;
     s->hist[0][at] = s->hist[0][at + RSMP_TAPS] = l;

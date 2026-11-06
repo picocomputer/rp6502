@@ -60,8 +60,13 @@ module pcm
     input logic byte_we,
     input logic clear_we,
     input logic [31:0] wdata,
+    /* Clears pcm_under on this clock. */
+    input logic under_take,
 
     output logic [12:0] pcm_level,
+    /* Takes that left less than a frame, saturating: each time the FIFO
+     * ran dry. An open clears it too. */
+    output logic [30:0] pcm_under,
     output logic signed [RSMP_OUT_W-1:0] pcm_l,
     output logic signed [RSMP_OUT_W-1:0] pcm_r,
 
@@ -127,6 +132,10 @@ module pcm
     always_comb frame = 3'd1 << (2'(b16) + 2'(st));
     logic has;
     always_comb has = pcm_level >= 13'(frame);
+    logic dry;
+    always_comb dry = go && ph[32] && has && pcm_level < 13'({frame, 1'b0});
+    logic [31:0] under_inc;
+    always_comb under_inc = {1'b0, pcm_under} + 32'd1;
 
     logic [3:0] w_en;
     logic [9:0] w_row, r_row[4];
@@ -282,6 +291,7 @@ module pcm
         phase = '0;
         head = '0;
         tail = '0;
+        pcm_under = '0;
         tk_has = 1'b0;
         tk_16 = 1'b0;
         tk_st = 1'b0;
@@ -330,14 +340,20 @@ module pcm
             tail <= tail + 13'(frame);
         if (clear_we)
             tail <= head;
+        if (under_take)
+            pcm_under <= {30'd0, dry};
+        else if (dry && !under_inc[31])
+            pcm_under <= under_inc[30:0];
         if (ctrl_we && wdata[0]) begin
             head <= '0;
             tail <= '0;
+            pcm_under <= '0;
         end
         if (sst_st_we && sel_st)
             case (sst_addr[2:0])
                 3'd0: step_m1 <= wdata;
                 3'd2: {rst_pend, head, tail, st, b16, open} <= wdata[29:0];
+                3'd5: pcm_under <= wdata[30:0];
                 default: ;
             endcase
     end
@@ -474,6 +490,7 @@ module pcm
                            open};
             4'h3: st_rd = {4'd0, at, cold, pcm_l};
             4'h4: st_rd = {14'd0, pcm_r};
+            4'h5: st_rd = {1'b0, pcm_under};
             4'h8: st_rd = o_phase[31:0];
             4'h9: st_rd = {2'd0, o_phase[33:32], wptr, rptr, primed, full,
                            rsmp_out};
