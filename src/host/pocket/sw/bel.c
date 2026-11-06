@@ -30,20 +30,34 @@ static bool bel_due(uint64_t at)
     return at && (int64_t)(host_clock_us() - at) >= 0;
 }
 
-static void bel_voice(const ria_bel_t *snd, bool gate)
+static void bel_put(unsigned i, uint8_t val)
 {
-    AUD_BEL_LO = (uint32_t)snd->freq
-                 | ((uint32_t)snd->duty << 16)
-                 | ((uint32_t)snd->vol_attack << 24);
-    AUD_BEL_HI = (uint32_t)snd->vol_decay
-                 | ((uint32_t)snd->wave_release << 8)
-                 | ((uint32_t)(gate ? 1u : 0u) << 16);
+    AUD_BEL = i << 8 | val;
+}
+
+/* The gate byte goes last, so the strike lands on the new sound. */
+static void bel_voice(const ria_bel_t *snd)
+{
+    bel_put(0, (uint8_t)snd->freq);
+    bel_put(1, (uint8_t)(snd->freq >> 8));
+    bel_put(2, snd->duty);
+    bel_put(3, snd->vol_attack);
+    bel_put(4, snd->vol_decay);
+    bel_put(5, snd->wave_release);
+    bel_put(6, 1);
+}
+
+/* The gate first, so no step takes the zeroed sustain while it is up. */
+static void bel_silence(void)
+{
+    bel_put(6, 0);
+    for (unsigned i = 0; i < 6; i++)
+        bel_put(i, 0);
 }
 
 void bel_init(void)
 {
-    AUD_BEL_LO = 0;
-    AUD_BEL_HI = 0;
+    bel_silence();
 }
 
 void bel_wake(uint64_t us)
@@ -59,7 +73,7 @@ void bel_wake(uint64_t us)
 static void bel_strike(void)
 {
     const ria_bel_t *snd = &bel_queue[bel_tail];
-    bel_voice(snd, true);
+    bel_voice(snd);
     bel_restrike_at = snd->restrike_ms
                           ? bel_in_ms(snd->restrike_ms) : 0;
     bel_release_at = snd->release_ms
@@ -86,6 +100,8 @@ void bel_task(void)
     if (!bel_active || (SST_CTL & SST_RESTORED))
         return;
 
+    /* Polled until the end, as core/aud/bel.c does, so a sound queued
+     * after the deadline restrikes at once. */
     if (bel_due(bel_restrike_at))
     {
         uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
@@ -95,12 +111,11 @@ void bel_task(void)
             bel_strike();
             return;
         }
-        bel_restrike_at = 0;
     }
 
     if (bel_due(bel_release_at))
     {
-        bel_voice(&bel_queue[bel_tail], false);
+        bel_put(6, 0);
         bel_release_at = 0;
     }
 
@@ -113,8 +128,7 @@ void bel_task(void)
         }
         else
         {
-            AUD_BEL_LO = 0;
-            AUD_BEL_HI = 0;
+            bel_silence();
             bel_restrike_at = 0;
             bel_end_at = 0;
             bel_active = false;

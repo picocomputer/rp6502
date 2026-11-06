@@ -44,7 +44,7 @@
 #define W_TOTAL (B_END + W_END)
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 4u
+#define SST_VER 5u
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -793,8 +793,8 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 510);
 }
 
-/* A version 3 blob, with its sum right, is refused. */
-UTEST(sst, a_version_3_blob_is_refused)
+/* A version 4 blob, with its sum right, is refused. */
+UTEST(sst, a_version_4_blob_is_refused)
 {
     power_on();
     for (int i = 0; i < 3000; i++)
@@ -806,7 +806,7 @@ UTEST(sst, a_version_3_blob_is_refused)
         stage_word(B_XRAM + i, 0xC0DE0000u + i);
     stage_seal();
     uint32_t sum = 0;
-    stage_word(B_HDR + 1, 3);
+    stage_word(B_HDR + 1, 4);
     for (uint32_t i = 0; i < B_END; i++)
     {
         uint32_t a = STAGE_BLOB + i * 4;

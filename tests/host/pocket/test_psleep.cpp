@@ -1671,7 +1671,9 @@ UTEST(psleep, a_bell_mid_tone_comes_back)
 {
     std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
     ASSERT_GT(rom.size(), 0u);
-    auto gate = [] { return (MEM(psg__DOT__bel_hi) >> 16) & 1; };
+    /* The bell's voice leaves release only on a strike and returns on a
+     * release, so it is out of release exactly while its gate is up. */
+    auto gate = [] { return MEM(psg__DOT__ch_adsr)[8] != 0 ? 1 : 0; };
     auto release_tick = [&](long limit) {
         long t = -1;
         int prev = gate();
@@ -1773,9 +1775,9 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 3, is refused, and the session
+/* A blob from before this format, version 4, is refused, and the session
  * that was running carries on. */
-UTEST(psleep, a_version_3_blob_is_refused)
+UTEST(psleep, a_version_4_blob_is_refused)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -1784,8 +1786,8 @@ UTEST(psleep, a_version_3_blob_is_refused)
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
-    ASSERT_EQ(4u, blob_get(blob, 1));
-    blob_put(blob, 1, 3);
+    ASSERT_EQ(5u, blob_get(blob, 1));
+    blob_put(blob, 1, 4);
     blob_reseal(blob);
 
     boot(rom);

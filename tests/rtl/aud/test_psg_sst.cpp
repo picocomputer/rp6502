@@ -22,12 +22,15 @@
 
 #define TICKS 1050
 
-/* Offsets in the savestate's audio region: the structures, every slot of
- * the voice arrays, used or not, and the flop words. */
+/* Offsets in the savestate's audio region: the structures, the bell's,
+ * every slot of the voice arrays, used or not, and the flop words, of
+ * which 0x788 is empty. */
 static std::vector<int> arrays()
 {
     std::vector<int> v;
     for (int a = 0x640; a < 0x680; a++)
+        v.push_back(a);
+    for (int a = 0x6D0; a < 0x6D8; a++)
         v.push_back(a);
     for (int a = 0x700; a < 0x750; a++)
         v.push_back(a);
@@ -36,7 +39,7 @@ static std::vector<int> arrays()
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x788; a < 0x78D; a++)
+    for (int a = 0x789; a < 0x78D; a++)
         v.push_back(a);
     return v;
 }
@@ -57,7 +60,8 @@ static bool skipped(int skip, int a)
     if (skip < SKIP_CFG)
         return a == 0x788 + skip;
     if (skip < SKIP_VOICE)
-        return a >= 0x640 && a < 0x680 && (a & 7) == skip - SKIP_CFG;
+        return ((a >= 0x640 && a < 0x680) || (a >= 0x6D0 && a < 0x6D8))
+               && (a & 7) == skip - SKIP_CFG;
     return a >= 0x700 + 16 * (skip - SKIP_VOICE)
            && a < 0x710 + 16 * (skip - SKIP_VOICE);
 }
@@ -72,8 +76,7 @@ static void edge(Vpsg_sst *d, bool mach)
     d->eval();
     d->q_we = 0;
     d->xaddr_we = 0;
-    d->bel_lo_we = 0;
-    d->bel_hi_we = 0;
+    d->bel_we = 0;
     d->sst_we = 0;
     d->sst_st_we = 0;
 }
@@ -116,12 +119,16 @@ static void program(Vpsg_sst *d, uint16_t at, std::mt19937 &r, bool bell)
         snoop(d, b + 5, (uint8_t)(v == 3 ? 0x46 : (r() % 4) << 4 | 6), true);
         snoop(d, b + 6, (uint8_t)((r() & 0xFE) | 1), true);
     }
-    d->bel_lo_we = 1;
-    d->bel_wdata = 0x07u << 24 | 0x80u << 16 | 2640u;
-    edge(d, true);
-    d->bel_hi_we = 1;
-    d->bel_wdata = (bell ? 1u << 16 : 0u) | 0x30u << 8 | 0x24u;
-    edge(d, true);
+    const uint16_t bf = (uint16_t)(2000 + (r() % 1000));
+    const uint8_t bell_bytes[7] = {(uint8_t)bf, (uint8_t)(bf >> 8), 0x80,
+                                   0x07, 0x24, 0x30, (uint8_t)(bell ? 1 : 0)};
+    for (int i = 0; i < 7; i++)
+    {
+        d->bel_we = 1;
+        d->bel_idx = (uint8_t)i;
+        d->bel_val = bell_bytes[i];
+        edge(d, true);
+    }
 }
 
 /* A write stream into the structures: a byte about every few samples, a
@@ -370,11 +377,12 @@ UTEST(psg_sst, a_save_after_a_pointer_write_comes_back)
 }
 
 /* Each flop word, each structure byte and each voice array, left out,
- * changes the sound. */
+ * changes the sound. Word 1 holds only clr, which
+ * a_save_after_a_pointer_write_comes_back cuts. */
 UTEST(psg_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 0; k < 5; k++)
+    for (int k = 2; k < 5; k++)
         items.push_back(SKIP_WORD + k);
     for (int b = 0; b < 7; b++)
         items.push_back(SKIP_CFG + b);

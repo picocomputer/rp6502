@@ -143,8 +143,9 @@ static inline int32_t set_tz_minutes(void)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
 /* The OPL's writes dropped since the last read, which clears it. */
 #define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)
-#define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
-#define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
+/* One byte of the bell's channel structure: bits 10:8 its index, 7:0 its
+ * value. Byte 6, the gate, strikes or releases. */
+#define AUD_BEL (*(volatile uint32_t *)0x70000010u)
 /* The PCM: device. Bit 0 opens or closes, bit 1 is 16-bit and bit 2 is
  * stereo. An open empties the buffer; the sound restarts at the next
  * sample. */

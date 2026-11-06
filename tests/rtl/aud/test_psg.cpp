@@ -120,10 +120,10 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
     clock_cycle();
     dut->xaddr_we = 0;
     /* The sample in progress is compared before the import, because the
-     * import takes 64 clocks and psg.sv spends 55 on a sample. psg_valid is
-     * high for one clock, so importing first would let this sample's pulse
-     * end before run_lockstep polls for it, and run_lockstep would compare
-     * psg.c's sample with psg.sv's next one. */
+     * import takes 64 clocks and can outlast the rest of the walk.
+     * psg_valid is high for one clock, so importing first would let this
+     * sample's pulse end before run_lockstep polls for it, and run_lockstep
+     * would compare psg.c's sample with psg.sv's next one. */
     run_lockstep(utest_result, 1);
     if (word != 0xFFFF)
         rtl_import(word);
@@ -261,10 +261,10 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 3200);
 
-    /* psg.sv spends 55 clocks on a sample, from entering P_MIX to leaving
-     * P_STEP, and each of these depths lands the pointer write inside that
+    /* psg.sv spends 136 clocks on a sample, fifteen a voice and one to
+     * output, and each of these depths lands the pointer write inside that
      * span. */
-    static const int depths[] = {1, 5, 15, 30, 50};
+    static const int depths[] = {1, 5, 15, 30, 50, 80, 110, 130};
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); i++)
     {
         for (int ch = 0; ch < 8; ch++)
@@ -332,8 +332,13 @@ static void one_loud_channel(uint16_t base)
 
 #define ADSR_RELEASE 0
 #define ADSR_ATTACK 1
-/* P_STEP is the sixth member of state_t in psg.sv, so its value is 5. */
-#define PSG_STATE_STEP 5
+/* P_VOICE is the second member of state_t in psg.sv, and a voice steps on
+ * its clock 10. */
+#define PSG_STATE_VOICE 1
+#define PSG_T_STEP 10
+
+/* Voice 0's sample is word 0 of psg.sv's voice memory. */
+static int16_t rtl_sample0() { return (int16_t)dut->rootp->psg__DOT__vm[0]; }
 
 UTEST(psg, gate_applies_on_the_clock_it_lands)
 {
@@ -371,9 +376,11 @@ UTEST(psg, no_write_is_dropped)
 }
 
 /* Wave 1 at duty 255 is 32767 at every phase and wave 5 is 0 at every
- * phase, so the sample stored in P_STEP shows which of the two
- * wave_release values it was computed from. */
-UTEST(psg, a_write_reaches_the_step_it_lands_on)
+ * phase, so the stored sample shows which of the two wave_release values
+ * it was computed from. A write on the voice's step comes after the walk
+ * read that byte, so the step keeps the old one and the next sample has
+ * the new one. */
+UTEST(psg, a_write_mid_walk_is_heard_by_the_next_sample)
 {
     shim_init();
     rtl_reset();
@@ -384,13 +391,17 @@ UTEST(psg, a_write_reaches_the_step_it_lands_on)
     rtl_xaddr(base);
     rtl_sample();
     rtl_sample();
-    ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
+    ASSERT_EQ(32767, rtl_sample0());
 
-    while (dut->rootp->psg__DOT__state != PSG_STATE_STEP
-           || dut->rootp->psg__DOT__ch != 0)
+    while (dut->rootp->psg__DOT__state != PSG_STATE_VOICE
+           || dut->rootp->psg__DOT__ch != 0
+           || dut->rootp->psg__DOT__t != PSG_T_STEP)
         clock_cycle();
     snoop_dut(base + 5, 0x50, false);
-    ASSERT_EQ(0, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
+    rtl_sample();
+    ASSERT_EQ(32767, rtl_sample0());
+    rtl_sample();
+    ASSERT_EQ(0, rtl_sample0());
 }
 
 UTEST(psg, an_imported_block_carries_no_gate)
@@ -409,7 +420,7 @@ UTEST(psg, an_imported_block_carries_no_gate)
 
     snoop_now(base + 6, 0x01);
     ASSERT_EQ(ADSR_ATTACK, dut->rootp->psg__DOT__ch_adsr[0]);
-    ASSERT_EQ(32767, (int16_t)dut->rootp->psg__DOT__ch_sample[0]);
+    ASSERT_EQ(32767, rtl_sample0());
 }
 
 /* The constants are PHASE_MAGIC and PHASE_SHIFT from psg.sv, and 144000

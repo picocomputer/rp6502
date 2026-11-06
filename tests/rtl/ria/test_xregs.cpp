@@ -23,8 +23,7 @@ UTEST(xregs, the_program_reaches_the_devices)
     int strikes = 0;
     bool bel_gate_prev = false;
     ASSERT_TRUE(tb_boot_each(dut, rom, nullptr, [&] {
-        const bool bg =
-            (dut->rootp->wiring__DOT__psg__DOT__bel_hi >> 16) & 1;
+        const bool bg = dut->rootp->wiring__DOT__psg__DOT__ch_adsr[8] != 0;
         if (!bel_gate_prev && bg)
             strikes++;
         bel_gate_prev = bg;
