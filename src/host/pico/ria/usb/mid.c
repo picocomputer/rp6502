@@ -8,6 +8,7 @@
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/ring.h"
 #include "machine.h"
 #include <tusb.h>
 #include <pico/time.h>
@@ -48,7 +49,6 @@ typedef struct
     uint32_t tempo;
     uint16_t ppqn;
     uint64_t rx_epoch_ns;
-    uint16_t rx_head, rx_tail;
     uint64_t rx_ticks;
     uint8_t rx_status;
     uint8_t rx_msg[3];
@@ -56,9 +56,8 @@ typedef struct
     uint8_t rx_msg_need;
     bool rx_in_sysex;
     bool rx_ring_sysex;
-    uint8_t rx_ring[MID_RING_SIZE];
+    RING(uint8_t, MID_RING_SIZE) rx_ring;
     uint64_t tx_epoch_ns;
-    uint16_t tx_head, tx_tail;
     uint64_t tx_ticks;
     uint64_t tx_due_ns;
     uint32_t tx_delta;
@@ -78,15 +77,11 @@ typedef struct
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
     bool tx_meta;
-    uint8_t tx_ring[MID_RING_SIZE];
+    RING(uint8_t, MID_RING_SIZE) tx_ring;
 } mid_t;
 static mid_t mid_mounts[CFG_TUH_MIDI];
 static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
 
-static inline uint16_t mid_ring_free(uint16_t head, uint16_t tail)
-{
-    return (uint16_t)((MID_RING_SIZE - 1) - ((head - tail) & (MID_RING_SIZE - 1)));
-}
 
 static inline bool mid_raw(const mid_t *conn)
 {
@@ -152,8 +147,7 @@ static uint8_t mid_vlq_len(uint32_t v)
 
 static inline void mid_rx_push(mid_t *conn, uint8_t b)
 {
-    conn->rx_ring[conn->rx_head] = b;
-    conn->rx_head = (conn->rx_head + 1) & (MID_RING_SIZE - 1);
+    RING_PUT(&conn->rx_ring, b);
 }
 
 static void mid_rx_push_vlq(mid_t *conn, uint32_t v)
@@ -184,7 +178,7 @@ static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
     // delta byte there could not be distinguished from sysex data.
     if (conn->rx_ring_sysex && len == 1 && msg[0] >= 0xF8)
     {
-        if (mid_ring_free(conn->rx_head, conn->rx_tail) <= 1)
+        if (RING_AVAIL(&conn->rx_ring) <= 1)
             return false;
         mid_rx_push(conn, msg[0]);
         return true;
@@ -199,7 +193,7 @@ static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
                     : (uint32_t)(total - conn->rx_ticks);
     uint16_t reserve = msg[0] == 0xF0 ? 1 : 0;
     uint16_t close = conn->rx_ring_sysex ? 1 : 0;
-    if (mid_ring_free(conn->rx_head, conn->rx_tail) < mid_vlq_len(delta) + len + reserve + close)
+    if (RING_AVAIL(&conn->rx_ring) < (uint32_t)(mid_vlq_len(delta) + len + reserve + close))
         return false;
     if (conn->rx_ring_sysex)
         mid_rx_push_sysex_end(conn);
@@ -216,7 +210,7 @@ static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
 {
     if (!conn->rx_ring_sysex)
         return;
-    if (mid_ring_free(conn->rx_head, conn->rx_tail) > 1)
+    if (RING_AVAIL(&conn->rx_ring) > 1)
         mid_rx_push(conn, b);
 }
 
@@ -322,7 +316,7 @@ static bool mid_itf_can_rx(uint8_t itf)
     {
         mid_t *p = &mid_mounts[i];
         if (p->mounted && p->opened && p->has_rx && p->itf == itf &&
-            mid_ring_free(p->rx_head, p->rx_tail) >= 96)
+            RING_AVAIL(&p->rx_ring) >= 96)
             return true;
     }
     return false;
@@ -332,7 +326,7 @@ static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
     if (mid_raw(conn))
     {
-        if (mid_ring_free(conn->rx_head, conn->rx_tail))
+        if (RING_AVAIL(&conn->rx_ring))
             mid_rx_push(conn, b);
     }
     else
@@ -394,10 +388,10 @@ static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
 static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
 {
     while (!conn->tx_pending && conn->tx_state != MID_TX_SYSEX &&
-           conn->tx_head != conn->tx_tail)
+           RING_LEN(&conn->tx_ring))
     {
-        uint8_t b = conn->tx_ring[conn->tx_tail];
-        conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+        uint8_t b = *RING_AT(&conn->tx_ring, 0);
+        RING_SKIP(&conn->tx_ring, 1);
         if (conn->tx_state == MID_TX_DELTA)
         {
             if (conn->tx_delta > (0x0FFFFFFF >> 7)) // saturate at the SMF max
@@ -597,15 +591,15 @@ static bool mid_tx_run_raw(mid_t *conn)
                 conn->tx_state = MID_TX_DELTA;
             }
         }
-        if (conn->tx_tail == conn->tx_head)
+        if (!RING_LEN(&conn->tx_ring))
             return wrote;
-        uint8_t b = conn->tx_ring[conn->tx_tail];
+        uint8_t b = *RING_AT(&conn->tx_ring, 0);
         if (b >= 0xF8)
         {
             if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &b, 1))
                 return wrote;
             wrote = true;
-            conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+            RING_SKIP(&conn->tx_ring, 1);
             continue;
         }
         if (conn->tx_state == MID_TX_SYSEX)
@@ -618,13 +612,13 @@ static bool mid_tx_run_raw(mid_t *conn)
                 conn->tx_acc_eox = true;
                 continue;
             }
-            conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+            RING_SKIP(&conn->tx_ring, 1);
             conn->tx_acc[conn->tx_acc_len++] = b;
             if (b == 0xF7)
                 conn->tx_acc_eox = true;
             continue;
         }
-        conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+        RING_SKIP(&conn->tx_ring, 1);
         if (conn->tx_msg_len && b >= 0x80)
             conn->tx_msg_len = 0;
         if (!conn->tx_msg_len)
@@ -685,18 +679,18 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
                         break;
                     }
                 }
-                if (conn->tx_head == conn->tx_tail)
+                if (!RING_LEN(&conn->tx_ring))
                 {
                     conn->tx_idle = true;
                     return wrote;
                 }
-                uint8_t b = conn->tx_ring[conn->tx_tail];
+                uint8_t b = *RING_AT(&conn->tx_ring, 0);
                 if (b >= 0xF8)
                 {
                     if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &b, 1))
                         return wrote;
                     wrote = true;
-                    conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+                    RING_SKIP(&conn->tx_ring, 1);
                     continue;
                 }
                 if (b >= 0x80 && b != 0xF7)
@@ -706,7 +700,7 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
                     conn->tx_sysex_break = true;
                     continue;
                 }
-                conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+                RING_SKIP(&conn->tx_ring, 1);
                 conn->tx_acc[conn->tx_acc_len++] = b;
                 if (b == 0xF7)
                     conn->tx_acc_eox = true;
@@ -854,14 +848,14 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tick_ns = raw ? 0
                         : (uint32_t)(((uint64_t)MID_DEFAULT_TEMPO * 1000 + ppqn / 2) / ppqn);
     conn->rx_epoch_ns = now_ns;
-    conn->rx_head = conn->rx_tail = 0;
+    RING_RESET(&conn->rx_ring);
     conn->rx_ticks = 0;
     conn->rx_status = 0;
     conn->rx_msg_len = 0;
     conn->rx_in_sysex = false;
     conn->rx_ring_sysex = false;
     conn->tx_epoch_ns = now_ns;
-    conn->tx_head = conn->tx_tail = 0;
+    RING_RESET(&conn->tx_ring);
     conn->tx_ticks = 0;
     conn->tx_delta = 0;
     conn->tx_state = MID_TX_DELTA;
@@ -894,9 +888,9 @@ static mid_t *mid_desc_conn(int desc)
     return conn;
 }
 
-static bool mid_tx_draining(const mid_t *conn)
+static bool mid_tx_draining(mid_t *conn)
 {
-    return conn->tx_head != conn->tx_tail || conn->tx_pending ||
+    return RING_LEN(&conn->tx_ring) || conn->tx_pending ||
            conn->tx_acc_eox || conn->tx_acc_len == 3;
 }
 
@@ -959,13 +953,7 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t count,
         *err = API_EINVAL;
         return STD_ERROR;
     }
-    uint32_t n = 0;
-    while (n < count && conn->rx_tail != conn->rx_head)
-    {
-        buf[n++] = conn->rx_ring[conn->rx_tail];
-        conn->rx_tail = (conn->rx_tail + 1) & (MID_RING_SIZE - 1);
-    }
-    *bytes_read = n;
+    *bytes_read = RING_OUT(&conn->rx_ring, buf, count);
     return STD_OK;
 }
 
@@ -983,13 +971,7 @@ std_rw_result mid_std_write(int desc, const char *buf, uint32_t count,
         *err = API_EINVAL;
         return STD_ERROR;
     }
-    uint32_t n = 0;
-    while (n < count && mid_ring_free(conn->tx_head, conn->tx_tail))
-    {
-        conn->tx_ring[conn->tx_head] = buf[n++];
-        conn->tx_head = (conn->tx_head + 1) & (MID_RING_SIZE - 1);
-    }
-    *bytes_written = n;
+    *bytes_written = RING_IN(&conn->tx_ring, buf, count);
     return STD_OK;
 }
 

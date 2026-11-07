@@ -32,6 +32,4 @@ void com_telnet_clear_rx(void);
 
 #define COM_TELNET_SOURCE {.read = com_telnet_read, .peek = com_telnet_peek, .clear = com_telnet_clear_rx, .dwell_us = COM_WIRE_DWELL_US}
 
-int com_ring_peek(const uint8_t *buf, size_t size, size_t head, size_t tail);
-
 #endif /* _RIA_SYS_COM_TELNET_H_ */

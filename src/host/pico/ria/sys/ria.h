@@ -33,6 +33,7 @@
 #define RIA_ACT_SM 0
 
 #include "core/sys/driver.h"
+#include "core/sys/ring.h"
 #include <hardware/sync.h>
 
 /* Every XRAM write the 6502 makes through RW0 or RW1 into a mapped engine's
@@ -41,15 +42,12 @@
  * and the value in bits 16-23. The bus allows a write
  * every four PHI2 cycles, at most 40 a sample at 8 MHz and 49716 Hz, so 64
  * entries hold a sample of writes with room for the interrupt to start late.
- * act_loop on core1 is the only producer: an entry is written, then head
- * publishes it, and a write that finds the ring full is dropped and counted
- * in lost. core0 is the only consumer and owns tail. */
+ * act_loop on core1 is the only producer, and a write that finds the ring
+ * full is dropped and counted in lost. core0 is the only consumer. */
 #define RIA_AUD_RING_SIZE 64
 typedef struct
 {
-    volatile uint32_t entry[RIA_AUD_RING_SIZE];
-    volatile uint8_t head;
-    volatile uint8_t tail;
+    RING(uint32_t, RIA_AUD_RING_SIZE) ring;
     volatile uint32_t lost;
     /* Where the PSG's 64 bytes and the OPL2's 256 start, or 0x10000, which
      * no address reaches, while parked. A store anywhere else, graphics
