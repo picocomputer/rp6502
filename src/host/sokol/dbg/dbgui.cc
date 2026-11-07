@@ -80,6 +80,7 @@ static ui_memmap_t g_memmap;
 static ui_ria_t g_ria;
 static ui_dasm_t g_dasm;
 static ui_audio_t g_audio;
+static float g_audio_samples[AUD_VIZ_SAMPLES];
 static bool g_inited;
 static bool g_control_open = false;  /* the native "Debug Control" window */
 static bool g_credits_open = false;  /* the native "Credits" about box */
@@ -907,7 +908,8 @@ void dbgui_init(float display_scale)
     /* Waveform of the produced audio (aud.c's mono viz tap). */
     ui_audio_desc_t ad{};
     ad.title = "Audio";
-    ad.sample_buffer = aud_viz_buffer(&ad.num_samples);
+    ad.sample_buffer = g_audio_samples;
+    ad.num_samples = AUD_VIZ_SAMPLES;
     ad.x = 620;
     ad.y = 480;
     ad.open = false;
@@ -1210,7 +1212,7 @@ void dbgui_draw(void)
     ui_memedit_draw(&g_memedit);
     ui_memmap_draw(&g_memmap);
     ui_dasm_draw(&g_dasm);
-    ui_audio_draw(&g_audio, aud_viz_pos());
+    ui_audio_draw(&g_audio, g_audio.open ? aud_viz_take(g_audio_samples) : 0);
 }
 
 void dbgui_render(void) { simgui_render(); }

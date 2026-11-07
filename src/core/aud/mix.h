@@ -125,9 +125,11 @@ void aud_set_streaming(bool on);
  * debugger, the level repeats. Both return 0 then. */
 int aud_render(float *dst, int samples);
 
-/* Rolling mono downmix of what was rendered, for waveform display. */
-const float *aud_viz_buffer(int *num_samples);
-int aud_viz_pos(void);
+/* Copies the rolling mono downmix of what was rendered, for waveform
+ * display, and returns the slot the next sample goes to. dst holds
+ * AUD_VIZ_SAMPLES. */
+#define AUD_VIZ_SAMPLES 4096
+int aud_viz_take(float *dst);
 
 /* The mix as it stands: which engines are sounding, the two resamplers whose
  * phase is continuous across runs, and the native samples made. It is saved

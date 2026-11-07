@@ -184,7 +184,6 @@ static int aud_carry_n;
 
 static float aud_last_l, aud_last_r;
 
-#define AUD_VIZ_SAMPLES 4096
 static float aud_viz[AUD_VIZ_SAMPLES];
 static int aud_viz_at;
 
@@ -782,13 +781,16 @@ int aud_render(float *dst, int samples)
     return made;
 }
 
-const float *aud_viz_buffer(int *num_samples)
+/* Under the lock, because the render writes it on the audio device's
+ * thread. */
+int aud_viz_take(float *dst)
 {
-    *num_samples = AUD_VIZ_SAMPLES;
-    return aud_viz;
+    aud_lock();
+    memcpy(dst, aud_viz, sizeof aud_viz);
+    const int at = aud_viz_at;
+    aud_unlock();
+    return at;
 }
-
-int aud_viz_pos(void) { return aud_viz_at; }
 
 static void aud_put_rsmp(sst_cursor_t *c, const rsmp_t *r)
 {
