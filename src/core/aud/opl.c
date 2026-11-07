@@ -989,7 +989,11 @@ uint16_t opl_xaddr_get(void) { return opl_xaddr; }
 
 void opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
 
-void opl_park(void) { opl_xaddr = 0xFFFF; }
+void opl_park(void)
+{
+    opl_xaddr = 0xFFFF;
+    RING_RESET(&opl_queue.ring);
+}
 
 void opl_map(uint16_t word)
 {

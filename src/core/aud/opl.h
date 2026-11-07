@@ -107,9 +107,9 @@ uint16_t opl_xaddr_get(void);
  * the lock. */
 void opl_xaddr_set(uint16_t word);
 
-/* Release the pointer, which takes the OPL2 out of the mix. The chip keeps
- * its state until the next map resets it. The mixer calls it with its
- * engines held still. */
+/* Release the pointer, which takes the OPL2 out of the mix, and drop the
+ * writes still queued. The chip keeps its state until the next map resets
+ * it. The mixer calls it with its engines held still. */
 void opl_park(void);
 
 /* The pointer, 18 slots of 12, 9 channels of 10, 33 of globals and counters,

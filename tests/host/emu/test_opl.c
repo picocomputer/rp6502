@@ -243,6 +243,17 @@ static const char *lle_dense(uint32_t seed, uint32_t samples, unsigned flags)
 /* The test-register preamble leaves the die in one state however long IC
  * was held, and so whatever its counters were. A random script applies each
  * write as it is pushed, so it is its own schedule. */
+/* A stopped program's writes go with it. */
+UTEST(opl, a_park_drops_the_writes_still_queued)
+{
+    opl_map(0x4000);
+    for (int k = 0; k < 10; k++)
+        opl_push(0x40, (uint8_t)k);
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 10u);
+    opl_park();
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 0u);
+}
+
 UTEST(opl, lle_preamble_hides_power_on)
 {
     opl_script_t s = {0};
