@@ -563,9 +563,9 @@ static void keymap_rebuild_code_page_cache(void)
     keymap_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
-    /* A database that keyboard_layout_gen.py built never gets here, because it
-     * refuses a layout whose dead keys do not fit. A machine staging a database
-     * it did not build loses the composing rather than the keyboard. */
+    /* A database that layout.py built never gets here, because it refuses a
+     * layout whose dead keys do not fit. A machine staging a database it did
+     * not build loses the composing rather than the keyboard. */
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
     keymap_deadkey_cache[0] = 0;

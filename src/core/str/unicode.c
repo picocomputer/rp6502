@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * OEM code page conversion, ours instead of FatFs's ffunicode.c. The tables
- * come out of src/core/gen/oem_table_gen.py, which lifts them from that same
+ * come out of src/core/str/unicode.py, which lifts them from that same
  * vendored file.
  *
  * Every table access goes through unicode_word, because five kilobytes is
@@ -29,7 +29,7 @@ typedef uint16_t WORD;
 typedef uint32_t DWORD;
 #endif
 
-/* The image's header, as oem_table_gen.py lays it out. */
+/* The image's header, as unicode.py lays it out. */
 #define UNICODE_MAGIC 0x4F43u
 #define UNICODE_PAGE_WORDS 128
 

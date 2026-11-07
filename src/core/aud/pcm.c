@@ -18,7 +18,7 @@
 static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 
 /* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
- * p reversed, which rsmp_coef_gen.py checks. */
+ * p reversed, which rsmp.py checks. */
 static const int32_t pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
 #include "rsmp_half.h"
 };

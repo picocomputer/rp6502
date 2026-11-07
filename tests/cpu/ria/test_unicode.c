@@ -10,7 +10,7 @@
  */
 
 #include "core/str/unicode.h"
-#include "oemcp.h"
+#include "unicode_oem.h"
 #include "utest.h"
 
 #include <stdint.h>
@@ -26,12 +26,12 @@ UTEST_MAIN();
 UTEST(unicode, the_image_is_the_one_the_generator_wrote)
 {
     ASSERT_TRUE(unicode_init());
-    ASSERT_EQ(unicode_word(1), OEMCP_PAGES);
+    ASSERT_EQ(unicode_word(1), UNICODE_OEM_PAGES);
 }
 
 UTEST(unicode, every_oem_byte_of_every_page_converts_the_same)
 {
-    for (unsigned p = 0; p < OEMCP_PAGES; p++)
+    for (unsigned p = 0; p < UNICODE_OEM_PAGES; p++)
     {
         uint16_t cp = page_at(p);
         for (unsigned b = 0; b <= 0xFF; b++)
@@ -41,7 +41,7 @@ UTEST(unicode, every_oem_byte_of_every_page_converts_the_same)
 
 UTEST(unicode, every_code_point_of_every_page_converts_back_the_same)
 {
-    for (unsigned p = 0; p < OEMCP_PAGES; p++)
+    for (unsigned p = 0; p < UNICODE_OEM_PAGES; p++)
     {
         uint16_t cp = page_at(p);
         for (uint32_t u = 0; u <= 0xFFFF; u++)

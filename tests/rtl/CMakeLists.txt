@@ -53,11 +53,11 @@ target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
 enable_testing()
 
 add_test(NAME w65c02_gen
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${W65C02_GEN} --report)
+    COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/wdc/cpu.py --report)
 set_tests_properties(w65c02_gen PROPERTIES LABELS "gate;rtl")
 add_test(NAME rbf_r
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/rbf_r_gen.py --check)
+        ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
 set_tests_properties(rbf_r PROPERTIES LABELS "gate;rtl")
 
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)

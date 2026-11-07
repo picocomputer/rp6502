@@ -40,7 +40,7 @@ def main():
     usage = defines(Path(a.usage).read_text(encoding="utf-8"))
     vendor = defines(Path(a.vendor).read_text(encoding="utf-8"))
     if not usage:
-        raise SystemExit("hid_usage_check: core/hid/usage.h defines nothing")
+        raise SystemExit("usage.py: core/hid/usage.h defines nothing")
 
     bad = []
     for name, value in sorted(usage.items()):
@@ -49,7 +49,7 @@ def main():
         elif vendor[name] != value:
             bad.append(f"{name} is {value:#04x} here, {vendor[name]:#04x} there")
     if bad:
-        raise SystemExit("hid_usage_check:\n  " + "\n  ".join(bad))
+        raise SystemExit("usage.py:\n  " + "\n  ".join(bad))
     print(f"hid usage: {len(usage)} constants match TinyUSB")
     return 0
 

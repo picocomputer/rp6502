@@ -1,4 +1,6 @@
-include(${RP6502_SRC}/core/assets.cmake)
+include(${RP6502_SRC}/core/gen.cmake)
+rp6502_gen_c()
+rp6502_gen_assets()
 include(${RP6502_SRC}/core/log.cmake)
 if(NOT RP6502_SW_TTY)
     set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/sw/tty.c)
@@ -82,7 +84,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -Werror=implicit-function-declaration
             -I ${CMAKE_CURRENT_LIST_DIR}
             -I ${RP6502_SRC}
-            -I ${RP6502_ASSETS}
+            -I ${RP6502_GEN}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             -DRP6502_EXFAT=0
             -DRP6502_LOCALE=EN
@@ -94,8 +96,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
-        DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${VID_FONT_ASSET_H} ${RSMP_HALF_H}
-            ${SW_SRC}/link.ld
+        DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
+            ${RP6502_GEN}/font_rom.h ${RP6502_GEN}/rsmp_half.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)
     add_custom_target(sw_bin DEPENDS ${SW_BIN})

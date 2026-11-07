@@ -1,87 +1,138 @@
 include_guard(GLOBAL)
 
-# Inside a function body CMAKE_CURRENT_LIST_DIR names the directory of the
-# calling file, so this file's directory is captured when it is included.
-set(RP6502_CORE_DIR ${CMAKE_CURRENT_LIST_DIR})
-
 # The interpreter is found rather than named python3 because on Windows it is
-# python.exe, and the libretro buildbot runs the OEM code page and resampler
-# generators on Windows.
+# python.exe, and the libretro buildbot runs the generators on Windows.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-cmake_path(SET RP6502_VENDOR_DIR NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../vendor)
 
-function(rp6502_gen_rsmp_coef target)
-    set(gen ${RP6502_CORE_DIR}/gen/rsmp_coef_gen.py)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/rsmp_coef.h)
-    set(half ${CMAKE_CURRENT_BINARY_DIR}/rsmp_half.h)
-    add_custom_command(OUTPUT ${out} ${half}
-        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out} --emit-half-h ${half}
-        DEPENDS ${gen}
-        COMMENT "Generating the resampler coefficients"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${out} ${half})
-    set(RSMP_COEF_H ${out} PARENT_SCOPE)
-    set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+# Every generator takes the command line in core/gen.py, so a new one only
+# needs adding here.
+set(RP6502_GENERATORS
+    aud/opl.py
+    aud/psg.py
+    aud/rsmp.py
+    hid/layout.py
+    str/unicode.py
+    term/color.py
+    term/font.py
+    wdc/cpu.py)
+list(TRANSFORM RP6502_GENERATORS PREPEND ${CMAKE_CURRENT_LIST_DIR}/)
+
+set(RP6502_GEN_PY ${CMAKE_CURRENT_LIST_DIR}/gen.py)
+get_filename_component(RP6502_GEN_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
+include(${RP6502_GEN_ROOT}/submodules.cmake)
+
+# The C files, made at build time.
+set(RP6502_GEN ${CMAKE_BINARY_DIR}/gen)
+# The SystemVerilog packages and the images the Pocket loads.
+set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
+
+# Sets ins to the files gen reads and outs to the names of the files of
+# kind it writes.
+function(rp6502_gen_list gen kind ins outs)
+    get_property(lines GLOBAL PROPERTY RP6502_GEN_LIST_${gen})
+    if(NOT lines)
+        execute_process(COMMAND ${Python3_EXECUTABLE} ${gen} --list
+            OUTPUT_VARIABLE lines RESULT_VARIABLE rc)
+        if(rc)
+            message(FATAL_ERROR "${gen} --list failed")
+        endif()
+        string(STRIP "${lines}" lines)
+        string(REGEX REPLACE "\r?\n" ";" lines "${lines}")
+        set_property(GLOBAL PROPERTY RP6502_GEN_LIST_${gen} "${lines}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            ${gen} ${RP6502_GEN_PY})
+    endif()
+    set(i)
+    set(o)
+    foreach(line IN LISTS lines)
+        if(line MATCHES "^in (.+)$")
+            list(APPEND i ${RP6502_GEN_ROOT}/${CMAKE_MATCH_1})
+        elseif(line MATCHES "^${kind} (.+)$")
+            list(APPEND o ${CMAKE_MATCH_1})
+        endif()
+    endforeach()
+    set(${ins} ${i} PARENT_SCOPE)
+    set(${outs} ${o} PARENT_SCOPE)
 endfunction()
 
-function(rp6502_gen_opl_rom target)
-    set(gen ${RP6502_CORE_DIR}/gen/opl_rom_gen.py)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/opl_rom.h)
-    add_custom_command(OUTPUT ${out}
-        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out}
-        DEPENDS ${gen}
-        COMMENT "Generating the OPL2 ROM tables"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${out})
-    set(OPL_ROM_H ${out} PARENT_SCOPE)
-    set(OPL_ROM_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+# Adds the target rp6502_gen_c, which writes the C files into RP6502_GEN.
+function(rp6502_gen_c)
+    if(TARGET rp6502_gen_c)
+        return()
+    endif()
+    file(MAKE_DIRECTORY ${RP6502_GEN})
+    set(all)
+    foreach(gen IN LISTS RP6502_GENERATORS)
+        rp6502_gen_list(${gen} c ins names)
+        if(NOT names)
+            continue()
+        endif()
+        set(outs ${names})
+        list(TRANSFORM outs PREPEND ${RP6502_GEN}/)
+        list(JOIN names " " text)
+        add_custom_command(OUTPUT ${outs}
+            COMMAND ${Python3_EXECUTABLE} ${gen} --c ${RP6502_GEN}
+            DEPENDS ${gen} ${RP6502_GEN_PY} ${ins}
+            COMMENT "Generating ${text}"
+            VERBATIM)
+        list(APPEND all ${outs})
+    endforeach()
+    add_custom_target(rp6502_gen_c DEPENDS ${all})
 endfunction()
 
-function(rp6502_gen_aud_sine target)
-    set(gen ${RP6502_CORE_DIR}/gen/aud_sine_gen.py)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/aud_sine.h)
-    set(pan ${CMAKE_CURRENT_BINARY_DIR}/aud_pan.h)
-    add_custom_command(OUTPUT ${out} ${pan}
-        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out} --emit-pan-h ${pan}
-        DEPENDS ${gen}
-        COMMENT "Generating the PSG sine and pan tables"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${out} ${pan})
-    set(AUD_SINE_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
-endfunction()
-
-function(rp6502_gen_oemcp target)
-    set(gen ${RP6502_CORE_DIR}/gen/oem_table_gen.py)
-    set(ff ${RP6502_VENDOR_DIR}/fatfs/ffunicode.c)
-    set(c ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
-    set(h ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
-    add_custom_command(OUTPUT ${c} ${h}
-        COMMAND ${Python3_EXECUTABLE} ${gen}
-            --ffunicode ${ff} --emit-c ${c} --emit-h ${h}
-        DEPENDS ${gen} ${ff}
-        COMMENT "Generating the OEM code page tables"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${c} ${h})
-    set(OEMCP_C ${c} PARENT_SCOPE)
-    set(OEMCP_H ${h} PARENT_SCOPE)
-    set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
-endfunction()
-
-set(KBDLAY_MANIFEST ${RP6502_CORE_DIR}/def/keyboard.def)
-file(GLOB KBDLAY_DEFS ${RP6502_CORE_DIR}/def/keyboard_*.def)
-
-function(rp6502_gen_kbdlay target)
-    set(gen ${RP6502_CORE_DIR}/gen/keyboard_layout_gen.py)
-    set(c ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
-    set(h ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
-    add_custom_command(OUTPUT ${c} ${h}
-        COMMAND ${Python3_EXECUTABLE} ${gen}
-            --manifest ${KBDLAY_MANIFEST} --emit-c ${c} --emit-h ${h}
-        DEPENDS ${gen} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
-        COMMENT "Generating the keyboard layouts"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${c} ${h})
-    set(KBDLAY_C ${c} PARENT_SCOPE)
-    set(KBDLAY_H ${h} PARENT_SCOPE)
-    set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+# Adds the target rp6502_gen_assets, which writes the SystemVerilog packages
+# and the images into RP6502_ASSETS.
+#
+# verilate() runs Verilator over its sources when CMake configures, so a
+# missing output is generated at configure time as well as by the build rule.
+# The generator runs at configure time only when an output is missing,
+# because each run gives its outputs new timestamps and the Pocket fit
+# depends on the generated packages, so the fit would run again after every
+# configure.
+function(rp6502_gen_assets)
+    if(TARGET rp6502_gen_assets)
+        return()
+    endif()
+    rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
+        WANTS "the w65c02 decode table generator")
+    file(MAKE_DIRECTORY ${RP6502_ASSETS})
+    set(all)
+    foreach(gen IN LISTS RP6502_GENERATORS)
+        set(args)
+        set(outs)
+        set(names)
+        foreach(kind IN ITEMS sv bin)
+            rp6502_gen_list(${gen} ${kind} ins kind_names)
+            if(kind_names)
+                list(APPEND args --${kind} ${RP6502_ASSETS})
+                list(APPEND names ${kind_names})
+            endif()
+        endforeach()
+        if(NOT names)
+            continue()
+        endif()
+        set(outs ${names})
+        list(TRANSFORM outs PREPEND ${RP6502_ASSETS}/)
+        set(absent FALSE)
+        foreach(out IN LISTS outs)
+            if(NOT EXISTS ${out})
+                set(absent TRUE)
+            endif()
+        endforeach()
+        if(absent)
+            execute_process(COMMAND ${Python3_EXECUTABLE} ${gen} ${args}
+                RESULT_VARIABLE rc)
+            if(rc)
+                message(FATAL_ERROR "${gen} failed")
+            endif()
+        endif()
+        list(JOIN names " " text)
+        add_custom_command(OUTPUT ${outs}
+            COMMAND ${Python3_EXECUTABLE} ${gen} ${args}
+            DEPENDS ${gen} ${RP6502_GEN_PY} ${ins}
+            COMMENT "Generating ${text}"
+            VERBATIM)
+        list(APPEND all ${outs})
+    endforeach()
+    add_custom_target(rp6502_gen_assets ALL DEPENDS ${all})
 endfunction()

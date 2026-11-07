@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * W65C02S, per-cycle bus-identical to the emulator's chips/w65c02.h. The
- * decode table in w65c02_rom_pkg comes from the same generator as the C, and
+ * decode table in cpu_rom_pkg comes from the same generator as the C, and
  * the conformance suites in tests/wdc hold both to the same vectors.
  *
  * One clock per CPU cycle when en is high. Outputs are registered and describe
@@ -17,7 +17,7 @@
  */
 
 module cpu
-    import w65c02_rom_pkg::*;
+    import cpu_rom_pkg::*;
 (
     input logic clk,
     input logic rst_n,
@@ -207,7 +207,7 @@ module cpu
     /* verilator lint_on UNUSEDSIGNAL */
 
     // Shifts and rotates share one result-and-carry form.
-    function automatic logic [8:0] shift(input w65c02_rom_pkg::w65c02_sel_t which,
+    function automatic logic [8:0] shift(input cpu_rom_pkg::w65c02_sel_t which,
                                          input logic [7:0] v,
                                          input logic cin);
         case (which)

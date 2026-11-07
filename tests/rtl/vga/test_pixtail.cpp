@@ -8,7 +8,7 @@
 #include "verilated.h"
 
 #include "utest.h"
-#include "vid_palette_tables.h"
+#include "color_tables.h"
 
 #include <cstdint>
 #include <cstring>
@@ -48,7 +48,7 @@ static uint16_t pal_entry(uint16_t ptr, bool pal_xram, int bpp_log,
                           uint8_t idx)
 {
     if (!pal_xram)
-        return bpp_log == 0 ? VID_COLOR_2[idx & 1] : VID_COLOR_256[idx];
+        return bpp_log == 0 ? COLOR_2[idx & 1] : COLOR_256[idx];
     size_t ha = (size_t)(ptr >> 1) + idx;
     return (uint16_t)(xram[ha * 2] | (xram[ha * 2 + 1] << 8));
 }
@@ -197,8 +197,8 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
             if (pal_xram)
                 return palram[idx];
             if (bpp_log == 0)
-                return VID_COLOR_2[idx & 1];
-            return VID_COLOR_256[idx];
+                return COLOR_2[idx & 1];
+            return COLOR_256[idx];
         };
         dut->pal_q = look(dut->pixtail_pal_idx);
         dut->pal_q1 = look(dut->pixtail_pal_idx1);

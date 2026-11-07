@@ -113,7 +113,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}
         ${RP6502_SRC}/core/rtl.cmake
-        ${RP6502_SRC}/core/assets.cmake
+        ${RP6502_SRC}/core/gen.cmake
         ${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
 
     # The files that rv_tcm_gen.py writes set only the initial contents of the
@@ -163,12 +163,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${SW_BIN} ${POCKET_DIR}/db ${TCM_WORDS}
         COMMAND ${QUARTUS_CDB} rp6502 --update_mif
         COMMAND ${QUARTUS_ASM} rp6502
-        COMMAND python3 ${RP6502_SRC}/core/gen/rbf_r_gen.py
+        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${POCKET_DIR}/signoff.stamp ${SW_BIN}
-            ${RP6502_SRC}/host/pocket/gen/rv_mif_gen.py ${RP6502_SRC}/core/gen/rbf_r_gen.py
+            ${RP6502_SRC}/host/pocket/gen/rv_mif_gen.py ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
         COMMENT "Putting the firmware into the Pocket bitstream"
         VERBATIM)
     add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
@@ -188,16 +188,17 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
-        COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
+        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/font_rom.bin
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
+        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/unicode_oem.bin
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${KBDLAY_BIN}
+        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/layout_db.bin
             ${PKG_DIR}/Assets/rp6502/common/keyboard.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
-        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN} ${KBDLAY_BIN}
+        DEPENDS ${POCKET_DIR}/core.bin ${RP6502_ASSETS}/font_rom.bin
+            ${RP6502_ASSETS}/unicode_oem.bin ${RP6502_ASSETS}/layout_db.bin
             ${PKG_DIST_FILES}
             ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake ${RP6502_STAMP_SCRIPT}
         COMMENT "Assembling the Pocket core package"

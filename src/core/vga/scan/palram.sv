@@ -16,7 +16,7 @@
  */
 
 module palram
-    import vid_palette_pkg::*;
+    import color_pkg::*;
 (
     input logic clk,
 
@@ -27,7 +27,7 @@ module palram
 
     /* The read answers with a finished color: the loaded entry, or the
      * built-in color the mode would otherwise have indexed itself.
-     * VID_COLOR_256 is a 256-entry constant, so resolving it here builds
+     * COLOR_256 is a 256-entry constant, so resolving it here builds
      * it twice, once a port, instead of once per reader. */
     input logic xram,
     input logic one_bpp,
@@ -78,11 +78,11 @@ module palram
             palram_qb = idx_b[0] ^ half ? pal_b_hi[idx_b[7:1]]
                                         : pal_b_lo[idx_b[7:1]];
         end else if (one_bpp) begin
-            palram_qa = VID_COLOR_2[idx_a[0]];
-            palram_qb = VID_COLOR_2[idx_b[0]];
+            palram_qa = COLOR_2[idx_a[0]];
+            palram_qb = COLOR_2[idx_b[0]];
         end else begin
-            palram_qa = VID_COLOR_256[idx_a];
-            palram_qb = VID_COLOR_256[idx_b];
+            palram_qa = COLOR_256[idx_a];
+            palram_qb = COLOR_256[idx_b];
         end
     end
 

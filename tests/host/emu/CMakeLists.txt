@@ -119,8 +119,8 @@ if(RP6502_HAVE_LLE)
     rp6502_add_test(opl SPLIT TIMEOUT 120
         SOURCES test_opl.c opl_traced.c opl_lle.c opl_model.c
             opl_script.c ${_lle}/fmopl2.c
-        INCLUDES ${_lle} ${OPL_ROM_DIR})
-    add_dependencies(test_opl opl_rom)
+        INCLUDES ${_lle} ${RP6502_GEN})
+    add_dependencies(test_opl rp6502_gen_c)
     if(NOT WIN32)
         target_link_libraries(test_opl PRIVATE m)
     endif()

@@ -31,7 +31,7 @@
  */
 
 module psg
-    import aud_sine_pkg::*;
+    import psg_pkg::*;
 #(
     /* The arithmetic's rate. Separate from the tick, which only says how
      * often a sample happens: the lockstep shortens that, not this. */
@@ -401,13 +401,13 @@ module psg
         for (int i = 0; i < 512; i++)
             aud_rom[i] = '0;
         for (int i = 0; i < 256; i++)
-            aud_rom[i] = ROM_W'(AUD_SINE[i]);
+            aud_rom[i] = ROM_W'(PSG_SINE[i]);
         for (int i = 0; i < 16; i++) begin
             aud_rom[ROM_ATK+i] = ROM_W'(ATTACK_TABLE[i]);
             aud_rom[ROM_DR+i] = ROM_W'(DR_TABLE[i]);
         end
         for (int i = 0; i < 127; i++)
-            aud_rom[ROM_PAN+i] = ROM_W'(AUD_PAN[i]);
+            aud_rom[ROM_PAN+i] = ROM_W'(PSG_PAN[i]);
     end
     logic [8:0] pan_l_a, pan_r_a;
     always_comb begin
