@@ -188,7 +188,7 @@ static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bo
   }
 
   // START_TRANS bit on SIE_CTRL has the same behavior as the AVAILABLE bit
-  // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".!
+  // described in RP2350 Datasheet, section "12.7.3.7.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
   usb_hw->sie_ctrl = sie_ctrl;
   busy_wait_at_least_cycles(12);
@@ -401,7 +401,7 @@ static void __tusb_irq_path_func(sof_service)(void) {
 }
 
 // the SDK registers this as the ISR, so it records its own span; under tuh_int_handler() the depth counter keeps one
-static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
+static void __tusb_irq_path_func(hcd_rp2350_irq)(void) {
   if (TUH_SYSVIEW_ISR_TRACED) { TU_SYSVIEW_ISR_ENTER(); }
   const uint32_t status = usb_hw->ints;
 
@@ -509,7 +509,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
 void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
   (void)rhport;
   (void)in_isr;
-  hcd_rp2040_irq();
+  hcd_rp2350_irq();
 }
 
 //--------------------------------------------------------------------+
@@ -528,8 +528,8 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t *rh_init) {
   usb_hw->pwr = USB_USB_PWR_VBUS_DETECT_BITS | USB_USB_PWR_VBUS_DETECT_OVERRIDE_EN_BITS;
 
   // Remove shared irq if it was previously added so as not to fill up shared irq slots
-  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
-  irq_add_shared_handler(USBCTRL_IRQ, hcd_rp2040_irq, PICO_SHARED_IRQ_HANDLER_HIGHEST_ORDER_PRIORITY);
+  irq_remove_handler(USBCTRL_IRQ, hcd_rp2350_irq);
+  irq_add_shared_handler(USBCTRL_IRQ, hcd_rp2350_irq, PICO_SHARED_IRQ_HANDLER_HIGHEST_ORDER_PRIORITY);
 
   // clear epx eps
   memset(&ep_pool, 0, sizeof(ep_pool));
@@ -548,7 +548,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t *rh_init) {
 
 bool hcd_deinit(uint8_t rhport) {
   (void)rhport;
-  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
+  irq_remove_handler(USBCTRL_IRQ, hcd_rp2350_irq);
   reset_block(RESETS_RESET_USBCTRL_BITS);
   unreset_block_wait(RESETS_RESET_USBCTRL_BITS);
 

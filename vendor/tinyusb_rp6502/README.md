@@ -8,17 +8,18 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 
 - `src/host/pico/ria.cmake` marks the six upstream sources `HEADER_FILE_ONLY`, so they are not compiled. It then adds these copies to the RIA target (`rp6502-ria` or `rp6502-ria-w`) with `target_sources`.
 - CMake source file properties apply per directory. The VGA builds in `src/host/pico/vga`, so it compiles upstream TinyUSB unmodified, including upstream `rp2040_usb.c` for its device stack.
+- hcd_rp2350.c and rp2350_usb.c are copies of upstream's hcd_rp2040.c and rp2040_usb.c. They hold RP2350 host code only, and their names say so, as does the HCD's IRQ handler `hcd_rp2350_irq()`.
 - The top-level `CMakeLists.txt` sets `PICO_TINYUSB_PATH` to `vendor/tinyusb`, so the SDK uses the submodule instead of its bundled TinyUSB.
 - No headers are copied. The copies include upstream headers by their path under TinyUSB's `src/`, for example `host/usbh_pvt.h` and `portable/raspberrypi/rp2040/rp2040_usb.h`. A new function shared between files is declared in the file that calls it:
-  - `hcd_free_ep_count()` (hcd_rp2040.c) is declared in `src/host/pico/ria/usb/usb.c` and feeds the "ep free" status line.
+  - `hcd_free_ep_count()` (hcd_rp2350.c) is declared in `src/host/pico/ria/usb/usb.c` and feeds the "ep free" status line.
   - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c and cdc_host.c.
   - `tuh_midi_frame()` (midi_host.c) is declared in `src/host/pico/ria/usb/mid.c`.
 - Every copy adds a `Copyright (c) 2026 Rumbledethumps` line. midi_host.c carries the full MIT text and the others use SPDX lines. No copy is reformatted, so `diff -u` against upstream shows only real changes.
 
 | Copy | Upstream, under `vendor/tinyusb/src/` | Summary |
 |---|---|---|
-| hcd_rp2040.c | portable/raspberrypi/rp2040/hcd_rp2040.c | Host controller driver. Every transfer runs on EPX, scheduled in software. About half the file is rewritten. |
-| rp2040_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | 12-cycle wait in host mode. Host control and interrupt transfers are single-buffered. |
+| hcd_rp2350.c | portable/raspberrypi/rp2040/hcd_rp2040.c | Host controller driver. Every transfer runs on EPX, scheduled in software. About half the file is rewritten. |
+| rp2350_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | RP2350 host code only. 12-cycle wait in host mode. Host control and interrupt transfers are single-buffered. A short packet ends a double-buffered IN without a `STOP_TRANS`. |
 | usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Clears halted endpoints and re-enumerates a device that stops answering. |
 | hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
 | cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
@@ -26,7 +27,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 
 **Strand:** an enumeration failure that returns without ending the enumeration. usbh keeps `enumerating_daddr` set, so every later attach waits. A strand lasts until usbh sees the device, or its hub, unplugged. usbh re-arms a hub's status endpoint only at `ENUM_CONFIG_DRIVER`. So if the device sits behind a hub and fails before that step, the device's own unplug goes unseen, and only unplugging the hub ends the strand.
 
-## hcd_rp2040.c
+## hcd_rp2350.c
 
 The RP2350 host controller has one endpoint driven by software (EPX) and 15 hardware interrupt-endpoint slots that poll on their own. Upstream runs control and bulk transfers on EPX and interrupt endpoints on the slots. This copy runs everything on EPX.
 
@@ -87,7 +88,7 @@ In every case, `epx_save_context()` undoes the toggles of buffers that were not 
 
 ### Hold until SOF after a STOP
 
-- Every `STOP_TRANS` the HCD writes goes through `epx_stop()`. It stops the SIE, records the transfer in `epx_stopped`, and calls `epx_hold_until_sof()`. The one other `STOP_TRANS` is the host short-packet branch of `rp2usb_xfer_continue()` in rp2040_usb.c, which a double-buffered bulk IN still takes, with no hold (see rp2040_usb.c).
+- Every `STOP_TRANS` the driver writes goes through `epx_stop()`. It stops the SIE, records the transfer in `epx_stopped`, and calls `epx_hold_until_sof()`.
 - `epx_hold_until_sof()` sets `epx_hold`, reads `SOF_RD` to acknowledge any SOF already raised, and enables HOST_SOF. While the hold lasts, nothing starts on EPX and new transfers only queue.
 - The next SOF ends the hold in `sof_service()` and settles the stopped transfer in two steps:
   - `epx_undo_unsent()` gives back the PID toggles of buffers that never completed on the wire.
@@ -141,7 +142,7 @@ Why: a STOP does not end a transaction already on the wire. One more RX_TIMEOUT 
 - `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. usbh calls it after a successful CLEAR_FEATURE(ENDPOINT_HALT), and the RIA's MSC driver during its stall recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
 - `hcd_edpt_abort_xfer()` sends every endpoint type through `epx_retire()` and returns true. Upstream's slot abort could return false.
 - `hcd_device_close()` retires `ep_pool[0]` only if it points at the closing address, and never frees it. The other entries are freed through `edpt_release()`.
-- `hcd_init()` sets `ep_pool[0].dpram_buf` and leaves its type as CONTROL, which keeps EP0 single-buffered (see rp2040_usb.c).
+- `hcd_init()` sets `ep_pool[0].dpram_buf` and leaves its type as CONTROL, which keeps EP0 single-buffered (see rp2350_usb.c).
 
 ### Measured hardware behaviour
 
@@ -156,6 +157,7 @@ Measured on 2026-11-07 on an RP2350 with a full-speed hub, a low-speed keyboard 
 - **EPX, IN with the wrong DATA PID:** only DATA_SEQ latches. The controller ACKs and drops the packet and raises no BUFF_STATUS. The buffer stays armed, and the next packet arrives normally. This contradicts datasheet 12.7.3.9.2.
 - **With every transfer on EPX:** a toggle error on the keyboard or the FTDI gives one DATA_SEQ, and the device resyncs. A halted keyboard endpoint gives one STALLED.
 - **EPX RX timeout:** the controller retries every ~4.5 us until `STOP_TRANS`. One more RX_TIMEOUT lands ~4 us after the STOP.
+- **EPX, short packet on a double-buffered IN:** the controller ends the transfer itself, as datasheet 12.7.5 says for `SIE_STATUS.RX_SHORT_PACKET` ("Host: the current transfer will be stopped early"). With the FTDI's reads made two packets long, 3489 short packets ended a double-buffered IN. In the 30 us after each, neither NAK_REC nor ACK_REC latched and the other buffer never went FULL, so no further IN token was sent.
 - **Control STALL:** STALL_REC latches, and the EPX buffer reads FULL with LEN 0.
 - **`USB_PWR.VBUS_DETECT`:** dropping it, for 1000 us or even 0 us, re-runs the controller's 100 ms debounce and 50 ms bus reset. DISC follows, then CONN about 150 ms later, and everything on the port re-enumerates.
 - **`SIE_STATUS.SPEED`:** reads the same before and after it is acknowledged.
@@ -166,20 +168,37 @@ Measured on 2026-11-07 on an RP2350 with a full-speed hub, a low-speed keyboard 
 
 - **RP2040 support:** `HAS_STOP_EPX_ON_NAK`, `epx_switch_request`, `epx_sof_round_robin()` and the NAK_POLL 300/300 delays.
 - **Interrupt slots:** `dpram_int_ep_ctrl()`, `dpram_int_ep_buffer_ctrl()`, `int_edpt_status_bit()`, `int_edpt_is_aborting()`, `int_edpt_reclaim()`, `int_edpt_abort()`, `ABORT_FRAME_MASK`, the ABORTING / ABORTING_PENDING abort protocol, slot setup and teardown, and the slot BUFF_STATUS loop.
-- **`interrupt_num` and `abort_frame`:** these `hw_endpoint_t` fields stay 0. rp2040_usb.c tests `transfer_type` instead, so host interrupt transfers stay single-buffered.
+- **`interrupt_num` and `abort_frame`:** these `hw_endpoint_t` fields stay 0. rp2350_usb.c tests `transfer_type` instead, so host interrupt transfers stay single-buffered.
 - **Other code:**
   - `epx_ctrl_prepare()`, now inlined into `epx_switch_ep()`.
   - `rp2usb_xfer_start()` in `hcd_edpt_xfer()`.
   - The asserts on a free slot and on bInterval > 0.
   - The `pico_trace` in `handle_buf_status_isr()`. It used `buf_status` before its declaration and would not compile at `CFG_TUSB_DEBUG` 3.
 
-## rp2040_usb.c
+## rp2350_usb.c
+
+The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0), so this copy keeps only the host code for the RP2350. The VGA's device stack builds upstream's rp2040_usb.c.
 
 - `bufctrl_write32()` and `bufctrl_write16()` wait 12 cycles before setting AVAILABLE in host mode too, as datasheet 12.7.3.7.1 requires. Upstream skipped the wait in host mode because the host starts every transaction. However, the controller moves to the second buffer of a double-buffered EPX transfer on its own, and `rp2usb_xfer_continue()` re-arms one half while the controller works on the other.
-- `rp2usb_buffer_start()` double-buffers host bulk transfers only.
+- `rp2usb_buffer_start()` double-buffers bulk transfers only.
   - Control: upstream report #3875 says double-buffered control IN truncates. It has not been reproduced here, but single-buffering EP0 is cheap hardening. The HCD keeps `ep_pool[0]` at type CONTROL for this.
-  - Interrupt: upstream single-buffered host interrupt endpoints by testing `interrupt_num`, which the HCD never sets, so this copy tests `transfer_type`. A double-buffered IN that ends on a short packet takes the host branch of `rp2usb_xfer_continue()` that writes `STOP_TRANS` itself. That STOP bypasses `epx_stop()`, so the next transfer starts at once instead of after the SOF (see "Hold until SOF after a STOP"). xin reads 64 bytes from a wired Xbox 360 pad's 32-byte endpoint, so every report from that pad would take this branch. Single-buffered, a short packet ends the transfer through the normal path. This half has nothing to do with #3875 and stays when upstream fixes that report.
-  - Bulk: a bulk IN longer than one packet still double-buffers, so one that ends on a short packet still takes that branch, with no hold until the SOF.
+  - Interrupt: upstream single-buffered host interrupt endpoints by testing `interrupt_num`, which the HCD never sets, so this copy tests `transfer_type`. This half has nothing to do with #3875 and stays when upstream fixes that report.
+  - Isochronous: upstream single-buffered them by testing the buffer type in `EP_CTRL`. The `transfer_type` test covers them.
+- **Short packet on a double-buffered IN** (`rp2usb_xfer_continue()`): the controller has already ended the transfer (see "Measured hardware behaviour" under hcd_rp2350.c). The branch writes no `STOP_TRANS`. It gives back the PID of the other buffer, which the controller never used, and resets the buffer control. Nothing is on the wire after the short packet, so the next transfer starts at once, with no hold until the SOF.
+  - Upstream wrote `STOP_TRANS` and waited for it to clear, outside the HCD's `epx_stop()`. It gave the PID back only when the other buffer was not FULL, which it never is here.
+
+### Dropped from upstream
+
+- **RP2040 errata**, all compiled out on the RP2350 already:
+  - E2: `rp2040_chipversion` and its tests around EP_ABORT.
+  - E4: reading a single-buffered host completion from buffer 0 when it reports buffer 1.
+  - E15: `e15_is_critical_frame_period()`, `e15_last_sof` and the pending state of a device bulk IN.
+- **Device code:**
+  - `rp2usb_xfer_start()`. Only upstream's HCD and the device driver call it. This HCD starts transfers with `rp2usb_buffer_start()`.
+  - The `EPSTATE_IDLE` test in `rp2usb_xfer_continue()`. Upstream's HCD and the device driver can call it on an idle endpoint, after a short packet on a double-buffered IN. This HCD's `handle_buf_status_isr()` calls it only on an ACTIVE transfer.
+  - `tu_hwfifo_write()`, `tu_hwfifo_read()` and the FIFO transfer paths (`is_xfer_fifo`, `user_fifo`).
+  - The device half of the short-packet branch: EP_ABORT and the `future_len` save.
+  - The `ep_reg` NULL tests for device EP0, the `rp2usb_is_host_mode()` tests and the `device/dcd.h` include.
 
 ## usbh.c
 
@@ -214,7 +233,7 @@ A failure is retried in place. Once the attempts are used up, the enumeration en
 Consequences:
 
 - A device that failed all its attempts behind a hub stays disabled until it is replugged or its hub is reset. ClearPortFeature(PORT_ENABLE) raises no port change.
-- On the root port, each retry goes through `hcd_port_reset()`, see "Root port reset" under hcd_rp2040.c. A re-reset brings a fresh attach, which starts its own attempts.
+- On the root port, each retry goes through `hcd_port_reset()`, see "Root port reset" under hcd_rp2350.c. A re-reset brings a fresh attach, which starts its own attempts.
 
 ### Configured devices
 
@@ -229,7 +248,7 @@ Consequences:
   - Examples: a device that lost its address (ESD reset, a stray SET_ADDRESS) or sits on a suspended hub port.
   - It acts only while no enumeration runs. Otherwise the run stays open, and the next failure tries again. The attach is handled at once instead of being queued, so it never goes through the deferred-attach queue, which has one entry per hub. Queued, a burst of re-attaches behind a failing hub could overflow it, and the handler would drop an attach after tearing its device down.
   - Hubs count too. usbh never marks a hub mounted, but it is configured. A hub's re-attach removes its whole tree and enumerates it again.
-  - On the root port, the reset is a re-reset through VBUS_DETECT, which counts against the 3 per plug-in in "Root port reset" under hcd_rp2040.c. Past those, the re-attach enumerates without a bus reset. A device that lost its address to a reset of its own is at address 0 and still enumerates.
+  - On the root port, the reset is a re-reset through VBUS_DETECT, which counts against the 3 per plug-in in "Root port reset" under hcd_rp2350.c. Past those, the re-attach enumerates without a bus reset. A device that lost its address to a reset of its own is at address 0 and still enumerates.
   - `fail_ms` (the run's start, 0 for no run) and `fail_last_ms` (its latest failure) are 16-bit stamps inside the packed device state, so they cost 4 bytes per device.
 - **`usbh_device_close()`:** clears `connected` before it fails the device's in-flight control transfer. A callback of that transfer can then no longer queue a request to the departing device, because `tuh_control_xfer()` rejects it. Upstream let a departing hub's callback claim the control slot for the 5 s watchdog. Both callers clear the device right after.
 
@@ -326,26 +345,28 @@ Hardware reports describe the silicon. Keep these changes whatever TinyUSB does.
 
 | Reference | Change here |
 |---|---|
-| raspberrypi/pico-feedback #394 | Slots go deaf, so every transfer runs on EPX (hcd_rp2040.c) |
-| raspberrypi/pico-feedback #387 | Root re-reset through VBUS_DETECT (hcd_rp2040.c) |
+| raspberrypi/pico-feedback #394 | Slots go deaf, so every transfer runs on EPX (hcd_rp2350.c) |
+| raspberrypi/pico-feedback #387 | Root re-reset through VBUS_DETECT (hcd_rp2350.c) |
 
 TinyUSB issues: when upstream fixes one, drop the matching change.
 
 | Reference | Change here |
 |---|---|
-| #3875 | Single-buffered host EP0 (rp2040_usb.c). Interrupt transfers stay single-buffered. |
+| #3875 | Single-buffered host EP0 (rp2350_usb.c). Interrupt transfers stay single-buffered. |
 | #4064 | Hub set-config strands (hub.c, usbh.c) |
 | #4199 | Hub status bitmap length (hub.c) |
 | #4200, PR #4447 | `hub_open()` address guard (hub.c) |
 
 ## Re-syncing with upstream
 
+`<file>` is a copy's name and `<upstream path>` its upstream file, from the table at the top. hcd_rp2350.c and rp2350_usb.c are named differently from their upstream files.
+
 1. Before moving the submodule, save each copy's patch against the current base:
    `diff -u vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file> > <file>.patch`
 2. Move `vendor/tinyusb` to the new commit. Read upstream's changes to the six files and to the headers they use:
    `git -C vendor/tinyusb diff <old>..<new> -- <paths>`
-3. For usbh.c, hub.c, cdc_host.c, rp2040_usb.c and midi_host.c, run `cp vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file>`, then `patch vendor/tinyusb_rp6502/<file> < <file>.patch`. Resolve any `.rej` by hand. Drop any change that upstream has fixed (see "Upstream references").
-4. For hcd_rp2040.c, about half the file is rewritten. Keep this copy and port the relevant upstream changes into it by hand. These parts are still shared with upstream:
+3. For usbh.c, hub.c, cdc_host.c, midi_host.c and rp2350_usb.c, run `cp vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file>`, then `patch vendor/tinyusb_rp6502/<file> < <file>.patch`. Resolve any `.rej` by hand. Drop any change that upstream has fixed (see "Upstream references"). A reject in rp2350_usb.c that touches device or RP2040 errata code is resolved by deleting that code.
+4. For hcd_rp2350.c, about half the file is rewritten. Keep this copy and port the relevant upstream changes to hcd_rp2040.c into it by hand. These parts are still shared with upstream:
    - `edpt_alloc()`, `dev_speed()` and `need_pre()`
    - `sie_stop_xfer()` and `epx_drop_buffers()`
    - `hcd_deinit()`, `hcd_port_speed_get()` and `hcd_frame_number()`
@@ -353,7 +374,7 @@ TinyUSB issues: when upstream fixes one, drop the matching change.
 5. Check what the copies use but do not copy:
    - `rp2040_usb.h`: the `hw_endpoint_t` fields and the `EPSTATE_*` values (`EPSTATE_WAITING` reuses `EPSTATE_ABORTING`).
    - `hcd.h` and `usbh_pvt.h`: the HCD and class driver API.
-   - The source list of the `tinyusb_host` library. A renamed or split source must be updated in both lists in `ria.cmake`.
+   - The source list of the `tinyusb_host` library. The `HEADER_FILE_ONLY` list in `ria.cmake` names upstream's files and must follow a rename or split upstream. `target_sources` names the copies.
 6. Update the base commit at the top of this file.
 7. Build the RIA, the RIA-W and the VGA. Also build the Debug RIA-W, which runs out of memory first.
 8. Flash the RIA. Check that a hub with a low-speed keyboard, both CDC adapters and a USB stick come up across a few telnet reboots.
