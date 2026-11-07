@@ -24,6 +24,7 @@ static_assert(sizeof(mid_string) == 4 + 1);
 #define MID_RING_SIZE 128
 #define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
 #define MID_MAX_PPQN 32767       // SMF division with bit 15 clear
+#define MID_CLOSE_STALL_MS 1000  // close gives up after this long with a full TX FIFO
 
 enum
 {
@@ -77,6 +78,7 @@ typedef struct
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
     bool tx_meta;
+    uint32_t tx_full_ms;
     RING(uint8_t, MID_RING_SIZE) tx_ring;
 } mid_t;
 static mid_t mid_mounts[CFG_TUH_MIDI];
@@ -500,13 +502,20 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
 }
 
 // The endpoint FIFO only ever holds whole packets, so a write stores 4 bytes
-// or none.
+// or none. tx_full_ms is when writes started failing, 0 while they succeed.
 static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
 {
     uint8_t pkt[4] = {(uint8_t)((conn->cable << 4) | cin), 0, 0, 0};
     for (uint8_t i = 0; i < len; i++)
         pkt[1 + i] = data[i];
-    return tuh_midi_packet_write_n(conn->itf, pkt, 4) == 4;
+    if (tuh_midi_packet_write_n(conn->itf, pkt, 4) == 4)
+    {
+        conn->tx_full_ms = 0;
+        return true;
+    }
+    if (!conn->tx_full_ms)
+        conn->tx_full_ms = to_ms_since_boot(get_absolute_time());
+    return false;
 }
 
 static void mid_tx_apply_meta(mid_t *conn)
@@ -868,6 +877,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_acc_len = 0;
     conn->tx_acc_eox = false;
     conn->tx_sysex_break = false;
+    conn->tx_full_ms = 0;
     conn->opened = true;
     if (raw)
         RP6502_LOG(midi, INFO, "%d open raw", idx);
@@ -921,7 +931,9 @@ std_rw_result mid_std_close(int desc, api_errno *err)
     mid_t *conn = mid_desc_conn(desc);
     if (!conn)
         return STD_OK;
-    if (mid_tx_draining(conn))
+    if (mid_tx_draining(conn) &&
+        (!conn->tx_full_ms ||
+         to_ms_since_boot(get_absolute_time()) - conn->tx_full_ms < MID_CLOSE_STALL_MS))
         return STD_PENDING;
     RP6502_LOG(midi, INFO, "%d close", desc & 0xF);
     mid_close_finalize(conn);

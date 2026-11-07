@@ -166,7 +166,7 @@ bool hub_port_get_status(uint8_t hub_addr, uint8_t hub_port, void* resp,
     .daddr       = hub_addr,
     .ep_addr     = 0,
     .setup       = &request,
-    .buffer      = (hub_port != 0) ? get_hub_epbuf(hub_addr)->ctrl_buf : resp,
+    .buffer      = (resp != NULL) ? resp : get_hub_epbuf(hub_addr)->ctrl_buf,
     .complete_cb = complete_cb,
     .user_data   = user_data
   };
@@ -361,12 +361,26 @@ static void config_port_power_complete (tuh_xfer_t* xfer) {
 enum {
   STATE_IDLE = 0,
   STATE_HUB_STATUS,
+  STATE_HUB_POWER,
   STATE_CLEAR_CHANGE,
   STATE_CHECK_CONN,
+  STATE_PORT_POWER,
   STATE_COMPLETE
 };
 
 static void process_new_status(tuh_xfer_t* xfer);
+
+// a configured device sits on the hub port
+static bool hub_port_has_device(uint8_t hub_addr, uint8_t hub_port) {
+  for (uint8_t daddr = 1; daddr <= CFG_TUH_DEVICE_MAX + CFG_TUH_HUB; daddr++) {
+    tuh_bus_info_t bus_info;
+    if (tuh_mounted(daddr) && tuh_bus_info_get(daddr, &bus_info) &&
+        bus_info.hub_addr == hub_addr && bus_info.hub_port == hub_port) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // callback as response of interrupt endpoint polling
 bool hub_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
@@ -403,7 +417,7 @@ bool hub_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t 
   } else if (result == XFER_RESULT_FAILED || result == XFER_RESULT_STALLED || result == XFER_RESULT_TIMEOUT) {
     // A poll that keeps failing never reports a change (e.g. a downstream unplug). Fall back to reading
     // one status per round over EP0, ports 1..bNbrPorts then the hub, so a latched change still goes the
-    // normal path. This does not repair the status endpoint itself.
+    // normal path.
     if (p_hub->bNbrPorts && ++p_hub->poll_failed_count >= HUB_POLL_FAIL_THRESHOLD) {
       p_hub->poll_failed_count = 0;
       const uint8_t port = (p_hub->recover_port < p_hub->bNbrPorts) ? (uint8_t) (p_hub->recover_port + 1) : 0;
@@ -433,7 +447,8 @@ static void process_new_status(tuh_xfer_t* xfer) {
   // usbh fails a removed hub's requests after hub_close(): nothing to re-arm
   TU_VERIFY(get_hub_itf(daddr)->ep_in != 0,);
 
-  if (xfer->result != XFER_RESULT_SUCCESS) {
+  // a failed step of the power walk goes on to the next port
+  if (xfer->result != XFER_RESULT_SUCCESS && xfer->user_data != STATE_HUB_POWER) {
     TU_ASSERT(hub_edpt_status_xfer(daddr),);
     return;
   }
@@ -453,11 +468,19 @@ static void process_new_status(tuh_xfer_t* xfer) {
                                       process_new_status, STATE_COMPLETE);
       } else if (hub_status.change.over_current) {
         TU_LOG_DRV("  Over Current\r\n");
-        processed = hub_clear_feature(daddr, HUB_FEATURE_HUB_OVER_CURRENT_CHANGE,
-                                      process_new_status, STATE_COMPLETE);
+        processed = hub_clear_feature(daddr, HUB_FEATURE_HUB_OVER_CURRENT_CHANGE, process_new_status,
+                                      hub_status.status.over_current ? STATE_COMPLETE : STATE_HUB_POWER);
       }
       break;
     }
+
+    case STATE_HUB_POWER:
+      // a hub over-current that has ended leaves every port off: power the one after wIndex
+      if (port_num < get_hub_itf(daddr)->bNbrPorts) {
+        processed = hub_port_set_feature(daddr, (uint8_t) (port_num + 1), HUB_FEATURE_PORT_POWER,
+                                         process_new_status, STATE_HUB_POWER);
+      }
+      break;
 
     case STATE_CLEAR_CHANGE:
       // Get port status complete --> clear change
@@ -470,14 +493,17 @@ static void process_new_status(tuh_xfer_t* xfer) {
         processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_CONNECTION_CHANGE,
                                            process_new_status, STATE_CHECK_CONN);
       } else if (port_status->change.port_enable) {
-        processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_ENABLE_CHANGE,
-                                           process_new_status, STATE_COMPLETE);
+        // a hub that disabled the port of a configured device: attach again, which re-enumerates it
+        processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_ENABLE_CHANGE, process_new_status,
+                                           (port_status->status.connection && !port_status->status.port_enable &&
+                                            hub_port_has_device(daddr, port_num))
+                                               ? STATE_CHECK_CONN : STATE_COMPLETE);
       } else if (port_status->change.suspend) {
         processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_SUSPEND_CHANGE,
                                            process_new_status, STATE_COMPLETE);
       } else if (port_status->change.over_current) {
         processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_OVER_CURRENT_CHANGE,
-                                           process_new_status, STATE_COMPLETE);
+                                           process_new_status, STATE_PORT_POWER);
       } else if (port_status->change.reset) {
         processed = hub_port_clear_feature(daddr, port_num, HUB_FEATURE_PORT_RESET_CHANGE,
                                            process_new_status, STATE_COMPLETE);
@@ -498,6 +524,13 @@ static void process_new_status(tuh_xfer_t* xfer) {
       processed = (event.event_id == HCD_EVENT_DEVICE_ATTACH);
       break;
     }
+
+    case STATE_PORT_POWER:
+      // a port over-current that has ended leaves the port off
+      if (!port_status->status.over_current && !port_status->status.port_power) {
+        processed = hub_port_set_feature(daddr, port_num, HUB_FEATURE_PORT_POWER, process_new_status, STATE_COMPLETE);
+      }
+      break;
 
     case STATE_COMPLETE:
     default:

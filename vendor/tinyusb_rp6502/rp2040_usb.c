@@ -183,9 +183,8 @@ void __tusb_irq_path_func(rp2usb_buffer_start)(hw_endpoint_t *ep, io_rw_32 *ep_r
     // double-buffered bulk path is unaffected.)
     const bool is_iso = (((ep_ctrl >> EP_CTRL_BUFFER_TYPE_LSB) & 0x3u) == TUSB_XFER_ISOCHRONOUS);
   #if CFG_TUH_ENABLED
-    // Host EP0 stays single buffered: double-buffered control IN truncates (TinyUSB #3875)
-    const bool force_single = is_iso || (rp2usb_is_host_mode() &&
-                                         (ep->interrupt_num > 0 || ep->transfer_type == TUSB_XFER_CONTROL));
+    // Host control and interrupt transfers are single buffered
+    const bool force_single = is_iso || (rp2usb_is_host_mode() && ep->transfer_type != TUSB_XFER_BULK);
   #else
     const bool force_single = is_iso;
   #endif

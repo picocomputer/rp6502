@@ -36,7 +36,7 @@
 
 enum {
   USBH_CONTROL_RETRY_MAX = 3,
-  USBH_ENUM_ROOT_RETRY_MAX = 3, // re-reset and re-enumerate the root port after a failed attach
+  USBH_FAIL_RESET_MS = 1000, // a configured device whose transfers fail this long, with no gap this long, is re-enumerated
 };
 
 //--------------------------------------------------------------------+
@@ -126,6 +126,8 @@ typedef struct {
     volatile uint8_t mounted    : 1; // All drivers configured and tuh_mount_cb() invoked
     volatile uint8_t suspended  : 1; // Bus suspended
     // volatile uint8_t removing : 1; // Physically disconnected, waiting to be processed by usbh
+    uint16_t fail_ms;                // start of a run of failed transfers, 0 = none
+    uint16_t fail_last_ms;           // latest failure of the run
   };
 
   // Endpoint & Interface
@@ -223,9 +225,7 @@ typedef struct {
   uint8_t enumerating_daddr;  // device address of the device being enumerated
   uint8_t enum_attempt;       // enumeration attempts used for the current attach
   uint8_t attach_debouncing_bm;  // bitmask for roothub port attach debouncing
-  uint8_t attach_teardown;    // an attach event is tearing down what was on its port
-  uint8_t root_retry_count;   // root port re-enumerations used for the current attachment
-  uint8_t root_retry_rhport;  // the port root_retry_count belongs to
+  uint8_t enum_hub_armed;     // ENUM_CONFIG_DRIVER armed the hub status endpoint for the current attach
   tuh_bus_info_t dev0_bus;    // bus info for dev0 in enumeration
   usbh_ctrl_xfer_info_t ctrl_xfer_info; // control transfer
   usbh_call_after_t call_after;
@@ -450,15 +450,15 @@ TU_ATTR_ALWAYS_INLINE static inline void usbh_device_close(uint8_t rhport, uint8
   // invalidate if enumerating
   if (daddr == _usbh_data.enumerating_daddr) {
     _usbh_data.enumerating_daddr = TUSB_INDEX_INVALID_8;
-    // Torn down from outside the enumeration (an unplug, or an attach on its port), which ends its attachment. Waiting
-    // in a delay or between transfers, it never reaches enum_full_complete(), so give the root retry budget back here:
-    // the next device must not inherit a spent one. enum_teardown() clears enumerating_daddr first, so its own closes
-    // keep the budget.
-    _usbh_data.root_retry_count = 0;
     // clear enum delay function of the device being removed
     if (_usbh_data.call_after.func == enum_delay_async) {
       _usbh_data.call_after.func = NULL;
     }
+  }
+
+  // its callbacks cannot queue another request to it
+  if (daddr > 0) {
+    get_device(daddr)->connected = 0;
   }
 
   // If this device has in-flight control xfer, complete as FAILED
@@ -731,6 +731,81 @@ bool tuh_task_event_ready(void) {
   return false;
 }
 
+// Clear busy and claimed, then deliver a non-control transfer result
+static void edpt_xfer_complete(usbh_device_t* dev, uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t len) {
+  uint8_t const epnum = tu_edpt_number(ep_addr);
+  uint8_t const ep_dir = (uint8_t) tu_edpt_dir(ep_addr);
+  dev->ep_status[epnum][ep_dir] &= (uint8_t) ~(TU_EDPT_STATE_BUSY | TU_EDPT_STATE_CLAIMED);
+
+  // Prefer application callback over built-in one if available. This occurs when tuh_edpt_xfer() is used
+  // with enabled driver e.g HID endpoint
+  #if CFG_TUH_API_EDPT_XFER
+  tuh_xfer_cb_t const complete_cb = dev->ep_callback[epnum][ep_dir].complete_cb;
+  if (complete_cb != NULL) {
+    // re-construct xfer info
+    tuh_xfer_t xfer = {
+        .daddr       = daddr,
+        .ep_addr     = ep_addr,
+        .result      = result,
+        .actual_len  = len,
+        .buflen      = 0,    // not available
+        .buffer      = NULL, // not available
+        .complete_cb = complete_cb,
+        .user_data   = dev->ep_callback[epnum][ep_dir].user_data
+    };
+    complete_cb(&xfer);
+  }else
+  #endif
+  {
+    uint8_t drv_id = dev->ep2drv[epnum][ep_dir];
+    usbh_class_driver_t const* driver = get_driver(drv_id);
+    if (driver != NULL) {
+      TU_LOG_USBH("  %s xfer callback\r\n", driver->name);
+      driver->xfer_cb(daddr, ep_addr, result, len);
+    } else {
+      // no driver/callback responsible for this transfer
+      TU_ASSERT(false, );
+    }
+  }
+}
+
+// user_data: daddr_gen << 24 | the STALLED transfer's length
+static void edpt_halt_cleared(tuh_xfer_t* xfer) {
+  const uint8_t daddr = xfer->daddr;
+  if ((uint8_t) (xfer->user_data >> 24) != _usbh_data.daddr_gen[daddr]) {
+    return; // device closed
+  }
+  const uint8_t ep_addr = (uint8_t) tu_le16toh(xfer->setup->wIndex);
+  if (xfer->result == XFER_RESULT_SUCCESS) {
+    hcd_edpt_clear_stall(usbh_get_rhport(daddr), daddr, ep_addr);
+  }
+  edpt_xfer_complete(get_device(daddr), daddr, ep_addr, XFER_RESULT_STALLED, xfer->user_data & 0xFFFFFFu);
+}
+
+// CLEAR_FEATURE(ENDPOINT_HALT), then complete the STALLED transfer. The endpoint stays busy and claimed until then.
+static bool edpt_clear_halt(uint8_t daddr, uint8_t ep_addr, uint32_t len) {
+  const tusb_control_request_t request = {
+    .bmRequestType_bit = {
+      .recipient = TUSB_REQ_RCPT_ENDPOINT,
+      .type      = TUSB_REQ_TYPE_STANDARD,
+      .direction = TUSB_DIR_OUT
+    },
+    .bRequest = TUSB_REQ_CLEAR_FEATURE,
+    .wValue   = tu_htole16(TUSB_REQ_FEATURE_EDPT_HALT),
+    .wIndex   = tu_htole16(ep_addr),
+    .wLength  = 0
+  };
+  tuh_xfer_t xfer = {
+    .daddr       = daddr,
+    .ep_addr     = 0,
+    .setup       = &request,
+    .buffer      = NULL,
+    .complete_cb = edpt_halt_cleared,
+    .user_data   = ((uintptr_t) _usbh_data.daddr_gen[daddr] << 24) | len
+  };
+  return tuh_control_xfer(&xfer);
+}
+
 // One dequeued event; false stops tuh_task_ext() (a failed assertion or a gone device)
 static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
   (void) in_isr; // only a hub defers attaches
@@ -739,11 +814,7 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
       // Should we miss the hub detach event due to high traffic, Or due to physical debouncing, some devices can
       // cause multiple attaches (actually reset) without a detached event.
       // Force remove currently mounted with the same bus info (rhport, hub addr, hub port) if exists
-      // Flagged because this teardown fails any in-flight enumeration, and its completion would
-      // otherwise ask for a roothub retry of the very attach being handled here.
-      _usbh_data.attach_teardown = 1;
       process_remove_event(event);
-      _usbh_data.attach_teardown = 0;
 
       // due to the shared control buffer, we must fully complete enumerating one device first.
       if (_usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8) {
@@ -768,7 +839,6 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
     case HCD_EVENT_XFER_COMPLETE: {
       uint8_t const ep_addr = event->xfer_complete.ep_addr;
       uint8_t const epnum = tu_edpt_number(ep_addr);
-      uint8_t const ep_dir = (uint8_t) tu_edpt_dir(ep_addr);
 
       TU_LOG_USBH("[:%u] on EP %02X with %u bytes: %s\r\n",
                   event->dev_addr, ep_addr, (unsigned int) event->xfer_complete.len, tu_str_xfer_result[event->xfer_complete.result]);
@@ -783,42 +853,35 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
           return false;
         }
 
-        // clear busy and claimed
-        dev->ep_status[epnum][ep_dir] &= (uint8_t) ~(TU_EDPT_STATE_BUSY | TU_EDPT_STATE_CLAIMED);
-
         if (0 == epnum) {
           usbh_control_xfer_cb(event->dev_addr, ep_addr, (xfer_result_t) event->xfer_complete.result, event->xfer_complete.len);
         } else {
-          // Prefer application callback over built-in one if available. This occurs when tuh_edpt_xfer() is used
-          // with enabled driver e.g HID endpoint
-          #if CFG_TUH_API_EDPT_XFER
-          tuh_xfer_cb_t const complete_cb = dev->ep_callback[epnum][ep_dir].complete_cb;
-          if (complete_cb != NULL) {
-            // re-construct xfer info
-            tuh_xfer_t xfer = {
-                .daddr       = event->dev_addr,
-                .ep_addr     = ep_addr,
-                .result      = (xfer_result_t)event->xfer_complete.result,
-                .actual_len  = event->xfer_complete.len,
-                .buflen      = 0,    // not available
-                .buffer      = NULL, // not available
-                .complete_cb = complete_cb,
-                .user_data   = dev->ep_callback[epnum][ep_dir].user_data
-            };
-            complete_cb(&xfer);
-          }else
-          #endif
-          {
-            uint8_t drv_id = dev->ep2drv[epnum][ep_dir];
-            usbh_class_driver_t const* driver = get_driver(drv_id);
-            if (driver != NULL) {
-              TU_LOG_USBH("  %s xfer callback\r\n", driver->name);
-              driver->xfer_cb(event->dev_addr, ep_addr, (xfer_result_t) event->xfer_complete.result,
-                              event->xfer_complete.len);
-            } else {
-              // no driver/callback responsible for this transfer
-              TU_ASSERT(false, false);
+          const xfer_result_t result = (xfer_result_t) event->xfer_complete.result;
+          if (result == XFER_RESULT_SUCCESS) {
+            dev->fail_ms = 0;
+          } else {
+            const uint16_t now_ms = (uint16_t) tusb_time_millis_api();
+            if (dev->fail_ms == 0 || (uint16_t) (now_ms - dev->fail_last_ms) >= USBH_FAIL_RESET_MS) {
+              dev->fail_ms = now_ms; // a run due to start at 0 starts at the next failure
+            } else if ((uint16_t) (now_ms - dev->fail_ms) >= USBH_FAIL_RESET_MS &&
+                       _usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8) {
+              // tear down and enumerate again, as an attach on its port does
+              TU_LOG_USBH("[%u] Transfers failed for %u ms, re-attach\r\n", event->dev_addr, (unsigned) USBH_FAIL_RESET_MS);
+              hcd_event_t attach = {
+                .rhport     = dev->bus_info.rhport,
+                .event_id   = HCD_EVENT_DEVICE_ATTACH,
+                .connection = {
+                  .hub_addr = dev->bus_info.hub_addr,
+                  .hub_port = dev->bus_info.hub_port
+                }
+              };
+              return usbh_process_event(&attach, in_isr);
             }
+            dev->fail_last_ms = now_ms;
+          }
+
+          if (result != XFER_RESULT_STALLED || !edpt_clear_halt(event->dev_addr, ep_addr, event->xfer_complete.len)) {
+            edpt_xfer_complete(dev, event->dev_addr, ep_addr, result, event->xfer_complete.len);
           }
         }
       }
@@ -1519,6 +1582,7 @@ bool tuh_bus_info_get(uint8_t daddr, tuh_bus_info_t* bus_info) {
 }
 
 TU_ATTR_FAST_FUNC void hcd_event_handler(hcd_event_t const* event, bool in_isr) {
+  bool root_attach = false;
   switch (event->event_id) {
     case HCD_EVENT_DEVICE_ATTACH:
     case HCD_EVENT_DEVICE_REMOVE:
@@ -1531,6 +1595,7 @@ TU_ATTR_FAST_FUNC void hcd_event_handler(hcd_event_t const* event, bool in_isr) 
         if (event->event_id == HCD_EVENT_DEVICE_ATTACH) {
           // No debouncing, set flag if attach event
           _usbh_data.attach_debouncing_bm |= TU_BIT(event->rhport);
+          root_attach = true;
         }
       }
       break;
@@ -1540,7 +1605,9 @@ TU_ATTR_FAST_FUNC void hcd_event_handler(hcd_event_t const* event, bool in_isr) 
       break;
   }
 
-  queue_event(event, in_isr);
+  if (!queue_event(event, in_isr) && root_attach) {
+    _usbh_data.attach_debouncing_bm &= (uint8_t) ~TU_BIT(event->rhport); // a dropped attach starts no debounce
+  }
 }
 
 //--------------------------------------------------------------------+
@@ -1867,6 +1934,7 @@ enum {
 static uint8_t enum_get_new_address(bool is_hub);
 static bool    enum_parse_configuration_desc(uint8_t dev_addr, const tusb_desc_configuration_t *desc_cfg);
 static void    enum_full_complete(bool success);
+static void    enum_end(bool success);
 static bool    enum_retry(void);
 static void    process_enumeration(tuh_xfer_t *xfer);
 
@@ -1887,9 +1955,9 @@ static void enum_delay_async(uintptr_t state) {
     case ENUM_AFTER_DEBOUNCING_DELAY:
   #if CFG_TUH_HUB
       if (dev0_bus->hub_addr != 0) {
-        // connected via hub
+        // connected via hub; port status goes to the enumeration buffer, not the hub's, which its status chain uses
         TU_VERIFY(dev0_bus->hub_port != 0, );
-        if (!hub_port_get_status(dev0_bus->hub_addr, dev0_bus->hub_port, NULL, process_enumeration,
+        if (!hub_port_get_status(dev0_bus->hub_addr, dev0_bus->hub_port, _usbh_epbuf.ctrl, process_enumeration,
                                  ENUM_HUB_RERSET)) {
           enum_full_complete(false);
         }
@@ -1900,7 +1968,7 @@ static void enum_delay_async(uintptr_t state) {
         _usbh_data.attach_debouncing_bm &= (uint8_t)~TU_BIT(dev0_bus->rhport); // clear roothub debouncing delay
         if (!hcd_port_connect_status(dev0_bus->rhport)) {
           TU_LOG_USBH("Device unplugged while debouncing\r\n");
-          enum_full_complete(false);
+          enum_end(false);
           return;
         }
         hcd_port_reset(dev0_bus->rhport); // reset port
@@ -1916,7 +1984,7 @@ static void enum_delay_async(uintptr_t state) {
     case ENUM_AFTER_RESET_ROOT_POST_DELAY:
       if (!hcd_port_connect_status(dev0_bus->rhport)) {
         // device unplugged while delaying
-        enum_full_complete(false);
+        enum_end(false);
         return;
       }
 
@@ -1935,7 +2003,7 @@ static void enum_delay_async(uintptr_t state) {
     case ENUM_AFTER_RESET_HUB_DELAY:
     case ENUM_AFTER_RESET_HUB_DELAY_RETRY:
       // get status after reset complete to check for reset change
-      if (!hub_port_get_status(dev0_bus->hub_addr, dev0_bus->hub_port, NULL, process_enumeration,
+      if (!hub_port_get_status(dev0_bus->hub_addr, dev0_bus->hub_port, _usbh_epbuf.ctrl, process_enumeration,
                                state == ENUM_AFTER_RESET_HUB_DELAY ? ENUM_HUB_CLEAR_RESET
                                                                    : ENUM_HUB_CLEAR_RESET_RETRY)) {
         enum_full_complete(false);
@@ -1986,15 +2054,14 @@ static void enum_new_device(hcd_event_t *event) {
   dev0_bus->hub_addr       = event->connection.hub_addr;
   dev0_bus->hub_port       = event->connection.hub_port;
   _usbh_data.enum_attempt  = 0;
+  _usbh_data.enum_hub_armed = 0;
   usbh_defer_func_ms_async(ENUM_DEBOUNCING_DELAY_MS, enum_delay_async, ENUM_AFTER_DEBOUNCING_DELAY);
 }
 
 // process device enumeration
 static void process_enumeration(tuh_xfer_t *xfer) {
   if (XFER_RESULT_FAILED == xfer->result || XFER_RESULT_TIMEOUT == xfer->result) {
-    if (!enum_retry()) {
-      enum_full_complete(false);
-    }
+    enum_full_complete(false);
     return;
   }
 
@@ -2016,11 +2083,11 @@ static void process_enumeration(tuh_xfer_t *xfer) {
         break;
       }
       hub_port_status_response_t port_status;
-      hub_port_get_status_local(dev0_bus->hub_addr, dev0_bus->hub_port, &port_status);
+      memcpy(&port_status, _usbh_epbuf.ctrl, sizeof(port_status));
 
       if (0 == port_status.status.connection) {
         TU_LOG_USBH("Device unplugged from hub while debouncing\r\n");
-        is_enum_failed = true;
+        enum_end(false);
       } else {
         is_enum_failed = !hub_port_reset(dev0_bus->hub_addr, dev0_bus->hub_port, process_enumeration,
                                          ENUM_HUB_RESET_COMPLETE);
@@ -2040,29 +2107,35 @@ static void process_enumeration(tuh_xfer_t *xfer) {
         break;
       }
       hub_port_status_response_t port_status;
-      hub_port_get_status_local(dev0_bus->hub_addr, dev0_bus->hub_port, &port_status);
+      memcpy(&port_status, _usbh_epbuf.ctrl, sizeof(port_status));
 
       if (1 == port_status.change.reset) {
         // Acknowledge Port Reset Change
         is_enum_failed = !hub_port_clear_reset_change(dev0_bus->hub_addr, dev0_bus->hub_port, process_enumeration,
                                                        ENUM_HUB_CLEAR_RESET_COMPLETE);
-      } else if (state == ENUM_HUB_CLEAR_RESET) {
-        // retry one more time if reset change not set yet
-        usbh_defer_func_ms_async(ENUM_RESET_HUB_DELAY_MS, enum_delay_async, ENUM_AFTER_RESET_HUB_DELAY_RETRY);
-      } else {
-        // retry but still not set --> failed
-        is_enum_failed = true;
+        break;
       }
-      break;
+      if (port_status.status.reset || !port_status.status.port_enable) {
+        if (state == ENUM_HUB_CLEAR_RESET) {
+          // retry one more time if reset change not set yet
+          usbh_defer_func_ms_async(ENUM_RESET_HUB_DELAY_MS, enum_delay_async, ENUM_AFTER_RESET_HUB_DELAY_RETRY);
+        } else {
+          // retry but still not set --> failed
+          is_enum_failed = true;
+        }
+        break;
+      }
+      // reset done; an armed hub status chain already cleared C_PORT_RESET
+      TU_ATTR_FALLTHROUGH;
     }
 
     case ENUM_HUB_CLEAR_RESET_COMPLETE: {
       hub_port_status_response_t port_status;
-      hub_port_get_status_local(dev0_bus->hub_addr, dev0_bus->hub_port, &port_status);
+      memcpy(&port_status, _usbh_epbuf.ctrl, sizeof(port_status));
 
       if (0 == port_status.status.connection) {
         TU_LOG_USBH("Device unplugged from hub (not addressed yet)\r\n");
-        is_enum_failed = true;
+        enum_end(false);
         break;
       }
 
@@ -2272,6 +2345,7 @@ static void process_enumeration(tuh_xfer_t *xfer) {
   #if CFG_TUH_HUB
       // get next hub status now since device can be unplugged before set_configure() is complete
       if (_usbh_data.dev0_bus.hub_addr != 0) {
+        _usbh_data.enum_hub_armed = 1;
         hub_edpt_status_xfer(_usbh_data.dev0_bus.hub_addr);
       }
   #endif
@@ -2422,7 +2496,7 @@ void usbh_driver_set_config_complete(uint8_t dev_addr, uint8_t itf_num) {
   }
 }
 
-// Called by a class driver whose set_config failed: the enumeration fails, and a root port device is retried
+// Called by a class driver whose set_config failed: the enumeration is retried or fails
 void usbh_driver_set_config_failed(uint8_t dev_addr) {
   const usbh_device_t* dev = get_device(dev_addr);
   TU_VERIFY(dev && dev->configured && dev_addr == _usbh_data.enumerating_daddr,);
@@ -2476,54 +2550,39 @@ static void enum_teardown(bool success) {
 
 #if CFG_TUH_HUB
 static void enum_port_disabled(tuh_xfer_t* xfer) {
-  hub_edpt_status_xfer(xfer->daddr);
+  if (xfer->user_data == 0) {
+    hub_edpt_status_xfer(xfer->daddr);
+  }
 }
 #endif
 
+// A failed enumeration is retried until its attempts are used up
 static void enum_full_complete(bool success) {
+  if (success || !enum_retry()) {
+    enum_end(success);
+  }
+}
+
+// End the enumeration without a retry
+static void enum_end(bool success) {
   TU_LOG_USBH("Enumeration complete: success = %u\r\n", success);
   enum_teardown(success);
 
   #if CFG_TUH_HUB
   // Hub status is already requested in case of successful enumeration.
   // A failed device's port is disabled first, so it cannot answer the next device's address 0.
+  // The status endpoint is then re-armed unless ENUM_CONFIG_DRIVER already armed it.
   const uint8_t hub_addr = _usbh_data.dev0_bus.hub_addr;
+  const uint8_t armed = _usbh_data.enum_hub_armed;
   if (!success && hub_addr != 0 &&
       !hub_port_clear_feature(hub_addr, _usbh_data.dev0_bus.hub_port, HUB_FEATURE_PORT_ENABLE,
-                              enum_port_disabled, 0)) {
+                              enum_port_disabled, armed) && !armed) {
     hub_edpt_status_xfer(hub_addr);
   }
   #endif
-
-  const uint8_t rhport = _usbh_data.dev0_bus.rhport;
-  if (rhport != _usbh_data.root_retry_rhport) {
-    _usbh_data.root_retry_rhport = rhport; // the budget is per port, and only one port enumerates at a time
-    _usbh_data.root_retry_count = 0;
-  }
-
-  if (success || _usbh_data.attach_teardown || _usbh_data.dev0_bus.hub_addr != 0 ||
-      !hcd_port_connect_status(rhport)) {
-    // The budget covers one attachment, so it has to be given back when that attachment ends,
-    // whether it succeeded or the device was unplugged part-way through. Carrying a spent count
-    // into the next device would deny it the retries it has not used. An attach event that tore
-    // down this enumeration is such a fresh start, and needs no retry of its own: the handler that
-    // set the flag goes on to enumerate the device that has just arrived.
-    _usbh_data.root_retry_count = 0;
-  } else {
-    // A device behind a hub gets another chance from the next port status change, but nothing ever
-    // retries the root port: the host stays dead until reboot. Re-post the attach so the port is
-    // reset and enumerated again, e.g. after the controller dropped it on a bus error.
-    if (_usbh_data.root_retry_count < USBH_ENUM_ROOT_RETRY_MAX) {
-      _usbh_data.root_retry_count++;
-      TU_LOG_USBH("Retry root port enumeration %u/%u\r\n", _usbh_data.root_retry_count, USBH_ENUM_ROOT_RETRY_MAX);
-      hcd_event_device_attach(rhport, false);
-    } else {
-      _usbh_data.root_retry_count = 0; // give up on this attach, but allow a later one to retry again
-    }
-  }
 }
 
-// Device failed an enumeration transfer: restart as dev0 with a fresh port reset.
+// Enumeration failed: restart as dev0 with a fresh port reset.
 // False (nothing changed) when attempts are used up or an unplug already invalidated the device.
 static bool enum_retry(void) {
 #if CFG_TUH_ENUM_ATTEMPT_MAX > 1

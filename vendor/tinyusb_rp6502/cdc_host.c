@@ -25,6 +25,9 @@
 #include "class/cdc/serial/ch34x.h"
 #include "class/cdc/serial/pl2303.h"
 
+// in our usbh.c: fail the enumeration of a device whose set_config failed
+void usbh_driver_set_config_failed(uint8_t dev_addr);
+
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
   #ifndef CFG_TUH_CDC_LOG_LEVEL
     #define CFG_TUH_CDC_LOG_LEVEL 2
@@ -48,6 +51,7 @@ typedef struct {
   uint8_t ep_notif;
   uint8_t serial_drid; // Serial Driver ID
   bool mounted;        // Enumeration is complete
+  uint8_t tx_len;      // bytes in the bulk OUT transfer in flight
 
   struct {
     TU_ATTR_ALIGNED(4) cdc_line_coding_t coding; // Baudrate, stop bits, parity, data width
@@ -57,10 +61,6 @@ typedef struct {
   tuh_xfer_cb_t user_complete_cb; // required since we handle request internally first
 
   union {
-    struct {
-      cdc_acm_capability_t capability;
-    } acm;
-
     #if CFG_TUH_CDC_FTDI
     ftdi_private_t ftdi;
     #endif
@@ -453,16 +453,25 @@ bool tuh_cdc_get_line_coding_local(uint8_t idx, cdc_line_coding_t * line_coding)
 // Write
 //--------------------------------------------------------------------+
 
+// only tuh_cdc_write_flush() and cdch_xfer_cb() start a transfer
 uint32_t tuh_cdc_write(uint8_t idx, void const * buffer, uint32_t bufsize) {
   cdch_interface_t * p_cdc = get_itf(idx);
   TU_VERIFY(p_cdc);
-  return tu_edpt_stream_write(&p_cdc->stream.tx, buffer, bufsize);
+  return tu_fifo_write_n(&p_cdc->stream.tx.ff, buffer, (uint16_t) tu_min32(bufsize, UINT16_MAX));
+}
+
+static uint32_t cdch_write_xfer(cdch_interface_t *p_cdc) {
+  const uint32_t count = tu_edpt_stream_write_xfer(&p_cdc->stream.tx);
+  if (count > 0) {
+    p_cdc->tx_len = (uint8_t) count;
+  }
+  return count;
 }
 
 uint32_t tuh_cdc_write_flush(uint8_t idx) {
   cdch_interface_t * p_cdc = get_itf(idx);
   TU_VERIFY(p_cdc);
-  return tu_edpt_stream_write_xfer(&p_cdc->stream.tx);
+  return cdch_write_xfer(p_cdc);
 }
 
 bool tuh_cdc_write_clear(uint8_t idx) {
@@ -669,20 +678,27 @@ void cdch_close(uint8_t daddr) {
 }
 
 bool cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes) {
-  // TODO handle stall response, retry failed transfer ...
-  TU_VERIFY(event == XFER_RESULT_SUCCESS);
-
   uint8_t const idx = get_idx_by_ep_addr(daddr, ep_addr);
   cdch_interface_t *p_cdc = get_itf(idx);
   TU_ASSERT(p_cdc);
 
   if (ep_addr == p_cdc->stream.tx.ep_addr) {
+    if (event != XFER_RESULT_SUCCESS) {
+      // resend the bytes the device did not acknowledge
+      uint8_t *ep_buf = p_cdc->stream.tx.ep_buf;
+      p_cdc->tx_len = (uint8_t) (p_cdc->tx_len - xferred_bytes);
+      memmove(ep_buf, ep_buf + xferred_bytes, p_cdc->tx_len);
+      TU_VERIFY(usbh_edpt_claim(daddr, ep_addr));
+      return usbh_edpt_xfer(daddr, ep_addr, ep_buf, p_cdc->tx_len);
+    }
+
     tuh_cdc_tx_complete_cb(idx); // invoke transmit complete callback
 
-    if (0 == tu_edpt_stream_write_xfer(&p_cdc->stream.tx)) {
-      // If there is no data left, a ZLP should be sent if:
-      // - xferred_bytes is multiple of EP Packet size and not zero
-      (void)tu_edpt_stream_write_zlp_if_needed(&p_cdc->stream.tx, xferred_bytes);
+    // If there is no data left, a ZLP should be sent if:
+    // - xferred_bytes is multiple of EP Packet size and not zero
+    if (0 == cdch_write_xfer(p_cdc) &&
+        tu_edpt_stream_write_zlp_if_needed(&p_cdc->stream.tx, xferred_bytes)) {
+      p_cdc->tx_len = 0;
     }
   } else if (ep_addr == p_cdc->stream.rx.ep_addr) {
     #if CFG_TUH_CDC_FTDI
@@ -783,7 +799,11 @@ static void set_config_complete(cdch_interface_t *p_cdc, bool success) {
   }
 
   // notify usbh that driver enumeration is complete
-  usbh_driver_set_config_complete(daddr, itf_num + itf_offset);
+  if (success) {
+    usbh_driver_set_config_complete(daddr, itf_num + itf_offset);
+  } else {
+    usbh_driver_set_config_failed(daddr);
+  }
 }
 
 bool cdch_set_config(uint8_t daddr, uint8_t itf_num) {
@@ -904,12 +924,15 @@ static void cdch_set_line_coding_stage1_baudrate_complete(tuh_xfer_t *xfer) {
 
   if (xfer->result == XFER_RESULT_SUCCESS) {
     p_cdc->line.coding.bit_rate = p_cdc->requested_line.coding.bit_rate; // update baudrate
-    TU_ASSERT(driver->set_data_format(p_cdc, cdch_set_line_coding_stage2_data_format_complete, xfer->user_data),);
-  } else {
-    xfer->complete_cb = p_cdc->user_complete_cb;
-    if (xfer->complete_cb != NULL) {
-      xfer->complete_cb(xfer);
+    if (driver->set_data_format(p_cdc, cdch_set_line_coding_stage2_data_format_complete, xfer->user_data)) {
+      return;
     }
+    xfer->result = XFER_RESULT_FAILED;
+  }
+
+  xfer->complete_cb = p_cdc->user_complete_cb;
+  if (xfer->complete_cb != NULL) {
+    xfer->complete_cb(xfer);
   }
 }
 
@@ -952,8 +975,6 @@ static void acm_internal_control_complete(cdch_interface_t *p_cdc, tuh_xfer_t *x
 }
 
 static bool acm_set_control_line_state(cdch_interface_t *p_cdc, tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
-  TU_VERIFY(p_cdc->acm.capability.support_line_request != 0);
-
   const tusb_control_request_t request = {
     .bmRequestType_bit = {
       .recipient = TUSB_REQ_RCPT_INTERFACE,
@@ -979,7 +1000,6 @@ static bool acm_set_control_line_state(cdch_interface_t *p_cdc, tuh_xfer_cb_t co
 }
 
 static bool acm_set_line_coding(cdch_interface_t *p_cdc, tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
-  TU_VERIFY(p_cdc->acm.capability.support_line_request != 0);
   TU_VERIFY((p_cdc->requested_line.coding.data_bits >= 5 && p_cdc->requested_line.coding.data_bits <= 8) ||
             p_cdc->requested_line.coding.data_bits == 16);
 
@@ -1038,12 +1058,6 @@ static uint16_t acm_open(uint8_t daddr, const tusb_desc_interface_t *itf_desc, u
          TUSB_DESC_CS_INTERFACE == tu_desc_type(p_desc) &&
          TUH_VALIDATE_BASIC(tu_desc_len(p_desc) >= 3) &&
          TUH_VALIDATE_BASIC(tu_desc_len(p_desc) <= (size_t)(desc_end - p_desc))) {
-    if (CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT == cdc_functional_desc_typeof(p_desc) &&
-        TUH_VALIDATE_BASIC(tu_desc_len(p_desc) >= sizeof(cdc_desc_func_acm_t))) {
-      // save ACM bmCapabilities
-      p_cdc->acm.capability = ((cdc_desc_func_acm_t const *) p_desc)->bmCapabilities;
-    }
-
     p_desc = tu_desc_next(p_desc);
   }
 

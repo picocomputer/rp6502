@@ -51,6 +51,12 @@
 // Devices; limited by free endpoints
 #define CFG_TUH_DEVICE_MAX (16)
 
+// More than all producers can have in flight
+#define CFG_TUH_TASK_QUEUE_SZ (64)
+
+// Per attach, on the root port and behind a hub
+#define CFG_TUH_ENUM_ATTEMPT_MAX (8)
+
 // A failed TinyUSB assert returns without a breakpoint, debugger or not.
 #define CFG_TUSB_DEBUG_BREAKPOINT ria_tusb_breakpoint
 static inline void ria_tusb_breakpoint(void) {}

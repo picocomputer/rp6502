@@ -284,7 +284,9 @@ static void msc_cancel_inflight(uint8_t dev_addr)
     // XFER_RESULT_ABORTED. msc_recovery_xfer_cb, msc_cbi_adsc_complete and
     // msc_get_max_lun_complete_cb return early while cancelling is set, so an
     // abort of one of their transfers does not advance recovery, complete the
-    // command or register volumes.
+    // command or register volumes. When the transfer is usbh's
+    // CLEAR_FEATURE(ENDPOINT_HALT), usbh then completes the halted bulk
+    // transfer as STALLED, and msc_class_driver_xfer_cb drops it the same way.
     p_msc->cancelling = true;
     tuh_edpt_abort_xfer(dev_addr, 0);
     p_msc->cancelling = false;
@@ -739,7 +741,10 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
 
 bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
-    if (msc_is_bot(msc_get_itf(dev_addr)))
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    if (p_msc->cancelling)
+        return true;
+    if (msc_is_bot(p_msc))
         return msc_bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
     return msc_cbi_xfer_cb(dev_addr, event, xferred_bytes);
 }

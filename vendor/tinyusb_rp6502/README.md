@@ -11,18 +11,18 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 - The top-level `CMakeLists.txt` sets `PICO_TINYUSB_PATH` to `vendor/tinyusb`, so the SDK uses the submodule instead of its bundled TinyUSB.
 - No headers are copied. The copies include upstream headers by their path under TinyUSB's `src/`, for example `host/usbh_pvt.h` and `portable/raspberrypi/rp2040/rp2040_usb.h`. A new function shared between files is declared in the file that calls it:
   - `hcd_free_ep_count()` (hcd_rp2040.c) is declared in `src/host/pico/ria/usb/usb.c` and feeds the "ep free" status line.
-  - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c.
+  - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c and cdc_host.c.
   - `tuh_midi_frame()` (midi_host.c) is declared in `src/host/pico/ria/usb/mid.c`.
 - Every copy adds a `Copyright (c) 2026 Rumbledethumps` line. midi_host.c carries the full MIT text and the others use SPDX lines. No copy is reformatted, so `diff -u` against upstream shows only real changes.
 
 | Copy | Upstream, under `vendor/tinyusb/src/` | Summary |
 |---|---|---|
 | hcd_rp2040.c | portable/raspberrypi/rp2040/hcd_rp2040.c | Host controller driver. Every transfer runs on EPX, scheduled in software. About half the file is rewritten. |
-| rp2040_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | 12-cycle wait in host mode. Host EP0 is single-buffered. |
-| usbh.c | host/usbh.c | A failed enumeration ends and cleans up instead of stranding. |
-| hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. |
-| cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. |
-| midi_host.c | class/midi/midi_host.c | MIDI host rework, plus the `tuh_midi_frame()` wire framer. |
+| rp2040_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | 12-cycle wait in host mode. Host control and interrupt transfers are single-buffered. |
+| usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Clears halted endpoints and re-enumerates a device that stops answering. |
+| hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
+| cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
+| midi_host.c | class/midi/midi_host.c | MIDI host rework, plus the `tuh_midi_frame()` wire framer. Bulk transfers recover after a failure. |
 
 **Strand:** an enumeration failure that returns without ending the enumeration. usbh keeps `enumerating_daddr` set, so every later attach waits. A strand lasts until usbh sees the device, or its hub, unplugged. usbh re-arms a hub's status endpoint only at `ENUM_CONFIG_DRIVER`. So if the device sits behind a hub and fails before that step, the device's own unplug goes unseen, and only unplugging the hub ends the strand.
 
@@ -87,7 +87,7 @@ In every case, `epx_save_context()` undoes the toggles of buffers that were not 
 
 ### Hold until SOF after a STOP
 
-- Every `STOP_TRANS` goes through `epx_stop()`. It stops the SIE, records the transfer in `epx_stopped`, and calls `epx_hold_until_sof()`.
+- Every `STOP_TRANS` the HCD writes goes through `epx_stop()`. It stops the SIE, records the transfer in `epx_stopped`, and calls `epx_hold_until_sof()`. The one other `STOP_TRANS` is the host short-packet branch of `rp2usb_xfer_continue()` in rp2040_usb.c, which a double-buffered bulk IN still takes, with no hold (see rp2040_usb.c).
 - `epx_hold_until_sof()` sets `epx_hold`, reads `SOF_RD` to acknowledge any SOF already raised, and enables HOST_SOF. While the hold lasts, nothing starts on EPX and new transfers only queue.
 - The next SOF ends the hold in `sof_service()` and settles the stopped transfer in two steps:
   - `epx_undo_unsent()` gives back the PID toggles of buffers that never completed on the wire.
@@ -123,22 +123,22 @@ Why: a STOP does not end a transaction already on the wire. One more RX_TIMEOUT 
 ### Root port reset
 
 - The SIE resets the bus itself on attach, so the first `hcd_port_reset()` after an attach does nothing (`root_bus_reset`).
-- Any later call drops `USB_PWR.VBUS_DETECT` for `ROOT_RERESET_LOW_US` (1000 us). Such calls come from usbh's root retry, `enum_retry()` or `tuh_rhport_reset_bus()`. The controller then re-runs its debounce and bus reset: DISC, then CONN about 150 ms later, then a fresh attach.
-- The DISC's remove event ends the enumeration in flight. If usbh's connect check after the reset runs first, that check ends it instead, because `hcd_port_connect_status()` reports disconnected while `root_rereset` is set. Either way, usbh's root retry count goes back to 0.
+- Any later call drops `USB_PWR.VBUS_DETECT` for `ROOT_RERESET_LOW_US` (1000 us). Such calls come from `enum_retry()`, usbh's re-attach of a configured device that stops answering, or `tuh_rhport_reset_bus()`. The controller then re-runs its debounce and bus reset: DISC, then CONN about 150 ms later, then a fresh attach.
+- The DISC's remove event ends the enumeration in flight. If usbh's connect check after the reset runs first, that check ends it instead, because `hcd_port_connect_status()` reports disconnected while `root_rereset` is set.
 - There are at most `ROOT_RERESET_MAX` (3) re-resets per plug-in. The DISC of a re-reset keeps the count, and a real unplug clears it. A call past the cap does nothing, so that retry runs without a bus reset.
 - As a result, a failure that repeats on every attempt runs in this order:
-  1. The first attach.
-  2. Three fresh attaches, one after each re-reset. `enum_retry()` also spends re-resets.
-  3. usbh's 3 root retries, without a bus reset.
+  1. The first attach. Its first retry re-resets, which ends it.
+  2. Three fresh attaches, one after each re-reset. The first two end the same way.
+  3. The third fresh attach runs all 8 attempts (`CFG_TUH_ENUM_ATTEMPT_MAX`). The cap is reached, so its retries get no bus reset.
 
-  After that, nothing happens until the next plug-in.
+  That is 11 attempts per plug-in. After that, nothing happens until the next plug-in.
 - The HOST_CONN_DIS handler acknowledges `SIE_STATUS.SPEED` before reading the speed (upstream acknowledged after), so a fast DISC then CONN raises the interrupt again instead of being lost.
 - Upstream's `hcd_port_reset()` is a TODO (pico-feedback #387), so usbh's retries got no bus reset.
 
 ### Other API
 
 - `hcd_edpt_close()` frees the pool entry and retires any transfer. Upstream returned false. The RIA's MSC and xin drivers call `tuh_edpt_close()`.
-- `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. The RIA's MSC driver calls it during stall recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
+- `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. usbh calls it after a successful CLEAR_FEATURE(ENDPOINT_HALT), and the RIA's MSC driver during its stall recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
 - `hcd_edpt_abort_xfer()` sends every endpoint type through `epx_retire()` and returns true. Upstream's slot abort could return false.
 - `hcd_device_close()` retires `ep_pool[0]` only if it points at the closing address, and never frees it. The other entries are freed through `edpt_release()`.
 - `hcd_init()` sets `ep_pool[0].dpram_buf` and leaves its type as CONTROL, which keeps EP0 single-buffered (see rp2040_usb.c).
@@ -166,7 +166,7 @@ Measured on 2026-11-07 on an RP2350 with a full-speed hub, a low-speed keyboard 
 
 - **RP2040 support:** `HAS_STOP_EPX_ON_NAK`, `epx_switch_request`, `epx_sof_round_robin()` and the NAK_POLL 300/300 delays.
 - **Interrupt slots:** `dpram_int_ep_ctrl()`, `dpram_int_ep_buffer_ctrl()`, `int_edpt_status_bit()`, `int_edpt_is_aborting()`, `int_edpt_reclaim()`, `int_edpt_abort()`, `ABORT_FRAME_MASK`, the ABORTING / ABORTING_PENDING abort protocol, slot setup and teardown, and the slot BUFF_STATUS loop.
-- **`interrupt_num` and `abort_frame`:** these `hw_endpoint_t` fields stay 0. As a result, rp2040_usb.c's single-buffer rule for host interrupt endpoints no longer applies, and an interrupt transfer longer than one packet may double-buffer on EPX.
+- **`interrupt_num` and `abort_frame`:** these `hw_endpoint_t` fields stay 0. rp2040_usb.c tests `transfer_type` instead, so host interrupt transfers stay single-buffered.
 - **Other code:**
   - `epx_ctrl_prepare()`, now inlined into `epx_switch_ep()`.
   - `rp2usb_xfer_start()` in `hcd_edpt_xfer()`.
@@ -176,30 +176,68 @@ Measured on 2026-11-07 on an RP2350 with a full-speed hub, a low-speed keyboard 
 ## rp2040_usb.c
 
 - `bufctrl_write32()` and `bufctrl_write16()` wait 12 cycles before setting AVAILABLE in host mode too, as datasheet 12.7.3.7.1 requires. Upstream skipped the wait in host mode because the host starts every transaction. However, the controller moves to the second buffer of a double-buffered EPX transfer on its own, and `rp2usb_xfer_continue()` re-arms one half while the controller works on the other.
-- `rp2usb_buffer_start()` keeps host control transfers single-buffered. Upstream report #3875 says double-buffered control IN truncates. It has not been reproduced here, but single-buffering EP0 is cheap hardening. The HCD keeps `ep_pool[0]` at type CONTROL for this.
+- `rp2usb_buffer_start()` double-buffers host bulk transfers only.
+  - Control: upstream report #3875 says double-buffered control IN truncates. It has not been reproduced here, but single-buffering EP0 is cheap hardening. The HCD keeps `ep_pool[0]` at type CONTROL for this.
+  - Interrupt: upstream single-buffered host interrupt endpoints by testing `interrupt_num`, which the HCD never sets, so this copy tests `transfer_type`. A double-buffered IN that ends on a short packet takes the host branch of `rp2usb_xfer_continue()` that writes `STOP_TRANS` itself. That STOP bypasses `epx_stop()`, so the next transfer starts at once instead of after the SOF (see "Hold until SOF after a STOP"). xin reads 64 bytes from a wired Xbox 360 pad's 32-byte endpoint, so every report from that pad would take this branch. Single-buffered, a short packet ends the transfer through the normal path. This half has nothing to do with #3875 and stays when upstream fixes that report.
+  - Bulk: a bulk IN longer than one packet still double-buffers, so one that ends on a short packet still takes that branch, with no hold until the SOF.
 
 ## usbh.c
 
-Apart from the include paths and `queue_event()`, every change concerns failed enumeration. A failure now ends the enumeration instead of stranding it, and it cleans up drivers and the hub port.
+The changes cover failed enumeration, recovery of configured devices, and the event queue.
+
+### Failed enumeration
+
+A failure is retried in place. Once the attempts are used up, the enumeration ends and cleans up drivers and the hub port, instead of stranding.
 
 - **No free address** (`ENUM_SET_ADDR`): the enumeration fails. With this config, that happens for a 17th device or a 6th hub. Upstream asserted and returned.
 - **Configuration descriptor larger than `CFG_TUH_ENUMERATION_BUFSIZE`** (1024, `ENUM_GET_FULL_CONFIG_DESC`): the size is logged and the enumeration fails. Upstream asserted and returned.
 - **`enum_parse_configuration_desc()` fails** (`ENUM_CONFIG_DRIVER`): the enumeration fails. The parse fails on an endpoint or interface number at or above `CFG_TUH_ENDPOINT_MAX` or `CFG_TUH_INTERFACE_MAX`, after some drivers may already have opened.
 - **New `usbh_driver_set_config_failed(daddr)`:** a class driver whose set_config failed calls it to fail the enumeration. Upstream gives drivers no way to fail set_config, because the return value of `driver->set_config()` is ignored. The function acts only if the device is configured and is the one being enumerated. `usbh_driver_set_config_complete()` uses the same guard, so a late callback cannot fail an enumeration at another address.
+- **One retry for every failure:** every failure exit calls `enum_full_complete(false)`, which calls `enum_retry()` until `CFG_TUH_ENUM_ATTEMPT_MAX` attempts are used up, then `enum_end()`. Upstream retried only from `process_enumeration()` on a FAILED or TIMEOUT control transfer. Its other exits, set_config failures included, ended the enumeration at once.
+  - A retry starts again at the debounce delay with a fresh port reset, on the root port and behind a hub alike.
+  - Between attempts `enumerating_daddr` stays 0, so no other port enumerates, and attaches stay deferred.
+  - The four unplug exits call `enum_end(false)`, which ends the enumeration without a retry. They are the root port's connect checks after the debounce and after the reset, and the hub port's connection checks at `ENUM_HUB_RERSET` and `ENUM_HUB_CLEAR_RESET_COMPLETE`.
+  - An enumeration torn down from outside, by an unplug or an attach on its port, is not retried, because `usbh_device_close()` has already cleared `enumerating_daddr`. A late completion from a hub request of the old enumeration can still cost the next attach one attempt.
+- **Root port re-post removed:** upstream re-posted a root port attach up to 3 times after a failed enumeration (`USBH_ENUM_ROOT_RETRY_MAX`, `root_retry_count`, `root_retry_rhport`, `attach_teardown`). The in-place retry replaces it, so the root port and hub ports use one mechanism. Upstream gave a hub port at most 2 attempts, the default `CFG_TUH_ENUM_ATTEMPT_MAX`.
 - **`enum_teardown()`:** on failure, it calls every class driver's `close(daddr)` before closing the device.
   - Upstream leaked the state that drivers opened at `ENUM_CONFIG_DRIVER`. `clear_device()` clears `connected`, so `remove_device_tree()` later skips the device.
   - Drivers already accept a close for an address they never opened.
-- **`enum_full_complete()`, failure behind a hub:**
+- **`enum_end()`, failure behind a hub:**
   - The device's hub port is disabled first with ClearPortFeature(PORT_ENABLE), so the failed device cannot answer the next device's address 0.
-  - The completion of that request, `enum_port_disabled()`, re-arms the hub status endpoint.
+  - The completion of that request, `enum_port_disabled()`, re-arms the hub status endpoint, unless `ENUM_CONFIG_DRIVER` already armed it during this attach (`enum_hub_armed`). That arm always has an owner: the status chain re-arms when it finishes, and an attach it posted re-arms when that enumeration ends. Upstream armed again, so after a set_config failure the hub could be armed while the next port enumerated, and the status chain cleared that port's C_PORT_RESET.
   - The clear is queued before the next attach starts, and control transfers run in order.
-  - If the clear cannot be queued, the status endpoint is re-armed at once, as upstream does.
-- **`queue_event()`:** `TU_ASSERT` becomes `TU_VERIFY`. The function runs in the USB IRQ, and an assert's log goes through `rp6502_log_tusb()`, which formats, allocates and prints.
+  - If the clear cannot be queued, the status endpoint is re-armed at once, as upstream does, under the same condition.
+- **`ENUM_HUB_CLEAR_RESET`:** the reset counts as done when C_PORT_RESET is set, or when the port reports PORT_ENABLE without PORT_RESET. In the second case there is nothing to clear, and the enumeration goes straight on. Upstream waited 20 ms more and then failed.
+  - Why: the hub status endpoint is armed during an enumeration in two cases, a retry after an `ENUM_CONFIG_DRIVER` arm and the re-attach of a configured device (below). It then reports the port's C_PORT_RESET too, and the status chain may clear it first.
+- **Hub port status:** the enumeration's GET_STATUS of its port lands in `_usbh_epbuf.ctrl`, and the enumeration reads it there. Upstream used the hub's `ctrl_buf` and `hub_port_get_status_local()`. The status chain writes `ctrl_buf` too, and while the status endpoint is armed (above), its GET_STATUS of another port can complete between the enumeration's GET_STATUS and CLEAR(C_PORT_RESET). `ENUM_HUB_CLEAR_RESET_COMPLETE` then read the other port's status: an empty port ended the enumeration as unplugged, and a low-speed one set the wrong speed. The other way round, the enumeration's GET_STATUS could replace the status the chain reads after its own clear. hub.c's `hub_port_get_status()` writes a port's status to the caller's buffer when there is one.
 
 Consequences:
 
-- A device that failed enumeration behind a hub stays disabled until it is replugged or its hub is reset. ClearPortFeature(PORT_ENABLE) raises no port change.
-- On the root port, a failure that repeats is retried as described in "Root port reset" under hcd_rp2040.c.
+- A device that failed all its attempts behind a hub stays disabled until it is replugged or its hub is reset. ClearPortFeature(PORT_ENABLE) raises no port change.
+- On the root port, each retry goes through `hcd_port_reset()`, see "Root port reset" under hcd_rp2040.c. A re-reset brings a fresh attach, which starts its own attempts.
+
+### Configured devices
+
+- **Halted endpoints (`edpt_clear_halt()`):** when a non-control transfer completes STALLED, usbh first sends CLEAR_FEATURE(ENDPOINT_HALT). Meanwhile the endpoint stays busy and claimed, so the class cannot re-submit early. On success `hcd_edpt_clear_stall()` resets the data toggle. Then the class gets STALLED as before, and its re-arm works. Upstream left the clear to each class, and only MSC did it, so a HID, CDC, MIDI, xinput or hub endpoint stayed halted until a replug.
+  - `edpt_halt_cleared()` drops the completion if the device was closed meanwhile. Its `user_data` carries `daddr_gen`, which `usbh_device_close()` bumps before it fails the device's control transfers.
+  - If the request cannot be queued (the 4-entry pending control FIFO is full), STALLED is delivered at once. The re-arm stalls again, and the clear is retried.
+  - Each STALLED counts toward the re-attach below, so an endpoint that stays halted, or a device that refuses the clear, is enumerated again after 1 s instead of looping through CLEAR_FEATURE and STALL. Each STALL costs the other devices the rest of that frame.
+  - The class dispatch moved into `edpt_xfer_complete()`, which both paths use. It clears busy and claimed only on non-control endpoints, because control transfers never set them. A completion without a driver still asserts, but no longer ends the `tuh_task_ext()` run.
+- **Re-attach after 1 s of failures:** when a configured device's non-control transfers have failed for `USBH_FAIL_RESET_MS` (1000 ms), usbh handles an attach for the device's own port, as one from its hub or the root port would be handled. That tears the device down and enumerates it again, with a fresh port reset. Upstream left such a device mounted and silent, and each failure idles EPX until the next SOF.
+  - A run starts at the first FAILED or STALLED. It ends at any SUCCESS, or when no failure comes for `USBH_FAIL_RESET_MS`. An idle endpoint NAKs, and a NAK completes nothing, so without the gap one transient error would keep a run open until the next one, however much later.
+  - Time, not a count, so the reset comes at the same point for any bInterval. Linux `hid_io_error()` does the same for HID.
+  - Examples: a device that lost its address (ESD reset, a stray SET_ADDRESS) or sits on a suspended hub port.
+  - It acts only while no enumeration runs. Otherwise the run stays open, and the next failure tries again. The attach is handled at once instead of being queued, so it never goes through the deferred-attach queue, which has one entry per hub. Queued, a burst of re-attaches behind a failing hub could overflow it, and the handler would drop an attach after tearing its device down.
+  - Hubs count too. usbh never marks a hub mounted, but it is configured. A hub's re-attach removes its whole tree and enumerates it again.
+  - On the root port, the reset is a re-reset through VBUS_DETECT, which counts against the 3 per plug-in in "Root port reset" under hcd_rp2040.c. Past those, the re-attach enumerates without a bus reset. A device that lost its address to a reset of its own is at address 0 and still enumerates.
+  - `fail_ms` (the run's start, 0 for no run) and `fail_last_ms` (its latest failure) are 16-bit stamps inside the packed device state, so they cost 4 bytes per device.
+- **`usbh_device_close()`:** clears `connected` before it fails the device's in-flight control transfer. A callback of that transfer can then no longer queue a request to the departing device, because `tuh_control_xfer()` rejects it. Upstream let a departing hub's callback claim the control slot for the 5 s watchdog. Both callers clear the device right after.
+
+### Event queue
+
+- **`queue_event()`:** `TU_ASSERT` becomes `TU_VERIFY`. The function runs in the USB IRQ, and an assert's log goes through `rp6502_log_tusb()`, which formats, allocates and prints.
+- **Root attach debounce (`hcd_event_handler()`):** a root port attach that the queue drops clears its debounce bit again. Upstream left the bit set, and then ignored every later root port event.
+  - The bit is still set before the attach is queued, as upstream does. Only the USB IRQ raises root port events, so none comes in between. usbh's re-attach of a configured device is handled in the task without an event, see above.
 
 ## hub.c
 
@@ -218,18 +256,42 @@ Consequences:
   - The result of the MTT SET_INTERFACE is still not checked.
   - Upstream asserted and returned on the transfer results and on the SET_INTERFACE and GET_HUB_DESCRIPTOR queues. That stranded the enumeration and left the hub's ports unpowered until the hub was unplugged (#4064). Upstream ignored the SET_PORT_POWER queue results. After a failed status-endpoint arm, it completed set_config anyway.
 - **Port power chain:** `config_port_power_complete()` ends the chain at `wIndex >= bNbrPorts` (upstream used `==`), so the chain also ends for a hub that reports 0 ports. Port 1 is still powered first, so a 0-port hub that rejects that request fails set_config.
+- **Port disabled by the hub** (`process_new_status()`): when C_PORT_ENABLE comes with the port connected but not enabled, and a configured device sits on the port, the change is cleared with next state `STATE_CHECK_CONN`. That posts an attach, and usbh tears the device down and enumerates it again. Upstream only cleared the change, so the device stayed mounted and unreachable.
+  - A host disable, such as the ClearPortFeature(PORT_ENABLE) that usbh sends after a failed enumeration, sets no C_PORT_ENABLE (USB 2.0 11.24.2.7.2.2).
+  - A hub-side disable during an enumeration, such as a port error from a device that babbles, does set it. The status endpoint is not armed then, so the change stays latched until the enumeration has ended. Without the device check, the attach for that change would start all the attempts again, and a device that fails every attempt would never be left disabled. Linux also re-enumerates on C_PORT_ENABLE only when the port has a device.
+  - `hub_port_has_device()` looks for the device with `tuh_mounted()` and `tuh_bus_info_get()` over every address, so usbh needs no new function.
+- **Over-current** (`process_new_status()`): upstream only cleared the change, and a port that the over-current turned off stayed off until the hub was replugged.
+  - Port: after C_PORT_OVER_CURRENT is cleared, `STATE_PORT_POWER` sends SET_FEATURE(PORT_POWER) if the over-current has ended and the port is off.
+  - Hub: after C_HUB_OVER_CURRENT is cleared, if the over-current has ended, `STATE_HUB_POWER` sends SET_FEATURE(PORT_POWER) to ports 1 to bNbrPorts in turn. Each step takes the next port from the previous request's wIndex.
+  - Either way, an over-current that persists waits for its next change, which comes when it ends.
+  - A step of the hub walk that fails goes on to the next port, so one failed request does not leave the remaining ports off.
+- **`hub_port_get_status()`:** a port's status goes to the caller's buffer when the caller passes one. Upstream always used the hub's `ctrl_buf`, which the status chain reads after its clears. usbh's enumeration passes its own buffer, see "Hub port status" under usbh.c.
+- **Status poll recovery:** the comment drops "This does not repair the status endpoint itself." usbh now clears a halted status endpoint, see usbh.c.
 
 ## cdc_host.c
 
-- **`ch34x_process_set_config()`:** a CH34X with chip version below 0x30 fails set_config through `TU_VERIFY`, which logs nothing. `cdch_process_set_config()` then completes set_config as failed, and the device finishes enumerating without that CDC interface. Upstream broke out with no transfer queued, so set_config never completed, which was a strand.
+- **`ch34x_process_set_config()`:** a CH34X with chip version below 0x30 fails set_config through `TU_VERIFY`, which logs nothing. `cdch_process_set_config()` then fails set_config, as below. Upstream broke out with no transfer queued, so set_config never completed, which was a strand.
+- **`set_config_complete()`, failure:** calls `usbh_driver_set_config_failed()`, so usbh fails the enumeration and retries it. Upstream completed set_config, and the device stayed mounted without that serial port until it was replugged. A single failed vendor setup request, such as the FTDI SIO reset, was enough. A CH34X below version 0x30 fails every attempt.
+- **Bulk OUT:** `cdch_xfer_cb()` sends a FAILED or STALLED OUT transfer again, from the first byte the device did not acknowledge. Upstream returned on any result but SUCCESS. The bytes were lost after `tuh_cdc_write()` had reported them written, and the rest of the FIFO waited for the next write.
+  - `tx_len` holds the length of the transfer in flight. A transfer from the FIFO starts only in `cdch_write_xfer()`, which records `tx_len`. `tuh_cdc_write_flush()` and `cdch_xfer_cb()` call it. The resend in `cdch_xfer_cb()` restarts the unsent tail itself and lowers `tx_len`. A ZLP sets it to 0.
+  - `tuh_cdc_write()` only fills the FIFO, with `tu_fifo_write_n()`. Upstream's `tu_edpt_stream_write()` also starts a transfer once the FIFO holds a packet, and tusb.c does not pass that transfer's length back. vcp.c flushes after every write.
+  - A resend is safe. The HCD gives back the toggles of packets it did not send, and the device drops a repeated packet by its toggle.
+  - STALLED is handled like FAILED, because usbh clears the halt before it reports STALLED.
+- **Bulk IN:** `cdch_xfer_cb()` keeps the bytes received and re-arms on every result. Upstream did neither after a failure, so input stopped until the device was replugged.
+  - The FTDI status bytes are stripped on every result, because every FTDI packet starts with them.
+  - A device that stops answering fails one transfer per frame, and each failure costs the other devices the rest of that frame, until usbh re-enumerates it after 1 s of failures.
+- **CDC ACM line requests:** `acm_set_line_coding()` and `acm_set_control_line_state()` always send, as Linux does. Upstream sent neither when the ACM functional descriptor leaves the line-request bit of bmCapabilities clear, and the call failed. Some devices leave the bit clear and accept the requests anyway. A device without them answers with a STALL, which vcp.c counts as success.
+  - `acm_open()` does not store bmCapabilities, and the driver union has no `acm` member, because nothing reads them. The walk still skips the functional descriptors.
+- **Two-stage line coding** (`cdch_set_line_coding_stage1_baudrate_complete()`): when the data format request cannot start, the caller's callback gets FAILED. FTDI, for example, refuses 5 and 6 data bits. Upstream asserted and returned without calling back, so vcp.c would have kept the port configuring forever.
 
 ## midi_host.c
 
 This file is a rework of upstream's MIDI host, rebased onto master.
 
-- **`midih_xfer_cb()`:** a failed transfer is not re-armed. Otherwise, a bulk IN on a device that stopped responding would take the shared EPX again after every RX timeout, ahead of the endpoints waiting for it.
-  - RX is re-armed only when the application reads data that is still buffered, or on remount.
-  - TX resumes at the next write that fills a packet, or at `tuh_midi_write_flush()`.
+- **`midih_xfer_cb()`:** a FAILED or STALLED OUT transfer is sent again from the first byte the device did not acknowledge, as in cdc_host.c. Upstream treated every result as a completion, so the packets of a failed transfer were lost, which can leave a note stuck on.
+  - `tx_len` holds the length of the transfer in flight. A transfer from the FIFO starts only in `midih_write_xfer()`, which records `tx_len`. `tuh_midi_write_flush()` and `midih_xfer_cb()` call it. The resend in `midih_xfer_cb()` restarts the unsent tail itself and lowers `tx_len`. A ZLP sets it to 0.
+  - `tuh_midi_packet_write_n()` and the stream API only fill the FIFO, with `tu_fifo_write_n()`, for the reason given under cdc_host.c. mid.c flushes every interface it wrote to.
+  - IN is re-armed on every result, as upstream does. A device that stops answering fails one IN per frame until usbh re-enumerates it after 1 s of failures.
 - **`midih_open()`:**
   - Clears the cable counts and framer state on every open.
   - The descriptor walks also stop on a bLength below 2. `tu_desc_in_bounds()` accepts a bLength of 0, and `tu_desc_next()` never advances past one.
@@ -255,6 +317,8 @@ This file is the RIA's own config, not a copy.
   - `CFG_TUH_DEVICE_MAX` is 16, `CFG_TUH_HUB` is 5, and `CFG_TUH_ENUMERATION_BUFSIZE` is 1024.
   - `CFG_TUH_MSC` is 0 because the RIA has its own MSC driver.
   - `CFG_TUH_MIDI_STREAM_API` is 0.
+- **`CFG_TUH_TASK_QUEUE_SZ`** is 64 (upstream 16), more than all producers can have in flight at once. A dropped completion leaves its endpoint busy and claimed for good, and a dropped hub attach leaves that hub unarmed. The 48 extra 12-byte events cost 576 B. It also lets usbh's control watchdog wait out up to 64 queued events, instead of 16, before it fires under sustained traffic.
+- **`CFG_TUH_ENUM_ATTEMPT_MAX`** is 8 (upstream 2). usbh retries every enumeration failure in place, on the root port and behind a hub (see usbh.c). Each attempt costs the 150 ms debounce plus the reset and its recovery. A device that fails every attempt holds up the other ports' attaches meanwhile, up to 8 control timeouts of 5 s for one that NAKs a request forever.
 
 ## Upstream references
 
@@ -269,7 +333,7 @@ TinyUSB issues: when upstream fixes one, drop the matching change.
 
 | Reference | Change here |
 |---|---|
-| #3875 | Single-buffered host EP0 (rp2040_usb.c) |
+| #3875 | Single-buffered host EP0 (rp2040_usb.c). Interrupt transfers stay single-buffered. |
 | #4064 | Hub set-config strands (hub.c, usbh.c) |
 | #4199 | Hub status bitmap length (hub.c) |
 | #4200, PR #4447 | `hub_open()` address guard (hub.c) |
