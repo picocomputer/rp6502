@@ -21,8 +21,8 @@ from rp6502_rom import main, rom
 PSG = 0x8000
 GO = 0x0200
 ATTR_PCM_UNDERRUNS = 0x0E
-ATTR_OPL_DROPS = 0x0F
-# opl_drops_prog's and pcm_dry_prog's answers: A and X of each call, the
+ATTR_OPL_OVERRUNS = 0x0F
+# opl_overruns_prog's and pcm_dry_prog's answers: A and X of each call, the
 # errno of the last, then 1 once all are in.
 GOT = 0x0210
 
@@ -229,9 +229,9 @@ def opl_flat_prog():
     return p
 
 
-def opl_drops_prog():
+def opl_overruns_prog():
     """300 writes to register 40, 4 cycles apart, more than the queue of 256
-    holds. Then the drop count is read twice and written once through the
+    holds. Then the overrun count is read twice and written once through the
     attribute."""
     p = Prog()
     page = 0xF000
@@ -242,7 +242,7 @@ def opl_drops_prog():
     for _ in range(300):
         p.sta_abs(RW0_DATA)
     p.store(RW0_STEP, 0x01)
-    attr_answers(p, ATTR_OPL_DROPS)
+    attr_answers(p, ATTR_OPL_OVERRUNS)
     p.spin()
     return p
 
@@ -954,7 +954,7 @@ def test_pcm_rules():
 ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_exit": opl_exit_prog, "opl_init": opl_init_prog,
         "opl_spread": opl_spread_prog, "opl_flat": opl_flat_prog,
-        "opl_drops": opl_drops_prog, "pcm_dry": pcm_dry_prog,
+        "opl_overruns": opl_overruns_prog, "pcm_dry": pcm_dry_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
         "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,

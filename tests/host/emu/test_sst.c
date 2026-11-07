@@ -345,7 +345,7 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     for (int k = 0; k < 300; k++)
         ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
     const size_t n = aud_pull(went, 3);
-    const uint32_t drops = aud_opl_drops();
+    const uint32_t drops = aud_opl_overruns();
     ASSERT_GT(drops, 0u);
 
     ASSERT_TRUE(xreg0(1, 1, 0x4000));
@@ -357,7 +357,7 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     ASSERT_EQ(aud_pull(came, 3), n);
     ASSERT_TRUE(aud_sounded(went, n * 2));
     ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
-    ASSERT_EQ(aud_opl_drops(), drops);
+    ASSERT_EQ(aud_opl_overruns(), drops);
 }
 
 /* A blob whose OPL chunk is version 1, as older builds wrote it, with its sum

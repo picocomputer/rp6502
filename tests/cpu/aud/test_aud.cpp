@@ -182,9 +182,9 @@ UTEST(aud, opl_init_sounds_after_a_page_clear)
  * 256. They take about 7.5 samples to arrive and the engine applies some
  * of them meanwhile, so 44 less those are dropped. The attribute returns
  * the count and clears it, and refuses a write. */
-UTEST(aud, opl_drops_counts_the_writes_the_queue_could_not_take)
+UTEST(aud, opl_overruns_count_the_writes_the_queue_could_not_take)
 {
-    ASSERT_TRUE(load_rom(AUD_ROM_OPL_DROPS));
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL_OVERRUNS));
     auto *r = dut->rootp;
     auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
     const uint16_t got = 0x0210;

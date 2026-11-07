@@ -301,7 +301,7 @@ void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right))
     aud_probe = sample;
 }
 
-uint32_t aud_opl_drops(void)
+uint32_t aud_opl_overruns(void)
 {
     const uint32_t drops = aud_oq.drops;
     aud_oq.drops = 0;

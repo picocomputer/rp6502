@@ -144,8 +144,9 @@ static inline int32_t set_tz_minutes(void)
  * voices' registers, about 64 clocks after any sample in progress ends. */
 #define AUD_PSG_BUSY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-/* The OPL's writes dropped since the last read, which clears it. */
-#define AUD_OPL_DROPS (*(volatile uint32_t *)0x7000000Cu)
+/* The OPL's overruns, writes dropped because its queue was full, since the
+ * last read, which clears it. */
+#define AUD_OPL_OVERRUNS (*(volatile uint32_t *)0x7000000Cu)
 /* One byte of the bell's channel structure: bits 10:8 its index, 7:0 its
  * value. Byte 6, the gate, strikes or releases. */
 #define AUD_BEL (*(volatile uint32_t *)0x70000010u)

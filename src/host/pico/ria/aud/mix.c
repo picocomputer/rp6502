@@ -349,7 +349,7 @@ void aud_stop(void)
 
 /* The lock drains the ring first, so every write core1 queued before the
  * call is counted. */
-uint32_t aud_opl_drops(void)
+uint32_t aud_opl_overruns(void)
 {
     aud_engine_lock();
     const uint32_t drops = opl_take_drops();

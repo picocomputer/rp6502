@@ -73,7 +73,7 @@ static bool mix_run(const char *rom, int frames, bool muted)
     }
     cpu_dbg_cycle_cb = NULL;
     dbg_set_active(false);
-    mix_drops = aud_opl_drops();
+    mix_drops = aud_opl_overruns();
     sys_stop();
     sys_commit();
     aud_setup_probe(NULL);

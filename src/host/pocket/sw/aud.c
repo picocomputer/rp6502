@@ -105,6 +105,6 @@ uint16_t aud_pcm_level(void) { return (uint16_t)AUD_PCM_LEVEL; }
 
 void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 
-uint32_t aud_opl_drops(void) { return AUD_OPL_DROPS; }
+uint32_t aud_opl_overruns(void) { return AUD_OPL_OVERRUNS; }
 
 uint32_t aud_pcm_underruns(void) { return AUD_PCM_UNDERRUNS; }

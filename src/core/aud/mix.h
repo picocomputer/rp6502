@@ -78,12 +78,12 @@ void aud_step(void);
 /* Native samples the mix has made; while one is being made, its index. */
 uint64_t aud_samples(void);
 
-/* OPL2 writes dropped since the last call, saturating at 0x7FFFFFFF: the
- * writes a program made faster than the queue's pace let it hold. A map,
- * an unmap and aud_stop clear it. A software machine decides each write as
- * the 6502 makes it, so nothing the host does adds one. The Pocket counts
- * them in the fabric. */
-uint32_t aud_opl_drops(void);
+/* OPL2 overruns since the last call, saturating at 0x7FFFFFFF: each write
+ * that found the queue full and was dropped, because a program wrote faster
+ * than the queue's pace let it hold. A map, an unmap and aud_stop clear it.
+ * A software machine decides each write as the 6502 makes it, so nothing the
+ * host does adds one. The Pocket counts them in the fabric. */
+uint32_t aud_opl_overruns(void);
 
 /* Times the PCM: device's buffer ran dry since the last call, saturating at
  * 0x7FFFFFFF: each take of a frame that left less than one. An open and
