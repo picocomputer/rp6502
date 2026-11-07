@@ -5,11 +5,11 @@ function(rp6502_add_cpu_test name)
     if(COMMAND rp6502_add_module_test)
         rp6502_add_module_test(${name}
             TOP cpu
-            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/cpu.sv
+            RTL ${RP6502_ASSETS}/cpu_rom_pkg.sv ${RP6502_SRC}/core/wdc/cpu.sv
             SOURCES ${P_SOURCES} cpu_dut_rtl.cpp rtl_dut.cpp
             INCLUDES ${CPU_INCLUDES}
             DEFS ${P_DEFS}
-            DEPENDS w65c02_rom
+            DEPENDS rp6502_gen_assets
             TIMEOUT 900)
     else()
         rp6502_add_test(${name}

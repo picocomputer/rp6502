@@ -2,27 +2,23 @@ set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
 include(${RP6502_ROOT}/src/osal/pico/pico.cmake)
 
 include(${RP6502_ROOT}/src/core/gen.cmake)
-rp6502_gen_oemcp(oemcp)
-rp6502_gen_kbdlay(kbdlay)
-rp6502_gen_opl_rom(opl_rom)
-rp6502_gen_aud_sine(aud_sine)
-rp6502_gen_rsmp_coef(rsmp_coef)
+rp6502_gen_c()
 
 set(HID_USAGE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_usage.stamp)
 set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
 set(HID_VENDOR ${RP6502_ROOT}/vendor/tinyusb/src/class/hid/hid.h)
 add_custom_command(OUTPUT ${HID_USAGE_STAMP}
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_ROOT}/src/core/gen/hid_usage_check.py
+        ${RP6502_ROOT}/src/core/hid/usage.py
         --usage ${HID_USAGE} --vendor ${HID_VENDOR}
     COMMAND ${CMAKE_COMMAND} -E touch ${HID_USAGE_STAMP}
-    DEPENDS ${RP6502_ROOT}/src/core/gen/hid_usage_check.py ${HID_USAGE} ${HID_VENDOR}
+    DEPENDS ${RP6502_ROOT}/src/core/hid/usage.py ${HID_USAGE} ${HID_VENDOR}
     COMMENT "Checking core/hid/usage.h against TinyUSB"
     VERBATIM)
 add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})
 
 add_executable(${RIA_TARGET})
-add_dependencies(${RIA_TARGET} hid_usage opl_rom rsmp_coef aud_sine)
+add_dependencies(${RIA_TARGET} hid_usage rp6502_gen_c)
 rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
@@ -55,7 +51,7 @@ set_source_files_properties(${RP6502_ROOT}/src/core/str/str.c PROPERTIES COMPILE
 target_include_directories(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/host/pico
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}
+    ${RP6502_GEN}
     ${RIA_SRC}
     ${RP6502_ROOT}/src
     ${RP6502_ROOT}/vendor
@@ -92,7 +88,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/str/unicode.c
-    ${OEMCP_C}
+    ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c
     ${RIA_SRC}/aud/mix.c
@@ -104,7 +100,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
-    ${KBDLAY_C}
+    ${RP6502_GEN}/layout_db.c
     ${RP6502_ROOT}/src/core/hid/mouse.c
     ${RP6502_ROOT}/src/core/hid/gamepad.c
     ${RP6502_ROOT}/src/core/hid/parse.c
@@ -122,6 +118,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/str.c
     ${RP6502_ROOT}/src/core/sys/config.c
     ${RP6502_ROOT}/src/core/sys/random.c
+    ${RP6502_ROOT}/src/core/sys/ring.c
     ${RP6502_ROOT}/src/core/sys/timer.c
     ${RP6502_ROOT}/src/core/sys/xram.c
     ${RP6502_ROOT}/src/core/ria/regs.c

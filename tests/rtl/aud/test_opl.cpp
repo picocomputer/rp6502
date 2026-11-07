@@ -218,7 +218,7 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
          * drops it as opl.sv does; one the engine ignores lands alike. */
         bool due = i < evs.size() && evs[i].n <= n + 1 && evs[i].clk == tickctr();
         if (due && (evs[i].kind == EV_WRITE || evs[i].kind == EV_WRITE_DROPS)
-            && dut->rootp->opl__DOT__q_count == OPL_QUEUE_SIZE)
+            && dut->rootp->opl__DOT__q_len == OPL_QUEUE_SIZE)
         {
             if (const char *r = inject(evs[i++], &at, n))
                 return r;
@@ -231,14 +231,14 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
             uint32_t credit;
             bool late;
             opl_pace_get(&credit, &late);
-            const unsigned rq = dut->rootp->opl__DOT__q_count;
+            const unsigned rq = dut->rootp->opl__DOT__q_len;
             const unsigned rc = dut->rootp->opl__DOT__credit * 24u;
             const bool rl = dut->rootp->opl__DOT__late;
-            if (rq != opl_queue.count || rc != credit || rl != late)
+            if (rq != RING_LEN(&opl_queue.ring) || rc != credit || rl != late)
             {
                 snprintf(why, sizeof why,
                          "before sample %u: opl.sv queue %u credit %u late %d, opl.c %u %u %d",
-                         (unsigned)n, rq, rc, rl, (unsigned)opl_queue.count, (unsigned)credit, late);
+                         (unsigned)n, rq, rc, rl, (unsigned)RING_LEN(&opl_queue.ring), (unsigned)credit, late);
                 return why;
             }
             want[n] = opl_sample();

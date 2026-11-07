@@ -6,21 +6,18 @@
 
 #include "vga/sys/com.h"
 #include "core/sys/com_term.h"
+#include "core/sys/ring.h"
 #include "vga/usb/cdc.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 
-static size_t com_in_head;
-static size_t com_in_tail;
-static char com_in_buf[COM_IN_BUF_SIZE];
+static RING(char, COM_IN_BUF_SIZE) com_in;
 
-static char com_in_reply_buf[COM_IN_BUF_SIZE - 1];
+static char com_in_reply_buf[COM_IN_BUF_SIZE];
 static size_t com_in_reply_len;
 
-static size_t com_out_head;
-static size_t com_out_tail;
-static char com_out_buf[COM_OUT_BUF_SIZE];
+static RING(char, COM_OUT_BUF_SIZE) com_out;
 
 static bool com_term_reply_suppressed;
 
@@ -31,18 +28,17 @@ void com_suppress_term_reply(bool suppress)
 
 size_t com_in_free(void)
 {
-    return (com_in_tail + COM_IN_BUF_SIZE - com_in_head - 1) % COM_IN_BUF_SIZE;
+    return RING_AVAIL(&com_in);
 }
 
 bool com_in_empty(void)
 {
-    return com_in_head == com_in_tail;
+    return !RING_LEN(&com_in);
 }
 
 void com_in_write(char ch)
 {
-    com_in_head = (com_in_head + 1) % COM_IN_BUF_SIZE;
-    com_in_buf[com_in_head] = ch;
+    RING_PUT(&com_in, ch);
 }
 
 void com_in_write_reply(const char *s, size_t n)
@@ -57,39 +53,37 @@ void com_in_write_reply(const char *s, size_t n)
 
 bool com_out_empty(void)
 {
-    return com_out_head == com_out_tail;
+    return !RING_LEN(&com_out);
 }
 
 bool com_out_full(void)
 {
-    return (com_out_head + 1) % COM_OUT_BUF_SIZE == com_out_tail;
+    return !RING_AVAIL(&com_out);
 }
 
 char com_out_peek(void)
 {
-    return com_out_buf[(com_out_tail + 1) % COM_OUT_BUF_SIZE];
+    return *RING_AT(&com_out, 0);
 }
 
 char com_out_read(void)
 {
-    com_out_tail = (com_out_tail + 1) % COM_OUT_BUF_SIZE;
-    return com_out_buf[com_out_tail];
+    char ch = 0;
+    RING_GET(&com_out, &ch);
+    return ch;
 }
 
 static void com_out_chars(const char *buf, int length)
 {
-    while (length)
+    for (;;)
     {
-        size_t next = (com_out_head + 1) % COM_OUT_BUF_SIZE;
-        if (next == com_out_tail)
-        {
-            cdc_task();
-            tud_task();
-            continue;
-        }
-        com_out_head = next;
-        com_out_buf[com_out_head] = *buf++;
-        length--;
+        const uint32_t n = RING_IN(&com_out, buf, (uint32_t)length);
+        buf += n;
+        length -= (int)n;
+        if (!length)
+            break;
+        cdc_task();
+        tud_task();
     }
 }
 
@@ -143,19 +137,16 @@ void com_set_uart_break(bool en)
 
 void com_task(void)
 {
-    if (com_in_reply_len && com_in_empty())
+    if (com_in_reply_len && !RING_LEN(&com_in))
     {
-        for (size_t i = 0; i < com_in_reply_len; i++)
-            com_in_write(com_in_reply_buf[i]);
+        RING_IN(&com_in, com_in_reply_buf, (uint32_t)com_in_reply_len);
         com_in_reply_len = 0;
     }
 
     // IN is sunk here to UART
-    while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
-    {
-        com_in_tail = (com_in_tail + 1) % COM_IN_BUF_SIZE;
-        uart_get_hw(COM_UART_INTERFACE)->dr = com_in_buf[com_in_tail];
-    }
+    char ch;
+    while (uart_is_writable(COM_UART_INTERFACE) && RING_GET(&com_in, &ch))
+        uart_get_hw(COM_UART_INTERFACE)->dr = ch;
 
     // OUT is sourced here from STD UART
     while (uart_is_readable(COM_UART_INTERFACE))

@@ -26,6 +26,8 @@ static std::deque<uint8_t> console;
 static std::deque<std::pair<uint32_t, uint32_t>> writes;
 static long tsim;
 static int done_hold;
+/* Bridge clocks from an event to its target_debug_done. */
+static int done_delay;
 static int prev_event;
 
 static void reset(int endian_little)
@@ -41,6 +43,7 @@ static void reset(int endian_little)
     writes.clear();
     tsim = 0;
     done_hold = 0;
+    done_delay = 3;
     prev_event = 0;
 
     dut->clk_mach = 0;
@@ -114,7 +117,7 @@ static void tick(void)
         {
             events.push_back(dut->pocket_dbglog_id);
             dut->target_debug_done = 0;
-            done_hold = 3;
+            done_hold = done_delay;
         }
         prev_event = dut->pocket_dbglog_event;
     }
@@ -291,6 +294,29 @@ UTEST(pdbglog, a_burst_of_commands_keeps_its_order)
     ASSERT_EQ(0x00000009u, events[1]);
     ASSERT_EQ(0xC000008Fu, events[2]);
     ASSERT_EQ(0xC0000011u, events[3]);
+}
+
+/* The host leaves the first event unanswered while eight commands come
+ * in: the first goes out, seven fill the queue to one free slot, and a
+ * command with a parameter finds no room for both and is dropped whole. */
+UTEST(pdbglog, a_full_queue_never_splits_a_command_from_its_parameter)
+{
+    reset(0);
+    done_delay = 1 << 30;
+    for (int i = 0; i < 8; i++)
+    {
+        host_command(0x0011, 0);
+        host_idle(4);
+    }
+    host_param(0x0000000Bu, 0);
+    host_command(0x0080, 0);
+    run(200);
+    done_delay = 3;
+    done_hold = 1;
+    settle();
+    ASSERT_EQ(8u, (unsigned)events.size());
+    for (size_t i = 0; i < events.size(); i++)
+        ASSERT_EQ(0xC0000011u, events[i]);
 }
 
 UTEST_MAIN()

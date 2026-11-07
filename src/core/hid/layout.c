@@ -7,9 +7,9 @@
 #include "core/hid/layout.h"
 #include "core/sys/debug_log.h"
 
-/* The image's header and record shape, as keyboard_layout_gen.py lays them
- * out. The header says where each record starts, and the offsets below are
- * fixed within a record. */
+/* The image's header and record shape, as layout.py lays them out. The
+ * header says where each record starts, and the offsets below are fixed
+ * within a record. */
 #define LAYOUT_MAGIC 0x4C4Bu
 
 #define LAYOUT_OFF_NAME 0

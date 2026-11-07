@@ -14,8 +14,8 @@
 # launches it, and either value keeps the full and empty flags
 # conservative.
 
-set_false_path -to [get_registers {*pocket_fifo*|wptr_gray_r1[*]}]
-set_false_path -to [get_registers {*pocket_fifo*|rptr_gray_w1[*]}]
+set_false_path -to [get_registers {*pocket_fifo*|wr_gray_r1[*]}]
+set_false_path -to [get_registers {*pocket_fifo*|rd_gray_w1[*]}]
 
 set_false_path -to [get_registers {*synch_3*|stage_1[*]}]
 

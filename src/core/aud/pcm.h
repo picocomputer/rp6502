@@ -9,6 +9,7 @@
 
 #include "core/api/std.h"
 #include "core/aud/rsmp.h"
+#include "core/sys/ring.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -36,10 +37,9 @@ typedef struct
 /* The format after "PCM:", such as "22050,16,2". */
 bool pcm_parse(const char *args, pcm_fmt_t *fmt);
 
-/* The sound itself. Bytes go in at head and frames come out at tail, both
- * counting bytes modulo 2^16. A machine whose writer and player run on the
- * same core, the Pico's main loop and audio interrupt, shares one of these
- * between them: only the writer moves head and only the player moves tail. */
+/* The sound itself. The writer puts bytes in buf and the player takes frames
+ * out. A machine whose writer and player run in two contexts, the Pico's main
+ * loop and audio interrupt, shares one of these between them. */
 typedef struct
 {
     pcm_fmt_t fmt;
@@ -53,8 +53,7 @@ typedef struct
     /* Takes that left less than a frame, saturating at 0x7FFFFFFF: each
      * time the buffer ran dry. Only the player counts. */
     uint32_t underruns;
-    volatile uint16_t head, tail;
-    uint8_t buf[PCM_BUF_SIZE];
+    RING(uint8_t, PCM_BUF_SIZE) buf;
 } pcm_t;
 
 /* Frames per native sample at rate, Q32. */
@@ -62,15 +61,16 @@ uint64_t pcm_step(uint32_t rate);
 
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt);
 
-static inline uint16_t pcm_level(const pcm_t *s)
+static inline uint16_t pcm_level(pcm_t *s)
 {
-    return (uint16_t)(s->head - s->tail);
+    return (uint16_t)RING_LEN(&s->buf);
 }
 
 /* Copies in what fits and returns the count. */
 uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n);
 
-/* Empties the buffer. The filter plays out what it already holds. */
+/* Empties the buffer while the player is held. The filter plays out what it
+ * already holds. */
 void pcm_clear(pcm_t *s);
 
 /* The next native sample. A frame is taken when the phase reaches one; with

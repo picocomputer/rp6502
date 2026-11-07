@@ -37,9 +37,9 @@ static void mix_probe(int16_t *l, int16_t *r)
 {
     if (opl_xaddr_get() == 0xFFFF)
         return;
-    const uint16_t waiting = opl_queue.count;
+    const uint16_t waiting = RING_LEN(&opl_queue.ring);
     *l = *r = opl_sample();
-    if (opl_queue.count < waiting)
+    if (RING_LEN(&opl_queue.ring) < waiting)
         mix_applied_at[mix_applied++] = aud_samples();
 }
 
@@ -174,7 +174,7 @@ static void mix_flat(int *utest_result, bool muted)
         ASSERT_TRUE(mix_in_line(i));
     ASSERT_TRUE(mix_on_the_clock());
     ASSERT_GT(mix_drops, 0u);
-    ASSERT_EQ(opl_queue.count, 0);
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 0);
     ASSERT_TRUE(mix_is_pico());
 }
 
@@ -222,10 +222,10 @@ static uint64_t mix_stamp[256];
 
 static void mix_gap_probe(int16_t *l, int16_t *r)
 {
-    const uint16_t waiting = opl_queue.count;
-    const uint8_t v = (uint8_t)(opl_queue.entry[opl_queue.head] >> 8);
+    const uint16_t waiting = RING_LEN(&opl_queue.ring);
+    const uint8_t v = (uint8_t)(*RING_AT(&opl_queue.ring, 0) >> 8);
     *l = *r = opl_sample();
-    if (opl_queue.count < waiting)
+    if (RING_LEN(&opl_queue.ring) < waiting)
     {
         const int64_t gap = (int64_t)aud_samples() - (int64_t)mix_stamp[v];
         if (gap < mix_gap_lo)

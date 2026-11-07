@@ -2,11 +2,18 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# The keyboard layouts in core/def for core/hid/layout.c.
 
-import argparse
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import gen
+
+MANIFEST = "src/core/def/keyboard.def"
 
 MAGIC = 0x4C4B  # 'KL' as little-endian bytes
 
@@ -125,10 +132,10 @@ def find_calls(src, name):
 def eval_char(lit, where):
     body = lit[1:-1]
     if not body:
-        raise SystemExit(f"keyboard_layout_gen: {where}: empty character")
+        raise SystemExit(f"layout.py: {where}: empty character")
     if body[0] != "\\":
         if len(body) != 1:
-            raise SystemExit(f"keyboard_layout_gen: {where}: multi-char {lit}")
+            raise SystemExit(f"layout.py: {where}: multi-char {lit}")
         return ord(body)
     esc = body[1]
     if esc == "x":
@@ -137,7 +144,7 @@ def eval_char(lit, where):
         return ESCAPES[esc]
     if esc.isdigit():
         return int(body[1:], 8)
-    raise SystemExit(f"keyboard_layout_gen: {where}: bad escape {lit}")
+    raise SystemExit(f"layout.py: {where}: bad escape {lit}")
 
 
 def eval_value(arg, where):
@@ -150,12 +157,12 @@ def eval_value(arg, where):
     try:
         return int(arg, 0)
     except ValueError:
-        raise SystemExit(f"keyboard_layout_gen: {where}: cannot read {arg}")
+        raise SystemExit(f"layout.py: {where}: cannot read {arg}")
 
 
 def eval_string(arg, where):
     if len(arg) < 2 or arg[0] != '"' or arg[-1] != '"':
-        raise SystemExit(f"keyboard_layout_gen: {where}: expected a string, got {arg}")
+        raise SystemExit(f"layout.py: {where}: expected a string, got {arg}")
     return arg[1:-1].encode("ascii").decode("unicode_escape")
 
 
@@ -165,26 +172,26 @@ def parse_layout(path):
 
     begin = find_calls(src, "XBEGIN")
     if len(begin) != 1:
-        raise SystemExit(f"keyboard_layout_gen: {where}: expected one XBEGIN")
+        raise SystemExit(f"layout.py: {where}: expected one XBEGIN")
     name = eval_string(begin[0][0], where)
     desc = eval_string(begin[0][1], where)
     if len(name.encode()) >= NAME_MAX:
-        raise SystemExit(f"keyboard_layout_gen: {where}: name {name!r} over {NAME_MAX - 1}")
+        raise SystemExit(f"layout.py: {where}: name {name!r} over {NAME_MAX - 1}")
     if len(desc.encode()) >= DESC_MAX:
-        raise SystemExit(f"keyboard_layout_gen: {where}: description over {DESC_MAX - 1}")
+        raise SystemExit(f"layout.py: {where}: description over {DESC_MAX - 1}")
 
     keys = [[0] * 4 for _ in range(128)]
     caps = [False] * 128
     for args in find_calls(src, "XKEY"):
         if len(args) != 6:
-            raise SystemExit(f"keyboard_layout_gen: {where}: XKEY takes six fields")
+            raise SystemExit(f"layout.py: {where}: XKEY takes six fields")
         kc = eval_value(args[0], where)
         if not 0 <= kc < 128:
-            raise SystemExit(f"keyboard_layout_gen: {where}: keycode {kc:#x} over 0x7F")
+            raise SystemExit(f"layout.py: {where}: keycode {kc:#x} over 0x7F")
         for col in range(4):
             cp = eval_value(args[1 + col], where)
             if cp > 0xFFFF:
-                raise SystemExit(f"keyboard_layout_gen: {where}: {cp:#x} outside the BMP")
+                raise SystemExit(f"layout.py: {where}: {cp:#x} outside the BMP")
             keys[kc][col] = cp
         caps[kc] = bool(eval_value(args[5], where))
 
@@ -196,24 +203,23 @@ def parse_layout(path):
         elif len(vals) == 4:
             dead3.append(vals)
         else:
-            raise SystemExit(f"keyboard_layout_gen: {where}: XDEAD takes three or four")
+            raise SystemExit(f"layout.py: {where}: XDEAD takes three or four")
 
     used = 3 * len(dead2) + 4 * len(dead3) + 2
     if used > DEADKEY_CACHE_SIZE:
-        raise SystemExit(f"keyboard_layout_gen: {where}: dead keys need {used} cache "
-                         f"bytes, keyboard.c has {DEADKEY_CACHE_SIZE}")
+        raise SystemExit(f"layout.py: {where}: dead keys need {used} cache "
+                         f"bytes, keymap.c has {DEADKEY_CACHE_SIZE}")
 
     return {"name": name, "desc": desc, "keys": keys, "caps": caps,
             "dead2": dead2, "dead3": dead3}
 
 
-def parse_manifest(manifest):
-    src = strip_comments(Path(manifest).read_text(encoding="utf-8"))
-    base = Path(manifest).parent
+def layout_paths():
+    src = strip_comments((gen.ROOT / MANIFEST).read_text(encoding="utf-8"))
     names = re.findall(r'#\s*include\s+"core/def/(keyboard_[A-Za-z0-9_]+\.def)"', src)
     if not names:
-        raise SystemExit("keyboard_layout_gen: no layouts included by keyboard.def")
-    return [parse_layout(base / n) for n in names]
+        raise SystemExit("layout.py: no layouts included by keyboard.def")
+    return [(Path(MANIFEST).parent / n).as_posix() for n in names]
 
 
 def pack_string(s, size):
@@ -221,12 +227,12 @@ def pack_string(s, size):
     return [b[i] | (b[i + 1] << 8) for i in range(0, size, 2)]
 
 
-def build(manifest):
-    layouts = parse_manifest(manifest)
+def build(paths):
+    layouts = [parse_layout(gen.ROOT / p) for p in paths]
     n = len(layouts)
 
     if n > 16:
-        raise SystemExit(f"keyboard_layout_gen: {n} layouts, and the Pocket's "
+        raise SystemExit(f"layout.py: {n} layouts, and the Pocket's "
                          "keyboard menu holds sixteen")
 
     records = []
@@ -259,7 +265,7 @@ def build(manifest):
     return words, layouts
 
 
-HEADER = """/* Generated by src/core/gen/keyboard_layout_gen.py — do not edit.
+HEADER = """/* Generated by src/core/hid/layout.py -- do not edit.
  *
  * The keyboard layouts as a flat array of 16-bit words, laid out for a
  * reader that can only fetch one word at a time:
@@ -281,15 +287,15 @@ HEADER = """/* Generated by src/core/gen/keyboard_layout_gen.py — do not edit.
 def emit_h(path, words, layouts):
     Path(path).write_text(
         HEADER + f"""
-#ifndef _KBDLAY_H_
-#define _KBDLAY_H_
+#ifndef _LAYOUT_DB_H_
+#define _LAYOUT_DB_H_
 
-#define KBDLAY_MAGIC 0x{MAGIC:04X}u
-#define KBDLAY_LAYOUTS {len(layouts)}
-#define KBDLAY_WORDS {len(words)}
-#define KBDLAY_BYTES {len(words) * 2}
+#define LAYOUT_DB_MAGIC 0x{MAGIC:04X}u
+#define LAYOUT_DB_LAYOUTS {len(layouts)}
+#define LAYOUT_DB_WORDS {len(words)}
+#define LAYOUT_DB_BYTES {len(words) * 2}
 
-#endif /* _KBDLAY_H_ */
+#endif /* _LAYOUT_DB_H_ */
 """)
 
 
@@ -297,10 +303,10 @@ def emit_c(path, words):
     # A RIA's binary is copied to RAM at boot, so HOST_IN_FLASH is used to
     # keep this table in flash on a RIA.
     out = [HEADER,
-           '\n#include "kbdlay.h"\n#include "core/hid/layout.h"\n'
+           '\n#include "layout_db.h"\n#include "core/hid/layout.h"\n'
            '\n#include "machine.h"\n\n',
-           'static const HOST_IN_FLASH("kbdlay") uint16_t'
-           " kbdlay_data[KBDLAY_WORDS] = {\n"]
+           'static const HOST_IN_FLASH("layout_db") uint16_t'
+           " layout_db_data[LAYOUT_DB_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         out.append(f"    {row},\n")
@@ -308,7 +314,7 @@ def emit_c(path, words):
     out.append("""
 uint16_t layout_word(uint32_t index)
 {
-    return index < KBDLAY_WORDS ? kbdlay_data[index] : 0;
+    return index < LAYOUT_DB_WORDS ? layout_db_data[index] : 0;
 }
 """)
     Path(path).write_text("".join(out))
@@ -330,25 +336,25 @@ def check_interact(path, layouts):
     want = [(i + 1, lay["name"]) for i, lay in enumerate(layouts)]
     found = [v for v in variables if v["name"] == "Keyboard"]
     if len(found) != 1:
-        raise SystemExit("keyboard_layout_gen: interact.json has no 'Keyboard'")
+        raise SystemExit("layout.py: interact.json has no 'Keyboard'")
     options = found[0]["options"]
     got = [(int(o["value"], 0), o["name"]) for o in options]
     if got != want:
-        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' options "
+        raise SystemExit(f"layout.py: interact.json 'Keyboard' options "
                          f"{got} do not match def/keyboard.def {want}")
 
     # The Pocket reads defaultval as an index into the options array, not as
     # one of the option values.
     default = found[0]["defaultval"]
     if isinstance(default, str):
-        raise SystemExit("keyboard_layout_gen: interact.json 'Keyboard' defaultval "
+        raise SystemExit("layout.py: interact.json 'Keyboard' defaultval "
                          f"is the string {default!r}; it is an index")
     if not 0 <= default < len(options):
-        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' defaultval "
+        raise SystemExit(f"layout.py: interact.json 'Keyboard' defaultval "
                          f"{default} is not an option index")
     if options[default]["name"] != DEFAULT_LAYOUT:
-        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' defaults to "
-                         f"{options[default]['name']}, and keyboard.c to "
+        raise SystemExit(f"layout.py: interact.json 'Keyboard' defaults to "
+                         f"{options[default]['name']}, and keymap.c to "
                          f"{DEFAULT_LAYOUT}")
 
 
@@ -357,39 +363,31 @@ def check_data(path, words):
     slots = doc["data"]["data_slots"]
     found = [s for s in slots if s.get("filename") == "keyboard.bin"]
     if len(found) != 1:
-        raise SystemExit("keyboard_layout_gen: data.json has no keyboard.bin slot")
+        raise SystemExit("layout.py: data.json has no keyboard.bin slot")
     size = int(found[0]["size_exact"], 0)
     if size != len(words) * 2:
-        raise SystemExit(f"keyboard_layout_gen: data.json says {size} bytes, "
+        raise SystemExit(f"layout.py: data.json says {size} bytes, "
                          f"the layouts are {len(words) * 2}")
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", required=True)
-    ap.add_argument("--emit-bin")
-    ap.add_argument("--emit-c")
-    ap.add_argument("--emit-h")
-    ap.add_argument("--check-interact")
-    ap.add_argument("--check-data")
-    a = ap.parse_args()
+    paths = layout_paths()
+    words, layouts = build(paths)
 
-    words, layouts = build(a.manifest)
-    if a.emit_h:
-        emit_h(a.emit_h, words, layouts)
-    if a.emit_c:
-        emit_c(a.emit_c, words)
-    if a.emit_bin:
-        emit_bin(a.emit_bin, words)
+    def checks(ap):
+        ap.add_argument("--check-interact", metavar="JSON")
+        ap.add_argument("--check-data", metavar="JSON")
+
+    a = gen.main(inputs=[MANIFEST] + paths,
+                 c={"layout_db.h": lambda p: emit_h(p, words, layouts),
+                    "layout_db.c": lambda p: emit_c(p, words)},
+                 bin={"layout_db.bin": lambda p: emit_bin(p, words)},
+                 extra=checks)
     if a.check_interact:
         check_interact(a.check_interact, layouts)
     if a.check_data:
         check_data(a.check_data, words)
-    print(f"kbdlay {len(words)} words, {len(words) * 2} bytes "
-          f"({len(layouts)} layouts: "
-          f"{' '.join(lay['name'] for lay in layouts)})")
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

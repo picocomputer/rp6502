@@ -759,7 +759,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # The machine's own two, and the one the generated packages come out
-      # of: assets.cmake writes w65c02's decode table at configure time, and
+      # of: core/gen.cmake writes w65c02's decode table at configure time, and
       # it reads chips/codegen to do it. This job needs no simulator and no
       # test fixtures, which is why it is not simply test-rtl's list.
       - name: Install build dependencies + RISC-V toolchain

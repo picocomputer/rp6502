@@ -1,11 +1,12 @@
 include_guard(GLOBAL)
 
 include(${RP6502_ROOT}/submodules.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/gen.cmake)
+rp6502_gen_assets()
 
 set(RP6502_RTL_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
-    ${W65C02_ROM}
+    ${RP6502_ASSETS}/cpu_rom_pkg.sv
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
     ${RP6502_SRC}/core/vga/canvas_pkg.sv
     ${RP6502_SRC}/core/vga/mode/mode.sv
@@ -19,13 +20,13 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/ria/regs.sv
     ${RP6502_SRC}/core/riscv/soc.sv
     ${RP6502_SRC}/core/vga/scan/timing.sv
-    ${AUD_SINE_PKG}
+    ${RP6502_ASSETS}/psg_pkg.sv
     ${RP6502_SRC}/core/aud/psg.sv
-    ${OPL_ROM_PKG}
+    ${RP6502_ASSETS}/opl_rom_pkg.sv
     ${RP6502_SRC}/core/aud/opl.sv
-    ${RSMP_COEF_PKG}
+    ${RP6502_ASSETS}/rsmp_coef_pkg.sv
     ${RP6502_SRC}/core/aud/pcm.sv
-    ${VID_PALETTE_PKG}
+    ${RP6502_ASSETS}/color_pkg.sv
     ${RP6502_SRC}/core/vga/scan/font.sv
     ${RP6502_SRC}/core/vga/scan/palram.sv
     ${RP6502_SRC}/core/vga/scan/pixtail.sv

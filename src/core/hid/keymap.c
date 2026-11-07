@@ -19,6 +19,7 @@
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/ring.h"
 #include "core/sys/config.h"
 #include "core/hid/usage.h"
 #include <stdio.h>
@@ -37,9 +38,7 @@ static const char *keymap_layout_pos;
 static timer_deadline_t keymap_repeat_timer;
 static uint8_t keymap_repeat_modifier;
 static uint8_t keymap_repeat_keycode;
-static char keymap_key_queue[KEYMAP_KEY_QUEUE_SIZE];
-static uint8_t keymap_key_queue_head;
-static uint8_t keymap_key_queue_tail;
+static RING(char, KEYMAP_KEY_QUEUE_SIZE) keymap_key_queue;
 static bool keymap_alt_mode;
 static uint8_t keymap_alt_code;
 static char keymap_dead_key0;
@@ -71,14 +70,8 @@ static void keymap_queue(const char *s, size_t n)
     for (size_t i = 0; i < n; i++)
         if (s[i] == 0x03)
             ria_trigger_sigint();
-    size_t used = (KEYMAP_KEY_QUEUE_SIZE + keymap_key_queue_head - keymap_key_queue_tail) % KEYMAP_KEY_QUEUE_SIZE;
-    if (n > KEYMAP_KEY_QUEUE_SIZE - 1 - used)
-        return;
-    for (size_t i = 0; i < n; i++)
-    {
-        keymap_key_queue_head = (keymap_key_queue_head + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        keymap_key_queue[keymap_key_queue_head] = s[i];
-    }
+    if (n <= RING_AVAIL(&keymap_key_queue))
+        RING_IN(&keymap_key_queue, s, (uint32_t)n);
 }
 
 static void keymap_queue_char(char ch)
@@ -233,7 +226,7 @@ static bool keymap_alt_escape(const keymap_press_t *k)
 
 void keymap_abandon(void)
 {
-    keymap_key_queue_tail = keymap_key_queue_head;
+    RING_SKIP(&keymap_key_queue, RING_LEN(&keymap_key_queue));
     keymap_alt_mode = false;
     keymap_dead_key0 = keymap_dead_key1 = 0;
 }
@@ -570,9 +563,9 @@ static void keymap_rebuild_code_page_cache(void)
     keymap_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
-    /* A database that keyboard_layout_gen.py built never gets here, because it
-     * refuses a layout whose dead keys do not fit. A machine staging a database
-     * it did not build loses the composing rather than the keyboard. */
+    /* A database that layout.py built never gets here, because it refuses a
+     * layout whose dead keys do not fit. A machine staging a database it did
+     * not build loses the composing rather than the keyboard. */
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
     keymap_deadkey_cache[0] = 0;
@@ -581,13 +574,7 @@ overflow_error:
 
 size_t keymap_in_chars(char *buf, size_t length)
 {
-    size_t i = 0;
-    while (i < length && keymap_key_queue_tail != keymap_key_queue_head)
-    {
-        keymap_key_queue_tail = (keymap_key_queue_tail + 1) % KEYMAP_KEY_QUEUE_SIZE;
-        buf[i++] = keymap_key_queue[keymap_key_queue_tail];
-    }
-    return i;
+    return RING_OUT(&keymap_key_queue, buf, (uint32_t)length);
 }
 
 bool keymap_check_layout_list(const char *in, char *out)

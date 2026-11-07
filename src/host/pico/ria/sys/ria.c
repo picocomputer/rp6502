@@ -282,38 +282,14 @@ void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callba
 
 // The UART TX ring has a single producer, act_loop on core 1, and a single
 // consumer, com_tx_fanout on core 0 through ria_uart_tx_dequeue.
-#define RIA_UART_TX_BUF_SIZE 32
-static volatile uint8_t ria_uart_tx_buf[RIA_UART_TX_BUF_SIZE];
-static volatile size_t ria_uart_tx_head;
-static volatile size_t ria_uart_tx_tail;
-
-static inline bool ria_uart_tx_writable(void)
-{
-    return (((ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE) != ria_uart_tx_tail);
-}
-
-// The barrier publishes the slot before the head, so core 0 never reads a new
-// head while the slot still holds a stale byte.
-static inline void ria_uart_tx_write(uint8_t ch)
-{
-    size_t next = (ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE;
-    ria_uart_tx_buf[next] = ch;
-    __dmb();
-    ria_uart_tx_head = next;
-}
+static RING(uint8_t, 32) ria_uart_tx;
 
 bool ria_uart_tx_dequeue(uint8_t *ch)
 {
-    if (ria_uart_tx_head == ria_uart_tx_tail)
-        return false;
-    size_t next = (ria_uart_tx_tail + 1) % RIA_UART_TX_BUF_SIZE;
-    *ch = ria_uart_tx_buf[next];
-    __dmb();
-    ria_uart_tx_tail = next;
-    return true;
+    return RING_GET(&ria_uart_tx, ch);
 }
 
-bool ria_uart_tx_empty(void) { return ria_uart_tx_head == ria_uart_tx_tail; }
+bool ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
 
 static volatile int ria_uart_rx_slot = -1;
 
@@ -377,21 +353,12 @@ void ria_break(void)
 
 ria_aud_ring_t ria_aud = {.psg_at = 0x10000, .opl_at = 0x10000};
 
-/* The drain pairs an acquire barrier with the one here, so the entry has to
- * be written before the head that publishes it. */
 static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint32_t pix)
 {
     if (addr - ria_aud.psg_at >= PSG_REGS_SIZE && addr - ria_aud.opl_at >= OPL_REGS_SIZE)
         return;
-    uint8_t next = (ria_aud.head + 1) & (RIA_AUD_RING_SIZE - 1);
-    if (next == ria_aud.tail)
-    {
+    if (!RING_PUT(&ria_aud.ring, pix))
         ria_aud.lost++;
-        return;
-    }
-    ria_aud.entry[next] = pix;
-    __dmb();
-    ria_aud.head = next;
 }
 
 #define CASE_READ(addr) (addr & 0x1F)
@@ -536,9 +503,8 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    if (ria_uart_tx_writable())
-                        ria_uart_tx_write(data);
-                    if (ria_uart_tx_writable())
+                    RING_PUT(&ria_uart_tx, (uint8_t)data);
+                    if (RING_AVAIL(&ria_uart_tx))
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
@@ -556,7 +522,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                             ria_uart_rx_slot = -1;
                         }
                     }
-                    if (ria_uart_tx_writable())
+                    if (RING_AVAIL(&ria_uart_tx))
                         flags |= 0b10000000;
                     else
                         flags &= ~0b10000000;

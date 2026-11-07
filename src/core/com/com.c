@@ -12,6 +12,7 @@
 #include "core/aud/bel.h"
 #include "core/str/str.h"
 #include "core/sys/driver.h"
+#include "core/sys/ring.h"
 #include "machine.h"
 
 #include <stdio.h>
@@ -19,53 +20,47 @@
 
 #define COM_ETX 0x03
 
-#define RING_MASK (COM_RING_SIZE - 1)
-_Static_assert((COM_RING_SIZE & RING_MASK) == 0, "COM_RING_SIZE must be a power of two");
+typedef RING(uint8_t, COM_RING_SIZE) com_ring_t;
 
-typedef struct
-{
-    uint8_t buf[COM_RING_SIZE];
-    uint16_t head;
-    uint16_t tail;
-} ring_t;
-
-static ring_t keyboard_ring;
-static ring_t uart_ring;
-static uint8_t reply_buf[32];
-static size_t reply_len;
+static com_ring_t com_keyboard_ring;
+static com_ring_t com_uart_ring;
+static uint8_t com_reply_buf[32];
+static size_t com_reply_len;
 static bool com_term_reply_suppressed;
 
 static bool com_bel_enabled = true;
 
 static char com_crlf_last;
 
-static void ring_save(sst_cursor_t *c, const ring_t *r)
+/* The count, then COM_RING_SIZE bytes oldest first. */
+static void com_ring_save(sst_cursor_t *c, com_ring_t *r)
 {
-    sst_put(c, r->buf, COM_RING_SIZE);
-    sst_put_u16(c, r->head);
-    sst_put_u16(c, r->tail);
+    const uint32_t len = RING_LEN(r);
+    sst_put_u16(c, (uint16_t)len);
+    for (uint32_t i = 0; i < COM_RING_SIZE; i++)
+        sst_put_u8(c, i < len ? *RING_AT(r, i) : 0);
 }
 
-static bool ring_load(sst_cursor_t *c, ring_t *r)
+static uint16_t com_ring_get(sst_cursor_t *c, uint8_t *buf)
 {
-    uint8_t buf[COM_RING_SIZE];
-    sst_get(c, buf, sizeof buf);
-    uint16_t head = sst_get_u16(c), tail = sst_get_u16(c);
-    if (!sst_ok(c) || head >= COM_RING_SIZE || tail >= COM_RING_SIZE)
-        return false;
-    memcpy(r->buf, buf, sizeof buf);
-    r->head = head;
-    r->tail = tail;
-    return true;
+    const uint16_t len = sst_get_u16(c);
+    sst_get(c, buf, COM_RING_SIZE);
+    return len;
+}
+
+static void com_ring_set(com_ring_t *r, const uint8_t *buf, uint16_t len)
+{
+    RING_RESET(r);
+    RING_IN(r, buf, len);
 }
 
 void com_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    ring_save(c, &keyboard_ring);
-    ring_save(c, &uart_ring);
-    sst_put_u8(c, (uint8_t)reply_len);
-    sst_put(c, reply_buf, sizeof reply_buf);
+    com_ring_save(c, &com_keyboard_ring);
+    com_ring_save(c, &com_uart_ring);
+    sst_put_u8(c, (uint8_t)com_reply_len);
+    sst_put(c, com_reply_buf, sizeof com_reply_buf);
     sst_put_bool(c, com_bel_enabled);
     sst_put_u8(c, (uint8_t)com_crlf_last);
     com_rx_save(c);
@@ -74,111 +69,73 @@ void com_sst_save(sst_cursor_t *c, unsigned flags)
 bool com_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    ring_t kb, wire;
-    if (!ring_load(c, &kb) || !ring_load(c, &wire))
-        return false;
+    uint8_t kb[COM_RING_SIZE], wire[COM_RING_SIZE];
+    const uint16_t kb_len = com_ring_get(c, kb);
+    const uint16_t wire_len = com_ring_get(c, wire);
     uint8_t len = sst_get_u8(c);
-    uint8_t held[sizeof reply_buf];
+    uint8_t held[sizeof com_reply_buf];
     sst_get(c, held, sizeof held);
     bool bel = sst_get_bool(c);
     uint8_t crlf = sst_get_u8(c);
-    if (!sst_ok(c) || len > sizeof reply_buf)
+    if (!sst_ok(c) || kb_len > COM_RING_SIZE || wire_len > COM_RING_SIZE ||
+        len > sizeof com_reply_buf)
         return false;
     if (!com_rx_load(c))
         return false;
-    keyboard_ring = kb;
-    uart_ring = wire;
-    reply_len = len;
-    memcpy(reply_buf, held, sizeof reply_buf);
+    com_ring_set(&com_keyboard_ring, kb, kb_len);
+    com_ring_set(&com_uart_ring, wire, wire_len);
+    com_reply_len = len;
+    memcpy(com_reply_buf, held, sizeof com_reply_buf);
     com_bel_enabled = bel;
     com_crlf_last = (char)crlf;
     return true;
 }
 
-static void ring_push(ring_t *r, uint8_t b)
-{
-    uint16_t next = (uint16_t)((r->head + 1) & RING_MASK);
-    if (next == r->tail)
-        return;
-    r->buf[r->head] = b;
-    r->head = next;
-}
-
-static size_t ring_free(const ring_t *r)
-{
-    return (size_t)((r->tail - r->head - 1) & RING_MASK);
-}
-
-static int ring_peek(const ring_t *r)
-{
-    if (r->head == r->tail)
-        return -1;
-    return r->buf[r->tail];
-}
-
-static int ring_pop(ring_t *r)
-{
-    if (r->head == r->tail)
-        return -1;
-    uint8_t b = r->buf[r->tail];
-    r->tail = (uint16_t)((r->tail + 1) & RING_MASK);
-    return b;
-}
-
 /* A reply is held back while the ring still has bytes in it, because those
  * bytes can be the start of a sequence whose rest has not arrived yet, and
  * the reply would then be delivered in the middle of that sequence. */
-static void reply_promote(void)
+static void com_reply_promote(void)
 {
-    if (!reply_len || uart_ring.head != uart_ring.tail)
+    if (!com_reply_len || RING_LEN(&com_uart_ring))
         return;
-    for (size_t i = 0; i < reply_len; i++)
-        ring_push(&uart_ring, reply_buf[i]);
-    reply_len = 0;
+    RING_IN(&com_uart_ring, com_reply_buf, (uint32_t)com_reply_len);
+    com_reply_len = 0;
 }
 
 size_t com_keyboard_read(char *buf, size_t length)
 {
-    size_t n = 0;
-    for (; n < length; n++)
-    {
-        int c = ring_pop(&keyboard_ring);
-        if (c < 0)
-            break;
-        buf[n] = (char)c;
-    }
-    return n;
+    return RING_OUT(&com_keyboard_ring, buf, (uint32_t)length);
 }
 
 void com_keyboard_clear(void)
 {
-    memset(&keyboard_ring, 0, sizeof keyboard_ring);
+    RING_SKIP(&com_keyboard_ring, RING_LEN(&com_keyboard_ring));
 }
 
 size_t com_uart_read(char *buf, size_t length)
 {
     size_t n = 0;
-    for (; n < length; n++)
+    while (n < length)
     {
-        reply_promote();
-        int c = ring_pop(&uart_ring);
-        if (c < 0)
+        com_reply_promote();
+        const uint32_t got = RING_OUT(&com_uart_ring, buf + n, (uint32_t)(length - n));
+        if (!got)
             break;
-        buf[n] = (char)c;
+        n += got;
     }
     return n;
 }
 
 int com_uart_peek(void)
 {
-    reply_promote();
-    return ring_peek(&uart_ring);
+    com_reply_promote();
+    return RING_LEN(&com_uart_ring) ? *RING_AT(&com_uart_ring, 0) : -1;
 }
 
 void com_uart_clear(void)
 {
-    memset(&uart_ring, 0, sizeof uart_ring);
-    reply_len = 0;
+    RING_SKIP(&com_uart_ring, RING_LEN(&com_uart_ring));
+    com_reply_len = 0;
 }
 
 static void (*com_term_out)(const char *buf, int len);
@@ -285,11 +242,11 @@ size_t com_stderr_write(const char *buf, size_t count)
  * else. */
 void com_in_write_reply(const char *s, size_t n)
 {
-    if (com_term_reply_suppressed || n > sizeof reply_buf ||
-        reply_len > sizeof reply_buf - n)
+    if (com_term_reply_suppressed || n > sizeof com_reply_buf ||
+        com_reply_len > sizeof com_reply_buf - n)
         return;
-    memcpy(reply_buf + reply_len, s, n);
-    reply_len += n;
+    memcpy(com_reply_buf + com_reply_len, s, n);
+    com_reply_len += n;
 }
 
 void com_suppress_term_reply(bool suppress)
@@ -302,47 +259,45 @@ void com_suppress_term_reply(bool suppress)
 void com_uart_push(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
-    {
-        uint8_t b = (uint8_t)s[i];
-        if (b == COM_ETX)
+        if (s[i] == COM_ETX)
             ria_trigger_sigint();
-        ring_push(&uart_ring, b);
-    }
+    RING_IN(&com_uart_ring, s, (uint32_t)n);
 }
 
 void com_stream_push(const char *s, size_t n)
 {
-    for (size_t i = 0; i < n; i++)
-        ring_push(&uart_ring, (uint8_t)s[i]);
+    RING_IN(&com_uart_ring, s, (uint32_t)n);
 }
 
 size_t com_uart_free(void)
 {
-    return ring_free(&uart_ring);
+    return RING_AVAIL(&com_uart_ring);
 }
 
 bool com_input_idle(void)
 {
-    return !reply_len && uart_ring.head == uart_ring.tail &&
-           keyboard_ring.head == keyboard_ring.tail;
+    return !com_reply_len && !RING_LEN(&com_uart_ring) &&
+           !RING_LEN(&com_keyboard_ring);
 }
 
 void com_keyboard_push(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
-        com_keyboard_push_byte((uint8_t)s[i]);
+        if (s[i] == COM_ETX)
+            ria_trigger_sigint();
+    RING_IN(&com_keyboard_ring, s, (uint32_t)n);
 }
 
 void com_keyboard_push_byte(uint8_t b)
 {
     if (b == COM_ETX)
         ria_trigger_sigint();
-    ring_push(&keyboard_ring, b);
+    RING_PUT(&com_keyboard_ring, b);
 }
 
 size_t com_keyboard_free(void)
 {
-    return ring_free(&keyboard_ring);
+    return RING_AVAIL(&com_keyboard_ring);
 }
 
 bool com_get_bel(void)

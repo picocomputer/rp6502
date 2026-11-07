@@ -35,7 +35,7 @@
  */
 
 module palcache
-    import vid_palette_pkg::*;
+    import color_pkg::*;
 (
     input logic clk,
 
@@ -174,8 +174,8 @@ module palcache
         byp_qa <= ha_a[0] ? a_rdata[31:16] : a_rdata[15:0];
         byp_qb <= ha_b[0] ? a_rdata[31:16] : a_rdata[15:0];
         xram_q <= xram;
-        bi_qa <= one_bpp ? VID_COLOR_2[idx_a[0]] : VID_COLOR_256[idx_a];
-        bi_qb <= one_bpp ? VID_COLOR_2[idx_b[0]] : VID_COLOR_256[idx_b];
+        bi_qa <= one_bpp ? COLOR_2[idx_a[0]] : COLOR_256[idx_a];
+        bi_qb <= one_bpp ? COLOR_2[idx_b[0]] : COLOR_256[idx_b];
     end
     always_comb begin
         palcache_qa = !xram_q ? bi_qa

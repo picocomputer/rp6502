@@ -62,7 +62,9 @@
             "type": "process",
             "command": "python3",
             "args": [
-                "${workspaceFolder}/src/core/term/font.py"
+                "${workspaceFolder}/src/core/term/font.py",
+                "--png",
+                "${workspaceFolder}/build/fonts"
             ],
             "presentation": {
                 "reveal": "always",

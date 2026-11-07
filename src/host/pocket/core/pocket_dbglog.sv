@@ -67,37 +67,43 @@ module pocket_dbglog #(
     localparam int CQ_LOG2 = 3;
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [31:0] cq[1 << CQ_LOG2];
-    logic [CQ_LOG2-1:0] cq_w, cq_r;
-    logic cq_empty, cq_full, cq_push;
+    /* cq_wr and cq_rd only count up, an entry's slot is its pointer's low
+     * CQ_LOG2 bits, and cq_len is the count. */
+    logic [CQ_LOG2:0] cq_wr, cq_rd, cq_len, cq_free;
+    logic cq_empty, cq_full, cq_push, cmd_ok;
     logic [31:0] cq_wdata;
     logic [31:0] host_param;
     logic param_due;
     always_comb begin
-        cq_empty = cq_w == cq_r;
-        cq_full = (CQ_LOG2)'(cq_w + 1'b1) == cq_r;
-        cq_push = cmd_hit || param_due;
-        cq_wdata = cmd_hit ? {8'hC0, 8'h00, wr_data[15:0]} : host_param;
+        cq_len = cq_wr - cq_rd;
+        cq_free = (CQ_LOG2 + 1)'(1 << CQ_LOG2) - cq_len;
+        cq_empty = cq_len == '0;
+        cq_full = cq_len[CQ_LOG2];
+        cmd_ok = cmd_hit && cq_free >= (CQ_LOG2 + 1)'(param_worth ? 2 : 1);
+        cq_push = cmd_ok || param_due;
+        cq_wdata = cmd_ok ? {8'hC0, 8'h00, wr_data[15:0]} : host_param;
     end
 
     /* The host writes a command's parameter to F8xx0020 before it
      * writes the command, so host_param already holds the parameter when
      * cmd_hit fires, and for a command that param_worth selects, the
-     * parameter is pushed on the next clock. A second command write on
-     * that clock would drop the parameter, but the host does not start a
-     * command until the previous one has finished, as core_bridge_cmd
-     * notes at ST_IDLE. */
+     * parameter is pushed on the next clock. Such a command goes in only
+     * with room for both, so the pair is never split. A second command
+     * write on that clock would drop the parameter, but the host does not
+     * start a command until the previous one has finished, as
+     * core_bridge_cmd notes at ST_IDLE. */
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
-            cq_w <= '0;
+            cq_wr <= '0;
             host_param <= '0;
             param_due <= 1'b0;
         end else begin
             if (param_hit) host_param <= wr_data;
-            if (cmd_hit) param_due <= param_worth;
+            if (cmd_hit) param_due <= cmd_ok && param_worth;
             else if (param_due) param_due <= 1'b0;
             if (cq_push && !cq_full) begin
-                cq[cq_w] <= cq_wdata;
-                cq_w <= (CQ_LOG2)'(cq_w + 1'b1);
+                cq[cq_wr[CQ_LOG2-1:0]] <= cq_wdata;
+                cq_wr <= (CQ_LOG2 + 1)'(cq_wr + 1'b1);
             end
         end
     end
@@ -131,7 +137,7 @@ module pocket_dbglog #(
             state <= S_FILL;
             count <= '0;
             quiet <= '0;
-            cq_r <= '0;
+            cq_rd <= '0;
         end else
             case (state)
                 S_ARM: if (!target_debug_done) state <= S_WAIT;
@@ -142,8 +148,8 @@ module pocket_dbglog #(
                 end
                 default:
                 if (emit_cmd) begin
-                    pocket_dbglog_id <= cq[cq_r];
-                    cq_r <= (CQ_LOG2)'(cq_r + 1'b1);
+                    pocket_dbglog_id <= cq[cq_rd[CQ_LOG2-1:0]];
+                    cq_rd <= (CQ_LOG2 + 1)'(cq_rd + 1'b1);
                     pocket_dbglog_event <= 1'b1;
                     state <= S_ARM;
                 end else if (take) begin

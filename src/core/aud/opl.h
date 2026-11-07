@@ -20,6 +20,7 @@
  * queue; one that finds the queue full is dropped and counted. Timers (02-04),
  * CSM (08 bit 7), status and test bits 0 and 2 are not implemented. */
 
+#include "core/sys/ring.h"
 #include "core/sys/sst.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -36,12 +37,10 @@ static inline bool opl_block_ok(uint16_t word)
     return word <= 0x10000 - OPL_REGS_SIZE;
 }
 
-/* Entries are reg | val << 8, the oldest at head. */
+/* Entries are reg | val << 8. */
 typedef struct
 {
-    uint16_t entry[OPL_QUEUE_SIZE];
-    uint16_t count;
-    uint8_t head;
+    RING(uint16_t, OPL_QUEUE_SIZE) ring;
     uint32_t drops;
 } opl_queue_t;
 
@@ -67,17 +66,20 @@ static inline bool opl_is_late(uint8_t reg)
 static inline void opl_push(uint8_t reg, uint8_t val)
 {
     opl_queue_t *q = &opl_queue;
-    const uint32_t n = q->count;
     if (!opl_is_reg(reg))
         return;
-    if (n == OPL_QUEUE_SIZE)
-    {
-        if (q->drops < 0x7FFFFFFF)
-            q->drops++;
-        return;
-    }
-    q->entry[(uint8_t)(q->head + n)] = (uint16_t)(reg | val << 8);
-    q->count = (uint16_t)(n + 1);
+    if (!RING_PUT(&q->ring, (uint16_t)(reg | val << 8)) && q->drops < 0x7FFFFFFF)
+        q->drops++;
+}
+
+/* n writes of reg | val << 8, each to a register opl_is_reg accepts, queued
+ * in order for opl_sample. Those that find the queue full are dropped and
+ * counted. */
+static inline void opl_push_n(const uint16_t *w, uint32_t n)
+{
+    opl_queue_t *q = &opl_queue;
+    const uint32_t lost = n - RING_IN(&q->ring, w, n);
+    q->drops = lost > 0x7FFFFFFF - q->drops ? 0x7FFFFFFF : q->drops + lost;
 }
 
 /* Power-on state, an empty queue, the credit at 96 and no drops. */
@@ -105,9 +107,9 @@ uint16_t opl_xaddr_get(void);
  * the lock. */
 void opl_xaddr_set(uint16_t word);
 
-/* Release the pointer, which takes the OPL2 out of the mix. The chip keeps
- * its state until the next map resets it. The mixer calls it with its
- * engines held still. */
+/* Release the pointer, which takes the OPL2 out of the mix, and drop the
+ * writes still queued. The chip keeps its state until the next map resets
+ * it. The mixer calls it with its engines held still. */
 void opl_park(void);
 
 /* The pointer, 18 slots of 12, 9 channels of 10, 33 of globals and counters,
