@@ -11,6 +11,7 @@
 #include "core/aud/pcm.h"
 #include "core/aud/psg.h"
 #include "core/dap/dbg.h"
+#include "core/sys/ring.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
@@ -28,8 +29,7 @@ static void (*aud_probe)(int16_t *left, int16_t *right);
 /* ---------------- what the machine hands over ---------------- */
 
 /* Each change to an engine, stamped with the native sample it applies
- * before. The machine's thread writes them at aud_ev_w and the render reads
- * them at aud_ev_r. A 6502 at 8 MHz storing to RW0 flat out makes one every
+ * before. The machine's thread writes them and the render reads them. A 6502 at 8 MHz storing to RW0 flat out makes one every
  * four cycles, 33,300 a frame, and the ring holds that and the sink's lead
  * behind it. */
 #define AUD_EV_PSG 0x01 /* a write to the PSG's 64 bytes */
@@ -57,9 +57,7 @@ typedef struct
     uint8_t kind;
 } aud_ev_t;
 
-#define AUD_EV_SIZE 65536
-static aud_ev_t aud_ev[AUD_EV_SIZE];
-static _Atomic uint32_t aud_ev_w, aud_ev_r;
+static RING(aud_ev_t, 65536) aud_ev;
 
 /* Where the machine has the engines. The render reaches the same place
  * once it makes the sample each map is stamped for. */
@@ -73,9 +71,7 @@ static uint16_t aud_psg_at = 0xFFFF, aud_opl_at = 0xFFFF;
 static struct
 {
     uint64_t at; /* the next sample to step */
-    uint8_t reg[OPL_QUEUE_SIZE];
-    uint16_t count;
-    uint8_t head;
+    RING(uint8_t, OPL_QUEUE_SIZE) ring;
     bool late;
     uint32_t credit;
     uint32_t drops;
@@ -84,8 +80,7 @@ static struct
 static void aud_oq_reset(uint64_t at)
 {
     aud_oq.at = at;
-    aud_oq.count = 0;
-    aud_oq.head = 0;
+    RING_RESET(&aud_oq.ring);
     aud_oq.late = false;
     aud_oq.credit = 96;
     aud_oq.drops = 0;
@@ -96,21 +91,21 @@ static void aud_oq_step(uint64_t to)
 {
     while (aud_oq.at < to)
     {
-        if (!aud_oq.count && !aud_oq.late && aud_oq.credit == 96)
+        if (!RING_LEN(&aud_oq.ring) && !aud_oq.late && aud_oq.credit == 96)
         {
             aud_oq.at = to;
             return;
         }
         const bool held = aud_oq.late;
         aud_oq.late = false;
-        if (!held && aud_oq.count && aud_oq.credit >= 96)
+        uint8_t reg;
+        if (!held && aud_oq.credit >= 96 && RING_GET(&aud_oq.ring, &reg))
         {
-            aud_oq.late = opl_is_late(aud_oq.reg[aud_oq.head++]);
-            aud_oq.count--;
+            aud_oq.late = opl_is_late(reg);
             aud_oq.credit -= 96;
         }
         aud_oq.credit += 72;
-        const uint32_t cap = aud_oq.count ? 192 : 96;
+        const uint32_t cap = RING_LEN(&aud_oq.ring) ? 192 : 96;
         if (aud_oq.credit > cap)
             aud_oq.credit = cap;
         aud_oq.at++;
@@ -189,7 +184,6 @@ static int aud_carry_n;
 
 static float aud_last_l, aud_last_r;
 
-#define AUD_VIZ_SAMPLES 4096
 static float aud_viz[AUD_VIZ_SAMPLES];
 static int aud_viz_at;
 
@@ -246,11 +240,11 @@ static void aud_apply(const aud_ev_t *e);
  * program's and outlives both, so its bytes are taken now. */
 static void aud_keep_bel(void)
 {
-    const uint32_t w = atomic_load(&aud_ev_w);
-    for (uint32_t r = atomic_load(&aud_ev_r); r != w; r++)
-        if (aud_ev[r % AUD_EV_SIZE].kind == AUD_EV_BEL)
-            aud_apply(&aud_ev[r % AUD_EV_SIZE]);
-    atomic_store(&aud_ev_r, w);
+    const uint32_t n = RING_LEN(&aud_ev);
+    for (uint32_t i = 0; i < n; i++)
+        if (RING_AT(&aud_ev, i)->kind == AUD_EV_BEL)
+            aud_apply(RING_AT(&aud_ev, i));
+    RING_SKIP(&aud_ev, n);
 }
 
 void aud_init(void)
@@ -400,12 +394,12 @@ static void aud_mix(int32_t *left, int32_t *right)
 /* Every change stamped for the next native sample. */
 static void aud_due(void)
 {
-    const uint32_t w = atomic_load_explicit(&aud_ev_w, memory_order_acquire);
-    uint32_t r = atomic_load_explicit(&aud_ev_r, memory_order_relaxed);
+    const uint32_t n = RING_LEN(&aud_ev);
     const uint32_t due = (uint32_t)(aud_made - (uint64_t)aud_off);
-    for (; r != w && (int32_t)(due - aud_ev[r % AUD_EV_SIZE].at) >= 0; r++)
-        aud_apply(&aud_ev[r % AUD_EV_SIZE]);
-    atomic_store_explicit(&aud_ev_r, r, memory_order_release);
+    uint32_t i = 0;
+    for (; i < n && (int32_t)(due - RING_AT(&aud_ev, i)->at) >= 0; i++)
+        aud_apply(RING_AT(&aud_ev, i));
+    RING_SKIP(&aud_ev, i);
 }
 
 static void aud_next(int32_t *left, int32_t *right)
@@ -450,22 +444,20 @@ static uint64_t aud_ratio(void)
 /* A ring still full holds a sink that stopped asking, or a machine run
  * faster than its sink, and the render is brought along until it has
  * room. */
-static void aud_overflow(uint32_t w)
+static void aud_overflow(void)
 {
     aud_lock();
     int32_t l, r;
-    while (w - atomic_load_explicit(&aud_ev_r, memory_order_acquire) == AUD_EV_SIZE)
+    while (!RING_AVAIL(&aud_ev))
         aud_next(&l, &r);
     aud_unlock();
 }
 
 static void aud_push_at(uint64_t at, uint8_t kind, uint16_t addr, uint8_t val)
 {
-    const uint32_t w = atomic_load_explicit(&aud_ev_w, memory_order_relaxed);
-    if (w - atomic_load_explicit(&aud_ev_r, memory_order_acquire) == AUD_EV_SIZE)
-        aud_overflow(w);
-    aud_ev[w % AUD_EV_SIZE] = (aud_ev_t){(uint32_t)at, addr, val, kind};
-    atomic_store_explicit(&aud_ev_w, w + 1, memory_order_release);
+    if (!RING_AVAIL(&aud_ev))
+        aud_overflow();
+    RING_PUT(&aud_ev, ((aud_ev_t){(uint32_t)at, addr, val, kind}));
 }
 
 static void aud_push(uint8_t kind, uint16_t addr, uint8_t val)
@@ -488,16 +480,10 @@ void aud_xram_write(uint16_t addr, uint8_t val)
     if (to_opl)
     {
         aud_oq_step(at);
-        if (aud_oq.count == OPL_QUEUE_SIZE)
-        {
-            if (aud_oq.drops < 0x7FFFFFFF)
-                aud_oq.drops++;
-        }
-        else
-        {
-            aud_oq.reg[(uint8_t)(aud_oq.head + aud_oq.count++)] = reg;
+        if (RING_PUT(&aud_oq.ring, reg))
             kind |= AUD_EV_OPL;
-        }
+        else if (aud_oq.drops < 0x7FFFFFFF)
+            aud_oq.drops++;
     }
     if (kind)
         aud_push_at(at, kind, (uint16_t)(psg << 8 | reg), val);
@@ -649,15 +635,14 @@ static void aud_settle(uint32_t rate)
     const bool over = low > AUD_JUMP && aud_lows[1] > AUD_JUMP && aud_lows[1] != INT64_MAX;
     if (over)
         by += low < aud_lows[1] ? low : aud_lows[1];
-    if (by > 0 && !opl_queue.count)
+    if (by > 0 && !RING_LEN(&opl_queue.ring))
     {
-        const uint32_t r = atomic_load_explicit(&aud_ev_r, memory_order_relaxed);
-        if (r != atomic_load_explicit(&aud_ev_w, memory_order_acquire))
+        if (RING_LEN(&aud_ev))
         {
             /* The queue's credit is back to idle two samples after it
              * empties. */
             const uint32_t due = (uint32_t)(aud_made - (uint64_t)aud_off);
-            const int64_t room = (int32_t)(aud_ev[r % AUD_EV_SIZE].at - due) - 2;
+            const int64_t room = (int32_t)(RING_AT(&aud_ev, 0)->at - due) - 2;
             if (room < by)
                 by = room;
         }
@@ -796,13 +781,16 @@ int aud_render(float *dst, int samples)
     return made;
 }
 
-const float *aud_viz_buffer(int *num_samples)
+/* Under the lock, because the render writes it on the audio device's
+ * thread. */
+int aud_viz_take(float *dst)
 {
-    *num_samples = AUD_VIZ_SAMPLES;
-    return aud_viz;
+    aud_lock();
+    memcpy(dst, aud_viz, sizeof aud_viz);
+    const int at = aud_viz_at;
+    aud_unlock();
+    return at;
 }
-
-int aud_viz_pos(void) { return aud_viz_at; }
 
 static void aud_put_rsmp(sst_cursor_t *c, const rsmp_t *r)
 {
@@ -826,7 +814,7 @@ static void aud_get_rsmp(sst_cursor_t *c, rsmp_t *r)
  * yet to take is saved as just opened. */
 static void aud_pcm_save(sst_cursor_t *c)
 {
-    const pcm_t *p = &aud_pcm;
+    pcm_t *p = &aud_pcm;
     const bool play = aud_pm.on && aud_pcm_play;
     sst_put_bool(c, aud_pm.on);
     sst_put_u32(c, aud_pm.on ? aud_pm.fmt.rate : 0);
@@ -839,7 +827,7 @@ static void aud_pcm_save(sst_cursor_t *c)
     const uint16_t level = play ? pcm_level(p) : 0;
     sst_put_u16(c, level);
     for (unsigned i = 0; i < PCM_BUF_SIZE; i++)
-        sst_put_u8(c, i < level ? p->buf[(uint16_t)(p->tail + i) & (PCM_BUF_SIZE - 1)] : 0);
+        sst_put_u8(c, i < level ? *RING_AT(&p->buf, i) : 0);
 }
 
 /* After the STD row, whose reopen has opened the device again in the
@@ -868,22 +856,20 @@ static bool aud_pcm_load(sst_cursor_t *c, uint64_t made)
                fmt.channels != aud_pm.fmt.channels ||
                phase > ((uint64_t)1 << 32) + aud_pm.step))
         return false;
-    /* The bytes go straight into the render's buffer, which a state that
-     * does not load is put back over anyway. */
-    if (on)
-        pcm_reset(&aud_pcm, &fmt);
+    uint8_t bytes[PCM_BUF_SIZE];
     for (unsigned i = 0; i < PCM_BUF_SIZE; i++)
-        aud_pcm.buf[i] = sst_get_u8(c);
+        bytes[i] = sst_get_u8(c);
     if (!sst_ok(c))
         return false;
     aud_pcm_play = on;
     if (!on)
         return true;
+    pcm_reset(&aud_pcm, &fmt);
+    pcm_put(&aud_pcm, bytes, level);
     aud_pcm.phase = phase;
     for (int ch = 0; ch < 2; ch++)
         for (int i = 0; i < RSMP_TAPS; i++)
             aud_pcm.hist[ch][i] = aud_pcm.hist[ch][i + RSMP_TAPS] = hist[ch][i];
-    aud_pcm.head = level;
     aud_pcm_due = (uint32_t)made;
     aud_pcm_l = aud_pcm_r = 0;
     aud_pm.at = made;
@@ -945,7 +931,7 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     if (!(engines & 2))
         opl_park();
     /* What was stamped belongs to the time this load left. */
-    atomic_store(&aud_ev_r, atomic_load(&aud_ev_w));
+    RING_SKIP(&aud_ev, RING_LEN(&aud_ev));
     aud_psg_at = psg_xaddr_get();
     aud_opl_at = opl_xaddr_get();
     /* The machine's queue is the render's, which was saved with the sound
@@ -953,10 +939,8 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_oq_reset(made);
     aud_oq.drops = drops;
     aud_pm.underruns = underruns;
-    aud_oq.count = opl_queue.count;
-    aud_oq.head = opl_queue.head;
-    for (unsigned i = 0; i < opl_queue.count; i++)
-        aud_oq.reg[(uint8_t)(opl_queue.head + i)] = (uint8_t)opl_queue.entry[(uint8_t)(opl_queue.head + i)];
+    for (uint32_t i = 0; i < RING_LEN(&opl_queue.ring); i++)
+        RING_PUT(&aud_oq.ring, (uint8_t)*RING_AT(&opl_queue.ring, i));
     opl_pace_get(&aud_oq.credit, &aud_oq.late);
     aud_probe = NULL;
     aud_rs_l = l;

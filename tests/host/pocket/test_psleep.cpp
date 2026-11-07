@@ -1018,7 +1018,7 @@ UTEST(psleep, the_opl_registers_come_back)
     ASSERT_GT(rom.size(), 0u);
     boot(rom);
     long guard = 0;
-    while (!(MEM(opl__DOT__regs)[0xB0] == 0x31 && !MEM(opl__DOT__q_count))
+    while (!(MEM(opl__DOT__regs)[0xB0] == 0x31 && !MEM(opl__DOT__q_len))
            && guard++ < 20000000L)
         step();
     ASSERT_LT(guard, 20000000L);
@@ -1049,7 +1049,7 @@ UTEST(psleep, the_opl_registers_come_back)
     ASSERT_LT(guard, 20000000L);
     /* The queue was empty at the save, and still is. */
     guard = 0;
-    while (MEM(opl__DOT__q_count) && guard++ < 20000000L)
+    while (MEM(opl__DOT__q_len) && guard++ < 20000000L)
         step();
     ASSERT_LT(guard, 20000000L);
     for (long i = 0; i < 20000L; i++)
@@ -1359,7 +1359,7 @@ UTEST(psleep, the_audio_comes_back_sample_for_sample)
         at[k] = g_stop_tick;
         fprintf(stderr, "  save %d at tick %ld: level %u, queue %u\n", k,
                 at[k], (unsigned)MEM(pcm_level),
-                (unsigned)MEM(opl__DOT__q_count));
+                (unsigned)MEM(opl__DOT__q_len));
         ASSERT_GT((uint32_t)MEM(pcm_level), 1024u);
         read_blob(blob[k]);
         run_ticks((size_t)(at[k] + WINDOW));
@@ -1773,9 +1773,9 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 5, is refused, and the session
+/* A blob from before this format, version 6, is refused, and the session
  * that was running carries on. */
-UTEST(psleep, a_version_5_blob_is_refused)
+UTEST(psleep, a_version_6_blob_is_refused)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -1784,8 +1784,8 @@ UTEST(psleep, a_version_5_blob_is_refused)
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
-    ASSERT_EQ(6u, blob_get(blob, 1));
-    blob_put(blob, 1, 5);
+    ASSERT_EQ(7u, blob_get(blob, 1));
+    blob_put(blob, 1, 6);
     blob_reseal(blob);
 
     boot(rom);

@@ -6,6 +6,7 @@
 
 #include "opl_script.h"
 #include "opl_lle.h"
+#include "core/sys/ring.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +52,8 @@ static bool opl_late(uint8_t reg)
  * while writes wait and 96 while none do. */
 uint32_t opl_pace(const opl_script_t *pushes, uint32_t *at, opl_script_t *schedule)
 {
-    size_t wait[256], head = 0, waiting = 0, i = 0;
+    RING(size_t, 256) wait = {0};
+    size_t i = 0, k;
     uint32_t drops = 0;
     int credit = 96;
     bool half = false;
@@ -64,26 +66,22 @@ uint32_t opl_pace(const opl_script_t *pushes, uint32_t *at, opl_script_t *schedu
             at[i] = OPL_WAITING;
             if (!opl_is_reg(pushes->w[i].reg))
                 at[i] = OPL_SKIPPED;
-            else if (waiting == 256)
+            else if (!RING_PUT(&wait, i))
                 at[i] = OPL_DROPPED, drops++;
-            else
-                wait[(head + waiting++) % 256] = i;
         }
         if (half)
             half = false;
-        else if (waiting && credit >= 96)
+        else if (credit >= 96 && RING_GET(&wait, &k))
         {
-            size_t k = wait[head];
-            head = (head + 1) % 256;
-            waiting--;
             at[k] = n;
             opl_script_add(schedule, n, pushes->w[k].reg, pushes->w[k].val);
             credit -= 96;
             half = opl_late(pushes->w[k].reg);
         }
         credit += 72;
-        if (credit > (waiting ? 192 : 96))
-            credit = waiting ? 192 : 96;
+        const int cap = RING_LEN(&wait) ? 192 : 96;
+        if (credit > cap)
+            credit = cap;
     }
     for (; i < pushes->count; i++)
         at[i] = OPL_WAITING;

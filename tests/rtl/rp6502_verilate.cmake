@@ -1,30 +1,3 @@
-set(RP6502_TEST_TABLES ${CMAKE_BINARY_DIR}/test_tables)
-file(MAKE_DIRECTORY ${RP6502_TEST_TABLES})
-
-function(rp6502_test_table target)
-    cmake_parse_arguments(H "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
-    add_custom_command(OUTPUT ${H_OUTPUTS}
-        COMMAND ${CMAKE_COMMAND} -E env python3 ${H_GEN} ${H_ARGS}
-        DEPENDS ${H_GEN} ${H_DEPENDS}
-        COMMENT "${H_COMMENT}"
-        VERBATIM)
-    add_custom_target(${target} DEPENDS ${H_OUTPUTS})
-endfunction()
-
-set(VID_FONT_H ${RP6502_TEST_TABLES}/vid_font_tables.h)
-rp6502_test_table(vid_font_tables GEN ${RP6502_SRC}/core/gen/vid_font_gen.py
-    ARGS --emit-h ${VID_FONT_H}
-    OUTPUTS ${VID_FONT_H}
-    DEPENDS ${RP6502_SRC}/core/term/font.c
-    COMMENT "Generating the font tables test_font reads")
-
-set(VID_PALETTE_H ${RP6502_TEST_TABLES}/vid_palette_tables.h)
-rp6502_test_table(vid_palette_tables GEN ${RP6502_SRC}/core/gen/vid_palette_gen.py
-    ARGS --emit-h ${VID_PALETTE_H}
-    OUTPUTS ${VID_PALETTE_H}
-    DEPENDS ${RP6502_SRC}/core/term/color.c
-    COMMENT "Generating the palette tables the pixel tests read")
-
 list(PREPEND RP6502_MACHINE_SOURCES
     ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/machine.vlt)
 
@@ -118,16 +91,17 @@ function(rp6502_add_machine_test name)
         list(APPEND _labels firmware)
     endif()
     set(_args SOURCES ${M_SOURCES} LABELS ${_labels}
-        INCLUDES ${RP6502_BENCH} ${RP6502_ASSETS} ${RP6502_SRC})
+        INCLUDES ${RP6502_BENCH} ${RP6502_GEN} ${RP6502_SRC})
     if(M_SPLIT)
         list(APPEND _args SPLIT)
     endif()
     set(_deps ${M_DEPENDS})
     if(M_FIRMWARE)
-        list(APPEND _args DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            OEMCP_BIN="${OEMCP_BIN}" KBDLAY_BIN="${KBDLAY_BIN}" ${M_DEFS})
-        list(APPEND _deps sw_bin vid_font_rom vid_palette_rom oemcp_bin
-            kbdlay_bin)
+        list(APPEND _args DEFS SW_BIN="${SW_BIN}"
+            FONTS_BIN="${RP6502_ASSETS}/font_rom.bin"
+            OEMCP_BIN="${RP6502_ASSETS}/unicode_oem.bin"
+            KBDLAY_BIN="${RP6502_ASSETS}/layout_db.bin" ${M_DEFS})
+        list(APPEND _deps sw_bin rp6502_gen_assets)
     elseif(M_DEFS)
         list(APPEND _args DEFS ${M_DEFS})
     endif()
@@ -150,6 +124,6 @@ function(rp6502_add_machine_test name)
         ${_trace}
         ARGS ${RP6502_RTL_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl_rom_pkg rsmp_coef_pkg)
+        DEPENDS rp6502_gen_assets)
     target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()

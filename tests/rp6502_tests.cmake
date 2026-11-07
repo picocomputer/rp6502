@@ -18,7 +18,7 @@ set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
 include(${RP6502_SRC}/core/gen.cmake)
 include(${RP6502_SRC}/core/log.cmake)
-rp6502_gen_kbdlay(kbdlay)
+rp6502_gen_c()
 
 set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})

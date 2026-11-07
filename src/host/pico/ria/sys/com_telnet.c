@@ -16,6 +16,7 @@
 #include "core/str/str.h"
 #include "core/str/rln.h"
 #include "core/sys/driver.h"
+#include "core/sys/ring.h"
 #include "core/sys/timer.h"
 #include "ria-w/net/wifi.h"
 #include "machine.h"
@@ -46,15 +47,8 @@ static char com_telnet_auth_buf[COM_TELNET_KEY_SIZE];
 static uint8_t com_telnet_auth_len;
 static uint8_t com_telnet_auth_end; // the CR or LF that ended the passkey
 
-#define COM_TELNET_TX_BUF_SIZE 32
-static char com_telnet_tx_buf[COM_TELNET_TX_BUF_SIZE];
-static volatile size_t com_telnet_tx_head;
-static volatile size_t com_telnet_tx_tail;
-
-#define COM_TELNET_RX_BUF_SIZE 32
-static char com_telnet_rx_buf[COM_TELNET_RX_BUF_SIZE];
-static size_t com_telnet_rx_head;
-static size_t com_telnet_rx_tail;
+static RING(char, 32) com_telnet_tx;
+static RING(uint8_t, 32) com_telnet_rx;
 static bool com_telnet_rx_held;
 static timer_deadline_t com_telnet_rx_hold;
 
@@ -66,42 +60,34 @@ void com_telnet_clear_rx(void)
         while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
             ;
     }
-    com_telnet_rx_head = com_telnet_rx_tail = 0;
+    RING_SKIP(&com_telnet_rx, RING_LEN(&com_telnet_rx));
     com_telnet_rx_held = false;
 }
 
 static void com_telnet_clear_rings(void)
 {
-    com_telnet_tx_head = com_telnet_tx_tail = 0;
+    RING_RESET(&com_telnet_tx);
     com_telnet_clear_rx();
 }
 
 bool com_telnet_tx_writable(void)
 {
-    return ((com_telnet_tx_head + 1) % COM_TELNET_TX_BUF_SIZE) != com_telnet_tx_tail;
+    return RING_AVAIL(&com_telnet_tx) != 0;
 }
 
 void com_telnet_tx_write(char ch)
 {
-    com_telnet_tx_head = (com_telnet_tx_head + 1) % COM_TELNET_TX_BUF_SIZE;
-    com_telnet_tx_buf[com_telnet_tx_head] = ch;
+    RING_PUT(&com_telnet_tx, ch);
 }
 
 size_t com_telnet_read(char *buf, size_t length)
 {
-    size_t count = 0;
-    while (count < length && com_telnet_rx_head != com_telnet_rx_tail)
-    {
-        com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;
-        buf[count++] = com_telnet_rx_buf[com_telnet_rx_tail];
-    }
-    return count;
+    return RING_OUT(&com_telnet_rx, buf, (uint32_t)length);
 }
 
 int com_telnet_peek(void)
 {
-    return com_ring_peek((const uint8_t *)com_telnet_rx_buf, COM_TELNET_RX_BUF_SIZE,
-                          com_telnet_rx_head, com_telnet_rx_tail);
+    return RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, 0) : -1;
 }
 
 static void com_telnet_drain_tx(void)
@@ -109,19 +95,13 @@ static void com_telnet_drain_tx(void)
     if (com_telnet_state != COM_TELNET_STATE_CONNECTED)
     {
         // Discard — nobody to send to
-        com_telnet_tx_tail = com_telnet_tx_head;
+        RING_SKIP(&com_telnet_tx, RING_LEN(&com_telnet_tx));
         return;
     }
-    if (com_telnet_tx_tail == com_telnet_tx_head)
+    const uint32_t len = RING_LINEAR(&com_telnet_tx);
+    if (!len)
         return;
-    size_t start = (com_telnet_tx_tail + 1) % COM_TELNET_TX_BUF_SIZE;
-    size_t len;
-    if (com_telnet_tx_head >= start)
-        len = com_telnet_tx_head - start + 1;
-    else
-        len = COM_TELNET_TX_BUF_SIZE - start;
-    uint16_t sent = telnet_tx(NET_TELNET_DESC, &com_telnet_tx_buf[start], len);
-    com_telnet_tx_tail = (com_telnet_tx_tail + sent) % COM_TELNET_TX_BUF_SIZE;
+    RING_SKIP(&com_telnet_tx, telnet_tx(NET_TELNET_DESC, RING_AT(&com_telnet_tx, 0), len));
 }
 
 void com_telnet_pump(void)
@@ -174,12 +154,11 @@ static void com_telnet_drain_rx(void)
     // the peer while the connection is not read. After that, input is read and
     // dropped but still decoded, so a Ctrl-C or a telnet Interrupt Process
     // raises SIGINT.
-    uint16_t limit = COM_TELNET_RX_BUF_SIZE;
+    uint16_t limit = RING_SIZE(&com_telnet_rx);
     bool drop_mode = false;
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
-        size_t used = (com_telnet_rx_head - com_telnet_rx_tail + COM_TELNET_RX_BUF_SIZE) % COM_TELNET_RX_BUF_SIZE;
-        size_t free = COM_TELNET_RX_BUF_SIZE - 1 - used;
+        const uint32_t free = RING_AVAIL(&com_telnet_rx);
         if (free == 0)
         {
             if (!com_telnet_rx_held)
@@ -198,7 +177,7 @@ static void com_telnet_drain_rx(void)
         }
     }
 
-    char decoded[COM_TELNET_RX_BUF_SIZE];
+    char decoded[RING_SIZE(&com_telnet_rx)];
     uint16_t decoded_len = telnet_rx(NET_TELNET_DESC, decoded, limit);
 
     for (uint16_t i = 0; i < decoded_len; i++)
@@ -221,8 +200,7 @@ static void com_telnet_drain_rx(void)
                 ria_trigger_sigint();
             if (drop_mode)
                 continue;
-            com_telnet_rx_head = (com_telnet_rx_head + 1) % COM_TELNET_RX_BUF_SIZE;
-            com_telnet_rx_buf[com_telnet_rx_head] = ch;
+            RING_PUT(&com_telnet_rx, ch);
         }
     }
 

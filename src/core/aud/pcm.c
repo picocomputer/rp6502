@@ -10,18 +10,15 @@
 #include "osal/fs.h"
 #include <assert.h>
 #include <ctype.h>
-#include <stdatomic.h>
 #include <stdio.h> /* SEEK_SET */
 #include <string.h>
 #include <strings.h>
 
 /* A frame is taken at most once a sample, so the step is one at most. */
 static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
-static_assert((PCM_BUF_SIZE & (PCM_BUF_SIZE - 1)) == 0, "PCM buffer is a power of two");
-static_assert(PCM_BUF_SIZE <= 0x8000, "PCM buffer counts in 16 bits");
 
 /* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
- * p reversed, which rsmp_coef_gen.py checks. */
+ * p reversed, which rsmp.py checks. */
 static const int32_t pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
 #include "rsmp_half.h"
 };
@@ -75,29 +72,17 @@ void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
     s->at = 0;
     memset(s->hist, 0, sizeof s->hist);
     s->underruns = 0;
-    s->head = 0;
-    s->tail = 0;
+    RING_RESET(&s->buf);
 }
 
 uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
 {
-    const uint32_t room = PCM_BUF_SIZE - pcm_level(s);
-    if (n > room)
-        n = room;
-    const uint32_t at = s->head & (PCM_BUF_SIZE - 1);
-    const uint32_t first = n < PCM_BUF_SIZE - at ? n : PCM_BUF_SIZE - at;
-    memcpy(&s->buf[at], src, first);
-    memcpy(s->buf, src + first, n - first);
-    /* The player may run between any two instructions here, so the bytes
-     * are in place before head says so. */
-    atomic_signal_fence(memory_order_release);
-    s->head = (uint16_t)(s->head + n);
-    return n;
+    return RING_IN(&s->buf, src, n);
 }
 
 void pcm_clear(pcm_t *s)
 {
-    s->tail = s->head;
+    RING_RESET(&s->buf);
 }
 
 uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
@@ -113,26 +98,23 @@ uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
-static int32_t pcm_decode(const pcm_t *s, uint32_t at)
+/* The sample i bytes after the oldest. */
+static int32_t pcm_decode(pcm_t *s, uint32_t i)
 {
     if (s->fmt.bits == 8)
-        return ((int32_t)s->buf[at & (PCM_BUF_SIZE - 1)] - 128) * 256;
-    return (int16_t)(s->buf[at & (PCM_BUF_SIZE - 1)] |
-                     s->buf[(at + 1) & (PCM_BUF_SIZE - 1)] << 8);
+        return ((int32_t)*RING_AT(&s->buf, i) - 128) * 256;
+    return (int16_t)(*RING_AT(&s->buf, i) | *RING_AT(&s->buf, i + 1) << 8);
 }
 
 static void pcm_take(pcm_t *s)
 {
     int32_t l = 0, r = 0;
-    const uint16_t level = pcm_level(s);
+    const uint32_t level = RING_LEN(&s->buf);
     if (level >= s->frame)
     {
-        const uint16_t tail = s->tail;
-        l = pcm_decode(s, tail);
-        r = s->fmt.channels == 2 ? pcm_decode(s, tail + s->fmt.bits / 8) : l;
-        /* The bytes are read before the writer may reuse them. */
-        atomic_signal_fence(memory_order_acquire);
-        s->tail = (uint16_t)(tail + s->frame);
+        l = pcm_decode(s, 0);
+        r = s->fmt.channels == 2 ? pcm_decode(s, s->fmt.bits / 8) : l;
+        RING_SKIP(&s->buf, s->frame);
         if (level < 2u * s->frame && s->underruns < 0x7FFFFFFF)
             s->underruns++;
     }

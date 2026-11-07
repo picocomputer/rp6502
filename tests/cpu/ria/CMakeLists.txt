@@ -75,41 +75,39 @@ endif()
 
 rp6502_add_test(clock LIBS emu_core ROM ${ADVENTURE_ROM})
 
-set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
+set_source_files_properties(${RP6502_GEN}/unicode_oem.c PROPERTIES GENERATED TRUE)
 rp6502_add_test(unicode
-    SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c ${OEMCP_C}
-        ${RP6502_VENDOR}/fatfs/ffunicode.c
+    SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c
+        ${RP6502_GEN}/unicode_oem.c ${RP6502_VENDOR}/fatfs/ffunicode.c
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_VENDOR}
-        ${OEMCP_DIR})
-add_dependencies(test_unicode oemcp)
+        ${RP6502_GEN})
+add_dependencies(test_unicode rp6502_gen_c)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
     TARGET_DIRECTORY test_unicode PROPERTIES COMPILE_DEFINITIONS
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 
-set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
+set_source_files_properties(${RP6502_GEN}/layout_db.c PROPERTIES GENERATED TRUE)
 rp6502_add_test(layout
-    SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c ${KBDLAY_C}
-    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${KBDLAY_DIR})
-add_dependencies(test_layout kbdlay)
+    SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c ${RP6502_GEN}/layout_db.c
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_GEN})
+add_dependencies(test_layout rp6502_gen_c)
 
-if(OEMCP_BIN)
+if(TARGET rp6502_gen_assets)
     rp6502_add_test(unicode_bin
         SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c unicode_bin.c
             ${RP6502_VENDOR}/fatfs/ffunicode.c
-        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${OEMCP_DIR}
-        DEFS OEMCP_BIN_PATH="${OEMCP_BIN}")
-    add_dependencies(test_unicode_bin oemcp oemcp_bin)
+        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_GEN}
+        DEFS UNICODE_OEM_BIN_PATH="${RP6502_ASSETS}/unicode_oem.bin")
+    add_dependencies(test_unicode_bin rp6502_gen_c rp6502_gen_assets)
     set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
         TARGET_DIRECTORY test_unicode_bin PROPERTIES COMPILE_DEFINITIONS
         "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
-endif()
 
-if(KBDLAY_BIN)
     rp6502_add_test(layout_bin
         SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c layout_bin.c
-        INCLUDES ${RP6502_SRC} ${KBDLAY_DIR}
-        DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
-    add_dependencies(test_layout_bin kbdlay kbdlay_bin)
+        INCLUDES ${RP6502_SRC} ${RP6502_GEN}
+        DEFS LAYOUT_DB_BIN_PATH="${RP6502_ASSETS}/layout_db.bin")
+    add_dependencies(test_layout_bin rp6502_gen_c rp6502_gen_assets)
 endif()
 
 if(COMMAND rp6502_add_machine_test)

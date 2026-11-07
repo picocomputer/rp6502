@@ -10,7 +10,7 @@
  *
  * Only the part of the keyboard page core/hid needs. The RIA build compares
  * every one against the vendored TinyUSB header
- * (src/core/gen/hid_usage_check.py) because that is the tree that has it -- the
+ * (src/core/hid/usage.py) because that is the tree that has it -- the
  * machines that need this file do not, which is the whole reason it exists.
  */
 

@@ -240,6 +240,17 @@ static const char *lle_dense(uint32_t seed, uint32_t samples, unsigned flags)
 
 /* ---------------- the harness ---------------- */
 
+/* A stopped program's writes go with it. */
+UTEST(opl, a_park_drops_the_writes_still_queued)
+{
+    opl_map(0x4000);
+    for (int k = 0; k < 10; k++)
+        opl_push(0x40, (uint8_t)k);
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 10u);
+    opl_park();
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 0u);
+}
+
 /* The test-register preamble leaves the die in one state however long IC
  * was held, and so whatever its counters were. A random script applies each
  * write as it is pushed, so it is its own schedule. */
@@ -631,7 +642,7 @@ static const char *round_trip(const opl_script_t *pushes, const uint8_t *start, 
                 opl_push(pushes->w[i].reg, pushes->w[i].val);
             if (cut)
             {
-                const uint32_t q = opl_queue.count;
+                const uint32_t q = RING_LEN(&opl_queue.ring);
                 *part += q > 1 && q < OPL_QUEUE_SIZE;
                 *full += q == OPL_QUEUE_SIZE;
                 const char *fail = save() ? NULL : "the save did not fill OPL_SST_SIZE";

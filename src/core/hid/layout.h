@@ -8,7 +8,7 @@
 #define _CORE_HID_LAYOUT_H_
 
 /* The keyboard layout database, generated from src/core/def/keyboard_*.def by
- * src/core/gen/keyboard_layout_gen.py.
+ * src/core/hid/layout.py.
  *
  * Every read goes through layout_word, which the platform supplies: a RIA
  * links the tables into flash, and the Pocket stages them in SDRAM and fetches

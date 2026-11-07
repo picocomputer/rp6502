@@ -19,7 +19,7 @@
  */
 
 module pixtail
-    import vid_palette_pkg::*;
+    import color_pkg::*;
 (
     input logic clk,
 

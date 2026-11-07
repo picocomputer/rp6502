@@ -22,20 +22,15 @@ core/api/std.c std_stdin_closed: not carried: the host re-asserts it
 core/api/std.c std_xram_addr: the STD chunk
 core/api/std.c std_xram_len: the STD chunk
 core/api/xreg1.c xregs: the XREG chunk
-core/aud/bel.c bel_active: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_end_at: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_head: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_release_at: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_restrike_at: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_tail: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/mix.c aud_anchored: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_busy: not carried: a lock, free between frames
 core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_carry_n: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_ev: not carried: a state is saved with the sound taken, the ring empty
-core/aud/mix.c aud_ev_r: not carried: a state is saved with the sound taken, the ring empty
-core/aud/mix.c aud_ev_w: not carried: a state is saved with the sound taken, the ring empty
 core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
 core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
 core/aud/mix.c aud_low: not carried: the streaming sink's trim, the host's
@@ -73,15 +68,15 @@ core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/com/com.c com_bel_enabled: the COM chunk
 core/com/com.c com_crlf_last: the COM chunk
+core/com/com.c com_keyboard_ring: the COM chunk
+core/com/com.c com_reply_buf: the COM chunk
+core/com/com.c com_reply_len: the COM chunk
 core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all
 core/com/com.c com_stderr_sink: not carried: host wiring
 core/com/com.c com_term_out: not carried: host wiring
 core/com/com.c com_term_reply_suppressed: not carried: host wiring
 core/com/com.c com_tx_tap: not carried: host wiring; libretro installs no wire at all
-core/com/com.c keyboard_ring: the COM chunk
-core/com/com.c reply_buf: the COM chunk
-core/com/com.c reply_len: the COM chunk
-core/com/com.c uart_ring: the COM chunk
+core/com/com.c com_uart_ring: the COM chunk
 core/com/pick.c com_rx_deadline: the COM chunk
 core/com/pick.c com_rx_held: the COM chunk
 core/com/pick.c com_sources: the COM chunk

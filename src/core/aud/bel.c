@@ -11,9 +11,9 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
+#include "core/sys/ring.h"
 #include "host/host.h"
 #include "machine.h"
-#include <string.h>
 
 HOST_IN_FLASH("bel_teletype") const bel_sound_t bel_teletype = {
     .freq = 1760,
@@ -61,9 +61,8 @@ HOST_IN_FLASH("bel_nfc_success_2") const bel_sound_t bel_nfc_success_2 = {
 
 #define BEL_QUEUE_SIZE 8
 
-static bel_sound_t bel_queue[BEL_QUEUE_SIZE];
-static uint8_t bel_head, bel_tail;
-static bool bel_active;
+/* The oldest sound is the one sounding. */
+static RING(bel_sound_t, BEL_QUEUE_SIZE) bel_queue;
 static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
 
 static uint64_t bel_in_ms(uint32_t ms)
@@ -100,8 +99,7 @@ static void bel_silence(void)
 
 void bel_init(void)
 {
-    bel_head = bel_tail = 0;
-    bel_active = false;
+    RING_RESET(&bel_queue);
     bel_restrike_at = bel_release_at = bel_end_at = 0;
     bel_silence();
 }
@@ -118,40 +116,33 @@ void bel_wake(uint64_t us)
 
 static void bel_strike(void)
 {
-    const bel_sound_t *snd = &bel_queue[bel_tail];
+    const bel_sound_t *snd = RING_AT(&bel_queue, 0);
     bel_voice(snd);
     bel_restrike_at = snd->restrike_ms
                           ? bel_in_ms(snd->restrike_ms) : 0;
     bel_release_at = snd->release_ms
                          ? bel_in_ms(snd->release_ms) : 0;
     bel_end_at = snd->end_ms ? bel_in_ms(snd->end_ms) : 0;
-    bel_active = true;
 }
 
 void bel_add(const bel_sound_t *sound)
 {
-    uint8_t next = (bel_head + 1) % BEL_QUEUE_SIZE;
-    if (next == bel_tail)
-        return;
-    bel_queue[bel_head] = *sound;
-    bel_head = next;
-    if (!bel_active)
+    if (RING_PUT(&bel_queue, *sound) && RING_LEN(&bel_queue) == 1)
         bel_strike();
 }
 
 void bel_task(void)
 {
-    if (!bel_active)
+    if (!RING_LEN(&bel_queue))
         return;
 
     /* Polled until the end, so a sound queued after the deadline restrikes
      * at once. */
     if (bel_due(bel_restrike_at))
     {
-        uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
-        if (next != bel_head && bel_queue[next].restrike_ms)
+        if (RING_LEN(&bel_queue) > 1 && RING_AT(&bel_queue, 1)->restrike_ms)
         {
-            bel_tail = next;
+            RING_SKIP(&bel_queue, 1);
             bel_strike();
             return;
         }
@@ -165,8 +156,8 @@ void bel_task(void)
 
     if (bel_due(bel_end_at))
     {
-        bel_tail = (bel_tail + 1) % BEL_QUEUE_SIZE;
-        if (bel_tail != bel_head)
+        RING_SKIP(&bel_queue, 1);
+        if (RING_LEN(&bel_queue))
         {
             bel_strike();
         }
@@ -175,7 +166,6 @@ void bel_task(void)
             bel_silence();
             bel_restrike_at = 0;
             bel_end_at = 0;
-            bel_active = false;
         }
     }
 }
@@ -207,11 +197,11 @@ static void bel_get_sound(sst_cursor_t *c, bel_sound_t *b)
 void bel_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    for (int i = 0; i < BEL_QUEUE_SIZE; i++)
-        bel_put_sound(c, &bel_queue[i]);
-    sst_put_u8(c, bel_head);
-    sst_put_u8(c, bel_tail);
-    sst_put_bool(c, bel_active);
+    const uint32_t len = RING_LEN(&bel_queue);
+    static const bel_sound_t none;
+    sst_put_u8(c, (uint8_t)len);
+    for (uint32_t i = 0; i < BEL_QUEUE_SIZE; i++)
+        bel_put_sound(c, i < len ? RING_AT(&bel_queue, i) : &none);
     sst_put_u64(c, bel_restrike_at);
     sst_put_u64(c, bel_release_at);
     sst_put_u64(c, bel_end_at);
@@ -220,19 +210,16 @@ void bel_sst_save(sst_cursor_t *c, unsigned flags)
 bool bel_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
+    const uint8_t len = sst_get_u8(c);
     bel_sound_t queue[BEL_QUEUE_SIZE];
     for (int i = 0; i < BEL_QUEUE_SIZE; i++)
         bel_get_sound(c, &queue[i]);
-    uint8_t head = sst_get_u8(c), tail = sst_get_u8(c);
-    bool active = sst_get_bool(c);
     uint64_t restrike = sst_get_u64(c), release = sst_get_u64(c);
     uint64_t end = sst_get_u64(c);
-    if (!sst_ok(c) || head >= BEL_QUEUE_SIZE || tail >= BEL_QUEUE_SIZE)
+    if (!sst_ok(c) || len > BEL_QUEUE_SIZE)
         return false;
-    memcpy(bel_queue, queue, sizeof bel_queue);
-    bel_head = head;
-    bel_tail = tail;
-    bel_active = active;
+    RING_RESET(&bel_queue);
+    RING_IN(&bel_queue, queue, len);
     bel_restrike_at = restrike;
     bel_release_at = release;
     bel_end_at = end;

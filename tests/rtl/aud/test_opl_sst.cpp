@@ -249,7 +249,7 @@ static void restore(Vopl_sst *d, const std::vector<uint32_t> &img, int skip,
 }
 
 /* What the last stop held, for the sweep's report. */
-static unsigned g_q_count, g_rst_pend;
+static unsigned g_q_len, g_rst_pend;
 
 /* Flop states a stop seldom finds: the tremolo's step taken with test bit
  * 3 clear, the tremolo falling, and the EG timer's carry. */
@@ -372,7 +372,7 @@ static long run_case(const Case &c, bool check_image = true)
     std::vector<int> at = arrays(), fl = flops();
     at.insert(at.end(), fl.begin(), fl.end());
     std::vector<uint32_t> img = image(a, at);
-    g_q_count = a->rootp->opl__DOT__q_count;
+    g_q_len = a->rootp->opl__DOT__q_len;
     g_rst_pend = a->rootp->opl__DOT__rst_pend;
 
     while (!b->opl_quiet)
@@ -459,8 +459,8 @@ UTEST(opl_sst, every_save_point_in_a_frame_comes_back)
             fprintf(stderr, "  offset %d lag %d clear %d: differs at %ld\n",
                     c.offset, c.lag, (int)c.clear, bad);
         ASSERT_EQ(-1L, bad);
-        full += g_q_count == 256;
-        queued += g_q_count != 0;
+        full += g_q_len == 256;
+        queued += g_q_len != 0;
         reset += g_rst_pend != 0;
     }
     fprintf(stderr, "  64 stops: %d with the queue full, %d with writes queued, "

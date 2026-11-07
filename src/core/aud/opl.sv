@@ -123,13 +123,15 @@ module opl
                 && a[4:0] < 5'd22 && a[2:0] < 3'd6);
     endfunction
 
-    /* Entries are reg | val << 8, the oldest at q_head. */
+    /* Entries are reg | val << 8. q_wr and q_rd only count up, an entry's
+     * slot is its pointer's low 8 bits, and q_len is the count. */
     (* ramstyle = "M10K, no_rw_check" *)
     logic [15:0] queue[256];
-    logic [7:0] q_head, q_tail;
+    logic [8:0] q_wr, q_rd;
     logic [31:0] drops_inc;
     always_comb drops_inc = {1'b0, opl_drops} + 32'd1;
-    logic [8:0] q_count /*verilator public_flat_rd*/;
+    logic [8:0] q_len /*verilator public_flat_rd*/;
+    always_comb q_len = q_wr - q_rd;
     logic q_take /*verilator public_flat_rd*/;
     logic snoop;
     logic [15:0] q_off;
@@ -138,26 +140,25 @@ module opl
     always_comb begin
         q_off = q_addr - xaddr;
         snoop = q_we && enabled && q_off[15:8] == 8'd0 && is_reg(q_off[7:0]);
-        q_push = snoop && !q_count[8];
-        q_drop = snoop && q_count[8];
+        q_push = snoop && !q_len[8];
+        q_drop = snoop && q_len[8];
     end
     logic [7:0] qa_a;
-    logic [15:0] q_rd, qa_q;
-    always_comb qa_a = sst_own ? sst_addr[7:0] : q_tail;
+    logic [15:0] q_entry, qa_q;
+    always_comb qa_a = sst_own ? sst_addr[7:0] : q_wr[7:0];
     always_ff @(posedge clk_a) begin
         if (sst_own ? sst_we && sel_q : q_push)
             queue[qa_a] <= sst_own ? sst_wdata[15:0] : {q_val, q_off[7:0]};
         qa_q <= queue[qa_a];
     end
     always_ff @(posedge clk)
-        q_rd <= queue[q_head];
+        q_entry <= queue[q_rd[7:0]];
 
     initial begin
         xaddr = 16'd0;
         enabled = 1'b0;
-        q_head = '0;
-        q_tail = '0;
-        q_count = '0;
+        q_wr = '0;
+        q_rd = '0;
         opl_drops = '0;
         for (int i = 0; i < 256; i++)
             queue[i] = '0;
@@ -166,16 +167,14 @@ module opl
         if (xaddr_we) begin
             xaddr <= xaddr_wdata;
             enabled <= xaddr_wdata != 16'hFFFF;
-            q_head <= '0;
-            q_tail <= '0;
-            q_count <= '0;
+            q_wr <= '0;
+            q_rd <= '0;
             opl_drops <= '0;
         end else begin
             if (q_push)
-                q_tail <= q_tail + 8'd1;
+                q_wr <= q_wr + 9'd1;
             if (q_take)
-                q_head <= q_head + 8'd1;
-            q_count <= q_count + {8'd0, q_push} - {8'd0, q_take};
+                q_rd <= q_rd + 9'd1;
             if (drops_take)
                 opl_drops <= {30'd0, q_drop};
             else if (q_drop && !drops_inc[31])
@@ -183,9 +182,8 @@ module opl
         end
         if (sst_st_we && sel_st)
             case (st_k)
-                3'd0: {enabled, q_tail, q_head, xaddr[15:8]} <= sst_wdata[24:0];
+                3'd0: {enabled, q_wr, q_rd, xaddr[15:8]} <= sst_wdata[26:0];
                 3'd1: opl_drops <= sst_wdata[30:0];
-                3'd2: q_count <= sst_wdata[8:0];
                 3'd7: xaddr[7:0] <= sst_wdata[7:0];
                 default: ;
             endcase
@@ -265,7 +263,7 @@ module opl
         for (int i = 0; i < 512; i++)
             rom[i] = OPL_ROM[i];
         regs_q = '0;
-        q_rd = '0;
+        q_entry = '0;
         rom_q = '0;
     end
 
@@ -652,8 +650,8 @@ module opl
     logic [3:0] ap_lo, ap_c;
     logic ap_glob, ap_ch, ap_alias, ap_c35, ap_wr1, ap_wr2, ap_lag;
     always_comb begin
-        ap_a = q_rd[7:0];
-        ap_d = q_rd[15:8];
+        ap_a = q_entry[7:0];
+        ap_d = q_entry[15:8];
         ap_glob = ap_a[7:5] == 3'd0 || ap_a == 8'hBD;
         ap_ch = !ap_glob && (ap_a[7:4] == 4'hA || ap_a[7:4] == 4'hB
             || ap_a[7:4] == 4'hC);
@@ -675,9 +673,9 @@ module opl
     logic pop, pop_left;
     logic [3:0] credit_a, credit_cap;
     always_comb begin
-        pop = !rst_pend && !late && q_count != 9'd0 && credit >= 4'd4;
+        pop = !rst_pend && !late && q_len != 9'd0 && credit >= 4'd4;
         q_take = fstate == F_POP && pop;
-        pop_left = pop ? q_count > 9'd1 : q_count != 9'd0;
+        pop_left = pop ? q_len > 9'd1 : q_len != 9'd0;
         credit_a = (pop ? credit - 4'd4 : credit) + 4'd3;
         credit_cap = pop_left ? 4'd8 : 4'd4;
     end
@@ -1023,7 +1021,7 @@ module opl
 
         if (sst_st_we && sel_st)
             case (st_k)
-                3'd0: {rst_pend, credit} <= sst_wdata[29:25];
+                3'd0: {rst_pend, credit} <= sst_wdata[31:27];
                 3'd2: {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
                        test7, wse, test3, lag} <= sst_wdata[31:9];
                 3'd3: begin
@@ -1044,11 +1042,10 @@ module opl
     logic [31:0] st_rd;
     always_comb begin
         case (st_k)
-            3'd0: st_rd = {2'd0, rst_pend, credit, enabled, q_tail, q_head,
-                           xaddr[15:8]};
+            3'd0: st_rd = {rst_pend, credit, enabled, q_wr, q_rd, xaddr[15:8]};
             3'd1: st_rd = {1'b0, opl_drops};
             3'd2: st_rd = {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
-                           test7, wse, test3, lag, q_count};
+                           test7, wse, test3, lag, 9'd0};
             3'd3: st_rd = {10'(tickctr), tv, vib, lfo};
             3'd4: st_rd = {6'd0, eglow, egshift, sub, egc, egt};
             3'd5: st_rd = {9'd0, noise};

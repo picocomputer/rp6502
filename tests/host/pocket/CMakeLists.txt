@@ -4,6 +4,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
@@ -11,12 +12,12 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/sys/timer.c
-        ${KBDLAY_C} ${OEMCP_C}
+        ${RP6502_GEN}/layout_db.c ${RP6502_GEN}/unicode_oem.c
         apf_host.c
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}
-        ${KBDLAY_DIR} ${OEMCP_DIR}
+        ${RP6502_GEN}
     DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
-add_dependencies(test_apf kbdlay oemcp)
+add_dependencies(test_apf rp6502_gen_c)
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
@@ -105,12 +106,11 @@ if(RP6502_SOFT_CPU)
 endif()
 
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
-add_test(NAME kbdlay_json
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/keyboard_layout_gen.py --manifest ${KBDLAY_MANIFEST}
+add_test(NAME layout_json
+    COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/hid/layout.py
         --check-interact ${POCKET_CORE_JSON}/interact.json
         --check-data ${POCKET_CORE_JSON}/data.json)
-set_tests_properties(kbdlay_json PROPERTIES LABELS "gate;host.pocket")
+set_tests_properties(layout_json PROPERTIES LABELS "gate;host.pocket")
 add_test(NAME stage_map
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/host/pocket/gen/stage_map_gate.py

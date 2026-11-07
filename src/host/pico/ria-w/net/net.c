@@ -7,6 +7,7 @@
 #include "ria-w/net/modem.h"
 #include "ria-w/net/net.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/ring.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
 #include <lwip/priv/tcp_priv.h>
@@ -40,9 +41,7 @@ typedef struct
     net_state_t state;
     struct tcp_pcb *pcb;
     uint16_t port;
-    struct pbuf *pbufs[NET_CONN_PBUF_DEPTH];
-    uint8_t pbuf_head;
-    uint8_t pbuf_tail;
+    RING(struct pbuf *, NET_CONN_PBUF_DEPTH) pbufs;
     uint16_t pbuf_pos;
     uint16_t dns_gen;
     void (*on_close)(int);
@@ -113,11 +112,9 @@ static void net_arm_keepalive(struct tcp_pcb *pcb)
 
 static void net_drain(net_conn_t *nc)
 {
-    while (nc->pbuf_head != nc->pbuf_tail)
-    {
-        pbuf_free(nc->pbufs[nc->pbuf_tail]);
-        nc->pbuf_tail = (nc->pbuf_tail + 1) % NET_CONN_PBUF_DEPTH;
-    }
+    struct pbuf *p;
+    while (RING_GET(&nc->pbufs, &p))
+        pbuf_free(p);
     nc->pbuf_pos = 0;
 }
 
@@ -180,9 +177,9 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
     // timer (250 ms), so take it now. net_recv can close the pcb.
     if (nc->pcb && nc->pcb->refused_data && nc->state == net_state_connected)
         tcp_process_refused_data(nc->pcb);
-    while (total < len && nc->pbuf_head != nc->pbuf_tail)
+    while (total < len && RING_LEN(&nc->pbufs))
     {
-        struct pbuf *p = nc->pbufs[nc->pbuf_tail];
+        struct pbuf *p = *RING_AT(&nc->pbufs, 0);
         uint16_t avail = p->len - nc->pbuf_pos;
         uint16_t copy = (len - total < avail) ? (len - total) : avail;
         memcpy(buf + total, (char *)p->payload + nc->pbuf_pos, copy);
@@ -192,12 +189,12 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
         {
             if (p->next)
             {
-                nc->pbufs[nc->pbuf_tail] = p->next;
+                *RING_AT(&nc->pbufs, 0) = p->next;
                 pbuf_ref(p->next);
             }
             else
             {
-                nc->pbuf_tail = (nc->pbuf_tail + 1) % NET_CONN_PBUF_DEPTH;
+                RING_SKIP(&nc->pbufs, 1);
             }
             pbuf_free(p);
             nc->pbuf_pos = 0;
@@ -205,7 +202,7 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
     }
     if (total && nc->pcb)
         tcp_recved(nc->pcb, total);
-    if (nc->pbuf_head == nc->pbuf_tail && nc->state == net_state_closing)
+    if (!RING_LEN(&nc->pbufs) && nc->state == net_state_closing)
         net_close(desc);
     return total;
 }
@@ -281,7 +278,7 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
         // pcb are checked after on_close returns.
         if (nc->state != net_state_closing || nc->pcb != tpcb)
             return ERR_OK;
-        if (nc->pbuf_head != nc->pbuf_tail)
+        if (RING_LEN(&nc->pbufs))
             return ERR_OK;
         nc->pcb = NULL;
         nc->state = net_state_closed;
@@ -289,12 +286,7 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
     }
     if (nc->state == net_state_connected)
     {
-        uint8_t next = (nc->pbuf_head + 1) % NET_CONN_PBUF_DEPTH;
-        if (next == nc->pbuf_tail)
-            return ERR_MEM;
-        nc->pbufs[nc->pbuf_head] = p;
-        nc->pbuf_head = next;
-        return ERR_OK;
+        return RING_PUT(&nc->pbufs, p) ? ERR_OK : ERR_MEM;
     }
     pbuf_free(p);
     return ERR_OK;

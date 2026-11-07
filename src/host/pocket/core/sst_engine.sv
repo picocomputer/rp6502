@@ -163,7 +163,7 @@ module sst_engine #(
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd6;
+    localparam logic [31:0] SST_VERSION = 32'd7;
 
     /* The audio region's flop words, written in the second pass. */
     localparam int AUD_ST = 'h780;

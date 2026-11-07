@@ -44,7 +44,7 @@
 #define W_TOTAL (B_END + W_END)
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 6u
+#define SST_VER 7u
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -465,7 +465,7 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_AUD + 0x500 + i, 0x40u + i);
         stage_word(B_AUD + 0x640 + i, i == 7 ? 0u : 0x60u + i);
     }
-    stage_word(B_AUD + 0x780, 1u << 24 | 0x12u);
+    stage_word(B_AUD + 0x780, 1u << 26 | 0x12u);
     stage_seal();
 
     auto *r = dut->rootp;
@@ -564,7 +564,7 @@ UTEST(sst, a_load_puts_the_blob_back)
         ASSERT_EQ(i == 7 ? 0u : 0x60u + i, w);
     }
     ASSERT_TRUE(blob_word(B_AUD + 0x780, &w));
-    ASSERT_EQ(1u << 24 | 0x12u, w & 0x01FFFFFFu);
+    ASSERT_EQ(1u << 26 | 0x12u, w & 0x07FFFFFFu);
 }
 
 /* A dpc of 0x14 puts the soft CPU in front of `sw x5, 0(x6)` with x5 and
@@ -792,8 +792,8 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 510);
 }
 
-/* A version 5 blob, with its sum right, is refused. */
-UTEST(sst, a_version_5_blob_is_refused)
+/* A version 6 blob, with its sum right, is refused. */
+UTEST(sst, a_version_6_blob_is_refused)
 {
     power_on();
     for (int i = 0; i < 3000; i++)
@@ -805,7 +805,7 @@ UTEST(sst, a_version_5_blob_is_refused)
         stage_word(B_XRAM + i, 0xC0DE0000u + i);
     stage_seal();
     uint32_t sum = 0;
-    stage_word(B_HDR + 1, 5);
+    stage_word(B_HDR + 1, 6);
     for (uint32_t i = 0; i < B_END; i++)
     {
         uint32_t a = STAGE_BLOB + i * 4;
@@ -851,8 +851,8 @@ int main(int argc, const char *const argv[])
 }
 
 /* Reading regs word 16 takes a byte off the console queue, so the blob
- * holds the queue in regs words 20 to 24 instead: the count and the read
- * and write pointers in word 20 and the sixteen bytes in words 21 to 24. */
+ * holds the queue in regs words 20 to 24 instead: the read and write
+ * pointers in word 20 and the sixteen bytes in words 21 to 24. */
 UTEST(sst, the_console_queue_survives)
 {
     power_on();
@@ -862,10 +862,10 @@ UTEST(sst, the_console_queue_survives)
     g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
     for (uint32_t i = 0; i < W_TOTAL; i++)
         stage_word(i, 0);
-    /* Word 20 describes a full queue, with a count of 16 and both pointers
-     * at 5, and every byte is distinct, so a rotated or partial restore
-     * reads back differently. */
-    stage_word(B_REGS + 20, (16u << 8) | (5u << 4) | 5u);
+    /* Word 20 describes a full queue, with the read pointer at 5 and the
+     * write pointer 16 past it, and every byte is distinct, so a rotated or
+     * partial restore reads back differently. */
+    stage_word(B_REGS + 20, (5u << 5) | 21u);
     stage_word(B_REGS + 21, 0xD3C2B1A0u);
     stage_word(B_REGS + 22, 0xD7C6B5A4u);
     stage_word(B_REGS + 23, 0xDBCAB9A8u);
@@ -889,7 +889,7 @@ UTEST(sst, the_console_queue_survives)
     ASSERT_TRUE(begin_save());
     uint32_t w = 0;
     ASSERT_TRUE(blob_word(B_REGS + 20, &w));
-    ASSERT_EQ((16u << 8) | (5u << 4) | 5u, w & 0x1FFFu);
+    ASSERT_EQ((5u << 5) | 21u, w & 0x3FFu);
     ASSERT_TRUE(blob_word(B_REGS + 21, &w));
     ASSERT_EQ(0xD3C2B1A0u, w);
     ASSERT_TRUE(blob_word(B_REGS + 22, &w));

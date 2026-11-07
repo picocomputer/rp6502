@@ -81,7 +81,6 @@ static inline uint32_t opl_lslr(uint32_t x, uint32_t n)
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "a step word holds rate rhi * 4 + n in its byte n");
 #endif
-_Static_assert(OPL_QUEUE_SIZE == 256, "the queue head wraps as a uint8_t");
 _Static_assert(AUD_NATIVE_RATE == 49716, "one chip sample is 72 master clocks");
 
 /* log-sin[256], then (exp | 1024) << 1 [256] (spec 4.1) */
@@ -802,16 +801,14 @@ OPL_COLD void opl_commit(void)
     }
     opl_queue_t *q = &opl_queue;
     uint32_t credit = opl_chip.credit;
-    if (!(lag & 7) && q->count && credit >= 96)
+    uint16_t e;
+    if (!(lag & 7) && credit >= 96 && RING_GET(&q->ring, &e))
     {
-        const uint32_t e = q->entry[q->head];
-        q->head++;
-        q->count--;
         credit -= 96;
         opl_apply(e & 0xff, e >> 8);
     }
     credit += 72;
-    const uint32_t cap = q->count ? 192 : 96;
+    const uint32_t cap = RING_LEN(&q->ring) ? 192 : 96;
     opl_chip.credit = (uint8_t)(credit > cap ? cap : credit);
 }
 
@@ -819,7 +816,7 @@ OPL_COLD void opl_commit(void)
 
 int16_t opl_sample(void)
 {
-    if (opl_chip.lag | opl_queue.count | (opl_chip.credit ^ 96u))
+    if (opl_chip.lag | RING_LEN(&opl_queue.ring) | (opl_chip.credit ^ 96u))
         opl_commit();
 
     /* tremolo (spec 1.3) */
@@ -958,7 +955,8 @@ static void opl_rebuild(void)
 void opl_reset(void)
 {
     memset(&opl_chip, 0, sizeof opl_chip);
-    memset(&opl_queue, 0, sizeof opl_queue);
+    RING_RESET(&opl_queue.ring);
+    opl_queue.drops = 0;
     for (int i = 0; i < 18; i++)
     {
         opl_chip.sl[i].level = 0x1ff;
@@ -991,7 +989,11 @@ uint16_t opl_xaddr_get(void) { return opl_xaddr; }
 
 void opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
 
-void opl_park(void) { opl_xaddr = 0xFFFF; }
+void opl_park(void)
+{
+    opl_xaddr = 0xFFFF;
+    RING_RESET(&opl_queue.ring);
+}
 
 void opl_map(uint16_t word)
 {
@@ -1072,10 +1074,11 @@ void opl_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u8(c, opl_chip.cb);
     sst_put_i32(c, opl_chip.held15);
     sst_put_i32(c, opl_chip.held1617);
-    const opl_queue_t *q = &opl_queue;
-    sst_put_u16(c, q->count);
+    opl_queue_t *q = &opl_queue;
+    const uint32_t len = RING_LEN(&q->ring);
+    sst_put_u16(c, (uint16_t)len);
     for (uint32_t i = 0; i < OPL_QUEUE_SIZE; i++)
-        sst_put_u16(c, i < q->count ? q->entry[(uint8_t)(q->head + i)] : 0);
+        sst_put_u16(c, i < len ? *RING_AT(&q->ring, i) : 0);
     sst_put_u8(c, opl_chip.credit);
     sst_put_u32(c, q->drops);
 }
@@ -1085,7 +1088,7 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
     (void)flags;
     const uint16_t at = sst_get_u16(c);
     memset(&opl_chip, 0, sizeof opl_chip);
-    memset(&opl_queue, 0, sizeof opl_queue);
+    RING_RESET(&opl_queue.ring);
     bool ok = at == 0xFFFF || opl_block_ok(at);
     for (int i = 0; i < 18; i++)
     {
@@ -1136,17 +1139,20 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags)
         ok &= opl_same_view(&opl_chip.mv[i], &opl_chip.cv[i], !(opl_chip.lag & (1u << i))) ||
               (i < 3 && (opl_chip.lag & (1u << i)));
     opl_queue_t *q = &opl_queue;
-    q->count = sst_get_u16(c);
-    ok &= q->count <= OPL_QUEUE_SIZE;
+    const uint16_t len = sst_get_u16(c);
+    ok &= len <= OPL_QUEUE_SIZE;
     for (uint32_t i = 0; i < OPL_QUEUE_SIZE; i++)
     {
-        const uint32_t e = sst_get_u16(c);
-        q->entry[i] = (uint16_t)e;
-        ok &= i >= q->count || ((opl_regs[(e & 0xff) >> 3] >> (e & 7)) & 1);
+        const uint16_t e = sst_get_u16(c);
+        if (i < len)
+        {
+            ok &= opl_is_reg((uint8_t)e);
+            RING_PUT(&q->ring, e);
+        }
     }
     opl_chip.credit = sst_get_u8(c);
     q->drops = sst_get_u32(c);
-    ok &= opl_chip.credit >= 72 && opl_chip.credit <= (q->count ? 192 : 96) && !(opl_chip.credit % 24);
+    ok &= opl_chip.credit >= 72 && opl_chip.credit <= (len ? 192 : 96) && !(opl_chip.credit % 24);
     ok &= q->drops <= 0x7FFFFFFF;
     if (!ok || !sst_ok(c))
     {

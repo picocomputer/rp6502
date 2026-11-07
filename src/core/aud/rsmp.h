@@ -15,7 +15,7 @@
  *
  * A polyphase windowed sinc: 128 rows of 24 taps, row p realising a delay
  * of p/128 of an input sample, with a linear interpolation between adjacent
- * rows for the rest. src/core/gen/rsmp_coef_gen.py designs the rows and
+ * rows for the rest. src/core/aud/rsmp.py designs the rows and
  * records why they are what they are; tests/cpu/aud/test_rsmp.c measures
  * the result.
  *
@@ -31,7 +31,7 @@
 typedef struct
 {
     /* x[n-23] .. x[n], newest last. The interpolation interval is between
-     * hist[11] and hist[12], which is where rsmp_coef_gen.py puts it. */
+     * hist[11] and hist[12], which is where rsmp.py puts it. */
     int32_t hist[RSMP_TAPS];
     /* Q32 position inside that interval. It needs more than 32 bits because
      * the step exceeds 1.0 whenever the source outruns the sink, and

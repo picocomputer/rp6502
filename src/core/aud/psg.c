@@ -54,14 +54,14 @@ static const uint32_t psg_vol_table[] = {
 /* Phase 0 is the trough and phase 128 the peak, because a voice indexes
  * this with the top byte of its phase and opens its duty gate around 128. */
 static const int16_t psg_sine_table[256] = {
-#include "aud_sine.h"
+#include "psg_sine.h"
 };
 
 /* The constant-power pan law, out of 4096: a voice at pan p weighs
  * psg_pan_table[63 - p] on the left and psg_pan_table[63 + p] on the
  * right. The centre, 1024, puts a full sine at one OPL2 channel's level. */
 static const uint16_t psg_pan_table[127] = {
-#include "aud_pan.h"
+#include "psg_pan.h"
 };
 
 /* A voice's freq holds hertz times three, so its phase increment is
