@@ -36,7 +36,10 @@
 // Every transfer runs on EPX. The controller's interrupt endpoint polling is not used: a poll that gets the wrong
 // DATA PID is never ACKed, so the device repeats it forever, and EPX takes bogus completions meanwhile.
 // ep_pool[0] is EP0 of every address; usbh runs one control transfer at a time.
-static hw_endpoint_t  ep_pool[USB_MAX_ENDPOINTS];
+enum {
+  EP_POOL_SIZE = 33 // EP0 and 32 endpoints
+};
+static hw_endpoint_t  ep_pool[EP_POOL_SIZE];
 static hw_endpoint_t *epx = &ep_pool[0]; // current active endpoint
 
 // EP0 max packet size per address
@@ -46,8 +49,8 @@ static uint8_t ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1];
   #define EPSTATE_WAITING EPSTATE_ABORTING
 
 // Poll interval and time of the next poll of interrupt endpoints, by ep_pool index
-static uint8_t  int_interval_ms[USB_MAX_ENDPOINTS];
-static uint32_t int_due_us[USB_MAX_ENDPOINTS];
+static uint8_t  int_interval_ms[EP_POOL_SIZE];
+static uint32_t int_due_us[EP_POOL_SIZE];
 
 // After a STOP_TRANS, EPX starts nothing until the next SOF
 static bool epx_hold;
@@ -61,10 +64,15 @@ static uint8_t epx_timeouts;
 
 // Transfers a NAK switched out of EPX, one bit per ep_pool index. Once per SOF one of them polls until it NAKs,
 // then EPX goes back, so idle INs do not switch EPX on every NAK.
-static uint16_t       epx_parked;
+static uint64_t       epx_parked;
 static bool           epx_nak_turn;                 // the next NAK lets a parked transfer poll
 static hw_endpoint_t *epx_turn_from;                // EPX goes back to it after the poll
 static hw_endpoint_t *epx_polled = &ep_pool[0];     // the parked transfer that polled last
+
+TU_VERIFY_STATIC(EP_POOL_SIZE <= 64, "epx_parked has one bit per ep_pool index");
+TU_ATTR_ALWAYS_INLINE static inline uint64_t pool_bit(uint32_t idx) {
+  return 1ull << idx;
+}
 
 // The SIE resets the root bus on attach; hcd_port_reset() re-runs that by dropping VBUS_DETECT
 enum {
@@ -235,7 +243,7 @@ static void __tusb_irq_path_func(epx_switch_ep)(hw_endpoint_t *ep) {
 
   epx       = ep; // switch pointer
   ep->state = EPSTATE_ACTIVE;
-  epx_parked &= (uint16_t)~TU_BIT(ep - ep_pool);
+  epx_parked &= ~pool_bit((uint32_t)(ep - ep_pool));
 
   if (is_setup) {
     usb_hw->dev_addr_ctrl = ep->dev_addr;
@@ -273,10 +281,10 @@ static void __tusb_irq_path_func(int_edpt_schedule)(const hw_endpoint_t *ep) {
 // Round-robin find next pending ep after current epx, current epx last; parked ones only if they may be
 static hw_endpoint_t *__tusb_irq_path_func(epx_next_pending)(hw_endpoint_t *cur_ep, bool parked) {
   const uint     cur_idx = (uint)(cur_ep - &ep_pool[0]);
-  const uint16_t skip    = parked ? 0 : epx_parked;
+  const uint64_t skip    = parked ? 0 : epx_parked;
   for (uint n = 1; n <= TU_ARRAY_SIZE(ep_pool); n++) {
     const uint i = (cur_idx + n) % TU_ARRAY_SIZE(ep_pool);
-    if (epx_is_pending(&ep_pool[i]) && !(skip & TU_BIT(i))) {
+    if (epx_is_pending(&ep_pool[i]) && !(skip & pool_bit(i))) {
       return &ep_pool[i];
     }
   }
@@ -363,7 +371,7 @@ static void __tusb_irq_path_func(sof_service)(void) {
     epx_stopped = NULL;
   }
 
-  uint16_t pending = 0;
+  uint64_t pending = 0;
   bool     waiting = false;
   for (uint i = 0; i < TU_ARRAY_SIZE(ep_pool); i++) {
     hw_endpoint_t *ep = &ep_pool[i];
@@ -376,7 +384,7 @@ static void __tusb_irq_path_func(sof_service)(void) {
       }
     }
     if (epx_is_pending(ep)) {
-      pending |= (uint16_t)TU_BIT(i);
+      pending |= pool_bit(i);
     }
   }
 
@@ -477,7 +485,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
           usb_hw_clear->nak_poll = USB_NAK_POLL_STOP_EPX_ON_NAK_BITS;
           next_ep                = epx;
         } else {
-          epx_parked |= (uint16_t)TU_BIT(epx - ep_pool);
+          epx_parked |= pool_bit((uint32_t)(epx - ep_pool));
           usb_hw_set->inte = USB_INTE_HOST_SOF_BITS;
         }
         epx_save_context(epx); // re-armed from buffer 0
@@ -710,9 +718,9 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   ep->user_buf      = buffer;
   ep->remaining_len = buflen;
   ep->xferred_len   = 0;
-  epx_parked &= (uint16_t)~TU_BIT(ep - ep_pool);
-
   const uint32_t idx = (uint32_t)(ep - ep_pool);
+  epx_parked &= ~pool_bit(idx);
+
   if (ep->transfer_type == TUSB_XFER_INTERRUPT && !int_edpt_due(idx) &&
       int_due_us[idx] - time_us_32() <= int_interval_ms[idx] * 1000u) {
     ep->state        = EPSTATE_WAITING;
@@ -746,7 +754,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet
   ep->remaining_len = 8;
   ep->xferred_len   = 0;
   ep->state         = EPSTATE_PENDING_SETUP;
-  epx_parked &= (uint16_t)~TU_BIT(0);
+  epx_parked &= ~pool_bit(0);
 
   if (epx->state == EPSTATE_ACTIVE || epx_hold) {
     usb_hw_set->nak_poll = USB_NAK_POLL_STOP_EPX_ON_NAK_BITS;
