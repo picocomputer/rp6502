@@ -371,10 +371,7 @@ void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
     (void)rhport;
     (void)in_isr;
     if (eventid == HCD_EVENT_DEVICE_ATTACH)
-    {
         usb_enum_kick();
-        RP6502_LOG(usb, INFO, "attach rhport=%u", rhport);
-    }
 }
 
 void tuh_mount_cb(uint8_t daddr)
