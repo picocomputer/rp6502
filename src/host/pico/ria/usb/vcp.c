@@ -36,6 +36,7 @@ enum
     VCP_CFG_CONNECT, // DTR and RTS request in flight, dropped after it if closed
     VCP_CFG_READY,
     VCP_CFG_FAILED,
+    VCP_CFG_TIMEOUT, // a request timed out
 };
 
 typedef struct
@@ -184,6 +185,7 @@ static void vcp_cfg_cb(tuh_xfer_t *xfer)
         return;
     }
     bool ok;
+    uint8_t failed = VCP_CFG_FAILED;
     if (vcp_desc_idx(desc) < 0)
         ok = vcp_cfg_start(idx); // the open waiting for this request
     else
@@ -192,7 +194,9 @@ static void vcp_cfg_cb(tuh_xfer_t *xfer)
         ok = xfer->result == XFER_RESULT_SUCCESS ||
              (xfer->result == XFER_RESULT_STALLED && tuh_cdc_itf_get_info(idx, &info) &&
               info.desc.bInterfaceSubClass == CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL);
-        if (ok && dev->cfg == VCP_CFG_CODING)
+        if (xfer->result == XFER_RESULT_TIMEOUT)
+            failed = VCP_CFG_TIMEOUT;
+        else if (ok && dev->cfg == VCP_CFG_CODING)
         {
             dev->cfg = VCP_CFG_CONNECT;
             ok = tuh_cdc_connect(idx, vcp_cfg_cb, desc);
@@ -202,7 +206,7 @@ static void vcp_cfg_cb(tuh_xfer_t *xfer)
     }
     if (!ok)
     {
-        dev->cfg = VCP_CFG_FAILED;
+        dev->cfg = failed;
         RP6502_LOG(vcp, WARN, "%d config failed", idx);
     }
 }
@@ -369,7 +373,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
         dev->opened = false;
         if (dev->cfg == VCP_CFG_READY)
             vcp_cfg_drop(idx, desc);
-        else if (dev->cfg == VCP_CFG_FAILED)
+        else if (dev->cfg == VCP_CFG_FAILED || dev->cfg == VCP_CFG_TIMEOUT)
             dev->cfg = VCP_CFG_IDLE;
         else if (dev->cfg != VCP_CFG_CONNECT)
             dev->cfg = VCP_CFG_CLOSING;
@@ -377,14 +381,19 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-// STD_PENDING while the port configures, STD_ERROR when that failed or the
-// device is gone.
-static std_rw_result vcp_desc_state(int desc, api_errno *err)
+// STD_PENDING while the port configures, STD_ERROR with EINVAL when the
+// configuration failed, or EIO when a request timed out or the device is gone.
+std_rw_result vcp_std_opening(int desc, api_errno *err)
 {
     int idx = vcp_desc_idx(desc);
-    if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_FAILED)
+    if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_TIMEOUT)
     {
         *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (vcp_mounts[idx].cfg == VCP_CFG_FAILED)
+    {
+        *err = API_EINVAL;
         return STD_ERROR;
     }
     return vcp_mounts[idx].cfg == VCP_CFG_READY ? STD_OK : STD_PENDING;
@@ -394,7 +403,7 @@ std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     *bytes_read = 0;
-    std_rw_result result = vcp_desc_state(desc, err);
+    std_rw_result result = vcp_std_opening(desc, err);
     if (result == STD_OK)
         *bytes_read = tuh_cdc_read(desc & 0xF, buf, count);
     return result;
@@ -404,7 +413,7 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
     *bytes_written = 0;
-    std_rw_result result = vcp_desc_state(desc, err);
+    std_rw_result result = vcp_std_opening(desc, err);
     if (result == STD_OK)
     {
         uint8_t idx = desc & 0xF;

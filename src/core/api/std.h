@@ -65,6 +65,10 @@ typedef struct
     // schedule), STD_OK when done, STD_ERROR on failure (check errno)
     std_rw_result (*close)(int desc, api_errno *);
     // everything else is optional
+    // opening returns STD_PENDING while the descriptor from open is not ready
+    // (re-dispatched on schedule), STD_OK once it is, STD_ERROR when the open
+    // failed (check errno), and the core then closes the descriptor
+    std_rw_result (*opening)(int desc, api_errno *);
     std_rw_result (*read)(int desc, char *, uint32_t, uint32_t *, api_errno *);
     std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
     std_rw_result (*sync)(int desc, api_errno *);
@@ -95,8 +99,8 @@ typedef struct
 
 const std_driver_t *std_drivers(size_t *count);
 
-/* The descriptors above the console rows, the transfer one of them may be in
- * the middle of, and how far the stdin reader has got through a line. A
+/* The descriptors above the console rows, the transfer or open one of them may
+ * be in the middle of, and how far the stdin reader has got through a line. A
  * descriptor is written down by the driver that opened it, and its function
  * pointers are rebuilt from that driver's row number and the open mode rather
  * than carried.

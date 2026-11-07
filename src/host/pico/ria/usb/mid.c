@@ -24,7 +24,7 @@ static_assert(sizeof(mid_string) == 4 + 1);
 #define MID_RING_SIZE 128
 #define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
 #define MID_MAX_PPQN 32767       // SMF division with bit 15 clear
-#define MID_CLOSE_STALL_MS 1000  // close gives up after this long with a full TX FIFO
+#define MID_TX_STALL_MS 1000     // close and sync give up after this long with a full TX FIFO
 
 enum
 {
@@ -78,11 +78,14 @@ typedef struct
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
     bool tx_meta;
-    uint32_t tx_full_ms;
     RING(uint8_t, MID_RING_SIZE) tx_ring;
 } mid_t;
 static mid_t mid_mounts[CFG_TUH_MIDI];
 static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
+
+// When writes to an interface's TX FIFO started failing, 0 while it accepts
+// them. The cables of an interface share its FIFO.
+static uint32_t mid_itf_full_ms[CFG_TUH_MIDI];
 
 
 static inline bool mid_raw(const mid_t *conn)
@@ -502,19 +505,20 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
 }
 
 // The endpoint FIFO only ever holds whole packets, so a write stores 4 bytes
-// or none. tx_full_ms is when writes started failing, 0 while they succeed.
+// or none.
 static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
 {
     uint8_t pkt[4] = {(uint8_t)((conn->cable << 4) | cin), 0, 0, 0};
     for (uint8_t i = 0; i < len; i++)
         pkt[1 + i] = data[i];
+    uint32_t *full_ms = &mid_itf_full_ms[conn->itf];
     if (tuh_midi_packet_write_n(conn->itf, pkt, 4) == 4)
     {
-        conn->tx_full_ms = 0;
+        *full_ms = 0;
         return true;
     }
-    if (!conn->tx_full_ms)
-        conn->tx_full_ms = to_ms_since_boot(get_absolute_time());
+    if (!*full_ms)
+        *full_ms = to_ms_since_boot(get_absolute_time());
     return false;
 }
 
@@ -877,7 +881,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_acc_len = 0;
     conn->tx_acc_eox = false;
     conn->tx_sysex_break = false;
-    conn->tx_full_ms = 0;
+    mid_itf_full_ms[conn->itf] = 0;
     conn->opened = true;
     if (raw)
         RP6502_LOG(midi, INFO, "%d open raw", idx);
@@ -925,15 +929,20 @@ static void mid_close_finalize(mid_t *conn)
     conn->opened = false;
 }
 
+// True once the cable's interface has accepted no packet for MID_TX_STALL_MS.
+static bool mid_tx_stalled(const mid_t *conn)
+{
+    uint32_t full_ms = mid_itf_full_ms[conn->itf];
+    return full_ms && to_ms_since_boot(get_absolute_time()) - full_ms >= MID_TX_STALL_MS;
+}
+
 std_rw_result mid_std_close(int desc, api_errno *err)
 {
     (void)err;
     mid_t *conn = mid_desc_conn(desc);
     if (!conn)
         return STD_OK;
-    if (mid_tx_draining(conn) &&
-        (!conn->tx_full_ms ||
-         to_ms_since_boot(get_absolute_time()) - conn->tx_full_ms < MID_CLOSE_STALL_MS))
+    if (mid_tx_draining(conn) && !mid_tx_stalled(conn))
         return STD_PENDING;
     RP6502_LOG(midi, INFO, "%d close", desc & 0xF);
     mid_close_finalize(conn);
@@ -943,12 +952,14 @@ std_rw_result mid_std_close(int desc, api_errno *err)
 std_rw_result mid_std_sync(int desc, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
-    if (!conn)
+    if (conn && !mid_tx_draining(conn))
+        return STD_OK;
+    if (!conn || mid_tx_stalled(conn))
     {
         *err = API_EIO;
         return STD_ERROR;
     }
-    return mid_tx_draining(conn) ? STD_PENDING : STD_OK;
+    return STD_PENDING;
 }
 
 std_rw_result mid_std_read(int desc, char *buf, uint32_t count,

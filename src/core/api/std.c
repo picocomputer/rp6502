@@ -44,6 +44,7 @@ typedef struct
 } std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
+// The descriptor the op in flight reads, writes, or waits to open.
 static std_fd_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
@@ -364,7 +365,23 @@ const std_driver_t *std_drivers(size_t *count)
 
 bool std_api_open(void)
 {
-    api_errno err;
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+    api_errno err = API_EIO;
+    if (std_fd_active)
+    {
+        std_fd_t *f = std_fd_active;
+        std_rw_result result = drivers[f->driver].opening(f->desc, &err);
+        if (result == STD_PENDING)
+            return api_working();
+        std_fd_active = NULL;
+        if (result == STD_ERROR)
+        {
+            std_close_now(f);
+            return api_return_errno(err);
+        }
+        return api_return_ax((uint16_t)(f - std_fd_pool));
+    }
     const char *path = api_pop_path_end(&err);
     if (!(API_A & (FS_RD | FS_WR)))
         return api_return_errno(API_EINVAL);
@@ -383,8 +400,6 @@ bool std_api_open(void)
         }
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
     for (size_t i = 0; i < count; i++)
     {
         if (drivers[i].handles(path))
@@ -396,7 +411,10 @@ bool std_api_open(void)
             if (idx < 0)
                 return api_return_errno(err);
             std_bind(&std_fd_pool[fd], (uint8_t)i, idx, API_A);
-            return api_return_ax(fd);
+            if (!drivers[i].opening)
+                return api_return_ax(fd);
+            std_fd_active = &std_fd_pool[fd];
+            return api_working();
         }
     }
     return api_return_errno(API_ENOENT);
