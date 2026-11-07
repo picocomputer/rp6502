@@ -29,6 +29,7 @@ rp6502_add_module_test(pcm_rtl
     TOP tb_aud
     RTL ${AUD_BENCH_RTL}
     SOURCES test_pcm_rtl.cpp pcm_shim.c ${RP6502_SRC}/core/aud/rsmp.c
+        ${RP6502_SRC}/core/sys/ring.c
     INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RSMP_COEF_DIR}
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000
     DEPENDS rsmp_coef rsmp_coef_pkg

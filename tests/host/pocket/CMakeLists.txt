@@ -4,6 +4,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c

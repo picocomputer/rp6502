@@ -156,6 +156,8 @@ endif()
 
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
+rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c)
+
 rp6502_add_test(com LIBS emu_core)
 
 rp6502_add_test(rln LIBS emu_core)

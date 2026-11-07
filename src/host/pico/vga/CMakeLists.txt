@@ -51,6 +51,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/sys/com.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
+    ${RP6502_ROOT}/src/core/sys/ring.c
     ${RP6502_ROOT}/src/core/sys/xram.c
     ${VGA_SRC}/sys/pix.c
     ${VGA_SRC}/sys/ria.c
