@@ -387,7 +387,7 @@ UTEST(aud, pcm_keeps_the_rules)
             fmt[opens++] = r->wiring__DOT__pcm__DOT__b16 | r->wiring__DOT__pcm__DOT__st << 1;
         }
         if (!open && was && opens && closes < 2)
-            level[closes++] = (r->wiring__DOT__pcm__DOT__head - r->wiring__DOT__pcm__DOT__tail) & 0x1FFF;
+            level[closes++] = (r->wiring__DOT__pcm__DOT__wr - r->wiring__DOT__pcm__DOT__rd) & 0x1FFF;
         was = open;
         if (line == 524 && dut->wiring_scanline == 0)
             frames++;
@@ -502,7 +502,7 @@ UTEST(aud, pcm_writes_land_in_order)
         ASSERT_EQ(ram[ORDER + 2 * i] | ram[ORDER + 2 * i + 1] << 8, order_sizes[i]);
         total += order_sizes[i];
     }
-    ASSERT_EQ((int)r->wiring__DOT__pcm__DOT__head, total);
+    ASSERT_EQ((int)r->wiring__DOT__pcm__DOT__wr, total);
     int bad = 0;
     for (int i = 0; i < total; i++)
         if (pcm_fifo(i) != (uint8_t)(i * 7 + 3))

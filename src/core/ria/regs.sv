@@ -117,8 +117,10 @@ module regs (
      * soft CPU had not taken yet, and which a sleep used to drop on the
      * floor. */
     logic [7:0] txf[16];
-    logic [3:0] txf_w, txf_r;
-    logic [4:0] txf_count;
+    /* txf_wr and txf_rd only count up, a byte's slot is its pointer's low
+     * four bits, and txf_len is the count. */
+    logic [4:0] txf_wr, txf_rd, txf_len;
+    always_comb txf_len = txf_wr - txf_rd;
     logic txf_pop;
     logic push_now;
     /* The !sst_own terms: machine logic freezes wherever it was when
@@ -126,7 +128,7 @@ module regs (
      * into these arrays -- which keep their clock -- every cycle of
      * the savestate. */
     always_comb push_now = en && cs && we && rs == 5'h01
-        && txf_count < 5'd16 && !sst_own;
+        && txf_len < 5'd16 && !sst_own;
 
     /* The console queue's four words in the regs window, and the fifth
      * that carries its pointers. Read here and nowhere else: word 16 is
@@ -218,7 +220,7 @@ module regs (
         if (cs && !we) begin
             case (rs)
                 5'h00: regs_data = (regs[0] & ~TX_READY)
-                    | (txf_count < 5'd16 ? TX_READY : 8'h00)
+                    | (txf_len < 5'd16 ? TX_READY : 8'h00)
                     | (pull ? RX_READY : 8'h00);
                 5'h02: regs_data = regs[2];
                 default: ;
@@ -283,7 +285,7 @@ module regs (
      * infers as flip-flops, never as memory. */
     always_ff @(posedge clk_mem) begin
         if (push_now)
-            txf[txf_w] <= data_i;
+            txf[txf_wr[3:0]] <= data_i;
         if (xs_we[0]) begin
             xs0[xs_waddr0] <= xs_wdat0;
             xm0[xs_waddr0] <= xs_wdat0;
@@ -318,10 +320,10 @@ module regs (
 
     always_comb begin
         case (w_word)
-            8'd16: regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            8'd16: regs_b_rdata = {23'd0, txf_len != 5'd0, txf[txf_rd[3:0]]};
             /* The console queue, whole, for the one reader that must
              * not disturb it. */
-            8'(TXQ_PTR): regs_b_rdata = {19'd0, txf_count, txf_r, txf_w};
+            8'(TXQ_PTR): regs_b_rdata = {22'd0, txf_rd, txf_wr};
             8'(TXQ_W0 + 0): regs_b_rdata =
                 {txf[3], txf[2], txf[1], txf[0]};
             8'(TXQ_W0 + 1): regs_b_rdata =
@@ -362,7 +364,7 @@ module regs (
         endcase
     end
 
-    always_comb txf_pop = b_re && b_word == 8'd16 && txf_count != 5'd0;
+    always_comb txf_pop = b_re && b_word == 8'd16 && txf_len != 5'd0;
 
 
     initial begin
@@ -511,9 +513,8 @@ module regs (
     end
 
     initial begin
-        txf_w = 4'd0;
-        txf_r = 4'd0;
-        txf_count = 5'd0;
+        txf_wr = 5'd0;
+        txf_rd = 5'd0;
         os_rx_valid = 1'b0;
         os_rx_data = 8'h00;
         rx_req = 1'b0;
@@ -593,16 +594,14 @@ module regs (
             end
         end
         if (sst_own && w_we && w_word == 8'(TXQ_PTR)) begin
-            txf_w <= w_data[3:0];
-            txf_r <= w_data[7:4];
-            txf_count <= w_data[12:8];
+            txf_wr <= w_data[4:0];
+            txf_rd <= w_data[9:5];
         end
         else begin
             if (push_now)
-                txf_w <= txf_w + 4'd1;
+                txf_wr <= txf_wr + 5'd1;
             if (txf_pop)
-                txf_r <= txf_r + 4'd1;
-            txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
+                txf_rd <= txf_rd + 5'd1;
         end
         /* A read that tries to stage a byte and finds none sets the
          * request; a byte that lands, whether pulled or offered, clears

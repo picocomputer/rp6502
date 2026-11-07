@@ -218,7 +218,7 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
          * drops it as opl.sv does; one the engine ignores lands alike. */
         bool due = i < evs.size() && evs[i].n <= n + 1 && evs[i].clk == tickctr();
         if (due && (evs[i].kind == EV_WRITE || evs[i].kind == EV_WRITE_DROPS)
-            && dut->rootp->opl__DOT__q_count == OPL_QUEUE_SIZE)
+            && dut->rootp->opl__DOT__q_len == OPL_QUEUE_SIZE)
         {
             if (const char *r = inject(evs[i++], &at, n))
                 return r;
@@ -231,7 +231,7 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
             uint32_t credit;
             bool late;
             opl_pace_get(&credit, &late);
-            const unsigned rq = dut->rootp->opl__DOT__q_count;
+            const unsigned rq = dut->rootp->opl__DOT__q_len;
             const unsigned rc = dut->rootp->opl__DOT__credit * 24u;
             const bool rl = dut->rootp->opl__DOT__late;
             if (rq != RING_LEN(&opl_queue.ring) || rc != credit || rl != late)

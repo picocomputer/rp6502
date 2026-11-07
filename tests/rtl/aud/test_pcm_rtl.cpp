@@ -183,8 +183,8 @@ static void apply(sim_t &s, const op_t &o)
     {
         const uint8_t b[4] = {(uint8_t)o.v, (uint8_t)(o.v >> 8), (uint8_t)(o.v >> 16),
                               (uint8_t)(o.v >> 24)};
-        s.align[dut->rootp->tb_aud__DOT__pcm__DOT__wr & 3]++;
-        if (dut->rootp->tb_aud__DOT__pcm__DOT__wr & 3)
+        s.align[dut->rootp->tb_aud__DOT__pcm__DOT__stage & 3]++;
+        if (dut->rootp->tb_aud__DOT__pcm__DOT__stage & 3)
         {
             /* A word lands aligned: this one goes as its bytes. */
             for (int k = 3; k >= 1; k--)
