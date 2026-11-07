@@ -25,12 +25,6 @@ rp6502_test_table(vid_palette_tables GEN ${RP6502_SRC}/core/gen/vid_palette_gen.
     DEPENDS ${RP6502_SRC}/core/term/color.c
     COMMENT "Generating the palette tables the pixel tests read")
 
-set(AUD_SINE_H ${RP6502_TEST_TABLES}/aud_sine_tables.h)
-rp6502_test_table(aud_sine_tables GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
-    ARGS --emit-h ${AUD_SINE_H}
-    OUTPUTS ${AUD_SINE_H}
-    COMMENT "Generating the sine table the PSG shim reads")
-
 list(PREPEND RP6502_MACHINE_SOURCES
     ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/machine.vlt)
 

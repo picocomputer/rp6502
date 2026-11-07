@@ -71,8 +71,6 @@ core/aud/pcm.c pcm_fmt: the STD chunk; the descriptor's ident carries it and its
 core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
-core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
-core/aud/sine.c sine_pan: derived; sine_init builds it and nothing writes it after
 core/com/com.c com_bel_enabled: the COM chunk
 core/com/com.c com_crlf_last: the COM chunk
 core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all

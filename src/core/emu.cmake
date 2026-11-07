@@ -13,6 +13,7 @@ include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_rsmp_coef(rsmp_coef)
 rp6502_gen_opl_rom(opl_rom)
+rp6502_gen_aud_sine(aud_sine)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
@@ -66,7 +67,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/unicode.c
     ${OEMCP_C}
     ${RP6502_SRC}/core/api/std.c
-    ${RP6502_SRC}/core/aud/sine.c
     ${RP6502_SRC}/core/aud/bel.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
@@ -115,7 +115,7 @@ elseif(MSVC)
     )
 endif()
 
-add_dependencies(emu_core rsmp_coef opl_rom)
+add_dependencies(emu_core rsmp_coef opl_rom aud_sine)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}

@@ -6,7 +6,6 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
-#include "core/aud/sine.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -50,6 +49,19 @@ static const uint32_t psg_vol_table[] = {
     14 << 16,
     7 << 16,
     0 << 16,
+};
+
+/* Phase 0 is the trough and phase 128 the peak, because a voice indexes
+ * this with the top byte of its phase and opens its duty gate around 128. */
+static const int16_t psg_sine_table[256] = {
+#include "aud_sine.h"
+};
+
+/* The constant-power pan law, out of 4096: a voice at pan p weighs
+ * psg_pan_table[63 - p] on the left and psg_pan_table[63 + p] on the
+ * right. The centre, 1024, puts a full sine at one OPL2 channel's level. */
+static const uint16_t psg_pan_table[127] = {
+#include "aud_pan.h"
 };
 
 /* A voice's freq holds hertz times three, so its phase increment is
@@ -159,8 +171,8 @@ void psg_sample(int16_t *left, int16_t *right)
          * zero weights for the same value. */
         if (pan != -64)
         {
-            acc_l += sample * sine_pan[63 - pan];
-            acc_r += sample * sine_pan[63 + pan];
+            acc_l += sample * psg_pan_table[63 - pan];
+            acc_r += sample * psg_pan_table[63 + pan];
         }
     }
     /* Constant-power weights out of 4096: a centred channel puts 1/4 on
@@ -191,7 +203,7 @@ void psg_sample(int16_t *left, int16_t *right)
             if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = PSG_RAIL;
             else
-                psg_channel_state[i].sample = sine_table[phase];
+                psg_channel_state[i].sample = psg_sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)

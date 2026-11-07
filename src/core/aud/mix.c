@@ -10,7 +10,6 @@
 #include "core/aud/opl.h"
 #include "core/aud/pcm.h"
 #include "core/aud/psg.h"
-#include "core/aud/sine.h"
 #include "core/dap/dbg.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
@@ -257,7 +256,6 @@ static void aud_keep_bel(void)
 void aud_init(void)
 {
     aud_lock();
-    sine_init();
     bel_init();
     rsmp_reset(&aud_rs_l);
     rsmp_reset(&aud_rs_r);

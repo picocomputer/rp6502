@@ -8,7 +8,6 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/aud/bel.h"
-#include "core/aud/sine.h"
 #include "core/aud/pcm.h"
 #include "core/sys/ria.h"
 #include "ria/sys/ria.h"
@@ -275,7 +274,6 @@ void __in_flash("aud_init") aud_init(void)
     gpio_put(PICO_SMPS_MODE_PIN, 1);
 #endif
 
-    sine_init();
     bel_init();
 
     /* Below the VGA interrupts, above USB and everything else at the

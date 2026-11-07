@@ -37,6 +37,19 @@ function(rp6502_gen_opl_rom target)
     set(OPL_ROM_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
+function(rp6502_gen_aud_sine target)
+    set(gen ${RP6502_CORE_DIR}/gen/aud_sine_gen.py)
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/aud_sine.h)
+    set(pan ${CMAKE_CURRENT_BINARY_DIR}/aud_pan.h)
+    add_custom_command(OUTPUT ${out} ${pan}
+        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out} --emit-pan-h ${pan}
+        DEPENDS ${gen}
+        COMMENT "Generating the PSG sine and pan tables"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${out} ${pan})
+    set(AUD_SINE_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+endfunction()
+
 function(rp6502_gen_oemcp target)
     set(gen ${RP6502_CORE_DIR}/gen/oem_table_gen.py)
     set(ff ${RP6502_VENDOR_DIR}/fatfs/ffunicode.c)

@@ -15,7 +15,7 @@ rp6502_add_test(font
     SOURCES test_font.cpp
     INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES} ${RP6502_SRC} ${RP6502_BENCH}
     LIBS emu_core)
-add_dependencies(test_font vid_font_tables vid_palette_tables aud_sine_tables)
+add_dependencies(test_font vid_font_tables vid_palette_tables)
 
 rp6502_add_machine_test(vidregs FIRMWARE
     SOURCES test_vidregs.cpp

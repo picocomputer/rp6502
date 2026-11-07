@@ -176,8 +176,6 @@ static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
 
 UTEST(psg, lockstep_bit_exact)
 {
-    shim_init();
-
     run_lockstep(utest_result, 200);
     bel_ring(utest_result);
 
@@ -391,7 +389,6 @@ static int16_t rtl_sample0() { return (int16_t)dut->rootp->psg__DOT__vm[0]; }
 
 UTEST(psg, gate_applies_on_the_clock_it_lands)
 {
-    shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
@@ -409,7 +406,6 @@ UTEST(psg, gate_applies_on_the_clock_it_lands)
  * the last one sets the state however many came before it. */
 UTEST(psg, no_write_is_dropped)
 {
-    shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
     one_loud_channel(base);
@@ -431,7 +427,6 @@ UTEST(psg, no_write_is_dropped)
  * the new one. */
 UTEST(psg, a_write_mid_walk_is_heard_by_the_next_sample)
 {
-    shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
     rtl_xaddr(base);
@@ -455,7 +450,6 @@ UTEST(psg, a_write_mid_walk_is_heard_by_the_next_sample)
  * zeroes their registers, and leaves the bell's row. */
 UTEST(psg, a_pointer_write_clears_the_registers)
 {
-    shim_init();
     rtl_reset();
     const uint16_t base = 0x4000;
     rtl_xaddr(base);

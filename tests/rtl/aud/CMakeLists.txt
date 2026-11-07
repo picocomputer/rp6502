@@ -1,5 +1,5 @@
 set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
-    ${RP6502_TEST_TABLES} ${RP6502_SRC}/host/pocket ${RP6502_SRC})
+    ${AUD_SINE_DIR} ${RP6502_SRC}/host/pocket ${RP6502_SRC})
 
 rp6502_add_module_test(psg
     TOP psg
@@ -8,7 +8,7 @@ rp6502_add_module_test(psg
         ${RP6502_SRC}/core/aud/psg.c
     INCLUDES ${AUD_SHIM_INCLUDES}
     DEFS AUD_NATIVE_RATE=48000
-    DEPENDS aud_sine_rom aud_sine_tables
+    DEPENDS aud_sine_rom aud_sine
     ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
     TIMEOUT 300)
 
