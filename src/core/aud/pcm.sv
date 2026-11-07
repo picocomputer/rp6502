@@ -153,23 +153,34 @@ module pcm
         end
     end
 
-    logic [7:0] fq[4], fa_q[4];
-    genvar gb;
-    generate
-        for (gb = 0; gb < 4; gb++) begin : gen_bank
-            pcm_bank bank (
-                .clk_a(clk_sys),
-                .clk(clk),
-                .we(w_en[gb]),
-                .waddr(w_row),
-                .wdata(wdata[8*gb+:8]),
-                .pcm_bank_a_q(fa_q[gb]),
-                .re(tick),
-                .raddr(r_row[gb]),
-                .pcm_bank_q(fq[gb])
-            );
+    /* The FIFO's four banks, 1024 bytes each in M10K. Port A on clk_sys
+     * writes and reads back at w_row, port B on clk is the player's
+     * read. In a generate loop, Quartus builds each bank as two RAMs, one
+     * for each read port. */
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [7:0] bank0[1024];
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [7:0] bank1[1024];
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [7:0] bank2[1024];
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [7:0] bank3[1024];
+    logic [31:0] fa_q;
+    logic [7:0] fq[4];
+    always_ff @(posedge clk_sys) begin
+        if (w_en[0]) bank0[w_row] <= wdata[7:0];
+        if (w_en[1]) bank1[w_row] <= wdata[15:8];
+        if (w_en[2]) bank2[w_row] <= wdata[23:16];
+        if (w_en[3]) bank3[w_row] <= wdata[31:24];
+        fa_q <= {bank3[w_row], bank2[w_row], bank1[w_row], bank0[w_row]};
+    end
+    always_ff @(posedge clk)
+        if (tick) begin
+            fq[0] <= bank0[r_row[0]];
+            fq[1] <= bank1[r_row[1]];
+            fq[2] <= bank2[r_row[2]];
+            fq[3] <= bank3[r_row[3]];
         end
-    endgenerate
 
     logic tk_has, tk_16, tk_st;
     logic [1:0] tk_t;
@@ -508,7 +519,7 @@ module pcm
             default: st_rd = '0;
         endcase
         pcm_quiet = state == S_IDLE;
-        pcm_sst_rdata = sel_f ? {fa_q[3], fa_q[2], fa_q[1], fa_q[0]}
+        pcm_sst_rdata = sel_f ? fa_q
             : sel_h ? {16'd0, hist_q}
             : sel_st || sel_so ? st_rd : '0;
     end

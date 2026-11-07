@@ -13,7 +13,7 @@ rp6502_add_module_test(psg
     TIMEOUT 300)
 
 # pcm, the OPL2's resampler and PCM on one filter, as wiring.sv has it.
-set(AUD_BENCH_RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/core/aud/pcm_bank.sv
+set(AUD_BENCH_RTL ${RSMP_COEF_PKG}
     ${RP6502_SRC}/core/aud/pcm.sv ${CMAKE_CURRENT_LIST_DIR}/tb_aud.sv)
 
 rp6502_add_module_test(rsmp_rtl

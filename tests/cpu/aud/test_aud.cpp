@@ -475,13 +475,13 @@ static uint8_t pcm_fifo(int i)
     switch (i & 3)
     {
     case 0:
-        return r->wiring__DOT__pcm__DOT__gen_bank__BRA__0__KET____DOT__bank__DOT__mem[row];
+        return r->wiring__DOT__pcm__DOT__bank0[row];
     case 1:
-        return r->wiring__DOT__pcm__DOT__gen_bank__BRA__1__KET____DOT__bank__DOT__mem[row];
+        return r->wiring__DOT__pcm__DOT__bank1[row];
     case 2:
-        return r->wiring__DOT__pcm__DOT__gen_bank__BRA__2__KET____DOT__bank__DOT__mem[row];
+        return r->wiring__DOT__pcm__DOT__bank2[row];
     }
-    return r->wiring__DOT__pcm__DOT__gen_bank__BRA__3__KET____DOT__bank__DOT__mem[row];
+    return r->wiring__DOT__pcm__DOT__bank3[row];
 }
 
 /* At PCM:1,8,1 the FIFO still holds every byte written. Each write, of 1
