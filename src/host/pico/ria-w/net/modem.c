@@ -8,6 +8,7 @@
 #include "ria-w/net/modem.h"
 #include "core/sys/config.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/ring.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/telnet.h"
@@ -50,9 +51,7 @@ typedef struct
     modem_settings_t settings;
     char cmd_buf[MODEM_AT_COMMAND_LEN + 1];
     size_t cmd_buf_len;
-    char response_buf[MODEM_RESPONSE_BUF_SIZE];
-    size_t response_buf_head;
-    size_t response_buf_tail;
+    RING(char, MODEM_RESPONSE_BUF_SIZE) response_buf;
     modem_response_fn resp_fn;
     int resp_state;
     char resp_buf[MODEM_RESPONSE_RENDER_SIZE];
@@ -102,16 +101,6 @@ bool modem_settings_persistent(void)
     return modem_conn->settings_slot >= 0;
 }
 
-static inline bool modem_response_buf_empty(void)
-{
-    return modem_conn->response_buf_head == modem_conn->response_buf_tail;
-}
-
-static inline bool modem_response_buf_full(void)
-{
-    return ((modem_conn->response_buf_head + 1) % MODEM_RESPONSE_BUF_SIZE) == modem_conn->response_buf_tail;
-}
-
 static bool modem_resp_busy(void)
 {
     return modem_conn->resp_state >= 0 || modem_conn->resp_pos < modem_conn->resp_len;
@@ -147,11 +136,7 @@ void modem_set_response_fn_state(modem_response_fn fn, int state)
 
 static void modem_response_append(char ch)
 {
-    if (!modem_response_buf_full())
-    {
-        modem_conn->response_buf[modem_conn->response_buf_head] = ch;
-        modem_conn->response_buf_head = (modem_conn->response_buf_head + 1) % MODEM_RESPONSE_BUF_SIZE;
-    }
+    RING_PUT(&modem_conn->response_buf, ch);
 }
 
 static void modem_response_append_cr_lf(void)
@@ -848,8 +833,7 @@ static void modem_conn_stop(modem_conn_t *conn)
     telnet_close((int)(conn - modem_conns));
     conn->is_open = false;
     conn->cmd_buf_len = 0;
-    conn->response_buf_head = 0;
-    conn->response_buf_tail = 0;
+    RING_RESET(&conn->response_buf);
     modem_resp_reset();
     conn->parse_result = true;
     conn->state = modem_state_on_hook;
@@ -972,13 +956,9 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
     uint32_t pos = 0;
     for (;;)
     {
-        if (!modem_response_buf_empty())
+        if (RING_LEN(&modem_conn->response_buf))
         {
-            while (pos < count && !modem_response_buf_empty())
-            {
-                buf[pos++] = modem_conn->response_buf[modem_conn->response_buf_tail];
-                modem_conn->response_buf_tail = (modem_conn->response_buf_tail + 1) % MODEM_RESPONSE_BUF_SIZE;
-            }
+            pos += RING_OUT(&modem_conn->response_buf, buf + pos, count - pos);
             if (pos >= count)
                 break;
         }
