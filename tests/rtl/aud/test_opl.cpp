@@ -234,11 +234,11 @@ static const char *lockstep(uint32_t samples, uint32_t jitter)
             const unsigned rq = dut->rootp->opl__DOT__q_count;
             const unsigned rc = dut->rootp->opl__DOT__credit * 24u;
             const bool rl = dut->rootp->opl__DOT__late;
-            if (rq != opl_queue.count || rc != credit || rl != late)
+            if (rq != RING_LEN(&opl_queue.ring) || rc != credit || rl != late)
             {
                 snprintf(why, sizeof why,
                          "before sample %u: opl.sv queue %u credit %u late %d, opl.c %u %u %d",
-                         (unsigned)n, rq, rc, rl, (unsigned)opl_queue.count, (unsigned)credit, late);
+                         (unsigned)n, rq, rc, rl, (unsigned)RING_LEN(&opl_queue.ring), (unsigned)credit, late);
                 return why;
             }
             want[n] = opl_sample();

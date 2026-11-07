@@ -39,9 +39,9 @@ void bel_wake(uint64_t us);
 /* aud_sst_save writes this inside the AUD chunk; the bell has no row of
  * its own.
  *
- * 8 queued sounds of 12, a head and a tail, 1 active, then the restrike,
- * release and end deadlines of 8. */
-#define BEL_SST_SIZE (8 * 12 + 2 + 1 + 3 * 8)
+ * The count of queued sounds, 8 sounds of 12 oldest first, then the
+ * restrike, release and end deadlines of 8. */
+#define BEL_SST_SIZE (1 + 8 * 12 + 3 * 8)
 void bel_sst_save(sst_cursor_t *c, unsigned flags);
 bool bel_sst_load(sst_cursor_t *c, unsigned flags);
 

@@ -631,7 +631,7 @@ static const char *round_trip(const opl_script_t *pushes, const uint8_t *start, 
                 opl_push(pushes->w[i].reg, pushes->w[i].val);
             if (cut)
             {
-                const uint32_t q = opl_queue.count;
+                const uint32_t q = RING_LEN(&opl_queue.ring);
                 *part += q > 1 && q < OPL_QUEUE_SIZE;
                 *full += q == OPL_QUEUE_SIZE;
                 const char *fail = save() ? NULL : "the save did not fill OPL_SST_SIZE";

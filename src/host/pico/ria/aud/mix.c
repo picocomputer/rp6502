@@ -93,9 +93,9 @@ __attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int3
  * It stops at the head it found on entry: a 6502 writing flat out can queue
  * the next write before an expensive OPL register is applied, and a drain
  * that chased it would never return. The engines cannot move while it runs,
- * because a mapping changes only under aud_engine_lock. At -O3 the OPL2's
- * push is inlined into the loop; at -Os it is a call per write, which a
- * full ring of 40 on the worst sample cannot afford. */
+ * because a mapping changes only under aud_engine_lock. The OPL2's writes
+ * are gathered and go into its queue in one copy, so a full ring of 40 on
+ * the worst sample pays the queue's barriers once. */
 __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void)
 {
     uint8_t head = ria_aud.head;
@@ -104,6 +104,8 @@ __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void
     uint8_t tail = ria_aud.tail;
     const uint32_t psg_at = ria_aud.psg_at;
     const uint32_t opl_at = ria_aud.opl_at;
+    uint16_t opl_w[RIA_AUD_RING_SIZE];
+    uint32_t opl_n = 0;
     while (tail != head)
     {
         tail = (tail + 1) & (RIA_AUD_RING_SIZE - 1);
@@ -114,10 +116,12 @@ __attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void
         const uint32_t opl = addr - opl_at;
         if (psg < PSG_REGS_SIZE)
             psg_put(psg, val);
-        if (opl < OPL_REGS_SIZE)
-            opl_push((uint8_t)opl, val);
+        if (opl < OPL_REGS_SIZE && opl_is_reg((uint8_t)opl))
+            opl_w[opl_n++] = (uint16_t)(opl | val << 8);
     }
     ria_aud.tail = tail;
+    if (opl_n)
+        opl_push_n(opl_w, opl_n);
 }
 
 /* The PCM: device's sound. pcm_put on the main loop and the interrupt's

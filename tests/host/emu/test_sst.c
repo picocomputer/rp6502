@@ -58,7 +58,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)226667);
+    ASSERT_EQ(sst_size(), (size_t)226665);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -340,7 +340,7 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     for (int k = 0; k < 300; k++)
         ria_xram_write((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
     aud_pull_lines(went, 40);
-    ASSERT_GT(opl_queue.count, 0);
+    ASSERT_GT(RING_LEN(&opl_queue.ring), 0);
     ASSERT_EQ(take(), (const char *)NULL);
     for (int k = 0; k < 300; k++)
         ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
