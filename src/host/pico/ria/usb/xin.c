@@ -254,9 +254,14 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
         return 0;
     }
 
-    if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
-        !tuh_edpt_open(dev_addr, ep_out_desc))
+    if (!tuh_edpt_open(dev_addr, ep_in_desc))
     {
+        RP6502_LOG(xinput, ERROR, "failed to open endpoints");
+        return 0;
+    }
+    if (!tuh_edpt_open(dev_addr, ep_out_desc))
+    {
+        tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
         RP6502_LOG(xinput, ERROR, "failed to open endpoints");
         return 0;
     }
@@ -340,8 +345,8 @@ static void xin_start_xbox_one(xin_device_t *device, int idx)
 static void xin_audio_disable_cb(tuh_xfer_t *xfer)
 {
     int idx = (int)xfer->user_data;
-    if (!xin_devices[idx].active)
-        return;
+    if (!xin_devices[idx].active || xin_devices[idx].dev_addr != xfer->daddr)
+        return; // closed, or the slot holds another device
 
     xin_device_t *device = &xin_devices[idx];
 

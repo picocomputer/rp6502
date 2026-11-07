@@ -748,7 +748,7 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 {
     (void)rhport;
 
-    if (msc_get_itf(dev_addr)->ep_in)
+    if (dev_addr > CFG_TUH_DEVICE_MAX || msc_get_itf(dev_addr)->ep_in)
         return 0;
 
     TU_VERIFY(MSC_PROTOCOL_BOT == desc_itf->bInterfaceProtocol ||
@@ -1529,6 +1529,7 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
 
 void msc_class_driver_close(uint8_t dev_addr)
 {
+    TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, );
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
     TU_VERIFY(p_msc->ep_in, );
 
