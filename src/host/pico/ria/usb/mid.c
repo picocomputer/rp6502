@@ -760,10 +760,16 @@ void mid_task(void)
         mid_rx_pull_itf(itf);
     uint64_t now_ns = time_us_64() * 1000;
     uint16_t flush = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
+    // Cables that share an interface's TX FIFO take turns going first
+    static uint8_t first;
+    for (uint8_t n = 0; n < CFG_TUH_MIDI; n++)
+    {
+        uint8_t idx = (uint8_t)((first + n) % CFG_TUH_MIDI);
         if (mid_mounts[idx].mounted && mid_mounts[idx].opened &&
             mid_tx_run(idx, now_ns))
             flush |= 1u << mid_mounts[idx].itf;
+    }
+    first = (uint8_t)((first + 1) % CFG_TUH_MIDI);
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
         if (flush & (1u << itf))
             tuh_midi_write_flush(itf);
