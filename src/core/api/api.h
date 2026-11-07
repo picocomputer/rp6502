@@ -170,10 +170,11 @@ static inline bool api_working(void)
     return true;
 }
 
+// The 6502 pops the xstack as soon as it is released, so $FFEC is set first.
 static inline bool api_return(void)
 {
-    api_set_regs_released();
     API_STACK = xstack[xstack_ptr];
+    api_set_regs_released();
     return false;
 }
 
