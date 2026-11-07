@@ -474,10 +474,18 @@ class TelnetDevice:
             self._sock.setblocking(False)
             self.read_until(b":")
             self.write(self._key.encode("ascii") + b"\r\n")
-            self.read_until(b"\n")  # passkey echo
-            response = self.read_until(b"\n").decode("ascii", errors="replace").strip()
-            if response.startswith("?"):
-                raise RuntimeError(response)
+            # The passkey comes back as asterisks, then "Connected" on a line
+            # of its own. A wrong passkey gets "?Access denied" and the
+            # connection is closed, so silence and a close both end the wait.
+            reply = b""
+            while not reply.endswith(b"Connected\r\n"):
+                chunk = self.read(1)
+                if not chunk:
+                    lines = reply.decode("ascii", errors="replace").splitlines()
+                    denied = [l.strip() for l in lines if l.strip().startswith("?")]
+                    raise RuntimeError(denied[0] if denied else
+                                       f"No telnet login response from {self._host}")
+                reply += chunk
         except Exception:
             self._sock.close()
             self._sock = None

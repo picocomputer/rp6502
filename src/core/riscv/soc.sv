@@ -398,8 +398,7 @@ module soc
             end
             /* sst_phi2_we is tested after the register writes so that
              * sst_phi2_wdata takes priority over a core write to
-             * soc_phi2_khz on the same edge, since the core has already
-             * resumed when sst_phi2_we is asserted. */
+             * soc_phi2_khz on the same edge. */
             if (sst_phi2_we) soc_phi2_khz <= sst_phi2_wdata;
     end
 

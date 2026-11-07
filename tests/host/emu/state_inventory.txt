@@ -22,34 +22,55 @@ core/api/std.c std_stdin_closed: not carried: the host re-asserts it
 core/api/std.c std_xram_addr: the STD chunk
 core/api/std.c std_xram_len: the STD chunk
 core/api/xreg1.c xregs: the XREG chunk
+core/aud/bel.c bel_active: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_end_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_head: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_queue_head: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_queue_tail: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/bel.c bel_state: the AUD chunk; the bell rides it because aud_init starts it
-core/aud/mix.c aud_dev: the AUD chunk
-core/aud/mix.c aud_engine_held: not carried: held only across a sample or a write, never across a walk
+core/aud/bel.c bel_release_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_restrike_at: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/bel.c bel_tail: the AUD chunk; the bell rides it because aud_init starts it
+core/aud/mix.c aud_anchored: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_busy: not carried: a lock, free between frames
+core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
+core/aud/mix.c aud_carry_n: not carried: the streaming sink's, the host's
+core/aud/mix.c aud_ev: not carried: a state is saved with the sound taken, the ring empty
+core/aud/mix.c aud_ev_r: not carried: a state is saved with the sound taken, the ring empty
+core/aud/mix.c aud_ev_w: not carried: a state is saved with the sound taken, the ring empty
+core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
+core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
+core/aud/mix.c aud_low: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_lows: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_made: the AUD chunk
+core/aud/mix.c aud_now: not carried: set to the AUD chunk's samples made on load
+core/aud/mix.c aud_off: not carried: the streaming sink's trim, the host's; 0 on load
+core/aud/mix.c aud_on: not carried: --mute is a session setting
+core/aud/mix.c aud_opl_at: not carried: rebuilt from the OPL chunk on load
+core/aud/mix.c aud_oq: the AUD chunk carries the drops; the rest is rebuilt from the OPL chunk's queue on load
+core/aud/mix.c aud_owed: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_pcm: the AUD chunk
+core/aud/mix.c aud_pcm_due: not carried: the render steps on from the AUD chunk's samples made
+core/aud/mix.c aud_pcm_l: not carried: what the PCM: device's last step made, made again on the next
+core/aud/mix.c aud_pcm_play: the AUD chunk
+core/aud/mix.c aud_pcm_r: not carried: what the PCM: device's last step made, made again on the next
+core/aud/mix.c aud_pm: rebuilt on load from the STD chunk's reopen and the AUD chunk's PCM: device
 core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
-core/aud/mix.c g_enabled: not carried: --mute is a session setting
-core/aud/mix.c g_last_l: the AUD chunk
-core/aud/mix.c g_last_r: the AUD chunk
-core/aud/mix.c g_park: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_park_ack: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_park_gen: not carried: the host holding the device's thread out of a walk
-core/aud/mix.c g_pend_i: the AUD chunk
-core/aud/mix.c g_pend_l: the AUD chunk
-core/aud/mix.c g_pend_n: the AUD chunk
-core/aud/mix.c g_pend_r: the AUD chunk
-core/aud/mix.c g_rs_l: the AUD chunk
-core/aud/mix.c g_rs_r: the AUD chunk
-core/aud/mix.c g_sink_rate: not carried: what the host's device answered
-core/aud/mix.c g_viz: not carried: a display of what was rendered
-core/aud/mix.c g_viz_pos: not carried: a display of what was rendered
-core/aud/opl.c opl_emu8950: the OPL chunk
-core/aud/opl.c opl_wave_base: the OPL chunk
+core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
+core/aud/mix.c aud_rs_l: the AUD chunk
+core/aud/mix.c aud_rs_r: the AUD chunk
+core/aud/mix.c aud_sink_rate: not carried: what the host's device answered
+core/aud/mix.c aud_streaming: not carried: which sink the host has
+core/aud/mix.c aud_trim: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_trim_i: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_viz: not carried: a display of what was rendered
+core/aud/mix.c aud_viz_at: not carried: a display of what was rendered
+core/aud/mix.c aud_window: not carried: the streaming sink's trim, the host's
+core/aud/opl.c opl_chip: the OPL chunk
+core/aud/opl.c opl_queue: the OPL chunk
 core/aud/opl.c opl_xaddr: the OPL chunk
+core/aud/pcm.c pcm_fmt: the STD chunk; the descriptor's ident carries it and its reopen sets it
 core/aud/psg.c psg_channel_state: the PSG chunk
+core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
-core/aud/sine.c sine_table: derived; sine_init builds it and nothing writes it after
 core/com/com.c com_bel_enabled: the COM chunk
 core/com/com.c com_crlf_last: the COM chunk
 core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all
@@ -125,22 +146,21 @@ core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk
 core/ria/ria.c ria: the RIA chunk
-core/ria/ria.c ria_aud_page: not carried: aud_sst_load asks for it again from the engine the AUD chunk names
 core/ria/ria.c ria_uart_rx_src: the RIA chunk
-core/ria/ria.c stack.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/ria/ria.c stack: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting
 core/rom/asset.c g_rom_generation: the ASET chunk
 core/rom/asset.c rom_assets_start: the ASET chunk
 core/rom/asset.c rom_fd: the ASET chunk
 core/rom/asset.c windows: not carried: each open window is the STD chunk's own record of that descriptor
-core/rom/rom.c buf.0: parse scratch, dead at every frame boundary
+core/rom/rom.c buf: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
-core/str/rln.c history.4: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c lastkey.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c line.3: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c poke.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c poke: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/str/rln.c rln_action_taken: the RLN chunk
 core/str/rln.c rln_buf: the RLN chunk
 core/str/rln.c rln_buflen: the RLN chunk
@@ -180,7 +200,7 @@ core/str/rln.c rln_suppress_newline: the RLN chunk
 core/str/rln.c rln_term_height: the RLN chunk
 core/str/rln.c rln_term_width: the RLN chunk
 core/str/rln.c rln_width_override: the RLN chunk
-core/str/rln.c sources.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/str/rln.c sources: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/str/str.c str_buf: parse scratch, dead at every frame boundary
 core/str/str.c str_locale_index: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_locale_names: the linked table image and a parse buffer dead at every frame boundary
@@ -199,11 +219,11 @@ core/sys/config.c config_dirty: not carried: host settings, not machine state
 core/sys/config.c config_oem_code_page: not carried: host settings, not machine state
 core/sys/config.c config_phi2_khz: not carried: host settings, not machine state
 core/sys/config.c config_str_locale: not carried: host settings, not machine state
-core/sys/proc.c argv.0: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c argv: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/proc.c boot_error: not carried: the message for the last failed boot, which the host reads right after the boot
-core/sys/proc.c launcher.1: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c launcher: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/proc.c queued: the PROC chunk
-core/sys/proc.c running.2: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/sys/proc.c running: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/random.c sys_random_seeded: the RAND chunk
 core/sys/random.c sys_random_state: the RAND chunk
 core/sys/sst.c sst_body: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
@@ -227,10 +247,10 @@ core/term/font.c font_code_page: derived: the OEM chunk's load installs it throu
 core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/term.c term40_alt_mem.5: the TERM chunk
-core/term/term.c term40_pri_mem.6: the TERM chunk
-core/term/term.c term80_alt_mem.3: the TERM chunk
-core/term/term.c term80_pri_mem.4: the TERM chunk
+core/term/term.c term40_alt_mem: the TERM chunk
+core/term/term.c term40_pri_mem: the TERM chunk
+core/term/term.c term80_alt_mem: the TERM chunk
+core/term/term.c term80_pri_mem: the TERM chunk
 core/term/term.c term_40: the TERM chunk
 core/term/term.c term_80: the TERM chunk
 core/vga/canvas.c canvas_code: the VGA chunk
@@ -250,6 +270,10 @@ core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk
 core/wdc/bus.c bus_addr: the BUS chunk
+core/wdc/bus.c bus_at_cycle: derived; bus_sst_load sets it from the BUS chunk
+core/wdc/bus.c bus_at_khz: derived; bus_sst_load sets it from the PHI2 chunk
+core/wdc/bus.c bus_at_line: derived; bus_sst_load sets it from the BUS chunk
+core/wdc/bus.c bus_at_off: derived; bus_sst_load sets it from the BUS chunk
 core/wdc/bus.c bus_cycle_count: the BUS chunk
 core/wdc/bus.c bus_data: the BUS chunk
 core/wdc/bus.c bus_lines: the BUS chunk

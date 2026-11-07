@@ -8,6 +8,7 @@
 #define _HOST_MACHINE_H_
 
 #define HOST_IN_FLASH(group)
+#define HOST_IN_FLASH_FUNC(group)
 #define HOST_NOT_IN_FLASH(group)
 #define HOST_UNINITIALIZED_RAM(name) name
 

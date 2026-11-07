@@ -14,11 +14,8 @@ extern "C"
 #include "core/term/color.h"
 #include "core/term/font.h"
 
-#include "aud_sine_tables.h"
 #include "vid_font_tables.h"
 #include "vid_palette_tables.h"
-
-#include "core/aud/sine.h"
 
 
 UTEST(font, generated_rom_matches_font_init)
@@ -41,12 +38,6 @@ UTEST(font, generated_palettes_match_color_c)
         ASSERT_EQ(VID_COLOR_2[i], color_2[i]);
     for (int i = 0; i < 256; i++)
         ASSERT_EQ(VID_COLOR_256[i], color_256[i]);
-}
-
-UTEST(font, generated_sine_matches_sine_init)
-{
-    for (int i = 0; i < 256; i++)
-        ASSERT_EQ(AUD_SINE_TABLE[i], sine_table[i]);
 }
 
 UTEST_STATE();

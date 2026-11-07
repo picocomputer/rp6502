@@ -31,7 +31,9 @@ module sst_engine #(
      * value over restored memory, so sst_engine_hold_res is already high
      * when the mask falls. It holds the 6502 in reset, which clears the
      * 6502's write enable, and wiring.sv gates the XRAM write of the RW
-     * engine in regs.sv with it. */
+     * engine in regs.sv with sst_engine_park, which is high with it.
+     * The audio engines are idle at every stop, so their only frozen
+     * enable is the snooped write, which sst_engine_aud_mask holds. */
     output logic sst_engine_arr_own,
 
     output logic sst_engine_hold_res,
@@ -65,6 +67,10 @@ module sst_engine #(
     input logic [7:0] sram_rdata,
     input logic sram_stall,
 
+    /* regs.sv's window is the engine's while sst_engine_regs_own is
+     * high: with arr_own, and in the second pass, which writes its flops
+     * once the clock is back. */
+    output logic sst_engine_regs_own,
     output logic [7:0] sst_engine_regs_word,
     output logic sst_engine_regs_we,
     output logic [31:0] sst_engine_regs_wdata,
@@ -77,6 +83,25 @@ module sst_engine #(
     input logic [31:0] cell_rdata,
     input logic [31:0] xprog_rdata,
 
+    /* The audio region, at sst_engine_mem_addr. Its arrays are written on
+     * sst_engine_aud_we with the machine stopped, and its flop words on
+     * sst_engine_aud_st_we in a second pass once the clock is back. The
+     * stop waits for aud_quiet, so no engine holds work in flight. */
+    output logic sst_engine_aud_we,
+    output logic sst_engine_aud_st_we,
+    input logic [31:0] aud_rdata,
+    input logic aud_quiet,
+    /* sst_engine_park holds the audio engines' sample counters and the
+     * RIA's frame counter from the edge hold_res rises through the second
+     * jam edge, so they take their first step with the 6502.
+     * sst_engine_aud_mask holds the snooped XRAM write until the second
+     * pass has put it back. */
+    output logic sst_engine_park,
+    output logic sst_engine_aud_mask,
+    /* Fetches the restored 6502's next byte into pocket_sram while the
+     * machine is still stopped. */
+    output logic sst_engine_ram_refill,
+
     output logic sst_engine_tcm_sel,
     output logic [14:0] sst_engine_tcm_addr,
     output logic sst_engine_tcm_we,
@@ -87,17 +112,20 @@ module sst_engine #(
     output logic [2:0] sst_engine_st_idx,
     input logic [31:0] st_rdata,
     output logic sst_engine_st_jam,
-    /* The soft CPU's mtime is written back on this level rather than
-     * on sst_engine_st_jam, because the soft CPU resumes in S_LD_DONE
-     * and the jam comes later, in S_LD_JAM. The level is held from
-     * S_LD_PUT_DONE through the register injection, which spans many
-     * clk_rv cycles, so mtime is written on a clk_rv edge before the
-     * soft CPU resumes. */
-    output logic sst_engine_mtime_jam,
+    /* What the soft CPU shares with the machine, its mtime, its register
+     * for the 6502's clock rate and resb, is written back on this level
+     * rather than on sst_engine_st_jam, because the soft CPU resumes in
+     * S_LD_DONE and the jam comes later, in S_LD_JAM, so the jam would
+     * undo what the wake writes. The level is held from S_LD_PUT_DONE
+     * through the second pass and the register injection, which span many
+     * clk_rv cycles, so each is written on a clk_rv edge before the soft
+     * CPU resumes. */
+    output logic sst_engine_os_jam,
     output logic [31:0] sst_engine_jam_mach[4],
     output logic [31:0] sst_engine_jam_cpu[5],
     output logic [31:0] sst_engine_jam_via[7],
-    output logic [31:0] sst_engine_jam_ria[12],
+    /* The RW engine's pending write, regs word 19. */
+    output logic [24:0] sst_engine_jam_xr,
 
     output logic [31:0] sst_engine_dbg_data0,
     output logic sst_engine_dbg_resume,
@@ -118,6 +146,7 @@ module sst_engine #(
     /* The scanline program is 2048 entries of four words. */
     localparam int W_XPROG = 8192;
     localparam int W_TCM = TCM_WORDS;
+    localparam int W_AUD = 2048;
     localparam int W_END = 4;
 
     localparam int B_HDR = 0;
@@ -128,12 +157,17 @@ module sst_engine #(
     localparam int B_CELLS = B_XRAM + W_XRAM;
     localparam int B_XPROG = B_CELLS + W_CELLS;
     localparam int B_TCM = B_XPROG + W_XPROG;
-    localparam int B_END = B_TCM + W_TCM;
+    localparam int B_AUD = B_TCM + W_TCM;
+    localparam int B_END = B_AUD + W_AUD;
     localparam int W_TOTAL = B_END + W_END;
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd3;
+    localparam logic [31:0] SST_VERSION = 32'd6;
+
+    /* The audio region's flop words, written in the second pass. */
+    localparam int AUD_ST = 'h780;
+    localparam int AUD_ST_END = 'h7A0;
 
     localparam int A_STAGE_OFF = 32'h03F0_0000;
 
@@ -149,24 +183,19 @@ module sst_engine #(
     /* rvreg[0] holds dpc, the program counter the core resumes from,
      * and rvreg[1] to rvreg[31] hold x1 to x31. */
     localparam int RV_WORDS = 32;
+    /* One write port and one read port, so rvreg is one LUT RAM. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [31:0] rvreg[RV_WORDS];
+    logic rv_we;
+    logic [4:0] rv_wa, rv_ra;
+    logic [31:0] rv_wd, rv_q;
     logic [31:0] flopreg[ST_RV];
-    localparam int RIA_JAM = 12;
-    logic [31:0] riareg[RIA_JAM];
-    logic ria_flop;
-    logic [3:0] ria_slot;
-    always_comb begin
-        ria_flop = 1'b1;
-        if (off < 18'd8) ria_slot = 4'(off);
-        else if (off == 18'd17) ria_slot = 4'd8;
-        else if (off == 18'd18) ria_slot = 4'd9;
-        else if (off == 18'd20) ria_slot = 4'd10;
-        else if (off == 18'd200) ria_slot = 4'd11;
-        else begin
-            ria_slot = 4'd0;
-            ria_flop = 1'b0;
-        end
-    end
+    /* regs.sv's flops are its words 0 to 7, 17, 18, 19, 20 and 200. The
+     * second pass writes 0 to 20 and then 200, after the mirror's word. */
+    localparam int RIA_XR = 19;
+    localparam int RIA_LAST = 20;
+    localparam int RIA_XSP = 200;
+    logic [24:0] ria_xr;
     logic [4:0] rv_n;
 
     localparam logic [11:0] CSR_DMDATA0 = 12'hBFF;
@@ -257,7 +286,7 @@ module sst_engine #(
     logic ready_q, rvalid_q, done_q;
     always_comb begin
         sst_engine_busy = state != S_IDLE;
-        sst_engine_freeze = want_stop;
+        sst_engine_freeze = stop_q;
         sst_engine_arr_own = arr_own;
         sst_engine_hold_res = hold_res;
         /* The halt request is low in the resume states and every state
@@ -284,7 +313,8 @@ module sst_engine #(
     always_comb begin
         off = '0;
         dec_idx = ld_writing ? ld_idx : hold_idx;
-        if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
+        if (dec_idx >= 18'(B_AUD)) off = dec_idx - 18'(B_AUD);
+        else if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
         else if (dec_idx >= 18'(B_XPROG)) off = dec_idx - 18'(B_XPROG);
         else if (dec_idx >= 18'(B_CELLS)) off = dec_idx - 18'(B_CELLS);
         else if (dec_idx >= 18'(B_XRAM)) off = dec_idx - 18'(B_XRAM);
@@ -298,16 +328,22 @@ module sst_engine #(
     logic [1:0] st_sel_q;
     logic [2:0] st_idx_q;
 
-    logic on_sram, on_xram, on_cell, on_xprog, on_regs;
-    logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q, on_regs_q;
-    logic ria_flop_q;
+    logic on_sram, on_xram, on_cell, on_xprog, on_regs, on_aud;
+    logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q, on_regs_q, on_aud_q;
     logic on_arr_q;
     always_comb begin
         on_sram = dec_idx >= 18'(B_SRAM) && dec_idx < 18'(B_XRAM);
         on_xram = dec_idx >= 18'(B_XRAM) && dec_idx < 18'(B_CELLS);
         on_cell = dec_idx >= 18'(B_CELLS) && dec_idx < 18'(B_XPROG);
         on_xprog = dec_idx >= 18'(B_XPROG) && dec_idx < 18'(B_TCM);
-        on_arr_q = on_xram_q || on_cell_q || on_xprog_q;
+        on_aud = dec_idx >= 18'(B_AUD) && dec_idx < 18'(B_END);
+        on_arr_q = on_xram_q || on_cell_q || on_xprog_q || on_aud_q;
+        sst_engine_aud_we = on_aud_q && state == S_LD_PUT && !ld_pass2;
+        /* One clk_sys cycle, which is one machine edge. */
+        sst_engine_aud_st_we = on_aud_q && state == S_LD_PUT && ld_pass2;
+        sst_engine_park = park;
+        sst_engine_aud_mask = aud_mask;
+        sst_engine_ram_refill = state == S_LD_PUT_DONE;
 
         /* The select drops for one cycle between bytes because it
          * drives pocket_sram's b_stb, and pocket_sram holds b_done until
@@ -317,11 +353,12 @@ module sst_engine #(
          * store only the first byte. */
         sst_engine_sram_sel = on_sram_q && !sram_gap
             && (state == S_READ || state == S_LD_PUT);
+        sst_engine_regs_own = arr_own || ld_pass2;
         sst_engine_regs_word = off_q[7:0];
-        /* Words that regs.sv keeps in flops on the machine's clock are
-         * not written here, because that clock is stopped, so they are
-         * held in riareg for the jam. */
-        sst_engine_regs_we = on_regs_q && state == S_LD_PUT && !ria_flop_q;
+        /* In the first pass the flop words land nowhere, because the
+         * machine's clock is stopped, and the second pass writes them
+         * again with the clock back. */
+        sst_engine_regs_we = on_regs_q && state == S_LD_PUT;
         sst_engine_regs_wdata = ld_word;
         sst_engine_sram_addr = 16'({off_q, 2'd0} + {18'd0, byte_n});
         sst_engine_sram_we = on_sram_q && state == S_LD_PUT;
@@ -335,7 +372,7 @@ module sst_engine #(
 
         on_regs = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM)
             && dec_idx != 18'(B_REGS + REGS_HOLE);
-        on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
+        on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_AUD);
         sst_engine_tcm_sel = on_tcm_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
@@ -369,7 +406,7 @@ module sst_engine #(
         sst_engine_st_sel = st_sel_q;
         sst_engine_st_idx = st_idx_q;
         sst_engine_st_jam = state == S_LD_JAM || state == S_LD_JAM2;
-        sst_engine_mtime_jam = state == S_LD_PUT_DONE
+        sst_engine_os_jam = state == S_LD_PUT_DONE || ld_pass2
             || state == S_INJ_ARM || state == S_INJ_ISSUE
             || state == S_INJ_TAKE || state == S_INJ_BRK_ARM
             || state == S_INJ_BRK || state == S_INJ_WAIT;
@@ -379,11 +416,10 @@ module sst_engine #(
             sst_engine_jam_cpu[i] = flopreg[ST_CPU + i];
         for (int i = 0; i < 7; i++)
             sst_engine_jam_via[i] = flopreg[ST_VIA + i];
-        for (int i = 0; i < RIA_JAM; i++)
-            sst_engine_jam_ria[i] = riareg[i];
+        sst_engine_jam_xr = ria_xr;
         state_word = st_rdata;
         if (hold_idx >= 18'(B_STATE + ST_RV))
-            state_word = rvreg[5'(hold_idx - 18'(B_STATE + ST_RV))];
+            state_word = rv_q;
     end
 
     logic [31:0] hdr_word;
@@ -411,7 +447,7 @@ module sst_engine #(
     logic [31:0] direct_word;
     always_comb begin
         direct = !on_sram && !on_xram && !on_cell && !on_xprog
-            && !on_regs && !on_tcm;
+            && !on_regs && !on_tcm && !on_aud;
         direct_word = hold_idx < 18'(B_STATE) ? hdr_word
             : (hold_idx < 18'(B_REGS) ? state_word
                : (hold_idx >= 18'(B_END) ? end_word : 32'd0));
@@ -426,11 +462,17 @@ module sst_engine #(
     logic [31:0] inj_val;
     logic inj_dpc;
     logic [1:0] inj_step;
-    logic [17:0] ld_idx;
+    logic [17:0] ld_idx /*verilator public_flat_rd*/;
     logic [31:0] ld_word;
     logic ld_writing;
 
-    logic want_stop, hold_res, arr_own, sram_gap;
+    /* stop_q is want_stop held off until the audio engines are quiet. */
+    logic want_stop, stop_q, hold_res, arr_own, sram_gap;
+    /* ld_pass2 is the second pass, over regs.sv's flop words and then the
+     * audio's. */
+    logic ld_pass2 /*verilator public_flat_rd*/;
+    logic park /*verilator public_flat_rd*/;
+    logic aud_mask /*verilator public_flat_rd*/;
     (* preserve *) logic running_s1, running_s2;
     /* A load reads and checks the whole blob before it writes any of
      * it, because a blob found bad partway through writing would leave
@@ -470,6 +512,10 @@ module sst_engine #(
             running_s2 <= 1'b1;
             hold_res <= 1'b0;
             arr_own <= 1'b0;
+            stop_q <= 1'b0;
+            ld_pass2 <= 1'b0;
+            park <= 1'b0;
+            aud_mask <= 1'b0;
             sram_gap <= 1'b0;
             hold_valid <= 1'b0;
             hold_idx <= '0;
@@ -492,8 +538,8 @@ module sst_engine #(
             on_cell_q <= 1'b0;
             on_xprog_q <= 1'b0;
             on_regs_q <= 1'b0;
-            ria_flop_q <= 1'b0;
             on_tcm_q <= 1'b0;
+            on_aud_q <= 1'b0;
             off_q <= '0;
             st_sel_q <= SEL_MACH;
             st_idx_q <= '0;
@@ -528,8 +574,8 @@ module sst_engine #(
             on_cell_q <= on_cell;
             on_xprog_q <= on_xprog;
             on_regs_q <= on_regs;
-            ria_flop_q <= ria_flop;
             on_tcm_q <= on_tcm;
+            on_aud_q <= on_aud;
             off_q <= off;
             st_sel_q <= st_sel;
             st_idx_q <= st_idx;
@@ -548,10 +594,14 @@ module sst_engine #(
             end
             running_s1 <= running;
             running_s2 <= running_s1;
+            /* The stop is asked for only while the audio engines are
+             * idle with no sample due for 24 clocks, and the gate closes
+             * within four machine edges of it. */
+            stop_q <= want_stop && (stop_q || aud_quiet);
             /* arr_own rises only once running_s2 shows that the clock
              * gate has closed, because the machine runs until then and
              * masking its ports earlier would drop a live write. */
-            arr_own <= want_stop && !running_s2;
+            arr_own <= stop_q && !running_s2;
             if (dbg_data0_wen) data0_q <= dbg_data0;
             case (state)
                 S_IDLE: begin
@@ -600,7 +650,6 @@ module sst_engine #(
                         spill_instr <= i_reg_out(5'd31);
                         state <= S_SPILL_ARM;
                     end else if (spill_dpc) begin
-                        rvreg[0] <= data0_q;
                         want_stop <= 1'b1;
                         summing <= 1'b1;
                         sum_idx <= '0;
@@ -608,7 +657,6 @@ module sst_engine #(
                         hold_valid <= 1'b0;
                         state <= S_READY;
                     end else begin
-                        rvreg[rv_n] <= data0_q;
                         if (rv_n == 5'd31) begin
                             spill_dpc <= 1'b1;
                             spill_step <= 2'd0;
@@ -717,12 +765,10 @@ module sst_engine #(
                 end
 
                 S_LD_PUT: begin
-                    if (ld_idx >= 18'(B_STATE + ST_RV)
-                        && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
-                        rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
                     if (on_flops)
                         flopreg[4'(ld_idx - 18'(B_STATE))] <= ld_word;
-                    if (on_regs && ria_flop) riareg[ria_slot] <= ld_word;
+                    if (on_regs && off == 18'(RIA_XR))
+                        ria_xr <= ld_word[24:0];
                     /* The TCM write is held for four clk_sys cycles,
                      * which is two clk_rv cycles, so a clk_rv edge
                      * takes it. */
@@ -740,14 +786,31 @@ module sst_engine #(
                         end
                     end else state <= S_LD_PUT_WAIT;
                 end
+                /* The second pass ends on the last flop word, and the soft
+                 * CPU's registers go back after it. */
                 S_LD_PUT_WAIT:
                 begin
                     byte_n <= '0;
-                    if (ld_idx == 18'(B_END - 1)) begin
+                    if (ld_pass2 && ld_idx == 18'(B_AUD + AUD_ST_END)) begin
+                        ld_pass2 <= 1'b0;
+                        ld_writing <= 1'b0;
+                        aud_mask <= 1'b0;
+                        ld_bad <= 1'b0;
+                        inj_dpc <= 1'b1;
+                        inj_step <= 2'd0;
+                        inj_val <= rv_q;
+                        rv_n <= 5'd31;
+                        spill_instr <= i_reg_in(5'd31);
+                        state <= S_INJ_ARM;
+                    end else if (!ld_pass2 && ld_idx == 18'(B_END - 1)) begin
                         ld_writing <= 1'b0;
                         state <= S_LD_PUT_DONE;
                     end else begin
-                        ld_idx <= ld_idx + 18'd1;
+                        ld_idx <= !ld_pass2 ? ld_idx + 18'd1
+                            : ld_idx == 18'(B_REGS + RIA_LAST)
+                                ? 18'(B_REGS + RIA_XSP)
+                            : ld_idx == 18'(B_REGS + RIA_XSP)
+                                ? 18'(B_AUD + AUD_ST) : ld_idx + 18'd1;
                         state <= S_LD_FETCH;
                     end
                 end
@@ -758,17 +821,22 @@ module sst_engine #(
                  * needs no clock. The 6502 is therefore in reset when
                  * the clock returns, so it takes no cycle that could
                  * write over the restored memory. */
+                /* The machine is parked and the audio's snooped write
+                 * masked from this edge, and the second pass writes
+                 * regs.sv's flops and the audio's once the clock is back,
+                 * before the soft CPU resumes, so the wake works on the
+                 * window the 6502 will see. */
                 S_LD_PUT_DONE: begin
                     hold_res <= 1'b1;
+                    park <= 1'b1;
+                    aud_mask <= 1'b1;
                     want_stop <= 1'b0;
                     if (running_s2) begin
-                        ld_bad <= 1'b0;
-                        inj_dpc <= 1'b1;
-                        inj_step <= 2'd0;
-                        inj_val <= rvreg[0];
-                        rv_n <= 5'd31;
-                        spill_instr <= i_reg_in(5'd31);
-                        state <= S_INJ_ARM;
+                        ld_pass2 <= 1'b1;
+                        ld_writing <= 1'b1;
+                        ld_idx <= 18'(B_REGS);
+                        byte_n <= '0;
+                        state <= S_LD_FETCH;
                     end
                 end
 
@@ -791,14 +859,14 @@ module sst_engine #(
                     if (inj_dpc) begin
                         inj_dpc <= 1'b0;
                         rv_n <= 5'd1;
-                        inj_val <= rvreg[1];
+                        inj_val <= rv_q;
                         spill_instr <= i_reg_in(5'd1);
                         state <= S_INJ_ARM;
                     end else if (rv_n == 5'd31) begin
                         state <= S_LD_DONE;
                     end else begin
                         rv_n <= rv_n + 5'd1;
-                        inj_val <= rvreg[5'(rv_n + 5'd1)];
+                        inj_val <= rv_q;
                         spill_instr <= i_reg_in(rv_n + 5'd1);
                         state <= S_INJ_ARM;
                     end
@@ -818,20 +886,25 @@ module sst_engine #(
                 S_LD_ACK:
                 if (!load_req) state <= ld_bad ? S_IDLE : S_LD_JAM;
 
-                /* The jam is held for two cycles. In the first, resb is
-                 * written and hold_res is cleared. In the second, the
-                 * 6502 and the VIA take their words only if the restored
-                 * resb is 1, because their asynchronous resets stay
-                 * asserted while resb is 0, and an asynchronous reset
-                 * takes priority over the jam. Two clk_sys cycles are
-                 * also one clk_rv period, so the soft CPU's phi2 register
-                 * takes the jam too. Flops that take the jam in both
-                 * cycles take the same words twice, which is harmless. */
+                /* The jam is held for two cycles. In the first, hold_res
+                 * is cleared. In the second, the 6502 and the VIA take
+                 * their words only if resb is 1, because their
+                 * asynchronous resets stay asserted while resb is 0, and
+                 * an asynchronous reset takes priority over the jam, so a
+                 * wake that stopped the 6502 keeps it stopped. Flops that
+                 * take the jam in both cycles take the same words twice,
+                 * which is harmless. The first loads a PHI2 enable of 0,
+                 * so nothing steps in the second, and the park falls at
+                 * its edge, so the next edge is the first for the 6502
+                 * and the audio alike. */
                 S_LD_JAM: begin
                     hold_res <= 1'b0;
                     state <= S_LD_JAM2;
                 end
-                S_LD_JAM2: state <= S_IDLE;
+                S_LD_JAM2: begin
+                    park <= 1'b0;
+                    state <= S_IDLE;
+                end
 
                 S_READY: begin
                     if (!save_req) begin
@@ -918,7 +991,8 @@ module sst_engine #(
                 S_READ_WAIT: begin
                     if (on_arr_q) begin
                         hold <= on_xram_q ? xram_rdata
-                            : (on_cell_q ? cell_rdata : xprog_rdata);
+                            : on_cell_q ? cell_rdata
+                            : on_aud_q ? aud_rdata : xprog_rdata;
                         hold_valid <= 1'b1;
                         byte_n <= '0;
                         state <= S_READY;
@@ -942,6 +1016,26 @@ module sst_engine #(
 
         end
     end
+
+    always_comb begin
+        rv_we = (state == S_SPILL_WAIT && dbg_ebreak
+                 && (spill_dpc ? spill_step != 2'd0 : 1'b1))
+            || (state == S_LD_PUT && ld_idx >= 18'(B_STATE + ST_RV)
+                && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS));
+        rv_wa = state == S_LD_PUT ? 5'(ld_idx - 18'(B_STATE + ST_RV))
+            : (spill_dpc ? 5'd0 : rv_n);
+        rv_wd = state == S_LD_PUT ? ld_word : data0_q;
+        /* dpc for the injection's first load, the next register for each
+         * load after it, and the save's word otherwise. B_STATE + ST_RV
+         * is 32, so hold_idx[4:0] is its register. */
+        rv_ra = state == S_LD_PUT_WAIT ? 5'd0
+            : state == S_INJ_WAIT ? (inj_dpc ? 5'd1 : rv_n + 5'd1)
+            : hold_idx[4:0];
+        rv_q = rvreg[rv_ra];
+    end
+    always_ff @(posedge clk_sys)
+        if (rv_we)
+            rvreg[rv_wa] <= rv_wd;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sst_engine;

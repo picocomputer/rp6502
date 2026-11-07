@@ -12,12 +12,15 @@ endif()
 include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_rsmp_coef(rsmp_coef)
+rp6502_gen_opl_rom(opl_rom)
+rp6502_gen_aud_sine(aud_sine)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/proc.c
     ${RP6502_SRC}/core/api/tim.c
     ${RP6502_SRC}/core/aud/mix.c
+    ${RP6502_SRC}/core/aud/pcm.c
     ${RP6502_SRC}/core/aud/rsmp.c
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c
@@ -64,9 +67,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/unicode.c
     ${OEMCP_C}
     ${RP6502_SRC}/core/api/std.c
-    ${RP6502_SRC}/core/aud/sine.c
     ${RP6502_SRC}/core/aud/bel.c
-    ${RP6502_SRC}/core/aud/bel_presets.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
     ${RP6502_SRC}/core/str/rln.c
@@ -83,7 +84,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/color.c
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
-    ${RP6502_VENDOR}/emu8950/emu8950.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -115,18 +115,7 @@ elseif(MSVC)
     )
 endif()
 
-set_source_files_properties(
-    ${RP6502_VENDOR}/emu8950/emu8950.c
-    PROPERTIES COMPILE_DEFINITIONS "USE_EMU8950_OPL=1"
-)
-if(MSVC)
-    set_source_files_properties(
-        ${RP6502_VENDOR}/emu8950/emu8950.c
-        PROPERTIES COMPILE_OPTIONS "/wd4005"
-    )
-endif()
-
-add_dependencies(emu_core rsmp_coef)
+add_dependencies(emu_core rsmp_coef opl_rom aud_sine)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}
@@ -134,6 +123,7 @@ target_include_directories(emu_core PUBLIC
 )
 target_compile_definitions(emu_core PUBLIC
     ROM_ALIAS_MAX=16 # --install is documented as repeatable to sixteen.
+    RP6502_SST # This library builds core/sys/sst.c.
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN

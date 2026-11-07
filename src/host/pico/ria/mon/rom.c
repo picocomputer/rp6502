@@ -29,6 +29,7 @@
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
+#include "machine.h"
 #include <fatfs/ff.h>
 #include <assert.h>
 #include <ctype.h>
@@ -53,12 +54,12 @@ static uint32_t help_pos;
 static uint32_t help_end;
 
 
-static void rom_written(bool ok)
+static void HOST_IN_FLASH_FUNC("rom_written") rom_written(bool ok)
 {
     rom_state = ok ? ROM_LOADING : ROM_IDLE;
 }
 
-static void rom_loading(void)
+static void HOST_IN_FLASH_FUNC("rom_loading") rom_loading(void)
 {
     rom_record_t rec;
     api_errno err;
@@ -122,7 +123,7 @@ static bool rom_copy_install_name(char *dst, const char *src, size_t len)
     return i > 0;
 }
 
-void rom_mon_install(const char *args)
+void HOST_IN_FLASH_FUNC("rom_mon_install") rom_mon_install(const char *args)
 {
     const char *args_start = args;
     const char *tok = str_parse_string(&args);
@@ -241,7 +242,7 @@ void rom_mon_install(const char *args)
     }
 }
 
-void rom_mon_remove(const char *args)
+void HOST_IN_FLASH_FUNC("rom_mon_remove") rom_mon_remove(const char *args)
 {
     const char *tok = str_parse_string(&args);
     if (!tok || !str_parse_end(args))
@@ -264,7 +265,7 @@ void rom_mon_remove(const char *args)
         mon_add_response_errno(err);
 }
 
-void rom_exec(void)
+void HOST_IN_FLASH_FUNC("rom_exec") rom_exec(void)
 {
     const char *argv0 = arg_index(0);
     assert(argv0);
@@ -314,7 +315,7 @@ void rom_exec(void)
     rom_state = ROM_LOADING;
 }
 
-void rom_load_argv(const char *argv0, const char *args)
+void HOST_IN_FLASH_FUNC("rom_load_argv") rom_load_argv(const char *argv0, const char *args)
 {
     arg_clear();
     if (!arg_append(argv0))
@@ -336,7 +337,7 @@ void rom_load_argv(const char *argv0, const char *args)
     rom_exec();
 }
 
-void rom_mon_load(const char *args)
+void HOST_IN_FLASH_FUNC("rom_mon_load") rom_mon_load(const char *args)
 {
     const char *filename = str_parse_string(&args);
     if (!filename || *filename == ':')
@@ -357,7 +358,7 @@ bool rom_installed(const char *name, char *argv0)
            info.type == LFS_TYPE_REG;
 }
 
-bool rom_load_installed(const char *args)
+bool HOST_IN_FLASH_FUNC("rom_load_installed") rom_load_installed(const char *args)
 {
     const char *tok = str_parse_string(&args);
     char argv0[1 + LFS_NAME_MAX + 1];
@@ -367,7 +368,7 @@ bool rom_load_installed(const char *args)
     return true;
 }
 
-static int rom_utf8_seq_len(unsigned char b0)
+static int HOST_IN_FLASH_FUNC("rom_utf8_seq_len") rom_utf8_seq_len(unsigned char b0)
 {
     if (b0 < 0x80)
         return 1;
@@ -382,7 +383,7 @@ static int rom_utf8_seq_len(unsigned char b0)
 
 /* fs_std_read on this machine never returns STD_PENDING, because littlefs and
  * FatFs both read synchronously, so one call is enough. */
-static bool help_read(uint32_t want, uint32_t *got)
+static bool HOST_IN_FLASH_FUNC("help_read") help_read(uint32_t want, uint32_t *got)
 {
     api_errno err;
     int32_t landed;
@@ -391,7 +392,7 @@ static bool help_read(uint32_t want, uint32_t *got)
     return fs_std_read(rom_asset_fd(), (char *)mbuf, want, got, &err) == STD_OK;
 }
 
-static long help_gets(void)
+static long HOST_IN_FLASH_FUNC("help_gets") help_gets(void)
 {
     uint32_t got = 0;
     if (!help_read(MBUF_SIZE - 1, &got) || got == 0)
@@ -406,7 +407,8 @@ static long help_gets(void)
     return (long)i;
 }
 
-static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("rom_help_response") rom_help_response(char *buf, size_t buf_size,
+                                                                     int state, unsigned)
 {
     if (state < 0)
     {
@@ -503,7 +505,7 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
     return state;
 }
 
-static bool rom_help_open(const char *path)
+static bool HOST_IN_FLASH_FUNC("rom_help_open") rom_help_open(const char *path)
 {
     rom_assets_reset();
     rom_pump_close(&rom_pump);
@@ -519,7 +521,7 @@ static bool rom_help_open(const char *path)
     return true;
 }
 
-void rom_mon_info(const char *args)
+void HOST_IN_FLASH_FUNC("rom_mon_info") rom_mon_info(const char *args)
 {
     const char *tok = str_parse_string(&args);
     if (!tok || *tok == ':' || !str_parse_end(args))
@@ -534,7 +536,7 @@ void rom_mon_info(const char *args)
     }
 }
 
-void rom_mon_help(const char *args)
+void HOST_IN_FLASH_FUNC("rom_mon_help") rom_mon_help(const char *args)
 {
     const char *tok = str_parse_string(&args);
     char name[1 + LFS_NAME_MAX + 1];
@@ -552,7 +554,7 @@ void rom_mon_help(const char *args)
     }
 }
 
-static bool rom_xram_done(void)
+static bool HOST_IN_FLASH_FUNC("rom_xram_done") rom_xram_done(void)
 {
     while (rom_len && pix_ready())
     {
@@ -610,7 +612,8 @@ void rom_stop(void)
     }
 }
 
-int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("rom_installed_response") rom_installed_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -690,7 +693,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-bool rom_set_boot(const char *args)
+bool HOST_IN_FLASH_FUNC("rom_set_boot") rom_set_boot(const char *args)
 {
     const char *p = args;
     const char *argv0 = str_parse_string(&p);
@@ -711,7 +714,7 @@ bool rom_set_boot(const char *args)
     return true;
 }
 
-const char *rom_get_boot(void)
+const char *HOST_IN_FLASH_FUNC("rom_get_boot") rom_get_boot(void)
 {
     return cfg_load_boot();
 }

@@ -72,7 +72,7 @@ documentation fixes the order in both directions: a create signals
 completion before the data is copied out, and a load has the blob
 written into the core as ordinary bridge writes before 0x00A4 arrives.
 
-The blob is 317 KB, and the savestate engine, `sst_engine.sv`, makes it
+The blob is 325 KB, and the savestate engine, `sst_engine.sv`, makes it
 in logic rather than in firmware.
 
 ### The architecture: one clock gate
@@ -85,18 +85,20 @@ video and audio all run on clk_mach and stop wherever they are. Every
 register on clk_mach misses the same edge and resumes on the same edge,
 so no logic in the machine needs a clock enable for a savestate.
 
-Three parts keep their clocks. The SDRAM staging store, which holds
-what the host writes into the data slots, stays on clk_sys, so its
-controller keeps it refreshed. The engine and the memory arrays stay on
-clk_sys too, and the engine reads and writes the arrays through a
-separate port. The arrays sit idle because the logic driving their
-machine-side inputs is stopped, and the engine masks their frozen write
-enables with `arr_own` for the whole savestate, because a write enable
-that froze high would otherwise repeat its stale write every cycle. The
-soft CPU is not clock-gated at all. Its clock, clk_rv, keeps running,
-and the engine halts it at its debug port and spills its registers by
-injecting `csrw dmdata0, xN` and then `ebreak`, which marks the end of
-each injected instruction.
+Three parts keep their clocks. The SDRAM staging store, which holds what
+the host writes into the data slots, stays on clk_sys, so its controller
+keeps it refreshed. The engine and the memory arrays stay on clk_sys
+too, and the engine reads and writes the arrays through a separate port.
+The audio engines' memories are arrays like the others: the OPL's
+register file, queue, slots and channels, the PSG's voices, the
+resampler's history, and PCM's buffer and history. The arrays sit idle
+because the logic driving their machine-side inputs is stopped, and the
+engine masks their frozen write enables with `arr_own` for the whole
+savestate, because a write enable that froze high would otherwise repeat
+its stale write every cycle. The soft CPU is not clock-gated at all. Its
+clock, clk_rv, keeps running, and the engine halts it at its debug port
+and spills its registers by injecting `csrw dmdata0, xN` and then
+`ebreak`, which marks the end of each injected instruction.
 
 A machine signal consumed by logic on an ungated clock is a **level**,
 not an event. When clk_mach stops, the signal freezes wherever it was,
@@ -109,10 +111,20 @@ of `arr_own`. `arr_own` rises only once the gate has closed, so it
 never masks an access the machine makes before then, and it falls as
 soon as the stop request drops, which is several cycles of clk_74a, the
 74.25 MHz bridge clock, before the gate opens again. `pocket_sram`'s
-port A mask, `mach_gated` in `pocket_core.sv`, has the same form,
-because a mask that waited for the synchronized clock enable would stay
-up for two clk_sys cycles after clk_mach returns, and the 6502 could
-take a PHI2 enable inside them.
+port A takes no mask, because clk_sys logic cannot tell which of its
+edges the gate passes. It serves one access a PHI2 enable instead,
+launched on the first clock that sees the enable, and launches nothing
+more until the machine has taken an edge. When the machine stops just
+before an enable, that launch comes during the stop, and its byte is
+held back until the machine's next edge, so the 6502 still reads the
+byte for its present address when it resumes.
+
+**The stop waits for the audio to be quiet.** The engine asks for the
+stop only while every audio engine is idle with no sample due for 24
+clocks, which comes within about 30 us, and the gate closes within four
+clocks of the ask. No engine then holds work in flight: a pipeline
+register, a read in progress or a sample half made would each be state
+the blob does not hold, and between samples none of them is live.
 
 A save runs in this order. The engine halts the soft CPU, spills its
 registers and stops the machine clock. It then checksums the whole blob
@@ -130,10 +142,13 @@ stays halted when its halt request drops.
 The engine checks the whole staged blob before it writes any of it,
 because a blob found bad partway through writing would leave the
 machine half overwritten. Then, with the machine still stopped, every
-array is written back through the engine's ports, and the flop state
-(6502, VIA, RIA window flops, resb, the 6502's clock rate, the
-microsecond counter) is held in the engine until the steps below write
-it back.
+array is written back through the engine's ports, the audio's among
+them, and the flop state (6502, VIA, the RW engine's pending write,
+resb, the 6502's clock rate and phase, the microsecond counter) is held
+in the engine until the steps below write it back. The RIA window's and
+the audio's flops are fetched from the staging store again in step 3.
+Once the arrays are back, the engine fetches the 6502's next byte into
+`pocket_sram`, so no PHI2 enable after the jam waits on it.
 
 Waking the machine takes these steps in order:
 
@@ -141,36 +156,53 @@ Waking the machine takes these steps in order:
    still stopped. It drives the asynchronous resets of the 6502 and the
    VIA, so it needs no clock.
 2. The machine clock returns with the 6502 already in reset, so the
-   6502 takes no cycle that could write over the restored memory.
-3. The soft CPU's microsecond counter, mtime, is written back on a
-   separate level held through the register injection in step 4,
-   because the soft CPU resumes before the jam in step 5. mtime is in
-   the blob's state page because every deadline the firmware keeps is
-   an absolute mtime reading in the TCM, which the blob contains, so
-   without it each deadline would be off by the difference between the
-   counter's value at the save and its value at the restore.
-4. The soft CPU's registers are written back through the debug port,
+   6502 takes no cycle that could write over the restored memory. The
+   machine is parked: the audio engines' sample counters hold, no
+   sample starts, and the RIA's frame counter takes no vsync.
+3. The engine fetches the RIA window's flop words and the audio
+   region's flop words a second time and writes them with the clock
+   running, each word on one machine edge. The window is then as the
+   6502 left it, so what the soft CPU's wake does there stays: an API
+   call the save interrupted finishes with its own arguments, and the
+   console's bytes go out once. The 6502's write that the audio snoop
+   held at the save goes back with the audio's words and lands in the
+   engines before the wake goes on; until then the snoop is masked.
+4. The soft CPU's microsecond counter, mtime, its register for the
+   6502's clock rate and `resb` are written back on a separate level
+   held through the register injection in step 5, because the soft CPU
+   resumes before the jam in step 6, and a jam would undo what the wake
+   writes. mtime is in the blob's state page because every deadline the
+   firmware keeps is an absolute mtime reading in the TCM, which the
+   blob contains, so without it each deadline would be off by the
+   difference between the counter's value at the save and its value at
+   the restore.
+5. The soft CPU's registers are written back through the debug port,
    and the core resumes at the instruction where the save halted it,
    running the blob's firmware on the blob's stack. The firmware reads
    `SST_RESTORED` set and puts back the state the blob does not
    contain: it rebuilds the font store from the font asset and the code
-   page, replays the active audio engine's register block because the
-   engines take their registers only from XRAM writes, rewrites the
-   canvas, the vsync line and the terminal's window from its own
-   copies, marks every open file to be checked and, if needed,
-   reopened by its saved name, derives the wall clock again from the
-   host's RTC, and resynchronizes the restage triggers so the slot
-   updates of the wake do not start a new program.
-5. The firmware clears `SST_RESTORED`, and two jam cycles follow, in
+   page, rewrites the canvas, the vsync line and the terminal's window
+   from its own copies, marks every open file to be checked and, if
+   needed, reopened by its saved name, derives the wall clock again
+   from the host's RTC, resynchronizes the restage triggers so the slot
+   updates of the wake do not start a new program, and moves the
+   bell's deadlines and the program's `clock()` by how long the machine
+   has been parked, counted from the saved mtime it resumed at, which
+   it reads from `SST_SAVED_US`.
+6. The firmware clears `SST_RESTORED`, and two jam cycles follow, in
    which the engine writes the rest of the held flop state into the
-   flops. The first writes `resb`, a flop with no reset, and drops
-   `hold_res`. In the second, every 6502, VIA and RIA flop takes its
-   saved value with the asynchronous resets already released, since an
-   asynchronous reset takes priority over the jam. Two clk_sys cycles
-   are also one period of the soft CPU's half-rate clock, so the soft
-   CPU's register for the 6502's clock rate takes the jam too.
+   flops. The first drops `hold_res` and loads a PHI2 enable of 0, so
+   nothing steps in the second. In the second, every 6502 and VIA flop
+   takes its saved value with the asynchronous resets already released,
+   since an asynchronous reset takes priority over the jam, so a wake
+   that stopped the 6502 leaves it stopped. The RW engine's pending XRAM
+   write and the PHI2 accumulator and enable take theirs too, so the
+   6502 steps on the clocks it would have. The park drops at the
+   second, so the audio and the frame counter take their next clock on
+   the 6502's.
 
-The 6502 then continues from the cycle at which the save stopped it.
+The 6502 then continues from the cycle at which the save stopped it, and
+the audio from the sample it was in.
 
 ### The console queue
 
@@ -185,18 +217,22 @@ which can be read without side effects: word 20 holds the read and
 write positions and the count, and words 21 to 24 hold the sixteen
 bytes. The bytes are an array on clk_sys and are written back through
 the window with the xstack, and the positions and the count are flops
-on clk_mach that the jam restores.
+on clk_mach that the second pass restores.
 
 ### What does not survive a sleep
 
-- The blob does not contain the PSG's envelopes, phase and noise or the
-  OPL's internal generators, so the engines start them again from the
-  replayed registers. A held note comes back because the replay keys
-  the active engine again: writing `0xB0-0xB8` keys an OPL voice on,
-  and the PSG takes the gate bits in the replayed block while the
-  firmware holds `AUD_PSG_REPLAY` set. The PSG otherwise takes a gate
-  only from a 6502 write, so without `AUD_PSG_REPLAY` a voice that was
-  sounding at the save would stay silent for the rest of the program.
+- The audio comes back sample for sample, but three things that drive it
+  are not exact. The video beam is not in the blob, so a write paced by
+  vsync can land up to a frame off. Firmware deadlines, such as the
+  bell's restrike, release and end, and the program's `clock()` are
+  moved by how long the machine was parked, so each is met on the first
+  main-loop pass after it, as in a run that never slept, which can be a
+  pass from where that run met it. Soft-CPU traffic that delays a PHI2
+  enable, and audio writes the soft CPU makes, are timed by the firmware
+  in every run, slept or not: a PCM write the save interrupted finishes
+  during the wake with the machine parked, so it takes the room the
+  buffer had then, a few bytes short of what a run that never slept
+  takes.
 - The blob does not contain the host's slot bindings or the staging
   store, so `fs_restore` marks every open file stale and drops its
   cached bytes. Analogue does not document whether a slot keeps a

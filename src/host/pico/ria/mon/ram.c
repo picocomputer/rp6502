@@ -14,10 +14,11 @@
 #include "host/host.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
+#include "machine.h"
 #include <stdio.h>
 #include <ctype.h>
 
-#define RAM_TIMEOUT_MS 200
+#define RAM_TIMEOUT_MS 1000
 
 static enum {
     RAM_IDLE,
@@ -34,14 +35,14 @@ static uint32_t ram_intel_hex_base;
 
 // Sixteen bytes with their ASCII take 74 columns, or 75 with a five-digit XRAM
 // address.
-static size_t ram_chunk_size(void)
+static size_t HOST_IN_FLASH_FUNC("ram_chunk_size") ram_chunk_size(void)
 {
     return rln_get_term_width() >= 74 ? 16 : 8;
 }
 
 static void ram_read_done(bool ok);
 
-static bool ram_start_read_chunk(void)
+static bool HOST_IN_FLASH_FUNC("ram_start_read_chunk") ram_start_read_chunk(void)
 {
     size_t chunk = ram_chunk_size();
     mbuf_len = ram_rw_end - ram_rw_addr + 1;
@@ -54,7 +55,8 @@ static bool ram_start_read_chunk(void)
     return true;
 }
 
-static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("ram_print_response") ram_print_response(char *buf, size_t buf_size,
+                                                                       int state, unsigned)
 {
     (void)buf_size;
     if (state < 0)
@@ -106,20 +108,20 @@ static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
     return 0;
 }
 
-static void ram_read_done(bool ok)
+static void HOST_IN_FLASH_FUNC("ram_read_done") ram_read_done(bool ok)
 {
     ram_state = RAM_IDLE;
     if (ok)
         mon_add_response_fn(ram_print_response);
 }
 
-static void ram_write_done(bool ok)
+static void HOST_IN_FLASH_FUNC("ram_write_done") ram_write_done(bool ok)
 {
     (void)ok;
     ram_state = RAM_IDLE;
 }
 
-static void ram_begin_write(void)
+static void HOST_IN_FLASH_FUNC("ram_begin_write") ram_begin_write(void)
 {
     if (ram_rw_addr > 0xFFFF)
     {
@@ -137,7 +139,7 @@ static void ram_begin_write(void)
     ram_state = RAM_RIA;
 }
 
-static void ram_intel_hex(const char *args)
+static void HOST_IN_FLASH_FUNC("ram_intel_hex") ram_intel_hex(const char *args)
 {
     args += 1; // eat colon
     size_t len = strlen(args);
@@ -220,7 +222,7 @@ static void ram_intel_hex(const char *args)
 }
 
 // Hex-address commands and Intel HEX records. Read or write memory.
-void ram_mon_address(const char *args)
+void HOST_IN_FLASH_FUNC("ram_mon_address") ram_mon_address(const char *args)
 {
     if (*args == ':')
         return ram_intel_hex(args);
@@ -314,7 +316,7 @@ void ram_mon_address(const char *args)
     ram_begin_write();
 }
 
-static void ram_rx_mbuf(bool timeout)
+static void HOST_IN_FLASH_FUNC("ram_rx_mbuf") ram_rx_mbuf(bool timeout)
 {
     ram_state = RAM_IDLE;
     if (timeout)
@@ -340,7 +342,7 @@ static void ram_rx_mbuf(bool timeout)
     }
 }
 
-static void ram_xram(void)
+static void HOST_IN_FLASH_FUNC("ram_xram") ram_xram(void)
 {
     while (ram_rw_size)
     {
@@ -352,7 +354,7 @@ static void ram_xram(void)
     ram_state = RAM_IDLE;
 }
 
-void ram_mon_binary(const char *args)
+void HOST_IN_FLASH_FUNC("ram_mon_binary") ram_mon_binary(const char *args)
 {
     if (str_parse_uint32(&args, &ram_rw_addr) &&
         str_parse_uint32(&args, &ram_rw_size) &&

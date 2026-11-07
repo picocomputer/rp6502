@@ -11,6 +11,7 @@
 #include "ria/sys/phi2.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 
 static uint16_t phi2_khz_run;
@@ -71,7 +72,8 @@ void phi2_apply_khz(uint16_t phi2_khz, bool changed)
     change(phi2_khz);
 }
 
-int phi2_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("phi2_response") phi2_response(char *buf, size_t buf_size, int state,
+                                                      unsigned width)
 {
     (void)state;
     (void)width;

@@ -66,10 +66,6 @@ set_clock_uncertainty -add -hold 0.080 \
     -from [get_clocks {bridge_spiclk}] \
     -to [get_clocks {bridge_spiclk}]
 
-set_false_path -hold \
-    -from [get_registers {*|opl:*|reset_sync:*|r2}] \
-    -to [get_registers {*|opl:*|afifo:*}]
-
 # pocket_file's command parameters and r_op are read on clk_74a only
 # after go_t has passed two synchronizer flops, and r_op changes on the
 # same clk_sys edge that flips go_t. Each path is bounded to one clk_74a
@@ -112,6 +108,13 @@ set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
     -to [get_registers {*pocket_sst*|hold[*]}] 13.468
 set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
     -to [get_registers {*pocket_sst*|hold[*]}] 0
+
+# sst_engine writes flopreg and ria_xr in a load's first pass and holds
+# them until the next load. Every register that takes one, on the jams,
+# on os_jam or through SST_SAVED_US, takes it in a later state of the
+# load, so none takes a word on the edge that writes it.
+set_false_path -hold -from [get_registers {*sst_engine:*|flopreg[*]}]
+set_false_path -hold -from [get_registers {*sst_engine:*|ria_xr[*]}]
 
 # mach_clk_en is a clk_74a register. The clock gate takes it into an
 # enable register inside the clkctrl cell on the falling edge of clk_sys,

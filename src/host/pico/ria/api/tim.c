@@ -11,6 +11,7 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
+#include "machine.h"
 #include <pico/aon_timer.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -258,7 +259,8 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     return pos;
 }
 
-int tim_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("tim_status_response") tim_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     struct timespec ts;
@@ -269,7 +271,8 @@ int tim_status_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-int tim_tzdata_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("tim_tzdata_response") tim_tzdata_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -349,7 +352,8 @@ void tim_apply_time_zone(const char *tz, bool changed)
     tzset();
 }
 
-int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("tim_time_zone_response") tim_time_zone_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned width)
 {
     (void)state;
     (void)width;

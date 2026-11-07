@@ -167,8 +167,8 @@ UTEST(input, typing_reaches_a_program_reading_the_console)
     size_t idle = pixels_differing(settled, fe.frame_copy, px);
 
     memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
-    fe.keyboard.callback(true, RETROK_n, 'n', 0);
-    fe.keyboard.callback(false, RETROK_n, 'n', 0);
+    fe.keyboard.callback(true, RETROK_y, 'y', 0);
+    fe.keyboard.callback(false, RETROK_y, 'y', 0);
     fe_run(10);
     fe.keyboard.callback(true, RETROK_RETURN, '\r', 0);
     fe.keyboard.callback(false, RETROK_RETURN, '\r', 0);

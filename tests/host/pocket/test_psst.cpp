@@ -25,7 +25,7 @@
 #define CTL_UNDERRUN (1u << 2)
 #define CTL_RESTORE_ERR (1u << 3)
 
-#define BLOB_WORDS 81236u
+#define BLOB_WORDS 83284u
 
 static Vpocket_sst *dut;
 static long t;

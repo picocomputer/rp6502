@@ -86,6 +86,7 @@
 #define RP6502_STD_DRIVERS                           \
     VCP_STD_DRIVER, MID_STD_DRIVER,                  \
     ROM_STD_DRIVER, NFC_STD_DRIVER,                  \
+    PCM_STD_DRIVER,                                  \
     SAVE_STD_DRIVER, FS_STD_DRIVER
 
 #define RP6502_COM_SOURCES                     \

@@ -83,7 +83,8 @@ function(rp6502_test_roms target file)
 endfunction()
 
 rp6502_test_roms(aud_roms cpu/aud/aud.py
-    psg psg_pre opl opl_exit opl_init bel bel_off opl_bel)
+    psg psg_pre opl opl_exit opl_init opl_spread opl_flat opl_overruns bel bel_off
+    opl_bel pcm pcm_rules pcm_order pcm_dry aud_sst aud_snoop)
 rp6502_test_roms(dir_roms cpu/fs/dir.py dir)
 rp6502_test_roms(drive_roms cpu/fs/drive.py drive)
 rp6502_test_roms(execrel_roms cpu/fs/execrel.py execrel)
@@ -107,6 +108,7 @@ rp6502_test_roms(zeroread_roms cpu/ria/zeroread.py zeroread)
 rp6502_test_roms(vsync_roms cpu/vga/vsync.py vsync)
 rp6502_test_roms(bigfile_roms host/pocket/bigfile.py bigfile)
 rp6502_test_roms(probe_roms host/pocket/probe.py probe)
+rp6502_test_roms(wakeclk_roms host/pocket/wakeclk.py wakeclk)
 rp6502_test_roms(sleepasset_roms host/pocket/sleepasset.py
     sleepasset-a sleepasset-b)
 rp6502_test_roms(sleepfile_roms host/pocket/sleepfile.py sleepfile)
@@ -182,6 +184,9 @@ function(rp6502_add_test name)
     endif()
 
     add_executable(test_${name} ${T_SOURCES})
+    if(COMMAND rp6502_msvc_dialect)
+        rp6502_msvc_dialect(test_${name})
+    endif()
     target_include_directories(test_${name} PRIVATE
         ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${RP6502_SRC} ${T_INCLUDES})
 

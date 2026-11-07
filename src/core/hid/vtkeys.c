@@ -131,6 +131,12 @@ void vtkeys_paste_cancel(void)
     vtkeys_paste_buf = NULL;
 }
 
+void vtkeys_clear(void)
+{
+    vtkeys_paste_cancel();
+    com_keyboard_clear();
+}
+
 void vtkeys_paste(const char *utf8)
 {
     vtkeys_paste_cancel();

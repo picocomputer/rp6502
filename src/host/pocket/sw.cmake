@@ -29,8 +29,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${RP6502_SW_TTY} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
-        ${RP6502_SRC}/core/aud/bel_presets.c
-        ${SW_SRC}/bel.c
+        ${RP6502_SRC}/core/aud/pcm.c
+        ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c
@@ -70,6 +70,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/term.c)
     rp6502_log_flags(SW_LOG_FLAGS)
+    # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
+    # divides by.
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             -msave-restore
@@ -85,12 +87,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -DRP6502_LOCALE=EN
             -DRP6502_VGA_FABRIC
             -DRP6502_CRC32_SMALL
+            -DAUD_NATIVE_RATE=48000
             ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
-        DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${VID_FONT_ASSET_H}
+        DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${VID_FONT_ASSET_H} ${RSMP_HALF_H}
             ${SW_SRC}/link.ld
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)

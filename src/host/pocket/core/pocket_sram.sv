@@ -12,13 +12,18 @@
 
 module pocket_sram (
     input logic clk,
-
-    /* run drops once the machine's clock has stopped and rises again
-     * before that clock returns. The PHI2 enable is registered in machine
-     * logic, which freezes when its clock stops, while clk keeps running,
-     * so without run an enable frozen high would keep launching port A
-     * accesses, writes included, for as long as the machine is stopped. */
-    input logic run,
+    /* The machine's clock, clk through the savestate's gate. The PHI2
+     * enable is registered in machine logic, which freezes when that
+     * clock stops while clk keeps running, so an enable frozen high would
+     * launch port A again on every clk of the stop. Port A therefore
+     * serves one access an enable: the first clk that sees the enable
+     * launches it, which is the machine's own edge unless the machine
+     * stopped just before it, and nothing launches again until the
+     * machine has taken an edge. An access launched with no machine edge
+     * at or after its clk holds its byte back until there is one, so the
+     * byte the 6502 takes on its next edge is still the one for its
+     * present address. */
+    input logic clk_mach,
     input logic refill,
     input logic phi2_en,
     input logic cpu_run,
@@ -60,9 +65,26 @@ module pocket_sram (
 
     logic [1:0] ph;
     logic busy_a, busy_b, b_done;
-    logic serving_we;
+    logic serving_we, serving_refill;
+
+    /* m_edge: the machine's clock rose on the last clk. */
+    logic m_tog, m_q, m_edge;
+    initial m_tog = 1'b0;
+    always_ff @(posedge clk_mach) m_tog <= !m_tog;
+    always_comb m_edge = m_tog != m_q;
+    /* armed: the machine has taken an edge since port A last launched.
+     * a_seen: it has taken one at or after this access's launch. a_pend:
+     * a_next holds a byte waiting for that edge. */
+    logic armed, a_seen, a_pend;
+    logic [7:0] a_next;
 
     initial begin
+        m_q = 1'b0;
+        armed = 1'b1;
+        a_seen = 1'b0;
+        a_pend = 1'b0;
+        a_next = '0;
+        serving_refill = 1'b0;
         ph = '0;
         busy_a = 1'b0;
         busy_b = 1'b0;
@@ -87,13 +109,12 @@ module pocket_sram (
          * sample pocket_sram_b_rdata on the edge that loads it and take
          * the previous access's byte. */
         pocket_sram_b_stall = b_stb && !b_done;
-        /* pocket_sram_hold includes busy_a because refill can launch a
-         * port A access after the machine's clock is back. The access
-         * takes four clocks, so without busy_a a PHI2 enable could
-         * arrive before the byte, and the restored 6502 would take its
-         * first cycle on the byte fetched before the restore. busy_a
+        /* pocket_sram_hold includes busy_a, so no PHI2 enable is taken
+         * while port A still serves the last one or a refill. busy_a
          * never suppresses an enable during normal running, because PHI2
-         * enables are at least six clocks apart and busy_a lasts four. */
+         * enables are at least six clocks apart and busy_a lasts four,
+         * and a restore's refill ends while the 6502 is still held in
+         * reset, thousands of clocks before it runs. */
         pocket_sram_hold = busy_a || busy_b || (b_stb && !busy_a);
     end
 
@@ -101,15 +122,29 @@ module pocket_sram (
         if (!b_stb)
             b_done <= 1'b0;
 
+        m_q <= m_tog;
+        if (m_edge)
+            armed <= 1'b1;
+        if (m_edge)
+            a_seen <= 1'b1;
+        if (a_pend && m_edge) begin
+            pocket_sram_a_rdata <= a_next;
+            a_pend <= 1'b0;
+        end
+
         pocket_sram_dq_oe <= 1'b0;
         pocket_sram_oe_n <= 1'b1;
         pocket_sram_we_n <= 1'b1;
 
         if (busy_a || busy_b) begin
             if (ph == 2'(PH_LAST)) begin
-                if (busy_a)
+                if (busy_a && (a_seen || m_edge || serving_refill)) begin
                     pocket_sram_a_rdata <= sram_dq_in[7:0];
-                else begin
+                    a_pend <= 1'b0;
+                end else if (busy_a) begin
+                    a_next <= sram_dq_in[7:0];
+                    a_pend <= 1'b1;
+                end else begin
                     pocket_sram_b_rdata <= sram_dq_in[7:0];
                     b_done <= 1'b1;
                 end
@@ -123,11 +158,14 @@ module pocket_sram (
                 pocket_sram_oe_n <= serving_we;
                 pocket_sram_we_n <= !(serving_we && ph < 2'(PH_LAST));
             end
-        end else if ((refill || (phi2_en && cpu_run && run))
+        end else if ((refill || (phi2_en && cpu_run && armed))
                      && !pocket_sram_hold) begin
             busy_a <= 1'b1;
             ph <= 2'd0;
             serving_we <= a_we;
+            serving_refill <= refill;
+            armed <= 1'b0;
+            a_seen <= 1'b0;
             pocket_sram_a <= {1'b0, a_addr};
             pocket_sram_dq_out <= {8'h00, a_wdata};
             pocket_sram_lb_n <= 1'b0;

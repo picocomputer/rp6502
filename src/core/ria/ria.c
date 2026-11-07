@@ -94,20 +94,10 @@ static uint8_t rw_read(int which)
     return v;
 }
 
-/* The page rides in the high byte so that the parked 0xFFFF matches no write,
- * an address having been masked to its page before the compare. */
-static volatile uint16_t ria_aud_page = 0xFFFF;
-
-void ria_aud_watch(uint16_t xaddr)
-{
-    ria_aud_page = xaddr == 0xFFFF ? 0xFFFF : (uint16_t)(xaddr & 0xFF00);
-}
-
 void ria_xram_write(uint16_t addr, uint8_t data)
 {
+    aud_xram_write(addr, data);
     xram[addr] = data;
-    if ((addr & 0xFF00) == ria_aud_page)
-        aud_xram_write(addr, data);
 }
 
 static void rw_write(int which, uint8_t data)

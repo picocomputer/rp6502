@@ -88,8 +88,11 @@ if(RP6502_SOFT_CPU)
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
+            OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
+            OPL_BEL_ROM="${OPL_BEL_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
+            AUD_SNOOP_ROM="${AUD_SNOOP_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
             ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_roms stream_roms
+        DEPENDS file_roms stream_roms aud_roms wakeclk_roms
         TIMEOUT 1200)
 
     rp6502_add_machine_test(pfile FIRMWARE SPLIT
@@ -130,7 +133,6 @@ if(RP6502_HAVE_APF_RTL)
     list(APPEND SDC_GATE_RTL
         --rtl-dir ${RP6502_POCKET_CORE}
         --rtl-dir ${RP6502_VENDOR}/hazard3/hdl
-        --rtl-dir ${RP6502_VENDOR}/opl2_fpga/fpga
         --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
     add_test(NAME sdc_filters
         COMMAND ${CMAKE_COMMAND} -E env python3

@@ -18,6 +18,7 @@
 #include "core/sys/sys.h"
 #include "core/wdc/resb.h"
 #include "drivers.h"
+#include "machine.h"
 
 static enum state
 {
@@ -32,7 +33,7 @@ static enum state
  * performs the stop fan-out first and the break fan-out after it. */
 static volatile bool sys_breaking;
 
-void sys_init(void)
+void HOST_IN_FLASH_FUNC("sys_init") sys_init(void)
 {
     resb_init();
 #define DRIVER(i, t, iot, r, s, b, ...) i();
@@ -54,21 +55,22 @@ void sys_io_task(void)
 #undef DRIVER
 }
 
-static void sys_on_run(void)
+/* RESB is low through the run, stop and break fan-outs. */
+static void HOST_IN_FLASH_FUNC("sys_on_run") sys_on_run(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) r();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-static void sys_on_stop(void)
+static void HOST_IN_FLASH_FUNC("sys_on_stop") sys_on_stop(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) s();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-static void sys_on_break(void)
+static void HOST_IN_FLASH_FUNC("sys_on_break") sys_on_break(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) b();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)

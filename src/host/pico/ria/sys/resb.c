@@ -63,6 +63,13 @@ void resb_task(void)
         phi2_set_khz_run(phi2_get_khz());
 }
 
+/* resb_assert clears release_pending as it lowers RESB, and resb_task raises
+ * RESB only while it is set. */
+bool resb_held(void)
+{
+    return !release_pending;
+}
+
 uint32_t resb_get_reset_us(void)
 {
     /* Two PHI2 cycles, rounded up for margin. */

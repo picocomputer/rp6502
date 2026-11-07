@@ -4,18 +4,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/xreg.h"
+#include "core/ria/ria.h"
 #include "core/sys/sst.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
+#include "core/aud/bel.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/term/term.h"
+#include "host/host.h"
 
 #include "emu_boot.h"
+#include "stdsys.h"
 
 #include <string.h>
+
+#define O_WR 0x02
+#define WHENCE_SET 0
+#define WHENCE_CUR 1
 
 static uint8_t blob[1 << 20];
 
@@ -49,7 +58,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)222856);
+    ASSERT_EQ(sst_size(), (size_t)226667);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
 }
 
@@ -194,31 +203,53 @@ UTEST(sst, a_program_picks_up_where_it_was)
     ASSERT_EQ(bus_cycles() - at_save, reference);
 }
 
-/* What rw_write does, without a 6502 to do it. Every caller writes the block
- * the sounding engine was given, so there is no page to test. */
-static void aud_poke(uint16_t at, uint8_t val)
-{
-    xram[at] = val;
-    aud_xram_write(at, val);
-}
-
+/* Channel 0's note but its gate, written once the PSG is mapped, as a
+ * program writes it. */
 static void aud_note(uint16_t at)
 {
-    for (int i = 0; i < 8 * 8; i++)
-        xram[at + i] = 0;
-    xram[at + 0] = 0x00;
-    xram[at + 1] = 0x04; /* 0x0400 thirds of a hertz, about 341 Hz */
-    xram[at + 2] = 0x80; /* duty */
-    xram[at + 3] = 0x04; /* full volume (the table descends), attack rate 4 */
-    xram[at + 4] = 0x28; /* sustain two steps down, decay rate 8 */
-    xram[at + 5] = 0x08; /* sine, release rate 8 */
-    xram[at + 6] = 0x00; /* psg_sample starts a note only from a reported write */
+    ria_xram_write(at + 0, 0x00);
+    ria_xram_write(at + 1, 0x04); /* 0x0400 thirds of a hertz, about 341 Hz */
+    ria_xram_write(at + 2, 0x80); /* duty */
+    ria_xram_write(at + 3, 0x04); /* full volume (the table descends), attack rate 4 */
+    ria_xram_write(at + 4, 0x28); /* sustain two steps down, decay rate 8 */
+    ria_xram_write(at + 5, 0x08); /* sine, release rate 8 */
 }
 
-static void aud_pull(float *dst, int frames)
+/* The most sound a frame makes at 48 kHz. */
+#define AUD_FRAME_MAX 801
+#define AUD_PULL_MAX (AUD_FRAME_MAX * 4)
+
+/* What the machine made since the last take, as a sink on its thread takes
+ * it: everything, up to a frame's worth, and older sound is dropped. */
+static size_t aud_take(float *dst)
 {
+    return (size_t)aud_render(dst, AUD_FRAME_MAX);
+}
+
+/* Frames run and their sound taken. Returns the frames of sound. */
+static size_t aud_pull(float *dst, int frames)
+{
+    size_t at = 0;
     for (int i = 0; i < frames; i++)
-        aud_render(dst + i * 2 * 64, 64);
+    {
+        emu_frames(1);
+        at += aud_take(dst + at * 2);
+    }
+    return at;
+}
+
+/* Scanlines run short of a frame, the mix stepped up to them, and their sound
+ * taken. */
+static size_t aud_pull_lines(float *dst, int lines)
+{
+    for (int i = 0; i < lines; i++)
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
+    aud_step();
+    return aud_take(dst);
 }
 
 static bool aud_sounded(const float *buf, size_t n)
@@ -231,59 +262,300 @@ static bool aud_sounded(const float *buf, size_t n)
 
 UTEST(sst, a_note_in_flight_comes_back)
 {
-    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
 
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
     aud_note(0x3000);
-    ASSERT_TRUE(psg_xreg(0x3000));
-    ASSERT_EQ(aud_device(), aud_dev_psg);
-    aud_poke(0x3006, 0x01); /* pan centre, gate on */
-    aud_pull(went, 8);
+    ria_xram_write(0x3006, 0x01); /* pan centre, gate on */
+    aud_pull(went, 1);
+    /* Still on the ring when the save starts, for the next sample. */
+    ria_xram_write(0x3001, 0x05);
     ASSERT_EQ(take(), (const char *)NULL);
 
-    aud_pull(went, 32);
+    const size_t n = aud_pull(went, 3);
 
-    ASSERT_TRUE(opl_xreg(0x4000));
-    ASSERT_EQ(aud_device(), aud_dev_opl);
-    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
-    aud_pull(came, 16);
+    /* A map zeroes the registers, so only the PSG's row brings them back. */
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
+    aud_pull(came, 2);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(aud_device(), aud_dev_psg);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
-    aud_pull(came, 32);
-    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
-    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
 }
 
 UTEST(sst, an_opl_chord_comes_back)
 {
-    static float went[64 * 2 * 32], came[64 * 2 * 32];
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
     aud_set_enabled(true);
-    ASSERT_TRUE(opl_xreg(0x4000));
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
     static const uint8_t regs[][2] = {
         {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
         {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
         {0xA0, 0x98}, {0xB0, 0x31},
     };
     for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
-        aud_poke(0x4000 + regs[i][0], regs[i][1]);
-    aud_pull(went, 8);
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
+    aud_pull(went, 1);
     ASSERT_EQ(take(), (const char *)NULL);
-    aud_pull(went, 32);
+    const size_t n = aud_pull(went, 3);
 
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
     aud_note(0x3000);
-    ASSERT_TRUE(psg_xreg(0x3000));
-    aud_poke(0x3006, 0x01);
-    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
-    aud_pull(came, 16);
+    ria_xram_write(0x3006, 0x01);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+    aud_pull(came, 2);
 
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(aud_device(), aud_dev_opl);
-    aud_pull(came, 32);
-    ASSERT_TRUE(aud_sounded(went, sizeof went / sizeof *went));
-    ASSERT_EQ(memcmp(went, came, sizeof went), 0);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+}
+
+/* A burst too big for the OPL2's queue, saved while the queue drains: the
+ * load brings back the writes still waiting and the drop count, so a second
+ * burst after it plays and drops as it did after the save. */
+UTEST(sst, an_opl_burst_comes_back_mid_flight)
+{
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
+    aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
+    static const uint8_t regs[][2] = {
+        {0x20, 0x21}, {0x23, 0x21}, {0x40, 0x1A}, {0x43, 0x00},
+        {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
+        {0xA0, 0x98}, {0xB0, 0x31},
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
+    for (int k = 0; k < 300; k++)
+        ria_xram_write((uint16_t)(0x4040 + k % 6), (uint8_t)(k & 0x3F));
+    aud_pull_lines(went, 40);
+    ASSERT_GT(opl_queue.count, 0);
+    ASSERT_EQ(take(), (const char *)NULL);
+    for (int k = 0; k < 300; k++)
+        ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+    const size_t n = aud_pull(went, 3);
+    const uint32_t drops = aud_opl_overruns();
+    ASSERT_GT(drops, 0u);
+
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
+    aud_pull(came, 1);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    for (int k = 0; k < 300; k++)
+        ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+    ASSERT_EQ(aud_opl_overruns(), drops);
+}
+
+/* A blob whose OPL chunk is version 1, as older builds wrote it, with its sum
+ * made good again: the load refuses it and leaves the machine as it was. */
+UTEST(sst, an_old_opl_chunk_is_refused)
+{
+    ASSERT_EQ(take(), (const char *)NULL);
+    scrub();
+    const size_t total = sst_size();
+    size_t at = 0;
+    while (at + 6 <= total && memcmp(blob + at, "OPL_\x00\x02", 6))
+        at++;
+    ASSERT_LT(at + 6, total);
+    blob[at + 5] = 1;
+    const uint32_t sum = host_crc32(0, blob, total - 8);
+    for (int i = 0; i < 4; i++)
+        blob[total - 8 + i] = (uint8_t)(sum >> (24 - 8 * i));
+    ASSERT_NE(sst_load(blob, total, 0), (const char *)NULL);
+    ASSERT_TRUE(scrub_intact());
+}
+
+UTEST(sst, both_engines_come_back)
+{
+    static float out[AUD_FRAME_MAX * 2];
+    aud_set_enabled(true);
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
+    aud_take(out);
+    ASSERT_EQ(take(), (const char *)NULL);
+    aud_stop();
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+}
+
+/* Frames run and their sound taken and let go. */
+static void aud_pass(int frames)
+{
+    static float out[AUD_FRAME_MAX * 2];
+    for (int i = 0; i < frames; i++)
+        aud_pull(out, 1);
+}
+
+/* Whether the bell is silent once the teletype's restrike has had its
+ * 800 ms. */
+static bool aud_rung_out(void)
+{
+    static float out[AUD_FRAME_MAX * 2];
+    aud_pass(56);
+    return !aud_sounded(out, aud_pull(out, 1) * 2);
+}
+
+/* Whether a bell an earlier case left sounding has rung out, so a case
+ * that strikes its own starts from silence. */
+static bool aud_bell_quiet(void)
+{
+    bool quiet = false;
+    for (int i = 0; i < 8 && !quiet; i++)
+        quiet = aud_rung_out();
+    return quiet;
+}
+
+/* The bell struck twice, as a held BEL strikes it, and saved as the first
+ * strike releases: the load brings back the tone, its envelope and the
+ * restrike waiting in the queue. */
+UTEST(sst, a_bell_mid_tone_comes_back)
+{
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
+    aud_set_enabled(true);
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(aud_bell_quiet());
+    bel_add(&bel_teletype);
+    bel_add(&bel_teletype);
+    aud_pass(5); /* past the release at 20 ms, short of the restrike at 100 */
+    ASSERT_EQ(take(), (const char *)NULL);
+    const size_t n = aud_pull(went, 3);
+
+    bel_add(&bel_nfc_fail);
+    aud_pull(came, 2);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(aud_pull(came, 3), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+    ASSERT_TRUE(aud_rung_out());
+}
+
+/* A PCM: stream from a table at $1000 of XRAM, looped: 16-bit stereo, a
+ * triangle 50 frames long on the left and the same inverted at half the
+ * size on the right. */
+#define AUD_TABLE 0x1000
+#define AUD_TABLE_LEN (40 * 50 * 4)
+static uint16_t aud_table_at;
+
+static void aud_table(void)
+{
+    for (int i = 0; i < AUD_TABLE_LEN / 4; i++)
+    {
+        const int t = i % 50;
+        const int16_t l = (int16_t)((t < 25 ? t : 50 - t) * 1000 - 12500);
+        const int16_t r = (int16_t)(-l / 2);
+        const uint16_t at = (uint16_t)(AUD_TABLE + i * 4);
+        xram[at] = (uint8_t)l;
+        xram[at + 1] = (uint8_t)((uint16_t)l >> 8);
+        xram[at + 2] = (uint8_t)r;
+        xram[at + 3] = (uint8_t)((uint16_t)r >> 8);
+    }
+    aud_table_at = 0;
+}
+
+/* As much of the looped table as the device takes, from where it left
+ * off. */
+static void aud_top_up(int fd)
+{
+    for (;;)
+    {
+        const int n = ssys_write_xram(fd, (uint16_t)(AUD_TABLE + aud_table_at),
+                                      (uint16_t)(AUD_TABLE_LEN - aud_table_at));
+        if (n <= 0)
+            return;
+        aud_table_at = (uint16_t)((aud_table_at + n) % AUD_TABLE_LEN);
+        if (aud_table_at)
+            return;
+    }
+}
+
+/* Frames run and their sound taken, the stream topped up after each. */
+static size_t aud_pull_pcm(int fd, float *dst, int frames)
+{
+    size_t at = 0;
+    for (int i = 0; i < frames; i++)
+    {
+        at += aud_pull(dst + at * 2, 1);
+        aud_top_up(fd);
+    }
+    return at;
+}
+
+/* The PSG's note, the OPL2's note with vibrato and tremolo, the bell and a
+ * PCM: stream, all playing and saved mid-note: the load brings every engine
+ * back, so the mix after it is the mix of the run that never saved. */
+UTEST(sst, every_engine_comes_back_at_once)
+{
+    static float went[AUD_PULL_MAX * 2], came[AUD_PULL_MAX * 2];
+    aud_set_enabled(true);
+    /* The stream's calls are made here as a 6502 makes them, so no program
+     * is left running to make its own. */
+    sys_stop_now();
+    aud_stop(); /* an earlier test may have left an engine mapped */
+    ASSERT_TRUE(aud_bell_quiet());
+
+    ASSERT_TRUE(xreg0(1, 0, 0x3000));
+    aud_note(0x3000);
+    ria_xram_write(0x3003, 0x64); /* six steps down, attack rate 4 */
+    ria_xram_write(0x3006, 0x01);
+
+    ASSERT_TRUE(xreg0(1, 1, 0x4000));
+    static const uint8_t regs[][2] = {
+        {0x20, 0xE1}, {0x23, 0xE1}, {0x40, 0x1A}, {0x43, 0x08},
+        {0x60, 0xF0}, {0x63, 0xF0}, {0x80, 0x77}, {0x83, 0x77},
+        {0xBD, 0xC0}, {0xA0, 0x98}, {0xB0, 0x31},
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        ria_xram_write(0x4000 + regs[i][0], regs[i][1]);
+
+    aud_table();
+    const int fd = ssys_open("PCM:22050,16,2", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    aud_top_up(fd);
+
+    bel_add(&bel_teletype);
+    bel_add(&bel_teletype);
+    aud_pull_pcm(fd, went, 3); /* the restrike at 100 ms is still to come */
+    const uint16_t saved_at = aud_table_at;
+    const int32_t level = ssys_lseek(fd, 0, WHENCE_CUR);
+    ASSERT_GT(level, 0);
+    ASSERT_EQ(take(), (const char *)NULL);
+    const size_t n = aud_pull_pcm(fd, went, 4);
+
+    aud_stop();
+    bel_add(&bel_nfc_fail);
+    aud_pull_pcm(fd, came, 1);
+
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    aud_table_at = saved_at;
+    ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
+    ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), level);
+    ASSERT_EQ(aud_pull_pcm(fd, came, 4), n);
+    ASSERT_TRUE(aud_sounded(went, n * 2));
+    ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
+
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_SET), 0);
+    ASSERT_EQ(ssys_close(fd), 0);
+    aud_stop();
+    ASSERT_TRUE(aud_rung_out());
 }
 
 /* Whether the machine is on the console canvas, the console is w by h, and

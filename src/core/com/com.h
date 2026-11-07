@@ -19,7 +19,6 @@ size_t com_keyboard_free(void);
 
 size_t com_keyboard_read(char *buf, size_t length);
 void com_keyboard_clear(void);
-#define COM_KEYBOARD_SOURCE {.read = com_keyboard_read, .clear = com_keyboard_clear, .dwell_us = COM_WIRE_DWELL_US}
 
 void com_uart_push(const char *s, size_t n);
 void com_stream_push(const char *s, size_t n);

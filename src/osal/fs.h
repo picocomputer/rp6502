@@ -85,8 +85,7 @@ void fs_save_free(void);
         .write = fs_std_write,       \
         .sync = fs_std_sync,         \
         .lseek = fs_std_lseek,       \
-        .ident = fs_std_ident,       \
-        .reopen = fs_std_reopen,     \
+        STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
     }
 
 #define FS_STD_DRIVER           \
@@ -98,8 +97,7 @@ void fs_save_free(void);
         .write = fs_std_write,     \
         .sync = fs_std_sync,       \
         .lseek = fs_std_lseek,     \
-        .ident = fs_std_ident,     \
-        .reopen = fs_std_reopen,   \
+        STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
     }
 
 #endif /* _OSAL_FS_H_ */

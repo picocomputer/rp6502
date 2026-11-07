@@ -103,12 +103,12 @@ uint8_t hid_slot_claims(int slot)
     return (slot >= 0 && slot < HID_MAX_SLOTS) ? hid_claims[slot] : 0;
 }
 
-int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
-                                         const mouse_connection_t *mouse,
-                                      const tablet_connection_t *tablet,
-                                      const gamepad_connection_t *gamepad,
-                                      uint16_t vendor_id, uint16_t product_id,
-                                      uint8_t button_type)
+int hid_mount(const keyboard_connection_t *keyboard,
+              const mouse_connection_t *mouse,
+              const tablet_connection_t *tablet,
+              const gamepad_connection_t *gamepad,
+              uint16_t vendor_id, uint16_t product_id,
+              uint8_t button_type)
 {
     int slot = -1;
     for (int i = 0; i < HID_MAX_SLOTS; i++)

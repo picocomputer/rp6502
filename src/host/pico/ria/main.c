@@ -21,8 +21,10 @@ bool sys_break(void)
 
 bool sys_break_to_launcher(void)
 {
-    // From the launcher there is nowhere to return to.
-    if (proc_is_launcher())
+    // With no program running there is nothing to stop, and the monitor may
+    // be in a transfer whose loop lives where api_set_ax writes. From the
+    // launcher there is nowhere to return to.
+    if (!sys_running() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
     // Stop as exit() does, so proc_stop can queue the launcher.

@@ -30,13 +30,22 @@ module phi2 #(
 
     input logic [15:0] phi2_khz,
 
-    output logic phi2_en
+    /* A savestate's jam: the accumulator and the enable it was taken
+     * with, so the restored 6502 steps on the edges it would have. */
+    input logic st_jam,
+    input logic [15:0] st_jam_acc,
+    input logic st_jam_en,
+
+    output logic phi2_en,
+    /* Always under SYS_KHZ, so sixteen bits hold it. */
+    output logic [15:0] phi2_acc
 );
 
     localparam int ACC_W = $clog2(SYS_KHZ) + 1;
 
     logic [ACC_W-1:0] acc, next;
     always_comb next = acc + ACC_W'(phi2_khz);
+    always_comb phi2_acc = 16'(acc);
 
     initial begin
         acc = '0;
@@ -49,6 +58,10 @@ module phi2 #(
         end else begin
             acc <= next;
             phi2_en <= 1'b0;
+        end
+        if (st_jam) begin
+            acc <= ACC_W'(st_jam_acc);
+            phi2_en <= st_jam_en;
         end
     end
 

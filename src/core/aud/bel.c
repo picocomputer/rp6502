@@ -2,81 +2,185 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The bell's voice is the PSG's ninth, so this only sequences it: a queue
+ * of sounds and the restrike, release and end deadlines of the one
+ * sounding. The deadlines fall 20 to 800 ms after a strike, so bel_task
+ * polls them.
  */
 
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
-#include "core/aud/sine.h"
+#include "host/host.h"
+#include "machine.h"
 #include <string.h>
+
+HOST_IN_FLASH("bel_teletype") const bel_sound_t bel_teletype = {
+    .freq = 1760,
+    .duty = 215,          // gate open for 214 of 256 phase steps
+    .vol_attack = 0x51,   // attack to -5vol, 8ms full-swing rate
+    .vol_decay = 0x60,    // decay to -6vol, 6ms full-swing rate
+    .wave_release = 0x39, // triangle, 750ms full-swing release rate
+    .restrike_ms = 100,   // restrike at 10 Hz
+    .release_ms = 20,
+    .end_ms = 800,
+};
+
+HOST_IN_FLASH("bel_nfc_fail") const bel_sound_t bel_nfc_fail = {
+    .freq = 330,
+    .duty = 127,          // 50% square
+    .vol_attack = 0x80,   // attack to -8vol, 2ms full-swing rate
+    .vol_decay = 0x80,    // sustain at -8vol
+    .wave_release = 0x15, // square, 168ms full-swing release rate
+    .restrike_ms = 0,
+    .release_ms = 200,
+    .end_ms = 420,
+};
+
+HOST_IN_FLASH("bel_nfc_success_1") const bel_sound_t bel_nfc_success_1 = {
+    .freq = 784,
+    .duty = 255,          // gate open for 254 of 256 phase steps
+    .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
+    .vol_decay = 0x60,    // sustain at -6vol
+    .wave_release = 0x03, // sine, 72ms full-swing release rate
+    .restrike_ms = 0,
+    .release_ms = 90,
+    .end_ms = 170,
+};
+
+HOST_IN_FLASH("bel_nfc_success_2") const bel_sound_t bel_nfc_success_2 = {
+    .freq = 1568,
+    .duty = 255,          // gate open for 254 of 256 phase steps
+    .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
+    .vol_decay = 0x60,    // sustain at -6vol
+    .wave_release = 0x06, // sine, 204ms full-swing release rate
+    .restrike_ms = 0,
+    .release_ms = 130,
+    .end_ms = 350,
+};
 
 #define BEL_QUEUE_SIZE 8
 
-#define BEL_PEAK 32767
-#define BEL_RAIL (-32767)
+static bel_sound_t bel_queue[BEL_QUEUE_SIZE];
+static uint8_t bel_head, bel_tail;
+static bool bel_active;
+static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
 
-enum bel_adsr_state
+static uint64_t bel_in_ms(uint32_t ms)
 {
-    release,
-    attack,
-    decay,
-    sustain,
-};
+    return host_clock_us() + (uint64_t)ms * 1000;
+}
 
-static const uint32_t bel_vol_table[] = {
-    256 << 16,
-    204 << 16,
-    168 << 16,
-    142 << 16,
-    120 << 16,
-    102 << 16,
-    86 << 16,
-    73 << 16,
-    61 << 16,
-    50 << 16,
-    40 << 16,
-    31 << 16,
-    22 << 16,
-    14 << 16,
-    7 << 16,
-    0 << 16,
-};
-
-/* As psg.c: the 6581 SID's rates in milliseconds, as the increments they
- * come to at AUD_NATIVE_RATE, the rate multiplying before it divides by
- * 1000 because AUD_NATIVE_RATE is not a whole number of kilohertz. */
-#define BEL_STEP(ms) ((1 << 24) / (uint32_t)(((uint64_t)AUD_NATIVE_RATE * (ms)) / 1000))
-
-static const uint32_t bel_attack_table[16] = {
-    BEL_STEP(2), BEL_STEP(8), BEL_STEP(16), BEL_STEP(24),
-    BEL_STEP(38), BEL_STEP(56), BEL_STEP(68), BEL_STEP(80),
-    BEL_STEP(100), BEL_STEP(250), BEL_STEP(500), BEL_STEP(800),
-    BEL_STEP(1000), BEL_STEP(3000), BEL_STEP(5000), BEL_STEP(8000),
-};
-
-static const uint32_t bel_decay_release_table[16] = {
-    BEL_STEP(6), BEL_STEP(24), BEL_STEP(48), BEL_STEP(72),
-    BEL_STEP(114), BEL_STEP(168), BEL_STEP(204), BEL_STEP(240),
-    BEL_STEP(300), BEL_STEP(750), BEL_STEP(1500), BEL_STEP(2400),
-    BEL_STEP(3000), BEL_STEP(9000), BEL_STEP(15000), BEL_STEP(24000),
-};
-
-static ria_bel_t bel_queue[BEL_QUEUE_SIZE];
-static volatile uint8_t bel_queue_head;
-static volatile uint8_t bel_queue_tail;
-
-static struct
+static bool bel_due(uint64_t at)
 {
-    int16_t sample;
-    uint8_t adsr;
-    uint32_t vol;
-    uint32_t phase;
-    uint32_t noise1;
-    uint32_t noise2;
-    uint32_t elapsed_samples;
-    volatile bool active;
-} bel_state;
+    return at && (int64_t)(host_clock_us() - at) >= 0;
+}
 
-static void bel_put_sound(sst_cursor_t *c, const ria_bel_t *b)
+/* The gate drops first and rises last, so every strike attacks from the
+ * volume left, as a PSG voice's does, and lands on the new sound. */
+static void bel_voice(const bel_sound_t *snd)
+{
+    aud_bel_put(6, 0);
+    aud_bel_put(0, (uint8_t)snd->freq);
+    aud_bel_put(1, (uint8_t)(snd->freq >> 8));
+    aud_bel_put(2, snd->duty);
+    aud_bel_put(3, snd->vol_attack);
+    aud_bel_put(4, snd->vol_decay);
+    aud_bel_put(5, snd->wave_release);
+    aud_bel_put(6, 1);
+}
+
+/* The gate first, so no step takes the zeroed sustain while it is up. */
+static void bel_silence(void)
+{
+    aud_bel_put(6, 0);
+    for (unsigned i = 0; i < 6; i++)
+        aud_bel_put(i, 0);
+}
+
+void bel_init(void)
+{
+    bel_head = bel_tail = 0;
+    bel_active = false;
+    bel_restrike_at = bel_release_at = bel_end_at = 0;
+    bel_silence();
+}
+
+void bel_wake(uint64_t us)
+{
+    if (bel_restrike_at)
+        bel_restrike_at += us;
+    if (bel_release_at)
+        bel_release_at += us;
+    if (bel_end_at)
+        bel_end_at += us;
+}
+
+static void bel_strike(void)
+{
+    const bel_sound_t *snd = &bel_queue[bel_tail];
+    bel_voice(snd);
+    bel_restrike_at = snd->restrike_ms
+                          ? bel_in_ms(snd->restrike_ms) : 0;
+    bel_release_at = snd->release_ms
+                         ? bel_in_ms(snd->release_ms) : 0;
+    bel_end_at = snd->end_ms ? bel_in_ms(snd->end_ms) : 0;
+    bel_active = true;
+}
+
+void bel_add(const bel_sound_t *sound)
+{
+    uint8_t next = (bel_head + 1) % BEL_QUEUE_SIZE;
+    if (next == bel_tail)
+        return;
+    bel_queue[bel_head] = *sound;
+    bel_head = next;
+    if (!bel_active)
+        bel_strike();
+}
+
+void bel_task(void)
+{
+    if (!bel_active)
+        return;
+
+    /* Polled until the end, so a sound queued after the deadline restrikes
+     * at once. */
+    if (bel_due(bel_restrike_at))
+    {
+        uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
+        if (next != bel_head && bel_queue[next].restrike_ms)
+        {
+            bel_tail = next;
+            bel_strike();
+            return;
+        }
+    }
+
+    if (bel_due(bel_release_at))
+    {
+        aud_bel_put(6, 0);
+        bel_release_at = 0;
+    }
+
+    if (bel_due(bel_end_at))
+    {
+        bel_tail = (bel_tail + 1) % BEL_QUEUE_SIZE;
+        if (bel_tail != bel_head)
+        {
+            bel_strike();
+        }
+        else
+        {
+            bel_silence();
+            bel_restrike_at = 0;
+            bel_end_at = 0;
+            bel_active = false;
+        }
+    }
+}
+
+static void bel_put_sound(sst_cursor_t *c, const bel_sound_t *b)
 {
     sst_put_u16(c, b->freq);
     sst_put_u8(c, b->duty);
@@ -88,7 +192,7 @@ static void bel_put_sound(sst_cursor_t *c, const ria_bel_t *b)
     sst_put_u16(c, b->end_ms);
 }
 
-static void bel_get_sound(sst_cursor_t *c, ria_bel_t *b)
+static void bel_get_sound(sst_cursor_t *c, bel_sound_t *b)
 {
     b->freq = sst_get_u16(c);
     b->duty = sst_get_u8(c);
@@ -105,231 +209,32 @@ void bel_sst_save(sst_cursor_t *c, unsigned flags)
     (void)flags;
     for (int i = 0; i < BEL_QUEUE_SIZE; i++)
         bel_put_sound(c, &bel_queue[i]);
-    sst_put_u8(c, bel_queue_head);
-    sst_put_u8(c, bel_queue_tail);
-    sst_put_u16(c, (uint16_t)bel_state.sample);
-    sst_put_u8(c, bel_state.adsr);
-    sst_put_u32(c, bel_state.vol);
-    sst_put_u32(c, bel_state.phase);
-    sst_put_u32(c, bel_state.noise1);
-    sst_put_u32(c, bel_state.noise2);
-    sst_put_u32(c, bel_state.elapsed_samples);
-    sst_put_bool(c, bel_state.active);
+    sst_put_u8(c, bel_head);
+    sst_put_u8(c, bel_tail);
+    sst_put_bool(c, bel_active);
+    sst_put_u64(c, bel_restrike_at);
+    sst_put_u64(c, bel_release_at);
+    sst_put_u64(c, bel_end_at);
 }
 
 bool bel_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    ria_bel_t queue[BEL_QUEUE_SIZE];
+    bel_sound_t queue[BEL_QUEUE_SIZE];
     for (int i = 0; i < BEL_QUEUE_SIZE; i++)
         bel_get_sound(c, &queue[i]);
     uint8_t head = sst_get_u8(c), tail = sst_get_u8(c);
-    int16_t sample = (int16_t)sst_get_u16(c);
-    uint8_t adsr = sst_get_u8(c);
-    uint32_t vol = sst_get_u32(c), phase = sst_get_u32(c);
-    uint32_t n1 = sst_get_u32(c), n2 = sst_get_u32(c);
-    uint32_t elapsed = sst_get_u32(c);
     bool active = sst_get_bool(c);
-    if (!sst_ok(c) || head >= BEL_QUEUE_SIZE || tail >= BEL_QUEUE_SIZE ||
-        adsr > sustain)
+    uint64_t restrike = sst_get_u64(c), release = sst_get_u64(c);
+    uint64_t end = sst_get_u64(c);
+    if (!sst_ok(c) || head >= BEL_QUEUE_SIZE || tail >= BEL_QUEUE_SIZE)
         return false;
     memcpy(bel_queue, queue, sizeof bel_queue);
-    bel_queue_head = head;
-    bel_queue_tail = tail;
-    bel_state.sample = sample;
-    bel_state.adsr = adsr;
-    bel_state.vol = vol;
-    bel_state.phase = phase;
-    bel_state.noise1 = n1;
-    bel_state.noise2 = n2;
-    bel_state.elapsed_samples = elapsed;
-    bel_state.active = active;
+    bel_head = head;
+    bel_tail = tail;
+    bel_active = active;
+    bel_restrike_at = restrike;
+    bel_release_at = release;
+    bel_end_at = end;
     return true;
-}
-
-void bel_add(const ria_bel_t *sound)
-{
-    uint8_t next = (bel_queue_head + 1) % BEL_QUEUE_SIZE;
-    if (next == bel_queue_tail)
-        return;
-    bel_queue[bel_queue_head] = *sound;
-    bel_queue_head = next;
-
-    if (!bel_state.active)
-    {
-        bel_state.adsr = attack;
-        bel_state.vol = 0;
-        bel_state.phase = 0;
-        bel_state.elapsed_samples = 0;
-        /* No barrier, though bel_sample may be on the audio thread. The
-         * queue entry is written before bel_queue_head advances, and an idle
-         * bel_sample returns at the active test without reading anything
-         * else. Once it starts, every transition it makes waits on elapsed_ms
-         * reaching restrike_ms, release_ms or end_ms, and one millisecond is
-         * about fifty samples at 49716 Hz, so a field still in flight can
-         * only alter the first sample or two of the note. */
-        bel_state.active = true;
-    }
-}
-
-#pragma GCC push_options
-#pragma GCC optimize("O3")
-int16_t bel_sample(void)
-{
-    if (!bel_state.active)
-        return 0;
-
-    ria_bel_t *snd = &bel_queue[bel_queue_tail];
-
-    bel_state.elapsed_samples++;
-    uint32_t elapsed_ms = (uint32_t)bel_state.elapsed_samples * 1000 / AUD_NATIVE_RATE;
-
-    if (snd->restrike_ms > 0 && elapsed_ms >= snd->restrike_ms)
-    {
-        uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
-        if (next != bel_queue_head)
-        {
-            ria_bel_t *next_snd = &bel_queue[next];
-            if (next_snd->restrike_ms > 0)
-            {
-                bel_queue_tail = next;
-                bel_state.adsr = attack;
-                bel_state.vol = 0;
-                bel_state.elapsed_samples = 0;
-                snd = next_snd;
-                goto generate;
-            }
-        }
-    }
-
-    if (snd->release_ms > 0 && elapsed_ms >= snd->release_ms &&
-        bel_state.adsr != release)
-    {
-        bel_state.adsr = release;
-    }
-
-    if (snd->end_ms > 0 && elapsed_ms >= snd->end_ms)
-    {
-        uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
-        if (next != bel_queue_head)
-        {
-            bel_queue_tail = next;
-            snd = &bel_queue[bel_queue_tail];
-            bel_state.adsr = attack;
-            bel_state.vol = 0;
-            bel_state.phase = 0;
-            bel_state.elapsed_samples = 0;
-        }
-        else
-        {
-            bel_queue_tail = next;
-            bel_state.active = false;
-            return 0;
-        }
-    }
-
-generate:;
-    /* As psg.c, freq is Hertz times three, so the increment divides by
-     * three times the sample rate. */
-    uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * snd->freq / 3 / AUD_NATIVE_RATE;
-    bel_state.phase += phase_inc;
-    uint32_t phase = bel_state.phase >> 24;
-    uint32_t duty = snd->duty;
-
-    switch (snd->wave_release >> 4)
-    {
-    case 0: // sine
-        duty >>= 1;
-        if (phase < 128u - duty || phase >= 128u + duty)
-            bel_state.sample = BEL_RAIL;
-        else
-            bel_state.sample = sine_table[phase];
-        break;
-    case 1: // square
-        if (phase > duty)
-            bel_state.sample = BEL_RAIL;
-        else
-            bel_state.sample = BEL_PEAK;
-        break;
-    case 2: // sawtooth
-        if (phase > duty)
-            bel_state.sample = BEL_RAIL;
-        else
-            bel_state.sample = (int16_t)(BEL_PEAK - (int32_t)(bel_state.phase >> 16));
-        break;
-    case 3: // triangle
-        duty >>= 1;
-        if (phase < 128u - duty || phase >= 128u + duty)
-            bel_state.sample = BEL_RAIL;
-        else if (phase >= 128)
-            bel_state.sample = (int16_t)(BEL_PEAK - (int16_t)(bel_state.phase >> 15));
-        else
-            bel_state.sample = (int16_t)((int16_t)(bel_state.phase >> 15) - 32768);
-        break;
-    case 4: // noise
-        if (phase > duty)
-            bel_state.sample = BEL_RAIL;
-        else
-        {
-            bel_state.noise1 ^= bel_state.noise2;
-            bel_state.sample = (int16_t)(bel_state.noise2 & 0xFFFF);
-            bel_state.noise2 += bel_state.noise1;
-        }
-        break;
-    default:
-        bel_state.sample = 0;
-        break;
-    }
-
-    uint32_t atk_rate = bel_attack_table[snd->vol_attack & 0xF];
-    uint32_t atk_target = bel_vol_table[snd->vol_attack >> 4];
-    uint32_t dec_rate = bel_decay_release_table[snd->vol_decay & 0xF];
-    uint32_t dec_target = bel_vol_table[snd->vol_decay >> 4];
-    uint32_t rel_rate = bel_decay_release_table[snd->wave_release & 0xF];
-
-    switch (bel_state.adsr)
-    {
-    case attack:
-        bel_state.vol += atk_rate;
-        if (bel_state.vol >= atk_target)
-        {
-            bel_state.vol = atk_target;
-            bel_state.adsr = decay;
-        }
-        break;
-    case decay:
-        if (bel_state.vol <= dec_rate)
-            bel_state.vol = 0;
-        else
-            bel_state.vol -= dec_rate;
-        if (bel_state.vol > dec_target)
-            break;
-        bel_state.adsr = sustain;
-        __attribute__((fallthrough));
-    case sustain:
-        if (dec_target <= atk_target)
-            bel_state.vol = dec_target;
-        break;
-    case release:
-        if (bel_state.vol <= rel_rate)
-            bel_state.vol = 0;
-        else
-            bel_state.vol -= rel_rate;
-        break;
-    }
-
-    /* As psg.c: thirteen bits of the Q24 volume, rounded rather than
-     * truncated. bel_vol_table peaks at 256 << 16, so a shift of twelve
-     * makes full volume unity gain. */
-    return (int16_t)(((int32_t)bel_state.sample
-                          * (int32_t)(bel_state.vol >> 12)
-                      + (1 << 11))
-                     >> 12);
-}
-#pragma GCC pop_options
-
-void bel_init(void)
-{
-    bel_state.noise1 = 0x67452301;
-    bel_state.noise2 = 0xEFCDAB89;
 }

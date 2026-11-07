@@ -23,29 +23,31 @@ typedef struct
     uint16_t restrike_ms;
     uint16_t release_ms;
     uint16_t end_ms;
-} ria_bel_t;
+} bel_sound_t;
 
+/* The bell's sequencer. Its voice is the PSG's ninth, which every machine
+ * reaches through aud_bel_put. Its deadlines are host_clock_us, polled by
+ * bel_task. */
 void bel_init(void);
+void bel_task(void);
+void bel_add(const bel_sound_t *sound);
 
-/* One sample, zero while nothing is rung. The phase and envelope steps are
- * derived from AUD_NATIVE_RATE, so a mixer has to call this once per sample
- * at that rate. */
-int16_t bel_sample(void);
-
-void bel_add(const ria_bel_t *sound);
+/* Moves the deadlines by us microseconds, for a machine whose clock ran
+ * on while the bell's did not. */
+void bel_wake(uint64_t us);
 
 /* aud_sst_save writes this inside the AUD chunk; the bell has no row of
  * its own.
  *
- * 8 queued sounds of 12, a head and a tail, then the generator: 2 sample,
- * 1 adsr, 4 vol, 4 phase, 4+4 noise, 4 elapsed, 1 active. */
-#define BEL_SST_SIZE (8 * 12 + 2 + 24)
+ * 8 queued sounds of 12, a head and a tail, 1 active, then the restrike,
+ * release and end deadlines of 8. */
+#define BEL_SST_SIZE (8 * 12 + 2 + 1 + 3 * 8)
 void bel_sst_save(sst_cursor_t *c, unsigned flags);
 bool bel_sst_load(sst_cursor_t *c, unsigned flags);
 
-extern const ria_bel_t bel_teletype;
-extern const ria_bel_t bel_nfc_fail;
-extern const ria_bel_t bel_nfc_success_1;
-extern const ria_bel_t bel_nfc_success_2;
+extern const bel_sound_t bel_teletype;
+extern const bel_sound_t bel_nfc_fail;
+extern const bel_sound_t bel_nfc_success_1;
+extern const bel_sound_t bel_nfc_success_2;
 
 #endif /* _CORE_AUD_BEL_H_ */

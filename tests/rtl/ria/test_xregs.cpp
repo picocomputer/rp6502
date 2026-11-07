@@ -23,8 +23,7 @@ UTEST(xregs, the_program_reaches_the_devices)
     int strikes = 0;
     bool bel_gate_prev = false;
     ASSERT_TRUE(tb_boot_each(dut, rom, nullptr, [&] {
-        const bool bg =
-            (dut->rootp->wiring__DOT__psg__DOT__bel_hi >> 16) & 1;
+        const bool bg = dut->rootp->wiring__DOT__psg__DOT__ch_adsr[8] != 0;
         if (!bel_gate_prev && bg)
             strikes++;
         bel_gate_prev = bg;
@@ -34,12 +33,11 @@ UTEST(xregs, the_program_reaches_the_devices)
      * unmuted, so the bell strikes once. */
     ASSERT_EQ(strikes, 1);
 
-    /* The program points the PSG at 0x8000 and then the OPL at 0xF000.
-     * The firmware writes 0xFFFF to one engine's pointer whenever it sets
-     * the other's, so the PSG's xaddr reads 0xFFFF. */
-    ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0xFFFF);
+    /* The program points the PSG at 0x8000 and then the OPL at 0xF000,
+     * and the two sound together. */
+    ASSERT_EQ(dut->rootp->wiring__DOT__psg__DOT__xaddr, 0x8000);
     ASSERT_TRUE(dut->rootp->wiring__DOT__opl__DOT__enabled);
-    ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__page, 0xF0);
+    ASSERT_EQ(dut->rootp->wiring__DOT__opl__DOT__xaddr, 0xF000);
 
     /* The scanline program's arrays are indexed by line * 4 + plane. Mode 3
      * is set on plane 0 over the whole of canvas 1, which is 240 lines tall,

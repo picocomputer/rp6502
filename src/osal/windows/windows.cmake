@@ -36,13 +36,21 @@ function(rp6502_osal_windows target)
     target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0601)
     # SHGetKnownFolderPath and CoTaskMemFree in os.c.
     target_link_libraries(${target} PRIVATE shell32 ole32)
+    rp6502_msvc_dialect(${target})
+endfunction()
+
+# rp6502_msvc_dialect(<target>)
+#
+# What MSVC alone needs to compile the shared sources, including a <strings.h>
+# it has no system header for. Everything that links the osal gets it from
+# there; a unit test that compiles shared sources on its own takes it here.
+# MinGW needs none of it.
+function(rp6502_msvc_dialect target)
     if(NOT MSVC)
         return()
     endif()
-    # What MSVC alone needs to compile the shared sources, including a
-    # <strings.h> it has no system header for. Its own directory, because it
-    # goes on every consumer's include path and the host's own headers are not
-    # ours to publish. MinGW needs none of it.
+    # Its own directory, because it goes on every consumer's include path and
+    # the host's own headers are not ours to publish.
     target_include_directories(${target} PUBLIC ${RP6502_OSAL_WINDOWS}/msvc)
     # /Zc:preprocessor because core/sys/debug_log.h pastes a macro that expands
     # to two arguments, which the traditional preprocessor keeps as one.

@@ -20,6 +20,7 @@
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <pico/time.h>
 #include <stdio.h>
 #include <string.h>
@@ -124,7 +125,8 @@ void usb_task(void)
     }
 }
 
-int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("usb_status_response") usb_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     int count_gamepad = usb_count_hid_gamepad + xin_status_count();
@@ -240,7 +242,10 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     return ulen;
 }
 
-void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
+void HOST_IN_FLASH_FUNC("usb_desc_string_to_oem") usb_desc_string_to_oem(const void *desc_buf,
+                                                                         size_t desc_buf_size,
+                                                                         char *dest,
+                                                                         size_t dest_size)
 {
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
     if (ulen > USB_DESC_STRING_MAX_CHAR_LEN)

@@ -25,23 +25,8 @@ rp6502_test_table(vid_palette_tables GEN ${RP6502_SRC}/core/gen/vid_palette_gen.
     DEPENDS ${RP6502_SRC}/core/term/color.c
     COMMENT "Generating the palette tables the pixel tests read")
 
-set(AUD_SINE_H ${RP6502_TEST_TABLES}/aud_sine_tables.h)
-rp6502_test_table(aud_sine_tables GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
-    ARGS --emit-h ${AUD_SINE_H}
-    OUTPUTS ${AUD_SINE_H}
-    COMMENT "Generating the sine table the PSG shim reads")
-
-set(OPL2_LUT_H ${RP6502_TEST_TABLES}/opl2_lut_tables.h)
-rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
-    ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
-        --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv --emit-h ${OPL2_LUT_H}
-    OUTPUTS ${OPL2_LUT_H}
-    DEPENDS ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv ${OPL2_LUT_SRC}/opl2_exp_lut.sv
-    COMMENT "Generating the OPL2 LUT tables test_oplrom reads")
-
-list(PREPEND OPL2_SOURCES ${RP6502_BENCH}/opl2.vlt)
 list(PREPEND RP6502_MACHINE_SOURCES
-    ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/opl2.vlt)
+    ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/machine.vlt)
 
 function(rp6502_model out)
     cmake_parse_arguments(V "TRACE" "TOP;PREFIX" "RTL;ARGS;INCLUDE_DIRS;DEPENDS" ${ARGN})
@@ -85,7 +70,7 @@ function(rp6502_model out)
 endfunction()
 
 function(rp6502_add_module_test name)
-    cmake_parse_arguments(U "" "TOP;PREFIX;TIMEOUT"
+    cmake_parse_arguments(U "SPLIT" "TOP;PREFIX;TIMEOUT"
         "RTL;SOURCES;INCLUDES;DEFS;LIBS;DEPENDS;ARGS" ${ARGN})
     if(NOT U_SOURCES)
         set(U_SOURCES test_${name}.cpp)
@@ -99,6 +84,9 @@ function(rp6502_add_module_test name)
             list(APPEND _args ${kw} ${U_${kw}})
         endif()
     endforeach()
+    if(U_SPLIT)
+        list(APPEND _args SPLIT)
+    endif()
     rp6502_add_test(${name} ${_args})
     if(U_DEPENDS)
         add_dependencies(test_${name} ${U_DEPENDS})
@@ -162,6 +150,6 @@ function(rp6502_add_machine_test name)
         ${_trace}
         ARGS ${RP6502_RTL_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
+        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl_rom_pkg rsmp_coef_pkg)
     target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()

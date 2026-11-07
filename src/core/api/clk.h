@@ -18,6 +18,10 @@ void clk_run(void);
 
 uint32_t clk_get_run(uint32_t us_per_tick);
 
+/* Moves the program's start by a wake that held the 6502 for us, so
+ * clk_get_run leaves the wake out. */
+void clk_wake(uint64_t us);
+
 /* The struct tm exchanged with the 6502 libc: gmtime and localtime push it,
  * mktime and strftime receive it. Every field is an int16 in struct tm order,
  * so it needs no packing. */

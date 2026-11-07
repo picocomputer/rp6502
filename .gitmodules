@@ -32,9 +32,6 @@
 [submodule "vendor/openfpga"]
 	path = vendor/openfpga
 	url = https://github.com/open-fpga/core-template.git
-[submodule "vendor/opl2_fpga"]
-	path = vendor/opl2_fpga
-	url = https://github.com/gtaylormb/opl2_fpga
 [submodule "vendor/65x02"]
 	path = vendor/65x02
 	url = https://github.com/SingleStepTests/65x02
@@ -46,3 +43,6 @@
 [submodule "vendor/libretro-common"]
 	path = vendor/libretro-common
 	url = https://github.com/libretro/libretro-common.git
+[submodule "vendor/YM3812-LLE"]
+	path = vendor/YM3812-LLE
+	url = https://github.com/nukeykt/YM3812-LLE.git

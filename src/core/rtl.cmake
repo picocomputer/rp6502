@@ -3,26 +3,8 @@ include_guard(GLOBAL)
 include(${RP6502_ROOT}/submodules.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
-set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
-set(OPL2_SOURCES
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
-    ${OPL2_LUT_PKG}
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_lut_rom.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/phase_generator.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_single_bank.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_simple_dual_port.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/afifo.v)
-foreach(dir top_level channels operator timers host_if misc clks)
-    file(GLOB _opl_dir_src ${OPL2_DIR}/${dir}/src/*.sv ${OPL2_DIR}/${dir}/src/*.v)
-    list(FILTER _opl_dir_src EXCLUDE REGEX
-        "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection|phase_generator|opl2_log_sine_lut|opl2_exp_lut)\\.sv$|/afifo\\.v$")
-    list(APPEND OPL2_SOURCES ${_opl_dir_src})
-endforeach()
-
 set(RP6502_RTL_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
-    ${OPL2_SOURCES}
     ${W65C02_ROM}
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
     ${RP6502_SRC}/core/vga/canvas_pkg.sv
@@ -39,9 +21,10 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/timing.sv
     ${AUD_SINE_PKG}
     ${RP6502_SRC}/core/aud/psg.sv
+    ${OPL_ROM_PKG}
     ${RP6502_SRC}/core/aud/opl.sv
     ${RSMP_COEF_PKG}
-    ${RP6502_SRC}/core/aud/rsmp.sv
+    ${RP6502_SRC}/core/aud/pcm.sv
     ${VID_PALETTE_PKG}
     ${RP6502_SRC}/core/vga/scan/font.sv
     ${RP6502_SRC}/core/vga/scan/palram.sv

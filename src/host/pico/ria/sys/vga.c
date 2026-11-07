@@ -16,6 +16,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/timer.h>
@@ -212,7 +213,7 @@ static void vga_rln_callback(bool timeout)
         vga_state = VGA_NOT_FOUND;
 }
 
-static void vga_connect(void)
+static void HOST_IN_FLASH_FUNC("vga_connect") vga_connect(void)
 {
     vga_backchannel_irq_disable();
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
@@ -301,7 +302,7 @@ void __in_flash("vga_init") vga_init(void)
 
     // Set up PIO IRQ for backchannel RX, source stays disabled until connect
     irq_set_exclusive_handler(PIO1_IRQ_0, vga_backchannel_irq_handler);
-    irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
     irq_set_enabled(PIO1_IRQ_0, true);
 
     vga_vsync_trap_offset = pio_add_program(VGA_VSYNC_TRAP_PIO, &vga_vsync_trap_program);
@@ -311,7 +312,7 @@ void __in_flash("vga_init") vga_init(void)
     pio_sm_set_enabled(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, true);
     pio_set_irq0_source_enabled(VGA_VSYNC_TRAP_PIO, pis_interrupt0, true);
     irq_set_exclusive_handler(VGA_VSYNC_TRAP_IRQ, vga_vsync_trap_irq_handler);
-    irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
     vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
     hardware_alarm_set_callback((uint)vga_vsync_alarm, vga_vsync_alarm_handler);
@@ -319,7 +320,7 @@ void __in_flash("vga_init") vga_init(void)
     // so none of the three handlers can preempt another in the middle of arming
     // or disarming the trap.
     irq_set_priority(hardware_alarm_get_irq_num((uint)vga_vsync_alarm),
-                     PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+                     PICO_DEFAULT_IRQ_PRIORITY - 0x20);
 
     // Re-send in case the first disable was lost
     vga_pix_backchannel_disable();
@@ -403,14 +404,16 @@ bool vga_connected(void)
            vga_state == VGA_NO_VERSION;
 }
 
-int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("vga_boot_response") vga_boot_response(char *buf, size_t buf_size, int state,
+                                                              unsigned width)
 {
     if (!vga_connected())
         return -1;
     return vga_status_response(buf, buf_size, state, width);
 }
 
-int vga_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("vga_status_response") vga_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     const char *msg = STR_VGA_SEARCHING;
@@ -448,7 +451,10 @@ void vga_apply_display_type(uint8_t display_type, bool changed)
         vga_needs_reset = true;
 }
 
-int vga_display_type_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("vga_display_type_response") vga_display_type_response(char *buf,
+                                                                              size_t buf_size,
+                                                                              int state,
+                                                                              unsigned width)
 {
     (void)state;
     (void)width;
