@@ -31,6 +31,7 @@ typedef struct
     uint8_t bs_char;
     uint8_t s_pointer;
     uint8_t net_mode;
+    uint8_t caller_id;
     uint16_t listen_port;
     char tty_type[41];
 } modem_settings_t;
@@ -76,8 +77,6 @@ bool modem_connect(void);
 bool modem_hangup(void);
 bool modem_answer(void);
 uint8_t modem_get_ring_count(void);
-// The far (local=false) or near end of the last call that rang or was dialed.
-bool modem_peer_str(bool local, char *buf, size_t size);
 bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);

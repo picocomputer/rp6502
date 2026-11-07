@@ -705,12 +705,7 @@ bool telnet_has_pending(uint16_t port)
     return net_has_pending(port);
 }
 
-bool telnet_peer(int desc, net_endpoint_t *remote, net_endpoint_t *local)
+bool telnet_pending_peer(uint16_t port, ip_addr_t *remote)
 {
-    return net_peer(desc, remote, local);
-}
-
-bool telnet_pending_peer(uint16_t port, net_endpoint_t *remote, net_endpoint_t *local)
-{
-    return net_pending_peer(port, remote, local);
+    return net_pending_peer(port, remote);
 }

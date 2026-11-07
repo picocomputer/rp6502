@@ -9,6 +9,7 @@
 
 #define WIFI_SSID_SIZE 33
 #define WIFI_PASS_SIZE 65
+#define WIFI_IPV4_STR_SIZE 16
 
 /* Wi-Fi driver.
  */
@@ -31,6 +32,8 @@ int wifi_status_response(char *buf, size_t buf_size, int state, unsigned width);
 void wifi_shutdown(void);
 bool wifi_ready(void);
 bool wifi_connecting(void);
+// False until the station has an address.
+bool wifi_ipv4_str(char *buf, size_t size);
 
 // Configuration setting SSID
 void wifi_apply_ssid(const char *ssid, bool changed);

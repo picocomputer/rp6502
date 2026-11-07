@@ -12,7 +12,6 @@
 #include <lwip/tcp.h>
 #include <lwip/priv/tcp_priv.h>
 #include <lwip/dns.h>
-#include <stdio.h>
 #include <string.h>
 
 // Keepalive detects a peer that disappeared without closing, such as after a
@@ -577,39 +576,11 @@ bool net_has_pending(uint16_t port)
     return nl && nl->pending_pcb != NULL;
 }
 
-static void net_pcb_endpoints(const struct tcp_pcb *pcb,
-                              net_endpoint_t *remote, net_endpoint_t *local)
-{
-    ip_addr_copy(remote->ip, pcb->remote_ip);
-    remote->port = pcb->remote_port;
-    ip_addr_copy(local->ip, pcb->local_ip);
-    local->port = pcb->local_port;
-}
-
-bool net_peer(int desc, net_endpoint_t *remote, net_endpoint_t *local)
-{
-    net_conn_t *nc = &net_conns[desc];
-    if (!nc->pcb || (nc->state != net_state_connected && nc->state != net_state_closing))
-        return false;
-    net_pcb_endpoints(nc->pcb, remote, local);
-    return true;
-}
-
-bool net_pending_peer(uint16_t port, net_endpoint_t *remote, net_endpoint_t *local)
+bool net_pending_peer(uint16_t port, ip_addr_t *remote)
 {
     net_listener_t *nl = net_find_listener(port);
     if (!nl || !nl->pending_pcb)
         return false;
-    net_pcb_endpoints(nl->pending_pcb, remote, local);
+    ip_addr_copy(*remote, nl->pending_pcb->remote_ip);
     return true;
-}
-
-void net_endpoint_str(const net_endpoint_t *ep, char *buf, size_t size)
-{
-    char ip[IPADDR_STRLEN_MAX];
-    ipaddr_ntoa_r(&ep->ip, ip, sizeof(ip));
-    if (IP_IS_V6(&ep->ip))
-        snprintf(buf, size, "[%s]:%u", ip, ep->port);
-    else
-        snprintf(buf, size, "%s:%u", ip, ep->port);
 }

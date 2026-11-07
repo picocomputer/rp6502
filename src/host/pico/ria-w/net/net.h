@@ -28,12 +28,6 @@
 
 typedef bool (*net_accept_fn)(uint16_t port);
 
-typedef struct
-{
-    ip_addr_t ip;
-    uint16_t port;
-} net_endpoint_t;
-
 uint16_t net_rx(int desc, char *buf, uint16_t len);
 uint16_t net_tx(int desc, const char *buf, uint16_t len);
 bool net_tx_all(int desc, const char *buf, uint16_t len);
@@ -46,9 +40,6 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int));
 void net_reject(uint16_t port);
 bool net_has_pending(uint16_t port);
 bool net_is_closed(int desc);
-bool net_peer(int desc, net_endpoint_t *remote, net_endpoint_t *local);
-bool net_pending_peer(uint16_t port, net_endpoint_t *remote, net_endpoint_t *local);
-// Writes "a.b.c.d:port", or "[v6]:port" for IPv6.
-void net_endpoint_str(const net_endpoint_t *ep, char *buf, size_t size);
+bool net_pending_peer(uint16_t port, ip_addr_t *remote);
 
 #endif /* _RIA_W_NET_NET_H_ */

@@ -13,6 +13,7 @@
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/wifi.h"
+#include "core/api/tim.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "osal/pico/lfs.h"
@@ -69,11 +70,9 @@ typedef struct
     absolute_time_t ring_timer;
     uint16_t active_listen_port;
     bool is_answering;
-    // Endpoints of the last call that rang or was dialed, for +PEER and +SELF.
-    // net drops the pcb on hangup, so they are copied while the call is up.
-    bool has_peer;
-    net_endpoint_t peer;
-    net_endpoint_t self;
+    // Caller ID for +VCID, copied at the first RING.
+    bool has_caller;
+    ip_addr_t caller;
 } modem_conn_t;
 
 static modem_conn_t modem_conns[NET_MODEM_DESCS];
@@ -263,6 +262,38 @@ static int modem_response_code(char *buf, size_t buf_size, int code, unsigned wi
     return -1;
 }
 
+// RING, then the caller ID block after the first one when +VCID=1.
+static int modem_ring_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    struct timespec ts;
+    struct tm tm;
+    switch (state)
+    {
+    case 0:
+        modem_response_code(buf, buf_size, 2, width);
+        if (modem_conn->ring_count == 1 && modem_conn->settings.caller_id &&
+            modem_conn->has_caller && modem_conn->settings.quiet != 1)
+            return 1;
+        return -1;
+    case 1:
+    case 2:
+        if (!tim_get_time(&ts) || !tim_localtime(ts.tv_sec, &tm))
+            memset(&tm, 0, sizeof(tm));
+        if (state == 1)
+            snprintf(buf, buf_size, "\r\nDATE = %02d%02d\r\n", tm.tm_mon + 1, tm.tm_mday);
+        else
+            snprintf(buf, buf_size, "TIME = %02d%02d\r\n", tm.tm_hour, tm.tm_min);
+        return state + 1;
+    case 3:
+    {
+        char ip[IPADDR_STRLEN_MAX];
+        ipaddr_ntoa_r(&modem_conn->caller, ip, sizeof(ip));
+        snprintf(buf, buf_size, "NMBR = %s\r\n", ip);
+    }
+    }
+    return -1;
+}
+
 void modem_factory_settings(modem_settings_t *settings)
 {
     settings->s_pointer = 0;
@@ -276,6 +307,7 @@ void modem_factory_settings(modem_settings_t *settings)
     settings->lf_char = '\n';  // S4=10
     settings->bs_char = '\b';  // S5=8
     settings->net_mode = 1;    // \N1
+    settings->caller_id = 0;   // +VCID=0
     settings->listen_port = 0; // \L0
     strcpy(settings->tty_type, "ANSI");
 }
@@ -387,6 +419,7 @@ bool modem_write_settings(const modem_settings_t *settings)
                                "S5=%u\n"
                                "N=%u\n"
                                "L=%u\n"
+                               "C=%u\n"
                                "T=%s\n"
                                "",
                                settings->echo,
@@ -400,6 +433,7 @@ bool modem_write_settings(const modem_settings_t *settings)
                                settings->bs_char,
                                settings->net_mode,
                                settings->listen_port,
+                               settings->caller_id,
                                settings->tty_type);
         if (lfsresult < 0)
             RP6502_LOG(modem, ERROR, "Unable to write %s contents (%d)", settings_file, lfsresult);
@@ -495,6 +529,10 @@ bool modem_read_settings(modem_settings_t *settings)
             if (str[0] == '=')
                 settings->net_mode = atoi(str + 1);
             break;
+        case 'C':
+            if (str[0] == '=')
+                settings->caller_id = atoi(str + 1);
+            break;
         case 'T':
             if (str[0] == '=')
             {
@@ -542,7 +580,7 @@ bool modem_dial(const char *s)
     }
     modem_conn->parse_active = false;
     modem_conn->is_answering = false;
-    modem_conn->has_peer = false;
+    modem_conn->has_caller = false;
     strcpy(modem_conn->cmd_buf, buf);
     modem_conn->dial_port = port;
     modem_conn->state = modem_state_wait;
@@ -565,8 +603,6 @@ bool modem_connect(void)
             modem_set_response_fn_state(modem_response_code, 1); // CONNECT
         modem_conn->state = modem_state_connected;
         modem_conn->in_command_mode = false;
-        modem_conn->has_peer = telnet_peer(modem_desc(), &modem_conn->peer,
-                                           &modem_conn->self);
         telnet_negotiate(modem_desc(), modem_conn->settings.net_mode != 0,
                       modem_conn->settings.tty_type);
         return true;
@@ -633,14 +669,6 @@ uint8_t modem_get_ring_count(void)
     return modem_conn->ring_count;
 }
 
-bool modem_peer_str(bool local, char *buf, size_t size)
-{
-    if (!modem_conn->has_peer)
-        return false;
-    net_endpoint_str(local ? &modem_conn->self : &modem_conn->peer, buf, size);
-    return true;
-}
-
 static void modem_ring(void)
 {
     if (modem_conn->state != modem_state_on_hook)
@@ -649,8 +677,8 @@ static void modem_ring(void)
     modem_conn->ring_count = 0;
     modem_conn->ring_timer = get_absolute_time();
     modem_conn->is_answering = false;
-    modem_conn->has_peer = telnet_pending_peer(modem_conn->settings.listen_port,
-                                               &modem_conn->peer, &modem_conn->self);
+    modem_conn->has_caller = telnet_pending_peer(modem_conn->settings.listen_port,
+                                                 &modem_conn->caller);
 }
 
 static void modem_net_on_close(int desc)
@@ -793,7 +821,7 @@ void modem_task()
                      !modem_resp_busy())
             {
                 modem_conn->ring_count++;
-                modem_set_response_fn_state(modem_response_code, 2); // RING
+                modem_set_response_fn(modem_ring_response);
                 modem_conn->ring_timer = make_timeout_time_ms(6000);
                 if (modem_conn->settings.auto_answer > 0 &&
                     modem_conn->ring_count >= modem_conn->settings.auto_answer)
@@ -860,7 +888,7 @@ static void modem_conn_stop(modem_conn_t *conn)
     conn->escape_count = 0;
     conn->ring_count = 0;
     conn->is_answering = false;
-    conn->has_peer = false;
+    conn->has_caller = false;
 }
 
 void modem_stop(void)
