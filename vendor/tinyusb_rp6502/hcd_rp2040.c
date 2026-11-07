@@ -52,6 +52,10 @@ static uint32_t int_due_us[USB_MAX_ENDPOINTS];
 // After a STOP_TRANS, EPX starts nothing until the next SOF
 static bool epx_hold;
 
+// The transfer EPX was stopped on: a transaction on the wire may still complete, so the toggles of its unsent
+// buffers are given back at the SOF that ends the hold
+static hw_endpoint_t *epx_stopped;
+
 // The controller repeats a timed out transaction until stopped; the third timeout fails the transfer
 static uint8_t epx_timeouts;
 
@@ -183,14 +187,15 @@ static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bo
   usb_hw->sie_ctrl = sie_ctrl | USB_SIE_CTRL_START_TRANS_BITS;
 }
 
-// Undo PID toggle and buffer accounting for buffers NOT completed on the wire.
+// Undo the PID toggle of buffers NOT completed on the wire and return their length.
 // A buffer completed on wire means: controller reached STATUS phase (ACK received).
 //   OUT completed: FULL cleared to 0 in STATUS phase (was 1 when armed)
 //   IN  completed: FULL set to 1 in STATUS phase (was 0 when armed)
 // So undo when: AVAIL=1 (never started), or (OUT: FULL=1) or (IN: FULL=0)
-static void __tusb_irq_path_func(epx_undo_unsent)(hw_endpoint_t *ep) {
+static uint16_t __tusb_irq_path_func(epx_undo_unsent)(hw_endpoint_t *ep) {
   uint32_t   buf_ctrl = usbh_dpram->epx_buf_ctrl;
   const bool is_out   = (tu_edpt_dir(ep->ep_addr) == TUSB_DIR_OUT);
+  uint16_t   len      = 0;
 
   do {
     const uint16_t bc16 = (uint16_t)buf_ctrl;
@@ -198,12 +203,8 @@ static void __tusb_irq_path_func(epx_undo_unsent)(hw_endpoint_t *ep) {
       const bool avail = (bc16 & USB_BUF_CTRL_AVAIL);
       const bool full  = (bc16 & USB_BUF_CTRL_FULL);
       if (avail || (is_out ? full : !full)) {
-        const uint16_t buf_len = bc16 & USB_BUF_CTRL_LEN_MASK;
-        ep->remaining_len += buf_len;
+        len += bc16 & USB_BUF_CTRL_LEN_MASK;
         ep->next_pid ^= 1u;
-        if (is_out) {
-          ep->user_buf -= buf_len;
-        }
       }
     }
 
@@ -213,11 +214,17 @@ static void __tusb_irq_path_func(epx_undo_unsent)(hw_endpoint_t *ep) {
       buf_ctrl = 0;
     }
   } while (buf_ctrl > 0);
+
+  return len;
 }
 
 // Save buffer context for EPX preemption (called after the SIE stopped)
 static void __tusb_irq_path_func(epx_save_context)(hw_endpoint_t *ep) {
-  epx_undo_unsent(ep);
+  const uint16_t len = epx_undo_unsent(ep);
+  ep->remaining_len += len;
+  if (tu_edpt_dir(ep->ep_addr) == TUSB_DIR_OUT) {
+    ep->user_buf -= len;
+  }
   usbh_dpram->epx_buf_ctrl = 0;
   ep->state                = EPSTATE_PENDING;
 }
@@ -285,18 +292,18 @@ static void __tusb_irq_path_func(epx_drop_buffers)(void) {
   }
 }
 
+// Stop the SIE on epx; its buffers are settled at the next SOF
+static void __tusb_irq_path_func(epx_stop)(void) {
+  sie_stop_xfer();
+  epx_stopped = epx;
+  epx_hold_until_sof();
+}
+
 // Cancel ep's transfer without completing it; if it owns EPX, stop the SIE and drop status latched for it so the
 // ISR cannot apply it to the next transfer. Caller holds the critical section and starts the next pending ep.
 static void epx_retire(hw_endpoint_t *ep) {
   if (ep == epx && ep->state == EPSTATE_ACTIVE) {
-    const bool is_setup = (usb_hw->sie_ctrl & USB_SIE_CTRL_SEND_SETUP_BITS) != 0;
-    sie_stop_xfer();
-    if (!is_setup) {
-      epx_undo_unsent(ep); // a SETUP has no buffers
-    }
-    epx_drop_buffers();
-    epx_hold_until_sof();
-
+    epx_stop();
     usb_hw_clear->sie_status =
       USB_SIE_STATUS_RX_TIMEOUT_BITS | USB_SIE_STATUS_TRANS_COMPLETE_BITS | USB_SIE_STATUS_STALL_REC_BITS;
     usb_hw_clear->nak_poll = USB_NAK_POLL_EPX_STOPPED_ON_NAK_BITS;
@@ -318,10 +325,6 @@ static void __tusb_irq_path_func(epx_start_next_pending)(void) {
 // Interrupt handlers
 //--------------------------------------------------------------------+
 static void __tusb_irq_path_func(xfer_complete_isr)(hw_endpoint_t *ep, xfer_result_t xfer_result) {
-  if (xfer_result != XFER_RESULT_SUCCESS) {
-    epx_undo_unsent(ep);
-    epx_drop_buffers();
-  }
   if (ep->transfer_type == TUSB_XFER_INTERRUPT) {
     int_edpt_schedule(ep);
   }
@@ -338,7 +341,10 @@ static void __tusb_irq_path_func(handle_buf_status_isr)(void) {
   while (usb_hw->buf_status & 1u) {
     const uint8_t buf_id     = (usb_hw->buf_cpu_should_handle & 1u) ? 1 : 0;
     usb_hw_clear->buf_status = 1u; // clear
-    epx_timeouts             = 0;
+    if (epx->state != EPSTATE_ACTIVE) {
+      continue; // completed after STOP_TRANS: settled at SOF
+    }
+    epx_timeouts = 0;
 
     if (rp2usb_xfer_continue(epx, &usbh_dpram->epx_ctrl, &usbh_dpram->epx_buf_ctrl, buf_id,
                              tu_edpt_dir(epx->ep_addr) == TUSB_DIR_IN)) {
@@ -351,6 +357,11 @@ static void __tusb_irq_path_func(handle_buf_status_isr)(void) {
 static void __tusb_irq_path_func(sof_service)(void) {
   (void)usb_hw->sof_rd; // acknowledges HOST_SOF
   epx_hold = false;
+  if (epx_stopped != NULL) {
+    epx_undo_unsent(epx_stopped);
+    epx_drop_buffers();
+    epx_stopped = NULL;
+  }
 
   uint16_t pending = 0;
   bool     waiting = false;
@@ -417,13 +428,17 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     }
   }
 
-  const uint32_t err = usb_hw->sie_status & (USB_SIE_STATUS_STALL_REC_BITS | USB_SIE_STATUS_RX_TIMEOUT_BITS);
-  if (err) {
+  // a NAK between RX timeouts makes them not consecutive
+  const uint32_t err = usb_hw->sie_status & (USB_SIE_STATUS_STALL_REC_BITS | USB_SIE_STATUS_RX_TIMEOUT_BITS |
+                                             USB_SIE_STATUS_NAK_REC_BITS);
+  if (err & USB_SIE_STATUS_NAK_REC_BITS) {
+    epx_timeouts = 0;
+  }
+  if (err & (USB_SIE_STATUS_STALL_REC_BITS | USB_SIE_STATUS_RX_TIMEOUT_BITS)) {
     usb_hw_clear->sie_status = err;
     if (epx->state == EPSTATE_ACTIVE && ((err & USB_SIE_STATUS_STALL_REC_BITS) || ++epx_timeouts >= 3)) {
-      sie_stop_xfer();
+      epx_stop();
       xfer_complete_isr(epx, (err & USB_SIE_STATUS_STALL_REC_BITS) ? XFER_RESULT_STALLED : XFER_RESULT_FAILED);
-      epx_hold_until_sof();
     }
   }
 
@@ -575,6 +590,16 @@ tusb_speed_t hcd_port_speed_get(uint8_t rhport) {
   }
 }
 
+// Cancel ep's transfer and free its slot, which a new endpoint may take before the next SOF
+static void edpt_release(hw_endpoint_t *ep) {
+  epx_retire(ep);
+  if (epx_stopped == ep) {
+    epx_stopped = NULL;
+    epx_drop_buffers();
+  }
+  ep->max_packet_size = 0; // mark as unused
+}
+
 // Close all opened endpoint belong to this device
 void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   (void)rhport;
@@ -588,8 +613,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   for (size_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
     hw_endpoint_t *ep = &ep_pool[i];
     if (ep->dev_addr == dev_addr && ep->max_packet_size > 0) {
-      epx_retire(ep);
-      ep->max_packet_size = 0; // mark as unused
+      edpt_release(ep);
     }
   }
   epx_start_next_pending();
@@ -649,8 +673,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   TU_VERIFY(ep != NULL);
 
   rp2usb_critical_enter();
-  epx_retire(ep);
-  ep->max_packet_size = 0; // mark as unused
+  edpt_release(ep);
   epx_start_next_pending();
   rp2usb_critical_exit();
 
