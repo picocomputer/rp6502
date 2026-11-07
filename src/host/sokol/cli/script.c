@@ -111,6 +111,8 @@ static bool script_marked;
 
 /* The file `wav` is writing, NULL when it is not. */
 static FILE *script_wav;
+/* Sample frames written to script_wav. */
+static uint32_t script_wav_frames;
 
 static struct
 {
@@ -789,18 +791,23 @@ static void script_put_le(uint32_t v, int bytes)
         fputc((int)(v >> (8 * i)) & 0xFF, script_wav);
 }
 
-/* The frame of sound the frame just run made, taken after every frame the
- * script runs. With --mute it is silence. */
+/* The sound the frame just run made, taken after every frame the script
+ * runs: SCRIPT_AUD_FRAMES sample frames, one more or one fewer where the
+ * rates fall that way. The window holds two frames, so none is dropped.
+ * With --mute it is SCRIPT_AUD_FRAMES of silence. */
 void script_listen(void)
 {
-    float out[SCRIPT_AUD_FRAMES * 2];
-    aud_render(out, SCRIPT_AUD_FRAMES);
+    float out[SCRIPT_AUD_FRAMES * 2 * 2];
+    int n = aud_render(out, SCRIPT_AUD_FRAMES * 2);
     if (!script_wav)
         return;
+    if (!n)
+        n = SCRIPT_AUD_FRAMES;
     /* aud_render divides a 16-bit sample by 32768, so this gives it back
      * exactly. */
-    for (int i = 0; i < SCRIPT_AUD_FRAMES * 2; i++)
+    for (int i = 0; i < n * 2; i++)
         script_put_le((uint16_t)(int16_t)(out[i] * 32768.0f), 2);
+    script_wav_frames += (uint32_t)n;
 }
 
 static void script_gamepad_publish(int player)
@@ -1636,6 +1643,7 @@ static bool script_command(const char *line)
         script_put_le(16, 2);
         fwrite("data", 1, 4, script_wav);
         script_put_le(data, 4);
+        script_wav_frames = 0;
         script_wait = SCRIPT_WAV;
         script_budget = (unsigned long)frames;
         return true;
@@ -1850,6 +1858,12 @@ static bool script_settle(void)
     {
         if (script_spend())
             return false;
+        /* The sizes the header guessed at the open, made exact. */
+        const uint32_t data = script_wav_frames * 4;
+        fseek(script_wav, 4, SEEK_SET);
+        script_put_le(36 + data, 4);
+        fseek(script_wav, 40, SEEK_SET);
+        script_put_le(data, 4);
         FILE *f = script_wav;
         script_wav = NULL;
         if (ferror(f) | fclose(f))
