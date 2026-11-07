@@ -465,7 +465,7 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_AUD + 0x500 + i, 0x40u + i);
         stage_word(B_AUD + 0x640 + i, i == 7 ? 0u : 0x60u + i);
     }
-    stage_word(B_AUD + 0x780, 1u << 24 | 0x12u);
+    stage_word(B_AUD + 0x780, 1u << 26 | 0x12u);
     stage_seal();
 
     auto *r = dut->rootp;
@@ -564,7 +564,7 @@ UTEST(sst, a_load_puts_the_blob_back)
         ASSERT_EQ(i == 7 ? 0u : 0x60u + i, w);
     }
     ASSERT_TRUE(blob_word(B_AUD + 0x780, &w));
-    ASSERT_EQ(1u << 24 | 0x12u, w & 0x01FFFFFFu);
+    ASSERT_EQ(1u << 26 | 0x12u, w & 0x07FFFFFFu);
 }
 
 /* A dpc of 0x14 puts the soft CPU in front of `sw x5, 0(x6)` with x5 and

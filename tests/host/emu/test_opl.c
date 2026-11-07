@@ -240,9 +240,6 @@ static const char *lle_dense(uint32_t seed, uint32_t samples, unsigned flags)
 
 /* ---------------- the harness ---------------- */
 
-/* The test-register preamble leaves the die in one state however long IC
- * was held, and so whatever its counters were. A random script applies each
- * write as it is pushed, so it is its own schedule. */
 /* A stopped program's writes go with it. */
 UTEST(opl, a_park_drops_the_writes_still_queued)
 {
@@ -254,6 +251,9 @@ UTEST(opl, a_park_drops_the_writes_still_queued)
     ASSERT_EQ(RING_LEN(&opl_queue.ring), 0u);
 }
 
+/* The test-register preamble leaves the die in one state however long IC
+ * was held, and so whatever its counters were. A random script applies each
+ * write as it is pushed, so it is its own schedule. */
 UTEST(opl, lle_preamble_hides_power_on)
 {
     opl_script_t s = {0};
