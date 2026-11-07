@@ -282,8 +282,15 @@
                 "monitor reset init",
                 "load \"${command:cmake.launchTargetPath}\""
             ],
+            // A fixed flash size skips the probe that runs ROM code at connect
+            // and leaves CPACR with only the RCP enabled.
+            "openOCDPreConfigLaunchCommands": [
+                "set FLASHSIZE 0x400000"
+            ],
             "openOCDLaunchCommands": [
-                "adapter speed 5000"
+                "adapter speed 5000",
+                // On stop, resume both cores and clear DHCSR.C_DEBUGEN.
+                "rp2350.cm0 configure -event gdb-detach { resume; poll off; rp2350.cm0 write_memory 0xE000EDF0 32 0xA05F0000; rp2350.cm1 write_memory 0xE000EDF0 32 0xA05F0000; shutdown }"
             ]
         },
         {
@@ -313,7 +320,8 @@
             "miDebuggerPath": "${command:raspberry-pi-pico.getGDBPath}",
             "miDebuggerServerAddress": "localhost:3333",
             "debugServerPath": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
-            "debugServerArgs": "-f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -c \"adapter speed 5000\"",
+            // Same flash size and stop handling as Pico Debug (Cortex-Debug).
+            "debugServerArgs": "-c \"set FLASHSIZE 0x400000\" -f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -c \"adapter speed 5000\" -c \"rp2350.cm0 configure -event gdb-detach { resume; poll off; rp2350.cm0 write_memory 0xE000EDF0 32 0xA05F0000; rp2350.cm1 write_memory 0xE000EDF0 32 0xA05F0000; shutdown }\"",
             "serverStarted": "Listening on port .* for gdb connections",
             "filterStderr": true,
             "hardwareBreakpoints": {
