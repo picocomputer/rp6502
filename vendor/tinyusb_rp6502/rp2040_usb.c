@@ -1,26 +1,8 @@
 /*
- * The MIT License (MIT)
- *
- * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
- * Copyright (c) 2021 Ha Thach (tinyusb.org) for Double Buffered
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * SPDX-FileCopyrightText: Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-FileCopyrightText: Copyright (c) 2021 Ha Thach (tinyusb.org) for Double Buffered
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Rumbledethumps
+ * SPDX-License-Identifier: MIT
  *
  * This file is part of the TinyUSB stack.
  */
@@ -104,6 +86,10 @@ void rp2usb_init(void) {
   critical_section_init(&rp2usb_lock);
 }
 
+void rp2usb_deinit(void) {
+  critical_section_deinit(&rp2usb_lock);
+}
+
 void __tusb_irq_path_func(rp2usb_reset_transfer)(hw_endpoint_t *ep) {
   ep->state         = EPSTATE_IDLE;
   ep->remaining_len = 0;
@@ -123,12 +109,10 @@ void __tusb_irq_path_func(bufctrl_write32)(io_rw_32 *buf_reg, uint32_t value) {
   *buf_reg = value & ~(USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << 16)); // write other bits first
 
   // Section 4.1.2.7.1 (rp2040) / 12.7.3.7.1 (rp2350) Concurrent access: after write to buffer control,
-  // wait for USB controller to see the update before setting AVAILABLE.
-  // Don't need delay in host mode as host is in charge of when to start the transaction.
+  // wait for USB controller to see the update before setting AVAILABLE. The host polls interrupt endpoints
+  // and the second EPX buffer by itself.
   if (value & (USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << 16))) {
-    if (!rp2usb_is_host_mode()) {
-      busy_wait_at_least_cycles(24);
-    }
+    busy_wait_at_least_cycles(12);
     *buf_reg = value; // then set AVAILABLE bit last
   }
 }
@@ -142,9 +126,7 @@ void __tusb_irq_path_func(bufctrl_write16)(io_rw_16 *buf_reg16, uint16_t value) 
 
   // Section 4.1.2.7.1 (rp2040) / 12.7.3.7.1 (rp2350) Concurrent access
   if (value & USB_BUF_CTRL_AVAIL) {
-    if (!rp2usb_is_host_mode()) {
-      busy_wait_at_least_cycles(24);
-    }
+    busy_wait_at_least_cycles(12);
     *buf_reg16 = value; // then set AVAILABLE bit last
   }
 }
@@ -195,10 +177,17 @@ void __tusb_irq_path_func(rp2usb_buffer_start)(hw_endpoint_t *ep, io_rw_32 *ep_r
   // Note: device EP0 does not have an endpoint control register
   if (ep_reg != NULL) {
     uint32_t ep_ctrl = *ep_reg;
+    // Isochronous endpoints get a single DPRAM buffer (hw_endpoint_open only double-sizes BULK), so
+    // they must never be double-buffered here even when a transfer spans multiple packets, or buffer
+    // 1 (at dpram_buf+64) would spill into the next endpoint's DPRAM. (Never true for BULK, so the
+    // double-buffered bulk path is unaffected.)
+    const bool is_iso = (((ep_ctrl >> EP_CTRL_BUFFER_TYPE_LSB) & 0x3u) == TUSB_XFER_ISOCHRONOUS);
   #if CFG_TUH_ENABLED
-    const bool force_single = (rp2usb_is_host_mode() && ep->interrupt_num > 0);
+    // Host EP0 stays single buffered: double-buffered control IN truncates (TinyUSB #3875)
+    const bool force_single = is_iso || (rp2usb_is_host_mode() &&
+                                         (ep->interrupt_num > 0 || ep->transfer_type == TUSB_XFER_CONTROL));
   #else
-    const bool force_single = false;
+    const bool force_single = is_iso;
   #endif
 
     if (ep->remaining_len && !force_single) {
@@ -363,7 +352,7 @@ bool __tusb_irq_path_func(rp2usb_xfer_continue)(hw_endpoint_t *ep, io_rw_32 *ep_
   // Note: Host mode current does not save next transfer data due to shared epx --> potential issue. However, RP2040-E4
   // causes more or less of the same issue since it write to buf1 and next time it continues to transfer on buf0 (stale)
   if (is_short && is_double && is_rx && !is_last) {
-    const uint32_t abort_bit = TU_BIT(tu_edpt_number(ep->ep_addr) << 1); // abort is device only -> IN endpoint
+    const uint32_t abort_bit = rp2usb_ep_bit(ep->ep_addr); // EP_ABORT is device only, the host stops the transaction
 
     if (is_host) {
       // host stop current transfer, not safe, can be racing
