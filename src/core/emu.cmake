@@ -68,7 +68,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/std.c
     ${RP6502_SRC}/core/aud/sine.c
     ${RP6502_SRC}/core/aud/bel.c
-    ${RP6502_SRC}/core/aud/bel_presets.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
     ${RP6502_SRC}/core/str/rln.c
