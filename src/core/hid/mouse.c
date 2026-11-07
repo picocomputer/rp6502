@@ -63,7 +63,7 @@ bool mouse_xreg(uint16_t word)
     return mapped || word == 0xFFFF;
 }
 
-bool HOST_IN_FLASH("mouse_mount") mouse_mount(int slot, const mouse_connection_t *desc)
+bool mouse_mount(int slot, const mouse_connection_t *desc)
 {
     if (!desc->valid)
         return false;

@@ -23,6 +23,7 @@
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
+#include "machine.h"
 
 /* Configuration is a plain ASCII file on the LFS. e.g. */
 // +V1         | Version - Must be first
@@ -135,7 +136,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         lfs_remove(&lfs_volume, STR_CFG_FILENAME);
 }
 
-static void cfg_load_with_boot_opt(bool boot_only)
+static void HOST_IN_FLASH_FUNC("cfg_load_with_boot_opt") cfg_load_with_boot_opt(bool boot_only)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
@@ -178,12 +179,12 @@ void cfg_file_save(void)
     cfg_save_with_boot_opt(NULL);
 }
 
-void cfg_save_boot(const char *str)
+void HOST_IN_FLASH_FUNC("cfg_save_boot") cfg_save_boot(const char *str)
 {
     cfg_save_with_boot_opt(str);
 }
 
-const char *cfg_load_boot(void)
+const char *HOST_IN_FLASH_FUNC("cfg_load_boot") cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;

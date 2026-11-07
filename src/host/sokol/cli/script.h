@@ -53,8 +53,8 @@ bool script_running(void);
  * than at least six hundred. */
 void script_task(void);
 
-/* Make the sound of the frame that just ran. The caller runs it after every
- * frame, as a sink would pull it. */
+/* Take the sound of the frame that just ran, into the wav if one is being
+ * written. The caller runs it after every frame. */
 void script_listen(void);
 
 /* 0 when every assertion held. */

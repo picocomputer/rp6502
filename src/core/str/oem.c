@@ -98,7 +98,8 @@ bool oem_is_auto(void)
     return oem_get_code_page() == 0;
 }
 
-int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("oem_code_page_response") oem_code_page_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned width)
 {
     (void)state;
     (void)width;

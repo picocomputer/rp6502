@@ -13,6 +13,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/rp2350.h"
+#include "machine.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 #include <stdio.h>
@@ -131,7 +132,7 @@ void cyw_led_set(bool on)
     cyw_led_requested = on;
 }
 
-void __in_flash("cyw_init") cyw_init(void)
+void cyw_init(void)
 {
     // CYW43439 datasheet says 50MHz for SPI.
     // The Raspberry Pi SDK only provides for a 2,0 divider,
@@ -144,6 +145,9 @@ void __in_flash("cyw_init") cyw_init(void)
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 
+    /* Loading the config file does not apply it, so the country is looked up
+     * here, where the radio comes up. */
+    cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
     uint32_t country = CYW43_COUNTRY_WORLDWIDE;
     if (cyw_country >= 0)
         country = CYW43_COUNTRY(
@@ -156,6 +160,9 @@ void __in_flash("cyw_init") cyw_init(void)
     {
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+        /* The 3.3 V regulator in PWM mode, as aud_init sets it on a Pico 2:
+         * its power save mode's bursts ride out on the audio pins. */
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_SMPS_PIN, true);
     }
     // Upload the bluetooth firmware now so it doesn't lazy load.
     cyw43_bluetooth_hci_init();
@@ -173,7 +180,8 @@ void cyw_apply_rf_enable(uint8_t rf, bool changed)
         cyw_reset_radio();
 }
 
-int cyw_rf_enable_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("cyw_rf_enable_response") cyw_rf_enable_response(char *buf, size_t buf_size,
+                                                                        int state, unsigned width)
 {
     (void)state;
     (void)width;
@@ -201,7 +209,10 @@ void cyw_apply_rf_country_code(const char *rfcc, bool changed)
         cyw_reset_radio();
 }
 
-int cyw_rf_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("cyw_rf_country_code_response") cyw_rf_country_code_response(char *buf,
+                                                                                    size_t buf_size,
+                                                                                    int state,
+                                                                                    unsigned width)
 {
     (void)state;
     (void)width;

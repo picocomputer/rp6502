@@ -219,23 +219,9 @@ input logic clk_vid,
         run_s2 <= run_s1;
     end
 
-    /* mach_gated masks SRAM port A while clk_mach, which is clk_sys
-     * through the clock gate in core_top, is stopped. It rises only once
-     * run_s2 has fallen after the gate closes, because masking on
-     * pocket_core_stop_req alone would drop 6502 accesses made before
-     * the gate closes. It falls as soon as pocket_core_stop_req drops,
-     * which is several clk_74a cycles before the gate reopens. Waiting
-     * for run_s2 to rise instead would keep port A masked for up to two
-     * clk_sys cycles after clk_mach returns. No port A access would be
-     * launched on a PHI2 enable in that window, so in the 6502 cycle
-     * that begins on that enable a read would return a stale byte and a
-     * write would be lost. */
-    logic mach_gated;
-    always_comb mach_gated = pocket_core_stop_req && !run_s2;
-
     pocket_sram sram (
         .clk(clk_sys),
-        .run(!mach_gated),
+        .clk_mach(clk_mach),
         .refill(ram_refill),
         .phi2_en(machine_phi2_en),
         .cpu_run(machine_resb),

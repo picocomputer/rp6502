@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/sys/ria.h"
@@ -20,6 +22,7 @@
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
@@ -97,13 +100,10 @@ void ria_run(void)
     REGS(0xFFF0) = 0;
 }
 
-void ria_stop(void)
-{
-    irq_enabled = 0;
-    gpio_put(CPU_IRQB_PIN, true);
-}
-
-static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_response(char *buf,
+                                                                                     size_t buf_size,
+                                                                                     int state,
+                                                                                     unsigned)
 {
     oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
     return -1;
@@ -112,7 +112,7 @@ static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsi
 /* The reset vector is saved here and restored by ria_action_close. ria_task
  * calls ria_action_close between the two halves of a write, so the verify half
  * compares the bytes above $FFF9 against what the write put there. */
-static void ria_action_start(void)
+static void HOST_IN_FLASH_FUNC("ria_action_start") ria_action_start(void)
 {
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
@@ -170,7 +170,7 @@ static void ria_action_end(int32_t result)
     action_result = result;
 }
 
-static void ria_verify_start(void)
+static void HOST_IN_FLASH_FUNC("ria_verify_start") ria_verify_start(void)
 {
     action_state = action_state_verify;
     action_result = RIA_ACTION_RESULT_NONE;
@@ -229,7 +229,7 @@ void ria_task(void)
     callback(ok);
 }
 
-void ria_read_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -255,7 +255,7 @@ void ria_read_buf(uint16_t addr, ria_callback_t callback)
     ria_action_start();
 }
 
-void ria_write_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -360,6 +360,12 @@ static void ria_uart_rx_clear(void)
     REGS(0xFFE2) = 0;
 }
 
+void ria_stop(void)
+{
+    irq_enabled = 0;
+    gpio_put(CPU_IRQB_PIN, true);
+}
+
 /* sys_commit calls sys_stop, which lowers RESB, before it calls the break
  * hooks, so the 6502 is held in reset when ria_break closes the transfer. */
 void ria_break(void)
@@ -369,18 +375,23 @@ void ria_break(void)
     ria_uart_rx_clear();
 }
 
-volatile uint8_t ria_aud_head;
-volatile uint8_t ria_aud_tail;
-volatile uint8_t ria_aud_ring[RIA_AUD_RING_SIZE][2];
+ria_aud_ring_t ria_aud = {.psg_at = 0x10000, .opl_at = 0x10000};
 
-static volatile uint32_t ria_aud_page = 0xFFFF;
-
-void ria_aud_watch(uint16_t xaddr)
+/* The drain pairs an acquire barrier with the one here, so the entry has to
+ * be written before the head that publishes it. */
+static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, uint32_t pix)
 {
-    ria_aud_page = 0xFFFF;
-    ria_aud_tail = ria_aud_head;
-    if (xaddr != 0xFFFF)
-        ria_aud_page = (uint32_t)(xaddr & 0xFF00);
+    if (addr - ria_aud.psg_at >= PSG_REGS_SIZE && addr - ria_aud.opl_at >= OPL_REGS_SIZE)
+        return;
+    uint8_t next = (ria_aud.head + 1) & (RIA_AUD_RING_SIZE - 1);
+    if (next == ria_aud.tail)
+    {
+        ria_aud.lost++;
+        return;
+    }
+    ria_aud.entry[next] = pix;
+    __dmb();
+    ria_aud.head = next;
 }
 
 #define CASE_READ(addr) (addr & 0x1F)
@@ -478,44 +489,33 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     API_STACK = xstack[xstack_ptr];
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
-                    xram[RIA_ADDR1] = data;
-                    PIX_SEND_XRAM(RIA_ADDR1, data);
-                    if ((RIA_ADDR1 & 0xFF00) == ria_aud_page)
-                    {
-                        uint8_t next = (ria_aud_head + 1) & (RIA_AUD_RING_SIZE - 1);
-                        if (next != ria_aud_tail)
-                        {
-                            ria_aud_ring[next][0] = REGS(0xFFEA);
-                            ria_aud_ring[next][1] = data;
-                            /* The drain pairs an acquire barrier with this
-                             * one, so the entry has to be written before the
-                             * head that publishes it. */
-                            __dmb();
-                            ria_aud_head = next;
-                        }
-                    }
-                    __attribute__((fallthrough));
+                {
+                    /* RW1 is current before the write is queued, so the
+                     * queue costs the next event and not the 6502's next
+                     * read of RW1. */
+                    uint16_t addr = RIA_ADDR1;
+                    xram[addr] = data;
+                    const uint32_t pix = PIX_MESSAGE(PIX_DEVICE_XRAM, 0, data, addr);
+                    PIX_PIO->txf[PIX_SM] = pix;
+                    RIA_ADDR1 = addr + RIA_STEP1;
+                    RIA_RW1 = xram[RIA_ADDR1];
+                    ria_aud_push(addr, pix);
+                    break;
+                }
                 case CASE_READ(0xFFE8): // R XRAM1
                     RIA_ADDR1 += RIA_STEP1;
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
-                    xram[RIA_ADDR0] = data;
-                    PIX_SEND_XRAM(RIA_ADDR0, data);
-                    if ((RIA_ADDR0 & 0xFF00) == ria_aud_page)
-                    {
-                        uint8_t next = (ria_aud_head + 1) & (RIA_AUD_RING_SIZE - 1);
-                        if (next != ria_aud_tail)
-                        {
-                            ria_aud_ring[next][0] = REGS(0xFFE6);
-                            ria_aud_ring[next][1] = data;
-                            /* The drain pairs an acquire barrier with this
-                             * one, so the entry has to be written before the
-                             * head that publishes it. */
-                            __dmb();
-                            ria_aud_head = next;
-                        }
-                    }
-                    __attribute__((fallthrough));
+                {
+                    uint16_t addr = RIA_ADDR0;
+                    xram[addr] = data;
+                    const uint32_t pix = PIX_MESSAGE(PIX_DEVICE_XRAM, 0, data, addr);
+                    PIX_PIO->txf[PIX_SM] = pix;
+                    RIA_ADDR0 = addr + RIA_STEP0;
+                    RIA_RW0 = xram[RIA_ADDR0];
+                    ria_aud_push(addr, pix);
+                    break;
+                }
                 case CASE_READ(0xFFE4): // R XRAM0
                     RIA_ADDR0 += RIA_STEP0;
                     break;

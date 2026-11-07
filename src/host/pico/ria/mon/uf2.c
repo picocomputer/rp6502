@@ -16,6 +16,7 @@
 #include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/vga.h"
+#include "machine.h"
 #include <boot/uf2.h>
 #include <fatfs/ff.h>
 #include <hardware/flash.h>
@@ -37,8 +38,6 @@ static enum {
     UF2_VALIDATE,
     UF2_IDENTIFY,
     UF2_WRITE,
-    UF2_REBOOT,
-    UF2_FAILED,
     UF2_VGA_WRITE, // stage a page in VGA xram, then send $1:F:07
     UF2_VGA_WAIT,  // polling pix_wait_poll() for the reply to $1:F:07
     UF2_VGA_SUCCESS, // $1:F:06 word=0 then watchdog_reboot RIA
@@ -73,7 +72,7 @@ static bool uf2_to_vga;
 #define UF2_BLOCK ((const struct uf2_block *)mbuf)
 #define UF2_PAGE (mbuf + 512)
 
-static void uf2_close(void)
+static void HOST_IN_FLASH_FUNC("uf2_close") uf2_close(void)
 {
     if (uf2_fil.obj.fs)
     {
@@ -83,13 +82,13 @@ static void uf2_close(void)
     uf2_state = UF2_IDLE;
 }
 
-static void uf2_invalid(void)
+static void HOST_IN_FLASH_FUNC("uf2_invalid") uf2_invalid(void)
 {
     uf2_close();
     mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
 }
 
-static bool uf2_is_ours(const struct uf2_header *h)
+static bool HOST_IN_FLASH_FUNC("uf2_is_ours") uf2_is_ours(const struct uf2_header *h)
 {
     return h->magic_start0 == UF2_MAGIC_START0 &&
            h->magic_start1 == UF2_MAGIC_START1 &&
@@ -98,7 +97,8 @@ static bool uf2_is_ours(const struct uf2_header *h)
            h->file_size == RP2350_ARM_S_FAMILY_ID;
 }
 
-static bool uf2_read_header(uint32_t block_no, struct uf2_header *h)
+static bool HOST_IN_FLASH_FUNC("uf2_read_header") uf2_read_header(uint32_t block_no,
+                                                                  struct uf2_header *h)
 {
     if (block_no >= uf2_num_blocks)
         return false;
@@ -108,7 +108,7 @@ static bool uf2_read_header(uint32_t block_no, struct uf2_header *h)
     return f_read(&uf2_fil, h, sizeof *h, &br) == FR_OK && br == sizeof *h;
 }
 
-static int32_t uf2_find_block(uint32_t addr, uint32_t *avail)
+static int32_t HOST_IN_FLASH_FUNC("uf2_find_block") uf2_find_block(uint32_t addr, uint32_t *avail)
 {
     struct uf2_header h;
     if (addr >= uf2_low_addr && uf2_stride)
@@ -138,7 +138,8 @@ static int32_t uf2_find_block(uint32_t addr, uint32_t *avail)
     return -1;
 }
 
-static uint32_t uf2_read_addr(uint32_t addr, void *dest, uint32_t n)
+static uint32_t HOST_IN_FLASH_FUNC("uf2_read_addr") uf2_read_addr(uint32_t addr, void *dest,
+                                                                  uint32_t n)
 {
     uint8_t *out = dest;
     uint32_t got = 0;
@@ -169,8 +170,9 @@ struct uf2_map
     uint32_t dest_end;
 };
 
-static uint32_t uf2_read_ptr(const struct uf2_map *map, int map_count,
-                             uint32_t ptr, void *dest, uint32_t n)
+static uint32_t HOST_IN_FLASH_FUNC("uf2_read_ptr") uf2_read_ptr(const struct uf2_map *map,
+                                                                int map_count, uint32_t ptr,
+                                                                void *dest, uint32_t n)
 {
     uint8_t *out = dest;
     uint32_t got = 0;
@@ -196,7 +198,7 @@ static uint32_t uf2_read_ptr(const struct uf2_map *map, int map_count,
     return got;
 }
 
-static const char *uf2_find_program_name(void)
+static const char *HOST_IN_FLASH_FUNC("uf2_find_program_name") uf2_find_program_name(void)
 {
     if (uf2_read_addr(uf2_low_addr, mbuf, MBUF_SIZE) != MBUF_SIZE)
         return NULL;
@@ -278,10 +280,11 @@ static void uf2_progress(void)
     {
         uf2_last_percent = pct;
         com_printf_utf8(STR_UF2_FLASHING, pct);
+        stdio_flush();
     }
 }
 
-static void uf2_do_validate(void)
+static void HOST_IN_FLASH_FUNC("uf2_do_validate") uf2_do_validate(void)
 {
     UINT br;
     if (f_read(&uf2_fil, mbuf, 512, &br) != FR_OK || br != 512)
@@ -339,7 +342,7 @@ static void uf2_do_validate(void)
         uf2_state = UF2_IDENTIFY;
 }
 
-static void uf2_do_identify(void)
+static void HOST_IN_FLASH_FUNC("uf2_do_identify") uf2_do_identify(void)
 {
     const char *name = uf2_find_program_name();
     if (!name)
@@ -436,45 +439,53 @@ static bool uf2_next_block(void)
     return true;
 }
 
-static void uf2_do_write(void)
+static void __attribute__((noreturn)) uf2_failed(void)
 {
-    if (!uf2_page_count && !uf2_next_block())
-    {
-        uf2_state = UF2_FAILED;
-        return;
-    }
-    while (uf2_page_count)
-    {
-        uf2_build_page(uf2_page_idx);
-        uint32_t offs = uf2_page_idx * FLASH_PAGE_SIZE;
-        const uint8_t *dest = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + offs);
-        for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
-            if (dest[i] != 0xFF)
-            {
-                flash_range_erase(offs & ~(FLASH_SECTOR_SIZE - 1), FLASH_SECTOR_SIZE);
-                break;
-            }
-        flash_range_program(offs, UF2_PAGE, FLASH_PAGE_SIZE);
-        if (memcmp(dest, UF2_PAGE, FLASH_PAGE_SIZE))
-        {
-            RP6502_LOG(uf2, ERROR, "page 0x%08lX did not take", (unsigned long)offs);
-            uf2_state = UF2_FAILED;
-            return;
-        }
-        uf2_page_idx++;
-        uf2_page_count--;
-    }
-
-    uf2_block_idx++;
-    uf2_progress();
-    if (uf2_block_idx >= uf2_num_blocks)
-    {
-        putchar('\n');
-        uf2_state = UF2_REBOOT;
-    }
+    com_printf_utf8(STR_UF2_FLASH_FAILED);
+    stdio_flush();
+    reset_usb_boot(0, 0);
 }
 
-static void uf2_do_vga_write(void)
+/* The RIA's own image is rewritten in one call that ends in a reboot, because
+ * between blocks the main loop would run code from the flash being rewritten.
+ * Nothing this reaches is in flash. */
+static void __attribute__((noreturn)) uf2_do_write(void)
+{
+    while (uf2_block_idx < uf2_num_blocks)
+    {
+        if (!uf2_next_block())
+            uf2_failed();
+        while (uf2_page_count)
+        {
+            uf2_build_page(uf2_page_idx);
+            uint32_t offs = uf2_page_idx * FLASH_PAGE_SIZE;
+            const uint8_t *dest = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + offs);
+            for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
+                if (dest[i] != 0xFF)
+                {
+                    flash_range_erase(offs & ~(FLASH_SECTOR_SIZE - 1), FLASH_SECTOR_SIZE);
+                    break;
+                }
+            flash_range_program(offs, UF2_PAGE, FLASH_PAGE_SIZE);
+            if (memcmp(dest, UF2_PAGE, FLASH_PAGE_SIZE))
+            {
+                RP6502_LOG(uf2, ERROR, "page 0x%08lX did not take", (unsigned long)offs);
+                uf2_failed();
+            }
+            uf2_page_idx++;
+            uf2_page_count--;
+        }
+        uf2_block_idx++;
+        uf2_progress();
+    }
+    putchar('\n');
+    stdio_flush();
+    watchdog_reboot(0, 0, 0);
+    for (;;)
+        tight_loop_contents();
+}
+
+static void HOST_IN_FLASH_FUNC("uf2_do_vga_write") uf2_do_vga_write(void)
 {
     if (!uf2_page_count && !uf2_next_block())
     {
@@ -491,7 +502,7 @@ static void uf2_do_vga_write(void)
     uf2_state = UF2_VGA_WAIT;
 }
 
-static void uf2_do_vga_wait(void)
+static void HOST_IN_FLASH_FUNC("uf2_do_vga_wait") uf2_do_vga_wait(void)
 {
     switch (pix_wait_poll())
     {
@@ -536,16 +547,6 @@ void uf2_task(void)
         break;
     case UF2_WRITE:
         uf2_do_write();
-        break;
-    case UF2_REBOOT:
-        stdio_flush();
-        watchdog_reboot(0, 0, 0);
-        break;
-    case UF2_FAILED:
-        com_printf_utf8(STR_UF2_FLASH_FAILED);
-        stdio_flush();
-        reset_usb_boot(0, 0);
-        break;
     case UF2_VGA_WRITE:
         uf2_do_vga_write();
         break;
@@ -574,7 +575,7 @@ bool uf2_active(void)
     return uf2_state != UF2_IDLE;
 }
 
-void uf2_mon_flash(const char *args)
+void HOST_IN_FLASH_FUNC("uf2_mon_flash") uf2_mon_flash(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))

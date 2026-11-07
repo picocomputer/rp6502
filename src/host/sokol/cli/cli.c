@@ -139,7 +139,7 @@ void cli_usage(FILE *out, const char *argv0)
             "                            0-4294967295 (default: host entropy)\n"
             "  --memfill <byte>          fill RAM and XRAM with one byte, as $FF or 255,\n"
             "                            in place of the random fill of --memseed\n"
-            "  --mute                    mute all audio (no synth, no OS audio device)\n"
+            "  --mute                    mute all audio\n"
             "  --debug                   on-screen machine debugger (CPU/VIA/disasm); holds\n"
             "                            the window open on stop for inspection; no window\n"
             "                            with --script\n"

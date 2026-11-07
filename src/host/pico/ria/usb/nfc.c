@@ -12,6 +12,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
@@ -417,7 +418,8 @@ void nfc_init(void)
         nfc_apply_cfg(NFC_CFG_ON);
 }
 
-int nfc_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("nfc_enabled_response") nfc_enabled_response(char *buf, size_t buf_size,
+                                                                    int state, unsigned width)
 {
     (void)state;
     (void)width;

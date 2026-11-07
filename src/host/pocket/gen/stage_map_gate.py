@@ -129,7 +129,7 @@ def main() -> int:
             parts = {k: pkg.get(v, v) for k, v in parts.items()}
         parts = {k: v for k, v in parts.items() if v.isdigit()}
         order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
-                 "W_CELLS", "W_XPROG", "W_TCM", "W_END"]
+                 "W_CELLS", "W_XPROG", "W_TCM", "W_AUD", "W_END"]
         missing = [k for k in order if k not in parts]
         if missing:
             bad.append(f"sst_engine is missing {', '.join(missing)}")

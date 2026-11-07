@@ -14,7 +14,6 @@
 
 #include "wake.h"
 
-#include "aud.h"
 #include "com.h"
 #include "font.h"
 #include "main.h"
@@ -25,8 +24,11 @@
 #include "vga.h"
 #include "vid.h"
 
+#include "core/api/clk.h"
+#include "core/aud/bel.h"
 #include "core/api/tim.h"
 #include "core/sys/debug_log.h"
+#include "host/host.h"
 
 #include <string.h>
 
@@ -52,7 +54,6 @@ void wake_task(void)
     }
 
     font_restore();
-    aud_restore();
 
     vga_restore();
     vid_restore();
@@ -95,5 +96,11 @@ void wake_task(void)
 
     main_restored();
 
+    /* The machine has been parked since the soft CPU resumed at the saved
+     * mtime, so the bell's deadlines and the program's clock move by that
+     * long, and the audio and the 6502 meet them as they would have. */
+    uint32_t parked = (uint32_t)host_clock_us() - SST_SAVED_US;
+    bel_wake(parked);
+    clk_wake(parked);
     SST_CTL = SST_RESTORED;
 }

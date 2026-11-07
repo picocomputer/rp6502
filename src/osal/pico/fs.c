@@ -225,19 +225,6 @@ void fs_std_settle(void)
 {
 }
 
-bool fs_std_ident(int desc, sst_cursor_t *c)
-{
-    (void)desc, (void)c;
-    return false;
-}
-
-int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
-{
-    (void)c, (void)mode;
-    *err = API_ENOSYS;
-    return -1;
-}
-
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     lfs_file_t *lf;
@@ -421,7 +408,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errn
         *err = API_ERANGE;
         return -1;
     }
-    if (absolute_offset > f_size(fp) && (fp->flag & FA_WRITE))
+    if ((FSIZE_t)absolute_offset > f_size(fp) && (fp->flag & FA_WRITE))
         return fat_extend(fp, absolute_offset, pos, err);
     FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)

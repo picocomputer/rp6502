@@ -30,12 +30,26 @@
 #define TCP_SND_BUF (4 * TCP_MSS)
 #define LWIP_TCP_KEEPALIVE 1
 
+/* With SACK the peer resends a segment that Wi-Fi lost within a few round
+ * trips, where without it a short exchange waits out the peer's retransmit
+ * timer. */
+#define LWIP_TCP_SACK_OUT 1
+
+/* lwIP's retransmit timer counts in ticks of twice this, and on a LAN it
+ * settles at three ticks: 200 ms here, Linux's own floor and above the peer's
+ * delayed ACK. The default of 250 ms makes it 1.5 s. */
+#define TCP_TMR_INTERVAL 33
+
 #define LWIP_CHKSUM_ALGORITHM 3
 
 #define LWIP_NETIF_STATUS_CALLBACK 1
 #define LWIP_NETIF_LINK_CALLBACK 1
 #define LWIP_NETIF_HOSTNAME 1
-#define LWIP_NETIF_TX_SINGLE_PBUF 1
+/* Not LWIP_NETIF_TX_SINGLE_PBUF. It makes every TCP segment allocate a whole
+ * MSS from MEM_SIZE whatever it carries, so six one-byte telnet echoes in
+ * flight used up the heap and the next tcp_write failed: the "Connected"
+ * after a passkey was lost that way. The cyw43 driver copies the frame out
+ * with pbuf_copy_partial, so it has no need for an unchained pbuf. */
 
 #define LWIP_DHCP_DOES_ACD_CHECK 0
 

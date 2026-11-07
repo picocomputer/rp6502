@@ -8,6 +8,7 @@
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
@@ -761,7 +762,8 @@ void mid_task(void)
             tuh_midi_write_flush(itf);
 }
 
-int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("mid_status_response") mid_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)
         return -1;

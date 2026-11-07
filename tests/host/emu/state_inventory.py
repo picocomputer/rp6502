@@ -60,6 +60,8 @@ def objects_in(src, cmd, tmp):
         # small-data symbols g or G.
         if kind not in "bBdDgG":
             continue
+        # GCC names a function-local static name.N, N depending on the build.
+        name = re.sub(r"\.\d+$", "", name)
         if "MergedGlobals" in name:
             raise SystemExit(
                 "%s: this toolchain merges file-scope objects into %s, so they "

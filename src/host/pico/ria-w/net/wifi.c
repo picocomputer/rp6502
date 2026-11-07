@@ -13,6 +13,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/mbuf.h"
+#include "machine.h"
 #include <pico/cyw43_arch.h>
 #include <stdio.h>
 
@@ -122,7 +123,7 @@ void wifi_task(void)
     }
 }
 
-static const char *wifi_status_message(void)
+static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message(void)
 {
     switch (wifi_state)
     {
@@ -162,7 +163,8 @@ static const char *wifi_status_message(void)
     return S(STR_INTERNAL_ERROR);
 }
 
-int wifi_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("wifi_status_response") wifi_status_response(char *buf, size_t buf_size,
+                                                                    int state, unsigned)
 {
     switch (state)
     {
@@ -383,7 +385,8 @@ void wifi_apply_ssid(const char *ssid, bool changed)
     }
 }
 
-int wifi_ssid_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("wifi_ssid_response") wifi_ssid_response(char *buf, size_t buf_size,
+                                                                int state, unsigned width)
 {
     (void)width;
     const char *ssid = wifi_get_ssid();
@@ -414,7 +417,8 @@ void wifi_apply_pass(const char *pass, bool changed)
         wifi_shutdown();
 }
 
-int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("wifi_pass_response") wifi_pass_response(char *buf, size_t buf_size,
+                                                                int state, unsigned width)
 {
     (void)state;
     (void)width;

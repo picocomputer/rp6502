@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
+#include "machine.h"
 
 #define MSC_LOG_VOL(vol, LEVEL, fmt, ...) \
     RP6502_LOG(msc, LEVEL, "vol %u: " fmt, (unsigned)(vol), ##__VA_ARGS__)
@@ -1794,7 +1795,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
-void msc_drive_reenumerate(uint8_t pdrv)
+void HOST_IN_FLASH_FUNC("msc_drive_reenumerate") msc_drive_reenumerate(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
         return;
@@ -1806,7 +1807,7 @@ void msc_drive_reenumerate(uint8_t pdrv)
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
-static void msc_inquiry_rtrim(uint8_t *s, size_t l)
+static void HOST_IN_FLASH_FUNC("msc_inquiry_rtrim") msc_inquiry_rtrim(uint8_t *s, size_t l)
 {
     while (l--)
     {
@@ -1817,7 +1818,8 @@ static void msc_inquiry_rtrim(uint8_t *s, size_t l)
     }
 }
 
-int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("msc_status_response") msc_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
@@ -1860,7 +1862,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
     return state + 1;
 }
 
-int msc_drive_vol_from_name(const char *name)
+int HOST_IN_FLASH_FUNC("msc_drive_vol_from_name") msc_drive_vol_from_name(const char *name)
 {
     char buf[6];
     size_t n = 0;
@@ -1878,7 +1880,8 @@ int msc_drive_vol_from_name(const char *name)
     return -1;
 }
 
-static bool msc_drive_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
+static bool HOST_IN_FLASH_FUNC("msc_drive_pdrv_of_vol") msc_drive_pdrv_of_vol(uint8_t vol,
+                                                                              uint8_t *pdrv)
 {
     if (vol >= FF_VOLUMES || msc_pdrv[vol].status == msc_volume_free)
         return false;
@@ -1886,7 +1889,7 @@ static bool msc_drive_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
     return true;
 }
 
-bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
+bool HOST_IN_FLASH_FUNC("msc_drive_get_info") msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))
@@ -1907,7 +1910,10 @@ bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
     return true;
 }
 
-bool msc_drive_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5])
+bool HOST_IN_FLASH_FUNC("msc_drive_inquiry_strings") msc_drive_inquiry_strings(uint8_t vol,
+                                                                               char vendor[9],
+                                                                               char product[17],
+                                                                               char rev[5])
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))
@@ -1927,7 +1933,8 @@ bool msc_drive_inquiry_strings(uint8_t vol, char vendor[9], char product[17], ch
     return true;
 }
 
-bool msc_drive_serial(uint8_t vol, char *dst, size_t dst_size)
+bool HOST_IN_FLASH_FUNC("msc_drive_serial") msc_drive_serial(uint8_t vol, char *dst,
+                                                             size_t dst_size)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
@@ -1939,7 +1946,8 @@ bool msc_drive_serial(uint8_t vol, char *dst, size_t dst_size)
     return dst[0] != '\0';
 }
 
-bool msc_drive_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count)
+bool HOST_IN_FLASH_FUNC("msc_drive_read") msc_drive_read(uint8_t vol, void *buf, uint64_t lba,
+                                                         uint32_t count)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))
@@ -1947,7 +1955,8 @@ bool msc_drive_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count)
     return disk_read(pdrv, (BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool msc_drive_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
+bool HOST_IN_FLASH_FUNC("msc_drive_write") msc_drive_write(uint8_t vol, const void *buf,
+                                                           uint64_t lba, uint32_t count)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))
@@ -1955,7 +1964,8 @@ bool msc_drive_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool msc_drive_format_track(uint8_t vol, uint8_t track, uint8_t head)
+bool HOST_IN_FLASH_FUNC("msc_drive_format_track") msc_drive_format_track(uint8_t vol, uint8_t track,
+                                                                         uint8_t head)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))

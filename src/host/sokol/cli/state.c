@@ -6,7 +6,6 @@
 
 #include "host/sokol/cli/state.h"
 
-#include "core/aud/mix.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkeys.h"
 #include "core/sys/sst.h"
@@ -15,31 +14,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
-static bool state_threaded_audio;
-
-void state_audio_is_threaded(bool on) { state_threaded_audio = on; }
-
-/* Hold the audio device's thread out of the engines while the machine is
- * copied or replaced. The wait is bounded because a sink that has stopped
- * calling back must not hold a save forever, and giving up costs one engine
- * read taken mid-sample, which is the same machine a sample either side. It
- * spins rather than sleeps because the device buffer is 512 frames at 48 kHz,
- * about eleven milliseconds, and the callback is already running. */
-static void state_park(void)
-{
-    if (!state_threaded_audio || !aud_enabled())
-        return;
-    aud_park_request();
-    for (long spin = 0; spin < 100000000L && !aud_parked(); spin++)
-        ;
-}
-
-static void state_unpark(void)
-{
-    if (state_threaded_audio && aud_enabled())
-        aud_park_release();
-}
 
 bool state_save_file(const char *path, const char **why)
 {
@@ -50,10 +24,8 @@ bool state_save_file(const char *path, const char **why)
         *why = "out of memory";
         return false;
     }
-    state_park();
     fs_std_settle();
     const char *bad = sst_save(buf, len, 0);
-    state_unpark();
     if (bad)
     {
         free(buf);
@@ -120,10 +92,8 @@ bool state_load_file(const char *path, const char **why)
      * and the incoming one never asked for. Cancelling it on every load is
      * what lets vtkeys carry no savestate chunk. */
     vtkeys_paste_cancel();
-    state_park();
     fs_std_settle();
     const char *bad = sst_load(buf, (size_t)len, 0);
-    state_unpark();
     free(buf);
     if (bad)
     {

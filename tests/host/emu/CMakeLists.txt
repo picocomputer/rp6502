@@ -110,6 +110,35 @@ rp6502_add_test(sys LIBS emu_core)
 
 rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
+# YM3812-LLE, nukeykt's gate-level model of the die, is the oracle for the
+# OPL2 engine. It is GPL-2 and is compiled into this test only.
+rp6502_submodule(vendor/YM3812-LLE SENTINEL fmopl2.c
+    WANTS "the OPL2 test" OPTIONAL RESULT RP6502_HAVE_LLE)
+if(RP6502_HAVE_LLE)
+    set(_lle ${RP6502_VENDOR}/YM3812-LLE)
+    rp6502_add_test(opl SPLIT TIMEOUT 120
+        SOURCES test_opl.c opl_traced.c opl_lle.c opl_model.c
+            opl_script.c ${_lle}/fmopl2.c
+        INCLUDES ${_lle} ${OPL_ROM_DIR})
+    add_dependencies(test_opl opl_rom)
+    if(NOT WIN32)
+        target_link_libraries(test_opl PRIVATE m)
+    endif()
+    # The die model runs 3x slower unoptimised. An MSVC Debug build keeps its
+    # flags, because /RTC1 refuses /O2.
+    if(MSVC)
+        set_source_files_properties(${_lle}/fmopl2.c PROPERTIES
+            COMPILE_OPTIONS "/w;$<$<NOT:$<CONFIG:Debug>>:/O2>")
+    else()
+        set_source_files_properties(${_lle}/fmopl2.c PROPERTIES
+            COMPILE_OPTIONS "-O2;-w")
+    endif()
+    # About 11 s of audio across the envelope timer's wrap.
+    set_property(TEST opl.lle_eg_wrap APPEND PROPERTY LABELS slow)
+else()
+    message(WARNING "YM3812-LLE absent — the OPL2 test skipped.")
+endif()
+
 # The state_inventory test runs only with GCC because Clang can merge
 # file-scope statics into one MergedGlobals symbol, which leaves nothing to
 # count.
@@ -135,10 +164,19 @@ rp6502_add_test(clk LIBS emu_core)
 
 rp6502_add_test(attr LIBS emu_core)
 
+rp6502_add_test(pcm_mix LIBS emu_core ROM ${ADVENTURE_ROM})
+if(NOT WIN32)
+    target_link_libraries(test_pcm_mix PRIVATE m)
+endif()
+
 rp6502_add_test(log SINK
     DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 
 rp6502_add_test(render LIBS emu_core ROM ${ADVENTURE_ROM})
+
+rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
+    DEFS AUD_ROM_OPL_SPREAD="${OPL_SPREAD_ROM}" AUD_ROM_OPL_FLAT="${OPL_FLAT_ROM}"
+    DEPENDS aud_roms)
 
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)

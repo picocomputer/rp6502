@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/ria.h"
+#include "core/aud/mix.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
@@ -31,6 +32,8 @@
 #define ATTR_RLN_WIDTH 0x0A
 #define ATTR_RLN_HEIGHT 0x0B
 #define ATTR_RLN_SUPPRESS_NL 0x0C
+#define ATTR_PCM_UNDERRUNS 0x0E
+#define ATTR_OPL_OVERRUNS 0x0F
 #define ATTR_CLK_RUN_MS 0x10
 #define ATTR_CLK_RUN_CS 0x11
 #define ATTR_CLK_RUN_DS 0x12
@@ -67,6 +70,10 @@ bool attr_api_get(void)
         return api_return_axsreg(rln_get_term_height());
     case ATTR_RLN_SUPPRESS_NL:
         return api_return_axsreg(rln_get_suppress_nl());
+    case ATTR_PCM_UNDERRUNS:
+        return api_return_axsreg(aud_pcm_underruns());
+    case ATTR_OPL_OVERRUNS:
+        return api_return_axsreg(aud_opl_overruns());
     case ATTR_CLK_RUN_MS:
         return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
     case ATTR_CLK_RUN_CS:
@@ -141,6 +148,8 @@ bool attr_api_set(void)
     case ATTR_LRAND:
     case ATTR_EXIT_CODE:
     case ATTR_SIGINT:
+    case ATTR_PCM_UNDERRUNS:
+    case ATTR_OPL_OVERRUNS:
     case ATTR_CLK_RUN_MS:
     case ATTR_CLK_RUN_CS:
     case ATTR_CLK_RUN_DS:

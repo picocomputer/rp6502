@@ -1,0 +1,6 @@
+// Copyright (c) 2026 Rumbledethumps
+// SPDX-License-Identifier: BSD-3-Clause
+// Combinational paths of the machine that Verilator reports as loops.
+`verilator_config
+lint_off -rule UNOPTFLAT -file "*src/core/vga/scan/fill.sv"
+lint_off -rule UNOPTFLAT -file "*tests/host/pocket/asram_model.sv"

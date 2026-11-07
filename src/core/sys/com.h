@@ -60,6 +60,7 @@ bool com_rx_load(sst_cursor_t *c);
  * out, a named source reads only that one and leaves the others queued. */
 int com_getchar(com_source_t *src);
 
+/* Negative when there is none. COM_SOURCE_ANY peeks every source. */
 int com_peekchar(com_source_t src);
 
 /* A machine whose 6502 reads the console through registers stages a byte there

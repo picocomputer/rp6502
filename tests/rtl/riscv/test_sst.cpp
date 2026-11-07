@@ -24,6 +24,7 @@
 #define W_CELLS 15360u
 #define W_XPROG 8192u
 #define W_TCM 24576u
+#define W_AUD 2048u
 #define W_END 4u
 
 #define B_HDR 0u
@@ -38,11 +39,12 @@
 #define B_CELLS (B_XRAM + W_XRAM)
 #define B_XPROG (B_CELLS + W_CELLS)
 #define B_TCM (B_XPROG + W_XPROG)
-#define B_END (B_TCM + W_TCM)
+#define B_AUD (B_TCM + W_TCM)
+#define B_END (B_AUD + W_AUD)
 #define W_TOTAL (B_END + W_END)
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 3u
+#define SST_VER 6u
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -454,6 +456,16 @@ UTEST(sst, a_load_puts_the_blob_back)
     stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
     for (uint32_t i = 4; i < 8; i++)
         stage_word(B_SRAM + i, 0xCBCBCBCBu);
+    /* The audio region: FIFO rows, OPL registers, PSG structure bytes and
+     * the OPL's page word, none of which the engines change while PCM is
+     * closed and the queue is empty. */
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        stage_word(B_AUD + 0x000 + i, 0xF1F00000u + i);
+        stage_word(B_AUD + 0x500 + i, 0x40u + i);
+        stage_word(B_AUD + 0x640 + i, i == 7 ? 0u : 0x60u + i);
+    }
+    stage_word(B_AUD + 0x780, 1u << 24 | 0x12u);
     stage_seal();
 
     auto *r = dut->rootp;
@@ -536,10 +548,23 @@ UTEST(sst, a_load_puts_the_blob_back)
 
     ASSERT_TRUE(begin_save());
     uint32_t w = 0;
+    /* resb is bit 0 and the PHI2 enable bit 1; the rate is the low half
+     * and the PHI2 accumulator the high. */
     ASSERT_TRUE(blob_word(B_STATE + ST_MACH + 0, &w));
-    ASSERT_EQ(1u, w);
+    ASSERT_EQ(1u, w & 1u);
     ASSERT_TRUE(blob_word(B_STATE + ST_MACH + 1, &w));
-    ASSERT_EQ(3000u, w);
+    ASSERT_EQ(3000u, w & 0xFFFFu);
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        ASSERT_TRUE(blob_word(B_AUD + 0x000 + i, &w));
+        ASSERT_EQ(0xF1F00000u + i, w);
+        ASSERT_TRUE(blob_word(B_AUD + 0x500 + i, &w));
+        ASSERT_EQ(0x40u + i, w);
+        ASSERT_TRUE(blob_word(B_AUD + 0x640 + i, &w));
+        ASSERT_EQ(i == 7 ? 0u : 0x60u + i, w);
+    }
+    ASSERT_TRUE(blob_word(B_AUD + 0x780, &w));
+    ASSERT_EQ(1u << 24 | 0x12u, w & 0x01FFFFFFu);
 }
 
 /* A dpc of 0x14 puts the soft CPU in front of `sw x5, 0(x6)` with x5 and
@@ -641,6 +666,174 @@ UTEST(sst, a_blob_that_does_not_add_up_is_refused)
         for (uint32_t i = 0; i < count; i++)
             ASSERT_EQ(i + 1, tcm_word(256 + i));
     }
+}
+
+/* sst_engine's states, as its state_t numbers them. */
+enum
+{
+    E_IDLE = 0,
+    E_LD_PUT = 19,
+    E_LD_PUT_DONE = 21,
+    E_LD_JAM = 23,
+    E_LD_JAM2 = 24,
+    E_INJ_ARM = 27
+};
+
+/* Every stop lands with the audio engines idle and no sample due for the
+ * lead, wherever in their frames the request came. */
+UTEST(sst, every_stop_finds_the_audio_quiet)
+{
+    power_on();
+    auto *r = dut->rootp;
+    for (int i = 0; i < 2000; i++)
+        clk();
+    int stops = 0;
+    for (int k = 0; k < 64; k++)
+    {
+        for (int i = 0; i < 977 + 17 * k; i++)
+            clk();
+        dut->sst_save = 1;
+        dut->eval();
+        long guard = 0;
+        while (!dut->wiring_sst_stop_req && guard++ < 200000L)
+            clk();
+        ASSERT_TRUE((int)dut->wiring_sst_stop_req);
+        ASSERT_EQ(0, (int)r->wiring__DOT__opl__DOT__fstate);
+        ASSERT_EQ(0, (int)r->wiring__DOT__psg__DOT__state);
+        ASSERT_EQ(0, (int)r->wiring__DOT__pcm__DOT__state);
+        ASSERT_LT((int)r->wiring__DOT__opl__DOT__tickctr, 1014 - 20);
+        ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 1050 - 20);
+        ASSERT_NE(0, (int)r->wiring__DOT__psg__DOT__tickctr);
+        stops++;
+        dut->sst_save = 0;
+        dut->eval();
+        guard = 0;
+        while ((int)r->wiring__DOT__engine__DOT__state != E_IDLE
+               && guard++ < 200000L)
+            clk();
+    }
+    ASSERT_EQ(64, stops);
+}
+
+/* The second pass writes regs.sv's flop words and then the audio's once
+ * each and in order, with the clock back and before the soft CPU's
+ * registers go in; the park holds until the second jam edge, and the
+ * refill is only the state before the second pass. */
+UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
+{
+    power_on();
+    auto *r = dut->rootp;
+    for (int i = 0; i < 3000; i++)
+        clk();
+
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, 0);
+    for (uint32_t i = 0; i < COUNTER.size(); i++)
+        stage_word(B_TCM + i, COUNTER[i]);
+    stage_word(B_STATE + ST_MACH + 0, 1);
+    stage_word(B_STATE + ST_MACH + 1, 8000);
+    stage_word(B_STATE + ST_W65C02 + 4, 0x00100001u);
+    /* The PSG's tickctr, which the park must hold. */
+    stage_word(B_AUD + 0x78C, 500);
+    stage_seal();
+
+    dut->sst_load = 1;
+    dut->eval();
+    std::vector<uint32_t> seen;
+    bool injected = false, late = false, refill_bad = false;
+    bool park_bad = false;
+    int prev = -1;
+    long guard = 0;
+    while (guard++ < 40000000L)
+    {
+        int st = (int)r->wiring__DOT__engine__DOT__state;
+        bool park = r->wiring__DOT__engine__DOT__park;
+        if (st == E_INJ_ARM)
+            injected = true;
+        if (st == E_LD_PUT && r->wiring__DOT__engine__DOT__ld_pass2)
+        {
+            seen.push_back(r->wiring__DOT__engine__DOT__ld_idx);
+            late |= injected || !dut->mach_running;
+        }
+        refill_bad |= (bool)dut->wiring_ram_refill != (st == E_LD_PUT_DONE);
+        if (r->wiring__DOT__engine__DOT__ld_pass2 || st > E_LD_PUT_DONE)
+            park_bad |= !park;
+        if (prev == E_LD_JAM2 && st == E_IDLE)
+        {
+            park_bad |= park;
+            break;
+        }
+        if (prev == E_LD_JAM2 && st != E_IDLE)
+            park_bad = true;
+        if (dut->wiring_sst_load_done && st != E_LD_JAM && st != E_LD_JAM2)
+        {
+            dut->sst_load = 0;
+            dut->eval();
+        }
+        prev = st;
+        clk();
+    }
+    ASSERT_LT(guard, 40000000L);
+    ASSERT_FALSE(late);
+    ASSERT_FALSE(refill_bad);
+    ASSERT_FALSE(park_bad);
+    std::vector<uint32_t> want;
+    for (uint32_t i = 0; i <= 20; i++)
+        want.push_back(B_REGS + i);
+    want.push_back(B_REGS + 200);
+    for (uint32_t i = 0x780; i <= 0x7A0; i++)
+        want.push_back(B_AUD + i);
+    ASSERT_EQ(want.size(), seen.size());
+    for (size_t i = 0; i < seen.size(); i++)
+        ASSERT_EQ(want[i], seen[i]);
+    /* Held to the jam, and counting again after it. */
+    ASSERT_GE((int)r->wiring__DOT__psg__DOT__tickctr, 500);
+    ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 510);
+}
+
+/* A version 5 blob, with its sum right, is refused. */
+UTEST(sst, a_version_5_blob_is_refused)
+{
+    power_on();
+    for (int i = 0; i < 3000; i++)
+        clk();
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, 0);
+    for (uint32_t i = 0; i < 8; i++)
+        stage_word(B_XRAM + i, 0xC0DE0000u + i);
+    stage_seal();
+    uint32_t sum = 0;
+    stage_word(B_HDR + 1, 5);
+    for (uint32_t i = 0; i < B_END; i++)
+    {
+        uint32_t a = STAGE_BLOB + i * 4;
+        uint32_t w = ((uint32_t)g_stage[a] << 24) | ((uint32_t)g_stage[a + 1] << 16)
+                     | ((uint32_t)g_stage[a + 2] << 8) | (uint32_t)g_stage[a + 3];
+        sum = ((sum << 1) | (sum >> 31)) + w;
+    }
+    stage_word(B_END + 0, sum);
+
+    auto *r = dut->rootp;
+    for (uint32_t i = 0; i < 8; i++)
+        r->wiring__DOT__xram__DOT__mem0[i] = 0xEE;
+    uint32_t before = 0;
+    while (before < W_TCM && tcm_word(256 + before))
+        before++;
+    load_and_wait();
+    ASSERT_TRUE((int)dut->wiring_sst_load_done);
+    ASSERT_TRUE((int)dut->wiring_sst_load_err);
+    for (uint32_t i = 0; i < 8; i++)
+        ASSERT_EQ(0xEEu, (uint32_t)r->wiring__DOT__xram__DOT__mem0[i]);
+    dut->sst_load = 0;
+    dut->eval();
+    for (int i = 0; i < 4000; i++)
+        clk();
+    uint32_t after = 0;
+    while (after < W_TCM && tcm_word(256 + after))
+        after++;
+    ASSERT_GT(after, before);
 }
 
 UTEST_STATE();

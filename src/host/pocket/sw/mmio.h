@@ -140,15 +140,42 @@ static inline int32_t set_tz_minutes(void)
 #define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
-/* The PSG acts on the gate bit in a write to a channel block in XRAM only
- * when the 6502 made the write, unless this is set. aud_restore sets it
- * while it replays the channel blocks and clears it after, so a voice
- * whose gate bit was set when the blob was made starts again. */
-#define AUD_PSG_REPLAY (*(volatile uint32_t *)0x70000004u)
+/* 1 from a write to AUD_PSG_XADDR until the PSG has zeroed its eight
+ * voices' registers, about 64 clocks after any sample in progress ends. */
+#define AUD_PSG_BUSY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-#define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
-#define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
+/* The OPL's overruns, writes dropped because its queue was full, since the
+ * last read, which clears it. */
+#define AUD_OPL_OVERRUNS (*(volatile uint32_t *)0x7000000Cu)
+/* One byte of the bell's channel structure: bits 10:8 its index, 7:0 its
+ * value. Byte 6, the gate, strikes or releases. */
+#define AUD_BEL (*(volatile uint32_t *)0x70000010u)
+/* The PCM: device. Bit 0 opens or closes, bit 1 is 16-bit and bit 2 is
+ * stereo. An open empties the buffer; the sound restarts at the next
+ * sample. */
+#define AUD_PCM_CTRL (*(volatile uint32_t *)0x70000018u)
+/* Frames per 48 kHz sample, Q32, less one: pcm_step(rate) - 1. Written
+ * while closed. */
+#define AUD_PCM_STEP (*(volatile uint32_t *)0x7000001Cu)
+/* Four bytes into the buffer, the low byte first, at a word of it. */
+#define AUD_PCM_DATA (*(volatile uint32_t *)0x70000020u)
+/* One byte into the buffer, in every lane of the word. */
+#define AUD_PCM_BYTE (*(volatile uint32_t *)0x70000024u)
+/* Empties the buffer. */
+#define AUD_PCM_CLEAR (*(volatile uint32_t *)0x70000028u)
+/* The bytes waiting to play, 0 to 4096. Nothing checks a write against
+ * the room, 4096 less this. */
+#define AUD_PCM_LEVEL (*(volatile uint32_t *)0x7000002Cu)
+/* Times the buffer ran dry since the last read or open. A read clears
+ * it. */
+#define AUD_PCM_UNDERRUNS (*(volatile uint32_t *)0x70000030u)
+/* Makes the bytes written since the last commit playable at once, as one
+ * write. */
+#define AUD_PCM_COMMIT (*(volatile uint32_t *)0x70000034u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
+/* The low word of the mtime that the last savestate load restored, which
+ * the soft CPU resumed at, so a wake can measure how long it ran. */
+#define SST_SAVED_US (*(volatile uint32_t *)0x40000008u)
 
 #endif /* _HOST_POCKET_SW_MMIO_H_ */

@@ -17,6 +17,7 @@
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/vcp.h"
+#include "machine.h"
 #include <stdio.h>
 
 __in_flash("STATUS_NAME") static const char STATUS_NAME[] =
@@ -36,7 +37,10 @@ __in_flash("STATUS_NAME") static const char STATUS_NAME[] =
 #endif
 #endif
 
-static int status_version_response(char *buf, size_t buf_size, int state, unsigned width)
+static int HOST_IN_FLASH_FUNC("status_version_response") status_version_response(char *buf,
+                                                                                 size_t buf_size,
+                                                                                 int state,
+                                                                                 unsigned width)
 {
     (void)state;
     (void)width;
@@ -51,7 +55,7 @@ void __in_flash("status_add_boot_response") status_add_boot_response(void)
     mon_add_response_fn(vga_boot_response);
 }
 
-void status_mon_status(const char *args)
+void HOST_IN_FLASH_FUNC("status_mon_status") status_mon_status(const char *args)
 {
     (void)args;
     mon_add_response_utf8(STATUS_NAME);

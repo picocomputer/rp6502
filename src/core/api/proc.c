@@ -9,6 +9,7 @@
 #include "core/api/proc.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
+#include "core/sys/com.h"
 #include "core/sys/sys.h"
 #include "osal/dir.h"
 
@@ -97,6 +98,8 @@ bool proc_stop(void)
     if (!relaunch)
     {
         set_path(&proc_launcher_path, NULL);
+        /* No ROM is launching, so the type-ahead goes. */
+        com_rx_clear();
         return false;
     }
     arg_clear();

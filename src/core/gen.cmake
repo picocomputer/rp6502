@@ -13,14 +13,41 @@ cmake_path(SET RP6502_VENDOR_DIR NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../vendo
 function(rp6502_gen_rsmp_coef target)
     set(gen ${RP6502_CORE_DIR}/gen/rsmp_coef_gen.py)
     set(out ${CMAKE_CURRENT_BINARY_DIR}/rsmp_coef.h)
-    add_custom_command(OUTPUT ${out}
-        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out}
+    set(half ${CMAKE_CURRENT_BINARY_DIR}/rsmp_half.h)
+    add_custom_command(OUTPUT ${out} ${half}
+        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out} --emit-half-h ${half}
         DEPENDS ${gen}
         COMMENT "Generating the resampler coefficients"
         VERBATIM)
-    add_custom_target(${target} DEPENDS ${out})
+    add_custom_target(${target} DEPENDS ${out} ${half})
     set(RSMP_COEF_H ${out} PARENT_SCOPE)
     set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+endfunction()
+
+function(rp6502_gen_opl_rom target)
+    set(gen ${RP6502_CORE_DIR}/gen/opl_rom_gen.py)
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/opl_rom.h)
+    add_custom_command(OUTPUT ${out}
+        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out}
+        DEPENDS ${gen}
+        COMMENT "Generating the OPL2 ROM tables"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${out})
+    set(OPL_ROM_H ${out} PARENT_SCOPE)
+    set(OPL_ROM_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
+endfunction()
+
+function(rp6502_gen_aud_sine target)
+    set(gen ${RP6502_CORE_DIR}/gen/aud_sine_gen.py)
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/aud_sine.h)
+    set(pan ${CMAKE_CURRENT_BINARY_DIR}/aud_pan.h)
+    add_custom_command(OUTPUT ${out} ${pan}
+        COMMAND ${Python3_EXECUTABLE} ${gen} --emit-h ${out} --emit-pan-h ${pan}
+        DEPENDS ${gen}
+        COMMENT "Generating the PSG sine and pan tables"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${out} ${pan})
+    set(AUD_SINE_DIR ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)
 endfunction()
 
 function(rp6502_gen_oemcp target)

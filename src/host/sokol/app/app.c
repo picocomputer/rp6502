@@ -9,7 +9,6 @@
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
-#include "host/sokol/cli/state.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -117,7 +116,8 @@ static void update_title(void)
 }
 
 /* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
- * AAudio, and on the browser's main thread on WebAudio. */
+ * AAudio, and on the browser's main thread on WebAudio. It makes what it
+ * plays on the spot, from what the frames have stamped. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
 {
     (void)num_channels;
@@ -144,24 +144,20 @@ void app_init(void)
          * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
          * which stops while the window moves, and its size must be a power of
          * two, so the web build uses 1024 frames, 21.3 ms. */
+#ifdef __EMSCRIPTEN__
+        const int buffer_frames = 1024;
+#else
+        const int buffer_frames = 512;
+#endif
+        aud_set_streaming(true);
         saudio_setup(&(saudio_desc){
             .sample_rate = 48000,
             .num_channels = 2,
-#ifdef __EMSCRIPTEN__
-            .buffer_frames = 1024,
-#else
-            .buffer_frames = 512,
-#endif
+            .buffer_frames = buffer_frames,
             .stream_cb = stream_cb,
             .logger.func = app_log,
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
-        /* The callback runs on the device's own thread on every backend but
-         * WebAudio, so saving or loading a state has to park it out of the
-         * engines. The flag is set on WebAudio too, where the callback shares
-         * the main thread and the park goes unanswered until state_park's spin
-         * bound runs out. */
-        state_audio_is_threaded(true);
     }
     gfx_setup();
     host_window_init();
@@ -254,9 +250,13 @@ void app_frame(void)
     update_title();
     /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
      * the halt it shows is not a program exiting and must not close the
-     * window. */
+     * window. The frame that saw the exit drew the lines above the beam
+     * before the program's last writes, so one more frame is drawn after it
+     * to be the last picture presented. */
     if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
     {
+        vga_run_frame();
+        ran_frame = true;
         app_quit_asked = true;
         sapp_request_quit();
     }

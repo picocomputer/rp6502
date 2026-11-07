@@ -4,6 +4,9 @@ include(${RP6502_ROOT}/src/osal/pico/pico.cmake)
 include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_oemcp(oemcp)
 rp6502_gen_kbdlay(kbdlay)
+rp6502_gen_opl_rom(opl_rom)
+rp6502_gen_aud_sine(aud_sine)
+rp6502_gen_rsmp_coef(rsmp_coef)
 
 set(HID_USAGE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_usage.stamp)
 set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
@@ -19,7 +22,7 @@ add_custom_command(OUTPUT ${HID_USAGE_STAMP}
 add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})
 
 add_executable(${RIA_TARGET})
-add_dependencies(${RIA_TARGET} hid_usage)
+add_dependencies(${RIA_TARGET} hid_usage opl_rom rsmp_coef aud_sine)
 rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
@@ -66,7 +69,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
     LFS_DEFINES=osal/pico/lfs_log.h
-    USE_EMU8950_OPL=1
 )
 
 target_sources(${RIA_TARGET} PRIVATE
@@ -94,10 +96,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c
     ${RIA_SRC}/aud/mix.c
-    ${RP6502_ROOT}/src/core/aud/sine.c
     ${RP6502_ROOT}/src/core/aud/bel.c
-    ${RP6502_ROOT}/src/core/aud/bel_presets.c
     ${RP6502_ROOT}/src/core/aud/opl.c
+    ${RP6502_ROOT}/src/core/aud/pcm.c
     ${RP6502_ROOT}/src/core/aud/psg.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
@@ -150,15 +151,9 @@ rp6502_use_version_header(${RIA_TARGET}
 )
 
 target_sources(${RIA_TARGET} PRIVATE
-    ${RP6502_ROOT}/vendor/emu8950/emu8950.c
     ${RP6502_ROOT}/vendor/fatfs/ff.c
     ${RP6502_ROOT}/vendor/littlefs/lfs.c
     ${RP6502_ROOT}/vendor/littlefs/lfs_util.c
-)
-
-set_source_files_properties(
-    ${RP6502_ROOT}/vendor/emu8950/emu8950.c
-    PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-unused-function;-Wno-calloc-transposed-args"
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE

@@ -35,25 +35,34 @@
 #include "core/sys/driver.h"
 #include <hardware/sync.h>
 
-/* 8 MHz 6502 and 49716 Hz audio is at most 40 */
+/* Every XRAM write the 6502 makes through RW0 or RW1 into a mapped engine's
+ * bytes, for the audio interrupt on core0 to hand to that engine. An entry
+ * is the PIX word act_loop sends for the write: the address in bits 0-15
+ * and the value in bits 16-23. The bus allows a write
+ * every four PHI2 cycles, at most 40 a sample at 8 MHz and 49716 Hz, so 64
+ * entries hold a sample of writes with room for the interrupt to start late.
+ * act_loop on core1 is the only producer: an entry is written, then head
+ * publishes it, and a write that finds the ring full is dropped and counted
+ * in lost. core0 is the only consumer and owns tail. */
 #define RIA_AUD_RING_SIZE 64
-extern volatile uint8_t ria_aud_head;
-extern volatile uint8_t ria_aud_tail;
-extern volatile uint8_t ria_aud_ring[RIA_AUD_RING_SIZE][2];
-
-static inline bool ria_aud_next(uint8_t *loc, uint8_t *val)
+typedef struct
 {
-    if (ria_aud_tail == ria_aud_head)
-        return false;
-    /* Pairs with the release barrier in act_loop: the entry is written before
-     * the head that publishes it, and read after. */
-    __dmb();
-    uint8_t tail = (ria_aud_tail + 1) & (RIA_AUD_RING_SIZE - 1);
-    ria_aud_tail = tail;
-    *loc = ria_aud_ring[tail][0];
-    *val = ria_aud_ring[tail][1];
-    return true;
-}
+    volatile uint32_t entry[RIA_AUD_RING_SIZE];
+    volatile uint8_t head;
+    volatile uint8_t tail;
+    volatile uint32_t lost;
+    /* Where the PSG's 64 bytes and the OPL2's 256 start, or 0x10000, which
+     * no address reaches, while parked. A store anywhere else, graphics
+     * most of all, is never queued. core0 sets them as it lets go of its
+     * engine lock.
+     * The 6502 can write XRAM all through an xreg call, from an interrupt
+     * handler or while it polls RIA_BUSY, so a write is queued or not by the
+     * values act_loop reads as it lands. Beside the ring, so act_loop reads
+     * both with the pointer it already holds. */
+    volatile uint32_t psg_at;
+    volatile uint32_t opl_at;
+} ria_aud_ring_t;
+extern ria_aud_ring_t ria_aud;
 
 /* Main events
  */

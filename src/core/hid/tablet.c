@@ -138,7 +138,7 @@ bool tablet_xreg(uint16_t word)
     return mapped || word == 0xFFFF;
 }
 
-bool HOST_IN_FLASH("tablet_mount") tablet_mount(int slot, const tablet_connection_t *desc)
+bool tablet_mount(int slot, const tablet_connection_t *desc)
 {
     if (!desc->valid)
         return false;

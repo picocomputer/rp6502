@@ -127,8 +127,7 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags);
         .read = rom_std_read,       \
         .sync = rom_std_sync,       \
         .lseek = rom_std_lseek,     \
-        .ident = rom_std_ident,     \
-        .reopen = rom_std_reopen,   \
+        STD_SST_COLS(rom_std_ident, rom_std_reopen, false) \
     }
 
 #endif /* _CORE_ROM_ROM_H_ */

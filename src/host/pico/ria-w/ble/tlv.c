@@ -39,7 +39,7 @@ static void tlv_report_error_once(int result)
     }
 }
 
-static void __in_flash("tlv_init") tlv_init(void)
+static void tlv_init(void)
 {
     if (init_attempted)
         return;

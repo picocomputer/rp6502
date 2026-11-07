@@ -32,7 +32,6 @@
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
 #include "sw/wake.h"
-#include "sw/bel.h"
 #include "sw/cfg.h"
 #include "sw/fs.h"
 #include "sw/vid.h"
@@ -45,13 +44,15 @@
  *
  * FS_DRIVER follows STD_DRIVER because stop hooks run in reverse, and fs_stop
  * has to collect a command that a stopped program left in flight before
- * std_stop's closes send their Flush.
+ * std_stop's closes send their Flush. AUD_DRIVER follows them so that
+ * aud_stop empties PCM before std_stop closes it, which would otherwise wait
+ * for the buffer to play.
  */
 #define RP6502_MACH_DRIVERS                             \
     CFG_DRIVER, PROC_DRIVER,                            \
     STR_DRIVER,                                         \
-    AUD_DRIVER, BEL_DRIVER,                             \
     COM_DRIVER, STD_DRIVER, FS_DRIVER,                  \
+    AUD_DRIVER,                                         \
     RLN_DRIVER, TERM_DRIVER,                            \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
@@ -62,7 +63,7 @@
 
 /* open() tries these rows in order, and the filesystem row accepts every
  * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */

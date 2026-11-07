@@ -113,21 +113,24 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(0); push(0); push(3); pushw(0x1200); pushw(0x1300);
     op1();
 
-    /* Device 0, channel 1, register 0 is the PSG pointer. */
+    /* Device 0, channel 1, register 0 is the PSG pointer. Its 64 bytes may
+     * start anywhere they fit in XRAM. */
     push(0); push(1); push(0); pushw(0x9000);
     op1();
     push(0); push(1); push(0); pushw(0x9001); /* odd */
     op1();
     push(0); push(1); push(0); pushw(0xFFC2); /* runs past the end of XRAM */
     op1();
-    push(0); push(1); push(0); pushw(0x90C2); /* crosses its page */
+    push(0); push(1); push(0); pushw(0x90C2); /* crosses a page */
     op1();
     push(0); push(1); push(0); pushw(0x8000);
     op1();
 
-    /* Register 1 on the same channel is the OPL pointer, which must be page
-     * aligned. */
-    push(0); push(1); push(1); pushw(0xF001); /* not page aligned */
+    /* Register 1 on the same channel is the OPL pointer. Its 256 bytes may
+     * start anywhere they fit in XRAM too. */
+    push(0); push(1); push(1); pushw(0xFF01); /* runs past the end of XRAM */
+    op1();
+    push(0); push(1); push(1); pushw(0xF001); /* not on a page */
     op1();
     push(0); push(1); push(1); pushw(0xF000);
     op1();

@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/aud/mix.h"
 #include "core/ria/regs.h"
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
@@ -113,15 +114,20 @@ unsigned long vga_frame_count(void) { return frame_n; }
 bool vga_run_frame(void)
 {
     const unsigned long want = frame_n + 1;
+    bool whole = true;
     while (frame_n != want)
     {
         if (dbg_is_stopped() && sys_running())
-            return false;
+        {
+            whole = false;
+            break;
+        }
         sys_task();
         sys_io_task();
         sys_commit();
     }
-    return true;
+    aud_step();
+    return whole;
 }
 
 vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes)

@@ -41,6 +41,11 @@ void resb_init(void) { resb_down = true; }
 void resb_assert(void) { resb_down = true; }
 void resb_release(void) { resb_down = false; }
 
+/* sst_load empties the PCM: device first and sst_save settles the mixer,
+ * and the roster has neither. */
+void aud_pcm_clear(void) {}
+void aud_sst_settle(void) {}
+
 const std_driver_t *std_drivers(size_t *count)
 {
     static const std_driver_t none[1];

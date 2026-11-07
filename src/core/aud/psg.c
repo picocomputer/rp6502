@@ -5,21 +5,14 @@
  */
 
 #include "core/aud/mix.h"
-#include "core/aud/opl.h"
 #include "core/aud/psg.h"
-#include "core/aud/sine.h"
-#include "core/sys/ria.h"
-#include "core/sys/xram.h"
-#include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
 #define PSG_CHANNELS 8
-
-/* The divisor the phase increments come out of. A channel's freq register
- * is Hertz times three, for a resolution of a third of a hertz, so an
- * increment divides by three times the sample rate. */
-#define PSG_PHASE_DIV (3u * AUD_NATIVE_RATE)
+/* The eight and the bell, which is the ninth voice here as in psg.sv. */
+#define PSG_VOICES 9
+#define PSG_BEL 8
 
 /* Full scale of a generated wave, and the value a closed duty gate rails
  * to. The rail is -PSG_PEAK rather than the true minimum, so that it is
@@ -27,15 +20,17 @@
 #define PSG_PEAK 32767
 #define PSG_RAIL (-32767)
 
-enum psg_adsr_state
+/* The order is psg.sv's and the savestate's. */
+enum
 {
-    release,
-    attack,
-    decay,
-    sustain,
+    PSG_ADSR_RELEASE,
+    PSG_ADSR_ATTACK,
+    PSG_ADSR_DECAY,
+    PSG_ADSR_SUSTAIN,
 };
 
-static volatile uint16_t psg_xaddr;
+/* Parked, so the eight are not mixed until a program maps the PSG. */
+static uint16_t psg_xaddr = 0xFFFF;
 
 static const uint32_t psg_vol_table[] = {
     256 << 16,
@@ -55,6 +50,31 @@ static const uint32_t psg_vol_table[] = {
     7 << 16,
     0 << 16,
 };
+
+/* Phase 0 is the trough and phase 128 the peak, because a voice indexes
+ * this with the top byte of its phase and opens its duty gate around 128. */
+static const int16_t psg_sine_table[256] = {
+#include "aud_sine.h"
+};
+
+/* The constant-power pan law, out of 4096: a voice at pan p weighs
+ * psg_pan_table[63 - p] on the left and psg_pan_table[63 + p] on the
+ * right. The centre, 1024, puts a full sine at one OPL2 channel's level. */
+static const uint16_t psg_pan_table[127] = {
+#include "aud_pan.h"
+};
+
+/* A voice's freq holds hertz times three, so its phase increment is
+ * freq * 2^32 / (3 * AUD_NATIVE_RATE), floored. The divide is a multiply by
+ * the reciprocal rounded up, which gives the same result for every 16-bit
+ * freq at both rates this is built for, 49716 Hz and the 48000 Hz of
+ * tests/rtl/aud. psg.sv multiplies by a constant of its own, exact at
+ * 48000 Hz. */
+#define PSG_PHASE_MUL ((((uint64_t)1 << 63) + 3u * AUD_NATIVE_RATE - 1) / (3u * AUD_NATIVE_RATE))
+static inline uint32_t psg_phase_inc(uint16_t freq)
+{
+    return (uint32_t)(((uint64_t)freq * PSG_PHASE_MUL) >> 31);
+}
 
 /* Same rates as the 6581 SID, in milliseconds, as the increments they come
  * to at AUD_NATIVE_RATE. The rate multiplies before it divides by 1000
@@ -87,28 +107,45 @@ struct psg_channel
     uint8_t unused;
 };
 
+_Static_assert(PSG_CHANNELS * sizeof(struct psg_channel) == PSG_REGS_SIZE, "the block psg_sample reads");
+
+/* The noise words are sixteen bits: an XOR and an add carry only upward,
+ * and only noise2's low half is played. */
 static struct
 {
     int16_t sample;
     uint8_t adsr;
     uint32_t vol;
     uint32_t phase;
-    uint32_t noise1;
-    uint32_t noise2;
-    /* The last frequency this channel was written and the increment it
-     * divides out to. The step loop divides only when the register has
-     * changed, so a new note costs the divide and every sample after it
-     * does not. Zero and zero is a correct pair, so no validity flag is
-     * needed. */
-    uint16_t freq;
-    uint32_t phase_inc;
-} psg_channel_state[PSG_CHANNELS];
+    uint16_t noise1;
+    uint16_t noise2;
+} psg_channel_state[PSG_VOICES] = {
+    /* Nothing clears the bell's noise, so it starts seeded. */
+    [PSG_BEL] = {.noise1 = 0x2301, .noise2 = 0xAB89},
+};
+
+/* The engine's own channel structures, as psg.sv's are: the program's
+ * eight, which a map clears, then the bell's. Every write reaches them
+ * through psg_put. XRAM is the program's and is never read. */
+static struct psg_channel psg_regs[PSG_VOICES];
+
+/* A silent bell with no frequency and no noise steps to the same state
+ * every sample, so the mix skips it. psg.sv's walk steps it anyway, to the
+ * same end. */
+bool psg_bel_idle(void)
+{
+    return psg_channel_state[PSG_BEL].adsr == PSG_ADSR_RELEASE &&
+           !psg_channel_state[PSG_BEL].vol && !psg_regs[PSG_BEL].freq &&
+           (psg_regs[PSG_BEL].wave_release >> 4) != 4;
+}
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 void psg_sample(int16_t *left, int16_t *right)
 {
-    struct psg_channel *channels = (void *)&xram[psg_xaddr];
+    /* The eight while a program maps them, then the bell while it sounds. */
+    const unsigned lo = psg_xaddr != 0xFFFF ? 0 : PSG_BEL;
+    const unsigned hi = psg_bel_idle() ? PSG_BEL : PSG_VOICES;
 
     /* The mix comes first, from the wave and envelope the last step left
      * and the registers as they stand now; the step comes after. That is
@@ -121,27 +158,27 @@ void psg_sample(int16_t *left, int16_t *right)
      * 256 << 16, so a shift of twelve makes full volume unity gain. */
     int32_t acc_l = 0;
     int32_t acc_r = 0;
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = lo; i < hi; i++)
     {
+        const struct psg_channel *ch = &psg_regs[i];
         int32_t sample = ((int32_t)psg_channel_state[i].sample
                               * (int32_t)(psg_channel_state[i].vol >> 12)
                           + (1 << 11))
                          >> 12;
-        int8_t pan = (int8_t)channels[i].pan_gate / 2;
+        int8_t pan = (int8_t)ch->pan_gate / 2;
         /* A pan_gate of 0x80 halves to -64, one past the documented
-         * -63 to 63, and drops the channel from the mix. psg.sv tests for
-         * the same value. */
+         * -63 to 63, and drops the channel from the mix. psg.sv reads
+         * zero weights for the same value. */
         if (pan != -64)
         {
-            acc_l += sample * (63 - pan);
-            acc_r += sample * (63 + pan);
+            acc_l += sample * psg_pan_table[63 - pan];
+            acc_r += sample * psg_pan_table[63 + pan];
         }
     }
-    /* The pan weights run from 0 to 126 against a shift of 128, so a
-     * centred channel puts 63/128 on each side and a hard-panned one keeps
-     * 126/128 of full scale. */
-    acc_l = (acc_l + 64) >> 7;
-    acc_r = (acc_r + 64) >> 7;
+    /* Constant-power weights out of 4096: a centred channel puts 1/4 on
+     * each side and a hard-panned one 0.354 on one, the same power. */
+    acc_l = (acc_l + 2048) >> 12;
+    acc_r = (acc_r + 2048) >> 12;
     if (acc_l < AUD_SAMPLE_MIN)
         acc_l = AUD_SAMPLE_MIN;
     if (acc_l > AUD_SAMPLE_MAX)
@@ -153,25 +190,20 @@ void psg_sample(int16_t *left, int16_t *right)
     *left = (int16_t)acc_l;
     *right = (int16_t)acc_r;
 
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = lo; i < hi; i++)
     {
-        if (channels[i].freq != psg_channel_state[i].freq)
-        {
-            psg_channel_state[i].freq = channels[i].freq;
-            psg_channel_state[i].phase_inc =
-                (uint32_t)(((uint64_t)channels[i].freq << 32) / PSG_PHASE_DIV);
-        }
-        psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
+        const struct psg_channel *ch = &psg_regs[i];
+        psg_channel_state[i].phase += psg_phase_inc(ch->freq);
         uint32_t phase = psg_channel_state[i].phase >> 24;
-        uint32_t duty = channels[i].duty;
-        switch (channels[i].wave_release >> 4)
+        uint32_t duty = ch->duty;
+        switch (ch->wave_release >> 4)
         {
         case 0: // sine
             duty >>= 1;
             if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = PSG_RAIL;
             else
-                psg_channel_state[i].sample = sine_table[phase];
+                psg_channel_state[i].sample = psg_sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)
@@ -215,53 +247,53 @@ void psg_sample(int16_t *left, int16_t *right)
 
         switch (psg_channel_state[i].adsr)
         {
-        case attack:
-            psg_channel_state[i].vol += psg_attack_table[channels[i].vol_attack & 0xF];
-            if (psg_channel_state[i].vol >= psg_vol_table[channels[i].vol_attack >> 4])
+        case PSG_ADSR_ATTACK:
+            psg_channel_state[i].vol += psg_attack_table[ch->vol_attack & 0xF];
+            if (psg_channel_state[i].vol >= psg_vol_table[ch->vol_attack >> 4])
             {
-                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_attack >> 4];
-                psg_channel_state[i].adsr = decay;
+                psg_channel_state[i].vol = psg_vol_table[ch->vol_attack >> 4];
+                psg_channel_state[i].adsr = PSG_ADSR_DECAY;
             }
             break;
-        case decay:
-            if (psg_channel_state[i].vol <= psg_decay_release_table[channels[i].vol_decay & 0xF])
+        case PSG_ADSR_DECAY:
+            if (psg_channel_state[i].vol <= psg_decay_release_table[ch->vol_decay & 0xF])
                 psg_channel_state[i].vol = 0;
             else
-                psg_channel_state[i].vol -= psg_decay_release_table[channels[i].vol_decay & 0xF];
-            if (psg_channel_state[i].vol > psg_vol_table[channels[i].vol_decay >> 4])
+                psg_channel_state[i].vol -= psg_decay_release_table[ch->vol_decay & 0xF];
+            if (psg_channel_state[i].vol > psg_vol_table[ch->vol_decay >> 4])
                 break;
-            psg_channel_state[i].adsr = sustain;
+            psg_channel_state[i].adsr = PSG_ADSR_SUSTAIN;
             __attribute__((fallthrough));
-        case sustain:
-            if (psg_vol_table[channels[i].vol_decay >> 4] <= psg_vol_table[channels[i].vol_attack >> 4])
-                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_decay >> 4];
+        case PSG_ADSR_SUSTAIN:
+            if (psg_vol_table[ch->vol_decay >> 4] <= psg_vol_table[ch->vol_attack >> 4])
+                psg_channel_state[i].vol = psg_vol_table[ch->vol_decay >> 4];
             break;
-        case release:
-            if (psg_channel_state[i].vol <= psg_decay_release_table[channels[i].wave_release & 0xF])
+        case PSG_ADSR_RELEASE:
+            if (psg_channel_state[i].vol <= psg_decay_release_table[ch->wave_release & 0xF])
                 psg_channel_state[i].vol = 0;
             else
-                psg_channel_state[i].vol -= psg_decay_release_table[channels[i].wave_release & 0xF];
+                psg_channel_state[i].vol -= psg_decay_release_table[ch->wave_release & 0xF];
             break;
         }
     }
 }
 
 /* Only the gate bit of pan_gate has to be caught as it happens, because it
- * starts and releases a note; every other byte is read from XRAM by the mix,
- * where a change simply takes effect on the next sample. */
-void psg_xram_write(uint8_t loc, uint8_t val)
+ * starts and releases a note; every other byte lands in the structure and
+ * takes effect on the next sample. */
+static void psg_gate(unsigned i, uint8_t val)
 {
-    uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
-    uint16_t offset = xaddr - psg_xaddr;
-    if ((offset % sizeof(struct psg_channel)) != offsetof(struct psg_channel, pan_gate))
-        return;
-    unsigned i = offset / sizeof(struct psg_channel);
-    if (i >= PSG_CHANNELS)
-        return;
-    if (!(val & 0x01) && psg_channel_state[i].adsr != release)
-        psg_channel_state[i].adsr = release;
-    if ((val & 0x01) && psg_channel_state[i].adsr == release)
-        psg_channel_state[i].adsr = attack;
+    if (!(val & 0x01) && psg_channel_state[i].adsr != PSG_ADSR_RELEASE)
+        psg_channel_state[i].adsr = PSG_ADSR_RELEASE;
+    if ((val & 0x01) && psg_channel_state[i].adsr == PSG_ADSR_RELEASE)
+        psg_channel_state[i].adsr = PSG_ADSR_ATTACK;
+}
+
+void psg_put(unsigned offset, uint8_t val)
+{
+    ((uint8_t *)psg_regs)[offset] = val;
+    if (offset % sizeof(struct psg_channel) == offsetof(struct psg_channel, pan_gate))
+        psg_gate(offset / sizeof(struct psg_channel), val);
 }
 #pragma GCC pop_options
 
@@ -273,95 +305,66 @@ void psg_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put_u16(c, psg_xaddr);
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = 0; i < PSG_VOICES; i++)
     {
         sst_put_u16(c, (uint16_t)psg_channel_state[i].sample);
         sst_put_u8(c, psg_channel_state[i].adsr);
         sst_put_u32(c, psg_channel_state[i].vol);
         sst_put_u32(c, psg_channel_state[i].phase);
-        sst_put_u32(c, psg_channel_state[i].noise1);
-        sst_put_u32(c, psg_channel_state[i].noise2);
-        sst_put_u16(c, psg_channel_state[i].freq);
-        sst_put_u32(c, psg_channel_state[i].phase_inc);
+        sst_put_u16(c, psg_channel_state[i].noise1);
+        sst_put_u16(c, psg_channel_state[i].noise2);
     }
+    for (unsigned i = 0; i < sizeof psg_regs; i++)
+        sst_put_u8(c, ((const uint8_t *)psg_regs)[i]);
 }
 
 bool psg_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     uint16_t at = sst_get_u16(c);
-    __typeof__(psg_channel_state[0]) ch[PSG_CHANNELS];
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    __typeof__(psg_channel_state[0]) ch[PSG_VOICES];
+    for (unsigned i = 0; i < PSG_VOICES; i++)
     {
         ch[i].sample = (int16_t)sst_get_u16(c);
         ch[i].adsr = sst_get_u8(c);
         ch[i].vol = sst_get_u32(c);
         ch[i].phase = sst_get_u32(c);
-        ch[i].noise1 = sst_get_u32(c);
-        ch[i].noise2 = sst_get_u32(c);
-        ch[i].freq = sst_get_u16(c);
-        ch[i].phase_inc = sst_get_u32(c);
-        if (ch[i].adsr > sustain)
+        ch[i].noise1 = sst_get_u16(c);
+        ch[i].noise2 = sst_get_u16(c);
+        if (ch[i].adsr > PSG_ADSR_SUSTAIN)
             return false;
     }
-    /* psg_sample reads the 64-byte block at &xram[psg_xaddr] once a sample
-     * with nothing guarding it, so a restored pointer has to pass the three
-     * tests psg_xreg applies to a written one unless it is the parked
-     * 0xFFFF: the address is even, because a channel begins with a uint16_t;
-     * the block ends inside XRAM; and the block stays inside one page,
-     * because psg.sv recognises a write to it by comparing pages. */
-    if (!sst_ok(c) ||
-        (at != 0xFFFF &&
-         (at & 1 || at > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-          (at >> 8) != ((at + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8))))
+    uint8_t regs[sizeof psg_regs];
+    for (unsigned i = 0; i < sizeof regs; i++)
+        regs[i] = sst_get_u8(c);
+    if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
         return false;
     psg_xaddr = at;
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    for (unsigned i = 0; i < PSG_VOICES; i++)
         psg_channel_state[i] = ch[i];
+    memcpy(psg_regs, regs, sizeof regs);
     return true;
 }
 
-bool psg_xreg(uint16_t word)
+void psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
      * inherits the last one's envelopes. psg.sv does the same: it resets
-     * on any write to its pointer register, 0xFFFF included.
+     * on any write to its pointer register, 0xFFFF included. The phase goes
+     * too, because psg.sv steps the eight while parked and this does not.
      *
-     * The noise generator's starting constants come from
+     * The noise generator's starting constants are the low halves of
      * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
      */
-    aud_engine_lock();
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        psg_channel_state[i].noise1 = 0x67452301;
-        psg_channel_state[i].noise2 = 0xEFCDAB89;
+        psg_channel_state[i].noise1 = 0x2301;
+        psg_channel_state[i].noise2 = 0xAB89;
         psg_channel_state[i].vol = 0;
-        psg_channel_state[i].adsr = release;
-        psg_channel_state[i].freq = 0;
-        psg_channel_state[i].phase_inc = 0;
+        psg_channel_state[i].phase = 0;
+        psg_channel_state[i].adsr = PSG_ADSR_RELEASE;
     }
-    if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
-    {
-        psg_xaddr = 0xFFFF;
-        /* Hand the mix back as well, because psg_sample would otherwise go
-         * on reading the 64-byte channel block at 0xFFFF, which runs 63
-         * bytes past the end of XRAM. */
-        aud_stop();
-        aud_engine_unlock();
-        return word == 0xFFFF;
-    }
+    /* The registers start at zero, whatever XRAM holds. */
+    memset(psg_regs, 0, PSG_REGS_SIZE);
     psg_xaddr = word;
-    /* Taking the PSG releases the OPL's pointer, since aud_dev names one
-     * device and only that one is mixed. */
-    opl_park();
-    aud_setup(aud_dev_psg);
-    /* Watching is what arms the reporting, so it is asked for after the
-     * device those reports go to, and inside the lock: on the Pico it is
-     * also what drops whatever the RW engine queued for the engine being
-     * put away, which must not reach this one. */
-    ria_aud_watch(word);
-    aud_engine_unlock();
-    return true;
 }

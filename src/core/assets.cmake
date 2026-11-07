@@ -37,9 +37,6 @@ endfunction()
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
     WANTS "the w65c02 decode table generator")
-rp6502_submodule(vendor/opl2_fpga
-    SENTINEL fpga/modules/operator/src/opl2_log_sine_lut.sv
-    WANTS "the OPL2 core and its lookup tables")
 
 set(W65C02_GEN ${RP6502_SRC}/core/gen/w65c02_rom_gen.py)
 set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
@@ -69,21 +66,18 @@ rp6502_core_asset(aud_sine_rom GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
     OUTPUTS ${AUD_SINE_PKG}
     COMMENT "Generating the aud sine ROM")
 
-set(OPL2_LUT_SRC ${RP6502_VENDOR}/opl2_fpga/fpga/modules/operator/src)
-set(OPL2_LUT_PKG ${RP6502_ASSETS}/opl2_lut_pkg.sv)
-rp6502_core_asset(opl2_lut_rom GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
-    ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
-        --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv
-        --emit-sv ${OPL2_LUT_PKG}
-    OUTPUTS ${OPL2_LUT_PKG}
-    DEPENDS ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
-        ${OPL2_LUT_SRC}/opl2_exp_lut.sv
-    COMMENT "Generating the merged OPL2 LUT ROM")
+set(OPL_ROM_PKG ${RP6502_ASSETS}/opl_rom_pkg.sv)
+rp6502_core_asset(opl_rom_pkg GEN ${RP6502_SRC}/core/gen/opl_rom_gen.py
+    ARGS --emit-sv ${OPL_ROM_PKG}
+    OUTPUTS ${OPL_ROM_PKG}
+    COMMENT "Generating the OPL2 ROM package")
 
+# rsmp_half.h holds rows 0 to 64, which core/aud/pcm.c includes.
 set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
+set(RSMP_HALF_H ${RP6502_ASSETS}/rsmp_half.h)
 rp6502_core_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/core/gen/rsmp_coef_gen.py
-    ARGS --emit-sv ${RSMP_COEF_PKG}
-    OUTPUTS ${RSMP_COEF_PKG}
+    ARGS --emit-sv ${RSMP_COEF_PKG} --emit-half-h ${RSMP_HALF_H}
+    OUTPUTS ${RSMP_COEF_PKG} ${RSMP_HALF_H}
     COMMENT "Generating the resampler coefficient package")
 
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)

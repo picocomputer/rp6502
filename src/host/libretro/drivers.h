@@ -57,13 +57,13 @@
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 /* No host attaches a serial port to this machine, so the only bytes that ever
  * reach the UART source are the terminal's replies to a program's queries,
  * which core/com/com.c promotes into that ring. */
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = COM_KEYBOARD_SOURCE, \
+    [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
     [COM_SOURCE_UART] = COM_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

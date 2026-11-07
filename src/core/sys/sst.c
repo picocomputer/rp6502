@@ -17,6 +17,7 @@
 #include "core/sys/sst.h"
 
 #include "core/api/std.h"
+#include "core/aud/mix.h"
 #include "core/sys/sys.h"
 #include "core/wdc/resb.h"
 #include "host/host.h"
@@ -221,6 +222,7 @@ static const char *sst_write(uint8_t *buf, unsigned flags)
     buf[16] = latch.state;
     buf[17] = (uint8_t)((latch.held ? 1 : 0) | (latch.breaking ? 2 : 0));
 
+    aud_sst_settle();
     sst_body = buf + SST_HEADER_LEN;
     sst_offset = 0;
     sst_walk_bad = false;
@@ -286,6 +288,9 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
     if (!sys_latch_apply(&latch))
         return "a savestate of a machine that could not have existed";
 
+    /* The PCM: device is emptied first, so the close that the STD row makes
+     * of it has nothing to wait for while machine time stands still. */
+    aud_pcm_clear();
     sst_body = (uint8_t *)(uintptr_t)(p + SST_HEADER_LEN);
     sst_offset = 0;
     sst_walk_bad = false;
@@ -301,6 +306,7 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
     const char *why = sst_why;
     if (guarded)
     {
+        aud_pcm_clear();
         sst_body = sst_scratch + SST_HEADER_LEN;
         sst_offset = 0;
         sst_walk_bad = false;

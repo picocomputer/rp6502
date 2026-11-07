@@ -499,7 +499,7 @@ void ble_task(void)
     }
 }
 
-static void ble_set_config(uint8_t ble)
+static void HOST_IN_FLASH_FUNC("ble_set_config") ble_set_config(uint8_t ble)
 {
     switch (ble)
     {
@@ -570,7 +570,8 @@ void ble_shutdown(void)
     ble_state = BLE_OFF;
 }
 
-int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
+int HOST_IN_FLASH_FUNC("ble_status_response") ble_status_response(char *buf, size_t buf_size,
+                                                                  int state, unsigned)
 {
     (void)state;
     if (ble_get_enabled())
@@ -610,7 +611,8 @@ void ble_init(void)
     ble_set_config(ble_get_enabled());
 }
 
-int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC("ble_enabled_response") ble_enabled_response(char *buf, size_t buf_size,
+                                                                    int state, unsigned width)
 {
     (void)state;
     (void)width;

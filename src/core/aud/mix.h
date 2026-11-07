@@ -8,6 +8,7 @@
 #define _CORE_AUD_MIX_H_
 
 #include "core/aud/bel.h"
+#include "core/aud/pcm.h"
 #include "core/aud/rsmp.h"
 #include "core/sys/sst.h"
 #include <stddef.h>
@@ -16,8 +17,8 @@
 
 /* The rate the soft machine makes samples at: a YM3812's 3579552 / 72, which
  * is 49716 exactly, and which the PSG and the bell adopted so that nothing
- * has to be converted before the mix. One build overrides it, tests/rtl/aud,
- * to hold the C at the 48 kHz its fabric model is elaborated at.
+ * has to be converted before the mix. The Pocket's firmware and tests/rtl/aud
+ * override it with the 48 kHz the fabric mixes at.
  */
 
 #ifndef AUD_NATIVE_RATE
@@ -27,46 +28,68 @@
 void aud_init(void);
 void aud_stop(void);
 
-/* Drop the device and give back what the engines hold. For a host that unloads
- * this library; a host that exits needs nothing. */
-void aud_shutdown(void);
+/* Polls the bell's sequencer. */
+void aud_task(void);
 
-/* The device to mix, or none. psg_xreg and opl_xreg register themselves here
- * and aud_stop stops whichever is registered, which is one of them: taking
- * either engine parks the other. The bell is not a device, so every mixer
- * adds it whatever this says.
- * The engine is named rather than passed as a function pointer because a
- * savestate has to say which one is sounding in bytes another build will
- * read back.
- */
+/* Byte i of the bell voice's channel structure, from the bell's sequencer.
+ * Each machine takes it to its PSG on its own path. */
+void aud_bel_put(unsigned i, uint8_t val);
 
-typedef enum
-{
-    aud_dev_none = 0,
-    aud_dev_psg,
-    aud_dev_opl,
-} aud_dev_t;
+/* An engine sounds while its pointer is mapped, as psg.sv and opl.sv do, so
+ * the PSG and the OPL2 can sound at once and their outputs sum. The bell is
+ * the PSG's ninth voice, so a mixer runs psg_sample while the PSG is mapped
+ * or the bell sounds. aud_stop parks both engines and leaves the bell. */
 
-void aud_setup(aud_dev_t dev);
-aud_dev_t aud_device(void);
-
-/* aud_device answers none while a probe is installed, so a savestate never
- * names it. */
+/* While a probe is installed it is the only engine mixed. */
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
 
-/* A 6502 write the RW engine saw on the watched page, applied to whichever
- * engine is sounding. ria_aud_watch is what arms this. A software machine
- * calls it where the write happens rather than leaving the write somewhere
- * for the mixer to find, because a buffer between the two would have to be
- * deep enough for a whole frame of a program's preamble. */
+/* Every 6502 write to XRAM, handed to each engine whose bytes it lands in. A
+ * software machine calls it where the write happens, before XRAM takes the
+ * byte. It stamps the write with the sample its cycle falls in and the mix
+ * applies it before making that sample, whenever the sink asks for it. The
+ * Pico's RW engine is core1, which queues those writes for the audio
+ * interrupt on core0 instead. */
 void aud_xram_write(uint16_t addr, uint8_t val);
 
-/* Held across one sample by the thread that generates and across one write by
- * the thread that programs, so the engines are never stepped and written at
- * once. Both sides are microseconds, so this spins rather than sleeping; a
- * machine whose sink shares its thread never contends at all. */
-void aud_engine_lock(void);
-void aud_engine_unlock(void);
+/* An engine's xreg mapping it at word or parking it, 0xFFFF, and resetting
+ * it either way. The Pico does it at once under its engine lock, all but the
+ * OPL2's reset, which is longer than a sample; a software machine stamps it
+ * as it stamps a write; the Pocket writes the fabric's pointer and, for the
+ * PSG, waits out the pass that zeroes its registers. */
+void aud_psg_map(uint16_t word);
+void aud_opl_map(uint16_t word);
+
+/* The PCM: device's sound, which each machine's mixer keeps for
+ * core/aud/pcm.c. aud_pcm_open fails while one is open. aud_pcm_level is the
+ * bytes waiting to play as the program sees them, at the machine's present,
+ * and aud_pcm_clear empties them. */
+bool aud_pcm_open(const pcm_fmt_t *fmt);
+void aud_pcm_close(void);
+uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n);
+uint16_t aud_pcm_level(void);
+void aud_pcm_clear(void);
+
+/* A software machine's present, at the end of each frame: the stamps before
+ * it are all in. A sink on the machine's thread that did not take the frame
+ * before has it dropped, unless a debugger holds the machine, and a muted
+ * mix is stepped up to here. */
+void aud_step(void);
+
+/* Native samples the mix has made; while one is being made, its index. */
+uint64_t aud_samples(void);
+
+/* OPL2 overruns since the last call, saturating at 0x7FFFFFFF: each write
+ * that found the queue full and was dropped, because a program wrote faster
+ * than the queue's pace let it hold. A map, an unmap and aud_stop clear it.
+ * A software machine decides each write as the 6502 makes it, so nothing the
+ * host does adds one. The Pocket counts them in the fabric. */
+uint32_t aud_opl_overruns(void);
+
+/* Times the PCM: device's buffer ran dry since the last call, saturating at
+ * 0x7FFFFFFF: each take of a frame that left less than one. An open and
+ * aud_stop clear it. A software machine counts by the machine's present, as
+ * it answers aud_pcm_level. */
+uint32_t aud_pcm_underruns(void);
 
 /* Full scale of the shared sample path, sixteen bits, which is what the
  * Pocket's I2S wants. The RP2350's PWM is narrower and narrows in its own
@@ -76,67 +99,57 @@ void aud_engine_unlock(void);
 #define AUD_SAMPLE_MAX 32767
 #define AUD_SAMPLE_MIN (-32768)
 
-/* Sample depth and centre of the RP2350's PWM. A wrap of 1023 at 256 MHz
- * puts the carrier at 250 kHz, and widening walks that down toward the audio
- * band, so ten bits is this chip's answer and nobody else's. Only
- * host/pico/ria/aud/mix.c may use these.
- */
-
-#define AUD_PWM_BITS 10
-#define AUD_PWM_CENTER (1u << (AUD_PWM_BITS - 1))
-
-/* --mute: disable audio entirely — the synth never runs and the window app
- * opens no OS audio device. Default enabled. */
+/* --mute: nothing is heard and the window app opens no OS audio device. The
+ * engines still step with the machine; their samples are not resampled. Default
+ * enabled. */
 void aud_set_enabled(bool on);
 bool aud_enabled(void);
 
 /* What the host's converter actually runs at, once the audio backend has
- * been opened and answered. The store is a single word and aud_render
- * recomputes the resampler's step on entry, so the rate can change at any
- * time. */
+ * been opened and answered. aud_render reads it for each run of samples, so
+ * the rate can change at any time. */
 void aud_set_sink_rate(uint32_t rate);
 
-/* Fill the sink's buffer: exactly this many frames at the sink's rate, on
- * the sink's thread. Returns how many the machine made -- all of them, or 0
- * while it is muted, parked or held by a debugger. A held machine repeats
- * the level as it stands rather than dropping to silence, which would be a
- * click. */
-int aud_render(float *dst, int samples);
+/* A sink that pulls on its own clock, such as an audio device's callback,
+ * on its own thread. Its render makes what it asks for on the spot, and the
+ * resampler's ratio is trimmed so that what it asks for has just been
+ * stamped. Off, the default, is a sink that pulls once a frame on the
+ * machine's thread. */
+void aud_set_streaming(bool on);
 
-/* Hold the sink's thread out of the engines for the length of a savestate
- * walk. aud_render runs on the sink's own thread on whatever schedule the OS
- * gives it, and a walk that read an engine mid-sample would write down a
- * machine that never existed. The host raises the request, waits for the
- * acknowledgement to catch up, walks, and drops it.
- *
- * The acknowledgement is a generation rather than a flag because the thread
- * that stores it can be preempted between reading the request and answering
- * it, and a stale store would otherwise satisfy the next wait with the last
- * one's answer. It is waited on by equality for that reason.
- *
- * The host bounds its wait, since a sink that has stopped calling back must
- * not hold a save forever. */
-void aud_park_request(void);
-bool aud_parked(void);
-void aud_park_release(void);
+/* Fills the sink's buffer with this many frames at the sink's rate, made on
+ * the spot. A streaming sink gets them all. A sink that pulls once a frame
+ * gets the samples up to the machine's present and the count is returned,
+ * the newest kept if there are more; the rest repeat the level as it stands,
+ * since dropping to silence would click. Muted, it is silence; held by a
+ * debugger, the level repeats. Both return 0 then. */
+int aud_render(float *dst, int samples);
 
 /* Rolling mono downmix of what was rendered, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void);
 
-/* The mix as it stands: which engine is sounding, the two resamplers whose
- * phase is continuous across renders, whatever the last input left pending,
- * and the level a held machine repeats.
+/* The mix as it stands: which engines are sounding, the two resamplers whose
+ * phase is continuous across runs, and the native samples made. It is saved
+ * with the sink's sound taken, so no stamped change is still waiting.
  *
- * 1 device, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8+8 pending of 4 with a count and an index, the held pair as two i16,
- * then the bell. */
+ * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
+ *
+ * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
+ * 8 samples made, 4 OPL2 drops, 4 PCM: underruns, the bell, then the PCM:
+ * device: open, its rate, bits and channels, the Q32 phase, both channels'
+ * 24 samples of history, the bytes buffered and PCM_BUF_SIZE of them. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 16 * 4 + 2 + 4 + BEL_SST_SIZE)
+#define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
+#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 1, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+/* What the machine stamped since the sound was taken, applied, for a save
+ * about to write the engines' rows. */
+void aud_sst_settle(void);
+
+#define AUD_DRIVER DRIVER(aud_init, aud_task, nul_task, nul_run, aud_stop, nul_break, \
+    nul_config, nul_config, SST(AUD_, 5, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

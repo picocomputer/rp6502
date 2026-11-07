@@ -22,10 +22,12 @@
 #include "ria/sys/phi2.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
+#include "machine.h"
 #include <stdio.h>
 #include <pico.h>
 
-static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("set_boot_response") set_boot_response(char *buf, size_t buf_size,
+                                                                     int state, unsigned)
 {
     (void)state;
     const char *rom = rom_get_boot();
@@ -35,7 +37,7 @@ static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
     return -1;
 }
 
-static void set_boot(const char *args)
+static void HOST_IN_FLASH_FUNC("set_boot") set_boot(const char *args)
 {
     if (*args)
     {
@@ -52,8 +54,8 @@ static void set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-static void set_string(const char *args, bool (*set)(const char *),
-                       int (*resp)(char *, size_t, int, unsigned))
+static void HOST_IN_FLASH_FUNC("set_string") set_string(const char *args, bool (*set)(const char *),
+                                                        int (*resp)(char *, size_t, int, unsigned))
 {
     if (*args)
     {
@@ -103,7 +105,7 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef CONFIG_INT
 #undef DRIVER
 
-void set_mon_set(const char *args)
+void HOST_IN_FLASH_FUNC("set_mon_set") set_mon_set(const char *args)
 {
     if (*args)
     {

@@ -22,8 +22,10 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
+#include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
+#include "machine.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
 #include <hardware/watchdog.h>
@@ -66,14 +68,14 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
-static void mon_reboot(const char *args)
+static void HOST_IN_FLASH_FUNC("mon_reboot") mon_reboot(const char *args)
 {
     (void)args;
     stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
-static void mon_reset(const char *args)
+static void HOST_IN_FLASH_FUNC("mon_reset") mon_reset(const char *args)
 {
     (void)args;
     arg_clear();
@@ -117,7 +119,7 @@ __in_flash("mon_commands") static struct
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
-static mon_command_fn mon_command_lookup(const char **buf)
+static mon_command_fn HOST_IN_FLASH_FUNC("mon_command_lookup") mon_command_lookup(const char **buf)
 {
     while (**buf == ' ')
         (*buf)++;
@@ -158,12 +160,12 @@ static mon_command_fn mon_command_lookup(const char **buf)
     return NULL;
 }
 
-bool mon_command_exists(const char *buf)
+bool HOST_IN_FLASH_FUNC("mon_command_exists") mon_command_exists(const char *buf)
 {
     return !!mon_command_lookup(&buf);
 }
 
-static void mon_enter(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC("mon_enter") mon_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
@@ -186,7 +188,7 @@ static void mon_enter(bool timeout, const char *buf)
         mon_add_response_utf8(S(STR_ERR_UNKNOWN_COMMAND));
 }
 
-static void mon_confirm_enter(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC("mon_confirm_enter") mon_confirm_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
@@ -212,7 +214,8 @@ void mon_response_confirm(mon_confirm_fn cb)
     mon_confirm_cb = cb;
 }
 
-static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("mon_utf8_response") mon_utf8_response(char *buf, size_t buf_size,
+                                                                     int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -227,7 +230,7 @@ static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
     return (int)(p - str);
 }
 
-static const char *mon_lfs_lookup(int result)
+static const char *HOST_IN_FLASH_FUNC("mon_lfs_lookup") mon_lfs_lookup(int result)
 {
     switch (-result)
     {
@@ -264,7 +267,7 @@ static const char *mon_lfs_lookup(int result)
     }
 }
 
-static const char *mon_fatfs_lookup(int fresult)
+static const char *HOST_IN_FLASH_FUNC("mon_fatfs_lookup") mon_fatfs_lookup(int fresult)
 {
     switch (fresult)
     {
@@ -315,8 +318,9 @@ static const char *mon_fatfs_lookup(int fresult)
     }
 }
 
-static int mon_err_response(char *buf, size_t buf_size, int state,
-                            const char *(*lookup)(int))
+static int HOST_IN_FLASH_FUNC("mon_err_response") mon_err_response(char *buf, size_t buf_size,
+                                                                   int state,
+                                                                   const char *(*lookup)(int))
 {
     if (state < 0)
         return state;
@@ -328,12 +332,14 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
     return -1;
 }
 
-static int mon_lfs_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("mon_lfs_response") mon_lfs_response(char *buf, size_t buf_size,
+                                                                   int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_lfs_lookup);
 }
 
-static int mon_fatfs_response(char *buf, size_t buf_size, int state, unsigned)
+static int HOST_IN_FLASH_FUNC("mon_fatfs_response") mon_fatfs_response(char *buf, size_t buf_size,
+                                                                       int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_fatfs_lookup);
 }
@@ -363,14 +369,14 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     mon_response_state[i] = 0;
 }
 
-static void mon_clear_slot(int i)
+static void HOST_IN_FLASH_FUNC("mon_clear_slot") mon_clear_slot(int i)
 {
     mon_response_fn_list[i] = NULL;
     mon_response_str[i] = NULL;
     mon_response_state[i] = -1;
 }
 
-static void mon_next_response(void)
+static void HOST_IN_FLASH_FUNC("mon_next_response") mon_next_response(void)
 {
     int i = 0;
     for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
@@ -382,7 +388,7 @@ static void mon_next_response(void)
     mon_clear_slot(i);
 }
 
-static void mon_break_response(void)
+static void HOST_IN_FLASH_FUNC("mon_break_response") mon_break_response(void)
 {
     mon_needs_break = false;
     mon_response_pos = -1;
@@ -431,7 +437,7 @@ void mon_add_response_errno(api_errno err)
     mon_add_response_utf8(api_errno_str(err));
 }
 
-static void mon_more(void)
+static void HOST_IN_FLASH_FUNC("mon_more") mon_more(void)
 {
     if (mon_needs_break)
     {
@@ -490,11 +496,8 @@ static void mon_more(void)
     }
 }
 
-void mon_task(void)
+static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
 {
-    // The monitor must never print while 6502 is running.
-    if (sys_active())
-        return;
     if (mon_more_state)
     {
         mon_more();
@@ -669,14 +672,22 @@ void mon_task(void)
             rln_read_line(mon_enter);
         return;
     }
-    if (ria_get_sigint())
+    // A Ctrl-C cancels the line once no input is pending.
+    if (com_peekchar(COM_SOURCE_ANY) < 0 && ria_get_sigint())
     {
         mon_needs_prompt = true;
         mon_needs_read_line = true;
         rln_poke("\x03");
-        while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-            tight_loop_contents();
     }
+}
+
+/* The monitor runs from flash, so it also waits out the transfers that run
+ * the 6502 while no program does. */
+void mon_task(void)
+{
+    // The monitor must never print while 6502 is running.
+    if (!sys_active() && resb_held())
+        mon_step();
 }
 
 /* In a release build the startup banner begins by clearing the terminal, so

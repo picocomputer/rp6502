@@ -11,6 +11,7 @@
 #include "tb_tcm.h"
 #include "utest.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -33,6 +34,53 @@ static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
 enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
 static int g_req, g_servicing;
 static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
+
+/* The mix at each rising psg_tick since boot, so a tick's index is its
+ * count in machine time. g_stop_tick is the count when the machine's clock
+ * first stops after g_stop_arm, so the first tick the restored machine
+ * takes is that index. */
+static std::vector<uint32_t> g_mix;
+/* The 6502's clock at each of those ticks: its PC and bus address, its
+ * PHI2 accumulator and VIA T1, so a load that resumes the 6502 a clock off
+ * shows even where the mix does not. */
+struct Cpu
+{
+    uint32_t pc, addr, acc, t1;
+    bool operator!=(const Cpu &o) const
+    {
+        return pc != o.pc || addr != o.addr || acc != o.acc || t1 != o.t1;
+    }
+};
+static std::vector<Cpu> g_cpu;
+static int g_tick_prev;
+static bool g_stop_arm;
+static long g_stop_tick;
+
+/* Called on every edge, a_edge's included, so no tick is missed. */
+static void observe()
+{
+    auto *r = dut->rootp;
+    int t = r->tb_pocket__DOT__core__DOT__machine__DOT__psg_tick;
+    if (t && !g_tick_prev)
+    {
+        g_mix.push_back(
+            (uint32_t)(uint16_t)r->tb_pocket__DOT__core__DOT__aud_l << 16
+            | (uint16_t)r->tb_pocket__DOT__core__DOT__aud_r);
+        g_cpu.push_back(
+            {(uint32_t)r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__pc,
+             (uint32_t)r->tb_pocket__DOT__core__DOT__machine__DOT__cpu_addr,
+             (uint32_t)r
+                 ->tb_pocket__DOT__core__DOT__machine__DOT__phi2__DOT__acc,
+             (uint32_t)r
+                 ->tb_pocket__DOT__core__DOT__machine__DOT__via__DOT__t1_counter});
+    }
+    g_tick_prev = t;
+    if (g_stop_arm && !r->tb_pocket__DOT__mach_clk_en)
+    {
+        g_stop_arm = false;
+        g_stop_tick = (long)g_mix.size();
+    }
+}
 
 static void tick()
 {
@@ -101,6 +149,7 @@ static void tick()
         a_next += 224;
     }
     dut->eval();
+    observe();
 }
 
 static void a_edge()
@@ -364,7 +413,7 @@ static std::vector<uint8_t> read_file(const char *path)
 /* BLOB_BRIDGE and BLOB_BYTES are core_top's savestate_addr and
  * savestate_size. */
 #define BLOB_BRIDGE 0x03F00000u
-#define BLOB_BYTES 324944u
+#define BLOB_BYTES 333136u
 
 /* The core has until the next read strobe to drive bridge_rd_data,
  * because io_bridge_peripheral.v buffers reads by one word. HOST_GAP is
@@ -380,6 +429,11 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
     a_next = s_next = g_sys = 0;
     g_console.clear();
     g_rv.clear();
+    g_mix.clear();
+    g_cpu.clear();
+    g_tick_prev = 0;
+    g_stop_arm = false;
+    g_stop_tick = -1;
     if (!keep_card)
     {
         g_files.clear();
@@ -447,7 +501,8 @@ static void teardown()
     dut = nullptr;
 }
 
-static bool create_state(std::vector<uint8_t> &blob)
+/* Starts a save and steps until the blob is ready to read. */
+static bool save_ready(void)
 {
     dut->savestate_start = 1;
     dut->eval();
@@ -471,9 +526,12 @@ static bool create_state(std::vector<uint8_t> &blob)
     {
         step();
     }
-    if (dut->tb_pocket_savestate_start_busy || !dut->tb_pocket_savestate_start_ok)
-        return false;
+    return !dut->tb_pocket_savestate_start_busy
+           && dut->tb_pocket_savestate_start_ok;
+}
 
+static void read_blob(std::vector<uint8_t> &blob)
+{
     blob.assign(BLOB_BYTES, 0);
     for (uint32_t i = 0; i < BLOB_BYTES; i += 4)
     {
@@ -493,7 +551,28 @@ static bool create_state(std::vector<uint8_t> &blob)
         if (dut->tb_pocket_savestate_start_err && !g_underrun_at)
             g_underrun_at = (long)i;
     }
+}
+
+static bool create_state(std::vector<uint8_t> &blob)
+{
+    if (!save_ready())
+        return false;
+    read_blob(blob);
     return true;
+}
+
+/* Ends a save by reading only its last word, which drops the request. */
+static void abort_save(void)
+{
+    uint32_t i = BLOB_BYTES - 4;
+    dut->bridge_addr = BLOB_BRIDGE + i;
+    a_edge();
+    dut->bridge_rd = 1;
+    a_edge();
+    dut->bridge_rd = 0;
+    dut->bridge_addr = BLOB_BRIDGE + i + 4;
+    for (int k = 0; k < HOST_GAP; k++)
+        a_edge();
 }
 
 static bool load_state(void)
@@ -928,6 +1007,798 @@ UTEST(psleep, the_raster_registers_come_back)
     ASSERT_EQ(canvas_pre, (uint32_t)MEM(prog__DOT__canvas_shadow));
     ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
     ASSERT_EQ(vsync_pre, (uint32_t)MEM(prog__DOT__vsync_shadow));
+    teardown();
+}
+
+/* The blob holds the OPL's register file, so every register of the engine
+ * comes back as it was, with nothing left to replay. */
+UTEST(psleep, the_opl_registers_come_back)
+{
+    std::vector<uint8_t> rom = read_file(OPL_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    long guard = 0;
+    while (!(MEM(opl__DOT__regs)[0xB0] == 0x31 && !MEM(opl__DOT__q_count))
+           && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    /* The views of channel 0's modulator follow a sample later. */
+    for (long i = 0; i < 20000L; i++)
+        step();
+    uint8_t pre[256];
+    for (int i = 0; i < 256; i++)
+        pre[i] = MEM(opl__DOT__regs)[i];
+    ASSERT_EQ(0x31, (int)pre[0xB9]);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    step_to_save_point();
+    ASSERT_EQ(0, (int)MEM(opl__DOT__regs)[0xB0]);
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    /* The queue was empty at the save, and still is. */
+    guard = 0;
+    while (MEM(opl__DOT__q_count) && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    for (long i = 0; i < 20000L; i++)
+        step();
+    for (int i = 0; i < 256; i++)
+    {
+        if (MEM(opl__DOT__regs)[i] != pre[i])
+            fprintf(stderr, "register %02X: %02X after the load, %02X before\n", i,
+                    (int)MEM(opl__DOT__regs)[i], (int)pre[i]);
+        ASSERT_EQ((int)pre[i], (int)MEM(opl__DOT__regs)[i]);
+    }
+    teardown();
+}
+
+/* The blob holds PCM's buffer and its player, so the stream plays on from
+ * the level it had at the save, with the step and format the program
+ * opened it with. The program refills it on its next frame, and in three
+ * frames, about 6.2 million steps, its 1050 Hz tone swings through a gate
+ * of 512 about 100 times. */
+UTEST(psleep, a_pcm_stream_plays_on_after_a_wake)
+{
+    std::vector<uint8_t> rom = read_file(PCM_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    long guard = 0;
+    while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    for (long i = 0; i < 1000000L; i++)
+        step();
+    const uint32_t step_pre = MEM(pcm__DOT__step_m1);
+    ASSERT_EQ((uint32_t)((22050ull << 32) / 48000 - 1), step_pre);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(save_ready());
+    const uint32_t level_pre = MEM(pcm_level);
+    ASSERT_GT(level_pre, 0u);
+    read_blob(blob);
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    step_to_save_point();
+    ASSERT_FALSE((int)MEM(pcm__DOT__open));
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    ASSERT_TRUE((int)MEM(pcm__DOT__open));
+    ASSERT_EQ(step_pre, (uint32_t)MEM(pcm__DOT__step_m1));
+    ASSERT_EQ(1, (int)MEM(pcm__DOT__b16));
+    ASSERT_EQ(0, (int)MEM(pcm__DOT__st));
+    ASSERT_EQ(level_pre, (uint32_t)MEM(pcm_level));
+
+    long cross = 0;
+    int side = 0;
+    for (long i = 0; i < 6200000L; i++)
+    {
+        step();
+        const int l = (int16_t)dut->rootp->tb_pocket__DOT__core__DOT__aud_l;
+        if (l > 512)
+            cross += side < 0, side = 1;
+        else if (l < -512)
+            cross += side > 0, side = -1;
+    }
+    fprintf(stderr, "  %ld swings after the wake\n", cross);
+    ASSERT_TRUE((int)MEM(resb));
+    ASSERT_GT(cross, 80L);
+    teardown();
+}
+
+/* The 6502's API call as the RIA window shows it: $FFF2 holds BRA's -2
+ * while the call is in flight, and $FFF4 and $FFF6 hold its result in A
+ * and X until the next result. */
+static bool api_busy()
+{
+    return MEM(ria__DOT__regs)[0x12] == 0xFE;
+}
+
+/* Steps until the machine runs with the call in flight returned and the
+ * 6502 in its next call, and gives the first call's result. */
+static long api_next_result()
+{
+    long guard = 0;
+    while ((api_busy() || (int)MEM(engine__DOT__state) != 0)
+           && guard++ < 40000000L)
+        step();
+    while (!api_busy() && guard++ < 40000000L)
+        step();
+    if (guard >= 40000000L)
+        return -1;
+    return MEM(ria__DOT__regs)[0x14] | MEM(ria__DOT__regs)[0x16] << 8;
+}
+
+/* Saves made at three points inside the PCM program's write call, which
+ * blocks the 6502 for about 31,000 steps while the OS pops its arguments
+ * on one pass and copies on the next. Each loads into another session,
+ * whose wake finishes the call, and the 6502 takes that result: the call
+ * does not run again after the wake. The buffer took what it had room for
+ * when the copy began, and C's wake copies with PCM parked, so C's count
+ * can fall short of B's by what plays in a call, about 11 bytes. */
+UTEST(psleep, an_api_call_in_flight_returns_once)
+{
+    std::vector<uint8_t> rom = read_file(PCM_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    long guard = 0;
+    while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+    for (long i = 0; i < 1000000L; i++)
+        step();
+    static const long into[] = {6000, 14000, 24000};
+    const int n = (int)(sizeof into / sizeof into[0]);
+    std::vector<uint8_t> blob[n];
+    long b_ax[n];
+    for (int k = 0; k < n; k++)
+    {
+        for (int tries = 0; tries < 8; tries++)
+        {
+            guard = 0;
+            while (api_busy() && guard++ < 20000000L)
+                step();
+            while (!api_busy() && guard++ < 20000000L)
+                step();
+            for (long i = 0; i < into[k]; i++)
+                step();
+            ASSERT_TRUE(save_ready());
+            if (api_busy())
+            {
+                read_blob(blob[k]);
+                break;
+            }
+            abort_save();
+            guard = 0;
+            while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+                step();
+        }
+        ASSERT_FALSE(blob[k].empty());
+        b_ax[k] = api_next_result();
+        ASSERT_GT(b_ax[k], 0L);
+    }
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    for (int k = 0; k < n; k++)
+    {
+        boot(other);
+        step_to_save_point();
+        std::vector<uint8_t> file = wrap_blob(blob[k], 596, 52764);
+        host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+        ASSERT_TRUE(load_state());
+        long c_ax = api_next_result();
+        teardown();
+        fprintf(stderr, "  saved %ld steps into the call: B took %ld, C %ld\n",
+                into[k], b_ax[k], c_ax);
+        ASSERT_LE(c_ax, b_ax[k]);
+        ASSERT_GE(c_ax, b_ax[k] - 16);
+    }
+}
+
+/* The blob's words, high byte first, and its audio region, the last 2048
+ * words before the trailer. */
+#define BLOB_WORDS (BLOB_BYTES / 4)
+#define B_AUD (BLOB_WORDS - 4 - 2048)
+
+static uint32_t blob_get(const std::vector<uint8_t> &b, uint32_t i)
+{
+    return (uint32_t)b[i * 4] << 24 | (uint32_t)b[i * 4 + 1] << 16
+           | (uint32_t)b[i * 4 + 2] << 8 | (uint32_t)b[i * 4 + 3];
+}
+
+static void blob_put(std::vector<uint8_t> &b, uint32_t i, uint32_t w)
+{
+    b[i * 4] = (uint8_t)(w >> 24);
+    b[i * 4 + 1] = (uint8_t)(w >> 16);
+    b[i * 4 + 2] = (uint8_t)(w >> 8);
+    b[i * 4 + 3] = (uint8_t)w;
+}
+
+static void blob_reseal(std::vector<uint8_t> &b)
+{
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < BLOB_WORDS - 4; i++)
+        sum = ((sum << 1) | (sum >> 31)) + blob_get(b, i);
+    blob_put(b, BLOB_WORDS - 4, sum);
+}
+
+/* The audio session: the PSG, the OPL, PCM and the bell, a sample in
+ * 1050 clocks, so a tick is about 2,600 steps. */
+#define WINDOW 4800L
+
+static void run_to(char c, long settle)
+{
+    for (long i = 0; i < 80000000L && g_console.find(c) == std::string::npos;
+         i++)
+        step();
+    for (long i = 0; i < settle; i++)
+        step();
+}
+
+static void run_ticks(size_t n)
+{
+    for (long i = 0; i < 200000000L && g_mix.size() < n; i++)
+        step();
+}
+
+/* The engines' counts that the mix does not show. */
+struct Tail
+{
+    uint32_t drops, level;
+};
+static Tail tail()
+{
+    return {(uint32_t)MEM(opl_drops), (uint32_t)MEM(pcm_level)};
+}
+
+/* got from at against ref from rat, for n ticks: the first that differs,
+ * or -1. */
+static long first_diff(const std::vector<uint32_t> &ref, long rat,
+                       const std::vector<uint32_t> &got, long at, long n)
+{
+    for (long i = 0; i < n; i++)
+        if (ref[(size_t)(rat + i)] != got[(size_t)(at + i)])
+        {
+            fprintf(stderr, "  tick %ld: %08X, the reference %08X\n", i,
+                    got[(size_t)(at + i)], ref[(size_t)(rat + i)]);
+            return i;
+        }
+    return -1;
+}
+
+/* The same for the 6502's clock. */
+static long first_cpu_diff(const std::vector<Cpu> &ref, long rat,
+                           const std::vector<Cpu> &got, long at, long n)
+{
+    for (long i = 0; i < n; i++)
+    {
+        const Cpu &a = ref[(size_t)(rat + i)], &b = got[(size_t)(at + i)];
+        if (a != b)
+        {
+            fprintf(stderr, "  tick %ld: pc %04X addr %04X acc %u t1 %u, "
+                            "the reference %04X %04X %u %u\n",
+                    i, b.pc, b.addr, b.acc, b.t1, a.pc, a.addr, a.acc, a.t1);
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* C: another program's session takes the blob, and records n ticks from
+ * the first its restored machine takes. */
+struct Loaded
+{
+    std::vector<uint32_t> mix;
+    std::vector<Cpu> cpu;
+    long at;
+    Tail end;
+};
+static bool load_into_other(const std::vector<uint8_t> &blob, long n,
+                            Loaded &c)
+{
+    std::vector<uint8_t> other = read_file(OPL_BEL_ROM);
+    boot(other);
+    step_to_save_point();
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    g_stop_arm = true;
+    if (!load_state())
+        return false;
+    c.at = g_stop_tick;
+    run_ticks((size_t)(c.at + n));
+    c.end = tail();
+    c.mix = g_mix;
+    c.cpu = g_cpu;
+    teardown();
+    return true;
+}
+
+/* A never saves; B saves at two request points 500 clocks apart and plays
+ * on; C, another program's session, loads B's blob. B and C match A tick
+ * for tick across the window, in the mix and the 6502's clock, and in the
+ * OPL's drop count and PCM's level at its end. The window opens 5 ms after
+ * W with PCM three quarters full, the bell in its release and the loop
+ * writing through RW0. */
+UTEST(psleep, the_audio_comes_back_sample_for_sample)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    std::vector<uint8_t> blob[2];
+    std::vector<uint32_t> b_mix[2];
+    std::vector<Cpu> b_cpu[2];
+    long at[2];
+    Tail b_end[2];
+    for (int k = 0; k < 2; k++)
+    {
+        boot(rom);
+        run_to('W', 620000L + 1235L * k);
+        g_stop_arm = true;
+        ASSERT_TRUE(save_ready());
+        at[k] = g_stop_tick;
+        fprintf(stderr, "  save %d at tick %ld: level %u, queue %u\n", k,
+                at[k], (unsigned)MEM(pcm_level),
+                (unsigned)MEM(opl__DOT__q_count));
+        ASSERT_GT((uint32_t)MEM(pcm_level), 1024u);
+        read_blob(blob[k]);
+        run_ticks((size_t)(at[k] + WINDOW));
+        b_end[k] = tail();
+        b_mix[k] = g_mix;
+        b_cpu[k] = g_cpu;
+        teardown();
+    }
+
+    boot(rom);
+    Tail a_end[2];
+    for (int k = 0; k < 2; k++)
+    {
+        run_ticks((size_t)(at[k] + WINDOW));
+        a_end[k] = tail();
+    }
+    std::vector<uint32_t> a_mix = g_mix;
+    std::vector<Cpu> a_cpu = g_cpu;
+    teardown();
+
+    for (int k = 0; k < 2; k++)
+    {
+        long nz = 0;
+        for (long i = 0; i < WINDOW; i++)
+            nz += a_mix[(size_t)(at[k] + i)] != 0;
+        ASSERT_GT(nz, WINDOW / 2);
+        ASSERT_EQ(-1L, first_diff(a_mix, at[k], b_mix[k], at[k], WINDOW));
+        ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at[k], b_cpu[k], at[k], WINDOW));
+        ASSERT_EQ(a_end[k].drops, b_end[k].drops);
+        ASSERT_EQ(a_end[k].level, b_end[k].level);
+
+        Loaded c;
+        ASSERT_TRUE(load_into_other(blob[k], WINDOW, c));
+        ASSERT_EQ(-1L, first_diff(a_mix, at[k], c.mix, c.at, WINDOW));
+        ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at[k], c.cpu, c.at, WINDOW));
+        ASSERT_EQ(a_end[k].drops, c.end.drops);
+        ASSERT_EQ(a_end[k].level, c.end.level);
+    }
+}
+
+/* Saves made while the 6502 floods RW0 and RW1, until one stops with the
+ * snooped write in flight and one with the RW engine's write pending, both
+ * bound for the OPL, whose queue is full, so a lost write shows in the
+ * drop count. Each loads into another session and matches the session
+ * that never saved in the mix, the 6502's clock and the count, and each
+ * probe in between is a save ended after its last word. */
+UTEST(psleep, a_snoop_in_flight_comes_back)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SNOOP_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    const long n = 1500;
+    std::vector<uint8_t> blob[2];
+    long at[2] = {-1, -1};
+    boot(rom);
+    run_to('W', 200000L);
+    int probes = 0;
+    while ((at[0] < 0 || at[1] < 0) && probes < 400)
+    {
+        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
+            step();
+        g_stop_arm = true;
+        ASSERT_TRUE(save_ready());
+        probes++;
+        bool qs = MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0;
+        bool rw = MEM(ria__DOT__xr_wr_pend)
+                  && (MEM(ria__DOT__xr_wr_addr) >> 8) == 0xF0;
+        int k = qs && at[0] < 0 ? 0 : rw && at[1] < 0 ? 1 : -1;
+        if (k >= 0)
+        {
+            at[k] = g_stop_tick;
+            read_blob(blob[k]);
+        }
+        else
+            abort_save();
+        long guard = 0;
+        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+            step();
+    }
+    fprintf(stderr, "  %d probes: the snoop at tick %ld, the RW write at %ld\n",
+            probes, at[0], at[1]);
+    ASSERT_GE(at[0], 0L);
+    ASSERT_GE(at[1], 0L);
+    run_ticks((size_t)(std::max(at[0], at[1]) + n));
+    std::vector<uint32_t> b_mix = g_mix;
+    std::vector<Cpu> b_cpu = g_cpu;
+    teardown();
+
+    boot(rom);
+    int first = at[0] < at[1] ? 0 : 1;
+    Tail a_end[2];
+    run_ticks((size_t)(at[first] + n));
+    a_end[first] = tail();
+    run_ticks((size_t)(at[1 - first] + n));
+    a_end[1 - first] = tail();
+    std::vector<uint32_t> a_mix = g_mix;
+    std::vector<Cpu> a_cpu = g_cpu;
+    teardown();
+    for (int k = 0; k < 2; k++)
+    {
+        ASSERT_EQ(-1L, first_diff(a_mix, at[k], b_mix, at[k], n));
+        ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at[k], b_cpu, at[k], n));
+        Loaded c;
+        ASSERT_TRUE(load_into_other(blob[k], n, c));
+        ASSERT_EQ(-1L, first_diff(a_mix, at[k], c.mix, c.at, n));
+        ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at[k], c.cpu, c.at, n));
+        ASSERT_EQ(a_end[k].drops, c.end.drops);
+    }
+}
+
+/* Saves made until one stops a clock before a PHI2 enable, which only the
+ * jam may hand the restored 6502, and which nothing may launch early: B
+ * and C match A in the mix and the 6502's clock. */
+UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    const long n = 1500;
+    std::vector<uint8_t> blob;
+    long at = -1;
+    boot(rom);
+    run_to('W', 620000L);
+    for (int probes = 0; probes < 200 && at < 0; probes++)
+    {
+        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
+            step();
+        g_stop_arm = true;
+        ASSERT_TRUE(save_ready());
+        if (MEM(phi2_raw_en))
+        {
+            at = g_stop_tick;
+            read_blob(blob);
+        }
+        else
+            abort_save();
+        long guard = 0;
+        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+            step();
+    }
+    ASSERT_GE(at, 0L);
+    run_ticks((size_t)(at + n));
+    std::vector<uint32_t> b_mix = g_mix;
+    std::vector<Cpu> b_cpu = g_cpu;
+    teardown();
+
+    boot(rom);
+    run_ticks((size_t)(at + n));
+    std::vector<uint32_t> a_mix = g_mix;
+    std::vector<Cpu> a_cpu = g_cpu;
+    teardown();
+    ASSERT_EQ(-1L, first_diff(a_mix, at, b_mix, at, n));
+    ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at, b_cpu, at, n));
+    Loaded c;
+    ASSERT_TRUE(load_into_other(blob, n, c));
+    ASSERT_EQ(-1L, first_diff(a_mix, at, c.mix, c.at, n));
+    ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at, c.cpu, c.at, n));
+}
+
+/* The regs window in the blob, and its word that holds the RW engine's
+ * pending write. */
+#define B_REGS (16u + 64u)
+#define REGS_XR 19u
+/* Voice 0's gate byte in the audio session's PSG block. */
+#define PSG_GATE0 0x8006u
+
+/* At a stop, the blob holds the snoop's write and the RW engine's pending
+ * byte as the machine held them. A blob holding a write that gates a
+ * released voice 0, in the snoop or pending in the RW engine, starts the
+ * voice once it loads, so a lost write leaves it silent. */
+UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    std::vector<uint8_t> blob;
+    boot(rom);
+    run_to('W', 620000L);
+    for (int probes = 0; probes < 200 && blob.empty(); probes++)
+    {
+        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
+            step();
+        ASSERT_TRUE(save_ready());
+        bool released = MEM(psg__DOT__ch_adsr)[0] == 0 && !MEM(qs_we)
+                        && !MEM(ria__DOT__xr_wr_pend);
+        if (released && MEM(xr_busy) && MEM(ria__DOT__xr_wr_byte))
+        {
+            read_blob(blob);
+            ASSERT_EQ((uint32_t)MEM(ria__DOT__xr_wr_byte),
+                      blob_get(blob, B_REGS + REGS_XR) >> 16 & 0xFF);
+        }
+        else
+            abort_save();
+        long guard = 0;
+        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+            step();
+    }
+    ASSERT_FALSE(blob.empty());
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    for (int k = 0; k < 2; k++)
+    {
+        std::vector<uint8_t> held = blob;
+        if (k == 0)
+            blob_put(held, B_AUD + 0x7A0,
+                     1u << 25 | PSG_GATE0 << 8 | 0x01u);
+        else
+            blob_put(held, B_REGS + REGS_XR,
+                     1u << 24 | 0x01u << 16 | PSG_GATE0);
+        blob_reseal(held);
+        boot(other);
+        step_to_save_point();
+        std::vector<uint8_t> file = wrap_blob(held, 596, 52764);
+        host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+        ASSERT_TRUE(load_state());
+        long guard = 0;
+        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+            step();
+        for (int i = 0; i < 100; i++)
+            step();
+        int adsr = MEM(psg__DOT__ch_adsr)[0];
+        teardown();
+        fprintf(stderr, "  the gate held %s: voice 0's envelope in state %d\n",
+                k ? "in the RW engine" : "in the snoop", adsr);
+        ASSERT_NE(0, adsr);
+    }
+}
+
+/* One audio word changed in B's blob, its sum put right, makes C differ
+ * from B within the window: the OPL's LFO, a PSG voice's phase, PCM's
+ * phase, and the snooped write in flight. */
+UTEST(psleep, a_corrupt_audio_word_diverges)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    const long n = 1500;
+    boot(rom);
+    run_to('W', 620000L);
+    g_stop_arm = true;
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(save_ready());
+    long at = g_stop_tick;
+    read_blob(blob);
+    run_ticks((size_t)(at + n));
+    std::vector<uint32_t> b_mix = g_mix;
+    teardown();
+
+    std::vector<uint8_t> rom2 = read_file(AUD_SNOOP_ROM);
+    boot(rom2);
+    run_to('W', 200000L);
+    std::vector<uint8_t> snoop;
+    long sat = -1;
+    for (int probes = 0; probes < 400 && sat < 0; probes++)
+    {
+        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
+            step();
+        g_stop_arm = true;
+        ASSERT_TRUE(save_ready());
+        if (MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0)
+        {
+            sat = g_stop_tick;
+            read_blob(snoop);
+        }
+        else
+            abort_save();
+        long guard = 0;
+        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+            step();
+    }
+    ASSERT_GE(sat, 0L);
+    run_ticks((size_t)(sat + n));
+    std::vector<uint32_t> s_mix = g_mix;
+    Tail s_end = tail();
+    teardown();
+
+    static const struct
+    {
+        uint32_t word, flip;
+        bool snooped;
+    } cuts[] = {
+        {0x783, 1u << 3, false},   // the OPL's LFO
+        {0x720, 1u << 30, false},  // voice 0's phase
+        {0x791, 1u << 31, false},  // PCM's phase
+        {0x7A0, 1u << 25, true},   // the snooped write in flight
+    };
+    for (auto &cut : cuts)
+    {
+        std::vector<uint8_t> bad = cut.snooped ? snoop : blob;
+        blob_put(bad, B_AUD + cut.word,
+                 blob_get(bad, B_AUD + cut.word) ^ cut.flip);
+        blob_reseal(bad);
+        Loaded c;
+        ASSERT_TRUE(load_into_other(bad, n, c));
+        long d = first_diff(cut.snooped ? s_mix : b_mix,
+                            cut.snooped ? sat : at, c.mix, c.at, n);
+        bool tail_differs = cut.snooped && c.end.drops != s_end.drops;
+        fprintf(stderr, "  word %03X ^ %08X: differs at tick %ld%s\n", cut.word,
+                cut.flip, d, tail_differs ? ", and in the drop count" : "");
+        ASSERT_TRUE(d >= 0 || tail_differs);
+    }
+}
+
+/* Saved inside the bell's 20 ms gate: C matches A tick for tick up to the
+ * release, and bel_wake moves the release by the wake's length, counted
+ * from the soft CPU's resume, so it lands on the first poll after A's
+ * deadline, within a main-loop pass of A's. */
+UTEST(psleep, a_bell_mid_tone_comes_back)
+{
+    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    /* The bell's voice leaves release only on a strike and returns on a
+     * release, so it is out of release exactly while its gate is up. */
+    auto gate = [] { return MEM(psg__DOT__ch_adsr)[8] != 0 ? 1 : 0; };
+    auto release_tick = [&](long limit) {
+        long t = -1;
+        int prev = gate();
+        for (long i = 0; i < 200000000L && (long)g_mix.size() < limit; i++)
+        {
+            step();
+            int g = gate();
+            if (prev && !g && t < 0)
+                t = (long)g_mix.size();
+            prev = g;
+        }
+        return t;
+    };
+
+    boot(rom);
+    run_to('\a', 0);
+    for (long i = 0; i < 80000000L && !gate(); i++)
+        step();
+    ASSERT_TRUE(gate());
+    for (long i = 0; i < 370000L; i++)
+        step();
+    ASSERT_TRUE(gate());
+    g_stop_arm = true;
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    long at = g_stop_tick;
+    teardown();
+
+    boot(rom);
+    long a_rel = release_tick(at + 1600);
+    std::vector<uint32_t> a_mix = g_mix;
+    teardown();
+    ASSERT_GT(a_rel, at);
+
+    std::vector<uint8_t> other = read_file(OPL_BEL_ROM);
+    boot(other);
+    step_to_save_point();
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    g_stop_arm = true;
+    ASSERT_TRUE(load_state());
+    long c_at = g_stop_tick;
+    ASSERT_TRUE(gate());
+    long c_rel = release_tick(c_at + 1600);
+    std::vector<uint32_t> c_mix = g_mix;
+    teardown();
+    ASSERT_GT(c_rel, c_at);
+
+    long exact = std::min(a_rel - at, c_rel - c_at);
+    fprintf(stderr, "  saved at tick %ld, released %ld ticks later in A and "
+                    "%ld in C\n", at, a_rel - at, c_rel - c_at);
+    ASSERT_EQ(-1L, first_diff(a_mix, at, c_mix, c_at, exact));
+    /* bel_task polls once a main-loop pass, about 150 us or 8 ticks. */
+    long late = (c_rel - c_at) - (a_rel - at);
+    ASSERT_LE(late < 0 ? -late : late, 8L);
+}
+
+/* The 6502's RAM, a byte to the low lane of each SRAM word. */
+static uint16_t ram16(uint16_t a)
+{
+    auto &m = dut->rootp->tb_pocket__DOT__sram_chip__DOT__mem;
+    return (uint16_t)((m[a] & 0xFF) | (m[a + 1] & 0xFF) << 8);
+}
+
+/* The program's clock leaves out the wake, which holds the 6502 for a few
+ * milliseconds: 10 ms into the restored machine's run, C has read the
+ * clock that B read at the same tick, within the millisecond a call can
+ * straddle. */
+UTEST(psleep, the_program_clock_leaves_out_the_wake)
+{
+    std::vector<uint8_t> rom = read_file(WAKECLK_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    const size_t n = 480;
+    boot(rom);
+    step_to_save_point();
+    g_stop_arm = true;
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    long at = g_stop_tick;
+    run_ticks((size_t)at + n);
+    long b_clk = ram16(0x10);
+    teardown();
+
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    step_to_save_point();
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    g_stop_arm = true;
+    ASSERT_TRUE(load_state());
+    long c_at = g_stop_tick;
+    run_ticks((size_t)c_at + n);
+    long c_clk = ram16(0x10);
+    teardown();
+    fprintf(stderr, "  the clock at tick %zu: %ld ms in B, %ld in C\n", n,
+            b_clk, c_clk);
+    ASSERT_GT(b_clk, 0L);
+    ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
+}
+
+/* A blob from before this format, version 5, is refused, and the session
+ * that was running carries on. */
+UTEST(psleep, a_version_5_blob_is_refused)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    step_to_save_point();
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+    ASSERT_EQ(6u, blob_get(blob, 1));
+    blob_put(blob, 1, 5);
+    blob_reseal(blob);
+
+    boot(rom);
+    step_to_save_point();
+    ASSERT_TRUE((int)MEM(resb));
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_FALSE(load_state());
+    ASSERT_TRUE((int)dut->tb_pocket_savestate_load_err);
+    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+        step();
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
     teardown();
 }
 

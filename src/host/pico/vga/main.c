@@ -14,8 +14,18 @@
 #include "core/vga/mode/mode5.h"
 #include <pico/stdlib.h>
 
+/* The VGA is always a plain Pico 2; sys/led.c says why. */
+#ifdef RASPBERRYPI_PICO2_W
+#define PICO_SMPS_MODE_PIN 23
+#endif
+
 static void init(void)
 {
+    /* The 3.3 V regulator in PWM mode, which switches steadily, for cleaner
+     * power on the GPIOs than power save mode's bursts. */
+    gpio_init(PICO_SMPS_MODE_PIN);
+    gpio_set_dir(PICO_SMPS_MODE_PIN, GPIO_OUT);
+    gpio_put(PICO_SMPS_MODE_PIN, 1);
 #define DRIVER(i, t, iot, r, s, b, ...) i();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
