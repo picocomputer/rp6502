@@ -277,14 +277,14 @@ UTEST(com, a_full_console_wire_is_held_then_read_to_drop)
 {
     com_init();
     ria_get_sigint();
-    static char data[COM_RING_SIZE - 1 + 100 + 1];
-    memset(data, 'x', COM_RING_SIZE - 1);
-    memset(data + COM_RING_SIZE - 1, 'y', 100);
+    static char data[COM_RING_SIZE + 100 + 1];
+    memset(data, 'x', COM_RING_SIZE);
+    memset(data + COM_RING_SIZE, 'y', 100);
     data[sizeof data - 1] = 3;
     wire(data, sizeof data, false);
     for (int i = 0; i < 10; i++)
         com_task();
-    ASSERT_EQ(wire_pos, (size_t)COM_RING_SIZE - 1);
+    ASSERT_EQ(wire_pos, (size_t)COM_RING_SIZE);
     ASSERT_FALSE(ria_get_sigint());
     machine_us((COM_WIRE_HOLD_MS + 20) * 1000);
     com_task();
@@ -292,7 +292,7 @@ UTEST(com, a_full_console_wire_is_held_then_read_to_drop)
     ASSERT_TRUE(ria_get_sigint());
     static char out[COM_RING_SIZE * 2];
     size_t got = read_all(out, sizeof out);
-    ASSERT_EQ(got, (size_t)COM_RING_SIZE - 1);
+    ASSERT_EQ(got, (size_t)COM_RING_SIZE);
     for (size_t i = 0; i < got; i++)
         ASSERT_EQ(out[i], 'x');
     unwire();
@@ -310,7 +310,7 @@ UTEST(com, a_reader_that_keeps_up_loses_nothing_to_a_console_wire)
     size_t got = read_all(out, sizeof out);
     ASSERT_EQ(got, sizeof data);
     ASSERT_EQ(memcmp(out, data, sizeof data), 0);
-    ASSERT_LE(wire_asked_max, (size_t)COM_RING_SIZE - 1);
+    ASSERT_LE(wire_asked_max, (size_t)COM_RING_SIZE);
     ASSERT_FALSE(ria_get_sigint());
     unwire();
 }
@@ -326,7 +326,7 @@ UTEST(com, a_stream_never_signals_and_never_loses_a_byte)
     wire(data, sizeof data, true);
     for (int i = 0; i < 10; i++)
         com_task();
-    ASSERT_LE(wire_pos, (size_t)COM_RING_SIZE - 1);
+    ASSERT_LE(wire_pos, (size_t)COM_RING_SIZE);
     ASSERT_FALSE(ria_get_sigint());
     static char out[sizeof data + 1];
     size_t got = read_all(out, sizeof out);

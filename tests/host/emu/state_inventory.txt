@@ -68,15 +68,15 @@ core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/com/com.c com_bel_enabled: the COM chunk
 core/com/com.c com_crlf_last: the COM chunk
+core/com/com.c com_keyboard_ring: the COM chunk
+core/com/com.c com_reply_buf: the COM chunk
+core/com/com.c com_reply_len: the COM chunk
 core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all
 core/com/com.c com_stderr_sink: not carried: host wiring
 core/com/com.c com_term_out: not carried: host wiring
 core/com/com.c com_term_reply_suppressed: not carried: host wiring
 core/com/com.c com_tx_tap: not carried: host wiring; libretro installs no wire at all
-core/com/com.c keyboard_ring: the COM chunk
-core/com/com.c reply_buf: the COM chunk
-core/com/com.c reply_len: the COM chunk
-core/com/com.c uart_ring: the COM chunk
+core/com/com.c com_uart_ring: the COM chunk
 core/com/pick.c com_rx_deadline: the COM chunk
 core/com/pick.c com_rx_held: the COM chunk
 core/com/pick.c com_sources: the COM chunk

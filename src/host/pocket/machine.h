@@ -17,10 +17,9 @@
 #define HID_MAX_SLOTS 4
 #define TERM_MAX_HEIGHT 30
 /* Terminal replies are the only bytes pushed into the console rings on
- * this machine. They come from reply_buf in core/com/com.c, which holds 32
- * bytes, and a ring holds one byte less than its size, so 64 is the
- * smallest power of two that takes a full reply_buf. */
-#define COM_RING_SIZE 64
+ * this machine. They come from com_reply_buf in core/com/com.c, which holds
+ * 32 bytes, so a ring of 32 takes a full one. */
+#define COM_RING_SIZE 32
 
 
 #endif /* _HOST_MACHINE_H_ */

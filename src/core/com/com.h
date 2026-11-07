@@ -53,12 +53,12 @@ void com_task(void);
 
 /* The 44 fixed bytes are the reply length (1), the reply buffer (32), the BEL
  * enable (1), the CRLF latch (1), and the 9 bytes com_rx_save writes. Each of
- * the two rings adds COM_RING_SIZE bytes and its two 16-bit indices. */
-#define COM_SST_SIZE (2 * (COM_RING_SIZE + 4) + 44)
+ * the two rings adds a 16-bit count and COM_RING_SIZE bytes. */
+#define COM_SST_SIZE (2 * (2 + COM_RING_SIZE) + 44)
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, \
-    nul_config, nul_config, SST(COM_, 1, COM_SST_SIZE, com_sst_save, com_sst_load))
+    nul_config, nul_config, SST(COM_, 2, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */
