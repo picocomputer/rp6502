@@ -27,9 +27,10 @@ pico_set_binary_type(${RIA_TARGET} default)
 
 # Sources that run in an interrupt or on the main loop's hot path, whole: the
 # SDK's, TinyUSB's, FatFs and the storage path. The linker can keep code out of
-# flash only by its object file, so these skip LTO. The SDK's flash .text and .rodata take everything but the files its
-# one-line default_text_excludes.incl and default_rodata_excludes.incl name,
-# and whatever they skip lands in RAM with .data. These overrides add the list.
+# flash only by its object file, so these skip LTO. The SDK's flash .text and
+# .rodata take everything but the files its one-line default_text_excludes.incl
+# and default_rodata_excludes.incl name, and whatever they skip lands in RAM
+# with .data. These overrides add the list.
 set(RIA_RAM_SOURCES
     ${PICO_SDK_PATH}/src/common/pico_time/time.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
