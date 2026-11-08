@@ -5,9 +5,10 @@
  */
 
 #include "core/sys/ring.h"
+#include "machine.h"
 #include <string.h>
 
-uint32_t ring_in(ring_t *i, void *buf, uint32_t size, size_t esize,
+uint32_t HOST_NOT_IN_FLASH("aud") ring_in(ring_t *i, void *buf, uint32_t size, size_t esize,
                  const void *src, uint32_t n)
 {
     const uint32_t avail = size - ring_len(i);

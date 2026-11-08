@@ -98,7 +98,7 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm3_rx_fifo_not_empty, false);
 }
 
-static void vga_vsync_trap_disarm(void)
+static void __time_critical_func(vga_vsync_trap_disarm)(void)
 {
     if (!vga_vsync_trap_armed)
         return;
@@ -109,8 +109,21 @@ static void vga_vsync_trap_disarm(void)
     irq_clear(VGA_VSYNC_TRAP_IRQ);
 }
 
-static void vga_vsync_alarm_handler(uint alarm)
+/* The alarm is driven through TIMER0's registers rather than the SDK's alarm
+ * callbacks, so everything its interrupt runs is in RAM. Returns true when
+ * us has already passed, with the alarm disarmed. */
+static bool __time_critical_func(vga_vsync_alarm_at)(uint32_t us)
 {
+    timer_hw->alarm[vga_vsync_alarm] = us;
+    if ((int32_t)(us - timer_hw->timerawl) > 0)
+        return false;
+    timer_hw->armed = 1u << vga_vsync_alarm;
+    return true;
+}
+
+static void __isr __time_critical_func(vga_vsync_alarm_irq_handler)(void)
+{
+    timer_hw->intr = 1u << vga_vsync_alarm;
     if (!vga_vsync_alarm_arms)
     {
         vga_vsync_trap_disarm();
@@ -125,20 +138,18 @@ static void vga_vsync_alarm_handler(uint alarm)
     vga_vsync_alarm_arms = false;
     pio_interrupt_clear(VGA_BACKCHANNEL_PIO, 0);
     pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, true);
-    if (hardware_alarm_set_target(alarm, from_us_since_boot(
-                                             time_us_64() + 2 * VGA_VSYNC_WINDOW_US)))
+    if (vga_vsync_alarm_at(time_us_32() + 2 * VGA_VSYNC_WINDOW_US))
         vga_vsync_trap_disarm();
 }
 
-static void vga_vsync_reschedule(void)
+static void __time_critical_func(vga_vsync_reschedule)(void)
 {
     if (vga_vsync_alarm < 0)
         return;
     vga_vsync_trap_disarm();
     vga_vsync_alarm_arms = true;
-    hardware_alarm_set_target((uint)vga_vsync_alarm,
-                              from_us_since_boot(time_us_64() - VGA_VSYNC_TRANSIT_US +
-                                                 VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US));
+    vga_vsync_alarm_at(time_us_32() - VGA_VSYNC_TRANSIT_US +
+                       VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US);
 }
 
 static void
@@ -157,7 +168,7 @@ static void
     ria_trigger_vsync();
 }
 
-static inline void vga_backchannel_command(uint8_t byte)
+static __force_inline void vga_backchannel_command(uint8_t byte)
 {
     switch (byte & 0xF0)
     {
@@ -307,12 +318,14 @@ void __in_flash("vga_init") vga_init(void)
     irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
     vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
-    hardware_alarm_set_callback((uint)vga_vsync_alarm, vga_vsync_alarm_handler);
+    const uint alarm_irq = hardware_alarm_get_irq_num((uint)vga_vsync_alarm);
+    irq_set_exclusive_handler(alarm_irq, vga_vsync_alarm_irq_handler);
     // The alarm has the same priority as the backchannel and trap interrupts,
     // so none of the three handlers can preempt another in the middle of arming
     // or disarming the trap.
-    irq_set_priority(hardware_alarm_get_irq_num((uint)vga_vsync_alarm),
-                     PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(alarm_irq, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    hw_set_bits(&timer_hw->inte, 1u << vga_vsync_alarm);
+    irq_set_enabled(alarm_irq, true);
 
     // Re-send in case the first disable was lost
     vga_pix_backchannel_disable();
@@ -329,7 +342,7 @@ void vga_task(void)
         vga_backchannel_irq_disable();
         vga_vsync_alarm_arms = false;
         if (vga_vsync_alarm >= 0)
-            hardware_alarm_cancel((uint)vga_vsync_alarm);
+            timer_hw->armed = 1u << vga_vsync_alarm;
         vga_vsync_trap_disarm();
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);

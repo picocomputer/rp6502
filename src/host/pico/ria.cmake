@@ -23,7 +23,7 @@ rp6502_osal_pico(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
-pico_set_binary_type(${RIA_TARGET} copy_to_ram)
+pico_set_binary_type(${RIA_TARGET} default)
 
 set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE

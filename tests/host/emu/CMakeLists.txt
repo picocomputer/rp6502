@@ -119,7 +119,7 @@ if(RP6502_HAVE_LLE)
     rp6502_add_test(opl SPLIT TIMEOUT 120
         SOURCES test_opl.c opl_traced.c opl_lle.c opl_model.c
             opl_script.c ${_lle}/fmopl2.c
-        INCLUDES ${_lle} ${RP6502_GEN})
+        INCLUDES ${_lle} ${RP6502_GEN} ${RP6502_SRC}/host/sokol)
     add_dependencies(test_opl rp6502_gen_c)
     if(NOT WIN32)
         target_link_libraries(test_opl PRIVATE m)
@@ -156,7 +156,8 @@ endif()
 
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
-rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c)
+rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
 
 rp6502_add_test(com LIBS emu_core)
 

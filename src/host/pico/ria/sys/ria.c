@@ -274,8 +274,7 @@ void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callba
         return;
     }
     rw_end = len;
-    // First write doesn't always write because ???
-    rw_pos = -1; // force a second write
+    rw_pos = 0;
     action_state = action_state_write;
     ria_action_start();
 }
@@ -371,8 +370,10 @@ static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, ui
 #define RIA_ADDR1 REGSW(0xFFEA)
 // 6502 writes to regs can arrive later than these events.
 // Make sure to use the FIFO event data in here instead.
-__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+// Everything core 1 runs is flattened into this RAM function.
+__attribute__((optimize("O3"), flatten)) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
+    bool vectored = false;
     while (true)
     {
         RIA_RW0 = xram[RIA_ADDR0];
@@ -380,7 +381,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
         if (!(RIA_ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACT_SM))))
         {
             uint32_t rw_addr_data = RIA_ACT_PIO->rxf[RIA_ACT_SM];
-            if (((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
+            // Until the reset vector is fetched, reads are the reset
+            // sequence repeating the address the 6502 stopped on.
+            if (!((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
+                vectored = false;
+            else if (!vectored)
+                vectored = (rw_addr_data >> 8) == CASE_READ(0xFFFC);
+            else
             {
                 uint32_t data = rw_addr_data & 0xFF;
                 switch (rw_addr_data >> 8)
@@ -390,11 +397,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
-                        else if (++rw_pos > 0 && rw_pos < rw_end)
+                        else if (++rw_pos < rw_end)
                         {
                             REGS(0xFFF1) = mbuf[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
+                        else // LDA, so RESB never drops in a write cycle
+                            REGS(0xFFF2) = 0xAD;
                     }
                     break;
                 case CASE_WRITE(0xFFFD): // action read
