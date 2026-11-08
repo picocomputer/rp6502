@@ -213,8 +213,6 @@ The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0
 
 The changes cover failed enumeration, the control transfer deadline, recovery of configured devices, queued control transfers, and the event queue.
 
-`usbh_task_run()` and `usbh_edpt_claim()` are `HOST_IN_RAM_FUNC` from the RIA's `machine.h`: they run on every pass of the main loop, which runs from RAM. `ria.cmake` also puts upstream `tusb.c` and this fork's tusb_fifo.c in RAM whole.
-
 ### Failed enumeration
 
 A failure is retried in place. Once the attempts are used up, the enumeration ends and cleans up drivers and the hub port, instead of stranding.
@@ -368,6 +366,8 @@ This file is a rework of upstream's MIDI host, rebased onto master.
 TinyUSB turns on FIFO mutexes for any MCU with more than one core (`OSAL_MUTEX_REQUIRED` in `osal/osal.h`), and the queue the USB interrupt writes is a FIFO. On the RIA, TinyUSB runs only on core 0, so this copy's `ff_lock()` and `ff_unlock()` are empty. With them the interrupt held a mutex call that never ran but ended in the SDK's `best_effort_wfe_or_timeout()`, which is in flash.
 
 ## RIA config: src/host/pico/ria/tusb_config.h
+
+The RIA runs from flash, and `ria.cmake` puts usbh.c, hub.c, tusb_fifo.c and upstream `tusb.c` in RAM whole, with hcd_rp2350.c's interrupt path (`HOST_ISR_FUNC`), so the main loop's USB work and the interrupt never wait on flash.
 
 This file is the RIA's own config, not a copy.
 

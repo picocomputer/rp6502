@@ -25,12 +25,12 @@ rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
 
-# SDK and TinyUSB sources that run in an interrupt or on the main loop's hot
-# path. The linker can keep code out of flash only by its object file, so these
-# skip LTO. The SDK's flash .text and .rodata take everything but the files its
+# Sources that run in an interrupt or on the main loop's hot path, whole: the
+# SDK's, TinyUSB's, FatFs and the storage path. The linker can keep code out of
+# flash only by its object file, so these skip LTO. The SDK's flash .text and .rodata take everything but the files its
 # one-line default_text_excludes.incl and default_rodata_excludes.incl name,
 # and whatever they skip lands in RAM with .data. These overrides add the list.
-set(RIA_SDK_RAM_SOURCES
+set(RIA_RAM_SOURCES
     ${PICO_SDK_PATH}/src/common/pico_time/time.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_timer/timer.c
@@ -43,10 +43,17 @@ set(RIA_SDK_RAM_SOURCES
     ${PICO_SDK_PATH}/lib/lwip/src/core/timeouts.c
     ${RP6502_ROOT}/vendor/tinyusb/src/tusb.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/tusb_fifo.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/usbh.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/hub.c
+    ${RP6502_ROOT}/vendor/fatfs/ff.c
+    ${RP6502_ROOT}/src/host/pico/ria/usb/msc.c
+    ${RP6502_ROOT}/src/host/pico/ria/usb/usb.c
+    ${RP6502_ROOT}/src/osal/pico/fs.c
+    ${RP6502_ROOT}/src/core/api/std.c
 )
-set_source_files_properties(${RIA_SDK_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
+set_source_files_properties(${RIA_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
 set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:")
-foreach(_src ${RIA_SDK_RAM_SOURCES})
+foreach(_src ${RIA_RAM_SOURCES})
     get_filename_component(_dir ${_src} DIRECTORY)
     get_filename_component(_dir ${_dir} NAME)
     get_filename_component(_name ${_src} NAME)
@@ -65,6 +72,11 @@ set_target_properties(${RIA_TARGET} PROPERTIES
 # Avoid 26KB of unicode and jis we don't need. Newlib's strftime calls
 # sniprintf, which is wrapped to call vsnprintf so that newlib's printf
 # engine is not linked beside pico_printf.
+# GCC 15.2's LTO identical code folding crashes on this mix of LTO and non-LTO
+# objects ("during IPA pass: icf").
+target_compile_options(${RIA_TARGET} PRIVATE -fno-ipa-icf)
+target_link_options(${RIA_TARGET} PRIVATE -fno-ipa-icf)
+
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
     -Wl,--wrap=iswspace
     -Wl,-u,__wrap_iswspace
