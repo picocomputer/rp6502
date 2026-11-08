@@ -49,8 +49,9 @@ static std_fd_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
 static uint16_t std_pos;
-static uint16_t std_xram_addr;
-static uint16_t std_xram_len;
+static uint16_t std_xram_addr;          // next byte of a read into xram to forward
+static volatile uint32_t std_xram_end;   // xram offset up to which the read has landed
+static uint32_t std_xram_lo, std_xram_hi; // the read's xram range while it runs, hi 0 when closed
 
 static bool std_rln_active;
 static const char *std_rln_buf;
@@ -181,7 +182,7 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, std_size);
     sst_put_u16(c, std_pos);
     sst_put_u16(c, std_xram_addr);
-    sst_put_u16(c, std_xram_len);
+    sst_put_u16(c, (uint16_t)(std_xram_end - std_xram_addr));
     sst_put_bool(c, std_rln_active);
     sst_put_bool(c, std_rln_needs_nl);
     sst_put_u16(c, (uint16_t)std_rln_pos);
@@ -253,7 +254,9 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     std_size = size;
     std_pos = pos;
     std_xram_addr = xaddr;
-    std_xram_len = xlen;
+    std_xram_end = (uint32_t)xaddr + xlen;
+    std_xram_lo = (kind == STD_BUF_XRAM) ? at : 0;
+    std_xram_hi = (kind == STD_BUF_XRAM) ? (uint32_t)at + size : 0;
     std_rln_active = rln_on;
     std_rln_needs_nl = needs_nl;
     std_rln_pos = rpos;
@@ -473,43 +476,49 @@ bool std_api_read_xstack(void)
     return api_working();
 }
 
+void std_xram_landed(const void *dst, uint32_t n)
+{
+    uintptr_t off = (uintptr_t)dst - (uintptr_t)xram;
+    if (off >= std_xram_lo && off < std_xram_hi && n <= std_xram_hi - off &&
+        off + n > std_xram_end)
+        std_xram_end = off + n;
+}
+
 bool std_api_read_xram(void)
 {
     if (std_fd_active)
     {
         if (std_pos < std_size)
         {
-            // A chunk of 2048 bytes is tuned for FatFs over USB mass storage
-            // with the bulk-only transport.
-            uint32_t chunk = std_size - std_pos;
-            if (chunk > 2048)
-                chunk = 2048;
+            uint32_t want = std_size - std_pos;
             uint32_t bytes_read;
             api_errno err = API_EIO;
             std_rw_result result = std_fd_active->read(std_fd_active->desc,
-                                                       &std_buf[std_pos], chunk,
+                                                       &std_buf[std_pos], want,
                                                        &bytes_read, &err);
             std_pos += bytes_read;
-            std_xram_len += bytes_read;
+            std_xram_end = std_xram_lo + std_pos;
             if (result == STD_PENDING)
                 return api_working();
             if (result == STD_ERROR)
             {
-                std_xram_len = 0;
+                std_xram_end = std_xram_addr;
+                std_xram_hi = 0;
                 std_fd_active = NULL;
                 return api_return_errno(err);
             }
             // A short read is end of file for an xram transfer. It is not
             // for read_xstack, which returns whatever the driver handed back.
-            if (bytes_read < chunk)
+            if (bytes_read < want)
                 std_size = std_pos;
             return api_working();
         }
         // The op does not return until std_task has forwarded every byte
         // read, because a machine with a separate video device keeps its own
         // copy of xram.
-        if (std_xram_len > 0)
+        if (std_xram_addr < std_xram_end)
             return api_working();
+        std_xram_hi = 0;
         std_fd_active = NULL;
         return api_return_ax(std_pos);
     }
@@ -527,7 +536,9 @@ bool std_api_read_xram(void)
     std_fd_active = fd;
     std_pos = 0;
     std_xram_addr = xram_addr;
-    std_xram_len = 0;
+    std_xram_end = xram_addr;
+    std_xram_lo = xram_addr;
+    std_xram_hi = (uint32_t)xram_addr + std_size;
     return api_working();
 }
 
@@ -683,11 +694,10 @@ void std_stdin_eof(void)
 
 void std_task(void)
 {
-    while (std_xram_len && pix_ready())
+    while (std_xram_addr < std_xram_end && pix_ready())
     {
         pix_send_xram(std_xram_addr, xram[std_xram_addr]);
         ++std_xram_addr;
-        --std_xram_len;
     }
 }
 
@@ -710,6 +720,7 @@ void HOST_IN_FLASH("std_init") std_init(void)
 void std_stop(void)
 {
     std_fd_active = NULL;
+    std_xram_hi = 0;
     std_rln_active = false;
     std_rln_needs_nl = false;
     std_rln_pos = 0;

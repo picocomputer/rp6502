@@ -16,6 +16,11 @@
 
 void std_init(void);
 void std_task(void);
+
+/* A host driver calls this as data of a read lands in memory. The bytes that
+ * fall in the range of a running read_xram are forwarded from then on, not
+ * only after the driver's read returns. */
+void std_xram_landed(const void *dst, uint32_t n);
 void std_stop(void);
 
 /* Whether a cooked read is outstanding on the console, and the notice that

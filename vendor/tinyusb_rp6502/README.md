@@ -15,6 +15,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
   - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c and cdc_host.c.
   - `tuh_control_xfer_drop()` (usbh.c) is declared in `src/host/pico/ria/usb/msc.c`.
   - `tuh_midi_frame()` (midi_host.c) is declared in `src/host/pico/ria/usb/mid.c`.
+  - `std_xram_landed()` (`src/core/api/std.c`) is declared in rp2350_usb.c, which calls it.
 - The copies carry upstream's license headers; midi_host.c has the full MIT text of the older upstream it was reworked from. No copy is reformatted, so `diff -u` against upstream shows only real changes.
 
 | Copy | Upstream, under `vendor/tinyusb/src/` | Summary |
@@ -185,6 +186,7 @@ The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0
   - Control: upstream report #3875 says double-buffered control IN truncates. It has not been reproduced here, but single-buffering EP0 is cheap hardening. The HCD keeps `ep_pool[0]` at type CONTROL for this.
   - Interrupt: upstream single-buffered host interrupt endpoints by testing `interrupt_num`, which the HCD never sets, so this copy tests `transfer_type`. This half has nothing to do with #3875 and stays when upstream fixes that report.
   - Isochronous: upstream single-buffered them by testing the buffer type in `EP_CTRL`. The `transfer_type` test covers them.
+- **Received data** (`bufctrl_sync16()`): after it copies each IN packet to the transfer's buffer, it calls `std_xram_landed()`. When the buffer is the range of a running `read_xram`, std.c starts forwarding those bytes to the VGA at once instead of after the whole read returns. Upstream has no such call.
 - **Short packet on a double-buffered IN** (`rp2usb_xfer_continue()`): the controller has already ended the transfer (see "Measured hardware behaviour" under hcd_rp2350.c). The branch writes no `STOP_TRANS`. It gives back the PID of the other buffer, which the controller never used, and resets the buffer control. Nothing is on the wire after the short packet, so the next transfer starts at once, with no hold until the SOF.
   - Upstream wrote `STOP_TRANS` and waited for it to clear, outside the HCD's `epx_stop()`. It gave the PID back only when the other buffer was not FULL, which it never is here.
 

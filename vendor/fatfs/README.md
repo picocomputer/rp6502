@@ -80,6 +80,11 @@ additions:
   object after a close whatever the result, so the lock stayed behind: the
   file gave `FR_LOCKED` until the volume was mounted again, and each such
   close used up one of the `FF_FS_LOCK` locks.
+- Before a direct read whose range holds the file's dirty cached sector,
+  `f_read()` writes that sector back, as it already does before it reloads
+  the cache. Upstream FatFs reads the range and then copies the cached
+  sector over it. On the RIA, a read into xram forwards data to the VGA as
+  it lands, so a copy made after the read would never reach the VGA.
 - `f_read()` reads a run of contiguous clusters with one `disk_read()`.
   Upstream FatFs stops each direct read at the end of the cluster. A
   1.44 MB floppy has one sector per cluster, so every sector was its own

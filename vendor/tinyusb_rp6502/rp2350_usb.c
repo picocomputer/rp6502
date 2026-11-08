@@ -20,6 +20,9 @@
 //--------------------------------------------------------------------+
 critical_section_t rp2usb_lock;
 
+// in src/core/api/std.c: a read_xram forwards each packet as it lands
+void std_xram_landed(const void *dst, uint32_t n);
+
 //--------------------------------------------------------------------+
 // Implementation
 //--------------------------------------------------------------------+
@@ -167,6 +170,7 @@ static uint16_t __tusb_irq_path_func(bufctrl_sync16)(hw_endpoint_t *ep, bool is_
     // we have received AFTER we have copied it to the user buffer at the appropriate offset
     assert(buf_ctrl & USB_BUF_CTRL_FULL);
     unaligned_memcpy(ep->user_buf, dpram_buf, xferred_bytes);
+    std_xram_landed(ep->user_buf, xferred_bytes);
     ep->user_buf += xferred_bytes;
   }
   ep->xferred_len += xferred_bytes;
