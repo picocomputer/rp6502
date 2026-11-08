@@ -14,7 +14,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
   - `hcd_free_ep_count()` (hcd_rp2350.c) is declared in `src/host/pico/ria/usb/usb.c` and feeds the "ep free" status line.
   - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c and cdc_host.c.
   - `tuh_midi_frame()` (midi_host.c) is declared in `src/host/pico/ria/usb/mid.c`.
-- Every copy adds a `Copyright (c) 2026 Rumbledethumps` line. midi_host.c carries the full MIT text and the others use SPDX lines. No copy is reformatted, so `diff -u` against upstream shows only real changes.
+- The copies carry upstream's license headers; midi_host.c has the full MIT text of the older upstream it was reworked from. No copy is reformatted, so `diff -u` against upstream shows only real changes.
 
 | Copy | Upstream, under `vendor/tinyusb/src/` | Summary |
 |---|---|---|

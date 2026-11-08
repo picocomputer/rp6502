@@ -1,7 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
  * SPDX-FileCopyrightText: Copyright (c) 2021 Ha Thach (tinyusb.org) for Double Buffered
- * SPDX-FileCopyrightText: Copyright (c) 2026 Rumbledethumps
  * SPDX-License-Identifier: MIT
  *
  * This file is part of the TinyUSB stack.
