@@ -25,6 +25,37 @@ rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
 
+# SDK code that runs in an interrupt or on the main loop's hot path. The linker
+# can keep code out of flash only by its object file, so these skip LTO. The
+# SDK's flash .text and .rodata take everything but the files its one-line
+# default_text_excludes.incl and default_rodata_excludes.incl name, and
+# whatever they skip lands in RAM with .data. These overrides add the list.
+set(RIA_SDK_RAM_SOURCES
+    ${PICO_SDK_PATH}/src/common/pico_time/time.c
+    ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
+    ${PICO_SDK_PATH}/src/rp2_common/hardware_timer/timer.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_base.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_poll.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_arch/cyw43_arch.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_lwip/lwip_nosys.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_lwip.c
+    ${PICO_SDK_PATH}/lib/lwip/src/core/timeouts.c
+)
+set_source_files_properties(${RIA_SDK_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
+set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:")
+foreach(_src ${RIA_SDK_RAM_SOURCES})
+    get_filename_component(_dir ${_src} DIRECTORY)
+    get_filename_component(_dir ${_dir} NAME)
+    get_filename_component(_name ${_src} NAME)
+    string(APPEND _ria_ram_files " */${_dir}/${_name}.o")
+endforeach()
+set(_ria_ld ${CMAKE_CURRENT_BINARY_DIR}/${RIA_TARGET}_ld)
+file(WRITE ${_ria_ld}/default_text_excludes.incl "*(EXCLUDE_FILE(${_ria_ram_files}) .text*)\n")
+file(WRITE ${_ria_ld}/default_rodata_excludes.incl "*(EXCLUDE_FILE(${_ria_ram_files}) .rodata*)\n")
+pico_add_linker_script_override_path(${RIA_TARGET} ${_ria_ld}
+    FILES default_text_excludes.incl default_rodata_excludes.incl)
+
 set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
@@ -180,6 +211,7 @@ set_source_files_properties(
     ${RP6502_ROOT}/vendor/tinyusb/src/class/cdc/cdc_host.c
     ${RP6502_ROOT}/vendor/tinyusb/src/host/hub.c
     ${RP6502_ROOT}/vendor/tinyusb/src/host/usbh.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/common/tusb_fifo.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
@@ -189,4 +221,5 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/cdc_host.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/hub.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/usbh.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/tusb_fifo.c
 )

@@ -8,7 +8,6 @@
 #include "osal/pico/lfs.h"
 #include "machine.h"
 
-#include <hardware/sync.h>
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -44,18 +43,14 @@ static int HOST_IN_RAM_FUNC("lfs") lfs_prog(const struct lfs_config *c, lfs_bloc
                                         lfs_off_t off, const void *buffer, lfs_size_t size)
 {
     (void)(c);
-    uint32_t irq = save_and_disable_interrupts();
     flash_range_program(lfs_flash_offs(block) + off, buffer, size);
-    restore_interrupts(irq);
     return LFS_ERR_OK;
 }
 
 static int HOST_IN_RAM_FUNC("lfs") lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
     (void)(c);
-    uint32_t irq = save_and_disable_interrupts();
     flash_range_erase(lfs_flash_offs(block), FLASH_SECTOR_SIZE);
-    restore_interrupts(irq);
     return LFS_ERR_OK;
 }
 

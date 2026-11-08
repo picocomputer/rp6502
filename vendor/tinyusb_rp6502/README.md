@@ -6,7 +6,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 
 ## Build
 
-- `src/host/pico/ria.cmake` marks the six upstream sources `HEADER_FILE_ONLY`, so they are not compiled. It then adds these copies to the RIA target (`rp6502-ria` or `rp6502-ria-w`) with `target_sources`.
+- `src/host/pico/ria.cmake` marks the seven upstream sources `HEADER_FILE_ONLY`, so they are not compiled. It then adds these copies to the RIA target (`rp6502-ria` or `rp6502-ria-w`) with `target_sources`.
 - CMake source file properties apply per directory. The VGA builds in `src/host/pico/vga`, so it compiles upstream TinyUSB unmodified, including upstream `rp2040_usb.c` for its device stack.
 - hcd_rp2350.c and rp2350_usb.c are copies of upstream's hcd_rp2040.c and rp2040_usb.c. They hold RP2350 host code only, and their names say so, as does the HCD's IRQ handler `hcd_rp2350_irq()`.
 - The top-level `CMakeLists.txt` sets `PICO_TINYUSB_PATH` to `vendor/tinyusb`, so the SDK uses the submodule instead of its bundled TinyUSB.
@@ -26,6 +26,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 | hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
 | cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
 | midi_host.c | class/midi/midi_host.c | MIDI host rework, plus the `tuh_midi_frame()` wire framer. Bulk transfers recover after a failure. |
+| tusb_fifo.c | common/tusb_fifo.c | No FIFO mutex. |
 
 **Strand:** an enumeration failure that returns without ending the enumeration. usbh keeps `enumerating_daddr` set, so every later attach waits. A strand lasts until usbh sees the device, or its hub, unplugged. usbh re-arms a hub's status endpoint only at `ENUM_CONFIG_DRIVER`. So if the device sits behind a hub and fails before that step, the device's own unplug goes unseen, and only unplugging the hub ends the strand.
 
@@ -360,12 +361,16 @@ This file is a rework of upstream's MIDI host, rebased onto master.
   - Byte counts come from the status byte, not the CIN.
   - It lives in this file because it keeps its state in the driver's per-interface struct. `src/host/pico/ria/usb/mid.c` calls it.
 
+## tusb_fifo.c
+
+TinyUSB turns on FIFO mutexes for any MCU with more than one core (`OSAL_MUTEX_REQUIRED` in `osal/osal.h`), and the queue the USB interrupt writes is a FIFO. On the RIA, TinyUSB runs only on core 0, so this copy's `ff_lock()` and `ff_unlock()` are empty. With them the interrupt held a mutex call that never ran but ended in the SDK's `best_effort_wfe_or_timeout()`, which is in flash.
+
 ## RIA config: src/host/pico/ria/tusb_config.h
 
 This file is the RIA's own config, not a copy.
 
 - **`CFG_TUSB_DEBUG_BREAKPOINT`** is an empty function, so a failed assert never executes BKPT. Upstream's breakpoint fires whenever DHCSR.C_DEBUGEN is set. Any OpenOCD session sets that bit, and it stays set until a REBOOT, so a failed assert would halt core 0 on a board that was only being read.
-- **Log format strings:** at levels 2 and 3, each one goes in `.flashdata.tusb_log`. The RIA runs from RAM (copy_to_ram), and only `.flashdata*` rodata stays in flash. Level 1 strings (asserts) stay in RAM.
+- **Log format strings:** at levels 2 and 3, each one goes in `.flashdata.tusb_log`. The RIA runs from flash, so these and all other rodata, level 1 strings (asserts) included, stay in flash.
 - **`TU_MESS_FAILED`** prints the file name and line number. That costs one RAM literal per file instead of one `__func__` string per function.
 - **`CFG_TUSB_DEBUG_PRINTF`** is `rp6502_log_tusb()` (`src/host/pico/host.c`), which feeds the RIA log.
 - **Limits:**
