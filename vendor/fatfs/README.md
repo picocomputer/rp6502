@@ -80,6 +80,12 @@ additions:
   object after a close whatever the result, so the lock stayed behind: the
   file gave `FR_LOCKED` until the volume was mounted again, and each such
   close used up one of the `FF_FS_LOCK` locks.
+- `f_read()` reads a run of contiguous clusters with one `disk_read()`.
+  Upstream FatFs stops each direct read at the end of the cluster. A
+  1.44 MB floppy has one sector per cluster, so every sector was its own
+  command, and a floppy drive without read-ahead waits about one turn of
+  the disk for each. `fp->clust` ends on the cluster of the last sector
+  read.
 - `f_getldnumber()` makes the static `get_ldnumber()` available to callers.
   It returns the logical drive number of a path. For a path without a
   drive, it returns the number of the current drive. For a drive that does
