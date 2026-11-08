@@ -182,12 +182,12 @@ typedef struct {
   tuh_xfer_cb_t complete_cb;
   uintptr_t user_data;
 
-  volatile uint32_t timeout_at_ms; // deadline for the in-flight transfer (CFG_TUH_CONTROL_TIMEOUT_MS)
+  volatile uint32_t timeout_at_ms; // deadline for the in-flight transfer (control_xfer_timeout_ms())
   volatile uint16_t actual_len;
   volatile uint8_t stage;
   uint8_t daddr;
   uint8_t failed_count;
-  uint16_t expired_events; // events processed since the deadline passed (CFG_TUH_CONTROL_TIMEOUT_MS)
+  uint16_t expired_events; // events processed since the deadline passed
 } usbh_ctrl_xfer_info_t;
 
 // deadline checks compare (int32_t)(timeout_at_ms - now)
@@ -224,8 +224,12 @@ typedef struct {
   uint8_t enumerating_daddr;  // device address of the device being enumerated
   uint8_t enum_attempt;       // enumeration attempts used for the current attach
   uint8_t attach_debouncing_bm;  // bitmask for roothub port attach debouncing
-  uint8_t enum_hub_armed;     // ENUM_CONFIG_DRIVER armed the hub status endpoint for the current attach
+  uint8_t enum_hub_armed;     // the current attach gave its hub's status endpoint back (ENUM_CONFIG_DRIVER, or a resume)
   tuh_bus_info_t dev0_bus;    // bus info for dev0 in enumeration
+#if CFG_TUH_HUB
+  tuh_bus_info_t enum_resume_bus; // a hub port whose failed enumeration let the deferred attaches go first
+  uint8_t enum_resume_attempt;    // the attempt that port resumes with, 0 for none
+#endif
   usbh_ctrl_xfer_info_t ctrl_xfer_info; // control transfer
   usbh_call_after_t call_after;
   // Per-daddr generation counter — bumped on usbh_device_close() to identify stale pending control transfer
@@ -368,6 +372,9 @@ TU_ATTR_ALWAYS_INLINE static inline usbh_class_driver_t const *get_driver(uint8_
 // Function Inline and Prototypes
 //--------------------------------------------------------------------+
 static void enum_new_device(hcd_event_t* event);
+#if CFG_TUH_HUB
+static void enum_resume(void);
+#endif
 static void enum_delay_async(uintptr_t state);
 static void process_remove_event(hcd_event_t *event);
 static void remove_device_tree(uint8_t rhport, uint8_t hub_addr, uint8_t hub_port);
@@ -409,6 +416,29 @@ TU_ATTR_ALWAYS_INLINE static inline bool deadline_clamp(uint32_t at_ms, uint32_t
     *timeout_ms = (uint32_t) remain_ms;
   }
   return false;
+}
+
+// USB 2.0 9.2.6.4: a standard request returns each data packet within 500 ms and ends its status stage 50 ms after
+// the last one. Each of the three stages can also wait for the transfer holding EPX: up to 65535 bytes of bulk data,
+// about 60 ms at full speed.
+enum {
+  CTRL_STD_DATA_PACKET_MS = 500,
+  CTRL_STD_STATUS_MS      = 50,
+  CTRL_EPX_WAIT_MS        = 200,
+};
+
+// Deadline of a control transfer from its SETUP: 9.2.6.4 for a standard request with an IN data stage, else the 5 s
+// of 9.2.6.1
+static uint32_t control_xfer_timeout_ms(uint8_t daddr, const tusb_control_request_t* request) {
+  if (request->bmRequestType_bit.type != TUSB_REQ_TYPE_STANDARD ||
+      request->bmRequestType_bit.direction != TUSB_DIR_IN || request->wLength == 0) {
+    return CFG_TUH_CONTROL_TIMEOUT_MS;
+  }
+  const usbh_device_t* dev = get_device(daddr);
+  const uint32_t mps = (dev && dev->desc_device.bMaxPacketSize0) ? dev->desc_device.bMaxPacketSize0 : 8;
+  const uint32_t packets = (tu_le16toh(request->wLength) + mps - 1) / mps;
+  return tu_min32(packets * CTRL_STD_DATA_PACKET_MS + CTRL_STD_STATUS_MS + CTRL_EPX_WAIT_MS,
+                  CFG_TUH_CONTROL_TIMEOUT_MS);
 }
 
 TU_ATTR_ALWAYS_INLINE static inline void control_xfer_set_stage(uint8_t stage) {
@@ -706,7 +736,7 @@ bool tuh_task_event_ready(void) {
 
   #if CFG_TUH_HUB
   if (_usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8 &&
-      !osal_queue_empty(_usbh_daq)) {
+      (!osal_queue_empty(_usbh_daq) || _usbh_data.enum_resume_attempt != 0)) {
     return true;
   }
   #endif
@@ -998,6 +1028,9 @@ static bool usbh_task_run(uint32_t timeout_ms, bool in_isr, bool stoppable) {
     if (_usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8) {
       // zero wait to avoid blocking the main event queue
       has_deferred_attach = osal_queue_receive(_usbh_daq, &event, 0);
+      if (!has_deferred_attach && _usbh_data.enum_resume_attempt != 0) {
+        enum_resume();
+      }
     }
 
     if (!has_deferred_attach) // skip event queue to process deferred attach
@@ -1103,7 +1136,7 @@ bool tuh_control_xfer (tuh_xfer_t* xfer) {
     bool is_queued = false;
     (void) osal_mutex_lock(_usbh_mutex, OSAL_TIMEOUT_WAIT_FOREVER);
     if (ctrl_info->stage == CONTROL_STAGE_IDLE) {
-      ctrl_info->timeout_at_ms = tusb_time_millis_api() + CFG_TUH_CONTROL_TIMEOUT_MS;
+      ctrl_info->timeout_at_ms = tusb_time_millis_api() + control_xfer_timeout_ms(daddr, xfer->setup);
       ctrl_info->expired_events = 0;
       ctrl_info->stage        = CONTROL_STAGE_SETUP;
       ctrl_info->daddr        = daddr;
@@ -1226,7 +1259,7 @@ static void control_xfer_dispatch_pending(void) {
     (void) osal_mutex_lock(_usbh_mutex, OSAL_TIMEOUT_WAIT_FOREVER);
     if (ctrl_info->stage == CONTROL_STAGE_IDLE &&
         tu_fifo_read_n(&_usbh_pending_ctrl_q, &xfer, sizeof(xfer)) == sizeof(xfer)) {
-      ctrl_info->timeout_at_ms = tusb_time_millis_api() + CFG_TUH_CONTROL_TIMEOUT_MS;
+      ctrl_info->timeout_at_ms = tusb_time_millis_api() + control_xfer_timeout_ms(xfer.daddr, &xfer.setup);
       ctrl_info->expired_events = 0;
       ctrl_info->stage        = CONTROL_STAGE_SETUP;
       ctrl_info->daddr        = xfer.daddr;
@@ -1313,6 +1346,8 @@ static bool usbh_control_xfer_cb (uint8_t daddr, uint8_t ep_addr, xfer_result_t 
         ctrl_info->stage = CONTROL_STAGE_SETUP;
         ctrl_info->failed_count++;
         ctrl_info->actual_len = 0; // reset actual_len
+        ctrl_info->timeout_at_ms  = tusb_time_millis_api() + control_xfer_timeout_ms(daddr, request); // a new request
+        ctrl_info->expired_events = 0;
         (void) osal_mutex_unlock(_usbh_mutex);
 
         if (!hcd_setup_send(rhport, daddr, (uint8_t const *) request)) {
@@ -1821,6 +1856,16 @@ bool tuh_interface_set(uint8_t daddr, uint8_t itf_num, uint8_t itf_alt,
 // process detach event from rhport:hub_addr:hub_port
 static void process_remove_event(hcd_event_t *event) {
   const tuh_bus_info_t *dev0_bus = &_usbh_data.dev0_bus;
+
+  #if CFG_TUH_HUB
+  // an attach or removal of the resuming port, or of the whole root port, supersedes the resume
+  const tuh_bus_info_t *resume_bus = &_usbh_data.enum_resume_bus;
+  if (_usbh_data.enum_resume_attempt != 0 && event->rhport == resume_bus->rhport &&
+      (event->connection.hub_addr == 0 || event->connection.hub_addr == resume_bus->hub_addr) &&
+      (event->connection.hub_port == 0 || event->connection.hub_port == resume_bus->hub_port)) {
+    _usbh_data.enum_resume_attempt = 0;
+  }
+  #endif
   const bool dev0_enumerating = (_usbh_data.enumerating_daddr == 0) && (event->rhport == dev0_bus->rhport);
 
   if (dev0_enumerating &&
@@ -1862,6 +1907,12 @@ static void remove_device_tree(uint8_t rhport, uint8_t hub_addr, uint8_t hub_por
         if (is_hub_addr(daddr)) {
           TU_LOG_USBH("  is a HUB device %u\r\n", daddr);
           removing_hubs[dev_id - CFG_TUH_DEVICE_MAX] = 1;
+          if (_usbh_data.enum_resume_bus.hub_addr == daddr) {
+            _usbh_data.enum_resume_attempt = 0; // the resuming port goes with its hub
+          }
+          if (_usbh_data.enumerating_daddr == 0 && _usbh_data.dev0_bus.hub_addr == daddr) {
+            usbh_device_close(rhport, 0); // so is dev0, before the hub's requests fail into its enumeration
+          }
         } else
         #endif
         {
@@ -2076,8 +2127,31 @@ static void enum_new_device(hcd_event_t *event) {
   usbh_defer_func_ms_async(ENUM_DEBOUNCING_DELAY_MS, enum_delay_async, ENUM_AFTER_DEBOUNCING_DELAY);
 }
 
+#if CFG_TUH_HUB
+// next attempt of the hub port that let the deferred attaches go first, with a fresh port reset
+static void enum_resume(void) {
+  _usbh_data.enumerating_daddr   = 0;
+  _usbh_data.dev0_bus            = _usbh_data.enum_resume_bus;
+  _usbh_data.enum_attempt        = _usbh_data.enum_resume_attempt;
+  _usbh_data.enum_resume_attempt = 0;
+  _usbh_data.enum_hub_armed      = 1; // the first failed attempt gave the hub's arm back
+  TU_LOG_USBH("[%u:%u:%u] Enumeration resumes, attempt %u/%u\r\n", _usbh_data.dev0_bus.rhport,
+              _usbh_data.dev0_bus.hub_addr, _usbh_data.dev0_bus.hub_port, _usbh_data.enum_attempt + 1,
+              CFG_TUH_ENUM_ATTEMPT_MAX);
+  usbh_defer_func_ms_async(ENUM_DEBOUNCING_DELAY_MS, enum_delay_async, ENUM_AFTER_DEBOUNCING_DELAY);
+}
+#endif
+
 // process device enumeration
 static void process_enumeration(tuh_xfer_t *xfer) {
+  #if CFG_TUH_HUB
+  // a hub request of an enumeration torn down from outside, whose port events already took over
+  if (xfer->user_data <= ENUM_HUB_CLEAR_RESET_COMPLETE &&
+      (_usbh_data.enumerating_daddr != 0 || xfer->daddr != _usbh_data.dev0_bus.hub_addr ||
+       tu_le16toh(xfer->setup->wIndex) != _usbh_data.dev0_bus.hub_port)) {
+    return;
+  }
+  #endif
   if (XFER_RESULT_FAILED == xfer->result || XFER_RESULT_TIMEOUT == xfer->result) {
     enum_full_complete(false);
     return;
@@ -2362,7 +2436,7 @@ static void process_enumeration(tuh_xfer_t *xfer) {
 
   #if CFG_TUH_HUB
       // get next hub status now since device can be unplugged before set_configure() is complete
-      if (_usbh_data.dev0_bus.hub_addr != 0) {
+      if (_usbh_data.dev0_bus.hub_addr != 0 && !_usbh_data.enum_hub_armed) {
         _usbh_data.enum_hub_armed = 1;
         hub_edpt_status_xfer(_usbh_data.dev0_bus.hub_addr);
       }
@@ -2538,7 +2612,8 @@ static void control_xfer_timeout_expired(void) {
   }
 
   const uint8_t rhport = usbh_get_rhport(daddr);
-  TU_LOG_USBH("[%u:%u] Control transfer timed out after %u ms\r\n", rhport, daddr, (unsigned) CFG_TUH_CONTROL_TIMEOUT_MS);
+  TU_LOG_USBH("[%u:%u] Control transfer timed out after %lu ms\r\n", rhport, daddr,
+              (unsigned long) control_xfer_timeout_ms(daddr, request));
   hcd_edpt_abort_xfer(rhport, daddr, ep_addr);
   control_xfer_complete(daddr, XFER_RESULT_TIMEOUT);
 }
@@ -2608,6 +2683,18 @@ static bool enum_retry(void) {
       _usbh_data.enum_attempt + 1 >= CFG_TUH_ENUM_ATTEMPT_MAX) {
     return false;
   }
+  #if CFG_TUH_HUB
+  // Behind a hub, the next attempt waits for the deferred attaches. Ending the first one gives the hub's status
+  // endpoint back, so the hub's other new ports are posted while the next attempt runs and go before the one after.
+  if (_usbh_data.dev0_bus.hub_addr != 0 && _usbh_data.enum_resume_attempt == 0) {
+    _usbh_data.enum_resume_bus     = _usbh_data.dev0_bus;
+    _usbh_data.enum_resume_attempt = (uint8_t) (_usbh_data.enum_attempt + 1);
+    TU_LOG_USBH("Enumeration failed, attempt %u/%u after the deferred attaches\r\n",
+                _usbh_data.enum_resume_attempt + 1, CFG_TUH_ENUM_ATTEMPT_MAX);
+    enum_end(false);
+    return true;
+  }
+  #endif
   enum_teardown(false);
   _usbh_data.enum_attempt++;
   TU_LOG_USBH("Enumeration failed, retry attempt %u/%u\r\n", _usbh_data.enum_attempt + 1, CFG_TUH_ENUM_ATTEMPT_MAX);
