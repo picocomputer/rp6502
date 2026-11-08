@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Writing XRAM. On a Pico this crosses the PIX bus to the VGA's copy and is a
- * PIO FIFO write; elsewhere there is one XRAM and it lands directly. */
+/* Writing XRAM. On a Pico this crosses the PIX bus to the VGA's copy;
+ * elsewhere there is one XRAM and it lands directly. */
 
 #ifndef _CORE_SYS_PIX_H_
 #define _CORE_SYS_PIX_H_
@@ -26,11 +26,12 @@
 /* Op 0x01: the xreg burst off the xstack, to a device and channel. */
 bool pix_api_xreg(void);
 
-/* Room for at least one more message. A Pico's FIFO is finite and answers
- * false when it is nearly full, so std_task retires its forwarding count
- * through this. */
-bool pix_ready(void);
+/* Queues xram[addr, end) for the video device's copy, as much as there is
+ * room for, and returns the address it queued up to. */
+uint32_t pix_stream_xram(uint32_t addr, uint32_t end);
 
-void pix_send_xram(uint16_t addr, uint8_t data);
+/* True once everything pix_stream_xram queued goes out ahead of any message
+ * sent after this returns. */
+bool pix_stream_done(void);
 
 #endif /* _CORE_SYS_PIX_H_ */

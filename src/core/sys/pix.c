@@ -79,17 +79,15 @@ static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t index, uint16_t wo
     return true;
 }
 
-/* There is no FIFO to fill, and std_task drains its forwarding count only
- * while this is true, so a false would stall it forever. */
-bool pix_ready(void)
-{
-    return true;
-}
-
-/* std_task forwards a byte it read out of xram, and this machine has the one
- * copy, so the byte is already where it was going. */
-void pix_send_xram(uint16_t addr, uint8_t data)
+/* This machine has the one copy of xram, so the bytes are already where they
+ * were going. */
+uint32_t pix_stream_xram(uint32_t addr, uint32_t end)
 {
     (void)addr;
-    (void)data;
+    return end;
+}
+
+bool pix_stream_done(void)
+{
+    return true;
 }
