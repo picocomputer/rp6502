@@ -8,6 +8,7 @@
 #include "core/sys/config.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/resb.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/sync.h>
 
@@ -15,7 +16,7 @@ static volatile bool release_pending;
 
 static absolute_time_t hold_end;
 
-void __in_flash("resb_init") resb_init(void)
+void HOST_IN_FLASH("resb_init") resb_init(void)
 {
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);

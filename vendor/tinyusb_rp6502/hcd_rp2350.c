@@ -27,6 +27,7 @@
 
   #include "host/hcd.h"
   #include "host/usbh.h"
+  #include "machine.h"
 
 //--------------------------------------------------------------------+
 //
@@ -169,6 +170,17 @@ static void __tusb_irq_path_func(epx_hold_until_sof)(void) {
   usb_hw_set->inte = USB_INTE_HOST_SOF_BITS;
 }
 
+// busy_wait_at_least_cycles(12) for datasheet 12.7.3.7.1. LTO leaves the SDK's copy in flash, and this runs with
+// interrupts off, so its loop is inlined here.
+TU_ATTR_ALWAYS_INLINE static inline void wait_12_cycles(void) {
+  uint32_t cycles = 12;
+  pico_default_asm_volatile("1: subs %0, #3\n"
+                            "bcs 1b\n"
+                            : "+r"(cycles)
+                            :
+                            : "cc", "memory");
+}
+
 static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bool need_pre) {
   // drop status latched before this transaction
   usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS | USB_SIE_STATUS_STALL_REC_BITS |
@@ -190,7 +202,7 @@ static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bo
   // described in RP2350 Datasheet, section "12.7.3.7.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
   usb_hw->sie_ctrl = sie_ctrl;
-  busy_wait_at_least_cycles(12);
+  wait_12_cycles();
   usb_hw->sie_ctrl = sie_ctrl | USB_SIE_CTRL_START_TRANS_BITS;
 }
 
@@ -400,7 +412,7 @@ static void __tusb_irq_path_func(sof_service)(void) {
 }
 
 // the SDK registers this as the ISR, so it records its own span; under tuh_int_handler() the depth counter keeps one
-static void __tusb_irq_path_func(hcd_rp2350_irq)(void) {
+static void HOST_ISR_FUNC("usb") hcd_rp2350_irq(void) {
   if (TUH_SYSVIEW_ISR_TRACED) { TU_SYSVIEW_ISR_ENTER(); }
   const uint32_t status = usb_hw->ints;
 
@@ -608,7 +620,7 @@ static void edpt_release(hw_endpoint_t *ep) {
 }
 
 // Close all opened endpoint belong to this device
-void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
+void HOST_ISR_FUNC("usb") hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   (void)rhport;
 
   rp2usb_critical_enter();
@@ -674,7 +686,7 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
   return true;
 }
 
-bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
+bool HOST_ISR_FUNC("usb") hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   (void)rhport;
   hw_endpoint_t *ep = edpt_find(daddr, ep_addr);
   TU_VERIFY(ep != NULL);
@@ -687,7 +699,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   return true;
 }
 
-bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
+bool HOST_ISR_FUNC("usb") hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void)rhport;
   hw_endpoint_t *ep = edpt_find(dev_addr, ep_addr);
   TU_VERIFY(ep != NULL);
@@ -700,7 +712,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   return true;
 }
 
-bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {
+bool HOST_ISR_FUNC("usb") hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {
   (void)rhport;
 
   hw_endpoint_t *ep = edpt_find(dev_addr, ep_addr);
@@ -737,7 +749,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   return true;
 }
 
-bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet[8]) {
+bool HOST_ISR_FUNC("usb") hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet[8]) {
   (void)rhport;
 
   hw_endpoint_t *ep = &ep_pool[0];

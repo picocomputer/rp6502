@@ -15,6 +15,7 @@
 #include "core/sys/ring.h"
 #include "ria/sys/com.h"
 #include "ria/sys/com_telnet.h"
+#include "machine.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pico/stdlib.h>
@@ -215,7 +216,7 @@ static stdio_driver_t com_stdio_driver = {
     .crlf_enabled = true,
 };
 
-void __in_flash("com_init") com_init(void)
+void HOST_IN_FLASH("com_init") com_init(void)
 {
     gpio_pull_up(COM_UART_TX_PIN);
     gpio_pull_up(COM_UART_RX_PIN);

@@ -12,8 +12,11 @@
 #define __in_flash(group)
 #define HOST_IN_FLASH(group)
 #define HOST_IN_FLASH_FUNC(group) __attribute__((noinline))
-#define HOST_NOT_IN_FLASH(group)
+#define HOST_IN_RAM(group)
+#define HOST_IN_RAM_FUNC(group)
+#define HOST_ISR_FUNC(group)
 #define HOST_UNINITIALIZED_RAM(name) name
+#define HOST_REGISTER_RAM(name) name
 
 #define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16

@@ -25,7 +25,7 @@ typedef struct
     mon_response_fn extra_fn;
 } help_entry_t;
 
-__in_flash("help_commands") static const help_entry_t HELP_COMMANDS[] = {
+HOST_IN_FLASH("help_commands") static const help_entry_t HELP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
@@ -92,7 +92,7 @@ static const char *help_find_setting(const char *key, mon_response_fn *fn)
     return NULL;
 }
 
-__in_flash("help_disk") static const help_entry_t HELP_DISK[] = {
+HOST_IN_FLASH("help_disk") static const help_entry_t HELP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
 #if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},

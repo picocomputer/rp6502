@@ -13,6 +13,7 @@
 #include "ria/sys/ria.h"
 #include "ria/sys/rp2350.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/pio.h>
 #include <hardware/pwm.h>
@@ -59,7 +60,7 @@ static int32_t aud_err[2][2];
 static uint32_t aud_words[2][AUD_PWM_PER_SAMPLE];
 static uint aud_sm[2];
 
-__attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int32_t sl, int32_t sr)
+__attribute__((optimize("O2"))) static void HOST_IN_RAM_FUNC("aud") aud_shape(int32_t sl, int32_t sr)
 {
     sl -= (sl + 32) >> 6;
     sr -= (sr + 32) >> 6;
@@ -96,7 +97,7 @@ __attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int3
  * because a mapping changes only under aud_engine_lock. The OPL2's writes
  * are gathered and go into its queue in one copy, so a full ring of 40 on
  * the worst sample pays the queue's barriers once. */
-__attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void)
+__attribute__((optimize("O3"))) static void HOST_IN_RAM_FUNC("aud") aud_drain(void)
 {
     const uint32_t n = RING_LEN(&ria_aud.ring);
     const uint32_t psg_at = ria_aud.psg_at;
@@ -193,7 +194,7 @@ static inline void aud_load_measure(void)
 /* The words shaped by the previous interrupt go out first, while each FIFO
  * still holds two, so they play without a gap however long the sample
  * generators take after them. */
-static void __isr __time_critical_func(aud_irq)(void)
+static void HOST_ISR_FUNC("aud") aud_irq(void)
 {
     for (int i = 0; i < AUD_PWM_PER_SAMPLE; i++)
     {
@@ -235,7 +236,7 @@ static void __isr __time_critical_func(aud_irq)(void)
     aud_load_measure();
 }
 
-void __in_flash("aud_init") aud_init(void)
+void HOST_IN_FLASH("aud_init") aud_init(void)
 {
     pwm_config config = pwm_get_default_config();
     pwm_config_set_wrap(&config, AUD_PWM_PER_SAMPLE * AUD_PWM_PERIOD - 1);

@@ -7,6 +7,7 @@
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "osal/pico/lfs.h"
+#include "machine.h"
 #include <hal_flash_bank.h>
 #include <hardware/flash.h>
 #include <string.h>
@@ -17,7 +18,7 @@
  * Erased state is 0xFF, matching NOR flash semantics.
  */
 
-static const char *const __in_flash("tlv_db_paths") bank_path[] = {STR_BLE_TLV_DB0, STR_BLE_TLV_DB1};
+static const char *const HOST_IN_FLASH("tlv_db_paths") bank_path[] = {STR_BLE_TLV_DB0, STR_BLE_TLV_DB1};
 
 // Keep files open to avoid expensive open/close operations
 static lfs_file_t bank_files[2];

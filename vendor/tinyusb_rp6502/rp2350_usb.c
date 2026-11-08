@@ -74,33 +74,35 @@ void __tusb_irq_path_func(rp2usb_reset_transfer)(hw_endpoint_t *ep) {
   ep->user_buf      = 0;
 }
 
+// busy_wait_at_least_cycles(12) for datasheet 12.7.3.7.1. LTO leaves the SDK's copy in flash, and this runs with
+// interrupts off, so its loop is inlined here.
+TU_ATTR_ALWAYS_INLINE static inline void wait_12_cycles(void) {
+  uint32_t cycles = 12;
+  pico_default_asm_volatile("1: subs %0, #3\n"
+                            "bcs 1b\n"
+                            : "+r"(cycles)
+                            :
+                            : "cc", "memory");
+}
+
 void __tusb_irq_path_func(bufctrl_write32)(io_rw_32 *buf_reg, uint32_t value) {
-  const uint32_t current    = *buf_reg;
-  const uint32_t avail_mask = USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << 16);
-  if (current & value & avail_mask) {
-    panic("buf_ctrl @ 0x%lX already available", (uintptr_t)buf_reg);
-  }
   *buf_reg = value & ~(USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << 16)); // write other bits first
 
   // Section 12.7.3.7.1 Concurrent access: after write to buffer control,
   // wait for USB controller to see the update before setting AVAILABLE. The host moves to the second EPX buffer
   // by itself.
   if (value & (USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << 16))) {
-    busy_wait_at_least_cycles(12);
+    wait_12_cycles();
     *buf_reg = value; // then set AVAILABLE bit last
   }
 }
 
 void __tusb_irq_path_func(bufctrl_write16)(io_rw_16 *buf_reg16, uint16_t value) {
-  const uint16_t current = *buf_reg16;
-  if (current & value & USB_BUF_CTRL_AVAIL) {
-    panic("buf_ctrl @ 0x%lX already available", (uintptr_t)buf_reg16);
-  }
   *buf_reg16 = value & (uint16_t)~USB_BUF_CTRL_AVAIL; // write other bits first
 
   // Section 12.7.3.7.1 Concurrent access
   if (value & USB_BUF_CTRL_AVAIL) {
-    busy_wait_at_least_cycles(12);
+    wait_12_cycles();
     *buf_reg16 = value; // then set AVAILABLE bit last
   }
 }

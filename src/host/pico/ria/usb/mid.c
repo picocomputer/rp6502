@@ -18,7 +18,7 @@
 
 extern uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out);
 
-__in_flash("mid_string") static const char mid_string[] = "MIDI";
+HOST_IN_FLASH("mid_string") static const char mid_string[] = "MIDI";
 static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128

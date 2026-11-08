@@ -90,17 +90,17 @@ static_assert(FF_STR_VOLUME_ID == 1);
 #endif
 
 // Place volume strings in flash
-const char __in_flash("fatfs_vol") VolumeStrMSC0[] = "MSC0";
-const char __in_flash("fatfs_vol") VolumeStrMSC1[] = "MSC1";
-const char __in_flash("fatfs_vol") VolumeStrMSC2[] = "MSC2";
-const char __in_flash("fatfs_vol") VolumeStrMSC3[] = "MSC3";
-const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
-const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
-const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
-const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
-const char __in_flash("fatfs_vol") VolumeStrMSC8[] = "MSC8";
-const char __in_flash("fatfs_vol") VolumeStrMSC9[] = "MSC9";
-const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC0[] = "MSC0";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC1[] = "MSC1";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC2[] = "MSC2";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC3[] = "MSC3";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC4[] = "MSC4";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC5[] = "MSC5";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC6[] = "MSC6";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC7[] = "MSC7";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC8[] = "MSC8";
+const char HOST_IN_FLASH("fatfs_vol") VolumeStrMSC9[] = "MSC9";
+const char HOST_IN_FLASH("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
     VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7,
     VolumeStrMSC8, VolumeStrMSC9};
@@ -584,7 +584,7 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     return true;
 }
 
-bool __in_flash("msc_class_driver_init") msc_class_driver_init(void)
+bool HOST_IN_FLASH("msc_class_driver_init") msc_class_driver_init(void)
 {
     TU_LOG_DRV("sizeof(msc_interface_t) = %u\r\n", sizeof(msc_interface_t));
     TU_LOG_DRV("sizeof(msc_epbuf_t) = %u\r\n", sizeof(msc_epbuf_t));

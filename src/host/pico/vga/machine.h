@@ -13,7 +13,10 @@
 /* A function the compiler inlines lands where its caller is, so this one is
  * never inlined. */
 #define HOST_IN_FLASH_FUNC(group) __noinline __in_flash(group)
-#define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
+#define HOST_IN_RAM(group) __not_in_flash(group)
+#define HOST_IN_RAM_FUNC(group) __not_in_flash(group)
+/* An interrupt handler runs from RAM with everything it calls inlined. */
+#define HOST_ISR_FUNC(group) __attribute__((flatten, optimize("O3"))) __not_in_flash(group)
 #define HOST_UNINITIALIZED_RAM(name) __uninitialized_ram(name)
 
 /* The PIX DMA chain in pix.c writes each 16-bit xram address into the low

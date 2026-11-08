@@ -80,7 +80,7 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
     return drivers;
 }
 
-void __in_flash("usb_init") usb_init(void)
+void HOST_IN_FLASH("usb_init") usb_init(void)
 {
     for (int i = 0; i < CFG_TUH_HID; i++)
         usb_hid_slot[i] = -1;
@@ -343,7 +343,7 @@ static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t de
 }
 
 typedef const void *(*usb_id_fetch_fn)(uint8_t daddr);
-__in_flash("usb_id_fetchers") static const usb_id_fetch_fn usb_id_fetchers[] = {
+HOST_IN_FLASH("usb_id_fetchers") static const usb_id_fetch_fn usb_id_fetchers[] = {
     usb_string_fetch_manufacturer,
     usb_string_fetch_product,
     usb_string_fetch_serial,

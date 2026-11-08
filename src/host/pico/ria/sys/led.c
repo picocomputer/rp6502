@@ -6,6 +6,7 @@
 
 #include "ria/sys/led.h"
 #include "ria-w/net/cyw.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 
 #define LED_BLINK_TIME_MS 100
@@ -26,7 +27,7 @@ static void led_set(bool on)
 #endif
 }
 
-void __in_flash("led_init") led_init(void)
+void HOST_IN_FLASH("led_init") led_init(void)
 {
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);

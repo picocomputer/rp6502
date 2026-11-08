@@ -35,6 +35,10 @@ The RP2350 host controller has one endpoint driven by software (EPX) and 15 hard
 
 The file stops the build with `#error` on anything but the RP2350. The scheduler needs `STOP_EPX_ON_NAK` and `EPX_STOPPED_ON_NAK`, and only the RP2350 has them.
 
+The IRQ handler `hcd_rp2350_irq()` is `HOST_ISR_FUNC` from the RIA's `machine.h`: it runs from RAM with everything it calls inlined, because the RIA runs from flash and no interrupt may reach flash.
+The 12-cycle waits before START_TRANS and AVAILABLE use a local `wait_12_cycles()` (the SDK's loop, always inline) here and in rp2350_usb.c: LTO leaves `busy_wait_at_least_cycles()` as one shared copy in flash.
+The functions that take `rp2usb_lock` (`hcd_device_close()`, `hcd_edpt_close()`, `hcd_edpt_abort_xfer()`, `hcd_edpt_xfer()`, `hcd_setup_send()`) run with interrupts off for part of their length, so they are `HOST_ISR_FUNC` as well.
+
 ### EPX only
 
 - Control, bulk and interrupt transfers all run on EPX. `INT_EP_CTRL`, `INT_EP_ADDR_CTRL` and the slot DPRAM buffers are never used. Every pool entry uses `epx_data` as its buffer.
@@ -181,6 +185,7 @@ Measured on 2026-11-07 on an RP2350 with a full-speed hub, a low-speed keyboard 
 
 The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0), so this copy keeps only the host code for the RP2350. The VGA's device stack builds upstream's rp2040_usb.c.
 
+- `bufctrl_write32()` and `bufctrl_write16()` have no "already available" `panic()`. It printed through stdio, which is in flash, from the interrupt.
 - `bufctrl_write32()` and `bufctrl_write16()` wait 12 cycles before setting AVAILABLE in host mode too, as datasheet 12.7.3.7.1 requires. Upstream skipped the wait in host mode because the host starts every transaction. However, the controller moves to the second buffer of a double-buffered EPX transfer on its own, and `rp2usb_xfer_continue()` re-arms one half while the controller works on the other.
 - `rp2usb_buffer_start()` double-buffers bulk transfers only.
   - Control: upstream report #3875 says double-buffered control IN truncates. It has not been reproduced here, but single-buffering EP0 is cheap hardening. The HCD keeps `ep_pool[0]` at type CONTROL for this.

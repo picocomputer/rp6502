@@ -12,6 +12,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/xram.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <hardware/dma.h>
 #include <pico/time.h>
 #include <string.h>
@@ -48,7 +49,7 @@ void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
     pio_clkdiv_restart_sm_mask(PIX_PIO, (1u << PIX_SM) | (1u << PIX_STREAM_SM));
 }
 
-void __in_flash("pix_init") pix_init(void)
+void HOST_IN_FLASH("pix_init") pix_init(void)
 {
     uint offset = pio_add_program(PIX_PIO, &pix_tx_program);
     pio_sm_config config = pix_tx_program_get_default_config(offset);

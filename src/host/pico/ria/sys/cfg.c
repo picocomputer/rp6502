@@ -168,7 +168,7 @@ static void HOST_IN_FLASH_FUNC("cfg_load_with_boot_opt") cfg_load_with_boot_opt(
     mon_add_response_lfs(lfsresult);
 }
 
-void __in_flash("cfg_init") cfg_init(void)
+void HOST_IN_FLASH("cfg_init") cfg_init(void)
 {
     mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);

@@ -88,22 +88,22 @@
     X(SST11, "Pacific/Pago_Pago", "SST11")
 
 #define X(suffix, name, tz)                            \
-    static const char __in_flash("tim_tzinfo_strings") \
+    static const char HOST_IN_FLASH("tim_tzinfo_strings") \
         TIM_TZINFO_NAME_##suffix[] = name;             \
-    static const char __in_flash("tim_tzinfo_strings") \
+    static const char HOST_IN_FLASH("tim_tzinfo_strings") \
         TIM_TZINFO_TZ_##suffix[] = tz;
 TIM_TZINFO
 #undef X
 
 #define X(suffix, name, tz) \
     TIM_TZINFO_NAME_##suffix,
-static const char *__in_flash("tim_tzinfo_name")
+static const char *HOST_IN_FLASH("tim_tzinfo_name")
     tim_tzinfo_name[] = {TIM_TZINFO};
 #undef X
 
 #define X(suffix, name, tz) \
     TIM_TZINFO_TZ_##suffix,
-static const char *__in_flash("tim_tzinfo_tz")
+static const char *HOST_IN_FLASH("tim_tzinfo_tz")
     tim_tzinfo_tz[] = {TIM_TZINFO};
 #undef X
 
@@ -127,7 +127,7 @@ int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
     return n;
 }
 
-void __in_flash("tim_init") tim_init(void)
+void HOST_IN_FLASH("tim_init") tim_init(void)
 {
     // Noon UTC keeps localtime on 1 January 1970 for any TZ offset from UTC-12
     // to just under UTC+12.

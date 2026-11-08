@@ -98,7 +98,7 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm3_rx_fifo_not_empty, false);
 }
 
-static void __time_critical_func(vga_vsync_trap_disarm)(void)
+static void HOST_IN_RAM_FUNC("vga_vsync") vga_vsync_trap_disarm(void)
 {
     if (!vga_vsync_trap_armed)
         return;
@@ -112,7 +112,7 @@ static void __time_critical_func(vga_vsync_trap_disarm)(void)
 /* The alarm is driven through TIMER0's registers rather than the SDK's alarm
  * callbacks, so everything its interrupt runs is in RAM. Returns true when
  * us has already passed, with the alarm disarmed. */
-static bool __time_critical_func(vga_vsync_alarm_at)(uint32_t us)
+static bool HOST_IN_RAM_FUNC("vga_vsync") vga_vsync_alarm_at(uint32_t us)
 {
     timer_hw->alarm[vga_vsync_alarm] = us;
     if ((int32_t)(us - timer_hw->timerawl) > 0)
@@ -121,7 +121,7 @@ static bool __time_critical_func(vga_vsync_alarm_at)(uint32_t us)
     return true;
 }
 
-static void __isr __time_critical_func(vga_vsync_alarm_irq_handler)(void)
+static void HOST_ISR_FUNC("vga_vsync") vga_vsync_alarm_irq_handler(void)
 {
     timer_hw->intr = 1u << vga_vsync_alarm;
     if (!vga_vsync_alarm_arms)
@@ -142,7 +142,7 @@ static void __isr __time_critical_func(vga_vsync_alarm_irq_handler)(void)
         vga_vsync_trap_disarm();
 }
 
-static void __time_critical_func(vga_vsync_reschedule)(void)
+static void HOST_IN_RAM_FUNC("vga_vsync") vga_vsync_reschedule(void)
 {
     if (vga_vsync_alarm < 0)
         return;
@@ -152,10 +152,7 @@ static void __time_critical_func(vga_vsync_reschedule)(void)
                        VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US);
 }
 
-static void
-    __attribute__((optimize("O3")))
-    __isr
-    __time_critical_func(vga_vsync_trap_irq_handler)(void)
+static void HOST_ISR_FUNC("vga_vsync") vga_vsync_trap_irq_handler(void)
 {
     pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, false);
     vga_vsync_trap_armed = false;
@@ -199,10 +196,7 @@ static __force_inline void vga_backchannel_command(uint8_t byte)
     }
 }
 
-static void
-    __attribute__((optimize("O3")))
-    __isr
-    __time_critical_func(vga_backchannel_irq_handler)(void)
+static void HOST_ISR_FUNC("vga_backchannel") vga_backchannel_irq_handler(void)
 {
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
     {
@@ -288,7 +282,7 @@ static void HOST_IN_FLASH_FUNC("vga_connect") vga_connect(void)
     vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
 }
 
-void __in_flash("vga_init") vga_init(void)
+void HOST_IN_FLASH("vga_init") vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();

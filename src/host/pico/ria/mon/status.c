@@ -20,7 +20,7 @@
 #include "machine.h"
 #include <stdio.h>
 
-__in_flash("STATUS_NAME") static const char STATUS_NAME[] =
+HOST_IN_FLASH("STATUS_NAME") static const char STATUS_NAME[] =
     RP6502_NAME "\n";
 
 #ifdef RP6502_RIA_W
@@ -48,7 +48,7 @@ static int HOST_IN_FLASH_FUNC("status_version_response") status_version_response
     return -1;
 }
 
-void __in_flash("status_add_boot_response") status_add_boot_response(void)
+void HOST_IN_FLASH("status_add_boot_response") status_add_boot_response(void)
 {
     mon_add_response_utf8(STATUS_NAME);
     mon_add_response_fn(status_version_response);

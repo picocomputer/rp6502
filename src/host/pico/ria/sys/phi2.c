@@ -48,7 +48,7 @@ static void change(uint16_t freq_khz)
     pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
-void __in_flash("phi2_init") phi2_init(void)
+void HOST_IN_FLASH("phi2_init") phi2_init(void)
 {
     phi2_apply_khz(phi2_get_khz(), true);
 }

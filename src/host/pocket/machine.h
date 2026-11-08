@@ -9,8 +9,11 @@
 
 #define HOST_IN_FLASH(group)
 #define HOST_IN_FLASH_FUNC(group)
-#define HOST_NOT_IN_FLASH(group)
+#define HOST_IN_RAM(group)
+#define HOST_IN_RAM_FUNC(group)
+#define HOST_ISR_FUNC(group)
 #define HOST_UNINITIALIZED_RAM(name) name
+#define HOST_REGISTER_RAM(name) name
 
 /* APF has four controller slots, and apf.c mounts at most one HID slot
  * for each of them. */

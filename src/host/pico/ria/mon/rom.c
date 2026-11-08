@@ -588,7 +588,7 @@ static bool HOST_IN_FLASH_FUNC("rom_xram_done") rom_xram_done(void)
     return !rom_len;
 }
 
-void __in_flash("rom_init") rom_init(void)
+void HOST_IN_FLASH("rom_init") rom_init(void)
 {
     // Try booting the set boot ROM
     const char *boot = rom_get_boot();

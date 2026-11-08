@@ -20,7 +20,7 @@ static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 
 /* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
  * p reversed, which rsmp.py checks. */
-static const int32_t HOST_NOT_IN_FLASH("aud_tab") pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
+static const int32_t HOST_IN_RAM("aud_tab") pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
 #include "rsmp_half.h"
 };
 
@@ -100,14 +100,14 @@ uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
 #pragma GCC optimize("O3")
 
 /* The sample i bytes after the oldest. */
-static int32_t HOST_NOT_IN_FLASH("aud") pcm_decode(pcm_t *s, uint32_t i)
+static int32_t HOST_IN_RAM_FUNC("aud") pcm_decode(pcm_t *s, uint32_t i)
 {
     if (s->fmt.bits == 8)
         return ((int32_t)*RING_AT(&s->buf, i) - 128) * 256;
     return (int16_t)(*RING_AT(&s->buf, i) | *RING_AT(&s->buf, i + 1) << 8);
 }
 
-static void HOST_NOT_IN_FLASH("aud") pcm_take(pcm_t *s)
+static void HOST_IN_RAM_FUNC("aud") pcm_take(pcm_t *s)
 {
     int32_t l = 0, r = 0;
     const uint32_t level = RING_LEN(&s->buf);
@@ -127,7 +127,7 @@ static void HOST_NOT_IN_FLASH("aud") pcm_take(pcm_t *s)
 
 /* rsmp_at's sum for row p, on both channels at once. A row past the middle
  * is a stored row read backwards. */
-static void HOST_NOT_IN_FLASH("aud") pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
+static void HOST_IN_RAM_FUNC("aud") pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
 {
     int64_t a = 0, b = 0;
     if (p <= RSMP_PHASES / 2)
@@ -153,13 +153,13 @@ static void HOST_NOT_IN_FLASH("aud") pcm_dot(unsigned p, const int32_t *hl, cons
 }
 
 /* rsmp_at's blend and rounding, so the result is rsmp's to the bit. */
-static int32_t HOST_NOT_IN_FLASH("aud") pcm_blend(int64_t a, int64_t b, int64_t f)
+static int32_t HOST_IN_RAM_FUNC("aud") pcm_blend(int64_t a, int64_t b, int64_t f)
 {
     const int64_t v = a + (((b - a) * f) >> 16);
     return (int32_t)((v + (1 << (RSMP_Q - 1))) >> RSMP_Q);
 }
 
-void HOST_NOT_IN_FLASH("aud") pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
+void HOST_IN_RAM_FUNC("aud") pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
 {
     if (s->phase >= ((uint64_t)1 << 32))
     {

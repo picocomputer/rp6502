@@ -8,6 +8,7 @@
 #include "core/hid/gamepad.h"
 #include "ria/usb/xin.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
 #include <string.h>
@@ -151,7 +152,7 @@ static bool xin_queue_in(xin_device_t *device, int idx)
     return tuh_edpt_xfer(&xfer);
 }
 
-bool __in_flash("xin_class_driver_init") xin_class_driver_init(void)
+bool HOST_IN_FLASH("xin_class_driver_init") xin_class_driver_init(void)
 {
     memset(xin_devices, 0, sizeof(xin_devices));
     return true;

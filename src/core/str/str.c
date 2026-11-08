@@ -34,7 +34,7 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #define X(name, value) \
     const char HOST_IN_FLASH(STR_XSTR(name)) name[] = value;
 #define XR(name, value) \
-    const char HOST_NOT_IN_FLASH(STR_XSTR(name)) name[] = value;
+    const char HOST_IN_RAM(STR_XSTR(name)) name[] = value;
 #include "core/def/str_sys.def"
 #undef X
 #undef XR

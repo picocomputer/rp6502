@@ -84,7 +84,7 @@ static void HOST_IN_FLASH_FUNC("mon_reset") mon_reset(const char *args)
 }
 
 typedef void (*mon_command_fn)(const char *);
-__in_flash("mon_commands") static struct
+HOST_IN_FLASH("mon_commands") static struct
 {
     const char *const cmd;
     mon_command_fn func;
@@ -699,7 +699,7 @@ void mon_task(void)
 /* In a release build the startup banner begins by clearing the terminal, so
  * it must be queued before any other driver can queue an error that it would
  * erase. */
-void __in_flash("mon_init") mon_init(void)
+void HOST_IN_FLASH("mon_init") mon_init(void)
 {
 #ifdef NDEBUG
     mon_add_response_utf8(STR_TERM_HARD_RESET);

@@ -54,7 +54,7 @@ static absolute_time_t ble_retry_at;
 static hci_con_handle_t ble_connecting_handle;
 static uint16_t ble_connecting_cid;
 
-static const uint8_t __in_flash("ble_att_profile_data") ble_att_profile_data[] = {
+static const uint8_t HOST_IN_FLASH("ble_att_profile_data") ble_att_profile_data[] = {
     // clang-format off
     // ATT DB Version
     1,

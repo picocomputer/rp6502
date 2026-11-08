@@ -73,22 +73,22 @@
     X(US, "US", "United States")
 
 #define X(suffix, abbr, name)                         \
-    static const char __in_flash("cyw_country_codes") \
+    static const char HOST_IN_FLASH("cyw_country_codes") \
         CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
-    static const char __in_flash("cyw_country_codes") \
+    static const char HOST_IN_FLASH("cyw_country_codes") \
         CYW_COUNTRY_NAME_##suffix[] = name;
 CYW_CC_X
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_ABBR_##suffix,
-static const char *__in_flash("cyw_country_abbr")
+static const char *HOST_IN_FLASH("cyw_country_abbr")
     cyw_country_abbr[] = {CYW_CC_X};
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_NAME_##suffix,
-static const char *__in_flash("cyw_country_name")
+static const char *HOST_IN_FLASH("cyw_country_name")
     cyw_country_name[] = {CYW_CC_X};
 #undef X
 

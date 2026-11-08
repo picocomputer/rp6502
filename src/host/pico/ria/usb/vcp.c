@@ -20,7 +20,7 @@
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
 // VCP (Virtual COM Port) is a better umbrella term.
 
-__in_flash("vcp_string") static const char vcp_string[] = "VCP";
+HOST_IN_FLASH("vcp_string") static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
 // An open port configures after open returns. A port has at most one
@@ -54,15 +54,15 @@ static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 static int vcp_nfc_device_idx = -1;
 
-__in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
-__in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
-__in_flash("vcp_ch34x_list") static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
-__in_flash("vcp_pl2303_list") static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
-__in_flash("vcp_ftdi_name") static const char vcp_ftdi_name[] = "FTDI";
-__in_flash("vcp_cp210x_name") static const char vcp_cp210x_name[] = "CP210X";
-__in_flash("vcp_ch34x_name") static const char vcp_ch34x_name[] = "CH34X";
-__in_flash("vcp_pl2303_name") static const char vcp_pl2303_name[] = "PL2303";
-__in_flash("vcp_cdc_acm_name") static const char vcp_cdc_acm_name[] = "CDC ACM";
+HOST_IN_FLASH("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
+HOST_IN_FLASH("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
+HOST_IN_FLASH("vcp_ch34x_list") static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
+HOST_IN_FLASH("vcp_pl2303_list") static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
+HOST_IN_FLASH("vcp_ftdi_name") static const char vcp_ftdi_name[] = "FTDI";
+HOST_IN_FLASH("vcp_cp210x_name") static const char vcp_cp210x_name[] = "CP210X";
+HOST_IN_FLASH("vcp_ch34x_name") static const char vcp_ch34x_name[] = "CH34X";
+HOST_IN_FLASH("vcp_pl2303_name") static const char vcp_pl2303_name[] = "PL2303";
+HOST_IN_FLASH("vcp_cdc_acm_name") static const char vcp_cdc_acm_name[] = "CDC ACM";
 
 // Determine fallback vendor name using the same VID/PID lists as TinyUSB.
 static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
