@@ -2,7 +2,6 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org)
- * Copyright (c) 2026 Rumbledethumps
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -84,6 +83,7 @@ typedef struct {
   } ep_stream;
 
   bool mounted;
+  uint8_t tx_len; // bytes in the bulk OUT transfer in flight
 }midih_interface_t;
 
 typedef struct {
@@ -163,11 +163,15 @@ void midih_close(uint8_t daddr) {
   }
 }
 
+static uint32_t midih_write_xfer(midih_interface_t *p_midi) {
+  const uint32_t count = tu_edpt_stream_write_xfer(&p_midi->ep_stream.tx);
+  if (count > 0) {
+    p_midi->tx_len = (uint8_t) count;
+  }
+  return count;
+}
+
 bool midih_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
-  // A failed transfer is not re-armed because a bulk IN endpoint on a device
-  // that no longer responds would otherwise take the shared EPX again after
-  // every RX timeout, ahead of the endpoints that are waiting for it.
-  TU_VERIFY(result == XFER_RESULT_SUCCESS);
   const uint8_t idx = get_idx_by_ep_addr(dev_addr, ep_addr);
   TU_VERIFY(idx < CFG_TUH_MIDI);
   midih_interface_t *p_midi = &_midi_host[idx];
@@ -184,12 +188,20 @@ bool midih_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint
 
     tu_edpt_stream_read_xfer(ep_str_rx); // prepare for next transfer
   } else if (ep_addr == ep_str_tx->ep_addr) {
+    if (result != XFER_RESULT_SUCCESS) {
+      // resend the bytes the device did not acknowledge
+      p_midi->tx_len = (uint8_t) (p_midi->tx_len - xferred_bytes);
+      memmove(ep_str_tx->ep_buf, ep_str_tx->ep_buf + xferred_bytes, p_midi->tx_len);
+      TU_VERIFY(usbh_edpt_claim(dev_addr, ep_addr));
+      return usbh_edpt_xfer(dev_addr, ep_addr, ep_str_tx->ep_buf, p_midi->tx_len);
+    }
+
     tuh_midi_tx_cb(idx, xferred_bytes);
 
-    if (0 == tu_edpt_stream_write_xfer(ep_str_tx)) {
-      // If there is no data left, a ZLP should be sent if
-      // xferred_bytes is multiple of EP size and not zero
-      tu_edpt_stream_write_zlp_if_needed(ep_str_tx, xferred_bytes);
+    // If there is no data left, a ZLP should be sent if
+    // xferred_bytes is multiple of EP size and not zero
+    if (0 == midih_write_xfer(p_midi) && tu_edpt_stream_write_zlp_if_needed(ep_str_tx, xferred_bytes)) {
+      p_midi->tx_len = 0;
     }
   }
 
@@ -347,7 +359,10 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
 
 bool midih_set_config(uint8_t dev_addr, uint8_t itf_num) {
   uint8_t idx = tuh_midi_itf_get_index(dev_addr, itf_num);
-  TU_ASSERT(idx < CFG_TUH_MIDI);
+  if (idx >= CFG_TUH_MIDI) {
+    usbh_driver_set_config_complete(dev_addr, itf_num);
+    return false;
+  }
   midih_interface_t *p_midi = &_midi_host[idx];
   p_midi->mounted = true;
 
@@ -438,7 +453,7 @@ uint32_t tuh_midi_read_available(uint8_t idx) {
 uint32_t tuh_midi_write_flush(uint8_t idx) {
   TU_VERIFY(idx < CFG_TUH_MIDI);
   midih_interface_t *p_midi = &_midi_host[idx];
-  return tu_edpt_stream_write_xfer(&p_midi->ep_stream.tx);
+  return midih_write_xfer(p_midi);
 }
 
 //--------------------------------------------------------------------+
@@ -454,13 +469,14 @@ uint32_t tuh_midi_packet_read_n(uint8_t idx, uint8_t* buffer, uint32_t bufsize) 
   return tu_edpt_stream_read(&p_midi->ep_stream.rx, buffer, count4);
 }
 
+// only tuh_midi_write_flush() and midih_xfer_cb() start a transfer
 uint32_t tuh_midi_packet_write_n(uint8_t idx, const uint8_t* buffer, uint32_t bufsize) {
   TU_VERIFY(idx < CFG_TUH_MIDI && buffer && bufsize > 0, 0);
   midih_interface_t *p_midi = &_midi_host[idx];
 
   const uint32_t bufsize4 = tu_align4(bufsize);
   TU_VERIFY(bufsize4 > 0, 0);
-  return tu_edpt_stream_write(&p_midi->ep_stream.tx, buffer, bufsize4);
+  return tu_fifo_write_n(&p_midi->ep_stream.tx.ff, buffer, (uint16_t) tu_min32(bufsize4, UINT16_MAX));
 }
 
 // tuh_midi_frame() writes at most three bytes to out and returns how many it
@@ -558,7 +574,7 @@ uint32_t tuh_midi_stream_write(uint8_t idx, uint8_t cable_num, uint8_t const *bu
       streamrt.buffer[1] = data;
       streamrt.index = 2;
       streamrt.total = 2;
-      const uint32_t count = tu_edpt_stream_write(&p_midi->ep_stream.tx, streamrt.buffer, 4);
+      const uint32_t count = tu_fifo_write_n(&p_midi->ep_stream.tx.ff, streamrt.buffer, 4);
       TU_ASSERT(count == 4, byte_count); // Check FIFO overflown, since we already check fifo remaining. It is probably race condition
     } else if (stream->index == 0) {
       //------------- New event packet -------------//
@@ -628,7 +644,7 @@ uint32_t tuh_midi_stream_write(uint8_t idx, uint8_t cable_num, uint8_t const *bu
       }
       TU_LOG3_MEM(stream->buffer, 4, 2);
 
-      const uint32_t count = tu_edpt_stream_write(&p_midi->ep_stream.tx, stream->buffer, 4);
+      const uint32_t count = tu_fifo_write_n(&p_midi->ep_stream.tx.ff, stream->buffer, 4);
 
       // complete current event packet, reset stream
       stream->index = 0;
@@ -642,7 +658,8 @@ uint32_t tuh_midi_stream_write(uint8_t idx, uint8_t cable_num, uint8_t const *bu
 }
 
 uint32_t tuh_midi_stream_read(uint8_t idx, uint8_t *p_cable_num, uint8_t *p_buffer, uint16_t bufsize) {
-  TU_VERIFY(idx < CFG_TUH_MIDI && p_cable_num && p_buffer && bufsize > 0);
+  // an event packet carries up to 3 MIDI bytes, only take a packet from the FIFO when there is room for it
+  TU_VERIFY(idx < CFG_TUH_MIDI && p_cable_num && p_buffer && bufsize >= 3);
   midih_interface_t *p_midi = &_midi_host[idx];
   uint32_t bytes_buffered = 0;
   uint8_t one_byte;
@@ -734,7 +751,7 @@ uint32_t tuh_midi_stream_read(uint8_t idx, uint8_t *p_cable_num, uint8_t *p_buff
     }
     bytes_buffered += bytes_to_add_to_stream;
     nread = 0;
-    if (tu_edpt_stream_peek(&p_midi->ep_stream.rx, &one_byte)) {
+    if (bufsize - bytes_buffered >= 3 && tu_edpt_stream_peek(&p_midi->ep_stream.rx, &one_byte)) {
       uint8_t new_cable = (one_byte >> 4) & 0xf;
       if (new_cable == *p_cable_num) {
         // still on the same cable. Continue reading the stream

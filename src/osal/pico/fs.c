@@ -8,6 +8,7 @@
 #include "osal/pico/errmap.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
+#include "osal/pico/fs.h"
 #include "fatfs/ff.h"
 #include "osal/pico/lfs.h"
 #include <assert.h>
@@ -35,6 +36,14 @@ LFS_FILE_CONFIG(rom_rd_lfs_cfg, static);
 static bool rom_wr_live;
 static lfs_file_t rom_wr_lfs;
 LFS_FILE_CONFIG(rom_wr_lfs_cfg, static);
+
+FIL *fs_fat_spare(void)
+{
+    for (int i = 0; i < FAT_FIL_MAX; i++)
+        if (!fat_fil_pool[i].obj.fs)
+            return &fat_fil_pool[i];
+    return NULL;
+}
 
 static FIL *fat_validate_fil(int desc)
 {

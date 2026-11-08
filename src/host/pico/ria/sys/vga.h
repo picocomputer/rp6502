@@ -18,16 +18,13 @@
 
 #define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
 #define VGA_BACKCHANNEL_BAUDRATE 115200
-#define VGA_BACKCHANNEL_PIO pio1
-#define VGA_BACKCHANNEL_SM 2
+#define VGA_BACKCHANNEL_PIO pio0
+#define VGA_BACKCHANNEL_SM 3
+#define VGA_BACKCHANNEL_IRQ PIO0_IRQ_1
 
-// The VSYNC trap is a PIO program that, once armed, raises an interrupt at the
-// next high-to-low edge on the backchannel pin. It is not on pio1 with the
-// receiver above, because pio1 has no instruction memory left. A PIO reads a
-// GPIO input whatever the pin's function select is, so the trap waits on the
-// same pin as the receiver.
-#define VGA_VSYNC_TRAP_PIO pio0
-#define VGA_VSYNC_TRAP_SM 3
+// The VSYNC trap is IRQ flag 0 of the backchannel receiver, which raises it on
+// every start bit. Armed, the flag is an interrupt source, so the next start
+// bit raises VGA_VSYNC_TRAP_IRQ.
 #define VGA_VSYNC_TRAP_IRQ PIO0_IRQ_0
 
 // The trap is armed at VGA_VSYNC_WINDOW_US before the expected VSYNC and
@@ -40,8 +37,9 @@
 
 // VGA_VSYNC_TRANSIT_US is the time from the VGA queuing a byte to the autopush
 // of that byte on the RIA: 1 PIO cycle for the idle VGA transmitter to
-// complete the pull it stalls on, plus 68 cycles of vga_backchannel_rx. Both
-// sides run 8 PIO cycles per bit at 115200 baud, so 69 cycles is 74.9 us.
+// complete the pull it stalls on, plus 136 cycles of vga_backchannel_rx. At
+// 115200 baud the VGA runs 8 PIO cycles per bit and the RIA 16, so that is
+// 1.1 us plus 73.8 us, 74.9 us.
 // Subtracting it from the time a VSYNC byte is handled gives the time the VGA
 // queued it.
 #define VGA_VSYNC_TRANSIT_US 75

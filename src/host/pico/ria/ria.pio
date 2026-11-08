@@ -7,13 +7,22 @@
 
 ; PIX sends 4 bits per PHI2 transition.
 ; rx samples on clock transition so tx hangs back ~20%.
+; Two state machines run this program on the same pins. The core one has
+; autopull and wraps check..token. The stream one wraps the whole program
+; and holds the IDLE message in X. IRQ flags 5 and 7 hand one message slot
+; to the stream SM only when the core SM's OSR is empty.
 .program pix_tx
-
-pull ifempty noblock
+nib:
 wait 1 gpio 21 [6]
 out pins 4
 wait 0 gpio 21 [6]
 out pins 4
+public check:
+jmp !osre nib
+irq set 6 rel
+public token:
+wait 1 irq 4 rel
+pull noblock
 
 
 ; Action sends a FIFO message for every write.
@@ -117,32 +126,18 @@ mov pindirs !y ; drive data bus
 jmp start
 
 
-; Minimum 8N1 UART receiver.
+; Minimum 8N1 UART receiver, 16 cycles per bit.
+; IRQ 0 rises on every start bit. It is the VSYNC trap, enabled as an
+; interrupt source only in a window around the expected VSYNC.
 .program vga_backchannel_rx
 
 .wrap_target
 wait 0 pin 0        ; Wait for start bit
-set x, 7 [10]       ; Delay until eye of first data bit
+irq set 0           ; VSYNC trap
+set x, 7 [21]       ; Delay until eye of first data bit
 bitloop:
 in pins, 1
-jmp x-- bitloop [6]
-.wrap
-
-
-; The trap raises its IRQ on the start bit of the backchannel byte that the
-; VGA sends for a VSYNC, about 74 us before vga_backchannel_rx pushes that
-; byte. The trap is armed only in a window around the expected VSYNC, and the
-; VGA sends no ACK or NAK in that window, so a start bit there is taken to
-; begin a VSYNC byte. The pull stalls the state machine after the IRQ until
-; the next arming, so each arming raises one IRQ; without the pull, the data
-; bits of the same byte would raise the IRQ again.
-.program vga_vsync_trap
-
-.wrap_target
-pull block          ; Wait to be armed for the window
-wait 1 pin 0        ; Line idle
-wait 0 pin 0        ; Start bit
-irq 0
+jmp x-- bitloop [14]
 .wrap
 
 

@@ -157,6 +157,13 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     tuh_hid_receive_report(dev_addr, idx);
 }
 
+// usbh clears the halt before it reports STALLED
+void tuh_hid_report_failed_cb(uint8_t dev_addr, uint8_t idx, xfer_result_t result)
+{
+    if (result != XFER_RESULT_ABORTED)
+        tuh_hid_receive_report(dev_addr, idx);
+}
+
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);

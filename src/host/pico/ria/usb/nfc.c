@@ -219,8 +219,10 @@ static int nfc_send(void)
                                          (const char *)nfc_tx_buf + nfc_tx_pos,
                                          (uint32_t)(nfc_tx_len - nfc_tx_pos),
                                          &bytes_written, &err);
-    if (result != STD_OK)
+    if (result == STD_ERROR)
         return -1;
+    if (result == STD_PENDING) // the timeout starts once the port is configured
+        nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
     nfc_tx_pos += bytes_written;
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }

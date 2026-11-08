@@ -643,12 +643,7 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
         return;
     }
     // Wait for any active subsystem before issuing the next prompt.
-    if (ram_active() ||
-        rom_active() ||
-        fil_active() ||
-        uf2_active() ||
-        drive_active() ||
-        usb_boot_enumerating())
+    if (mon_busy() || usb_boot_enumerating())
         return;
     // The monitor has control
     if (mon_needs_prompt)
@@ -679,6 +674,17 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
         mon_needs_read_line = true;
         rln_poke("\x03");
     }
+}
+
+bool mon_busy(void)
+{
+    return !sys_active() &&
+           (mon_response_state[0] >= 0 ||
+            ram_active() ||
+            rom_active() ||
+            fil_active() ||
+            uf2_active() ||
+            drive_active());
 }
 
 /* The monitor runs from flash, so it also waits out the transfers that run

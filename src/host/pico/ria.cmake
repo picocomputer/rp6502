@@ -177,10 +177,16 @@ set_source_files_properties(
     ${RP6502_ROOT}/vendor/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
     ${RP6502_ROOT}/vendor/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
     ${RP6502_ROOT}/vendor/tinyusb/src/class/midi/midi_host.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/class/cdc/cdc_host.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/host/hub.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/host/usbh.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
-    ${RP6502_ROOT}/vendor/tinyusb_rp6502/hcd_rp2040.c
-    ${RP6502_ROOT}/vendor/tinyusb_rp6502/rp2040_usb.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/hcd_rp2350.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/rp2350_usb.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/midi_host.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/cdc_host.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/hub.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/usbh.c
 )

@@ -42,6 +42,8 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     char path[256];
     RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
 
+    if (mon_busy())
+        goto fail;
     if (!nfc_parse_text(tag_data, len, text, sizeof(text)))
         goto fail;
     RP6502_LOG(proc, DEBUG, "nfc text %s", text);

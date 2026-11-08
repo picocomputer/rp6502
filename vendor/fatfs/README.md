@@ -74,6 +74,23 @@ additions:
   `FR_NOT_ENOUGH_CORE` and changes nothing. The new function
   `xcwds2_parent()` finds the new parent directory in the recorded path.
   This change and `chk_ancestor()` use it.
+- `f_close()` releases the file and its lock even when the flush in
+  `f_sync()` fails, and then returns the error of the flush. Upstream FatFs
+  keeps the file open on that error. src/osal/pico/fs.c gives up the file
+  object after a close whatever the result, so the lock stayed behind: the
+  file gave `FR_LOCKED` until the volume was mounted again, and each such
+  close used up one of the `FF_FS_LOCK` locks.
+- Before a direct read whose range holds the file's dirty cached sector,
+  `f_read()` writes that sector back, as it already does before it reloads
+  the cache. Upstream FatFs reads the range and then copies the cached
+  sector over it. On the RIA, a read into xram forwards data to the VGA as
+  it lands, so a copy made after the read would never reach the VGA.
+- `f_read()` reads a run of contiguous clusters with one `disk_read()`.
+  Upstream FatFs stops each direct read at the end of the cluster. A
+  1.44 MB floppy has one sector per cluster, so every sector was its own
+  command, and a floppy drive without read-ahead waits about one turn of
+  the disk for each. `fp->clust` ends on the cluster of the last sector
+  read.
 - `f_getldnumber()` makes the static `get_ldnumber()` available to callers.
   It returns the logical drive number of a path. For a path without a
   drive, it returns the number of the current drive. For a drive that does

@@ -187,8 +187,8 @@ X(STR_DISK_BAD_SECTOR, "?Bad sector %llu\n")
 X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
 X(STR_DISK_DEV, "DEV: \a%s %s %s rev %s\n")
 X(STR_DISK_SERIAL, "S/N: \a%s\n")
-X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
-X(STR_DISK_VOL_USE, "VOL: \a%s used of %s (%u%%)\n")
+X(STR_DISK_VOL_FMT, "FMT: \a%s\n")
+X(STR_DISK_VOL_USE, "CAP: \a%s used of %s (%u%%)\n")
 X(STR_DISK_FMT, "FMT: \a%s\n")
 X(STR_DISK_WARN_FORMAT, "You are about to FORMAT this device!\n")
 X(STR_DISK_WARN_ERASE, "You are about to ERASE this device!\n")
@@ -264,7 +264,7 @@ X(STR_HELP_SYSTEM,
   "Have fun!\n")
 
 X(STR_HELP_DIR,
-  "LS (also aliased as DIR) and CD are used to navigate USB mass storage "
+  "DIR (also aliased as LS) and CD are used to navigate USB mass storage "
   "devices. You can change to a different USB device with 0: to 9:. Use the "
   "STATUS command to get a list of mounted drives.\n")
 

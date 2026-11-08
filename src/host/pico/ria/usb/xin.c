@@ -254,9 +254,14 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
         return 0;
     }
 
-    if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
-        !tuh_edpt_open(dev_addr, ep_out_desc))
+    if (!tuh_edpt_open(dev_addr, ep_in_desc))
     {
+        RP6502_LOG(xinput, ERROR, "failed to open endpoints");
+        return 0;
+    }
+    if (!tuh_edpt_open(dev_addr, ep_out_desc))
+    {
+        tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
         RP6502_LOG(xinput, ERROR, "failed to open endpoints");
         return 0;
     }
@@ -293,6 +298,8 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 // Send the next applicable GIP init packet, returns true if one was sent
 static bool xin_send_next_init(xin_device_t *device)
 {
+    if (usbh_edpt_busy(device->dev_addr, device->ep_out))
+        return false; // sent when the in-flight OUT completes
     while (device->init_seq < GIP_INIT_PACKET_COUNT)
     {
         const gip_init_packet_t *pkt = &gip_init_packets[device->init_seq++];
@@ -340,8 +347,8 @@ static void xin_start_xbox_one(xin_device_t *device, int idx)
 static void xin_audio_disable_cb(tuh_xfer_t *xfer)
 {
     int idx = (int)xfer->user_data;
-    if (!xin_devices[idx].active)
-        return;
+    if (!xin_devices[idx].active || xin_devices[idx].dev_addr != xfer->daddr)
+        return; // closed, or the slot holds another device
 
     xin_device_t *device = &xin_devices[idx];
 
@@ -413,22 +420,17 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
     if (ep_addr == device->ep_out)
     {
         RP6502_LOG(xinput, DEBUG, "OUT complete on EP 0x%02X, result=%d, %lu bytes", ep_addr, result, xferred_bytes);
-        if (result == XFER_RESULT_SUCCESS && device->is_xbox_one && !device->init_done)
+        if (device->is_xbox_one && !device->init_done)
+        {
+            if (result == XFER_RESULT_FAILED)
+                device->init_seq = 0;
             xin_send_next_init(device);
+        }
         return true;
     }
 
     // IN completion
     RP6502_LOG(xinput, DEBUG, "IN on EP 0x%02X, result=%d, %lu bytes", ep_addr, result, xferred_bytes);
-
-    if (result == XFER_RESULT_STALLED)
-    {
-        // A halted endpoint returns a STALL handshake to every transfer until
-        // its halt is cleared, so queueing another transfer here would stall
-        // again without end. Polling stops until the controller is reconnected.
-        RP6502_LOG(xinput, WARN, "EP 0x%02X STALLed, halting poll", ep_addr);
-        return true;
-    }
 
     if (result != XFER_RESULT_SUCCESS)
     {
