@@ -60,9 +60,10 @@ static_assert((int)MSC_STATUS_PHASE_ERROR == (int)MSC_CSW_STATUS_PHASE_ERROR);
 // not need to account for mechanical delay.
 #define MSC_SCSI_OP_TIMEOUT_MS 250
 
-// disk_status() issues a TUR on removable volumes only when this many
-// milliseconds have elapsed since the last successful SCSI command.
-// This detects media removal without adding overhead during active I/O.
+// A removable volume's medium is checked with a TUR only when this many
+// milliseconds have passed since the drive last passed a command or reported a
+// media change or no medium. This detects media removal without adding overhead
+// during active I/O.
 #define MSC_DISK_STATUS_TIMEOUT_MS 250
 
 // Validate essential settings from ffconf.h
@@ -136,7 +137,8 @@ typedef struct
     bool unmap_supported;
     bool sync_cache_suppressed;
     bool lbpme;
-    absolute_time_t last_ok;
+    bool no_medium; // the last TUR said no medium after an answer just before
+    absolute_time_t last_seen; // last PASSED command, or eject by sense
 } msc_pdrv_t;
 
 static msc_pdrv_t msc_pdrv[FF_VOLUMES];
@@ -165,6 +167,7 @@ enum
     RECOVERY_RESET,
     RECOVERY_CLEAR_IN,
     RECOVERY_CLEAR_OUT,
+    RECOVERY_CLEAR_STATUS,
 };
 
 typedef struct
@@ -173,7 +176,9 @@ typedef struct
     uint8_t itf_num;
     uint8_t ep_in;
     uint8_t ep_out;
+    uint8_t ep_status; // CBI command completion interrupt, 0 if none
     uint8_t protocol;
+    uint8_t subclass;
     uint8_t stage;
     uint8_t recovery_stage;
     bool cancelling;
@@ -188,6 +193,7 @@ typedef struct
     TUH_EPBUF_TYPE_DEF(msc_cbw_t, cbw);
     TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
     TUH_EPBUF_DEF(cbi_cmd, 12);
+    TUH_EPBUF_DEF(cbi_status, 2);
     TUH_EPBUF_DEF(max_lun_buf, 1);
 } msc_epbuf_t;
 
@@ -260,6 +266,8 @@ static bool msc_ready(uint8_t dev_addr)
         return false;
     if (usbh_edpt_busy(dev_addr, p_msc->ep_out))
         return false;
+    if (p_msc->ep_status && usbh_edpt_busy(dev_addr, p_msc->ep_status))
+        return false;
     return true;
 }
 
@@ -304,6 +312,8 @@ static void msc_cancel_inflight(uint8_t dev_addr)
 
     tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
     tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+    if (p_msc->ep_status)
+        tuh_edpt_abort_xfer(dev_addr, p_msc->ep_status);
 
     p_msc->stage = MSC_STAGE_IDLE;
 }
@@ -331,11 +341,31 @@ static bool msc_clear_endpoint_halt(uint8_t daddr, uint8_t ep_addr)
     return tuh_control_xfer(&xfer);
 }
 
-static void msc_recovery_abort_to_idle(msc_interface_t *p_msc, uint8_t daddr)
+static uint8_t msc_recovery_ep(msc_interface_t const *p_msc, uint8_t stage)
 {
-    uint8_t const rhport = usbh_get_rhport(daddr);
-    hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
-    hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+    if (stage == RECOVERY_CLEAR_IN)
+        return p_msc->ep_in;
+    if (stage == RECOVERY_CLEAR_OUT)
+        return p_msc->ep_out;
+    return p_msc->ep_status;
+}
+
+// CLEAR_FEATURE(ENDPOINT_HALT) goes to each pipe from stage on, one at a time,
+// and resets the host's data toggle with the device's. A Command Block Reset
+// leaves every toggle undefined (CBI 2.2), the status pipe's included.
+static void msc_recovery_clear_from(uint8_t daddr, uint8_t stage)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    for (; stage <= RECOVERY_CLEAR_STATUS; stage++)
+    {
+        uint8_t const ep = msc_recovery_ep(p_msc, stage);
+        if (!ep)
+            continue;
+        p_msc->recovery_stage = stage;
+        if (msc_clear_endpoint_halt(daddr, ep))
+            return;
+        hcd_edpt_clear_stall(usbh_get_rhport(daddr), daddr, ep);
+    }
     p_msc->recovery_stage = RECOVERY_IDLE;
 }
 
@@ -343,45 +373,12 @@ static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
     msc_interface_t *p_msc = msc_get_itf(daddr);
-    if (p_msc->cancelling)
+    if (p_msc->cancelling || p_msc->recovery_stage == RECOVERY_IDLE)
         return;
-
-    uint8_t const rhport = usbh_get_rhport(daddr);
-
-    switch (p_msc->recovery_stage)
-    {
-    case RECOVERY_RESET:
-        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-        if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in))
-            msc_recovery_abort_to_idle(p_msc, daddr);
-        return;
-
-    case RECOVERY_CLEAR_IN:
-        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
-        p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
-        if (!msc_clear_endpoint_halt(daddr, p_msc->ep_out))
-        {
-            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
-            p_msc->recovery_stage = RECOVERY_IDLE;
-        }
-        return;
-
-    case RECOVERY_CLEAR_OUT:
-        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
-        p_msc->recovery_stage = RECOVERY_IDLE;
-        return;
-
-    default:
-        break;
-    }
-}
-
-static void msc_recovery_start_clear_halts(uint8_t daddr)
-{
-    msc_interface_t *p_msc = msc_get_itf(daddr);
-    p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-    if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in))
-        msc_recovery_abort_to_idle(p_msc, daddr);
+    uint8_t const stage = p_msc->recovery_stage;
+    if (stage != RECOVERY_RESET)
+        hcd_edpt_clear_stall(usbh_get_rhport(daddr), daddr, msc_recovery_ep(p_msc, stage));
+    msc_recovery_clear_from(daddr, stage + 1);
 }
 
 static void msc_start_recovery(uint8_t daddr)
@@ -412,9 +409,7 @@ static void msc_start_recovery(uint8_t daddr)
             .user_data = 0};
         p_msc->recovery_stage = RECOVERY_RESET;
         if (!tuh_control_xfer(&xfer))
-        {
-            msc_recovery_start_clear_halts(daddr);
-        }
+            msc_recovery_clear_from(daddr, RECOVERY_CLEAR_IN);
         return;
     }
 
@@ -441,9 +436,7 @@ static void msc_start_recovery(uint8_t daddr)
         .user_data = 0};
     p_msc->recovery_stage = RECOVERY_RESET;
     if (!tuh_control_xfer(&xfer))
-    {
-        msc_recovery_start_clear_halts(daddr);
-    }
+        msc_recovery_clear_from(daddr, RECOVERY_CLEAR_IN);
 }
 
 static void msc_abort(uint8_t daddr)
@@ -467,6 +460,46 @@ static void msc_abort(uint8_t daddr)
     msc_start_recovery(daddr);
 }
 
+// The ACK of an ADSC means only that the command block arrived. A CBI device
+// reports that the command finished on its interrupt endpoint (CBI 2.3.2.2), and
+// a CB device has no such report.
+static void msc_cbi_start_status_phase(uint8_t daddr)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    if (!p_msc->ep_status)
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_PASSED);
+        return;
+    }
+    p_msc->stage = MSC_STAGE_STATUS;
+    if (!usbh_edpt_xfer(daddr, p_msc->ep_status, msc_get_epbuf(daddr)->cbi_status, 2))
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED);
+}
+
+// Interrupt data ends a CBI command (CBI 3.4.3.1). UFI's holds the ASC and ASCQ,
+// and other subclasses' a type and a status. INQUIRY and REQUEST SENSE leave a
+// UFI device's sense data alone, so their interrupt data is no result. A failed
+// data command may have halted its bulk pipe after the last data (CBI 2.4.3.1.3),
+// and a phase error calls for a Command Block Reset (CBI 3.4.3.1.1).
+static void msc_cbi_status_complete(uint8_t daddr, bool received)
+{
+    msc_epbuf_t const *epbuf = msc_get_epbuf(daddr);
+    uint8_t status = MSC_CSW_STATUS_FAILED;
+    if (received && msc_get_itf(daddr)->subclass == MSC_SUBCLASS_UFI)
+    {
+        uint8_t const op = epbuf->cbw.command[0];
+        if (op == SCSI_CMD_INQUIRY || op == SCSI_CMD_REQUEST_SENSE || !epbuf->cbi_status[0])
+            status = MSC_CSW_STATUS_PASSED;
+    }
+    else if (received && !epbuf->cbi_status[0] && (epbuf->cbi_status[1] & 0x03) != 0x03)
+        status = epbuf->cbi_status[1] & 0x03; // 00 passed, 01 failed, 10 phase error
+    msc_complete_command(daddr, status);
+    if (status == MSC_CSW_STATUS_PHASE_ERROR)
+        msc_start_recovery(daddr);
+    else if (status == MSC_CSW_STATUS_FAILED && epbuf->cbw.total_bytes)
+        msc_recovery_clear_from(daddr, RECOVERY_CLEAR_IN);
+}
+
 static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
@@ -475,6 +508,7 @@ static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
     if (p_msc->cancelling)
         return;
 
+    // A STALLed ADSC fails the command, and no status follows it (CBI 2.4.3.1.1).
     if (XFER_RESULT_SUCCESS != xfer->result)
     {
         msc_complete_command(daddr, MSC_CSW_STATUS_FAILED);
@@ -484,7 +518,7 @@ static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
     if (epbuf->cbw.total_bytes && p_msc->buffer)
         msc_start_data_phase(daddr);
     else
-        msc_complete_command(daddr, MSC_CSW_STATUS_PASSED);
+        msc_cbi_start_status_phase(daddr);
 }
 
 static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
@@ -558,22 +592,33 @@ bool __in_flash("msc_class_driver_init") msc_class_driver_init(void)
     return true;
 }
 
-static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_bytes)
+static bool msc_cbi_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event,
+                            uint32_t xferred_bytes)
 {
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
     msc_cbw_t const *cbw = &msc_get_epbuf(dev_addr)->cbw;
 
-    if (p_msc->stage != MSC_STAGE_DATA)
+    if (p_msc->stage == MSC_STAGE_STATUS)
+    {
+        if (ep_addr == p_msc->ep_status)
+            msc_cbi_status_complete(dev_addr, event == XFER_RESULT_SUCCESS && xferred_bytes == 2);
+        return true;
+    }
+
+    if (p_msc->stage != MSC_STAGE_DATA || ep_addr != msc_data_ep(p_msc, cbw))
         return true;
 
     p_msc->data_xferred = xferred_bytes;
 
     // A data-in STALL after some data is a short transfer. usbh has already
-    // cleared the halt, and msc_scsi_command's REQUEST SENSE gives the status.
+    // cleared the halt, and the status phase or REQUEST SENSE gives the status.
     bool const passed = event == XFER_RESULT_SUCCESS ||
                         (event == XFER_RESULT_STALLED && xferred_bytes &&
                          (cbw->dir & TUSB_DIR_IN_MASK));
-    msc_complete_command(dev_addr, passed ? MSC_CSW_STATUS_PASSED : MSC_CSW_STATUS_FAILED);
+    if (passed)
+        msc_cbi_start_status_phase(dev_addr);
+    else
+        msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED);
     return true;
 }
 
@@ -681,7 +726,7 @@ bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t e
         return true;
     if (msc_is_bot(p_msc))
         return msc_bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
-    return msc_cbi_xfer_cb(dev_addr, event, xferred_bytes);
+    return msc_cbi_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
 }
 
 uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
@@ -709,10 +754,9 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
     p_msc->protocol = desc_itf->bInterfaceProtocol;
+    p_msc->subclass = desc_itf->bInterfaceSubClass;
     p_msc->max_lun = 0;
 
-    // CBI interrupt endpoints are not opened because msc_scsi_command takes the
-    // status of a CB or CBI command from REQUEST SENSE.
     uint16_t drv_len = sizeof(tusb_desc_interface_t);
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *end = ((uint8_t const *)desc_itf) + max_len;
@@ -726,8 +770,11 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
                 tuh_edpt_close(dev_addr, p_msc->ep_in);
             if (p_msc->ep_out)
                 tuh_edpt_close(dev_addr, p_msc->ep_out);
+            if (p_msc->ep_status)
+                tuh_edpt_close(dev_addr, p_msc->ep_status);
             p_msc->ep_in = 0;
             p_msc->ep_out = 0;
+            p_msc->ep_status = 0;
             return 0;
         }
         if (tu_desc_type(p_desc) == TUSB_DESC_ENDPOINT)
@@ -741,6 +788,17 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
                     p_msc->ep_in = ep_desc->bEndpointAddress;
                 else
                     p_msc->ep_out = ep_desc->bEndpointAddress;
+            }
+            else if (TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer &&
+                     TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress) &&
+                     desc_itf->bInterfaceProtocol == MSC_PROTOCOL_CBI)
+            {
+                // The status of a command is polled every frame, which USB 2.0
+                // 5.7.4 allows. Floppy drives ask for up to 255 ms.
+                tusb_desc_endpoint_t ep_status = *ep_desc;
+                ep_status.bInterval = 1;
+                TU_ASSERT(tuh_edpt_open(dev_addr, &ep_status), 0);
+                p_msc->ep_status = ep_desc->bEndpointAddress;
             }
         }
         drv_len = (uint16_t)(drv_len + len);
@@ -966,12 +1024,15 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             msc_clear_sense(vol);
             return status;
         }
-        // A BOT command's PASSED status comes from the device's CSW. A CB or CBI
-        // command's PASSED status means only that its transfers succeeded, so its
-        // status is taken from REQUEST SENSE below.
-        if (status == MSC_STATUS_PASSED && msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
+        // A BOT command's status comes from the device's CSW, and a CBI
+        // command's from its interrupt data. A CB command's PASSED status means
+        // only that its transfers succeeded, so its status is taken from REQUEST
+        // SENSE below, as is the sense key of every failed command.
+        if (status == MSC_STATUS_PASSED &&
+            (msc_protocol(dev_addr) == MSC_PROTOCOL_BOT || msc_get_itf(dev_addr)->ep_status))
         {
-            msc_pdrv[vol].last_ok = get_absolute_time();
+            msc_clear_sense(vol);
+            msc_pdrv[vol].last_seen = get_absolute_time();
             return status;
         }
         scsi_sense_fixed_resp_t sense_resp;
@@ -1000,6 +1061,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                 (sense_resp.add_sense_code == 0x28 || sense_resp.add_sense_code == 0x3A))
             {
                 msc_pdrv[vol].status = msc_volume_ejected;
+                msc_pdrv[vol].last_seen = get_absolute_time();
                 msc_pdrv[vol].block_count = 0;
                 msc_pdrv[vol].block_size = 0;
                 msc_pdrv[vol].write_prot = false;
@@ -1010,8 +1072,8 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
         {
             msc_clear_sense(vol);
         }
-        // A CB or CBI sense can fail a command whose transfers passed. It never
-        // passes one whose transfers failed.
+        // A CB sense can fail a command whose transfers passed. It never passes
+        // one whose transfers failed.
         if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT && status == MSC_STATUS_PASSED)
         {
             if (!sense_data_valid)
@@ -1020,7 +1082,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                      msc_pdrv[vol].sense_key != SCSI_SENSE_RECOVERED_ERROR)
                 status = MSC_STATUS_FAILED;
             else
-                msc_pdrv[vol].last_ok = get_absolute_time();
+                msc_pdrv[vol].last_seen = get_absolute_time();
         }
         if (status == MSC_STATUS_FAILED &&
             msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
@@ -1489,6 +1551,8 @@ void msc_class_driver_close(uint8_t dev_addr)
 
     tuh_edpt_close(dev_addr, p_msc->ep_in);
     tuh_edpt_close(dev_addr, p_msc->ep_out);
+    if (p_msc->ep_status)
+        tuh_edpt_close(dev_addr, p_msc->ep_status);
 
     if (p_msc->mounted)
         msc_umount_cb(dev_addr);
@@ -1516,25 +1580,32 @@ DWORD get_fattime(void)
     return ((DWORD)0 << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
 }
 
+static bool msc_seen_recently(uint8_t vol)
+{
+    return !time_reached(delayed_by_ms(msc_pdrv[vol].last_seen, MSC_DISK_STATUS_TIMEOUT_MS));
+}
+
+// The TUR's sense ejects the volume on a media change. Events are pumped during
+// the TUR, so an unplug can free the slot.
+static void msc_check_medium(uint8_t vol)
+{
+    if (msc_pdrv[vol].removable && !msc_seen_recently(vol))
+    {
+        MSC_LOG_VOL(vol, DEBUG, "checking medium");
+        msc_scsi_test_unit_ready(vol);
+    }
+}
+
 DSTATUS disk_status(BYTE pdrv)
 {
     // We only support partition 0. One vol per physical drive.
     uint8_t vol = pdrv;
+    if (msc_pdrv[vol].status == msc_volume_mounted)
+        msc_check_medium(vol);
     if (msc_pdrv[vol].status != msc_volume_mounted)
     {
         MSC_LOG_VOL(vol, DEBUG, "disk_status, not mounted, status=%d", msc_pdrv[vol].status);
         return STA_NOINIT;
-    }
-    // Test for removed media if we haven't used the drive in a while.
-    if (msc_pdrv[vol].removable &&
-        time_reached(delayed_by_ms(msc_pdrv[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
-    {
-        MSC_LOG_VOL(vol, DEBUG, "disk_status, issuing TUR");
-        // The TUR's sense ejects the volume on a media change. Events are pumped
-        // during the TUR, so an unplug can free the slot.
-        msc_scsi_test_unit_ready(vol);
-        if (msc_pdrv[vol].status != msc_volume_mounted)
-            return STA_NOINIT;
     }
     return msc_pdrv[vol].write_prot ? STA_PROTECT : 0;
 }
@@ -1544,9 +1615,19 @@ DSTATUS disk_initialize(BYTE pdrv)
     uint8_t vol = pdrv;
     MSC_LOG_VOL(vol, DEBUG, "disk_initialize, status=%d", msc_pdrv[vol].status);
 
+    // FatFs calls this on a mounted volume after a failed mount, and STATUS and
+    // DISK INFO mount volumes that FatFs has not, so the medium may be gone.
+    if (msc_pdrv[vol].status == msc_volume_mounted)
+        msc_check_medium(vol);
+
     if (msc_pdrv[vol].status == msc_volume_registered ||
         msc_pdrv[vol].status == msc_volume_ejected)
     {
+        // A monitor command can mount a volume twice, and every TUR on an empty
+        // floppy drive steps its head, so a confirmed no medium stands a while.
+        if (msc_pdrv[vol].no_medium && msc_seen_recently(vol))
+            return STA_NOINIT | STA_NODISK;
+
         if (msc_pdrv[vol].status == msc_volume_registered)
         {
             scsi_inquiry_resp_t inq;
@@ -1557,16 +1638,27 @@ DSTATUS disk_initialize(BYTE pdrv)
         }
 
         // TUR repeats while the drive reports a media change (06/28) or
-        // becoming ready (02/04), up to MSC_SCSI_RW_TIMEOUT_MS.
+        // becoming ready (02/04), up to MSC_SCSI_RW_TIMEOUT_MS. A TEAC floppy
+        // drive answers the first command after a disk goes in with no medium
+        // (02/3A), and its next command sees the disk, so a no medium stands
+        // only when the drive reported a media change or no medium just before.
         absolute_time_t const deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
+        bool answered = msc_seen_recently(vol) &&
+                        (msc_pdrv[vol].sense_asc == 0x28 || msc_pdrv[vol].sense_asc == 0x3A);
         msc_status_t tur;
-        do
+        for (;;)
+        {
             tur = msc_scsi_test_unit_ready(vol);
-        while (tur == MSC_STATUS_FAILED &&
-               (msc_pdrv[vol].sense_asc == 0x28 ||
-                (msc_pdrv[vol].sense_key == SCSI_SENSE_NOT_READY &&
-                 msc_pdrv[vol].sense_asc == 0x04)) &&
-               !time_reached(deadline));
+            if (tur != MSC_STATUS_FAILED || time_reached(deadline))
+                break;
+            uint8_t const asc = msc_pdrv[vol].sense_asc;
+            bool const not_ready = msc_pdrv[vol].sense_key == SCSI_SENSE_NOT_READY;
+            if (asc != 0x28 && !(not_ready && asc == 0x04) &&
+                !(not_ready && asc == 0x3A && !answered))
+                break;
+            answered = true;
+        }
+        msc_pdrv[vol].no_medium = tur == MSC_STATUS_FAILED && msc_pdrv[vol].sense_asc == 0x3A;
         if (tur != MSC_STATUS_PASSED)
         {
             if (msc_pdrv[vol].removable)
