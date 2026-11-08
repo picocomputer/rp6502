@@ -191,8 +191,8 @@ X(STR_DISK_BAD_SECTOR, "?Uszkodzony sektor %llu\n")
 X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
 X(STR_DISK_DEV, "URZ: \a%s %s %s rew %s\n")
 X(STR_DISK_SERIAL, "S/N: \a%s\n")
-X(STR_DISK_VOL_FMT, "WOL: \a%s\n")
-X(STR_DISK_VOL_USE, "WOL: \a%s zajęte z %s (%u%%)\n")
+X(STR_DISK_VOL_FMT, "FMT: \a%s\n")
+X(STR_DISK_VOL_USE, "POJ: \a%s zajęte z %s (%u%%)\n")
 X(STR_DISK_FMT, "FMT: \a%s\n")
 X(STR_DISK_WARN_FORMAT, "Za chwilę SFORMATUJESZ to urządzenie!\n")
 X(STR_DISK_WARN_ERASE, "Za chwilę WYMAŻESZ to urządzenie!\n")
@@ -268,7 +268,7 @@ X(STR_HELP_SYSTEM,
   "Miłej zabawy!\n")
 
 X(STR_HELP_DIR,
-  "LS (także pod aliasem DIR) i CD służą do poruszania się po urządzeniach pamięci\n"
+  "DIR (także pod aliasem LS) i CD służą do poruszania się po urządzeniach pamięci\n"
   "pamięci masowej USB. Możesz przełączyć się na inne urządzenie USB przez\n"
   "0: do 9:. Użyj komendy STATUS, aby uzyskać listę zamontowanych napędów.\n")
 
