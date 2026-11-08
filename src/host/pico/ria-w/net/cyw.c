@@ -117,7 +117,7 @@ static void cyw_reset_radio(void)
     cyw_init();
 }
 
-void cyw_task(void)
+void HOST_IN_RAM_FUNC("hot") cyw_task(void)
 {
     if (cyw_led_requested != cyw_led_status)
     {

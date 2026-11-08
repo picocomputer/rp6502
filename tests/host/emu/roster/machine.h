@@ -8,5 +8,6 @@
 #define _HOST_MACHINE_H_
 
 #define HOST_IN_FLASH_FUNC(group)
+#define HOST_IN_RAM_FUNC(group)
 
 #endif /* _HOST_MACHINE_H_ */

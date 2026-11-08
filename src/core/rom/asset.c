@@ -15,6 +15,7 @@
 #include "core/str/str.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
+#include "machine.h"
 #include <ctype.h>
 #include <stdio.h> /* SEEK_SET */
 #include <string.h>
@@ -36,7 +37,7 @@ void rom_asset_adopt(int fd, uint32_t assets_start)
     g_rom_generation++;
 }
 
-void rom_assets_reset(void)
+void HOST_IN_RAM_FUNC("hot") rom_assets_reset(void)
 {
     if (rom_fd >= 0)
     {

@@ -36,7 +36,7 @@ static uint16_t phi2_quantize_khz(uint16_t freq_khz)
     return quantize(freq_khz, NULL, NULL);
 }
 
-static void change(uint16_t freq_khz)
+static void HOST_IN_RAM_FUNC("hot") change(uint16_t freq_khz)
 {
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;

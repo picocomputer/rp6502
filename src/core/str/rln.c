@@ -485,7 +485,7 @@ static void rln_cpr_forget_stale(com_source_t s)
         rln_sources[s].cpr_seen = false;
 }
 
-static void rln_forget_all_stale(void)
+static void HOST_IN_RAM_FUNC("hot") rln_forget_all_stale(void)
 {
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_cpr_forget_stale(s);

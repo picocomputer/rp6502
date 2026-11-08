@@ -7,6 +7,7 @@
 #include "core/sys/sys.h"
 #include "drivers.h"
 #include "core/api/proc.h"
+#include "machine.h"
 
 /*****************************/
 /* This is the OS scheduler. */
@@ -34,7 +35,7 @@ bool sys_break_to_launcher(void)
     return true;
 }
 
-int main(void)
+int HOST_IN_RAM_FUNC("sys") main(void)
 {
     sys_init();
     while (true)

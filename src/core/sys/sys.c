@@ -41,14 +41,14 @@ void HOST_IN_FLASH_FUNC("sys_init") sys_init(void)
 #undef DRIVER
 }
 
-void sys_task(void)
+void HOST_IN_RAM_FUNC("sys") sys_task(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) t();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-void sys_io_task(void)
+void HOST_IN_RAM_FUNC("sys") sys_io_task(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) iot();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
@@ -143,7 +143,7 @@ void sys_stop_now(void)
     }
 }
 
-void sys_commit(void)
+void HOST_IN_RAM_FUNC("sys") sys_commit(void)
 {
     /* The stop is derived from the flag again rather than trusted from
      * sys_break_request, because a break asked for anywhere in a pass has to

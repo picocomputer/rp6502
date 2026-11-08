@@ -572,7 +572,7 @@ overflow_error:
     RP6502_LOG(keyboard, ERROR, "dead key cache overflow");
 }
 
-size_t keymap_in_chars(char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC("hot") keymap_in_chars(char *buf, size_t length)
 {
     return RING_OUT(&keymap_key_queue, buf, (uint32_t)length);
 }

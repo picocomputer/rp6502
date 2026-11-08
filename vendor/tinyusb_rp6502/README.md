@@ -213,6 +213,8 @@ The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0
 
 The changes cover failed enumeration, the control transfer deadline, recovery of configured devices, queued control transfers, and the event queue.
 
+`usbh_task_run()` and `usbh_edpt_claim()` are `HOST_IN_RAM_FUNC` from the RIA's `machine.h`: they run on every pass of the main loop, which runs from RAM. `ria.cmake` also puts upstream `tusb.c` and this fork's tusb_fifo.c in RAM whole.
+
 ### Failed enumeration
 
 A failure is retried in place. Once the attempts are used up, the enumeration ends and cleans up drivers and the hub port, instead of stranding.

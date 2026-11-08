@@ -220,7 +220,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     hid_umount(slot);
 }
 
-bool usb_boot_enumerating(void)
+bool HOST_IN_RAM_FUNC("hot") usb_boot_enumerating(void)
 {
     if (usb_boot_enum_finished)
         return false;

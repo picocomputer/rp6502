@@ -25,11 +25,11 @@ rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
 
-# SDK code that runs in an interrupt or on the main loop's hot path. The linker
-# can keep code out of flash only by its object file, so these skip LTO. The
-# SDK's flash .text and .rodata take everything but the files its one-line
-# default_text_excludes.incl and default_rodata_excludes.incl name, and
-# whatever they skip lands in RAM with .data. These overrides add the list.
+# SDK and TinyUSB sources that run in an interrupt or on the main loop's hot
+# path. The linker can keep code out of flash only by its object file, so these
+# skip LTO. The SDK's flash .text and .rodata take everything but the files its
+# one-line default_text_excludes.incl and default_rodata_excludes.incl name,
+# and whatever they skip lands in RAM with .data. These overrides add the list.
 set(RIA_SDK_RAM_SOURCES
     ${PICO_SDK_PATH}/src/common/pico_time/time.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
@@ -41,6 +41,8 @@ set(RIA_SDK_RAM_SOURCES
     ${PICO_SDK_PATH}/src/rp2_common/pico_lwip/lwip_nosys.c
     ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_lwip.c
     ${PICO_SDK_PATH}/lib/lwip/src/core/timeouts.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/tusb.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/tusb_fifo.c
 )
 set_source_files_properties(${RIA_SDK_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
 set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:")

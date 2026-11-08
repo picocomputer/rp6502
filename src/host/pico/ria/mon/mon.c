@@ -496,7 +496,7 @@ static void HOST_IN_FLASH_FUNC("mon_more") mon_more(void)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
+static void HOST_IN_RAM_FUNC("hot") mon_step(void)
 {
     if (mon_more_state)
     {
@@ -676,7 +676,7 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
     }
 }
 
-bool mon_busy(void)
+bool HOST_IN_RAM_FUNC("hot") mon_busy(void)
 {
     return !sys_active() &&
            (mon_response_state[0] >= 0 ||

@@ -15,7 +15,7 @@ static const com_source_driver_t
 static com_source_t com_rx_held = COM_SOURCE_ANY;
 static timer_mach_t com_rx_deadline;
 
-static size_t com_read_source(com_source_t s, char *buf, size_t length)
+static size_t HOST_IN_RAM_FUNC("hot") com_read_source(com_source_t s, char *buf, size_t length)
 {
     size_t n = com_rx_reclaim(buf, length, s);
     if (n < length && com_sources[s].read)
@@ -27,7 +27,7 @@ static size_t com_read_source(com_source_t s, char *buf, size_t length)
  * byte from another source cannot land between two chunks of a burst. A source
  * that declares no dwell is never held, because a deadline of zero microseconds
  * has already passed. */
-static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
+static size_t HOST_IN_RAM_FUNC("hot") com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
     if (com_rx_held != COM_SOURCE_ANY && timer_mach_passed(com_rx_deadline))
         com_rx_held = COM_SOURCE_ANY;
@@ -50,7 +50,7 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
     return 0;
 }
 
-int com_getchar(com_source_t *src)
+int HOST_IN_RAM_FUNC("hot") com_getchar(com_source_t *src)
 {
     char ch;
     size_t n = *src == COM_SOURCE_ANY ? com_rx_pick(&ch, 1, src)
@@ -61,7 +61,7 @@ int com_getchar(com_source_t *src)
     return -1;
 }
 
-int com_peekchar(com_source_t src)
+int HOST_IN_RAM_FUNC("hot") com_peekchar(com_source_t src)
 {
     if (src == COM_SOURCE_ANY)
     {

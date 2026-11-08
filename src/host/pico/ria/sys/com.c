@@ -60,7 +60,7 @@ static RING(uint8_t, 32) com_uart_rx;
 
 static com_source_t com_rx_char_src;
 
-size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+size_t HOST_IN_RAM_FUNC("hot") com_rx_reclaim(char *buf, size_t length, com_source_t src)
 {
     uint8_t ch;
     if (length && com_rx_char_src == src && ria_uart_rx_reclaim(&ch))
@@ -79,7 +79,7 @@ int com_rx_peek(com_source_t src)
 static bool com_bel_enabled = true;
 
 
-static void com_uart_drain_rx(void)
+static void HOST_IN_RAM_FUNC("hot") com_uart_drain_rx(void)
 {
     while (uart_is_readable(COM_UART))
     {
@@ -90,7 +90,7 @@ static void com_uart_drain_rx(void)
     }
 }
 
-size_t com_uart_read(char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC("hot") com_uart_read(char *buf, size_t length)
 {
     // The UART's hardware FIFO is drained here as well as in com_task, because
     // input is also read by loops that do not return to com_task between
@@ -99,7 +99,7 @@ size_t com_uart_read(char *buf, size_t length)
     return RING_OUT(&com_uart_rx, buf, (uint32_t)length);
 }
 
-int com_uart_peek(void)
+int HOST_IN_RAM_FUNC("hot") com_uart_peek(void)
 {
     com_uart_drain_rx();
     return RING_LEN(&com_uart_rx) ? *RING_AT(&com_uart_rx, 0) : -1;
@@ -111,7 +111,7 @@ void com_uart_clear(void)
     RING_SKIP(&com_uart_rx, RING_LEN(&com_uart_rx));
 }
 
-static bool com_uart_tx_writable(void)
+static bool HOST_IN_RAM_FUNC("hot") com_uart_tx_writable(void)
 {
     return RING_AVAIL(&com_uart_tx) != 0;
 }
@@ -121,7 +121,7 @@ static void com_uart_tx_write(char ch)
     RING_PUT(&com_uart_tx, (uint8_t)ch);
 }
 
-static void com_uart_drain_tx(void)
+static void HOST_IN_RAM_FUNC("hot") com_uart_drain_tx(void)
 {
     bool vga = vga_connected();
     uint8_t ch;
@@ -152,7 +152,7 @@ static void com_uart_flush(void)
         tight_loop_contents();
 }
 
-static void com_tx_fanout(void)
+static void HOST_IN_RAM_FUNC("hot") com_tx_fanout(void)
 {
     while (com_uart_tx_writable() && com_telnet_tx_writable())
     {

@@ -128,7 +128,7 @@ bool vcp_std_handles(const char *name)
 // The port of an open descriptor, or -1 when its device is gone. A descriptor
 // holds the session of its open above the port index, so a descriptor kept
 // across a close or an unplug does not resolve to a later open of that port.
-static int vcp_desc_idx(int desc)
+static int HOST_IN_RAM_FUNC("hot") vcp_desc_idx(int desc)
 {
     int idx = desc & 0xF;
     const vcp_t *dev = &vcp_mounts[idx];
@@ -383,7 +383,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
 
 // STD_PENDING while the port configures, STD_ERROR with EINVAL when the
 // configuration failed, or EIO when a request timed out or the device is gone.
-std_rw_result vcp_std_opening(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC("hot") vcp_std_opening(int desc, api_errno *err)
 {
     int idx = vcp_desc_idx(desc);
     if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_TIMEOUT)
@@ -399,7 +399,7 @@ std_rw_result vcp_std_opening(int desc, api_errno *err)
     return vcp_mounts[idx].cfg == VCP_CFG_READY ? STD_OK : STD_PENDING;
 }
 
-std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
+std_rw_result HOST_IN_RAM_FUNC("hot") vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     *bytes_read = 0;

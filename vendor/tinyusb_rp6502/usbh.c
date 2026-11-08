@@ -13,6 +13,7 @@
 #include "tusb.h"
 #include "host/usbh_pvt.h"
 #include "host/hub.h"
+#include "machine.h"
 
 //--------------------------------------------------------------------+
 // Configuration
@@ -951,7 +952,7 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
  */
 // stoppable is false for the stack's own polling (sync control transfers without a scheduler), which must not
 // consume a stop meant for the application's tuh_task() loop
-static bool usbh_task_run(uint32_t timeout_ms, bool in_isr, bool stoppable) {
+static bool HOST_IN_RAM_FUNC("hot") usbh_task_run(uint32_t timeout_ms, bool in_isr, bool stoppable) {
   // Skip if stack is not initialized
   if (!tuh_inited()) {
     return true;
@@ -1510,7 +1511,7 @@ void usbh_defer_func(osal_task_func_t func, void *param, bool in_isr) {
 //--------------------------------------------------------------------+
 
 // Claim an endpoint for transfer
-bool usbh_edpt_claim(uint8_t dev_addr, uint8_t ep_addr) {
+bool HOST_IN_RAM_FUNC("hot") usbh_edpt_claim(uint8_t dev_addr, uint8_t ep_addr) {
   // Note: addr0 only use tuh_control_xfer
   usbh_device_t* dev = get_device(dev_addr);
   TU_ASSERT(dev && dev->connected);

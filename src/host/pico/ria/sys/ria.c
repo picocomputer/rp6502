@@ -84,7 +84,7 @@ void ria_trigger_sigint(void)
     }
 }
 
-bool ria_get_sigint(void)
+bool HOST_IN_RAM_FUNC("hot") ria_get_sigint(void)
 {
     if (!sigint_pending)
         return false;
