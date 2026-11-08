@@ -4319,8 +4319,7 @@ FRESULT f_close (
 	FATFS *fs;
 
 #if !FF_FS_READONLY
-	res = f_sync(fp);					/* Flush cached data */
-	if (res == FR_OK)
+	FRESULT sres = f_sync(fp);			/* Flush cached data (RP6502: the file is released even when this fails) */
 #endif
 	{
 		res = validate(&fp->obj, &fs);	/* Lock volume */
@@ -4336,6 +4335,9 @@ FRESULT f_close (
 #endif
 		}
 	}
+#if !FF_FS_READONLY
+	if (sres != FR_OK) res = sres;	/* RP6502: the flush error */
+#endif
 	return res;
 }
 

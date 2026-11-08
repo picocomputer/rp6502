@@ -1196,6 +1196,25 @@ bool tuh_control_xfer (tuh_xfer_t* xfer) {
   return true;
 }
 
+// Remove daddr's first queued control transfer with this complete_cb and user_data, without calling it.
+// Rotates the FIFO once, writing every other entry back in order.
+bool tuh_control_xfer_drop(uint8_t daddr, tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
+  bool dropped = false;
+  (void) osal_mutex_lock(_usbh_mutex, OSAL_TIMEOUT_WAIT_FOREVER);
+  uint16_t count = tu_fifo_count(&_usbh_pending_ctrl_q) / sizeof(usbh_pending_ctrl_t);
+  while (count--) {
+    usbh_pending_ctrl_t entry;
+    (void) tu_fifo_read_n(&_usbh_pending_ctrl_q, &entry, sizeof(entry));
+    if (!dropped && entry.daddr == daddr && entry.complete_cb == complete_cb && entry.user_data == user_data) {
+      dropped = true;
+    } else {
+      (void) tu_fifo_write_n(&_usbh_pending_ctrl_q, &entry, sizeof(entry));
+    }
+  }
+  (void) osal_mutex_unlock(_usbh_mutex);
+  return dropped;
+}
+
 // Start control transfer from pending fifo
 static void control_xfer_dispatch_pending(void) {
   usbh_ctrl_xfer_info_t* ctrl_info = &_usbh_data.ctrl_xfer_info;

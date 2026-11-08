@@ -74,6 +74,12 @@ additions:
   `FR_NOT_ENOUGH_CORE` and changes nothing. The new function
   `xcwds2_parent()` finds the new parent directory in the recorded path.
   This change and `chk_ancestor()` use it.
+- `f_close()` releases the file and its lock even when the flush in
+  `f_sync()` fails, and then returns the error of the flush. Upstream FatFs
+  keeps the file open on that error. src/osal/pico/fs.c gives up the file
+  object after a close whatever the result, so the lock stayed behind: the
+  file gave `FR_LOCKED` until the volume was mounted again, and each such
+  close used up one of the `FF_FS_LOCK` locks.
 - `f_getldnumber()` makes the static `get_ldnumber()` available to callers.
   It returns the logical drive number of a path. For a path without a
   drive, it returns the number of the current drive. For a drive that does

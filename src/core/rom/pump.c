@@ -64,30 +64,45 @@ static std_rw_result pump_read(int fd, void *buf, uint32_t count, uint32_t *got,
     return r;
 }
 
-/* One text line into line[], NUL-terminated with any CR/LF stripped. Returns
- * its length, or -1 at EOF or on a seek or read failure, which are
- * indistinguishable here. A whole block is read and only the line taken from
- * it, because reading a byte at a time through the file driver is not worth
- * it; p->pos is left at the first byte after the newline, and each call seeks
- * there before reading. */
-static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
+enum
+{
+    PUMP_EOF = -1,
+    PUMP_FAIL = -2,
+};
+
+/* Shebang and record header lines fit in this many bytes. */
+#define PUMP_PEEK 64
+
+/* One text line from p->pos into line[], NUL-terminated with any CR/LF
+ * stripped. Returns its length, PUMP_EOF at the end of the file, or PUMP_FAIL
+ * with *err set when the seek or read fails. PUMP_PEEK bytes are read, and up
+ * to cap - 1 when those hold no newline. p->pos moves to the first byte after
+ * the newline, and line[] keeps the *past bytes read beyond it, from the
+ * offset p->pos moved by. */
+static long pump_gets(rom_pump_t *p, char *line, size_t cap, uint32_t *past,
+                      api_errno *err)
 {
     int32_t landed;
     if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
-        return -1;
+        return PUMP_FAIL;
     uint32_t got = 0;
-    if (pump_read(p->fd, line, (uint32_t)cap - 1, &got, err) != STD_OK)
-        return -1;
-    if (got == 0)
+    if (pump_read(p->fd, line, PUMP_PEEK, &got, err) != STD_OK)
+        return PUMP_FAIL;
+    if (got == PUMP_PEEK && !memchr(line, '\n', got))
     {
-        line[0] = 0;
-        *err = API_ENOEXEC; /* the file ends where a line must be */
-        return -1;
+        uint32_t more = 0;
+        if (pump_read(p->fd, line + got, (uint32_t)cap - 1 - got, &more, err) != STD_OK)
+            return PUMP_FAIL;
+        got += more;
     }
+    if (got == 0)
+        return PUMP_EOF;
     size_t i = 0;
     while (i < got && line[i] != '\n')
         i++;
-    p->pos += (uint32_t)(i < got ? i + 1 : got);
+    uint32_t used = i < got ? (uint32_t)i + 1 : got;
+    p->pos += used;
+    *past = got - used;
     if (i && line[i - 1] == '\r')
         i--;
     line[i] = 0;
@@ -119,36 +134,37 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
     memset(p, 0, sizeof *p);
     p->fd = fd;
     char *line = (char *)buf;
-    if (pump_gets(p, line, ROM_RECORD_MAX, err) < 0 || !shebang_ok(line))
-    {
-        rom_pump_close(p);
-        *err = API_ENOEXEC;
-        return false;
-    }
+    uint32_t past;
+    long n = pump_gets(p, line, ROM_RECORD_MAX, &past, err);
+    if (n < 0 || !shebang_ok(line))
+        goto fail;
     /* An optional "#>$chunks_len $crc" line bounds the program records, and the
      * named assets follow them. The asset directory is taken to start at that
      * line, because it parses as an asset with no name and so is skipped like
      * any other entry. The classic format has no such line: its records run to
      * the end of the file and it carries no assets. */
     uint32_t after_shebang = p->pos;
-    long n = pump_gets(p, line, ROM_RECORD_MAX, err);
+    n = pump_gets(p, line, ROM_RECORD_MAX, &past, err);
+    if (n == PUMP_FAIL)
+        goto fail;
     if (n >= 2 && line[0] == '#' && line[1] == '>')
     {
         const char *scan = line + 2;
         uint32_t chunks_len, image_crc;
         if (!str_parse_uint32(&scan, &chunks_len) ||
             !str_parse_uint32(&scan, &image_crc))
-        {
-            rom_pump_close(p);
-            *err = API_ENOEXEC;
-            return false;
-        }
+            goto fail;
         p->prog_end = p->pos + chunks_len;
         p->assets_start = after_shebang;
     }
     else
         p->pos = after_shebang; /* the classic format's records start here */
     return true;
+fail:
+    rom_pump_close(p);
+    if (n != PUMP_FAIL)
+        *err = API_ENOEXEC;
+    return false;
 }
 
 rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
@@ -158,10 +174,18 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         return ROM_PUMP_EOF;
     /* The header line is read into the caller's record buffer, so that a
      * machine stepping the pump from a task need not keep a second kilobyte.
-     * The parse below finishes with it before the payload read overwrites it. */
-    long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, err);
-    if (n < 0)
-        return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF;
+     * The parse below finishes with it before the payload overwrites it. */
+    uint32_t start = p->pos, past;
+    long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, &past, err);
+    if (n == PUMP_FAIL)
+        return ROM_PUMP_ERROR;
+    if (n == PUMP_EOF)
+    {
+        if (!p->prog_end)
+            return ROM_PUMP_EOF;
+        *err = API_ENOEXEC; /* the file ends where a line must be */
+        return ROM_PUMP_ERROR;
+    }
     record_result r = record_parse((char *)buf, rec);
     if (r == RECORD_SKIP)
         return ROM_PUMP_SKIP;
@@ -170,13 +194,17 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;
     }
-    int32_t landed;
-    if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
-        return ROM_PUMP_ERROR;
+    /* The bytes read past the header begin the payload, and the rest of it is
+     * read on from there. */
+    uint32_t have = past < rec->len ? past : rec->len;
+    memmove(buf, buf + (p->pos - start), have);
     uint32_t got = 0;
-    if (pump_read(p->fd, buf, rec->len, &got, err) != STD_OK || got != rec->len)
+    if (have < rec->len &&
+        pump_read(p->fd, buf + have, rec->len - have, &got, err) != STD_OK)
+        return ROM_PUMP_ERROR;
+    if (have + got != rec->len)
     {
-        *err = API_ENOEXEC;
+        *err = API_ENOEXEC; /* the file ends inside the record */
         return ROM_PUMP_ERROR;
     }
     p->pos += rec->len;

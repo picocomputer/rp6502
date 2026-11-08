@@ -7,6 +7,8 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
+#include "core/sys/ria.h"
+#include "core/sys/sys.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
@@ -14,6 +16,7 @@
 #include "ria/sys/mbuf.h"
 #include "host/host.h"
 #include "ria/sys/ria.h"
+#include "osal/fs.h"
 #include "machine.h"
 #include <assert.h>
 #include <fatfs/ff.h>
@@ -34,6 +37,8 @@ static uint32_t fil_rx_size;
 static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
+static int fil_copy_rd;
+static int fil_copy_wr;
 
 // COPY and MOVE put two paths in xstack.
 static_assert(2 * (FF_LFN_BUF + 1) <= XSTACK_SIZE);
@@ -402,6 +407,45 @@ void HOST_IN_FLASH_FUNC("fil_mon_unlink") fil_mon_unlink(const char *args)
     mon_add_response_fatfs(result);
 }
 
+// The close of the destination is reported only for a complete copy.
+static int HOST_IN_FLASH_FUNC("fil_copy_end") fil_copy_end(bool complete)
+{
+    api_errno err;
+    fs_std_close(fil_copy_rd, &err);
+    if (fs_std_close(fil_copy_wr, &err) != STD_OK && complete)
+        mon_add_response_errno(err);
+    return -1;
+}
+
+// One mbuf per step from fil_copy_rd to fil_copy_wr.
+static int HOST_IN_FLASH_FUNC("fil_copy_response") fil_copy_response(char *, size_t, int state,
+                                                                     unsigned)
+{
+    if (state < 0)
+        return fil_copy_end(false);
+    if (ria_get_sigint())
+    {
+        sys_break();
+        return fil_copy_end(false);
+    }
+    api_errno err;
+    uint32_t got = 0;
+    if (fs_std_read(fil_copy_rd, (char *)mbuf, MBUF_SIZE, &got, &err) == STD_OK)
+    {
+        if (!got)
+            return fil_copy_end(true);
+        uint32_t put = 0;
+        if (fs_std_write(fil_copy_wr, (const char *)mbuf, got, &put, &err) == STD_OK)
+        {
+            if (put == got)
+                return 0;
+            err = API_ENOSPC;
+        }
+    }
+    mon_add_response_errno(err);
+    return fil_copy_end(false);
+}
+
 void HOST_IN_FLASH_FUNC("fil_mon_copy") fil_mon_copy(const char *args)
 {
     char *src_path = (char *)&xstack[0];
@@ -424,35 +468,21 @@ void HOST_IN_FLASH_FUNC("fil_mon_copy") fil_mon_copy(const char *args)
         mon_add_response_fatfs(fr);
         return;
     }
-    fr = f_open(&fil_fatfs_fil, src_path, FA_READ);
-    if (fr != FR_OK)
+    api_errno err;
+    fil_copy_rd = fs_std_open(src_path, FS_RD, &err);
+    if (fil_copy_rd < 0)
     {
-        mon_add_response_fatfs(fr);
+        mon_add_response_errno(err);
         return;
     }
-    FIL dst_fil;
-    fr = f_open(&dst_fil, dst_path, FA_CREATE_NEW | FA_WRITE);
-    if (fr != FR_OK)
+    fil_copy_wr = fs_std_open(dst_path, FS_WR | FS_CREAT | FS_EXCL, &err);
+    if (fil_copy_wr < 0)
     {
-        f_close(&fil_fatfs_fil);
-        mon_add_response_fatfs(fr);
+        mon_add_response_errno(err);
+        fs_std_close(fil_copy_rd, &err);
         return;
     }
-    UINT br, bw;
-    for (;;)
-    {
-        fr = f_read(&fil_fatfs_fil, mbuf, MBUF_SIZE, &br);
-        if (fr != FR_OK || br == 0)
-            break;
-        fr = f_write(&dst_fil, mbuf, br, &bw);
-        if (fr == FR_OK && bw < br)
-            fr = FR_NO_SPACE;
-        if (fr != FR_OK)
-            break;
-    }
-    f_close(&fil_fatfs_fil);
-    f_close(&dst_fil);
-    mon_add_response_fatfs(fr);
+    mon_add_response_fn(fil_copy_response);
 }
 
 void HOST_IN_FLASH_FUNC("fil_mon_move") fil_mon_move(const char *args)

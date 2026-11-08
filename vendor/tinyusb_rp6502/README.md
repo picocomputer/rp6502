@@ -13,6 +13,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 - No headers are copied. The copies include upstream headers by their path under TinyUSB's `src/`, for example `host/usbh_pvt.h` and `portable/raspberrypi/rp2040/rp2040_usb.h`. A new function shared between files is declared in the file that calls it:
   - `hcd_free_ep_count()` (hcd_rp2350.c) is declared in `src/host/pico/ria/usb/usb.c` and feeds the "ep free" status line.
   - `usbh_driver_set_config_failed()` (usbh.c) is declared in hub.c and cdc_host.c.
+  - `tuh_control_xfer_drop()` (usbh.c) is declared in `src/host/pico/ria/usb/msc.c`.
   - `tuh_midi_frame()` (midi_host.c) is declared in `src/host/pico/ria/usb/mid.c`.
 - The copies carry upstream's license headers; midi_host.c has the full MIT text of the older upstream it was reworked from. No copy is reformatted, so `diff -u` against upstream shows only real changes.
 
@@ -20,7 +21,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 |---|---|---|
 | hcd_rp2350.c | portable/raspberrypi/rp2040/hcd_rp2040.c | Host controller driver. Every transfer runs on EPX, scheduled in software. About half the file is rewritten. |
 | rp2350_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | RP2350 host code only. 12-cycle wait in host mode. Host control and interrupt transfers are single-buffered. A short packet ends a double-buffered IN without a `STOP_TRANS`. |
-| usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Clears halted endpoints and re-enumerates a device that stops answering. |
+| usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Clears halted endpoints and re-enumerates a device that stops answering. Drops a queued control transfer on request. |
 | hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
 | cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
 | midi_host.c | class/midi/midi_host.c | MIDI host rework, plus the `tuh_midi_frame()` wire framer. Bulk transfers recover after a failure. |
@@ -139,7 +140,7 @@ Why: a STOP does not end a transaction already on the wire. One more RX_TIMEOUT 
 ### Other API
 
 - `hcd_edpt_close()` frees the pool entry and retires any transfer. Upstream returned false. The RIA's MSC and xin drivers call `tuh_edpt_close()`.
-- `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. usbh calls it after a successful CLEAR_FEATURE(ENDPOINT_HALT), and the RIA's MSC driver during its stall recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
+- `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. usbh calls it after a successful CLEAR_FEATURE(ENDPOINT_HALT), and the RIA's MSC driver in its reset recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
 - `hcd_edpt_abort_xfer()` sends every endpoint type through `epx_retire()` and returns true. Upstream's slot abort could return false.
 - `hcd_device_close()` retires `ep_pool[0]` only if it points at the closing address, and never frees it. The other entries are freed through `edpt_release()`.
 - `hcd_init()` sets `ep_pool[0].dpram_buf` and leaves its type as CONTROL, which keeps EP0 single-buffered (see rp2350_usb.c).
@@ -202,7 +203,7 @@ The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0
 
 ## usbh.c
 
-The changes cover failed enumeration, recovery of configured devices, and the event queue.
+The changes cover failed enumeration, recovery of configured devices, queued control transfers, and the event queue.
 
 ### Failed enumeration
 
@@ -251,6 +252,13 @@ Consequences:
   - On the root port, the reset is a re-reset through VBUS_DETECT, which counts against the 3 per plug-in in "Root port reset" under hcd_rp2350.c. Past those, the re-attach enumerates without a bus reset. A device that lost its address to a reset of its own is at address 0 and still enumerates.
   - `fail_ms` (the run's start, 0 for no run) and `fail_last_ms` (its latest failure) are 16-bit stamps inside the packed device state, so they cost 4 bytes per device.
 - **`usbh_device_close()`:** clears `connected` before it fails the device's in-flight control transfer. A callback of that transfer can then no longer queue a request to the departing device, because `tuh_control_xfer()` rejects it. Upstream let a departing hub's callback claim the control slot for the 5 s watchdog. Both callers clear the device right after.
+
+### Queued control transfers
+
+- **New `tuh_control_xfer_drop(daddr, complete_cb, user_data)`:** removes a queued async control transfer that has not started, without calling its callback, and returns true. The first entry in the pending FIFO with the same `daddr`, `complete_cb` and `user_data` goes, and the others keep their order. It returns false when no entry matches: the transfer is in the slot or has completed.
+  - Why: `tuh_edpt_abort_xfer(daddr, 0)` aborts only the transfer in the slot. A queued entry keeps the caller's buffer pointer, not a copy, so a request the caller gave up on still goes out later, carrying whatever the buffer then holds, and its completion lands in the caller's next request.
+  - msc.c's `msc_cancel_inflight()` calls it for its ADSC, reset-recovery and GET_MAX_LUN requests when a command times out or the device closes. Before, a CB/CBI command that timed out while its ADSC waited behind another device's control transfer left that ADSC queued. It went out with the bytes that recovery wrote into the same buffer, its completion started the dead command's data phase, and the drive stayed wedged until it was replugged.
+  - The FIFO is rotated once in place: each entry is read and, unless dropped, written back. No buffer.
 
 ### Event queue
 
