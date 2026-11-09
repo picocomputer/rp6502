@@ -44,7 +44,7 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
 #define COM_TELNET_CONFIG_KEY CONFIG_STR(A, com_telnet, key, COM_TELNET_KEY_SIZE, "", \
     nul_check, nul_apply, STR_KEY, com_telnet_key_response, STR_HELP_SET_KEY, NULL)
 #define COM_TELNET_DRIVER DRIVER( \
-    TASK_PUMPED(com_telnet_task)  \
+    TASK_ALWAYS(com_telnet_task)  \
     COM_TELNET_CONFIG_PORT        \
     COM_TELNET_CONFIG_KEY)
 
@@ -61,7 +61,7 @@ void com_uart_clear(void);
  * hooks print. */
 #define COM_DRIVER DRIVER( \
     INIT(com_init)         \
-    TASK_PUMPED(com_task)  \
+    TASK_ALWAYS(com_task)  \
     RUN(com_run)           \
     STOP(com_stop)         \
     BREAK(com_break))

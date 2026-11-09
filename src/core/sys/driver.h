@@ -18,9 +18,13 @@
  *   INIT(f)         at boot, in list order
  *   TASK_FATFS(f)   from the main loop only: it calls FatFs, which pumps
  *   TASK_PUMPED(f)  from the main loop, and from sys_pump while FatFs waits
+ *   TASK_ALWAYS(f)  as TASK_PUMPED, and also while flashing, so it and all
+ *                   it reaches then must be in RAM
  *   RUN(f)          when a program starts, in list order
  *   STOP(f)         when a program stops, in reverse order
  *   BREAK(f)        on a break, in reverse order
+ *   FLASHING(f)     once, when the RIA starts rewriting its own flash, in
+ *                   reverse order
  *   CONFIG_INT/STR/RAW/HIDDEN/SAVE(...) and SST(...), any number of each
  *
  * The tasks of a row run in the order the row lists them. A walk defines the

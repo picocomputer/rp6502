@@ -93,6 +93,12 @@ void HOST_IN_FLASH_FUNC usb_init(void)
 void HOST_IN_RAM_FUNC usb_task(void)
 {
     tuh_task();
+}
+
+/* The keyboard and gamepad LED reports reach the HID and gamepad code, which
+ * is in flash. */
+void HOST_IN_RAM_FUNC usb_report_task(void)
+{
     while (usb_gamepad_led_pending)
     {
         int i = __builtin_ctz(usb_gamepad_led_pending);

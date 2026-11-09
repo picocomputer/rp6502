@@ -232,6 +232,7 @@ core/sys/sst.c sst_scratch: the savestate's own working memory: the blob being w
 core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
 core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
 core/sys/sys.c sys_breaking: the blob's latch, which sst.c applies before the walk
+core/sys/sys.c sys_flashing: not carried: only the RIA sets it, and it then reboots or locks up
 core/sys/sys.c sys_state: the blob's latch, which sst.c applies before the walk
 core/sys/xram.c xram: the XRAM chunk
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting

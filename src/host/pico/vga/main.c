@@ -45,6 +45,7 @@ static void task(void)
 #define DRIVER(row) row com_task();
 #define TASK_PUMPED(f) f();
 #define TASK_FATFS(f) f();
+#define TASK_ALWAYS(f) f();
 #include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"

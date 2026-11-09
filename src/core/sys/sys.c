@@ -33,6 +33,9 @@ static enum state
  * performs the stop fan-out first and the break fan-out after it. */
 static volatile bool sys_breaking;
 
+/* Set when flashing starts, and never cleared. Only sys_pump reads it. */
+static bool sys_flashing;
+
 void HOST_IN_FLASH_FUNC sys_init(void)
 {
     resb_init();
@@ -45,12 +48,15 @@ void HOST_IN_FLASH_FUNC sys_init(void)
 /* One pass of the list, so each task has a single call site. MSVC has no
  * noinline attribute; osal/windows/msvc/compat.h defines __attribute__ away
  * there. */
-__attribute__((noinline)) static void HOST_IN_RAM_FUNC sys_walk(bool pumped)
+__attribute__((noinline)) static void HOST_IN_RAM_FUNC sys_walk(bool fatfs, bool pumped)
 {
 #define TASK_FATFS(f) \
-    if (!pumped)      \
+    if (fatfs)        \
         f();
-#define TASK_PUMPED(f) f();
+#define TASK_PUMPED(f) \
+    if (pumped)        \
+        f();
+#define TASK_ALWAYS(f) f();
 #include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"
@@ -58,12 +64,21 @@ __attribute__((noinline)) static void HOST_IN_RAM_FUNC sys_walk(bool pumped)
 
 void HOST_IN_RAM_FUNC sys_task(void)
 {
-    sys_walk(false);
+    sys_walk(true, true);
 }
 
 void HOST_IN_RAM_FUNC sys_pump(void)
 {
-    sys_walk(true);
+    sys_walk(false, !sys_flashing);
+}
+
+void HOST_IN_FLASH_FUNC sys_set_flashing(void)
+{
+    sys_flashing = true;
+#define FLASHING(f) f();
+#include "core/sys/driver_walk.h"
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
 }
 
 /* RESB is low through the run, stop and break fan-outs. */

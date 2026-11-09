@@ -12,9 +12,11 @@
 #undef INIT
 #undef TASK_FATFS
 #undef TASK_PUMPED
+#undef TASK_ALWAYS
 #undef RUN
 #undef STOP
 #undef BREAK
+#undef FLASHING
 #undef CONFIG_INT
 #undef CONFIG_STR
 #undef CONFIG_RAW

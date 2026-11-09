@@ -25,6 +25,9 @@
 #ifndef TASK_PUMPED
 #define TASK_PUMPED(f)
 #endif
+#ifndef TASK_ALWAYS
+#define TASK_ALWAYS(f)
+#endif
 #ifndef RUN
 #define RUN(f)
 #endif
@@ -33,6 +36,9 @@
 #endif
 #ifndef BREAK
 #define BREAK(f)
+#endif
+#ifndef FLASHING
+#define FLASHING(f)
 #endif
 #ifndef CONFIG_INT
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, help, helpfn)

@@ -25,9 +25,14 @@ void sys_init(void);
 void sys_task(void);
 
 /* What a blocking wait calls while its transfer completes: the TASK_PUMPED
- * tasks, without the TASK_FATFS ones, which call FatFs and so would re-enter
- * it. */
+ * and TASK_ALWAYS tasks, without the TASK_FATFS ones, which call FatFs and so
+ * would re-enter it. Once flashing starts, only the TASK_ALWAYS ones. */
 void sys_pump(void);
+
+/* Starts flashing: from here on, sys_pump runs only the TASK_ALWAYS tasks.
+ * Then the FLASHING hooks run, in reverse order, from flash still intact.
+ * There is no way back; the RIA reboots or locks up. */
+void sys_set_flashing(void);
 
 /* False only when the machine is fully stopped. True while a start is armed,
  * while the 6502 runs, and while a stop still owes its drivers their fan-out

@@ -19,6 +19,7 @@
 
 void usb_init(void);
 void usb_task(void);
+void usb_report_task(void);
 
 // For monitor status command.
 int usb_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -55,6 +56,9 @@ bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
  * boot enumeration window, and keyboard_mount applies the NumLock quirk of the
  * Raspberry Pi Keyboard only inside that window. A slow init after usb_init
  * can use up the window before the keyboard mounts. */
-#define USB_DRIVER DRIVER(INIT(usb_init) TASK_PUMPED(usb_task))
+#define USB_DRIVER DRIVER(           \
+    INIT(usb_init)                  \
+    TASK_ALWAYS(usb_task)           \
+    TASK_PUMPED(usb_report_task))
 
 #endif /* _RIA_USB_USB_H_ */

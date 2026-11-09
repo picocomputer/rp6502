@@ -50,7 +50,7 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
     cyw_rf_country_code_response, STR_HELP_SET_RFCC, cyw_country_code_response)
 #define CYW_DRIVER DRIVER( \
     INIT(cyw_init)         \
-    TASK_PUMPED(cyw_task)  \
+    TASK_ALWAYS(cyw_task)  \
     CYW_CONFIG_RF          \
     CYW_CONFIG_RFCC)
 

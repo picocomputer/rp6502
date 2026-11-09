@@ -12,6 +12,7 @@
 
 void a_init(void), a_task(void), a_io(void), a_run(void), a_stop(void), a_break(void);
 void b_init(void), b_task(void), b_io(void), b_run(void), b_stop(void), b_break(void);
+void b_always(void), a_flashing(void), c_flashing(void);
 void c_init(void), c_task(void), c_io(void), c_run(void), c_stop(void), c_break(void);
 
 #define A_SST_SIZE 6
@@ -28,10 +29,12 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(a_run)                                        \
     STOP(a_stop)                                      \
     BREAK(a_break)                                    \
+    FLASHING(a_flashing)                              \
     SST(AAAA, 1, A_SST_SIZE, a_sst_save, a_sst_load))
 #define B_DRIVER DRIVER( \
     INIT(b_init)         \
     TASK_PUMPED(b_task)  \
+    TASK_ALWAYS(b_always) \
     TASK_FATFS(b_io)     \
     RUN(b_run)           \
     STOP(b_stop)         \
@@ -43,6 +46,7 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(c_run)                                        \
     STOP(c_stop)                                      \
     BREAK(c_break)                                    \
+    FLASHING(c_flashing)                              \
     SST(CCCC, 2, C_SST_SIZE, c_sst_save, c_sst_load))
 
 #define RP6502_MACH_DRIVERS A_DRIVER, B_DRIVER, C_DRIVER

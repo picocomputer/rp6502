@@ -153,7 +153,7 @@ void aud_sst_settle(void);
 
 #define AUD_DRIVER DRIVER(                                  \
     INIT(aud_init)                                          \
-    TASK_PUMPED(aud_task)                                   \
+    TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
     SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
