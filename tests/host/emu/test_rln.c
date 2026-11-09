@@ -185,41 +185,136 @@ static void show(const char *buf, int len)
     }
 }
 
-/* Types into a ten-character field, which cannot wrap, so every key moves
- * the cursor with an absolute column from the prompt. */
-static const char *typed_at(const char *replies)
+static void capture(void)
 {
-    fresh();
-    rln_set_max_length(10);
-    reading();
-    wire(replies);
     shown_len = 0;
     shown[0] = 0;
     com_set_tx_tap(show);
+}
+
+/* The monitor and std.c start the next read after the callback returns. */
+static bool need_next;
+
+static void got_line_later(bool timeout, const char *buf)
+{
+    (void)timeout;
+    lines++;
+    strncpy(last, buf, sizeof last - 1);
+    last[sizeof last - 1] = 0;
+    need_next = true;
+}
+
+static void next(void)
+{
+    if (need_next)
+    {
+        need_next = false;
+        rln_read_line(got_line_later);
+    }
+}
+
+/* A first read ends on an Enter typed before its terminal answered. Its
+ * replies come during the second read, ahead of that read's own. The fields
+ * are ten characters, so the cursor moves by absolute column. */
+static void ended_early(void)
+{
+    fresh();
+    rln_set_max_length(10);
+    lines = 0;
+    need_next = true;
+    next();
+    wire("a\r");
+    next();
+}
+
+UTEST(rln, type_ahead_is_drawn_at_this_reads_prompt)
+{
+    ended_early();
+    capture();
     wire("ab");
+    wire("\33[5;4R\33[>1;10;0c\33[24;80R");
+    wire("\33[6;28R\33[>1;10;0c\33[24;80R");
     com_set_tx_tap(NULL);
-    return shown;
+    ASSERT_TRUE(strstr(shown, "\33[28Ga") != NULL);
+    ASSERT_TRUE(strstr(shown, "\33[4G") == NULL);
 }
 
-/* Each pair is a prompt reply then a size reply. The first pair is left over
- * from an earlier read, at another prompt. */
-UTEST(rln, the_latest_prompt_reply_wins)
+UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
 {
-    const char *out = typed_at("\33[5;4R\33[24;80R\33[6;28R\33[24;80R");
-    ASSERT_TRUE(strstr(out, "\33[28G") != NULL);
-    ASSERT_TRUE(strstr(out, "\33[4G") == NULL);
-    out = typed_at("\33[5;28R\33[24;80R\33[6;4R\33[24;80R");
-    ASSERT_TRUE(strstr(out, "\33[4G") != NULL);
-    ASSERT_TRUE(strstr(out, "\33[28G") == NULL);
+    ended_early();
+    rln_poke("ab");
+    capture();
+    wire("\33[5;28R\33[>1;10;0c\33[24;80R");
+    wire("\33[6;4R\33[>1;10;0c\33[24;80R");
+    com_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[4Ga") != NULL);
+    ASSERT_TRUE(strstr(shown, "\33[28G") == NULL);
 }
 
-/* The earlier read finished after its prompt reply, so only its size reply
- * is left over. */
-UTEST(rln, a_leftover_size_reply_is_not_a_prompt)
+UTEST(rln, this_reads_size_wins)
 {
-    const char *out = typed_at("\33[24;80R\33[6;28R\33[24;80R");
-    ASSERT_TRUE(strstr(out, "\33[28G") != NULL);
+    ended_early();
+    wire("\33[5;3R\33[>1;10;0c\33[24;132R");
+    wire("\33[6;28R\33[>1;10;0c\33[24;80R");
     ASSERT_EQ(rln_get_term_width(), 80);
+}
+
+/* The first read's Enter lands between its DA2 reply and its size reply. */
+UTEST(rln, a_leftover_size_reply_keeps_the_cursor_shape)
+{
+    fresh();
+    lines = 0;
+    need_next = true;
+    next();
+    wire("\33[5;3R\33[>1;10;0c");
+    wire("a\r");
+    next();
+    capture();
+    wire("\33[24;80R");
+    wire("\33[6;3R\33[>1;10;0c\33[24;80R");
+    wire("\33[2~");
+    com_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[5 q") != NULL);
+    ASSERT_TRUE(strstr(shown, "\33[1 q") != NULL);
+}
+
+/* A poked Enter ends a read while its prompt reply is half way in. */
+UTEST(rln, a_reply_cut_by_a_poked_enter_is_not_typed)
+{
+    fresh();
+    lines = 0;
+    need_next = true;
+    next();
+    wire("\33[5;3R\33[>1;10;0c\33[24;80R");
+    rln_poke("\r");
+    next();
+    wire("\33[6;");
+    rln_poke("\r");
+    next();
+    wire("3R\33[>1;10;0c\33[24;80R");
+    wire("\33[7;3R\33[>1;10;0c\33[24;80R");
+    wire("\r");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "");
+}
+
+/* A program stops while its read's prompt reply is half way in, and the
+ * monitor reads. */
+UTEST(rln, a_reply_cut_by_a_stop_is_not_typed)
+{
+    fresh();
+    lines = 0;
+    need_next = true;
+    next();
+    wire("\33[6;");
+    rln_stop();
+    need_next = true;
+    next();
+    wire("3R\33[>1;10;0c\33[24;80R");
+    wire("\33[7;2R\33[>1;10;0c\33[24;80R");
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "");
 }
 
 UTEST(rln, a_poke_of_an_empty_string_ends_the_line)

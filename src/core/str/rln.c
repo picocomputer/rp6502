@@ -89,6 +89,7 @@ typedef struct
     uint16_t inflight_len;
     // Per-source bookkeeping (zero on rln_poke_source).
     uint8_t cpr_expecting;  // outstanding CPR count this read
+    uint8_t cpr_stale;      // CPRs still due to earlier reads, which come first
     uint16_t cpr_w;         // max column this read = the screen right edge
     uint16_t cpr_h;         // max row this read = the screen bottom edge
     uint16_t cpr_pcol;      // latest prompt reply column this read, 0 = none yet
@@ -148,16 +149,33 @@ static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mo
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
 
-// Clear each source's per-read state. line_end survives because a return
-// that ended a line is still owed its line feed even when the line feed
-// arrives during the next read.
+// Clear each source's per-read state. What describes the wire rather than
+// the read survives: a return still owed its line feed, a sequence the end
+// of the read cut in half, and the replies an earlier read is still owed. A
+// read that ends before its handshake deadline leaves its replies on the
+// way; after the deadline, whatever has not come is not coming.
 static void rln_sources_reset(void)
 {
+    bool owed = !timer_mach_passed(rln_handshake_deadline);
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
-        uint8_t line_end = rln_sources[s].line_end;
-        memset(&rln_sources[s], 0, sizeof rln_sources[s]);
-        rln_sources[s].line_end = line_end;
+        rln_source_t *a = &rln_sources[s];
+        rln_source_t keep = {.line_end = a->line_end};
+        if (owed)
+        {
+            unsigned stale = a->cpr_stale + a->cpr_expecting;
+            keep.cpr_stale = stale > UINT8_MAX ? UINT8_MAX : (uint8_t)stale;
+        }
+        if (a->state != ansi_state_C0)
+        {
+            keep.state = a->state;
+            memcpy(keep.csi_param, a->csi_param, sizeof keep.csi_param);
+            keep.csi_param_count = a->csi_param_count;
+            keep.csi_private = a->csi_private;
+            memcpy(keep.buf, &a->buf[a->buf_len - a->inflight_len], a->inflight_len);
+            keep.buf_len = keep.inflight_len = a->inflight_len;
+        }
+        *a = keep;
     }
     memset(&rln_poke_source, 0, sizeof rln_poke_source);
 }
@@ -192,6 +210,7 @@ static void rln_source_save(sst_cursor_t *c, const rln_source_t *s)
     sst_put_u16(c, s->buf_len);
     sst_put_u16(c, s->inflight_len);
     sst_put_u8(c, s->cpr_expecting);
+    sst_put_u8(c, s->cpr_stale);
     sst_put_u16(c, s->cpr_w);
     sst_put_u16(c, s->cpr_h);
     sst_put_u16(c, s->cpr_pcol);
@@ -210,7 +229,7 @@ static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
     uint8_t buf[RLN_BUF_SIZE];
     sst_get(c, buf, sizeof buf);
     uint16_t blen = sst_get_u16(c), iflen = sst_get_u16(c);
-    uint8_t expecting = sst_get_u8(c);
+    uint8_t expecting = sst_get_u8(c), stale = sst_get_u8(c);
     uint16_t w = sst_get_u16(c), h = sst_get_u16(c), pcol = sst_get_u16(c);
     bool da2 = sst_get_bool(c);
     uint8_t end = sst_get_u8(c);
@@ -224,6 +243,7 @@ static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
     s->buf_len = blen;
     s->inflight_len = iflen;
     s->cpr_expecting = expecting;
+    s->cpr_stale = stale;
     s->cpr_w = w;
     s->cpr_h = h;
     s->cpr_pcol = pcol;
@@ -1281,6 +1301,13 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
                    a->csi_private == '>' &&
                    term == 'c');
     bool tracked = rln_source_tracked(src);
+    // A reply due to an earlier read is absorbed and counts for nothing.
+    if (is_cpr && tracked && rln_sources[src].cpr_stale)
+    {
+        rln_sources[src].cpr_stale--;
+        rln_ansi_trim_inflight(a);
+        return;
+    }
     if (is_cpr && tracked && rln_sources[src].cpr_expecting > 0)
         rln_sources[src].cpr_expecting--;
     if (is_da2 && tracked)

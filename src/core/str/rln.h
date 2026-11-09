@@ -98,8 +98,7 @@ uint16_t rln_get_term_height(void);
 // finishes the line, without adding to history. Controls other than CR
 // echo as caret notation (^@..^_, 0x03 as ^C) when rln_max_length is at
 // least 2, without being inserted. Poked bytes are dispatched in overwrite
-// mode. A poke that arrives while a previous line's completion is still
-// being deferred (the line is already submitted) is a no-op.
+// mode.
 void rln_poke(const char *str);
 
 // 6502 API entry points.
@@ -120,7 +119,7 @@ const char *rln_line(void);
  * The deadlines are machine time, so they are carried whole rather than
  * re-armed. They mean the same thing in the machine that loads the blob as in
  * the one that made it. */
-#define RLN_SST_SIZE 3606
+#define RLN_SST_SIZE 3610
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
