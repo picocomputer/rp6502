@@ -298,9 +298,9 @@ void HOST_IN_RAM_FUNC("aud") psg_put(unsigned offset, uint8_t val)
 }
 #pragma GCC pop_options
 
-uint16_t psg_xaddr_get(void) { return psg_xaddr; }
+uint16_t HOST_IN_RAM_FUNC("aud") psg_xaddr_get(void) { return psg_xaddr; }
 
-void psg_park(void) { psg_xaddr = 0xFFFF; }
+void HOST_IN_RAM_FUNC("aud") psg_park(void) { psg_xaddr = 0xFFFF; }
 
 void psg_sst_save(sst_cursor_t *c, unsigned flags)
 {
@@ -347,7 +347,7 @@ bool psg_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-void psg_map(uint16_t word)
+void HOST_IN_RAM_FUNC("aud") psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
      * inherits the last one's envelopes. psg.sv does the same: it resets

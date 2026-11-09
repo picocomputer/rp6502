@@ -307,8 +307,13 @@ void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
  * the PCM: device, and held for well under a sample: two wraps in one hold
  * raise one interrupt, and a sample is lost. Whatever
  * core1 queued before then is applied first, under the mapping it was
- * written for. */
-static void aud_engine_lock(void)
+ * written for.
+ *
+ * Everything that runs while the lock is held is in RAM, because an XIP miss
+ * there delays the interrupt. The functions that take the lock are noinline,
+ * so no caller in flash takes their bodies in, and what they call under it
+ * is in RAM. */
+static void HOST_IN_RAM_FUNC("aud") aud_engine_lock(void)
 {
     irq_set_enabled(PWM_IRQ_WRAP_0, false);
     /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
@@ -323,7 +328,7 @@ static void aud_engine_lock(void)
  * by. The interrupt coming back late costs nothing, so it needs no hardware
  * barrier, only the compiler to have stored everything the lock covered,
  * the engines' plain statics among them. */
-static void aud_engine_unlock(void)
+static void HOST_IN_RAM_FUNC("aud") aud_engine_unlock(void)
 {
     const uint16_t psg = psg_xaddr_get();
     const uint16_t opl = opl_xaddr_get();
@@ -335,7 +340,7 @@ static void aud_engine_unlock(void)
 
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
-void aud_stop(void)
+void __noinline HOST_IN_RAM_FUNC("aud") aud_stop(void)
 {
     aud_engine_lock();
     psg_park();
@@ -348,7 +353,7 @@ void aud_stop(void)
 
 /* The lock drains the ring first, so every write core1 queued before the
  * call is counted. */
-uint32_t aud_opl_overruns(void)
+uint32_t __noinline HOST_IN_RAM_FUNC("aud") aud_opl_overruns(void)
 {
     aud_engine_lock();
     const uint32_t drops = opl_take_drops();
@@ -356,7 +361,7 @@ uint32_t aud_opl_overruns(void)
     return drops;
 }
 
-uint32_t aud_pcm_underruns(void)
+uint32_t __noinline HOST_IN_RAM_FUNC("aud") aud_pcm_underruns(void)
 {
     aud_engine_lock();
     const uint32_t underruns = aud_pcm.underruns;
@@ -365,7 +370,7 @@ uint32_t aud_pcm_underruns(void)
     return underruns;
 }
 
-void aud_psg_map(uint16_t word)
+void __noinline HOST_IN_RAM_FUNC("aud") aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
@@ -375,7 +380,7 @@ void aud_psg_map(uint16_t word)
 /* opl_reset takes longer than a sample, so it runs between two holds of the
  * lock, on a parked engine that aud_irq leaves alone and core1 queues
  * nothing for. */
-void aud_opl_map(uint16_t word)
+void __noinline HOST_IN_RAM_FUNC("aud") aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
     opl_park();
@@ -386,7 +391,7 @@ void aud_opl_map(uint16_t word)
     aud_engine_unlock();
 }
 
-bool aud_pcm_open(const pcm_fmt_t *fmt)
+bool __noinline HOST_IN_RAM_FUNC("aud") aud_pcm_open(const pcm_fmt_t *fmt)
 {
     if (aud_pcm_on)
         return false;
@@ -397,7 +402,7 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     return true;
 }
 
-void aud_pcm_close(void)
+void __noinline HOST_IN_RAM_FUNC("aud") aud_pcm_close(void)
 {
     aud_engine_lock();
     aud_pcm_on = false;
@@ -414,7 +419,7 @@ uint16_t aud_pcm_level(void)
     return pcm_level(&aud_pcm);
 }
 
-void aud_pcm_clear(void)
+void __noinline HOST_IN_RAM_FUNC("aud") aud_pcm_clear(void)
 {
     aud_engine_lock();
     pcm_clear(&aud_pcm);

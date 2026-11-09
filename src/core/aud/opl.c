@@ -953,7 +953,7 @@ static void opl_rebuild(void)
     }
 }
 
-void opl_reset(void)
+void HOST_IN_FLASH_FUNC("opl_reset") opl_reset(void)
 {
     memset(&opl_chip, 0, sizeof opl_chip);
     RING_RESET(&opl_queue.ring);
@@ -975,7 +975,7 @@ void opl_pace_get(uint32_t *credit, bool *late)
     *late = opl_chip.lag & 7;
 }
 
-uint32_t opl_take_drops(void)
+uint32_t HOST_IN_RAM_FUNC("aud") opl_take_drops(void)
 {
     const uint32_t d = opl_queue.drops;
     opl_queue.drops = 0;
@@ -986,11 +986,11 @@ uint32_t opl_take_drops(void)
 
 static uint16_t opl_xaddr = 0xFFFF;
 
-uint16_t opl_xaddr_get(void) { return opl_xaddr; }
+uint16_t HOST_IN_RAM_FUNC("aud") opl_xaddr_get(void) { return opl_xaddr; }
 
-void opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
+void HOST_IN_RAM_FUNC("aud") opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
 
-void opl_park(void)
+void HOST_IN_RAM_FUNC("aud") opl_park(void)
 {
     opl_xaddr = 0xFFFF;
     RING_RESET(&opl_queue.ring);

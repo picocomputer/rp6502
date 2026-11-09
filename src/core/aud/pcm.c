@@ -58,12 +58,12 @@ bool pcm_parse(const char *args, pcm_fmt_t *fmt)
     return true;
 }
 
-uint64_t pcm_step(uint32_t rate)
+uint64_t HOST_IN_RAM_FUNC("aud") pcm_step(uint32_t rate)
 {
     return ((uint64_t)rate << 32) / AUD_NATIVE_RATE;
 }
 
-void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+void HOST_IN_RAM_FUNC("aud") pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
 {
     s->fmt = *fmt;
     s->frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
@@ -81,7 +81,7 @@ uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
     return RING_IN(&s->buf, src, n);
 }
 
-void pcm_clear(pcm_t *s)
+void HOST_IN_RAM_FUNC("aud") pcm_clear(pcm_t *s)
 {
     RING_RESET(&s->buf);
 }
