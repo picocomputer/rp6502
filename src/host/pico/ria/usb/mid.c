@@ -756,8 +756,14 @@ static bool HOST_IN_RAM_FUNC mid_tx_run(uint8_t idx, uint64_t now_ns)
 
 void HOST_IN_RAM_FUNC mid_task(void)
 {
+    bool open = false;
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        open |= mid_mounts[i].mounted && mid_mounts[i].opened;
+    if (!open)
+        return;
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
-        mid_rx_pull_itf(itf);
+        if (mid_itf_can_rx(itf))
+            mid_rx_pull_itf(itf);
     uint64_t now_ns = time_us_64() * 1000;
     uint16_t flush = 0;
     // Cables that share an interface's TX FIFO take turns going first
