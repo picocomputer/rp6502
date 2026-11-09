@@ -48,6 +48,10 @@ static uint8_t ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1];
 // An interrupt transfer waits for its poll interval in this state
   #define EPSTATE_WAITING EPSTATE_ABORTING
 
+// A transfer EPX stopped on an error waits in this state for the SOF, which reports epx_fail_result; a packet the
+// transaction on the wire completes before then still counts
+  #define EPSTATE_FAILING EPSTATE_ABORTING_PENDING
+
 // Poll interval and time of the next poll of interrupt endpoints, by ep_pool index
 static uint8_t  int_interval_ms[EP_POOL_SIZE];
 static uint32_t int_due_us[EP_POOL_SIZE];
@@ -58,6 +62,7 @@ static bool epx_hold;
 // The transfer EPX was stopped on: a transaction on the wire may still complete, so the toggles of its unsent
 // buffers are given back at the SOF that ends the hold
 static hw_endpoint_t *epx_stopped;
+static uint8_t        epx_fail_result; // xfer_result_t of a FAILING epx_stopped
 
 // The controller repeats a timed out transaction until stopped; the third timeout fails the transfer
 static uint8_t epx_timeouts;
@@ -302,8 +307,8 @@ static hw_endpoint_t *__tusb_irq_path_func(epx_next_pending)(hw_endpoint_t *cur_
   return NULL;
 }
 
-// Release an unfinished EPX transfer's buffers: a STALL or RX timeout leaves one AVAILABLE, and a buffer completed
-// before it leaves BUFF_STATUS pending, which the ISR would otherwise apply to the next transfer
+// Release an unfinished EPX transfer's buffers: an RX timeout leaves one AVAILABLE, a STALL one FULL with length 0, and
+// a buffer completed before either leaves BUFF_STATUS pending, which the ISR would otherwise apply to the next transfer
 static void __tusb_irq_path_func(epx_drop_buffers)(void) {
   usbh_dpram->epx_buf_ctrl = 0;
   for (uint i = 0; i < 2 && (usb_hw->buf_status & 1u); i++) { // re-sets once if both buffers completed
@@ -360,7 +365,9 @@ static void __tusb_irq_path_func(handle_buf_status_isr)(void) {
   while (usb_hw->buf_status & 1u) {
     const uint8_t buf_id     = (usb_hw->buf_cpu_should_handle & 1u) ? 1 : 0;
     usb_hw_clear->buf_status = 1u; // clear
-    if (epx->state != EPSTATE_ACTIVE) {
+    if (epx->state == EPSTATE_FAILING) {
+      epx->remaining_len = 0; // the SIE is stopped: count the packet, re-arm nothing
+    } else if (epx->state != EPSTATE_ACTIVE) {
       continue; // completed after STOP_TRANS: settled at SOF
     }
     epx_timeouts = 0;
@@ -377,9 +384,13 @@ static void __tusb_irq_path_func(sof_service)(void) {
   (void)usb_hw->sof_rd; // acknowledges HOST_SOF
   epx_hold = false;
   if (epx_stopped != NULL) {
-    epx_undo_unsent(epx_stopped);
+    hw_endpoint_t *ep = epx_stopped;
+    epx_undo_unsent(ep);
     epx_drop_buffers();
     epx_stopped = NULL;
+    if (ep->state == EPSTATE_FAILING) {
+      xfer_complete_isr(ep, (xfer_result_t)epx_fail_result);
+    }
   }
 
   uint32_t pending = 0;
@@ -457,7 +468,8 @@ static void HOST_ISR_FUNC hcd_rp2350_irq(void) {
     usb_hw_clear->sie_status = err;
     if (epx->state == EPSTATE_ACTIVE && ((err & USB_SIE_STATUS_STALL_REC_BITS) || ++epx_timeouts >= 3)) {
       epx_stop();
-      xfer_complete_isr(epx, (err & USB_SIE_STATUS_STALL_REC_BITS) ? XFER_RESULT_STALLED : XFER_RESULT_FAILED);
+      epx->state      = EPSTATE_FAILING;
+      epx_fail_result = (err & USB_SIE_STATUS_STALL_REC_BITS) ? XFER_RESULT_STALLED : XFER_RESULT_FAILED;
     }
   }
 
@@ -507,8 +519,10 @@ static void HOST_ISR_FUNC hcd_rp2350_irq(void) {
     }
   }
 
-  // read live: a hold above acknowledged the SOF it must not see
-  if (usb_hw->ints & USB_INTS_HOST_SOF_BITS) {
+  // read live: a hold above acknowledged the SOF it must not see, and a completion latched since the snapshot goes
+  // first, in the next pass
+  const uint32_t ints = usb_hw->ints;
+  if ((ints & USB_INTS_HOST_SOF_BITS) && !(ints & USB_INTS_BUFF_STATUS_BITS)) {
     sof_service();
   }
 
@@ -699,17 +713,21 @@ bool HOST_ISR_FUNC hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr
   return true;
 }
 
+// False when ep has no transfer: none was queued, or it completed and its event is queued
 bool HOST_ISR_FUNC hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void)rhport;
   hw_endpoint_t *ep = edpt_find(dev_addr, ep_addr);
   TU_VERIFY(ep != NULL);
 
   rp2usb_critical_enter();
-  epx_retire(ep);
-  epx_start_next_pending();
+  const bool aborted = (ep->state != EPSTATE_IDLE);
+  if (aborted) {
+    epx_retire(ep);
+    epx_start_next_pending();
+  }
   rp2usb_critical_exit();
 
-  return true;
+  return aborted;
 }
 
 bool HOST_ISR_FUNC hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {

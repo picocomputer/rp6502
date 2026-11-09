@@ -22,7 +22,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 |---|---|---|
 | hcd_rp2350.c | portable/raspberrypi/rp2040/hcd_rp2040.c | Host controller driver. Every transfer runs on EPX, scheduled in software. About half the file is rewritten. |
 | rp2350_usb.c | portable/raspberrypi/rp2040/rp2040_usb.c | RP2350 host code only. 12-cycle wait in host mode. Host control and interrupt transfers are single-buffered. A short packet ends a double-buffered IN without a `STOP_TRANS`. |
-| usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Behind a hub, the other ports enumerate between its attempts. Standard IN requests time out per USB 2.0 9.2.6.4. Clears halted endpoints and re-enumerates a device that stops answering. Drops a queued control transfer on request. |
+| usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Behind a hub, the other ports enumerate between its attempts. Standard IN requests time out per USB 2.0 9.2.6.4. Clears halted endpoints and re-enumerates a device that stops answering. Drops a queued control transfer on request. An abort with nothing to abort leaves the endpoint busy. |
 | hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
 | cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
 | hid_host.c | class/hid/hid_host.c | The report receive and re-arm run from RAM. |
@@ -54,15 +54,16 @@ The functions that take `rp2usb_lock` (`hcd_device_close()`, `hcd_edpt_close()`,
 - A shared EP0 relies on usbh running one control transfer at a time. So `hcd_edpt_abort_xfer(addr, 0)` retires whatever control transfer `ep_pool[0]` holds, even one for another address.
 - `epx_parked` is a 32-bit mask with one bit per pool entry. A `TU_VERIFY_STATIC` keeps the pool within 32 entries.
 - `hcd_free_ep_count()` counts the free entries among 1-31.
-- `EPSTATE_WAITING` reuses the value of `EPSTATE_ABORTING`, which only upstream's slot aborts used. `int_interval_ms[]` and `int_due_us[]` are separate arrays indexed by pool entry. Both choices leave upstream's `rp2040_usb.h`, which the device driver shares, uncopied.
+- `EPSTATE_WAITING` reuses the value of `EPSTATE_ABORTING`, and `EPSTATE_FAILING` that of `EPSTATE_ABORTING_PENDING`, which only upstream's slot aborts used. `int_interval_ms[]` and `int_due_us[]` are separate arrays indexed by pool entry. Both choices leave upstream's `rp2040_usb.h`, which the device driver shares, uncopied.
 
 ### States and dispatch
 
-- Each pool entry is in one of four states:
+- Each pool entry is in one of five states:
   - IDLE.
   - PENDING (`PENDING_SETUP` for a SETUP).
   - ACTIVE: it owns EPX and `epx` points at it.
   - WAITING: an interrupt endpoint between polls.
+  - FAILING: stopped on a STALL or RX timeouts, reported at the SOF (see "Errors").
 - `epx_switch_ep()` is the only function that starts a transfer on the SIE.
 - `hcd_edpt_xfer()` and `hcd_setup_send()` mark the transfer PENDING. An interrupt transfer that is not due yet goes WAITING instead. They start the transfer only if EPX is neither ACTIVE nor held. Otherwise they set `STOP_EPX_ON_NAK`, and the running transfer gives up EPX at its next NAK.
 - EPX changes owner only after the SIE has stopped: on completion, failure, retire, or `EPX_STOPPED_ON_NAK`.
@@ -101,9 +102,10 @@ In every case, `epx_save_context()` undoes the toggles of buffers that were not 
 - The next SOF ends the hold in `sof_service()` and settles the stopped transfer in two steps:
   - `epx_undo_unsent()` gives back the PID toggles of buffers that never completed on the wire.
   - `epx_drop_buffers()` clears buffer control and any pending BUFF_STATUS.
-- A BUFF_STATUS that arrives while EPX is not ACTIVE is cleared and ignored. The SOF settles its buffer.
+- A BUFF_STATUS that arrives while EPX is neither ACTIVE nor FAILING is cleared and ignored. The SOF settles its buffer.
 - The ISR tests HOST_SOF with a fresh read of INTS, not the snapshot taken on entry. A hold set earlier in the same ISR has just acknowledged that SOF, and that SOF must not end the hold.
-- `epx_undo_unsent()` is split out of upstream's `epx_save_context()`. At the SOF it changes only `next_pid`, because by then the stopped transfer has been reported and its endpoint may hold a new transfer.
+  - It leaves the SOF to the next pass while that read shows BUFF_STATUS. A packet that completed after the entry snapshot, for example while the audio IRQ preempted this one, is then taken before the SOF settles its transfer.
+- `epx_undo_unsent()` is split out of upstream's `epx_save_context()`. At the SOF it changes only `next_pid`, because the stopped transfer may have been aborted, or completed by a late packet, and a new one may already be queued on its endpoint. A FAILING transfer is reported right after the undo.
 - When `edpt_release()` frees the `epx_stopped` endpoint, it drops the buffers at once and clears `epx_stopped` without undoing any toggle. The next owner of that pool entry keeps its own `next_pid`.
 - `epx_retire()` (abort or close) stops through `epx_stop()` and leaves settling to the SOF. Upstream settled right after the STOP.
 
@@ -111,11 +113,15 @@ Why: a STOP does not end a transaction already on the wire. One more RX_TIMEOUT 
 
 ### Errors
 
-- **STALL_REC:** the transfer fails at once with `XFER_RESULT_STALLED` through `epx_stop()`. The settle at the SOF clears the buffer the STALL leaves and any pending BUFF_STATUS.
-- **RX_TIMEOUT:** the third consecutive timeout stops EPX and fails the transfer with `XFER_RESULT_FAILED`. Upstream failed at the first. The controller retries a timed-out transaction on its own, and a NAK in between shows that the device answered.
+- **STALL_REC:** the transfer fails with `XFER_RESULT_STALLED`.
+- **RX_TIMEOUT:** the third consecutive timeout fails the transfer with `XFER_RESULT_FAILED`. Upstream failed at the first. The controller retries a timed-out transaction on its own, and a NAK in between shows that the device answered.
   - `epx_timeouts` resets on NAK_REC, on any buffer completion, and in every `sie_start_xfer()`.
   - Each ISR gets STALL_REC, RX_TIMEOUT and NAK_REC in one SIE_STATUS read, because NAK_REC has no interrupt of its own. STALL_REC and RX_TIMEOUT act only while EPX is ACTIVE.
   - Clearing an error also clears NAK_REC, so only a NAK seen after that error resets the count.
+- **Failure report:** both errors stop EPX through `epx_stop()`. The transfer then waits as FAILING, its result in `epx_fail_result`, until the SOF that ends the hold. Upstream reported at the STOP.
+  - A data packet the transaction on the wire completes meanwhile still counts. BUFF_STATUS takes it with `remaining_len` zeroed, so nothing is re-armed, and a packet that ends the transfer completes it as a success. A SETUP the device ACKs after the STOP still fails, and usbh resends it.
+  - Otherwise `sof_service()` settles the transfer, as in "Hold until SOF after a STOP", and then reports the result with the bytes that went through.
+  - Why: a STOP does not end a transaction already on the wire. cdc_host.c and midi_host.c resend a failed OUT from `xferred_bytes`. Reported at the STOP, a packet the device ACKed after it went out again with the next toggle, and the device took it twice. An IN packet that landed after the STOP was lost.
 - **DATA_SEQ_ERROR:** only the latch is cleared. The controller has already ACKed and dropped the packet, and the buffer stays armed. Upstream panicked.
 - `sie_start_xfer()` first clears RX_TIMEOUT, STALL_REC, TRANS_COMPLETE, DATA_SEQ_ERROR and EPX_STOPPED_ON_NAK. A latch from an earlier transaction, such as the RX_TIMEOUT that follows a STOP, is never blamed on the new transfer.
 - The ISR handles BUFF_STATUS before TRANS_COMPLETE and the error latches, so a packet that completed before an error counts first. If that packet finishes the transfer, the later error is ignored because EPX is no longer ACTIVE. Upstream handled STALL, RX_TIMEOUT and TRANS_COMPLETE first.
@@ -148,7 +154,7 @@ Why: a STOP does not end a transaction already on the wire. One more RX_TIMEOUT 
 
 - `hcd_edpt_close()` frees the pool entry and retires any transfer. Upstream returned false. The RIA's MSC and xin drivers call `tuh_edpt_close()`.
 - `hcd_edpt_clear_stall()` sets `next_pid` to DATA0. Upstream panicked. usbh calls it after a successful CLEAR_FEATURE(ENDPOINT_HALT), and the RIA's MSC driver in its reset recovery. The halted transfer has already completed or been aborted, so only the toggle changes.
-- `hcd_edpt_abort_xfer()` sends every endpoint type through `epx_retire()` and returns true. Upstream's slot abort could return false.
+- `hcd_edpt_abort_xfer()` retires a pending, active, waiting or failing transfer of any endpoint type through `epx_retire()`. It returns false when the entry is IDLE: no transfer was queued, or one has been reported. usbh then leaves the endpoint busy (see "Aborts" under usbh.c). Upstream's EPX abort returned true either way.
 - `hcd_device_close()` retires `ep_pool[0]` only if it points at the closing address, and never frees it. The other entries are freed through `edpt_release()`.
 - `hcd_init()` sets `ep_pool[0].dpram_buf` and leaves its type as CONTROL, which keeps EP0 single-buffered (see rp2350_usb.c).
 
@@ -205,14 +211,14 @@ The RIA is an RP2350 USB host and builds no device stack (`CFG_TUD_ENABLED` is 0
   - E15: `e15_is_critical_frame_period()`, `e15_last_sof` and the pending state of a device bulk IN.
 - **Device code:**
   - `rp2usb_xfer_start()`. Only upstream's HCD and the device driver call it. This HCD starts transfers with `rp2usb_buffer_start()`.
-  - The `EPSTATE_IDLE` test in `rp2usb_xfer_continue()`. Upstream's HCD and the device driver can call it on an idle endpoint, after a short packet on a double-buffered IN. This HCD's `handle_buf_status_isr()` calls it only on an ACTIVE transfer.
+  - The `EPSTATE_IDLE` test in `rp2usb_xfer_continue()`. Upstream's HCD and the device driver can call it on an idle endpoint, after a short packet on a double-buffered IN. This HCD's `handle_buf_status_isr()` calls it only on an ACTIVE or FAILING transfer.
   - `tu_hwfifo_write()`, `tu_hwfifo_read()` and the FIFO transfer paths (`is_xfer_fifo`, `user_fifo`).
   - The device half of the short-packet branch: EP_ABORT and the `future_len` save.
   - The `ep_reg` NULL tests for device EP0, the `rp2usb_is_host_mode()` tests and the `device/dcd.h` include.
 
 ## usbh.c
 
-The changes cover failed enumeration, the control transfer deadline, recovery of configured devices, queued control transfers, and the event queue.
+The changes cover failed enumeration, the control transfer deadline, recovery of configured devices, queued control transfers, aborts, and the event queue.
 
 ### Failed enumeration
 
@@ -299,6 +305,14 @@ Measured on 2026-11-08 with a SanDisk Cruzer Blade (0781:5567) behind the rig's 
   - A device that keeps an interface on the driver loses its other ones: their drivers' close, and `hcd_edpt_close()` for their endpoints, so the HCD stops polling them. A keyboard with a card reader keeps the card reader.
   - The pending FIFO is rotated, and every entry for a device no longer connected fails at once, so its callback runs while its code is still there. A callback can queue another, but `tuh_control_xfer()` refuses a device that is not connected, so the loop ends.
   - From then on, `usbh_process_event()` drops attach and remove events, and the 1 s re-attach is off. A failing drive's transfers fail through to MSC.
+
+### Aborts
+
+- `tuh_edpt_abort_xfer()` on a non-control endpoint returns false and leaves the endpoint busy when `hcd_edpt_abort_xfer()` has nothing to abort. The transfer has been reported, and either its event is still queued or usbh is clearing its halt. That event, or the end of the halt clear, releases the endpoint as if no abort had been asked for. Upstream released the endpoint either way.
+  - Why: released early, the class could start a new transfer, and the stale event then completed it with the old length. In msc.c, a STALL that completed just before a command timed out went further: usbh's CLEAR_FEATURE for it was still queued when recovery finished, so it reset the toggle under the next command, and its STALLED made msc.c re-submit on an endpoint the HCD still held.
+  - msc.c's `msc_ready()` waits on the busy bits, so the next command waits for that event.
+- `tuh_edpt_close()` releases the endpoint even when the abort returns false.
+- Upstream PR #4459 makes the same change.
 
 ### Event queue
 
@@ -409,6 +423,7 @@ TinyUSB issues: when upstream fixes one, drop the matching change.
 | #4064 | Hub set-config strands (hub.c, usbh.c) |
 | #4199 | Hub status bitmap length (hub.c) |
 | #4200, PR #4447 | `hub_open()` address guard (hub.c) |
+| PR #4459 | An abort with nothing to abort leaves the endpoint busy (usbh.c) |
 
 ## Re-syncing with upstream
 
@@ -425,7 +440,7 @@ TinyUSB issues: when upstream fixes one, drop the matching change.
    - `hcd_deinit()`, `hcd_port_speed_get()` and `hcd_frame_number()`
    - the interrupt enable functions
 5. Check what the copies use but do not copy:
-   - `rp2040_usb.h`: the `hw_endpoint_t` fields and the `EPSTATE_*` values (`EPSTATE_WAITING` reuses `EPSTATE_ABORTING`).
+   - `rp2040_usb.h`: the `hw_endpoint_t` fields and the `EPSTATE_*` values (`EPSTATE_WAITING` reuses `EPSTATE_ABORTING`, `EPSTATE_FAILING` reuses `EPSTATE_ABORTING_PENDING`).
    - `hcd.h` and `usbh_pvt.h`: the HCD and class driver API.
    - The source list of the `tinyusb_host` library. The `HEADER_FILE_ONLY` list in `ria.cmake` names upstream's files and must follow a rename or split upstream. `target_sources` names the copies.
 6. Update the base commit at the top of this file.
