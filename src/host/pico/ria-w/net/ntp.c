@@ -7,6 +7,7 @@
 #include "ria-w/net/ntp.h"
 #include "ria-w/net/wifi.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/timer.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -46,8 +47,8 @@ static struct udp_pcb *ntp_pcb;
 
 static bool ntp_success_at_least_once;
 static int ntp_retry_count;
-static absolute_time_t ntp_retry_timer;
-static absolute_time_t ntp_timeout_timer;
+static timer_deadline_t ntp_retry_timer;
+static timer_deadline_t ntp_timeout_timer;
 static uint64_t ntp_nonce;
 
 // Be aggressive 5 times then back off
@@ -62,15 +63,15 @@ static void ntp_schedule_retry(void)
     if (ntp_retry_count < NTP_RETRY_RETRIES)
     {
         ntp_retry_count++;
-        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_RETRY_SECS * 1000);
+        ntp_retry_timer = timer_in_ms(NTP_RETRY_RETRY_SECS * 1000);
     }
     else if (ntp_success_at_least_once)
     {
         ntp_retry_count = 0;
-        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
+        ntp_retry_timer = timer_in_ms(NTP_RETRY_REFRESH_SECS * 1000);
     }
     else
-        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_UNSET_SECS * 1000);
+        ntp_retry_timer = timer_in_ms(NTP_RETRY_UNSET_SECS * 1000);
 }
 
 static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg)
@@ -130,7 +131,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
             RP6502_LOG(ntp, INFO, "success");
             ntp_success_at_least_once = true;
             ntp_retry_count = 0;
-            ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
+            ntp_retry_timer = timer_in_ms(NTP_RETRY_REFRESH_SECS * 1000);
             ntp_state = ntp_state_success;
         }
         else
@@ -169,7 +170,7 @@ void ntp_task(void)
     case ntp_state_dns:
     {
         err_t err = dns_gethostbyname(STR_NTP_SERVER, &ntp_server_address, ntp_dns_found, NULL);
-        ntp_timeout_timer = make_timeout_time_ms(NTP_TIMEOUT_SECS * 1000);
+        ntp_timeout_timer = timer_in_ms(NTP_TIMEOUT_SECS * 1000);
         if (err == ERR_OK)
             ntp_state = ntp_state_request;
         else
@@ -192,12 +193,12 @@ void ntp_task(void)
         memcpy(req + NTP_OFFSET_TX_TS, &ntp_nonce, sizeof(ntp_nonce));
         udp_sendto(ntp_pcb, p, &ntp_server_address, NTP_PORT);
         pbuf_free(p);
-        ntp_timeout_timer = make_timeout_time_ms(NTP_TIMEOUT_SECS * 1000);
+        ntp_timeout_timer = timer_in_ms(NTP_TIMEOUT_SECS * 1000);
         ntp_state = ntp_state_request_wait;
     }
     break;
     case ntp_state_dns_wait:
-        if (time_reached(ntp_timeout_timer))
+        if (timer_passed(ntp_timeout_timer))
         {
             RP6502_LOG(ntp, WARN, "DNS timeout");
             ntp_schedule_retry();
@@ -205,7 +206,7 @@ void ntp_task(void)
         }
         break;
     case ntp_state_request_wait:
-        if (time_reached(ntp_timeout_timer))
+        if (timer_passed(ntp_timeout_timer))
         {
             RP6502_LOG(ntp, WARN, "request timeout");
             ntp_schedule_retry();
@@ -218,7 +219,7 @@ void ntp_task(void)
     case ntp_state_dns_fail:
     case ntp_state_request_timeout:
     case ntp_state_set_time_fail:
-        if (time_reached(ntp_retry_timer))
+        if (timer_passed(ntp_retry_timer))
             ntp_state = ntp_state_init;
         break;
     }

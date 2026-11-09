@@ -7,6 +7,7 @@
 #include "host/host.h"
 #include "osal/os.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 
 #include <littlefs/lfs_util.h>
 #include <pico/time.h>
@@ -72,7 +73,7 @@ int rp6502_log_tusb(const char *fmt, ...)
 }
 #endif
 
-uint64_t host_clock_us(void)
+uint64_t HOST_IN_RAM_FUNC("hot") host_clock_us(void)
 {
     return time_us_64();
 }

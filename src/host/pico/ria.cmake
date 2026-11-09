@@ -51,8 +51,6 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/vendor/fatfs/ff.c
     ${RP6502_ROOT}/src/host/pico/ria/usb/msc.c
     ${RP6502_ROOT}/src/host/pico/ria/usb/usb.c
-    ${RP6502_ROOT}/src/host/pico/ria/usb/nfc.c
-    ${RP6502_ROOT}/src/host/pico/ria-w/net/ntp.c
     ${RP6502_ROOT}/src/osal/pico/fs.c
     ${RP6502_ROOT}/src/core/api/std.c
 )

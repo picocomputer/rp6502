@@ -5,6 +5,7 @@
  */
 
 #include "osal/os.h"
+#include "machine.h"
 
 #include <pico/rand.h>
 #include <pico/time.h>
@@ -12,7 +13,7 @@
 /* TIMER0's microsecond counter, which is the same one host_clock_us reads,
  * because on a board machine time is real time and neither can drift from the
  * other. */
-uint64_t os_mono_ns(void)
+uint64_t HOST_IN_RAM_FUNC("hot") os_mono_ns(void)
 {
     return time_us_64() * 1000;
 }
