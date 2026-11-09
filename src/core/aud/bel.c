@@ -70,7 +70,7 @@ static uint64_t bel_in_ms(uint32_t ms)
     return host_clock_us() + (uint64_t)ms * 1000;
 }
 
-static bool bel_due(uint64_t at)
+static bool HOST_IN_RAM_FUNC("hot") bel_due(uint64_t at)
 {
     return at && (int64_t)(host_clock_us() - at) >= 0;
 }

@@ -362,7 +362,7 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-bool wifi_ready(void)
+bool HOST_IN_RAM_FUNC("hot") wifi_ready(void)
 {
     return wifi_state == wifi_state_connected;
 }
