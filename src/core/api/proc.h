@@ -43,6 +43,17 @@ void proc_restore_paths(const char *running, const char *launcher);
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);
 
+/* A break: the program and its launcher chain end. */
+void proc_break(void);
+
+/* Ctrl-Alt-Delete. False on a machine with no monitor, where the key types. */
+bool proc_break_to_monitor(void);
+
+/* Alt-F4: the program exits as exit(-1) does. False when nothing runs, from the
+ * launcher itself, and with no launcher on a machine with no monitor, where the
+ * key types. */
+bool proc_quit(void);
+
 /* Each machine answers these three for itself.
  */
 

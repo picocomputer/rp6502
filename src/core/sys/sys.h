@@ -60,18 +60,6 @@ void sys_break_request(void);
  * written over. */
 void sys_stop_now(void);
 
-/* Break to the monitor. If the 6502 is running, stop events will be called
- * first. False when this platform has nowhere to break to, which is a machine
- * with no monitor; the key that asked is then an ordinary key. */
-bool sys_break(void);
-
-/* Like sys_break, but keeps the launcher/exec chain so the launcher re-runs
- * instead of dropping to the monitor. Triggered by Alt-F4. False when there is
- * nowhere to go: from the launcher itself on any platform, and with none
- * registered on a platform that has no monitor to fall back to. A RIA with
- * none registered breaks to the monitor. */
-bool sys_break_to_launcher(void);
-
 /* A savestate carries the run state, which is sys.c's own static and no
  * driver's. A load applies it before it loads the drivers, and applying it
  * fans out to nothing, since each driver that follows gets its own state back

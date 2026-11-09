@@ -154,7 +154,7 @@ static int HOST_IN_FLASH_FUNC rom_install_response(char *, size_t,
         return rom_install_end(false);
     if (ria_get_sigint())
     {
-        sys_break();
+        proc_break();
         return rom_install_end(false);
     }
     api_errno err;

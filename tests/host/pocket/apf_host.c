@@ -6,6 +6,7 @@
 
 #include "core/str/oem.h"
 #include "core/hid/hid.h"
+#include "core/api/proc.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
@@ -58,12 +59,12 @@ uint64_t os_mono_ns(void)
 }
 
 
-bool sys_break(void)
+bool proc_break_to_monitor(void)
 {
     return false;
 }
 
-bool sys_break_to_launcher(void)
+bool proc_quit(void)
 {
     return false;
 }

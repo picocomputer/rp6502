@@ -93,6 +93,10 @@ size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
  * pass HID_KEY_NONE where there is a character but no key. */
 int keyboard_ctrl_promote(char ch, uint8_t keycode);
 
+/* Ctrl-Alt-Delete and Alt-F4. True when the chord acted; false leaves the key
+ * to type. */
+bool keyboard_chord(uint8_t keycode, bool ctrl, bool alt);
+
 /* The blob carries where the program asked for its bitmap and what is in it.
  * The connection table is not saved, because it describes what is plugged in
  * now rather than what the blob remembers. */

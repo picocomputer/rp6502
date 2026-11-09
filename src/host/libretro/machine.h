@@ -17,6 +17,8 @@
 
 #define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
+/* A program that ends returns the machine to its monitor. */
+#define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
 #define COM_RING_SIZE 256
 

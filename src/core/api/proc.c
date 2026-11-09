@@ -74,15 +74,38 @@ int16_t proc_get_exit_code(void)
     return proc_exit_code;
 }
 
-void proc_set_exit_code(int16_t code)
+void HOST_IN_RAM_FUNC proc_set_exit_code(int16_t code)
 {
     proc_exit_code = code;
 }
 
-void proc_exit(int16_t exit_code)
+void HOST_IN_RAM_FUNC proc_exit(int16_t exit_code)
 {
     proc_set_exit_code(exit_code);
     sys_stop();
+}
+
+void HOST_IN_RAM_FUNC proc_break(void)
+{
+    proc_cancel_launcher();
+    sys_break_request();
+}
+
+bool proc_break_to_monitor(void)
+{
+    if (!RP6502_HAS_MONITOR)
+        return false;
+    proc_break();
+    return true;
+}
+
+bool proc_quit(void)
+{
+    if (!sys_running() || proc_is_launcher() ||
+        (!RP6502_HAS_MONITOR && !proc_has_launcher()))
+        return false;
+    proc_exit(-1);
+    return true;
 }
 
 bool proc_stop(void)

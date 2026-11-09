@@ -9,6 +9,7 @@
 #include "core/str/rln.h"
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
@@ -426,7 +427,7 @@ static int HOST_IN_FLASH_FUNC fil_copy_response(char *, size_t, int state,
         return fil_copy_end(false);
     if (ria_get_sigint())
     {
-        sys_break();
+        proc_break();
         return fil_copy_end(false);
     }
     UINT got, put;

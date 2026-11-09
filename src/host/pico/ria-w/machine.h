@@ -24,5 +24,7 @@
 
 #define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
+/* A program that ends returns the machine to its monitor. */
+#define RP6502_HAS_MONITOR 1
 
 #endif /* _HOST_MACHINE_H_ */

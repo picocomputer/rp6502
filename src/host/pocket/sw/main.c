@@ -73,20 +73,6 @@ bool ria_get_sigint(void)
 
 static uint8_t main_upd_seen;
 
-bool sys_break(void)
-{
-    return false;
-}
-
-bool sys_break_to_launcher(void)
-{
-    if (!proc_has_launcher() || proc_is_launcher())
-        return false;
-    api_set_ax(0xFFFF);
-    sys_stop();
-    return true;
-}
-
 static void main_stage(void);
 
 static bool main_wake_pending;

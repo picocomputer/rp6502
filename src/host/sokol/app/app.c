@@ -33,6 +33,7 @@
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
+#include "core/api/proc.h"
 #include "core/sys/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
@@ -454,7 +455,7 @@ void app_cleanup(void)
     if (!app_quit_asked)
         app_broke = true;
     if (app_broke)
-        sys_break_request();
+        proc_break();
     sys_stop();
     sys_commit();
     /* app_break_leave does not return, so buffered output is flushed before

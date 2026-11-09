@@ -18,6 +18,8 @@
 /* APF has four controller slots, and apf.c mounts at most one HID slot
  * for each of them. */
 #define HID_MAX_SLOTS 4
+/* A program that ends returns the machine to its monitor. */
+#define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
 /* Terminal replies are the only bytes pushed into the console rings on
  * this machine. They come from com_reply_buf in core/com/com.c, which holds

@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/xram.h"
+#include "core/api/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
 #include "core/hid/keymap.h"
@@ -172,6 +173,15 @@ int HOST_IN_RAM_FUNC keyboard_ctrl_promote(char ch, uint8_t keycode)
     if (c < 0x20)
         return c;
     return -1;
+}
+
+bool HOST_IN_RAM_FUNC keyboard_chord(uint8_t keycode, bool ctrl, bool alt)
+{
+    if (keycode == HID_KEY_F4 && alt)
+        return proc_quit();
+    if (keycode == HID_KEY_DELETE && ctrl && alt)
+        return proc_break_to_monitor();
+    return false;
 }
 
 void keyboard_sst_save(sst_cursor_t *c, unsigned flags)

@@ -75,10 +75,9 @@ void vtkeys_alt_char(char ch, bool ctrl)
 
 /* The four keys answered by the switch below have characters of their own, and
  * which byte each types is this machine's to say, where the firmware reads
- * them from its layout. Every other key comes from the shared table. False
- * when the usage sends nothing, so that a caller can go on to try it as a
- * chord. */
-bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
+ * them from its layout. Every other key is a chord or comes from the shared
+ * table. */
+vtkeys_result_t vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
     char ch = 0;
     switch (hid_usage)
@@ -110,15 +109,17 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
         if (alt)
             com_keyboard_push_byte(0x1b);
         com_keyboard_push_byte((uint8_t)ch);
-        return true;
+        return VTKEYS_TYPED;
     }
+    if (keyboard_chord(hid_usage, ctrl, alt))
+        return VTKEYS_CHORD;
     char seq[16];
     size_t n = keyboard_vt_seq(seq, sizeof seq, hid_usage,
                       keyboard_vt_mod(shift, alt, ctrl, false));
     if (!n)
-        return false;
+        return VTKEYS_NONE;
     com_keyboard_push(seq, n);
-    return true;
+    return VTKEYS_TYPED;
 }
 
 /* Text still being delivered to the keyboard ring, NULL when idle. */

@@ -10,6 +10,7 @@
 #include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "core/sys/proc.h"
+#include "core/api/proc.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
@@ -395,7 +396,7 @@ int main(int argc, char **argv)
             deadline += VGA_FRAME_NS;
         }
         if (os_console_break_asked())
-            sys_break_request();
+            proc_break();
         sys_stop();
         sys_commit();
         fflush(stdout);

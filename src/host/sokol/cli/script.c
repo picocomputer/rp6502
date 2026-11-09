@@ -1387,10 +1387,10 @@ static bool script_command(const char *line)
             return false;
         if (vtkeys_key(hid, ctrl, shift, alt))
             return true;
-        /* vtkeys_key is false for a key that types a character, which the
-         * window hosts deliver as a chord built from the character their own
-         * host resolved. A script has no host, so the character comes from
-         * the table above. */
+        /* vtkeys_key does nothing with a key that types a character, which
+         * the window hosts deliver as a chord built from the character their
+         * own host resolved. A script has no host, so the character comes
+         * from the table above. */
         char ch = shift ? shifted : plain;
         if (!ch)
             return script_error("'%s' sends nothing", name);
@@ -1777,7 +1777,7 @@ static bool script_command(const char *line)
         else if (!strcasecmp(what, "stop"))
             sys_stop();
         else
-            sys_break_request();
+            proc_break();
         sys_commit();
         return true;
     }

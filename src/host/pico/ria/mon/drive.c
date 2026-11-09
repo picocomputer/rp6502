@@ -6,6 +6,7 @@
 
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/sys/ria.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/help.h"
@@ -395,7 +396,7 @@ static void HOST_IN_FLASH_FUNC drive_floppy_geometry(uint64_t blocks,
     *tracks = (blocks <= 720) ? 40 : 80;
 }
 
-// The Ctrl-C branches leave drive_state alone because, after sys_break(),
+// The Ctrl-C branches leave drive_state alone because, after proc_break(),
 // sys_commit() calls every driver's break handler and drive_break() sets
 // DRIVE_IDLE.
 static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
@@ -410,7 +411,7 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol);
-            sys_break();
+            proc_break();
             return -1;
         }
         if (!msc_drive_format_track(drive_vol, drive_fmt_track, drive_fmt_head))
@@ -462,7 +463,7 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol);
-            sys_break();
+            proc_break();
             return -1;
         }
         if (drive_lba >= drive_total)
@@ -498,7 +499,7 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
         if (ria_get_sigint())
         {
             putchar('\n');
-            sys_break();
+            proc_break();
             return -1;
         }
         if (drive_pin_n)

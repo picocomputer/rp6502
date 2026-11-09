@@ -12,7 +12,6 @@
 #include "core/sys/timer.h"
 #include "machine.h"
 #include "core/sys/ria.h"
-#include "core/sys/sys.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
@@ -345,17 +344,8 @@ static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
             return true;
         }
         break;
-    /* The stop and the break these start drop every source's unread input,
-     * this keyboard's included, so the chords only have to not repeat. */
-    case HID_KEY_F4:
-        if (k->alt && sys_break_to_launcher())
-        {
-            keymap_repeat_keycode = 0;
-            return true;
-        }
-        break;
-    case HID_KEY_DELETE:
-        if (k->ctrl && k->alt && sys_break())
+    default:
+        if (keyboard_chord(k->keycode, k->ctrl, k->alt))
         {
             keymap_repeat_keycode = 0;
             return true;

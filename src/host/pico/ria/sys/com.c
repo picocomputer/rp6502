@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/sys/ria.h"
 #include "core/str/oem.h"
 #include "core/aud/bel.h"
@@ -285,7 +286,7 @@ void HOST_IN_RAM_FUNC com_task(void)
     if (current_break)
         hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
     else if (break_detect)
-        sys_break();
+        proc_break();
     break_detect = current_break;
 }
 
