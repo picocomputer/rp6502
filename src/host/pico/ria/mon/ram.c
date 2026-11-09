@@ -380,7 +380,7 @@ void HOST_IN_FLASH_FUNC ram_mon_binary(const char *args)
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
 }
 
-void ram_task(void)
+void HOST_IN_RAM_FUNC ram_task(void)
 {
     if (ram_state == RAM_XRAM)
         ram_xram();

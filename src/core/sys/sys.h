@@ -20,12 +20,14 @@
 
 void sys_init(void);
 
-/* One pass of this machine's drivers. The task column must be safe to call
- * during blocking file IO, because it is what a host's blocking loops re-enter
- * while a transfer completes; the io_task column may itself perform file IO and
- * is never re-entered. A machine's loop calls both, then sys_commit. */
+/* One pass of this machine's driver tasks, in list order. A machine's loop
+ * calls it, then sys_commit. */
 void sys_task(void);
-void sys_io_task(void);
+
+/* What a blocking wait calls while its transfer completes: the TASK_PUMPED
+ * tasks, without the TASK_FATFS ones, which call FatFs and so would re-enter
+ * it. */
+void sys_pump(void);
 
 /* False only when the machine is fully stopped. True while a start is armed,
  * while the 6502 runs, and while a stop still owes its drivers their fan-out

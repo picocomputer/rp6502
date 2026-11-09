@@ -31,6 +31,6 @@ void font_load_code_page(uint16_t cp);
 
 uint16_t font_get_code_page(void);
 
-#define FONT_DRIVER DRIVER(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define FONT_DRIVER DRIVER(INIT(font_init))
 
 #endif /* _CORE_TERM_FONT_H_ */

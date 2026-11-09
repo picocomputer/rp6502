@@ -22,6 +22,6 @@
 void usb_init(void);
 void usb_task(void);
 
-#define USB_DRIVER DRIVER(usb_init, usb_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define USB_DRIVER DRIVER(INIT(usb_init) TASK_PUMPED(usb_task))
 
 #endif /* _VGA_USB_USB_H_ */

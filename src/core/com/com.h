@@ -58,7 +58,12 @@ void com_task(void);
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, \
-    nul_config, nul_config, SST(COM_, 2, COM_SST_SIZE, com_sst_save, com_sst_load))
+#define COM_DRIVER DRIVER(                                  \
+    INIT(com_init)                                          \
+    TASK_PUMPED(com_task)                                   \
+    RUN(com_run)                                            \
+    STOP(com_stop)                                          \
+    BREAK(com_break)                                        \
+    SST(COM_, 2, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

@@ -41,7 +41,6 @@ int HOST_IN_RAM_FUNC main(void)
     while (true)
     {
         sys_task();
-        sys_io_task();
         sys_commit();
     }
 }

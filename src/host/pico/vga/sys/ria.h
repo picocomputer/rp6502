@@ -48,6 +48,6 @@ void ria_vsync(void);
 void ria_ack(void);
 void ria_nak(void);
 
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define RIA_DRIVER DRIVER(INIT(ria_init) TASK_PUMPED(ria_task))
 
 #endif /* _VGA_SYS_RIA_H_ */

@@ -47,7 +47,9 @@ const char *keymap_get_layout_verbose(void);
 #define KEYMAP_CONFIG_LAYOUT_LIST CONFIG_RAW(L, keymap, layout_list, \
     KEYMAP_LAYOUT_LIST_SIZE, "", keymap_check_layout_list, keymap_apply_layout_list, \
     STR_KB, keymap_layout_list_response, STR_HELP_SET_KB, keymap_layouts_response)
-#define KEYMAP_DRIVER DRIVER(keymap_init, keymap_task, nul_task, nul_run, nul_stop, nul_break, \
-    KEYMAP_CONFIG_LAYOUT_LIST, nul_config, nul_sst)
+#define KEYMAP_DRIVER DRIVER(  \
+    INIT(keymap_init)          \
+    TASK_PUMPED(keymap_task)   \
+    KEYMAP_CONFIG_LAYOUT_LIST)
 
 #endif /* _CORE_HID_KEYMAP_H_ */

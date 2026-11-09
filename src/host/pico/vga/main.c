@@ -26,9 +26,10 @@ static void init(void)
     gpio_init(PICO_SMPS_MODE_PIN);
     gpio_set_dir(PICO_SMPS_MODE_PIN, GPIO_OUT);
     gpio_put(PICO_SMPS_MODE_PIN, 1);
-#define DRIVER(i, t, iot, r, s, b, ...) i();
+#define INIT(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
     /* Core 1 renders scanlines with vga_render_scanline, so it must not start
      * before ria_init, term_init, font_init and vga_init have run. Until then,
      * ria_lock is null, mutex_init has not run on vga_scanline_mutex, the
@@ -37,13 +38,16 @@ static void init(void)
     vga_start_render_core();
 }
 
-/* com_task runs after every driver's task because the UART's RX FIFO holds
+/* com_task runs after every driver's tasks because the UART's RX FIFO holds
  * only 32 bytes and overruns if a slow driver delays the next call. */
 static void task(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) t(); iot(); com_task();
+#define DRIVER(row) row com_task();
+#define TASK_PUMPED(f) f();
+#define TASK_FATFS(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 void main_pre_reclock(void)

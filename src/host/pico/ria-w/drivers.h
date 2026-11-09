@@ -66,8 +66,8 @@
  * turns NumLock off only when a keyboard listed in
  * keyboard_numlock_off_at_boot mounts inside that window.
  *
- * sys_io_task calls the io_task column in this same order. ROM_DRIVER comes
- * before NFC_DRIVER and API_DRIVER because nfc_task and api_task can call
+ * sys_task runs the tasks in this same order. ROM_DRIVER comes before
+ * NFC_DRIVER and API_DRIVER because nfc_task and api_task can call
  * sys_stop and then start a ROM load. sys_active stays true until sys_commit
  * runs the stop hooks at the end of the pass, so if rom_task ran later in the
  * same pass, it could call ria_write_buf, which asserts that sys_active is

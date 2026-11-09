@@ -162,7 +162,6 @@ int main(void)
             }
         }
         sys_task();
-        sys_io_task();
         /* The program is stopped as soon as a blob starts to arrive,
          * because the restore replaces the machine's memory but not a
          * file the program creates or truncates before the load. */

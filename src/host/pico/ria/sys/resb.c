@@ -48,7 +48,7 @@ void resb_release(void)
 /* The PHI2 rate a program set is put back to the configured rate here rather
  * than in resb_assert, because resb_assert also runs on core 1 and every other
  * reclock runs on core 0 without a lock. */
-void resb_task(void)
+void HOST_IN_RAM_FUNC resb_task(void)
 {
     if (gpio_get(CPU_RESB_PIN))
         return;

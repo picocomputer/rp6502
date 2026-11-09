@@ -70,6 +70,6 @@ static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, ui
     pix_send(dev3, ch4, byte, word);
 }
 
-#define PIX_DRIVER DRIVER(pix_init, nul_task, nul_task, nul_run, pix_stop, nul_break, nul_config, nul_config, nul_sst)
+#define PIX_DRIVER DRIVER(INIT(pix_init) STOP(pix_stop))
 
 #endif /* _RIA_SYS_PIX_H_ */

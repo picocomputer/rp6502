@@ -40,24 +40,22 @@
 /* payload sum 4, end magic 4 */
 #define SST_TRAILER_LEN 8
 
-/* The DRIVER expansions in this file take nine parameters where every other
- * consumer of a row is variadic. This is the only file that binds the ninth
- * column, so a row written with eight would compile everywhere else and
- * contribute no chunk; fixed arity makes it an error here instead. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2, sst) sst
 #define SST(id, ver, size, sv, ld) +(SST_CHUNK_HDR + (size))
 enum
 {
-    SST_PAYLOAD_LEN = 0 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+    SST_PAYLOAD_LEN = 0
+#include "core/sys/driver_walk.h"
+        DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
 };
-#undef SST
 #define SST(id, ver, size, sv, ld) +1
 enum
 {
-    SST_COUNT = 0 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+    SST_COUNT = 0
+#include "core/sys/driver_walk.h"
+        DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
 };
-#undef SST
-#undef DRIVER
 
 #define SST_TOTAL (SST_HEADER_LEN + SST_PAYLOAD_LEN + SST_TRAILER_LEN)
 
@@ -98,13 +96,12 @@ static uint32_t sst_manifest(void)
     if (!sst_manifest_done)
     {
         uint32_t crc = 0;
-#define DRIVER(i, t, iot, r, s, b, c1, c2, sst) sst
 #define SST(id, ver, size, sv, ld)                              \
     _Static_assert(sizeof #id == 5, "a chunk id is four bytes"); \
     crc = sst_manifest_step(crc, #id, (ver), (size));
+#include "core/sys/driver_walk.h"
         DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef SST
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
         /* The stdio table's length goes in too, because the STD chunk writes
          * each open descriptor's driver as an index into that table. */
         size_t std_count;
@@ -227,11 +224,10 @@ static const char *sst_write(uint8_t *buf, unsigned flags)
     sst_offset = 0;
     sst_walk_bad = false;
     sst_why = NULL;
-#define DRIVER(i, t, iot, r, s, b, c1, c2, sst) sst
 #define SST(id, ver, size, sv, ld) sst_row_save(#id, (ver), (size), sv, flags);
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef SST
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
     if (sst_walk_bad)
         return sst_why;
 
@@ -295,11 +291,10 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
     sst_offset = 0;
     sst_walk_bad = false;
     sst_why = NULL;
-#define DRIVER(i, t, iot, r, s, b, c1, c2, sst) sst
 #define SST(id, ver, size, sv, ld) sst_row_load(#id, (ver), (size), ld, flags);
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef SST
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
     if (!sst_walk_bad)
         return NULL;
 
@@ -315,11 +310,10 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
         was.held = (sst_scratch[17] & 1) != 0;
         was.breaking = (sst_scratch[17] & 2) != 0;
         sys_latch_apply(&was);
-#define DRIVER(i, t, iot, r, s, b, c1, c2, sst) sst
 #define SST(id, ver, size, sv, ld) sst_row_load(#id, (ver), (size), ld, flags);
+#include "core/sys/driver_walk.h"
         DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef SST
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
         if (sst_walk_bad)
             return "the machine could not be put back";
     }

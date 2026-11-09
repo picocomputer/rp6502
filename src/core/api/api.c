@@ -9,6 +9,7 @@
 #include "core/api/api.h"
 #include "core/str/str.h"
 #include "core/sys/sys.h"
+#include "machine.h"
 
 /* Both toolchains define these errno values, except EUNKNOWN at the end of
  * the list, which is this OS's own catch-all number. */
@@ -75,7 +76,7 @@ static uint8_t api_active_op;
 // The op number is copied because the 6502 can write API_OP again while an op
 // is in flight. Ops 0x00 and 0xFF are never latched, because each machine
 // answers those itself where the 6502 writes them.
-void api_task(void)
+void HOST_IN_RAM_FUNC api_task(void)
 {
     if (sys_running() && !api_active_op && API_BUSY)
     {

@@ -47,7 +47,9 @@ int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width);
 #define WIFI_CONFIG_PASS CONFIG_STR(K, wifi, pass, WIFI_PASS_SIZE, "", \
     wifi_check_pass, wifi_apply_pass, STR_PASS, wifi_pass_response, \
     STR_HELP_SET_PASS, NULL)
-#define WIFI_DRIVER DRIVER(nul_init, wifi_task, nul_task, nul_run, nul_stop, nul_break, \
-    WIFI_CONFIG_SSID, WIFI_CONFIG_PASS, nul_sst)
+#define WIFI_DRIVER DRIVER( \
+    TASK_PUMPED(wifi_task)  \
+    WIFI_CONFIG_SSID        \
+    WIFI_CONFIG_PASS)
 
 #endif /* _RIA_W_NET_WIFI_H_ */

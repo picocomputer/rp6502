@@ -193,7 +193,7 @@ static void HOST_IN_FLASH_FUNC ria_verify_start(void)
     ria_action_start();
 }
 
-void ria_task(void)
+void HOST_IN_RAM_FUNC ria_task(void)
 {
     if (action_state == action_state_idle)
     {

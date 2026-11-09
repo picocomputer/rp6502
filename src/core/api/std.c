@@ -702,7 +702,7 @@ void std_stdin_eof(void)
         rln_read_cancel();
 }
 
-void std_task(void)
+void HOST_IN_RAM_FUNC std_task(void)
 {
     if (std_xram_addr < std_xram_end)
         std_xram_addr = pix_stream_xram(std_xram_addr, std_xram_end);

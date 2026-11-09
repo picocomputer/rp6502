@@ -36,45 +36,59 @@ static volatile bool sys_breaking;
 void HOST_IN_FLASH_FUNC sys_init(void)
 {
     resb_init();
-#define DRIVER(i, t, iot, r, s, b, ...) i();
+#define INIT(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
+}
+
+/* One pass of the list, so each task has a single call site. MSVC has no
+ * noinline attribute; osal/windows/msvc/compat.h defines __attribute__ away
+ * there. */
+__attribute__((noinline)) static void HOST_IN_RAM_FUNC sys_walk(bool pumped)
+{
+#define TASK_FATFS(f) \
+    if (!pumped)      \
+        f();
+#define TASK_PUMPED(f) f();
+#include "core/sys/driver_walk.h"
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
 }
 
 void HOST_IN_RAM_FUNC sys_task(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) t();
-    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+    sys_walk(false);
 }
 
-void HOST_IN_RAM_FUNC sys_io_task(void)
+void HOST_IN_RAM_FUNC sys_pump(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) iot();
-    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+    sys_walk(true);
 }
 
 /* RESB is low through the run, stop and break fan-outs. */
 static void HOST_IN_FLASH_FUNC sys_on_run(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) r();
+#define RUN(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 static void HOST_IN_FLASH_FUNC sys_on_stop(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) s();
+#define STOP(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 static void HOST_IN_FLASH_FUNC sys_on_break(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) b();
+#define BREAK(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 void sys_latch_get(sys_latch_t *latch)

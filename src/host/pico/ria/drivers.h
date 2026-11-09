@@ -60,8 +60,7 @@
  * because phi2_init sets the clock dividers of state machines that ria_init
  * and pix_init configure.
  *
- * The io_task column runs in the same order. ROM must come before NFC and
- * API, because nfc_task and api_task can start an exec that stops the
+ * The tasks run in the same order. ROM must come before NFC and API, because nfc_task and api_task can start an exec that stops the
  * running program, and rom_task must not start the load until sys_commit has
  * performed that stop. */
 #define RP6502_MACH_DRIVERS                          \

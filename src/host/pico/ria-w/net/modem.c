@@ -734,7 +734,7 @@ void HOST_IN_FLASH_FUNC modem_init(void)
     modem_stop();
 }
 
-void modem_task()
+void HOST_IN_RAM_FUNC modem_task(void)
 {
     for (int i = 0; i < NET_MODEM_DESCS; i++)
     {

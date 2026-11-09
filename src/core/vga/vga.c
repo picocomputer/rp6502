@@ -123,7 +123,6 @@ bool vga_run_frame(void)
             break;
         }
         sys_task();
-        sys_io_task();
         sys_commit();
     }
     aud_step();

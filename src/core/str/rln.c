@@ -1828,7 +1828,7 @@ static int rln_read_next(com_source_t *out_src)
     return -1;
 }
 
-void rln_task(void)
+void HOST_IN_RAM_FUNC rln_task(void)
 {
     if (!rln_callback)
         return;

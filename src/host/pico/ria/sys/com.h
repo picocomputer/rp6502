@@ -43,8 +43,10 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
     nul_check, nul_apply, STR_PORT, com_telnet_port_response, STR_HELP_SET_PORT, NULL)
 #define COM_TELNET_CONFIG_KEY CONFIG_STR(A, com_telnet, key, COM_TELNET_KEY_SIZE, "", \
     nul_check, nul_apply, STR_KEY, com_telnet_key_response, STR_HELP_SET_KEY, NULL)
-#define COM_TELNET_DRIVER DRIVER(nul_init, com_telnet_task, nul_task, nul_run, \
-    nul_stop, nul_break, COM_TELNET_CONFIG_PORT, COM_TELNET_CONFIG_KEY, nul_sst)
+#define COM_TELNET_DRIVER DRIVER( \
+    TASK_PUMPED(com_telnet_task)  \
+    COM_TELNET_CONFIG_PORT        \
+    COM_TELNET_CONFIG_KEY)
 
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
 
@@ -57,6 +59,11 @@ void com_uart_clear(void);
  * makes com_stop write the terminal reset after the stop hooks of the rows
  * that follow it, and com_break write its newline after anything their break
  * hooks print. */
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, nul_config, nul_config, nul_sst)
+#define COM_DRIVER DRIVER( \
+    INIT(com_init)         \
+    TASK_PUMPED(com_task)  \
+    RUN(com_run)           \
+    STOP(com_stop)         \
+    BREAK(com_break))
 
 #endif /* _RIA_SYS_COM_H_ */

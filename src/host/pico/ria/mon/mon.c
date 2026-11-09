@@ -689,7 +689,7 @@ bool HOST_IN_RAM_FUNC mon_busy(void)
 
 /* The monitor runs from flash, so it also waits out the transfers that run
  * the 6502 while no program does. */
-void mon_task(void)
+void HOST_IN_RAM_FUNC mon_task(void)
 {
     // The monitor must never print while 6502 is running.
     if (!sys_active() && resb_held())

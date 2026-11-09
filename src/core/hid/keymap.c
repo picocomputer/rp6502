@@ -486,7 +486,7 @@ static bool keymap_build_layout_list(const char *in, char *out, size_t size)
     return len != 0;
 }
 
-void keymap_task(void)
+void HOST_IN_RAM_FUNC keymap_task(void)
 {
     if (keymap_repeat_keycode && timer_passed(keymap_repeat_timer))
     {

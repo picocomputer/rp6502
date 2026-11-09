@@ -328,7 +328,7 @@ void HOST_IN_FLASH_FUNC vga_init(void)
     vga_connect();
 }
 
-void vga_task(void)
+void HOST_IN_RAM_FUNC vga_task(void)
 {
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
         (int32_t)(time_us_32() - vga_vsync_deadline) >= 0)

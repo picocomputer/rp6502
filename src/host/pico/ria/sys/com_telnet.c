@@ -28,7 +28,7 @@
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
-void com_telnet_task(void) {}
+void HOST_IN_RAM_FUNC com_telnet_task(void) {}
 
 #else
 
@@ -147,7 +147,7 @@ static void com_telnet_handle_auth(uint8_t ch)
     }
 }
 
-static void com_telnet_drain_rx(void)
+static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
 {
     // A full ring loses nothing for COM_WIRE_HOLD_MS, because net_rx calls
     // tcp_recved only for the bytes it returns, so TCP flow control holds back
@@ -306,7 +306,7 @@ int HOST_IN_FLASH_FUNC com_telnet_key_response(char *buf,
 
 
 
-void com_telnet_task(void)
+void HOST_IN_RAM_FUNC com_telnet_task(void)
 {
     com_telnet_drain_tx();
 

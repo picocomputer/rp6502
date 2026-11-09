@@ -91,7 +91,7 @@ void HOST_IN_FLASH_FUNC usb_init(void)
     RP6502_LOG(usb, INFO, "init");
 }
 
-void usb_task(void)
+void HOST_IN_RAM_FUNC usb_task(void)
 {
     tuh_task();
     while (usb_gamepad_led_pending)
@@ -299,7 +299,7 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
     {
         if (tusb_time_millis_api() - start_ms >= 250)
             return NULL;
-        sys_task();
+        sys_pump();
     }
     if (usb_string_result != XFER_RESULT_SUCCESS)
         memset(usb_string_buf, 0, sizeof(usb_string_buf));

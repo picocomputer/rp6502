@@ -68,7 +68,8 @@ bool clk_api_set_time(void);
 void clk_sst_save(sst_cursor_t *c, unsigned flags);
 bool clk_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define CLK_DRIVER DRIVER(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(CLK_, 1, CLK_SST_SIZE, clk_sst_save, clk_sst_load))
+#define CLK_DRIVER DRIVER(                                  \
+    RUN(clk_run)                                            \
+    SST(CLK_, 1, CLK_SST_SIZE, clk_sst_save, clk_sst_load))
 
 #endif /* _CORE_API_CLK_H_ */

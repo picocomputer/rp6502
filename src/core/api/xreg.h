@@ -45,7 +45,7 @@ bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
  * them. */
 void xreg1_clear(void);
 
-#define XREG_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(XREG, 1, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
+#define XREG_DRIVER DRIVER(                                    \
+    SST(XREG, 1, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
 
 #endif /* _CORE_API_XREG_H_ */

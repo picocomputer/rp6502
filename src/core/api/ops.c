@@ -17,8 +17,9 @@
 #include "core/api/std.h"
 #include "core/sys/pix.h"
 #include "core/str/rln.h"
+#include "machine.h"
 
-bool ops_dispatch(uint8_t operation)
+bool HOST_IN_RAM_FUNC ops_dispatch(uint8_t operation)
 {
     switch (operation)
     {

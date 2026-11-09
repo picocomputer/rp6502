@@ -37,6 +37,6 @@ typedef enum
 
 void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define VGA_DRIVER DRIVER(INIT(vga_init) TASK_PUMPED(vga_task))
 
 #endif /* _VGA_SYS_VGA_H_ */

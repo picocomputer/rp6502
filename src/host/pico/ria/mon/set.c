@@ -71,7 +71,6 @@ static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const ch
     mon_add_response_fn(resp);
 }
 
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                     \
     {                                                                        \
@@ -97,13 +96,9 @@ static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const ch
     }
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
 void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
 {
@@ -114,7 +109,6 @@ void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
         {
             if (!strcasecmp(word, STR_BOOT))
                 return set_boot(args);
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, ...) \
     if (!strcasecmp(word, attr))                                       \
         return set_mon_##pfx##_##name(args);
@@ -122,13 +116,9 @@ void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
 #define CONFIG_RAW CONFIG_INT
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
             DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
         }
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }

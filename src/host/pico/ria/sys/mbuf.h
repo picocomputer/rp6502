@@ -24,6 +24,6 @@ void mbuf_task(void);
 void mbuf_break(void);
 void mbuf_read(uint32_t timeout_ms, mbuf_read_callback_t callback, size_t size);
 
-#define MBUF_DRIVER DRIVER(nul_init, nul_task, mbuf_task, nul_run, nul_stop, mbuf_break, nul_config, nul_config, nul_sst)
+#define MBUF_DRIVER DRIVER(TASK_FATFS(mbuf_task) BREAK(mbuf_break))
 
 #endif /* _RIA_SYS_MBUF_H_ */

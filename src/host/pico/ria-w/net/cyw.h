@@ -48,7 +48,10 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
 #define CYW_CONFIG_RFCC CONFIG_STR(F, cyw, rf_country_code, CYW_COUNTRY_CODE_SIZE, "", \
     cyw_check_rf_country_code, cyw_apply_rf_country_code, STR_RFCC, \
     cyw_rf_country_code_response, STR_HELP_SET_RFCC, cyw_country_code_response)
-#define CYW_DRIVER DRIVER(cyw_init, cyw_task, nul_task, nul_run, nul_stop, nul_break, \
-    CYW_CONFIG_RF, CYW_CONFIG_RFCC, nul_sst)
+#define CYW_DRIVER DRIVER( \
+    INIT(cyw_init)         \
+    TASK_PUMPED(cyw_task)  \
+    CYW_CONFIG_RF          \
+    CYW_CONFIG_RFCC)
 
 #endif /* _RIA_W_NET_CYW_H_ */

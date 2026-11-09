@@ -87,7 +87,10 @@ bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes)
 void vga_sst_save(sst_cursor_t *c, unsigned flags);
 bool vga_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break, \
-    nul_config, nul_config, SST(VGA_, 2, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
+#define VGA_DRIVER DRIVER(                                  \
+    INIT(vga_init)                                          \
+    TASK_PUMPED(vga_task)                                   \
+    STOP(vga_stop)                                          \
+    SST(VGA_, 2, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

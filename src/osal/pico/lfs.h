@@ -39,6 +39,6 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
 
 char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err);
 
-#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define LFS_DRIVER DRIVER(INIT(lfs_init))
 
 #endif /* _OSAL_PICO_LFS_H_ */

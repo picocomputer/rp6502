@@ -810,10 +810,9 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     return drv_len;
 }
 
-// Pumps USB events and all application tasks during blocking I/O. Of FatFs,
-// only msc_mount_cb's f_mount and msc_umount_cb's f_unmount run from here,
-// through tuh_task().
-static void msc_pump(void) { sys_task(); }
+// The waits below call sys_pump, which runs USB and the other pumped tasks
+// while a transfer completes. Of FatFs, only msc_mount_cb's f_mount and
+// msc_umount_cb's f_unmount run from there, through tuh_task().
 
 static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
                                   const void *data, uint32_t timeout_ms)
@@ -828,12 +827,12 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             return MSC_STATUS_TIMED_OUT;
         if (!msc_ready(dev_addr))
         {
-            msc_pump();
+            sys_pump();
             continue;
         }
         if (msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
             break;
-        msc_pump();
+        sys_pump();
     }
     while (!msc_ready(dev_addr))
     {
@@ -844,7 +843,7 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             msc_abort(dev_addr);
             return MSC_STATUS_TIMED_OUT;
         }
-        msc_pump();
+        sys_pump();
     }
     return (msc_status_t)msc_csw_status(dev_addr);
 }

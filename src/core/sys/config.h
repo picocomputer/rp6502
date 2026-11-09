@@ -22,7 +22,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     type pfx##_get_##name(void);                                 \
     bool pfx##_set_##name(type v);
@@ -32,13 +31,9 @@
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
 /* One "+" line, letter and value already split off. The row's check runs, so a
  * value this machine cannot hold leaves the default standing, but the row's

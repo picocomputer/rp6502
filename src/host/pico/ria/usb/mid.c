@@ -659,7 +659,7 @@ static bool mid_tx_run_raw(mid_t *conn)
     }
 }
 
-static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
+static bool HOST_IN_RAM_FUNC mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
     if (mid_raw(conn))
@@ -754,7 +754,7 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
     }
 }
 
-void mid_task(void)
+void HOST_IN_RAM_FUNC mid_task(void)
 {
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
         mid_rx_pull_itf(itf);

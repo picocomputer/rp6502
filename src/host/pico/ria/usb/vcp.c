@@ -424,7 +424,7 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
     return result;
 }
 
-void vcp_task(void)
+void HOST_IN_RAM_FUNC vcp_task(void)
 {
     if (!vcp_get_nfc_device_hash()[0] || vcp_nfc_device_idx >= 0)
         return;

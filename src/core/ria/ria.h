@@ -79,7 +79,9 @@ void ria_break(void);
 void ria_sst_save(sst_cursor_t *c, unsigned flags);
 bool ria_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define RIA_DRIVER DRIVER(nul_init, nul_task, nul_task, ria_run, nul_stop, ria_break, \
-    nul_config, nul_config, SST(RIA_, 1, RIA_SST_SIZE, ria_sst_save, ria_sst_load))
+#define RIA_DRIVER DRIVER(                                  \
+    RUN(ria_run)                                            \
+    BREAK(ria_break)                                        \
+    SST(RIA_, 1, RIA_SST_SIZE, ria_sst_save, ria_sst_load))
 
 #endif /* _CORE_RIA_RIA_H_ */

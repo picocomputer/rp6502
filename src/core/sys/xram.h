@@ -31,7 +31,8 @@ bool xram_sst_load(sst_cursor_t *c, unsigned flags);
 /* Only the software machines list this row, because they are the ones that
  * fill xram at boot and carry it in a savestate. The Pico's RIA and VGA
  * compile xram.c too, but nothing there calls xram_init. */
-#define XRAM_DRIVER DRIVER(xram_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(XRAM, 1, XRAM_SST_SIZE, xram_sst_save, xram_sst_load))
+#define XRAM_DRIVER DRIVER(                                    \
+    INIT(xram_init)                                            \
+    SST(XRAM, 1, XRAM_SST_SIZE, xram_sst_save, xram_sst_load))
 
 #endif /* _CORE_SYS_XRAM_H_ */

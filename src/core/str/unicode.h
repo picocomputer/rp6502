@@ -47,6 +47,6 @@ unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page);
 unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
 
-#define UNICODE_DRIVER DRIVER(unicode_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define UNICODE_DRIVER DRIVER(INIT(unicode_init))
 
 #endif /* _CORE_STR_UNICODE_H_ */

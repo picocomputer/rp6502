@@ -29,7 +29,6 @@ const char *cfg_load_boot(void);
 /* CFG_DRIVER must come before every row whose init checks whether the config
  * file set a value, such as keymap_init, which adopts a default layout when
  * none was loaded. */
-#define CFG_DRIVER DRIVER(cfg_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    CONFIG_SAVE(cfg_file_save), nul_config, nul_sst)
+#define CFG_DRIVER DRIVER(INIT(cfg_init) CONFIG_SAVE(cfg_file_save))
 
 #endif /* _RIA_SYS_CFG_H_ */

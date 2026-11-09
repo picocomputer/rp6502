@@ -151,14 +151,18 @@ UTEST(roster, a_break_walks_in_reverse_after_the_stop)
     ASSERT_STREQ("csbsascbbbab", walked);
 }
 
-UTEST(roster, the_task_columns_are_two_walks)
+UTEST(roster, the_tasks_run_in_list_order_as_each_row_lists_them)
 {
     from_stopped();
     sys_task();
+    ASSERT_STREQ("ataobtboctco", walked);
+}
+
+UTEST(roster, the_pump_skips_the_fatfs_tasks)
+{
+    from_stopped();
+    sys_pump();
     ASSERT_STREQ("atbtct", walked);
-    walked[0] = '\0';
-    sys_io_task();
-    ASSERT_STREQ("aoboco", walked);
 }
 
 UTEST(roster, the_reset_line_outlives_the_run_walk)

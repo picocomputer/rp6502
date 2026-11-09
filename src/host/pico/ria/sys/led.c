@@ -36,7 +36,7 @@ void HOST_IN_FLASH_FUNC led_init(void)
     led_set(true);
 }
 
-void led_task(void)
+void HOST_IN_RAM_FUNC led_task(void)
 {
     if (led_blinking && time_reached(led_blink_timer))
     {

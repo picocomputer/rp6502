@@ -508,7 +508,7 @@ void HOST_IN_FLASH_FUNC fil_mon_move(const char *args)
     mon_add_response_fatfs(f_rename(src_path, dst_path));
 }
 
-void fil_task(void)
+void HOST_IN_RAM_FUNC fil_task(void)
 {
     // Close file after reset or error condition
     if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)

@@ -538,7 +538,7 @@ bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_s
     return false;
 }
 
-void nfc_task(void)
+void HOST_IN_RAM_FUNC nfc_task(void)
 {
     switch (nfc_state)
     {

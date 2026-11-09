@@ -24,6 +24,6 @@ void ntp_task(void);
 
 int ntp_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
-#define NTP_DRIVER DRIVER(nul_init, ntp_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define NTP_DRIVER DRIVER(TASK_PUMPED(ntp_task))
 
 #endif /* _RIA_W_NET_NTP_H_ */

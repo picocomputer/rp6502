@@ -144,7 +144,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
     pbuf_free(p);
 }
 
-void ntp_task(void)
+void HOST_IN_RAM_FUNC ntp_task(void)
 {
     if (!wifi_ready() && ntp_state != ntp_state_success)
     {

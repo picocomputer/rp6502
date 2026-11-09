@@ -260,7 +260,7 @@ void com_break(void)
     com_rx_clear();
 }
 
-void com_task(void)
+void HOST_IN_RAM_FUNC com_task(void)
 {
     com_uart_drain_tx();
 

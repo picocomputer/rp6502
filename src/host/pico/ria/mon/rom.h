@@ -63,7 +63,11 @@ const char *rom_get_boot(void); // uses mbuf
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 
-#define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break, nul_config, nul_config, nul_sst)
+#define ROM_DRIVER DRIVER( \
+    INIT(rom_init)         \
+    TASK_FATFS(rom_task)   \
+    STOP(rom_stop)         \
+    BREAK(rom_break))
 
 
 #endif /* _RIA_MON_ROM_H_ */

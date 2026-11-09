@@ -51,13 +51,11 @@ int vcp_nfc_open(void);
 bool vcp_check_nfc_device_hash(const char *in, char *out);
 void vcp_apply_nfc_device_hash(const char *hash, bool changed);
 
-/* vcp_task is in the io_task column of VCP_DRIVER because building a device
- * hash waits on USB string fetches that call sys_task, and the io_task column
- * is never re-entered. */
+/* vcp_task is a TASK_FATFS because building a device hash waits on USB
+ * string fetches that call sys_pump, and a TASK_FATFS is never re-entered. */
 #define VCP_CONFIG_NFC_HASH CONFIG_HIDDEN(H, vcp, nfc_device_hash, VCP_NFC_HASH_SIZE, "", \
     vcp_check_nfc_device_hash, vcp_apply_nfc_device_hash)
-#define VCP_DRIVER DRIVER(nul_init, nul_task, vcp_task, nul_run, nul_stop, nul_break, \
-    VCP_CONFIG_NFC_HASH, nul_config, nul_sst)
+#define VCP_DRIVER DRIVER(TASK_FATFS(vcp_task) VCP_CONFIG_NFC_HASH)
 
 #define VCP_STD_DRIVER           \
     {                               \

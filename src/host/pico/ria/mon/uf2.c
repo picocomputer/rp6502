@@ -533,7 +533,7 @@ static void HOST_IN_FLASH_FUNC uf2_do_vga_wait(void)
         uf2_state = UF2_VGA_WRITE;
 }
 
-void uf2_task(void)
+void HOST_IN_RAM_FUNC uf2_task(void)
 {
     switch (uf2_state)
     {

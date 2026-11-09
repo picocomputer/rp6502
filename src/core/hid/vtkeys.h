@@ -52,6 +52,6 @@ bool vtkeys_paste_busy(void);
 
 void vtkeys_task(void);
 
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define VTKEYS_DRIVER DRIVER(TASK_PUMPED(vtkeys_task))
 
 #endif /* _CORE_HID_VTKEYS_H_ */

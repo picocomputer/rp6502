@@ -245,7 +245,6 @@ static size_t aud_pull_lines(float *dst, int lines)
     for (int i = 0; i < lines; i++)
     {
         sys_task();
-        sys_io_task();
         sys_commit();
     }
     aud_step();

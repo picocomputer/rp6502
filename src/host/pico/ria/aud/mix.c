@@ -293,7 +293,7 @@ void HOST_IN_FLASH_FUNC aud_init(void)
     pio_enable_sm_mask_in_sync(AUD_PIO, (1u << aud_sm[0]) | (1u << aud_sm[1]));
 }
 
-void aud_task(void) { bel_task(); }
+void HOST_IN_RAM_FUNC aud_task(void) { bel_task(); }
 
 /* From the main loop, beside aud_irq on core 0. The gate's read and write
  * need no lock, because aud_irq never moves the bell into or out of

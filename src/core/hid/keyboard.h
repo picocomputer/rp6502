@@ -100,7 +100,9 @@ int keyboard_ctrl_promote(char ch, uint8_t keycode);
 void keyboard_sst_save(sst_cursor_t *c, unsigned flags);
 bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break, \
-    nul_config, nul_config, SST(KEYB, 1, KEYBOARD_SST_SIZE, keyboard_sst_save, keyboard_sst_load))
+#define KEYBOARD_DRIVER DRIVER(                                            \
+    INIT(keyboard_init)                                                    \
+    STOP(keyboard_stop)                                                    \
+    SST(KEYB, 1, KEYBOARD_SST_SIZE, keyboard_sst_save, keyboard_sst_load))
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

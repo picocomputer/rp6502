@@ -121,7 +121,12 @@ const char *rln_line(void);
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define RLN_DRIVER DRIVER(rln_init, nul_task, rln_task, rln_run, rln_stop, rln_break, \
-    nul_config, nul_config, SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+#define RLN_DRIVER DRIVER(                                  \
+    INIT(rln_init)                                          \
+    TASK_FATFS(rln_task)                                    \
+    RUN(rln_run)                                            \
+    STOP(rln_stop)                                          \
+    BREAK(rln_break)                                        \
+    SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_STR_RLN_H_ */

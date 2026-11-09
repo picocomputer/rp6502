@@ -56,6 +56,6 @@ bool com_out_full(void);
 char com_out_peek(void);
 char com_out_read(void);
 
-#define COM_DRIVER DRIVER(com_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define COM_DRIVER DRIVER(INIT(com_init))
 
 #endif /* _VGA_SYS_COM_H_ */

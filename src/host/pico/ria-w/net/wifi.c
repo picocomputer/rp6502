@@ -64,7 +64,7 @@ static void wifi_retry_connect(void)
     cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
 }
 
-void wifi_task(void)
+void HOST_IN_RAM_FUNC wifi_task(void)
 {
     switch (wifi_state)
     {

@@ -79,7 +79,12 @@ void vga_set_tel_console_active(bool active);
  * because vga_init sends PIX messages and waits for the VGA's reply, and the
  * PIX transmitter shifts only on edges of the PHI2 clock that ria_init
  * starts. */
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, vga_run, vga_stop, vga_break, \
-    VGA_CONFIG_DISPLAY_TYPE, nul_config, nul_sst)
+#define VGA_DRIVER DRIVER(   \
+    INIT(vga_init)           \
+    TASK_PUMPED(vga_task)    \
+    RUN(vga_run)             \
+    STOP(vga_stop)           \
+    BREAK(vga_break)         \
+    VGA_CONFIG_DISPLAY_TYPE)
 
 #endif /* _RIA_SYS_VGA_H_ */

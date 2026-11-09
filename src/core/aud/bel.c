@@ -131,7 +131,7 @@ void bel_add(const bel_sound_t *sound)
         bel_strike();
 }
 
-void bel_task(void)
+void HOST_IN_RAM_FUNC bel_task(void)
 {
     if (!RING_LEN(&bel_queue))
         return;

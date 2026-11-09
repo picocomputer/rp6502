@@ -595,7 +595,7 @@ void HOST_IN_FLASH_FUNC rom_init(void)
     rom_load_installed(boot);
 }
 
-void rom_task(void)
+void HOST_IN_RAM_FUNC rom_task(void)
 {
     switch (rom_state)
     {

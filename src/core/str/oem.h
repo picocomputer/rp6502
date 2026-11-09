@@ -101,7 +101,10 @@ int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 void oem_sst_save(sst_cursor_t *c, unsigned flags);
 bool oem_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define OEM_DRIVER DRIVER(oem_init, nul_task, nul_task, nul_run, oem_stop, nul_break, \
-    OEM_CONFIG_CODE_PAGE, nul_config, SST(OEM_, 1, OEM_SST_SIZE, oem_sst_save, oem_sst_load))
+#define OEM_DRIVER DRIVER(                                  \
+    INIT(oem_init)                                          \
+    STOP(oem_stop)                                          \
+    OEM_CONFIG_CODE_PAGE                                    \
+    SST(OEM_, 1, OEM_SST_SIZE, oem_sst_save, oem_sst_load))
 
 #endif /* _CORE_STR_OEM_H_ */
