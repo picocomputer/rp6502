@@ -39,15 +39,16 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size);
 
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size);
 
-// These fetches call sys_task while they wait, for up to 250 ms. Each returns
-// the same static buffer of USB_DESC_STRING_BUF_SIZE bytes, so a result must
-// be used before the next fetch. A fetch returns NULL when it cannot start or
-// does not finish within 250 ms, and returns a zeroed buffer when the device
-// has no such string or the transfer fails.
+// A fetch returns NULL while its string is on the way, and the caller asks
+// again on a later pass. Then it returns the string descriptor in a buffer of
+// USB_DESC_STRING_BUF_SIZE bytes, zeroed when the device has no such string
+// or the transfer failed. The strings of one device are kept, so a result
+// must be used before a fetch from another device.
 const void *usb_string_fetch_manufacturer(uint8_t daddr);
 const void *usb_string_fetch_product(uint8_t daddr);
 const void *usb_string_fetch_serial(uint8_t daddr);
 
+// False while the device's strings are on the way.
 bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
 
 /* USB_DRIVER comes late in the driver list because usb_init starts the 355 ms

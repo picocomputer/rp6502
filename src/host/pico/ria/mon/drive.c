@@ -238,7 +238,9 @@ static int HOST_IN_FLASH_FUNC drive_preview_response(char *buf,
     case 1:
     {
         char serial[USB_DESC_STRING_BUF_SIZE];
-        if (msc_drive_serial(drive_vol, serial, sizeof(serial)))
+        if (!msc_drive_serial(drive_vol, serial, sizeof(serial)))
+            return 1;
+        if (serial[0])
             oem_snprintf(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }

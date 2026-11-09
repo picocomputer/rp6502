@@ -90,19 +90,17 @@ int HOST_IN_FLASH_FUNC vcp_status_response(char *buf, size_t buf_size,
     vcp_t *dev = &vcp_mounts[state];
     if (dev->mounted)
     {
+        const void *maker = usb_string_fetch_manufacturer(dev->daddr);
+        const void *model = usb_string_fetch_product(dev->daddr);
+        if (!maker || !model)
+            return state;
         uint16_t vid, pid;
         tuh_vid_pid_get(dev->daddr, &vid, &pid);
         char vendor[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         char product[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         char comname[sizeof(vcp_string) + 1];
-        vendor[0] = '\0';
-        product[0] = '\0';
-        const void *desc = usb_string_fetch_manufacturer(dev->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, vendor, sizeof(vendor));
-        desc = usb_string_fetch_product(dev->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
+        usb_desc_string_to_oem(maker, USB_DESC_STRING_BUF_SIZE, vendor, sizeof(vendor));
+        usb_desc_string_to_oem(model, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
         // vendor/product are OEM, oem_snprintf would mangle high bytes
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
@@ -476,8 +474,9 @@ void tuh_cdc_umount_cb(uint8_t idx)
 /* vcp_check_nfc_device_hash is given a port name such as "VCP0:" from nfc.c,
  * the stored hash when the config file is read, or an empty string from
  * either. Only a port name is converted, to the hash of the device mounted on
- * that port. A stored hash cannot be taken for a port name, because a hash
- * begins with four hex digits and V is not a hex digit. */
+ * that port, and the check fails until that device's strings have arrived. A
+ * stored hash cannot be taken for a port name, because a hash begins with
+ * four hex digits and V is not a hex digit. */
 bool vcp_check_nfc_device_hash(const char *in, char *out)
 {
     if (!in[0])

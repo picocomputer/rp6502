@@ -783,13 +783,13 @@ int HOST_IN_FLASH_FUNC mid_status_response(char *buf, size_t buf_size,
     mid_t *conn = &mid_mounts[state];
     if (conn->mounted)
     {
+        const void *desc = usb_string_fetch_product(conn->daddr);
+        if (!desc)
+            return state;
         char devname[sizeof(mid_string) + 1];
         snprintf(devname, sizeof(devname), "%s%d", mid_string, state);
         char name[USB_DESC_STRING_MAX_CHAR_LEN + 1];
-        name[0] = '\0';
-        const void *desc = usb_string_fetch_product(conn->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, name, sizeof(name));
+        usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, name, sizeof(name));
         if (!name[0])
         {
             uint16_t vid = 0, pid = 0;

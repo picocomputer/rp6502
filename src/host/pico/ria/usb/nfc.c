@@ -76,6 +76,7 @@ static const char *const nfc_state_names[] = {
     "SCAN_GFV_TX",
     "SCAN_PROBE_ACK",
     "SCAN_PROBE_RX",
+    "SCAN_PAIR",
     "SCAN_CLOSE",
     "SAM_TX",
     "SAM_ACK",
@@ -103,6 +104,7 @@ static enum {
     NFC_SCAN_GFV_TX,
     NFC_SCAN_PROBE_ACK,
     NFC_SCAN_PROBE_RX,
+    NFC_SCAN_PAIR,
     NFC_SCAN_CLOSE,
     NFC_SAM_TX,
     NFC_SAM_ACK,
@@ -594,17 +596,26 @@ void HOST_IN_RAM_FUNC nfc_task(void)
         size_t resp_len;
         const uint8_t *resp = nfc_parse_response(PN532_CMD_GETFIRMWAREVERSION, &resp_len);
         if (resp && resp_len >= 3 && resp[0] == 0x32) // IC = PN532
+            nfc_goto(NFC_SCAN_PAIR, 0);
+        else if (timer_passed(nfc_timeout))
+            nfc_scan_close();
+        break;
+    }
+
+    // The set fails while the device's strings are on the way. A fetch always
+    // ends, so this state needs no timeout, only a check that the port is
+    // still there.
+    case NFC_SCAN_PAIR:
+    {
+        char name[8];
+        nfc_vcp_name(name, sizeof(name));
+        api_errno err;
+        if (vcp_set_nfc_device_hash(name))
         {
-            char name[8];
-            nfc_vcp_name(name, sizeof(name));
-            if (vcp_set_nfc_device_hash(name))
-            {
-                nfc_success();
-                nfc_start_tx(NFC_SAM_TX);
-                break;
-            }
+            nfc_success();
+            nfc_start_tx(NFC_SAM_TX);
         }
-        if (timer_passed(nfc_timeout))
+        else if (vcp_std_opening(nfc_desc, &err) == STD_ERROR)
             nfc_scan_close();
         break;
     }

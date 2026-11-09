@@ -1969,14 +1969,15 @@ bool HOST_IN_FLASH_FUNC msc_drive_inquiry_strings(uint8_t vol,
 bool HOST_IN_FLASH_FUNC msc_drive_serial(uint8_t vol, char *dst,
                                                              size_t dst_size)
 {
+    dst[0] = '\0';
     uint8_t pdrv;
-    if (!msc_drive_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
-        return false;
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
+        return true;
     const void *s = usb_string_fetch_serial(msc_pdrv[pdrv].dev_addr);
     if (!s)
         return false;
     usb_desc_string_to_oem(s, USB_DESC_STRING_BUF_SIZE, dst, dst_size);
-    return dst[0] != '\0';
+    return true;
 }
 
 bool HOST_IN_FLASH_FUNC msc_drive_read(uint8_t vol, void *buf, uint64_t lba,
