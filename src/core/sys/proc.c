@@ -196,6 +196,12 @@ void proc_exec_break(void)
     proc_chain_end();
 }
 
+void proc_shutdown(void)
+{
+    proc_break();
+    sys_commit();
+}
+
 bool proc_exec_inflight(void)
 {
     return queued;

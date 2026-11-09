@@ -364,10 +364,7 @@ void retro_init(void)
 void retro_deinit(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     machine_inited = false;
     forget_rom();
     free(loaded_host), loaded_host = NULL;
@@ -578,10 +575,7 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 void retro_unload_game(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;

@@ -447,16 +447,13 @@ int app_exit_code(void)
 
 void app_cleanup(void)
 {
-    /* sys_stop and sys_commit run before saudio, gfx and sg shut down, so every
+    /* proc_shutdown runs before saudio, gfx and sg shut down, so every
      * driver's stop hook still has the host under it. Reaching here without
      * app_quit_asked means the close button stopped a machine that was still
      * running, which is a break. */
     if (!app_quit_asked)
         app_broke = true;
-    if (app_broke)
-        proc_break();
-    sys_stop();
-    sys_commit();
+    proc_shutdown();
     /* app_break_leave does not return, so buffered output is flushed before
      * it. */
     if (app_broke && app_break_leave && app_break_asked && app_break_asked())

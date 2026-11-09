@@ -68,6 +68,10 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 /* A break cancels an exec or relaunch still queued, which ends the chain. */
 void proc_exec_break(void);
 
+/* The host is closing the machine. It ends the session the way a break does,
+ * so no launcher relaunches into a machine that is going away. */
+void proc_shutdown(void);
+
 #define PROC_DRIVER DRIVER(                                    \
     INIT(proc_exec_init)                                       \
     TASK_FATFS(proc_exec_task)                                 \

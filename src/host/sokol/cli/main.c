@@ -395,10 +395,7 @@ int main(int argc, char **argv)
                 deadline = now;
             deadline += VGA_FRAME_NS;
         }
-        if (os_console_break_asked())
-            proc_break();
-        sys_stop();
-        sys_commit();
+        proc_shutdown();
         fflush(stdout);
         if (os_console_break_asked())
             os_console_break_exit(); /* does not return */
@@ -423,8 +420,7 @@ int main(int argc, char **argv)
         }
         if (script_exit_code() || !(o.screenshot || o.crc))
         {
-            sys_stop();
-            sys_commit();
+            proc_shutdown();
             return script_exit_code();
         }
     }
@@ -449,8 +445,7 @@ int main(int argc, char **argv)
             vga_frame_crc(&crc);
             printf("%08X\n", crc);
         }
-        sys_stop();
-        sys_commit();
+        proc_shutdown();
         return 0;
     }
 
