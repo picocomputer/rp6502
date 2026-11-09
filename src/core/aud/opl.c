@@ -85,7 +85,7 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
 _Static_assert(AUD_NATIVE_RATE == 49716, "one chip sample is 72 master clocks");
 
 /* log-sin[256], then (exp | 1024) << 1 [256] (spec 4.1) */
-static const uint16_t HOST_IN_RAM("aud_tab") opl_rom[512] = {
+static const uint16_t HOST_IN_RAM opl_rom[512] = {
 #include "opl_rom.h"
 };
 
@@ -163,28 +163,28 @@ typedef struct
 static opl_t opl_chip;
 opl_queue_t opl_queue;
 
-const uint8_t HOST_IN_RAM("aud_tab") opl_regs[32] = {
+const uint8_t HOST_IN_RAM opl_regs[32] = {
     0x02, 0x01, 0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, /* 01, 08, 20-35 */
     0x3F, 0x3F, 0x3F, 0x00, 0x3F, 0x3F, 0x3F, 0x00, /* 40-55, 60-75 */
     0x3F, 0x3F, 0x3F, 0x00, 0xFF, 0xCF, 0xFF, 0xEF, /* 80-95, A0-AB AE AF, B0-BB BD-BF */
     0xFF, 0xCF, 0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, /* C0-CB CE CF, E0-F5 */
 };
 
-static const uint8_t HOST_IN_RAM("aud_tab") opl_mt[16] = {1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30};
-static const uint8_t HOST_IN_RAM("aud_tab") opl_kslrom[16] = {0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64};
-static const uint8_t HOST_IN_RAM("aud_tab") opl_kslmul[4] = {0, 2, 1, 4};
+static const uint8_t HOST_IN_RAM opl_mt[16] = {1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30};
+static const uint8_t HOST_IN_RAM opl_kslrom[16] = {0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64};
+static const uint8_t HOST_IN_RAM opl_kslmul[4] = {0, 2, 1, 4};
 /* operator offset & 0x1f -> slot; 6, 7, 14 and 15 are not operator offsets */
-static const uint8_t HOST_IN_RAM("aud_tab") opl_off2slot[22] = {0, 1, 2, 3, 4, 5, 0, 0, 6, 7, 8, 9, 10, 11, 0, 0,
+static const uint8_t HOST_IN_RAM opl_off2slot[22] = {0, 1, 2, 3, 4, 5, 0, 0, 6, 7, 8, 9, 10, 11, 0, 0,
                                      12, 13, 14, 15, 16, 17};
-static const uint8_t HOST_IN_RAM("aud_tab") opl_slotch[18] = {0, 1, 2, 0, 1, 2, 3, 4, 5, 3, 4, 5, 6, 7, 8, 6, 7, 8};
-static const uint8_t HOST_IN_RAM("aud_tab") opl_mslot[9] = {0, 1, 2, 6, 7, 8, 12, 13, 14};
-static const uint8_t HOST_IN_RAM("aud_tab") opl_drumbit[6] = {16, 1, 4, 16, 8, 2};
+static const uint8_t HOST_IN_RAM opl_slotch[18] = {0, 1, 2, 0, 1, 2, 3, 4, 5, 3, 4, 5, 6, 7, 8, 6, 7, 8};
+static const uint8_t HOST_IN_RAM opl_mslot[9] = {0, 1, 2, 6, 7, 8, 12, 13, 14};
+static const uint8_t HOST_IN_RAM opl_drumbit[6] = {16, 1, 4, 16, 8, 2};
 /* vibrato variant per [DVB][position]: 0 f, 1 f+c, 2 f+b, 3 f+a, 4 f-c, 5 f-b,
  * 6 f-a, where a, b, c are the F-number's top 3, 2, 1 bits (spec 2) */
-static const uint8_t HOST_IN_RAM("aud_tab") opl_vmap[2][8] = {{0, 1, 2, 1, 0, 4, 5, 4}, {0, 2, 3, 2, 0, 5, 6, 5}};
+static const uint8_t HOST_IN_RAM opl_vmap[2][8] = {{0, 1, 2, 1, 0, 4, 5, 4}, {0, 2, 3, 2, 0, 5, 6, 5}};
 /* attack multipliers (2, 4, 8 for step sizes 1, 2, 4) for rates 48..63 by [sub][eglow];
  * the linear steps are half of these */
-static const uint32_t HOST_IN_RAM("aud_tab") opl_hirow[2][4][4] = {
+static const uint32_t HOST_IN_RAM opl_hirow[2][4][4] = {
     {{0x02020200, 0x04040402, 0x08080804, 0x08080808},
      {0x02000000, 0x04020202, 0x08040404, 0x08080808},
      {0x02020000, 0x04040202, 0x08080404, 0x08080808},
@@ -194,10 +194,10 @@ static const uint32_t HOST_IN_RAM("aud_tab") opl_hirow[2][4][4] = {
      {0x02020202, 0x04040202, 0x08080404, 0x08080808},
      {0x02020202, 0x02020202, 0x04040404, 0x08080808}}};
 /* step words for rates below 48 by egshift on sub = 1 samples (17: unused word) */
-static const uint8_t HOST_IN_RAM("aud_tab") opl_rlw[14][3] = {
+static const uint8_t HOST_IN_RAM opl_rlw[14][3] = {
     {17, 17, 17}, {11, 17, 17}, {10, 11, 17}, {9, 10, 11}, {8, 9, 10}, {7, 8, 9}, {6, 7, 8},
     {5, 6, 7}, {4, 5, 6}, {3, 4, 5}, {2, 3, 4}, {1, 2, 3}, {0, 1, 2}, {17, 0, 1}};
-static const uint32_t HOST_IN_RAM("aud_tab") opl_wav[4] = {0x80000000u, 0x200, 0, 0x100};
+static const uint32_t HOST_IN_RAM opl_wav[4] = {0x80000000u, 0x200, 0, 0x100};
 
 #define OPL_STEP(i) (((const uint8_t *)opl_chip.step)[i])
 
@@ -210,7 +210,7 @@ static inline uint32_t opl_r6(const opl_slot_t *s, uint32_t st)
 
 /* ---------------- envelope events ---------------- */
 
-static void HOST_IN_RAM_FUNC("aud") opl_eg_muted(opl_slot_t *s)
+static void HOST_IN_RAM_FUNC opl_eg_muted(opl_slot_t *s)
 {
     s->level = 0x1ff, s->mute = 0;
     s->lo = 0x1ff, s->span = 1, s->rc = OPL_NONE, s->qm = 1;
@@ -218,7 +218,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_eg_muted(opl_slot_t *s)
 
 /* Record for the state and level, key consistent with the state. A level
  * at a transition point gets a range that excludes it. */
-static void HOST_IN_RAM_FUNC("aud") opl_eg_rec(opl_slot_t *s)
+static void HOST_IN_RAM_FUNC opl_eg_rec(opl_slot_t *s)
 {
     const int st = s->state, lv = s->level;
     s->mute = -1, s->qm = 0;
@@ -251,7 +251,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_eg_rec(opl_slot_t *s)
 }
 
 /* span 0: a write or key change: the whole of spec 3.4 for this sample */
-OPL_COLD void HOST_IN_RAM_FUNC("aud") opl_eg_forced(opl_slot_t *s, uint32_t inc)
+OPL_COLD void HOST_IN_RAM_FUNC opl_eg_forced(opl_slot_t *s, uint32_t inc)
 {
     if (opl_chip.v0fix)
     {
@@ -304,7 +304,7 @@ OPL_COLD void HOST_IN_RAM_FUNC("aud") opl_eg_forced(opl_slot_t *s, uint32_t inc)
 
 /* The level left its range: attack reached 0, decay reached the SL band, or
  * the level reached 0x1f8. No step this sample (spec 3.4). */
-OPL_COLD void HOST_IN_RAM_FUNC("aud") opl_eg_event(opl_slot_t *s, uint32_t inc)
+OPL_COLD void HOST_IN_RAM_FUNC opl_eg_event(opl_slot_t *s, uint32_t inc)
 {
     if (!s->span)
     {
@@ -494,7 +494,7 @@ static inline void opl_set_key(opl_slot_t *s, uint32_t k)
     }
 }
 
-static void HOST_IN_RAM_FUNC("aud") opl_view_k6(opl_view_t *v)
+static void HOST_IN_RAM_FUNC opl_view_k6(opl_view_t *v)
 {
     const int k6 = opl_kslrom[v->fnum >> 6] - 8 * (8 - v->blk);
     v->k6 = (uint8_t)(k6 < 0 ? 0 : k6);
@@ -503,7 +503,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_view_k6(opl_view_t *v)
 /* inc << 13 = ((((f << blk) >> 1) * mt) >> 1) << 13 = ((f & km) * (mt << (11 + blk)))
  * with bit 12 cleared, km clearing bit 0 when blk = 0 (mod 2^32), at each
  * vibrato variant of f; all seven are f's without VIB */
-static void HOST_IN_RAM_FUNC("aud") opl_slot_pg(opl_slot_t *s)
+static void HOST_IN_RAM_FUNC opl_slot_pg(opl_slot_t *s)
 {
     const opl_view_t *v = s->v;
     const uint32_t f = v->fnum, bk = v->blk;
@@ -520,7 +520,7 @@ static inline void opl_slot_ksl(opl_slot_t *s)
 }
 
 /* rate index per state, bytewise: 4R + ks, 60 + (ks & 3) above 63, OPL_NONE for R = 0 */
-static void HOST_IN_RAM_FUNC("aud") opl_slot_eg(opl_slot_t *s)
+static void HOST_IN_RAM_FUNC opl_slot_eg(opl_slot_t *s)
 {
     const opl_view_t *v = s->v;
     const uint32_t r20 = s->r20, r60 = s->r60, r80 = s->r80;
@@ -559,7 +559,7 @@ static inline uint32_t opl_drum(int i)
 
 /* a slot's view changed: what = 1 F-number low bits, 3 F-number high bits
  * or block, | 4 key; the key settles first so a key change rebuilds once */
-static void HOST_IN_RAM_FUNC("aud") opl_slot_view(int i, int what)
+static void HOST_IN_RAM_FUNC opl_slot_view(int i, int what)
 {
     opl_slot_t *s = &opl_chip.sl[i];
     if (what & 4)
@@ -611,7 +611,7 @@ static inline int opl_view_b(opl_view_t *v, uint32_t d)
 }
 
 /* channel 0-2: the modulator view becomes the carrier view */
-static void HOST_IN_RAM_FUNC("aud") opl_mv_follow(int c)
+static void HOST_IN_RAM_FUNC opl_mv_follow(int c)
 {
     opl_view_t *mv = &opl_chip.mv[c];
     const opl_view_t *cv = &opl_chip.cv[c];
@@ -627,7 +627,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_mv_follow(int c)
 }
 
 /* A0-A8 / B0-B8: alias 1 for A9-AB / B9-BB (both slots now, spec 7.6) */
-static void HOST_IN_RAM_FUNC("aud") opl_chan_ab(int c, uint32_t g, uint32_t d, int alias)
+static void HOST_IN_RAM_FUNC opl_chan_ab(int c, uint32_t g, uint32_t d, int alias)
 {
     const int ms = opl_mslot[c];
     opl_view_t *cv = &opl_chip.cv[c];
@@ -656,7 +656,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_chan_ab(int c, uint32_t g, uint32_t d, i
 }
 
 /* C0-C8: FB and CON; alias 1 for C9-CB */
-static void HOST_IN_RAM_FUNC("aud") opl_chan_c(int c, uint32_t d, int alias)
+static void HOST_IN_RAM_FUNC opl_chan_c(int c, uint32_t d, int alias)
 {
     opl_view_t *cv = &opl_chip.cv[c], *mv = &opl_chip.mv[c];
     cv->con = d & 1;
@@ -674,7 +674,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_chan_c(int c, uint32_t d, int alias)
     opl_chan_fb(c);
 }
 
-static void HOST_IN_RAM_FUNC("aud") opl_bd_write(uint32_t v)
+static void HOST_IN_RAM_FUNC opl_bd_write(uint32_t v)
 {
     const uint32_t was = opl_chip.rhy;
     opl_chip.bd = (uint8_t)v;
@@ -687,7 +687,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_bd_write(uint32_t v)
         opl_set_key(&opl_chip.sl[i], opl_chip.sl[i].v->kon | opl_drum(i));
 }
 
-static void HOST_IN_RAM_FUNC("aud") opl_nts_write(uint32_t v)
+static void HOST_IN_RAM_FUNC opl_nts_write(uint32_t v)
 {
     const uint8_t n = (uint8_t)((v >> 6) & 1);
     if (n == opl_chip.nts)
@@ -705,7 +705,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_nts_write(uint32_t v)
 }
 
 /* Bit 7 rising zeroes the vibrato position after slot 0 has used it. */
-static void HOST_IN_RAM_FUNC("aud") opl_test_write(uint32_t v)
+static void HOST_IN_RAM_FUNC opl_test_write(uint32_t v)
 {
     if ((v & ~(uint32_t)opl_chip.test & 0x80) && (opl_chip.vib & 3))
     {
@@ -717,7 +717,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_test_write(uint32_t v)
 }
 
 /* one write; a is in opl_regs */
-static void HOST_IN_RAM_FUNC("aud") opl_apply(uint32_t a, uint32_t v)
+static void HOST_IN_RAM_FUNC opl_apply(uint32_t a, uint32_t v)
 {
     OPL_TRACE(a, v);
     switch (a >> 5)
@@ -784,7 +784,7 @@ static void HOST_IN_RAM_FUNC("aud") opl_apply(uint32_t a, uint32_t v)
 
 /* The views that follow by one sample, then the oldest write if the credit
  * covers it and no channel 0-2 late half was applied. */
-OPL_COLD void HOST_IN_RAM_FUNC("aud") opl_commit(void)
+OPL_COLD void HOST_IN_RAM_FUNC opl_commit(void)
 {
     const uint32_t lag = opl_chip.lag;
     if (lag)
@@ -815,7 +815,7 @@ OPL_COLD void HOST_IN_RAM_FUNC("aud") opl_commit(void)
 
 /* ---------------- one sample ---------------- */
 
-int16_t HOST_IN_RAM_FUNC("aud") opl_sample(void)
+int16_t HOST_IN_RAM_FUNC opl_sample(void)
 {
     if (opl_chip.lag | RING_LEN(&opl_queue.ring) | (opl_chip.credit ^ 96u))
         opl_commit();
@@ -953,7 +953,7 @@ static void opl_rebuild(void)
     }
 }
 
-void HOST_IN_FLASH_FUNC("opl_reset") opl_reset(void)
+void HOST_IN_FLASH_FUNC opl_reset(void)
 {
     memset(&opl_chip, 0, sizeof opl_chip);
     RING_RESET(&opl_queue.ring);
@@ -975,7 +975,7 @@ void opl_pace_get(uint32_t *credit, bool *late)
     *late = opl_chip.lag & 7;
 }
 
-uint32_t HOST_IN_RAM_FUNC("aud") opl_take_drops(void)
+uint32_t HOST_IN_RAM_FUNC opl_take_drops(void)
 {
     const uint32_t d = opl_queue.drops;
     opl_queue.drops = 0;
@@ -986,11 +986,11 @@ uint32_t HOST_IN_RAM_FUNC("aud") opl_take_drops(void)
 
 static uint16_t opl_xaddr = 0xFFFF;
 
-uint16_t HOST_IN_RAM_FUNC("aud") opl_xaddr_get(void) { return opl_xaddr; }
+uint16_t HOST_IN_RAM_FUNC opl_xaddr_get(void) { return opl_xaddr; }
 
-void HOST_IN_RAM_FUNC("aud") opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
+void HOST_IN_RAM_FUNC opl_xaddr_set(uint16_t word) { opl_xaddr = word; }
 
-void HOST_IN_RAM_FUNC("aud") opl_park(void)
+void HOST_IN_RAM_FUNC opl_park(void)
 {
     opl_xaddr = 0xFFFF;
     RING_RESET(&opl_queue.ring);

@@ -73,7 +73,7 @@ int rp6502_log_tusb(const char *fmt, ...)
 }
 #endif
 
-uint64_t HOST_IN_RAM_FUNC("hot") host_clock_us(void)
+uint64_t HOST_IN_RAM_FUNC host_clock_us(void)
 {
     return time_us_64();
 }

@@ -89,7 +89,7 @@ static void tablet_write_xram(void)
             TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
 }
 
-void HOST_IN_FLASH("tablet_init") tablet_init(void)
+void HOST_IN_FLASH_FUNC tablet_init(void)
 {
     tablet_stop();
 }

@@ -72,7 +72,7 @@ static bool uf2_to_vga;
 #define UF2_BLOCK ((const struct uf2_block *)mbuf)
 #define UF2_PAGE (mbuf + 512)
 
-static void HOST_IN_FLASH_FUNC("uf2_close") uf2_close(void)
+static void HOST_IN_FLASH_FUNC uf2_close(void)
 {
     if (uf2_fil.obj.fs)
     {
@@ -82,13 +82,13 @@ static void HOST_IN_FLASH_FUNC("uf2_close") uf2_close(void)
     uf2_state = UF2_IDLE;
 }
 
-static void HOST_IN_FLASH_FUNC("uf2_invalid") uf2_invalid(void)
+static void HOST_IN_FLASH_FUNC uf2_invalid(void)
 {
     uf2_close();
     mon_add_response_utf8(S(STR_ERR_INVALID_UF2_FILE));
 }
 
-static bool HOST_IN_FLASH_FUNC("uf2_is_ours") uf2_is_ours(const struct uf2_header *h)
+static bool HOST_IN_FLASH_FUNC uf2_is_ours(const struct uf2_header *h)
 {
     return h->magic_start0 == UF2_MAGIC_START0 &&
            h->magic_start1 == UF2_MAGIC_START1 &&
@@ -97,7 +97,7 @@ static bool HOST_IN_FLASH_FUNC("uf2_is_ours") uf2_is_ours(const struct uf2_heade
            h->file_size == RP2350_ARM_S_FAMILY_ID;
 }
 
-static bool HOST_IN_FLASH_FUNC("uf2_read_header") uf2_read_header(uint32_t block_no,
+static bool HOST_IN_FLASH_FUNC uf2_read_header(uint32_t block_no,
                                                                   struct uf2_header *h)
 {
     if (block_no >= uf2_num_blocks)
@@ -108,7 +108,7 @@ static bool HOST_IN_FLASH_FUNC("uf2_read_header") uf2_read_header(uint32_t block
     return f_read(&uf2_fil, h, sizeof *h, &br) == FR_OK && br == sizeof *h;
 }
 
-static int32_t HOST_IN_FLASH_FUNC("uf2_find_block") uf2_find_block(uint32_t addr, uint32_t *avail)
+static int32_t HOST_IN_FLASH_FUNC uf2_find_block(uint32_t addr, uint32_t *avail)
 {
     struct uf2_header h;
     if (addr >= uf2_low_addr && uf2_stride)
@@ -138,7 +138,7 @@ static int32_t HOST_IN_FLASH_FUNC("uf2_find_block") uf2_find_block(uint32_t addr
     return -1;
 }
 
-static uint32_t HOST_IN_FLASH_FUNC("uf2_read_addr") uf2_read_addr(uint32_t addr, void *dest,
+static uint32_t HOST_IN_FLASH_FUNC uf2_read_addr(uint32_t addr, void *dest,
                                                                   uint32_t n)
 {
     uint8_t *out = dest;
@@ -170,7 +170,7 @@ struct uf2_map
     uint32_t dest_end;
 };
 
-static uint32_t HOST_IN_FLASH_FUNC("uf2_read_ptr") uf2_read_ptr(const struct uf2_map *map,
+static uint32_t HOST_IN_FLASH_FUNC uf2_read_ptr(const struct uf2_map *map,
                                                                 int map_count, uint32_t ptr,
                                                                 void *dest, uint32_t n)
 {
@@ -198,7 +198,7 @@ static uint32_t HOST_IN_FLASH_FUNC("uf2_read_ptr") uf2_read_ptr(const struct uf2
     return got;
 }
 
-static const char *HOST_IN_FLASH_FUNC("uf2_find_program_name") uf2_find_program_name(void)
+static const char *HOST_IN_FLASH_FUNC uf2_find_program_name(void)
 {
     if (uf2_read_addr(uf2_low_addr, mbuf, MBUF_SIZE) != MBUF_SIZE)
         return NULL;
@@ -284,7 +284,7 @@ static void uf2_progress(void)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("uf2_do_validate") uf2_do_validate(void)
+static void HOST_IN_FLASH_FUNC uf2_do_validate(void)
 {
     UINT br;
     if (f_read(&uf2_fil, mbuf, 512, &br) != FR_OK || br != 512)
@@ -342,7 +342,7 @@ static void HOST_IN_FLASH_FUNC("uf2_do_validate") uf2_do_validate(void)
         uf2_state = UF2_IDENTIFY;
 }
 
-static void HOST_IN_FLASH_FUNC("uf2_do_identify") uf2_do_identify(void)
+static void HOST_IN_FLASH_FUNC uf2_do_identify(void)
 {
     const char *name = uf2_find_program_name();
     if (!name)
@@ -485,7 +485,7 @@ static void __attribute__((noreturn)) uf2_do_write(void)
         tight_loop_contents();
 }
 
-static void HOST_IN_FLASH_FUNC("uf2_do_vga_write") uf2_do_vga_write(void)
+static void HOST_IN_FLASH_FUNC uf2_do_vga_write(void)
 {
     if (!uf2_page_count && !uf2_next_block())
     {
@@ -502,7 +502,7 @@ static void HOST_IN_FLASH_FUNC("uf2_do_vga_write") uf2_do_vga_write(void)
     uf2_state = UF2_VGA_WAIT;
 }
 
-static void HOST_IN_FLASH_FUNC("uf2_do_vga_wait") uf2_do_vga_wait(void)
+static void HOST_IN_FLASH_FUNC uf2_do_vga_wait(void)
 {
     switch (pix_wait_poll())
     {
@@ -575,7 +575,7 @@ bool uf2_active(void)
     return uf2_state != UF2_IDLE;
 }
 
-void HOST_IN_FLASH_FUNC("uf2_mon_flash") uf2_mon_flash(const char *args)
+void HOST_IN_FLASH_FUNC uf2_mon_flash(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))

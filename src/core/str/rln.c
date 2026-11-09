@@ -485,7 +485,7 @@ static void rln_cpr_forget_stale(com_source_t s)
         rln_sources[s].cpr_seen = false;
 }
 
-static void HOST_IN_RAM_FUNC("hot") rln_forget_all_stale(void)
+static void HOST_IN_RAM_FUNC rln_forget_all_stale(void)
 {
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_cpr_forget_stale(s);
@@ -1890,7 +1890,7 @@ void rln_task(void)
         rln_complete(true);
 }
 
-void HOST_IN_FLASH("rln_init") rln_init(void)
+void HOST_IN_FLASH_FUNC rln_init(void)
 {
     rln_callback = NULL;
     rln_enable_history = true;

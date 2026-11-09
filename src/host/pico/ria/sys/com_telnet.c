@@ -25,7 +25,7 @@
 
 #ifndef RP6502_RIA_W
 
-bool HOST_IN_RAM_FUNC("hot") com_telnet_tx_writable(void) { return true; }
+bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
 void com_telnet_task(void) {}
@@ -70,7 +70,7 @@ static void com_telnet_clear_rings(void)
     com_telnet_clear_rx();
 }
 
-bool HOST_IN_RAM_FUNC("hot") com_telnet_tx_writable(void)
+bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void)
 {
     return RING_AVAIL(&com_telnet_tx) != 0;
 }
@@ -80,17 +80,17 @@ void com_telnet_tx_write(char ch)
     RING_PUT(&com_telnet_tx, ch);
 }
 
-size_t HOST_IN_RAM_FUNC("hot") com_telnet_read(char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC com_telnet_read(char *buf, size_t length)
 {
     return RING_OUT(&com_telnet_rx, buf, (uint32_t)length);
 }
 
-int HOST_IN_RAM_FUNC("hot") com_telnet_peek(void)
+int HOST_IN_RAM_FUNC com_telnet_peek(void)
 {
     return RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, 0) : -1;
 }
 
-static void HOST_IN_RAM_FUNC("hot") com_telnet_drain_tx(void)
+static void HOST_IN_RAM_FUNC com_telnet_drain_tx(void)
 {
     if (com_telnet_state != COM_TELNET_STATE_CONNECTED)
     {
@@ -212,7 +212,7 @@ static void com_telnet_drain_rx(void)
     }
 }
 
-static bool HOST_IN_RAM_FUNC("hot") com_telnet_should_listen(void)
+static bool HOST_IN_RAM_FUNC com_telnet_should_listen(void)
 {
     return com_telnet_get_port() > 0 && com_telnet_get_key()[0] != 0 && wifi_ready();
 }
@@ -276,7 +276,7 @@ static bool com_telnet_on_accept(uint16_t port)
 
 
 
-int HOST_IN_FLASH_FUNC("com_telnet_port_response") com_telnet_port_response(char *buf,
+int HOST_IN_FLASH_FUNC com_telnet_port_response(char *buf,
                                                                             size_t buf_size,
                                                                             int state,
                                                                             unsigned width)
@@ -292,7 +292,7 @@ int HOST_IN_FLASH_FUNC("com_telnet_port_response") com_telnet_port_response(char
     return com_telnet_key_response(buf, buf_size, 0, width);
 }
 
-int HOST_IN_FLASH_FUNC("com_telnet_key_response") com_telnet_key_response(char *buf,
+int HOST_IN_FLASH_FUNC com_telnet_key_response(char *buf,
                                                                           size_t buf_size,
                                                                           int state, unsigned width)
 {

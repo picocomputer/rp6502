@@ -251,7 +251,7 @@ static const char *ntp_status_str(void)
     }
 }
 
-int HOST_IN_FLASH_FUNC("ntp_status_response") ntp_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC ntp_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;

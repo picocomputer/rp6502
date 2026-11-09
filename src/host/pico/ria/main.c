@@ -35,7 +35,7 @@ bool sys_break_to_launcher(void)
     return true;
 }
 
-int HOST_IN_RAM_FUNC("sys") main(void)
+int HOST_IN_RAM_FUNC main(void)
 {
     sys_init();
     while (true)

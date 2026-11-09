@@ -152,7 +152,7 @@ static bool xin_queue_in(xin_device_t *device, int idx)
     return tuh_edpt_xfer(&xfer);
 }
 
-bool HOST_IN_FLASH("xin_class_driver_init") xin_class_driver_init(void)
+bool HOST_IN_FLASH_FUNC xin_class_driver_init(void)
 {
     memset(xin_devices, 0, sizeof(xin_devices));
     return true;

@@ -20,7 +20,7 @@ static absolute_time_t mbuf_deadline;
 static uint32_t mbuf_timeout_ms;
 static size_t mbuf_read_size;
 
-void HOST_IN_RAM_FUNC("hot") mbuf_task(void)
+void HOST_IN_RAM_FUNC mbuf_task(void)
 {
     while (mbuf_callback)
     {

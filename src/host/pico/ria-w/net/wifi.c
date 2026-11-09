@@ -123,7 +123,7 @@ void wifi_task(void)
     }
 }
 
-static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message(void)
+static const char *HOST_IN_FLASH_FUNC wifi_status_message(void)
 {
     switch (wifi_state)
     {
@@ -163,7 +163,7 @@ static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message
     return S(STR_INTERNAL_ERROR);
 }
 
-int HOST_IN_FLASH_FUNC("wifi_status_response") wifi_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_status_response(char *buf, size_t buf_size,
                                                                     int state, unsigned)
 {
     switch (state)
@@ -362,7 +362,7 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-bool HOST_IN_RAM_FUNC("hot") wifi_ready(void)
+bool HOST_IN_RAM_FUNC wifi_ready(void)
 {
     return wifi_state == wifi_state_connected;
 }
@@ -385,7 +385,7 @@ void wifi_apply_ssid(const char *ssid, bool changed)
     }
 }
 
-int HOST_IN_FLASH_FUNC("wifi_ssid_response") wifi_ssid_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_ssid_response(char *buf, size_t buf_size,
                                                                 int state, unsigned width)
 {
     (void)width;
@@ -417,7 +417,7 @@ void wifi_apply_pass(const char *pass, bool changed)
         wifi_shutdown();
 }
 
-int HOST_IN_FLASH_FUNC("wifi_pass_response") wifi_pass_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_pass_response(char *buf, size_t buf_size,
                                                                 int state, unsigned width)
 {
     (void)state;

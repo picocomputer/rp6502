@@ -20,7 +20,7 @@
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
 // VCP (Virtual COM Port) is a better umbrella term.
 
-HOST_IN_FLASH("vcp_string") static const char vcp_string[] = "VCP";
+HOST_IN_FLASH static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
 // An open port configures after open returns. A port has at most one
@@ -54,15 +54,15 @@ static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 static int vcp_nfc_device_idx = -1;
 
-HOST_IN_FLASH("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
-HOST_IN_FLASH("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
-HOST_IN_FLASH("vcp_ch34x_list") static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
-HOST_IN_FLASH("vcp_pl2303_list") static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
-HOST_IN_FLASH("vcp_ftdi_name") static const char vcp_ftdi_name[] = "FTDI";
-HOST_IN_FLASH("vcp_cp210x_name") static const char vcp_cp210x_name[] = "CP210X";
-HOST_IN_FLASH("vcp_ch34x_name") static const char vcp_ch34x_name[] = "CH34X";
-HOST_IN_FLASH("vcp_pl2303_name") static const char vcp_pl2303_name[] = "PL2303";
-HOST_IN_FLASH("vcp_cdc_acm_name") static const char vcp_cdc_acm_name[] = "CDC ACM";
+HOST_IN_FLASH static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
+HOST_IN_FLASH static const char vcp_ftdi_name[] = "FTDI";
+HOST_IN_FLASH static const char vcp_cp210x_name[] = "CP210X";
+HOST_IN_FLASH static const char vcp_ch34x_name[] = "CH34X";
+HOST_IN_FLASH static const char vcp_pl2303_name[] = "PL2303";
+HOST_IN_FLASH static const char vcp_cdc_acm_name[] = "CDC ACM";
 
 // Determine fallback vendor name using the same VID/PID lists as TinyUSB.
 static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
@@ -82,7 +82,7 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
-int HOST_IN_FLASH_FUNC("vcp_status_response") vcp_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC vcp_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
@@ -128,7 +128,7 @@ bool vcp_std_handles(const char *name)
 // The port of an open descriptor, or -1 when its device is gone. A descriptor
 // holds the session of its open above the port index, so a descriptor kept
 // across a close or an unplug does not resolve to a later open of that port.
-static int HOST_IN_RAM_FUNC("hot") vcp_desc_idx(int desc)
+static int HOST_IN_RAM_FUNC vcp_desc_idx(int desc)
 {
     int idx = desc & 0xF;
     const vcp_t *dev = &vcp_mounts[idx];
@@ -383,7 +383,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
 
 // STD_PENDING while the port configures, STD_ERROR with EINVAL when the
 // configuration failed, or EIO when a request timed out or the device is gone.
-std_rw_result HOST_IN_RAM_FUNC("hot") vcp_std_opening(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC vcp_std_opening(int desc, api_errno *err)
 {
     int idx = vcp_desc_idx(desc);
     if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_TIMEOUT)
@@ -399,7 +399,7 @@ std_rw_result HOST_IN_RAM_FUNC("hot") vcp_std_opening(int desc, api_errno *err)
     return vcp_mounts[idx].cfg == VCP_CFG_READY ? STD_OK : STD_PENDING;
 }
 
-std_rw_result HOST_IN_RAM_FUNC("hot") vcp_std_read(int desc, char *buf, uint32_t count,
+std_rw_result HOST_IN_RAM_FUNC vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     *bytes_read = 0;

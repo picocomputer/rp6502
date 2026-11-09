@@ -576,23 +576,23 @@ static const BYTE* ExCvt;	/* Pointer to SBCS up-case table Ct???[] (null:disable
 static const BYTE* DbcTbl;	/* Pointer to DBCS code range table Dc???[] (null:disabled) */
 
 /* RP6502: the up-case tables are only read as names are parsed, so they stay in flash */
-static const BYTE HOST_IN_FLASH("ff_ct") Ct437[] = TBL_CT437;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct720[] = TBL_CT720;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct737[] = TBL_CT737;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct771[] = TBL_CT771;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct775[] = TBL_CT775;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct850[] = TBL_CT850;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct852[] = TBL_CT852;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct855[] = TBL_CT855;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct857[] = TBL_CT857;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct860[] = TBL_CT860;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct861[] = TBL_CT861;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct862[] = TBL_CT862;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct863[] = TBL_CT863;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct864[] = TBL_CT864;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct865[] = TBL_CT865;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct866[] = TBL_CT866;
-static const BYTE HOST_IN_FLASH("ff_ct") Ct869[] = TBL_CT869;
+static const BYTE HOST_IN_FLASH Ct437[] = TBL_CT437;
+static const BYTE HOST_IN_FLASH Ct720[] = TBL_CT720;
+static const BYTE HOST_IN_FLASH Ct737[] = TBL_CT737;
+static const BYTE HOST_IN_FLASH Ct771[] = TBL_CT771;
+static const BYTE HOST_IN_FLASH Ct775[] = TBL_CT775;
+static const BYTE HOST_IN_FLASH Ct850[] = TBL_CT850;
+static const BYTE HOST_IN_FLASH Ct852[] = TBL_CT852;
+static const BYTE HOST_IN_FLASH Ct855[] = TBL_CT855;
+static const BYTE HOST_IN_FLASH Ct857[] = TBL_CT857;
+static const BYTE HOST_IN_FLASH Ct860[] = TBL_CT860;
+static const BYTE HOST_IN_FLASH Ct861[] = TBL_CT861;
+static const BYTE HOST_IN_FLASH Ct862[] = TBL_CT862;
+static const BYTE HOST_IN_FLASH Ct863[] = TBL_CT863;
+static const BYTE HOST_IN_FLASH Ct864[] = TBL_CT864;
+static const BYTE HOST_IN_FLASH Ct865[] = TBL_CT865;
+static const BYTE HOST_IN_FLASH Ct866[] = TBL_CT866;
+static const BYTE HOST_IN_FLASH Ct869[] = TBL_CT869;
 #if !FF_NO_DBCS	/* RP6502: DBCS range tables unused when DBCS pages excluded */
 static const BYTE Dc932[] = TBL_DC932;
 static const BYTE Dc936[] = TBL_DC936;
@@ -6148,7 +6148,7 @@ static FRESULT create_partition (
 int drive_mkfs_capture (BYTE fsty, DWORD au_sectors);
 
 /* RP6502: in flash, the monitor's DISK command is its only caller */
-FRESULT HOST_IN_FLASH_FUNC("f_mkfs") f_mkfs (
+FRESULT HOST_IN_FLASH_FUNC f_mkfs (
 	const TCHAR* path,		/* Logical drive number */
 	const MKFS_PARM* opt,	/* Format options */
 	void* work,				/* Pointer to working buffer (null: use len bytes of heap memory) */
@@ -7340,10 +7340,10 @@ FRESULT f_setcp (
 {
 #if !FF_NO_DBCS
 	static const WORD       validcp[22] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869,   932,   936,   949,   950, 0};
-	static const BYTE *const HOST_IN_FLASH("ff_ct") tables[22] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, Dc932, Dc936, Dc949, Dc950, 0};
+	static const BYTE *const HOST_IN_FLASH tables[22] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, Dc932, Dc936, Dc949, Dc950, 0};
 #else	/* RP6502: DBCS pages excluded (see ffconf.h FF_NO_DBCS) */
 	static const WORD       validcp[18] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869, 0};
-	static const BYTE *const HOST_IN_FLASH("ff_ct") tables[18] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, 0};
+	static const BYTE *const HOST_IN_FLASH tables[18] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, 0};
 #endif
 	UINT i;
 

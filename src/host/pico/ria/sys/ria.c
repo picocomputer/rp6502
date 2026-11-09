@@ -84,7 +84,7 @@ void ria_trigger_sigint(void)
     }
 }
 
-bool HOST_IN_RAM_FUNC("hot") ria_get_sigint(void)
+bool HOST_IN_RAM_FUNC ria_get_sigint(void)
 {
     if (!sigint_pending)
         return false;
@@ -100,7 +100,7 @@ void ria_run(void)
     REGS(0xFFF0) = 0;
 }
 
-static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_response(char *buf,
+static int HOST_IN_FLASH_FUNC ria_verify_error_response(char *buf,
                                                                                      size_t buf_size,
                                                                                      int state,
                                                                                      unsigned)
@@ -112,7 +112,7 @@ static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_resp
 /* The reset vector is saved here and restored by ria_action_close. ria_task
  * calls ria_action_close between the two halves of a write, so the verify half
  * compares the bytes above $FFF9 against what the write put there. */
-static void HOST_IN_FLASH_FUNC("ria_action_start") ria_action_start(void)
+static void HOST_IN_FLASH_FUNC ria_action_start(void)
 {
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
@@ -170,7 +170,7 @@ static void ria_action_end(int32_t result)
     action_result = result;
 }
 
-static void HOST_IN_FLASH_FUNC("ria_verify_start") ria_verify_start(void)
+static void HOST_IN_FLASH_FUNC ria_verify_start(void)
 {
     action_state = action_state_verify;
     action_result = RIA_ACTION_RESULT_NONE;
@@ -229,7 +229,7 @@ void ria_task(void)
     callback(ok);
 }
 
-void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC ria_read_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -255,7 +255,7 @@ void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback
     ria_action_start();
 }
 
-void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -545,7 +545,7 @@ __attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act
     }
 }
 
-static void HOST_IN_FLASH("ria_cs_rwb_pio_init") ria_cs_rwb_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_cs_rwb_pio_init(void)
 {
     uint offset = pio_add_program(RIA_CS_RWB_PIO, &ria_cs_rwb_program);
     pio_sm_config config = ria_cs_rwb_program_get_default_config(offset);
@@ -560,7 +560,7 @@ static void HOST_IN_FLASH("ria_cs_rwb_pio_init") ria_cs_rwb_pio_init(void)
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }
 
-static void HOST_IN_FLASH("ria_write_pio_init") ria_write_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_write_pio_init(void)
 {
     // PIO to manage PHI2 clock and 6502 writes
     uint offset = pio_add_program(RIA_WRITE_PIO, &ria_write_program);
@@ -610,7 +610,7 @@ static void HOST_IN_FLASH("ria_write_pio_init") ria_write_pio_init(void)
         true);
 }
 
-static void HOST_IN_FLASH("ria_read_pio_init") ria_read_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_read_pio_init(void)
 {
     // PIO for 6502 reads
     uint offset = pio_add_program(RIA_READ_PIO, &ria_read_program);
@@ -660,7 +660,7 @@ static void HOST_IN_FLASH("ria_read_pio_init") ria_read_pio_init(void)
         true);
 }
 
-static void HOST_IN_FLASH("ria_act_pio_init") ria_act_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_act_pio_init(void)
 {
     // PIO to supply action loop with events
     uint offset = pio_add_program(RIA_ACT_PIO, &ria_action_program);
@@ -676,7 +676,7 @@ static void HOST_IN_FLASH("ria_act_pio_init") ria_act_pio_init(void)
     multicore_launch_core1(act_loop);
 }
 
-void HOST_IN_FLASH("ria_init") ria_init(void)
+void HOST_IN_FLASH_FUNC ria_init(void)
 {
     // drive irq pin
     gpio_init(CPU_IRQB_PIN);

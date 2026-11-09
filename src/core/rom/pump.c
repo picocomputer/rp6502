@@ -223,7 +223,7 @@ bool rom_pump_complete(const rom_pump_t *p)
     return p->vec_lo && p->vec_hi;
 }
 
-void HOST_IN_RAM_FUNC("hot") rom_pump_close(rom_pump_t *p)
+void HOST_IN_RAM_FUNC rom_pump_close(rom_pump_t *p)
 {
     if (p->fd >= 0)
     {

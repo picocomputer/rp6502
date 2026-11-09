@@ -36,7 +36,7 @@ static uint16_t phi2_quantize_khz(uint16_t freq_khz)
     return quantize(freq_khz, NULL, NULL);
 }
 
-static void HOST_IN_RAM_FUNC("hot") change(uint16_t freq_khz)
+static void HOST_IN_RAM_FUNC change(uint16_t freq_khz)
 {
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
@@ -48,7 +48,7 @@ static void HOST_IN_RAM_FUNC("hot") change(uint16_t freq_khz)
     pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
-void HOST_IN_FLASH("phi2_init") phi2_init(void)
+void HOST_IN_FLASH_FUNC phi2_init(void)
 {
     phi2_apply_khz(phi2_get_khz(), true);
 }
@@ -72,7 +72,7 @@ void phi2_apply_khz(uint16_t phi2_khz, bool changed)
     change(phi2_khz);
 }
 
-int HOST_IN_FLASH_FUNC("phi2_response") phi2_response(char *buf, size_t buf_size, int state,
+int HOST_IN_FLASH_FUNC phi2_response(char *buf, size_t buf_size, int state,
                                                       unsigned width)
 {
     (void)state;

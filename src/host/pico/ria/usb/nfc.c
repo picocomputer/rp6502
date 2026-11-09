@@ -227,7 +227,7 @@ static int nfc_send(void)
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }
 
-static uint32_t HOST_IN_RAM_FUNC("hot") nfc_recv(void)
+static uint32_t HOST_IN_RAM_FUNC nfc_recv(void)
 {
     if (nfc_rx_pos >= sizeof(nfc_rx_buf))
         return 0;
@@ -239,7 +239,7 @@ static uint32_t HOST_IN_RAM_FUNC("hot") nfc_recv(void)
     return bytes_read;
 }
 
-static bool HOST_IN_RAM_FUNC("hot") nfc_check_ack(void)
+static bool HOST_IN_RAM_FUNC nfc_check_ack(void)
 {
     static const uint8_t ack[PN532_ACK_FRAME_SIZE] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
     for (size_t i = 0; i + PN532_ACK_FRAME_SIZE <= nfc_rx_pos; i++)
@@ -254,7 +254,7 @@ static bool HOST_IN_RAM_FUNC("hot") nfc_check_ack(void)
     return false;
 }
 
-static const uint8_t *HOST_IN_RAM_FUNC("hot") nfc_parse_response(uint8_t cmd, size_t *resp_len)
+static const uint8_t *HOST_IN_RAM_FUNC nfc_parse_response(uint8_t cmd, size_t *resp_len)
 {
     if (nfc_rx_pos < nfc_ack_end + 7)
         return NULL;
@@ -362,7 +362,7 @@ static void nfc_tx_step(int ack_state, void (*on_fail)(void))
         nfc_begin_receive(ack_state);
 }
 
-static void HOST_IN_RAM_FUNC("hot") nfc_ack_step(int rx_state, void (*on_fail)(void))
+static void HOST_IN_RAM_FUNC nfc_ack_step(int rx_state, void (*on_fail)(void))
 {
     nfc_recv();
     if (nfc_check_ack())
@@ -420,7 +420,7 @@ void nfc_init(void)
         nfc_apply_cfg(NFC_CFG_ON);
 }
 
-int HOST_IN_FLASH_FUNC("nfc_enabled_response") nfc_enabled_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC nfc_enabled_response(char *buf, size_t buf_size,
                                                                     int state, unsigned width)
 {
     (void)state;

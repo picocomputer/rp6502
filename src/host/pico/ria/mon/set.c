@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <pico.h>
 
-static int HOST_IN_FLASH_FUNC("set_boot_response") set_boot_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC set_boot_response(char *buf, size_t buf_size,
                                                                      int state, unsigned)
 {
     (void)state;
@@ -37,7 +37,7 @@ static int HOST_IN_FLASH_FUNC("set_boot_response") set_boot_response(char *buf, 
     return -1;
 }
 
-static void HOST_IN_FLASH_FUNC("set_boot") set_boot(const char *args)
+static void HOST_IN_FLASH_FUNC set_boot(const char *args)
 {
     if (*args)
     {
@@ -54,7 +54,7 @@ static void HOST_IN_FLASH_FUNC("set_boot") set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-static void HOST_IN_FLASH_FUNC("set_string") set_string(const char *args, bool (*set)(const char *),
+static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const char *),
                                                         int (*resp)(char *, size_t, int, unsigned))
 {
     if (*args)
@@ -105,7 +105,7 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef CONFIG_INT
 #undef DRIVER
 
-void HOST_IN_FLASH_FUNC("set_mon_set") set_mon_set(const char *args)
+void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
 {
     if (*args)
     {

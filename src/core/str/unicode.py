@@ -102,7 +102,7 @@ def emit_c(path, words):
     out = [HEADER,
            '\n#include "unicode_oem.h"\n#include "core/str/unicode.h"\n'
            '\n#include "machine.h"\n\n',
-           'static const HOST_IN_FLASH("unicode_oem") uint16_t'
+           'static const HOST_IN_FLASH uint16_t'
            " unicode_oem_data[UNICODE_OEM_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])

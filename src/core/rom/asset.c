@@ -37,7 +37,7 @@ void rom_asset_adopt(int fd, uint32_t assets_start)
     g_rom_generation++;
 }
 
-void HOST_IN_RAM_FUNC("hot") rom_assets_reset(void)
+void HOST_IN_RAM_FUNC rom_assets_reset(void)
 {
     if (rom_fd >= 0)
     {

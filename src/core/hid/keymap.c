@@ -504,7 +504,7 @@ void keymap_task(void)
 
 /* The width the caller asks for is ignored, because the list is laid out from
  * the longest layout name it has. */
-int HOST_IN_FLASH_FUNC("keymap_layouts_response") keymap_layouts_response(char *buf,
+int HOST_IN_FLASH_FUNC keymap_layouts_response(char *buf,
                                                                           size_t buf_size,
                                                                           int state, unsigned width)
 {
@@ -572,7 +572,7 @@ overflow_error:
     RP6502_LOG(keyboard, ERROR, "dead key cache overflow");
 }
 
-size_t HOST_IN_RAM_FUNC("hot") keymap_in_chars(char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC keymap_in_chars(char *buf, size_t length)
 {
     return RING_OUT(&keymap_key_queue, buf, (uint32_t)length);
 }
@@ -595,7 +595,7 @@ void keymap_apply_layout_list(const char *list, bool changed)
     keymap_apply_active();
 }
 
-int HOST_IN_FLASH_FUNC("keymap_layout_list_response") keymap_layout_list_response(char *buf,
+int HOST_IN_FLASH_FUNC keymap_layout_list_response(char *buf,
                                                                                   size_t buf_size,
                                                                                   int state,
                                                                                   unsigned width)
@@ -621,7 +621,7 @@ const char *keymap_get_layout_verbose(void)
     return keymap_layout_description;
 }
 
-void HOST_IN_FLASH("keymap_init") keymap_init(void)
+void HOST_IN_FLASH_FUNC keymap_init(void)
 {
     /* A machine with no stored layout adopts the default and writes it back,
      * so the config file completes itself once. */

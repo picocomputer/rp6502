@@ -16,7 +16,7 @@ static volatile bool release_pending;
 
 static absolute_time_t hold_end;
 
-void HOST_IN_FLASH("resb_init") resb_init(void)
+void HOST_IN_FLASH_FUNC resb_init(void)
 {
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);

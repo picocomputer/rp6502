@@ -39,7 +39,7 @@ static mouse_connection_t *mouse_get_connection_by_slot(int slot)
     return NULL;
 }
 
-void HOST_IN_FLASH("mouse_init") mouse_init(void)
+void HOST_IN_FLASH_FUNC mouse_init(void)
 {
     mouse_stop();
 }

@@ -445,7 +445,7 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
         report->button1 |= (1 << 1);
 }
 
-void HOST_IN_FLASH("gamepad_init") gamepad_init(void)
+void HOST_IN_FLASH_FUNC gamepad_init(void)
 {
     gamepad_stop();
 }

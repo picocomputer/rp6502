@@ -88,22 +88,22 @@
     X(SST11, "Pacific/Pago_Pago", "SST11")
 
 #define X(suffix, name, tz)                            \
-    static const char HOST_IN_FLASH("tim_tzinfo_strings") \
+    static const char HOST_IN_FLASH \
         TIM_TZINFO_NAME_##suffix[] = name;             \
-    static const char HOST_IN_FLASH("tim_tzinfo_strings") \
+    static const char HOST_IN_FLASH \
         TIM_TZINFO_TZ_##suffix[] = tz;
 TIM_TZINFO
 #undef X
 
 #define X(suffix, name, tz) \
     TIM_TZINFO_NAME_##suffix,
-static const char *HOST_IN_FLASH("tim_tzinfo_name")
+static const char *const HOST_IN_FLASH
     tim_tzinfo_name[] = {TIM_TZINFO};
 #undef X
 
 #define X(suffix, name, tz) \
     TIM_TZINFO_TZ_##suffix,
-static const char *HOST_IN_FLASH("tim_tzinfo_tz")
+static const char *const HOST_IN_FLASH
     tim_tzinfo_tz[] = {TIM_TZINFO};
 #undef X
 
@@ -127,7 +127,7 @@ int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
     return n;
 }
 
-void HOST_IN_FLASH("tim_init") tim_init(void)
+void HOST_IN_FLASH_FUNC tim_init(void)
 {
     // Noon UTC keeps localtime on 1 January 1970 for any TZ offset from UTC-12
     // to just under UTC+12.
@@ -259,7 +259,7 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     return pos;
 }
 
-int HOST_IN_FLASH_FUNC("tim_status_response") tim_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC tim_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -271,7 +271,7 @@ int HOST_IN_FLASH_FUNC("tim_status_response") tim_status_response(char *buf, siz
     return -1;
 }
 
-int HOST_IN_FLASH_FUNC("tim_tzdata_response") tim_tzdata_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0)
@@ -352,7 +352,7 @@ void tim_apply_time_zone(const char *tz, bool changed)
     tzset();
 }
 
-int HOST_IN_FLASH_FUNC("tim_time_zone_response") tim_time_zone_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC tim_time_zone_response(char *buf, size_t buf_size,
                                                                         int state, unsigned width)
 {
     (void)state;

@@ -305,7 +305,7 @@ def emit_c(path, words):
     out = [HEADER,
            '\n#include "layout_db.h"\n#include "core/hid/layout.h"\n'
            '\n#include "machine.h"\n\n',
-           'static const HOST_IN_FLASH("layout_db") uint16_t'
+           'static const HOST_IN_FLASH uint16_t'
            " layout_db_data[LAYOUT_DB_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])

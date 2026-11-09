@@ -198,7 +198,7 @@ bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-void HOST_IN_FLASH("keyboard_init") keyboard_init(void)
+void HOST_IN_FLASH_FUNC keyboard_init(void)
 {
     keyboard_stop();
     keyboard_hid_leds = KEYBOARD_LED_NUMLOCK;

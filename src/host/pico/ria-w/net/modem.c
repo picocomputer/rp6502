@@ -77,7 +77,7 @@ static modem_conn_t *modem_conn;
 
 static char modem_phone_buf[MODEM_AT_COMMAND_LEN + 1];
 
-static const char *const HOST_IN_FLASH("MODEM_RESPONSES") MODEM_RESPONSES[] = {
+static const char *const HOST_IN_FLASH MODEM_RESPONSES[] = {
     STR_MODEM_RESPONSE_0, STR_MODEM_RESPONSE_1, STR_MODEM_RESPONSE_2,
     STR_MODEM_RESPONSE_3, STR_MODEM_RESPONSE_4, STR_MODEM_RESPONSE_5,
     STR_MODEM_RESPONSE_6, STR_MODEM_RESPONSE_7, STR_MODEM_RESPONSE_8};
@@ -729,7 +729,7 @@ bool modem_set_listen_port(uint16_t port)
     return true;
 }
 
-void HOST_IN_FLASH("modem_init") modem_init(void)
+void HOST_IN_FLASH_FUNC modem_init(void)
 {
     modem_stop();
 }

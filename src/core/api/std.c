@@ -708,7 +708,7 @@ void std_task(void)
         std_xram_addr = pix_stream_xram(std_xram_addr, std_xram_end);
 }
 
-void HOST_IN_FLASH("std_init") std_init(void)
+void HOST_IN_FLASH_FUNC std_init(void)
 {
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;

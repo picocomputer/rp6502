@@ -39,7 +39,7 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
     return LFS_ERR_OK;
 }
 
-static int HOST_IN_RAM_FUNC("lfs") lfs_prog(const struct lfs_config *c, lfs_block_t block,
+static int HOST_IN_RAM_FUNC lfs_prog(const struct lfs_config *c, lfs_block_t block,
                                         lfs_off_t off, const void *buffer, lfs_size_t size)
 {
     (void)(c);
@@ -47,7 +47,7 @@ static int HOST_IN_RAM_FUNC("lfs") lfs_prog(const struct lfs_config *c, lfs_bloc
     return LFS_ERR_OK;
 }
 
-static int HOST_IN_RAM_FUNC("lfs") lfs_erase(const struct lfs_config *c, lfs_block_t block)
+static int HOST_IN_RAM_FUNC lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
     (void)(c);
     flash_range_erase(lfs_flash_offs(block), FLASH_SECTOR_SIZE);
@@ -77,7 +77,7 @@ static const struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 
-void HOST_IN_FLASH("lfs_init") lfs_init(void)
+void HOST_IN_FLASH_FUNC lfs_init(void)
 {
     extern char __flash_binary_end;
     (void)__flash_binary_end;

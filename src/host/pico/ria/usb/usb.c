@@ -80,7 +80,7 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
     return drivers;
 }
 
-void HOST_IN_FLASH("usb_init") usb_init(void)
+void HOST_IN_FLASH_FUNC usb_init(void)
 {
     for (int i = 0; i < CFG_TUH_HID; i++)
         usb_hid_slot[i] = -1;
@@ -125,7 +125,7 @@ void usb_task(void)
     }
 }
 
-int HOST_IN_FLASH_FUNC("usb_status_response") usb_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC usb_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -220,7 +220,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     hid_umount(slot);
 }
 
-bool HOST_IN_RAM_FUNC("hot") usb_boot_enumerating(void)
+bool HOST_IN_RAM_FUNC usb_boot_enumerating(void)
 {
     if (usb_boot_enum_finished)
         return false;
@@ -249,7 +249,7 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     return ulen;
 }
 
-void HOST_IN_FLASH_FUNC("usb_desc_string_to_oem") usb_desc_string_to_oem(const void *desc_buf,
+void HOST_IN_FLASH_FUNC usb_desc_string_to_oem(const void *desc_buf,
                                                                          size_t desc_buf_size,
                                                                          char *dest,
                                                                          size_t dest_size)
@@ -343,7 +343,7 @@ static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t de
 }
 
 typedef const void *(*usb_id_fetch_fn)(uint8_t daddr);
-HOST_IN_FLASH("usb_id_fetchers") static const usb_id_fetch_fn usb_id_fetchers[] = {
+HOST_IN_FLASH static const usb_id_fetch_fn usb_id_fetchers[] = {
     usb_string_fetch_manufacturer,
     usb_string_fetch_product,
     usb_string_fetch_serial,

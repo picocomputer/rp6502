@@ -18,7 +18,7 @@
 
 extern uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out);
 
-HOST_IN_FLASH("mid_string") static const char mid_string[] = "MIDI";
+HOST_IN_FLASH static const char mid_string[] = "MIDI";
 static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128
@@ -775,7 +775,7 @@ void mid_task(void)
             tuh_midi_write_flush(itf);
 }
 
-int HOST_IN_FLASH_FUNC("mid_status_response") mid_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC mid_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)

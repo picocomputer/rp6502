@@ -33,7 +33,7 @@ static enum state
  * performs the stop fan-out first and the break fan-out after it. */
 static volatile bool sys_breaking;
 
-void HOST_IN_FLASH_FUNC("sys_init") sys_init(void)
+void HOST_IN_FLASH_FUNC sys_init(void)
 {
     resb_init();
 #define DRIVER(i, t, iot, r, s, b, ...) i();
@@ -41,14 +41,14 @@ void HOST_IN_FLASH_FUNC("sys_init") sys_init(void)
 #undef DRIVER
 }
 
-void HOST_IN_RAM_FUNC("sys") sys_task(void)
+void HOST_IN_RAM_FUNC sys_task(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) t();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-void HOST_IN_RAM_FUNC("sys") sys_io_task(void)
+void HOST_IN_RAM_FUNC sys_io_task(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) iot();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
@@ -56,21 +56,21 @@ void HOST_IN_RAM_FUNC("sys") sys_io_task(void)
 }
 
 /* RESB is low through the run, stop and break fan-outs. */
-static void HOST_IN_FLASH_FUNC("sys_on_run") sys_on_run(void)
+static void HOST_IN_FLASH_FUNC sys_on_run(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) r();
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-static void HOST_IN_FLASH_FUNC("sys_on_stop") sys_on_stop(void)
+static void HOST_IN_FLASH_FUNC sys_on_stop(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) s();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 
-static void HOST_IN_FLASH_FUNC("sys_on_break") sys_on_break(void)
+static void HOST_IN_FLASH_FUNC sys_on_break(void)
 {
 #define DRIVER(i, t, iot, r, s, b, ...) b();
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
@@ -143,7 +143,7 @@ void sys_stop_now(void)
     }
 }
 
-void HOST_IN_RAM_FUNC("sys") sys_commit(void)
+void HOST_IN_RAM_FUNC sys_commit(void)
 {
     /* The stop is derived from the flag again rather than trusted from
      * sys_break_request, because a break asked for anywhere in a pass has to

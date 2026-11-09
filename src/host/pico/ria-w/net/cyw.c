@@ -73,22 +73,22 @@
     X(US, "US", "United States")
 
 #define X(suffix, abbr, name)                         \
-    static const char HOST_IN_FLASH("cyw_country_codes") \
+    static const char HOST_IN_FLASH \
         CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
-    static const char HOST_IN_FLASH("cyw_country_codes") \
+    static const char HOST_IN_FLASH \
         CYW_COUNTRY_NAME_##suffix[] = name;
 CYW_CC_X
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_ABBR_##suffix,
-static const char *HOST_IN_FLASH("cyw_country_abbr")
+static const char *const HOST_IN_FLASH
     cyw_country_abbr[] = {CYW_CC_X};
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_NAME_##suffix,
-static const char *HOST_IN_FLASH("cyw_country_name")
+static const char *const HOST_IN_FLASH
     cyw_country_name[] = {CYW_CC_X};
 #undef X
 
@@ -117,7 +117,7 @@ static void cyw_reset_radio(void)
     cyw_init();
 }
 
-void HOST_IN_RAM_FUNC("hot") cyw_task(void)
+void HOST_IN_RAM_FUNC cyw_task(void)
 {
     if (cyw_led_requested != cyw_led_status)
     {
@@ -180,7 +180,7 @@ void cyw_apply_rf_enable(uint8_t rf, bool changed)
         cyw_reset_radio();
 }
 
-int HOST_IN_FLASH_FUNC("cyw_rf_enable_response") cyw_rf_enable_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC cyw_rf_enable_response(char *buf, size_t buf_size,
                                                                         int state, unsigned width)
 {
     (void)state;
@@ -209,7 +209,7 @@ void cyw_apply_rf_country_code(const char *rfcc, bool changed)
         cyw_reset_radio();
 }
 
-int HOST_IN_FLASH_FUNC("cyw_rf_country_code_response") cyw_rf_country_code_response(char *buf,
+int HOST_IN_FLASH_FUNC cyw_rf_country_code_response(char *buf,
                                                                                     size_t buf_size,
                                                                                     int state,
                                                                                     unsigned width)

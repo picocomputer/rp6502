@@ -54,7 +54,7 @@ static absolute_time_t ble_retry_at;
 static hci_con_handle_t ble_connecting_handle;
 static uint16_t ble_connecting_cid;
 
-static const uint8_t HOST_IN_FLASH("ble_att_profile_data") ble_att_profile_data[] = {
+static const uint8_t HOST_IN_FLASH ble_att_profile_data[] = {
     // clang-format off
     // ATT DB Version
     1,
@@ -499,7 +499,7 @@ void ble_task(void)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("ble_set_config") ble_set_config(uint8_t ble)
+static void HOST_IN_FLASH_FUNC ble_set_config(uint8_t ble)
 {
     switch (ble)
     {
@@ -570,7 +570,7 @@ void ble_shutdown(void)
     ble_state = BLE_OFF;
 }
 
-int HOST_IN_FLASH_FUNC("ble_status_response") ble_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC ble_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -611,7 +611,7 @@ void ble_init(void)
     ble_set_config(ble_get_enabled());
 }
 
-int HOST_IN_FLASH_FUNC("ble_enabled_response") ble_enabled_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC ble_enabled_response(char *buf, size_t buf_size,
                                                                     int state, unsigned width)
 {
     (void)state;
