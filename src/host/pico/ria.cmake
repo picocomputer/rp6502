@@ -74,6 +74,7 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/src/osal/pico/fs.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/api/std.c
+    ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/com/pick.c
     ${RIA_SRC}/sys/com.c
@@ -198,6 +199,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/mon/set.c
     ${RIA_SRC}/mon/status.c
     ${RIA_SRC}/mon/uf2.c
+    ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/str/rln.c
     ${RP6502_ROOT}/src/core/str/str.c
     ${RP6502_ROOT}/src/core/sys/config.c

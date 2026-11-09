@@ -14,6 +14,12 @@
 #include <littlefs/lfs.h>
 #include "core/api/api.h"
 
+/* 256 sectors of 4 KB, a 1 MB volume at the end of flash. Nothing else is
+ * written from LFS_FLASH_OFFS on. */
+#define LFS_DISK_BLOCKS 256
+#define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
+#define LFS_FLASH_OFFS (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE)
+
 extern lfs_t lfs_volume;
 
 /* The result lfs_init got from the mount, kept because the filesystem cannot
