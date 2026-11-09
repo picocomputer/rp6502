@@ -22,11 +22,9 @@ static absolute_time_t pix_api_state_timer;
 static uint pix_stream_dma;
 
 // XRAM messages for PIX_STREAM_SM. The DMA wraps its read address at the
-// ring's size, so the ring is aligned to it. It sits in SCRATCH_Y beside core
-// 0's stack, where the alignment costs no main RAM and the DMA stays out of
-// core 1's bank.
+// ring's size, so the ring is aligned to it.
 #define PIX_RING_SIZE 64
-static uint32_t __scratch_y("pix_ring") pix_ring[PIX_RING_SIZE]
+static uint32_t pix_ring[PIX_RING_SIZE]
     __attribute__((aligned(sizeof(uint32_t[PIX_RING_SIZE]))));
 
 // This may be modified in an IRQ from vga.c
