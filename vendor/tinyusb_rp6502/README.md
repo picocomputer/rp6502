@@ -301,7 +301,7 @@ Measured on 2026-11-08 with a SanDisk Cruzer Blade (0781:5567) behind the rig's 
 
 ### Event queue
 
-- **`queue_event()`:** `TU_ASSERT` becomes `TU_VERIFY`. The function runs in the USB IRQ, and an assert's log goes through `rp6502_log_tusb()`, which formats, allocates and prints.
+- **`queue_event()`:** `TU_ASSERT` becomes `TU_VERIFY`. The function runs in the USB IRQ, and an assert's log formats and prints with `printf`.
 - **Root attach debounce (`hcd_event_handler()`):** a root port attach that the queue drops clears its debounce bit again. Upstream left the bit set, and then ignored every later root port event.
   - The bit is still set before the attach is queued, as upstream does. Only the USB IRQ raises root port events, so none comes in between. usbh's re-attach of a configured device is handled in the task without an event, see above.
 
@@ -377,14 +377,13 @@ TinyUSB turns on FIFO mutexes for any MCU with more than one core (`OSAL_MUTEX_R
 
 ## RIA config: src/host/pico/ria/tusb_config.h
 
-The RIA runs from flash, and `ria.cmake` puts usbh.c, hub.c, tusb_fifo.c and upstream `tusb.c` in RAM whole, with hcd_rp2350.c's interrupt path (`HOST_ISR_FUNC`), so the main loop's USB work and the interrupt never wait on flash.
+The RIA runs from flash, and `ria.cmake` puts usbh.c, hub.c, tusb_fifo.c, hcd_rp2350.c, rp2350_usb.c and upstream `tusb.c` in RAM whole, so the main loop's USB work and the interrupt never wait on flash, and USB keeps serving the drive while the RIA rewrites its flash.
 
 This file is the RIA's own config, not a copy.
 
 - **`CFG_TUSB_DEBUG_BREAKPOINT`** is an empty function, so a failed assert never executes BKPT. Upstream's breakpoint fires whenever DHCSR.C_DEBUGEN is set. Any OpenOCD session sets that bit, and it stays set until a REBOOT, so a failed assert would halt core 0 on a board that was only being read.
-- **Log format strings:** at levels 2 and 3, each one goes in `.flashdata.tusb_log`. The RIA runs from flash, so these and all other rodata, level 1 strings (asserts) included, stay in flash.
+- **Log format strings:** at levels 2 and 3, each one goes in `.flashdata.tusb_log`, in flash. Level 1 strings (asserts) stay with their file's other rodata: in RAM for the files above, in flash for the rest.
 - **`TU_MESS_FAILED`** prints the file name and line number. That costs one RAM literal per file instead of one `__func__` string per function.
-- **`CFG_TUSB_DEBUG_PRINTF`** is `rp6502_log_tusb()` (`src/host/pico/host.c`), which feeds the RIA log.
 - **Limits:**
   - `CFG_TUH_DEVICE_MAX` is 16, `CFG_TUH_HUB` is 5, and `CFG_TUH_ENUMERATION_BUFSIZE` is 1024.
   - `CFG_TUH_MSC` is 0 because the RIA has its own MSC driver.
