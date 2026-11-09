@@ -80,7 +80,7 @@ int com_rx_peek(com_source_t src)
 static bool com_bel_enabled = true;
 
 
-static void HOST_IN_RAM_FUNC com_uart_drain_rx(void)
+void HOST_IN_RAM_FUNC com_uart_drain_rx(void)
 {
     while (uart_is_readable(COM_UART))
     {
@@ -91,18 +91,14 @@ static void HOST_IN_RAM_FUNC com_uart_drain_rx(void)
     }
 }
 
+/* com_task drains the UART's hardware FIFO into the ring once per pass. */
 size_t HOST_IN_RAM_FUNC com_uart_read(char *buf, size_t length)
 {
-    // The UART's hardware FIFO is drained here as well as in com_task, because
-    // input is also read by loops that do not return to com_task between
-    // reads, such as the ones in com_init, vga_connect and the monitor.
-    com_uart_drain_rx();
     return RING_OUT(&com_uart_rx, buf, (uint32_t)length);
 }
 
 int HOST_IN_RAM_FUNC com_uart_peek(void)
 {
-    com_uart_drain_rx();
     return RING_LEN(&com_uart_rx) ? *RING_AT(&com_uart_rx, 0) : -1;
 }
 
@@ -231,8 +227,7 @@ void HOST_IN_FLASH_FUNC com_init(void)
     uart_init(COM_UART, COM_UART_BAUD_RATE);
     // Wait for the UART to settle after VGA startup then purge everything.
     busy_wait_ms(30);
-    while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-        tight_loop_contents();
+    com_uart_clear();
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
 }
 

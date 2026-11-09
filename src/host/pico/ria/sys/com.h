@@ -51,6 +51,7 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
 
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
 
+void com_uart_drain_rx(void);
 size_t com_uart_read(char *buf, size_t length);
 int com_uart_peek(void);
 void com_uart_clear(void);
