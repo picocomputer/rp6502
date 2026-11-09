@@ -35,6 +35,7 @@ set(RIA_RAM_SOURCES
     ${PICO_SDK_PATH}/src/common/pico_time/time.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_irq/irq.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_rand/rand.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_timer/timer.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_base.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_poll.c
