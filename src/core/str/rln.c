@@ -71,18 +71,10 @@ _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
 // to absorb a telnet RTT for the CPR replies, short enough that a
 // non-responsive peer doesn't feel like a hang.
 #define RLN_HANDSHAKE_MS 250
-// When line completion fires while a source still owes in-band protocol
-// work (mid-ESC sequence or outstanding CPR replies), hold the callback
-// off up to this many ms so those bytes can land and be absorbed instead
-// of leaking into the next read. Hard deadline from the moment defer is
-// armed; byte arrival does not extend it. Early-out via
-// rln_any_defer_pending() is the happy path; this cap is the fallback
-// for sequences that never finish landing.
-#define RLN_COMPLETE_DEFER_MS 500
 
 // Per-input-source state: one instance per com source plus one for the
 // 6502 poke stream. Each instance holds the ANSI parser and per-source
-// CPR/DA2/defer bookkeeping. buf[] doubles as in-flight cache (tail =
+// CPR/DA2 bookkeeping. buf[] doubles as in-flight cache (tail =
 // in-progress sequence) and deferred-typed buffer (head = completed
 // sequences awaiting edit phase). Bookkeeping fields are unused on
 // rln_poke_source.
@@ -95,16 +87,12 @@ typedef struct
     uint8_t buf[RLN_BUF_SIZE];
     uint16_t buf_len;
     uint16_t inflight_len;
-    // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
-    // sticky, kept by rln_sources_reset.
+    // Per-source bookkeeping (zero on rln_poke_source).
     uint8_t cpr_expecting;  // outstanding CPR count this read
     uint16_t cpr_w;         // max column this read = the screen right edge
     uint16_t cpr_h;         // max row this read = the screen bottom edge
-    uint16_t cpr_pcol;      // min column this read = the prompt column
-    bool cpr_seen;          // sticky: source has dispatched a valid CPR
+    uint16_t cpr_pcol;      // latest prompt reply column this read, 0 = none yet
     bool da2_seen;          // proven DA2-aware this read
-    bool defer_pending;     // arm-time busy criteria still pending
-    bool defer_esc_pending; // arm-time in-flight ESC sequence not yet done
     // The CR or LF this source last ended a line with, so the other half of
     // a CRLF pair arriving next is absorbed instead of ending a second line.
     uint8_t line_end;
@@ -129,7 +117,6 @@ static rln_read_callback_t rln_callback;
 static timer_mach_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
-static bool rln_enable_history;
 static bool rln_skip_history;
 static uint8_t rln_max_length;
 static uint32_t rln_idle_timeout_ms;
@@ -138,17 +125,6 @@ static uint8_t rln_caps;
 // so field input on the last line keeps the cursor on its row. Persists
 // across reads; reset on stop() (via rln_init).
 static bool rln_suppress_newline;
-
-// Deferred completion. Set when rln_complete fires while a source is
-// still busy (parser mid-ESC or owes proven CPR replies); the callback
-// is held off until every busy source resolves its arm-time criteria
-// (in-flight ESC back to C0 AND all owed CPRs landed) or
-// RLN_COMPLETE_DEFER_MS elapses. Sources not busy at arm aren't read
-// during the window — their bytes wait in com's FIFO for the next read.
-// rln_poke_source is exempt (synchronous; never owes a handshake).
-static bool rln_complete_deferred;
-static bool rln_complete_deferred_timed_out;
-static timer_mach_t rln_complete_deferred_deadline;
 
 // Cross-terminal display state
 static rln_phase_t rln_phase;
@@ -166,24 +142,21 @@ static bool rln_decscusr_ok;           // peer claimed VT220+ via Primary DA; sa
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
 
-// Per-source state: rln_sources[s] holds the parser + CPR/DA2/defer
+// Per-source state: rln_sources[s] holds the parser + CPR/DA2
 // bookkeeping for each com input source (keyboard, uart, tel). rln_poke_source
 // is separate — fed synchronously from rln_poke (the 6502 API).
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
 
-// Clear each source's per-read state. cpr_seen and line_end survive because
-// they describe the terminal rather than the read: a source that answered a
-// CPR is still a real terminal, and a return that ended a line is still owed
-// its line feed even when the line feed arrives during the next read.
+// Clear each source's per-read state. line_end survives because a return
+// that ended a line is still owed its line feed even when the line feed
+// arrives during the next read.
 static void rln_sources_reset(void)
 {
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
-        bool cpr_seen = rln_sources[s].cpr_seen;
         uint8_t line_end = rln_sources[s].line_end;
         memset(&rln_sources[s], 0, sizeof rln_sources[s]);
-        rln_sources[s].cpr_seen = cpr_seen;
         rln_sources[s].line_end = line_end;
     }
     memset(&rln_poke_source, 0, sizeof rln_poke_source);
@@ -222,10 +195,7 @@ static void rln_source_save(sst_cursor_t *c, const rln_source_t *s)
     sst_put_u16(c, s->cpr_w);
     sst_put_u16(c, s->cpr_h);
     sst_put_u16(c, s->cpr_pcol);
-    sst_put_bool(c, s->cpr_seen);
     sst_put_bool(c, s->da2_seen);
-    sst_put_bool(c, s->defer_pending);
-    sst_put_bool(c, s->defer_esc_pending);
     sst_put_u8(c, s->line_end);
 }
 
@@ -242,8 +212,7 @@ static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
     uint16_t blen = sst_get_u16(c), iflen = sst_get_u16(c);
     uint8_t expecting = sst_get_u8(c);
     uint16_t w = sst_get_u16(c), h = sst_get_u16(c), pcol = sst_get_u16(c);
-    bool cpr = sst_get_bool(c), da2 = sst_get_bool(c);
-    bool defer = sst_get_bool(c), defer_esc = sst_get_bool(c);
+    bool da2 = sst_get_bool(c);
     uint8_t end = sst_get_u8(c);
     if (!sst_ok(c) || blen > RLN_BUF_SIZE || iflen > blen)
         return false;
@@ -258,10 +227,7 @@ static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
     s->cpr_w = w;
     s->cpr_h = h;
     s->cpr_pcol = pcol;
-    s->cpr_seen = cpr;
     s->da2_seen = da2;
-    s->defer_pending = defer;
-    s->defer_esc_pending = defer_esc;
     s->line_end = end;
     return true;
 }
@@ -287,15 +253,11 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, rln_idle_deadline);
     sst_put_u8(c, rln_buflen);
     sst_put_u8(c, rln_bufpos);
-    sst_put_bool(c, rln_enable_history);
     sst_put_bool(c, rln_skip_history);
     sst_put_u8(c, rln_max_length);
     sst_put_u32(c, rln_idle_timeout_ms);
     sst_put_u8(c, rln_caps);
     sst_put_bool(c, rln_suppress_newline);
-    sst_put_bool(c, rln_complete_deferred);
-    sst_put_bool(c, rln_complete_deferred_timed_out);
-    sst_put_u64(c, rln_complete_deferred_deadline);
     sst_put_u8(c, (uint8_t)rln_phase);
     sst_put_u64(c, rln_handshake_deadline);
     sst_put_u16(c, rln_prompt_col);
@@ -333,13 +295,11 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t reader = sst_get_u8(c);
     uint64_t idle = sst_get_u64(c);
     uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
-    bool hist = sst_get_bool(c), skip = sst_get_bool(c);
+    bool skip = sst_get_bool(c);
     uint8_t maxlen = sst_get_u8(c);
     uint32_t idle_ms = sst_get_u32(c);
     uint8_t caps = sst_get_u8(c);
     bool suppress = sst_get_bool(c);
-    bool deferred = sst_get_bool(c), deferred_out = sst_get_bool(c);
-    uint64_t defer_at = sst_get_u64(c);
     uint8_t phase = sst_get_u8(c);
     uint64_t hand_at = sst_get_u64(c);
     uint16_t pcol = sst_get_u16(c), tw = sst_get_u16(c), th = sst_get_u16(c);
@@ -378,15 +338,11 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_idle_deadline = idle;
     rln_buflen = buflen;
     rln_bufpos = bufpos;
-    rln_enable_history = hist;
     rln_skip_history = skip;
     rln_max_length = maxlen;
     rln_idle_timeout_ms = idle_ms;
     rln_caps = caps;
     rln_suppress_newline = suppress;
-    rln_complete_deferred = deferred;
-    rln_complete_deferred_timed_out = deferred_out;
-    rln_complete_deferred_deadline = defer_at;
     rln_phase = (rln_phase_t)phase;
     rln_handshake_deadline = hand_at;
     rln_prompt_col = pcol;
@@ -421,116 +377,17 @@ static bool rln_source_tracked(com_source_t s)
     return s == COM_SOURCE_UART || s == COM_SOURCE_TEL;
 }
 
-// True if source s still owes in-band protocol work: mid a multi-byte
-// ANSI sequence, or owes a proven CPR reply. cpr_seen keeps
-// never-replying script peers from pinning completion open.
-static bool rln_source_busy(com_source_t s)
-{
-    return rln_sources[s].state != ansi_state_C0 ||
-           (rln_sources[s].cpr_seen && rln_sources[s].cpr_expecting > 0);
-}
-
-static bool rln_any_source_busy(void)
-{
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        if (rln_source_busy(s))
-            return true;
-    return false;
-}
-
-// Snapshot source s's busy reasons at defer-arm.
-static void rln_defer_arm(com_source_t s)
-{
-    rln_source_t *a = &rln_sources[s];
-    a->defer_pending = rln_source_busy(s);
-    a->defer_esc_pending = (a->state != ansi_state_C0);
-}
-
-// Called after every byte fed from source s during defer. Clears
-// defer_pending only once *both* arm-time criteria hold: the arm-time
-// ESC sequence is back to C0 AND all owed CPRs have landed. AND (not
-// OR): a typed sequence completing mid-defer must not release the gate
-// while CPRs are still in flight. defer_esc_pending is set only at arm.
-static void rln_defer_check_resolved(com_source_t s)
-{
-    rln_source_t *a = &rln_sources[s];
-    if (!a->defer_pending)
-        return;
-    if (a->defer_esc_pending && a->state == ansi_state_C0)
-        a->defer_esc_pending = false;
-    /* Every source is seeded with an expected CPR count, but only a tracked
-     * one can ever work it off, so an untracked source that armed mid-sequence
-     * would otherwise wait out the deadline. Not cpr_seen: that is false for a
-     * real terminal until its first reply of the round lands, and releasing on
-     * it would spill this round's answers into the next. */
-    if (!a->defer_esc_pending &&
-        (!rln_source_tracked(s) || a->cpr_expecting == 0))
-        a->defer_pending = false;
-}
-
-static bool rln_any_defer_pending(void)
-{
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        if (rln_sources[s].defer_pending)
-            return true;
-    return false;
-}
-
-// Drop the sticky cpr_seen verdict for source s when it delivered no
-// CPRs this round. A counted CPR (expecting decremented) means the
-// source proved real this round and we keep its verdict.
-static void rln_cpr_forget_stale(com_source_t s)
-{
-    if (rln_sources[s].cpr_expecting == rln_cpr_initial)
-        rln_sources[s].cpr_seen = false;
-}
-
-static void HOST_IN_RAM_FUNC rln_forget_all_stale(void)
-{
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        rln_cpr_forget_stale(s);
-}
-
-// Immediate completion: invoke the user callback and clear all
-// in-band completion state. Callers must have already verified that
-// it's safe to drop in-flight parser tails.
-static void rln_complete_now(bool timed_out)
+/* The line is done at Enter: nothing is read after it, so whatever follows
+ * is the next reader's. SUPPRESS_NL drops the newline so last-line field
+ * input keeps the cursor on its row. */
+static void rln_complete(bool timed_out)
 {
     rln_read_callback_t cc = rln_callback;
     rln_idle_timeout_ms = 0;
     rln_callback = NULL;
-    rln_complete_deferred = false;
-    // Forget stale cpr_seen verdicts before the callback fires, so a
-    // synchronous rln_read_line() from cc() sees this round's final
-    // cpr_expecting state. Covers fast-CR and idle-timeout completion,
-    // which the deadline handler in rln_task misses.
-    rln_forget_all_stale();
-    // Emit the terminating newline here (not at rln_finish_line):
-    // uploaders use the '\n' echo as a flow-control "ready for next
-    // chunk" signal, so it must wait until defer ends. SUPPRESS_NL
-    // drops it so last-line field input keeps the cursor on its row.
     if (!rln_suppress_newline)
         com_putchar('\n');
     cc(timed_out, rln_buf);
-}
-
-// Public completion entry. Fires inline when no source owes in-band
-// work; defers otherwise so mid-ESC sequences and outstanding CPRs can
-// be absorbed before the next rln_read_line resets the parsers.
-static void rln_complete(bool timed_out)
-{
-    if (rln_complete_deferred)
-        return;
-    if (!rln_any_source_busy())
-    {
-        rln_complete_now(timed_out);
-        return;
-    }
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        rln_defer_arm(s);
-    rln_complete_deferred = true;
-    rln_complete_deferred_timed_out = timed_out;
-    rln_complete_deferred_deadline = timer_mach_in_ms(RLN_COMPLETE_DEFER_MS);
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -845,7 +702,7 @@ static void rln_replace_buf_from_history(void)
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
-    if (!rln_enable_history || rln_idle_timeout_ms || rln_skip_history)
+    if (rln_idle_timeout_ms || rln_skip_history)
         return;
     if (dir > 0 && rln_history_pos >= rln_history_count)
         return;
@@ -861,7 +718,7 @@ static void rln_history_step(int dir)
 
 static void rln_history_add(void)
 {
-    if (!rln_enable_history || rln_idle_timeout_ms || rln_skip_history)
+    if (rln_idle_timeout_ms || rln_skip_history)
         return;
     if (rln_buflen == 0)
         return;
@@ -877,7 +734,7 @@ static void rln_history_add(void)
 
 // Park the cursor past the input, nul-terminate the buffer, optionally
 // push to history, and complete. The terminating newline is emitted in
-// rln_complete_now (suppressed by the SUPPRESS_NL attribute).
+// rln_complete (suppressed by the SUPPRESS_NL attribute).
 static void rln_finish_line(bool add_to_history)
 {
     rln_sync_cursor_to(rln_cursor_max());
@@ -1424,16 +1281,8 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
                    a->csi_private == '>' &&
                    term == 'c');
     bool tracked = rln_source_tracked(src);
-    // Protocol-state accounting (cpr_seen/cpr_expecting, da2_seen),
-    // geometry refinement (rln_cpr_dispatch), and the lock-off latch all
-    // run before the defer gate below: they must record every CPR/DA2,
-    // including replies absorbed during defer.
-    if (is_cpr && tracked)
-    {
-        rln_sources[src].cpr_seen = true;
-        if (rln_sources[src].cpr_expecting > 0)
-            rln_sources[src].cpr_expecting--;
-    }
+    if (is_cpr && tracked && rln_sources[src].cpr_expecting > 0)
+        rln_sources[src].cpr_expecting--;
     if (is_da2 && tracked)
         rln_sources[src].da2_seen = true;
     // 2-CPR lock-off: if this CPR closes the source's quota and that
@@ -1450,15 +1299,6 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     }
     if (is_cpr && tracked)
         rln_cpr_dispatch(src, a->csi_param[0], a->csi_param[1]);
-    // Defer pending: the line is logically submitted; we're only
-    // absorbing in-band protocol bytes so they don't leak into the next
-    // read. The pre-gate block already ran the effects we want during
-    // defer, so skip the DA2 enable and typed dispatch.
-    if (rln_complete_deferred)
-    {
-        rln_ansi_trim_inflight(a);
-        return;
-    }
     if (is_da2)
     {
         rln_da2_dispatch(src);
@@ -1551,9 +1391,9 @@ static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src)
     for (uint16_t i = 0; i < total; i++)
     {
         rln_ansi_feed(a, src, temp[i]);
-        // Stop if the line finished (callback fired) or entered defer —
-        // continuing would replay bytes into an already-submitted line.
-        if (rln_callback != cb_at_start || rln_complete_deferred)
+        // Stop if the line finished; continuing would replay bytes into an
+        // already-submitted line.
+        if (rln_callback != cb_at_start)
             return;
     }
 }
@@ -1579,7 +1419,7 @@ static void rln_enter_edit(void)
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
         rln_ansi_drain_deferred(&rln_sources[s], s);
-        if (rln_callback != cb_at_start || rln_complete_deferred)
+        if (rln_callback != cb_at_start)
             return;
     }
     bool prev_overwrite = rln_overwrite;
@@ -1609,82 +1449,76 @@ static void rln_handshake_fallback(void)
                 rln_decscusr_locked_off = true;
                 break;
             }
-    rln_forget_all_stale();
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
     rln_enter_edit();
 }
 
+// Take a prompt column and screen size. The first starts the edit; a later
+// one that differs draws the line again, so the latest report wins.
+static void rln_take_geometry(uint16_t pcol, uint16_t w, uint16_t h)
+{
+    uint16_t old_w = rln_get_term_width();
+    uint16_t old_pcol = rln_prompt_col;
+    rln_prompt_col = pcol;
+    rln_term_width = w;
+    rln_term_height = h;
+    if (rln_phase != rln_phase_edit)
+        rln_enter_edit();
+    else if (pcol != old_pcol || rln_get_term_width() != old_w)
+        rln_resize_redraw();
+}
+
 // Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
 //
-// Classified by content, not arrival order, so a reply that arrives first or
-// leaks from a previous read (the fast-paste failure) is still sorted right.
-// \33[999;999H clamps the geometry reply to the bottom-right, so for one
-// source the geometry reply is the MAX row/col and the prompt reply sits
-// inside it (the MIN col). A source's size is trusted only once it has
-// answered its full quota (cpr_expecting == 0) AND its edge is a real width
-// past the prompt (max col > min col) — never a stray prompt reply collapsing
-// width to ~1. The highest-priority qualified terminal supplies the size —
-// telnet CPR over uart CPR (NAWS, when set, outranks both in
-// rln_get_term_width); prompt_col is pinned once from the first qualifier.
-// Until one source qualifies the size stays unknown and the handshake
-// deadline drops to no-wrap.
-//
-// Called above the defer gate so a leaked reply still updates the span;
-// enter_edit/resize are guarded against rln_complete_deferred.
+// A line completed before its terminal answered leaves its replies to the
+// next read, so replies are sorted by content, not counted by order.
+// \33[999;999H clamps the size reply to the bottom-right, so for one source
+// the size reply has the largest column and any reply left of it is a prompt
+// reply. The latest prompt reply wins: this read's own replies come after any
+// left over from an earlier read. A source qualifies once it has answered its
+// quota (cpr_expecting == 0) and a prompt reply sits left of its edge. Telnet
+// CPR outranks uart CPR (NAWS, when set, outranks both in
+// rln_get_term_width). Until one source qualifies the size stays unknown and
+// the handshake deadline drops to no-wrap.
 static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 {
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
-    bool both_overrides = rln_width_override && rln_height_override;
-    // Both axes overridden: only CPR1 is sent, so the lone reply is the
-    // prompt and the size comes from the overrides.
-    if (both_overrides)
+    uint16_t col = p2 ? p2 : 1;
+    // Both axes overridden: only CPR1 is sent, so every reply is a prompt
+    // reply and the size comes from the overrides.
+    if (rln_width_override && rln_height_override)
     {
-        if (rln_prompt_col == 0)
-        {
-            rln_prompt_col = p2 ? p2 : 1;
-            if (!rln_complete_deferred)
-                rln_enter_edit();
-        }
+        rln_take_geometry(col, rln_term_width, rln_term_height);
         return;
     }
-    // Widen this source's column span: edge (max col) and prompt (min col).
     rln_source_t *a = &rln_sources[src];
-    if (p2 > a->cpr_w)
-        a->cpr_w = p2;
-    if (a->cpr_pcol == 0 || p2 < a->cpr_pcol)
-        a->cpr_pcol = p2 ? p2 : 1;
+    if (col < a->cpr_w)
+        a->cpr_pcol = col;
+    else if (col > a->cpr_w)
+    {
+        // A new edge: the reply that set the old one was a prompt reply,
+        // unless a prompt reply has been seen since.
+        if (!a->cpr_pcol)
+            a->cpr_pcol = a->cpr_w;
+        a->cpr_w = col;
+    }
     if (p1 > a->cpr_h)
         a->cpr_h = p1;
-    if (rln_phase == rln_phase_prompt_cpr && !rln_complete_deferred)
+    if (rln_phase == rln_phase_prompt_cpr)
         rln_phase = rln_phase_width_cpr;
-    // Highest-priority qualified terminal wins: telnet CPR over uart CPR. A
-    // source qualifies once it has answered its quota (cpr_expecting == 0) with
-    // a real edge past the prompt (cpr_w > cpr_pcol). KEYBOARD sends no real CPR so
-    // it never qualifies. No longer a min across terminals.
+    // KEYBOARD sends no real CPR so it never qualifies.
     rln_source_t *pick = NULL;
     if (rln_sources[COM_SOURCE_TEL].cpr_expecting == 0 &&
-        rln_sources[COM_SOURCE_TEL].cpr_w > rln_sources[COM_SOURCE_TEL].cpr_pcol)
+        rln_sources[COM_SOURCE_TEL].cpr_pcol)
         pick = &rln_sources[COM_SOURCE_TEL];
     else if (rln_sources[COM_SOURCE_UART].cpr_expecting == 0 &&
-             rln_sources[COM_SOURCE_UART].cpr_w > rln_sources[COM_SOURCE_UART].cpr_pcol)
+             rln_sources[COM_SOURCE_UART].cpr_pcol)
         pick = &rln_sources[COM_SOURCE_UART];
-    if (!pick)
-        return;
-    uint16_t w = pick->cpr_w, h = pick->cpr_h, pc = pick->cpr_pcol;
-    uint16_t old_w = rln_get_term_width();
-    if (rln_prompt_col == 0)
-        rln_prompt_col = pc;
-    rln_term_height = h;
-    rln_term_width = w;
-    if (rln_complete_deferred)
-        return;
-    if (rln_phase != rln_phase_edit)
-        rln_enter_edit();
-    else if (rln_get_term_width() != old_w)
-        rln_resize_redraw();
+    if (pick)
+        rln_take_geometry(pick->cpr_pcol, pick->cpr_w, pick->cpr_h);
 }
 
 /* ----- Top-level task / driver hooks ----- */
@@ -1701,7 +1535,6 @@ void rln_read_line(rln_read_callback_t callback)
     rln_lastkey_len = 0;
     rln_action_taken = false;
     rln_lastkey_action = false;
-    rln_complete_deferred = false;
 
     rln_phase = rln_phase_prompt_cpr;
     // prompt_col == 0 is the per-read sentinel: the first CPR pins it, and
@@ -1718,8 +1551,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_sources_reset();
     // CPR1 always sent; CPR2 sent only when at least one geometry axis
     // isn't overridden. Seed expecting for every source — bytes go to
-    // all attached terminals and any of them may reply. Non-terminal
-    // sources have cpr_seen=false so they never block defer regardless.
+    // all attached terminals and any of them may reply.
     rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_sources[s].cpr_expecting = rln_cpr_initial;
@@ -1775,7 +1607,6 @@ void rln_read_line_no_history(rln_read_callback_t callback)
 void rln_read_cancel(void)
 {
     rln_callback = NULL;
-    rln_complete_deferred = false;
     rln_idle_timeout_ms = 0;
 }
 
@@ -1787,63 +1618,20 @@ bool rln_read_flush(void)
     return true;
 }
 
-// Read one byte from the appropriate source(s). In normal operation
-// src=COM_SOURCE_ANY lets com_getchar pick via the sticky RX picker.
-// During deferred completion we walk only the still-busy sources, leaving
-// bytes on clean sources queued in their FIFOs to arrive at the next
-// rln_read_line as a fresh stream. Returns -1 if no byte was available;
-// *out_src is set to the source that delivered (or COM_SOURCE_ANY on -1).
-static int rln_read_next(com_source_t *out_src)
-{
-    *out_src = COM_SOURCE_ANY;
-    if (!rln_complete_deferred)
-        return com_getchar(out_src);
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        if (!rln_sources[s].defer_pending)
-            continue;
-        // At rest but still owing a CPR: the next byte is either the ESC that
-        // begins the reply (absorb it) or the next pasted line's typed input.
-        // Peek so typed bytes stay FIFO-queued for the next read; yield the
-        // source so completion fires instead of waiting out the defer deadline.
-        if (rln_sources[s].state == ansi_state_C0)
-        {
-            int p = com_peekchar(s);
-            if (p < 0)
-                continue; // reply not here yet — keep the gate open
-            if (p != '\33')
-            {
-                rln_sources[s].defer_pending = false;
-                continue;
-            }
-        }
-        com_source_t arg = s;
-        int c = com_getchar(&arg);
-        if (c >= 0)
-        {
-            *out_src = s;
-            return c;
-        }
-    }
-    return -1;
-}
-
 void HOST_IN_RAM_FUNC rln_task(void)
 {
     if (!rln_callback)
         return;
     while (rln_callback)
     {
-        com_source_t this_src;
-        int c = rln_read_next(&this_src);
+        com_source_t this_src = COM_SOURCE_ANY;
+        int c = com_getchar(&this_src);
         if (c < 0)
             break;
         char ch = (char)c;
         rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
         if (this_src != COM_SOURCE_ANY)
             rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
-        if (rln_complete_deferred && this_src != COM_SOURCE_ANY)
-            rln_defer_check_resolved(this_src);
         // Instant relief for scripting tools that don't answer ANSI: a
         // pre-edit CR, or any parser hitting its buf cap, means the peer
         // is feeding bytes without completing the CPR exchange — abandon
@@ -1857,35 +1645,14 @@ void HOST_IN_RAM_FUNC rln_task(void)
             // Skip the rest of the handshake: geometry was never
             // confirmed, so drop prompt_col to force no-wrap rendering.
             // term_width is kept (still useful for rln_get_term_width;
-            // only a real timeout zeroes it). Don't forget_stale here —
-            // the CR replay fires rln_complete, which needs sticky
-            // cpr_seen to keep defer engaged so in-transit CPRs are
-            // absorbed; complete_now and the deadline path clear stale
-            // verdicts.
+            // only a real timeout zeroes it).
             rln_prompt_col = 0;
             rln_enter_edit();
         }
     }
-    if (rln_callback && timer_mach_passed(rln_handshake_deadline))
-    {
-        if (rln_phase != rln_phase_edit)
-            rln_handshake_fallback();
-        else
-            // Happy path already in edit before the deadline. Run
-            // forget_stale here so a once-real-now-gone source can't pin
-            // defer with a stale cpr_seen verdict. Idempotent.
-            rln_forget_all_stale();
-    }
-    // Fire deferred completion before the idle-timeout check so a
-    // timeout-triggered defer resolves through its own path, not a fresh
-    // rln_complete(true). Fire early once every source met its arm-time
-    // criteria; the deadline is the fallback for bytes that never land.
-    if (rln_complete_deferred)
-    {
-        if (!rln_any_defer_pending() ||
-            timer_mach_passed(rln_complete_deferred_deadline))
-            rln_complete_now(rln_complete_deferred_timed_out);
-    }
+    if (rln_callback && rln_phase != rln_phase_edit &&
+        timer_mach_passed(rln_handshake_deadline))
+        rln_handshake_fallback();
     if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
         rln_complete(true);
 }
@@ -1893,7 +1660,6 @@ void HOST_IN_RAM_FUNC rln_task(void)
 void HOST_IN_FLASH_FUNC rln_init(void)
 {
     rln_callback = NULL;
-    rln_enable_history = true;
     rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = RLN_CAPS_OFF;
     rln_suppress_newline = false;
@@ -1901,14 +1667,12 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_overwrite = false;
     rln_width_override = 0;
     rln_height_override = 0;
-    rln_complete_deferred = false;
     rln_sources_reset();
     rln_decscusr_locked_off = false;
 }
 
 void rln_run(void)
 {
-    rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
 }
 
@@ -1994,7 +1758,6 @@ void HOST_IN_RAM_FUNC rln_set_naws_size(uint16_t w, uint16_t h)
     if (rln_callback &&
         rln_phase == rln_phase_edit &&
         rln_prompt_col != 0 &&
-        !rln_complete_deferred &&
         rln_buflen > 0 &&
         rln_get_term_width() != old_w)
         rln_resize_redraw();
@@ -2058,11 +1821,6 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
 void rln_poke(const char *str)
 {
     if (!rln_callback)
-        return;
-    // The line is already submitted from the user's perspective once
-    // completion is deferred; a second poke must not mutate the buffer
-    // or chain another rln_finish_line into the quiet window.
-    if (rln_complete_deferred)
         return;
     bool sync = (rln_phase == rln_phase_edit);
     bool prev_overwrite = rln_overwrite;

@@ -30,7 +30,7 @@ static void wire(const char *s)
         rln_task();
 }
 
-/* rln_init keeps each source's line_end and cpr_seen, so every source is also
+/* rln_init keeps each source's line_end, so every source is also
  * cleared with rln_forget_source, or a case would start with the values the
  * previous case left. */
 static void fresh(void)
@@ -155,6 +155,71 @@ UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
     strcat(key, "C");
     wire(key);
     ASSERT_EQ(lastkey_len(), 0);
+}
+
+/* The Enter lands before the terminal answers the read's cursor position
+ * request, so the up arrow after it is the next read's key. */
+UTEST(rln, a_key_typed_right_after_enter_goes_to_the_next_read)
+{
+    editing();
+    wire("x\r");
+    ASSERT_EQ(lines, 1);
+    wire("a\r\33[A");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "a");
+    wire("\33[1;1R\r");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "a");
+}
+
+static char shown[4096];
+static size_t shown_len;
+
+static void show(const char *buf, int len)
+{
+    if (shown_len + (size_t)len < sizeof shown)
+    {
+        memcpy(shown + shown_len, buf, (size_t)len);
+        shown_len += (size_t)len;
+        shown[shown_len] = 0;
+    }
+}
+
+/* Types into a ten-character field, which cannot wrap, so every key moves
+ * the cursor with an absolute column from the prompt. */
+static const char *typed_at(const char *replies)
+{
+    fresh();
+    rln_set_max_length(10);
+    reading();
+    wire(replies);
+    shown_len = 0;
+    shown[0] = 0;
+    com_set_tx_tap(show);
+    wire("ab");
+    com_set_tx_tap(NULL);
+    return shown;
+}
+
+/* Each pair is a prompt reply then a size reply. The first pair is left over
+ * from an earlier read, at another prompt. */
+UTEST(rln, the_latest_prompt_reply_wins)
+{
+    const char *out = typed_at("\33[5;4R\33[24;80R\33[6;28R\33[24;80R");
+    ASSERT_TRUE(strstr(out, "\33[28G") != NULL);
+    ASSERT_TRUE(strstr(out, "\33[4G") == NULL);
+    out = typed_at("\33[5;28R\33[24;80R\33[6;4R\33[24;80R");
+    ASSERT_TRUE(strstr(out, "\33[4G") != NULL);
+    ASSERT_TRUE(strstr(out, "\33[28G") == NULL);
+}
+
+/* The earlier read finished after its prompt reply, so only its size reply
+ * is left over. */
+UTEST(rln, a_leftover_size_reply_is_not_a_prompt)
+{
+    const char *out = typed_at("\33[24;80R\33[6;28R\33[24;80R");
+    ASSERT_TRUE(strstr(out, "\33[28G") != NULL);
+    ASSERT_EQ(rln_get_term_width(), 80);
 }
 
 UTEST(rln, a_poke_of_an_empty_string_ends_the_line)

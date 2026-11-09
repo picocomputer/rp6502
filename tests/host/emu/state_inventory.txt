@@ -166,14 +166,10 @@ core/str/rln.c rln_buflen: the RLN chunk
 core/str/rln.c rln_bufpos: the RLN chunk
 core/str/rln.c rln_callback: the RLN chunk
 core/str/rln.c rln_caps: the RLN chunk
-core/str/rln.c rln_complete_deferred: the RLN chunk
-core/str/rln.c rln_complete_deferred_deadline: the RLN chunk
-core/str/rln.c rln_complete_deferred_timed_out: the RLN chunk
 core/str/rln.c rln_cpr_initial: the RLN chunk
 core/str/rln.c rln_cur_idx: the RLN chunk
 core/str/rln.c rln_decscusr_locked_off: the RLN chunk
 core/str/rln.c rln_decscusr_ok: the RLN chunk
-core/str/rln.c rln_enable_history: the RLN chunk
 core/str/rln.c rln_handshake_deadline: the RLN chunk
 core/str/rln.c rln_height_override: the RLN chunk
 core/str/rln.c rln_history: the RLN chunk

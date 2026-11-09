@@ -75,8 +75,8 @@ void rln_set_term_height(uint16_t v);
 // change reflow the current input line at the new effective width.
 void rln_set_naws_size(uint16_t w, uint16_t h);
 
-// Forget everything about a source, including the cpr_seen and line_end that
-// normally survive a read, because the next client on that source is a
+// Forget everything about a source, including the line_end that normally
+// survives a read, because the next client on that source is a
 // different terminal. Takes a com_source_t.
 void rln_forget_source(unsigned src);
 
@@ -120,7 +120,7 @@ const char *rln_line(void);
  * The deadlines are machine time, so they are carried whole rather than
  * re-armed. They mean the same thing in the machine that loads the blob as in
  * the one that made it. */
-#define RLN_SST_SIZE 3629
+#define RLN_SST_SIZE 3606
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -130,6 +130,6 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+    SST(RLN_, 2, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_STR_RLN_H_ */

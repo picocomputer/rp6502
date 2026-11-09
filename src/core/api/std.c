@@ -295,7 +295,7 @@ static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_
         if (!std_rln_active)
         {
             std_rln_active = true;
-            rln_read_line(std_rln_callback);
+            rln_read_line_no_history(std_rln_callback);
         }
         return STD_PENDING;
     }
