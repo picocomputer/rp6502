@@ -16,7 +16,7 @@ X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 
 // ANSI reset commands
 X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
-X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h\33[3g")
+X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

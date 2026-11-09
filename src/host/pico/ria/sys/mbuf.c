@@ -19,12 +19,13 @@ static mbuf_read_callback_t mbuf_callback;
 static absolute_time_t mbuf_deadline;
 static uint32_t mbuf_timeout_ms;
 static size_t mbuf_read_size;
+static com_source_t mbuf_src;
 
 void HOST_IN_RAM_FUNC mbuf_task(void)
 {
     while (mbuf_callback)
     {
-        com_source_t src = COM_SOURCE_ANY;
+        com_source_t src = mbuf_src;
         int c = com_getchar(&src);
         if (c < 0)
             break;
@@ -51,11 +52,13 @@ void mbuf_break(void)
     mbuf_callback = NULL;
 }
 
-void mbuf_read(uint32_t timeout_ms, mbuf_read_callback_t callback, size_t size)
+void mbuf_read(com_source_t src, uint32_t timeout_ms, mbuf_read_callback_t callback,
+               size_t size)
 {
     assert(!mbuf_callback);
     assert(timeout_ms);
     assert(size > 0 && size <= MBUF_SIZE);
+    mbuf_src = src;
     mbuf_read_size = size;
     mbuf_len = 0;
     mbuf_timeout_ms = timeout_ms;

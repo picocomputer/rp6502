@@ -215,14 +215,15 @@ static void vga_rln_callback(bool timeout)
         vga_state = VGA_NOT_FOUND;
 }
 
+/* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
+ * the run after a lost link keeps the keyboard and telnet type-ahead. */
 static void HOST_IN_FLASH_FUNC vga_connect(void)
 {
     vga_backchannel_irq_disable();
-    while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-        tight_loop_contents();
+    com_uart_clear();
 
     // Test if VGA connected
-    mbuf_read(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
+    mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)

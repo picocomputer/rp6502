@@ -373,7 +373,7 @@ void HOST_IN_FLASH_FUNC ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        mbuf_read(COM_SOURCE_ANY, RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }

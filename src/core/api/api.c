@@ -115,10 +115,13 @@ void api_stop(void)
 void api_run(void)
 {
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // $FFE3 is skipped because it is the VSYNC frame counter, which is advanced
-    // on every vertical sync.
-    for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
-        if (addr != 0xFFE3)
+    // A typed byte waiting in RX, $FFE2 with its ready bit, is the head of the
+    // type-ahead that an exec carries to the next program. $FFE3 is skipped
+    // because it is the VSYNC frame counter, which is advanced on every
+    // vertical sync.
+    REGS(0xFFE0) &= RIA_UART_RX_READY;
+    for (int addr = 0xFFE1; addr <= 0xFFEF; addr++)
+        if (addr != 0xFFE2 && addr != 0xFFE3)
             REGS(addr) = 0;
     xstack_ptr = XSTACK_SIZE;
     REGS(0xFFE5) = 1; // STEP0

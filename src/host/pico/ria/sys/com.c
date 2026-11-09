@@ -153,31 +153,30 @@ static void com_uart_flush(void)
         tight_loop_contents();
 }
 
+/* Bytes go out in runs: a ring keeps the wire until it is empty, so the RIA's
+ * own output and the 6502's TX register never interleave inside an escape
+ * sequence. */
+static bool com_tx_from_ria;
+
+static bool HOST_IN_RAM_FUNC com_tx_next(uint8_t *ch)
+{
+    return com_tx_from_ria ? ria_uart_tx_dequeue(ch) : RING_GET(&com_tx_core0, ch);
+}
+
 static void HOST_IN_RAM_FUNC com_tx_fanout(void)
 {
     while (com_uart_tx_writable() && com_telnet_tx_writable())
     {
-        bool work = false;
         uint8_t ch;
-        if (RING_GET(&com_tx_core0, &ch))
+        if (!com_tx_next(&ch))
         {
-            com_line_track((const char *)&ch, 1);
-            com_uart_tx_write((char)ch);
-            com_telnet_tx_write((char)ch);
-            work = true;
-            if (!com_uart_tx_writable() || !com_telnet_tx_writable())
+            com_tx_from_ria = !com_tx_from_ria;
+            if (!com_tx_next(&ch))
                 break;
         }
-        uint8_t ch1;
-        if (ria_uart_tx_dequeue(&ch1))
-        {
-            com_line_track((const char *)&ch1, 1);
-            com_uart_tx_write((char)ch1);
-            com_telnet_tx_write((char)ch1);
-            work = true;
-        }
-        if (!work)
-            break;
+        com_line_track((const char *)&ch, 1);
+        com_uart_tx_write((char)ch);
+        com_telnet_tx_write((char)ch);
     }
 }
 

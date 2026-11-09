@@ -369,7 +369,7 @@ static void HOST_IN_FLASH_FUNC fil_upload_dispatch(bool timeout,
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
+        mbuf_read(COM_SOURCE_ANY, FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));

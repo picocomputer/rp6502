@@ -112,9 +112,6 @@ static void rw_write(int which, uint8_t data)
         REGSW(0xFFE6) = addr;
 }
 
-#define RIA_UART_RX_READY 0x40
-#define RIA_UART_TX_READY 0x80
-
 /* com_read_source (core/com/pick.c) offers the staged byte to every source in
  * turn, so com_rx_reclaim and com_rx_peek compare this against the caller and
  * hand the byte back only to the source it came from. Without the comparison,

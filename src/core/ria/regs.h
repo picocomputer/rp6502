@@ -15,6 +15,10 @@ extern volatile uint8_t regs[];
 #define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
 #define REGSL(addr) ((uint32_t *)&REGS(addr))[0]
 
+/* The bits of READY, $FFE0. */
+#define RIA_UART_RX_READY 0x40
+#define RIA_UART_TX_READY 0x80
+
 /* 512 bytes holds a CC65 stack frame, the two names of a file rename, or a
  * disk sector. No push reaches the byte at XSTACK_SIZE, so it holds the zero
  * that terminates a string pushed all the way to the top of the stack; a
