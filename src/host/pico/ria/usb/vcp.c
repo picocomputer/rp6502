@@ -20,7 +20,7 @@
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
 // VCP (Virtual COM Port) is a better umbrella term.
 
-HOST_IN_FLASH static const char vcp_string[] = "VCP";
+HOST_IN_RAM static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
 // An open port configures after open returns. A port has at most one

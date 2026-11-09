@@ -885,7 +885,8 @@ static bool modem_sink(char ch)
 
 bool HOST_IN_RAM_FUNC modem_std_handles(const char *filename)
 {
-    if (strncasecmp(filename, "AT", 2) != 0)
+    static const char HOST_IN_RAM at[] = "AT";
+    if (strncasecmp(filename, at, 2) != 0)
         return false;
     if (filename[2] == ':')
         return true;
