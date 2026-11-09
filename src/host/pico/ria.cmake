@@ -108,6 +108,17 @@ set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
+# Everything that can run while the RIA rewrites its own flash must be in RAM.
+# flash_check.py proves it from the ELF after every link.
+add_custom_command(TARGET ${RIA_TARGET} POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} ${RP6502_ROOT}/src/host/pico/flash_check.py
+        --elf $<TARGET_FILE:${RIA_TARGET}>
+        --compile-commands ${CMAKE_BINARY_DIR}/compile_commands.json
+        --objdump ${CMAKE_OBJDUMP}
+        --addr2line ${CMAKE_ADDR2LINE}
+        --readelf ${CMAKE_READELF}
+    VERBATIM)
+
 # Avoid 26KB of unicode and jis we don't need. Newlib's strftime calls
 # sniprintf, which is wrapped to call vsnprintf so that newlib's printf
 # engine is not linked beside pico_printf.
