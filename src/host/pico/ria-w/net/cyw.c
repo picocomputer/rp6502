@@ -96,6 +96,7 @@ static const char *const HOST_IN_FLASH
 
 static int cyw_country = -1;
 static bool cyw_is_started; // cyw43_arch_init succeeded
+static bool cyw_is_resetting; // a reset waits for BLE to turn off
 static bool cyw_led_status;
 static bool cyw_led_requested;
 
@@ -109,14 +110,29 @@ static int cyw_lookup_country(const char *cc)
     return -1;
 }
 
+/* A reset turns BLE and Wi-Fi off at once, and cyw_reset_task takes the
+ * radio down and up once BLE is off. */
 static void cyw_reset_radio(void)
 {
-    // ble_shutdown calls sys_task which can restart wifi early
-    ble_shutdown(); // must be first
-    wifi_shutdown(); // must be second
+    cyw_is_resetting = true;
+    ble_shutdown();
+    wifi_shutdown();
+}
+
+/* A TASK_PUMPED: the radio's start-up is in flash. */
+void cyw_reset_task(void)
+{
+    if (!cyw_is_resetting || !ble_is_off())
+        return;
     cyw43_arch_deinit();
     cyw_is_started = false;
     cyw_init();
+    cyw_is_resetting = false;
+}
+
+bool cyw_resetting(void)
+{
+    return cyw_is_resetting;
 }
 
 void HOST_IN_RAM_FUNC cyw_task(void)

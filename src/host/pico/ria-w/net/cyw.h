@@ -19,7 +19,9 @@
 
 void cyw_init(void);
 void cyw_task(void);
+void cyw_reset_task(void);
 bool cyw_started(void);
+bool cyw_resetting(void);
 
 /* Utility
  */
@@ -49,10 +51,11 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
 #define CYW_CONFIG_RFCC CONFIG_STR(F, cyw, rf_country_code, CYW_COUNTRY_CODE_SIZE, "", \
     cyw_check_rf_country_code, cyw_apply_rf_country_code, STR_RFCC, \
     cyw_rf_country_code_response, STR_HELP_SET_RFCC, cyw_country_code_response)
-#define CYW_DRIVER DRIVER( \
-    INIT(cyw_init)         \
-    TASK_ALWAYS(cyw_task)  \
-    CYW_CONFIG_RF          \
+#define CYW_DRIVER DRIVER(       \
+    INIT(cyw_init)              \
+    TASK_ALWAYS(cyw_task)       \
+    TASK_PUMPED(cyw_reset_task) \
+    CYW_CONFIG_RF               \
     CYW_CONFIG_RFCC)
 
 #endif /* _RIA_W_NET_CYW_H_ */

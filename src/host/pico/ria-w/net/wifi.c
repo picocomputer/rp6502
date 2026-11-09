@@ -64,12 +64,17 @@ static void wifi_retry_connect(void)
     cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
 }
 
+static bool HOST_IN_RAM_FUNC wifi_wanted(void)
+{
+    return cyw_get_rf_enable() && wifi_get_ssid()[0];
+}
+
 void HOST_IN_RAM_FUNC wifi_task(void)
 {
     switch (wifi_state)
     {
     case wifi_state_off:
-        if (!cyw_get_rf_enable() || !wifi_get_ssid()[0])
+        if (!wifi_wanted() || cyw_resetting())
             break;
         cyw43_arch_enable_sta_mode();
         wifi_state = wifi_state_connect;
@@ -367,9 +372,11 @@ bool HOST_IN_RAM_FUNC wifi_ready(void)
     return wifi_state == wifi_state_connected;
 }
 
+// A radio reset in progress counts, because Wi-Fi connects once it ends.
 bool wifi_connecting(void)
 {
-    return wifi_state == wifi_state_connect ||
+    return (wifi_state == wifi_state_off && wifi_wanted() && cyw_resetting()) ||
+           wifi_state == wifi_state_connect ||
            wifi_state == wifi_state_connecting ||
            (wifi_state == wifi_state_connect_failed &&
             wifi_retry_count < WIFI_RETRY_INITIAL_RETRIES);

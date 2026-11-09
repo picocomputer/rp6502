@@ -28,8 +28,10 @@ bool ble_is_pairing(void);
 // Sends LED info to keyboards
 void ble_set_hid_leds(uint8_t leds);
 
-// Turn off BLE, will restart if not disabled
+// Starts turning BLE off; ble_task finishes once HCI is off. BLE then starts
+// again unless it is disabled.
 void ble_shutdown(void);
+bool ble_is_off(void);
 void ble_flashing(void);
 
 // Status command printer
