@@ -238,6 +238,7 @@ typedef struct {
   osal_task_handle_t task_hdl;  // host task handle, lazy-captured on first tuh_task_ext()
 #endif
   bool task_stop;               // set in the usbh task by the call tuh_task_stop() queues, consumed by tuh_task_ext()
+  bool keep_only;               // set by tuh_keep_only_driver(): no attach, removal or re-attach from then on
 } usbh_data_t;
 
 static uint8_t _usbh_controller_id = TUSB_INDEX_INVALID_8;
@@ -840,6 +841,9 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
   (void) in_isr; // only a hub defers attaches
   switch (event->event_id) {
     case HCD_EVENT_DEVICE_ATTACH:
+      if (_usbh_data.keep_only) {
+        break;
+      }
       // Should we miss the hub detach event due to high traffic, Or due to physical debouncing, some devices can
       // cause multiple attaches (actually reset) without a detached event.
       // Force remove currently mounted with the same bus info (rhport, hub addr, hub port) if exists
@@ -861,6 +865,9 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
       break;
 
     case HCD_EVENT_DEVICE_REMOVE:
+      if (_usbh_data.keep_only) {
+        break;
+      }
       TU_LOG_USBH("[%u:%u:%u] USBH Device Removed\r\n", event->rhport, event->connection.hub_addr, event->connection.hub_port);
       process_remove_event(event);
       break;
@@ -893,7 +900,7 @@ static bool usbh_process_event(hcd_event_t* event, bool in_isr) {
             if (dev->fail_ms == 0 || (uint16_t) (now_ms - dev->fail_last_ms) >= USBH_FAIL_RESET_MS) {
               dev->fail_ms = now_ms; // a run due to start at 0 starts at the next failure
             } else if ((uint16_t) (now_ms - dev->fail_ms) >= USBH_FAIL_RESET_MS &&
-                       _usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8) {
+                       _usbh_data.enumerating_daddr == TUSB_INDEX_INVALID_8 && !_usbh_data.keep_only) {
               // tear down and enumerate again, as an attach on its port does
               TU_LOG_USBH("[%u] Transfers failed for %u ms, re-attach\r\n", event->dev_addr, (unsigned) USBH_FAIL_RESET_MS);
               hcd_event_t attach = {
@@ -2704,6 +2711,105 @@ static bool enum_retry(void) {
 #else
   return false;
 #endif
+}
+
+//--------------------------------------------------------------------+
+// Keeping one driver's devices
+//--------------------------------------------------------------------+
+
+// Tear down every device without a mounted interface on driver, and every other interface of a device that has one.
+// Their drivers' close callbacks and their control transfers' failure callbacks run now. From then on usbh drops
+// attach and remove events and makes no re-attach, so no other driver and no enumeration runs again. There is no way
+// back: the RIA calls this once, before it rewrites its own flash.
+bool tuh_keep_only_driver(usbh_class_driver_t const* driver) {
+  uint8_t keep_id = TUSB_INDEX_INVALID_8;
+  for (uint8_t drv_id = 0; drv_id < TOTAL_DRIVER_COUNT; drv_id++) {
+    if (get_driver(drv_id) == driver) {
+      keep_id = drv_id;
+    }
+  }
+  TU_VERIFY(keep_id != TUSB_INDEX_INVALID_8);
+  _usbh_data.keep_only = true;
+
+  // a device being enumerated has nothing mounted
+  if (_usbh_data.enumerating_daddr != TUSB_INDEX_INVALID_8) {
+    enum_teardown(false);
+  }
+  #if CFG_TUH_HUB
+  _usbh_data.enum_resume_attempt = 0;
+  hcd_event_t deferred;
+  while (osal_queue_receive(_usbh_daq, &deferred, 0)) {}
+  #endif
+
+  for (uint8_t dev_id = 0; dev_id < TOTAL_DEVICES; dev_id++) {
+    usbh_device_t* dev = &_usbh_devices[dev_id];
+    uint8_t const daddr = dev_id + 1u;
+    if (!dev->connected) {
+      continue;
+    }
+    bool keep = false;
+    for (uint8_t itf = 0; itf < CFG_TUH_INTERFACE_MAX; itf++) {
+      keep |= dev->mounted && dev->itf2drv[itf] == keep_id;
+    }
+    if (!keep && dev->mounted && !is_hub_addr(daddr)) {
+      tuh_umount_cb(daddr); // as remove_device_tree() does
+    }
+    for (uint8_t drv_id = 0; drv_id < TOTAL_DRIVER_COUNT; drv_id++) {
+      usbh_class_driver_t const* other = get_driver(drv_id);
+      if (other != NULL && (!keep || drv_id != keep_id)) {
+        other->close(daddr);
+      }
+    }
+    if (keep) {
+      // a composite device stops serving its other interfaces, and the HCD stops polling their endpoints
+      for (uint8_t itf = 0; itf < CFG_TUH_INTERFACE_MAX; itf++) {
+        if (dev->itf2drv[itf] != keep_id) {
+          dev->itf2drv[itf] = TUSB_INDEX_INVALID_8;
+        }
+      }
+      for (uint8_t epnum = 1; epnum < CFG_TUH_ENDPOINT_MAX; epnum++) {
+        for (uint8_t dir = 0; dir < 2; dir++) {
+          if (dev->ep2drv[epnum][dir] != keep_id && dev->ep2drv[epnum][dir] != TUSB_INDEX_INVALID_8) {
+            (void) hcd_edpt_close(dev->bus_info.rhport, daddr, tu_edpt_addr(epnum, dir));
+            dev->ep2drv[epnum][dir] = TUSB_INDEX_INVALID_8;
+          }
+        }
+      }
+    } else {
+      // a hub goes too, but its downstream devices stay: the hub passes their traffic on its own
+      usbh_device_close(dev->bus_info.rhport, daddr);
+      clear_device(dev);
+    }
+  }
+
+  // Queued control transfers of the devices torn down fail now. Their callbacks can queue another, but
+  // tuh_control_xfer() refuses a device no longer connected, so this ends.
+  bool failed;
+  do {
+    failed = false;
+    uint16_t count = tu_fifo_count(&_usbh_pending_ctrl_q) / sizeof(usbh_pending_ctrl_t);
+    while (count--) {
+      usbh_pending_ctrl_t pending;
+      (void) tu_fifo_read_n(&_usbh_pending_ctrl_q, &pending, sizeof(pending));
+      if (pending.daddr_gen == _usbh_data.daddr_gen[pending.daddr] && tuh_connected(pending.daddr)) {
+        (void) tu_fifo_write_n(&_usbh_pending_ctrl_q, &pending, sizeof(pending));
+      } else if (pending.complete_cb) {
+        failed = true;
+        tuh_xfer_t x = {
+          .daddr       = pending.daddr,
+          .ep_addr     = 0,
+          .result      = XFER_RESULT_FAILED,
+          .actual_len  = 0,
+          .setup       = &pending.setup,
+          .buffer      = pending.buffer,
+          .complete_cb = pending.complete_cb,
+          .user_data   = pending.user_data,
+        };
+        pending.complete_cb(&x);
+      }
+    }
+  } while (failed);
+  return true;
 }
 
 #endif

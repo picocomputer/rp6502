@@ -20,6 +20,7 @@
 void usb_init(void);
 void usb_task(void);
 void usb_report_task(void);
+void usb_flashing(void);
 
 // For monitor status command.
 int usb_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -59,6 +60,7 @@ bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
 #define USB_DRIVER DRIVER(           \
     INIT(usb_init)                  \
     TASK_ALWAYS(usb_task)           \
-    TASK_PUMPED(usb_report_task))
+    TASK_PUMPED(usb_report_task)    \
+    FLASHING(usb_flashing))
 
 #endif /* _RIA_USB_USB_H_ */

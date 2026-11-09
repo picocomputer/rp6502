@@ -289,6 +289,16 @@ Measured on 2026-11-08 with a SanDisk Cruzer Blade (0781:5567) behind the rig's 
   - msc.c's `msc_cancel_inflight()` calls it for its ADSC, reset-recovery and GET_MAX_LUN requests when a command times out or the device closes. Before, a CB/CBI command that timed out while its ADSC waited behind another device's control transfer left that ADSC queued. It went out with the bytes that recovery wrote into the same buffer, its completion started the dead command's data phase, and the drive stayed wedged until it was replugged.
   - The FIFO is rotated once in place: each entry is read and, unless dropped, written back. No buffer.
 
+### Keeping one driver's devices
+
+- **New `tuh_keep_only_driver(driver)`:** the RIA calls it once, with its MSC driver, before it rewrites its own flash. Every class driver but MSC is in flash, so none of them may run again. There is no way back.
+  - It ends any enumeration and empties the deferred-attach queue and the resume.
+  - A device with no mounted interface on the driver is torn down as `remove_device_tree()` does: `tuh_umount_cb()`, every driver's close, `usbh_device_close()`, which also fails its in-flight control transfer, and `clear_device()`.
+  - A hub is torn down too, but nothing downstream of it: the hub passes the drive's traffic on its own, and only the host's polling of the hub stops.
+  - A device that keeps an interface on the driver loses its other ones: their drivers' close, and `hcd_edpt_close()` for their endpoints, so the HCD stops polling them. A keyboard with a card reader keeps the card reader.
+  - The pending FIFO is rotated, and every entry for a device no longer connected fails at once, so its callback runs while its code is still there. A callback can queue another, but `tuh_control_xfer()` refuses a device that is not connected, so the loop ends.
+  - From then on, `usbh_process_event()` drops attach and remove events, and the 1 s re-attach is off. A failing drive's transfers fail through to MSC.
+
 ### Event queue
 
 - **`queue_event()`:** `TU_ASSERT` becomes `TU_VERIFY`. The function runs in the USB IRQ, and an assert's log goes through `rp6502_log_tusb()`, which formats, allocates and prints.

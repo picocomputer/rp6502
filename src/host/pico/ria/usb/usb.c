@@ -53,30 +53,46 @@ static inline void usb_enum_kick(void)
 }
 
 // Custom application class drivers registered with the TinyUSB host.
+enum
+{
+    USB_APP_DRIVER_XIN,
+    USB_APP_DRIVER_MSC,
+};
+static const usbh_class_driver_t usb_app_drivers[] = {
+    [USB_APP_DRIVER_XIN] = {
+        .name = "XInput",
+        .init = xin_class_driver_init,
+        .deinit = NULL,
+        .open = xin_class_driver_open,
+        .set_config = xin_class_driver_set_config,
+        .xfer_cb = xin_class_driver_xfer_cb,
+        .close = xin_class_driver_close,
+    },
+    [USB_APP_DRIVER_MSC] = {
+        .name = "MSC",
+        .init = msc_class_driver_init,
+        .deinit = NULL,
+        .open = msc_class_driver_open,
+        .set_config = msc_class_driver_set_config,
+        .xfer_cb = msc_class_driver_xfer_cb,
+        .close = msc_class_driver_close,
+    },
+};
+
 usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
-    static const usbh_class_driver_t drivers[] = {
-        {
-            .name = "XInput",
-            .init = xin_class_driver_init,
-            .deinit = NULL,
-            .open = xin_class_driver_open,
-            .set_config = xin_class_driver_set_config,
-            .xfer_cb = xin_class_driver_xfer_cb,
-            .close = xin_class_driver_close,
-        },
-        {
-            .name = "MSC",
-            .init = msc_class_driver_init,
-            .deinit = NULL,
-            .open = msc_class_driver_open,
-            .set_config = msc_class_driver_set_config,
-            .xfer_cb = msc_class_driver_xfer_cb,
-            .close = msc_class_driver_close,
-        },
-    };
-    *driver_count = TU_ARRAY_SIZE(drivers);
-    return drivers;
+    *driver_count = TU_ARRAY_SIZE(usb_app_drivers);
+    return usb_app_drivers;
+}
+
+extern bool tuh_keep_only_driver(usbh_class_driver_t const *driver);
+
+/* Flashing reads the image from a drive, so USB keeps only the drives. The
+ * rest of TinyUSB's class drivers are in flash, and their devices are torn
+ * down now, while flash is intact. */
+void HOST_IN_FLASH_FUNC usb_flashing(void)
+{
+    tuh_keep_only_driver(&usb_app_drivers[USB_APP_DRIVER_MSC]);
 }
 
 void HOST_IN_FLASH_FUNC usb_init(void)
