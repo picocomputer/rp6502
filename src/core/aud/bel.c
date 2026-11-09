@@ -26,7 +26,7 @@ const bel_sound_t bel_teletype = {
     .end_ms = 800,
 };
 
-const bel_sound_t bel_nfc_fail = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_fail = {
     .freq = 330,
     .duty = 127,          // 50% square
     .vol_attack = 0x80,   // attack to -8vol, 2ms full-swing rate
@@ -37,7 +37,7 @@ const bel_sound_t bel_nfc_fail = {
     .end_ms = 420,
 };
 
-const bel_sound_t bel_nfc_success_1 = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_success_1 = {
     .freq = 784,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
@@ -48,7 +48,7 @@ const bel_sound_t bel_nfc_success_1 = {
     .end_ms = 170,
 };
 
-const bel_sound_t bel_nfc_success_2 = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_success_2 = {
     .freq = 1568,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
@@ -97,7 +97,7 @@ static void bel_silence(void)
         aud_bel_put(i, 0);
 }
 
-void bel_init(void)
+void HOST_IN_FLASH_FUNC bel_init(void)
 {
     RING_RESET(&bel_queue);
     bel_restrike_at = bel_release_at = bel_end_at = 0;

@@ -62,13 +62,13 @@ static inline bool fat_ok(FRESULT fresult, api_errno *err)
 
 /* The part of a path after its drive name, which ends at a ':' ahead of any
  * separator. */
-static const char *fat_after_drive(const char *path)
+static const char *HOST_IN_RAM_FUNC fat_after_drive(const char *path)
 {
     const char *end = path + strcspn(path, ":/\\");
     return *end == ':' ? end + 1 : path;
 }
 
-bool fat_path_ok(const char *path, api_errno *err)
+bool HOST_IN_RAM_FUNC fat_path_ok(const char *path, api_errno *err)
 {
     return path_fat_ok(fat_after_drive(path), true, err);
 }

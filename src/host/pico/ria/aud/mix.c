@@ -409,12 +409,12 @@ void __noinline HOST_IN_RAM_FUNC aud_pcm_close(void)
     aud_engine_unlock();
 }
 
-uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
+uint32_t HOST_IN_RAM_FUNC aud_pcm_write(const uint8_t *buf, uint32_t n)
 {
     return pcm_put(&aud_pcm, buf, n);
 }
 
-uint16_t aud_pcm_level(void)
+uint16_t HOST_IN_RAM_FUNC aud_pcm_level(void)
 {
     return pcm_level(&aud_pcm);
 }

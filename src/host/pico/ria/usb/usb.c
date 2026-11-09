@@ -185,7 +185,7 @@ void tuh_hid_report_failed_cb(uint8_t dev_addr, uint8_t idx, xfer_result_t resul
         tuh_hid_receive_report(dev_addr, idx);
 }
 
-void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
+void HOST_IN_FLASH_FUNC tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
 
@@ -224,7 +224,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     tuh_hid_receive_report(dev_addr, idx);
 }
 
-void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
+void HOST_IN_FLASH_FUNC tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
     int slot = usb_hid_slot[idx];
@@ -254,7 +254,7 @@ bool HOST_IN_RAM_FUNC usb_boot_enumerating(void)
     return true;
 }
 
-uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
+uint16_t HOST_IN_FLASH_FUNC usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
 {
     const tusb_desc_string_t *desc = desc_buf;
     if (desc->bDescriptorType != TUSB_DESC_STRING || desc->bLength < 2)
@@ -313,7 +313,7 @@ static void usb_string_fetch_cb(tuh_xfer_t *xfer)
     usb_string_busy = false;
 }
 
-static const void *usb_string_fetch(uint8_t daddr, uint8_t s)
+static const void *HOST_IN_FLASH_FUNC usb_string_fetch(uint8_t daddr, uint8_t s)
 {
     if (daddr == usb_string_daddr && (usb_string_done & (1u << s)))
         return usb_string_buf[s];
@@ -345,17 +345,17 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t s)
     return NULL;
 }
 
-const void *usb_string_fetch_manufacturer(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_manufacturer(uint8_t daddr)
 {
     return usb_string_fetch(daddr, USB_STRING_MANUFACTURER);
 }
 
-const void *usb_string_fetch_product(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_product(uint8_t daddr)
 {
     return usb_string_fetch(daddr, USB_STRING_PRODUCT);
 }
 
-const void *usb_string_fetch_serial(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_serial(uint8_t daddr)
 {
     return usb_string_fetch(daddr, USB_STRING_SERIAL);
 }
@@ -373,7 +373,7 @@ static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t de
     dest[pos] = '\0';
 }
 
-bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size)
+bool HOST_IN_FLASH_FUNC usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size)
 {
     const void *desc[USB_STRING_COUNT];
     for (uint8_t s = 0; s < USB_STRING_COUNT; s++)

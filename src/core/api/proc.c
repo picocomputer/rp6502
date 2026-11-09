@@ -109,7 +109,7 @@ bool proc_stop(void)
     return true;
 }
 
-bool proc_api_argv(void)
+bool HOST_IN_FLASH_FUNC proc_api_argv(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -121,7 +121,7 @@ bool proc_api_argv(void)
  * path, because by the time a load can fail, the program that called EXEC has
  * already stopped; the error is printed on the console. A refused argv leaves
  * the argv empty, as a layout that does not parse does. */
-bool proc_api_exec(void)
+bool HOST_IN_FLASH_FUNC proc_api_exec(void)
 {
     if (!arg_pull_xstack())
         return api_return_errno(API_EINVAL);

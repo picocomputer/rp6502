@@ -729,7 +729,7 @@ bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t e
     return msc_cbi_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
 }
 
-uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+uint16_t HOST_IN_FLASH_FUNC msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -1093,8 +1093,8 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     return status;
 }
 
-static msc_status_t msc_scsi_inquiry(uint8_t vol,
-                                     scsi_inquiry_resp_t *resp)
+static msc_status_t HOST_IN_FLASH_FUNC msc_scsi_inquiry(uint8_t vol,
+                                                        scsi_inquiry_resp_t *resp)
 {
     scsi_inquiry_t const cmd = {
         .cmd_code = SCSI_CMD_INQUIRY,
@@ -1434,7 +1434,7 @@ static uint8_t msc_pdrv_alloc(void)
     return FF_VOLUMES;
 }
 
-static void msc_mount_cb(uint8_t dev_addr)
+static void HOST_IN_FLASH_FUNC msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const max_lun = msc_get_maxlun(dev_addr);
     for (uint8_t lun = 0; lun <= max_lun; lun++)
@@ -1474,7 +1474,7 @@ static void msc_umount_cb(uint8_t dev_addr)
     }
 }
 
-static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
+static void HOST_IN_FLASH_FUNC msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
 {
     uint8_t daddr = xfer->daddr;
     msc_interface_t *p_msc = msc_get_itf(daddr);
@@ -1497,7 +1497,7 @@ static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
-bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
+bool HOST_IN_FLASH_FUNC msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
@@ -1537,7 +1537,7 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
     return true;
 }
 
-void msc_class_driver_close(uint8_t dev_addr)
+void HOST_IN_FLASH_FUNC msc_class_driver_close(uint8_t dev_addr)
 {
     TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, );
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
@@ -1609,7 +1609,7 @@ DSTATUS disk_status(BYTE pdrv)
     return msc_pdrv[vol].write_prot ? STA_PROTECT : 0;
 }
 
-DSTATUS disk_initialize(BYTE pdrv)
+DSTATUS HOST_IN_FLASH_FUNC disk_initialize(BYTE pdrv)
 {
     uint8_t vol = pdrv;
     MSC_LOG_VOL(vol, DEBUG, "disk_initialize, status=%d", msc_pdrv[vol].status);

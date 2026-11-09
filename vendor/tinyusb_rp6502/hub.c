@@ -13,6 +13,7 @@
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 #include "host/hub.h"
+#include "machine.h"
 
 // Debug level, TUSB_CFG_DEBUG must be at least this level for debug message
 #define HUB_DEBUG   2
@@ -91,7 +92,7 @@ static char const* const _hub_feature_str[] = {
 //--------------------------------------------------------------------+
 // HUB
 //--------------------------------------------------------------------+
-bool hub_port_clear_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
+bool HOST_IN_FLASH_FUNC hub_port_clear_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
                             tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
   tusb_control_request_t const request = {
     .bmRequestType_bit = {
@@ -119,7 +120,7 @@ bool hub_port_clear_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
   return true;
 }
 
-bool hub_port_set_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
+bool HOST_IN_FLASH_FUNC hub_port_set_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
                           tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
   tusb_control_request_t const request = {
     .bmRequestType_bit = {
@@ -147,7 +148,7 @@ bool hub_port_set_feature(uint8_t hub_addr, uint8_t hub_port, uint8_t feature,
   return true;
 }
 
-bool hub_port_get_status(uint8_t hub_addr, uint8_t hub_port, void* resp,
+bool HOST_IN_FLASH_FUNC hub_port_get_status(uint8_t hub_addr, uint8_t hub_port, void* resp,
                          tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
   tusb_control_request_t const request = {
     .bmRequestType_bit = {
@@ -184,16 +185,16 @@ bool hub_port_get_status_local(uint8_t hub_addr, uint8_t hub_port, hub_port_stat
 //--------------------------------------------------------------------+
 // CLASS-USBH API (don't require to verify parameters)
 //--------------------------------------------------------------------+
-bool hub_init(void) {
+bool HOST_IN_FLASH_FUNC hub_init(void) {
   tu_memclr(hub_itfs, sizeof(hub_itfs));
   return true;
 }
 
-bool hub_deinit(void) {
+bool HOST_IN_FLASH_FUNC hub_deinit(void) {
   return true;
 }
 
-uint16_t hub_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t *itf_desc, uint16_t max_len) {
+uint16_t HOST_IN_FLASH_FUNC hub_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t *itf_desc, uint16_t max_len) {
   (void)rhport;
   TU_VERIFY(dev_addr > CFG_TUH_DEVICE_MAX, 0);
   TU_VERIFY(TUSB_CLASS_HUB == itf_desc->bInterfaceClass && 0 == itf_desc->bInterfaceSubClass, 0);
@@ -231,7 +232,7 @@ uint16_t hub_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t 
   return drv_len;
 }
 
-void hub_close(uint8_t dev_addr) {
+void HOST_IN_FLASH_FUNC hub_close(uint8_t dev_addr) {
   TU_VERIFY(dev_addr > CFG_TUH_DEVICE_MAX, );
   hub_interface_t* p_hub = get_hub_itf(dev_addr);
 
@@ -241,7 +242,7 @@ void hub_close(uint8_t dev_addr) {
   }
 }
 
-bool hub_edpt_status_xfer(uint8_t daddr) {
+bool HOST_IN_FLASH_FUNC hub_edpt_status_xfer(uint8_t daddr) {
   hub_interface_t* p_hub = get_hub_itf(daddr);
   hub_epbuf_t* p_epbuf = get_hub_epbuf(daddr);
 
@@ -264,7 +265,7 @@ static void config_set_port_power (tuh_xfer_t* xfer);
 static void config_port_power_complete (tuh_xfer_t* xfer);
 static void config_get_hub_descriptor(tuh_xfer_t* xfer);
 
-bool hub_set_config(uint8_t daddr, uint8_t itf_num) {
+bool HOST_IN_FLASH_FUNC hub_set_config(uint8_t daddr, uint8_t itf_num) {
   hub_interface_t* p_hub = get_hub_itf(daddr);
   TU_ASSERT(itf_num == p_hub->itf_num);
 
@@ -284,7 +285,7 @@ bool hub_set_config(uint8_t daddr, uint8_t itf_num) {
   return true;
 }
 
-static void config_get_hub_descriptor(tuh_xfer_t* xfer) {
+static void HOST_IN_FLASH_FUNC config_get_hub_descriptor(tuh_xfer_t* xfer) {
   // Get Hub Descriptor
   tusb_control_request_t const request = {
     .bmRequestType_bit = {
@@ -307,7 +308,7 @@ static void config_get_hub_descriptor(tuh_xfer_t* xfer) {
   }
 }
 
-static void config_set_port_power (tuh_xfer_t* xfer) {
+static void HOST_IN_FLASH_FUNC config_set_port_power (tuh_xfer_t* xfer) {
   uint8_t const daddr = xfer->daddr;
   if (xfer->result != XFER_RESULT_SUCCESS) {
     usbh_driver_set_config_failed(daddr);
@@ -328,7 +329,7 @@ static void config_set_port_power (tuh_xfer_t* xfer) {
   }
 }
 
-static void config_port_power_complete (tuh_xfer_t* xfer) {
+static void HOST_IN_FLASH_FUNC config_port_power_complete (tuh_xfer_t* xfer) {
   uint8_t const daddr = xfer->daddr;
   if (xfer->result != XFER_RESULT_SUCCESS) {
     usbh_driver_set_config_failed(daddr);
@@ -382,7 +383,7 @@ static bool hub_port_has_device(uint8_t hub_addr, uint8_t hub_port) {
 }
 
 // callback as response of interrupt endpoint polling
-bool hub_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
+bool HOST_IN_FLASH_FUNC hub_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
   (void) ep_addr;
 
   bool processed = false; // true if new status is processed
@@ -440,7 +441,7 @@ bool hub_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t 
   return true;
 }
 
-static void process_new_status(tuh_xfer_t* xfer) {
+static void HOST_IN_FLASH_FUNC process_new_status(tuh_xfer_t* xfer) {
   const uint8_t daddr = xfer->daddr;
 
   // usbh fails a removed hub's requests after hub_close(): nothing to re-arm

@@ -8,6 +8,7 @@
 #include "ria-w/net/net.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/ring.h"
+#include "machine.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
 #include <lwip/dns.h>
@@ -355,8 +356,8 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     }
 }
 
-bool net_open(int desc, const char *hostname, uint16_t port,
-              void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC net_open(int desc, const char *hostname, uint16_t port,
+                                 void (*on_close)(int))
 {
     net_conn_t *nc = &net_conns[desc];
     assert(nc->state == net_state_closed);
@@ -509,7 +510,7 @@ void net_listen_close(uint16_t port)
     }
 }
 
-bool net_accept(int desc, uint16_t port, void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC net_accept(int desc, uint16_t port, void (*on_close)(int))
 {
     net_listener_t *nl = net_find_listener(port);
     if (!nl || !nl->pending_pcb)
@@ -533,7 +534,7 @@ bool net_is_closed(int desc)
     return net_conns[desc].state == net_state_closed;
 }
 
-void net_reject(uint16_t port)
+void HOST_IN_FLASH_FUNC net_reject(uint16_t port)
 {
     net_listener_t *nl = net_find_listener(port);
     if (nl && nl->pending_pcb)

@@ -100,7 +100,7 @@ static bool cyw_is_resetting; // a reset waits for BLE to turn off
 static bool cyw_led_status;
 static bool cyw_led_requested;
 
-static int cyw_lookup_country(const char *cc)
+static int HOST_IN_FLASH_FUNC cyw_lookup_country(const char *cc)
 {
     for (size_t i = 0; i < CYW_COUNTRY_COUNT; i++)
     {
@@ -147,7 +147,7 @@ void HOST_IN_RAM_FUNC cyw_task(void)
 
 /* A radio that failed to start has already run btstack_cyw43_deinit, from
  * cyw43_arch_init's own cleanup. */
-bool cyw_started(void)
+bool HOST_IN_FLASH_FUNC cyw_started(void)
 {
     return cyw_is_started;
 }
@@ -157,7 +157,7 @@ void cyw_led_set(bool on)
     cyw_led_requested = on;
 }
 
-void cyw_init(void)
+void HOST_IN_FLASH_FUNC cyw_init(void)
 {
     // CYW43439 datasheet says 50MHz for SPI.
     // The Raspberry Pi SDK only provides for a 2,0 divider,
@@ -194,12 +194,12 @@ void cyw_init(void)
     cyw43_bluetooth_hci_init();
 }
 
-bool cyw_check_rf_enable(uint8_t *v)
+bool HOST_IN_FLASH_FUNC cyw_check_rf_enable(uint8_t *v)
 {
     return *v <= 1;
 }
 
-void cyw_apply_rf_enable(uint8_t rf, bool changed)
+void HOST_IN_FLASH_FUNC cyw_apply_rf_enable(uint8_t rf, bool changed)
 {
     (void)rf;
     if (changed)
@@ -216,7 +216,7 @@ int HOST_IN_FLASH_FUNC cyw_rf_enable_response(char *buf, size_t buf_size,
     return -1;
 }
 
-bool cyw_check_rf_country_code(const char *in, char *out)
+bool HOST_IN_FLASH_FUNC cyw_check_rf_country_code(const char *in, char *out)
 {
     int country = cyw_lookup_country(in);
     if (!in[0])
@@ -227,7 +227,7 @@ bool cyw_check_rf_country_code(const char *in, char *out)
     return true;
 }
 
-void cyw_apply_rf_country_code(const char *rfcc, bool changed)
+void HOST_IN_FLASH_FUNC cyw_apply_rf_country_code(const char *rfcc, bool changed)
 {
     (void)rfcc;
     cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
@@ -251,7 +251,7 @@ int HOST_IN_FLASH_FUNC cyw_rf_country_code_response(char *buf,
     return -1;
 }
 
-const char *cyw_get_rf_country_code_verbose(void)
+const char *HOST_IN_FLASH_FUNC cyw_get_rf_country_code_verbose(void)
 {
     if (cyw_country < 0)
         return "";
@@ -259,7 +259,7 @@ const char *cyw_get_rf_country_code_verbose(void)
         return cyw_country_name[cyw_country];
 }
 
-int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     if (state < 0)
         return state;

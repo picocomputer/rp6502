@@ -6,7 +6,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 
 ## Build
 
-- `src/host/pico/ria.cmake` marks the seven upstream sources `HEADER_FILE_ONLY`, so they are not compiled. It then adds these copies to the RIA target (`rp6502-ria` or `rp6502-ria-w`) with `target_sources`.
+- `src/host/pico/ria.cmake` marks the eight upstream sources `HEADER_FILE_ONLY`, so they are not compiled. It then adds these copies to the RIA target (`rp6502-ria` or `rp6502-ria-w`) with `target_sources`.
 - CMake source file properties apply per directory. The VGA builds in `src/host/pico/vga`, so it compiles upstream TinyUSB unmodified, including upstream `rp2040_usb.c` for its device stack.
 - hcd_rp2350.c and rp2350_usb.c are copies of upstream's hcd_rp2040.c and rp2040_usb.c. They hold RP2350 host code only, and their names say so, as does the HCD's IRQ handler `hcd_rp2350_irq()`.
 - The top-level `CMakeLists.txt` sets `PICO_TINYUSB_PATH` to `vendor/tinyusb`, so the SDK uses the submodule instead of its bundled TinyUSB.
@@ -25,6 +25,7 @@ Upstream base: `vendor/tinyusb` at master `8692556e335a0bf3b0a054a959efd2a3ee677
 | usbh.c | host/usbh.c | A failed enumeration is retried, then ends and cleans up instead of stranding. Behind a hub, the other ports enumerate between its attempts. Standard IN requests time out per USB 2.0 9.2.6.4. Clears halted endpoints and re-enumerates a device that stops answering. Drops a queued control transfer on request. |
 | hub.c | host/hub.c | Fixes set-config strands, reads the multi-byte status bitmap, sends the right descriptor wValue, adds an address guard. Re-enumerates a device whose port the hub disabled and re-powers ports after an over-current. |
 | cdc_host.c | class/cdc/cdc_host.c | Fixes the CH34X chip version strand. A failed setup fails the enumeration. Bulk transfers recover after a failure. ACM line requests are always sent. |
+| hid_host.c | class/hid/hid_host.c | The report receive and re-arm run from RAM. |
 | midi_host.c | class/midi/midi_host.c | MIDI host rework, plus the `tuh_midi_frame()` wire framer. Bulk transfers recover after a failure. |
 | tusb_fifo.c | common/tusb_fifo.c | No FIFO mutex. |
 
@@ -291,7 +292,7 @@ Measured on 2026-11-08 with a SanDisk Cruzer Blade (0781:5567) behind the rig's 
 
 ### Keeping one driver's devices
 
-- **New `tuh_keep_only_driver(driver)`:** the RIA calls it once, with its MSC driver, before it rewrites its own flash. Every class driver but MSC is in flash, so none of them may run again. There is no way back.
+- **New `tuh_keep_only_driver(driver)`:** the RIA calls it once, with its MSC driver, before it rewrites its own flash. Enumeration and every class driver but MSC reach code in flash, so none of them may run again. There is no way back.
   - It ends any enumeration and empties the deferred-attach queue and the resume.
   - A device with no mounted interface on the driver is torn down as `remove_device_tree()` does: `tuh_umount_cb()`, every driver's close, `usbh_device_close()`, which also fails its in-flight control transfer, and `clear_device()`.
   - A hub is torn down too, but nothing downstream of it: the hub passes the drive's traffic on its own, and only the host's polling of the hub stops.
@@ -377,7 +378,7 @@ TinyUSB turns on FIFO mutexes for any MCU with more than one core (`OSAL_MUTEX_R
 
 ## RIA config: src/host/pico/ria/tusb_config.h
 
-The RIA runs from flash, and `ria.cmake` puts usbh.c, hub.c, tusb_fifo.c, hcd_rp2350.c, rp2350_usb.c and upstream `tusb.c` in RAM whole, so the main loop's USB work and the interrupt never wait on flash, and USB keeps serving the drive while the RIA rewrites its flash.
+The RIA runs from flash. `ria.cmake` puts usbh.c, hub.c, tusb_fifo.c, hcd_rp2350.c, rp2350_usb.c and upstream `tusb.c` in RAM whole, so the main loop's USB work and the interrupt never wait on flash, and USB keeps serving the drive while the RIA rewrites its flash. Their enumeration, attach, set-config and init functions stay in flash: `HOST_IN_FLASH_FUNC` in the copies, and `RIA_FLASH_SECTIONS` in `ria.cmake` for `tusb.c`. The data paths of cdc_host.c, midi_host.c and hid_host.c are `HOST_IN_RAM_FUNC`.
 
 This file is the RIA's own config, not a copy.
 
@@ -415,9 +416,9 @@ TinyUSB issues: when upstream fixes one, drop the matching change.
 
 1. Before moving the submodule, save each copy's patch against the current base:
    `diff -u vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file> > <file>.patch`
-2. Move `vendor/tinyusb` to the new commit. Read upstream's changes to the six files and to the headers they use:
+2. Move `vendor/tinyusb` to the new commit. Read upstream's changes to the eight files and to the headers they use:
    `git -C vendor/tinyusb diff <old>..<new> -- <paths>`
-3. For usbh.c, hub.c, cdc_host.c, midi_host.c and rp2350_usb.c, run `cp vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file>`, then `patch vendor/tinyusb_rp6502/<file> < <file>.patch`. Resolve any `.rej` by hand. Drop any change that upstream has fixed (see "Upstream references"). A reject in rp2350_usb.c that touches device or RP2040 errata code is resolved by deleting that code.
+3. For usbh.c, hub.c, cdc_host.c, hid_host.c, midi_host.c, tusb_fifo.c and rp2350_usb.c, run `cp vendor/tinyusb/src/<upstream path> vendor/tinyusb_rp6502/<file>`, then `patch vendor/tinyusb_rp6502/<file> < <file>.patch`. Resolve any `.rej` by hand. Drop any change that upstream has fixed (see "Upstream references"). A reject in rp2350_usb.c that touches device or RP2040 errata code is resolved by deleting that code.
 4. For hcd_rp2350.c, about half the file is rewritten. Keep this copy and port the relevant upstream changes to hcd_rp2040.c into it by hand. These parts are still shared with upstream:
    - `edpt_alloc()`, `dev_speed()` and `need_pre()`
    - `sie_stop_xfer()` and `epx_drop_buffers()`

@@ -112,7 +112,7 @@ int HOST_IN_FLASH_FUNC vcp_status_response(char *buf, size_t buf_size,
     return state + 1;
 }
 
-bool vcp_std_handles(const char *name)
+bool HOST_IN_RAM_FUNC vcp_std_handles(const char *name)
 {
     if (strncasecmp(name, vcp_string, sizeof(vcp_string) - 1) != 0)
         return false;
@@ -407,8 +407,8 @@ std_rw_result HOST_IN_RAM_FUNC vcp_std_read(int desc, char *buf, uint32_t count,
     return result;
 }
 
-std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
-                            uint32_t *bytes_written, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC vcp_std_write(int desc, const char *buf, uint32_t count,
+                                             uint32_t *bytes_written, api_errno *err)
 {
     *bytes_written = 0;
     std_rw_result result = vcp_std_opening(desc, err);

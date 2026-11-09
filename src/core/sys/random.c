@@ -6,13 +6,14 @@
 
 #include "core/sys/random.h"
 #include "host/host.h"
+#include "machine.h"
 
 #include <stdbool.h>
 #include <string.h>
 
 /* MSVC has no noinline attribute; osal/windows/msvc/compat.h defines
  * __attribute__ away there. */
-__attribute__((noinline)) uint32_t sys_random_step(uint32_t *state)
+__attribute__((noinline)) uint32_t HOST_IN_RAM_FUNC sys_random_step(uint32_t *state)
 {
     /* Numerical Recipes' linear congruential generator feeding the lowbias32
      * tuning of Murmur3's 32-bit finalizer. The multiplier is one more than a
@@ -42,7 +43,7 @@ void sys_random_fill(void *dst, size_t len, uint32_t *state)
 static uint32_t sys_random_state;
 static bool sys_random_seeded;
 
-void sys_random_seed(void)
+void HOST_IN_RAM_FUNC sys_random_seed(void)
 {
     if (!sys_random_seeded)
     {
@@ -51,7 +52,7 @@ void sys_random_seed(void)
     }
 }
 
-uint32_t sys_random(void)
+uint32_t HOST_IN_RAM_FUNC sys_random(void)
 {
     sys_random_seed();
     return sys_random_step(&sys_random_state);

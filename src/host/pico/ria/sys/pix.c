@@ -128,7 +128,7 @@ int pix_wait_poll(void)
     }
 }
 
-bool pix_api_xreg(void)
+bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
 {
     static uint8_t pix_device;
     static uint8_t pix_channel;

@@ -14,6 +14,7 @@
   #include "portable/raspberrypi/rp2040/rp2040_usb.h"
 
   #include "host/hcd.h"
+  #include "machine.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTOTYPE
@@ -37,7 +38,7 @@ static void unaligned_memcpy(uint8_t *dst, const uint8_t *src, size_t n) {
   }
 }
 
-void rp2usb_init(void) {
+void HOST_IN_FLASH_FUNC rp2usb_init(void) {
   // Reset usb controller
   reset_block(RESETS_RESET_USBCTRL_BITS);
   unreset_block_wait(RESETS_RESET_USBCTRL_BITS);

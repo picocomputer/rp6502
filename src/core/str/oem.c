@@ -110,7 +110,7 @@ int HOST_IN_FLASH_FUNC oem_code_page_response(char *buf, size_t buf_size,
     return -1;
 }
 
-uint16_t oem_get_code_page_run(void)
+uint16_t HOST_IN_RAM_FUNC oem_get_code_page_run(void)
 {
     return oem_code_page_run;
 }

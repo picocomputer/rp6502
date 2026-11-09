@@ -36,7 +36,7 @@ uint64_t HOST_IN_RAM_FUNC host_clock_us(void)
 static uint32_t seed;
 static bool seed_taken;
 
-uint32_t host_seed(void)
+uint32_t HOST_IN_RAM_FUNC host_seed(void)
 {
     if (!seed_taken)
     {

@@ -107,7 +107,7 @@ static hw_endpoint_t *edpt_alloc(void) {
   return NULL;
 }
 
-int hcd_free_ep_count(void) {
+int HOST_IN_FLASH_FUNC hcd_free_ep_count(void) {
   int count = 0;
   for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
     if (ep_pool[i].max_packet_size == 0) {
@@ -526,7 +526,7 @@ void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
 //--------------------------------------------------------------------+
 // HCD API
 //--------------------------------------------------------------------+
-bool hcd_init(uint8_t rhport, const tusb_rhport_init_t *rh_init) {
+bool HOST_IN_FLASH_FUNC hcd_init(uint8_t rhport, const tusb_rhport_init_t *rh_init) {
   (void)rhport;
   (void)rh_init;
   pico_trace("hcd_init %d\n", rhport);
@@ -572,7 +572,7 @@ bool hcd_deinit(uint8_t rhport) {
 // The controller resets the bus itself 100 ms after attach or VBUS_DETECT: SE0 for 50 ms, then it sets SPEED and
 // raises HOST_CONN_DIS. SIE_CTRL.RESET_BUS self-clears within ~1 us. A reset of a device already attached drops
 // VBUS_DETECT, which ends in a remove and a new attach.
-void hcd_port_reset(uint8_t rhport) {
+void HOST_IN_FLASH_FUNC hcd_port_reset(uint8_t rhport) {
   (void)rhport;
   if (root_bus_reset) {
     root_bus_reset = false;
@@ -592,7 +592,7 @@ void hcd_port_reset_end(uint8_t rhport) {
   (void)rhport;
 }
 
-bool hcd_port_connect_status(uint8_t rhport) {
+bool HOST_IN_FLASH_FUNC hcd_port_connect_status(uint8_t rhport) {
   (void)rhport;
   return !root_rereset && (usb_hw->sie_status & USB_SIE_STATUS_SPEED_BITS);
 }
@@ -659,7 +659,7 @@ void hcd_int_disable(uint8_t rhport) {
 //--------------------------------------------------------------------+
 // Endpoint API
 //--------------------------------------------------------------------+
-bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t *ep_desc) {
+bool HOST_IN_FLASH_FUNC hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t *ep_desc) {
   (void)rhport;
   pico_trace("hcd_edpt_open dev_addr %d, ep_addr %d\n", dev_addr, ep_desc->bEndpointAddress);
   if (ep_desc->bmAttributes.xfer == TUSB_XFER_CONTROL) {

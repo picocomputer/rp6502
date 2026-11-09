@@ -8,6 +8,7 @@
 
 #include "osal/osal.h"
 #include "common/tusb_fifo.h"
+#include "machine.h"
 
 #define TU_FIFO_DBG 0
 
@@ -19,7 +20,7 @@
 //--------------------------------------------------------------------+
 // Setup API
 //--------------------------------------------------------------------+
-bool tu_fifo_config(tu_fifo_t *f, void *buffer, uint16_t depth, bool overwritable) {
+bool HOST_IN_FLASH_FUNC tu_fifo_config(tu_fifo_t *f, void *buffer, uint16_t depth, bool overwritable) {
   // Limit index space to 2*depth - this allows for a fast "modulo" calculation
   // but limits the maximum depth to 2^16/2 = 2^15 and buffer overflows are detectable
   // only if overflow happens once (important for unsupervised DMA applications)

@@ -76,7 +76,7 @@ void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
     RING_RESET(&s->buf);
 }
 
-uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
+uint32_t HOST_IN_RAM_FUNC pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
 {
     return RING_IN(&s->buf, src, n);
 }
@@ -181,7 +181,7 @@ void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
 
 #pragma GCC pop_options
 
-bool pcm_std_handles(const char *path)
+bool HOST_IN_RAM_FUNC pcm_std_handles(const char *path)
 {
     return strncasecmp(path, STR_PCM_COLON, STR_PCM_COLON_LEN) == 0;
 }
@@ -212,12 +212,12 @@ int pcm_std_open(const char *path, uint8_t flags, api_errno *err)
 }
 
 /* A last partial frame never plays, so it does not hold up a close. */
-static bool pcm_playing(void)
+static bool HOST_IN_RAM_FUNC pcm_playing(void)
 {
     return aud_pcm_level() >= pcm_fmt.bits / 8 * pcm_fmt.channels;
 }
 
-std_rw_result pcm_std_close(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_close(int desc, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -227,8 +227,8 @@ std_rw_result pcm_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result pcm_std_write(int desc, const char *buf, uint32_t count,
-                            uint32_t *bytes_written, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_write(int desc, const char *buf, uint32_t count,
+                                             uint32_t *bytes_written, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -236,14 +236,14 @@ std_rw_result pcm_std_write(int desc, const char *buf, uint32_t count,
     return STD_OK;
 }
 
-std_rw_result pcm_std_sync(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_sync(int desc, api_errno *err)
 {
     (void)desc;
     (void)err;
     return pcm_playing() ? STD_PENDING : STD_OK;
 }
 
-int pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
+int HOST_IN_RAM_FUNC pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
     (void)desc;
     if (offset)

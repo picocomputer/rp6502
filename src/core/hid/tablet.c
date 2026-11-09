@@ -46,7 +46,7 @@ static int16_t tablet_sub_y;
 
 static tablet_connection_t tablet_connections[TABLET_MAX_MICE];
 
-static tablet_connection_t *tablet_get_connection_by_slot(int slot)
+static tablet_connection_t *HOST_IN_RAM_FUNC tablet_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < TABLET_MAX_MICE; ++i)
         if (tablet_connections[i].valid && tablet_connections[i].slot == slot)
@@ -54,7 +54,7 @@ static tablet_connection_t *tablet_get_connection_by_slot(int slot)
     return NULL;
 }
 
-static int tablet_clamp(int v)
+static int HOST_IN_RAM_FUNC tablet_clamp(int v)
 {
     if (v < 0)
         return 0;
@@ -63,7 +63,7 @@ static int tablet_clamp(int v)
     return v;
 }
 
-static void tablet_put_contact(int i, uint8_t flags, int x, int y)
+static void HOST_IN_RAM_FUNC tablet_put_contact(int i, uint8_t flags, int x, int y)
 {
     uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE];
     x = tablet_clamp(x);
@@ -81,7 +81,7 @@ static void tablet_clear_contact(int i)
 
 /* A 6502 reading the block during this memcpy can get bytes from two reports,
  * so a program reads the block until two reads match. */
-static void tablet_write_xram(void)
+static void HOST_IN_RAM_FUNC tablet_write_xram(void)
 {
     if (tablet_xram == 0xFFFF)
         return;
@@ -125,7 +125,7 @@ void tablet_stop(void)
     tablet_xram = 0xFFFF;
 }
 
-bool tablet_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC tablet_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - TABLET_BLOCK_SIZE;
     tablet_xram = mapped ? word : 0xFFFF;
@@ -173,14 +173,14 @@ bool tablet_umount(int slot)
 }
 
 /* An axis whose declared logical minimum is below zero is signed. */
-static int32_t tablet_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
+static int32_t HOST_IN_RAM_FUNC tablet_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
 {
     if (lmin < 0)
         return hid_extract_signed(r, len, off, size);
     return (int32_t)hid_extract_bits(r, len, off, size);
 }
 
-void tablet_report(int slot, uint8_t const *data, size_t size)
+void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
 {
     tablet_connection_t *conn = tablet_get_connection_by_slot(slot);
     if (conn == NULL)

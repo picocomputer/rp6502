@@ -173,7 +173,7 @@ static bool asset_name_eq(const char *utf8, const char *oem)
  * skips a body until the name matches or a line turns up that is not a header.
  * On success *base is the file offset of the asset's data and *len its
  * length. */
-bool rom_asset_find(const char *name, uint32_t *base, uint32_t *len)
+bool HOST_IN_FLASH_FUNC rom_asset_find(const char *name, uint32_t *base, uint32_t *len)
 {
     if (!rom_assets_start || rom_fd < 0)
         return false;
@@ -228,8 +228,8 @@ static window_t windows[ROM_OPEN_MAX];
 
 /* Every window shares the one descriptor, so each fetch seeks to the offset it
  * wants rather than reading on from wherever the last window left off. */
-static std_rw_result window_fetch(uint32_t at, char *buf, uint32_t count,
-                                  uint32_t *got, api_errno *err)
+static std_rw_result HOST_IN_RAM_FUNC window_fetch(uint32_t at, char *buf, uint32_t count,
+                                                   uint32_t *got, api_errno *err)
 {
     int32_t landed;
     api_errno ignored;
@@ -237,19 +237,19 @@ static std_rw_result window_fetch(uint32_t at, char *buf, uint32_t count,
     return fs_std_read(rom_fd, buf, count, got, err);
 }
 
-static window_t *window_get(int desc)
+static window_t *HOST_IN_RAM_FUNC window_get(int desc)
 {
     if (desc < 0 || desc >= ROM_OPEN_MAX || !windows[desc].used)
         return NULL;
     return &windows[desc];
 }
 
-bool rom_std_handles(const char *path)
+bool HOST_IN_RAM_FUNC rom_std_handles(const char *path)
 {
     return strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) == 0;
 }
 
-int rom_std_open(const char *path, uint8_t flags, api_errno *err)
+int HOST_IN_RAM_FUNC rom_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     (void)flags;
     uint32_t base, len;
@@ -303,7 +303,7 @@ int rom_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
     return -1;
 }
 
-std_rw_result rom_std_close(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC rom_std_close(int desc, api_errno *err)
 {
     window_t *w = window_get(desc);
     if (!w)
@@ -315,7 +315,7 @@ std_rw_result rom_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     window_t *w = window_get(desc);
     if (!w)
@@ -345,7 +345,7 @@ std_rw_result rom_std_sync(int desc, api_errno *err)
     return STD_OK;
 }
 
-int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
+int HOST_IN_RAM_FUNC rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     window_t *w = window_get(desc);
     if (!w)

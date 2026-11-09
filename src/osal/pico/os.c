@@ -18,7 +18,7 @@ uint64_t HOST_IN_RAM_FUNC os_mono_ns(void)
     return time_us_64() * 1000;
 }
 
-uint32_t os_random(void)
+uint32_t HOST_IN_RAM_FUNC os_random(void)
 {
     uint64_t s = get_rand_64();
     return (uint32_t)(s ^ (s >> 32));

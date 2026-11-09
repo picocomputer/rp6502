@@ -35,7 +35,7 @@ static absolute_time_t wifi_retry_timer;
 #define WIFI_RETRY_INITIAL_SECS 2
 #define WIFI_RETRY_SECS 60
 
-void wifi_shutdown(void)
+void HOST_IN_FLASH_FUNC wifi_shutdown(void)
 {
     switch (wifi_state)
     {
@@ -332,7 +332,7 @@ static void wifi_scan_format(unsigned i, char *buf, size_t size)
     snprintf(buf, size, "%4ddBm  %-4s  %s\n", ap->rssi, sec, ap->ssid);
 }
 
-int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;
     if (state < 0)
@@ -382,7 +382,7 @@ bool wifi_connecting(void)
             wifi_retry_count < WIFI_RETRY_INITIAL_RETRIES);
 }
 
-void wifi_apply_ssid(const char *ssid, bool changed)
+void HOST_IN_FLASH_FUNC wifi_apply_ssid(const char *ssid, bool changed)
 {
     (void)ssid;
     if (changed)
@@ -411,13 +411,13 @@ int HOST_IN_FLASH_FUNC wifi_ssid_response(char *buf, size_t buf_size,
     return wifi_pass_response(buf, buf_size, 0, width);
 }
 
-bool wifi_check_pass(const char *in, char *out)
+bool HOST_IN_FLASH_FUNC wifi_check_pass(const char *in, char *out)
 {
     (void)out;
     return !in[0] || wifi_get_ssid()[0];
 }
 
-void wifi_apply_pass(const char *pass, bool changed)
+void HOST_IN_FLASH_FUNC wifi_apply_pass(const char *pass, bool changed)
 {
     (void)pass;
     if (changed)

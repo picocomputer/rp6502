@@ -37,7 +37,7 @@ static keyboard_connection_t keyboard_connections[KEYBOARD_MAX_KEYBOARDS];
  * byte uses. */
 #define KEYBOARD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
-static keyboard_connection_t *keyboard_get_connection_by_slot(int slot)
+static keyboard_connection_t *HOST_IN_RAM_FUNC keyboard_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < KEYBOARD_MAX_KEYBOARDS; i++)
         if (keyboard_connections[i].valid && keyboard_connections[i].slot == slot)
@@ -51,7 +51,7 @@ uint8_t keyboard_get_report_id(int slot)
     return conn ? conn->report_id : 0;
 }
 
-static void keyboard_merge_keys(void)
+static void HOST_IN_RAM_FUNC keyboard_merge_keys(void)
 {
     memset(keyboard_keys, 0, sizeof(keyboard_keys));
     for (int k = 0; k < 8; k++)
@@ -62,7 +62,7 @@ static void keyboard_merge_keys(void)
 /* Word 0's low four bits are not keys. Bit 0 says nothing is pressed and bits
  * 1 to 3 are the lock lamps, so both are restated every time the block is
  * published. */
-static void keyboard_publish(void)
+static void HOST_IN_RAM_FUNC keyboard_publish(void)
 {
     bool any_key = false;
     keyboard_keys[0] &= ~0xF;
@@ -76,53 +76,55 @@ static void keyboard_publish(void)
         memcpy((uint8_t *)&xram[keyboard_xram], keyboard_keys, sizeof(keyboard_keys));
 }
 
-static void keyboard_send_leds()
+static void HOST_IN_RAM_FUNC keyboard_send_leds()
 {
     hid_set_leds(keyboard_hid_leds);
 }
 
-uint8_t keyboard_keypad_nav(uint8_t hid_usage)
+/* Keypad 1 to Keypad Decimal, in usage order. Keypad 5 has no navigation
+ * key. */
+static const uint8_t HOST_IN_RAM keyboard_keypad_nav_keys[] = {
+    HID_KEY_END, HID_KEY_ARROW_DOWN, HID_KEY_PAGE_DOWN,
+    HID_KEY_ARROW_LEFT, HID_KEY_NONE, HID_KEY_ARROW_RIGHT,
+    HID_KEY_HOME, HID_KEY_ARROW_UP, HID_KEY_PAGE_UP,
+    HID_KEY_INSERT, HID_KEY_DELETE};
+
+uint8_t HOST_IN_RAM_FUNC keyboard_keypad_nav(uint8_t hid_usage)
 {
-    switch (hid_usage)
-    {
-    case HID_KEY_KEYPAD_1: return HID_KEY_END;
-    case HID_KEY_KEYPAD_2: return HID_KEY_ARROW_DOWN;
-    case HID_KEY_KEYPAD_3: return HID_KEY_PAGE_DOWN;
-    case HID_KEY_KEYPAD_4: return HID_KEY_ARROW_LEFT;
-    case HID_KEY_KEYPAD_6: return HID_KEY_ARROW_RIGHT;
-    case HID_KEY_KEYPAD_7: return HID_KEY_HOME;
-    case HID_KEY_KEYPAD_8: return HID_KEY_ARROW_UP;
-    case HID_KEY_KEYPAD_9: return HID_KEY_PAGE_UP;
-    case HID_KEY_KEYPAD_0: return HID_KEY_INSERT;
-    case HID_KEY_KEYPAD_DECIMAL: return HID_KEY_DELETE;
-    }
+    unsigned i = (unsigned)hid_usage - HID_KEY_KEYPAD_1;
+    if (i < sizeof(keyboard_keypad_nav_keys))
+        return keyboard_keypad_nav_keys[i];
     return HID_KEY_NONE;
 }
 
-int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
+int HOST_IN_RAM_FUNC keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
 {
     return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0) + (gui ? 8 : 0);
 }
 
-static size_t keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod)
+static size_t HOST_IN_RAM_FUNC keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod)
 {
+    static const char HOST_IN_RAM fmt[] = "\33%c%c";
+    static const char HOST_IN_RAM fmt_mod[] = "\33[1;%d%c";
     if (ansi_mod == 1)
-        return (size_t)snprintf(out, cap, "\33%c%c", c0, c1);
-    return (size_t)snprintf(out, cap, "\33[1;%d%c", ansi_mod, c1);
+        return (size_t)snprintf(out, cap, fmt, c0, c1);
+    return (size_t)snprintf(out, cap, fmt_mod, ansi_mod, c1);
 }
 
-static size_t keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
+static size_t HOST_IN_RAM_FUNC keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
 {
+    static const char HOST_IN_RAM fmt[] = "\33[%d~";
+    static const char HOST_IN_RAM fmt_mod[] = "\33[%d;%d~";
     if (ansi_mod == 1)
-        return (size_t)snprintf(out, cap, "\33[%d~", num);
-    return (size_t)snprintf(out, cap, "\33[%d;%d~", num, ansi_mod);
+        return (size_t)snprintf(out, cap, fmt, num);
+    return (size_t)snprintf(out, cap, fmt_mod, num, ansi_mod);
 }
 
 /* The keys are one contiguous span of HID usages, so the table is indexed
  * rather than searched. An intro of 'O' or '[' means the VT100 form and code
  * is its final character; an intro of 0 means the VT220 form and code is its
  * number. */
-static const struct
+HOST_IN_RAM static const struct
 {
     char intro;
     uint8_t code;
@@ -137,7 +139,7 @@ static const struct
     {0, 2}, {'[', 'H'}, {0, 5}, {0, 3}, {'[', 'F'},
     {0, 6}, {'[', 'C'}, {'[', 'D'}, {'[', 'B'}, {'[', 'A'}};
 
-size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
+size_t HOST_IN_RAM_FUNC keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
 {
     if (hid_usage < 0x3A || hid_usage > 0x52)
         return 0;
@@ -150,7 +152,7 @@ size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
     return 0;
 }
 
-int keyboard_ctrl_promote(char ch, uint8_t keycode)
+int HOST_IN_RAM_FUNC keyboard_ctrl_promote(char ch, uint8_t keycode)
 {
     unsigned char c = (unsigned char)ch;
     if (keycode == HID_KEY_BACKSPACE)
@@ -247,7 +249,7 @@ bool keyboard_umount(int slot)
     return true;
 }
 
-void keyboard_report(int slot, uint8_t const *data, size_t size)
+void HOST_IN_RAM_FUNC keyboard_report(int slot, uint8_t const *data, size_t size)
 {
     keyboard_connection_t *conn = keyboard_get_connection_by_slot(slot);
     if (conn == NULL)
@@ -310,7 +312,7 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
     keyboard_publish();
 }
 
-bool keyboard_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC keyboard_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - sizeof(keyboard_keys);
     keyboard_xram = mapped ? word : 0xFFFF;
@@ -323,22 +325,22 @@ bool keyboard_is_mapped(void)
     return keyboard_xram != 0xFFFF;
 }
 
-uint8_t keyboard_get_modifier(void)
+uint8_t HOST_IN_RAM_FUNC keyboard_get_modifier(void)
 {
     return KEYBOARD_MODIFIER(keyboard_keys);
 }
 
-bool keyboard_key_down(uint8_t keycode)
+bool HOST_IN_RAM_FUNC keyboard_key_down(uint8_t keycode)
 {
     return KEYBOARD_KEY_BIT_VAL(keyboard_keys, keycode) != 0;
 }
 
-uint8_t keyboard_get_leds(void)
+uint8_t HOST_IN_RAM_FUNC keyboard_get_leds(void)
 {
     return keyboard_hid_leds;
 }
 
-void keyboard_toggle_lock(uint8_t bit)
+void HOST_IN_RAM_FUNC keyboard_toggle_lock(uint8_t bit)
 {
     keyboard_hid_leds ^= bit;
     keyboard_send_leds();

@@ -69,7 +69,7 @@ static std_fd_t *std_validate_fd(int fd)
     return &std_fd_pool[fd];
 }
 
-static void std_rln_callback(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC std_rln_callback(bool timeout, const char *buf)
 {
     (void)timeout;
     std_rln_active = false;
@@ -724,7 +724,7 @@ void HOST_IN_FLASH_FUNC std_init(void)
     std_fd_pool[STD_FD_TTY].write = std_tty_write;
 }
 
-void std_stop(void)
+void HOST_IN_FLASH_FUNC std_stop(void)
 {
     std_fd_active = NULL;
     std_xram_hi = 0;

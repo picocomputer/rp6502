@@ -2002,7 +2002,7 @@ void HOST_IN_RAM_FUNC rln_set_naws_size(uint16_t w, uint16_t h)
 /* ----- API calls ----- */
 
 // int ria_rln_lastkey(char *key, unsigned char *action);
-bool rln_api_lastkey(void)
+bool HOST_IN_FLASH_FUNC rln_api_lastkey(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -2023,7 +2023,7 @@ bool rln_api_lastkey(void)
 }
 
 // int ria_rln_peek(char *peek, unsigned char *pos);
-bool rln_api_peek(void)
+bool HOST_IN_FLASH_FUNC rln_api_peek(void)
 {
     if (xstack_ptr != XSTACK_SIZE || !rln_callback)
         return api_return_errno(API_EINVAL);
@@ -2097,7 +2097,7 @@ void rln_poke(const char *str)
 }
 
 // int ria_rln_poke(const char *poke);
-bool rln_api_poke(void)
+bool HOST_IN_FLASH_FUNC rln_api_poke(void)
 {
     const char *poke = api_pop_str_end(XSTACK_SIZE);
     if (!poke)

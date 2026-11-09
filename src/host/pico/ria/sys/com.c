@@ -105,7 +105,7 @@ int HOST_IN_RAM_FUNC com_uart_peek(void)
     return RING_LEN(&com_uart_rx) ? *RING_AT(&com_uart_rx, 0) : -1;
 }
 
-void com_uart_clear(void)
+void HOST_IN_FLASH_FUNC com_uart_clear(void)
 {
     com_uart_drain_rx();
     RING_SKIP(&com_uart_rx, RING_LEN(&com_uart_rx));
@@ -231,12 +231,12 @@ void HOST_IN_FLASH_FUNC com_init(void)
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
 }
 
-void com_run(void)
+void HOST_IN_FLASH_FUNC com_run(void)
 {
     com_bel_enabled = true;
 }
 
-void com_stop(void)
+void HOST_IN_FLASH_FUNC com_stop(void)
 {
     while (!ria_uart_tx_empty())
         com_stdio_pump();
@@ -254,7 +254,7 @@ static void com_ensure_newline(void)
         putchar('\n');
 }
 
-void com_break(void)
+void HOST_IN_FLASH_FUNC com_break(void)
 {
     com_ensure_newline();
     com_rx_clear();
@@ -304,7 +304,7 @@ int com_putchar(int c)
     return putchar(c);
 }
 
-int com_printf(const char *fmt, ...)
+int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
@@ -315,7 +315,7 @@ int com_printf(const char *fmt, ...)
 
 #define COM_PRINTF_UTF8_SIZE 128
 
-int com_printf_utf8(const char *utf8_fmt, ...)
+int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
 {
     char buf[COM_PRINTF_UTF8_SIZE];
     va_list va;

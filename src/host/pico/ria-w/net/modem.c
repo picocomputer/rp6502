@@ -883,7 +883,7 @@ static bool modem_sink(char ch)
     return true;
 }
 
-bool modem_std_handles(const char *filename)
+bool HOST_IN_RAM_FUNC modem_std_handles(const char *filename)
 {
     if (strncasecmp(filename, "AT", 2) != 0)
         return false;

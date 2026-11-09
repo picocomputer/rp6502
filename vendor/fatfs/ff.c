@@ -1043,7 +1043,7 @@ static FRESULT dec_share (	/* Decrement object open counter */
 }
 
 
-static void clear_share (	/* Clear all lock entries of the volume */
+static void HOST_IN_FLASH_FUNC clear_share (	/* Clear all lock entries of the volume */
 	FATFS* fs
 )
 {
@@ -2339,7 +2339,7 @@ static void create_xdir (
 #define DIR_READ_FILE(dp) dir_read(dp, 0)
 #define DIR_READ_LABEL(dp) dir_read(dp, 1)
 
-static FRESULT dir_read (
+static FRESULT HOST_IN_FLASH_FUNC dir_read (
 	DIR* dp,		/* Pointer to the directory object */
 	int vol			/* Filtered by 0:file/directory or 1:volume label */
 )
@@ -2612,7 +2612,7 @@ static FRESULT dir_register (	/* FR_OK:succeeded, FR_NO_SPACE:no free entry (RP6
 /* Remove an object from the directory                                   */
 /*-----------------------------------------------------------------------*/
 
-static FRESULT dir_remove (	/* FR_OK:Succeeded, FR_DISK_ERR:A disk error */
+static FRESULT HOST_IN_FLASH_FUNC dir_remove (	/* FR_OK:Succeeded, FR_DISK_ERR:A disk error */
 	DIR* dp					/* Directory object pointing the entry to be removed */
 )
 {
@@ -2658,7 +2658,7 @@ static FRESULT dir_remove (	/* FR_OK:Succeeded, FR_DISK_ERR:A disk error */
 /* Get file information from directory entry                             */
 /*-----------------------------------------------------------------------*/
 
-static void get_fileinfo (
+static void HOST_IN_FLASH_FUNC get_fileinfo (
 	DIR* dp,			/* Pointer to the directory object */
 	FILINFO* fno		/* Pointer to the file information to be filled */
 )
@@ -3377,7 +3377,7 @@ static DWORD make_rand (	/* Returns a seed value for next */
 
 /* Check what the sector is */
 
-static UINT check_fs (	/* 0:FAT/FAT32 VBR, 1:exFAT VBR, 2:Not FAT and valid BS, 3:Not FAT and invalid BS, 4:Disk error */
+static UINT HOST_IN_FLASH_FUNC check_fs (	/* 0:FAT/FAT32 VBR, 1:exFAT VBR, 2:Not FAT and valid BS, 3:Not FAT and invalid BS, 4:Disk error */
 	FATFS* fs,			/* Filesystem object */
 	LBA_t sect			/* Sector to load and check if it is an FAT-VBR or not */
 )
@@ -3751,7 +3751,7 @@ static FRESULT validate (	/* Returns FR_OK or FR_INVALID_OBJECT */
 /* API: Mount/Unmount a Logical Drive                                    */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_mount (
+FRESULT HOST_IN_FLASH_FUNC f_mount (
 	FATFS* fs,			/* Pointer to the filesystem object to be registered (NULL:unmount)*/
 	const TCHAR* path,	/* Logical drive number to be mounted/unmounted */
 	BYTE opt			/* Mount option: 0=Do not mount (delayed mount), 1=Mount immediately */
@@ -4357,7 +4357,7 @@ FRESULT f_close (
 /* API: Change Current Drive                                             */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_chdrive (
+FRESULT HOST_IN_FLASH_FUNC f_chdrive (
 	const TCHAR* path		/* Drive number to set */
 )
 {
@@ -4379,7 +4379,7 @@ FRESULT f_chdrive (
 /* API: Change Current Directory                                         */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_chdir (
+FRESULT HOST_IN_FLASH_FUNC f_chdir (
 	const TCHAR* path	/* Pointer to the directory path */
 )
 {
@@ -4441,7 +4441,7 @@ FRESULT f_chdir (
 /* API: Get Curent Directory                                             */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_getcwd (
+FRESULT HOST_IN_FLASH_FUNC f_getcwd (
 	TCHAR* buff,	/* Pointer to the buffer to store the current direcotry path */
 	UINT len		/* Size of buff in unit of TCHAR */
 )
@@ -4741,7 +4741,7 @@ FRESULT f_lseek (
 /* API: Create a Directory Object                                        */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_opendir (
+FRESULT HOST_IN_FLASH_FUNC f_opendir (
 	DIR* dp,			/* Pointer to directory object to create */
 	const TCHAR* path	/* Pointer to the directory path */
 )
@@ -4803,7 +4803,7 @@ FRESULT f_opendir (
 /* API: Close Directory                                                  */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_closedir (
+FRESULT HOST_IN_FLASH_FUNC f_closedir (
 	DIR *dp		/* Pointer to the directory object to be closed */
 )
 {
@@ -4833,7 +4833,7 @@ FRESULT f_closedir (
 /* API: Read Directory Entries in Sequence                               */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_readdir (
+FRESULT HOST_IN_FLASH_FUNC f_readdir (
 	DIR* dp,			/* Pointer to the open directory object */
 	FILINFO* fno		/* Pointer to file information to return */
 )
@@ -4924,7 +4924,7 @@ FRESULT f_findfirst (
 /* API: Get File Status                                                  */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_stat (
+FRESULT HOST_IN_FLASH_FUNC f_stat (
 	const TCHAR* path,	/* Pointer to the file path */
 	FILINFO* fno		/* Pointer to file information to return */
 )
@@ -4961,7 +4961,7 @@ FRESULT f_stat (
 /* API: Get Number of Free Clusters                                      */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_getfree (
+FRESULT HOST_IN_FLASH_FUNC f_getfree (
 	const TCHAR* path,	/* Logical drive number */
 	DWORD* nclst,		/* Pointer to a variable to return number of free clusters */
 	FATFS** fatfs		/* Pointer to a pointer to return corresponding filesystem object */
@@ -5109,7 +5109,7 @@ FRESULT f_truncate (
 /* API: Delete a File/Directory                                          */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_unlink (
+FRESULT HOST_IN_FLASH_FUNC f_unlink (
 	const TCHAR* path		/* Pointer to the file or directory path */
 )
 {
@@ -5198,7 +5198,7 @@ FRESULT f_unlink (
 /* API: Create a Directory                                               */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_mkdir (
+FRESULT HOST_IN_FLASH_FUNC f_mkdir (
 	const TCHAR* path		/* Pointer to the directory path */
 )
 {
@@ -5336,7 +5336,7 @@ static FRESULT chk_ancestor (	/* FR_OK:not in it, FR_INVALID_NAME:in it, FR_INT_
 /* API: Rename a File/Directory                                          */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_rename (
+FRESULT HOST_IN_FLASH_FUNC f_rename (
 	const TCHAR* path_old,	/* Pointer to the object name to be renamed */
 	const TCHAR* path_new	/* Pointer to the new name */
 )
@@ -5481,7 +5481,7 @@ FRESULT f_rename (
 /* API: Change Attribute                                                 */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_chmod (
+FRESULT HOST_IN_FLASH_FUNC f_chmod (
 	const TCHAR* path,	/* Pointer to the file path */
 	BYTE attr,			/* Attribute bits to set/clear */
 	BYTE mask			/* Attribute mask to change */
@@ -5530,7 +5530,7 @@ FRESULT f_chmod (
 /* API: Change Timestamp                                                 */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_utime (
+FRESULT HOST_IN_FLASH_FUNC f_utime (
 	const TCHAR* path,	/* Pointer to the file/directory name */
 	const FILINFO* fno	/* Timestamp to be set */
 )
@@ -5598,7 +5598,7 @@ FRESULT f_utime (
 /* API: Get Volume Label                                                 */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_getlabel (
+FRESULT HOST_IN_FLASH_FUNC f_getlabel (
 	const TCHAR* path,	/* Logical drive number */
 	TCHAR* label,		/* Buffer to store the volume label */
 	DWORD* vsn			/* Variable to store the volume serial number */
@@ -5699,7 +5699,7 @@ FRESULT f_getlabel (
 /* API: Set Volume Label                                                 */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_setlabel (
+FRESULT HOST_IN_FLASH_FUNC f_setlabel (
 	const TCHAR* label	/* Volume label to set with heading logical drive number */
 )
 {
@@ -5709,7 +5709,7 @@ FRESULT f_setlabel (
 	BYTE dirvn[22];
 	UINT di;
 	WCHAR wc;
-	static const char badchr[18] = "+.,;=[]" "/*:<>|\\\"\?\x7F";	/* [0..16] for FAT, [7..16] for exFAT */
+	static const char HOST_IN_FLASH badchr[18] = "+.,;=[]" "/*:<>|\\\"\?\x7F";	/* [0..16] for FAT, [7..16] for exFAT */
 #if FF_USE_LFN
 	DWORD dc;
 #endif
@@ -6155,9 +6155,9 @@ FRESULT HOST_IN_FLASH_FUNC f_mkfs (
 	UINT len				/* Size of working buffer [byte] */
 )
 {
-	static const WORD cst[] = {1, 4, 16, 64, 256, 512, 0};	/* Cluster size boundary for FAT volume (4K sector unit) */
-	static const WORD cst32[] = {1, 2, 4, 8, 16, 32, 0};	/* Cluster size boundary for FAT32 volume (128K sector unit) */
-	static const MKFS_PARM defopt = {FM_ANY, 0, 0, 0, 0};	/* Default parameter */
+	static const WORD HOST_IN_FLASH cst[] = {1, 4, 16, 64, 256, 512, 0};	/* Cluster size boundary for FAT volume (4K sector unit) */
+	static const WORD HOST_IN_FLASH cst32[] = {1, 2, 4, 8, 16, 32, 0};	/* Cluster size boundary for FAT32 volume (128K sector unit) */
+	static const MKFS_PARM HOST_IN_FLASH defopt = {FM_ANY, 0, 0, 0, 0};	/* Default parameter */
 	BYTE fsopt, fsty, sys, pdrv, ipart;
 	BYTE *buf;
 	BYTE *pte;
@@ -7334,15 +7334,15 @@ int f_printf (
 /* API: Set Active Codepage for the Path Name                            */
 /*-----------------------------------------------------------------------*/
 
-FRESULT f_setcp (
+FRESULT HOST_IN_FLASH_FUNC f_setcp (
 	WORD cp		/* Value to be set as active code page */
 )
 {
 #if !FF_NO_DBCS
-	static const WORD       validcp[22] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869,   932,   936,   949,   950, 0};
+	static const WORD       HOST_IN_FLASH validcp[22] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869,   932,   936,   949,   950, 0};
 	static const BYTE *const HOST_IN_FLASH tables[22] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, Dc932, Dc936, Dc949, Dc950, 0};
 #else	/* RP6502: DBCS pages excluded (see ffconf.h FF_NO_DBCS) */
-	static const WORD       validcp[18] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869, 0};
+	static const WORD       HOST_IN_FLASH validcp[18] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869, 0};
 	static const BYTE *const HOST_IN_FLASH tables[18] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, 0};
 #endif
 	UINT i;

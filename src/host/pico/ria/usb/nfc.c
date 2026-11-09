@@ -881,7 +881,7 @@ void HOST_IN_RAM_FUNC nfc_task(void)
     }
 }
 
-bool nfc_std_handles(const char *name)
+bool HOST_IN_RAM_FUNC nfc_std_handles(const char *name)
 {
     return strcasecmp(name, STR_NFC_COLON) == 0;
 }

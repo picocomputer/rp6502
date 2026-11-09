@@ -65,7 +65,7 @@ static char keymap_layout_description[LAYOUT_DESC_MAX];
 /* Everything reaches the queue through here. A run is queued whole or not at
  * all, and a Ctrl-C latches SIGINT before the space is checked, so a break is
  * seen even when the queue is too full to take the byte. */
-static void keymap_queue(const char *s, size_t n)
+static void HOST_IN_RAM_FUNC keymap_queue(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
         if (s[i] == 0x03)
@@ -74,7 +74,7 @@ static void keymap_queue(const char *s, size_t n)
         RING_IN(&keymap_key_queue, s, (uint32_t)n);
 }
 
-static void keymap_queue_char(char ch)
+static void HOST_IN_RAM_FUNC keymap_queue_char(char ch)
 {
     keymap_queue(&ch, 1);
 }
@@ -99,7 +99,7 @@ static void keymap_apply_active(void)
     keymap_cache_valid = false;
 }
 
-static void keymap_cycle_layout(void)
+static void HOST_IN_FLASH_FUNC keymap_cycle_layout(void)
 {
     const char *p = keymap_layout_pos;
     while (*p && *p != ' ')
@@ -120,7 +120,7 @@ static void keymap_rebuild_code_page_cache(void);
  * from. The page is checked here, on the way into a keystroke, rather than
  * being invalidated by oem.c, because not every machine routes a code page
  * change through a module that could say so. */
-static void keymap_cache_ready(void)
+static void HOST_IN_RAM_FUNC keymap_cache_ready(void)
 {
     if (!keymap_cache_valid || keymap_cache_code_page != oem_get_code_page_run())
         keymap_rebuild_code_page_cache();
@@ -140,8 +140,8 @@ typedef struct
     bool capslock;
 } keymap_press_t;
 
-static void keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
-                          keymap_press_t *k)
+static void HOST_IN_RAM_FUNC keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
+                                           keymap_press_t *k)
 {
     k->mod = modifier;
     k->shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
@@ -167,7 +167,7 @@ static void keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
 }
 
 // Alt held over the keypad types an OEM character code one digit at a time.
-static bool keymap_alt_code_key(const keymap_press_t *k)
+static bool HOST_IN_RAM_FUNC keymap_alt_code_key(const keymap_press_t *k)
 {
     bool on_pad = k->keycode >= HID_KEY_KEYPAD_1 && k->keycode <= HID_KEY_KEYPAD_0;
     if (!keymap_alt_mode && !(on_pad && k->alt))
@@ -186,13 +186,13 @@ static bool keymap_alt_code_key(const keymap_press_t *k)
     return true;
 }
 
-static bool keymap_shifted(const keymap_press_t *k)
+static bool HOST_IN_RAM_FUNC keymap_shifted(const keymap_press_t *k)
 {
     bool use_caps_lock = k->keycode < 128 && layout_use_caps(keymap_layout_index, k->keycode);
     return k->shift ^ (k->capslock && use_caps_lock);
 }
 
-static char keymap_layout_lookup(const keymap_press_t *k)
+static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 {
     if (k->keycode >= 128 || (k->mod & (KEYBOARD_MODIFIER_LEFTALT |
                                         KEYBOARD_MODIFIER_LEFTGUI |
@@ -206,7 +206,7 @@ static char keymap_layout_lookup(const keymap_press_t *k)
 
 /* An Alt chord on a key that AltGr does not answer sends the character from
  * the plain or shifted column prefixed with ESC, the way xterm sends Meta. */
-static bool keymap_alt_escape(const keymap_press_t *k)
+static bool HOST_IN_RAM_FUNC keymap_alt_escape(const keymap_press_t *k)
 {
     char ch = ff_uni2oem(layout_code_point(keymap_layout_index, k->keycode,
                                            keymap_shifted(k) ? LAYOUT_SHIFT : LAYOUT_PLAIN),
@@ -233,7 +233,7 @@ void keymap_abandon(void)
 
 /* Dead keys compose across two or three presses. Space commits the mark on its
  * own, DEL cancels one, and a pair that composes nothing types both. */
-static void keymap_compose(char ch)
+static void HOST_IN_RAM_FUNC keymap_compose(char ch)
 {
     if (!keymap_dead_key0)
     {
@@ -333,7 +333,7 @@ static void keymap_compose(char ch)
 }
 
 // Chords that do something other than type. True when one of them fired.
-static bool keymap_chord(const keymap_press_t *k)
+static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
 {
     switch (k->keycode)
     {
@@ -377,7 +377,7 @@ static bool keymap_chord(const keymap_press_t *k)
     return false;
 }
 
-static void keymap_emit_vt(const keymap_press_t *k)
+static void HOST_IN_RAM_FUNC keymap_emit_vt(const keymap_press_t *k)
 {
     char seq[16];
     if (keyboard_vt_seq(seq, sizeof(seq), k->keycode,
@@ -385,7 +385,7 @@ static void keymap_emit_vt(const keymap_press_t *k)
         keymap_queue(seq, strlen(seq));
 }
 
-static void keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
+static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     keymap_cache_ready();
     keymap_press_t k;
@@ -527,7 +527,7 @@ int HOST_IN_FLASH_FUNC keymap_layouts_response(char *buf,
     return state + 1;
 }
 
-static void keymap_rebuild_code_page_cache(void)
+static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
     uint16_t code_page = oem_get_code_page_run();
@@ -637,7 +637,7 @@ void HOST_IN_FLASH_FUNC keymap_init(void)
 
 /* Called once per report, so that an Alt code typed while Alt was held is
  * emitted when Alt is released. */
-void keymap_on_modifiers(uint8_t modifier)
+void HOST_IN_RAM_FUNC keymap_on_modifiers(uint8_t modifier)
 {
     if (keymap_alt_mode &&
         !(modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
@@ -648,7 +648,7 @@ void keymap_on_modifiers(uint8_t modifier)
     }
 }
 
-void keymap_on_key(uint8_t modifier, uint8_t keycode)
+void HOST_IN_RAM_FUNC keymap_on_key(uint8_t modifier, uint8_t keycode)
 {
     keymap_queue_key(modifier, keycode, true);
 }

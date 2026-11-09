@@ -269,7 +269,7 @@ static void com_telnet_on_disconnect(int desc)
     telnet_close(desc);
 }
 
-static bool com_telnet_on_accept(uint16_t port)
+static bool HOST_IN_FLASH_FUNC com_telnet_on_accept(uint16_t port)
 {
     if (com_telnet_state != COM_TELNET_STATE_LISTENING)
         return false;

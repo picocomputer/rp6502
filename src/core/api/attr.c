@@ -17,6 +17,7 @@
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
 #include "core/sys/random.h"
+#include "machine.h"
 #include <string.h>
 
 #define ATTR_ERRNO_OPT 0x00
@@ -39,111 +40,251 @@
 #define ATTR_CLK_RUN_DS 0x12
 #define ATTR_CLK_RUN_S 0x13
 
+/* One function per attribute's work, so each is placed on its own. A getter
+ * returns the value and a setter returns false to refuse it. */
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_errno_opt(void)
+{
+    return api_get_errno_opt();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_phi2_khz(void)
+{
+    return phi2_get_khz_run();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_code_page(void)
+{
+    return oem_get_code_page_run();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_length(void)
+{
+    return rln_get_max_length();
+}
+
+static uint32_t HOST_IN_RAM_FUNC attr_get_lrand(void)
+{
+    return sys_random() & 0x7FFFFFFF;
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_bel(void)
+{
+    return com_get_bel();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_launcher(void)
+{
+    return proc_has_launcher();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_exit_code(void)
+{
+    return (uint16_t)proc_get_exit_code();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_sigint(void)
+{
+    return ria_get_sigint();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_caps(void)
+{
+    return rln_get_caps();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_width(void)
+{
+    return rln_get_term_width();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_height(void)
+{
+    return rln_get_term_height();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_suppress_nl(void)
+{
+    return rln_get_suppress_nl();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_pcm_underruns(void)
+{
+    return aud_pcm_underruns();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_opl_overruns(void)
+{
+    return aud_opl_overruns();
+}
+
+static uint32_t HOST_IN_FLASH_FUNC attr_get_clk_run(uint32_t us_per_tick)
+{
+    return clk_get_run(us_per_tick) & 0x7FFFFFFF;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_errno_opt(uint32_t value)
+{
+    return value <= UINT8_MAX && api_set_errno_opt((uint8_t)value);
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_phi2_khz(uint32_t value)
+{
+    if (value < PHI2_MIN_KHZ || value > PHI2_MAX_KHZ)
+        return false;
+    phi2_set_khz_run((uint16_t)value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_code_page(uint32_t value)
+{
+    return value <= UINT16_MAX && oem_set_code_page_run((uint16_t)value);
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_rln_length(uint32_t value)
+{
+    if (value > UINT8_MAX)
+        return false;
+    rln_set_max_length((uint8_t)value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_bel(uint32_t value)
+{
+    if (value > 1)
+        return false;
+    com_set_bel(value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_launcher(uint32_t value)
+{
+    if (value > 1)
+        return false;
+    proc_set_launcher(value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_rln_caps(uint32_t value)
+{
+    if (value > 2)
+        return false;
+    rln_set_caps((uint8_t)value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_rln_width(uint32_t value)
+{
+    if (value > UINT16_MAX)
+        return false;
+    rln_set_term_width((uint16_t)value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_rln_height(uint32_t value)
+{
+    if (value > UINT16_MAX)
+        return false;
+    rln_set_term_height((uint16_t)value);
+    return true;
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_rln_suppress_nl(uint32_t value)
+{
+    if (value > 1)
+        return false;
+    rln_set_suppress_nl((uint8_t)value);
+    return true;
+}
+
 // long ria_attr_get(uint8_t attr_id);
-bool attr_api_get(void)
+bool HOST_IN_RAM_FUNC attr_api_get(void)
 {
     switch (API_A)
     {
     case ATTR_ERRNO_OPT:
-        return api_return_axsreg(api_get_errno_opt());
+        return api_return_axsreg(attr_get_errno_opt());
     case ATTR_PHI2_KHZ:
-        return api_return_axsreg(phi2_get_khz_run());
+        return api_return_axsreg(attr_get_phi2_khz());
     case ATTR_CODE_PAGE:
-        return api_return_axsreg(oem_get_code_page_run());
+        return api_return_axsreg(attr_get_code_page());
     case ATTR_RLN_LENGTH:
-        return api_return_axsreg(rln_get_max_length());
+        return api_return_axsreg(attr_get_rln_length());
     case ATTR_LRAND:
-        return api_return_axsreg(sys_random() & 0x7FFFFFFF);
+        return api_return_axsreg(attr_get_lrand());
     case ATTR_BEL:
-        return api_return_axsreg(com_get_bel());
+        return api_return_axsreg(attr_get_bel());
     case ATTR_LAUNCHER:
-        return api_return_axsreg(proc_has_launcher());
+        return api_return_axsreg(attr_get_launcher());
     case ATTR_EXIT_CODE:
-        return api_return_axsreg((uint16_t)proc_get_exit_code());
+        return api_return_axsreg(attr_get_exit_code());
     case ATTR_SIGINT:
-        return api_return_axsreg(ria_get_sigint());
+        return api_return_axsreg(attr_get_sigint());
     case ATTR_RLN_CAPS:
-        return api_return_axsreg(rln_get_caps());
+        return api_return_axsreg(attr_get_rln_caps());
     case ATTR_RLN_WIDTH:
-        return api_return_axsreg(rln_get_term_width());
+        return api_return_axsreg(attr_get_rln_width());
     case ATTR_RLN_HEIGHT:
-        return api_return_axsreg(rln_get_term_height());
+        return api_return_axsreg(attr_get_rln_height());
     case ATTR_RLN_SUPPRESS_NL:
-        return api_return_axsreg(rln_get_suppress_nl());
+        return api_return_axsreg(attr_get_rln_suppress_nl());
     case ATTR_PCM_UNDERRUNS:
-        return api_return_axsreg(aud_pcm_underruns());
+        return api_return_axsreg(attr_get_pcm_underruns());
     case ATTR_OPL_OVERRUNS:
-        return api_return_axsreg(aud_opl_overruns());
+        return api_return_axsreg(attr_get_opl_overruns());
     case ATTR_CLK_RUN_MS:
-        return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
+        return api_return_axsreg(attr_get_clk_run(1000));
     case ATTR_CLK_RUN_CS:
-        return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
+        return api_return_axsreg(attr_get_clk_run(10000));
     case ATTR_CLK_RUN_DS:
-        return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
+        return api_return_axsreg(attr_get_clk_run(100000));
     case ATTR_CLK_RUN_S:
-        return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
+        return api_return_axsreg(attr_get_clk_run(1000000));
     default:
         return api_return_errno(API_EINVAL);
     }
 }
 
 // int ria_attr_set(long val, unsigned char id);
-bool attr_api_set(void)
+bool HOST_IN_RAM_FUNC attr_api_set(void)
 {
     uint32_t value;
     if (!api_pop_uint32_end(&value))
         return api_return_errno(API_EINVAL);
     if (value > 0x7FFFFFFF)
         return api_return_errno(API_EINVAL);
+    bool ok;
     switch (API_A)
     {
     case ATTR_ERRNO_OPT:
-        if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
-            return api_return_errno(API_EINVAL);
+        ok = attr_set_errno_opt(value);
         break;
     case ATTR_PHI2_KHZ:
-        if (value < PHI2_MIN_KHZ || value > PHI2_MAX_KHZ)
-            return api_return_errno(API_EINVAL);
-        phi2_set_khz_run((uint16_t)value);
+        ok = attr_set_phi2_khz(value);
         break;
     case ATTR_CODE_PAGE:
-        if (value > UINT16_MAX || !oem_set_code_page_run((uint16_t)value))
-            return api_return_errno(API_EINVAL);
+        ok = attr_set_code_page(value);
         break;
     case ATTR_RLN_LENGTH:
-        if (value > UINT8_MAX)
-            return api_return_errno(API_EINVAL);
-        rln_set_max_length((uint8_t)value);
+        ok = attr_set_rln_length(value);
         break;
     case ATTR_BEL:
-        if (value > 1)
-            return api_return_errno(API_EINVAL);
-        com_set_bel(value);
+        ok = attr_set_bel(value);
         break;
     case ATTR_LAUNCHER:
-        if (value > 1)
-            return api_return_errno(API_EINVAL);
-        proc_set_launcher(value);
+        ok = attr_set_launcher(value);
         break;
     case ATTR_RLN_CAPS:
-        if (value > 2)
-            return api_return_errno(API_EINVAL);
-        rln_set_caps((uint8_t)value);
+        ok = attr_set_rln_caps(value);
         break;
     case ATTR_RLN_WIDTH:
-        if (value > UINT16_MAX)
-            return api_return_errno(API_EINVAL);
-        rln_set_term_width((uint16_t)value);
+        ok = attr_set_rln_width(value);
         break;
     case ATTR_RLN_HEIGHT:
-        if (value > UINT16_MAX)
-            return api_return_errno(API_EINVAL);
-        rln_set_term_height((uint16_t)value);
+        ok = attr_set_rln_height(value);
         break;
     case ATTR_RLN_SUPPRESS_NL:
-        if (value > 1)
-            return api_return_errno(API_EINVAL);
-        rln_set_suppress_nl((uint8_t)value);
+        ok = attr_set_rln_suppress_nl(value);
         break;
     case ATTR_LRAND:
     case ATTR_EXIT_CODE:
@@ -155,32 +296,35 @@ bool attr_api_set(void)
     case ATTR_CLK_RUN_DS:
     case ATTR_CLK_RUN_S:
     default:
-        return api_return_errno(API_EINVAL);
+        ok = false;
+        break;
     }
+    if (!ok)
+        return api_return_errno(API_EINVAL);
     return api_return_ax(0);
 }
 
 // int phi2(void)
-bool attr_api_phi2(void)
+bool HOST_IN_FLASH_FUNC attr_api_phi2(void)
 {
     return api_return_ax(phi2_get_khz_run());
 }
 
 // int code_page(int cp)
-bool attr_api_code_page(void)
+bool HOST_IN_FLASH_FUNC attr_api_code_page(void)
 {
     oem_set_code_page_run(API_AX);
     return api_return_ax(oem_get_code_page_run());
 }
 
 // long lrand(void)
-bool attr_api_lrand(void)
+bool HOST_IN_RAM_FUNC attr_api_lrand(void)
 {
-    return api_return_axsreg(sys_random() & 0x7FFFFFFF);
+    return api_return_axsreg(attr_get_lrand());
 }
 
 // RIA_OP_ERRNO_OPT 0x06 is retained for binaries built with older SDKs.
-bool attr_api_errno_opt(void)
+bool HOST_IN_FLASH_FUNC attr_api_errno_opt(void)
 {
     uint8_t opt = API_A;
     if (!api_set_errno_opt(opt))
