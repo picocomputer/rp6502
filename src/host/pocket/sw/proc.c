@@ -79,12 +79,14 @@ bool proc_exec_take(void)
     proc_exec_pending = false;
     if (!proc_argv0_absolute())
     {
+        proc_exec_failed();
         printf("argv does not fit for ROM '%s'\n", arg_index(0));
         return false;
     }
     const char *path = arg_index(0);
     if (!rom_load(path))
     {
+        proc_exec_failed();
         printf("exec: no %s\n", path);
         return false;
     }

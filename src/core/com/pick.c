@@ -101,16 +101,20 @@ bool com_rx_load(sst_cursor_t *c)
     return true;
 }
 
-/* Every source's unread input, with the byte a source has waiting in the
- * RIA's RX latch, which is the head of that source's queue and goes with it. */
+/* A source's unread input, with the byte it has waiting in the RIA's RX
+ * latch, which is the head of that source's queue and goes with it. */
+void HOST_IN_FLASH_FUNC com_rx_clear_source(com_source_t s)
+{
+    if (com_rx_held == s)
+        com_rx_held = COM_SOURCE_ANY;
+    char waiting;
+    com_rx_reclaim(&waiting, 1, s);
+    if (com_sources[s].clear)
+        com_sources[s].clear();
+}
+
 void HOST_IN_FLASH_FUNC com_rx_clear(void)
 {
-    com_rx_held = COM_SOURCE_ANY;
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        char waiting;
-        com_rx_reclaim(&waiting, 1, s);
-        if (com_sources[s].clear)
-            com_sources[s].clear();
-    }
+        com_rx_clear_source(s);
 }

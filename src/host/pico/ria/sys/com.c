@@ -155,7 +155,8 @@ static void com_uart_flush(void)
 
 /* Bytes go out in runs: a ring keeps the wire until it is empty, so the RIA's
  * own output and the 6502's TX register never interleave inside an escape
- * sequence. */
+ * sequence. The 6502's run gives way when core 0's ring is full, because a
+ * printf waits on that ring, while the 6502 waits on READY without harm. */
 static bool com_tx_from_ria;
 
 static bool HOST_IN_RAM_FUNC com_tx_next(uint8_t *ch)
@@ -167,6 +168,8 @@ static void HOST_IN_RAM_FUNC com_tx_fanout(void)
 {
     while (com_uart_tx_writable() && com_telnet_tx_writable())
     {
+        if (com_tx_from_ria && !RING_AVAIL(&com_tx_core0))
+            com_tx_from_ria = false;
         uint8_t ch;
         if (!com_tx_next(&ch))
         {

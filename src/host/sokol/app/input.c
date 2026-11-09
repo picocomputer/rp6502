@@ -227,6 +227,8 @@ static void input_key(const sapp_event *e)
             break;
         default:
         {
+            if (e->key_repeat && input_chord_held)
+                break;
             vtkeys_result_t done = vtkeys_key(hid, ctrl, shift, alt);
             if (done == VTKEYS_CHORD)
                 input_chord_held = true;

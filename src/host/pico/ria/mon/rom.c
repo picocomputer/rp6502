@@ -630,13 +630,14 @@ bool rom_active(void)
 }
 
 /* A break of a running program finds the ROM idle already, because rom_stop
- * ran first. A break of a load lands at the monitor. */
+ * ran first. A break of a load, or of a ROM that never got to run, lands at
+ * the monitor. */
 void rom_break(void)
 {
-    bool loading = rom_state == ROM_LOADING || rom_state == ROM_XRAM_WRITING ||
-                   rom_state == ROM_RIA_WRITING;
+    bool loaded = rom_state == ROM_LOADING || rom_state == ROM_XRAM_WRITING ||
+                  rom_state == ROM_RIA_WRITING || rom_state == ROM_RUNNING;
     rom_state = ROM_IDLE;
-    if (loading)
+    if (loaded)
         proc_chain_end();
 }
 

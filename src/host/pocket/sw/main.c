@@ -161,11 +161,13 @@ int main(void)
         {
             main_upd_seen = upd;
             restage = true;
+            proc_cancel_launcher();
             sys_stop();
         }
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
+            proc_cancel_launcher();
             sys_stop();
         }
         sys_commit();
@@ -176,10 +178,7 @@ int main(void)
         if (!sys_active())
         {
             if (restage)
-            {
-                com_putchar('\n');
                 main_stage();
-            }
             else if (proc_exec_take())
                 sys_run();
         }

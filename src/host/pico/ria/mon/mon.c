@@ -56,6 +56,9 @@ static int mon_response_indent_pending;
 static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
+
+/* Set by a stop, cleared when the monitor next prompts. */
+static bool mon_program_stopped;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static mon_confirm_fn mon_confirm_cb;
@@ -389,9 +392,6 @@ static void HOST_IN_FLASH_FUNC mon_next_response(void)
     mon_clear_slot(i);
 }
 
-/* A break cancels the command output being printed and every command still
- * queued. Messages already queued, such as errors raised while a program ran,
- * still print. */
 static void HOST_IN_FLASH_FUNC mon_break_response(void)
 {
     mon_needs_break = false;
@@ -402,23 +402,11 @@ static void HOST_IN_FLASH_FUNC mon_break_response(void)
     mon_response_width_aware = false;
     mon_response_next_loaded = false;
     mon_more_rows_left = rln_get_term_height() - 1;
-    int kept = 0;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
-        mon_response_fn fn = mon_response_fn_list[i];
-        if (fn == mon_utf8_response || fn == mon_lfs_response ||
-            fn == mon_fatfs_response)
-        {
-            mon_response_fn_list[kept] = fn;
-            mon_response_str[kept] = mon_response_str[i];
-            mon_response_state[kept] = mon_response_state[i];
-            kept++;
-        }
-        else
-            fn(mon_response_cur, MON_RESPONSE_BUF_SIZE, -1, rln_get_term_width());
-    }
-    for (int i = kept; i < MON_RESPONSE_FN_COUNT; i++)
+        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1, rln_get_term_width());
         mon_clear_slot(i);
+    }
 }
 
 void mon_add_response_fn(mon_response_fn fn)
@@ -453,6 +441,9 @@ void mon_add_response_errno(api_errno err)
     mon_add_response_utf8(api_errno_str(err));
 }
 
+/* --More-- is erased back to where it was shown. */
+static uint8_t mon_more_line;
+
 static void HOST_IN_FLASH_FUNC mon_more(void)
 {
     if (mon_needs_break)
@@ -468,11 +459,13 @@ static void HOST_IN_FLASH_FUNC mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
+        mon_more_line = com_line_hold();
         com_printf_utf8(S(STR_MON_MORE_SHOW));
         mon_more_state = MON_MORE_WAIT;
         break;
     case MON_MORE_END:
         com_printf_utf8(S(STR_MON_MORE_ERASE));
+        com_line_resume(mon_more_line);
         mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
@@ -664,6 +657,7 @@ static void HOST_IN_RAM_FUNC mon_step(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
+        mon_program_stopped = false;
         com_clean_line();
         if (mon_confirm_cb)
             com_printf_utf8(S(STR_MON_CONFIRM_PROMPT));
@@ -731,7 +725,7 @@ void HOST_IN_FLASH_FUNC mon_init(void)
     mon_add_response_utf8("\n");
 }
 
-void mon_stop(void)
+static void HOST_IN_FLASH_FUNC mon_rearm(void)
 {
     if (mon_more_state)
     {
@@ -743,8 +737,18 @@ void mon_stop(void)
     mon_needs_read_line = true;
 }
 
+void mon_stop(void)
+{
+    mon_program_stopped = true;
+    mon_rearm();
+}
+
+/* A break cancels the monitor's own output. A break that stopped a program
+ * finds only messages queued while it ran, and those still print. */
 void mon_break(void)
 {
-    mon_needs_break = true;
-    mon_stop();
+    if (!mon_program_stopped)
+        mon_needs_break = true;
+    mon_program_stopped = false;
+    mon_rearm();
 }

@@ -51,6 +51,7 @@ typedef struct
 #define COM_WIRE_HOLD_MS 5000
 
 void com_rx_clear(void);
+void com_rx_clear_source(com_source_t src);
 
 void com_rx_save(sst_cursor_t *c);
 bool com_rx_load(sst_cursor_t *c);
@@ -90,6 +91,12 @@ void com_clean_line(void);
 /* Terminal control bytes that leave the cursor where it is, so the line is as
  * clean after them as before. */
 void com_write_control(const char *s);
+
+/* For output that brings the cursor back to where it started, such as a
+ * prompt shown and then erased: hold the line's state before the output and
+ * resume it after. */
+uint8_t com_line_hold(void);
+void com_line_resume(uint8_t held);
 
 /* The end of a session: the soft reset, then CR LF unless the line was clean
  * before it. */

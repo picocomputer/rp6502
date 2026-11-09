@@ -65,11 +65,15 @@ bool proc_exited(void);
 void proc_sst_save(sst_cursor_t *c, unsigned flags);
 bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 
+/* A break cancels an exec or relaunch still queued, which ends the chain. */
+void proc_exec_break(void);
+
 #define PROC_DRIVER DRIVER(                                    \
     INIT(proc_exec_init)                                       \
     TASK_FATFS(proc_exec_task)                                 \
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
+    BREAK(proc_exec_break)                                     \
     SST(PROC, 1, PROC_SST_SIZE, proc_sst_save, proc_sst_load))
 
 #endif /* _CORE_SYS_PROC_H_ */

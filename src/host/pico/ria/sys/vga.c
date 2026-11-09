@@ -220,7 +220,7 @@ static void vga_rln_callback(bool timeout)
 static void HOST_IN_FLASH_FUNC vga_connect(void)
 {
     vga_backchannel_irq_disable();
-    com_uart_clear();
+    com_rx_clear_source(COM_SOURCE_UART);
 
     // Test if VGA connected
     mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);

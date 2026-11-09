@@ -118,6 +118,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     proc_cancel_launcher();
     sys_stop_now();
     rln_stop();
+    mon_stop();
     com_clean_line();
 
     // Change to the directory containing the ROM before loading

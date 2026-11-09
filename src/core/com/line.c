@@ -47,13 +47,23 @@ static void com_line_puts(const char *s)
         com_putchar((unsigned char)*s++);
 }
 
-void com_write_control(const char *s)
+uint8_t com_line_hold(void)
 {
     com_flush();
-    uint8_t line = com_line;
-    com_line_puts(s);
+    return com_line;
+}
+
+void com_line_resume(uint8_t held)
+{
     com_flush();
-    com_line = line;
+    com_line = held;
+}
+
+void com_write_control(const char *s)
+{
+    uint8_t held = com_line_hold();
+    com_line_puts(s);
+    com_line_resume(held);
 }
 
 /* Byte by byte, because a string would be data in flash, and this runs while
