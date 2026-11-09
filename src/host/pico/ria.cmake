@@ -85,22 +85,41 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/src/host/pico/ria-w/net/wifi.c
 )
 set_source_files_properties(${RIA_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
-set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *lib*_a-strcmp.o *lib*_a-strncmp.o *lib*_a-strncpy.o *lib*_a-strlen*.o *libm.a:")
-# An object sits in a directory named as CMake names it: the source's path
-# from here, with ".." turned into "__".
-foreach(_src ${RIA_RAM_SOURCES})
-    file(RELATIVE_PATH _dir ${CMAKE_CURRENT_SOURCE_DIR} ${_src})
-    get_filename_component(_dir ${_dir} DIRECTORY)
-    get_filename_component(_dir ${_dir} NAME)
-    if(_dir STREQUAL "..")
-        set(_dir "__")
-    endif()
-    get_filename_component(_name ${_src} NAME)
-    string(APPEND _ria_ram_files " */${_dir}/${_name}.o")
-endforeach()
+# The linker's pattern for each source's object. An object sits in a directory
+# named as CMake names it: the source's path from here, with ".." turned into
+# "__".
+function(ria_object_patterns out)
+    set(_patterns "")
+    foreach(_src ${ARGN})
+        file(RELATIVE_PATH _dir ${CMAKE_CURRENT_SOURCE_DIR} ${_src})
+        get_filename_component(_dir ${_dir} DIRECTORY)
+        get_filename_component(_dir ${_dir} NAME)
+        if(_dir STREQUAL "..")
+            set(_dir "__")
+        endif()
+        get_filename_component(_name ${_src} NAME)
+        string(APPEND _patterns " */${_dir}/${_name}.o")
+    endforeach()
+    set(${out} "${_patterns}" PARENT_SCOPE)
+endfunction()
+ria_object_patterns(_ria_ram_objects ${RIA_RAM_SOURCES})
+set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *lib*_a-strcmp.o *lib*_a-strncmp.o *lib*_a-strncpy.o *lib*_a-strlen*.o *libm.a:${_ria_ram_objects}")
+
+# String literals go to flash, those of the files above included. The CYW43
+# driver's stay in RAM: they are the radio's command names, sent when Wi-Fi
+# rejoins, which it may do while flashing.
+set(RIA_RAM_STRING_SOURCES
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ll.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ctrl.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_lwip.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.c
+)
+ria_object_patterns(_ria_ram_strings ${RIA_RAM_STRING_SOURCES})
+
 set(_ria_ld ${CMAKE_CURRENT_BINARY_DIR}/${RIA_TARGET}_ld)
 file(WRITE ${_ria_ld}/default_text_excludes.incl "*(EXCLUDE_FILE(${_ria_ram_files}) .text*)\n")
-file(WRITE ${_ria_ld}/default_rodata_excludes.incl "*(EXCLUDE_FILE(${_ria_ram_files}) .rodata*)\n")
+file(WRITE ${_ria_ld}/default_rodata_excludes.incl
+    "EXCLUDE_FILE(${_ria_ram_strings}) *(.rodata.str?.* .rodata.*.str?.*)\n*(EXCLUDE_FILE(${_ria_ram_files}) .rodata*)\n")
 pico_add_linker_script_override_path(${RIA_TARGET} ${_ria_ld}
     FILES default_text_excludes.incl default_rodata_excludes.incl)
 

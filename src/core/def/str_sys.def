@@ -161,9 +161,9 @@ X(STR_SET_KEY_RESPONSE, "KEY : \a%s\n")
 X(STR_SET_BLE_RESPONSE, "BLE : \a%d (%s%s%s)\n")
 
 // Telnet console
-XR(STR_TEL_PASSKEY, "\r\nPasskey: ")
-XR(STR_TEL_CONNECTED, "\r\nConnected\r\n")
-XR(STR_TEL_ACCESS_DENIED, "\r\n?Access denied\r\n")
+X(STR_TEL_PASSKEY, "\r\nPasskey: ")
+X(STR_TEL_CONNECTED, "\r\nConnected\r\n")
+X(STR_TEL_ACCESS_DENIED, "\r\n?Access denied\r\n")
 
 // Virtual modem
 X(STR_MODEM_RESPONSE_0, "OK")

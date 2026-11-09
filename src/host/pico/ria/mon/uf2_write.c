@@ -64,7 +64,8 @@ void uf2_lock_up(void)
 
 static void __attribute__((noreturn)) uf2_write_failed(void)
 {
-    printf("%s", STR_UF2_FLASH_FAILED);
+    // The message is the format, because a literal "%s" would be in flash.
+    printf(STR_UF2_FLASH_FAILED);
     uf2_lock_up();
 }
 

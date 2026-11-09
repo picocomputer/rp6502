@@ -31,6 +31,10 @@ import sys
 
 # Reached, but a guard keeps them from running while flashing: not followed.
 PRUNE = {
+    'panic': 'fatal: the RIA has stopped, flashing or not',
+    '__assert_func': 'fatal: the RIA has stopped, flashing or not',
+    'host_log': 'only prints a log message, and no message is needed while flashing',
+    'com_telnet_handle_auth': 'the telnet FLASHING hook closed any session at the passkey prompt',
     'sys_set_flashing': 'the writer calls it first, and it runs the FLASHING hooks from flash still intact',
     'rln_resize_redraw': 'redraws only while a line is being edited (rln_set_naws_size)',
     'cyw43_ll_bus_init': 'radio start-up: cyw43_ensure_up returns early while the chip is up',
@@ -115,7 +119,8 @@ INDIRECT = {
     'dns_call_found': ('DNS answers', ['net_dns_found', 'ntp_dns_found']),
     'net_close': ('net.c close hooks: ' + MODEM, ['com_telnet_on_disconnect']),
     'net_recv': ('net.c close hooks: ' + MODEM, ['com_telnet_on_disconnect']),
-    'net_accept_cb': ('net.c accept hooks: ' + MODEM, ['com_telnet_on_accept']),
+    'net_accept_cb': ('net.c accept hooks: the telnet FLASHING hook closed telnet\'s listener, '
+                      'and modem_stop closed the modem\'s', []),
     'edpt_xfer_complete': ('class drivers: after the USB FLASHING hook only MSC\'s endpoints remain',
                            ['msc_class_driver_xfer_cb']),
     'control_xfer_complete': ('control transfer callbacks of the drives, usbh\'s stall clearing '
@@ -142,9 +147,11 @@ SCHEDULER = 'sys_walk'
 # Our own sources. A static inline in one of our headers needs an annotation
 # like any other function; one in an SDK or vendor header does not.
 SRC = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-# A literal loaded only to be handed to one of these is read only on a failure
-# that is fatal while flashing anyway.
-FAIL_EXITS = ('__assert_func', 'panic')
+# A literal loaded only to be handed to one of these is a message. No message
+# is needed while flashing: the image was read whole before the first erase,
+# and the writer's own progress and failure lines are RAM strings.
+MESSAGE_SINKS = ('__assert_func', 'panic', '__wrap_printf', '__wrap_vprintf', '__wrap_puts',
+                 'printf', 'vprintf', 'puts', 'host_log')
 # flatten and always_inline force inlining, so what they hold needs no
 # annotation of its own.
 FORCED = re.compile(r'HOST_ISR_FUNC|\bflatten\b|always_inline|__force_inline')
@@ -281,7 +288,7 @@ class Image:
                 e = out[k]
                 steps += 1
                 if 'call' in e:
-                    if self.name.get(e['call']) in FAIL_EXITS:
+                    if self.name.get(e['call']) in MESSAGE_SINKS:
                         del d['lit']
                     break
                 if 'indirect' in e:
@@ -377,6 +384,7 @@ def main():
             enter(a, None)
 
     flash_code, flash_data, indirect, unannotated, sites = {}, {}, {}, {}, set()
+    pruned = set(PRUNE)
 
     def scan(s, only=None):
         dec = img.decode(s)
@@ -388,6 +396,8 @@ def main():
                 if 'call' in d and img.name.get(d['call']) in only:
                     enter(d['call'], (s, d['addr']))
                 continue
+            if set(names) & pruned:
+                continue  # inlined code a guard keeps from running while flashing
             inner = names[0] if names and names[0] != '??' else img.name[s]
             if flash(d['addr']):
                 flash_code.setdefault(s, inner)
@@ -407,7 +417,7 @@ def main():
                     sites.add(inner)
                 else:
                     indirect.setdefault(inner, s)
-            if 'call' in d and img.name.get(d['call']) not in PRUNE and not (set(names) & set(PRUNE)):
+            if 'call' in d and img.name.get(d['call']) not in pruned:
                 enter(d['call'], (s, d['addr']))
 
     # Only the TASK_ALWAYS tasks run in sys_walk while flashing.
