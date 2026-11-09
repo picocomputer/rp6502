@@ -257,7 +257,7 @@ bool HOST_IN_RAM_FUNC pix_ready(void)
 
 // A run starts only on an idle DMA, which has left its read address at the
 // ring slot after the last word it read.
-uint32_t pix_stream_xram(uint32_t addr, uint32_t end)
+uint32_t HOST_IN_RAM_FUNC pix_stream_xram(uint32_t addr, uint32_t end)
 {
     if (dma_channel_is_busy(pix_stream_dma))
         return addr;
@@ -272,7 +272,7 @@ uint32_t pix_stream_xram(uint32_t addr, uint32_t end)
 }
 
 // The stream SM keeps its slot until the last message it pulled is out.
-bool pix_stream_done(void)
+bool HOST_IN_RAM_FUNC pix_stream_done(void)
 {
     return !dma_channel_is_busy(pix_stream_dma) &&
            pio_sm_is_tx_fifo_empty(PIX_PIO, PIX_STREAM_SM);
