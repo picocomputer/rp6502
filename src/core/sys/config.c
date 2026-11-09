@@ -6,6 +6,7 @@
 
 #include "core/sys/config.h"
 #include "core/str/str.h"
+#include "machine.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -80,7 +81,7 @@ static bool config_end(bool ok, bool changed)
  * one, so that a value meaning an action reaches the driver intact, and it
  * runs whether or not the stored byte moved. */
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...)  \
-    type pfx##_get_##name(void) { return config_##pfx##_##name; } \
+    type HOST_IN_RAM_FUNC pfx##_get_##name(void) { return config_##pfx##_##name; } \
     bool pfx##_set_##name(type v)                                 \
     {                                                             \
         type stored = v;                                          \
@@ -93,7 +94,7 @@ static bool config_end(bool ok, bool changed)
         return config_end(true, changed);                         \
     }
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...)         \
-    const char *pfx##_get_##name(void) { return config_##pfx##_##name; } \
+    const char *HOST_IN_RAM_FUNC pfx##_get_##name(void) { return config_##pfx##_##name; } \
     bool pfx##_set_##name(const char *v)                                 \
     {                                                                    \
         char stored[size];                                               \

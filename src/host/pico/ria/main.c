@@ -13,7 +13,7 @@
 /* This is the OS scheduler. */
 /*****************************/
 
-bool sys_break(void)
+bool HOST_IN_RAM_FUNC sys_break(void)
 {
     proc_cancel_launcher();
     sys_break_request();

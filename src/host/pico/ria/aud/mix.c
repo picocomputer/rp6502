@@ -298,7 +298,7 @@ void HOST_IN_RAM_FUNC aud_task(void) { bel_task(); }
 /* From the main loop, beside aud_irq on core 0. The gate's read and write
  * need no lock, because aud_irq never moves the bell into or out of
  * release. */
-void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
+void HOST_IN_RAM_FUNC aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
 
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever
  * reaches an engine here is aud_irq, and holding the engines still means

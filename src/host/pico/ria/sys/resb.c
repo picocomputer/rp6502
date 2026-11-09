@@ -23,7 +23,7 @@ void HOST_IN_FLASH_FUNC resb_init(void)
     gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
 }
 
-void resb_assert(void)
+void HOST_IN_RAM_FUNC resb_assert(void)
 {
     /* resb_assert is called on both cores, on core 1 through act_loop. The
      * barrier makes release_pending false visible to resb_task on core 0

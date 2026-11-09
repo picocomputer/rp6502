@@ -124,7 +124,6 @@ static void com_uart_tx_write(char ch)
 static void HOST_IN_RAM_FUNC com_uart_drain_tx(void)
 {
     bool vga = vga_connected();
-    uint8_t ch;
     while (RING_LEN(&com_uart_tx))
     {
         uint32_t fr = uart_get_hw(COM_UART)->fr;
@@ -135,7 +134,8 @@ static void HOST_IN_RAM_FUNC com_uart_drain_tx(void)
         }
         else if (fr & UART_UARTFR_TXFF_BITS)
             break;
-        RING_GET(&com_uart_tx, &ch);
+        uint8_t ch = *RING_AT(&com_uart_tx, 0);
+        RING_SKIP(&com_uart_tx, 1);
         uart_putc_raw(COM_UART, (char)ch);
         if (vga)
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);

@@ -72,7 +72,7 @@ void ria_trigger_vsync(void)
 // when no transfer is running, because the loop that the 6502 runs for a
 // transfer is written at $FFF0. ria_task rewrites $FFF0 and IRQB from the
 // pending flags once the transfer ends.
-void ria_trigger_sigint(void)
+void HOST_IN_RAM_FUNC ria_trigger_sigint(void)
 {
     sigint_pending = RIA_IRQ_SIGINT;
     if (action_state == action_state_idle)
@@ -283,7 +283,7 @@ void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
 // consumer, com_tx_fanout on core 0 through ria_uart_tx_dequeue.
 static RING(uint8_t, 32) ria_uart_tx;
 
-bool ria_uart_tx_dequeue(uint8_t *ch)
+bool HOST_IN_RAM_FUNC ria_uart_tx_dequeue(uint8_t *ch)
 {
     return RING_GET(&ria_uart_tx, ch);
 }
@@ -292,14 +292,14 @@ bool ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
 
 static volatile int ria_uart_rx_slot = -1;
 
-bool ria_uart_rx_offer_ready(void)
+bool HOST_IN_RAM_FUNC ria_uart_rx_offer_ready(void)
 {
     return ria_uart_rx_slot < 0 && !(REGS(0xFFE0) & 0b01000000);
 }
 
-void ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
+void HOST_IN_RAM_FUNC ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
 
-int ria_uart_rx_peek(void)
+int HOST_IN_RAM_FUNC ria_uart_rx_peek(void)
 {
     int c = ria_uart_rx_slot;
     if (c >= 0)
@@ -309,7 +309,7 @@ int ria_uart_rx_peek(void)
     return -1;
 }
 
-bool ria_uart_rx_reclaim(uint8_t *ch)
+bool HOST_IN_RAM_FUNC ria_uart_rx_reclaim(uint8_t *ch)
 {
     int c = ria_uart_rx_slot;
     if (c >= 0)

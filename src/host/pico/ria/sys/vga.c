@@ -61,7 +61,7 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-void vga_set_tel_console_active(bool active)
+void HOST_IN_RAM_FUNC vga_set_tel_console_active(bool active)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
 }
@@ -377,14 +377,14 @@ vga_canvas_t vga_get_canvas(void)
     return vga_canvas_current;
 }
 
-void vga_canvas_size(int *w, int *h)
+void HOST_IN_RAM_FUNC vga_canvas_size(int *w, int *h)
 {
     vga_canvas_geometry(vga_canvas_current, w, h);
 }
 
 // The VGA draws the console on a 1280x1024 display as a 640x512 view, and on
 // every other display as 640x480.
-void vga_console_size(int *w, int *h)
+void HOST_IN_RAM_FUNC vga_console_size(int *w, int *h)
 {
     *w = 640;
     *h = vga_get_display_type() == 2 ? 512 : 480;
@@ -397,7 +397,7 @@ void vga_set_canvas(uint16_t canvas_word)
         vga_canvas_current = (vga_canvas_t)canvas_word;
 }
 
-bool vga_connected(void)
+bool HOST_IN_RAM_FUNC vga_connected(void)
 {
     return vga_state == VGA_CONNECTED ||
            vga_state == VGA_NO_VERSION;

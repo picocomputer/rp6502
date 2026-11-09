@@ -11,6 +11,7 @@
 #include "core/api/arg.h"
 #include "core/sys/com.h"
 #include "core/sys/sys.h"
+#include "machine.h"
 #include "osal/dir.h"
 
 #include <string.h>
@@ -19,7 +20,7 @@ static char *proc_running_path;
 static char *proc_launcher_path;
 static int16_t proc_exit_code;
 
-static void set_path(char **slot, const char *path)
+static void HOST_IN_RAM_FUNC set_path(char **slot, const char *path)
 {
     if (*slot)
         os_dir_path_drop(*slot);
@@ -57,7 +58,7 @@ void proc_set_launcher(bool is_launcher)
     set_path(&proc_launcher_path, is_launcher ? proc_running_path : NULL);
 }
 
-void proc_cancel_launcher(void)
+void HOST_IN_RAM_FUNC proc_cancel_launcher(void)
 {
     set_path(&proc_launcher_path, NULL);
 }

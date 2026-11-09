@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void host_log(int level, const char *category, const char *fmt, ...)
+void HOST_IN_RAM_FUNC host_log(int level, const char *category, const char *fmt, ...)
 {
     static const char *const names[] = RP6502_LOG_LEVEL_NAMES;
     printf("%s %s: ", names[level], category);
@@ -30,29 +30,29 @@ void host_log(int level, const char *category, const char *fmt, ...)
 }
 
 #if CFG_TUSB_DEBUG
-int rp6502_log_tusb(const char *fmt, ...)
+static void HOST_IN_RAM_FUNC rp6502_log_tusb_line(const char *line)
 {
-    static char *line;
-    static size_t cap, len;
+#if CFG_TUSB_DEBUG == 1
+    RP6502_LOG(tinyusb, ERROR, "%s", line);
+#else
+    RP6502_LOG(tinyusb, DEBUG, "%s", line);
+#endif
+}
+
+/* TinyUSB prints a line in pieces, which are gathered here and logged a line
+ * at a time. A line that fills the buffer is logged as it stands. */
+int HOST_IN_RAM_FUNC rp6502_log_tusb(const char *fmt, ...)
+{
+    static char line[128];
+    static size_t len;
     va_list ap;
     va_start(ap, fmt);
-    va_list sizing;
-    va_copy(sizing, ap);
-    int n = vsnprintf(NULL, 0, fmt, sizing);
-    va_end(sizing);
-    if (n < 0)
-    {
-        va_end(ap);
-        return n;
-    }
-    if (len + (size_t)n + 1 > cap)
-    {
-        cap = len + (size_t)n + 1;
-        line = realloc(line, cap);
-    }
-    vsnprintf(line + len, cap - len, fmt, ap);
+    int n = vsnprintf(line + len, sizeof(line) - len, fmt, ap);
     va_end(ap);
-    len += (size_t)n;
+    if (n < 0)
+        return n;
+    size_t room = sizeof(line) - 1 - len;
+    len += (size_t)n < room ? (size_t)n : room;
     char *start = line;
     char *end;
     while ((end = memchr(start, '\n', len - (size_t)(start - line))))
@@ -60,15 +60,17 @@ int rp6502_log_tusb(const char *fmt, ...)
         if (end > start && end[-1] == '\r')
             end[-1] = 0;
         *end = 0;
-#if CFG_TUSB_DEBUG == 1
-        RP6502_LOG(tinyusb, ERROR, "%s", start);
-#else
-        RP6502_LOG(tinyusb, DEBUG, "%s", start);
-#endif
+        rp6502_log_tusb_line(start);
         start = end + 1;
     }
     len -= (size_t)(start - line);
     memmove(line, start, len);
+    line[len] = 0;
+    if (len == sizeof(line) - 1)
+    {
+        rp6502_log_tusb_line(line);
+        len = 0;
+    }
     return n;
 }
 #endif

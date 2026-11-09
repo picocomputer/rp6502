@@ -25,12 +25,16 @@ rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
 
-# Sources that run in an interrupt or on the main loop's hot path, whole: the
-# SDK's, TinyUSB's, FatFs and the storage path. The linker can keep code out of
+# Sources that run in an interrupt, on the main loop's hot path, or while the
+# RIA rewrites its own flash, whole: the SDK's, TinyUSB's, FatFs, the storage
+# path, the consoles, the network and the bell. The linker can keep code out of
 # flash only by its object file, so these skip LTO. The SDK's flash .text and
 # .rodata take everything but the files its one-line default_text_excludes.incl
 # and default_rodata_excludes.incl name, and whatever they skip lands in RAM
 # with .data. These overrides add the list.
+file(GLOB _ria_lwip_core
+    ${PICO_SDK_PATH}/lib/lwip/src/core/*.c
+    ${PICO_SDK_PATH}/lib/lwip/src/core/ipv4/*.c)
 set(RIA_RAM_SOURCES
     ${PICO_SDK_PATH}/src/common/pico_time/time.c
     ${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c
@@ -41,24 +45,55 @@ set(RIA_RAM_SOURCES
     ${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_poll.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_arch/cyw43_arch.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/btstack_hci_transport_cyw43.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_lwip/lwip_nosys.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_printf/printf.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_stdio/stdio.c
+    ${PICO_SDK_PATH}/src/rp2_common/hardware_watchdog/watchdog.c
+    ${PICO_SDK_PATH}/src/rp2_common/hardware_clocks/clocks.c
+    ${PICO_SDK_PATH}/src/rp2_common/hardware_pio/pio.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_clib_interface/newlib_interface.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_platform_panic/panic.c
+    ${PICO_SDK_PATH}/src/rp2_common/pico_runtime/runtime.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ctrl.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ll.c
     ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_lwip.c
-    ${PICO_SDK_PATH}/lib/lwip/src/core/timeouts.c
+    ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_stats.c
+    ${_ria_lwip_core}
+    ${PICO_SDK_PATH}/lib/lwip/src/netif/ethernet.c
     ${RP6502_ROOT}/vendor/tinyusb/src/tusb.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/tusb_fifo.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/usbh.c
     ${RP6502_ROOT}/vendor/tinyusb_rp6502/hub.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/hcd_rp2350.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/rp2350_usb.c
     ${RP6502_ROOT}/vendor/fatfs/ff.c
     ${RP6502_ROOT}/src/host/pico/ria/usb/msc.c
     ${RP6502_ROOT}/src/host/pico/ria/usb/usb.c
     ${RP6502_ROOT}/src/osal/pico/fs.c
+    ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/api/std.c
+    ${RP6502_ROOT}/src/core/aud/bel.c
+    ${RP6502_ROOT}/src/core/com/pick.c
+    ${RIA_SRC}/sys/com.c
+    ${RIA_SRC}/sys/com_telnet.c
+    ${RP6502_ROOT}/src/host/pico/ria-w/net/cyw.c
+    ${RP6502_ROOT}/src/host/pico/ria-w/net/net.c
+    ${RP6502_ROOT}/src/host/pico/ria-w/net/telnet.c
+    ${RP6502_ROOT}/src/host/pico/ria-w/net/wifi.c
 )
 set_source_files_properties(${RIA_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
-set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:")
+set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *lib*_a-strcmp.o *lib*_a-strncmp.o *lib*_a-strncpy.o *lib*_a-strlen*.o *libm.a:")
+# An object sits in a directory named as CMake names it: the source's path
+# from here, with ".." turned into "__".
 foreach(_src ${RIA_RAM_SOURCES})
-    get_filename_component(_dir ${_src} DIRECTORY)
+    file(RELATIVE_PATH _dir ${CMAKE_CURRENT_SOURCE_DIR} ${_src})
+    get_filename_component(_dir ${_dir} DIRECTORY)
     get_filename_component(_dir ${_dir} NAME)
+    if(_dir STREQUAL "..")
+        set(_dir "__")
+    endif()
     get_filename_component(_name ${_src} NAME)
     string(APPEND _ria_ram_files " */${_dir}/${_name}.o")
 endforeach()

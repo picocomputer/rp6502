@@ -1931,7 +1931,7 @@ void rln_break(void)
 
 /* 6502 applications may configure the max length */
 
-void rln_forget_source(unsigned src)
+void HOST_IN_RAM_FUNC rln_forget_source(unsigned src)
 {
     if (src < COM_SOURCE_COUNT)
         memset(&rln_sources[src], 0, sizeof rln_sources[src]);
@@ -1946,7 +1946,7 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 void rln_set_suppress_nl(uint8_t v) { rln_suppress_newline = v; }
 uint8_t rln_get_suppress_nl(void) { return rln_suppress_newline; }
 
-uint16_t rln_get_term_width(void)
+uint16_t HOST_IN_RAM_FUNC rln_get_term_width(void)
 {
     if (rln_width_override)
         return rln_width_override;
@@ -1983,7 +1983,7 @@ uint16_t rln_get_term_height(void)
 void rln_set_term_width(uint16_t v) { rln_width_override = v; }
 void rln_set_term_height(uint16_t v) { rln_height_override = v; }
 
-void rln_set_naws_size(uint16_t w, uint16_t h)
+void HOST_IN_RAM_FUNC rln_set_naws_size(uint16_t w, uint16_t h)
 {
     if (w == rln_naws_width && h == rln_naws_height)
         return;

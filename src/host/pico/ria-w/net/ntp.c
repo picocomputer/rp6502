@@ -32,9 +32,11 @@ typedef enum
     ntp_state_init,
     ntp_state_dns,
     ntp_state_dns_wait,
+    ntp_state_dns_error, // the lookup answered with no address
     ntp_state_dns_fail,
     ntp_state_request,
     ntp_state_request_wait,
+    ntp_state_reply, // a valid reply arrived, in ntp_reply_secs
     ntp_state_request_timeout,
     ntp_state_set_time_fail,
     ntp_state_success,
@@ -50,6 +52,7 @@ static int ntp_retry_count;
 static timer_deadline_t ntp_retry_timer;
 static timer_deadline_t ntp_timeout_timer;
 static uint64_t ntp_nonce;
+static uint32_t ntp_reply_secs; // seconds since 1900
 
 // Be aggressive 5 times then back off
 #define NTP_RETRY_RETRIES 5
@@ -74,7 +77,10 @@ static void ntp_schedule_retry(void)
         ntp_retry_timer = timer_in_ms(NTP_RETRY_UNSET_SECS * 1000);
 }
 
-static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg)
+/* The two lwIP callbacks only record what arrived, for ntp_task to act on,
+ * because they also run while flashing. */
+static void HOST_IN_RAM_FUNC ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr,
+                                           void *arg)
 {
     (void)arg;
     (void)hostname;
@@ -84,14 +90,11 @@ static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *a
         ntp_state = ntp_state_request;
     }
     else
-    {
-        RP6502_LOG(ntp, WARN, "DNS fail");
-        ntp_schedule_retry();
-        ntp_state = ntp_state_dns_fail;
-    }
+        ntp_state = ntp_state_dns_error;
 }
 
-static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port)
+static void HOST_IN_RAM_FUNC ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                                          const ip_addr_t *addr, u16_t port)
 {
     (void)arg;
     (void)pcb;
@@ -117,31 +120,36 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
     {
         uint8_t seconds_buf[4];
         pbuf_copy_partial(p, seconds_buf, sizeof(seconds_buf), NTP_OFFSET_TX_TS);
-        uint32_t secs_1900 = ((uint32_t)seconds_buf[0] << 24) | ((uint32_t)seconds_buf[1] << 16) |
-                             ((uint32_t)seconds_buf[2] << 8) | seconds_buf[3];
-        // NTP seconds roll over in 2036. A value with the top bit clear would
-        // otherwise fall before 03:14:08 UTC on 20 January 1968, so it is
-        // taken to be after the rollover.
-        int64_t unix_time = (secs_1900 & 0x80000000u)
-                                ? (int64_t)secs_1900 - NTP_DELTA
-                                : (int64_t)secs_1900 + ((int64_t)1 << 32) - NTP_DELTA;
-        struct timespec ts = {.tv_sec = (time_t)unix_time, .tv_nsec = 0};
-        if (aon_timer_set_time(&ts))
-        {
-            RP6502_LOG(ntp, INFO, "success");
-            ntp_success_at_least_once = true;
-            ntp_retry_count = 0;
-            ntp_retry_timer = timer_in_ms(NTP_RETRY_REFRESH_SECS * 1000);
-            ntp_state = ntp_state_success;
-        }
-        else
-        {
-            RP6502_LOG(ntp, ERROR, "set time fail");
-            ntp_schedule_retry();
-            ntp_state = ntp_state_set_time_fail;
-        }
+        ntp_reply_secs = ((uint32_t)seconds_buf[0] << 24) | ((uint32_t)seconds_buf[1] << 16) |
+                         ((uint32_t)seconds_buf[2] << 8) | seconds_buf[3];
+        ntp_state = ntp_state_reply;
     }
     pbuf_free(p);
+}
+
+static void ntp_set_clock(void)
+{
+    // NTP seconds roll over in 2036. A value with the top bit clear would
+    // otherwise fall before 03:14:08 UTC on 20 January 1968, so it is taken
+    // to be after the rollover.
+    int64_t unix_time = (ntp_reply_secs & 0x80000000u)
+                            ? (int64_t)ntp_reply_secs - NTP_DELTA
+                            : (int64_t)ntp_reply_secs + ((int64_t)1 << 32) - NTP_DELTA;
+    struct timespec ts = {.tv_sec = (time_t)unix_time, .tv_nsec = 0};
+    if (aon_timer_set_time(&ts))
+    {
+        RP6502_LOG(ntp, INFO, "success");
+        ntp_success_at_least_once = true;
+        ntp_retry_count = 0;
+        ntp_retry_timer = timer_in_ms(NTP_RETRY_REFRESH_SECS * 1000);
+        ntp_state = ntp_state_success;
+    }
+    else
+    {
+        RP6502_LOG(ntp, ERROR, "set time fail");
+        ntp_schedule_retry();
+        ntp_state = ntp_state_set_time_fail;
+    }
 }
 
 void HOST_IN_RAM_FUNC ntp_task(void)
@@ -197,6 +205,14 @@ void HOST_IN_RAM_FUNC ntp_task(void)
         ntp_state = ntp_state_request_wait;
     }
     break;
+    case ntp_state_dns_error:
+        RP6502_LOG(ntp, WARN, "DNS fail");
+        ntp_schedule_retry();
+        ntp_state = ntp_state_dns_fail;
+        break;
+    case ntp_state_reply:
+        ntp_set_clock();
+        break;
     case ntp_state_dns_wait:
         if (timer_passed(ntp_timeout_timer))
         {
@@ -234,10 +250,12 @@ static const char *ntp_status_str(void)
     case ntp_state_dns:
     case ntp_state_dns_wait:
         return S(STR_NTP_DNS_LOOKUP);
+    case ntp_state_dns_error:
     case ntp_state_dns_fail:
         return S(STR_NTP_DNS_FAIL);
     case ntp_state_request:
     case ntp_state_request_wait:
+    case ntp_state_reply:
         return S(STR_NTP_REQUESTED);
     case ntp_state_request_timeout:
         return S(STR_NTP_REQUEST_TIMEOUT);

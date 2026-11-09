@@ -134,7 +134,7 @@ void sys_run(void)
         sys_state = starting;
 }
 
-void sys_stop(void)
+void HOST_IN_RAM_FUNC sys_stop(void)
 {
     resb_assert();
     if (sys_state == starting)
@@ -153,7 +153,7 @@ bool sys_running(void)
     return sys_state == running;
 }
 
-void sys_break_request(void)
+void HOST_IN_RAM_FUNC sys_break_request(void)
 {
     sys_breaking = true;
     sys_stop();

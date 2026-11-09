@@ -252,7 +252,7 @@ bool pix_api_xreg(void)
 }
 
 // PIX TX FIFO is joined to be 8 deep.
-bool pix_ready(void)
+bool HOST_IN_RAM_FUNC pix_ready(void)
 {
     return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
 }

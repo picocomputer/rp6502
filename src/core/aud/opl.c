@@ -203,7 +203,7 @@ static const uint32_t HOST_IN_RAM opl_wav[4] = {0x80000000u, 0x200, 0, 0x100};
 
 static inline int opl_is_mod(int s) { return (s % 6) < 3; }
 
-static inline uint32_t opl_r6(const opl_slot_t *s, uint32_t st)
+static inline uint32_t HOST_IN_RAM_FUNC opl_r6(const opl_slot_t *s, uint32_t st)
 {
     return (s->r6w >> (st * 8)) & 0xff;
 }
@@ -479,13 +479,13 @@ OPL_HOT int32_t opl_rhythm(uint32_t amv, uint32_t vi)
 
 /* ---------------- write application ---------------- */
 
-static inline void opl_force(opl_slot_t *s)
+static inline void HOST_IN_RAM_FUNC opl_force(opl_slot_t *s)
 {
     s->span = 0;
     s->qm = 0;
 }
 
-static inline void opl_set_key(opl_slot_t *s, uint32_t k)
+static inline void HOST_IN_RAM_FUNC opl_set_key(opl_slot_t *s, uint32_t k)
 {
     if (s->key != k)
     {
@@ -514,7 +514,7 @@ static void HOST_IN_RAM_FUNC opl_slot_pg(opl_slot_t *s)
         s->inc[i] = (((f + d[i]) & km) * mul) & ~0x1000u;
 }
 
-static inline void opl_slot_ksl(opl_slot_t *s)
+static inline void HOST_IN_RAM_FUNC opl_slot_ksl(opl_slot_t *s)
 {
     s->ta = (s->ta & 0xffff0000u) | (uint32_t)(s->v->k6 * opl_kslmul[s->r40 >> 6] + ((s->r40 & 63) << 2));
 }
@@ -547,12 +547,12 @@ static void HOST_IN_RAM_FUNC opl_slot_eg(opl_slot_t *s)
 }
 
 /* decay from level 0 up to the SL band; SL 0: none (lo 0x200, span 1) */
-static inline void opl_slot_drec(opl_slot_t *s)
+static inline void HOST_IN_RAM_FUNC opl_slot_drec(opl_slot_t *s)
 {
     s->drec = s->slv ? (uint32_t)s->slv << 20 : 0x10200;
 }
 
-static inline uint32_t opl_drum(int i)
+static inline uint32_t HOST_IN_RAM_FUNC opl_drum(int i)
 {
     return opl_chip.rhy && (opl_chip.bd & opl_drumbit[i - 12]);
 }
@@ -573,7 +573,7 @@ static void HOST_IN_RAM_FUNC opl_slot_view(int i, int what)
     }
 }
 
-static inline void opl_chan_fb(int c)
+static inline void HOST_IN_RAM_FUNC opl_chan_fb(int c)
 {
     opl_chan_t *h = &opl_chip.ch[c];
     const opl_view_t *v = &opl_chip.mv[c];
@@ -582,7 +582,7 @@ static inline void opl_chan_fb(int c)
 }
 
 /* A0: F-number low bits. Returns 1 if they changed. */
-static inline int opl_view_a(opl_view_t *v, uint32_t d)
+static inline int HOST_IN_RAM_FUNC opl_view_a(opl_view_t *v, uint32_t d)
 {
     const uint32_t f = (v->fnum & 0x300) | d;
     if (f == v->fnum)
@@ -595,7 +595,7 @@ static inline int opl_view_a(opl_view_t *v, uint32_t d)
 }
 
 /* B0: returns 3 if F-number high bits or block changed, | 4 for the key */
-static inline int opl_view_b(opl_view_t *v, uint32_t d)
+static inline int HOST_IN_RAM_FUNC opl_view_b(opl_view_t *v, uint32_t d)
 {
     const uint32_t f = (v->fnum & 0xff) | (d & 3) << 8, b = (d >> 2) & 7, k = (d >> 5) & 1;
     int what = 0;
