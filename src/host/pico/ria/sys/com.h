@@ -34,6 +34,7 @@ bool com_putchar_ready(void);
 
 // Telnet console server settings
 void com_telnet_task(void);
+void com_telnet_flashing(void);
 
 #define COM_TELNET_KEY_SIZE 33
 int com_telnet_port_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -45,6 +46,7 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
     nul_check, nul_apply, STR_KEY, com_telnet_key_response, STR_HELP_SET_KEY, NULL)
 #define COM_TELNET_DRIVER DRIVER( \
     TASK_ALWAYS(com_telnet_task)  \
+    FLASHING(com_telnet_flashing) \
     COM_TELNET_CONFIG_PORT        \
     COM_TELNET_CONFIG_KEY)
 

@@ -30,6 +30,7 @@ void ble_set_hid_leds(uint8_t leds);
 
 // Turn off BLE, will restart if not disabled
 void ble_shutdown(void);
+void ble_flashing(void);
 
 // Status command printer
 int ble_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -46,6 +47,7 @@ int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
 #define BLE_DRIVER DRIVER( \
     INIT(ble_init)         \
     TASK_PUMPED(ble_task)  \
+    FLASHING(ble_flashing) \
     BLE_CONFIG_ENABLED)
 
 #endif /* _RIA_W_BLE_BLE_H_ */

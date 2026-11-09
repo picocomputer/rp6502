@@ -42,6 +42,7 @@ typedef enum
 } com_telnet_state_t;
 static com_telnet_state_t com_telnet_state = COM_TELNET_STATE_IDLE;
 static uint16_t com_telnet_active_port;
+static bool com_telnet_closed; // the FLASHING hook closed the listener for good
 
 static char com_telnet_auth_buf[COM_TELNET_KEY_SIZE];
 static uint8_t com_telnet_auth_len;
@@ -229,7 +230,8 @@ static void com_telnet_teardown(com_telnet_state_t target)
         rln_set_naws_size(0, 0);
         rln_forget_source(COM_SOURCE_TEL);
     }
-    if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE)
+    if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE &&
+        !com_telnet_closed)
     {
         telnet_listen_close(com_telnet_active_port);
         com_telnet_active_port = 0;
@@ -244,6 +246,17 @@ static void com_telnet_teardown(com_telnet_state_t target)
 static void com_telnet_shutdown(void)
 {
     com_telnet_teardown(COM_TELNET_STATE_IDLE);
+}
+
+/* Once flashing starts nobody new logs in, so the listener closes, and so
+ * does a session still at the passkey prompt. A session logged in stays. */
+void HOST_IN_FLASH_FUNC com_telnet_flashing(void)
+{
+    if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
+        telnet_listen_close(com_telnet_active_port);
+    else
+        com_telnet_shutdown();
+    com_telnet_closed = true;
 }
 
 static void com_telnet_on_disconnect(int desc)
@@ -320,7 +333,8 @@ void HOST_IN_RAM_FUNC com_telnet_task(void)
     switch (com_telnet_state)
     {
     case COM_TELNET_STATE_IDLE:
-        if (com_telnet_should_listen() && telnet_listen(com_telnet_get_port(), com_telnet_on_accept))
+        if (!com_telnet_closed && com_telnet_should_listen() &&
+            telnet_listen(com_telnet_get_port(), com_telnet_on_accept))
         {
             com_telnet_active_port = com_telnet_get_port();
             com_telnet_state = COM_TELNET_STATE_LISTENING;

@@ -95,6 +95,7 @@ static const char *const HOST_IN_FLASH
 #define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
 static int cyw_country = -1;
+static bool cyw_is_started; // cyw43_arch_init succeeded
 static bool cyw_led_status;
 static bool cyw_led_requested;
 
@@ -114,6 +115,7 @@ static void cyw_reset_radio(void)
     ble_shutdown(); // must be first
     wifi_shutdown(); // must be second
     cyw43_arch_deinit();
+    cyw_is_started = false;
     cyw_init();
 }
 
@@ -125,6 +127,13 @@ void HOST_IN_RAM_FUNC cyw_task(void)
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
     }
     cyw43_arch_poll();
+}
+
+/* A radio that failed to start has already run btstack_cyw43_deinit, from
+ * cyw43_arch_init's own cleanup. */
+bool cyw_started(void)
+{
+    return cyw_is_started;
 }
 
 void cyw_led_set(bool on)
@@ -158,6 +167,7 @@ void cyw_init(void)
         mon_add_response_utf8(S(STR_ERR_CYW_FAILED_TO_INIT));
     else
     {
+        cyw_is_started = true;
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
         /* The 3.3 V regulator in PWM mode, as aud_init sets it on a Pico 2:

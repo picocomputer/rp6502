@@ -19,6 +19,7 @@
 
 void cyw_init(void);
 void cyw_task(void);
+bool cyw_started(void);
 
 /* Utility
  */

@@ -22,6 +22,8 @@
 #include "core/sys/sys.h"
 #include <pico/time.h>
 #include <btstack.h>
+#include <pico/btstack_cyw43.h>
+#include <pico/cyw43_arch.h>
 
 static enum {
     BLE_OFF,
@@ -568,6 +570,17 @@ void ble_shutdown(void)
         btstack_crypto_deinit();
     }
     ble_state = BLE_OFF;
+}
+
+/* BTstack is in flash, so flashing leaves it unable to run: HCI powers off,
+ * waiting on the radio poll, a TASK_ALWAYS, and then BTstack's workers leave
+ * the radio's async context. */
+void HOST_IN_FLASH_FUNC ble_flashing(void)
+{
+    if (!cyw_started())
+        return;
+    ble_shutdown();
+    btstack_cyw43_deinit(cyw43_arch_async_context());
 }
 
 int HOST_IN_FLASH_FUNC ble_status_response(char *buf, size_t buf_size,
