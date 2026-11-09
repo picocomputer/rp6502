@@ -1049,7 +1049,7 @@ static void scanvideo_timing_enable(bool enable)
     }
 }
 
-static void scanvideo_teardown(void)
+void scanvideo_stop(void)
 {
     // scanvideo_timing_enable(false) runs first because the PIO IRQ handler
     // starts scanline DMA transfers and the state machines execute the program
@@ -1078,7 +1078,7 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     if (timing_changed)
     {
         if (!first_call)
-            scanvideo_teardown();
+            scanvideo_stop();
         scanvideo_setup(mode);
         scanvideo_timing_enable(true);
         return;

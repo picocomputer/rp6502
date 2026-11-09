@@ -78,6 +78,8 @@ typedef struct scanvideo_scanline_buffer
 // == API ===============
 
 void scanvideo_set_mode(const scanvideo_view_t *mode);
+// Video off: timing, DMA and PIO programs released. scanvideo_set_mode starts it.
+void scanvideo_stop(void);
 
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);

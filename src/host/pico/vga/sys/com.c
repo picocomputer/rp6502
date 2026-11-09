@@ -109,27 +109,6 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
     stdio_set_driver_enabled(&term_driver, out_chars != NULL);
 }
 
-/* uart_init in com_post_reclock resets the UART, which empties both FIFOs
- * and clears a break in progress. */
-static bool com_reclock_break;
-
-void com_pre_reclock(void)
-{
-    while (uart_is_readable(COM_UART_INTERFACE))
-        putchar_raw(uart_getc(COM_UART_INTERFACE));
-    com_reclock_break = uart_get_hw(COM_UART_INTERFACE)->lcr_h & UART_UARTLCR_H_BRK_BITS;
-    if (com_reclock_break)
-        return;
-    uart_tx_wait_blocking(COM_UART_INTERFACE);
-}
-
-void com_post_reclock(void)
-{
-    uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
-    if (com_reclock_break)
-        uart_set_break(COM_UART_INTERFACE, true);
-}
-
 void com_set_uart_break(bool en)
 {
     uart_set_break(COM_UART_INTERFACE, en);

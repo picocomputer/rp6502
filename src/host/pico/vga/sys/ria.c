@@ -49,6 +49,8 @@ static void ria_send(uint8_t byte)
     spin_unlock(ria_lock, save);
 }
 
+static uint ria_backchan_offset;
+
 void ria_init(void)
 {
     ria_lock = spin_lock_init(spin_lock_claim_unused(true));
@@ -56,6 +58,7 @@ void ria_init(void)
     pio_sm_set_pins_with_mask(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, 1u << RIA_BACKCHAN_PIN, 1u << RIA_BACKCHAN_PIN);
     pio_sm_set_pindirs_with_mask(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, 1u << RIA_BACKCHAN_PIN, 1u << RIA_BACKCHAN_PIN);
     uint offset = pio_add_program(RIA_BACKCHAN_PIO, &ria_backchannel_tx_program);
+    ria_backchan_offset = offset;
     pio_sm_config c = ria_backchannel_tx_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, false, 32);
     sm_config_set_out_pins(&c, RIA_BACKCHAN_PIN, 1);
@@ -99,13 +102,12 @@ void ria_task(void)
     }
 }
 
-void ria_pre_reclock(void)
+/* Idle once the state machine waits at its pull with nothing queued, which
+ * is after the stop bit. */
+bool ria_backchan_idle(void)
 {
-    // Wait for empty FIFO
-    while (pio_sm_get_tx_fifo_level(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
-        tight_loop_contents();
-    // Wait for shift register too
-    busy_wait_us_32(11 * 1000000 / RIA_BACKCHAN_BAUDRATE);
+    return pio_sm_is_tx_fifo_empty(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM) &&
+           pio_sm_get_pc(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM) == ria_backchan_offset;
 }
 
 void ria_post_reclock(void)

@@ -37,7 +37,7 @@
 
 void ria_init(void);
 void ria_task(void);
-void ria_pre_reclock(void);
+bool ria_backchan_idle(void);
 void ria_post_reclock(void);
 
 /* Utility
