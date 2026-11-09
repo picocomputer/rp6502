@@ -234,7 +234,6 @@ core/sys/sst.c sst_why: the savestate's own working memory: the blob being walke
 core/sys/sys.c sys_breaking: the blob's latch, which sst.c applies before the walk
 core/sys/sys.c sys_state: the blob's latch, which sst.c applies before the walk
 core/sys/xram.c xram: the XRAM chunk
-core/sys/xram.c xram_blocks: not carried: the debugger's view of who mapped what
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting
 core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
 core/sys/xram.c xram_fill_value: not carried: a session's fill setting

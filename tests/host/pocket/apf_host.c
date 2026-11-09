@@ -12,8 +12,7 @@
 
 #include <stdint.h>
 
-static uint8_t apf_host_xram[0x10000];
-volatile uint8_t *const xram = apf_host_xram;
+volatile uint8_t xram[0x10000];
 
 bool hid_boot_enumerating(void)
 {

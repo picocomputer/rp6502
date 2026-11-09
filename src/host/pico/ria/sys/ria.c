@@ -370,8 +370,9 @@ static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, ui
 #define RIA_ADDR1 REGSW(0xFFEA)
 // 6502 writes to regs can arrive later than these events.
 // Make sure to use the FIFO event data in here instead.
-// Everything core 1 runs is flattened into this RAM function.
-__attribute__((optimize("O3"), flatten)) static void HOST_IN_RAM_FUNC("act_loop") act_loop(void)
+// Everything core 1 runs is flattened into this function, which sits in
+// SCRATCH_X with the registers.
+__attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act_loop(void)
 {
     bool vectored = false;
     while (true)
@@ -697,9 +698,12 @@ void HOST_IN_FLASH("ria_init") ria_init(void)
     }
 
     /* A 6502 read is served by two chained DMA transfers that must finish
-     * within one PHI2 cycle, so the DMA is given bus priority over both
-     * cores. */
-    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+     * within one PHI2 cycle. In RAM these bits put the DMA and core 0 ahead
+     * of core 1, which runs from SCRATCH_X. Erratum RP2350-E27 rewires them
+     * at the PIO, USB and DMA registers, where they put the DMA and core 1
+     * ahead of core 0. */
+    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_PROC0_BITS |
+                            BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
                             BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
     // the inits

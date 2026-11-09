@@ -19,6 +19,9 @@ MEMORY
 
 ENTRY(_start)
 
+/* core/sys/xram.h's xram is the fabric's XRAM window. */
+xram = 0x30000000;
+
 SECTIONS
 {
     .text : {

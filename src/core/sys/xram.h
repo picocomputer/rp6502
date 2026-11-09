@@ -7,16 +7,16 @@
 #ifndef _CORE_SYS_XRAM_H_
 #define _CORE_SYS_XRAM_H_
 
-/* 64 KB extended RAM, every machine's. Volatile because something else writes
- * it while the machine reads: the 6502 through the RIA on a Pico, DMA off the
- * PIX bus on the VGA. On a Pocket it is not an array at all but a fixed
- * address in the fabric's memory map. */
+/* 64 KB extended RAM, every machine's, at a fixed address. Volatile because
+ * something else writes it while the machine reads: the 6502 through the RIA
+ * on a Pico, DMA off the PIX bus on the VGA. On a Pocket the linker places it
+ * at the fabric's XRAM window. */
 
 #include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-extern volatile uint8_t *const xram;
+extern volatile uint8_t xram[0x10000];
 
 /* What xram holds before anything writes it, on the software machine, where
  * random is the default because the firmwares leave their own uninitialized.
