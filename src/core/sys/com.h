@@ -88,15 +88,8 @@ bool com_line_clean(void);
 /* CR LF, unless the line is already clean. */
 void com_clean_line(void);
 
-/* Terminal control bytes that leave the cursor where it is, so the line is as
- * clean after them as before. */
-void com_write_control(const char *s);
-
-/* For output that brings the cursor back to where it started, such as a
- * prompt shown and then erased: hold the line's state before the output and
- * resume it after. */
-uint8_t com_line_hold(void);
-void com_line_resume(uint8_t held);
+/* The caller has left the cursor at the start of a clean line. */
+void com_line_set_clean(void);
 
 /* The end of a session: the soft reset, then CR LF unless the line was clean
  * before it. */

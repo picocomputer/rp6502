@@ -1927,7 +1927,7 @@ void rln_stop(void)
 void rln_cursor_default(void)
 {
     if (rln_decscusr_ok)
-        com_write_control("\33[0 q");
+        com_printf("\33[0 q");
 }
 
 /* 6502 applications may configure the max length */

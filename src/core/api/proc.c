@@ -137,6 +137,8 @@ void proc_chain_end(void)
     com_rx_clear();
     com_end_reset();
     rln_cursor_default();
+    /* The soft reset and the cursor shape move no cursor. */
+    com_line_set_clean();
 }
 
 void proc_exec_failed(void)

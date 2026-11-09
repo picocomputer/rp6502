@@ -47,23 +47,11 @@ static void com_line_puts(const char *s)
         com_putchar((unsigned char)*s++);
 }
 
-uint8_t com_line_hold(void)
+/* Flushed first, so bytes already on their way cannot count after it. */
+void com_line_set_clean(void)
 {
     com_flush();
-    return com_line;
-}
-
-void com_line_resume(uint8_t held)
-{
-    com_flush();
-    com_line = held;
-}
-
-void com_write_control(const char *s)
-{
-    uint8_t held = com_line_hold();
-    com_line_puts(s);
-    com_line_resume(held);
+    com_line = COM_LINE_CR | COM_LINE_LF;
 }
 
 /* Byte by byte, because a string would be data in flash, and this runs while
@@ -82,6 +70,12 @@ void com_clean_line(void)
  * sent, so the CR LF after it lands as CR LF. */
 void com_end_reset(void)
 {
-    com_write_control(STR_TERM_SOFT_RESET);
-    com_clean_line();
+    com_flush();
+    bool clean = com_line_clean();
+    com_line_puts(STR_TERM_SOFT_RESET);
+    if (!clean)
+    {
+        com_putchar('\r');
+        com_putchar('\n');
+    }
 }

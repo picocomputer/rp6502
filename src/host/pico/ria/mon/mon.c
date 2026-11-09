@@ -84,6 +84,7 @@ static void HOST_IN_FLASH_FUNC mon_reset(const char *args)
     arg_clear();
     fs_save_start();
     rln_cursor_default();
+    com_line_set_clean(); /* after the command line, and the shape moves no cursor */
     sys_run();
 }
 
@@ -441,9 +442,6 @@ void mon_add_response_errno(api_errno err)
     mon_add_response_utf8(api_errno_str(err));
 }
 
-/* --More-- is erased back to where it was shown. */
-static uint8_t mon_more_line;
-
 static void HOST_IN_FLASH_FUNC mon_more(void)
 {
     if (mon_needs_break)
@@ -459,13 +457,12 @@ static void HOST_IN_FLASH_FUNC mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
-        mon_more_line = com_line_hold();
         com_printf_utf8(S(STR_MON_MORE_SHOW));
         mon_more_state = MON_MORE_WAIT;
         break;
     case MON_MORE_END:
         com_printf_utf8(S(STR_MON_MORE_ERASE));
-        com_line_resume(mon_more_line);
+        com_line_set_clean(); /* --More-- starts a line and erases back to it */
         mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
