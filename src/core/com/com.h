@@ -35,8 +35,6 @@ void com_init(void);
 
 void com_break(void);
 
-void com_stop(void);
-
 void com_run(void);
 
 void com_tx_write(const char *buf, int len);
@@ -51,10 +49,11 @@ void com_set_stderr_sink(void (*sink)(const char *buf, int len));
 
 void com_task(void);
 
-/* The 44 fixed bytes are the reply length (1), the reply buffer (32), the BEL
- * enable (1), the CRLF latch (1), and the 9 bytes com_rx_save writes. Each of
- * the two rings adds a 16-bit count and COM_RING_SIZE bytes. */
-#define COM_SST_SIZE (2 * (2 + COM_RING_SIZE) + 44)
+/* The 45 fixed bytes are the reply length (1), the reply buffer (32), the BEL
+ * enable (1), the CRLF latch (1), the 9 bytes com_rx_save writes, and the
+ * clean-line state (1). Each of the two rings adds a 16-bit count and
+ * COM_RING_SIZE bytes. */
+#define COM_SST_SIZE (2 * (2 + COM_RING_SIZE) + 45)
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -62,8 +61,7 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(com_init)                                          \
     TASK_PUMPED(com_task)                                   \
     RUN(com_run)                                            \
-    STOP(com_stop)                                          \
     BREAK(com_break)                                        \
-    SST(COM_, 2, COM_SST_SIZE, com_sst_save, com_sst_load))
+    SST(COM_, 3, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

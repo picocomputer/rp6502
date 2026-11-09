@@ -161,7 +161,7 @@ static uint16_t rln_height_override;   // 0 = auto-detect
 static uint16_t rln_naws_width;        // 0 = no telnet NAWS
 static uint16_t rln_naws_height;       // 0 = no telnet NAWS
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
-static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
+static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop)
 static bool rln_decscusr_ok;           // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
@@ -1910,23 +1910,24 @@ void rln_run(void)
 {
     rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
-    if (rln_decscusr_ok)
-        com_printf("\33[0 q");
 }
 
+/* A read cut short by a stop or a break leaves the cursor on a new line
+ * past everything typed. */
 void rln_stop(void)
 {
     if (rln_callback)
+    {
         rln_sync_cursor_to(rln_cursor_max());
+        com_printf("\r\n");
+    }
     rln_init();
-    rln_emit_mode_cursor();
 }
 
-void rln_break(void)
+void rln_cursor_default(void)
 {
-    if (rln_callback)
-        rln_sync_cursor_to(rln_cursor_max());
-    rln_init();
+    if (rln_decscusr_ok)
+        com_write_control("\33[0 q");
 }
 
 /* 6502 applications may configure the max length */

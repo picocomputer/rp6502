@@ -13,6 +13,7 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/sys/com.h"
+#include "core/hid/vtkeys.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -131,18 +132,24 @@ const char *proc_boot_error(void)
 static bool proc_boot_failed(const char *why)
 {
     boot_error = why;
+    com_clean_line();
     com_printf("%s", why);
     return false;
 }
 
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
+    /* A start by name is not the outgoing program's child, so its chain ends
+     * at the stop, with its type-ahead and its paste. */
+    if (argc >= 0)
+        proc_cancel_launcher();
     sys_stop_now(); /* before the load writes over what it was running on */
     /* Cleared after that stop and not before, because the stop reaches
      * proc_stop, which reads proc_exec_inflight to decide whether the
-     * launcher comes back. Whatever the outgoing program had queued goes with
-     * it, since a start asked for by name is not its child. */
+     * launcher comes back. */
     queued = false;
+    if (argc >= 0)
+        vtkeys_paste_cancel();
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
         return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW));
@@ -157,8 +164,6 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
         return proc_boot_failed(rom_load_error());
     if (argc >= 0)
         proc_set_argv(rom, argc, args);
-    if (flags & PROC_UNCHAIN)
-        proc_set_launcher(false);
     fs_save_start();
     sys_run();
     return true;
@@ -192,5 +197,5 @@ void proc_exec_task(void)
      * rewrites argv on a stop is proc_stop arming a launcher relaunch, and it
      * does not do that while an exec is in flight. */
     if (!proc_boot(arg_index(0), -1, NULL, 0))
-        proc_set_exit_code(1);
+        proc_exec_failed();
 }

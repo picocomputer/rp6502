@@ -55,6 +55,9 @@ void com_rx_clear(void);
 void com_rx_save(sst_cursor_t *c);
 bool com_rx_load(sst_cursor_t *c);
 
+void com_line_save(sst_cursor_t *c);
+bool com_line_load(sst_cursor_t *c);
+
 /* Non-blocking 1-byte read, negative when there is none. *src is in and out:
  * COM_SOURCE_ANY reads whatever the picker chooses and names it on the way
  * out, a named source reads only that one and leaves the others queued. */
@@ -71,6 +74,26 @@ size_t com_rx_reclaim(char *buf, size_t length, com_source_t src);
 int com_rx_peek(com_source_t src);
 
 bool com_writable(void);
+
+/* Returns once every console byte queued so far has gone out. */
+void com_flush(void);
+
+/* Every console byte passes here on its way out. */
+void com_line_track(const char *buf, size_t len);
+
+/* True when a CR and an LF have gone out since the last other byte. */
+bool com_line_clean(void);
+
+/* CR LF, unless the line is already clean. */
+void com_clean_line(void);
+
+/* Terminal control bytes that leave the cursor where it is, so the line is as
+ * clean after them as before. */
+void com_write_control(const char *s);
+
+/* The end of a session: the soft reset, then CR LF unless the line was clean
+ * before it. */
+void com_end_reset(void);
 
 /* Bypasses newline expansion and does not check for room. */
 void com_write(char ch);

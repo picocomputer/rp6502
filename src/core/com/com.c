@@ -64,6 +64,7 @@ void com_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_bool(c, com_bel_enabled);
     sst_put_u8(c, (uint8_t)com_crlf_last);
     com_rx_save(c);
+    com_line_save(c);
 }
 
 bool com_sst_load(sst_cursor_t *c, unsigned flags)
@@ -80,7 +81,7 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c) || kb_len > COM_RING_SIZE || wire_len > COM_RING_SIZE ||
         len > sizeof com_reply_buf)
         return false;
-    if (!com_rx_load(c))
+    if (!com_rx_load(c) || !com_line_load(c))
         return false;
     com_ring_set(&com_keyboard_ring, kb, kb_len);
     com_ring_set(&com_uart_ring, wire, wire_len);
@@ -168,6 +169,7 @@ void com_set_stderr_sink(void (*sink)(const char *buf, int len))
 
 void com_tx_write(const char *buf, int len)
 {
+    com_line_track(buf, (size_t)len);
     if (com_tx_tap)
         com_tx_tap(buf, len);
     if (com_bel_enabled)
@@ -210,6 +212,11 @@ int com_putchar(int c)
 bool com_writable(void)
 {
     return true;
+}
+
+/* Output is written as it is made. */
+void com_flush(void)
+{
 }
 
 void com_write(char ch)
@@ -324,9 +331,4 @@ void com_run(void)
 void com_break(void)
 {
     com_rx_clear();
-}
-
-void com_stop(void)
-{
-    com_printf("%s", STR_TERM_SOFT_RESET);
 }

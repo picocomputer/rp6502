@@ -60,7 +60,13 @@ static char rom_install_dest[1 + LFS_NAME_MAX + 1];
 
 static void HOST_IN_FLASH_FUNC rom_written(bool ok)
 {
-    rom_state = ok ? ROM_LOADING : ROM_IDLE;
+    if (ok)
+    {
+        rom_state = ROM_LOADING;
+        return;
+    }
+    rom_state = ROM_IDLE;
+    proc_exec_failed();
 }
 
 static void HOST_IN_FLASH_FUNC rom_loading(void)
@@ -74,6 +80,7 @@ static void HOST_IN_FLASH_FUNC rom_loading(void)
     case ROM_PUMP_ERROR:
         rom_state = ROM_IDLE;
         mon_add_response_errno(err);
+        proc_exec_failed();
         return;
     case ROM_PUMP_EOF:
         if (rom_pump_complete(&rom_pump))
@@ -90,6 +97,7 @@ static void HOST_IN_FLASH_FUNC rom_loading(void)
         {
             rom_state = ROM_IDLE;
             mon_add_response_utf8(S(STR_ERR_ROM_NO_RESET_VECTOR));
+            proc_exec_failed();
         }
         return;
     case ROM_PUMP_RECORD:
@@ -288,14 +296,20 @@ void HOST_IN_FLASH_FUNC rom_mon_remove(const char *args)
         mon_add_response_errno(err);
 }
 
-void HOST_IN_FLASH_FUNC rom_exec(void)
+static bool HOST_IN_FLASH_FUNC rom_exec_failed(void)
+{
+    mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+    return false;
+}
+
+bool HOST_IN_FLASH_FUNC rom_exec(void)
 {
     const char *argv0 = arg_index(0);
     assert(argv0);
     if (*argv0 == ':')
     {
         if (!rom_copy_install_name(NULL, argv0 + 1, 0))
-            return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+            return rom_exec_failed();
     }
     const char *filepath = path_abs(argv0);
     if (!filepath)
@@ -307,21 +321,21 @@ void HOST_IN_FLASH_FUNC rom_exec(void)
             if (fr != FR_OK)
             {
                 mon_add_response_fatfs(fr);
-                return;
+                return false;
             }
         }
-        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return rom_exec_failed();
     }
     char path[256];
     size_t flen = strlen(filepath);
     if (flen >= sizeof path)
-        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return rom_exec_failed();
     memcpy(path, filepath, flen + 1);
     // Skip case correction for installed ROMs (live in flash, not on disk).
     if (*argv0 != ':' && !path_correct_basename(path, sizeof path))
-        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return rom_exec_failed();
     if (!arg_replace(0, path))
-        return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return rom_exec_failed();
     /* An exec can run from a stop hook while sys_commit stops the previous
      * program, or after sys_stop has set sys_state to stopping and before
      * sys_commit runs the stop hooks, so that program's ROM descriptor can
@@ -333,9 +347,10 @@ void HOST_IN_FLASH_FUNC rom_exec(void)
     if (!rom_pump_open(&rom_pump, path, mbuf, &err))
     {
         mon_add_response_errno(err);
-        return;
+        return false;
     }
     rom_state = ROM_LOADING;
+    return true;
 }
 
 void HOST_IN_FLASH_FUNC rom_load_argv(const char *argv0, const char *args)
@@ -357,6 +372,7 @@ void HOST_IN_FLASH_FUNC rom_load_argv(const char *argv0, const char *args)
         mon_add_response_utf8(S(STR_ERR_ROM_ARGV_INVALID));
         return;
     }
+    rln_cursor_default();
     rom_exec();
 }
 
@@ -458,11 +474,6 @@ static int HOST_IN_FLASH_FUNC rom_help_response(char *buf, size_t buf_size,
         if (!remaining)
         {
             rom_state = ROM_IDLE;
-            if (state == 1)
-            {
-                buf[0] = '\n';
-                buf[1] = 0;
-            }
             return -1;
         }
         uint32_t want = buf_size - 1;
@@ -478,11 +489,6 @@ static int HOST_IN_FLASH_FUNC rom_help_response(char *buf, size_t buf_size,
         if (!got)
         {
             rom_state = ROM_IDLE;
-            if (state == 1)
-            {
-                buf[0] = '\n';
-                buf[1] = 0;
-            }
             return -1;
         }
         // The zero after the data is not a UTF-8 continuation byte, so a
@@ -501,7 +507,7 @@ static int HOST_IN_FLASH_FUNC rom_help_response(char *buf, size_t buf_size,
         }
         help_pos += got - (uint32_t)(p_end - p);
         buf[out] = 0;
-        return (out && buf[out - 1] == '\n') ? 2 : 1;
+        return 1;
     }
     // Classic format: look for "# " comment lines
     long n = help_gets();
@@ -623,9 +629,15 @@ bool rom_active(void)
     return rom_state != ROM_IDLE;
 }
 
+/* A break of a running program finds the ROM idle already, because rom_stop
+ * ran first. A break of a load lands at the monitor. */
 void rom_break(void)
 {
+    bool loading = rom_state == ROM_LOADING || rom_state == ROM_XRAM_WRITING ||
+                   rom_state == ROM_RIA_WRITING;
     rom_state = ROM_IDLE;
+    if (loading)
+        proc_chain_end();
 }
 
 void rom_stop(void)

@@ -76,6 +76,7 @@ set(RIA_RAM_SOURCES
     ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/com/pick.c
+    ${RP6502_ROOT}/src/core/com/line.c
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/cyw.c
@@ -296,6 +297,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/com.c
     ${RIA_SRC}/sys/com_telnet.c
     ${RP6502_ROOT}/src/core/com/pick.c
+    ${RP6502_ROOT}/src/core/com/line.c
     ${RIA_SRC}/sys/phi2.c
     ${RIA_SRC}/sys/rp2350.c
     ${RIA_SRC}/sys/resb.c

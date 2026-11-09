@@ -409,7 +409,6 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
     case DRIVE_RUN_FORMAT_UNIT:
         if (ria_get_sigint())
         {
-            putchar('\n');
             msc_drive_reenumerate(drive_vol);
             proc_break();
             return -1;
@@ -461,7 +460,6 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
     case DRIVE_RUN_ERASE:
         if (ria_get_sigint())
         {
-            putchar('\n');
             msc_drive_reenumerate(drive_vol);
             proc_break();
             return -1;
@@ -498,7 +496,6 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
     case DRIVE_RUN_VERIFY:
         if (ria_get_sigint())
         {
-            putchar('\n');
             proc_break();
             return -1;
         }

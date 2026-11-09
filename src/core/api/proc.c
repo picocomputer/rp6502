@@ -9,6 +9,8 @@
 #include "core/api/proc.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
+#include "core/str/oem.h"
+#include "core/str/rln.h"
 #include "core/sys/com.h"
 #include "core/sys/sys.h"
 #include "machine.h"
@@ -108,28 +110,42 @@ bool proc_quit(void)
     return true;
 }
 
-bool proc_stop(void)
+void proc_stop(void)
 {
-    if (proc_exec_inflight())
-    {
-        /* A load the exiting program or the user already asked for is on its
-         * way, so the launcher must not be scheduled over it. */
-        set_path(&proc_running_path, NULL);
-        return true;
-    }
-    bool relaunch = !proc_is_launcher() && proc_has_launcher();
+    /* A load the exiting program or the user already asked for is on its
+     * way, so the launcher must not be scheduled over it. */
+    bool inflight = proc_exec_inflight();
+    bool relaunch = !inflight && !proc_is_launcher() && proc_has_launcher();
     set_path(&proc_running_path, NULL);
-    if (!relaunch)
+    if (inflight)
+        return;
+    if (relaunch)
     {
-        set_path(&proc_launcher_path, NULL);
-        /* No ROM is launching, so the type-ahead goes. */
-        com_rx_clear();
-        return false;
+        arg_clear();
+        arg_append(proc_launcher_path);
+        proc_exec_relaunch();
+        if (proc_exec_inflight())
+            return;
     }
-    arg_clear();
-    arg_append(proc_launcher_path);
-    proc_exec_relaunch();
-    return true;
+    proc_chain_end();
+}
+
+void proc_chain_end(void)
+{
+    proc_cancel_launcher();
+    oem_restore_code_page();
+    com_rx_clear();
+    com_end_reset();
+    rln_cursor_default();
+}
+
+void proc_exec_failed(void)
+{
+    proc_set_exit_code(1);
+    proc_cancel_launcher();
+    /* Nothing else ends a chain whose load failed after the stop. */
+    if (!sys_active())
+        proc_chain_end();
 }
 
 bool HOST_IN_FLASH_FUNC proc_api_argv(void)

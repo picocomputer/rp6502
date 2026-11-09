@@ -161,6 +161,7 @@ static void HOST_IN_RAM_FUNC com_tx_fanout(void)
         uint8_t ch;
         if (RING_GET(&com_tx_core0, &ch))
         {
+            com_line_track((const char *)&ch, 1);
             com_uart_tx_write((char)ch);
             com_telnet_tx_write((char)ch);
             work = true;
@@ -170,6 +171,7 @@ static void HOST_IN_RAM_FUNC com_tx_fanout(void)
         uint8_t ch1;
         if (ria_uart_tx_dequeue(&ch1))
         {
+            com_line_track((const char *)&ch1, 1);
             com_uart_tx_write((char)ch1);
             com_telnet_tx_write((char)ch1);
             work = true;
@@ -237,27 +239,15 @@ void HOST_IN_FLASH_FUNC com_run(void)
     com_bel_enabled = true;
 }
 
-void HOST_IN_FLASH_FUNC com_stop(void)
+void com_flush(void)
 {
-    while (!ria_uart_tx_empty())
+    while (!ria_uart_tx_empty() || RING_LEN(&com_tx_core0))
         com_stdio_pump();
-    printf(STR_TERM_SOFT_RESET);
-    while (!com_putchar_ready())
-        com_stdio_pump();
-}
-
-static void com_ensure_newline(void)
-{
-    const uint32_t n = RING_LEN(&com_tx_core0);
-    if (n < 2 ||
-        *RING_AT(&com_tx_core0, n - 1) != '\n' ||
-        *RING_AT(&com_tx_core0, n - 2) != '\r')
-        putchar('\n');
+    com_uart_flush();
 }
 
 void HOST_IN_FLASH_FUNC com_break(void)
 {
-    com_ensure_newline();
     com_rx_clear();
 }
 

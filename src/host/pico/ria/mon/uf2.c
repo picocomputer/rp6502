@@ -477,6 +477,7 @@ void HOST_IN_RAM_FUNC uf2_task(void)
         break;
     case UF2_VGA_LOCKUP:
         // The VGA stops at once, so the error goes out first.
+        com_clean_line();
         printf("%s", STR_UF2_FLASH_FAILED);
         stdio_flush();
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x06, 1);

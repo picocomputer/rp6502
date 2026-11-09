@@ -24,7 +24,6 @@
 void com_init(void);
 void com_run(void);
 void com_task(void);
-void com_stop(void);
 void com_break(void);
 
 /* com_stdio_driver sets crlf_enabled, so a newline can be written to the ring
@@ -57,15 +56,14 @@ int com_uart_peek(void);
 void com_uart_clear(void);
 #define COM_UART_SOURCE {.read = com_uart_read, .peek = com_uart_peek, .clear = com_uart_clear, .dwell_us = COM_WIRE_DWELL_US}
 
-/* Stop and break hooks run in reverse order, so placing COM_DRIVER early
- * makes com_stop write the terminal reset after the stop hooks of the rows
- * that follow it, and com_break write its newline after anything their break
- * hooks print. */
+/* Stop hooks run in reverse order, so placing COM_DRIVER early makes its
+ * com_flush send everything the other rows' stop hooks print before the
+ * display reset that follows a stop. */
 #define COM_DRIVER DRIVER( \
     INIT(com_init)         \
     TASK_ALWAYS(com_task)  \
     RUN(com_run)           \
-    STOP(com_stop)         \
+    STOP(com_flush)        \
     BREAK(com_break))
 
 #endif /* _RIA_SYS_COM_H_ */

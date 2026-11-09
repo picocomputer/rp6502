@@ -8,6 +8,7 @@
 #include "core/api/arg.h"
 #include "ria/api/proc.h"
 #include "core/aud/bel.h"
+#include "core/sys/com.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/sys.h"
 #include "ria/mon/mon.h"
@@ -23,12 +24,14 @@
 void proc_exec_start(void)
 {
     sys_stop();
-    rom_exec();
+    if (!rom_exec())
+        proc_exec_failed();
 }
 
 void proc_exec_relaunch(void)
 {
-    rom_exec();
+    if (!rom_exec())
+        proc_exec_failed();
 }
 
 bool proc_exec_inflight(void)
@@ -108,10 +111,14 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     if (strcmp(path, proc_running()) == 0)
         goto already_running;
 
-    // Full success
+    // Full success. The tag's ROM starts as if typed at the monitor, so a
+    // running program ends with its chain, and a monitor read is cancelled.
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    sys_stop();
+    proc_cancel_launcher();
+    sys_stop_now();
+    rln_stop();
+    com_clean_line();
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;
@@ -130,7 +137,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         *term = saved;
     }
 
-    printf("\nNFC ");
+    printf("NFC ");
     putchar('"');
     for (const char *p = path; *p; p++)
     {

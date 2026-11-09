@@ -178,7 +178,7 @@ X(STR_MODEM_RESPONSE_8, "NO ANSWER")
 
 // UF2 flash progress, RAM-resident
 XR(STR_UF2_FLASHING, "\rFlash %d%%")
-XR(STR_UF2_FLASH_FAILED, "\n?Flashing UF2 failed, recover via BOOTSEL\n")
+XR(STR_UF2_FLASH_FAILED, "?Flashing UF2 failed, recover via BOOTSEL\n")
 
 // Disk utility progress (carriage-return overwrite)
 X(STR_DISK_PROG_FORMAT, "\rFormat %d%%")

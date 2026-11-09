@@ -288,7 +288,7 @@ bool HOST_IN_RAM_FUNC ria_uart_tx_dequeue(uint8_t *ch)
     return RING_GET(&ria_uart_tx, ch);
 }
 
-bool ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
+bool HOST_IN_RAM_FUNC ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
 
 static volatile int ria_uart_rx_slot = -1;
 

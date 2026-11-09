@@ -29,8 +29,7 @@
  * It returns once the run is requested, before the machine starts, so a
  * caller inside a driver pass lets that pass commit the request, and a host
  * outside one calls sys_commit itself. */
-#define PROC_REFILL 0x01  /* fill sram and xram first: a fresh machine, not a program change */
-#define PROC_UNCHAIN 0x02 /* break any launcher chain, because a program asked for by name is not a child */
+#define PROC_REFILL 0x01 /* fill sram and xram first: a fresh machine, not a program change */
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
 
 /* The line that the last proc_boot printed on the console, or "" when that

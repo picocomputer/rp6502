@@ -474,7 +474,7 @@ const char *host_save_dir(void)
 static bool boot(void)
 {
     apply_options(machine_inited);
-    unsigned flags = PROC_UNCHAIN;
+    unsigned flags = 0;
     if (machine_inited)
         flags |= PROC_REFILL;
     else

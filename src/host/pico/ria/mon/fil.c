@@ -8,6 +8,7 @@
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/sys/ria.h"
+#include "core/sys/com.h"
 #include "core/sys/sys.h"
 #include "core/api/proc.h"
 #include "core/str/path.h"
@@ -338,7 +339,7 @@ static void HOST_IN_FLASH_FUNC fil_upload_dispatch(bool timeout,
 {
     if (timeout)
     {
-        puts("");
+        com_clean_line();
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         fil_state = FIL_IDLE;
         return;

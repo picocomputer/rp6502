@@ -25,7 +25,8 @@
 #endif
 
 void oem_init(void);
-void oem_stop(void);
+/* Puts back the configured code page if a program changed it. */
+void oem_restore_code_page(void);
 
 // Sets the code page in force, without saving it to config. Returns false,
 // and changes nothing, for a code page that the tables do not have.
@@ -103,7 +104,6 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define OEM_DRIVER DRIVER(                                  \
     INIT(oem_init)                                          \
-    STOP(oem_stop)                                          \
     OEM_CONFIG_CODE_PAGE                                    \
     SST(OEM_, 1, OEM_SST_SIZE, oem_sst_save, oem_sst_load))
 

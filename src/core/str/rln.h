@@ -22,7 +22,10 @@ void rln_init(void);
 void rln_task(void);
 void rln_run(void);
 void rln_stop(void);
-void rln_break(void);
+
+/* The terminal's default cursor shape, for a terminal that has shown it takes
+ * DECSCUSR. */
+void rln_cursor_default(void);
 
 // Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
@@ -126,7 +129,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     TASK_FATFS(rln_task)                                    \
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
-    BREAK(rln_break)                                        \
+    BREAK(rln_stop)                                         \
     SST(RLN_, 1, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_STR_RLN_H_ */

@@ -1730,8 +1730,7 @@ static bool script_command(const char *line)
          * so a load happens only between programs. */
         if (sys_active())
             return script_error("load wants a stopped machine");
-        vtkeys_paste_cancel();
-        if (!proc_boot(oem, 0, NULL, PROC_UNCHAIN))
+        if (!proc_boot(oem, 0, NULL, 0))
         {
             const char *why = proc_boot_error();
             return script_error("%.*s", (int)strcspn(why, "\n"), why);

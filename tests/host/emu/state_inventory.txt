@@ -80,6 +80,7 @@ core/com/com.c com_term_out: not carried: host wiring
 core/com/com.c com_term_reply_suppressed: not carried: host wiring
 core/com/com.c com_tx_tap: not carried: host wiring; libretro installs no wire at all
 core/com/com.c com_uart_ring: the COM chunk
+core/com/line.c com_line: the COM chunk
 core/com/pick.c com_rx_deadline: the COM chunk
 core/com/pick.c com_rx_held: the COM chunk
 core/com/pick.c com_sources: the COM chunk

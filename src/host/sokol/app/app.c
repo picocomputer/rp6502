@@ -386,8 +386,7 @@ bool app_boot_rom(const char *path)
         }
         rom_pump_close(&pump);
     }
-    vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
-    bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
      * stopped the machine, whether or not this boot succeeded, unless this
      * drop installed a ROM of the same name, which replaced it. */
