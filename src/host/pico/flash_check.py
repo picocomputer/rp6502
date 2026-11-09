@@ -139,6 +139,9 @@ OTHER_ROOTS = ['aud_irq', 'vga_backchannel_irq_handler', 'vga_vsync_trap_irq_han
                'act_loop', 'uf2_write_ria']
 
 SCHEDULER = 'sys_walk'
+# Our own sources. A static inline in one of our headers needs an annotation
+# like any other function; one in an SDK or vendor header does not.
+SRC = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 # A literal loaded only to be handed to one of these is read only on a failure
 # that is fatal while flashing anyway.
 FAIL_EXITS = ('__assert_func', 'panic')
@@ -316,7 +319,7 @@ class Image:
         return self.lines[path]
 
     def placement(self, fn, loc, ram_sources):
-        """For fn, whose body holds loc: ram-file, forced, annotated, header, none or unknown."""
+        """For fn, whose body holds loc: ram-file, forced, annotated, header (not ours), none or unknown."""
         path = loc.split(':')[0]
         if (fn, path) in self.placed:
             return self.placed[(fn, path)]
@@ -326,7 +329,7 @@ class Image:
             pass
         elif rp in ram_sources:
             r = 'ram-file'
-        elif path.endswith('.h'):
+        elif path.endswith('.h') and not rp.startswith(SRC + os.sep):
             r = 'header'
         else:
             ls = self.source(rp)

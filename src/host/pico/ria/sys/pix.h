@@ -12,6 +12,7 @@
 
 #include "core/sys/pix.h"
 
+#include "machine.h"
 #include <hardware/pio.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,7 +55,7 @@ bool pix_ready(void);
 
 // Unconditionally attempt to send a PIX message.
 // Meant for use with pix_ready() to fill the FIFO in a task handler.
-static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+static inline void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     assert(dev3 < 8);
     assert(ch4 < 16);
@@ -63,7 +64,7 @@ static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t wo
 
 // Send a single PIX message, block if necessary. Normally, blocking is bad, but
 // this unblocks so fast that it's not a problem for a few messages.
-static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+static inline void HOST_IN_RAM_FUNC pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     while (!pix_ready())
         tight_loop_contents();
