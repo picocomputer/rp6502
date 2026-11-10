@@ -133,9 +133,11 @@ void proc_stop(void)
 void proc_chain_end(void)
 {
     proc_cancel_launcher();
-    oem_restore_code_page();
     com_rx_clear();
     com_end_reset();
+    /* Output reaches the VGA before a code page change clears it. */
+    com_flush();
+    oem_restore_code_page();
     rln_cursor_default();
     /* The soft reset and the cursor shape move no cursor. */
     com_line_set_clean();
