@@ -480,6 +480,7 @@ class TelnetDevice:
                 self.write(char.encode("ascii"))
                 time.sleep(0.05)
             self.write(b"\r\n")
+            time.sleep(0.05)
             # The passkey comes back as asterisks, then "Connected" on a line
             # of its own. A wrong passkey gets "?Access denied" and the
             # connection is closed, so silence and a close both end the wait.
