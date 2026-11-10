@@ -242,6 +242,31 @@ static bool cmd_progress(const char **s)
     return false;
 }
 
+// I
+static int cmd_info_response(char *buf, size_t buf_size, int state, unsigned)
+{
+    (void)state;
+    char ip[WIFI_IPV4_STR_SIZE];
+    if (wifi_ipv4_str(ip, sizeof(ip)))
+        snprintf(buf, buf_size, "%s\r\n", ip);
+    else
+        oem_snprintf(buf, buf_size, "%s\r\n", S(STR_PARENS_NONE));
+    return -1;
+}
+
+// I, I0
+static bool cmd_info(const char **s)
+{
+    switch (cmd_parse_num(s))
+    {
+    case -1:
+    case 0:
+        modem_set_response_fn(cmd_info_response);
+        return true;
+    }
+    return false;
+}
+
 // Z, Z0
 static bool cmd_reset(const char **s)
 {
@@ -279,13 +304,14 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
         snprintf(buf, buf_size, "ACTIVE PROFILE:\r\n");
         break;
     case 1:
-        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u +VCID=%u \\T=%s\r\n",
                  modem_settings()->echo,
                  modem_settings()->quiet,
                  modem_settings()->verbose,
                  modem_settings()->progress,
                  modem_settings()->listen_port,
                  modem_settings()->net_mode,
+                 modem_settings()->caller_id,
                  modem_settings()->tty_type);
         break;
     case 2:
@@ -302,13 +328,14 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
         break;
     case 4:
         modem_read_settings(&stored_settings);
-        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u +VCID=%u \\T=%s\r\n",
                  stored_settings.echo,
                  stored_settings.quiet,
                  stored_settings.verbose,
                  stored_settings.progress,
                  stored_settings.listen_port,
                  stored_settings.net_mode,
+                 stored_settings.caller_id,
                  stored_settings.tty_type);
         break;
     case 5:
@@ -539,6 +566,39 @@ static bool cmd_plus_pass(const char **s)
     return false;
 }
 
+// +VCID?
+static int cmd_plus_vcid_response(char *buf, size_t buf_size, int state, unsigned)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%u\r\n", modem_settings()->caller_id);
+    return -1;
+}
+
+// +VCID
+static bool cmd_plus_vcid(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (ch)
+    {
+    case '?':
+        modem_set_response_fn(cmd_plus_vcid_response);
+        return true;
+    case '=':
+    {
+        int num = cmd_parse_num(s);
+        if (num >= 0 && num <= 1)
+        {
+            modem_settings()->caller_id = num;
+            return true;
+        }
+        return false;
+    }
+    }
+    --*s;
+    return false;
+}
+
 // +
 static bool cmd_parse_plus(const char **s)
 {
@@ -556,6 +616,11 @@ static bool cmd_parse_plus(const char **s)
     {
         *s += STR_PASS_LEN;
         return cmd_plus_pass(s);
+    }
+    if (!strncasecmp(*s, STR_VCID, STR_VCID_LEN))
+    {
+        *s += STR_VCID_LEN;
+        return cmd_plus_vcid(s);
     }
     return false;
 }
@@ -678,6 +743,8 @@ bool cmd_parse(const char **s)
         return cmd_duplex(s);
     case 'H':
         return cmd_hangup(s);
+    case 'I':
+        return cmd_info(s);
     case 'O':
         return cmd_online(s);
     case 'Q':

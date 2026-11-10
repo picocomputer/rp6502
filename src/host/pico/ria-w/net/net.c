@@ -10,6 +10,7 @@
 #include "core/sys/ring.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
+#include <lwip/priv/tcp_priv.h>
 #include <lwip/dns.h>
 #include <string.h>
 
@@ -170,6 +171,11 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
 {
     net_conn_t *nc = &net_conns[desc];
     uint16_t total = 0;
+    // Data refused while the call waited to be answered, or while the pbuf
+    // ring was full. lwIP retries it only on the next segment or the fast
+    // timer (250 ms), so take it now. net_recv can close the pcb.
+    if (nc->pcb && nc->pcb->refused_data && nc->state == net_state_connected)
+        tcp_process_refused_data(nc->pcb);
     while (total < len && RING_LEN(&nc->pbufs))
     {
         struct pbuf *p = *RING_AT(&nc->pbufs, 0);
@@ -407,6 +413,24 @@ static void net_pending_err(void *arg, err_t err)
         nl->pending_pcb = NULL;
 }
 
+// A caller can send before the call is answered, and lwIP's default receive
+// callback acks and discards that data. Refusing it instead makes lwIP keep it
+// as refused_data until net_accept installs net_recv. A FIN with no data before
+// that is a caller gone, like an error on the pending pcb.
+static err_t net_pending_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
+{
+    net_listener_t *nl = (net_listener_t *)arg;
+    (void)err;
+    if (p)
+        return ERR_MEM;
+    RP6502_LOG(net, INFO, "pending pcb closed by peer");
+    nl->pending_pcb = NULL;
+    tcp_arg(tpcb, NULL);
+    tcp_err(tpcb, NULL);
+    tcp_abort(tpcb);
+    return ERR_ABRT;
+}
+
 static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
     net_listener_t *nl = (net_listener_t *)arg;
@@ -419,6 +443,7 @@ static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
     nl->pending_pcb = newpcb;
     tcp_arg(newpcb, nl);
     tcp_err(newpcb, net_pending_err);
+    tcp_recv(newpcb, net_pending_recv);
     bool handled = nl->on_accept ? nl->on_accept(nl->port) : false;
     if (!handled)
     {
@@ -549,4 +574,13 @@ bool net_has_pending(uint16_t port)
 {
     net_listener_t *nl = net_find_listener(port);
     return nl && nl->pending_pcb != NULL;
+}
+
+bool net_pending_peer(uint16_t port, ip_addr_t *remote)
+{
+    net_listener_t *nl = net_find_listener(port);
+    if (!nl || !nl->pending_pcb)
+        return false;
+    ip_addr_copy(*remote, nl->pending_pcb->remote_ip);
+    return true;
 }

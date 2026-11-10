@@ -704,3 +704,8 @@ bool telnet_has_pending(uint16_t port)
 {
     return net_has_pending(port);
 }
+
+bool telnet_pending_peer(uint16_t port, ip_addr_t *remote)
+{
+    return net_pending_peer(port, remote);
+}

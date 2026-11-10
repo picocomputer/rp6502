@@ -163,6 +163,16 @@ static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message
     return S(STR_INTERNAL_ERROR);
 }
 
+bool wifi_ipv4_str(char *buf, size_t size)
+{
+    if (wifi_state != wifi_state_connected)
+        return false;
+    const ip4_addr_t *ip4 = netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]);
+    if (ip4_addr_isany_val(*ip4))
+        return false;
+    return ip4addr_ntoa_r(ip4, buf, (int)size) != NULL;
+}
+
 int HOST_IN_FLASH_FUNC("wifi_status_response") wifi_status_response(char *buf, size_t buf_size,
                                                                     int state, unsigned)
 {
@@ -197,13 +207,9 @@ int HOST_IN_FLASH_FUNC("wifi_status_response") wifi_status_response(char *buf, s
     break;
     case 2:
     {
-        if (wifi_state == wifi_state_connected)
-        {
-            struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
-            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
-            if (!ip4_addr_isany_val(*ip4))
-                snprintf(buf, buf_size, STR_STATUS_IPV4, ip4addr_ntoa(ip4));
-        }
+        char ip[WIFI_IPV4_STR_SIZE];
+        if (wifi_ipv4_str(ip, sizeof(ip)))
+            snprintf(buf, buf_size, STR_STATUS_IPV4, ip);
     }
     break;
     default:

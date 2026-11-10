@@ -11,6 +11,7 @@
  */
 
 #include "ria-w/lwipopts.h"
+#include <lwip/ip_addr.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -39,5 +40,6 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int));
 void net_reject(uint16_t port);
 bool net_has_pending(uint16_t port);
 bool net_is_closed(int desc);
+bool net_pending_peer(uint16_t port, ip_addr_t *remote);
 
 #endif /* _RIA_W_NET_NET_H_ */
