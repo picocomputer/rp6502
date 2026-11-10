@@ -473,7 +473,13 @@ class TelnetDevice:
             self._offer_do(self.BINARY)
             self._sock.setblocking(False)
             self.read_until(b":")
-            self.write(self._key.encode("ascii") + b"\r\n")
+            # Send the passkey character by character  to prevent
+            # the Pico's network buffer from dropping bytes.
+            time.sleep(0.05)
+            for char in self._key:
+                self.write(char.encode("ascii"))
+                time.sleep(0.05)
+            self.write(b"\r\n")
             # The passkey comes back as asterisks, then "Connected" on a line
             # of its own. A wrong passkey gets "?Access denied" and the
             # connection is closed, so silence and a close both end the wait.
