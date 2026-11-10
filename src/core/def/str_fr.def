@@ -187,8 +187,8 @@ X(STR_DISK_BAD_SECTOR, "?Secteur défectueux %llu\n")
 X(STR_DISK_VERIFY_DONE, "Vérification terminée, %d secteur(s) défectueux\n")
 X(STR_DISK_DEV, "PÉRIPH: \a%s %s %s rev %s\n")
 X(STR_DISK_SERIAL, "S/N: \a%s\n")
-X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
-X(STR_DISK_VOL_USE, "VOL: \a%s utilises sur %s (%u%%)\n")
+X(STR_DISK_VOL_FMT, "FMT: \a%s\n")
+X(STR_DISK_VOL_USE, "CAP: \a%s utilises sur %s (%u%%)\n")
 X(STR_DISK_FMT, "FMT: \a%s\n")
 X(STR_DISK_WARN_FORMAT, "Vous allez FORMATER ce périphérique!\n")
 X(STR_DISK_WARN_ERASE, "Vous allez EFFACER ce périphérique!\n")
@@ -264,7 +264,7 @@ X(STR_HELP_SYSTEM,
   "Amusez-vous!\n")
 
 X(STR_HELP_DIR,
-  "LS (alias DIR) et CD servent à naviguer dans les périphériques de stockage "
+  "DIR (alias LS) et CD servent à naviguer dans les périphériques de stockage "
   "USB. Vous pouvez passer à un autre périphérique USB avec 0: à 9:. Utilisez "
   "STATUS pour obtenir la liste des lecteurs montés.\n")
 

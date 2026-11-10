@@ -20,7 +20,8 @@
 #define PIX_PIN_BASE 0 /* PIX0-PIX3 */
 #define PIX_PIN_COUNT 4
 #define PIX_PIO pio1
-#define PIX_SM 1
+#define PIX_SM 1        /* fed by the cores */
+#define PIX_STREAM_SM 3 /* fed by DMA from the stream ring */
 
 /* Main events
  */
@@ -39,6 +40,9 @@ void pix_nak(void);
 void pix_wait_begin(uint32_t timeout_ms);
 // 1=ack, -1=nak, -2=timeout, 0=still waiting. Resets state on terminal.
 int pix_wait_poll(void);
+
+// Room for at least one more message in PIX_SM's FIFO.
+bool pix_ready(void);
 
 // Bit 28 always 1, bits [31:29] for device id, etc.
 #define PIX_MESSAGE(dev, ch, byte, word) \

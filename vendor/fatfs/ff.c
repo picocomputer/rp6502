@@ -4057,20 +4057,28 @@ FRESULT f_read (
 			sect += csect;
 			cc = btr / SS(fs);					/* When remaining bytes >= sector size, */
 			if (cc > 0) {						/* Read maximum contiguous sectors directly */
-				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
-					cc = fs->csize - csect;
+				if (csect + cc > fs->csize) {	/* Clip at the end of contiguous clusters (RP6502) */
+					UINT ext = fs->csize - csect;
+					DWORD xc = fp->clust, nc;
+
+					while (ext < cc && (nc = get_fat(&fp->obj, xc)) == xc + 1) {
+						xc = nc;
+						ext += fs->csize;
+					}
+					if (cc > ext) cc = ext;
+					fp->clust = xc;				/* Cluster of the last sector read */
 				}
+#if !FF_FS_READONLY && FF_FS_MINIMIZE <= 2 && !FF_FS_TINY	/* Write back a dirty cached sector in the range first, so the read lands final data (RP6502) */
+				if ((fp->flag & FA_DIRTY) && fp->sect - sect < cc) {
+					if (disk_write(fs->pdrv, fp->buf, fp->sect, 1) != RES_OK) ABORT(fs, FR_DISK_ERR);
+					fp->flag &= (BYTE)~FA_DIRTY;
+				}
+#endif
 				if (disk_read(fs->pdrv, rbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
-#if !FF_FS_READONLY && FF_FS_MINIMIZE <= 2		/* Replace one of the read sectors with cached data if it contains a dirty sector */
-#if FF_FS_TINY
+#if !FF_FS_READONLY && FF_FS_MINIMIZE <= 2 && FF_FS_TINY	/* Replace one of the read sectors with cached data if it contains a dirty sector */
 				if (fs->wflag && fs->winsect - sect < cc) {
 					memcpy(rbuff + ((fs->winsect - sect) * SS(fs)), fs->win, SS(fs));
 				}
-#else
-				if ((fp->flag & FA_DIRTY) && fp->sect - sect < cc) {
-					memcpy(rbuff + ((fp->sect - sect) * SS(fs)), fp->buf, SS(fs));
-				}
-#endif
 #endif
 				rcnt = SS(fs) * cc;				/* Number of bytes transferred */
 				continue;
@@ -4319,8 +4327,7 @@ FRESULT f_close (
 	FATFS *fs;
 
 #if !FF_FS_READONLY
-	res = f_sync(fp);					/* Flush cached data */
-	if (res == FR_OK)
+	FRESULT sres = f_sync(fp);			/* Flush cached data (RP6502: the file is released even when this fails) */
 #endif
 	{
 		res = validate(&fp->obj, &fs);	/* Lock volume */
@@ -4336,6 +4343,9 @@ FRESULT f_close (
 #endif
 		}
 	}
+#if !FF_FS_READONLY
+	if (sres != FR_OK) res = sres;	/* RP6502: the flush error */
+#endif
 	return res;
 }
 

@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/sys.h"
+#include "core/sys/ria.h"
 #include "core/api/api.h"
 #include "osal/pico/errmap.h"
 #include "core/str/oem.h"
@@ -42,6 +43,7 @@ _Static_assert(MBUF_SIZE >= ROM_RECORD_MAX, "mbuf is the RIA's record buffer");
 static enum {
     ROM_IDLE,
     ROM_HELPING,
+    ROM_INSTALLING,
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
@@ -52,6 +54,8 @@ static uint32_t rom_len;
 static rom_pump_t rom_pump = {.fd = -1};
 static uint32_t help_pos;
 static uint32_t help_end;
+static int rom_install_wr = -1;
+static char rom_install_dest[1 + LFS_NAME_MAX + 1];
 
 
 static void HOST_IN_FLASH_FUNC("rom_written") rom_written(bool ok)
@@ -123,6 +127,81 @@ static bool rom_copy_install_name(char *dst, const char *src, size_t len)
     return i > 0;
 }
 
+// The new ROM is kept only when it is complete.
+static int HOST_IN_FLASH_FUNC("rom_install_end") rom_install_end(bool complete)
+{
+    if (rom_install_wr >= 0)
+    {
+        api_errno err;
+        if (fs_std_close(rom_install_wr, &err) != STD_OK && complete)
+        {
+            mon_add_response_errno(err);
+            complete = false;
+        }
+        rom_install_wr = -1;
+        if (!complete)
+            fs_rom_remove(rom_install_dest, &err);
+    }
+    rom_state = ROM_IDLE;
+    return -1;
+}
+
+// One record of the check, then one mbuf of the copy, per step.
+static int HOST_IN_FLASH_FUNC("rom_install_response") rom_install_response(char *, size_t,
+                                                                           int state, unsigned)
+{
+    if (state < 0)
+        return rom_install_end(false);
+    if (ria_get_sigint())
+    {
+        sys_break();
+        return rom_install_end(false);
+    }
+    api_errno err;
+    if (rom_install_wr < 0)
+    {
+        rom_record_t rec;
+        int32_t landed;
+        switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
+        {
+        case ROM_PUMP_RECORD:
+        case ROM_PUMP_SKIP:
+            return 0;
+        case ROM_PUMP_ERROR:
+            break;
+        case ROM_PUMP_EOF:
+            if (!rom_pump_complete(&rom_pump))
+            {
+                mon_add_response_utf8(S(STR_ERR_ROM_NO_RESET_VECTOR));
+                return rom_install_end(false);
+            }
+            if (fs_std_lseek(rom_pump.fd, SEEK_SET, 0, &landed, &err) < 0)
+                break;
+            rom_install_wr = fs_rom_open(rom_install_dest, FS_WR | FS_CREAT | FS_EXCL, &err);
+            if (rom_install_wr < 0)
+                break;
+            return 0;
+        }
+        mon_add_response_errno(err);
+        return rom_install_end(false);
+    }
+    uint32_t got = 0;
+    if (fs_std_read(rom_pump.fd, (char *)mbuf, MBUF_SIZE, &got, &err) == STD_OK)
+    {
+        if (!got)
+            return rom_install_end(true);
+        uint32_t put = 0;
+        if (fs_std_write(rom_install_wr, (const char *)mbuf, got, &put, &err) == STD_OK)
+        {
+            if (put == got)
+                return 0;
+            err = API_ENOSPC;
+        }
+    }
+    mon_add_response_errno(err);
+    return rom_install_end(false);
+}
+
 void HOST_IN_FLASH_FUNC("rom_mon_install") rom_mon_install(const char *args)
 {
     const char *args_start = args;
@@ -132,7 +211,7 @@ void HOST_IN_FLASH_FUNC("rom_mon_install") rom_mon_install(const char *args)
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    char lfs_name[LFS_NAME_MAX + 1];
+    char *lfs_name = rom_install_dest + 1;
     const char *lfs_tok = str_parse_string(&args);
     if (lfs_tok)
     {
@@ -181,65 +260,9 @@ void HOST_IN_FLASH_FUNC("rom_mon_install") rom_mon_install(const char *args)
         mon_add_response_errno(err);
         return;
     }
-    rom_record_t rec;
-    rom_pump_result r;
-    while ((r = rom_pump_next(&rom_pump, mbuf, &rec, &err)) != ROM_PUMP_EOF)
-        if (r == ROM_PUMP_ERROR)
-        {
-            mon_add_response_errno(err);
-            rom_pump_close(&rom_pump);
-            return;
-        }
-    if (!rom_pump_complete(&rom_pump))
-    {
-        mon_add_response_utf8(S(STR_ERR_ROM_NO_RESET_VECTOR));
-        rom_pump_close(&rom_pump);
-        return;
-    }
-    int32_t landed;
-    if (fs_std_lseek(rom_pump.fd, SEEK_SET, 0, &landed, &err) < 0)
-    {
-        mon_add_response_errno(err);
-        rom_pump_close(&rom_pump);
-        return;
-    }
-    char dest[1 + LFS_NAME_MAX + 1];
-    snprintf(dest, sizeof dest, ":%s", lfs_name);
-    int wr = fs_rom_open(dest, FS_WR | FS_CREAT | FS_EXCL, &err);
-    if (wr < 0)
-    {
-        mon_add_response_errno(err);
-        rom_pump_close(&rom_pump);
-        return;
-    }
-    bool ok = true;
-    for (;;)
-    {
-        uint32_t got = 0;
-        if (fs_std_read(rom_pump.fd, (char *)mbuf, MBUF_SIZE, &got, &err) != STD_OK)
-        {
-            ok = false;
-            break;
-        }
-        if (!got)
-            break;
-        uint32_t put = 0;
-        if (fs_std_write(wr, (const char *)mbuf, got, &put, &err) != STD_OK ||
-            put != got)
-        {
-            ok = false;
-            break;
-        }
-    }
-    if (fs_std_close(wr, &err) != STD_OK)
-        ok = false;
-    rom_pump_close(&rom_pump);
-    if (!ok)
-    {
-        mon_add_response_errno(err);
-        api_errno ignored;
-        fs_rom_remove(dest, &ignored);
-    }
+    rom_install_dest[0] = ':';
+    rom_state = ROM_INSTALLING;
+    mon_add_response_fn(rom_install_response);
 }
 
 void HOST_IN_FLASH_FUNC("rom_mon_remove") rom_mon_remove(const char *args)
@@ -581,6 +604,7 @@ void rom_task(void)
         rom_assets_reset();
         break;
     case ROM_HELPING:
+    case ROM_INSTALLING:
     case ROM_RUNNING:
     case ROM_RIA_WRITING:
         break; // NOP

@@ -48,7 +48,6 @@ static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
 
 static int vga_vsync_alarm = -1;
-static uint vga_vsync_trap_offset;
 static bool vga_vsync_alarm_arms;
 static volatile bool vga_vsync_trap_armed;
 static volatile bool vga_vsync_trap_fired;
@@ -89,14 +88,14 @@ static inline void vga_pix_backchannel_request(void)
 
 static inline void vga_backchannel_irq_enable(void)
 {
-    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO,
-                                pis_sm2_rx_fifo_not_empty, true);
+    pio_set_irq1_source_enabled(VGA_BACKCHANNEL_PIO,
+                                pis_sm3_rx_fifo_not_empty, true);
 }
 
 static inline void vga_backchannel_irq_disable(void)
 {
-    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO,
-                                pis_sm2_rx_fifo_not_empty, false);
+    pio_set_irq1_source_enabled(VGA_BACKCHANNEL_PIO,
+                                pis_sm3_rx_fifo_not_empty, false);
 }
 
 static void vga_vsync_trap_disarm(void)
@@ -104,10 +103,7 @@ static void vga_vsync_trap_disarm(void)
     if (!vga_vsync_trap_armed)
         return;
     vga_vsync_trap_armed = false;
-    pio_sm_exec(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM,
-                pio_encode_jmp(vga_vsync_trap_offset));
-    pio_sm_clear_fifos(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM);
-    pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
+    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, false);
     // A trap interrupt that is already pending would otherwise run the handler
     // after the disarm and raise an extra VSYNC.
     irq_clear(VGA_VSYNC_TRAP_IRQ);
@@ -127,7 +123,8 @@ static void vga_vsync_alarm_handler(uint alarm)
     vga_vsync_trap_fired = false;
     vga_vsync_trap_armed = true;
     vga_vsync_alarm_arms = false;
-    pio_sm_put(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, 0);
+    pio_interrupt_clear(VGA_BACKCHANNEL_PIO, 0);
+    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, true);
     if (hardware_alarm_set_target(alarm, from_us_since_boot(
                                              time_us_64() + 2 * VGA_VSYNC_WINDOW_US)))
         vga_vsync_trap_disarm();
@@ -149,7 +146,7 @@ static void
     __isr
     __time_critical_func(vga_vsync_trap_irq_handler)(void)
 {
-    pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
+    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, false);
     vga_vsync_trap_armed = false;
     vga_vsync_trap_fired = true;
     // The frame number written here is a guess. The backchannel byte for this
@@ -295,22 +292,17 @@ void __in_flash("vga_init") vga_init(void)
     sm_config_set_in_pins(&c, VGA_BACKCHANNEL_PIN); // for WAIT, IN
     sm_config_set_in_shift(&c, true, true, 8);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-    float div = (float)clock_get_hz(clk_sys) / (8 * VGA_BACKCHANNEL_BAUDRATE);
+    float div = (float)clock_get_hz(clk_sys) / (16 * VGA_BACKCHANNEL_BAUDRATE);
     sm_config_set_clkdiv(&c, div);
     pio_sm_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, offset, &c);
     pio_sm_set_enabled(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, true);
 
     // Set up PIO IRQ for backchannel RX, source stays disabled until connect
-    irq_set_exclusive_handler(PIO1_IRQ_0, vga_backchannel_irq_handler);
-    irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
-    irq_set_enabled(PIO1_IRQ_0, true);
+    irq_set_exclusive_handler(VGA_BACKCHANNEL_IRQ, vga_backchannel_irq_handler);
+    irq_set_priority(VGA_BACKCHANNEL_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_enabled(VGA_BACKCHANNEL_IRQ, true);
 
-    vga_vsync_trap_offset = pio_add_program(VGA_VSYNC_TRAP_PIO, &vga_vsync_trap_program);
-    pio_sm_config tc = vga_vsync_trap_program_get_default_config(vga_vsync_trap_offset);
-    sm_config_set_in_pins(&tc, VGA_BACKCHANNEL_PIN); // for WAIT
-    pio_sm_init(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, vga_vsync_trap_offset, &tc);
-    pio_sm_set_enabled(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, true);
-    pio_set_irq0_source_enabled(VGA_VSYNC_TRAP_PIO, pis_interrupt0, true);
+    // The trap's source stays disabled until an alarm arms it
     irq_set_exclusive_handler(VGA_VSYNC_TRAP_IRQ, vga_vsync_trap_irq_handler);
     irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);

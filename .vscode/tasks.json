@@ -50,7 +50,9 @@
                 "-f",
                 "target/${command:raspberry-pi-pico.getTarget}.cfg",
                 "-c",
-                "adapter speed 5000; program \"${command:cmake.launchTargetPath}\" verify reset exit"
+                // Cold reset through the DP after programming, pass or fail:
+                // the chip reboots with USB reset and DHCSR.C_DEBUGEN clear.
+                "adapter speed 5000; catch {program \"${command:cmake.launchTargetPath}\" verify} err; poll off; rp2350.dap dpreg 4 0x54000000; rp2350.dap dpreg 4 0x50000000; if {$err ne {}} {shutdown error} else {shutdown}"
             ],
             "problemMatcher": [],
             "windows": {

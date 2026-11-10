@@ -23,6 +23,22 @@
 __in_flash("vcp_string") static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
+// An open port configures after open returns. A port has at most one
+// configuration request in flight, so an open waits for the request of an
+// earlier open or close, and the driver's cached line coding is final when
+// an open compares against it.
+enum
+{
+    VCP_CFG_IDLE,    // closed, no request in flight
+    VCP_CFG_CLOSING, // closed, a request in flight
+    VCP_CFG_WAIT,    // a request of an earlier open or close in flight
+    VCP_CFG_CODING,  // line coding request in flight
+    VCP_CFG_CONNECT, // DTR and RTS request in flight, dropped after it if closed
+    VCP_CFG_READY,
+    VCP_CFG_FAILED,
+    VCP_CFG_TIMEOUT, // a request timed out
+};
+
 typedef struct
 {
     bool mounted;
@@ -30,6 +46,8 @@ typedef struct
     bool nfc_checked;
     uint8_t session;
     uint8_t daddr;
+    uint8_t cfg;
+    cdc_line_coding_t coding;
 } vcp_t;
 static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
@@ -107,25 +125,115 @@ bool vcp_std_handles(const char *name)
     return true;
 }
 
-// Set baudrate, line format, and assert DTR/RTS. Returns true on success.
-static bool vcp_configure_and_connect(uint8_t idx, uint32_t baudrate,
-                                      uint8_t data_bits, uint8_t parity,
-                                      uint8_t stop_bits)
+// The port of an open descriptor, or -1 when its device is gone. A descriptor
+// holds the session of its open above the port index, so a descriptor kept
+// across a close or an unplug does not resolve to a later open of that port.
+static int vcp_desc_idx(int desc)
 {
-    const cdc_line_coding_t coding = {.bit_rate = baudrate,
-                                      .stop_bits = stop_bits,
-                                      .parity = parity,
-                                      .data_bits = data_bits};
+    int idx = desc & 0xF;
+    const vcp_t *dev = &vcp_mounts[idx];
+    if ((desc >> 4) != dev->session || !dev->mounted || !dev->opened)
+        return -1;
+    return idx;
+}
+
+static void vcp_cfg_cb(tuh_xfer_t *xfer);
+
+// Sends the line coding of the open, or DTR and RTS when the device already
+// has that coding. False when the request cannot be queued.
+static bool vcp_cfg_start(uint8_t idx)
+{
+    vcp_t *dev = &vcp_mounts[idx];
+    int desc = (dev->session << 4) | idx;
     cdc_line_coding_t now;
     /* The whole coding in one request, because a port starts with a coding of
      * zeros, and a baud rate alone carries 0 data bits, which the CDC ACM and
      * PL2303 drivers refuse. A PL2303 also refuses the coding it already
      * has, so that one is not sent again. */
-    if ((!tuh_cdc_get_line_coding_local(idx, &now) ||
-         memcmp(&now, &coding, sizeof coding) != 0) &&
-        !tuh_cdc_set_line_coding(idx, &coding, NULL, 0))
-        return false;
-    return tuh_cdc_connect(idx, NULL, 0);
+    if (tuh_cdc_get_line_coding_local(idx, &now) &&
+        memcmp(&now, &dev->coding, sizeof now) == 0)
+    {
+        dev->cfg = VCP_CFG_CONNECT;
+        return tuh_cdc_connect(idx, vcp_cfg_cb, desc);
+    }
+    dev->cfg = VCP_CFG_CODING;
+    return tuh_cdc_set_line_coding(idx, &dev->coding, vcp_cfg_cb, desc);
+}
+
+// Drops DTR and RTS of a closed port.
+static void vcp_cfg_drop(uint8_t idx, int desc)
+{
+    vcp_mounts[idx].cfg = tuh_cdc_disconnect(idx, vcp_cfg_cb, desc)
+                              ? VCP_CFG_CLOSING
+                              : VCP_CFG_IDLE;
+}
+
+// Completes each configuration request. The user data is the descriptor of
+// the open or close that sent it. A STALL from a CDC ACM device counts as
+// success: it has no line requests.
+static void vcp_cfg_cb(tuh_xfer_t *xfer)
+{
+    int desc = (int)xfer->user_data;
+    uint8_t idx = desc & 0xF;
+    vcp_t *dev = &vcp_mounts[idx];
+    if (!dev->opened)
+    {
+        if (dev->cfg == VCP_CFG_CONNECT)
+            vcp_cfg_drop(idx, desc);
+        else
+            dev->cfg = VCP_CFG_IDLE;
+        return;
+    }
+    bool ok;
+    uint8_t failed = VCP_CFG_FAILED;
+    if (vcp_desc_idx(desc) < 0)
+        ok = vcp_cfg_start(idx); // the open waiting for this request
+    else
+    {
+        tuh_itf_info_t info;
+        ok = xfer->result == XFER_RESULT_SUCCESS ||
+             (xfer->result == XFER_RESULT_STALLED && tuh_cdc_itf_get_info(idx, &info) &&
+              info.desc.bInterfaceSubClass == CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL);
+        if (xfer->result == XFER_RESULT_TIMEOUT)
+            failed = VCP_CFG_TIMEOUT;
+        else if (ok && dev->cfg == VCP_CFG_CODING)
+        {
+            dev->cfg = VCP_CFG_CONNECT;
+            ok = tuh_cdc_connect(idx, vcp_cfg_cb, desc);
+        }
+        else if (ok)
+            dev->cfg = VCP_CFG_READY;
+    }
+    if (!ok)
+    {
+        dev->cfg = failed;
+        RP6502_LOG(vcp, WARN, "%d config failed", idx);
+    }
+}
+
+// Opens the port and returns the descriptor without waiting for the
+// configuration, or -1 when its first request cannot be queued.
+static int vcp_open_port(uint8_t idx, uint32_t baudrate,
+                         uint8_t data_bits, uint8_t parity,
+                         uint8_t stop_bits)
+{
+    vcp_t *dev = &vcp_mounts[idx];
+    dev->coding = (cdc_line_coding_t){.bit_rate = baudrate,
+                                      .stop_bits = stop_bits,
+                                      .parity = parity,
+                                      .data_bits = data_bits};
+    dev->session++;
+    tuh_cdc_read_clear(idx);
+    tuh_cdc_write_clear(idx);
+    if (dev->cfg != VCP_CFG_IDLE)
+        dev->cfg = VCP_CFG_WAIT;
+    else if (!vcp_cfg_start(idx))
+    {
+        dev->cfg = VCP_CFG_IDLE;
+        return -1;
+    }
+    dev->opened = true;
+    return (dev->session << 4) | idx;
 }
 
 int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
@@ -242,7 +350,8 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         }
     }
 
-    if (!vcp_configure_and_connect(idx, baudrate, data_bits, parity, stop_bits))
+    int desc = vcp_open_port(idx, baudrate, data_bits, parity, stop_bits);
+    if (desc < 0)
     {
         *err = API_EINVAL;
         return -1;
@@ -250,20 +359,7 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
 
     RP6502_LOG(vcp, INFO, "%d open %lu,%d%c%s", idx, (unsigned long)baudrate, data_bits,
                "NOEMS"[parity], CDC_LINE_CODING_STOP_BITS_TEXT(stop_bits));
-    vcp_mounts[idx].opened = true;
-    return (vcp_mounts[idx].session << 4) | idx;
-}
-
-// The port of an open descriptor, or -1 when its device is gone. A descriptor
-// holds the mount session above the port index, so a descriptor kept across
-// an unplug does not resolve to the next device mounted on that port.
-static int vcp_desc_idx(int desc)
-{
-    int idx = desc & 0xF;
-    const vcp_t *dev = &vcp_mounts[idx];
-    if ((desc >> 4) != dev->session || !dev->mounted || !dev->opened)
-        return -1;
-    return idx;
+    return desc;
 }
 
 std_rw_result vcp_std_close(int desc, api_errno *err)
@@ -272,40 +368,60 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
     int idx = vcp_desc_idx(desc);
     if (idx >= 0)
     {
+        vcp_t *dev = &vcp_mounts[idx];
         RP6502_LOG(vcp, INFO, "%d close", idx);
-        tuh_cdc_disconnect(idx, NULL, 0);
-        vcp_mounts[idx].opened = false;
+        dev->opened = false;
+        if (dev->cfg == VCP_CFG_READY)
+            vcp_cfg_drop(idx, desc);
+        else if (dev->cfg == VCP_CFG_FAILED || dev->cfg == VCP_CFG_TIMEOUT)
+            dev->cfg = VCP_CFG_IDLE;
+        else if (dev->cfg != VCP_CFG_CONNECT)
+            dev->cfg = VCP_CFG_CLOSING;
     }
     return STD_OK;
+}
+
+// STD_PENDING while the port configures, STD_ERROR with EINVAL when the
+// configuration failed, or EIO when a request timed out or the device is gone.
+std_rw_result vcp_std_opening(int desc, api_errno *err)
+{
+    int idx = vcp_desc_idx(desc);
+    if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_TIMEOUT)
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (vcp_mounts[idx].cfg == VCP_CFG_FAILED)
+    {
+        *err = API_EINVAL;
+        return STD_ERROR;
+    }
+    return vcp_mounts[idx].cfg == VCP_CFG_READY ? STD_OK : STD_PENDING;
 }
 
 std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
-    int idx = vcp_desc_idx(desc);
-    if (idx < 0)
-    {
-        *err = API_EIO;
-        return STD_ERROR;
-    }
-    *bytes_read = tuh_cdc_read(idx, buf, count);
-    return STD_OK;
+    *bytes_read = 0;
+    std_rw_result result = vcp_std_opening(desc, err);
+    if (result == STD_OK)
+        *bytes_read = tuh_cdc_read(desc & 0xF, buf, count);
+    return result;
 }
 
 std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
-    int idx = vcp_desc_idx(desc);
-    if (idx < 0)
+    *bytes_written = 0;
+    std_rw_result result = vcp_std_opening(desc, err);
+    if (result == STD_OK)
     {
-        *err = API_EIO;
-        return STD_ERROR;
+        uint8_t idx = desc & 0xF;
+        *bytes_written = tuh_cdc_write(idx, buf, count);
+        if (*bytes_written > 0)
+            tuh_cdc_write_flush(idx);
     }
-    uint32_t written = tuh_cdc_write(idx, buf, count);
-    if (written > 0)
-        tuh_cdc_write_flush(idx);
-    *bytes_written = written;
-    return STD_OK;
+    return result;
 }
 
 void vcp_task(void)
@@ -392,11 +508,11 @@ int vcp_nfc_open(void)
     // Matching is deferred, an app may have opened the port first
     if (vcp_mounts[idx].opened)
         return -1;
-    if (!vcp_configure_and_connect(idx, 115200, 8,
-                                   CDC_LINE_CODING_PARITY_NONE,
-                                   CDC_LINE_CODING_STOP_BITS_1))
+    int desc = vcp_open_port(idx, 115200, 8,
+                             CDC_LINE_CODING_PARITY_NONE,
+                             CDC_LINE_CODING_STOP_BITS_1);
+    if (desc < 0)
         return -1;
     RP6502_LOG(vcp, INFO, "%d nfc open", idx);
-    vcp_mounts[idx].opened = true;
-    return (vcp_mounts[idx].session << 4) | idx;
+    return desc;
 }

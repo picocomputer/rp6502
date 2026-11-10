@@ -24,6 +24,10 @@ void mon_init(void);
 void mon_stop(void);
 void mon_break(void);
 
+// True while the 6502 is stopped and a response is pending or a monitor
+// subsystem (ram, rom, fil, uf2, drive) is active.
+bool mon_busy(void);
+
 // mon_task calls a queued response generator with its current state and the
 // terminal width. The generator writes the next chunk into buf and returns the
 // next state, or a negative state when there is no more. The buffer is only

@@ -41,10 +41,8 @@ typedef enum
 {
     ROM_PUMP_RECORD,
     ROM_PUMP_SKIP,  /* a comment or blank line */
-    /* no more program records; a classic image cannot tell its end from a
-     * read failure */
-    ROM_PUMP_EOF,
-    ROM_PUMP_ERROR,
+    ROM_PUMP_EOF,   /* no more program records */
+    ROM_PUMP_ERROR, /* *err is the driver's, or ENOEXEC for a bad or short image */
 } rom_pump_result;
 
 bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err);
