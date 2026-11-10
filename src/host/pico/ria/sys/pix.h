@@ -42,28 +42,17 @@ void pix_wait_begin(uint32_t timeout_ms);
 // 1=ack, -1=nak, -2=timeout, 0=still waiting. Resets state on terminal.
 int pix_wait_poll(void);
 
-// Room for at least one more message in PIX_SM's FIFO.
+// Room for at least one more message in PIX_SM's FIFO, and no hold.
 bool pix_ready(void);
 
 // Bit 28 always 1, bits [31:29] for device id, etc.
 #define PIX_MESSAGE(dev, ch, byte, word) \
     (0x10000000u | (dev << 29u) | (ch << 24) | ((byte) << 16) | (word))
 
-// Macro for the RIA. Use the inline functions elsewhere.
-#define PIX_SEND_XRAM(addr, data) \
-    PIX_PIO->txf[PIX_SM] = (PIX_MESSAGE(PIX_DEVICE_XRAM, 0, (data), (addr)))
+// Unconditionally attempt to send a PIX message. Use with pix_ready().
+void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word);
 
-// Unconditionally attempt to send a PIX message.
-// Meant for use with pix_ready() to fill the FIFO in a task handler.
-static inline void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
-{
-    assert(dev3 < 8);
-    assert(ch4 < 16);
-    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
-}
-
-// Send a single PIX message, block if necessary. Normally, blocking is bad, but
-// this unblocks so fast that it's not a problem for a few messages.
+// Send a single PIX message, block if necessary.
 static inline void HOST_IN_RAM_FUNC pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     while (!pix_ready())

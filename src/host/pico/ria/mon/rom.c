@@ -590,7 +590,7 @@ static bool HOST_IN_FLASH_FUNC rom_xram_done(void)
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
         xram[addr] = mbuf[rom_len];
-        PIX_SEND_XRAM(addr, xram[addr]);
+        pix_send(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
     }
     return !rom_len;
 }

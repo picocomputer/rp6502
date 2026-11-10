@@ -147,6 +147,8 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
         }
         return api_working();
     case pix_api_ack:
+        if (!pix_ready())
+            return api_working();
         pix_api_state = pix_api_running;
         if (pix_send_count == 0)
         {
@@ -184,10 +186,7 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
                 pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
             }
             else if (!pix_send_count)
-            {
-                xstack_ptr = XSTACK_SIZE;
-                return api_return_ax(0);
-            }
+                pix_api_state = pix_api_ack;
         }
         return api_working();
     }
@@ -249,10 +248,29 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
     return api_working();
 }
 
-// PIX TX FIFO is joined to be 8 deep.
+// A CANVAS or DISPLAY can change the VGA's system clock.
+// Its PIX receiver loses messages until the new clock settles.
+#define PIX_HOLD_US 1000
+static uint64_t pix_hold_end_us;
+
+void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+{
+    assert(dev3 < 8);
+    assert(ch4 < 16);
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
+    if (dev3 == PIX_DEVICE_VGA && byte == 0 && (ch4 == 0 || ch4 == 0xF))
+        pix_hold_end_us = time_us_64() + PIX_HOLD_US;
+}
+
+// PIX_SM's TX FIFO is joined. Core 1 puts the 6502's portal writes in it
+// without checking for room, so the main loop leaves it PIX_CORE1_SLOTS.
+#define PIX_FIFO_DEPTH 8
+#define PIX_CORE1_SLOTS 2
+
 bool HOST_IN_RAM_FUNC pix_ready(void)
 {
-    return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
+    return time_us_64() >= pix_hold_end_us &&
+           pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < PIX_FIFO_DEPTH - PIX_CORE1_SLOTS;
 }
 
 // A run starts only on an idle DMA, which has left its read address at the

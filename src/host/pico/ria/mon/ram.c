@@ -129,9 +129,7 @@ static void HOST_IN_FLASH_FUNC ram_begin_write(void)
         for (size_t i = 0; i < mbuf_len; i++)
         {
             xram[ram_rw_addr + i] = mbuf[i];
-            while (!pix_ready())
-                tight_loop_contents();
-            PIX_SEND_XRAM(ram_rw_addr + i, mbuf[i]);
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, mbuf[i], (uint16_t)(ram_rw_addr + i));
         }
         return;
     }
@@ -349,7 +347,7 @@ static void HOST_IN_FLASH_FUNC ram_xram(void)
         if (!pix_ready())
             return;
         uint32_t addr = ram_rw_addr + --ram_rw_size - 0x10000;
-        PIX_SEND_XRAM(addr, xram[addr]);
+        pix_send(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
     }
     ram_state = RAM_IDLE;
 }
