@@ -12,7 +12,7 @@
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/hid/vtkeys.h"
 #include "core/str/str.h"
 #include "osal/dir.h"

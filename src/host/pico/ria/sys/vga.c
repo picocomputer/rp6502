@@ -7,7 +7,8 @@
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
+#include "ria/com/manifold.h"
 #include "ria/sys/cfg.h"
 #include "core/ria/regs.h"
 #include "ria/sys/mbuf.h"
@@ -228,7 +229,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
     {
-        com_uart_drain_rx();
+        manifold_uart_drain_rx();
         mbuf_task();
     }
     if (vga_state == VGA_NOT_FOUND)

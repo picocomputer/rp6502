@@ -5,10 +5,9 @@
  */
 
 #include "core/sys/ria.h"
-#include "ria/sys/com.h"
 #include "core/sys/config.h"
 #include "core/sys/debug_log.h"
-#include "ria/sys/com_telnet.h"
+#include "ria/com/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/vga.h"
 #include "ria-w/net/telnet.h"
@@ -150,7 +149,7 @@ static void com_telnet_handle_auth(uint8_t ch)
 
 static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
 {
-    // A full ring loses nothing for COM_WIRE_HOLD_MS, because net_rx calls
+    // A full ring loses nothing for COM_HOLD_MS, because net_rx calls
     // tcp_recved only for the bytes it returns, so TCP flow control holds back
     // the peer while the connection is not read. After that, input is read and
     // dropped but still decoded, so a Ctrl-C or a telnet Interrupt Process
@@ -165,7 +164,7 @@ static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
             if (!com_telnet_rx_held)
             {
                 com_telnet_rx_held = true;
-                com_telnet_rx_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+                com_telnet_rx_hold = timer_in_ms(COM_HOLD_MS);
             }
             if (!timer_passed(com_telnet_rx_hold))
                 return;

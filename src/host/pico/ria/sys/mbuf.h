@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "core/sys/com.h"
+#include "core/com/com.h"
 
 // Misc memory buffer for moving things around.
 // 6502 <-> RAM, USB <-> RAM, UART <-> RAM, etc.

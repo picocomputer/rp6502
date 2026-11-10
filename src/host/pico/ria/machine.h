@@ -26,6 +26,9 @@
 #define HID_MAX_SLOTS 16
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 1
+/* The C library's stdout is the console, so com_printf formats straight to
+ * it. */
+#define COM_LIBC_STDOUT 1
 
 
 #endif /* _HOST_MACHINE_H_ */

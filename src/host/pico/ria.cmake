@@ -75,10 +75,9 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/aud/bel.c
-    ${RP6502_ROOT}/src/core/com/pick.c
-    ${RP6502_ROOT}/src/core/com/line.c
-    ${RIA_SRC}/sys/com.c
-    ${RIA_SRC}/sys/com_telnet.c
+    ${RP6502_ROOT}/src/core/com/com.c
+    ${RIA_SRC}/com/manifold.c
+    ${RIA_SRC}/com/com_telnet.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/cyw.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/net.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/telnet.c
@@ -294,10 +293,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/sys/xram.c
     ${RP6502_ROOT}/src/core/ria/regs.c
     ${RIA_SRC}/sys/cfg.c
-    ${RIA_SRC}/sys/com.c
-    ${RIA_SRC}/sys/com_telnet.c
-    ${RP6502_ROOT}/src/core/com/pick.c
-    ${RP6502_ROOT}/src/core/com/line.c
+    ${RIA_SRC}/com/manifold.c
+    ${RIA_SRC}/com/com_telnet.c
+    ${RP6502_ROOT}/src/core/com/com.c
     ${RIA_SRC}/sys/phi2.c
     ${RIA_SRC}/sys/rp2350.c
     ${RIA_SRC}/sys/resb.c

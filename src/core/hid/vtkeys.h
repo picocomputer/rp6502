@@ -5,8 +5,8 @@
  */
 
 /* The keyboard stream on a machine whose OS has already decoded the key.
- * Everything a host types enters through one of the calls below, and nothing
- * else pushes the com keyboard ring; see core/com/com.h.
+ * Everything a host types enters through one of the calls below, into the
+ * manifold's keyboard ring; see core/com/manifold.h.
  *
  * Which keys are down is core/hid/keyboard.h.
  */
@@ -55,7 +55,7 @@ void vtkeys_paste_cancel(void);
 
 /* Clear the keyboard source: the ring and the rest of the paste. */
 void vtkeys_clear(void);
-#define VTKEYS_COM_SOURCE {.read = com_keyboard_read, .clear = vtkeys_clear, .dwell_us = COM_WIRE_DWELL_US}
+#define VTKEYS_COM_SOURCE {.read = manifold_keyboard_read, .clear = vtkeys_clear, .dwell_us = COM_DWELL_US}
 
 bool vtkeys_paste_busy(void);
 

@@ -9,7 +9,6 @@
 
 #include "apf.h"
 #include "cfg.h"
-#include "com.h"
 #include "font.h"
 #include "main.h"
 #include "mmio.h"
@@ -27,6 +26,7 @@
 #include "osal/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
+#include "core/com/com.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -42,34 +42,19 @@
 
 
 #include <stdint.h>
+#include <stdio.h>
 
-size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+/* The C library's stdout and stderr are the console. */
+static int main_stdio_putc(char c, FILE *f)
 {
-    (void)buf;
-    (void)length;
-    (void)src;
-    return 0;
+    (void)f;
+    return com_putchar((unsigned char)c);
 }
 
-int com_rx_peek(com_source_t src)
-{
-    (void)src;
-    return -1;
-}
-
-static bool ria_sigint;
-
-void ria_trigger_sigint(void)
-{
-    ria_sigint = true;
-}
-
-bool ria_get_sigint(void)
-{
-    bool latched = ria_sigint;
-    ria_sigint = false;
-    return latched;
-}
+static FILE main_stdio = FDEV_SETUP_STREAM(main_stdio_putc, NULL, NULL,
+                                           _FDEV_SETUP_WRITE);
+FILE *const stdout = &main_stdio;
+FILE *const stderr = &main_stdio;
 
 static uint8_t main_upd_seen;
 

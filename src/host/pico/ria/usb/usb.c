@@ -13,7 +13,6 @@
 #include "core/hid/gamepad.h"
 #include "host/hcd.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/usb/msc.h"
 #include "ria-w/ble/ble.h"
 #include "ria/usb/usb.h"

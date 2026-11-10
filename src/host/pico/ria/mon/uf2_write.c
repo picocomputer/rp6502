@@ -7,7 +7,7 @@
 #include "ria/mon/uf2_write.h"
 #include "core/str/str.h"
 #include "core/sys/debug_log.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "ria/sys/mbuf.h"

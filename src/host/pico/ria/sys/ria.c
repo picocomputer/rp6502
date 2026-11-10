@@ -13,7 +13,6 @@
 #include "core/api/proc.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -280,7 +279,7 @@ void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
 }
 
 // The UART TX ring has a single producer, act_loop on core 1, and a single
-// consumer, com_tx_fanout on core 0 through ria_uart_tx_dequeue.
+// consumer, the console on core 0 through ria_uart_tx_dequeue.
 static RING(uint8_t, 32) ria_uart_tx;
 
 bool HOST_IN_RAM_FUNC ria_uart_tx_dequeue(uint8_t *ch)

@@ -16,7 +16,6 @@
 #include "core/hid/gamepad.h"
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/led.h"
 #include "core/sys/sys.h"

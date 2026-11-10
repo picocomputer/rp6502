@@ -48,7 +48,7 @@ PRUNE = {
     'enum_resume': 'tuh_keep_only_driver clears its attempt, and only a failed enumeration sets it',
 }
 
-STDIO = ['com_stdio_out_chars', 'com_stdio_out_flush', 'com_stdio_in_chars']
+STDIO = ['manifold_stdio_out_chars', 'manifold_stdio_out_flush', 'manifold_stdio_in_chars']
 PRINTF = ['_out_buffer', '_out_null', '_out_fct', '_out_char', 'stdio_buffered_printer']
 # execute_sync is left out: the CYW43 driver uses it only at radio init and deinit.
 ASYNC = ['noop', 'async_context_poll_lock_check',
@@ -70,7 +70,7 @@ MODEM = 'telnet\'s; modem_stop closed the modem\'s when the 6502 stopped'
 # Indirect calls reviewed: the function making the call -> (why, what it can
 # call while flashing). Every target is followed as a root.
 INDIRECT = {
-    'stdio_flush': ('stdio drivers: only com.c registers one', STDIO),
+    'stdio_flush': ('stdio drivers: only ria/com/manifold.c registers one', STDIO),
     'stdio_out_chars_crlf': ('stdio drivers', STDIO),
     'stdio_put_string': ('stdio drivers', STDIO),
     '_vsnprintf': ('printf output functions', PRINTF),
@@ -78,7 +78,7 @@ INDIRECT = {
     '_out_fct': ('the vfctprintf printer', PRINTF),
     'weak_raw_vprintf': ('panic prints through vprintf', STDIO),
     'com_read_source': ('the console sources, RP6502_COM_SOURCES',
-                        ['keymap_in_chars', 'com_uart_read', 'com_telnet_read']),
+                        ['keymap_in_chars', 'manifold_uart_read', 'com_telnet_read']),
     'async_context_acquire_lock_blocking': ('the poll context type', ASYNC),
     'async_context_release_lock': ('the poll context type', ASYNC),
     'async_context_set_work_pending': ('the poll context type', ASYNC),

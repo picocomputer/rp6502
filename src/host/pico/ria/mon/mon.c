@@ -21,7 +21,7 @@
 #include "osal/fs.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
@@ -543,7 +543,7 @@ static void HOST_IN_RAM_FUNC mon_step(void)
     {
         int width = rln_get_term_width();
         char c;
-        while ((c = mon_response_cur[mon_response_pos]) && com_putchar_ready())
+        while ((c = mon_response_cur[mon_response_pos]) && com_cts())
         {
             // A BEL byte in a response is not printed. It marks the column
             // that wrapped lines are indented to, but wrapped lines are not

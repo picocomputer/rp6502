@@ -5,9 +5,9 @@
  */
 
 #include "vga/main.h"
-#include "core/sys/com_term.h"
+#include "core/com/manifold.h"
 #include "vga.pio.h"
-#include "vga/sys/com.h"
+#include "vga/com/manifold.h"
 #include "core/sys/xram.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
@@ -69,7 +69,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         font_set_code_page(word);
         return true;
     case 0x02: // SUPPRESS_TERM_REPLY
-        com_suppress_term_reply(word != 0);
+        manifold_suppress_reply(word != 0);
         return false;
     case 0x03: // UART_TX
         putchar_raw(word);

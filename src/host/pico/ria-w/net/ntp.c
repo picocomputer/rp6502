@@ -10,7 +10,6 @@
 #include "core/sys/timer.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "machine.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>

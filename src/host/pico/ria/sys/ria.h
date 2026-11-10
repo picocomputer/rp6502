@@ -78,9 +78,6 @@ void ria_trigger_vsync(void);
 bool ria_uart_tx_dequeue(uint8_t *ch);
 bool ria_uart_tx_empty(void);
 bool ria_uart_rx_offer_ready(void);
-void ria_uart_rx_offer(uint8_t ch);
-int ria_uart_rx_peek(void);
-bool ria_uart_rx_reclaim(uint8_t *ch);
 
 /* A transfer copies between mbuf and 6502 memory by resetting the 6502 into a
  * loop at $FFF0, so it must be started while the machine is stopped. The

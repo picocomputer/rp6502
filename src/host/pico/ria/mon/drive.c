@@ -12,7 +12,6 @@
 #include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/mbuf.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/msc.h"

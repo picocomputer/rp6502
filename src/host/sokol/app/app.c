@@ -34,7 +34,7 @@
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
 #include "core/api/proc.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"

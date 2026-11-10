@@ -16,6 +16,7 @@
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -34,11 +35,16 @@
 #include "sw/wake.h"
 #include "sw/cfg.h"
 #include "sw/fs.h"
+#include "sw/log.h"
+#include "sw/ria.h"
 #include "sw/vid.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
 
-/* VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
+/* LOG_DRIVER is first, so what log_init connects to the debug port is there
+ * before any other init runs.
+ *
+ * VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
  * which calls term_set_height on the terminal state that term_init sets up.
  *
@@ -49,9 +55,10 @@
  * for the buffer to play.
  */
 #define RP6502_MACH_DRIVERS                             \
-    CFG_DRIVER, PROC_DRIVER,                            \
+    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,                \
     STR_DRIVER,                                         \
-    COM_DRIVER, STD_DRIVER, FS_DRIVER,                  \
+    MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
+    STD_DRIVER, FS_DRIVER,                              \
     AUD_DRIVER,                                         \
     RLN_DRIVER, TERM_DRIVER,                            \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
@@ -69,6 +76,6 @@
  * because the terminal's replies to a program's queries arrive through it. */
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
-    [COM_SOURCE_UART] = COM_UART_SOURCE
+    [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

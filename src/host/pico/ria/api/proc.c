@@ -8,7 +8,7 @@
 #include "core/api/arg.h"
 #include "ria/api/proc.h"
 #include "core/aud/bel.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/sys.h"
 #include "ria/mon/mon.h"

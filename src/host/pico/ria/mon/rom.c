@@ -22,7 +22,7 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "sys/path.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
 #include "ria/sys/cfg.h"
 #include "osal/pico/lfs.h"
 #include "osal/fs.h"

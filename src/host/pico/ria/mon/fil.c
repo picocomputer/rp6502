@@ -8,7 +8,7 @@
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/sys/ria.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/sys.h"
 #include "core/api/proc.h"
 #include "core/str/path.h"

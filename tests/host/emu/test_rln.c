@@ -6,6 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/ria/regs.h"
 #include "core/str/rln.h"
 #include "utest.h"
@@ -25,7 +26,7 @@ static void got_line(bool timeout, const char *buf)
 
 static void wire(const char *s)
 {
-    com_uart_push(s, strlen(s));
+    manifold_uart_push(s, strlen(s));
     for (int i = 0; i < 64; i++)
         rln_task();
 }
@@ -35,7 +36,7 @@ static void wire(const char *s)
  * previous case left. */
 static void fresh(void)
 {
-    com_init();
+    com_rx_clear();
     rln_init();
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_forget_source(s);
@@ -189,7 +190,7 @@ static void capture(void)
 {
     shown_len = 0;
     shown[0] = 0;
-    com_set_tx_tap(show);
+    manifold_set_tx_tap(show);
 }
 
 /* The monitor and std.c start the next read after the callback returns. */
@@ -234,7 +235,7 @@ UTEST(rln, type_ahead_is_drawn_at_this_reads_prompt)
     wire("ab");
     wire("\33[5;4R\33[>1;10;0c\33[24;80R");
     wire("\33[6;28R\33[>1;10;0c\33[24;80R");
-    com_set_tx_tap(NULL);
+    manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[28Ga") != NULL);
     ASSERT_TRUE(strstr(shown, "\33[4G") == NULL);
 }
@@ -246,7 +247,7 @@ UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
     capture();
     wire("\33[5;28R\33[>1;10;0c\33[24;80R");
     wire("\33[6;4R\33[>1;10;0c\33[24;80R");
-    com_set_tx_tap(NULL);
+    manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[4Ga") != NULL);
     ASSERT_TRUE(strstr(shown, "\33[28G") == NULL);
 }
@@ -273,7 +274,7 @@ UTEST(rln, a_leftover_size_reply_keeps_the_cursor_shape)
     wire("\33[24;80R");
     wire("\33[6;3R\33[>1;10;0c\33[24;80R");
     wire("\33[2~");
-    com_set_tx_tap(NULL);
+    manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[5 q") != NULL);
     ASSERT_TRUE(strstr(shown, "\33[1 q") != NULL);
 }

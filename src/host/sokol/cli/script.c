@@ -25,7 +25,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
 #include "core/wdc/via.h"
@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #define SCRIPT_LINE_MAX 1024
 #define SCRIPT_CAP_SIZE 65536
@@ -171,11 +172,11 @@ static void script_cap_put(script_cap_t *cap, const char *buf, int len)
 
 static void script_std_tap(int fd, const char *buf, int len)
 {
-    if (fd != 1 && fd != 2)
+    if (fd != STDOUT_FILENO && fd != STDERR_FILENO)
         return;
-    if (fd == 2 && len)
+    if (fd == STDERR_FILENO && len)
         script_stderr_midline = buf[len - 1] != '\n';
-    script_cap_put(&script_cap[fd - 1], buf, len);
+    script_cap_put(fd == STDOUT_FILENO ? SCRIPT_STDOUT : SCRIPT_STDERR, buf, len);
 }
 
 static void script_console_tap(const char *buf, int len)
@@ -1401,12 +1402,12 @@ static bool script_command(const char *line)
             int byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
             if (byte < 0)
                 return script_error("'%s' has no control byte", name);
-            com_keyboard_push_byte((uint8_t)byte);
+            manifold_keyboard_push_byte((uint8_t)byte);
         }
         else if (alt)
             vtkeys_alt_char(ch, ctrl);
         else
-            com_keyboard_push_byte((uint8_t)ch);
+            manifold_keyboard_push_byte((uint8_t)ch);
         return true;
     }
 
@@ -1845,7 +1846,7 @@ static bool script_settle(void)
     case SCRIPT_EOF:
         /* The moment console.c ends a piped stdin: a read is waiting and
          * everything typed has been taken, so no typed byte is lost. */
-        if (std_stdin_waiting() && com_input_idle())
+        if (std_stdin_waiting() && manifold_input_idle())
         {
             std_stdin_eof();
             break;
@@ -1995,8 +1996,8 @@ bool script_load(const char *path, const char *rom)
         }
         script_path = path;
     }
-    com_set_std_tap(script_std_tap);
-    com_set_tx_tap(script_console_tap);
+    manifold_set_std_tap(script_std_tap);
+    manifold_set_tx_tap(script_console_tap);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;

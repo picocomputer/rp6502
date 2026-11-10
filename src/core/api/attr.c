@@ -13,7 +13,7 @@
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
 #include "core/sys/random.h"

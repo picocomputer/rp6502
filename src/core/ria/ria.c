@@ -112,36 +112,25 @@ static void rw_write(int which, uint8_t data)
         REGSW(0xFFE6) = addr;
 }
 
-/* com_read_source (core/com/pick.c) offers the staged byte to every source in
- * turn, so com_rx_reclaim and com_rx_peek compare this against the caller and
- * hand the byte back only to the source it came from. Without the comparison,
- * the keyboard would be handed a byte typed at the UART. */
-static com_source_t ria_uart_rx_src;
-
-static void ria_uart_rx_latch(void)
+void ria_uart_rx_offer(uint8_t ch)
 {
-    com_source_t src = COM_SOURCE_ANY;
-    int ch = com_getchar(&src);
-    if (ch < 0)
-        return;
-    regs[0x02] = (uint8_t)ch;
+    regs[0x02] = ch;
     regs[0x00] |= RIA_UART_RX_READY;
-    ria_uart_rx_src = src;
 }
 
-size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+bool ria_uart_rx_reclaim(uint8_t *ch)
 {
-    if (!length || !(regs[0x00] & RIA_UART_RX_READY) || ria_uart_rx_src != src)
-        return 0;
-    buf[0] = (char)regs[0x02];
+    if (!(regs[0x00] & RIA_UART_RX_READY))
+        return false;
+    *ch = regs[0x02];
     regs[0x00] &= ~RIA_UART_RX_READY;
     regs[0x02] = 0;
-    return 1;
+    return true;
 }
 
-int com_rx_peek(com_source_t src)
+int ria_uart_rx_peek(void)
 {
-    if (!(regs[0x00] & RIA_UART_RX_READY) || ria_uart_rx_src != src)
+    if (!(regs[0x00] & RIA_UART_RX_READY))
         return -1;
     return regs[0x02];
 }
@@ -159,19 +148,19 @@ uint8_t ria_reg_read(uint16_t addr)
     case 0x00: /* READY */
     {
         if (!(regs[0x00] & RIA_UART_RX_READY))
-            ria_uart_rx_latch();
+            com_rx_stage();
         regs[0x00] |= RIA_UART_TX_READY;
         return regs[0x00];
     }
     case 0x02: /* RX */
     {
         uint8_t v = regs[0x02];
-        /* The refill reads the console through com_getchar, which offers the
+        /* The refill reads the console through com_rx_stage, which takes the
          * staged byte back before it reads any source. Drop the staged byte
          * first, or the refill hands back the one being returned here. */
         regs[0x02] = 0;
         regs[0x00] &= ~RIA_UART_RX_READY;
-        ria_uart_rx_latch();
+        com_rx_stage();
         return v;
     }
     case 0x04: /* RW0 */
@@ -207,7 +196,6 @@ void ria_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, ria.PINS);
     sst_put_u8(c, ria.irq_enabled);
     sst_put_u8(c, ria.irq_pending);
-    sst_put_u8(c, (uint8_t)ria_uart_rx_src);
     for (int i = 0; i < 0x20; i++)
         sst_put_u8(c, regs[i]);
     sst_put(c, xstack, XSTACK_SIZE + 1);
@@ -220,7 +208,6 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     uint64_t pins = sst_get_u64(c);
     uint8_t enabled = sst_get_u8(c);
     uint8_t pending = sst_get_u8(c);
-    uint8_t src = sst_get_u8(c);
     uint8_t cells[0x20];
     for (int i = 0; i < 0x20; i++)
         cells[i] = sst_get_u8(c);
@@ -229,12 +216,11 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t ptr = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
-    if (ptr > XSTACK_SIZE || src >= COM_SOURCE_COUNT)
+    if (ptr > XSTACK_SIZE)
         return false;
     ria.PINS = pins;
     ria.irq_enabled = enabled;
     ria.irq_pending = pending;
-    ria_uart_rx_src = (com_source_t)src;
     for (int i = 0; i < 0x20; i++)
         regs[i] = cells[i];
     memcpy(xstack, stack, sizeof stack);
@@ -278,7 +264,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* TX */
-        com_write((char)data);
+        com_putchar_raw((char)data);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */

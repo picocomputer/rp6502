@@ -17,7 +17,7 @@
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
 #include "core/sys/config.h"
-#include "ria/sys/com.h"
+#include "ria/com/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/phi2.h"
 #include "ria/sys/vga.h"

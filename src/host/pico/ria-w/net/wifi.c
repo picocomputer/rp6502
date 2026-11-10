@@ -10,7 +10,6 @@
 #include "core/sys/debug_log.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/mbuf.h"
 #include "machine.h"

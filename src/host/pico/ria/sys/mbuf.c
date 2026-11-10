@@ -5,7 +5,7 @@
  */
 
 #include "ria/sys/mbuf.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
 #include "machine.h"
 #include <pico.h>
 #include <pico/time.h>

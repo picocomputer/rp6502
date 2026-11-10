@@ -38,11 +38,11 @@ static void init(void)
     vga_start_render_core();
 }
 
-/* com_task runs after every driver's tasks because the UART's RX FIFO holds
- * only 32 bytes and overruns if a slow driver delays the next call. */
+/* manifold_task runs after every driver's tasks because the UART's RX FIFO
+ * holds only 32 bytes and overruns if a slow driver delays the next call. */
 static void task(void)
 {
-#define DRIVER(row) row com_task();
+#define DRIVER(row) row manifold_task();
 #define TASK_PUMPED(f) f();
 #define TASK_FATFS(f) f();
 #define TASK_ALWAYS(f) f();
@@ -54,13 +54,13 @@ static void task(void)
 void main_pre_reclock(void)
 {
     ria_pre_reclock();
-    com_pre_reclock();
+    manifold_pre_reclock();
 }
 
 void main_post_reclock(void)
 {
     ria_post_reclock();
-    com_post_reclock();
+    manifold_post_reclock();
 }
 
 bool main_prog(uint16_t *xregs)

@@ -14,7 +14,6 @@
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "osal/pico/lfs.h"
 #include "machine.h"
 #include <pico/time.h>

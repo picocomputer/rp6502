@@ -22,6 +22,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
@@ -48,7 +49,7 @@
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
+    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, RLN_DRIVER, \
     API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
@@ -61,9 +62,9 @@
 
 /* No host attaches a serial port to this machine, so the only bytes that ever
  * reach the UART source are the terminal's replies to a program's queries,
- * which core/com/com.c promotes into that ring. */
+ * which core/com/manifold.c promotes into that ring. */
 #define RP6502_COM_SOURCES                       \
     [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
-    [COM_SOURCE_UART] = COM_UART_SOURCE
+    [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

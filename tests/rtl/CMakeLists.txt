@@ -31,7 +31,7 @@ find_package(verilator CONFIG REQUIRED
     HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 
 include(${RP6502_SRC}/host/pocket/machine.cmake)
-set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/pocket/tty.c)
+set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/pocket/log.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
 if(WIN32)

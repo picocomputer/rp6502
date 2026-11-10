@@ -14,7 +14,7 @@
 #include "ria/usb/msc.h"
 #include "osal/pico/lfs.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/debug_log.h"
 #include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"

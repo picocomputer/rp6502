@@ -29,7 +29,7 @@ size_t keymap_in_chars(char *buf, size_t length);
  * being composed. */
 void keymap_abandon(void);
 
-/* The keyboard row core/com/pick.c reads on a machine with a layout engine of
+/* The keyboard row core/com/com.c reads on a machine with a layout engine of
  * its own. There is no peek, because this queue cannot be read without
  * consuming it, and no dwell, because a pause here is a person who stopped
  * typing rather than a gap in a burst arriving over a wire. */

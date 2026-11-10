@@ -6,8 +6,7 @@
 
 #include "core/term/color.h"
 #include "core/term/term.h"
-#include "core/sys/com.h"
-#include "core/sys/com_term.h"
+#include "core/com/manifold.h"
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
 #include "machine.h"
@@ -277,7 +276,7 @@ static void term_clean_line(term_state_t *term, uint8_t y)
 }
 
 // Force the cursor unlit and arm the input-gap timer. Used by movement
-// (com_out_chars) and by appearance changes (DECSCUSR, DECTCEM enable)
+// (term_out_chars) and by appearance changes (DECSCUSR, DECTCEM enable)
 // so the cursor's new state lands on a clean blink boundary.
 static inline void term_cursor_restart_blink(term_state_t *term)
 {
@@ -494,7 +493,7 @@ static void term_reset_core(term_state_t *term)
      * alt buffer's cell contents are also wiped so a later ?47 (swap-only,
      * no clear) can't surface pre-reset content. The runtime palette is also
      * restored: OSC 4 mutations don't survive a reset, matching xterm.
-     * Idempotent on the second per-term call from com_out_chars. */
+     * Idempotent on the second per-term call from term_out_chars. */
     memcpy(color_256_term, color_256, sizeof(color_256_term));
     term->screen = &term->bufs[0];
     term->cur = &term->screen->cs;
@@ -967,7 +966,7 @@ static void term_out_DSR(term_state_t *term)
     case 5:
     {
         static const char ok[] = "\33[0n";
-        com_in_write_reply(ok, sizeof(ok) - 1);
+        manifold_reply(ok, sizeof(ok) - 1);
         break;
     }
     case 6:
@@ -986,7 +985,7 @@ static void term_out_DSR(term_state_t *term)
         int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", y + 1, x + 1);
         if (n < 0 || n >= (int)sizeof(buf))
             break;
-        com_in_write_reply(buf, n);
+        manifold_reply(buf, n);
         break;
     }
     }
@@ -1032,7 +1031,7 @@ static void term_out_DECRQM(term_state_t *term, bool private)
                      private ? "?" : "", ps, pm);
     if (n < 0 || n >= (int)sizeof(buf))
         return;
-    com_in_write_reply(buf, n);
+    manifold_reply(buf, n);
 }
 
 // Primary Device Attributes. Service class 61 = VT level 1
@@ -1045,7 +1044,7 @@ static void term_out_DA(term_state_t *term)
     if (term_is_visible(term))
     {
         static const char da[] = "\33[?61;22c";
-        com_in_write_reply(da, sizeof(da) - 1);
+        manifold_reply(da, sizeof(da) - 1);
     }
 }
 
@@ -1059,7 +1058,7 @@ static void term_out_DA2(term_state_t *term)
     if (term_is_visible(term))
     {
         static const char da2[] = "\33[>0;1;0c";
-        com_in_write_reply(da2, sizeof(da2) - 1);
+        manifold_reply(da2, sizeof(da2) - 1);
     }
 }
 
@@ -1338,7 +1337,7 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
 
 // Like RIS, but keeps the primary screen and leaves the cursor where it is, as
 // every other terminal of the console sees it. Out-of-band (a console reset, by
-// the Pico VGA's DISPLAY xreg or vga_console_reset, not com_out_chars), so it
+// the Pico VGA's DISPLAY xreg or vga_console_reset, not term_out_chars), so it
 // restarts the cursor blink itself.
 static void term_out_RIS_no_clear(term_state_t *term)
 {
@@ -2495,7 +2494,7 @@ static void term_out_char(term_state_t *term, char ch)
         }
 }
 
-static void com_out_chars(const char *buf, int length)
+static void term_out_chars(const char *buf, int length)
 {
     // Snapshot the cursor position before each char; only chars whose
     // processing actually shifts (cur->x, cur->y) trip the input gap.
@@ -2531,7 +2530,7 @@ void term_init(void)
     term_state_init(&term_80, 80, term80_pri_mem, NULL);
 #endif
     // become part of stdout
-    com_set_term_out(com_out_chars);
+    manifold_set_term_out(term_out_chars);
 }
 
 // Cursor blink timing only — toggles cursor_lit on the configured cadence

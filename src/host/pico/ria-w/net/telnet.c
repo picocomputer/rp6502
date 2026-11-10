@@ -10,7 +10,6 @@
 #include "core/sys/debug_log.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/telnet.h"
-#include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include "machine.h"
 #include <pico/stdlib.h>

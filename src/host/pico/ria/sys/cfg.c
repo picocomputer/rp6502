@@ -16,7 +16,6 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "core/sys/config.h"
-#include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/mbuf.h"
