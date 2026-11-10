@@ -35,10 +35,6 @@ typedef enum
     vga_sxga, // 1280x1024 (5:4)
 } vga_display_t;
 
-// Runs before every driver: the clocks USB, the UART and the PIX receiver
-// depend on are set once here.
-void vga_clocks_init(void);
-
 void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
 #define VGA_DRIVER DRIVER(INIT(vga_init) TASK_PUMPED(vga_task))

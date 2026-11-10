@@ -5,7 +5,6 @@
  */
 
 #include "vga/main.h"
-#include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
 #include "core/vga/prog.h"
@@ -15,7 +14,6 @@
 #include <pico/stdlib.h>
 #include <pico/multicore.h>
 #include <hardware/clocks.h>
-#include <hardware/pll.h>
 #include <string.h>
 
 #pragma GCC push_options
@@ -200,53 +198,6 @@ static const scanvideo_view_t vga_view_640x360_hd = {
     .y_scale = 2,
     .y_offset = 0};
 
-/* The system clock follows the video timing. While the system PLL relocks,
- * the system clock runs from the USB PLL, which runs at 144 MHz so the PIX
- * receiver keeps up with the bus. USB, the ADC and the UART take 48 MHz from
- * it, so a system clock change never reaches them. */
-#define VGA_PLL_USB_HZ (144 * MHZ)
-
-void vga_clocks_init(void)
-{
-    pll_init(pll_usb, PLL_USB_REFDIV, 1440 * MHZ, 5, 2);
-    clock_configure_int_divider(clk_usb, 0, CLOCKS_CLK_USB_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
-                                VGA_PLL_USB_HZ, 3);
-    clock_configure_int_divider(clk_adc, 0, CLOCKS_CLK_ADC_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
-                                VGA_PLL_USB_HZ, 3);
-    clock_configure_int_divider(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
-                                VGA_PLL_USB_HZ, 3);
-}
-
-/* The system clock reaches another PLL only through clk_ref, at 12 MHz, which
- * is too slow for the PIX receiver, so the move runs from RAM to keep it to a
- * few instructions. */
-static void __not_in_flash_func(vga_sys_clock_aux)(uint32_t auxsrc)
-{
-    clock_hw_t *clock = &clocks_hw->clk[clk_sys];
-    uint32_t irqs = save_and_disable_interrupts();
-    hw_clear_bits(&clock->ctrl, CLOCKS_CLK_SYS_CTRL_SRC_BITS);
-    while (!(clock->selected & (1u << CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLK_REF)))
-        tight_loop_contents();
-    hw_write_masked(&clock->ctrl, auxsrc << CLOCKS_CLK_SYS_CTRL_AUXSRC_LSB,
-                    CLOCKS_CLK_SYS_CTRL_AUXSRC_BITS);
-    hw_set_bits(&clock->ctrl, CLOCKS_CLK_SYS_CTRL_SRC_BITS);
-    while (!(clock->selected & (1u << CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLKSRC_CLK_SYS_AUX)))
-        tight_loop_contents();
-    restore_interrupts(irqs);
-}
-
-static void vga_set_sys_clock(uint32_t hz)
-{
-    uint vco, postdiv1, postdiv2;
-    if (!check_sys_clock_hz(hz, &vco, &postdiv1, &postdiv2))
-        panic("no PLL setting for %lu Hz", (unsigned long)hz);
-    vga_sys_clock_aux(CLOCKS_CLK_SYS_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB);
-    clock_set_reported_hz(clk_sys, VGA_PLL_USB_HZ);
-    pll_init(pll_sys, PLL_SYS_REFDIV, vco, postdiv1, postdiv2);
-    vga_sys_clock_aux(CLOCKS_CLK_SYS_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS);
-    clock_set_reported_hz(clk_sys, hz);
-}
-
 static void vga_scanvideo_switch(void)
 {
     if (!vga_view_switching)
@@ -258,10 +209,8 @@ static void vga_scanvideo_switch(void)
     while (vga_rendering[0] || vga_rendering[1])
         tight_loop_contents();
 
-    // The video stops while its clock changes. PIX is read throughout, so a
-    // display or canvas change arriving meanwhile is the next switch.
-    const scanvideo_view_t *view = vga_view_selected;
-    uint32_t clk = view->default_timing->clock_freq;
+    // Set system clock for the new video mode; must run before scanvideo_set_mode()
+    uint32_t clk = vga_view_selected->default_timing->clock_freq;
     if (clk == 25200000)
         clk = 25200000 * 8; // 201.6 MHz
     else if (clk == 54000000)
@@ -271,18 +220,15 @@ static void vga_scanvideo_switch(void)
     assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
-        scanvideo_stop();
-        while (!ria_backchan_idle())
-            pix_task();
-        vga_set_sys_clock(clk);
-        ria_post_reclock();
-        pix_task();
+        main_pre_reclock();
+        set_sys_clock_khz(clk / 1000, true);
+        main_post_reclock();
     }
 
-    scanvideo_set_mode(view);
+    scanvideo_set_mode(vga_view_selected);
 
-    vga_view_current = view;
-    vga_view_switching = vga_view_selected != view;
+    vga_view_current = vga_view_selected;
+    vga_view_switching = false;
 
     mutex_exit(&vga_scanline_mutex);
 }

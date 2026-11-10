@@ -35,6 +35,8 @@
 
 void com_init(void);
 void com_task(void);
+void com_pre_reclock(void);
+void com_post_reclock(void);
 
 // USB CDC controls UART break
 void com_set_uart_break(bool en);

@@ -26,7 +26,6 @@ static void init(void)
     gpio_init(PICO_SMPS_MODE_PIN);
     gpio_set_dir(PICO_SMPS_MODE_PIN, GPIO_OUT);
     gpio_put(PICO_SMPS_MODE_PIN, 1);
-    vga_clocks_init();
 #define INIT(f) f();
 #include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
@@ -50,6 +49,18 @@ static void task(void)
 #include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"
+}
+
+void main_pre_reclock(void)
+{
+    ria_pre_reclock();
+    com_pre_reclock();
+}
+
+void main_post_reclock(void)
+{
+    ria_post_reclock();
+    com_post_reclock();
 }
 
 bool main_prog(uint16_t *xregs)
