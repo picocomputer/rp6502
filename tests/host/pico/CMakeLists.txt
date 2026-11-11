@@ -14,6 +14,13 @@ if(NOT MSVC)
                 ${RP6502_VENDOR} ${RP6502_VENDOR}/tinyusb/src
             DEFS CFG_TUSB_MCU=OPT_MCU_NONE CFG_TUSB_OS=OPT_OS_NONE
                 RP6502_EXFAT=0 PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN)
+        rp6502_add_test(vcp
+            SOURCES test_vcp.c ${RP6502_SRC}/host/pico/ria/usb/vcp.c
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}/vcp ${CMAKE_CURRENT_LIST_DIR}/stub
+                ${RP6502_SRC}/host/pico/ria ${RP6502_SRC}/host/pico
+                ${RP6502_VENDOR} ${RP6502_VENDOR}/tinyusb/src
+            DEFS CFG_TUSB_MCU=OPT_MCU_NONE CFG_TUSB_OS=OPT_OS_NONE
+                RP6502_EXFAT=0 PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN)
     endif()
 endif()
 
