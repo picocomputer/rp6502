@@ -17,6 +17,7 @@
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
+#include "ria/usb/ndef.h"
 #include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
@@ -47,7 +48,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
 
     if (mon_busy())
         goto fail;
-    if (!nfc_parse_text(tag_data, len, text, sizeof(text)))
+    if (!ndef_parse_text(tag_data, len, text, sizeof(text)))
         goto fail;
     RP6502_LOG(proc, DEBUG, "nfc text %s", text);
 

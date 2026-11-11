@@ -16,3 +16,8 @@ if(NOT MSVC)
                 RP6502_EXFAT=0 PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN)
     endif()
 endif()
+
+# The NDEF parsing of the NFC reader, which needs nothing of the Pico.
+rp6502_add_test(ndef
+    SOURCES test_ndef.c ${RP6502_SRC}/host/pico/ria/usb/ndef.c
+    INCLUDES ${RP6502_SRC}/host/pico)

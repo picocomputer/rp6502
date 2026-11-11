@@ -6,6 +6,7 @@
 
 #include "ria/api/proc.h"
 #include "ria/usb/nfc.h"
+#include "ria/usb/ndef.h"
 #include "core/sys/config.h"
 #include "ria/usb/vcp.h"
 #include "core/aud/bel.h"
@@ -65,9 +66,6 @@
 
 #define NDEF_READ_CMD 0x30
 #define NDEF_WRITE_CMD 0xA2
-#define NDEF_TLV_NULL 0x00
-#define NDEF_TLV_NDEF_MESSAGE 0x03
-#define NDEF_TLV_TERMINATOR 0xFE
 
 static const char *const nfc_state_names[] = {
     "OFF",
@@ -433,113 +431,6 @@ int HOST_IN_FLASH_FUNC nfc_enabled_response(char *buf, size_t buf_size,
     return -1;
 }
 
-bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size)
-{
-    // Pages 0 to 3 hold the UID, lock and CC bytes, so user data starts at
-    // page 4, 16 bytes in.
-    if (len <= 16)
-        return false;
-    tag_data += 16;
-    len -= 16;
-
-    const uint8_t *msg = NULL;
-    size_t msg_len = 0;
-    size_t pos = 0;
-    while (pos < len)
-    {
-        uint8_t tlv_type = tag_data[pos++];
-        if (tlv_type == NDEF_TLV_TERMINATOR)
-            break;
-        if (tlv_type == NDEF_TLV_NULL)
-            continue;
-        if (pos >= len)
-            break;
-        size_t tlv_len;
-        if (tag_data[pos] == 0xFF) // three-byte length
-        {
-            if (pos + 2 >= len)
-                break;
-            tlv_len = ((size_t)tag_data[pos + 1] << 8) | tag_data[pos + 2];
-            pos += 3;
-        }
-        else
-        {
-            tlv_len = tag_data[pos++];
-        }
-        if (pos + tlv_len > len)
-            break;
-        if (tlv_type == NDEF_TLV_NDEF_MESSAGE)
-        {
-            msg = tag_data + pos;
-            msg_len = tlv_len;
-            break;
-        }
-        pos += tlv_len;
-    }
-    if (!msg)
-        return false;
-
-    size_t rpos = 0;
-    while (rpos < msg_len)
-    {
-        uint8_t hdr = msg[rpos++];
-        uint8_t tnf = hdr & 0x07;
-        bool cf = (bool)((hdr >> 5) & 1);
-        bool sr = (bool)((hdr >> 4) & 1);
-        bool il = (bool)((hdr >> 3) & 1);
-        if (rpos >= msg_len)
-            break;
-        uint8_t type_len = msg[rpos++];
-        uint32_t payload_len;
-        if (sr)
-        {
-            if (rpos >= msg_len)
-                break;
-            payload_len = msg[rpos++];
-        }
-        else
-        {
-            if (rpos + 4 > msg_len)
-                break;
-            payload_len = ((uint32_t)msg[rpos] << 24) | ((uint32_t)msg[rpos + 1] << 16) |
-                          ((uint32_t)msg[rpos + 2] << 8) | msg[rpos + 3];
-            rpos += 4;
-        }
-        uint8_t id_len = 0;
-        if (il)
-        {
-            if (rpos >= msg_len)
-                break;
-            id_len = msg[rpos++];
-        }
-        if (rpos + type_len + id_len > msg_len)
-            break;
-        const uint8_t *type_data = msg + rpos;
-        rpos += type_len + id_len;
-        if (payload_len > msg_len - rpos)
-            break;
-        const uint8_t *payload = msg + rpos;
-        rpos += payload_len;
-        if (tnf == 0x01 && type_len == 1 && type_data[0] == 'T' && payload_len >= 1)
-        {
-            if (cf)
-                return false; // chunked text record not supported
-            uint8_t status = payload[0];
-            uint8_t lang_len = status & 0x3F;
-            if (payload_len <= (uint32_t)(1 + lang_len))
-                continue;
-            const uint8_t *txt = payload + 1 + lang_len;
-            size_t txt_len = payload_len - 1 - lang_len;
-            if (txt_len >= buf_size)
-                txt_len = buf_size - 1;
-            memcpy(buf, txt, txt_len);
-            buf[txt_len] = '\0';
-            return true;
-        }
-    }
-    return false;
-}
-
 void HOST_IN_RAM_FUNC nfc_task(void)
 {
     switch (nfc_state)
@@ -722,30 +613,8 @@ void HOST_IN_RAM_FUNC nfc_task(void)
                 size_t data_len = resp_len - 1;
                 const uint8_t *data = resp + 1;
 
-                bool blank = true;
-                for (size_t i = 0; i < data_len; i++)
-                    if (data[i])
-                    {
-                        blank = false;
-                        break;
-                    }
-                if (blank)
-                {
-                    nfc_read_complete();
-                    break;
-                }
-
-                size_t old_len = nfc_tag_len;
                 for (size_t i = 0; i < data_len && nfc_tag_len < sizeof(nfc_tag_buf); i++)
                     nfc_tag_buf[nfc_tag_len++] = data[i];
-
-                bool found_terminator = false;
-                for (size_t i = old_len; i < nfc_tag_len; i++)
-                    if (nfc_tag_buf[i] == NDEF_TLV_TERMINATOR)
-                    {
-                        found_terminator = true;
-                        break;
-                    }
 
                 // Byte 2 of the CC, at nfc_tag_buf[14], gives the size of the
                 // NDEF data area in 8-byte blocks, so the last page of the
@@ -753,7 +622,10 @@ void HOST_IN_RAM_FUNC nfc_task(void)
                 unsigned last_page = (nfc_tag_len >= 15 && nfc_tag_buf[14] > 0)
                                          ? (unsigned)(4 + nfc_tag_buf[14] * 2 - 1)
                                          : 3;
-                if (found_terminator || nfc_tag_len >= sizeof(nfc_tag_buf) ||
+                /* The read ends at the Terminator TLV, which only the walk
+                 * of the TLVs tells apart from a 0xFE in the UID or in the
+                 * data, or at the end of the area. */
+                if (ndef_complete(nfc_tag_buf, nfc_tag_len) || nfc_tag_len >= sizeof(nfc_tag_buf) ||
                     (unsigned)(nfc_tag_page + 4) > last_page)
                     nfc_read_complete();
                 else
