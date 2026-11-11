@@ -309,11 +309,9 @@ module psg
      * to under 2^29. */
     localparam logic signed [29:0] MIX_ROUND = 30'sd2048;
     logic signed [29:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. */
+    /* Bits 7-1 of pan_gate, the pan from -64 to 63. */
     logic signed [7:0] pan_c;
-    always_comb pan_c = cf_pan[7]
-        ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
-        : 8'($signed(cf_pan) >>> 1);
+    always_comb pan_c = 8'($signed(cf_pan) >>> 1);
     /* The envelope's product, on clock 8. Thirteen bits of the Q24
      * envelope, not nine: at nine a long release moved the gain in 256
      * visible steps. */
