@@ -159,8 +159,10 @@ int main(void)
         /* The restage starts after sys_commit rather than from a stop hook,
          * because the stop hooks run only when a running machine is
          * stopped, so a restage requested while the machine is already
-         * stopped would never start. */
-        if (!sys_active())
+         * stopped would never start. Nothing starts while a blob arrives, for
+         * the reason the program was stopped, so an exec or a launcher's
+         * return waits for the load to fail or to replace it. */
+        if (!sys_active() && !main_wake_pending)
         {
             if (restage)
                 main_stage();

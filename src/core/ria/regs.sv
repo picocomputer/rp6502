@@ -59,7 +59,8 @@ module regs (
     /* The RX request is cleared when the OS serves it, with a byte or
      * with nothing, rather than held until a later byte arrives. A byte
      * that arrives after the request is served is not offered to the
-     * 6502 until another 6502 read sets the request. */
+     * 6502 until another 6502 read sets the request. A read of word 26
+     * takes back the byte the 6502 has not read. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
@@ -70,7 +71,8 @@ module regs (
      * clock is stopped, and on a load again once the clock is back,
      * before the soft CPU resumes. It reads and writes whole words and
      * has no read strobe, because a strobed read of word 16 takes the
-     * console's outgoing byte off the queue. The window is half array and
+     * console's outgoing byte off the queue and one of word 26 takes back
+     * the byte the 6502 has not read. The window is half array and
      * half flops. The arrays are on the clock that survives a savestate
      * and take their words while the machine is stopped; the flops are on
      * the machine's clock and take theirs once it is back, so whatever
@@ -215,6 +217,22 @@ module regs (
         end
     end
 
+    /* The byte the 6502 has not read. On the OS's path it is either in
+     * the offer slot or latched in $FFE2 behind RX_READY, never both,
+     * because the OS offers only on a request and only a read that leaves
+     * the latch empty sets one. A $FFE2 read on this edge hands the latched
+     * byte to the 6502, so it is not offered back. */
+    logic rx_back_valid;
+    logic [7:0] rx_back_data;
+    logic rx_reclaim;
+    always_comb begin
+        rx_back_valid = os_rx_valid
+            || ((regs[0] & RX_READY) != 8'h00
+                && !(en && cs && !we && rs == 5'h02));
+        rx_back_data = os_rx_valid ? os_rx_data : regs[2];
+        rx_reclaim = b_re && b_word == 8'd26;
+    end
+
     always_comb begin
         regs_data = regs[rs];
         if (cs && !we) begin
@@ -344,6 +362,10 @@ module regs (
             8'd18: regs_b_rdata = {16'd0, os_rx_data, 5'd0,
                                        regs_api_pending, rx_req,
                                        !os_rx_valid};
+            /* Word 25 peeks at the byte the 6502 has not read, and a
+             * read of word 26 also takes it back. */
+            8'd25, 8'd26: regs_b_rdata = {23'd0, rx_back_valid,
+                                           rx_back_data};
             8'd200: regs_b_rdata = {22'd0, xsp};
             /* The 6502's RW0 or RW1 write in its last cycle before a
              * stop, which the machine's next edge carries to XRAM and the
@@ -467,6 +489,12 @@ module regs (
             regs_rx_taken <= 1'b0;
             if (api_ack)
                 regs_api_pending <= 1'b0;
+        end
+        /* After the 6502's access, so a byte its read moved from the offer
+         * slot into the latch on this edge is taken back too. */
+        if (rx_reclaim) begin
+            regs[0] <= regs[0] & ~RX_READY;
+            regs[2] <= 8'h00;
         end
         /* The frame counter and the $FFF0 block land every
          * clock: pending resolves through pend_next, its
@@ -625,7 +653,7 @@ module regs (
             os_rx_valid <= 1'b1;
             os_rx_data <= w_data[7:0];
             rx_req <= 1'b0;
-        end else if (en && pull && !rx_valid) begin
+        end else if (rx_reclaim || (en && pull && !rx_valid)) begin
             os_rx_valid <= 1'b0;
         end
     end

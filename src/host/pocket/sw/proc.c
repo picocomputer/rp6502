@@ -21,7 +21,13 @@ static bool proc_exec_pending;
 
 void proc_restage(void)
 {
-    proc_exec_pending = false;
+    /* A start by name overrides an exec still on its way, and the stop that
+     * exec made did not end the chain, so it ends here. */
+    if (proc_exec_pending)
+    {
+        proc_exec_pending = false;
+        proc_chain_end();
+    }
     proc_cancel_launcher();
     arg_clear();
     proc_run();

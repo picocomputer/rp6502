@@ -19,6 +19,14 @@ rp6502_add_test(apf
     DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
 add_dependencies(test_apf rp6502_gen_c)
 
+rp6502_add_test(pproc
+    SOURCES test_pproc.c
+        ${RP6502_SRC}/host/pocket/sw/proc.c
+        ${RP6502_SRC}/core/api/proc.c
+        ${RP6502_SRC}/core/api/arg.c
+        ${RP6502_SRC}/core/ria/regs.c
+    INCLUDES ${RP6502_SRC}/host/pocket)
+
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
     ${RP6502_POCKET_CORE}/pocket_fifo.sv

@@ -139,6 +139,12 @@ static inline int32_t set_tz_minutes(void)
  * cell is a copy of the pending byte and is rewritten every clock. */
 #define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
+/* Bit 8 is set while the 6502 has a byte from the OS it has not read, in the
+ * offer slot or in its receive register, and bits 7:0 are that byte. A read
+ * of RX_RECLAIM also takes the byte back, unless a $FFE2 read on the same
+ * clock takes it first. */
+#define RX_PEEK (*(volatile uint32_t *)0x20000064u)
+#define RX_RECLAIM (*(volatile uint32_t *)0x20000068u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 /* 1 from a write to AUD_PSG_XADDR until the PSG has zeroed its eight
  * voices' registers, about 64 clocks after any sample in progress ends. */
