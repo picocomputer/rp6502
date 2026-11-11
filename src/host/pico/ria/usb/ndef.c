@@ -5,6 +5,7 @@
  */
 
 #include "ria/usb/ndef.h"
+#include "core/str/unicode.h"
 #include <string.h>
 
 #define NDEF_TLV_NULL 0x00
@@ -56,7 +57,55 @@ bool ndef_complete(const uint8_t *tag, size_t len)
     return ndef_walk(tag, len, &msg, &msg_len);
 }
 
-bool ndef_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size)
+/* Text to the code page, from UTF-16 when bit 7 of the status byte is set,
+ * big endian unless a byte order mark says otherwise, else from UTF-8. A
+ * character the page lacks, a malformed sequence, a NUL, or more text than
+ * the buffer holds refuses the card, rather than name some other file or cut
+ * the arguments short. */
+static bool ndef_text(uint8_t status, const uint8_t *txt, size_t txt_len,
+                      uint16_t page, char *buf, size_t buf_size)
+{
+    size_t n = 0;
+    if (status & 0x80)
+    {
+        const bool le = txt_len >= 2 && txt[0] == 0xFF && txt[1] == 0xFE;
+        if (le || (txt_len >= 2 && txt[0] == 0xFE && txt[1] == 0xFF))
+            txt += 2, txt_len -= 2;
+        if (txt_len & 1)
+            return false;
+        for (size_t i = 0; i < txt_len; i += 2)
+        {
+            const uint16_t u = le ? (uint16_t)(txt[i] | txt[i + 1] << 8)
+                                  : (uint16_t)(txt[i] << 8 | txt[i + 1]);
+            const unsigned char b = u ? unicode_from_codepoint(u, page) : 0x7F;
+            if (b == 0x7F || n + 1 >= buf_size)
+                return false;
+            buf[n++] = (char)b;
+        }
+    }
+    else
+    {
+        /* The decoder ends at a NUL, so the text goes into the buffer first
+         * and is converted in place, which only ever shortens it. */
+        if (txt_len >= buf_size || memchr(txt, 0, txt_len))
+            return false;
+        memcpy(buf, txt, txt_len);
+        buf[txt_len] = 0;
+        const char *p = buf;
+        unsigned char b;
+        while ((b = unicode_from_utf8_next(&p, page)))
+        {
+            if (b == 0x7F)
+                return false;
+            buf[n++] = (char)b;
+        }
+    }
+    buf[n] = 0;
+    return true;
+}
+
+bool ndef_parse_text(const uint8_t *tag_data, size_t len, uint16_t page,
+                     char *buf, size_t buf_size)
 {
     const uint8_t *msg;
     size_t msg_len;
@@ -109,17 +158,11 @@ bool ndef_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_
         {
             if (cf)
                 return false; // chunked text record not supported
-            uint8_t status = payload[0];
-            uint8_t lang_len = status & 0x3F;
+            uint8_t lang_len = payload[0] & 0x3F;
             if (payload_len <= (uint32_t)(1 + lang_len))
                 continue;
-            const uint8_t *txt = payload + 1 + lang_len;
-            size_t txt_len = payload_len - 1 - lang_len;
-            if (txt_len >= buf_size)
-                txt_len = buf_size - 1;
-            memcpy(buf, txt, txt_len);
-            buf[txt_len] = '\0';
-            return true;
+            return ndef_text(payload[0], payload + 1 + lang_len,
+                             payload_len - 1 - lang_len, page, buf, buf_size);
         }
     }
     return false;

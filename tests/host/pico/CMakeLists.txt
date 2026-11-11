@@ -25,9 +25,13 @@ if(NOT MSVC)
 endif()
 
 # The NDEF parsing of the NFC reader, which needs nothing of the Pico.
+set_source_files_properties(${RP6502_GEN}/unicode_oem.c PROPERTIES GENERATED TRUE)
 rp6502_add_test(ndef
     SOURCES test_ndef.c ${RP6502_SRC}/host/pico/ria/usb/ndef.c
-    INCLUDES ${RP6502_SRC}/host/pico)
+        ${RP6502_SRC}/core/str/unicode.c ${RP6502_GEN}/unicode_oem.c
+    INCLUDES ${RP6502_SRC}/host/pico ${RP6502_SRC}/host/pocket ${RP6502_GEN}
+        ${RP6502_VENDOR})
+add_dependencies(test_ndef rp6502_gen_c)
 
 # path.c with FatFs on a disk in RAM.
 rp6502_add_test(path

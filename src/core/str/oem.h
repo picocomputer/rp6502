@@ -33,6 +33,10 @@ void oem_restore_code_page(void);
 bool oem_set_code_page_run(uint16_t cp);
 uint16_t oem_get_code_page_run(void);
 
+/* The code page that oem_restore_code_page puts in force, which the next ROM
+ * starts with, whatever page a running program has selected. */
+uint16_t oem_get_code_page_restore(void);
+
 bool oem_check_code_page(uint16_t *v);
 void oem_apply_code_page(uint16_t cp, bool changed);
 int oem_code_page_response(char *buf, size_t buf_size, int state, unsigned width);

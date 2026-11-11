@@ -14,8 +14,10 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "core/com/rln.h"
+#include "core/str/oem.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
+#include "osal/dir.h"
 #include "sys/path.h"
 #include "ria/usb/ndef.h"
 #include "ria/usb/nfc.h"
@@ -43,7 +45,7 @@ bool proc_exec_inflight(void)
 /* The card names the running ROM when its path names the same file and its
  * arguments are the same strings. A card for the same ROM with other
  * arguments starts it again. This parses its own copy of the arguments, so
- * it must come after proc_nfc is done with first_arg, which shares the
+ * it must come after proc_nfc_find is done with first_arg, which shares the
  * parse's buffer. */
 static bool proc_nfc_running(const char *path, const char *args)
 {
@@ -60,27 +62,21 @@ static bool proc_nfc_running(const char *path, const char *args)
     }
 }
 
-void proc_nfc(const uint8_t *tag_data, size_t len)
+/* Resolves the ROM a card's text names into path, and leaves *args at the
+ * text after it. A path with no drive is looked for on each drive in turn.
+ * The caller puts FatFs on the code page the ROM will run under. */
+static bool proc_nfc_find(const char *text, char *path, size_t path_size,
+                          const char **args)
 {
-    char text[256];
-    char path[256];
-    RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
-
-    if (mon_busy())
-        goto fail;
-    if (!ndef_parse_text(tag_data, len, text, sizeof(text)))
-        goto fail;
-    RP6502_LOG(proc, DEBUG, "nfc text %s", text);
-
-    const char *args = text;
-    const char *first_arg = str_parse_string(&args);
+    *args = text;
+    const char *first_arg = str_parse_string(args);
     if (!first_arg)
-        goto fail;
+        return false;
 
     if (*first_arg == ':')
     {
         if (!rom_installed(first_arg + 1, path))
-            goto fail;
+            return false;
     }
     else if (strchr(first_arg, ':'))
     {
@@ -89,26 +85,26 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         const char *rest = colon + 1;
         if (path_is_sep(*rest))
             rest++;
-        snprintf(path, sizeof(path), "%.*s/%s",
+        snprintf(path, path_size, "%.*s/%s",
                  (int)(colon + 1 - first_arg), first_arg, rest);
         const char *abs = path_abs(path);
         if (!abs)
-            goto fail;
-        strncpy(path, abs, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
+            return false;
+        strncpy(path, abs, path_size - 1);
+        path[path_size - 1] = '\0';
         if (f_stat(path, NULL) != FR_OK)
-            goto fail;
+            return false;
     }
     else
     {
         // Build canonical "MSC0:/path"
         const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
-        snprintf(path, sizeof(path), "MSC0:/%s", p);
+        snprintf(path, path_size, "MSC0:/%s", p);
         const char *abs = path_abs(path);
         if (!abs)
-            goto fail;
-        strncpy(path, abs, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
+            return false;
+        strncpy(path, abs, path_size - 1);
+        path[path_size - 1] = '\0';
         bool found = false;
         for (int drive = 0; drive <= 9; drive++)
         {
@@ -120,8 +116,33 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
             }
         }
         if (!found)
-            goto fail;
+            return false;
     }
+
+    return true;
+}
+
+void proc_nfc(const uint8_t *tag_data, size_t len)
+{
+    char text[256];
+    char path[256];
+    const char *args;
+    RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
+
+    if (mon_busy())
+        goto fail;
+    /* The ROM starts under the configured code page, which the stop below
+     * restores if a running program chose another, so the card's text is
+     * converted to it and the lookup is made under it. */
+    const uint16_t page = oem_get_code_page_restore();
+    if (!ndef_parse_text(tag_data, len, page, text, sizeof(text)))
+        goto fail;
+    RP6502_LOG(proc, DEBUG, "nfc text %s", text);
+    oem_fs_code_page(page);
+    bool found = proc_nfc_find(text, path, sizeof(path), &args);
+    oem_fs_code_page(oem_get_code_page_run());
+    if (!found)
+        goto fail;
 
     RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
 

@@ -66,6 +66,11 @@ void HOST_IN_FLASH_FUNC oem_init(void)
     vga_set_code_page(oem_code_page_run);
 }
 
+uint16_t oem_get_code_page_restore(void)
+{
+    return unicode_has_page(oem_resolve()) ? oem_resolve() : oem_code_page_run;
+}
+
 void oem_restore_code_page(void)
 {
     if (oem_code_page_run != oem_resolve())
