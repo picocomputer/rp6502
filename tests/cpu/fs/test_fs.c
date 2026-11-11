@@ -538,11 +538,34 @@ UTEST(fs, a_call_refuses_more_than_its_arguments)
 UTEST(fs, exec_data_takes_its_last_string_with_or_without_a_terminator)
 {
     push_bytes("\4\0\0\0a\0", 6);
-    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
     ASSERT_STREQ(arg_index(0), "a");
     push_bytes("\4\0\0\0a", 5);
-    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
     ASSERT_STREQ(arg_index(0), "a");
+    arg_clear();
+}
+
+/* A refused EXEC leaves the running program's arguments as they were. */
+UTEST(fs, a_refused_exec_keeps_the_arguments)
+{
+    /* ["/a.rp6502", "x"] */
+    push_bytes("\6\0\20\0\0\0/a.rp6502\0x", 17);
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
+    /* An offset that points past the strings. */
+    push_bytes("\4\0\0\0b\0\7", 7);
+    proc_api_exec();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_STREQ(arg_index(0), "/a.rp6502");
+    /* A first string over API_PATH_MAX. */
+    char big[4 + API_PATH_MAX + 1];
+    big[0] = 4, big[1] = 0, big[2] = 0, big[3] = 0;
+    memset(&big[4], 'p', API_PATH_MAX + 1);
+    push_bytes(big, sizeof big);
+    proc_api_exec();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_STREQ(arg_index(0), "/a.rp6502");
+    ASSERT_STREQ(arg_index(1), "x");
     arg_clear();
 }
 

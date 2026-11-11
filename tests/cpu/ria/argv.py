@@ -5,6 +5,7 @@
 
 import os
 import shutil
+from pathlib import Path
 
 import rp6502
 from rp6502_asm import OP_ARGV, OP_EXEC, XSTACK, Asm, putc, putnib, puthex
@@ -42,7 +43,7 @@ def prog():
 def prog_long():
     """EXEC with a path of 256 bytes, one more than a path holds, and then
     ARGV. The program prints the low byte that EXEC returns and the size
-    that ARGV returns."""
+    that ARGV returns, which is the size of the ROM's own argv."""
     p = Asm()
     p.jmp_abs("main")
     p.use(putc, putnib, puthex)
@@ -100,9 +101,14 @@ def test_argv():
 
 
 def test_exec_long():
-    """A refused EXEC leaves the argv empty, so ARGV returns the 2 bytes of
-    an empty table."""
-    script('wait "FF0002\\r\\n"\n', rom("exec_long"))
+    """A refused EXEC leaves the arguments as they were, so ARGV returns the
+    ROM's own argv: an offset, the zero that ends the table, and argv[0], the
+    absolute path of the ROM with its drive and its terminator."""
+    path = Path(rom("exec_long")).resolve().as_posix()
+    argv0 = path if os.name == "nt" else "FS:" + path
+    size = 4 + len(argv0.encode()) + 1
+    with rp6502.Emu(rom("exec_long")) as e:
+        e.cmd(f'wait "FF{size:04X}\\r\\n"')
 
 
 ROMS = {"argv": prog, "exec_long": prog_long}

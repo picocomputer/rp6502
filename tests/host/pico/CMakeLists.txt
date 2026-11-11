@@ -28,3 +28,11 @@ endif()
 rp6502_add_test(ndef
     SOURCES test_ndef.c ${RP6502_SRC}/host/pico/ria/usb/ndef.c
     INCLUDES ${RP6502_SRC}/host/pico)
+
+# path.c with FatFs on a disk in RAM.
+rp6502_add_test(path
+    SOURCES test_path.c ${RP6502_SRC}/host/pico/ria/sys/path.c
+        ${RP6502_VENDOR}/fatfs/ff.c ${RP6502_VENDOR}/fatfs/ffunicode.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
+        ${RP6502_SRC}/host/pico ${RP6502_VENDOR}
+    DEFS RP6502_EXFAT=0 PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN)

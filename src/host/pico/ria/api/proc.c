@@ -40,6 +40,26 @@ bool proc_exec_inflight(void)
     return rom_active();
 }
 
+/* The card names the running ROM when its path names the same file and its
+ * arguments are the same strings. A card for the same ROM with other
+ * arguments starts it again. This parses its own copy of the arguments, so
+ * it must come after proc_nfc is done with first_arg, which shares the
+ * parse's buffer. */
+static bool proc_nfc_running(const char *path, const char *args)
+{
+    if (!path_eq(path, proc_running()))
+        return false;
+    for (uint16_t i = 1;; i++)
+    {
+        const char *arg = str_parse_string(&args);
+        const char *run = arg_index(i);
+        if (!arg || !run)
+            return !arg && !run && str_parse_end(args);
+        if (strcmp(arg, run))
+            return false;
+    }
+}
+
 void proc_nfc(const uint8_t *tag_data, size_t len)
 {
     char text[256];
@@ -103,13 +123,9 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
             goto fail;
     }
 
-    // rom_exec corrects the basename of argv[0] to the case stored on disk, so
-    // path is corrected too before the comparison with proc_running().
-    if (!path_correct_basename(path, sizeof(path)))
-        goto fail;
     RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
 
-    if (strcmp(path, proc_running()) == 0)
+    if (proc_nfc_running(path, args))
         goto already_running;
 
     // Full success. The tag's ROM starts as if typed at the monitor, so a

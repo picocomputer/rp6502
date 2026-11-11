@@ -219,3 +219,11 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size)
     f_closedir(&dir);
     return found;
 }
+
+bool path_eq(const char *a, const char *b)
+{
+    const char *ca = strchr(a, ':');
+    const char *cb = strchr(b, ':');
+    return ca && cb && f_getldnumber(a) == f_getldnumber(b) &&
+           str_oem_eq(ca + 1, cb + 1);
+}
