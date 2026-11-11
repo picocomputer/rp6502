@@ -277,9 +277,7 @@ void HOST_IN_FLASH_FUNC aud_init(void)
 
     bel_init();
 
-    /* Below the VGA interrupts, above USB and everything else at the
-     * default. */
-    irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_priority(PWM_IRQ_WRAP_0, RP2350_IRQ_PRIORITY_AUD);
     pwm_clear_irq(AUD_IRQ_SLICE);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);
     pwm_set_irq_enabled(AUD_IRQ_SLICE, true);

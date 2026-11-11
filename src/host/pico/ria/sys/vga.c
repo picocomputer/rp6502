@@ -14,6 +14,7 @@
 #include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
+#include "ria/sys/rp2350.h"
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "ria.pio.h"
@@ -314,12 +315,12 @@ void HOST_IN_FLASH_FUNC vga_init(void)
 
     // Set up PIO IRQ for backchannel RX, source stays disabled until connect
     irq_set_exclusive_handler(VGA_BACKCHANNEL_IRQ, vga_backchannel_irq_handler);
-    irq_set_priority(VGA_BACKCHANNEL_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(VGA_BACKCHANNEL_IRQ, RP2350_IRQ_PRIORITY_VGA);
     irq_set_enabled(VGA_BACKCHANNEL_IRQ, true);
 
     // The trap's source stays disabled until an alarm arms it
     irq_set_exclusive_handler(VGA_VSYNC_TRAP_IRQ, vga_vsync_trap_irq_handler);
-    irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(VGA_VSYNC_TRAP_IRQ, RP2350_IRQ_PRIORITY_VGA);
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
     vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
     const uint alarm_irq = hardware_alarm_get_irq_num((uint)vga_vsync_alarm);
@@ -327,7 +328,7 @@ void HOST_IN_FLASH_FUNC vga_init(void)
     // The alarm has the same priority as the backchannel and trap interrupts,
     // so none of the three handlers can preempt another in the middle of arming
     // or disarming the trap.
-    irq_set_priority(alarm_irq, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(alarm_irq, RP2350_IRQ_PRIORITY_VGA);
     hw_set_bits(&timer_hw->inte, 1u << vga_vsync_alarm);
     irq_set_enabled(alarm_irq, true);
 

@@ -17,6 +17,7 @@
 #include "ria-w/ble/ble.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
+#include "ria/sys/rp2350.h"
 #include "core/sys/debug_log.h"
 #include "machine.h"
 #include <pico/time.h>
@@ -100,6 +101,7 @@ void HOST_IN_FLASH_FUNC usb_init(void)
         usb_hid_slot[i] = -1;
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(TUH_OPT_RHPORT, &rh_init);
+    irq_set_priority(USBCTRL_IRQ, RP2350_IRQ_PRIORITY_USB);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
     usb_enum_kick();
     RP6502_LOG(usb, INFO, "init");

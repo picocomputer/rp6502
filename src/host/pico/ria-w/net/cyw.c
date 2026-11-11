@@ -183,6 +183,8 @@ void HOST_IN_FLASH_FUNC cyw_init(void)
         mon_add_response_utf8(S(STR_ERR_CYW_FAILED_TO_INIT));
     else
     {
+        /* The radio's host wake line is the only GPIO interrupt. */
+        irq_set_priority(IO_IRQ_BANK0, RP2350_IRQ_PRIORITY_CYW);
         cyw_is_started = true;
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
