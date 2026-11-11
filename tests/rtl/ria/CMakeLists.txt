@@ -8,3 +8,9 @@ rp6502_add_module_test(rxregs
     RTL ${RP6502_SRC}/core/ria/regs.sv
     ARGS -Wno-VARHIDDEN
     TIMEOUT 120)
+
+rp6502_add_module_test(irqregs
+    TOP regs
+    RTL ${RP6502_SRC}/core/ria/regs.sv
+    ARGS -Wno-VARHIDDEN
+    TIMEOUT 120)

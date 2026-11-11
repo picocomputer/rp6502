@@ -11,18 +11,14 @@
 
 #include <stdint.h>
 
-static bool ria_sigint;
-
 void ria_trigger_sigint(void)
 {
-    ria_sigint = true;
+    REGS_SIGINT = 0;
 }
 
 bool ria_get_sigint(void)
 {
-    bool latched = ria_sigint;
-    ria_sigint = false;
-    return latched;
+    return (REGS_SIGINT & 0x4000u) != 0;
 }
 
 void ria_uart_rx_offer(uint8_t ch)

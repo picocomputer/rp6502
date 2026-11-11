@@ -60,7 +60,8 @@ module regs (
      * with nothing, rather than held until a later byte arrives. A byte
      * that arrives after the request is served is not offered to the
      * 6502 until another 6502 read sets the request. A read of word 26
-     * takes back the byte the 6502 has not read. */
+     * takes back the byte the 6502 has not read. A write of word 27
+     * sets SIGINT and a read of it clears SIGINT. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
@@ -71,12 +72,13 @@ module regs (
      * clock is stopped, and on a load again once the clock is back,
      * before the soft CPU resumes. It reads and writes whole words and
      * has no read strobe, because a strobed read of word 16 takes the
-     * console's outgoing byte off the queue and one of word 26 takes back
-     * the byte the 6502 has not read. The window is half array and
-     * half flops. The arrays are on the clock that survives a savestate
-     * and take their words while the machine is stopped; the flops are on
-     * the machine's clock and take theirs once it is back, so whatever
-     * the soft CPU's wake writes here stays. */
+     * console's outgoing byte off the queue, one of word 26 takes back
+     * the byte the 6502 has not read, and one of word 27 clears SIGINT.
+     * The window is half array and half flops. The arrays are on the
+     * clock that survives a savestate and take their words while the
+     * machine is stopped; the flops are on the machine's clock and take
+     * theirs once it is back, so whatever the soft CPU's wake writes here
+     * stays. */
     input logic sst_own,
     input logic [7:0] sst_word,
     input logic sst_we,
@@ -98,18 +100,29 @@ module regs (
     logic [7:0] regs[32] /*verilator public_flat_rw*/;
 
     /* Acks resolve before this frame's pulse, so a pulse is never lost
-     * to a same-edge acknowledge. */
+     * to a same-edge acknowledge. SIGINT is bit 6 of the same pending
+     * byte, so RIA_ATTR_SIGINT and the interrupt are one latch, as on the
+     * other machines: the OS sets it with a write of word 27 for a Ctrl-C
+     * and takes it with a read of word 27 for the attribute, and the reset
+     * of word 17 at the start of a ROM clears it with the rest. */
     logic [7:0] irq_pending /*verilator public_flat_rd*/;
     logic [7:0] irq_enabled /*verilator public_flat_rd*/;
     logic [7:0] pend_next;
+    logic sig_set, sig_take;
     always_comb begin
+        sig_set = b_we && b_word == 8'd27;
+        sig_take = b_re && b_word == 8'd27;
         pend_next = irq_pending;
         if (en && cs && !we && rs == 5'h10)
             pend_next = 8'h00;
         if (en && cs && we && rs == 5'h10)
             pend_next = pend_next & ~data_i;
+        if (sig_take)
+            pend_next = pend_next & ~8'h40;
         if (vsync_pulse)
             pend_next = pend_next | 8'h80;
+        if (sig_set)
+            pend_next = pend_next | 8'h40;
     end
     always_comb regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
@@ -353,8 +366,9 @@ module regs (
             /* The interrupt enable has no other way out: the 6502
              * writes $FFF0 and nothing reads it back, and the pending
              * cell in regs is a mirror rewritten every clock. A
-             * savestate needs both, so they share a word. */
-            8'd17: regs_b_rdata = {16'd0, irq_pending, irq_enabled};
+             * savestate needs both, so they share a word. Word 27 reads
+             * the same, and its read clears SIGINT. */
+            8'd17, 8'd27: regs_b_rdata = {16'd0, irq_pending, irq_enabled};
             /* Bit 2 is here for the savestate and nothing else: a
              * state taken mid-API-call has to carry the pending flag,
              * or the restored 6502 spins in its trampoline waiting on
