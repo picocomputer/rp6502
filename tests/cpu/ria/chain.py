@@ -47,8 +47,13 @@ def launcher_prog(child=CHILD):
     p.call_a(OP_ATTR_GET, ATTR_LAUNCHER)
     p.tax()
     p.beq("first")
+    # Both bytes of the exit code, high first.
     p.say("back ")
     p.call_a(OP_ATTR_GET, ATTR_EXIT_CODE)
+    p.pha()
+    p.txa()
+    p.jsr_abs("puthex")
+    p.pla()
     p.jsr_abs("puthex")
     p.say("\n")
     exit_with(p, 0)
@@ -112,7 +117,7 @@ CHAIN_SCRIPT = r"""
 
 wait "launcher "
 wait "/launcher.rp6502\nchild exec\nchild\nlauncher "
-wait "/launcher.rp6502\nback 07\n"
+wait "/launcher.rp6502\nback 0007\n"
 wait exit
 expect exit 0
 run 10
@@ -120,7 +125,7 @@ expect-not "launcher"
 
 # Started by its installed name, it keeps that name when it comes back.
 load ":launcher.rp6502"
-wait "launcher :launcher.rp6502\nchild exec\nchild\nlauncher :launcher.rp6502\nback 07\n"
+wait "launcher :launcher.rp6502\nchild exec\nchild\nlauncher :launcher.rp6502\nback 0007\n"
 wait exit
 expect exit 0
 run 10
@@ -135,18 +140,23 @@ def test_chain():
 
 QUIT_SCRIPT = r"""
 # Alt-F4 in a launcher's child exits it as exit(-1), and the launcher is back
-# with the code. In the launcher itself, Alt-F4 is an ordinary key.
+# with the code, 65535, not the 7 of the ROM that exited before. In the
+# launcher itself, Alt-F4 is an ordinary key.
 
+wait exit
+expect exit 7
+load ":waitlaunch.rp6502"
 wait "waiting\n"
 key f4+alt
-wait "back FF\n"
+wait "back FFFF\n"
 wait exit
 expect exit 0
 """
 
 
 def test_quit():
-    script(QUIT_SCRIPT, "--install", rom("waiter"), rom("waitlaunch"))
+    script(QUIT_SCRIPT, "--install", rom("waiter"), "--install",
+           rom("waitlaunch"), rom("child"))
 
 
 BREAK_SCRIPT = r"""
