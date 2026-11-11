@@ -256,6 +256,7 @@ bool keyboard_umount(int slot)
     conn->valid = false;
     memset(conn->keys, 0, sizeof(conn->keys));
     keyboard_merge_keys();
+    keyboard_publish();
     return true;
 }
 
