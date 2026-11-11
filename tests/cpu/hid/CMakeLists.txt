@@ -1,5 +1,7 @@
 rp6502_add_test(gamepad LIBS emu_core TIMEOUT 60)
 rp6502_add_test(keyboard LIBS emu_core TIMEOUT 60)
+rp6502_add_test(parse SOURCES test_parse.c ${RP6502_SRC}/core/hid/parse.c
+    LIBS emu_core TIMEOUT 60)
 
 if(TARGET rp6502-emu)
     rp6502_add_script_test(NAME gamepad COMMAND gamepad.py)

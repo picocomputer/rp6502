@@ -95,7 +95,9 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                 logical_min = sval;
                 break;
             case 2:
-                logical_max = sval;
+                /* Unsigned when the minimum is, as Linux reads it, so that a
+                 * maximum of 255 in one byte is 255 and not -1. */
+                logical_max = logical_min < 0 ? sval : (int32_t)val;
                 break;
             case 3:
                 physical_min = sval;
