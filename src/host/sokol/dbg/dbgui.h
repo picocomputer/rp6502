@@ -31,7 +31,8 @@ void dbgui_discard(void); /* before sg_shutdown */
 /* dpi_scale is ImGui's framebuffer scale. app_frame passes 1.0, so ImGui units
  * are framebuffer pixels. */
 void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale);
-void dbgui_draw(void);   /* between new_frame and render */
+void dbgui_draw(void);   /* between new_frame and flush */
+void dbgui_flush(void);  /* after draw, outside any sokol-gfx pass */
 void dbgui_render(void); /* into the current sokol-gfx pass */
 
 /* One CPU cycle of the chips ui_dbg view, so its disassembly, heatmap and

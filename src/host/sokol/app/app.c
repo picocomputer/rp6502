@@ -311,6 +311,10 @@ void app_frame(void)
      * the display happens on the next GL write rather than in the swap. */
     returned_ns = os_mono_ns();
     gfx_upload(ran_frame);
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+        dbgui_flush();
+#endif
     gfx_begin_pass();
     gfx_blit();
     host_window_menu_draw();
