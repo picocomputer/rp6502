@@ -116,7 +116,7 @@ static void update_title(void)
     }
 }
 
-/* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
+/* Called on the audio device's own thread on WASAPI, PulseAudio, CoreAudio and
  * AAudio, and on the browser's main thread on WebAudio. It makes what it
  * plays on the spot, from what the frames have stamped. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
@@ -138,9 +138,9 @@ void app_init(void)
     if (aud_enabled())
     {
         /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. ALSA and WebAudio write back the rate they actually
-         * got and the machine resamples from its own rate to that; WASAPI and
-         * CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
+         * ratio near one. WebAudio writes back the rate it actually got and
+         * the machine resamples from its own rate to that; WASAPI, PulseAudio
+         * and CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
          * of that rate is 10.7 ms of device latency, where sokol's default of
          * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
          * which stops while the window moves, and its size must be a power of
