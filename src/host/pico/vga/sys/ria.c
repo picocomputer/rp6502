@@ -5,7 +5,7 @@
  */
 
 #include "vga.pio.h"
-#include "vga/sys/com.h"
+#include "vga/com/manifold.h"
 #include "core/sys/version.h"
 #include "vga/sys/ria.h"
 #include <pico/stdlib.h>
@@ -129,7 +129,7 @@ void ria_backchan(uint16_t word)
         version_tail = version_string();
         break;
     case 2: // reply to identification request
-        uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", sizeof "VGA1" - 1);
+        uart_write_blocking(MANIFOLD_UART_INTERFACE, (uint8_t *)"VGA1", sizeof "VGA1" - 1);
         break;
     }
 }

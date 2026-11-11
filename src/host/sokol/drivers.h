@@ -22,6 +22,8 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
@@ -32,7 +34,7 @@
 #include "core/ria/ria.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
@@ -51,7 +53,7 @@
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
+    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, TIO_DRIVER, RLN_DRIVER, \
     API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
@@ -64,6 +66,6 @@
 
 #define RP6502_COM_SOURCES                       \
     [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
-    [COM_SOURCE_UART] = COM_UART_SOURCE
+    [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

@@ -37,7 +37,7 @@ std_rw_result mid_std_sync(int desc, api_errno *err);
 std_rw_result mid_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result mid_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
-#define MID_DRIVER DRIVER(nul_init, mid_task, nul_task, nul_run, mid_stop, nul_break, nul_config, nul_config, nul_sst)
+#define MID_DRIVER DRIVER(TASK_PUMPED(mid_task) STOP(mid_stop))
 
 #define MID_STD_DRIVER           \
     {                               \

@@ -14,8 +14,8 @@
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "osal/pico/lfs.h"
+#include "machine.h"
 #include <pico/time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,7 +76,7 @@ static modem_conn_t *modem_conn;
 
 static char modem_phone_buf[MODEM_AT_COMMAND_LEN + 1];
 
-static const char *const __in_flash("MODEM_RESPONSES") MODEM_RESPONSES[] = {
+static const char *const HOST_IN_FLASH MODEM_RESPONSES[] = {
     STR_MODEM_RESPONSE_0, STR_MODEM_RESPONSE_1, STR_MODEM_RESPONSE_2,
     STR_MODEM_RESPONSE_3, STR_MODEM_RESPONSE_4, STR_MODEM_RESPONSE_5,
     STR_MODEM_RESPONSE_6, STR_MODEM_RESPONSE_7, STR_MODEM_RESPONSE_8};
@@ -728,12 +728,12 @@ bool modem_set_listen_port(uint16_t port)
     return true;
 }
 
-void __in_flash("modem_init") modem_init(void)
+void HOST_IN_FLASH_FUNC modem_init(void)
 {
     modem_stop();
 }
 
-void modem_task()
+void HOST_IN_RAM_FUNC modem_task(void)
 {
     for (int i = 0; i < NET_MODEM_DESCS; i++)
     {
@@ -882,9 +882,10 @@ static bool modem_sink(char ch)
     return true;
 }
 
-bool modem_std_handles(const char *filename)
+bool HOST_IN_RAM_FUNC modem_std_handles(const char *filename)
 {
-    if (strncasecmp(filename, "AT", 2) != 0)
+    static const char HOST_IN_RAM at[] = "AT";
+    if (strncasecmp(filename, at, 2) != 0)
         return false;
     if (filename[2] == ':')
         return true;

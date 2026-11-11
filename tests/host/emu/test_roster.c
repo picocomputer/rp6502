@@ -34,6 +34,8 @@ void b_stop(void) { note("bs"); } void b_break(void){ note("bb"); }
 void c_init(void) { note("ci"); } void c_task(void) { note("ct"); }
 void c_io(void)   { note("co"); } void c_run(void)  { note("cr"); }
 void c_stop(void) { note("cs"); } void c_break(void){ note("cb"); }
+void b_always(void) { note("bw"); }
+void a_flashing(void) { note("af"); } void c_flashing(void) { note("cf"); }
 /* clang-format on */
 
 static bool resb_down;
@@ -151,14 +153,32 @@ UTEST(roster, a_break_walks_in_reverse_after_the_stop)
     ASSERT_STREQ("csbsascbbbab", walked);
 }
 
-UTEST(roster, the_task_columns_are_two_walks)
+UTEST(roster, the_tasks_run_in_list_order_as_each_row_lists_them)
 {
     from_stopped();
     sys_task();
-    ASSERT_STREQ("atbtct", walked);
+    ASSERT_STREQ("ataobtbwboctco", walked);
+}
+
+UTEST(roster, the_pump_skips_the_fatfs_tasks)
+{
+    from_stopped();
+    sys_pump();
+    ASSERT_STREQ("atbtbwct", walked);
+}
+
+UTEST(roster, flashing_runs_its_hooks_in_reverse_then_pumps_only_always)
+{
+    from_stopped();
+    sys_set_flashing();
+    ASSERT_STREQ("cfaf", walked);
     walked[0] = '\0';
-    sys_io_task();
-    ASSERT_STREQ("aoboco", walked);
+    sys_pump();
+    ASSERT_STREQ("bw", walked);
+    walked[0] = '\0';
+    sys_task();
+    ASSERT_STREQ("ataobtbwboctco", walked);
+    sys_flashing = false; /* sys.c is compiled into this test */
 }
 
 UTEST(roster, the_reset_line_outlives_the_run_walk)

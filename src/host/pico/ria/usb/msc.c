@@ -12,7 +12,6 @@
 #include "host/usbh_pvt.h"
 #include "host/hcd.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "fatfs/ff.h"
@@ -89,18 +88,18 @@ static_assert(FF_STR_VOLUME_ID == 1);
 #error FF_VOLUME_STRS must not be defined
 #endif
 
-// Place volume strings in flash
-const char __in_flash("fatfs_vol") VolumeStrMSC0[] = "MSC0";
-const char __in_flash("fatfs_vol") VolumeStrMSC1[] = "MSC1";
-const char __in_flash("fatfs_vol") VolumeStrMSC2[] = "MSC2";
-const char __in_flash("fatfs_vol") VolumeStrMSC3[] = "MSC3";
-const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
-const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
-const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
-const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
-const char __in_flash("fatfs_vol") VolumeStrMSC8[] = "MSC8";
-const char __in_flash("fatfs_vol") VolumeStrMSC9[] = "MSC9";
-const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
+// FatFs reads these when it parses a path and when a drive unmounts.
+const char VolumeStrMSC0[] = "MSC0";
+const char VolumeStrMSC1[] = "MSC1";
+const char VolumeStrMSC2[] = "MSC2";
+const char VolumeStrMSC3[] = "MSC3";
+const char VolumeStrMSC4[] = "MSC4";
+const char VolumeStrMSC5[] = "MSC5";
+const char VolumeStrMSC6[] = "MSC6";
+const char VolumeStrMSC7[] = "MSC7";
+const char VolumeStrMSC8[] = "MSC8";
+const char VolumeStrMSC9[] = "MSC9";
+const char *VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
     VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7,
     VolumeStrMSC8, VolumeStrMSC9};
@@ -584,7 +583,7 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     return true;
 }
 
-bool __in_flash("msc_class_driver_init") msc_class_driver_init(void)
+bool HOST_IN_FLASH_FUNC msc_class_driver_init(void)
 {
     TU_LOG_DRV("sizeof(msc_interface_t) = %u\r\n", sizeof(msc_interface_t));
     TU_LOG_DRV("sizeof(msc_epbuf_t) = %u\r\n", sizeof(msc_epbuf_t));
@@ -729,7 +728,7 @@ bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t e
     return msc_cbi_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
 }
 
-uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+uint16_t HOST_IN_FLASH_FUNC msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -810,10 +809,9 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     return drv_len;
 }
 
-// Pumps USB events and all application tasks during blocking I/O. Of FatFs,
-// only msc_mount_cb's f_mount and msc_umount_cb's f_unmount run from here,
-// through tuh_task().
-static void msc_pump(void) { sys_task(); }
+// The waits below call sys_pump, which runs USB and the other pumped tasks
+// while a transfer completes. Of FatFs, only msc_mount_cb's f_mount and
+// msc_umount_cb's f_unmount run from there, through tuh_task().
 
 static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
                                   const void *data, uint32_t timeout_ms)
@@ -828,12 +826,12 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             return MSC_STATUS_TIMED_OUT;
         if (!msc_ready(dev_addr))
         {
-            msc_pump();
+            sys_pump();
             continue;
         }
         if (msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
             break;
-        msc_pump();
+        sys_pump();
     }
     while (!msc_ready(dev_addr))
     {
@@ -844,7 +842,7 @@ static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             msc_abort(dev_addr);
             return MSC_STATUS_TIMED_OUT;
         }
-        msc_pump();
+        sys_pump();
     }
     return (msc_status_t)msc_csw_status(dev_addr);
 }
@@ -1094,8 +1092,8 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     return status;
 }
 
-static msc_status_t msc_scsi_inquiry(uint8_t vol,
-                                     scsi_inquiry_resp_t *resp)
+static msc_status_t HOST_IN_FLASH_FUNC msc_scsi_inquiry(uint8_t vol,
+                                                        scsi_inquiry_resp_t *resp)
 {
     scsi_inquiry_t const cmd = {
         .cmd_code = SCSI_CMD_INQUIRY,
@@ -1435,7 +1433,7 @@ static uint8_t msc_pdrv_alloc(void)
     return FF_VOLUMES;
 }
 
-static void msc_mount_cb(uint8_t dev_addr)
+static void HOST_IN_FLASH_FUNC msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const max_lun = msc_get_maxlun(dev_addr);
     for (uint8_t lun = 0; lun <= max_lun; lun++)
@@ -1475,7 +1473,7 @@ static void msc_umount_cb(uint8_t dev_addr)
     }
 }
 
-static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
+static void HOST_IN_FLASH_FUNC msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
 {
     uint8_t daddr = xfer->daddr;
     msc_interface_t *p_msc = msc_get_itf(daddr);
@@ -1498,7 +1496,7 @@ static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
-bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
+bool HOST_IN_FLASH_FUNC msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msc_interface_t *p_msc = msc_get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
@@ -1538,7 +1536,7 @@ bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
     return true;
 }
 
-void msc_class_driver_close(uint8_t dev_addr)
+void HOST_IN_FLASH_FUNC msc_class_driver_close(uint8_t dev_addr)
 {
     TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, );
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
@@ -1610,7 +1608,7 @@ DSTATUS disk_status(BYTE pdrv)
     return msc_pdrv[vol].write_prot ? STA_PROTECT : 0;
 }
 
-DSTATUS disk_initialize(BYTE pdrv)
+DSTATUS HOST_IN_FLASH_FUNC disk_initialize(BYTE pdrv)
 {
     uint8_t vol = pdrv;
     MSC_LOG_VOL(vol, DEBUG, "disk_initialize, status=%d", msc_pdrv[vol].status);
@@ -1829,7 +1827,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
-void HOST_IN_FLASH_FUNC("msc_drive_reenumerate") msc_drive_reenumerate(uint8_t pdrv)
+void HOST_IN_FLASH_FUNC msc_drive_reenumerate(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
         return;
@@ -1841,7 +1839,7 @@ void HOST_IN_FLASH_FUNC("msc_drive_reenumerate") msc_drive_reenumerate(uint8_t p
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
-static void HOST_IN_FLASH_FUNC("msc_inquiry_rtrim") msc_inquiry_rtrim(uint8_t *s, size_t l)
+static void HOST_IN_FLASH_FUNC msc_inquiry_rtrim(uint8_t *s, size_t l)
 {
     while (l--)
     {
@@ -1852,7 +1850,7 @@ static void HOST_IN_FLASH_FUNC("msc_inquiry_rtrim") msc_inquiry_rtrim(uint8_t *s
     }
 }
 
-int HOST_IN_FLASH_FUNC("msc_status_response") msc_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC msc_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0 || state >= FF_VOLUMES)
@@ -1896,7 +1894,7 @@ int HOST_IN_FLASH_FUNC("msc_status_response") msc_status_response(char *buf, siz
     return state + 1;
 }
 
-int HOST_IN_FLASH_FUNC("msc_drive_vol_from_name") msc_drive_vol_from_name(const char *name)
+int HOST_IN_FLASH_FUNC msc_drive_vol_from_name(const char *name)
 {
     char buf[6];
     size_t n = 0;
@@ -1914,7 +1912,7 @@ int HOST_IN_FLASH_FUNC("msc_drive_vol_from_name") msc_drive_vol_from_name(const 
     return -1;
 }
 
-static bool HOST_IN_FLASH_FUNC("msc_drive_pdrv_of_vol") msc_drive_pdrv_of_vol(uint8_t vol,
+static bool HOST_IN_FLASH_FUNC msc_drive_pdrv_of_vol(uint8_t vol,
                                                                               uint8_t *pdrv)
 {
     if (vol >= FF_VOLUMES || msc_pdrv[vol].status == msc_volume_free)
@@ -1923,7 +1921,7 @@ static bool HOST_IN_FLASH_FUNC("msc_drive_pdrv_of_vol") msc_drive_pdrv_of_vol(ui
     return true;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_get_info") msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
+bool HOST_IN_FLASH_FUNC msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
 {
     uint8_t pdrv;
     if (!msc_drive_pdrv_of_vol(vol, &pdrv))
@@ -1944,7 +1942,7 @@ bool HOST_IN_FLASH_FUNC("msc_drive_get_info") msc_drive_get_info(uint8_t vol, ms
     return true;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_inquiry_strings") msc_drive_inquiry_strings(uint8_t vol,
+bool HOST_IN_FLASH_FUNC msc_drive_inquiry_strings(uint8_t vol,
                                                                                char vendor[9],
                                                                                char product[17],
                                                                                char rev[5])
@@ -1967,20 +1965,21 @@ bool HOST_IN_FLASH_FUNC("msc_drive_inquiry_strings") msc_drive_inquiry_strings(u
     return true;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_serial") msc_drive_serial(uint8_t vol, char *dst,
+bool HOST_IN_FLASH_FUNC msc_drive_serial(uint8_t vol, char *dst,
                                                              size_t dst_size)
 {
+    dst[0] = '\0';
     uint8_t pdrv;
-    if (!msc_drive_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
-        return false;
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
+        return true;
     const void *s = usb_string_fetch_serial(msc_pdrv[pdrv].dev_addr);
     if (!s)
         return false;
     usb_desc_string_to_oem(s, USB_DESC_STRING_BUF_SIZE, dst, dst_size);
-    return dst[0] != '\0';
+    return true;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_read") msc_drive_read(uint8_t vol, void *buf, uint64_t lba,
+bool HOST_IN_FLASH_FUNC msc_drive_read(uint8_t vol, void *buf, uint64_t lba,
                                                          uint32_t count)
 {
     uint8_t pdrv;
@@ -1989,7 +1988,7 @@ bool HOST_IN_FLASH_FUNC("msc_drive_read") msc_drive_read(uint8_t vol, void *buf,
     return disk_read(pdrv, (BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_write") msc_drive_write(uint8_t vol, const void *buf,
+bool HOST_IN_FLASH_FUNC msc_drive_write(uint8_t vol, const void *buf,
                                                            uint64_t lba, uint32_t count)
 {
     uint8_t pdrv;
@@ -1998,7 +1997,7 @@ bool HOST_IN_FLASH_FUNC("msc_drive_write") msc_drive_write(uint8_t vol, const vo
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool HOST_IN_FLASH_FUNC("msc_drive_format_track") msc_drive_format_track(uint8_t vol, uint8_t track,
+bool HOST_IN_FLASH_FUNC msc_drive_format_track(uint8_t vol, uint8_t track,
                                                                          uint8_t head)
 {
     uint8_t pdrv;

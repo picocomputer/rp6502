@@ -33,6 +33,11 @@ bool oem_set_code_page_run(uint16_t cp)
     return true;
 }
 
+void oem_restore_code_page(void)
+{
+    oem_set_code_page_run(437);
+}
+
 void oem_locale_changed(uint16_t cp)
 {
     oem_set_code_page_run(cp);

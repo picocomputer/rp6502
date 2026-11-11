@@ -127,7 +127,9 @@ uint8_t tablet_control(void);
 void tablet_sst_save(sst_cursor_t *c, unsigned flags);
 bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break, \
-    nul_config, nul_config, SST(TBLT, 3, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
+#define TABLET_DRIVER DRIVER(                                        \
+    INIT(tablet_init)                                                \
+    STOP(tablet_stop)                                                \
+    SST(TBLT, 3, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
 
 #endif /* _CORE_HID_TABLET_H_ */

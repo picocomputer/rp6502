@@ -70,24 +70,77 @@ core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/com/com.c com_bel_enabled: the COM chunk
-core/com/com.c com_crlf_last: the COM chunk
-core/com/com.c com_keyboard_ring: the COM chunk
-core/com/com.c com_reply_buf: the COM chunk
-core/com/com.c com_reply_len: the COM chunk
-core/com/com.c com_std_tap: not carried: host wiring; libretro installs no wire at all
-core/com/com.c com_stderr_sink: not carried: host wiring
-core/com/com.c com_term_out: not carried: host wiring
-core/com/com.c com_term_reply_suppressed: not carried: host wiring
-core/com/com.c com_tx_tap: not carried: host wiring; libretro installs no wire at all
-core/com/com.c com_uart_ring: the COM chunk
-core/com/pick.c com_rx_deadline: the COM chunk
-core/com/pick.c com_rx_held: the COM chunk
-core/com/pick.c com_sources: the COM chunk
-core/com/tty.c tty_held: not carried: host wiring, cleared by the COM chunk's load
-core/com/tty.c tty_hold: not carried: host wiring, cleared by the COM chunk's load
-core/com/tty.c tty_rx: not carried: host wiring
-core/com/tty.c tty_stream: not carried: host wiring, cleared by the COM chunk's load
-core/com/tty.c tty_tx: not carried: host wiring
+core/com/com.c com_line: the COM chunk
+core/com/com.c com_rx_deadline: the COM chunk
+core/com/com.c com_rx_held: the COM chunk
+core/com/com.c com_rx_staged: the COM chunk
+core/com/com.c com_sources: the COM chunk
+core/com/manifold.c manifold_charge: not carried: host wiring
+core/com/manifold.c manifold_crlf_last: the MFLD chunk
+core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
+core/com/manifold.c manifold_reply_buf: the MFLD chunk
+core/com/manifold.c manifold_reply_len: the MFLD chunk
+core/com/manifold.c manifold_reply_suppressed: not carried: host wiring
+core/com/manifold.c manifold_std_tap: not carried: host wiring; libretro installs no wire at all
+core/com/manifold.c manifold_stderr_sink: not carried: host wiring
+core/com/manifold.c manifold_term_out: not carried: host wiring
+core/com/manifold.c manifold_tx_tap: not carried: host wiring; libretro installs no wire at all
+core/com/manifold.c manifold_uart_ring: the MFLD chunk
+core/com/manifold.c manifold_wire_held: not carried: host wiring
+core/com/manifold.c manifold_wire_hold: not carried: host wiring
+core/com/manifold.c manifold_wire_rx: not carried: host wiring
+core/com/manifold.c manifold_wire_stream: not carried: host wiring
+core/com/manifold.c manifold_wire_tx: not carried: host wiring
+core/com/rln.c held: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c rln_action_taken: the RLN chunk
+core/com/rln.c rln_buf: the RLN chunk
+core/com/rln.c rln_buflen: the RLN chunk
+core/com/rln.c rln_bufpos: the RLN chunk
+core/com/rln.c rln_callback: the RLN chunk
+core/com/rln.c rln_caps: the RLN chunk
+core/com/rln.c rln_cur_idx: the RLN chunk
+core/com/rln.c rln_editing: the RLN chunk
+core/com/rln.c rln_held: the RLN chunk
+core/com/rln.c rln_held_len: the RLN chunk
+core/com/rln.c rln_history: the RLN chunk
+core/com/rln.c rln_history_count: the RLN chunk
+core/com/rln.c rln_history_pos: the RLN chunk
+core/com/rln.c rln_idle_deadline: the RLN chunk
+core/com/rln.c rln_idle_timeout_ms: the RLN chunk
+core/com/rln.c rln_last_render_buflen: the RLN chunk
+core/com/rln.c rln_lastkey_action: the RLN chunk
+core/com/rln.c rln_lastkey_buf: the RLN chunk
+core/com/rln.c rln_lastkey_len: the RLN chunk
+core/com/rln.c rln_line_ends: the RLN chunk
+core/com/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
+core/com/rln.c rln_max_length: the RLN chunk
+core/com/rln.c rln_overwrite: the RLN chunk
+core/com/rln.c rln_prompt_col: the RLN chunk
+core/com/rln.c rln_rendered_max_row: the RLN chunk
+core/com/rln.c rln_skip_history: the RLN chunk
+core/com/rln.c rln_suppress_newline: the RLN chunk
+core/com/rln.c rln_width: the RLN chunk
+core/com/tio.c tio_answers: the TIO chunk
+core/com/tio.c tio_charge: the TIO chunk
+core/com/tio.c tio_deadline: the TIO chunk
+core/com/tio.c tio_greeted: the TIO chunk
+core/com/tio.c tio_height: the TIO chunk
+core/com/tio.c tio_marks: the TIO chunk
+core/com/tio.c tio_naws_height: the TIO chunk
+core/com/tio.c tio_naws_width: the TIO chunk
+core/com/tio.c tio_pcol: the TIO chunk
+core/com/tio.c tio_pinned_height: the TIO chunk
+core/com/tio.c tio_pinned_width: the TIO chunk
+core/com/tio.c tio_probe: the TIO chunk
+core/com/tio.c tio_quiet: the TIO chunk
+core/com/tio.c tio_shape: the TIO chunk
+core/com/tio.c tio_sized: the TIO chunk
+core/com/tio.c tio_sources: the TIO chunk
+core/com/tio.c tio_state: the TIO chunk
+core/com/tio.c tio_width: the TIO chunk
 core/dap/dbg.c dbg_watch_armed: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_active: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_bp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
@@ -144,7 +197,6 @@ core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk
 core/ria/ria.c ria: the RIA chunk
-core/ria/ria.c ria_uart_rx_src: the RIA chunk
 core/ria/ria.c stack: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting
 core/rom/asset.c g_rom_generation: the ASET chunk
@@ -155,50 +207,6 @@ core/rom/rom.c buf: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
-core/str/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c poke: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c rln_action_taken: the RLN chunk
-core/str/rln.c rln_buf: the RLN chunk
-core/str/rln.c rln_buflen: the RLN chunk
-core/str/rln.c rln_bufpos: the RLN chunk
-core/str/rln.c rln_callback: the RLN chunk
-core/str/rln.c rln_caps: the RLN chunk
-core/str/rln.c rln_complete_deferred: the RLN chunk
-core/str/rln.c rln_complete_deferred_deadline: the RLN chunk
-core/str/rln.c rln_complete_deferred_timed_out: the RLN chunk
-core/str/rln.c rln_cpr_initial: the RLN chunk
-core/str/rln.c rln_cur_idx: the RLN chunk
-core/str/rln.c rln_decscusr_locked_off: the RLN chunk
-core/str/rln.c rln_decscusr_ok: the RLN chunk
-core/str/rln.c rln_enable_history: the RLN chunk
-core/str/rln.c rln_handshake_deadline: the RLN chunk
-core/str/rln.c rln_height_override: the RLN chunk
-core/str/rln.c rln_history: the RLN chunk
-core/str/rln.c rln_history_count: the RLN chunk
-core/str/rln.c rln_history_pos: the RLN chunk
-core/str/rln.c rln_idle_deadline: the RLN chunk
-core/str/rln.c rln_idle_timeout_ms: the RLN chunk
-core/str/rln.c rln_last_render_buflen: the RLN chunk
-core/str/rln.c rln_lastkey_action: the RLN chunk
-core/str/rln.c rln_lastkey_buf: the RLN chunk
-core/str/rln.c rln_lastkey_len: the RLN chunk
-core/str/rln.c rln_max_length: the RLN chunk
-core/str/rln.c rln_naws_height: the RLN chunk
-core/str/rln.c rln_naws_width: the RLN chunk
-core/str/rln.c rln_overwrite: the RLN chunk
-core/str/rln.c rln_phase: the RLN chunk
-core/str/rln.c rln_poke_source: the RLN chunk
-core/str/rln.c rln_prompt_col: the RLN chunk
-core/str/rln.c rln_rendered_max_row: the RLN chunk
-core/str/rln.c rln_skip_history: the RLN chunk
-core/str/rln.c rln_sources: the RLN chunk
-core/str/rln.c rln_suppress_newline: the RLN chunk
-core/str/rln.c rln_term_height: the RLN chunk
-core/str/rln.c rln_term_width: the RLN chunk
-core/str/rln.c rln_width_override: the RLN chunk
-core/str/rln.c sources: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/str/str.c str_buf: parse scratch, dead at every frame boundary
 core/str/str.c str_locale_index: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_locale_names: the linked table image and a parse buffer dead at every frame boundary
@@ -232,9 +240,9 @@ core/sys/sst.c sst_scratch: the savestate's own working memory: the blob being w
 core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
 core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
 core/sys/sys.c sys_breaking: the blob's latch, which sst.c applies before the walk
+core/sys/sys.c sys_flashing: not carried: only the RIA sets it, and it then reboots or locks up
 core/sys/sys.c sys_state: the blob's latch, which sst.c applies before the walk
 core/sys/xram.c xram: the XRAM chunk
-core/sys/xram.c xram_blocks: not carried: the debugger's view of who mapped what
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting
 core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
 core/sys/xram.c xram_fill_value: not carried: a session's fill setting

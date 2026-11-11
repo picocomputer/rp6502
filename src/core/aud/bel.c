@@ -15,7 +15,7 @@
 #include "host/host.h"
 #include "machine.h"
 
-HOST_IN_FLASH("bel_teletype") const bel_sound_t bel_teletype = {
+const bel_sound_t bel_teletype = {
     .freq = 1760,
     .duty = 215,          // gate open for 214 of 256 phase steps
     .vol_attack = 0x51,   // attack to -5vol, 8ms full-swing rate
@@ -26,7 +26,7 @@ HOST_IN_FLASH("bel_teletype") const bel_sound_t bel_teletype = {
     .end_ms = 800,
 };
 
-HOST_IN_FLASH("bel_nfc_fail") const bel_sound_t bel_nfc_fail = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_fail = {
     .freq = 330,
     .duty = 127,          // 50% square
     .vol_attack = 0x80,   // attack to -8vol, 2ms full-swing rate
@@ -37,7 +37,7 @@ HOST_IN_FLASH("bel_nfc_fail") const bel_sound_t bel_nfc_fail = {
     .end_ms = 420,
 };
 
-HOST_IN_FLASH("bel_nfc_success_1") const bel_sound_t bel_nfc_success_1 = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_success_1 = {
     .freq = 784,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
@@ -48,7 +48,7 @@ HOST_IN_FLASH("bel_nfc_success_1") const bel_sound_t bel_nfc_success_1 = {
     .end_ms = 170,
 };
 
-HOST_IN_FLASH("bel_nfc_success_2") const bel_sound_t bel_nfc_success_2 = {
+const bel_sound_t HOST_IN_FLASH bel_nfc_success_2 = {
     .freq = 1568,
     .duty = 255,          // gate open for 254 of 256 phase steps
     .vol_attack = 0x60,   // attack to -6vol, 2ms full-swing rate
@@ -70,7 +70,7 @@ static uint64_t bel_in_ms(uint32_t ms)
     return host_clock_us() + (uint64_t)ms * 1000;
 }
 
-static bool bel_due(uint64_t at)
+static bool HOST_IN_RAM_FUNC bel_due(uint64_t at)
 {
     return at && (int64_t)(host_clock_us() - at) >= 0;
 }
@@ -97,7 +97,7 @@ static void bel_silence(void)
         aud_bel_put(i, 0);
 }
 
-void bel_init(void)
+void HOST_IN_FLASH_FUNC bel_init(void)
 {
     RING_RESET(&bel_queue);
     bel_restrike_at = bel_release_at = bel_end_at = 0;
@@ -131,7 +131,7 @@ void bel_add(const bel_sound_t *sound)
         bel_strike();
 }
 
-void bel_task(void)
+void HOST_IN_RAM_FUNC bel_task(void)
 {
     if (!RING_LEN(&bel_queue))
         return;

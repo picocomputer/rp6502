@@ -43,8 +43,10 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 #define NFC_CONFIG_ENABLED CONFIG_INT(N, nfc, enabled, uint8_t, 0, \
     nfc_check_enabled, nfc_apply_enabled, STR_NFC, nfc_enabled_response, \
     STR_HELP_SET_NFC, NULL)
-#define NFC_DRIVER DRIVER(nfc_init, nul_task, nfc_task, nul_run, nul_stop, nul_break, \
-    NFC_CONFIG_ENABLED, nul_config, nul_sst)
+#define NFC_DRIVER DRIVER( \
+    INIT(nfc_init)         \
+    TASK_FATFS(nfc_task)   \
+    NFC_CONFIG_ENABLED)
 
 #define NFC_STD_DRIVER           \
     {                               \

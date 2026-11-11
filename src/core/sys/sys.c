@@ -33,48 +33,77 @@ static enum state
  * performs the stop fan-out first and the break fan-out after it. */
 static volatile bool sys_breaking;
 
-void HOST_IN_FLASH_FUNC("sys_init") sys_init(void)
+/* Set when flashing starts, and never cleared. Only sys_pump reads it. */
+static bool sys_flashing;
+
+void HOST_IN_FLASH_FUNC sys_init(void)
 {
     resb_init();
-#define DRIVER(i, t, iot, r, s, b, ...) i();
+#define INIT(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
-void sys_task(void)
+/* One pass of the list, so each task has a single call site. MSVC has no
+ * noinline attribute; osal/windows/msvc/compat.h defines __attribute__ away
+ * there. */
+__attribute__((noinline)) static void HOST_IN_RAM_FUNC sys_walk(bool fatfs, bool pumped)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) t();
+#define TASK_FATFS(f) \
+    if (fatfs)        \
+        f();
+#define TASK_PUMPED(f) \
+    if (pumped)        \
+        f();
+#define TASK_ALWAYS(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
-void sys_io_task(void)
+void HOST_IN_RAM_FUNC sys_task(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) iot();
-    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+    sys_walk(true, true);
+}
+
+void HOST_IN_RAM_FUNC sys_pump(void)
+{
+    sys_walk(false, !sys_flashing);
+}
+
+void HOST_IN_FLASH_FUNC sys_set_flashing(void)
+{
+    sys_flashing = true;
+#define FLASHING(f) f();
+#include "core/sys/driver_walk.h"
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
 }
 
 /* RESB is low through the run, stop and break fan-outs. */
-static void HOST_IN_FLASH_FUNC("sys_on_run") sys_on_run(void)
+static void HOST_IN_FLASH_FUNC sys_on_run(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) r();
+#define RUN(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
-static void HOST_IN_FLASH_FUNC("sys_on_stop") sys_on_stop(void)
+static void HOST_IN_FLASH_FUNC sys_on_stop(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) s();
+#define STOP(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
-static void HOST_IN_FLASH_FUNC("sys_on_break") sys_on_break(void)
+static void HOST_IN_FLASH_FUNC sys_on_break(void)
 {
-#define DRIVER(i, t, iot, r, s, b, ...) b();
+#define BREAK(f) f();
+#include "core/sys/driver_walk.h"
     DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 void sys_latch_get(sys_latch_t *latch)
@@ -105,7 +134,7 @@ void sys_run(void)
         sys_state = starting;
 }
 
-void sys_stop(void)
+void HOST_IN_RAM_FUNC sys_stop(void)
 {
     resb_assert();
     if (sys_state == starting)
@@ -124,7 +153,7 @@ bool sys_running(void)
     return sys_state == running;
 }
 
-void sys_break_request(void)
+void HOST_IN_RAM_FUNC sys_break_request(void)
 {
     sys_breaking = true;
     sys_stop();
@@ -143,7 +172,7 @@ void sys_stop_now(void)
     }
 }
 
-void sys_commit(void)
+void HOST_IN_RAM_FUNC sys_commit(void)
 {
     /* The stop is derived from the flag again rather than trusted from
      * sys_break_request, because a break asked for anywhere in a pass has to

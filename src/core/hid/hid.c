@@ -12,7 +12,7 @@
 #include "core/hid/tablet.h"
 #include "machine.h"
 
-static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
+static inline int32_t HOST_IN_RAM_FUNC hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size >= 32)
         return (int32_t)raw_value;
@@ -31,7 +31,7 @@ static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
     }
 }
 
-uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
+uint32_t HOST_IN_RAM_FUNC hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
     if (!bit_size || bit_size > 32)
         return 0;
@@ -56,12 +56,12 @@ uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t b
     return (uint32_t)value;
 }
 
-int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
+int32_t HOST_IN_RAM_FUNC hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
     return hid_extend_signed(hid_extract_bits(report, report_len, bit_offset, bit_size), bit_size);
 }
 
-uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+uint8_t HOST_IN_RAM_FUNC hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
     bool reversed = logical_min > logical_max;
     int32_t min = reversed ? logical_max : logical_min;
@@ -91,7 +91,7 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
     return ((value - min) * 256 / discrete_values);
 }
 
-int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+int8_t HOST_IN_RAM_FUNC hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
     return hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
 }
@@ -134,7 +134,7 @@ int hid_mount(const keyboard_connection_t *keyboard,
     return claims ? slot : -1;
 }
 
-void hid_report(int slot, const uint8_t *data, uint16_t len)
+void HOST_IN_RAM_FUNC hid_report(int slot, const uint8_t *data, uint16_t len)
 {
     if (slot < 0 || slot >= HID_MAX_SLOTS)
         return;

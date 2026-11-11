@@ -657,7 +657,8 @@ module wiring
             stage_addr_q <= soc_addr[27:0];
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge
-             * and regs_b_rdata then shows the next byte. */
+             * and a read of word 26 takes back the 6502's unread byte,
+             * after which regs_b_rdata shows the next byte or none. */
             regs_b_q <= regs_b_rdata;
             /* The same for the OPL's drop count and PCM's underruns, which
              * their reads clear. */

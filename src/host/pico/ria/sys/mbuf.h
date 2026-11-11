@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "core/com/com.h"
 
 // Misc memory buffer for moving things around.
 // 6502 <-> RAM, USB <-> RAM, UART <-> RAM, etc.
@@ -18,12 +19,13 @@
 extern uint8_t mbuf[];
 extern size_t mbuf_len;
 
-// Read memory buffer from stdio
+// Read memory buffer from stdio, from src alone or from COM_SOURCE_ANY.
 typedef void (*mbuf_read_callback_t)(bool timeout);
 void mbuf_task(void);
 void mbuf_break(void);
-void mbuf_read(uint32_t timeout_ms, mbuf_read_callback_t callback, size_t size);
+void mbuf_read(com_source_t src, uint32_t timeout_ms, mbuf_read_callback_t callback,
+               size_t size);
 
-#define MBUF_DRIVER DRIVER(nul_init, nul_task, mbuf_task, nul_run, nul_stop, mbuf_break, nul_config, nul_config, nul_sst)
+#define MBUF_DRIVER DRIVER(TASK_FATFS(mbuf_task) BREAK(mbuf_break))
 
 #endif /* _RIA_SYS_MBUF_H_ */

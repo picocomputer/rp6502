@@ -6,14 +6,14 @@
 
 #include "core/str/oem.h"
 #include "core/hid/hid.h"
+#include "core/api/proc.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
 
 #include <stdint.h>
 
-static uint8_t apf_host_xram[0x10000];
-volatile uint8_t *const xram = apf_host_xram;
+volatile uint8_t xram[0x10000];
 
 bool hid_boot_enumerating(void)
 {
@@ -59,12 +59,12 @@ uint64_t os_mono_ns(void)
 }
 
 
-bool sys_break(void)
+bool proc_break_to_monitor(void)
 {
     return false;
 }
 
-bool sys_break_to_launcher(void)
+bool proc_quit(void)
 {
     return false;
 }

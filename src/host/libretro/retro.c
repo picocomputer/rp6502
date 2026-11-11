@@ -59,7 +59,9 @@ static char *loaded_rom;  /* the path or ":name" the last boot loaded */
 static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL */
 static bool machine_inited;
 static int geom_w, geom_h;
-static bool shutdown_sent;
+/* Frames run since the program stopped, up to 2, when the shutdown has gone
+ * to the frontend. */
+static uint8_t exit_frames;
 static bool hint_shown;
 
 /* Set by a proc_boot that succeeded. loaded_host and machine_inited cannot
@@ -362,16 +364,13 @@ void retro_init(void)
 void retro_deinit(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     machine_inited = false;
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;
     fs_save_free();
-    shutdown_sent = false;
+    exit_frames = 0;
     geom_w = geom_h = 0;
     hint_shown = false;
     run_seed_taken = false;
@@ -474,7 +473,7 @@ const char *host_save_dir(void)
 static bool boot(void)
 {
     apply_options(machine_inited);
-    unsigned flags = PROC_UNCHAIN;
+    unsigned flags = 0;
     if (machine_inited)
         flags |= PROC_REFILL;
     else
@@ -496,7 +495,7 @@ static bool boot(void)
     vga_set_framebuffer(frame_buf);
     sys_commit();
     booted = true;
-    shutdown_sent = false;
+    exit_frames = 0;
     geom_w = geom_h = 0;
     return true;
 }
@@ -576,10 +575,7 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 void retro_unload_game(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;
@@ -685,12 +681,11 @@ void retro_run(void)
         push_audio();
 
     /* The program stopped and this host has no monitor to fall back to, so the
-     * core is finished. The frame above is the last thing it drew. */
-    if (proc_exited() && !shutdown_sent)
-    {
-        shutdown_sent = true;
+     * core is finished. The frame that saw the stop drew the rows above the
+     * beam before the program's last writes, so one more whole frame is the
+     * last picture, and the shutdown follows it. */
+    if (proc_exited() && exit_frames < 2 && ++exit_frames == 2)
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
-    }
 }
 
 void *retro_get_memory_data(unsigned id)
@@ -769,14 +764,14 @@ bool retro_unserialize(const void *data, size_t size)
             boot();
         return false;
     }
-    /* Two things no savestate row can put back: shutdown_sent is kept in this
+    /* Two things no savestate row can put back: exit_frames is kept in this
      * file, and which devices are plugged in comes from the frontend. Neither
      * is done under either flag, because a same-session load has nothing to
      * re-announce, and injecting the devices plugged in on this peer into a
      * rolled-back netplay state is itself a desync. */
     if (!flags)
     {
-        shutdown_sent = proc_exited();
+        exit_frames = proc_exited() ? 2 : 0;
         input_state_restored();
     }
     /* The picture and the geometry need no repair: no savestate row touches

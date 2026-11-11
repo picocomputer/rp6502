@@ -5,12 +5,13 @@
  */
 
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/sys/ria.h"
 #include "core/sys/debug_log.h"
 #include "ria-w/net/net.h"
 #include "ria-w/net/telnet.h"
-#include "ria/sys/com.h"
 #include "ria/sys/ria.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -395,7 +396,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             return;
         case TEL_BRK:
             if (tc->is_server)
-                sys_break();
+                proc_break();
             tc->rx_state = tel_rx_data;
             return;
         case TEL_IP:
@@ -601,8 +602,8 @@ uint16_t telnet_tx(int desc, const char *buf, uint16_t len)
     return consumed;
 }
 
-bool telnet_open(int desc, const char *hostname, uint16_t port,
-              void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC telnet_open(int desc, const char *hostname, uint16_t port,
+                                    void (*on_close)(int))
 {
     return net_open(desc, hostname, port, on_close);
 }
@@ -618,7 +619,7 @@ void telnet_close(int desc)
     tel_reset(desc);
 }
 
-static void tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
+static void HOST_IN_FLASH_FUNC tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
 {
     if (tc->us[idx] == tel_q_no)
     {
@@ -627,7 +628,7 @@ static void tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
+static void HOST_IN_FLASH_FUNC tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
 {
     if (tc->him[idx] == tel_q_no)
     {
@@ -636,7 +637,7 @@ static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-void telnet_negotiate(int desc, bool telnet_mode, const char *ttype)
+void HOST_IN_FLASH_FUNC telnet_negotiate(int desc, bool telnet_mode, const char *ttype)
 {
     tel_conn_t *tc = &tel_conns[desc];
     tc->telnet_mode = telnet_mode;
@@ -676,8 +677,8 @@ void telnet_listen_close(uint16_t port)
     net_listen_close(port);
 }
 
-bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
-                void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC telnet_accept(int desc, uint16_t port, bool telnet_mode,
+                                      const char *ttype, void (*on_close)(int))
 {
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
@@ -686,7 +687,7 @@ bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
     return true;
 }
 
-bool telnet_accept_server(int desc, uint16_t port, void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC telnet_accept_server(int desc, uint16_t port, void (*on_close)(int))
 {
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
@@ -695,7 +696,7 @@ bool telnet_accept_server(int desc, uint16_t port, void (*on_close)(int))
     return true;
 }
 
-void telnet_reject(uint16_t port)
+void HOST_IN_FLASH_FUNC telnet_reject(uint16_t port)
 {
     net_reject(port);
 }

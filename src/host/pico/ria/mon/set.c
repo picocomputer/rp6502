@@ -17,7 +17,7 @@
 #include "ria-w/net/wifi.h"
 #include "core/str/str.h"
 #include "core/sys/config.h"
-#include "ria/sys/com.h"
+#include "ria/com/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/phi2.h"
 #include "ria/sys/vga.h"
@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <pico.h>
 
-static int HOST_IN_FLASH_FUNC("set_boot_response") set_boot_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC set_boot_response(char *buf, size_t buf_size,
                                                                      int state, unsigned)
 {
     (void)state;
@@ -37,7 +37,7 @@ static int HOST_IN_FLASH_FUNC("set_boot_response") set_boot_response(char *buf, 
     return -1;
 }
 
-static void HOST_IN_FLASH_FUNC("set_boot") set_boot(const char *args)
+static void HOST_IN_FLASH_FUNC set_boot(const char *args)
 {
     if (*args)
     {
@@ -54,7 +54,7 @@ static void HOST_IN_FLASH_FUNC("set_boot") set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-static void HOST_IN_FLASH_FUNC("set_string") set_string(const char *args, bool (*set)(const char *),
+static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const char *),
                                                         int (*resp)(char *, size_t, int, unsigned))
 {
     if (*args)
@@ -71,7 +71,6 @@ static void HOST_IN_FLASH_FUNC("set_string") set_string(const char *args, bool (
     mon_add_response_fn(resp);
 }
 
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                     \
     {                                                                        \
@@ -97,15 +96,11 @@ static void HOST_IN_FLASH_FUNC("set_string") set_string(const char *args, bool (
     }
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
-void HOST_IN_FLASH_FUNC("set_mon_set") set_mon_set(const char *args)
+void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
 {
     if (*args)
     {
@@ -114,7 +109,6 @@ void HOST_IN_FLASH_FUNC("set_mon_set") set_mon_set(const char *args)
         {
             if (!strcasecmp(word, STR_BOOT))
                 return set_boot(args);
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, ...) \
     if (!strcasecmp(word, attr))                                       \
         return set_mon_##pfx##_##name(args);
@@ -122,13 +116,9 @@ void HOST_IN_FLASH_FUNC("set_mon_set") set_mon_set(const char *args)
 #define CONFIG_RAW CONFIG_INT
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
             DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
         }
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }

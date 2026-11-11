@@ -9,8 +9,6 @@
 
 #include <stdalign.h>
 
-#define CFG_TUSB_DEBUG_PRINTF rp6502_log_tusb
-
 #define CFG_TUSB_RHPORT0_MODE OPT_MODE_HOST
 
 #ifndef CFG_TUSB_MCU

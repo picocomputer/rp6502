@@ -9,7 +9,6 @@
 
 #include "apf.h"
 #include "cfg.h"
-#include "com.h"
 #include "font.h"
 #include "main.h"
 #include "mmio.h"
@@ -27,6 +26,7 @@
 #include "osal/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
+#include "core/com/com.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -36,56 +36,27 @@
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
 #include "core/sys/debug_log.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/pix.h"
 #include "core/term/term.h"
 
 
 #include <stdint.h>
+#include <stdio.h>
 
-size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+/* The C library's stdout and stderr are the console. */
+static int main_stdio_putc(char c, FILE *f)
 {
-    (void)buf;
-    (void)length;
-    (void)src;
-    return 0;
+    (void)f;
+    return com_putchar((unsigned char)c);
 }
 
-int com_rx_peek(com_source_t src)
-{
-    (void)src;
-    return -1;
-}
-
-static bool ria_sigint;
-
-void ria_trigger_sigint(void)
-{
-    ria_sigint = true;
-}
-
-bool ria_get_sigint(void)
-{
-    bool latched = ria_sigint;
-    ria_sigint = false;
-    return latched;
-}
+static FILE main_stdio = FDEV_SETUP_STREAM(main_stdio_putc, NULL, NULL,
+                                           _FDEV_SETUP_WRITE);
+FILE *const stdout = &main_stdio;
+FILE *const stderr = &main_stdio;
 
 static uint8_t main_upd_seen;
-
-bool sys_break(void)
-{
-    return false;
-}
-
-bool sys_break_to_launcher(void)
-{
-    if (!proc_has_launcher() || proc_is_launcher())
-        return false;
-    api_set_ax(0xFFFF);
-    sys_stop();
-    return true;
-}
 
 static void main_stage(void);
 
@@ -162,7 +133,6 @@ int main(void)
             }
         }
         sys_task();
-        sys_io_task();
         /* The program is stopped as soon as a blob starts to arrive,
          * because the restore replaces the machine's memory but not a
          * file the program creates or truncates before the load. */
@@ -176,25 +146,26 @@ int main(void)
         {
             main_upd_seen = upd;
             restage = true;
+            proc_cancel_launcher();
             sys_stop();
         }
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
+            proc_cancel_launcher();
             sys_stop();
         }
         sys_commit();
         /* The restage starts after sys_commit rather than from a stop hook,
          * because the stop hooks run only when a running machine is
          * stopped, so a restage requested while the machine is already
-         * stopped would never start. */
-        if (!sys_active())
+         * stopped would never start. Nothing starts while a blob arrives, for
+         * the reason the program was stopped, so an exec or a launcher's
+         * return waits for the load to fail or to replace it. */
+        if (!sys_active() && !main_wake_pending)
         {
             if (restage)
-            {
-                com_putchar('\n');
                 main_stage();
-            }
             else if (proc_exec_take())
                 sys_run();
         }

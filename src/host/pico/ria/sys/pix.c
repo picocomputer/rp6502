@@ -12,6 +12,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/xram.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <hardware/dma.h>
 #include <pico/time.h>
 #include <string.h>
@@ -21,11 +22,9 @@ static absolute_time_t pix_api_state_timer;
 static uint pix_stream_dma;
 
 // XRAM messages for PIX_STREAM_SM. The DMA wraps its read address at the
-// ring's size, so the ring is aligned to it. It sits in SCRATCH_Y beside core
-// 0's stack, where the alignment costs no main RAM and the DMA stays out of
-// core 1's bank.
-#define PIX_RING_SIZE 64
-static uint32_t __scratch_y("pix_ring") pix_ring[PIX_RING_SIZE]
+// ring's size, so the ring is aligned to it.
+#define PIX_RING_SIZE 128
+static uint32_t pix_ring[PIX_RING_SIZE]
     __attribute__((aligned(sizeof(uint32_t[PIX_RING_SIZE]))));
 
 // This may be modified in an IRQ from vga.c
@@ -48,7 +47,7 @@ void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
     pio_clkdiv_restart_sm_mask(PIX_PIO, (1u << PIX_SM) | (1u << PIX_STREAM_SM));
 }
 
-void __in_flash("pix_init") pix_init(void)
+void HOST_IN_FLASH_FUNC pix_init(void)
 {
     uint offset = pio_add_program(PIX_PIO, &pix_tx_program);
     pio_sm_config config = pix_tx_program_get_default_config(offset);
@@ -129,7 +128,7 @@ int pix_wait_poll(void)
     }
 }
 
-bool pix_api_xreg(void)
+bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
 {
     static uint8_t pix_device;
     static uint8_t pix_channel;
@@ -148,6 +147,8 @@ bool pix_api_xreg(void)
         }
         return api_working();
     case pix_api_ack:
+        if (!pix_ready())
+            return api_working();
         pix_api_state = pix_api_running;
         if (pix_send_count == 0)
         {
@@ -185,10 +186,7 @@ bool pix_api_xreg(void)
                 pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
             }
             else if (!pix_send_count)
-            {
-                xstack_ptr = XSTACK_SIZE;
-                return api_return_ax(0);
-            }
+                pix_api_state = pix_api_ack;
         }
         return api_working();
     }
@@ -250,15 +248,34 @@ bool pix_api_xreg(void)
     return api_working();
 }
 
-// PIX TX FIFO is joined to be 8 deep.
-bool pix_ready(void)
+// A CANVAS or DISPLAY can change the VGA's system clock.
+// Its PIX receiver loses messages until the new clock settles.
+#define PIX_HOLD_US 1000
+static uint64_t pix_hold_end_us;
+
+void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
-    return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
+    assert(dev3 < 8);
+    assert(ch4 < 16);
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
+    if (dev3 == PIX_DEVICE_VGA && byte == 0 && (ch4 == 0 || ch4 == 0xF))
+        pix_hold_end_us = time_us_64() + PIX_HOLD_US;
+}
+
+// PIX_SM's TX FIFO is joined. Core 1 puts the 6502's portal writes in it
+// without checking for room, so the main loop leaves it PIX_CORE1_SLOTS.
+#define PIX_FIFO_DEPTH 8
+#define PIX_CORE1_SLOTS 2
+
+bool HOST_IN_RAM_FUNC pix_ready(void)
+{
+    return time_us_64() >= pix_hold_end_us &&
+           pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < PIX_FIFO_DEPTH - PIX_CORE1_SLOTS;
 }
 
 // A run starts only on an idle DMA, which has left its read address at the
 // ring slot after the last word it read.
-uint32_t pix_stream_xram(uint32_t addr, uint32_t end)
+uint32_t HOST_IN_RAM_FUNC pix_stream_xram(uint32_t addr, uint32_t end)
 {
     if (dma_channel_is_busy(pix_stream_dma))
         return addr;
@@ -273,7 +290,7 @@ uint32_t pix_stream_xram(uint32_t addr, uint32_t end)
 }
 
 // The stream SM keeps its slot until the last message it pulled is out.
-bool pix_stream_done(void)
+bool HOST_IN_RAM_FUNC pix_stream_done(void)
 {
     return !dma_channel_is_busy(pix_stream_dma) &&
            pio_sm_is_tx_fifo_empty(PIX_PIO, PIX_STREAM_SM);

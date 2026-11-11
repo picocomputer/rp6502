@@ -15,6 +15,6 @@
 bool flash_program_request(uint16_t page);
 void flash_task(void);
 
-#define FLASH_DRIVER DRIVER(nul_init, flash_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define FLASH_DRIVER DRIVER(TASK_PUMPED(flash_task))
 
 #endif /* _VGA_SYS_FLASH_H_ */

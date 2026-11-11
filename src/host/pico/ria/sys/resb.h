@@ -21,7 +21,6 @@ void resb_task(void);
  * core 0 this holds until resb_task next runs. */
 bool resb_held(void);
 
-#define RESB_DRIVER DRIVER(nul_init, resb_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, nul_sst)
+#define RESB_DRIVER DRIVER(TASK_PUMPED(resb_task))
 
 #endif /* _RIA_SYS_RESB_H_ */

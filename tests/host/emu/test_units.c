@@ -17,7 +17,7 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -237,9 +237,9 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
     ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
 }
 
-/* With no override, no NAWS and no CPR, the line editor takes its size from
+/* With no pinned size, no NAWS and no CPR, the size is that of
  * the terminal the canvas holds. */
-UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
+UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
 {
     static const struct
     {
@@ -254,14 +254,14 @@ UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
         {vga_canvas_640_400, 80, 25},
     };
     sys_init();
-    rln_set_term_width(0);
-    rln_set_term_height(0);
-    rln_set_naws_size(0, 0);
+    tio_set_term_width(0);
+    tio_set_term_height(0);
+    tio_set_naws_size(0, 0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
-        ASSERT_EQ(rln_get_term_width(), want[i].cols);
-        ASSERT_EQ(rln_get_term_height(), want[i].rows);
+        ASSERT_EQ(tio_get_term_width(), want[i].cols);
+        ASSERT_EQ(tio_get_term_height(), want[i].rows);
     }
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
@@ -412,58 +412,58 @@ UTEST(keyboard, ansi_sequences)
 {
     char b[32];
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_ARROW_UP, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_F1, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_F5, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_F12, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_INSERT, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_HOME, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* The xterm modifier parameter is 1 + shift + alt*2 + ctrl*4. */
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_ENTER, false, false, false);
     vtkeys_key(HID_KEY_BACKSPACE, false, false, false);
     vtkeys_key(HID_KEY_BACKSPACE, true, false, false);
@@ -475,21 +475,21 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
 {
     char b[16];
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_ENTER, true, false, false);
     vtkeys_key(HID_KEY_TAB, true, false, false);
     vtkeys_key(HID_KEY_ESCAPE, true, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_ENTER, false, false, true);
     vtkeys_key(HID_KEY_TAB, false, false, true);
     vtkeys_key(HID_KEY_ESCAPE, false, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
-    com_init();
+    com_rx_clear();
     vtkeys_key(HID_KEY_BACKSPACE, false, false, true);
     vtkeys_key(HID_KEY_BACKSPACE, true, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
@@ -501,17 +501,17 @@ UTEST(keyboard, text_to_oem)
     char b[32];
     str_init(); /* the default locale, EN, uses code page 437 */
 
-    com_init();
+    com_rx_clear();
     vtkeys_text("Hi!");
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
-    com_init();
+    com_rx_clear();
     vtkeys_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
-    com_init();
+    com_rx_clear();
     /* The decoder returns DEL for a character the code page lacks, and the
      * line editor reads DEL as a backspace, so vtkeys_text queues '?'. */
     vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 */

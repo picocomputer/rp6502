@@ -20,7 +20,7 @@
 // PIX is unidirectional and we're out of pins.
 // The RIA also sends UART data over PIX so we can
 // reconfigure that pin for a return channel.
-#define RIA_BACKCHAN_PIN COM_UART_RX_PIN
+#define RIA_BACKCHAN_PIN MANIFOLD_UART_RX_PIN
 #define RIA_BACKCHAN_BAUDRATE 115200
 #define RIA_BACKCHAN_PIO pio1
 #define RIA_BACKCHAN_SM 3
@@ -48,6 +48,6 @@ void ria_vsync(void);
 void ria_ack(void);
 void ria_nak(void);
 
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define RIA_DRIVER DRIVER(INIT(ria_init) TASK_PUMPED(ria_task))
 
 #endif /* _VGA_SYS_RIA_H_ */

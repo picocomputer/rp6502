@@ -6,16 +6,13 @@
 
 #include "core/api/api.h"
 #include "osal/pico/lfs.h"
+#include "machine.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 
-// 256 sectors of 4KB is a 1MB volume, placed at the end of flash.
-#define LFS_DISK_BLOCKS 256
-
 static_assert(!(LFS_DISK_BLOCKS % 8));
 #define LFS_LOOKAHEAD_SIZE (LFS_DISK_BLOCKS / 8)
-#define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
 
 lfs_t lfs_volume;
 int lfs_mount_error;
@@ -25,7 +22,7 @@ static char lfs_lookahead_buffer[LFS_LOOKAHEAD_SIZE];
 
 static inline uint32_t lfs_flash_offs(lfs_block_t block)
 {
-    return (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) + (block * FLASH_SECTOR_SIZE);
+    return LFS_FLASH_OFFS + (block * FLASH_SECTOR_SIZE);
 }
 
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
@@ -38,15 +35,15 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
     return LFS_ERR_OK;
 }
 
-static int __no_inline_not_in_flash_func(lfs_prog)(const struct lfs_config *c, lfs_block_t block,
-                                                   lfs_off_t off, const void *buffer, lfs_size_t size)
+static int HOST_IN_RAM_FUNC lfs_prog(const struct lfs_config *c, lfs_block_t block,
+                                        lfs_off_t off, const void *buffer, lfs_size_t size)
 {
     (void)(c);
     flash_range_program(lfs_flash_offs(block) + off, buffer, size);
     return LFS_ERR_OK;
 }
 
-static int __no_inline_not_in_flash_func(lfs_erase)(const struct lfs_config *c, lfs_block_t block)
+static int HOST_IN_RAM_FUNC lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
     (void)(c);
     flash_range_erase(lfs_flash_offs(block), FLASH_SECTOR_SIZE);
@@ -76,11 +73,11 @@ static const struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 
-void __in_flash("lfs_init") lfs_init(void)
+void HOST_IN_FLASH_FUNC lfs_init(void)
 {
     extern char __flash_binary_end;
     (void)__flash_binary_end;
-    assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE));
+    assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= LFS_FLASH_OFFS));
     int err = lfs_mount(&lfs_volume, &cfg);
     if (err)
     {

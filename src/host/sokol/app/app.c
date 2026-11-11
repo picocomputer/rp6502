@@ -33,7 +33,8 @@
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
-#include "core/sys/com.h"
+#include "core/api/proc.h"
+#include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
@@ -385,8 +386,7 @@ bool app_boot_rom(const char *path)
         }
         rom_pump_close(&pump);
     }
-    vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
-    bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
      * stopped the machine, whether or not this boot succeeded, unless this
      * drop installed a ROM of the same name, which replaced it. */
@@ -447,16 +447,13 @@ int app_exit_code(void)
 
 void app_cleanup(void)
 {
-    /* sys_stop and sys_commit run before saudio, gfx and sg shut down, so every
+    /* proc_shutdown runs before saudio, gfx and sg shut down, so every
      * driver's stop hook still has the host under it. Reaching here without
      * app_quit_asked means the close button stopped a machine that was still
      * running, which is a break. */
     if (!app_quit_asked)
         app_broke = true;
-    if (app_broke)
-        sys_break_request();
-    sys_stop();
-    sys_commit();
+    proc_shutdown();
     /* app_break_leave does not return, so buffered output is flushed before
      * it. */
     if (app_broke && app_break_leave && app_break_asked && app_break_asked())

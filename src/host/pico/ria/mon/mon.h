@@ -49,6 +49,10 @@ void mon_response_confirm(mon_confirm_fn cb);
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);
 
-#define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break, nul_config, nul_config, nul_sst)
+#define MON_DRIVER DRIVER( \
+    INIT(mon_init)         \
+    TASK_FATFS(mon_task)   \
+    STOP(mon_stop)         \
+    BREAK(mon_break))
 
 #endif /* _RIA_MON_MON_H_ */

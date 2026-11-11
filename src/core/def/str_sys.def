@@ -16,7 +16,7 @@ X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 
 // ANSI reset commands
 X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
-X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h\33[3g")
+X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")
@@ -132,12 +132,12 @@ X(STR_6_COLON, "6:")
 X(STR_7_COLON, "7:")
 X(STR_8_COLON, "8:")
 X(STR_9_COLON, "9:")
-X(STR_ROM_COLON, "ROM:")
-X(STR_SAVE_COLON, "SAVE:")
-X(STR_CON_COLON, "CON:")
-X(STR_TTY_COLON, "TTY:")
-X(STR_NFC_COLON, "NFC:")
-X(STR_PCM_COLON, "PCM:")
+XR(STR_ROM_COLON, "ROM:")
+XR(STR_SAVE_COLON, "SAVE:")
+XR(STR_CON_COLON, "CON:")
+XR(STR_TTY_COLON, "TTY:")
+XR(STR_NFC_COLON, "NFC:")
+XR(STR_PCM_COLON, "PCM:")
 X(STR_SAVE_DEVICES, "CONPRNAUXNUL")
 X(STR_SAVE_PORTS, "COMLPT")
 
@@ -178,7 +178,7 @@ X(STR_MODEM_RESPONSE_8, "NO ANSWER")
 
 // UF2 flash progress, RAM-resident
 XR(STR_UF2_FLASHING, "\rFlash %d%%")
-XR(STR_UF2_FLASH_FAILED, "\n?Flashing UF2 failed, recover via BOOTSEL\n")
+XR(STR_UF2_FLASH_FAILED, "?Flashing UF2 failed, recover via BOOTSEL\n")
 
 // Disk utility progress (carriage-return overwrite)
 X(STR_DISK_PROG_FORMAT, "\rFormat %d%%")

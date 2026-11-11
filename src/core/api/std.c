@@ -7,9 +7,9 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
@@ -20,11 +20,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #define STD_FD_MAX 16
-#define STD_FD_STDIN 0
-#define STD_FD_STDOUT 1
-#define STD_FD_STDERR 2
 #define STD_FD_CON 3
 #define STD_FD_TTY 4
 #define STD_FD_FIRST_FREE 5
@@ -69,7 +67,7 @@ static std_fd_t *std_validate_fd(int fd)
     return &std_fd_pool[fd];
 }
 
-static void std_rln_callback(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC std_rln_callback(bool timeout, const char *buf)
 {
     (void)timeout;
     std_rln_active = false;
@@ -295,7 +293,7 @@ static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_
         if (!std_rln_active)
         {
             std_rln_active = true;
-            rln_read_line(std_rln_callback);
+            rln_read_line_no_history(std_rln_callback);
         }
         return STD_PENDING;
     }
@@ -315,7 +313,7 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_stdout_write(buf, count);
+    *bytes_written = (uint32_t)com_write(STDOUT_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -323,7 +321,7 @@ static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_stderr_write(buf, count);
+    *bytes_written = (uint32_t)com_write(STDERR_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -353,8 +351,8 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && com_writable(); i++)
-        com_write(buf[i]);
+    for (; i < count && com_cts(); i++)
+        com_putchar_raw(buf[i]);
     *bytes_written = i;
     return STD_OK;
 }
@@ -702,20 +700,20 @@ void std_stdin_eof(void)
         rln_read_cancel();
 }
 
-void std_task(void)
+void HOST_IN_RAM_FUNC std_task(void)
 {
     if (std_xram_addr < std_xram_end)
         std_xram_addr = pix_stream_xram(std_xram_addr, std_xram_end);
 }
 
-void HOST_IN_FLASH("std_init") std_init(void)
+void HOST_IN_FLASH_FUNC std_init(void)
 {
-    std_fd_pool[STD_FD_STDIN].is_open = true;
-    std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
-    std_fd_pool[STD_FD_STDOUT].is_open = true;
-    std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
-    std_fd_pool[STD_FD_STDERR].is_open = true;
-    std_fd_pool[STD_FD_STDERR].write = std_stderr_write;
+    std_fd_pool[STDIN_FILENO].is_open = true;
+    std_fd_pool[STDIN_FILENO].read = std_stdin_read;
+    std_fd_pool[STDOUT_FILENO].is_open = true;
+    std_fd_pool[STDOUT_FILENO].write = std_stdout_write;
+    std_fd_pool[STDERR_FILENO].is_open = true;
+    std_fd_pool[STDERR_FILENO].write = std_stderr_write;
     std_fd_pool[STD_FD_CON].is_open = true;
     std_fd_pool[STD_FD_CON].read = std_con_read;
     std_fd_pool[STD_FD_CON].write = std_con_write;
@@ -724,7 +722,7 @@ void HOST_IN_FLASH("std_init") std_init(void)
     std_fd_pool[STD_FD_TTY].write = std_tty_write;
 }
 
-void std_stop(void)
+void HOST_IN_FLASH_FUNC std_stop(void)
 {
     std_fd_active = NULL;
     std_xram_hi = 0;

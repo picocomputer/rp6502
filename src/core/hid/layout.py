@@ -300,19 +300,19 @@ def emit_h(path, words, layouts):
 
 
 def emit_c(path, words):
-    # A RIA's binary is copied to RAM at boot, so HOST_IN_FLASH is used to
-    # keep this table in flash on a RIA.
+    # On a RIA the table stays in flash, and layout_word runs from RAM with
+    # the rest of the keystroke path.
     out = [HEADER,
            '\n#include "layout_db.h"\n#include "core/hid/layout.h"\n'
            '\n#include "machine.h"\n\n',
-           'static const HOST_IN_FLASH("layout_db") uint16_t'
+           'static const HOST_IN_FLASH uint16_t'
            " layout_db_data[LAYOUT_DB_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         out.append(f"    {row},\n")
     out.append("};\n")
     out.append("""
-uint16_t layout_word(uint32_t index)
+uint16_t HOST_IN_RAM_FUNC layout_word(uint32_t index)
 {
     return index < LAYOUT_DB_WORDS ? layout_db_data[index] : 0;
 }

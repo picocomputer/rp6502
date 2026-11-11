@@ -4,10 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/xram.h"
 #include <stddef.h>
-
-volatile uint8_t *const xram = (uint8_t *)0x30000000u;
+#include <stdint.h>
 
 /* Link-time code generation emits calls to memcpy and memset after
  * unreferenced functions have been discarded, so the used attribute keeps

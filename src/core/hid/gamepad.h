@@ -160,7 +160,9 @@ bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
 void gamepad_sst_save(sst_cursor_t *c, unsigned flags);
 bool gamepad_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define GAMEPAD_DRIVER DRIVER(gamepad_init, nul_task, nul_task, nul_run, gamepad_stop, nul_break, \
-    nul_config, nul_config, SST(GPAD, 1, GAMEPAD_SST_SIZE, gamepad_sst_save, gamepad_sst_load))
+#define GAMEPAD_DRIVER DRIVER(                                          \
+    INIT(gamepad_init)                                                  \
+    STOP(gamepad_stop)                                                  \
+    SST(GPAD, 1, GAMEPAD_SST_SIZE, gamepad_sst_save, gamepad_sst_load))
 
 #endif /* _CORE_HID_GAMEPAD_H_ */

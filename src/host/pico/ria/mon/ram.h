@@ -29,6 +29,6 @@ bool ram_active(void);
 void ram_mon_binary(const char *args);
 void ram_mon_address(const char *args);
 
-#define RAM_DRIVER DRIVER(nul_init, ram_task, nul_task, nul_run, nul_stop, ram_break, nul_config, nul_config, nul_sst)
+#define RAM_DRIVER DRIVER(TASK_PUMPED(ram_task) BREAK(ram_break))
 
 #endif /* _RIA_MON_RAM_H_ */

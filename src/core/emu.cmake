@@ -35,8 +35,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/timer.c
     ${RP6502_SRC}/core/sys/config.c
     ${RP6502_SRC}/core/com/com.c
-    ${RP6502_SRC}/core/com/pick.c
-    ${RP6502_SRC}/core/com/tty.c
+    ${RP6502_SRC}/core/com/manifold.c
+    ${RP6502_SRC}/core/com/tio.c
+    ${RP6502_SRC}/core/com/rln.c
     ${RP6502_SRC}/core/wdc/bus.c
     ${RP6502_SRC}/core/wdc/phi2.c
     ${RP6502_SRC}/core/wdc/resb.c
@@ -68,7 +69,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/aud/bel.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
-    ${RP6502_SRC}/core/str/rln.c
     ${RP6502_SRC}/core/str/str.c
     ${RP6502_SRC}/core/vga/prog.c
     ${RP6502_SRC}/core/vga/canvas.c

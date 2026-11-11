@@ -28,6 +28,10 @@
 
 static bool suppress_char;
 
+/* Set from a chord that acted until its key comes up. Windows follows Alt-F4
+ * with a close request, which is cancelled while this is set. */
+static bool input_chord_held;
+
 /* A line break in the clipboard is pressed as Enter, which sends CR, the way a
  * terminal pastes. The clipboard ends lines in CRLF on Windows and LF
  * elsewhere. */
@@ -222,7 +226,13 @@ static void input_key(const sapp_event *e)
             vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;
         default:
-            if (vtkeys_key(hid, ctrl, shift, alt))
+        {
+            if (e->key_repeat && input_chord_held)
+                break;
+            vtkeys_result_t done = vtkeys_key(hid, ctrl, shift, alt);
+            if (done == VTKEYS_CHORD)
+                input_chord_held = true;
+            if (done)
                 break;
             if (ctrl && !alt)
             {
@@ -254,8 +264,12 @@ static void input_key(const sapp_event *e)
                 vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
         }
+        }
         break;
     }
+    case SAPP_EVENTTYPE_KEY_UP:
+        input_chord_held = false;
+        break;
     default:
         break;
     }
@@ -456,6 +470,10 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
         input_paste(sapp_get_clipboard_string());
+        break;
+    case SAPP_EVENTTYPE_QUIT_REQUESTED:
+        if (input_chord_held)
+            sapp_cancel_quit();
         break;
     default:
         break;

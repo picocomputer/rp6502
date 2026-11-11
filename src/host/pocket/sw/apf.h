@@ -12,6 +12,6 @@ void apf_task(void);
 
 void apf_refresh(void);
 
-#define APF_DRIVER DRIVER(apf_init, apf_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define APF_DRIVER DRIVER(INIT(apf_init) TASK_PUMPED(apf_task))
 
 #endif /* _HOST_POCKET_SW_APF_H_ */

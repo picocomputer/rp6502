@@ -96,7 +96,7 @@ if(TARGET rp6502_gen_assets)
     rp6502_add_test(unicode_bin
         SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c unicode_bin.c
             ${RP6502_VENDOR}/fatfs/ffunicode.c
-        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_GEN}
+        INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_GEN}
         DEFS UNICODE_OEM_BIN_PATH="${RP6502_ASSETS}/unicode_oem.bin")
     add_dependencies(test_unicode_bin rp6502_gen_c rp6502_gen_assets)
     set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
@@ -105,7 +105,7 @@ if(TARGET rp6502_gen_assets)
 
     rp6502_add_test(layout_bin
         SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c layout_bin.c
-        INCLUDES ${RP6502_SRC} ${RP6502_GEN}
+        INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_GEN}
         DEFS LAYOUT_DB_BIN_PATH="${RP6502_ASSETS}/layout_db.bin")
     add_dependencies(test_layout_bin rp6502_gen_c rp6502_gen_assets)
 endif()
@@ -138,6 +138,8 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(NAME exec_long COMMAND argv.py)
     rp6502_add_script_test(NAME canvas COMMAND canvas.py)
     rp6502_add_script_test(NAME chain COMMAND chain.py)
+    rp6502_add_script_test(NAME chain_quit COMMAND chain.py)
+    rp6502_add_script_test(NAME chain_break COMMAND chain.py)
     rp6502_add_script_test(NAME clk COMMAND clk.py)
     rp6502_add_script_test(NAME eof_empty COMMAND stdio.py)
     rp6502_add_script_test(NAME seed COMMAND seed.py)

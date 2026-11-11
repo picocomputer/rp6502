@@ -23,6 +23,7 @@
 #include "class/cdc/serial/cp210x.h"
 #include "class/cdc/serial/ch34x.h"
 #include "class/cdc/serial/pl2303.h"
+#include "machine.h"
 
 // in our usbh.c: fail the enumeration of a device whose set_config failed
 void usbh_driver_set_config_failed(uint8_t dev_addr);
@@ -295,7 +296,7 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t get_idx_by_ptr(cdch_interface_t* p_c
   return (uint8_t) (p_cdc - cdch_data);
 }
 
-static inline uint8_t get_idx_by_ep_addr(uint8_t daddr, uint8_t ep_addr) {
+static inline uint8_t HOST_IN_RAM_FUNC get_idx_by_ep_addr(uint8_t daddr, uint8_t ep_addr) {
   for(uint8_t i=0; i<CFG_TUH_CDC; i++) {
     cdch_interface_t * p_cdc = &cdch_data[i];
     if ((p_cdc->daddr == daddr) &&
@@ -453,13 +454,13 @@ bool tuh_cdc_get_line_coding_local(uint8_t idx, cdc_line_coding_t * line_coding)
 //--------------------------------------------------------------------+
 
 // only tuh_cdc_write_flush() and cdch_xfer_cb() start a transfer
-uint32_t tuh_cdc_write(uint8_t idx, void const * buffer, uint32_t bufsize) {
+uint32_t HOST_IN_RAM_FUNC tuh_cdc_write(uint8_t idx, void const * buffer, uint32_t bufsize) {
   cdch_interface_t * p_cdc = get_itf(idx);
   TU_VERIFY(p_cdc);
   return tu_fifo_write_n(&p_cdc->stream.tx.ff, buffer, (uint16_t) tu_min32(bufsize, UINT16_MAX));
 }
 
-static uint32_t cdch_write_xfer(cdch_interface_t *p_cdc) {
+static uint32_t HOST_IN_RAM_FUNC cdch_write_xfer(cdch_interface_t *p_cdc) {
   const uint32_t count = tu_edpt_stream_write_xfer(&p_cdc->stream.tx);
   if (count > 0) {
     p_cdc->tx_len = (uint8_t) count;
@@ -467,7 +468,7 @@ static uint32_t cdch_write_xfer(cdch_interface_t *p_cdc) {
   return count;
 }
 
-uint32_t tuh_cdc_write_flush(uint8_t idx) {
+uint32_t HOST_IN_RAM_FUNC tuh_cdc_write_flush(uint8_t idx) {
   cdch_interface_t * p_cdc = get_itf(idx);
   TU_VERIFY(p_cdc);
   return cdch_write_xfer(p_cdc);
@@ -490,7 +491,7 @@ uint32_t tuh_cdc_write_available(uint8_t idx) {
 // Read
 //--------------------------------------------------------------------+
 
-uint32_t tuh_cdc_read (uint8_t idx, void * buffer, uint32_t bufsize) {
+uint32_t HOST_IN_RAM_FUNC tuh_cdc_read (uint8_t idx, void * buffer, uint32_t bufsize) {
   cdch_interface_t * p_cdc = get_itf(idx);
   TU_VERIFY(p_cdc);
   return tu_edpt_stream_read(&p_cdc->stream.rx, buffer, bufsize);
@@ -676,7 +677,7 @@ void cdch_close(uint8_t daddr) {
   }
 }
 
-bool cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes) {
+bool HOST_IN_RAM_FUNC cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes) {
   uint8_t const idx = get_idx_by_ep_addr(daddr, ep_addr);
   cdch_interface_t *p_cdc = get_itf(idx);
   TU_ASSERT(p_cdc);
