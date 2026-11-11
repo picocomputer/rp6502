@@ -8,6 +8,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "core/com/tio.h"
+#include "core/str/rln.h"
 #include "core/str/str.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
@@ -371,7 +372,7 @@ void HOST_IN_FLASH_FUNC ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(COM_SOURCE_ANY, RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        mbuf_read(rln_line_source(), RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }

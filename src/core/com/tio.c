@@ -396,13 +396,10 @@ static size_t tio_cat(char *buf, size_t n, const char *s)
     return n + len;
 }
 
-void tio_read_start(uint8_t length)
+/* Starts a read with charge, a COM_TERM_ bit or 0, as the terminal in charge. */
+static void tio_start(uint8_t length, uint8_t charge)
 {
-    /* A question longer than the room left in the console's queue would go
-     * out ahead of the end of what a program printed. The flush can end a
-     * telnet session, so the terminal in charge is looked at after it. */
-    com_flush();
-    tio_charge = manifold_term_in_charge();
+    tio_charge = charge;
     tio_probe = length > 0 &&
                 (tio_charge == COM_TERM_UART ||
                  (tio_charge == COM_TERM_TEL && !(tio_marks & COM_TERM_TEL)));
@@ -429,6 +426,20 @@ void tio_read_start(uint8_t length)
         n = tio_cat(burst, n, TIO_SIZE);
     n = tio_cat(burst, n, TIO_SHOW);
     manifold_write_to(tio_charge, burst, n);
+}
+
+void tio_read_start(uint8_t length)
+{
+    /* A question longer than the room left in the console's queue would go
+     * out ahead of the end of what a program printed. The flush can end a
+     * telnet session, so the terminal in charge is looked at after it. */
+    com_flush();
+    tio_start(length, manifold_term_in_charge());
+}
+
+void tio_read_start_unasked(void)
+{
+    tio_start(0, 0);
 }
 
 bool tio_ready(void)

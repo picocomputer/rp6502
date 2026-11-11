@@ -503,6 +503,57 @@ UTEST(rln, with_no_terminal_in_charge_nothing_is_asked)
     manifold_set_tx_tap(NULL);
 }
 
+static com_source_t line_src;
+
+static void got_script_line(bool timeout, const char *buf)
+{
+    (void)timeout;
+    lines++;
+    strncpy(last, buf, sizeof last - 1);
+    last[sizeof last - 1] = 0;
+    line_src = rln_line_source();
+}
+
+UTEST(rln, a_script_read_asks_nothing)
+{
+    fresh();
+    capture();
+    screen[0] = 0;
+    manifold_set_term_out(screen_out);
+    lines = 0;
+    rln_read_line_script(got_script_line, 1000);
+    wire("$400 $CB981D36\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "$400 $CB981D36");
+    ASSERT_TRUE(strstr(shown, "\33[6n") == NULL);
+    ASSERT_TRUE(strstr(shown, "\33[>c") == NULL);
+    ASSERT_TRUE(strstr(screen, "\33[6n") == NULL);
+    screen_done();
+}
+
+UTEST(rln, the_line_source_is_the_source_of_the_enter)
+{
+    fresh();
+    lines = 0;
+    rln_read_line_script(got_script_line, 1000);
+    manifold_keyboard_push("ab", 2);
+    tasks();
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+    ASSERT_EQ(line_src, COM_SOURCE_UART);
+    rln_read_line_script(got_script_line, 1000);
+    manifold_keyboard_push("cd\r", 3);
+    tasks();
+    ASSERT_EQ(lines, 2);
+    ASSERT_EQ(line_src, COM_SOURCE_KEYBOARD);
+    rln_read_line_script(got_script_line, 1000);
+    rln_poke("ef\r");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "ef");
+    ASSERT_EQ(line_src, COM_SOURCE_ANY);
+}
+
 UTEST(rln, a_poke_of_an_empty_string_ends_the_line)
 {
     editing();

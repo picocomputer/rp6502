@@ -71,6 +71,7 @@ const char *rln_line(void)
     return rln_buf;
 }
 static rln_read_callback_t rln_callback;
+static com_source_t rln_line_src;
 static timer_mach_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
@@ -1036,6 +1037,7 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     if (src == RLN_POKE)
         rln_overwrite = true;
     rln_action_taken = false;
+    rln_line_src = src;
     if (len == 1)
         rln_dispatch_C0(&rln_line_ends[src], (uint8_t)item[0]);
     else if (item[1] == '[')
@@ -1157,7 +1159,7 @@ static void rln_end_wait(void)
 
 /* ----- Top-level task / driver hooks ----- */
 
-void rln_read_line(rln_read_callback_t callback)
+static void rln_start(rln_read_callback_t callback)
 {
     rln_idle_timeout_ms = 0;
     rln_skip_history = false;
@@ -1176,13 +1178,20 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_last_render_buflen = 0;
     rln_held_len = 0;
+    rln_line_src = COM_SOURCE_ANY;
+}
+
+void rln_read_line(rln_read_callback_t callback)
+{
+    rln_start(callback);
     tio_read_start(rln_max_length);
 }
 
-void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
+void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
-    rln_read_line(callback);
+    rln_start(callback);
+    tio_read_start_unasked();
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
 }
@@ -1191,6 +1200,11 @@ void rln_read_line_no_history(rln_read_callback_t callback)
 {
     rln_read_line(callback);
     rln_skip_history = true;
+}
+
+com_source_t rln_line_source(void)
+{
+    return rln_line_src;
 }
 
 void rln_read_cancel(void)
@@ -1212,6 +1226,7 @@ bool rln_read_flush(void)
     }
     if (!rln_buflen)
         return false;
+    rln_line_src = COM_SOURCE_ANY;
     rln_finish_line(false);
     return true;
 }
@@ -1233,7 +1248,10 @@ void HOST_IN_RAM_FUNC rln_task(void)
         rln_item(src, item, len);
     }
     if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
+    {
+        rln_line_src = COM_SOURCE_ANY;
         rln_complete(true);
+    }
 }
 
 void HOST_IN_FLASH_FUNC rln_init(void)
@@ -1366,6 +1384,7 @@ void rln_poke(const char *str)
                 rln_sync_cursor_to(target);
                 rln_poke_emit_caret(target, (char)ch);
             }
+            rln_line_src = RLN_POKE;
             rln_finish_line(ch == '\r');
             break;
         }

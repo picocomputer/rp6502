@@ -329,7 +329,7 @@ static void HOST_IN_FLASH_FUNC fil_upload_rx_mbuf(bool timeout)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
+        rln_read_line_script(fil_upload_dispatch, FIL_TIMEOUT_MS);
     }
     else
         fil_state = FIL_IDLE;
@@ -370,7 +370,7 @@ static void HOST_IN_FLASH_FUNC fil_upload_dispatch(bool timeout,
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(COM_SOURCE_ANY, FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
+        mbuf_read(rln_line_source(), FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
@@ -396,7 +396,7 @@ void HOST_IN_FLASH_FUNC fil_mon_upload(const char *args)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
+    rln_read_line_script(fil_upload_dispatch, FIL_TIMEOUT_MS);
 }
 
 void HOST_IN_FLASH_FUNC fil_mon_unlink(const char *args)

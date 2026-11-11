@@ -199,6 +199,7 @@ core/str/rln.c rln_lastkey_action: the RLN chunk
 core/str/rln.c rln_lastkey_buf: the RLN chunk
 core/str/rln.c rln_lastkey_len: the RLN chunk
 core/str/rln.c rln_line_ends: the RLN chunk
+core/str/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
 core/str/rln.c rln_max_length: the RLN chunk
 core/str/rln.c rln_overwrite: the RLN chunk
 core/str/rln.c rln_prompt_col: the RLN chunk

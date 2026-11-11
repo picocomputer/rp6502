@@ -86,6 +86,10 @@ bool tio_idle(void);
  * with no prompt column. */
 void tio_read_start(uint8_t length);
 
+/* Starts a read that asks no terminal, as with none in charge: geometry is
+ * ready at once with no prompt column. */
+void tio_read_start_unasked(void);
+
 /* True once geometry is ready for the read. */
 bool tio_ready(void);
 
