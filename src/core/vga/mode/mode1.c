@@ -61,7 +61,7 @@ typedef struct
 } mode1_16bpp_data_t;
 
 static const uint8_t *
-mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
+mode1_scanline_to_data(int16_t scanline_id, int16_t width, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
     const int16_t height = config->height_chars * font_height;
@@ -73,6 +73,12 @@ mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_
             *row -= ((*row - height) / height + 1) * height;
     }
     if (*row < 0 || *row >= height || config->width_chars < 1 || height < 1)
+        return NULL;
+    // A layer that misses the scanline across, like one that misses it down,
+    // draws nothing. mode1_fill_cols counts on it: unwrapped, a column past
+    // the right of the cells would leave it a negative run.
+    if (!config->x_wrap &&
+        (config->x_pos_px >= width || config->x_pos_px + config->width_chars * 8 <= 0))
         return NULL;
     const uint32_t sizeof_row = (uint32_t)config->width_chars * cell_size;
     const uint32_t sizeof_bitmap = (uint32_t)config->height_chars * sizeof_row;
@@ -148,7 +154,7 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const mode1_1bpp_data_t *row_data =
-        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_1bpp_data_t), font_height, &row);
+        (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_1bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode1_get_palette(config, 1);
@@ -207,7 +213,7 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const mode1_4bpp_data_t *row_data =
-        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bpp_data_t), font_height, &row);
+        (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_4bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode1_get_palette(config, 4);
@@ -270,7 +276,7 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const mode1_4bppr_data_t *row_data =
-        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bppr_data_t), font_height, &row);
+        (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_4bppr_data_t), font_height, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode1_get_palette(config, 4);
@@ -333,7 +339,7 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const mode1_8bpp_data_t *row_data =
-        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), font_height, &row);
+        (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_8bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode1_get_palette(config, 8);
@@ -396,7 +402,7 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     mode1_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const mode1_16bpp_data_t *row_data =
-        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), font_height, &row);
+        (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_16bpp_data_t), font_height, &row);
     if (!row_data)
         return false;
     const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;

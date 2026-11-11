@@ -30,11 +30,12 @@ typedef struct
 
 static uint16_t mode2_options[VGA_PROG_MAX][SCANVIDEO_PLANE_COUNT];
 
-// tile_h is the tile's on-screen height: tile_size, less any Y trim. A trimmed
-// height need not be a power of two, so the row within the tile needs a modulo
-// rather than a mask.
+// tile_w and tile_h are the tile's on-screen size: tile_size, less any X or Y
+// trim. A trimmed height need not be a power of two, so the row within the
+// tile needs a modulo rather than a mask.
 static const uint8_t *
-mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, int16_t tile_h, int16_t *row)
+mode2_scanline_to_data(int16_t scanline_id, int16_t width, mode2_config_t *config,
+                       int16_t tile_w, int16_t tile_h, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
     const int16_t height = config->height_tiles * tile_h;
@@ -46,6 +47,12 @@ mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, int16_t tile
             *row -= ((*row - height) / height + 1) * height;
     }
     if (*row < 0 || *row >= height || config->width_tiles < 1 || height < 1)
+        return NULL;
+    // A layer that misses the scanline across, like one that misses it down,
+    // draws nothing. mode2_fill_cols counts on it: unwrapped, a column past
+    // the right of the map would leave it a negative run.
+    if (!config->x_wrap &&
+        (config->x_pos_px >= width || config->x_pos_px + config->width_tiles * tile_w <= 0))
         return NULL;
     const uint32_t sizeof_row = (uint32_t)config->width_tiles;
     const uint32_t sizeof_bitmap = (uint32_t)config->height_tiles * sizeof_row;
@@ -389,7 +396,8 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, tile_size - y_trim, &row);
+        mode2_scanline_to_data(scanline_id, width, config, tile_size - x_trim,
+                               tile_size - y_trim, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode2_get_palette(config, 1);
@@ -408,7 +416,8 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, tile_size - y_trim, &row);
+        mode2_scanline_to_data(scanline_id, width, config, tile_size - x_trim,
+                               tile_size - y_trim, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode2_get_palette(config, 2);
@@ -427,7 +436,8 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, tile_size - y_trim, &row);
+        mode2_scanline_to_data(scanline_id, width, config, tile_size - x_trim,
+                               tile_size - y_trim, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode2_get_palette(config, 4);
@@ -445,7 +455,8 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, tile_size - y_trim, &row);
+        mode2_scanline_to_data(scanline_id, width, config, tile_size - x_trim,
+                               tile_size - y_trim, &row);
     if (!row_data)
         return false;
     const uint16_t *palette = mode2_get_palette(config, 8);
