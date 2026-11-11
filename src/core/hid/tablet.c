@@ -180,6 +180,60 @@ static int32_t HOST_IN_RAM_FUNC tablet_axis_value(const uint8_t *r, uint16_t len
     return (int32_t)hid_extract_bits(r, len, off, size);
 }
 
+/* An absolute device's report to canvas pixels, rounded down, and false for a
+ * touch off the canvas. A touchscreen covers the display, so a touch is placed
+ * on the picture and the canvas is found in it: the canvas fills the picture's
+ * width and is centred down it. A pen's tablet keeps its shape, so a circle
+ * traced on it is a circle on the canvas: one scale serves both axes, the
+ * largest that still reaches every pixel, with the canvas centred on the
+ * tablet and the tablet's spare strip held at the canvas's edge. */
+static bool HOST_IN_RAM_FUNC tablet_place(const tablet_connection_t *conn,
+                                          int32_t rx, int32_t ry, int cw, int ch)
+{
+    const int64_t xs = conn->x_max - conn->x_min;
+    const int64_t ys = conn->y_max - conn->y_min;
+    if (xs <= 0 || ys <= 0)
+        return true;
+    const int64_t dx = rx - conn->x_min;
+    const int64_t dy = ry - conn->y_min;
+    int64_t x, y;
+    if (conn->touchscreen)
+    {
+        /* The logical range is xs + 1 by ys + 1 cells across the display,
+         * so the last cell is still on it. The canvas is dw * ch / cw lines
+         * of the display's dh, centred. */
+        int dw, dh;
+        vga_display_size(&dw, &dh);
+        const int64_t xn = xs + 1, yn = ys + 1;
+        x = dx * cw / xn;
+        int64_t num = 2 * dy * dh * cw - ((int64_t)dh * cw - (int64_t)ch * dw) * yn;
+        if (num < 0)
+            return false;
+        y = num / (2 * yn * dw);
+        if (y >= ch)
+            return false;
+    }
+    else
+    {
+        /* The tablet's width and height, from its physical extent where the
+         * descriptor gives one, else from its logical extent. */
+        const int64_t pw = conn->x_phys > 0 ? conn->x_phys : xs;
+        const int64_t ph = conn->y_phys > 0 ? conn->y_phys : ys;
+        /* Canvas pixels per unit of tablet, kn / kd, the width's or the
+         * height's, whichever is larger. */
+        int64_t kn = cw, kd = pw;
+        if ((int64_t)ch * pw > (int64_t)cw * ph)
+            kn = ch, kd = ph;
+        int64_t nx = (2 * dx - xs) * pw * kn + (int64_t)cw * xs * kd;
+        int64_t ny = (2 * dy - ys) * ph * kn + (int64_t)ch * ys * kd;
+        x = nx < 0 ? 0 : nx / (2 * xs * kd);
+        y = ny < 0 ? 0 : ny / (2 * ys * kd);
+    }
+    tablet_x = (int16_t)(x > cw - 1 ? cw - 1 : x);
+    tablet_y = (int16_t)(y > ch - 1 ? ch - 1 : y);
+    return true;
+}
+
 void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
 {
     tablet_connection_t *conn = tablet_get_connection_by_slot(slot);
@@ -200,6 +254,9 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
     int cw, ch;
     vga_canvas_size(&cw, &ch);
 
+    /* A touch off the canvas, on the band of a touchscreen's display the
+     * canvas does not fill, is no touch at all. */
+    bool on_canvas = true;
     if (conn->x_relative)
     {
         tablet_sub_x += (int16_t)hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
@@ -232,12 +289,13 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
     {
         int32_t rx = tablet_axis_value(report_data, report_data_len, conn->x_offset, conn->x_size, conn->x_min);
         int32_t ry = tablet_axis_value(report_data, report_data_len, conn->y_offset, conn->y_size, conn->y_min);
-        int32_t xs = conn->x_max - conn->x_min;
-        int32_t ys = conn->y_max - conn->y_min;
-        if (xs > 0)
-            tablet_x = (int16_t)(((int64_t)(rx - conn->x_min) * (cw - 1)) / xs);
-        if (ys > 0)
-            tablet_y = (int16_t)(((int64_t)(ry - conn->y_min) * (ch - 1)) / ys);
+        on_canvas = tablet_place(conn, rx, ry, cw, ch);
+    }
+    if (!on_canvas)
+    {
+        tablet_clear_contact(0);
+        tablet_write_xram();
+        return;
     }
     if (tablet_x < 0)
         tablet_x = 0;

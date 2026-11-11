@@ -84,6 +84,10 @@ typedef struct tablet_connection
     uint8_t pan_size;
     uint16_t tip_offset;     // Digitizer Tip Switch, HID_ABSENT if absent
     uint16_t inrange_offset; // Digitizer In Range, HID_ABSENT if absent
+    /* An absolute device's physical width and height in the descriptor's
+     * units, or 0 where it declares none, for its shape. */
+    int32_t x_phys, y_phys;
+    bool touchscreen; // laid over the display, rather than a pen's tablet
 } tablet_connection_t;
 
 void tablet_init(void);

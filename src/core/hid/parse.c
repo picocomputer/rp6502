@@ -25,6 +25,9 @@ typedef struct
     uint8_t size;       // field size in bits
     int32_t logical_min;
     int32_t logical_max;
+    /* Both 0 when the descriptor gives no physical extent. */
+    int32_t physical_min;
+    int32_t physical_max;
     uint8_t input_flags; // the Input item's flags: bit 1 variable, bit 2 relative
 } hid_field_t;
 
@@ -38,6 +41,8 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
     uint16_t usage_page = 0;
     int32_t logical_min = 0;
     int32_t logical_max = 0;
+    int32_t physical_min = 0;
+    int32_t physical_max = 0;
     uint32_t report_size = 0;
     uint32_t report_count = 0;
     uint16_t report_id = 0xFFFF;
@@ -91,6 +96,12 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                 break;
             case 2:
                 logical_max = sval;
+                break;
+            case 3:
+                physical_min = sval;
+                break;
+            case 4:
+                physical_max = sval;
                 break;
             case 7:
                 report_size = val;
@@ -181,6 +192,8 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                         .size = report_size,
                         .logical_min = logical_min,
                         .logical_max = logical_max,
+                        .physical_min = physical_min,
+                        .physical_max = physical_max,
                         .input_flags = val,
                     };
 
@@ -360,10 +373,18 @@ static void hid_fill_tablet(tablet_connection_t *tablet, const hid_field_t *f)
     {
     case 0x30:
         if (!tablet->x_size)
+        {
             tablet->x_relative = (f->input_flags & 0x04) != 0;
+            tablet->touchscreen = f->app_usage == HID_APP_TOUCH;
+            tablet->x_phys = f->physical_max - f->physical_min;
+        }
         hid_locate_range(&tablet->x_offset, &tablet->x_size, &tablet->x_min, &tablet->x_max, f);
         break;
-    case 0x31: hid_locate_range(&tablet->y_offset, &tablet->y_size, &tablet->y_min, &tablet->y_max, f); break;
+    case 0x31:
+        if (!tablet->y_size)
+            tablet->y_phys = f->physical_max - f->physical_min;
+        hid_locate_range(&tablet->y_offset, &tablet->y_size, &tablet->y_min, &tablet->y_max, f);
+        break;
     case 0x38: hid_locate(&tablet->wheel_offset, &tablet->wheel_size, f); break;
     }
 }
