@@ -16,6 +16,7 @@
 #include "ria/api/proc.h"
 #include "core/api/std.h"
 #include "core/com/com.h"
+#include "core/com/tio.h"
 #include "ria/api/tim.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
@@ -75,7 +76,7 @@
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,     \
     TABLET_DRIVER,                                   \
-    MBUF_DRIVER, RLN_DRIVER, FIL_DRIVER,              \
+    MBUF_DRIVER, TIO_DRIVER, RLN_DRIVER, FIL_DRIVER,  \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \
     DIR_DRIVER, CLK_DRIVER,                          \
     DRIVE_DRIVER, RAM_DRIVER,                        \

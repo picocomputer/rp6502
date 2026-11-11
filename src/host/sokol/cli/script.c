@@ -26,6 +26,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
 #include "core/wdc/via.h"
@@ -1845,8 +1846,8 @@ static bool script_settle(void)
         return script_error("timed out waiting for the program to exit");
     case SCRIPT_EOF:
         /* The moment console.c ends a piped stdin: a read is waiting and
-         * everything typed has been taken, so no typed byte is lost. */
-        if (std_stdin_waiting() && manifold_input_idle())
+         * every whole item typed has been taken, so no typed key is lost. */
+        if (std_stdin_waiting() && tio_idle())
         {
             std_stdin_eof();
             break;

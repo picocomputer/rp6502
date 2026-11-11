@@ -22,6 +22,7 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
+#include "core/com/tio.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
@@ -47,7 +48,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-// rln_get_term_height falls back to 24 rows when no other height is
+// tio_get_term_height falls back to 24 rows when no other height is
 // available, and one row is kept for the prompt.
 static int mon_more_rows_left = 23;
 static int mon_response_col;
@@ -83,7 +84,7 @@ static void HOST_IN_FLASH_FUNC mon_reset(const char *args)
     (void)args;
     arg_clear();
     fs_save_start();
-    rln_cursor_default();
+    tio_cursor_default();
     com_line_set_clean(); /* after the command line, and the shape moves no cursor */
     sys_run();
 }
@@ -176,7 +177,7 @@ static void HOST_IN_FLASH_FUNC mon_enter(bool timeout, const char *buf)
     assert(!timeout);
     if (mon_needs_read_line) // cancelled
         return;
-    mon_more_rows_left = rln_get_term_height() - 1;
+    mon_more_rows_left = tio_get_term_height() - 1;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
     const char *args = buf;
@@ -202,7 +203,7 @@ static void HOST_IN_FLASH_FUNC mon_confirm_enter(bool timeout, const char *buf)
         mon_confirm_cb = NULL;
         return;
     }
-    mon_more_rows_left = rln_get_term_height() - 1;
+    mon_more_rows_left = tio_get_term_height() - 1;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
     mon_confirm_fn cb = mon_confirm_cb;
@@ -402,10 +403,10 @@ static void HOST_IN_FLASH_FUNC mon_break_response(void)
     mon_response_indent_pending = 0;
     mon_response_width_aware = false;
     mon_response_next_loaded = false;
-    mon_more_rows_left = rln_get_term_height() - 1;
+    mon_more_rows_left = tio_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
-        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1, rln_get_term_width());
+        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1, tio_get_term_width());
         mon_clear_slot(i);
     }
 }
@@ -463,7 +464,7 @@ static void HOST_IN_FLASH_FUNC mon_more(void)
     case MON_MORE_END:
         com_printf_utf8(S(STR_MON_MORE_ERASE));
         com_line_set_clean(); /* --More-- starts a line and erases back to it */
-        mon_more_rows_left = rln_get_term_height() - 1;
+        mon_more_rows_left = tio_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
     default: // MON_MORE_WAIT, MON_MORE_WAIT_ESC, MON_MORE_WAIT_CSI
@@ -526,7 +527,7 @@ static void HOST_IN_RAM_FUNC mon_step(void)
     {
         mon_response_next[0] = 0;
         mon_response_state[0] = (mon_response_fn_list[0])(
-            mon_response_next, MON_RESPONSE_BUF_SIZE, mon_response_state[0], rln_get_term_width());
+            mon_response_next, MON_RESPONSE_BUF_SIZE, mon_response_state[0], tio_get_term_width());
         mon_response_next_loaded = (mon_response_next[0] != 0);
         if (mon_response_state[0] < 0)
             mon_next_response();
@@ -541,7 +542,7 @@ static void HOST_IN_RAM_FUNC mon_step(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
-        int width = rln_get_term_width();
+        int width = tio_get_term_width();
         char c;
         while ((c = mon_response_cur[mon_response_pos]) && com_cts())
         {
@@ -675,8 +676,8 @@ static void HOST_IN_RAM_FUNC mon_step(void)
             rln_read_line(mon_enter);
         return;
     }
-    // A Ctrl-C cancels the line once no input is pending.
-    if (com_peekchar(COM_SOURCE_ANY) < 0 && ria_get_sigint())
+    // A Ctrl-C cancels the line once no whole item is waiting.
+    if (tio_idle() && ria_get_sigint())
     {
         mon_needs_prompt = true;
         mon_needs_read_line = true;

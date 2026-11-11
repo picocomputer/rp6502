@@ -17,6 +17,7 @@
 #include "core/api/tim.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -60,7 +61,7 @@
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
     STD_DRIVER, FS_DRIVER,                              \
     AUD_DRIVER,                                         \
-    RLN_DRIVER, TERM_DRIVER,                            \
+    TIO_DRIVER, RLN_DRIVER, TERM_DRIVER,                \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \

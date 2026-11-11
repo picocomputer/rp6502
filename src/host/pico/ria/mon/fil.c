@@ -7,6 +7,7 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/sys/ria.h"
 #include "core/com/com.h"
 #include "core/sys/sys.h"
@@ -96,7 +97,7 @@ bool HOST_IN_FLASH_FUNC fil_drive_exists(const char *args)
 static int HOST_IN_FLASH_FUNC fil_paginate(char *buf, size_t buf_size, int state,
                                                            const char *src)
 {
-    size_t width = rln_get_term_width();
+    size_t width = tio_get_term_width();
     if (width > buf_size - 2)
         width = buf_size - 2;
     size_t total = strlen(src);
@@ -231,7 +232,7 @@ static int HOST_IN_FLASH_FUNC fil_dir_entry_response(char *buf,
     if (fno.fattrib & (AM_HID | AM_SYS))
         return 0;
     // Each prefix, " <DIR> ", "%6u " or "%3u.%u%c ", is 7 characters wide.
-    int name_max = (int)rln_get_term_width() - 7;
+    int name_max = (int)tio_get_term_width() - 7;
     if (name_max > (int)buf_size - 9)
         name_max = (int)buf_size - 9;
     if (fno.fattrib & AM_DIR)

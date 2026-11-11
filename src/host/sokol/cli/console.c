@@ -21,6 +21,7 @@
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
 #include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/vga/vga_emu.h"
 #include "osal/console.h"
 #include <stdbool.h>
@@ -44,10 +45,11 @@ static size_t stdin_rx(char *buf, size_t max)
     }
     if (n || !os_console_ended())
         return n;
-    /* End of file is reported only while a read is outstanding and the input
-     * rings are empty, because std_stdin_eof gives that read up and bytes
-     * still queued would never reach it. */
-    if (!stdin_closed && std_stdin_waiting() && manifold_input_idle())
+    /* End of file is reported only while a read is outstanding and no whole
+     * item is waiting, because std_stdin_eof gives that read up and items
+     * still queued would never reach it. A sequence the input ended inside,
+     * such as a lone ESC, is no item and is left where it is. */
+    if (!stdin_closed && std_stdin_waiting() && tio_idle())
     {
         stdin_closed = true;
         std_stdin_eof();
@@ -85,7 +87,7 @@ bool console_open(void)
 
 void console_idle(void)
 {
-    if (!std_stdin_waiting() || !manifold_input_idle())
+    if (!std_stdin_waiting() || !tio_idle())
         return;
     fflush(stdout);
     os_console_wait(VGA_FRAME_NS);

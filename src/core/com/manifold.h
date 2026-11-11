@@ -34,13 +34,28 @@ void manifold_putchar_raw(char c);
  * newlines going out as CR LF. Writes what fits and returns the count. */
 size_t manifold_write(int fd, const char *buf, size_t n);
 
+/* Bytes as they are, to the terminals in the COM_TERM_ bitmap to. They are
+ * queued behind everything written before them and ahead of everything
+ * written after, waiting for room as manifold_putchar does. A write to fewer
+ * than every terminal does not move the clean-line state. */
+void manifold_write_to(uint8_t to, const char *buf, size_t n);
+
+/* The terminal in charge, as its COM_TERM_ bit: telnet while a session is
+ * logged in, otherwise the UART. */
+uint8_t manifold_term_in_charge(void);
+
+/* The COM_TERM_ bits of the terminals connected. The UART's is always set. */
+uint8_t manifold_terms_connected(void);
+
 /* Returns once every byte queued so far has gone out. */
 void manifold_flush(void);
 
+/* The UART's queue holds MANIFOLD_RING_SIZE bytes, which machine.h sets. */
 size_t manifold_uart_read(char *buf, size_t length);
-int manifold_uart_peek(void);
+int manifold_uart_peek(size_t offset);
 void manifold_uart_clear(void);
-#define MANIFOLD_UART_SOURCE {.read = manifold_uart_read, .peek = manifold_uart_peek, .clear = manifold_uart_clear, .dwell_us = COM_DWELL_US}
+#define MANIFOLD_UART_SOURCE {.read = manifold_uart_read, .peek = manifold_uart_peek, \
+    .clear = manifold_uart_clear, .dwell_us = COM_DWELL_US, .size = MANIFOLD_RING_SIZE}
 
 /* Terminal: the terminal emulator's link to the console. */
 
@@ -70,10 +85,8 @@ void manifold_uart_push(const char *s, size_t n);
 size_t manifold_keyboard_free(void);
 
 size_t manifold_keyboard_read(char *buf, size_t length);
+int manifold_keyboard_peek(size_t offset);
 void manifold_keyboard_clear(void);
-
-/* Nothing is queued: not in either ring, and no terminal reply. */
-bool manifold_input_idle(void);
 
 /* The host terminal: tx is given every byte the console sends, and
  * manifold_task reads rx into the UART ring. A console wire is a person

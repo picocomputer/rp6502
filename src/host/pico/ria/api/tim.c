@@ -8,7 +8,7 @@
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
 #include "core/sys/config.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "machine.h"
@@ -283,7 +283,7 @@ int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
         if (len > cell)
             cell = len;
     }
-    unsigned w = rln_get_term_width();
+    unsigned w = tio_get_term_width();
     if (w > buf_size - 2)
         w = buf_size - 2;
     unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;

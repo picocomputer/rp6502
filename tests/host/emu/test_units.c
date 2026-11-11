@@ -17,7 +17,7 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/term/term.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -237,9 +237,9 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
     ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
 }
 
-/* With no override, no NAWS and no CPR, the line editor takes its size from
+/* With no pinned size, no NAWS and no CPR, the size is that of
  * the terminal the canvas holds. */
-UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
+UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
 {
     static const struct
     {
@@ -254,14 +254,14 @@ UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
         {vga_canvas_640_400, 80, 25},
     };
     sys_init();
-    rln_set_term_width(0);
-    rln_set_term_height(0);
-    rln_set_naws_size(0, 0);
+    tio_set_term_width(0);
+    tio_set_term_height(0);
+    tio_set_naws_size(0, 0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
-        ASSERT_EQ(rln_get_term_width(), want[i].cols);
-        ASSERT_EQ(rln_get_term_height(), want[i].rows);
+        ASSERT_EQ(tio_get_term_width(), want[i].cols);
+        ASSERT_EQ(tio_get_term_height(), want[i].rows);
     }
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }

@@ -10,8 +10,8 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/com/com.h"
+#include "core/com/tio.h"
 #include "core/sys/driver.h"
-#include "core/vga/vga.h"
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
@@ -24,8 +24,7 @@
 ** inside a wider form by setting rln_max_length to reserve only the
 ** cells rln is allowed to own.
 **
-** Runtime invariants (the handshake in rln_read_line is exempt — it
-** uses \33[999;999H inside a DECSC/DECRC bracket to elicit CPR2):
+** Runtime invariants:
 **   - No absolute Y cursor movement; no writes past rln_max_length.
 **   - The wrapping input is one logical line: rln writes it continuously
 **     and lets the terminal autowrap (the standard readline/linenoise
@@ -38,28 +37,11 @@
 **     on a width change; non-reflowing terminals aren't supported for it.
 */
 
-typedef enum
-{
-    ansi_state_C0,
-    ansi_state_Fe,
-    ansi_state_SS2,
-    ansi_state_SS3,
-    ansi_state_CSI,
-    ansi_state_CSI_private,
-} rln_ansi_state_t;
-
-typedef enum
-{
-    rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
-    rln_phase_width_cpr,  // waiting for second CPR (terminal height + width)
-    rln_phase_edit,       // normal editing
-} rln_phase_t;
-
 #define RLN_BUF_SIZE 256
 _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
 #define RLN_HISTORY_SIZE 8
-#define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
+_Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 
 // rln_caps modes — public ABI is uint8_t, so the values are wire values.
 #define RLN_CAPS_OFF 0
@@ -67,37 +49,11 @@ _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
 #define RLN_CAPS_SWAP 2
 // Terms < 29 cols may not reach 254/255 chars in 10 rows.
 #define RLN_MAX_ROWS 10
-// Longest wait before edit mode starts echoing characters. Long enough
-// to absorb a telnet RTT for the CPR replies, short enough that a
-// non-responsive peer doesn't feel like a hang.
-#define RLN_HANDSHAKE_MS 250
 
-// Per-input-source state: one instance per com source plus one for the
-// 6502 poke stream. Each instance holds the ANSI parser and per-source
-// CPR/DA2 bookkeeping. buf[] doubles as in-flight cache (tail =
-// in-progress sequence) and deferred-typed buffer (head = completed
-// sequences awaiting edit phase). Bookkeeping fields are unused on
-// rln_poke_source.
-typedef struct
-{
-    rln_ansi_state_t state;
-    uint16_t csi_param[RLN_CSI_PARAM_MAX_LEN];
-    uint8_t csi_param_count;
-    uint8_t csi_private; // 0, or one of '<' '=' '>' '?'
-    uint8_t buf[RLN_BUF_SIZE];
-    uint16_t buf_len;
-    uint16_t inflight_len;
-    // Per-source bookkeeping (zero on rln_poke_source).
-    uint8_t cpr_expecting;  // outstanding CPR count this read
-    uint8_t cpr_stale;      // CPRs still due to earlier reads, which come first
-    uint16_t cpr_w;         // max column this read = the screen right edge
-    uint16_t cpr_h;         // max row this read = the screen bottom edge
-    uint16_t cpr_pcol;      // latest prompt reply column this read, 0 = none yet
-    bool da2_seen;          // proven DA2-aware this read
-    // The CR or LF this source last ended a line with, so the other half of
-    // a CRLF pair arriving next is absorbed instead of ending a second line.
-    uint8_t line_end;
-} rln_source_t;
+// The 6502's poke stream is a source of its own, after the com sources.
+#define RLN_POKE COM_SOURCE_ANY
+#define RLN_SOURCE_COUNT (RLN_POKE + 1)
+
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
 // scratch slot used to stash the user's unsubmitted line while they
@@ -127,128 +83,44 @@ static uint8_t rln_caps;
 // across reads; reset on stop() (via rln_init).
 static bool rln_suppress_newline;
 
-// Cross-terminal display state
-static rln_phase_t rln_phase;
-static timer_mach_t rln_handshake_deadline;
-static uint16_t rln_prompt_col;        // 1-based
-static uint16_t rln_term_width;        // 0 if no CPR
-static uint16_t rln_term_height;       // 0 if no CPR
-static uint16_t rln_width_override;    // 0 = auto-detect
-static uint16_t rln_height_override;   // 0 = auto-detect
-static uint16_t rln_naws_width;        // 0 = no telnet NAWS
-static uint16_t rln_naws_height;       // 0 = no telnet NAWS
+// Display state. The line is laid out at the prompt column and the width tio
+// had when it was last drawn.
+static bool rln_editing;               // geometry is ready and the line is drawn
+static uint16_t rln_prompt_col;        // 1-based, 0 = no prompt column, no wrapping
+static uint16_t rln_width;
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
 static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop)
-static bool rln_decscusr_ok;           // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
 
-// Per-source state: rln_sources[s] holds the parser + CPR/DA2
-// bookkeeping for each com input source (keyboard, uart, tel). rln_poke_source
-// is separate — fed synchronously from rln_poke (the 6502 API).
-static rln_source_t rln_sources[COM_SOURCE_COUNT];
-static rln_source_t rln_poke_source;
+// The CR or LF each source, the poke stream included, last ended a line
+// with, so the other half of a CRLF pair arriving next is absorbed instead of
+// ending a second line.
+static uint8_t rln_line_ends[RLN_SOURCE_COUNT];
 
-// Clear each source's per-read state. What describes the wire rather than
-// the read survives: a return still owed its line feed, a sequence the end
-// of the read cut in half, and the replies an earlier read is still owed. A
-// read that ends before its handshake deadline leaves its replies on the
-// way; after the deadline, whatever has not come is not coming.
-static void rln_sources_reset(void)
-{
-    bool owed = !timer_mach_passed(rln_handshake_deadline);
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        rln_source_t *a = &rln_sources[s];
-        rln_source_t keep = {.line_end = a->line_end};
-        if (owed)
-        {
-            unsigned stale = a->cpr_stale + a->cpr_expecting;
-            keep.cpr_stale = stale > UINT8_MAX ? UINT8_MAX : (uint8_t)stale;
-        }
-        if (a->state != ansi_state_C0)
-        {
-            keep.state = a->state;
-            memcpy(keep.csi_param, a->csi_param, sizeof keep.csi_param);
-            keep.csi_param_count = a->csi_param_count;
-            keep.csi_private = a->csi_private;
-            memcpy(keep.buf, &a->buf[a->buf_len - a->inflight_len], a->inflight_len);
-            keep.buf_len = keep.inflight_len = a->inflight_len;
-        }
-        *a = keep;
-    }
-    memset(&rln_poke_source, 0, sizeof rln_poke_source);
-}
-
-// CPR-pending count seeded into each source's cpr_expecting at read
-// start (1 or 2, depending on geometry overrides).
-static uint8_t rln_cpr_initial;
-
-// Sticky-off latch: when any source proves DA2-deaf this read, forces
-// rln_decscusr_ok false and blocks re-enabling. Stdout fans out to every
-// terminal, so one VT102 peer would leak DECSCUSR's `q` as literal text —
-// one bad peer must poison cursor shapes for all. Cleared per read.
-static bool rln_decscusr_locked_off;
+// The typed items that arrive before the edit starts, in the order they came,
+// each as its source, its length, and its bytes.
+static uint8_t rln_held[RLN_BUF_SIZE];
+static uint16_t rln_held_len;
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
-// Typed and poked dispatches both populate these; CPR/DA/DA2 protocol
-// replies don't touch lastkey.
+// Typed and poked dispatches both populate these; the terminals' answers,
+// which tio takes, never reach them.
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-static void rln_source_save(sst_cursor_t *c, const rln_source_t *s)
+/* Every held record names a source and fits, whole, inside the length. */
+static bool rln_held_valid(const uint8_t *held, uint16_t len)
 {
-    sst_put_u8(c, (uint8_t)s->state);
-    for (int i = 0; i < RLN_CSI_PARAM_MAX_LEN; i++)
-        sst_put_u16(c, s->csi_param[i]);
-    sst_put_u8(c, s->csi_param_count);
-    sst_put_u8(c, s->csi_private);
-    sst_put(c, s->buf, RLN_BUF_SIZE);
-    sst_put_u16(c, s->buf_len);
-    sst_put_u16(c, s->inflight_len);
-    sst_put_u8(c, s->cpr_expecting);
-    sst_put_u8(c, s->cpr_stale);
-    sst_put_u16(c, s->cpr_w);
-    sst_put_u16(c, s->cpr_h);
-    sst_put_u16(c, s->cpr_pcol);
-    sst_put_bool(c, s->da2_seen);
-    sst_put_u8(c, s->line_end);
-}
-
-static bool rln_source_load(sst_cursor_t *c, rln_source_t *s)
-{
-    uint8_t state = sst_get_u8(c);
-    uint16_t param[RLN_CSI_PARAM_MAX_LEN];
-    for (int i = 0; i < RLN_CSI_PARAM_MAX_LEN; i++)
-        param[i] = sst_get_u16(c);
-    uint8_t count = sst_get_u8(c);
-    uint8_t priv = sst_get_u8(c);
-    uint8_t buf[RLN_BUF_SIZE];
-    sst_get(c, buf, sizeof buf);
-    uint16_t blen = sst_get_u16(c), iflen = sst_get_u16(c);
-    uint8_t expecting = sst_get_u8(c), stale = sst_get_u8(c);
-    uint16_t w = sst_get_u16(c), h = sst_get_u16(c), pcol = sst_get_u16(c);
-    bool da2 = sst_get_bool(c);
-    uint8_t end = sst_get_u8(c);
-    if (!sst_ok(c) || blen > RLN_BUF_SIZE || iflen > blen)
+    if (len > RLN_BUF_SIZE)
         return false;
-    s->state = (rln_ansi_state_t)state;
-    memcpy(s->csi_param, param, sizeof s->csi_param);
-    s->csi_param_count = count;
-    s->csi_private = priv;
-    memcpy(s->buf, buf, sizeof s->buf);
-    s->buf_len = blen;
-    s->inflight_len = iflen;
-    s->cpr_expecting = expecting;
-    s->cpr_stale = stale;
-    s->cpr_w = w;
-    s->cpr_h = h;
-    s->cpr_pcol = pcol;
-    s->da2_seen = da2;
-    s->line_end = end;
+    for (uint16_t at = 0; at < len; at += 2 + held[at + 1])
+        if (len - at < 2 || held[at] >= RLN_SOURCE_COUNT || !held[at + 1] ||
+            held[at + 1] > TIO_ITEM_MAX || len - at - 2 < held[at + 1])
+            return false;
     return true;
 }
 
@@ -278,29 +150,20 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u32(c, rln_idle_timeout_ms);
     sst_put_u8(c, rln_caps);
     sst_put_bool(c, rln_suppress_newline);
-    sst_put_u8(c, (uint8_t)rln_phase);
-    sst_put_u64(c, rln_handshake_deadline);
+    sst_put_bool(c, rln_editing);
     sst_put_u16(c, rln_prompt_col);
-    sst_put_u16(c, rln_term_width);
-    sst_put_u16(c, rln_term_height);
-    sst_put_u16(c, rln_width_override);
-    sst_put_u16(c, rln_height_override);
-    sst_put_u16(c, rln_naws_width);
-    sst_put_u16(c, rln_naws_height);
+    sst_put_u16(c, rln_width);
     sst_put_u8(c, rln_cur_idx);
     sst_put_bool(c, rln_overwrite);
-    sst_put_bool(c, rln_decscusr_ok);
     sst_put_u8(c, rln_rendered_max_row);
     sst_put_u8(c, rln_last_render_buflen);
-    sst_put_u8(c, rln_cpr_initial);
-    sst_put_bool(c, rln_decscusr_locked_off);
     sst_put(c, rln_lastkey_buf, RLN_LASTKEY_MAX);
     sst_put_u8(c, rln_lastkey_len);
     sst_put_bool(c, rln_action_taken);
     sst_put_bool(c, rln_lastkey_action);
-    for (int i = 0; i < COM_SOURCE_COUNT; i++)
-        rln_source_save(c, &rln_sources[i]);
-    rln_source_save(c, &rln_poke_source);
+    sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
+    sst_put(c, rln_held, RLN_BUF_SIZE);
+    sst_put_u16(c, rln_held_len);
 }
 
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
@@ -320,26 +183,20 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     uint32_t idle_ms = sst_get_u32(c);
     uint8_t caps = sst_get_u8(c);
     bool suppress = sst_get_bool(c);
-    uint8_t phase = sst_get_u8(c);
-    uint64_t hand_at = sst_get_u64(c);
-    uint16_t pcol = sst_get_u16(c), tw = sst_get_u16(c), th = sst_get_u16(c);
-    uint16_t wov = sst_get_u16(c), hov = sst_get_u16(c);
-    uint16_t nw = sst_get_u16(c), nh = sst_get_u16(c);
+    bool editing = sst_get_bool(c);
+    uint16_t pcol = sst_get_u16(c), width = sst_get_u16(c);
     uint8_t cur = sst_get_u8(c);
-    bool over = sst_get_bool(c), dec_ok = sst_get_bool(c);
+    bool over = sst_get_bool(c);
     uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
-    uint8_t cpr0 = sst_get_u8(c);
-    bool dec_off = sst_get_bool(c);
     static uint8_t lastkey[RLN_LASTKEY_MAX];
     sst_get(c, lastkey, sizeof lastkey);
     uint8_t lastkey_len = sst_get_u8(c);
     bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
-    static rln_source_t sources[COM_SOURCE_COUNT], poke;
-    for (int i = 0; i < COM_SOURCE_COUNT; i++)
-        if (!rln_source_load(c, &sources[i]))
-            return false;
-    if (!rln_source_load(c, &poke))
-        return false;
+    uint8_t line_end[RLN_SOURCE_COUNT];
+    sst_get(c, line_end, sizeof line_end);
+    static uint8_t held[RLN_BUF_SIZE];
+    sst_get(c, held, sizeof held);
+    uint16_t held_len = sst_get_u16(c);
     /* The lengths need no range check because a uint8_t cannot reach past a
      * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
      * changes. The indexes are checked because they can exceed the lengths
@@ -347,7 +204,8 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
         cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
-        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE ||
+        !rln_held_valid(held, held_len))
         return false;
 
     memcpy(rln_history, history, sizeof rln_history);
@@ -363,38 +221,21 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_idle_timeout_ms = idle_ms;
     rln_caps = caps;
     rln_suppress_newline = suppress;
-    rln_phase = (rln_phase_t)phase;
-    rln_handshake_deadline = hand_at;
+    rln_editing = editing;
     rln_prompt_col = pcol;
-    rln_term_width = tw;
-    rln_term_height = th;
-    rln_width_override = wov;
-    rln_height_override = hov;
-    rln_naws_width = nw;
-    rln_naws_height = nh;
+    rln_width = width;
     rln_cur_idx = cur;
     rln_overwrite = over;
-    rln_decscusr_ok = dec_ok;
     rln_rendered_max_row = maxrow;
     rln_last_render_buflen = lastlen;
-    rln_cpr_initial = cpr0;
-    rln_decscusr_locked_off = dec_off;
     memcpy(rln_lastkey_buf, lastkey, sizeof rln_lastkey_buf);
     rln_lastkey_len = lastkey_len;
     rln_action_taken = acted;
     rln_lastkey_action = key_acted;
-    memcpy(rln_sources, sources, sizeof rln_sources);
-    rln_poke_source = poke;
+    memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
+    memcpy(rln_held, held, sizeof rln_held);
+    rln_held_len = held_len;
     return true;
-}
-
-// The sources whose CPR/DA2 replies are real protocol responses. Typed input
-// from a keyboard can look like a reply and isn't, and the poke source is
-// virtual. All CPR accounting gates on this, so a source that is not one of
-// these can never work off a CPR it was seeded to expect.
-static bool rln_source_tracked(com_source_t s)
-{
-    return s == COM_SOURCE_UART || s == COM_SOURCE_TEL;
 }
 
 /* The line is done at Enter: nothing is read after it, so whatever follows
@@ -405,6 +246,7 @@ static void rln_complete(bool timed_out)
     rln_read_callback_t cc = rln_callback;
     rln_idle_timeout_ms = 0;
     rln_callback = NULL;
+    tio_read_end();
     if (!rln_suppress_newline)
         com_putchar('\n');
     cc(timed_out, rln_buf);
@@ -424,13 +266,13 @@ static bool rln_input_no_wrap(void)
 {
     if (!rln_prompt_col)
         return true;
-    uint16_t w = rln_get_term_width();
+    uint16_t w = rln_width;
     return rln_prompt_col - 1 + rln_max_length <= w;
 }
 
 static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 {
-    uint16_t w = rln_get_term_width();
+    uint16_t w = rln_width;
     uint32_t logical = (uint32_t)(rln_prompt_col - 1) + i;
     *row = (uint8_t)(logical / w);
     *col = (uint16_t)(logical % w) + 1;
@@ -467,15 +309,16 @@ static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
 }
 
 // Move the visible cursor so that it sits at the screen position
-// corresponding to buffer index `target`. No-op outside edit phase.
+// corresponding to buffer index `target`. While the line is not being
+// edited, it only records target as the cursor's index.
 static void rln_sync_cursor_to(uint8_t target)
 {
-    if (rln_phase != rln_phase_edit)
+    if (!rln_editing)
     {
         rln_cur_idx = target;
         return;
     }
-    // No prompt column captured (CPR1 didn't reply) → can't do row math.
+    // No prompt column (the terminal did not answer) → can't do row math.
     // Fall back to plain horizontal cursor moves and let the terminal wrap.
     if (rln_prompt_col == 0)
     {
@@ -507,7 +350,7 @@ static void rln_sync_cursor_to(uint8_t target)
         // A zero-length relative move emits nothing, so a prior margin write
         // left in pending-wrap (xenl) would survive; CHA to the same column
         // clears it, matching the no-wrap branch's unconditional CHA.
-        if (fr == tr && fc == tc && tc == rln_get_term_width())
+        if (fr == tr && fc == tc && tc == rln_width)
             com_printf("\33[%uG", tc);
     }
     rln_cur_idx = target;
@@ -520,10 +363,10 @@ static uint8_t rln_effective_max(void)
     uint8_t cap = rln_max_length;
     if (rln_prompt_col)
     {
-        uint16_t w = rln_get_term_width();
-        // Compute the row*width product in 32 bits so a large width
-        // override (rln_set_term_width accepts up to 65535) can't
-        // truncate; clamp back into uint16_t before the row math.
+        uint16_t w = rln_width;
+        // Compute the row*width product in 32 bits so a large pinned width
+        // (tio_set_term_width accepts up to 65535) can't truncate; clamp
+        // back into uint16_t before the row math.
         uint32_t cells = (uint32_t)RLN_MAX_ROWS * w;
         uint16_t avail = cells > UINT16_MAX ? UINT16_MAX : (uint16_t)cells;
         if (avail > (uint16_t)(rln_prompt_col - 1))
@@ -547,7 +390,7 @@ static uint8_t rln_cursor_max(void)
 {
     if (rln_buflen && rln_prompt_col &&
         rln_buflen >= rln_effective_max() &&
-        ((rln_prompt_col - 1u + rln_buflen) % rln_get_term_width()) == 0)
+        ((rln_prompt_col - 1u + rln_buflen) % rln_width) == 0)
         return (uint8_t)(rln_buflen - 1);
     return rln_buflen;
 }
@@ -569,7 +412,7 @@ static void rln_emit_trailing_spaces(uint8_t count)
     uint16_t c;
     rln_buf_to_screen(rln_buflen, &r, &c);
     uint16_t back = count;
-    if (c + count - 1 >= rln_get_term_width())
+    if (c + count - 1 >= rln_width)
         back = (uint16_t)(count - 1);
     for (uint8_t i = 0; i < count; i++)
         com_putchar(' ');
@@ -600,7 +443,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 //     \33[J, which would erase rows below that rln does not own.
 static void rln_render_from(uint8_t start)
 {
-    if (rln_phase != rln_phase_edit)
+    if (!rln_editing)
         return;
     rln_clamp_cursor();
     rln_sync_cursor_to(start);
@@ -663,7 +506,7 @@ static void rln_render_from(uint8_t start)
 // full-redraw.
 static void rln_resize_redraw(void)
 {
-    if (rln_phase != rln_phase_edit || rln_prompt_col == 0)
+    if (!rln_editing || rln_prompt_col == 0)
         return;
     rln_sync_cursor_to(0);
     uint8_t maxr = rln_rendered_max_row;
@@ -684,7 +527,7 @@ static void rln_resize_redraw(void)
 // back to rln_render_from instead of per-row ICH/DCH.
 static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 {
-    if (rln_phase != rln_phase_edit)
+    if (!rln_editing)
         return;
     rln_clamp_cursor();
     if (!rln_input_no_wrap())
@@ -865,19 +708,19 @@ static uint16_t rln_param_or_1(uint16_t v)
     return v < 1 ? 1 : v;
 }
 
-static void rln_line_forward(rln_source_t *a)
+static void rln_line_forward(const tio_csi_t *csi)
 {
-    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
+    if (csi->count > 1 && csi->param[1] != 1)
         return rln_line_word(1);
-    int count = rln_param_or_1(a->csi_param[0]);
+    int count = rln_param_or_1(csi->param[0]);
     rln_step(count);
 }
 
-static void rln_line_backward(rln_source_t *a)
+static void rln_line_backward(const tio_csi_t *csi)
 {
-    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
+    if (csi->count > 1 && csi->param[1] != 1)
         return rln_line_word(-1);
-    int count = rln_param_or_1(a->csi_param[0]);
+    int count = rln_param_or_1(csi->param[0]);
     rln_step(-count);
 }
 
@@ -905,9 +748,9 @@ static void rln_line_delete(void)
     rln_delete_range(rln_bufpos, rln_bufpos + 1);
 }
 
-static void rln_line_delete_n(rln_source_t *a)
+static void rln_line_delete_n(const tio_csi_t *csi)
 {
-    uint16_t count = rln_param_or_1(a->csi_param[0]);
+    uint16_t count = rln_param_or_1(csi->param[0]);
     uint32_t end = (uint32_t)rln_bufpos + count;
     if (end > rln_buflen)
         end = rln_buflen;
@@ -942,9 +785,9 @@ static void rln_line_kill_to_start(void)
 
 // ICH (CSI Ps @): insert Ps blank chars at the cursor, shifting the tail
 // right. Cursor stays at its current position. Symmetric with DCH.
-static void rln_line_insert_n(rln_source_t *a)
+static void rln_line_insert_n(const tio_csi_t *csi)
 {
-    uint16_t count = rln_param_or_1(a->csi_param[0]);
+    uint16_t count = rln_param_or_1(csi->param[0]);
     uint8_t cap = rln_effective_max();
     uint8_t avail = (cap > rln_buflen) ? (uint8_t)(cap - rln_buflen) : 0;
     if (count > avail)
@@ -961,9 +804,9 @@ static void rln_line_insert_n(rln_source_t *a)
 
 // ECH (CSI Ps X): erase Ps chars at the cursor by replacing them with
 // spaces. Cursor stays put, buflen unchanged, no shift. Stops at buflen.
-static void rln_line_erase_n(rln_source_t *a)
+static void rln_line_erase_n(const tio_csi_t *csi)
 {
-    uint16_t count = rln_param_or_1(a->csi_param[0]);
+    uint16_t count = rln_param_or_1(csi->param[0]);
     uint32_t end = (uint32_t)rln_bufpos + count;
     if (end > rln_buflen)
         end = rln_buflen;
@@ -996,13 +839,13 @@ static void rln_line_insert(char ch)
         // follow-up sync issues an explicit move that cancels pending-wrap.
         rln_buf[rln_bufpos] = ch;
         rln_action_taken = true;
-        if (rln_phase == rln_phase_edit)
+        if (rln_editing)
         {
             rln_sync_cursor_to(rln_bufpos);
             uint8_t r;
             uint16_t c;
             rln_buf_to_screen(rln_bufpos, &r, &c);
-            bool at_margin = (c == rln_get_term_width());
+            bool at_margin = (c == rln_width);
             com_putchar(ch);
             // The write advances the cursor past the cell, except at the
             // margin where pending-wrap leaves it parked on the cell.
@@ -1031,121 +874,47 @@ static void rln_line_insert(char ch)
 
 /* ----- Mode toggling ----- */
 
-// DECSCUSR (CSI Ps SP q) is only emitted when the peer has identified
-// itself as VT220+ via Secondary DA. VT102 emulators (minicom, Linux
-// console) mis-parse the intermediate space and leak the tail as
-// literal characters, so on those terminals we silently keep the
-// internal mode without any visual indicator.
+// The cursor shape for the mode, a block for overwrite and a bar for insert.
+// tio sends it only to the terminals that answered DA2 in this read, so on
+// the others the mode has no visual indicator.
 static void rln_emit_mode_cursor(void)
 {
-    if (!rln_decscusr_ok)
-        return;
-    if (rln_overwrite)
-        com_printf("\33[1 q");
-    else
-        com_printf("\33[5 q");
+    tio_cursor_shape(rln_overwrite ? 1 : 5);
 }
 
 static void rln_toggle_overwrite(void)
 {
     rln_overwrite = !rln_overwrite;
     rln_action_taken = true;
-    if (rln_phase == rln_phase_edit)
+    if (rln_editing)
         rln_emit_mode_cursor();
 }
 
-/* ----- ANSI parser -----
+/* ----- Items -----
  *
- * Two-step model: advance + dispatch.
- *
- *   rln_ansi_advance() updates parser state and accumulates CSI params
- *   without invoking any action. When state returns to C0, the
- *   sequence is complete and rln_ansi_dispatch_or_defer() classifies
- *   it as CPR / DA2 / typed and either dispatches immediately
- *   (CPR/DA2 always; typed during edit phase) or leaves the bytes in
- *   buf[] for later replay (typed during handshake phase).
- */
+ * tio hands over one item at a time: a character, or a whole escape
+ * sequence, the terminals' answers already taken out. A typed item is
+ * dispatched while the line is being edited, and held until then before. */
 
-// Forward decl: rln_cpr_dispatch -> rln_enter_edit -> drain -> feed ->
-// dispatch_or_defer -> rln_cpr_dispatch is a real cycle.
-static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2);
+// Forward decls: ending the wait starts the edit, which replays the held
+// items through rln_item.
+static void rln_end_wait(void);
+static void rln_item(com_source_t src, const char *item, size_t len);
 
-static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
-{
-    switch (a->state)
-    {
-    case ansi_state_C0:
-        if (ch == '\33')
-            a->state = ansi_state_Fe;
-        // else: stay in C0; dispatch decides what to do with it
-        return;
-    case ansi_state_Fe:
-        if (ch == '[')
-        {
-            a->state = ansi_state_CSI;
-            a->csi_param_count = 0;
-            a->csi_param[0] = 0;
-            a->csi_private = 0;
-        }
-        else if (ch == 'N')
-            a->state = ansi_state_SS2;
-        else if (ch == 'O')
-            a->state = ansi_state_SS3;
-        else
-            a->state = ansi_state_C0;
-        return;
-    case ansi_state_SS2:
-        a->state = ansi_state_C0;
-        return;
-    case ansi_state_SS3:
-        a->state = ansi_state_C0;
-        return;
-    case ansi_state_CSI:
-    case ansi_state_CSI_private:
-        if (isdigit(ch))
-        {
-            if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-            {
-                uint32_t v = (uint32_t)a->csi_param[a->csi_param_count] * 10 + (ch - '0');
-                a->csi_param[a->csi_param_count] = v > UINT16_MAX ? UINT16_MAX : (uint16_t)v;
-            }
-            return;
-        }
-        if (ch == ';' || ch == ':')
-        {
-            if (++a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-                a->csi_param[a->csi_param_count] = 0;
-            else
-                a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
-            return;
-        }
-        if (ch == '<' || ch == '=' || ch == '>' || ch == '?')
-        {
-            a->state = ansi_state_CSI_private;
-            a->csi_private = ch;
-            return;
-        }
-        a->state = ansi_state_C0;
-        if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-            a->csi_param_count++;
-        return;
-    }
-}
-
-static void rln_dispatch_C0(rln_source_t *a, uint8_t ch)
+static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
 {
     // Both CR and LF end a line, because a terminal sends CR and a file of
     // host text holds LF, and nothing rewrites either on the way in. A CR and
     // LF next to each other are one line ending, so the second is discarded.
     // The memory lasts exactly one dispatched byte, which is why "\r\r" is
     // two lines and why a blank line in a CRLF file survives.
-    uint8_t was = a->line_end;
-    a->line_end = 0;
+    uint8_t was = *line_end;
+    *line_end = 0;
     if ((ch == '\r' || ch == '\n') && was && ch != was)
         return;
     if (ch == '\r' || ch == '\n')
     {
-        a->line_end = ch;
+        *line_end = ch;
         rln_action_taken = true;
         rln_finish_line(true);
     }
@@ -1198,26 +967,27 @@ static void rln_dispatch_SS3(uint8_t ch)
         rln_line_home();
 }
 
-static void rln_dispatch_CSI(rln_source_t *a, uint8_t ch)
+static void rln_dispatch_CSI(const tio_csi_t *csi)
 {
+    uint8_t ch = csi->final;
     if (ch == 'A')
         rln_history_step(1);
     else if (ch == 'B')
         rln_history_step(-1);
     else if (ch == 'C')
-        rln_line_forward(a);
+        rln_line_forward(csi);
     else if (ch == 'D')
-        rln_line_backward(a);
+        rln_line_backward(csi);
     else if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
     else if (ch == 'P')
-        rln_line_delete_n(a);
+        rln_line_delete_n(csi);
     else if (ch == '@')
-        rln_line_insert_n(a);
+        rln_line_insert_n(csi);
     else if (ch == 'X')
-        rln_line_erase_n(a);
+        rln_line_erase_n(csi);
     else if (ch == 'b' || ch == 2)
         rln_line_word(-1);
     else if (ch == 'f' || ch == 6)
@@ -1226,7 +996,7 @@ static void rln_dispatch_CSI(rln_source_t *a, uint8_t ch)
         // Function-key codes split across terminfo lineages: 1/4 = VT220-era
         // Find/Select repurposed as Home/End; 7/8 = rxvt/Linux console; 2/3
         // = Insert/Delete (universal). Keep both Home/End forms.
-        switch (a->csi_param[0])
+        switch (csi->param[0])
         {
         case 1:
         case 7:
@@ -1245,307 +1015,135 @@ static void rln_dispatch_CSI(rln_source_t *a, uint8_t ch)
         }
 }
 
-// Trim the in-flight tail off buf[], leaving deferred head bytes intact.
-static void rln_ansi_trim_inflight(rln_source_t *a)
-{
-    a->buf_len -= a->inflight_len;
-    a->inflight_len = 0;
-}
-
 // Saves the key just dispatched for RLN_LASTKEY.
-static void rln_publish_lastkey(rln_source_t *a)
+static void rln_publish_lastkey(const char *item, size_t len)
 {
-    rln_lastkey_len = 0;
-    if (a->inflight_len > RLN_LASTKEY_MAX)
-        return;
-    memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], a->inflight_len);
-    rln_lastkey_len = (uint8_t)a->inflight_len;
+    memcpy(rln_lastkey_buf, item, len);
+    rln_lastkey_len = (uint8_t)len;
     rln_lastkey_action = rln_action_taken;
 }
 
-// Dispatch a parsed Secondary DA reply (\33[><...>c). The reply's mere
-// arrival is the signal; param values are discarded. A late DA2 in edit
-// phase still flips the bit and emits the cursor shape.
-static void rln_da2_dispatch(com_source_t src)
+// A typed item, dispatched while editing. A poked item is dispatched in
+// overwrite mode, and a shape it changes is put back.
+static void rln_dispatch(com_source_t src, const char *item, size_t len,
+                         const tio_csi_t *csi)
 {
-    (void)src; // da2_seen is recorded by the caller
-    // DA2-deaf latch set this read: ignore all DA2 (incl. a deferred one
-    // replayed via drain) so cursor shapes can't be re-enabled.
-    if (rln_decscusr_locked_off)
-        return;
-    // Late DA2 in edit phase with geometry suppressed (prompt_col==0 from
-    // instant relief or handshake fallback): ignore — enabling DECSCUSR
-    // now would emit into a stream whose peer never negotiated VT220+.
-    if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
-        return;
-    if (rln_decscusr_ok)
-        return;
-    rln_decscusr_ok = true;
-    if (rln_phase == rln_phase_edit)
-        rln_emit_mode_cursor();
-}
-
-// Classify the just-completed sequence and dispatch or defer.
-// entry_state is the parser's state BEFORE this byte was advanced;
-// term is this byte (the terminator).
-static void rln_ansi_dispatch_or_defer(rln_source_t *a,
-                                       com_source_t src,
-                                       uint8_t term,
-                                       rln_ansi_state_t entry_state)
-{
-    bool is_cpr = (entry_state == ansi_state_CSI &&
-                   term == 'R' &&
-                   a->csi_private == 0 &&
-                   a->csi_param_count == 2);
-    bool is_da2 = (entry_state == ansi_state_CSI_private &&
-                   a->csi_private == '>' &&
-                   term == 'c');
-    bool tracked = rln_source_tracked(src);
-    // A reply due to an earlier read is absorbed and counts for nothing.
-    if (is_cpr && tracked && rln_sources[src].cpr_stale)
-    {
-        rln_sources[src].cpr_stale--;
-        rln_ansi_trim_inflight(a);
-        return;
-    }
-    if (is_cpr && tracked && rln_sources[src].cpr_expecting > 0)
-        rln_sources[src].cpr_expecting--;
-    if (is_da2 && tracked)
-        rln_sources[src].da2_seen = true;
-    // 2-CPR lock-off: if this CPR closes the source's quota and that
-    // source never replied DA2, it's DA2-deaf — the burst order is
-    // CPR1, DA2, CPR2, so a DA2-aware peer would have replied before its
-    // CPR2. Latch the lock so later DA2s can't re-enable cursor shapes.
-    if (rln_cpr_initial == 2 &&
-        is_cpr && tracked &&
-        rln_sources[src].cpr_expecting == 0 &&
-        !rln_sources[src].da2_seen)
-    {
-        rln_decscusr_ok = false;
-        rln_decscusr_locked_off = true;
-    }
-    if (is_cpr && tracked)
-        rln_cpr_dispatch(src, a->csi_param[0], a->csi_param[1]);
-    if (is_da2)
-    {
-        rln_da2_dispatch(src);
-    }
-    else if (is_cpr ||
-             entry_state == ansi_state_CSI_private ||
-             entry_state == ansi_state_SS2)
-    {
-        // CPR dispatched above; CSI_private (other terminators) and SS2
-        // are no-ops. All three skip publish_lastkey so protocol replies
-        // don't surface via the 6502 lastkey API.
-    }
-    else if (rln_phase != rln_phase_edit)
-    {
-        // Typed action during handshake: leave bytes in buf head for
-        // replay; reset inflight so the next byte starts fresh.
-        a->inflight_len = 0;
-        return;
-    }
+    bool was_overwrite = rln_overwrite;
+    if (src == RLN_POKE)
+        rln_overwrite = true;
+    rln_action_taken = false;
+    if (len == 1)
+        rln_dispatch_C0(&rln_line_ends[src], (uint8_t)item[0]);
+    else if (item[1] == '[')
+        rln_dispatch_CSI(csi);
+    else if (item[1] == 'O')
+        rln_dispatch_SS3((uint8_t)item[2]);
     else
+        rln_dispatch_Fe((uint8_t)item[1]);
+    rln_publish_lastkey(item, len);
+    if (src == RLN_POKE)
     {
-        rln_action_taken = false;
-        switch (entry_state)
-        {
-        case ansi_state_C0:
-            rln_dispatch_C0(a, term);
-            break;
-        case ansi_state_Fe:
-            rln_dispatch_Fe(term);
-            break;
-        case ansi_state_SS3:
-            rln_dispatch_SS3(term);
-            break;
-        case ansi_state_CSI:
-            rln_dispatch_CSI(a, term);
-            break;
-        default:
-            break;
-        }
-        rln_publish_lastkey(a);
+        bool toggled = !rln_overwrite;
+        rln_overwrite = was_overwrite;
+        if (toggled && was_overwrite)
+            rln_emit_mode_cursor();
     }
-    rln_ansi_trim_inflight(a);
 }
 
-// Feed one byte through a per-stream parser. src identifies the parser
-// to dispatch_or_defer, which uses it to gate CPR/DA2 tracking on
-// tracked terminal sources (UART/TEL); KEYBOARD and the poke source
-// (src=COM_SOURCE_ANY) skip the tracking but still parse normally.
-static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b)
+// Holds a typed item that arrives before the edit starts. A line end, or an
+// item that does not fit, starts the edit at once with no prompt column, for
+// a peer that feeds bytes without answering the CPRs; an item that did not
+// fit is then taken after the held ones.
+static void rln_hold(com_source_t src, const char *item, size_t len)
 {
-    // CAN aborts any in-progress sequence with no dispatch.
-    if (b == '\30')
+    bool fits = rln_held_len + 2 + len <= sizeof rln_held;
+    if (fits)
     {
-        rln_ansi_trim_inflight(a);
-        a->state = ansi_state_C0;
-        return;
-    }
-    // Append to in-flight cache. On overflow drop the byte — instant
-    // relief in rln_task will trigger from the buf_len == cap check.
-    if (a->buf_len >= sizeof a->buf)
-        return;
-    a->buf[a->buf_len++] = b;
-    a->inflight_len++;
-
-    rln_ansi_state_t entry_state = a->state;
-    rln_ansi_advance(a, b);
-    if (a->state == ansi_state_C0)
-        rln_ansi_dispatch_or_defer(a, src, b, entry_state);
-}
-
-// Drain the deferred head region through the same parser (from
-// rln_enter_edit). Re-feeds every buffered byte: handshake-time protocol
-// replies were already trimmed, so what's left is typed bytes + any
-// in-flight tail. Snapshots rln_callback so a CR that completes the line
-// mid-drain doesn't replay stale bytes into the next line's parser.
-static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src)
-{
-    if (a->buf_len == 0)
-        return;
-    rln_read_callback_t cb_at_start = rln_callback;
-    uint8_t temp[RLN_BUF_SIZE];
-    uint16_t total = a->buf_len;
-    memcpy(temp, a->buf, total);
-    a->state = ansi_state_C0;
-    a->csi_param_count = 0;
-    a->csi_param[0] = 0;
-    a->csi_private = 0;
-    a->buf_len = 0;
-    a->inflight_len = 0;
-    for (uint16_t i = 0; i < total; i++)
-    {
-        rln_ansi_feed(a, src, temp[i]);
-        // Stop if the line finished; continuing would replay bytes into an
-        // already-submitted line.
-        if (rln_callback != cb_at_start)
+        rln_held[rln_held_len++] = (uint8_t)src;
+        rln_held[rln_held_len++] = (uint8_t)len;
+        memcpy(&rln_held[rln_held_len], item, len);
+        rln_held_len += (uint16_t)len;
+        if (len > 1 || (item[0] != '\r' && item[0] != '\n'))
             return;
     }
+    rln_end_wait();
+    if (!fits && rln_callback)
+        rln_item(src, item, len);
 }
 
-/* ----- Phase transitions ----- */
+// Takes one item from a source, or from the poke stream. Private CSIs and SS2
+// are dropped, and the rest are typed. No dropped item becomes the last key.
+static void rln_item(com_source_t src, const char *item, size_t len)
+{
+    tio_csi_t csi;
+    bool is_csi = tio_csi_parse(item, len, &csi);
+    if ((is_csi && csi.priv) || (len == 3 && item[1] == 'N'))
+        return;
+    if (rln_editing)
+        rln_dispatch(src, item, len, &csi);
+    else
+        rln_hold(src, item, len);
+}
+
+/* ----- Starting and following the edit ----- */
+
+// The line is still being edited: no held line end finished it.
+static bool rln_still_reading(void)
+{
+    return rln_callback && rln_editing;
+}
 
 static void rln_enter_edit(void)
 {
-    rln_phase = rln_phase_edit;
+    rln_editing = true;
     rln_emit_mode_cursor();
     rln_cur_idx = 0;
     if (rln_buflen)
         rln_render_from(0);
     else
         rln_sync_cursor_to(rln_bufpos);
-    // Drain each parser's deferred bytes through itself, in com_source_t
-    // order (KEYBOARD, UART, TEL), then the poke parser separately below.
-    // dispatch_or_defer gates protocol tracking on src, so KEYBOARD and poke
-    // (src=COM_SOURCE_ANY) skip it. Abort the cascade if a dispatched CR
-    // mid-drain completes the line — any later drains would replay stale
-    // bytes into the next line's parsers.
-    rln_read_callback_t cb_at_start = rln_callback;
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+    // Replay the held items in the order they came. A line end among them
+    // finishes the line, and the replay stops there.
+    uint16_t held = rln_held_len;
+    rln_held_len = 0;
+    for (uint16_t at = 0;
+         at < held && rln_still_reading();
+         at += 2 + rln_held[at + 1])
+        rln_item((com_source_t)rln_held[at], (const char *)&rln_held[at + 2],
+                 rln_held[at + 1]);
+}
+
+// Follows tio's geometry. The edit starts once it is ready, and the line is
+// drawn again when the prompt column or the width changes under it. A line
+// laid out without a prompt column is never drawn again.
+static void rln_follow(void)
+{
+    if (!rln_editing)
     {
-        rln_ansi_drain_deferred(&rln_sources[s], s);
-        if (rln_callback != cb_at_start)
+        if (!tio_ready())
             return;
-    }
-    bool prev_overwrite = rln_overwrite;
-    rln_overwrite = true;
-    rln_ansi_drain_deferred(&rln_poke_source, COM_SOURCE_ANY);
-    bool need_reemit = (rln_overwrite != prev_overwrite);
-    rln_overwrite = prev_overwrite;
-    if (need_reemit)
-        rln_emit_mode_cursor();
-}
-
-static void rln_handshake_fallback(void)
-{
-    // Handshake deadline expired without both CPRs. The init burst
-    // already RCP'd the cursor back, so drop into the single-virtual-line
-    // model (row math bypassed by prompt_col==0).
-    //
-    // 1-CPR lock-off: with both geometry axes overridden we send only
-    // CPR1, so there's no CPR2 sentinel to trigger the live latch — the
-    // deadline is the only DA2-deaf signal. Any source that delivered
-    // CPR1 but never replied DA2 is DA2-deaf; latch off for everyone.
-    if (rln_cpr_initial == 1)
-        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-            if (rln_sources[s].cpr_expecting == 0 && !rln_sources[s].da2_seen)
-            {
-                rln_decscusr_ok = false;
-                rln_decscusr_locked_off = true;
-                break;
-            }
-    rln_prompt_col = 0;
-    rln_term_height = 0;
-    rln_term_width = 0;
-    rln_enter_edit();
-}
-
-// Take a prompt column and screen size. The first starts the edit; a later
-// one that differs draws the line again, so the latest report wins.
-static void rln_take_geometry(uint16_t pcol, uint16_t w, uint16_t h)
-{
-    uint16_t old_w = rln_get_term_width();
-    uint16_t old_pcol = rln_prompt_col;
-    rln_prompt_col = pcol;
-    rln_term_width = w;
-    rln_term_height = h;
-    if (rln_phase != rln_phase_edit)
+        rln_prompt_col = tio_prompt_col();
+        rln_width = tio_get_term_width();
         rln_enter_edit();
-    else if (pcol != old_pcol || rln_get_term_width() != old_w)
-        rln_resize_redraw();
+        return;
+    }
+    uint16_t pcol = tio_prompt_col();
+    uint16_t width = tio_get_term_width();
+    if (pcol == rln_prompt_col && width == rln_width)
+        return;
+    rln_width = width;
+    if (!rln_prompt_col)
+        return;
+    rln_prompt_col = pcol;
+    rln_resize_redraw();
 }
 
-// Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
-//
-// A line completed before its terminal answered leaves its replies to the
-// next read, so replies are sorted by content, not counted by order.
-// \33[999;999H clamps the size reply to the bottom-right, so for one source
-// the size reply has the largest column and any reply left of it is a prompt
-// reply. The latest prompt reply wins: this read's own replies come after any
-// left over from an earlier read. A source qualifies once it has answered its
-// quota (cpr_expecting == 0) and a prompt reply sits left of its edge. Telnet
-// CPR outranks uart CPR (NAWS, when set, outranks both in
-// rln_get_term_width). Until one source qualifies the size stays unknown and
-// the handshake deadline drops to no-wrap.
-static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
+// Geometry is ready now, with no prompt column, and the held items are
+// replayed. A line end among them finishes the line.
+static void rln_end_wait(void)
 {
-    if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
-        return;
-    uint16_t col = p2 ? p2 : 1;
-    // Both axes overridden: only CPR1 is sent, so every reply is a prompt
-    // reply and the size comes from the overrides.
-    if (rln_width_override && rln_height_override)
-    {
-        rln_take_geometry(col, rln_term_width, rln_term_height);
-        return;
-    }
-    rln_source_t *a = &rln_sources[src];
-    if (col < a->cpr_w)
-        a->cpr_pcol = col;
-    else if (col > a->cpr_w)
-    {
-        // A new edge: the reply that set the old one was a prompt reply,
-        // unless a prompt reply has been seen since.
-        if (!a->cpr_pcol)
-            a->cpr_pcol = a->cpr_w;
-        a->cpr_w = col;
-    }
-    if (p1 > a->cpr_h)
-        a->cpr_h = p1;
-    if (rln_phase == rln_phase_prompt_cpr)
-        rln_phase = rln_phase_width_cpr;
-    // KEYBOARD sends no real CPR so it never qualifies.
-    rln_source_t *pick = NULL;
-    if (rln_sources[COM_SOURCE_TEL].cpr_expecting == 0 &&
-        rln_sources[COM_SOURCE_TEL].cpr_pcol)
-        pick = &rln_sources[COM_SOURCE_TEL];
-    else if (rln_sources[COM_SOURCE_UART].cpr_expecting == 0 &&
-             rln_sources[COM_SOURCE_UART].cpr_pcol)
-        pick = &rln_sources[COM_SOURCE_UART];
-    if (pick)
-        rln_take_geometry(pick->cpr_pcol, pick->cpr_w, pick->cpr_h);
+    tio_ready_now();
+    rln_follow();
 }
 
 /* ----- Top-level task / driver hooks ----- */
@@ -1563,58 +1161,13 @@ void rln_read_line(rln_read_callback_t callback)
     rln_action_taken = false;
     rln_lastkey_action = false;
 
-    rln_phase = rln_phase_prompt_cpr;
-    // prompt_col == 0 is the per-read sentinel: the first CPR pins it, and
-    // it gates the no-wrap fallback. Geometry is re-derived from this read's
-    // CPRs, so clear it too rather than carry a stale size.
+    rln_editing = false;
     rln_prompt_col = 0;
-    rln_term_height = 0;
-    rln_term_width = 0;
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
     rln_last_render_buflen = 0;
-    rln_decscusr_ok = false;
-    rln_decscusr_locked_off = false;
-    rln_sources_reset();
-    // CPR1 always sent; CPR2 sent only when at least one geometry axis
-    // isn't overridden. Seed expecting for every source — bytes go to
-    // all attached terminals and any of them may reply.
-    rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        rln_sources[s].cpr_expecting = rln_cpr_initial;
-    rln_handshake_deadline = timer_mach_in_ms(RLN_HANDSHAKE_MS);
-
-    // Build the handshake burst piecewise. Common framing:
-    //   ?25l    hide cursor
-    //   ?7h     enable autowrap (the wrap render relies on it)
-    //   7       DECSC saves prompt position
-    //   6n      CPR1 (prompt column) — always sent
-    // Optional DA2 probe (skipped when max_length == 0 so we don't
-    // touch a column rln doesn't own):
-    //   >c      DA2 — DECSCUSR probe; minicom leaks the `c` as literal
-    //           text at the prompt column
-    //   8       DECRC snaps cursor back to prompt column
-    //   ' \b'   space over any leaked `c`, then BS back (not EL — EL
-    //           would clobber form data past the prompt)
-    // Optional geometry probe (skipped only when BOTH overrides are set):
-    //   999;999H go to bottom-right
-    //   6n       CPR2 (terminal height + width)
-    //   8        DECRC back to prompt
-    // Always tail:
-    //   ?25h     show cursor
-    // DECRC runs from the burst (not the CPR-reply path) so the cursor
-    // returns to the prompt even when the peer ignores CPR; the deadline
-    // fallback then inherits the right placement. ?7h enables autowrap:
-    // the one-logical-line render needs the terminal to wrap (a telnet
-    // client never gets the boot soft-reset, so don't assume its default).
-    // DECAWM is forced on every read and left on by contract — cooked-input
-    // callers accept it; rln does not save or restore the prior state.
-    com_printf("\33[?25l\33[?7h\0337\33[6n");
-    if (rln_max_length > 0)
-        com_printf("\33[>c\0338 \b");
-    if (!(rln_width_override && rln_height_override))
-        com_printf("\33[999;999H\33[6n\0338");
-    com_printf("\33[?25h");
+    rln_held_len = 0;
+    tio_read_start(rln_max_length);
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1635,11 +1188,20 @@ void rln_read_cancel(void)
 {
     rln_callback = NULL;
     rln_idle_timeout_ms = 0;
+    tio_read_end();
 }
 
 bool rln_read_flush(void)
 {
-    if (!rln_callback || !rln_buflen)
+    if (!rln_callback)
+        return false;
+    if (!rln_editing)
+    {
+        rln_end_wait();
+        if (!rln_still_reading())
+            return true;
+    }
+    if (!rln_buflen)
         return false;
     rln_finish_line(false);
     return true;
@@ -1649,37 +1211,18 @@ void HOST_IN_RAM_FUNC rln_task(void)
 {
     if (!rln_callback)
         return;
-    while (rln_callback)
+    char item[TIO_ITEM_MAX];
+    com_source_t src;
+    size_t len;
+    for (;;)
     {
-        com_source_t this_src = COM_SOURCE_ANY;
-        int c = com_getchar(&this_src);
-        if (c < 0)
+        if (rln_callback)
+            rln_follow();
+        if (!rln_callback || !(len = tio_read(&src, item)))
             break;
-        char ch = (char)c;
         rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
-        if (this_src != COM_SOURCE_ANY)
-            rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
-        // Instant relief for scripting tools that don't answer ANSI: a
-        // pre-edit CR, or any parser hitting its buf cap, means the peer
-        // is feeding bytes without completing the CPR exchange — abandon
-        // the handshake and enter edit phase so the line can flow.
-        bool any_overflow = false;
-        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-            if (rln_sources[s].buf_len >= RLN_BUF_SIZE)
-                any_overflow = true;
-        if (rln_phase != rln_phase_edit && (ch == '\r' || ch == '\n' || any_overflow))
-        {
-            // Skip the rest of the handshake: geometry was never
-            // confirmed, so drop prompt_col to force no-wrap rendering.
-            // term_width is kept (still useful for rln_get_term_width;
-            // only a real timeout zeroes it).
-            rln_prompt_col = 0;
-            rln_enter_edit();
-        }
+        rln_item(src, item, len);
     }
-    if (rln_callback && rln_phase != rln_phase_edit &&
-        timer_mach_passed(rln_handshake_deadline))
-        rln_handshake_fallback();
     if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
         rln_complete(true);
 }
@@ -1690,12 +1233,9 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = RLN_CAPS_OFF;
     rln_suppress_newline = false;
-    rln_phase = rln_phase_edit;
+    rln_editing = false;
     rln_overwrite = false;
-    rln_width_override = 0;
-    rln_height_override = 0;
-    rln_sources_reset();
-    rln_decscusr_locked_off = false;
+    rln_held_len = 0;
 }
 
 void rln_run(void)
@@ -1715,19 +1255,13 @@ void rln_stop(void)
     rln_init();
 }
 
-void rln_cursor_default(void)
-{
-    if (rln_decscusr_ok)
-        com_printf("\33[0 q");
-}
-
-/* 6502 applications may configure the max length */
-
 void HOST_IN_RAM_FUNC rln_forget_source(unsigned src)
 {
     if (src < COM_SOURCE_COUNT)
-        memset(&rln_sources[src], 0, sizeof rln_sources[src]);
+        rln_line_ends[src] = 0;
 }
+
+/* 6502 applications may configure the max length */
 
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
 uint8_t rln_get_max_length(void) { return rln_max_length; }
@@ -1737,58 +1271,6 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 
 void rln_set_suppress_nl(uint8_t v) { rln_suppress_newline = v; }
 uint8_t rln_get_suppress_nl(void) { return rln_suppress_newline; }
-
-uint16_t HOST_IN_RAM_FUNC rln_get_term_width(void)
-{
-    if (rln_width_override)
-        return rln_width_override;
-    if (rln_naws_width)
-        return rln_naws_width;
-    if (rln_term_width > 0)
-        return rln_term_width;
-    if (vga_connected())
-    {
-        int w, h;
-        vga_canvas_size(&w, &h);
-        return (uint16_t)vga_term_columns(w);
-    }
-    return 80;
-}
-
-uint16_t rln_get_term_height(void)
-{
-    if (rln_height_override)
-        return rln_height_override;
-    if (rln_naws_height)
-        return rln_naws_height;
-    if (rln_term_height > 0)
-        return rln_term_height;
-    if (vga_connected())
-    {
-        int w, h;
-        vga_canvas_size(&w, &h);
-        return (uint16_t)(h / vga_term_row_px(w));
-    }
-    return 24;
-}
-
-void rln_set_term_width(uint16_t v) { rln_width_override = v; }
-void rln_set_term_height(uint16_t v) { rln_height_override = v; }
-
-void HOST_IN_RAM_FUNC rln_set_naws_size(uint16_t w, uint16_t h)
-{
-    if (w == rln_naws_width && h == rln_naws_height)
-        return;
-    uint16_t old_w = rln_get_term_width();
-    rln_naws_width = w;
-    rln_naws_height = h;
-    if (rln_callback &&
-        rln_phase == rln_phase_edit &&
-        rln_prompt_col != 0 &&
-        rln_buflen > 0 &&
-        rln_get_term_width() != old_w)
-        rln_resize_redraw();
-}
 
 /* ----- API calls ----- */
 
@@ -1838,21 +1320,22 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
     rln_cur_idx = (uint8_t)(target + 2);
     if (rln_prompt_col)
     {
-        uint16_t w = rln_get_term_width();
+        uint16_t w = rln_width;
         uint16_t last_col = (uint16_t)((rln_prompt_col - 1 + target + 1) % w) + 1;
         if (last_col == w)
             rln_cur_idx = (uint8_t)(target + 1); // margin: caret parks on the cell
     }
 }
 
+// The string is framed into items as a source is. A sequence still open at the
+// end of the string is dropped, and so is an overlong one.
 void rln_poke(const char *str)
 {
     if (!rln_callback)
         return;
-    bool sync = (rln_phase == rln_phase_edit);
-    bool prev_overwrite = rln_overwrite;
-    if (sync)
-        rln_overwrite = true;
+    char item[TIO_ITEM_MAX];
+    size_t len = 0;
+    uint8_t frame = 0;
     // An empty string sends 0x00.
     const char *p = str;
     do
@@ -1860,6 +1343,12 @@ void rln_poke(const char *str)
         uint8_t ch = (uint8_t)*p;
         if (ch < 32 && ch != '\33' && ch != '\30')
         {
+            if (!rln_editing)
+            {
+                rln_end_wait();
+                if (!rln_still_reading())
+                    break;
+            }
             if (ch != '\r' && rln_max_length >= 2)
             {
                 uint8_t target = rln_bufpos;
@@ -1871,15 +1360,15 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, ch);
+        tio_step_t step = tio_frame(&frame, ch);
+        if (len < TIO_ITEM_MAX)
+            item[len] = (char)ch;
+        len++;
+        if (step == TIO_END && len <= TIO_ITEM_MAX)
+            rln_item(RLN_POKE, item, len);
+        if (step != TIO_OPEN)
+            len = 0;
     } while (*++p);
-    if (sync)
-    {
-        bool need_reemit = (rln_overwrite != prev_overwrite);
-        rln_overwrite = prev_overwrite;
-        if (need_reemit)
-            rln_emit_mode_cursor();
-    }
 }
 
 // int ria_rln_poke(const char *poke);

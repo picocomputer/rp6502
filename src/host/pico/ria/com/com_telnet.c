@@ -14,6 +14,7 @@
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
 #include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/sys/ring.h"
 #include "core/sys/timer.h"
@@ -24,6 +25,7 @@
 
 #ifndef RP6502_RIA_W
 
+bool HOST_IN_RAM_FUNC com_telnet_connected(void) { return false; }
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
@@ -48,7 +50,7 @@ static uint8_t com_telnet_auth_len;
 static uint8_t com_telnet_auth_end; // the CR or LF that ended the passkey
 
 static RING(char, 32) com_telnet_tx;
-static RING(uint8_t, 32) com_telnet_rx;
+static RING(uint8_t, COM_TELNET_RX_SIZE) com_telnet_rx;
 static bool com_telnet_rx_held;
 static timer_deadline_t com_telnet_rx_hold;
 
@@ -70,6 +72,11 @@ static void com_telnet_clear_rings(void)
     com_telnet_clear_rx();
 }
 
+bool HOST_IN_RAM_FUNC com_telnet_connected(void)
+{
+    return com_telnet_state == COM_TELNET_STATE_CONNECTED;
+}
+
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void)
 {
     return RING_AVAIL(&com_telnet_tx) != 0;
@@ -85,9 +92,9 @@ size_t HOST_IN_RAM_FUNC com_telnet_read(char *buf, size_t length)
     return RING_OUT(&com_telnet_rx, buf, (uint32_t)length);
 }
 
-int HOST_IN_RAM_FUNC com_telnet_peek(void)
+int HOST_IN_RAM_FUNC com_telnet_peek(size_t offset)
 {
-    return RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, 0) : -1;
+    return offset < RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, offset) : -1;
 }
 
 static void HOST_IN_RAM_FUNC com_telnet_drain_tx(void)
@@ -208,7 +215,7 @@ static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
     {
         uint16_t nw, nh;
         if (telnet_get_naws(NET_TELNET_DESC, &nw, &nh))
-            rln_set_naws_size(nw, nh);
+            tio_set_naws_size(nw, nh);
     }
 }
 
@@ -226,7 +233,8 @@ static void com_telnet_teardown(com_telnet_state_t target)
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
         vga_set_tel_console_active(false);
-        rln_set_naws_size(0, 0);
+        tio_set_naws_size(0, 0);
+        tio_forget(COM_SOURCE_TEL);
         rln_forget_source(COM_SOURCE_TEL);
     }
     if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE &&

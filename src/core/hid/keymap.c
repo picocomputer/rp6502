@@ -30,8 +30,6 @@
 #define KEYMAP_REPEAT_DELAY 500000
 #define KEYMAP_REPEAT_RATE 30000
 
-#define KEYMAP_KEY_QUEUE_SIZE 16
-
 static int keymap_layout_index;
 static const char *keymap_layout_pos;
 static timer_deadline_t keymap_repeat_timer;
@@ -565,6 +563,13 @@ overflow_error:
 size_t HOST_IN_RAM_FUNC keymap_in_chars(char *buf, size_t length)
 {
     return RING_OUT(&keymap_key_queue, buf, (uint32_t)length);
+}
+
+int HOST_IN_RAM_FUNC keymap_in_peek(size_t offset)
+{
+    return offset < RING_LEN(&keymap_key_queue)
+               ? (unsigned char)*RING_AT(&keymap_key_queue, offset)
+               : -1;
 }
 
 bool keymap_check_layout_list(const char *in, char *out)

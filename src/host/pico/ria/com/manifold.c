@@ -19,9 +19,18 @@
 #include <pico/stdio/driver.h>
 #include <stdio.h>
 
-// The producers of this ring, the stdio driver and manifold_putchar_raw, and
-// its consumer, manifold_tx_fanout, all run on the core 0 main loop.
-static RING(uint8_t, 32) manifold_tx_core0;
+/* One byte of core 0's output and the COM_TERM_ bits of the terminals it is
+ * for. */
+typedef struct
+{
+    uint8_t ch;
+    uint8_t to;
+} manifold_tx_entry_t;
+
+// The producers of this ring, the stdio driver, manifold_putchar_raw and
+// manifold_write_to, and its consumer, manifold_tx_fanout, all run on the
+// core 0 main loop.
+static RING(manifold_tx_entry_t, 32) manifold_tx_core0;
 
 /* manifold_stdio_driver sets crlf_enabled, so a newline can be written to the
  * ring as CR LF, and manifold_cts asks for room for both bytes. */
@@ -30,9 +39,14 @@ bool manifold_cts(void)
     return RING_AVAIL(&manifold_tx_core0) >= 2;
 }
 
+static void manifold_tx_put(uint8_t to, char c)
+{
+    RING_PUT(&manifold_tx_core0, ((manifold_tx_entry_t){.ch = (uint8_t)c, .to = to}));
+}
+
 void manifold_putchar_raw(char c)
 {
-    RING_PUT(&manifold_tx_core0, (uint8_t)c);
+    manifold_tx_put(COM_TERM_ALL, c);
 }
 
 /* stderr goes out as stdout does. */
@@ -46,7 +60,7 @@ size_t manifold_write(int fd, const char *buf, size_t n)
 }
 
 static RING(uint8_t, 32) manifold_uart_tx;
-static RING(uint8_t, 32) manifold_uart_rx;
+static RING(uint8_t, MANIFOLD_RING_SIZE) manifold_uart_rx;
 
 void HOST_IN_RAM_FUNC manifold_uart_drain_rx(void)
 {
@@ -65,9 +79,9 @@ size_t HOST_IN_RAM_FUNC manifold_uart_read(char *buf, size_t length)
     return RING_OUT(&manifold_uart_rx, buf, (uint32_t)length);
 }
 
-int HOST_IN_RAM_FUNC manifold_uart_peek(void)
+int HOST_IN_RAM_FUNC manifold_uart_peek(size_t offset)
 {
-    return RING_LEN(&manifold_uart_rx) ? *RING_AT(&manifold_uart_rx, 0) : -1;
+    return offset < RING_LEN(&manifold_uart_rx) ? *RING_AT(&manifold_uart_rx, offset) : -1;
 }
 
 void HOST_IN_FLASH_FUNC manifold_uart_clear(void)
@@ -123,27 +137,44 @@ static void manifold_uart_flush(void)
  * printf waits on that ring, while the 6502 waits on READY without harm. */
 static bool manifold_tx_from_ria;
 
-static bool HOST_IN_RAM_FUNC manifold_tx_next(uint8_t *ch)
+static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
 {
-    return manifold_tx_from_ria ? ria_uart_tx_dequeue(ch) : RING_GET(&manifold_tx_core0, ch);
+    return manifold_tx_from_ria ? !ria_uart_tx_empty() : RING_LEN(&manifold_tx_core0) != 0;
 }
 
+/* Each entry goes, in order, to the terminals it is for, and waits only for
+ * room in their rings. The 6502's output is for every terminal. Only output
+ * for every terminal moves the clean-line state. */
 static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
 {
-    while (manifold_uart_tx_writable() && com_telnet_tx_writable())
+    while (true)
     {
         if (manifold_tx_from_ria && !RING_AVAIL(&manifold_tx_core0))
             manifold_tx_from_ria = false;
-        uint8_t ch;
-        if (!manifold_tx_next(&ch))
+        if (!manifold_tx_waiting())
         {
             manifold_tx_from_ria = !manifold_tx_from_ria;
-            if (!manifold_tx_next(&ch))
+            if (!manifold_tx_waiting())
                 break;
         }
-        com_line_track((const char *)&ch, 1);
-        manifold_uart_tx_write((char)ch);
-        com_telnet_tx_write((char)ch);
+        uint8_t to = manifold_tx_from_ria ? COM_TERM_ALL : RING_AT(&manifold_tx_core0, 0)->to;
+        if (((to & COM_TERM_UART) && !manifold_uart_tx_writable()) ||
+            ((to & COM_TERM_TEL) && !com_telnet_tx_writable()))
+            break;
+        uint8_t ch;
+        if (manifold_tx_from_ria)
+            ria_uart_tx_dequeue(&ch);
+        else
+        {
+            ch = RING_AT(&manifold_tx_core0, 0)->ch;
+            RING_SKIP(&manifold_tx_core0, 1);
+        }
+        if (to == COM_TERM_ALL)
+            com_line_track((const char *)&ch, 1);
+        if (to & COM_TERM_UART)
+            manifold_uart_tx_write((char)ch);
+        if (to & COM_TERM_TEL)
+            com_telnet_tx_write((char)ch);
     }
 }
 
@@ -155,14 +186,19 @@ static void manifold_stdio_pump(void)
     com_telnet_pump();
 }
 
-static void manifold_stdio_out_chars(const char *buf, int len)
+void manifold_write_to(uint8_t to, const char *buf, size_t n)
 {
-    while (len--)
+    while (n--)
     {
         while (!RING_AVAIL(&manifold_tx_core0))
             manifold_stdio_pump();
-        manifold_putchar_raw(*buf++);
+        manifold_tx_put(to, *buf++);
     }
+}
+
+static void manifold_stdio_out_chars(const char *buf, int len)
+{
+    manifold_write_to(COM_TERM_ALL, buf, (size_t)len);
 }
 
 static void manifold_stdio_out_flush(void)
@@ -230,4 +266,14 @@ void HOST_IN_RAM_FUNC manifold_task(void)
 int manifold_putchar(int c)
 {
     return putchar(c);
+}
+
+uint8_t manifold_term_in_charge(void)
+{
+    return com_telnet_connected() ? COM_TERM_TEL : COM_TERM_UART;
+}
+
+uint8_t manifold_terms_connected(void)
+{
+    return COM_TERM_UART | (com_telnet_connected() ? COM_TERM_TEL : 0);
 }

@@ -23,17 +23,20 @@ void keymap_init(void);
 // Auto-repeat. The held key is read back from keyboard.c, so a release ends it.
 void keymap_task(void);
 
+/* The queue of typed bytes, which holds KEYMAP_KEY_QUEUE_SIZE of them. */
+#define KEYMAP_KEY_QUEUE_SIZE 16
 size_t keymap_in_chars(char *buf, size_t length);
+int keymap_in_peek(size_t offset);
 
 /* Drop whatever was half-typed: the queue, and any dead key or Alt code still
  * being composed. */
 void keymap_abandon(void);
 
 /* The keyboard row core/com/com.c reads on a machine with a layout engine of
- * its own. There is no peek, because this queue cannot be read without
- * consuming it, and no dwell, because a pause here is a person who stopped
+ * its own. There is no dwell, because a pause here is a person who stopped
  * typing rather than a gap in a burst arriving over a wire. */
-#define KEYMAP_COM_SOURCE {.read = keymap_in_chars, .clear = keymap_abandon}
+#define KEYMAP_COM_SOURCE {.read = keymap_in_chars, .peek = keymap_in_peek, \
+    .clear = keymap_abandon, .size = KEYMAP_KEY_QUEUE_SIZE}
 
 int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
 

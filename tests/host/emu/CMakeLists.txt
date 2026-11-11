@@ -19,6 +19,8 @@ rp6502_add_script_test(NAME console COMMAND console.txt ${STDIO_ROM})
 
 rp6502_add_script_test(NAME eof COMMAND eof.txt ${STDIO_ROM})
 
+rp6502_add_script_test(NAME headless_eof COMMAND headless_eof.py ${STDIO_ROM})
+
 rp6502_add_script_test(NAME ctrl COMMAND ctrl.txt ${TTY_KEYS_ROM})
 
 rp6502_add_script_test(NAME repeat COMMAND repeat.py)
@@ -162,6 +164,9 @@ rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
 rp6502_add_test(com LIBS emu_core)
 
 rp6502_add_test(rln LIBS emu_core)
+
+rp6502_add_test(tio SOURCES test_tio.c ${RP6502_SRC}/core/com/tio.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
 
 rp6502_add_test(clk LIBS emu_core)
 

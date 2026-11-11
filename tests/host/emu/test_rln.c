@@ -7,8 +7,11 @@
 #include "core/api/api.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/ria/regs.h"
 #include "core/str/rln.h"
+#include "core/sys/timer.h"
+#include "core/vga/vga_emu.h"
 #include "utest.h"
 #include <string.h>
 
@@ -24,22 +27,40 @@ static void got_line(bool timeout, const char *buf)
     rln_read_line(got_line);
 }
 
-static void wire(const char *s)
+static void tasks(void)
 {
-    manifold_uart_push(s, strlen(s));
     for (int i = 0; i < 64; i++)
         rln_task();
 }
 
-/* rln_init keeps each source's line_end, so every source is also
- * cleared with rln_forget_source, or a case would start with the values the
- * previous case left. */
+static void wire(const char *s)
+{
+    manifold_uart_push(s, strlen(s));
+    tasks();
+}
+
+/* Geometry is ready once the terminal's answers have been quiet for a while.
+ * The machine clock counts scanlines, so time passes with vga_task. */
+static void settle(void)
+{
+    timer_mach_t d = timer_mach_in_ms(TIO_QUIET_MS + 1);
+    while (!timer_mach_passed(d))
+        vga_task();
+    tasks();
+}
+
+/* rln_init keeps each source's line_end, so every source is also cleared
+ * with rln_forget_source, and tio keeps the sizes, so they are cleared too,
+ * or a case would start with the values the previous case left. */
 static void fresh(void)
 {
     com_rx_clear();
     rln_init();
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_forget_source(s);
+    tio_set_term_width(0);
+    tio_set_term_height(0);
+    tio_set_naws_size(0, 0);
 }
 
 static void reading(void)
@@ -139,10 +160,11 @@ UTEST(rln, lastkey_and_peek_require_an_empty_xstack)
 static void editing(void)
 {
     fresh();
-    rln_set_term_width(80);
-    rln_set_term_height(24);
+    tio_set_term_width(80);
+    tio_set_term_height(24);
     reading();
     wire("\33[1;1R");
+    settle();
 }
 
 UTEST(rln, a_key_longer_than_32_bytes_is_not_returned)
@@ -215,8 +237,9 @@ static void next(void)
 }
 
 /* A first read ends on an Enter typed before its terminal answered. Its
- * replies come during the second read, ahead of that read's own. The fields
- * are ten characters, so the cursor moves by absolute column. */
+ * replies come during the second read, ahead of that read's own and within
+ * the quiet time. The fields are ten characters, so the cursor moves by
+ * absolute column. */
 static void ended_early(void)
 {
     fresh();
@@ -235,6 +258,7 @@ UTEST(rln, type_ahead_is_drawn_at_this_reads_prompt)
     wire("ab");
     wire("\33[5;4R\33[>1;10;0c\33[24;80R");
     wire("\33[6;28R\33[>1;10;0c\33[24;80R");
+    settle();
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[28Ga") != NULL);
     ASSERT_TRUE(strstr(shown, "\33[4G") == NULL);
@@ -247,17 +271,10 @@ UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
     capture();
     wire("\33[5;28R\33[>1;10;0c\33[24;80R");
     wire("\33[6;4R\33[>1;10;0c\33[24;80R");
+    settle();
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[4Ga") != NULL);
     ASSERT_TRUE(strstr(shown, "\33[28G") == NULL);
-}
-
-UTEST(rln, this_reads_size_wins)
-{
-    ended_early();
-    wire("\33[5;3R\33[>1;10;0c\33[24;132R");
-    wire("\33[6;28R\33[>1;10;0c\33[24;80R");
-    ASSERT_EQ(rln_get_term_width(), 80);
 }
 
 /* The first read's Enter lands between its DA2 reply and its size reply. */
@@ -273,6 +290,7 @@ UTEST(rln, a_leftover_size_reply_keeps_the_cursor_shape)
     capture();
     wire("\33[24;80R");
     wire("\33[6;3R\33[>1;10;0c\33[24;80R");
+    settle();
     wire("\33[2~");
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[5 q") != NULL);
@@ -316,6 +334,66 @@ UTEST(rln, a_reply_cut_by_a_stop_is_not_typed)
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "");
+}
+
+/* The terminal has answered, and the input ends before the answers have been
+ * quiet long enough. */
+UTEST(rln, a_flush_hands_over_what_was_typed_before_the_answers_settled)
+{
+    fresh();
+    reading();
+    wire("\33[1;1R\33[>1;10;0c\33[24;80R");
+    wire("bb");
+    ASSERT_EQ(lines, 0);
+    ASSERT_TRUE(rln_read_flush());
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "bb");
+    ASSERT_FALSE(rln_read_flush());
+}
+
+UTEST(rln, a_flush_hands_over_a_preload_before_the_answers_settled)
+{
+    fresh();
+    lines = 0;
+    need_next = true;
+    next();
+    wire("\33[1;1R\33[>1;10;0c\33[24;80R");
+    rln_poke("x");
+    ASSERT_TRUE(rln_read_flush());
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "x");
+    ASSERT_FALSE(rln_read_flush());
+}
+
+UTEST(rln, a_poked_enter_takes_what_was_typed_before_the_terminal_answered)
+{
+    fresh();
+    reading();
+    wire("ab");
+    rln_poke("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+}
+
+UTEST(rln, a_new_window_size_draws_the_line_again)
+{
+    fresh();
+    reading();
+    wire("\33[1;5R\33[>1;10;0c\33[24;80R");
+    settle();
+    wire("abc");
+    capture();
+    tio_set_naws_size(40, 24);
+    tasks();
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "abc") != NULL);
+    shown_len = 0;
+    shown[0] = 0;
+    capture();
+    tasks();
+    manifold_set_tx_tap(NULL);
+    ASSERT_EQ(shown_len, (size_t)0);
+    tio_set_naws_size(0, 0);
 }
 
 UTEST(rln, a_poke_of_an_empty_string_ends_the_line)

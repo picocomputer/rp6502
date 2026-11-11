@@ -296,6 +296,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/com/manifold.c
     ${RIA_SRC}/com/com_telnet.c
     ${RP6502_ROOT}/src/core/com/com.c
+    ${RP6502_ROOT}/src/core/com/tio.c
     ${RIA_SRC}/sys/phi2.c
     ${RIA_SRC}/sys/rp2350.c
     ${RIA_SRC}/sys/resb.c

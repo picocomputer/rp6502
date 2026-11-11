@@ -17,10 +17,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* A session has given the passkey and is logged in. Never on the RIA. */
+bool com_telnet_connected(void);
+
 bool com_telnet_tx_writable(void);
 void com_telnet_tx_write(char ch);
 size_t com_telnet_read(char *buf, size_t length);
-int com_telnet_peek(void);
+int com_telnet_peek(size_t offset);
 
 /* On the RIA-W, com_telnet_pump can run the accept and disconnect callbacks
  * before it returns. It first sends what it can of the TX ring, and when
@@ -35,7 +38,9 @@ void com_telnet_flashing(void);
 
 void com_telnet_clear_rx(void);
 
-#define COM_TELNET_SOURCE {.read = com_telnet_read, .peek = com_telnet_peek, .clear = com_telnet_clear_rx, .dwell_us = COM_DWELL_US}
+#define COM_TELNET_RX_SIZE 32
+#define COM_TELNET_SOURCE {.read = com_telnet_read, .peek = com_telnet_peek, \
+    .clear = com_telnet_clear_rx, .dwell_us = COM_DWELL_US, .size = COM_TELNET_RX_SIZE}
 
 // Telnet console server settings
 #define COM_TELNET_KEY_SIZE 33

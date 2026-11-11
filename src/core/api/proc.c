@@ -10,7 +10,7 @@
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/str/oem.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/com/com.h"
 #include "core/sys/sys.h"
 #include "machine.h"
@@ -138,7 +138,7 @@ void proc_chain_end(void)
     /* Output reaches the VGA before a code page change clears it. */
     com_flush();
     oem_restore_code_page();
-    rln_cursor_default();
+    tio_cursor_default();
     com_set_bel(true);
     /* The soft reset and the cursor shape move no cursor. */
     com_line_set_clean();

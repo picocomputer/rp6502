@@ -37,12 +37,29 @@ static bool com_bel_enabled = true;
  * starts at the start of a line. */
 static uint8_t com_line = COM_LINE_CR | COM_LINE_LF;
 
-static size_t HOST_IN_RAM_FUNC com_read_source(com_source_t s, char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC com_read(com_source_t src, char *buf, size_t n)
 {
-    size_t n = com_rx_reclaim(buf, length, s);
-    if (n < length && com_sources[s].read)
-        n += com_sources[s].read(&buf[n], length - n);
-    return n;
+    size_t got = com_rx_reclaim(buf, n, src);
+    if (got < n && com_sources[src].read)
+        got += com_sources[src].read(&buf[got], n - got);
+    return got;
+}
+
+int HOST_IN_RAM_FUNC com_peek(com_source_t src, size_t offset)
+{
+    int c = com_rx_peek(src);
+    if (c >= 0)
+    {
+        if (!offset)
+            return c;
+        offset--;
+    }
+    return com_sources[src].peek ? com_sources[src].peek(offset) : -1;
+}
+
+size_t HOST_IN_RAM_FUNC com_queue_size(com_source_t src)
+{
+    return com_sources[src].size;
 }
 
 /* A source that read something holds the reader for the dwell it declares, so a
@@ -57,7 +74,7 @@ static size_t HOST_IN_RAM_FUNC com_rx_pick(char *buf, size_t length, com_source_
     {
         if (com_rx_held != COM_SOURCE_ANY && com_rx_held != s)
             continue;
-        size_t n = com_read_source(s, buf, length);
+        size_t n = com_read(s, buf, length);
         if (n)
         {
             com_rx_held = s;
@@ -76,29 +93,11 @@ int HOST_IN_RAM_FUNC com_getchar(com_source_t *src)
 {
     char ch;
     size_t n = *src == COM_SOURCE_ANY ? com_rx_pick(&ch, 1, src)
-                                      : com_read_source(*src, &ch, 1);
+                                      : com_read(*src, &ch, 1);
     if (n)
         return (unsigned char)ch;
     *src = COM_SOURCE_ANY;
     return -1;
-}
-
-int HOST_IN_RAM_FUNC com_peekchar(com_source_t src)
-{
-    if (src == COM_SOURCE_ANY)
-    {
-        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        {
-            int c = com_peekchar(s);
-            if (c >= 0)
-                return c;
-        }
-        return -1;
-    }
-    int c = com_rx_peek(src);
-    if (c >= 0)
-        return c;
-    return com_sources[src].peek ? com_sources[src].peek() : -1;
 }
 
 size_t com_stdin_read(char *buf, size_t count)
@@ -126,7 +125,7 @@ size_t HOST_IN_RAM_FUNC com_rx_reclaim(char *buf, size_t length, com_source_t sr
     return 1;
 }
 
-int com_rx_peek(com_source_t src)
+int HOST_IN_RAM_FUNC com_rx_peek(com_source_t src)
 {
     return com_rx_staged == src ? ria_uart_rx_peek() : -1;
 }

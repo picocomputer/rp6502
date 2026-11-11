@@ -19,7 +19,7 @@
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
 #include "core/str/path.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/str/str.h"
 #include "sys/path.h"
 #include "core/com/com.h"
@@ -372,7 +372,7 @@ void HOST_IN_FLASH_FUNC rom_load_argv(const char *argv0, const char *args)
         mon_add_response_utf8(S(STR_ERR_ROM_ARGV_INVALID));
         return;
     }
-    rln_cursor_default();
+    tio_cursor_default();
     com_line_set_clean(); /* after the command line, and the shape moves no cursor */
     rom_exec();
 }

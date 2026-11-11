@@ -36,12 +36,23 @@ typedef enum
     COM_SOURCE_ANY = COM_SOURCE_COUNT,
 } com_source_t;
 
+/* The terminals a console write is for, as a bitmap with one bit per source
+ * that is a terminal. The keyboard is not one. */
+#define COM_TERM(src) (1u << (src))
+#define COM_TERM_UART COM_TERM(COM_SOURCE_UART)
+#define COM_TERM_TEL COM_TERM(COM_SOURCE_TEL)
+#define COM_TERM_ALL (COM_TERM_UART | COM_TERM_TEL)
+
+/* A source's row: read takes up to length bytes from the front of its
+ * queue, peek returns the byte offset places from the front without taking
+ * it, negative past the end, and size is how many bytes the queue holds. */
 typedef struct
 {
     size_t (*read)(char *buf, size_t length);
-    int (*peek)(void);
+    int (*peek)(size_t offset);
     void (*clear)(void);
     uint32_t dwell_us;
+    uint16_t size;
 } com_source_driver_t;
 
 /* A source fed in bursts is empty between two chunks, so after a byte arrives
@@ -62,8 +73,17 @@ void com_rx_clear_source(com_source_t src);
  * out, a named source reads only that one and leaves the others queued. */
 int com_getchar(com_source_t *src);
 
-/* Negative when there is none. COM_SOURCE_ANY peeks every source. */
-int com_peekchar(com_source_t src);
+/* Up to n bytes from the named source, the byte staged from it first. */
+size_t com_read(com_source_t src, char *buf, size_t n);
+
+/* The byte offset places into the named source without taking it, negative
+ * when there is none. Offset 0 is the staged byte when it came from that
+ * source. */
+int com_peek(com_source_t src, size_t offset);
+
+/* How many bytes the named source's queue holds, the staged byte not
+ * counted. Zero for a source the machine does not have. */
+size_t com_queue_size(com_source_t src);
 
 size_t com_stdin_read(char *buf, size_t count);
 

@@ -23,6 +23,7 @@
 #include "core/aud/psg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
@@ -52,7 +53,7 @@
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, RLN_DRIVER, \
+    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, TIO_DRIVER, RLN_DRIVER, \
     API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \

@@ -29,6 +29,8 @@
 /* The C library's stdout is the console, so com_printf formats straight to
  * it. */
 #define COM_LIBC_STDOUT 1
+/* The size of the UART's input ring. */
+#define MANIFOLD_RING_SIZE 32
 
 
 #endif /* _HOST_MACHINE_H_ */

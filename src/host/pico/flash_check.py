@@ -36,7 +36,6 @@ PRUNE = {
     'host_log': 'only prints a log message, and no message is needed while flashing',
     'com_telnet_handle_auth': 'the telnet FLASHING hook closed any session at the passkey prompt',
     'sys_set_flashing': 'the writer calls it first, and it runs the FLASHING hooks from flash still intact',
-    'rln_resize_redraw': 'redraws only while a line is being edited (rln_set_naws_size)',
     'cyw43_ll_bus_init': 'radio start-up: cyw43_ensure_up returns early while the chip is up',
     'initialise_rand': 'runs once, for the first random number at boot (get_rand_64)',
     'btstack_run_loop_poll_data_sources_from_irq':
@@ -77,8 +76,8 @@ INDIRECT = {
     '_out_rev': ('printf output functions', PRINTF),
     '_out_fct': ('the vfctprintf printer', PRINTF),
     'weak_raw_vprintf': ('panic prints through vprintf', STDIO),
-    'com_read_source': ('the console sources, RP6502_COM_SOURCES',
-                        ['keymap_in_chars', 'manifold_uart_read', 'com_telnet_read']),
+    'com_read': ('the console sources, RP6502_COM_SOURCES',
+                 ['keymap_in_chars', 'manifold_uart_read', 'com_telnet_read']),
     'async_context_acquire_lock_blocking': ('the poll context type', ASYNC),
     'async_context_release_lock': ('the poll context type', ASYNC),
     'async_context_set_work_pending': ('the poll context type', ASYNC),

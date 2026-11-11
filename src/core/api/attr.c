@@ -13,6 +13,7 @@
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
+#include "core/com/tio.h"
 #include "core/com/com.h"
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
@@ -95,12 +96,12 @@ static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_caps(void)
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_width(void)
 {
-    return rln_get_term_width();
+    return tio_get_term_width();
 }
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_height(void)
 {
-    return rln_get_term_height();
+    return tio_get_term_height();
 }
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_suppress_nl(void)
@@ -177,7 +178,7 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_width(uint32_t value)
 {
     if (value > UINT16_MAX)
         return false;
-    rln_set_term_width((uint16_t)value);
+    tio_set_term_width((uint16_t)value);
     return true;
 }
 
@@ -185,7 +186,7 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_height(uint32_t value)
 {
     if (value > UINT16_MAX)
         return false;
-    rln_set_term_height((uint16_t)value);
+    tio_set_term_height((uint16_t)value);
     return true;
 }
 

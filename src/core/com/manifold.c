@@ -107,6 +107,13 @@ size_t manifold_keyboard_read(char *buf, size_t length)
     return RING_OUT(&manifold_keyboard_ring, buf, (uint32_t)length);
 }
 
+int manifold_keyboard_peek(size_t offset)
+{
+    return offset < RING_LEN(&manifold_keyboard_ring)
+               ? *RING_AT(&manifold_keyboard_ring, offset)
+               : -1;
+}
+
 void manifold_keyboard_clear(void)
 {
     RING_SKIP(&manifold_keyboard_ring, RING_LEN(&manifold_keyboard_ring));
@@ -126,10 +133,15 @@ size_t manifold_uart_read(char *buf, size_t length)
     return n;
 }
 
-int manifold_uart_peek(void)
+/* A held reply comes after the ring, as manifold_uart_read delivers it. */
+int manifold_uart_peek(size_t offset)
 {
     manifold_reply_promote();
-    return RING_LEN(&manifold_uart_ring) ? *RING_AT(&manifold_uart_ring, 0) : -1;
+    const uint32_t len = RING_LEN(&manifold_uart_ring);
+    if (offset < len)
+        return *RING_AT(&manifold_uart_ring, offset);
+    offset -= len;
+    return offset < manifold_reply_len ? manifold_reply_buf[offset] : -1;
 }
 
 void manifold_uart_clear(void)
@@ -167,9 +179,15 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
     manifold_wire_held = false;
 }
 
-static void manifold_tx_write(const char *buf, int len)
+/* The UART is the only terminal here, and its sinks are the host wire, the
+ * window terminal and the tx tap. Only a write to every terminal moves the
+ * clean-line state. */
+static void manifold_tx_write(uint8_t to, const char *buf, int len)
 {
-    com_line_track(buf, (size_t)len);
+    if (to == COM_TERM_ALL)
+        com_line_track(buf, (size_t)len);
+    if (!(to & COM_TERM_UART))
+        return;
     if (manifold_tx_tap)
         manifold_tx_tap(buf, len);
     if (com_get_bel())
@@ -195,12 +213,12 @@ static void manifold_crlf_write(const char *buf, int len)
         manifold_crlf_last = c;
         if (n >= (int)sizeof(out) - 1)
         {
-            manifold_tx_write(out, n);
+            manifold_tx_write(COM_TERM_ALL, out, n);
             n = 0;
         }
     }
     if (n)
-        manifold_tx_write(out, n);
+        manifold_tx_write(COM_TERM_ALL, out, n);
 }
 
 /* Output is written as it is made, so there is always room. */
@@ -220,7 +238,23 @@ void manifold_putchar_raw(char c)
 {
     if (manifold_std_tap)
         manifold_std_tap(STDOUT_FILENO, &c, 1);
-    manifold_tx_write(&c, 1);
+    manifold_tx_write(COM_TERM_ALL, &c, 1);
+}
+
+void manifold_write_to(uint8_t to, const char *buf, size_t n)
+{
+    manifold_tx_write(to, buf, (int)n);
+}
+
+/* No telnet here, so the UART is the one terminal. */
+uint8_t manifold_term_in_charge(void)
+{
+    return COM_TERM_UART;
+}
+
+uint8_t manifold_terms_connected(void)
+{
+    return COM_TERM_UART;
 }
 
 size_t manifold_write(int fd, const char *buf, size_t n)
@@ -283,12 +317,6 @@ void manifold_uart_push(const char *s, size_t n)
 size_t manifold_keyboard_free(void)
 {
     return RING_AVAIL(&manifold_keyboard_ring);
-}
-
-bool manifold_input_idle(void)
-{
-    return !manifold_reply_len && !RING_LEN(&manifold_uart_ring) &&
-           !RING_LEN(&manifold_keyboard_ring);
 }
 
 /* A stream wire is not read while the ring is full. A console wire is left for

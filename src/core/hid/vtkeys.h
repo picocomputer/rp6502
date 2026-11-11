@@ -55,7 +55,8 @@ void vtkeys_paste_cancel(void);
 
 /* Clear the keyboard source: the ring and the rest of the paste. */
 void vtkeys_clear(void);
-#define VTKEYS_COM_SOURCE {.read = manifold_keyboard_read, .clear = vtkeys_clear, .dwell_us = COM_DWELL_US}
+#define VTKEYS_COM_SOURCE {.read = manifold_keyboard_read, .peek = manifold_keyboard_peek, \
+    .clear = vtkeys_clear, .dwell_us = COM_DWELL_US, .size = MANIFOLD_RING_SIZE}
 
 bool vtkeys_paste_busy(void);
 
