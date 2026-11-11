@@ -88,6 +88,7 @@ typedef struct tablet_connection
      * units, or 0 where it declares none, for its shape. */
     int32_t x_phys, y_phys;
     bool touchscreen; // laid over the display, rather than a pen's tablet
+    uint8_t flags;    // this pointer's TABLET_FLAG_ buttons and hover
 } tablet_connection_t;
 
 void tablet_init(void);

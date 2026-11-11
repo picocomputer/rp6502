@@ -155,19 +155,26 @@ bool tablet_mount(int slot, const tablet_connection_t *desc)
     return false;
 }
 
+/* Contact 0 is the one pointer that every device moves, so its flags are the
+ * buttons and hover of all of them, as the mouse merges its buttons. */
+static void HOST_IN_RAM_FUNC tablet_merge_flags(void)
+{
+    uint8_t merged = 0;
+    for (int i = 0; i < TABLET_MAX_MICE; ++i)
+        if (tablet_connections[i].valid)
+            merged |= tablet_connections[i].flags;
+    tablet_state[TABLET_OFF_CONTACTS] = merged;
+}
+
 bool tablet_umount(int slot)
 {
     tablet_connection_t *conn = tablet_get_connection_by_slot(slot);
     if (conn == NULL)
         return false;
     conn->valid = false;
-    /* Contact 0 is released once the last pointer is gone, so that a button
-     * held at unplug does not stay down. A pointer that is still plugged in
-     * refreshes the contact on its next report. */
-    for (int i = 0; i < TABLET_MAX_MICE; ++i)
-        if (tablet_connections[i].valid)
-            return true;
-    tablet_clear_contact(0);
+    /* A button held at unplug is let go at once, and the pointers still
+     * plugged in keep theirs. */
+    tablet_merge_flags();
     tablet_write_xram();
     return true;
 }
@@ -293,7 +300,8 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
     }
     if (!on_canvas)
     {
-        tablet_clear_contact(0);
+        conn->flags = 0;
+        tablet_merge_flags();
         tablet_write_xram();
         return;
     }
@@ -339,7 +347,9 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
         tablet_state[TABLET_OFF_PAN] += hid_extract_signed(report_data, report_data_len,
                                                            conn->pan_offset, conn->pan_size);
 
-    tablet_put_contact(0, (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0)), tablet_x, tablet_y);
+    conn->flags = (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0));
+    tablet_put_contact(0, 0, tablet_x, tablet_y);
+    tablet_merge_flags();
     tablet_write_xram();
 }
 

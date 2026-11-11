@@ -519,6 +519,37 @@ UTEST(tablet, a_touchscreen_maps_through_the_display)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
+/* Contact 0 is one pointer that every device moves, so a button held on one
+ * mouse stays down while another moves, and is let go when its mouse is
+ * unplugged. */
+UTEST(tablet, buttons_of_two_mice_merge)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, 1, 2, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(tablet_mount(5, &mouse));
+    ASSERT_TRUE(tablet_mount(6, &mouse));
+    const uint8_t left[] = {TABLET_FLAG_LEFT, 0, 0};
+    const uint8_t move[] = {0, 4, 4};
+    tablet_report(5, left, sizeof left);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    tablet_report(6, move, sizeof move);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(5));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(6));
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
 static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
