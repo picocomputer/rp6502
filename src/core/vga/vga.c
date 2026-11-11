@@ -195,7 +195,6 @@ void vga_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, (uint16_t)vga_canvas_code());
     sst_put_u16(c, (uint16_t)console_h);
     sst_put_u16(c, (uint16_t)vga_prog_highest());
-    sst_put_u16(c, (uint16_t)mode0_begin());
     for (int16_t line = 0; line < VGA_SST_ROWS; line++)
     {
         const vga_prog_t *row = vga_prog_row(line);
@@ -227,8 +226,7 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t canvas = sst_get_u16(c);
     uint16_t console_h = sst_get_u16(c);
     uint16_t highest = sst_get_u16(c);
-    uint16_t term_begin = sst_get_u16(c);
-    if (!sst_ok(c) || highest > VGA_SST_ROWS || term_begin > VGA_SST_ROWS)
+    if (!sst_ok(c) || highest > VGA_SST_ROWS)
         return false;
 
     /* Every console a host can give is 640 wide, so only its height is
@@ -290,7 +288,6 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
         vga_prog_load_row(line, &row);
     }
     vga_prog_set_highest((int16_t)highest);
-    mode0_set_begin((int16_t)term_begin);
     return true;
 }
 
