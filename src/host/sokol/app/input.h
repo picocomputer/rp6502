@@ -16,6 +16,13 @@ struct sapp_event;
  * input. */
 void input_event(const struct sapp_event *e);
 
+/* Once a frame, after its events and before the machine runs. */
+void input_frame(void);
+
+/* Take the lock LEDs from the host where host_lock_keys can read them. False
+ * where it cannot, and nothing changes. */
+bool input_sync_locks(void);
+
 /* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
 bool input_mouse_locked(void);
 
