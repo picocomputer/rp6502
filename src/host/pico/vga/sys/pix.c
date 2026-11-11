@@ -13,6 +13,8 @@
 #include "vga/sys/ria.h"
 #include "vga/sys/flash.h"
 #include "vga/sys/vga.h"
+#include "vga/usb/cdc.h"
+#include "vga/usb/usb.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
 #include <pico/stdlib.h>
@@ -83,8 +85,16 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
     case 0x06: // REBOOT_OR_LOCKUP
         if (word == 0)
             watchdog_reboot(0, 0, 0);
+        /* A failed flash leaves the fonts and the view table, which stay in
+         * flash, erased or foreign, and the RIA's reboot button does not
+         * reset the VGA. So nothing from the RIA is heard again until
+         * power-off, and core 1 keeps the error on the screen. USB, which
+         * runs from RAM, goes on so the CDC console delivers the error too. */
         for (;;)
-            tight_loop_contents();
+        {
+            usb_task();
+            cdc_task();
+        }
     case 0x07: // FLASH_PROGRAM
         if (!flash_program_request(word))
             ria_nak();
