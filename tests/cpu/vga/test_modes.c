@@ -197,6 +197,27 @@ UTEST(mode3, off_canvas_320x240)
     run_pair(utest_result, "mode3_offright_4bpp", "blank320", BLANK320_CRC);
 }
 
+/* A layer whose size is under 1 pixel or over 32767 draws nothing. */
+UTEST(mode1, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode1_size_zero_h", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_zero_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_neg_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_neg_h", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode2, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode2_size_zero_h", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_size_zero_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_size_neg_w", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode3, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode3_size_zero_h", "blank320", BLANK320_CRC);
+}
+
 UTEST(mode3, bpp8_xram_palette_640x480)
 {
     run_case(utest_result, "mode3_8bpp", 0x6B55D171, MUT_BUDGET_UNDER);

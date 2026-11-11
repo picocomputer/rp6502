@@ -28,6 +28,10 @@ typedef struct
     uint16_t xram_font_ptr;
 } mode1_config_t;
 
+/* Each renderer copies the config out of XRAM once per scanline, checks the
+ * copy and draws from it. A write to XRAM part way through a line, such as one
+ * byte of a 16-bit size, then cannot slip in behind the checks. */
+
 typedef struct
 {
     uint8_t glyph_code;
@@ -63,6 +67,12 @@ typedef struct
 static const uint8_t *
 mode1_scanline_to_data(int16_t scanline_id, int16_t width, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
+    // The size in pixels has to fit an int16_t, and be at least 1, before the
+    // wrap divides by it. The counts alone would let 4096 cells overflow.
+    if (config->width_chars < 1 || config->width_chars > INT16_MAX / 8 ||
+        config->height_chars < 1 ||
+        (int32_t)config->height_chars * font_height > INT16_MAX)
+        return NULL;
     *row = scanline_id - config->y_pos_px;
     const int16_t height = config->height_chars * font_height;
     if (config->y_wrap)
@@ -72,7 +82,7 @@ mode1_scanline_to_data(int16_t scanline_id, int16_t width, mode1_config_t *confi
         if (*row >= height)
             *row -= ((*row - height) / height + 1) * height;
     }
-    if (*row < 0 || *row >= height || config->width_chars < 1 || height < 1)
+    if (*row < 0 || *row >= height)
         return NULL;
     // A layer that misses the scanline across, like one that misses it down,
     // draws nothing. mode1_fill_cols counts on it: unwrapped, a column past
@@ -151,7 +161,8 @@ static inline __attribute__((always_inline)) bool
 mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
-    mode1_config_t *config = (void *)&xram[config_ptr];
+    mode1_config_t cfg = *(const mode1_config_t *)&xram[config_ptr];
+    mode1_config_t *config = &cfg;
     int16_t row;
     const mode1_1bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_1bpp_data_t), font_height, &row);
@@ -210,7 +221,8 @@ static inline __attribute__((always_inline)) bool
 mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
-    mode1_config_t *config = (void *)&xram[config_ptr];
+    mode1_config_t cfg = *(const mode1_config_t *)&xram[config_ptr];
+    mode1_config_t *config = &cfg;
     int16_t row;
     const mode1_4bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_4bpp_data_t), font_height, &row);
@@ -273,7 +285,8 @@ static inline __attribute__((always_inline)) bool
 mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
                    uint16_t config_ptr, int16_t font_height)
 {
-    mode1_config_t *config = (void *)&xram[config_ptr];
+    mode1_config_t cfg = *(const mode1_config_t *)&xram[config_ptr];
+    mode1_config_t *config = &cfg;
     int16_t row;
     const mode1_4bppr_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_4bppr_data_t), font_height, &row);
@@ -336,7 +349,8 @@ static inline __attribute__((always_inline)) bool
 mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
-    mode1_config_t *config = (void *)&xram[config_ptr];
+    mode1_config_t cfg = *(const mode1_config_t *)&xram[config_ptr];
+    mode1_config_t *config = &cfg;
     int16_t row;
     const mode1_8bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_8bpp_data_t), font_height, &row);
@@ -399,7 +413,8 @@ static inline __attribute__((always_inline)) bool
 mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                    uint16_t config_ptr, int16_t font_height)
 {
-    mode1_config_t *config = (void *)&xram[config_ptr];
+    mode1_config_t cfg = *(const mode1_config_t *)&xram[config_ptr];
+    mode1_config_t *config = &cfg;
     int16_t row;
     const mode1_16bpp_data_t *row_data =
         (void *)mode1_scanline_to_data(scanline_id, width, config, sizeof(mode1_16bpp_data_t), font_height, &row);

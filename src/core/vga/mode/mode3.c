@@ -26,9 +26,16 @@ typedef struct
     uint16_t xram_palette_ptr;
 } mode3_config_t;
 
+/* Each renderer copies the config out of XRAM once per scanline, checks the
+ * copy and draws from it. A write to XRAM part way through a line, such as one
+ * byte of a 16-bit size, then cannot slip in behind the checks. */
+
 static const uint8_t *
 mode3_scanline_to_data(int16_t scanline_id, int16_t width, mode3_config_t *config, int16_t bpp)
 {
+    // At least 1 pixel each way, before the wrap divides by the height.
+    if (config->width_px < 1 || config->height_px < 1)
+        return NULL;
     int16_t row = scanline_id - config->y_pos_px;
     const int16_t height = config->height_px;
     if (config->y_wrap)
@@ -38,7 +45,7 @@ mode3_scanline_to_data(int16_t scanline_id, int16_t width, mode3_config_t *confi
         if (row >= height)
             row -= ((row - height) / height + 1) * height;
     }
-    if (row < 0 || row >= height || config->width_px < 1 || height < 1)
+    if (row < 0 || row >= height)
         return NULL;
     // A layer that misses the scanline across, like one that misses it down,
     // draws nothing. mode3_fill_cols counts on it: unwrapped, a column past
@@ -104,7 +111,8 @@ static bool
 mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 1);
     if (!row_data)
         return false;
@@ -143,7 +151,8 @@ static bool
 mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 1);
     if (!row_data)
         return false;
@@ -182,7 +191,8 @@ static bool
 mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 2);
     if (!row_data)
         return false;
@@ -221,7 +231,8 @@ static bool
 mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 2);
     if (!row_data)
         return false;
@@ -260,7 +271,8 @@ static bool
 mode3_render_4bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 4);
     if (!row_data)
         return false;
@@ -290,7 +302,8 @@ static bool
 mode3_render_4bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 4);
     if (!row_data)
         return false;
@@ -320,7 +333,8 @@ static bool
 mode3_render_8bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 8);
     if (!row_data)
         return false;
@@ -351,7 +365,8 @@ static bool
 mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    mode3_config_t *config = (void *)&xram[config_ptr];
+    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
+    mode3_config_t *config = &cfg;
     const uint16_t *row_data = (const uint16_t *)mode3_scanline_to_data(scanline_id, width, config, 16);
     if (!row_data)
         return false;
