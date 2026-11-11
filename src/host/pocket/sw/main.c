@@ -36,7 +36,7 @@
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
 #include "core/sys/debug_log.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/pix.h"
 #include "core/term/term.h"
 

@@ -8,7 +8,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "core/com/tio.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"

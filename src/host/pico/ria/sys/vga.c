@@ -5,7 +5,7 @@
  */
 
 #include "ria/mon/mon.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
 #include "ria/com/manifold.h"

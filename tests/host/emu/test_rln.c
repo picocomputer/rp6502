@@ -9,7 +9,7 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"
 #include "utest.h"

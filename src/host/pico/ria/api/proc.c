@@ -13,7 +13,7 @@
 #include "core/sys/sys.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"

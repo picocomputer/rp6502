@@ -13,7 +13,7 @@
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/sys/ring.h"

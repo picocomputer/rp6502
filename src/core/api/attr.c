@@ -12,7 +12,7 @@
 #include "core/str/oem.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/com/com.h"
 #include "core/wdc/phi2.h"

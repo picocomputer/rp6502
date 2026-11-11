@@ -6,7 +6,7 @@
 
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/sys/ria.h"
 #include "core/com/com.h"

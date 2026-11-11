@@ -91,6 +91,38 @@ core/com/manifold.c manifold_wire_hold: not carried: host wiring
 core/com/manifold.c manifold_wire_rx: not carried: host wiring
 core/com/manifold.c manifold_wire_stream: not carried: host wiring
 core/com/manifold.c manifold_wire_tx: not carried: host wiring
+core/com/rln.c held: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
+core/com/rln.c rln_action_taken: the RLN chunk
+core/com/rln.c rln_buf: the RLN chunk
+core/com/rln.c rln_buflen: the RLN chunk
+core/com/rln.c rln_bufpos: the RLN chunk
+core/com/rln.c rln_callback: the RLN chunk
+core/com/rln.c rln_caps: the RLN chunk
+core/com/rln.c rln_cur_idx: the RLN chunk
+core/com/rln.c rln_editing: the RLN chunk
+core/com/rln.c rln_held: the RLN chunk
+core/com/rln.c rln_held_len: the RLN chunk
+core/com/rln.c rln_history: the RLN chunk
+core/com/rln.c rln_history_count: the RLN chunk
+core/com/rln.c rln_history_pos: the RLN chunk
+core/com/rln.c rln_idle_deadline: the RLN chunk
+core/com/rln.c rln_idle_timeout_ms: the RLN chunk
+core/com/rln.c rln_last_render_buflen: the RLN chunk
+core/com/rln.c rln_lastkey_action: the RLN chunk
+core/com/rln.c rln_lastkey_buf: the RLN chunk
+core/com/rln.c rln_lastkey_len: the RLN chunk
+core/com/rln.c rln_line_ends: the RLN chunk
+core/com/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
+core/com/rln.c rln_max_length: the RLN chunk
+core/com/rln.c rln_overwrite: the RLN chunk
+core/com/rln.c rln_prompt_col: the RLN chunk
+core/com/rln.c rln_rendered_max_row: the RLN chunk
+core/com/rln.c rln_skip_history: the RLN chunk
+core/com/rln.c rln_suppress_newline: the RLN chunk
+core/com/rln.c rln_width: the RLN chunk
 core/com/tio.c tio_answers: the TIO chunk
 core/com/tio.c tio_charge: the TIO chunk
 core/com/tio.c tio_deadline: the TIO chunk
@@ -175,38 +207,6 @@ core/rom/rom.c buf: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
-core/str/rln.c held: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/str/rln.c rln_action_taken: the RLN chunk
-core/str/rln.c rln_buf: the RLN chunk
-core/str/rln.c rln_buflen: the RLN chunk
-core/str/rln.c rln_bufpos: the RLN chunk
-core/str/rln.c rln_callback: the RLN chunk
-core/str/rln.c rln_caps: the RLN chunk
-core/str/rln.c rln_cur_idx: the RLN chunk
-core/str/rln.c rln_editing: the RLN chunk
-core/str/rln.c rln_held: the RLN chunk
-core/str/rln.c rln_held_len: the RLN chunk
-core/str/rln.c rln_history: the RLN chunk
-core/str/rln.c rln_history_count: the RLN chunk
-core/str/rln.c rln_history_pos: the RLN chunk
-core/str/rln.c rln_idle_deadline: the RLN chunk
-core/str/rln.c rln_idle_timeout_ms: the RLN chunk
-core/str/rln.c rln_last_render_buflen: the RLN chunk
-core/str/rln.c rln_lastkey_action: the RLN chunk
-core/str/rln.c rln_lastkey_buf: the RLN chunk
-core/str/rln.c rln_lastkey_len: the RLN chunk
-core/str/rln.c rln_line_ends: the RLN chunk
-core/str/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
-core/str/rln.c rln_max_length: the RLN chunk
-core/str/rln.c rln_overwrite: the RLN chunk
-core/str/rln.c rln_prompt_col: the RLN chunk
-core/str/rln.c rln_rendered_max_row: the RLN chunk
-core/str/rln.c rln_skip_history: the RLN chunk
-core/str/rln.c rln_suppress_newline: the RLN chunk
-core/str/rln.c rln_width: the RLN chunk
 core/str/str.c str_buf: parse scratch, dead at every frame boundary
 core/str/str.c str_locale_index: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_locale_names: the linked table image and a parse buffer dead at every frame boundary

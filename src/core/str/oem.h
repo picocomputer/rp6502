@@ -50,7 +50,7 @@ unsigned char oem_from_utf8_next(const char **p);
 
 /* A run of UTF-8 becomes OEM bytes. A character the code page cannot represent
  * becomes '?' rather than the 0x7F the decoder returns, because the line
- * editor in core/str/rln.c reads 0x7F as a backspace. Every control byte,
+ * editor in core/com/rln.c reads 0x7F as a backspace. Every control byte,
  * CR and LF included, passes through.
  *
  * The conversion stops on a full dst, and on a sequence the buffer does not

@@ -24,7 +24,7 @@
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/str/unicode.h"
 #include "core/term/term.h"

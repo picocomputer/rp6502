@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/sst.h"
 
 void std_init(void);

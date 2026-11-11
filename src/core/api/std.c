@@ -7,7 +7,7 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
 #include "core/ria/regs.h"

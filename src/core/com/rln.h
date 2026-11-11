@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_STR_RLN_H_
-#define _CORE_STR_RLN_H_
+#ifndef _CORE_COM_RLN_H_
+#define _CORE_COM_RLN_H_
 
 /* Readline-like line editor.
  */
@@ -116,4 +116,4 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     BREAK(rln_stop)                                         \
     SST(RLN_, 4, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
-#endif /* _CORE_STR_RLN_H_ */
+#endif /* _CORE_COM_RLN_H_ */

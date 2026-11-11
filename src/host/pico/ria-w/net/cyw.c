@@ -9,7 +9,7 @@
 #include "ria-w/net/cyw.h"
 #include "core/sys/config.h"
 #include "ria-w/net/wifi.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/rp2350.h"

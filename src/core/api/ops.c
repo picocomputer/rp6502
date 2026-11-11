@@ -16,7 +16,7 @@
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/sys/pix.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "machine.h"
 
 bool HOST_IN_RAM_FUNC ops_dispatch(uint8_t operation)

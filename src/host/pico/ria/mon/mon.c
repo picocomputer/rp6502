@@ -19,7 +19,7 @@
 #include "ria/mon/uf2.h"
 #include "ria-w/net/cyw.h"
 #include "osal/fs.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"

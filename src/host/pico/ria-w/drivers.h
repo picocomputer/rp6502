@@ -24,7 +24,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/str/oem.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/fil.h"

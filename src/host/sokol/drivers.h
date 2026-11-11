@@ -34,7 +34,7 @@
 #include "core/ria/ria.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/term/font.h"
 #include "core/term/term.h"

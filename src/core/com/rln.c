@@ -8,7 +8,7 @@
 #include "machine.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
