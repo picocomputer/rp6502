@@ -94,6 +94,9 @@ static const char *const HOST_IN_FLASH
 
 #define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
+// The CYW43439's fastest SPI clock.
+#define CYW_SPI_MAX_KHZ 50000
+
 static int cyw_country = -1;
 static bool cyw_is_started; // cyw43_arch_init succeeded
 static bool cyw_is_resetting; // a reset waits for BLE to turn off
@@ -159,16 +162,12 @@ void cyw_led_set(bool on)
 
 void HOST_IN_FLASH_FUNC cyw_init(void)
 {
-    // CYW43439 datasheet says 50MHz for SPI.
-    // The Raspberry Pi SDK only provides for a 2,0 divider,
-    // which is 75MHz for a non-overclocked 150MHz system clock.
-    // It easily runs 85MHz+ so we push it to 66MHz.
-    if (SYS_RP2350_KHZ > 198000)
-        cyw43_set_pio_clkdiv_int_frac8(4, 0);
-    else if (SYS_RP2350_KHZ > 132000)
-        cyw43_set_pio_clkdiv_int_frac8(3, 0);
-    else
-        cyw43_set_pio_clkdiv_int_frac8(2, 0);
+    /* The SDK's PIO program spends two PIO cycles on each SPI bit, so the SPI
+     * clock is the system clock over twice the divider. The CYW43439 takes up
+     * to 50 MHz, and this is the smallest divider within that: 42.7 MHz at
+     * 256 MHz. */
+    cyw43_set_pio_clkdiv_int_frac8(
+        (SYS_RP2350_KHZ + 2 * CYW_SPI_MAX_KHZ - 1) / (2 * CYW_SPI_MAX_KHZ), 0);
 
     /* Loading the config file does not apply it, so the country is looked up
      * here, where the radio comes up. */
