@@ -569,6 +569,25 @@ UTEST(fs, a_refused_exec_keeps_the_arguments)
     arg_clear();
 }
 
+/* arg_size_append sizes ARGV data the way arg_append builds it, so a caller
+ * can tell before it writes anything whether the strings will fit. */
+UTEST(fs, arg_sizes_match_what_append_builds)
+{
+    for (int n = 0; n < 200; n++)
+    {
+        arg_clear();
+        size_t size = arg_size_append(ARG_SIZE_EMPTY, "MSC0:/G");
+        bool built = arg_append("MSC0:/G");
+        for (int i = 0; i < n; i++)
+        {
+            size = arg_size_append(size, "1");
+            built = built && arg_append("1");
+        }
+        ASSERT_TRUE(built == (size <= XSTACK_SIZE));
+    }
+    arg_clear();
+}
+
 UTEST(fs, rom_asset_window_read_only_on_demand)
 {
     ASSERT_TRUE(fresh_cwd());

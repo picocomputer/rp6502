@@ -6,6 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
+#include "core/ria/regs.h"
 #include "ria/api/proc.h"
 #include "core/aud/bel.h"
 #include "core/com/com.h"
@@ -42,28 +43,52 @@ bool proc_exec_inflight(void)
     return rom_active();
 }
 
-/* The card names the running ROM when its path names the same file and its
- * arguments are the same strings. A card for the same ROM with other
- * arguments starts it again. This parses its own copy of the arguments, so
- * it must come after proc_nfc_find is done with first_arg, which shares the
- * parse's buffer. */
-static bool proc_nfc_running(const char *path, const char *args)
+/* One parse of a card's arguments, before anything is stopped. Every argument
+ * must parse, and with argv[0] all of them must fit the ARGV data, because
+ * they are built only after the stop, over the running program's, so a card
+ * that cannot be built is refused while the program carries on. *running is
+ * set when the card names the running ROM: the same file and the same
+ * arguments. A card for the same ROM with other arguments starts it again.
+ * This shares str_parse_string's buffer with proc_nfc_find's first_arg, which
+ * is done with by now. */
+static bool proc_nfc_args(const char *path, const char *args, bool *running)
 {
-    if (!path_eq(path, proc_running()))
-        return false;
-    for (uint16_t i = 1;; i++)
+    size_t size = arg_size_append(ARG_SIZE_EMPTY, path);
+    bool same = path_eq(path, proc_running());
+    uint16_t i = 1;
+    const char *arg;
+    while ((arg = str_parse_string(&args)) != NULL)
     {
-        const char *arg = str_parse_string(&args);
-        const char *run = arg_index(i);
-        if (!arg || !run)
-            return !arg && !run && str_parse_end(args);
-        if (strcmp(arg, run))
+        size = arg_size_append(size, arg);
+        if (size > XSTACK_SIZE)
             return false;
+        if (same)
+        {
+            const char *run = arg_index(i++);
+            same = run && !strcmp(arg, run);
+        }
     }
+    *running = same && !arg_index(i);
+    return str_parse_end(args);
+}
+
+/* A file and not a directory. f_stat tells them apart only through a FILINFO,
+ * a few hundred bytes of the stack, where an f_opendir that fails for a file
+ * needs a DIR of about fifty. */
+static bool proc_nfc_is_file(const char *path)
+{
+    if (f_stat(path, NULL) != FR_OK)
+        return false;
+    DIR dir;
+    if (f_opendir(&dir, path) != FR_OK)
+        return true;
+    f_closedir(&dir);
+    return false;
 }
 
 /* Resolves the ROM a card's text names into path, and leaves *args at the
- * text after it. A path with no drive is looked for on each drive in turn.
+ * text after it. A path with no drive is looked for on each drive in turn,
+ * and a directory is no ROM.
  * The caller puts FatFs on the code page the ROM will run under. */
 static bool proc_nfc_find(const char *text, char *path, size_t path_size,
                           const char **args)
@@ -92,7 +117,7 @@ static bool proc_nfc_find(const char *text, char *path, size_t path_size,
             return false;
         strncpy(path, abs, path_size - 1);
         path[path_size - 1] = '\0';
-        if (f_stat(path, NULL) != FR_OK)
+        if (!proc_nfc_is_file(path))
             return false;
     }
     else
@@ -109,7 +134,7 @@ static bool proc_nfc_find(const char *text, char *path, size_t path_size,
         for (int drive = 0; drive <= 9; drive++)
         {
             path[3] = (char)('0' + drive);
-            if (f_stat(path, NULL) == FR_OK)
+            if (proc_nfc_is_file(path))
             {
                 found = true;
                 break;
@@ -146,7 +171,10 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
 
     RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
 
-    if (proc_nfc_running(path, args))
+    bool running;
+    if (!proc_nfc_args(path, args, &running))
+        goto fail;
+    if (running)
         goto already_running;
 
     // Full success. The tag's ROM starts as if typed at the monitor, so a

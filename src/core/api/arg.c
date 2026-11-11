@@ -65,6 +65,11 @@ static uint16_t arg_size(void)
     return offset + (uint16_t)strlen((const char *)&arg_buf[offset]) + 1;
 }
 
+size_t arg_size_append(size_t size, const char *str)
+{
+    return size + 2 + strlen(str) + 1;
+}
+
 bool arg_append(const char *str)
 {
     uint16_t count = arg_count();
@@ -72,7 +77,7 @@ bool arg_append(const char *str)
     uint16_t old_size = arg_size();
     uint16_t strings_len = old_size - old_strings_start;
     uint16_t new_str_len = (uint16_t)strlen(str) + 1;
-    if (old_size + 2 + new_str_len > XSTACK_SIZE)
+    if (arg_size_append(old_size, str) > XSTACK_SIZE)
         return false;
     memmove(&arg_buf[old_strings_start + 2], &arg_buf[old_strings_start], strings_len);
     for (uint16_t i = 0; i < count; i++)
