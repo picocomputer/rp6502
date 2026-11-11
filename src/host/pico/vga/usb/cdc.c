@@ -11,47 +11,6 @@
 static absolute_time_t break_timer;
 static bool is_breaking = false;
 static uint8_t read_buf[MANIFOLD_IN_BUF_SIZE];
-static bool cdc_ready = false;
-
-bool cdc_is_ready(void)
-{
-    return cdc_ready;
-}
-
-static void cdc_mark_not_ready(void)
-{
-    cdc_ready = false;
-    while (!manifold_out_empty())
-        manifold_out_read();
-    tud_cdc_write_clear();
-}
-
-void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
-{
-    (void)itf;
-    (void)rts;
-    if (dtr)
-        cdc_ready = true;
-    else
-        cdc_mark_not_ready();
-}
-
-void tud_umount_cb(void)
-{
-    cdc_mark_not_ready();
-}
-
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    (void)remote_wakeup_en;
-    cdc_mark_not_ready();
-}
-
-void tud_cdc_tx_complete_cb(uint8_t itf)
-{
-    (void)itf;
-    cdc_ready = true;
-}
 
 void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 {
@@ -95,7 +54,9 @@ void cdc_task(void)
     if (!tud_cdc_connected() ||
         (!tud_cdc_write_available() && manifold_out_full()))
     {
-        cdc_mark_not_ready();
+        while (!manifold_out_empty())
+            manifold_out_read();
+        tud_cdc_write_clear();
         return;
     }
     if (tud_cdc_write_available())

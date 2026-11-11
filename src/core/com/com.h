@@ -37,10 +37,14 @@ typedef enum
 } com_source_t;
 
 /* The terminals a console write is for, as a bitmap with one bit per source
- * that is a terminal. The keyboard is not one. */
+ * that is a terminal, and COM_TERM_SCREEN for term.c, the terminal drawn on
+ * the screen. The keyboard is not a terminal. term.c hears everything written
+ * to the UART and answers on the UART's source; COM_TERM_SCREEN reaches it
+ * alone, and nothing else that hears the UART. */
 #define COM_TERM(src) (1u << (src))
 #define COM_TERM_UART COM_TERM(COM_SOURCE_UART)
 #define COM_TERM_TEL COM_TERM(COM_SOURCE_TEL)
+#define COM_TERM_SCREEN COM_TERM(COM_SOURCE_COUNT)
 #define COM_TERM_ALL (COM_TERM_UART | COM_TERM_TEL)
 
 /* A source's row: read takes up to length bytes from the front of its

@@ -50,17 +50,17 @@ static void settle(void)
 }
 
 /* rln_init keeps each source's line_end, so every source is also cleared
- * with rln_forget_source, and tio keeps the sizes, so they are cleared too,
- * or a case would start with the values the previous case left. */
+ * with rln_forget_source, or a case would start with what the previous case
+ * left. tio starts over too. The cases talk to a plain terminal on the UART,
+ * in charge, unless they say otherwise. */
 static void fresh(void)
 {
+    manifold_set_term_in_charge(COM_TERM_UART);
     com_rx_clear();
     rln_init();
     for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_forget_source(s);
-    tio_set_term_width(0);
-    tio_set_term_height(0);
-    tio_set_naws_size(0, 0);
+    tio_init();
 }
 
 static void reading(void)
@@ -394,6 +394,113 @@ UTEST(rln, a_new_window_size_draws_the_line_again)
     manifold_set_tx_tap(NULL);
     ASSERT_EQ(shown_len, (size_t)0);
     tio_set_naws_size(0, 0);
+}
+
+/* The line can be longer than the row, so it is drawn on the wrap path. */
+UTEST(rln, typing_at_the_end_of_the_line_echoes_only_the_char)
+{
+    editing();
+    wire("ab");
+    capture();
+    wire("c");
+    manifold_set_tx_tap(NULL);
+    ASSERT_STREQ(shown, "c");
+}
+
+UTEST(rln, deleting_at_the_end_of_the_line_erases_the_tail)
+{
+    editing();
+    wire("abc");
+    capture();
+    wire("\177");
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[K") != NULL);
+}
+
+static char screen[256];
+
+static void screen_out(const char *buf, int len)
+{
+    strncat(screen, buf, (size_t)len);
+}
+
+/* term.c is in charge, and what is sent to it alone is kept. */
+static void screen_reading(void)
+{
+    fresh();
+    manifold_set_term_in_charge(COM_TERM_SCREEN);
+    screen[0] = 0;
+    manifold_set_term_out(screen_out);
+    capture();
+    lines = 0;
+    need_next = true;
+    next();
+}
+
+static void screen_done(void)
+{
+    manifold_set_term_out(NULL);
+    manifold_set_tx_tap(NULL);
+}
+
+UTEST(rln, term_c_is_asked_alone_and_an_enter_waits_for_its_answer)
+{
+    screen_reading();
+    ASSERT_TRUE(strstr(screen, "\33[6n") != NULL);
+    ASSERT_TRUE(strstr(screen, "\33[>c") == NULL);
+    ASSERT_TRUE(strstr(shown, "\33[6n") == NULL);
+    wire("a\r");
+    ASSERT_EQ(lines, 0);
+    wire("\33[5;3R");
+    settle();
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "a");
+    screen_done();
+}
+
+/* What is typed after the held Enter waits in its source, where term.c's
+ * answer would come behind it, so the wait ends at once. */
+UTEST(rln, a_key_typed_after_an_enter_that_waits_goes_to_the_next_read)
+{
+    screen_reading();
+    wire("a\rb");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "a");
+    next();
+    wire("\33[5;3R");
+    settle();
+    wire("\r");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "b");
+    screen_done();
+}
+
+UTEST(rln, term_c_gets_its_shapes_alone)
+{
+    screen_reading();
+    wire("\33[5;3R");
+    settle();
+    ASSERT_TRUE(strstr(screen, "\33[5 q") != NULL);
+    wire("\33[2~");
+    ASSERT_TRUE(strstr(screen, "\33[1 q") != NULL);
+    ASSERT_TRUE(strstr(shown, " q") == NULL);
+    screen_done();
+}
+
+/* A pipe or a file on the UART is a script: nothing is asked, and the line is
+ * laid out at once with no prompt column. */
+UTEST(rln, with_no_terminal_in_charge_nothing_is_asked)
+{
+    fresh();
+    manifold_set_term_in_charge(0);
+    capture();
+    reading();
+    ASSERT_EQ(shown_len, (size_t)0);
+    wire("a\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "a");
+    ASSERT_TRUE(strstr(shown, "\33[") == NULL);
+    manifold_set_tx_tap(NULL);
 }
 
 UTEST(rln, a_poke_of_an_empty_string_ends_the_line)

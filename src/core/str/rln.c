@@ -91,7 +91,7 @@ static uint16_t rln_width;
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
 static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop)
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
-static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
+static uint8_t rln_last_render_buflen; // buflen as of the last render
 
 // The CR or LF each source, the poke stream included, last ended a line
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
@@ -441,6 +441,8 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 //     the terminal autowrap (the standard readline/linenoise model), then
 //     clear the tail and any rows a previous longer render owned. Never
 //     \33[J, which would erase rows below that rln does not own.
+// Both erase an old tail only when the line got shorter, so typing at the end
+// of the line echoes just the typed char.
 static void rln_render_from(uint8_t start)
 {
     if (!rln_editing)
@@ -470,7 +472,8 @@ static void rln_render_from(uint8_t start)
         //   - Otherwise: a margin-filling row is committed with SPACE+BS so it
         //     stays a soft-wrapped continuation a resize can reflow (a hard \n
         //     would split the logical line); EL then drops the space and any
-        //     stale tail. A non-margin end just needs EL.
+        //     stale tail. A non-margin end needs EL only when the line got
+        //     shorter, to drop the stale tail.
         uint8_t cmax = rln_cursor_max();
         uint8_t er;
         uint16_t ec;
@@ -485,7 +488,7 @@ static void rln_render_from(uint8_t start)
             bool filled_margin = rln_buflen > start && ec == 1;
             if (filled_margin)
                 com_printf(" \b\33[K");
-            else
+            else if (rln_last_render_buflen > rln_buflen)
                 com_printf("\33[K");
             rln_cur_idx = rln_buflen;
         }
@@ -875,8 +878,8 @@ static void rln_line_insert(char ch)
 /* ----- Mode toggling ----- */
 
 // The cursor shape for the mode, a block for overwrite and a bar for insert.
-// tio sends it only to the terminals that answered DA2 in this read, so on
-// the others the mode has no visual indicator.
+// tio sends it only to the terminals taken to support shapes, so on the
+// others the mode has no visual indicator.
 static void rln_emit_mode_cursor(void)
 {
     tio_cursor_shape(rln_overwrite ? 1 : 5);
@@ -896,9 +899,10 @@ static void rln_toggle_overwrite(void)
  * sequence, the terminals' answers already taken out. A typed item is
  * dispatched while the line is being edited, and held until then before. */
 
-// Forward decls: ending the wait starts the edit, which replays the held
-// items through rln_item.
+// Forward decls: ending the wait, or following tio once it is ready, starts
+// the edit, which replays the held items through rln_item.
 static void rln_end_wait(void);
+static void rln_follow(void);
 static void rln_item(com_source_t src, const char *item, size_t len);
 
 static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
@@ -1050,25 +1054,30 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     }
 }
 
-// Holds a typed item that arrives before the edit starts. A line end, or an
-// item that does not fit, starts the edit at once with no prompt column, for
-// a peer that feeds bytes without answering the CPRs; an item that did not
-// fit is then taken after the held ones.
+// Holds a typed item that arrives before the edit starts. A line end starts
+// the edit as soon as tio_line_end lets geometry be ready, which is at once
+// for a peer that feeds bytes without answering the CPRs; until then tio
+// takes only answers, so nothing typed after the line end is held. An item
+// that does not fit starts the edit at once with no prompt column, and is
+// then taken after the held ones.
 static void rln_hold(com_source_t src, const char *item, size_t len)
 {
-    bool fits = rln_held_len + 2 + len <= sizeof rln_held;
-    if (fits)
+    if (rln_held_len + 2 + len > sizeof rln_held)
     {
-        rln_held[rln_held_len++] = (uint8_t)src;
-        rln_held[rln_held_len++] = (uint8_t)len;
-        memcpy(&rln_held[rln_held_len], item, len);
-        rln_held_len += (uint16_t)len;
-        if (len > 1 || (item[0] != '\r' && item[0] != '\n'))
-            return;
+        rln_end_wait();
+        if (rln_callback)
+            rln_item(src, item, len);
+        return;
     }
-    rln_end_wait();
-    if (!fits && rln_callback)
-        rln_item(src, item, len);
+    rln_held[rln_held_len++] = (uint8_t)src;
+    rln_held[rln_held_len++] = (uint8_t)len;
+    memcpy(&rln_held[rln_held_len], item, len);
+    rln_held_len += (uint16_t)len;
+    if (len == 1 && (item[0] == '\r' || item[0] == '\n'))
+    {
+        tio_line_end();
+        rln_follow();
+    }
 }
 
 // Takes one item from a source, or from the poke stream. Private CSIs and SS2

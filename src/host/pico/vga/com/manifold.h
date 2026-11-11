@@ -5,9 +5,10 @@
  */
 
 /* The terminal part of core/com/manifold.h on the VGA. What the RIA sends, on
- * the UART or over PIX, goes through the SDK's stdio to the terminal and the
- * USB console. What the USB console sends, and the terminal's replies, go to
- * the RIA on the UART. */
+ * the UART or over PIX as UART_TX, goes through the SDK's stdio to the
+ * terminal and the USB console; what it sends over PIX as TERM_TX goes to the
+ * terminal alone. What the USB console sends, and the terminal's replies, go
+ * to the RIA on the UART. */
 
 #ifndef _VGA_COM_MANIFOLD_H_
 #define _VGA_COM_MANIFOLD_H_
@@ -56,6 +57,9 @@ bool manifold_out_empty(void);
 bool manifold_out_full(void);
 char manifold_out_peek(void);
 char manifold_out_read(void);
+
+/* One byte from PIX $F:05 to the terminal alone, as it is. */
+void manifold_term_putc(char ch);
 
 #define MANIFOLD_UART_DRIVER DRIVER(INIT(manifold_init))
 

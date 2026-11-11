@@ -42,10 +42,10 @@ void rln_read_line_no_history(rln_read_callback_t callback);
 // Give up a read in progress: the callback never fires.
 void rln_read_cancel(void);
 
-// Finish a read early, as Enter does: the items typed before the terminal
-// answered are taken first, then the line is handed over through the
-// callback. Returns false when no read was in progress, or when the line is
-// still empty.
+// Finish a read now, without waiting for the terminal: the items typed
+// before it answered are taken first, then the line is handed over through
+// the callback. Returns false when no read was in progress, or when the line
+// is still empty.
 bool rln_read_flush(void);
 
 // 6502 applications may configure the max length
@@ -75,7 +75,7 @@ void rln_forget_source(unsigned src);
 // least 2, without being inserted. Poked bytes are dispatched in overwrite
 // mode. An escape sequence still open at the end of the string is dropped.
 // A control byte poked before the terminal answered takes the items typed
-// before it first, as Enter does.
+// before it first, without waiting for the answer.
 void rln_poke(const char *str);
 
 // 6502 API entry points.

@@ -24,6 +24,7 @@ static manifold_ring_t manifold_uart_ring;
 static uint8_t manifold_reply_buf[32];
 static size_t manifold_reply_len;
 static bool manifold_reply_suppressed;
+static uint8_t manifold_charge = COM_TERM_SCREEN;
 
 static char manifold_crlf_last;
 
@@ -179,24 +180,25 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
     manifold_wire_held = false;
 }
 
-/* The UART is the only terminal here, and its sinks are the host wire, the
- * window terminal and the tx tap. Only a write to every terminal moves the
- * clean-line state. */
+/* The UART is the only terminal here besides term.c. The UART's sinks are the
+ * tx tap, the bell, the host wire and term.c; COM_TERM_SCREEN's is term.c
+ * alone. Only a write to every terminal moves the clean-line state. */
 static void manifold_tx_write(uint8_t to, const char *buf, int len)
 {
     if (to == COM_TERM_ALL)
         com_line_track(buf, (size_t)len);
-    if (!(to & COM_TERM_UART))
-        return;
-    if (manifold_tx_tap)
-        manifold_tx_tap(buf, len);
-    if (com_get_bel())
-        for (int i = 0; i < len; i++)
-            if (buf[i] == '\a')
-                bel_add(&bel_teletype);
-    if (manifold_wire_tx)
-        manifold_wire_tx(buf, len);
-    if (manifold_term_out)
+    if (to & COM_TERM_UART)
+    {
+        if (manifold_tx_tap)
+            manifold_tx_tap(buf, len);
+        if (com_get_bel())
+            for (int i = 0; i < len; i++)
+                if (buf[i] == '\a')
+                    bel_add(&bel_teletype);
+        if (manifold_wire_tx)
+            manifold_wire_tx(buf, len);
+    }
+    if ((to & (COM_TERM_UART | COM_TERM_SCREEN)) && manifold_term_out)
         manifold_term_out(buf, len);
 }
 
@@ -246,15 +248,21 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n)
     manifold_tx_write(to, buf, (int)n);
 }
 
-/* No telnet here, so the UART is the one terminal. */
 uint8_t manifold_term_in_charge(void)
 {
-    return COM_TERM_UART;
+    return manifold_charge;
 }
 
+void manifold_set_term_in_charge(uint8_t term)
+{
+    manifold_charge = term;
+}
+
+/* The terminal in charge is the one terminal here: term.c with a window, the
+ * host terminal without one, and none for a pipe or a file. */
 uint8_t manifold_terms_connected(void)
 {
-    return COM_TERM_UART;
+    return manifold_charge;
 }
 
 size_t manifold_write(int fd, const char *buf, size_t n)

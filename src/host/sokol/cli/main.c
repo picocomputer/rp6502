@@ -366,7 +366,7 @@ int main(int argc, char **argv)
 
     /* A host terminal becomes the machine's console and carries its screen,
      * so it is already showing everything the mirror below would repeat. */
-    bool console_is_terminal = o.console && console_open();
+    bool console_is_terminal = o.console && console_open(!o.headless);
 
     /* The program's stdout on the host's too, except where host stdout is
      * already the emulator's own channel: a script's replies, a CRC. */

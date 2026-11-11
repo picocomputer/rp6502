@@ -100,24 +100,35 @@ static void manifold_uart_tx_write(char ch)
     RING_PUT(&manifold_uart_tx, (uint8_t)ch);
 }
 
+/* With the VGA connected, the UART's TX pin carries the backchannel, so a
+ * byte written to the UART reaches no wire. Each byte sent to the VGA over
+ * PIX still goes through the UART, which spaces them one character time
+ * apart, so the VGA's small PIX FIFO is never overrun. */
+static bool HOST_IN_RAM_FUNC manifold_vga_writable(void)
+{
+    return (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFE_BITS) && pix_ready();
+}
+
+static void HOST_IN_RAM_FUNC manifold_vga_write(uint8_t reg, char ch)
+{
+    uart_putc_raw(MANIFOLD_UART, ch);
+    pix_send(PIX_DEVICE_VGA, 0xF, reg, (uint8_t)ch);
+}
+
 static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
 {
     bool vga = vga_connected();
     while (RING_LEN(&manifold_uart_tx))
     {
-        uint32_t fr = uart_get_hw(MANIFOLD_UART)->fr;
-        if (vga)
-        {
-            if (!(fr & UART_UARTFR_TXFE_BITS) || !pix_ready())
-                break;
-        }
-        else if (fr & UART_UARTFR_TXFF_BITS)
+        if (vga ? !manifold_vga_writable()
+                : (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFF_BITS))
             break;
-        uint8_t ch = *RING_AT(&manifold_uart_tx, 0);
+        char ch = (char)*RING_AT(&manifold_uart_tx, 0);
         RING_SKIP(&manifold_uart_tx, 1);
-        uart_putc_raw(MANIFOLD_UART, (char)ch);
         if (vga)
-            pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
+            manifold_vga_write(0x03, ch);
+        else
+            uart_putc_raw(MANIFOLD_UART, ch);
         if (ch == '\a' && com_get_bel())
             bel_add(&bel_teletype);
     }
@@ -142,9 +153,24 @@ static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
     return manifold_tx_from_ria ? !ria_uart_tx_empty() : RING_LEN(&manifold_tx_core0) != 0;
 }
 
+/* A byte for term.c alone goes over PIX as TERM_TX, never on the UART wire.
+ * It waits for the UART's ring to empty, because the bytes in that ring reach
+ * term.c over PIX as UART_TX as they leave it. With no VGA it is dropped. */
+static bool HOST_IN_RAM_FUNC manifold_screen_writable(void)
+{
+    return !vga_connected() || (!RING_LEN(&manifold_uart_tx) && manifold_vga_writable());
+}
+
+static void HOST_IN_RAM_FUNC manifold_screen_write(char ch)
+{
+    if (vga_connected())
+        manifold_vga_write(0x05, ch);
+}
+
 /* Each entry goes, in order, to the terminals it is for, and waits only for
  * room in their rings. The 6502's output is for every terminal. Only output
- * for every terminal moves the clean-line state. */
+ * for every terminal moves the clean-line state. term.c hears the UART, so a
+ * byte for both goes to the UART alone. */
 static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
 {
     while (true)
@@ -158,8 +184,10 @@ static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
                 break;
         }
         uint8_t to = manifold_tx_from_ria ? COM_TERM_ALL : RING_AT(&manifold_tx_core0, 0)->to;
-        if (((to & COM_TERM_UART) && !manifold_uart_tx_writable()) ||
-            ((to & COM_TERM_TEL) && !com_telnet_tx_writable()))
+        if ((to & COM_TERM_UART) ? !manifold_uart_tx_writable()
+                                 : (to & COM_TERM_SCREEN) && !manifold_screen_writable())
+            break;
+        if ((to & COM_TERM_TEL) && !com_telnet_tx_writable())
             break;
         uint8_t ch;
         if (manifold_tx_from_ria)
@@ -173,6 +201,8 @@ static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
             com_line_track((const char *)&ch, 1);
         if (to & COM_TERM_UART)
             manifold_uart_tx_write((char)ch);
+        else if (to & COM_TERM_SCREEN)
+            manifold_screen_write((char)ch);
         if (to & COM_TERM_TEL)
             com_telnet_tx_write((char)ch);
     }
@@ -268,12 +298,19 @@ int manifold_putchar(int c)
     return putchar(c);
 }
 
+/* With the VGA connected, the UART goes to term.c and the VGA's USB port;
+ * without it, to a terminal of its own. */
+static uint8_t manifold_screen_or_uart(void)
+{
+    return vga_connected() ? COM_TERM_SCREEN : COM_TERM_UART;
+}
+
 uint8_t manifold_term_in_charge(void)
 {
-    return com_telnet_connected() ? COM_TERM_TEL : COM_TERM_UART;
+    return com_telnet_in_charge() ? COM_TERM_TEL : manifold_screen_or_uart();
 }
 
 uint8_t manifold_terms_connected(void)
 {
-    return COM_TERM_UART | (com_telnet_connected() ? COM_TERM_TEL : 0);
+    return manifold_screen_or_uart() | (com_telnet_connected() ? COM_TERM_TEL : 0);
 }

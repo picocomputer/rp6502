@@ -70,7 +70,10 @@ const char *vga_get_display_type_verbose(void);
 
 void vga_set_canvas(uint16_t canvas_word);
 
-void vga_set_tel_console_active(bool active);
+/* SUPPRESS_TERM_REPLY: the VGA's terminal drops its replies while a telnet
+ * session is in charge, because that terminal answers a program's queries.
+ * The setting is sent again each time the VGA connects. */
+void vga_suppress_term_reply(bool suppress);
 
 #define VGA_CONFIG_DISPLAY_TYPE CONFIG_INT(D, vga, display_type, uint8_t, 0, \
     vga_check_display_type, vga_apply_display_type, STR_VGA, \

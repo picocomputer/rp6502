@@ -64,19 +64,22 @@ static void console_tx(const char *buf, int len)
         os_console_break_ask(); /* the reader has gone */
 }
 
-bool console_open(void)
+bool console_open(bool window)
 {
     bool typed = os_console_stdin_is_terminal();
     bool terminal = os_console_is_terminal();
     if (typed)
         os_console_raw(true);
     manifold_set_wire(terminal ? console_tx : NULL, stdin_rx, !typed);
+    if (!window)
+        manifold_set_term_in_charge(terminal ? COM_TERM_UART : 0);
     if (!terminal)
         return false;
-    /* Two terminals must not both answer a program's query. The host's is
-     * the one the program can see, so the emulated one stops answering and
-     * goes on drawing. */
-    manifold_suppress_reply(true);
+    /* Two terminals must not both answer a program's query. Without a window
+     * the host's is the one the program can see, so the emulated one stops
+     * answering and goes on drawing. */
+    if (!window)
+        manifold_suppress_reply(true);
     /* The program's stderr already reaches this screen through console_tx,
      * so a second copy on the host's stderr would print everything twice. A
      * redirected stderr is another destination and keeps its copy. */

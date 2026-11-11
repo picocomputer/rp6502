@@ -478,10 +478,78 @@ UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
     untap();
 }
 
-UTEST(com, the_uart_is_the_one_terminal_without_telnet)
+static char screen[64];
+static size_t screen_len;
+
+static void screen_out(const char *buf, int len)
 {
+    memcpy(screen + screen_len, buf, (size_t)len);
+    screen_len += (size_t)len;
+}
+
+static char wired[64];
+static size_t wired_len;
+
+static void wired_tx(const char *buf, int len)
+{
+    memcpy(wired + wired_len, buf, (size_t)len);
+    wired_len += (size_t)len;
+}
+
+UTEST(com, a_write_to_the_screen_reaches_term_c_alone)
+{
+    tap();
+    screen_len = 0;
+    wired_len = 0;
+    manifold_set_term_out(screen_out);
+    manifold_set_wire(wired_tx, NULL, false);
+    manifold_write_to(COM_TERM_SCREEN, "\33[6n\n", 5);
+    ASSERT_EQ(screen_len, (size_t)5);
+    ASSERT_EQ(memcmp(screen, "\33[6n\n", 5), 0);
+    ASSERT_EQ(sent_len, (size_t)0);
+    ASSERT_EQ(wired_len, (size_t)0);
+    manifold_write_to(COM_TERM_UART, "u", 1);
+    ASSERT_EQ(screen_len, (size_t)6);
+    ASSERT_EQ(sent_len, (size_t)1);
+    ASSERT_EQ(wired_len, (size_t)1);
+    unwire();
+    manifold_set_term_out(NULL);
+    untap();
+}
+
+UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
+{
+    screen_len = 0;
+    manifold_set_term_out(screen_out);
+    com_putchar('a');
+    manifold_write_to(COM_TERM_SCREEN, "b", 1);
+    com_putchar('c');
+    ASSERT_EQ(screen_len, (size_t)3);
+    ASSERT_EQ(memcmp(screen, "abc", 3), 0);
+    manifold_set_term_out(NULL);
+    com_line_set_clean();
+}
+
+UTEST(com, a_write_to_the_screen_leaves_the_line_clean)
+{
+    com_line_set_clean();
+    manifold_write_to(COM_TERM_SCREEN, "x", 1);
+    ASSERT_TRUE(com_line_clean());
+}
+
+/* The terminal in charge is the one terminal connected: a script on the
+ * UART is none. */
+UTEST(com, term_c_is_in_charge_until_the_host_says_otherwise)
+{
+    ASSERT_EQ(manifold_term_in_charge(), (uint8_t)COM_TERM_SCREEN);
+    ASSERT_EQ(manifold_terms_connected(), (uint8_t)COM_TERM_SCREEN);
+    manifold_set_term_in_charge(COM_TERM_UART);
     ASSERT_EQ(manifold_term_in_charge(), (uint8_t)COM_TERM_UART);
     ASSERT_EQ(manifold_terms_connected(), (uint8_t)COM_TERM_UART);
+    manifold_set_term_in_charge(0);
+    ASSERT_EQ(manifold_term_in_charge(), (uint8_t)0);
+    ASSERT_EQ(manifold_terms_connected(), (uint8_t)0);
+    manifold_set_term_in_charge(COM_TERM_SCREEN);
 }
 
 UTEST_MAIN();

@@ -62,9 +62,12 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-void HOST_IN_RAM_FUNC vga_set_tel_console_active(bool active)
+static bool vga_term_reply_suppressed;
+
+void HOST_IN_RAM_FUNC vga_suppress_term_reply(bool suppress)
 {
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
+    vga_term_reply_suppressed = suppress;
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, suppress);
 }
 
 void vga_set_code_page(uint16_t cp)
@@ -238,6 +241,9 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
         return;
     }
 
+    // A VGA that booted since the last connect starts with its replies on.
+    vga_suppress_term_reply(vga_term_reply_suppressed);
+
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
     // Drain bytes the PIO sampled off the pin while it was driven by UART TX
@@ -291,7 +297,6 @@ void HOST_IN_FLASH_FUNC vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();
-    vga_set_tel_console_active(false);
 
     // Program a UART Rx in PIO
     pio_sm_set_consecutive_pindirs(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM,

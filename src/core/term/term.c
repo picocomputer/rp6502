@@ -1049,10 +1049,9 @@ static void term_out_DA(term_state_t *term)
 }
 
 // Secondary Device Attributes (CSI > c). Replies with a generic
-// VT100-class identifier; rln uses the presence of any DA2 reply to
-// distinguish modern terminals from minicom-class (broken on CSI > c
-// parsing) reporters that share a bare-1 Primary DA. Terminal type
-// 0 (generic VT100-class), firmware 1, ROM 0.
+// VT100-class identifier, for a program that asks; tio never asks term.c,
+// which it knows takes cursor shapes. Terminal type 0 (generic
+// VT100-class), firmware 1, ROM 0.
 static void term_out_DA2(term_state_t *term)
 {
     if (term_is_visible(term))

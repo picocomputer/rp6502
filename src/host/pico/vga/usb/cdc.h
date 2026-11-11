@@ -18,8 +18,6 @@
 
 void cdc_task(void);
 
-bool cdc_is_ready(void);
-
 #define CDC_DRIVER DRIVER(TASK_PUMPED(cdc_task))
 
 #endif /* _VGA_USB_CDC_H_ */

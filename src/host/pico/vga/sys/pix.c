@@ -77,6 +77,9 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
     case 0x04: // BACKCHAN
         ria_backchan(word);
         return false;
+    case 0x05: // TERM_TX
+        manifold_term_putc((char)word);
+        return false;
     case 0x06: // REBOOT_OR_LOCKUP
         if (word == 0)
             watchdog_reboot(0, 0, 0);

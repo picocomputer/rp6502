@@ -40,11 +40,15 @@ size_t manifold_write(int fd, const char *buf, size_t n);
  * than every terminal does not move the clean-line state. */
 void manifold_write_to(uint8_t to, const char *buf, size_t n);
 
-/* The terminal in charge, as its COM_TERM_ bit: telnet while a session is
- * logged in, otherwise the UART. */
+/* The terminal in charge, as its COM_TERM_ bit, or 0 for none: telnet while a
+ * session is logged in and has sent its window size (NAWS); otherwise term.c
+ * where it is drawn; otherwise the UART when a terminal is on it. */
 uint8_t manifold_term_in_charge(void);
 
-/* The COM_TERM_ bits of the terminals connected. The UART's is always set. */
+/* The COM_TERM_ bits of the terminals connected: term.c's when it is the
+ * console's screen, the UART's when the UART goes to a terminal of its own,
+ * and telnet's while a session is logged in. A logging or scripting path that
+ * hears the UART, such as the VGA's USB port, is no terminal. */
 uint8_t manifold_terms_connected(void);
 
 /* Returns once every byte queued so far has gone out. */
@@ -67,9 +71,13 @@ void manifold_uart_clear(void);
  * end, which answers the query itself, drops the reply instead. */
 void manifold_reply(const char *s, size_t n);
 
+/* While suppress is set, term.c's replies are dropped. It is set while
+ * another terminal is in charge, which answers a query a program prints, so
+ * that two answers never arrive. */
 void manifold_suppress_reply(bool suppress);
 
-/* The terminal emulator's input: every byte the console sends. */
+/* The terminal emulator's input: every byte the console sends to the UART or
+ * to COM_TERM_SCREEN. */
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len));
 
 /* Software console: the keyboard and UART rings of a machine with no serial
@@ -88,16 +96,20 @@ size_t manifold_keyboard_read(char *buf, size_t length);
 int manifold_keyboard_peek(size_t offset);
 void manifold_keyboard_clear(void);
 
-/* The host terminal: tx is given every byte the console sends, and
+/* The host terminal: tx is given every byte the console sends to the UART, and
  * manifold_task reads rx into the UART ring. A console wire is a person
  * typing, where a Ctrl-C raises the SIGINT; a stream wire is a pipe or a file,
  * where 0x03 is an ordinary byte. Either function may be NULL. */
 void manifold_set_wire(void (*tx)(const char *buf, int len),
                        size_t (*rx)(char *buf, size_t max), bool stream);
 
-/* The tx tap is given every byte the console sends. The std tap is given a
- * program's output with its fd, before the newlines are expanded. The stderr
- * sink is given a program's stderr. */
+/* The terminal in charge, as manifold_term_in_charge returns it. term.c is in
+ * charge until this says otherwise. */
+void manifold_set_term_in_charge(uint8_t term);
+
+/* The tx tap is given every byte the console sends to the UART. The std tap
+ * is given a program's output with its fd, before the newlines are expanded.
+ * The stderr sink is given a program's stderr. */
 void manifold_set_tx_tap(void (*tap)(const char *buf, int len));
 void manifold_set_std_tap(void (*tap)(int fd, const char *buf, int len));
 void manifold_set_stderr_sink(void (*sink)(const char *buf, int len));

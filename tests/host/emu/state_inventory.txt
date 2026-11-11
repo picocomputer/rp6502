@@ -75,6 +75,7 @@ core/com/com.c com_rx_deadline: the COM chunk
 core/com/com.c com_rx_held: the COM chunk
 core/com/com.c com_rx_staged: the COM chunk
 core/com/com.c com_sources: the COM chunk
+core/com/manifold.c manifold_charge: not carried: host wiring
 core/com/manifold.c manifold_crlf_last: the MFLD chunk
 core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
 core/com/manifold.c manifold_reply_buf: the MFLD chunk
@@ -90,9 +91,10 @@ core/com/manifold.c manifold_wire_hold: not carried: host wiring
 core/com/manifold.c manifold_wire_rx: not carried: host wiring
 core/com/manifold.c manifold_wire_stream: not carried: host wiring
 core/com/manifold.c manifold_wire_tx: not carried: host wiring
-core/com/tio.c tio_asked: the TIO chunk
+core/com/tio.c tio_answers: the TIO chunk
 core/com/tio.c tio_charge: the TIO chunk
 core/com/tio.c tio_deadline: the TIO chunk
+core/com/tio.c tio_greeted: the TIO chunk
 core/com/tio.c tio_height: the TIO chunk
 core/com/tio.c tio_marks: the TIO chunk
 core/com/tio.c tio_naws_height: the TIO chunk

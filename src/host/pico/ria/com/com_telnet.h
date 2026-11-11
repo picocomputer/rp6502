@@ -20,6 +20,10 @@
 /* A session has given the passkey and is logged in. Never on the RIA. */
 bool com_telnet_connected(void);
 
+/* A session is logged in and has sent its window size (NAWS), so it is the
+ * terminal in charge. term.c's replies are suppressed while it is. */
+bool com_telnet_in_charge(void);
+
 bool com_telnet_tx_writable(void);
 void com_telnet_tx_write(char ch);
 size_t com_telnet_read(char *buf, size_t length);

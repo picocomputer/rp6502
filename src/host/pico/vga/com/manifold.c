@@ -42,7 +42,7 @@ void manifold_in_write(char ch)
 
 void manifold_reply(const char *s, size_t n)
 {
-    if (manifold_reply_suppressed || cdc_is_ready())
+    if (manifold_reply_suppressed)
         return;
     if (n > sizeof(manifold_in_reply_buf) - manifold_in_reply_len)
         return;
@@ -101,11 +101,17 @@ void manifold_init(void)
     stdio_set_driver_enabled(&stdio_driver, true);
 }
 
+static stdio_driver_t manifold_term_driver = {.crlf_enabled = true};
+
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
 {
-    static stdio_driver_t term_driver = {.crlf_enabled = true};
-    term_driver.out_chars = out_chars;
-    stdio_set_driver_enabled(&term_driver, out_chars != NULL);
+    manifold_term_driver.out_chars = out_chars;
+    stdio_set_driver_enabled(&manifold_term_driver, out_chars != NULL);
+}
+
+void manifold_term_putc(char ch)
+{
+    manifold_term_driver.out_chars(&ch, 1);
 }
 
 /* uart_init in manifold_post_reclock resets the UART, which empties both FIFOs

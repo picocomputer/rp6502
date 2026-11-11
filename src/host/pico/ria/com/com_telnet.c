@@ -26,6 +26,7 @@
 #ifndef RP6502_RIA_W
 
 bool HOST_IN_RAM_FUNC com_telnet_connected(void) { return false; }
+bool HOST_IN_RAM_FUNC com_telnet_in_charge(void) { return false; }
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
@@ -48,6 +49,7 @@ static bool com_telnet_closed; // the FLASHING hook closed the listener for good
 static char com_telnet_auth_buf[COM_TELNET_KEY_SIZE];
 static uint8_t com_telnet_auth_len;
 static uint8_t com_telnet_auth_end; // the CR or LF that ended the passkey
+static bool com_telnet_naws;        // the session sent its window size
 
 static RING(char, 32) com_telnet_tx;
 static RING(uint8_t, COM_TELNET_RX_SIZE) com_telnet_rx;
@@ -75,6 +77,11 @@ static void com_telnet_clear_rings(void)
 bool HOST_IN_RAM_FUNC com_telnet_connected(void)
 {
     return com_telnet_state == COM_TELNET_STATE_CONNECTED;
+}
+
+bool HOST_IN_RAM_FUNC com_telnet_in_charge(void)
+{
+    return com_telnet_naws;
 }
 
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void)
@@ -136,7 +143,6 @@ static void com_telnet_handle_auth(uint8_t ch)
             telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
             com_telnet_auth_end = ch;
-            vga_set_tel_console_active(true);
             RP6502_LOG(telnet, INFO, "console authenticated");
         }
         else
@@ -211,11 +217,18 @@ static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
         }
     }
 
+    /* A window size sent before the passkey is read here once the session
+     * is logged in, and the first one puts the session in charge. */
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
         uint16_t nw, nh;
         if (telnet_get_naws(NET_TELNET_DESC, &nw, &nh))
+        {
             tio_set_naws_size(nw, nh);
+            if (!com_telnet_naws)
+                vga_suppress_term_reply(true);
+            com_telnet_naws = true;
+        }
     }
 }
 
@@ -232,7 +245,9 @@ static void com_telnet_teardown(com_telnet_state_t target)
         telnet_close(NET_TELNET_DESC);
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
-        vga_set_tel_console_active(false);
+        if (com_telnet_naws)
+            vga_suppress_term_reply(false);
+        com_telnet_naws = false;
         tio_set_naws_size(0, 0);
         tio_forget(COM_SOURCE_TEL);
         rln_forget_source(COM_SOURCE_TEL);
