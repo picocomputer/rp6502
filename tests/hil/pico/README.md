@@ -62,6 +62,14 @@ The audio load during the run is 56–60%, with the peak sample at 74% and no
 overruns. Writes depend on the drive and change from run to run. Another
 drive gives other numbers: a 128 MB stick reads 16 KB at about 1040 KB/s.
 
+The reference has no Bluetooth device connected. A connected one costs read
+speed, because the main loop fetches each of its packets from the CYW43439
+over SPI and waits for every transfer. A BLE gamepad at rest still sends
+about 290 packets a second, which takes about 4% of core 0, and 16 KB reads
+drop to about 945 KB/s. A faster SPI clock barely helps, so the cost is in
+the number of transfers rather than their length. `SET BLE 0` gives the
+reference back.
+
 ## audio
 
 Every sound engine at once with the bus busy: the PSG and the OPL2 as in
