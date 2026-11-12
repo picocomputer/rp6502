@@ -349,10 +349,10 @@ static void poll_gamepads(retro_input_state_t state)
             gamepad_button_apply(digital[i].btn, down, &dpad, &b0, &b1);
         }
 
+        /* gamepad_host_report sets the L2 and R2 bits once a trigger passes
+         * the dead zone, as on every machine. */
         uint16_t lt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_L2, mask);
         uint16_t rt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_R2, mask);
-        gamepad_button_apply(GAMEPAD_BTN_L2, lt != 0, &dpad, &b0, &b1);
-        gamepad_button_apply(GAMEPAD_BTN_R2, rt != 0, &dpad, &b0, &b1);
 
         /* A stick axis arrives as an int16 and a trigger as 0 to 0x7FFF, so
          * the shifts here and below bring them to the signed and unsigned
