@@ -86,7 +86,7 @@ set(RIA_RAM_SOURCES
 set_source_files_properties(${RIA_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
 # The linker's pattern for each source's object. An object sits in a directory
 # named as CMake names it: the source's path from here, with ".." turned into
-# "__".
+# "__". Its extension is the host's: .obj on Windows.
 function(ria_object_patterns out)
     set(_patterns "")
     foreach(_src ${ARGN})
@@ -97,7 +97,7 @@ function(ria_object_patterns out)
             set(_dir "__")
         endif()
         get_filename_component(_name ${_src} NAME)
-        string(APPEND _patterns " */${_dir}/${_name}.o")
+        string(APPEND _patterns " */${_dir}/${_name}${CMAKE_C_OUTPUT_EXTENSION}")
     endforeach()
     set(${out} "${_patterns}" PARENT_SCOPE)
 endfunction()
