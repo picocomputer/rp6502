@@ -70,6 +70,12 @@ void host_window_init(void)
 
 bool host_window_menu_active(void) { return waiting_for_rom; }
 
+bool host_lock_keys(uint8_t *leds)
+{
+    (void)leds;
+    return false;
+}
+
 void host_window_menu_draw(void)
 {
     if (waiting_for_rom)

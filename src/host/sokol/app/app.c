@@ -162,6 +162,7 @@ void app_init(void)
     }
     gfx_setup();
     host_window_init();
+    input_sync_locks();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init(sapp_dpi_scale());
@@ -170,6 +171,7 @@ void app_init(void)
 
 void app_frame(void)
 {
+    input_frame();
     const uint64_t now = os_mono_ns();
     /* Once the display has been seen to pace the callbacks it keeps that
      * standing while frames are still coming, because a callback whose own work
@@ -417,6 +419,9 @@ void app_input(const struct sapp_event *e)
         host_window_files_dropped();
         return;
     }
+    /* A lock key may have been pressed while another window had the focus. */
+    if (e->type == SAPP_EVENTTYPE_FOCUSED)
+        input_sync_locks();
     /* The docs link's rectangle is set by prompt_draw, so it means something
      * only while that prompt is the overlay on screen. */
     if (host_window_menu_active())

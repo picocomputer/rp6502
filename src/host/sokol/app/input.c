@@ -167,8 +167,36 @@ static char ascii_from_key(int kc, bool shift)
 #define ALTGR_IS_CTRL_ALT 0
 #endif
 
+/* Sokol reports no NumLock modifier, so a plain keypad key waits here for the
+ * CHAR a host sends only when its NumLock makes the key a digit. A key whose
+ * CHAR has not come by the next key or frame navigates instead. */
+static uint8_t keypad_pending;
+
+static void keypad_flush(void)
+{
+    if (keypad_pending)
+        vtkeys_key(keyboard_keypad_nav(keypad_pending), false, false, false);
+    keypad_pending = 0;
+}
+
+void input_frame(void)
+{
+    keypad_flush();
+}
+
+bool input_sync_locks(void)
+{
+    uint8_t leds;
+    if (!host_lock_keys(&leds))
+        return false;
+    keyboard_set_locks(leds);
+    return true;
+}
+
 static void input_key(const sapp_event *e)
 {
+    if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
+        keypad_flush();
     if (e->type == SAPP_EVENTTYPE_KEY_DOWN || e->type == SAPP_EVENTTYPE_KEY_UP)
     {
         uint8_t hid = sokol_to_hid(e->key_code);
@@ -185,6 +213,7 @@ static void input_key(const sapp_event *e)
          * a 'v' before the pasted text arrived. Where the host reports AltGr as
          * Ctrl+Alt, the character it composed is typed, which is what the
          * firmware's right-Alt does. */
+        keypad_pending = 0;
         if (suppress_char)
             suppress_char = false;
         else if (e->char_code >= 32 && e->char_code != 127 &&
@@ -205,12 +234,20 @@ static void input_key(const sapp_event *e)
         suppress_char = false;
         switch (e->key_code)
         {
-        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); break;
-        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); break;
-        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); break;
-        /* Sokol reports no NumLock modifier, so the keypad always navigates and
-         * always swallows the digit CHAR a host emits when NumLock is on. KP5
-         * navigates nowhere and only swallows. */
+        case SAPP_KEYCODE_NUM_LOCK:
+            if (!input_sync_locks())
+                keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
+            break;
+        case SAPP_KEYCODE_CAPS_LOCK:
+            if (!input_sync_locks())
+                keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK);
+            break;
+        case SAPP_KEYCODE_SCROLL_LOCK:
+            if (!input_sync_locks())
+                keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
+            break;
+        /* A chord navigates at once and swallows any CHAR, as before. KP5
+         * navigates nowhere. */
         case SAPP_KEYCODE_KP_1:
         case SAPP_KEYCODE_KP_2:
         case SAPP_KEYCODE_KP_3:
@@ -222,6 +259,11 @@ static void input_key(const sapp_event *e)
         case SAPP_KEYCODE_KP_9:
         case SAPP_KEYCODE_KP_0:
         case SAPP_KEYCODE_KP_DECIMAL:
+            if (!ctrl && !shift && !alt)
+            {
+                keypad_pending = hid;
+                break;
+            }
             suppress_char = true;
             vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;

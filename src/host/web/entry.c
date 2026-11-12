@@ -207,6 +207,11 @@ bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
 void host_window_files_dropped(void) {}
 void host_window_open_url(const char *url) { (void)url; }
+bool host_lock_keys(uint8_t *leds)
+{
+    (void)leds;
+    return false;
+}
 bool entry_wait_for_rom(void) { return false; }
 
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)

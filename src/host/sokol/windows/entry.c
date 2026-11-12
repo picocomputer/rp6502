@@ -17,6 +17,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
+#include "core/hid/usage.h"
 #include "sokol/sokol_app.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -180,6 +181,16 @@ char **entry_argv_utf8(int *argc)
 void host_window_open_url(const char *url)
 {
     ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
+}
+
+/* A lock key's state has already toggled by the time its WM_KEYDOWN is
+ * handled. */
+bool host_lock_keys(uint8_t *leds)
+{
+    *leds = (uint8_t)(((GetKeyState(VK_NUMLOCK) & 1) ? KEYBOARD_LED_NUMLOCK : 0) |
+                      ((GetKeyState(VK_CAPITAL) & 1) ? KEYBOARD_LED_CAPSLOCK : 0) |
+                      ((GetKeyState(VK_SCROLL) & 1) ? KEYBOARD_LED_SCROLLLOCK : 0));
+    return true;
 }
 
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
