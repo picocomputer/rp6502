@@ -199,7 +199,7 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
     if (!(xstack_ptr & 0x01) ||
         pix_send_count < 1 || pix_send_count > XSTACK_SIZE / 2 ||
         pix_index + pix_send_count > 0x100 ||
-        pix_device > 7 || pix_channel > 15)
+        pix_device >= PIX_DEVICE_IDLE || pix_channel > 15)
     {
         pix_send_count = 0;
         return api_return_errno(API_EINVAL);

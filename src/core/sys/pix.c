@@ -44,7 +44,7 @@ bool pix_api_xreg(void)
     bool aligned = (xstack_ptr & 1) != 0;
     xstack_ptr = XSTACK_SIZE;
     if (!aligned || count < 1 || count > XSTACK_SIZE / 2 || index + count > 0x100 ||
-        device > 7 || channel > 15)
+        device >= PIX_DEVICE_IDLE || channel > 15)
         return api_return_errno(API_EINVAL);
     /* Channel $F is the VGA control channel, which core/api/xreg1.c answers
      * for the machine itself, so a write by a program is refused. The RIA

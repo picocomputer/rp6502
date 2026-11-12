@@ -62,6 +62,9 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     /* Device 8 is out of range, so the call fails with EINVAL. */
     push(8); push(0); push(0); pushw(0);
     op1();
+    /* Device 7 is the bus's idle message, which no program sends. */
+    push(7); push(0); push(0); pushw(0);
+    op1();
     /* An extra byte misaligns the xstack, so the call fails with EINVAL. */
     push(1); push(0); push(0); pushw(0); push(0xAA);
     op1();
