@@ -54,13 +54,11 @@ static void task(void)
 void main_pre_reclock(void)
 {
     ria_pre_reclock();
-    manifold_pre_reclock();
 }
 
 void main_post_reclock(void)
 {
     ria_post_reclock();
-    manifold_post_reclock();
 }
 
 bool main_prog(uint16_t *xregs)

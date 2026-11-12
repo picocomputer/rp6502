@@ -37,8 +37,6 @@
 
 void manifold_init(void);
 void manifold_task(void);
-void manifold_pre_reclock(void);
-void manifold_post_reclock(void);
 
 // USB CDC controls UART break
 void manifold_set_uart_break(bool en);
