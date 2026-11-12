@@ -291,6 +291,19 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
         ASSERT_EQ(blob[i], 0);
 }
 
+/* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
+ * nothing rather than register 2. */
+UTEST(vga, channel_0_ignores_registers_it_lacks)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0x12, 1));
+    uint8_t blob[XREG_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false};
+    xreg_sst_save(&c, 0);
+    for (size_t i = 0; i < sizeof blob; i++)
+        ASSERT_EQ(blob[i], 0);
+}
+
 UTEST(gamepad, host_report_encoding)
 {
     gamepad_stop();

@@ -113,6 +113,15 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(0); push(0); push(3); pushw(0x1200); pushw(0x1300);
     op1();
 
+    /* A burst may end at index $FF and no further. It fails with EINVAL
+     * before it writes anything, rather than wrap to CANVAS and MODE. */
+    push(2); push(0); push(0xFF); pushw(0); pushw(0);
+    op1();
+    push(1); push(1); push(0xFE); pushw(0); pushw(0);
+    op1();
+    push(1); push(0); push(0xFF); pushw(0); pushw(1); pushw(3);
+    op1();
+
     /* Device 0, channel 1, register 0 is the PSG pointer. Its 64 bytes may
      * start anywhere they fit in XRAM. */
     push(0); push(1); push(0); pushw(0x9000);

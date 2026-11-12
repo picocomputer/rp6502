@@ -43,7 +43,7 @@ bool pix_api_xreg(void)
     int count = (int)((XSTACK_SIZE - xstack_ptr - 3) / 2);
     bool aligned = (xstack_ptr & 1) != 0;
     xstack_ptr = XSTACK_SIZE;
-    if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
+    if (!aligned || count < 1 || count > XSTACK_SIZE / 2 || index + count > 0x100 ||
         device > 7 || channel > 15)
         return api_return_errno(API_EINVAL);
     /* Channel $F is the VGA control channel, which core/api/xreg1.c answers
