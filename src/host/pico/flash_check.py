@@ -28,6 +28,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 
 # Reached, but a guard keeps them from running while flashing: not followed.
 PRUNE = {
@@ -166,15 +167,42 @@ def run(*cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, check=True, **kw).stdout
 
 
+def split_command(command):
+    """A compile_commands.json command as argv. CMake writes it for the host's
+    shell, and on Windows that takes the backslashes in paths literally."""
+    if os.name != 'nt':
+        return shlex.split(command)
+    import ctypes
+    from ctypes import wintypes
+    to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    to_argv.argtypes = (wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int))
+    to_argv.restype = ctypes.POINTER(wintypes.LPWSTR)
+    local_free = ctypes.windll.kernel32.LocalFree
+    local_free.argtypes = (ctypes.c_void_p,)
+    argc = ctypes.c_int()
+    argv = to_argv(command, ctypes.byref(argc))
+    if not argv:
+        raise ctypes.WinError()
+    try:
+        return argv[:argc.value]
+    finally:
+        local_free(argv)
+
+
+def norm_path(directory, path):
+    return os.path.normcase(os.path.abspath(os.path.join(directory, path)))
+
+
 def compile_args(entry):
-    args = entry['arguments'] if 'arguments' in entry else shlex.split(entry['command'])
+    args = entry['arguments'] if 'arguments' in entry else split_command(entry['command'])
+    src = norm_path(entry['directory'], entry['file'])
     out, skip = [], False
     for a in args:
         if skip:
             skip = False
         elif a == '-o':
             skip = True
-        elif a != '-c' and a != entry['file']:
+        elif a != '-c' and norm_path(entry['directory'], a) != src:
             out.append(a)
     return out
 
@@ -300,8 +328,13 @@ class Image:
 
     def chains(self, addrs):
         """addr -> inline chain, innermost first, of (function, file:line)."""
-        self.a2l.stdin.write(''.join('0x%x\n' % a for a in addrs) + '0x0\n')
-        self.a2l.stdin.flush()
+        # Written from a thread while this one reads: a long function's
+        # addresses and answers overflow the pipes, which on Windows hold 4 KB.
+        def feed(text):
+            self.a2l.stdin.write(text)
+            self.a2l.stdin.flush()
+        writer = threading.Thread(target=feed, args=(''.join('0x%x\n' % a for a in addrs) + '0x0\n',))
+        writer.start()
         res, cur = {}, None
         while True:
             l = self.a2l.stdout.readline().rstrip('\n')
@@ -309,6 +342,7 @@ class Image:
                 if int(l, 16) == 0:
                     self.a2l.stdout.readline()
                     self.a2l.stdout.readline()
+                    writer.join()
                     return res
                 cur = int(l, 16)
                 res[cur] = []
@@ -326,7 +360,9 @@ class Image:
 
     def placement(self, fn, loc, ram_sources):
         """For fn, whose body holds loc: ram-file, forced, annotated, header (not ours), none or unknown."""
-        path = loc.split(':')[0]
+        # The line is after the last colon, as a Windows path has one of its own.
+        m = re.match(r'(.*):(\d+|\?)', loc)
+        path = m.group(1) if m else loc
         if (fn, path) in self.placed:
             return self.placed[(fn, path)]
         rp = os.path.realpath(path) if path not in ('??', '') else None
