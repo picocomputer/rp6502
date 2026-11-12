@@ -253,9 +253,12 @@ static stdio_driver_t manifold_stdio_driver = {
 
 void HOST_IN_FLASH_FUNC manifold_init(void)
 {
+    /* The Tx pin doubles as the VGA's backchannel. A VGA that stayed up while
+     * the RIA reset may still be driving it, so the pin stays an input until
+     * vga.c finds out who owns it. */
     gpio_pull_up(MANIFOLD_UART_TX_PIN);
     gpio_pull_up(MANIFOLD_UART_RX_PIN);
-    gpio_set_function(MANIFOLD_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_init(MANIFOLD_UART_TX_PIN);
     gpio_set_function(MANIFOLD_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&manifold_stdio_driver, true);
     uart_init(MANIFOLD_UART, MANIFOLD_UART_BAUD_RATE);

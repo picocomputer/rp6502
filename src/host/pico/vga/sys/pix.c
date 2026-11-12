@@ -89,7 +89,10 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
          * flash, erased or foreign, and the RIA's reboot button does not
          * reset the VGA. So nothing from the RIA is heard again until
          * power-off, and core 1 keeps the error on the screen. USB, which
-         * runs from RAM, goes on so the CDC console delivers the error too. */
+         * runs from RAM, goes on so the CDC console delivers the error too.
+         * The backchannel pin goes back to the UART first, so a RIA that
+         * resets never drives its Tx against a VGA that can't let go. */
+        ria_backchan(0);
         for (;;)
         {
             usb_task();

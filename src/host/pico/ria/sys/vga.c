@@ -239,6 +239,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     if (vga_state == VGA_NOT_FOUND)
     {
         vga_pix_backchannel_disable();
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         return;
     }
 
@@ -247,7 +248,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
-    // Drain bytes the PIO sampled off the pin while it was driven by UART TX
+    // Drain bytes the PIO sampled off the pin before the VGA took it
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         (void)pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
     vga_pix_backchannel_enable();
