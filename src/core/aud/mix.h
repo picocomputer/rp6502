@@ -151,7 +151,10 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags);
  * about to write the engines' rows. */
 void aud_sst_settle(void);
 
-#define AUD_DRIVER DRIVER(aud_init, aud_task, nul_task, nul_run, aud_stop, nul_break, \
-    nul_config, nul_config, SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+#define AUD_DRIVER DRIVER(                                  \
+    INIT(aud_init)                                          \
+    TASK_ALWAYS(aud_task)                                   \
+    STOP(aud_stop)                                          \
+    SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

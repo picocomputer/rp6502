@@ -12,6 +12,7 @@ ATTR_LAUNCHER = 0x06
 ATTR_EXIT_CODE = 0x07
 CHILD = ":child.rp6502"
 CHILD_EXIT = 7
+WAITER = ":waiter.rp6502"
 
 
 def exit_with(p, code):
@@ -21,7 +22,7 @@ def exit_with(p, code):
     p.stp()
 
 
-def launcher_prog():
+def launcher_prog(child=CHILD):
     p = Asm()
     p.jmp_abs("main")
     p.use(putc, putnib, puthex)
@@ -46,8 +47,13 @@ def launcher_prog():
     p.call_a(OP_ATTR_GET, ATTR_LAUNCHER)
     p.tax()
     p.beq("first")
+    # Both bytes of the exit code, high first.
     p.say("back ")
     p.call_a(OP_ATTR_GET, ATTR_EXIT_CODE)
+    p.pha()
+    p.txa()
+    p.jsr_abs("puthex")
+    p.pla()
     p.jsr_abs("puthex")
     p.say("\n")
     exit_with(p, 0)
@@ -58,12 +64,23 @@ def launcher_prog():
     # The child's argv is CHILD and "exec": two offsets and a zero, then the
     # strings.
     p.push_str("exec")
-    p.push_str(CHILD)
+    p.push_str(child)
     p.pushw(0)
-    p.pushw(6 + len(CHILD) + 1)
+    p.pushw(6 + len(child) + 1)
     p.pushw(6)
     p.call(OP_EXEC)
     exit_with(p, 1)
+    return p
+
+
+def waiter_prog():
+    p = Asm()
+    p.jmp_abs("main")
+    p.use(putc)
+    p.symbol("main")
+    p.say("waiting\n")
+    p.symbol("forever")
+    p.bra("forever")
     return p
 
 
@@ -100,7 +117,7 @@ CHAIN_SCRIPT = r"""
 
 wait "launcher "
 wait "/launcher.rp6502\nchild exec\nchild\nlauncher "
-wait "/launcher.rp6502\nback 07\n"
+wait "/launcher.rp6502\nback 0007\n"
 wait exit
 expect exit 0
 run 10
@@ -108,7 +125,7 @@ expect-not "launcher"
 
 # Started by its installed name, it keeps that name when it comes back.
 load ":launcher.rp6502"
-wait "launcher :launcher.rp6502\nchild exec\nchild\nlauncher :launcher.rp6502\nback 07\n"
+wait "launcher :launcher.rp6502\nchild exec\nchild\nlauncher :launcher.rp6502\nback 0007\n"
 wait exit
 expect exit 0
 run 10
@@ -121,6 +138,42 @@ def test_chain():
            "--install", rom("child"), rom("launcher"))
 
 
-ROMS = {"launcher": launcher_prog, "child": child_prog}
-TESTS = {"chain": test_chain}
+QUIT_SCRIPT = r"""
+# Alt-F4 in a launcher's child exits it as exit(-1), and the launcher is back
+# with the code, 65535, not the 7 of the ROM that exited before. In the
+# launcher itself, Alt-F4 is an ordinary key.
+
+wait exit
+expect exit 7
+load ":waitlaunch.rp6502"
+wait "waiting\n"
+key f4+alt
+wait "back FFFF\n"
+wait exit
+expect exit 0
+"""
+
+
+def test_quit():
+    script(QUIT_SCRIPT, "--install", rom("waiter"), "--install",
+           rom("waitlaunch"), rom("child"))
+
+
+BREAK_SCRIPT = r"""
+# A break ends the launcher chain: the launcher does not come back.
+
+wait "waiting\n"
+sys break
+run 10
+expect-not "back"
+"""
+
+
+def test_break():
+    script(BREAK_SCRIPT, "--install", rom("waiter"), rom("waitlaunch"))
+
+
+ROMS = {"launcher": launcher_prog, "child": child_prog, "waiter": waiter_prog,
+        "waitlaunch": lambda: launcher_prog(WAITER)}
+TESTS = {"chain": test_chain, "chain_quit": test_quit, "chain_break": test_break}
 main(globals())

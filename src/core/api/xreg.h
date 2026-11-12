@@ -37,7 +37,7 @@ extern "C"
  * register at a time and the CANVAS or MODE write consumes the lot and clears
  * them, so a save taken between the two holds a half-assembled mode program
  * that lives nowhere else. */
-#define XREG_SST_SIZE 32
+#define XREG_SST_SIZE 16
 void xreg_sst_save(sst_cursor_t *c, unsigned flags);
 bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -45,7 +45,7 @@ bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
  * them. */
 void xreg1_clear(void);
 
-#define XREG_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(XREG, 1, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
+#define XREG_DRIVER DRIVER(                                    \
+    SST(XREG, 2, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
 
 #endif /* _CORE_API_XREG_H_ */

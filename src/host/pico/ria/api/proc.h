@@ -14,6 +14,6 @@
 
 void proc_nfc(const uint8_t *data, size_t len);
 
-#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config, nul_sst)
+#define PROC_DRIVER DRIVER(RUN(proc_run) STOP(proc_stop))
 
 #endif /* _RIA_API_PROC_H_ */

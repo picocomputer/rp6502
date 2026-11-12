@@ -78,9 +78,6 @@ void ria_trigger_vsync(void);
 bool ria_uart_tx_dequeue(uint8_t *ch);
 bool ria_uart_tx_empty(void);
 bool ria_uart_rx_offer_ready(void);
-void ria_uart_rx_offer(uint8_t ch);
-int ria_uart_rx_peek(void);
-bool ria_uart_rx_reclaim(uint8_t *ch);
 
 /* A transfer copies between mbuf and 6502 memory by resetting the 6502 into a
  * loop at $FFF0, so it must be started while the machine is stopped. The
@@ -91,6 +88,11 @@ typedef void (*ria_callback_t)(bool ok);
 void ria_read_buf(uint16_t addr, ria_callback_t callback);
 void ria_write_buf(uint16_t addr, ria_callback_t callback);
 
-#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, ria_break, nul_config, nul_config, nul_sst)
+#define RIA_DRIVER DRIVER( \
+    INIT(ria_init)         \
+    TASK_PUMPED(ria_task)  \
+    RUN(ria_run)           \
+    STOP(ria_stop)         \
+    BREAK(ria_break))
 
 #endif /* _RIA_SYS_RIA_H_ */

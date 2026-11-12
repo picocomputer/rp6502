@@ -62,6 +62,9 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     /* Device 8 is out of range, so the call fails with EINVAL. */
     push(8); push(0); push(0); pushw(0);
     op1();
+    /* Device 7 is the bus's idle message, which no program sends. */
+    push(7); push(0); push(0); pushw(0);
+    op1();
     /* An extra byte misaligns the xstack, so the call fails with EINVAL. */
     push(1); push(0); push(0); pushw(0); push(0xAA);
     op1();
@@ -111,6 +114,15 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     /* The address advances across a burst, so two words at address 3 reach
      * address 4, which channel 0 does not have. */
     push(0); push(0); push(3); pushw(0x1200); pushw(0x1300);
+    op1();
+
+    /* A burst may end at index $FF and no further. It fails with EINVAL
+     * before it writes anything, rather than wrap to CANVAS and MODE. */
+    push(2); push(0); push(0xFF); pushw(0); pushw(0);
+    op1();
+    push(1); push(1); push(0xFE); pushw(0); pushw(0);
+    op1();
+    push(1); push(0); push(0xFF); pushw(0); pushw(1); pushw(3);
     op1();
 
     /* Device 0, channel 1, register 0 is the PSG pointer. Its 64 bytes may
@@ -213,6 +225,13 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 3);
     p.pushl(254);
     opn(0x0B, 3);
+
+    /* DROP ($00) needs no spin, so the pushes right after it land on an
+     * empty xstack and the call sees exactly them. */
+    push(0xAA); push(0xBB); push(0xCC);
+    p.store(TB_API_OP, 0x00);
+    push(0); push(0); push(0); pushw(0x1000);
+    op1();
     p.stp();
 
     rom = tb_rom_image(TB_ORG, p.b);

@@ -10,7 +10,6 @@
 #include "core/sys/debug_log.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/mbuf.h"
 #include "machine.h"
@@ -35,7 +34,7 @@ static absolute_time_t wifi_retry_timer;
 #define WIFI_RETRY_INITIAL_SECS 2
 #define WIFI_RETRY_SECS 60
 
-void wifi_shutdown(void)
+void HOST_IN_FLASH_FUNC wifi_shutdown(void)
 {
     switch (wifi_state)
     {
@@ -64,12 +63,17 @@ static void wifi_retry_connect(void)
     cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
 }
 
-void wifi_task(void)
+static bool HOST_IN_RAM_FUNC wifi_wanted(void)
+{
+    return cyw_get_rf_enable() && wifi_get_ssid()[0];
+}
+
+void HOST_IN_RAM_FUNC wifi_task(void)
 {
     switch (wifi_state)
     {
     case wifi_state_off:
-        if (!cyw_get_rf_enable() || !wifi_get_ssid()[0])
+        if (!wifi_wanted() || cyw_resetting())
             break;
         cyw43_arch_enable_sta_mode();
         wifi_state = wifi_state_connect;
@@ -123,7 +127,7 @@ void wifi_task(void)
     }
 }
 
-static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message(void)
+static const char *HOST_IN_FLASH_FUNC wifi_status_message(void)
 {
     switch (wifi_state)
     {
@@ -163,7 +167,7 @@ static const char *HOST_IN_FLASH_FUNC("wifi_status_message") wifi_status_message
     return S(STR_INTERNAL_ERROR);
 }
 
-int HOST_IN_FLASH_FUNC("wifi_status_response") wifi_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_status_response(char *buf, size_t buf_size,
                                                                     int state, unsigned)
 {
     switch (state)
@@ -327,7 +331,7 @@ static void wifi_scan_format(unsigned i, char *buf, size_t size)
     snprintf(buf, size, "%4ddBm  %-4s  %s\n", ap->rssi, sec, ap->ssid);
 }
 
-int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;
     if (state < 0)
@@ -362,20 +366,22 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-bool wifi_ready(void)
+bool HOST_IN_RAM_FUNC wifi_ready(void)
 {
     return wifi_state == wifi_state_connected;
 }
 
+// A radio reset in progress counts, because Wi-Fi connects once it ends.
 bool wifi_connecting(void)
 {
-    return wifi_state == wifi_state_connect ||
+    return (wifi_state == wifi_state_off && wifi_wanted() && cyw_resetting()) ||
+           wifi_state == wifi_state_connect ||
            wifi_state == wifi_state_connecting ||
            (wifi_state == wifi_state_connect_failed &&
             wifi_retry_count < WIFI_RETRY_INITIAL_RETRIES);
 }
 
-void wifi_apply_ssid(const char *ssid, bool changed)
+void HOST_IN_FLASH_FUNC wifi_apply_ssid(const char *ssid, bool changed)
 {
     (void)ssid;
     if (changed)
@@ -385,7 +391,7 @@ void wifi_apply_ssid(const char *ssid, bool changed)
     }
 }
 
-int HOST_IN_FLASH_FUNC("wifi_ssid_response") wifi_ssid_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_ssid_response(char *buf, size_t buf_size,
                                                                 int state, unsigned width)
 {
     (void)width;
@@ -404,20 +410,20 @@ int HOST_IN_FLASH_FUNC("wifi_ssid_response") wifi_ssid_response(char *buf, size_
     return wifi_pass_response(buf, buf_size, 0, width);
 }
 
-bool wifi_check_pass(const char *in, char *out)
+bool HOST_IN_FLASH_FUNC wifi_check_pass(const char *in, char *out)
 {
     (void)out;
     return !in[0] || wifi_get_ssid()[0];
 }
 
-void wifi_apply_pass(const char *pass, bool changed)
+void HOST_IN_FLASH_FUNC wifi_apply_pass(const char *pass, bool changed)
 {
     (void)pass;
     if (changed)
         wifi_shutdown();
 }
 
-int HOST_IN_FLASH_FUNC("wifi_pass_response") wifi_pass_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC wifi_pass_response(char *buf, size_t buf_size,
                                                                 int state, unsigned width)
 {
     (void)state;

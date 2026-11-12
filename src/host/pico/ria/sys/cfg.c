@@ -16,7 +16,6 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "core/sys/config.h"
-#include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/mbuf.h"
@@ -136,7 +135,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         lfs_remove(&lfs_volume, STR_CFG_FILENAME);
 }
 
-static void HOST_IN_FLASH_FUNC("cfg_load_with_boot_opt") cfg_load_with_boot_opt(bool boot_only)
+static void HOST_IN_FLASH_FUNC cfg_load_with_boot_opt(bool boot_only)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
@@ -168,7 +167,7 @@ static void HOST_IN_FLASH_FUNC("cfg_load_with_boot_opt") cfg_load_with_boot_opt(
     mon_add_response_lfs(lfsresult);
 }
 
-void __in_flash("cfg_init") cfg_init(void)
+void HOST_IN_FLASH_FUNC cfg_init(void)
 {
     mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);
@@ -179,12 +178,12 @@ void cfg_file_save(void)
     cfg_save_with_boot_opt(NULL);
 }
 
-void HOST_IN_FLASH_FUNC("cfg_save_boot") cfg_save_boot(const char *str)
+void HOST_IN_FLASH_FUNC cfg_save_boot(const char *str)
 {
     cfg_save_with_boot_opt(str);
 }
 
-const char *HOST_IN_FLASH_FUNC("cfg_load_boot") cfg_load_boot(void)
+const char *HOST_IN_FLASH_FUNC cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;

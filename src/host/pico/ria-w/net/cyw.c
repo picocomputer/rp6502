@@ -9,7 +9,7 @@
 #include "ria-w/net/cyw.h"
 #include "core/sys/config.h"
 #include "ria-w/net/wifi.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/rp2350.h"
@@ -73,32 +73,37 @@
     X(US, "US", "United States")
 
 #define X(suffix, abbr, name)                         \
-    static const char __in_flash("cyw_country_codes") \
+    static const char HOST_IN_FLASH \
         CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
-    static const char __in_flash("cyw_country_codes") \
+    static const char HOST_IN_FLASH \
         CYW_COUNTRY_NAME_##suffix[] = name;
 CYW_CC_X
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_ABBR_##suffix,
-static const char *__in_flash("cyw_country_abbr")
+static const char *const HOST_IN_FLASH
     cyw_country_abbr[] = {CYW_CC_X};
 #undef X
 
 #define X(suffix, abbr, name) \
     CYW_COUNTRY_NAME_##suffix,
-static const char *__in_flash("cyw_country_name")
+static const char *const HOST_IN_FLASH
     cyw_country_name[] = {CYW_CC_X};
 #undef X
 
 #define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
+// The CYW43439's fastest SPI clock.
+#define CYW_SPI_MAX_KHZ 50000
+
 static int cyw_country = -1;
+static bool cyw_is_started; // cyw43_arch_init succeeded
+static bool cyw_is_resetting; // a reset waits for BLE to turn off
 static bool cyw_led_status;
 static bool cyw_led_requested;
 
-static int cyw_lookup_country(const char *cc)
+static int HOST_IN_FLASH_FUNC cyw_lookup_country(const char *cc)
 {
     for (size_t i = 0; i < CYW_COUNTRY_COUNT; i++)
     {
@@ -108,16 +113,32 @@ static int cyw_lookup_country(const char *cc)
     return -1;
 }
 
+/* A reset turns BLE and Wi-Fi off at once, and cyw_reset_task takes the
+ * radio down and up once BLE is off. */
 static void cyw_reset_radio(void)
 {
-    // ble_shutdown calls sys_task which can restart wifi early
-    ble_shutdown(); // must be first
-    wifi_shutdown(); // must be second
-    cyw43_arch_deinit();
-    cyw_init();
+    cyw_is_resetting = true;
+    ble_shutdown();
+    wifi_shutdown();
 }
 
-void cyw_task(void)
+/* A TASK_PUMPED: the radio's start-up is in flash. */
+void cyw_reset_task(void)
+{
+    if (!cyw_is_resetting || !ble_is_off())
+        return;
+    cyw43_arch_deinit();
+    cyw_is_started = false;
+    cyw_init();
+    cyw_is_resetting = false;
+}
+
+bool cyw_resetting(void)
+{
+    return cyw_is_resetting;
+}
+
+void HOST_IN_RAM_FUNC cyw_task(void)
 {
     if (cyw_led_requested != cyw_led_status)
     {
@@ -127,23 +148,26 @@ void cyw_task(void)
     cyw43_arch_poll();
 }
 
+/* A radio that failed to start has already run btstack_cyw43_deinit, from
+ * cyw43_arch_init's own cleanup. */
+bool HOST_IN_FLASH_FUNC cyw_started(void)
+{
+    return cyw_is_started;
+}
+
 void cyw_led_set(bool on)
 {
     cyw_led_requested = on;
 }
 
-void cyw_init(void)
+void HOST_IN_FLASH_FUNC cyw_init(void)
 {
-    // CYW43439 datasheet says 50MHz for SPI.
-    // The Raspberry Pi SDK only provides for a 2,0 divider,
-    // which is 75MHz for a non-overclocked 150MHz system clock.
-    // It easily runs 85MHz+ so we push it to 66MHz.
-    if (SYS_RP2350_KHZ > 198000)
-        cyw43_set_pio_clkdiv_int_frac8(4, 0);
-    else if (SYS_RP2350_KHZ > 132000)
-        cyw43_set_pio_clkdiv_int_frac8(3, 0);
-    else
-        cyw43_set_pio_clkdiv_int_frac8(2, 0);
+    /* The SDK's PIO program spends two PIO cycles on each SPI bit, so the SPI
+     * clock is the system clock over twice the divider. The CYW43439 takes up
+     * to 50 MHz, and this is the smallest divider within that: 42.7 MHz at
+     * 256 MHz. */
+    cyw43_set_pio_clkdiv_int_frac8(
+        (SYS_RP2350_KHZ + 2 * CYW_SPI_MAX_KHZ - 1) / (2 * CYW_SPI_MAX_KHZ), 0);
 
     /* Loading the config file does not apply it, so the country is looked up
      * here, where the radio comes up. */
@@ -158,6 +182,9 @@ void cyw_init(void)
         mon_add_response_utf8(S(STR_ERR_CYW_FAILED_TO_INIT));
     else
     {
+        /* The radio's host wake line is the only GPIO interrupt. */
+        irq_set_priority(IO_IRQ_BANK0, RP2350_IRQ_PRIORITY_CYW);
+        cyw_is_started = true;
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
         /* The 3.3 V regulator in PWM mode, as aud_init sets it on a Pico 2:
@@ -168,19 +195,19 @@ void cyw_init(void)
     cyw43_bluetooth_hci_init();
 }
 
-bool cyw_check_rf_enable(uint8_t *v)
+bool HOST_IN_FLASH_FUNC cyw_check_rf_enable(uint8_t *v)
 {
     return *v <= 1;
 }
 
-void cyw_apply_rf_enable(uint8_t rf, bool changed)
+void HOST_IN_FLASH_FUNC cyw_apply_rf_enable(uint8_t rf, bool changed)
 {
     (void)rf;
     if (changed)
         cyw_reset_radio();
 }
 
-int HOST_IN_FLASH_FUNC("cyw_rf_enable_response") cyw_rf_enable_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC cyw_rf_enable_response(char *buf, size_t buf_size,
                                                                         int state, unsigned width)
 {
     (void)state;
@@ -190,7 +217,7 @@ int HOST_IN_FLASH_FUNC("cyw_rf_enable_response") cyw_rf_enable_response(char *bu
     return -1;
 }
 
-bool cyw_check_rf_country_code(const char *in, char *out)
+bool HOST_IN_FLASH_FUNC cyw_check_rf_country_code(const char *in, char *out)
 {
     int country = cyw_lookup_country(in);
     if (!in[0])
@@ -201,7 +228,7 @@ bool cyw_check_rf_country_code(const char *in, char *out)
     return true;
 }
 
-void cyw_apply_rf_country_code(const char *rfcc, bool changed)
+void HOST_IN_FLASH_FUNC cyw_apply_rf_country_code(const char *rfcc, bool changed)
 {
     (void)rfcc;
     cyw_country = cyw_lookup_country(cyw_get_rf_country_code());
@@ -209,7 +236,7 @@ void cyw_apply_rf_country_code(const char *rfcc, bool changed)
         cyw_reset_radio();
 }
 
-int HOST_IN_FLASH_FUNC("cyw_rf_country_code_response") cyw_rf_country_code_response(char *buf,
+int HOST_IN_FLASH_FUNC cyw_rf_country_code_response(char *buf,
                                                                                     size_t buf_size,
                                                                                     int state,
                                                                                     unsigned width)
@@ -225,7 +252,7 @@ int HOST_IN_FLASH_FUNC("cyw_rf_country_code_response") cyw_rf_country_code_respo
     return -1;
 }
 
-const char *cyw_get_rf_country_code_verbose(void)
+const char *HOST_IN_FLASH_FUNC cyw_get_rf_country_code_verbose(void)
 {
     if (cyw_country < 0)
         return "";
@@ -233,7 +260,7 @@ const char *cyw_get_rf_country_code_verbose(void)
         return cyw_country_name[cyw_country];
 }
 
-int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
+int HOST_IN_FLASH_FUNC cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     if (state < 0)
         return state;

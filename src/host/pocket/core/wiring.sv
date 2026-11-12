@@ -194,6 +194,7 @@ module wiring
         endcase
     end
 
+    logic ria_hold;
     cpu cpu (
         .clk(clk_mach),
         .rst_n(resb_eff),
@@ -201,7 +202,7 @@ module wiring
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
         .nmi_i(1'b0),
-        .rdy_i(1'b0),
+        .rdy_i(ria_hold), /* an EXIT waits here for the reset */
         .res_i(1'b0),
         .cpu_addr(cpu_addr),
         .cpu_data(cpu_dout),
@@ -656,8 +657,10 @@ module wiring
             soc_ctl_us <= soc_addr[3];
             stage_addr_q <= soc_addr[27:0];
             /* regs_b_q is captured at the strobe, because a read of word
-             * 16 of the regs window pops the console queue on this edge
-             * and regs_b_rdata then shows the next byte. */
+             * 16 of the regs window pops the console queue on this edge,
+             * a read of word 26 takes back the 6502's unread byte, and a
+             * read of word 27 clears SIGINT, after which regs_b_rdata
+             * shows what is left. */
             regs_b_q <= regs_b_rdata;
             /* The same for the OPL's drop count and PCM's underruns, which
              * their reads clear. */
@@ -730,7 +733,8 @@ module wiring
         .b_wdata(soc_wdata),
         .regs_b_rdata(regs_b_rdata),
         .regs_api_pending(api_pending),
-        .api_ack(soc_stb && soc_we && soc_sel_ctl && soc_addr[2])
+        .api_ack(soc_stb && soc_we && soc_sel_ctl && soc_addr[2]),
+        .regs_hold(ria_hold)
     );
 
     bus bus (

@@ -39,8 +39,6 @@
 
 #define CFG_TUSB_RHPORT0_MODE OPT_MODE_DEVICE
 
-#define CFG_TUSB_DEBUG_PRINTF rp6502_log_tusb
-
 // A failed TinyUSB assert returns without a breakpoint, debugger or not.
 #define CFG_TUSB_DEBUG_BREAKPOINT vga_tusb_breakpoint
 static inline void vga_tusb_breakpoint(void) {}

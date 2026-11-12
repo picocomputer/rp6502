@@ -6,12 +6,13 @@
  */
 
 #include "host/sokol/cli/streams.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/str/oem.h"
 #include "osal/console.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 bool streams_write(FILE *f, const char *buf, int len)
 {
@@ -36,11 +37,11 @@ bool streams_write(FILE *f, const char *buf, int len)
 }
 
 /* This tap writes to the host's stdout, and the program's stderr already has
- * its own destination in com_stderr_sink, so fd 2 is dropped here rather than
- * copied onto stdout. */
+ * its own destination in the stderr sink, so stderr is dropped here rather
+ * than copied onto stdout. */
 static void streams_stdout_tap(int fd, const char *buf, int len)
 {
-    if (fd != 1)
+    if (fd != STDOUT_FILENO)
         return;
     streams_write(stdout, buf, len);
     if (ferror(stdout))
@@ -49,7 +50,7 @@ static void streams_stdout_tap(int fd, const char *buf, int len)
 
 void streams_mirror_stdout(void)
 {
-    com_set_std_tap(streams_stdout_tap);
+    manifold_set_std_tap(streams_stdout_tap);
 }
 
 static void streams_stderr(const char *buf, int len)
@@ -59,5 +60,5 @@ static void streams_stderr(const char *buf, int len)
 
 void streams_mirror_stderr(void)
 {
-    com_set_stderr_sink(streams_stderr);
+    manifold_set_stderr_sink(streams_stderr);
 }

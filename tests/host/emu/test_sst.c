@@ -58,8 +58,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)226661);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 27u);
+    ASSERT_EQ(sst_size(), (size_t)225713);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 29u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -245,7 +245,6 @@ static size_t aud_pull_lines(float *dst, int lines)
     for (int i = 0; i < lines; i++)
     {
         sys_task();
-        sys_io_task();
         sys_commit();
     }
     aud_step();

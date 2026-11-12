@@ -21,6 +21,11 @@ void vga_console_size(int *w, int *h)
     *h = console_h;
 }
 
+void vga_display_size(int *w, int *h)
+{
+    vga_console_size(w, h);
+}
+
 void vga_set_console_size(int w, int h)
 {
     console_w = (int16_t)w;

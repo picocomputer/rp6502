@@ -2,63 +2,160 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
+
+/* The console, as the rest of the machine sees it: the sources it reads, the
+ * byte staged in the 6502's receive register, its output, the bell, and
+ * whether the cursor is at the start of a clean line. */
 
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
 
-#include "core/sys/com.h"
-#include <stddef.h>
+#include <stdarg.h>
 #include "core/sys/sst.h"
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-void com_keyboard_push(const char *s, size_t n);
-void com_keyboard_push_byte(uint8_t b);
-size_t com_keyboard_free(void);
+#ifndef __printflike
+#ifdef __GNUC__
+#define __printflike(a, b) __attribute__((__format__(__printf__, a, b)))
+#else
+#define __printflike(a, b)
+#endif
+#endif
 
-size_t com_keyboard_read(char *buf, size_t length);
-void com_keyboard_clear(void);
+/* The picker tries the sources in the order they are declared here, keyboard
+ * first. */
+typedef enum
+{
+    COM_SOURCE_KEYBOARD,
+    COM_SOURCE_UART,
+    COM_SOURCE_TEL,
+    COM_SOURCE_COUNT,
+    COM_SOURCE_ANY = COM_SOURCE_COUNT,
+} com_source_t;
 
-void com_uart_push(const char *s, size_t n);
-void com_stream_push(const char *s, size_t n);
-size_t com_uart_free(void);
+/* The terminals a console write is for, as a bitmap with one bit per source
+ * that is a terminal, and COM_TERM_SCREEN for term.c, the terminal drawn on
+ * the screen. The keyboard is not a terminal. term.c hears everything written
+ * to the UART and answers on the UART's source; COM_TERM_SCREEN reaches it
+ * alone, and nothing else that hears the UART. */
+#define COM_TERM(src) (1u << (src))
+#define COM_TERM_UART COM_TERM(COM_SOURCE_UART)
+#define COM_TERM_TEL COM_TERM(COM_SOURCE_TEL)
+#define COM_TERM_SCREEN COM_TERM(COM_SOURCE_COUNT)
+#define COM_TERM_ALL (COM_TERM_UART | COM_TERM_TEL)
 
-size_t com_uart_read(char *buf, size_t length);
-int com_uart_peek(void);
-void com_uart_clear(void);
-#define COM_UART_SOURCE {.read = com_uart_read, .peek = com_uart_peek, .clear = com_uart_clear, .dwell_us = COM_WIRE_DWELL_US}
+/* A source's row: read takes up to length bytes from the front of its
+ * queue, peek returns the byte offset places from the front without taking
+ * it, negative past the end, and size is how many bytes the queue holds. */
+typedef struct
+{
+    size_t (*read)(char *buf, size_t length);
+    int (*peek)(size_t offset);
+    void (*clear)(void);
+    uint32_t dwell_us;
+    uint16_t size;
+} com_source_driver_t;
 
-bool com_input_idle(void);
+/* A source fed in bursts is empty between two chunks, so after a byte arrives
+ * that source keeps the reader for this long before the picker will try
+ * another one. */
+#define COM_DWELL_US 1000
 
-void com_init(void);
+/* After this long, a full ring is read into and the bytes dropped, so that a
+ * Ctrl-C typed behind the type-ahead is still seen. The rest of what was
+ * typed is lost. */
+#define COM_HOLD_MS 5000
 
-void com_break(void);
+void com_rx_clear(void);
+void com_rx_clear_source(com_source_t src);
 
-void com_stop(void);
+/* Non-blocking 1-byte read, negative when there is none. *src is in and out:
+ * COM_SOURCE_ANY reads whatever the picker chooses and names it on the way
+ * out, a named source reads only that one and leaves the others queued. */
+int com_getchar(com_source_t *src);
 
-void com_run(void);
+/* Up to n bytes from the named source, the byte staged from it first. */
+size_t com_read(com_source_t src, char *buf, size_t n);
 
-void com_tx_write(const char *buf, int len);
+/* The byte offset places into the named source without taking it, negative
+ * when there is none. Offset 0 is the staged byte when it came from that
+ * source. */
+int com_peek(com_source_t src, size_t offset);
 
-void com_crlf_write(const char *buf, int len);
+/* How many bytes the named source's queue holds, the staged byte not
+ * counted. Zero for a source the machine does not have. */
+size_t com_queue_size(com_source_t src);
 
-void com_set_tx_tap(void (*tap)(const char *buf, int len));
+size_t com_stdin_read(char *buf, size_t count);
 
-void com_set_std_tap(void (*tap)(int fd, const char *buf, int len));
+/* com_rx_stage puts the picker's next byte in the 6502's receive register,
+ * false when there is none. The byte waits there ahead of any reader, so a
+ * reader coming at the console another way has to take that byte back before
+ * the source's own row is read; otherwise the two arrive out of order.
+ * com_rx_reclaim and com_rx_peek answer only for the source the byte came
+ * from. A length of zero leaves the byte staged. */
+bool com_rx_stage(void);
+size_t com_rx_reclaim(char *buf, size_t length, com_source_t src);
+int com_rx_peek(com_source_t src);
 
-void com_set_stderr_sink(void (*sink)(const char *buf, int len));
+/* Clear to send: there is room for one character, a newline's CR LF
+ * included, so the com_putchar or com_putchar_raw after it does not block. */
+bool com_cts(void);
 
-void com_task(void);
+/* Console TX, a bare '\n' expanded to CRLF. The '\r' that suppresses the
+ * expansion may have come from an earlier call, because the last byte written
+ * is remembered across them; a buffer is not expanded independently of the one
+ * before it. */
+int com_putchar(int c);
 
-/* The 44 fixed bytes are the reply length (1), the reply buffer (32), the BEL
- * enable (1), the CRLF latch (1), and the 9 bytes com_rx_save writes. Each of
- * the two rings adds a 16-bit count and COM_RING_SIZE bytes. */
-#define COM_SST_SIZE (2 * (2 + COM_RING_SIZE) + 44)
+/* Bypasses newline expansion and does not check for room. */
+void com_putchar_raw(char c);
+
+/* A program's stdout or stderr, fd STDOUT_FILENO or STDERR_FILENO, with its
+ * newlines expanded as com_putchar expands them. Writes what fits and returns
+ * the count. */
+size_t com_write(int fd, const char *buf, size_t n);
+
+__printflike(1, 2) int com_printf(const char *fmt, ...);
+
+/* com_printf for a UTF-8 format, its output converted to the code page. */
+__printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
+
+/* Returns once every console byte queued so far has gone out. */
+void com_flush(void);
+
+/* Whether a BEL the console sends rings the bell. */
+bool com_get_bel(void);
+void com_set_bel(bool value);
+
+/* Every console byte passes here on its way out. */
+void com_line_track(const char *buf, size_t len);
+
+/* True when a CR and an LF have gone out since the last other byte. */
+bool com_line_clean(void);
+
+/* CR LF, unless the line is already clean. */
+void com_clean_line(void);
+
+/* The caller has left the cursor at the start of a clean line. */
+void com_line_set_clean(void);
+
+/* The end of a session: the soft reset, then CR LF unless the line was clean
+ * before it. */
+void com_end_reset(void);
+
+/* The picker's held source (1) and its deadline (8), the bell (1), the
+ * staged byte's source (1), and the clean-line state (1). */
+#define COM_SST_SIZE 12
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break, \
-    nul_config, nul_config, SST(COM_, 2, COM_SST_SIZE, com_sst_save, com_sst_load))
+#define COM_DRIVER DRIVER(       \
+    INIT(com_rx_clear)           \
+    BREAK(com_rx_clear)          \
+    SST(COM_, 4, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

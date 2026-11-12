@@ -8,6 +8,7 @@
 #include "core/api/clk.h"
 #include "core/api/tim.h"
 #include "host/host.h"
+#include "machine.h"
 #include <string.h>
 #include <time.h>
 
@@ -46,7 +47,7 @@ uint32_t clk_get_run(uint32_t us_per_tick)
     return (host_clock_us() - clk_start_us) / us_per_tick;
 }
 
-bool clk_api_time_get(void)
+bool HOST_IN_FLASH_FUNC clk_api_time_get(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -58,7 +59,7 @@ bool clk_api_time_get(void)
     return api_return_ax(0);
 }
 
-bool clk_api_time_set(void)
+bool HOST_IN_FLASH_FUNC clk_api_time_set(void)
 {
     int64_t sec;
     if (!api_pop_int64_end(&sec))
@@ -88,17 +89,17 @@ static bool clk_api_to_tm(bool local)
     return api_return_ax(0);
 }
 
-bool clk_api_gmtime(void)
+bool HOST_IN_FLASH_FUNC clk_api_gmtime(void)
 {
     return clk_api_to_tm(false);
 }
 
-bool clk_api_localtime(void)
+bool HOST_IN_FLASH_FUNC clk_api_localtime(void)
 {
     return clk_api_to_tm(true);
 }
 
-bool clk_api_mktime(void)
+bool HOST_IN_FLASH_FUNC clk_api_mktime(void)
 {
     struct clk_wire_tm w;
     if (!api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
@@ -122,7 +123,7 @@ bool clk_api_mktime(void)
     return api_return_ax(0);
 }
 
-bool clk_api_strftime(void)
+bool HOST_IN_FLASH_FUNC clk_api_strftime(void)
 {
     // The result is composed below the format string so the two never overlap.
     size_t max = xstack_ptr;
@@ -146,12 +147,12 @@ bool clk_api_strftime(void)
 
 // Ops 0x0F-0x12 below are retained for binaries built with older SDKs.
 
-bool clk_api_clock(void)
+bool HOST_IN_FLASH_FUNC clk_api_clock(void)
 {
     return api_return_axsreg(clk_get_run(10000));
 }
 
-bool clk_api_get_res(void)
+bool HOST_IN_FLASH_FUNC clk_api_get_res(void)
 {
     if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
@@ -164,7 +165,7 @@ bool clk_api_get_res(void)
     return api_return_ax(0);
 }
 
-bool clk_api_get_time(void)
+bool HOST_IN_FLASH_FUNC clk_api_get_time(void)
 {
     if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
@@ -178,7 +179,7 @@ bool clk_api_get_time(void)
     return api_return_ax(0);
 }
 
-bool clk_api_set_time(void)
+bool HOST_IN_FLASH_FUNC clk_api_set_time(void)
 {
     if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);

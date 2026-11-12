@@ -28,6 +28,10 @@
 
 static bool suppress_char;
 
+/* Set from a chord that acted until its key comes up. Windows follows Alt-F4
+ * with a close request, which is cancelled while this is set. */
+static bool input_chord_held;
+
 /* A line break in the clipboard is pressed as Enter, which sends CR, the way a
  * terminal pastes. The clipboard ends lines in CRLF on Windows and LF
  * elsewhere. */
@@ -264,7 +268,13 @@ static void input_key(const sapp_event *e)
             vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;
         default:
-            if (vtkeys_key(hid, ctrl, shift, alt))
+        {
+            if (e->key_repeat && input_chord_held)
+                break;
+            vtkeys_result_t done = vtkeys_key(hid, ctrl, shift, alt);
+            if (done == VTKEYS_CHORD)
+                input_chord_held = true;
+            if (done)
                 break;
             if (ctrl && !alt)
             {
@@ -296,8 +306,12 @@ static void input_key(const sapp_event *e)
                 vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
         }
+        }
         break;
     }
+    case SAPP_EVENTTYPE_KEY_UP:
+        input_chord_held = false;
+        break;
     default:
         break;
     }
@@ -392,9 +406,11 @@ static bool input_tablet(const sapp_event *e)
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
+         * HID AC Pan, is positive to the right. */
+        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         if (mouse_is_mapped())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
         input_set_pointer_on_canvas(false);
@@ -494,10 +510,14 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
         input_paste(sapp_get_clipboard_string());
+        break;
+    case SAPP_EVENTTYPE_QUIT_REQUESTED:
+        if (input_chord_held)
+            sapp_cancel_quit();
         break;
     default:
         break;

@@ -32,6 +32,7 @@
 #include "host/usbh_pvt.h"
 
 #include "class/midi/midi_host.h"
+#include "machine.h"
 
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
 #ifndef CFG_TUH_MIDI_LOG_LEVEL
@@ -106,7 +107,7 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t find_new_midi_index(void) {
   return TUSB_INDEX_INVALID_8;
 }
 
-static inline uint8_t get_idx_by_ep_addr(uint8_t daddr, uint8_t ep_addr) {
+static inline uint8_t HOST_IN_RAM_FUNC get_idx_by_ep_addr(uint8_t daddr, uint8_t ep_addr) {
   for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++) {
     const midih_interface_t *p_midi = &_midi_host[idx];
     if ((p_midi->daddr == daddr) &&
@@ -163,7 +164,7 @@ void midih_close(uint8_t daddr) {
   }
 }
 
-static uint32_t midih_write_xfer(midih_interface_t *p_midi) {
+static uint32_t HOST_IN_RAM_FUNC midih_write_xfer(midih_interface_t *p_midi) {
   const uint32_t count = tu_edpt_stream_write_xfer(&p_midi->ep_stream.tx);
   if (count > 0) {
     p_midi->tx_len = (uint8_t) count;
@@ -171,7 +172,7 @@ static uint32_t midih_write_xfer(midih_interface_t *p_midi) {
   return count;
 }
 
-bool midih_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
+bool HOST_IN_RAM_FUNC midih_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
   const uint8_t idx = get_idx_by_ep_addr(dev_addr, ep_addr);
   TU_VERIFY(idx < CFG_TUH_MIDI);
   midih_interface_t *p_midi = &_midi_host[idx];
@@ -450,7 +451,7 @@ uint32_t tuh_midi_read_available(uint8_t idx) {
   return tu_edpt_stream_read_available(&p_midi->ep_stream.rx);
 }
 
-uint32_t tuh_midi_write_flush(uint8_t idx) {
+uint32_t HOST_IN_RAM_FUNC tuh_midi_write_flush(uint8_t idx) {
   TU_VERIFY(idx < CFG_TUH_MIDI);
   midih_interface_t *p_midi = &_midi_host[idx];
   return midih_write_xfer(p_midi);
@@ -459,7 +460,7 @@ uint32_t tuh_midi_write_flush(uint8_t idx) {
 //--------------------------------------------------------------------+
 // Packet API
 //--------------------------------------------------------------------+
-uint32_t tuh_midi_packet_read_n(uint8_t idx, uint8_t* buffer, uint32_t bufsize) {
+uint32_t HOST_IN_RAM_FUNC tuh_midi_packet_read_n(uint8_t idx, uint8_t* buffer, uint32_t bufsize) {
   TU_VERIFY(idx < CFG_TUH_MIDI && buffer && bufsize > 0, 0);
   midih_interface_t *p_midi = &_midi_host[idx];
 
@@ -470,7 +471,7 @@ uint32_t tuh_midi_packet_read_n(uint8_t idx, uint8_t* buffer, uint32_t bufsize) 
 }
 
 // only tuh_midi_write_flush() and midih_xfer_cb() start a transfer
-uint32_t tuh_midi_packet_write_n(uint8_t idx, const uint8_t* buffer, uint32_t bufsize) {
+uint32_t HOST_IN_RAM_FUNC tuh_midi_packet_write_n(uint8_t idx, const uint8_t* buffer, uint32_t bufsize) {
   TU_VERIFY(idx < CFG_TUH_MIDI && buffer && bufsize > 0, 0);
   midih_interface_t *p_midi = &_midi_host[idx];
 
@@ -481,7 +482,7 @@ uint32_t tuh_midi_packet_write_n(uint8_t idx, const uint8_t* buffer, uint32_t bu
 
 // tuh_midi_frame() writes at most three bytes to out and returns how many it
 // wrote.
-uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out) {
+uint8_t HOST_IN_RAM_FUNC tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out) {
   TU_VERIFY(idx < CFG_TUH_MIDI, 0);
   midih_interface_t *p_midi = &_midi_host[idx];
 

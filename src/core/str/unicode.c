@@ -22,6 +22,7 @@
 #endif
 #include "core/str/unicode.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 
 #ifndef FF_DEFINED
 typedef uint16_t WCHAR;
@@ -39,7 +40,7 @@ static uint32_t unicode_page_at;
 static uint32_t unicode_cvt1_at;
 static uint32_t unicode_cvt2_at;
 
-bool unicode_init(void)
+bool HOST_IN_FLASH_FUNC unicode_init(void)
 {
     uint32_t c1 = unicode_word(2);
     unicode_pages = unicode_word(1);
@@ -57,7 +58,7 @@ bool unicode_init(void)
 
 /* unicode_page_at is zero until the header has been read, so a platform that
  * never calls unicode_init gets the header read on its first lookup. */
-static void unicode_ready(void)
+static void HOST_IN_RAM_FUNC unicode_ready(void)
 {
     if (!unicode_page_at)
         unicode_init();
@@ -66,7 +67,7 @@ static void unicode_ready(void)
 /* The image carries the page numbers in a run of their own, so a lookup is a
  * short scan; pointers would have to be relocated by a machine that reads the
  * image out of a file. */
-static int unicode_page(uint16_t cp)
+static int HOST_IN_RAM_FUNC unicode_page(uint16_t cp)
 {
     for (uint32_t i = 0; i < unicode_pages; i++)
         if (unicode_word(unicode_cp_at + i) == cp)
@@ -81,7 +82,7 @@ bool unicode_has_page(uint16_t cp)
 }
 
 /* The tables start at 0x80 because ASCII is the same in every page. */
-WCHAR ff_oem2uni(WCHAR oem, WORD cp)
+WCHAR HOST_IN_RAM_FUNC ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)
         return oem;
@@ -93,7 +94,7 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
                     + (oem - 0x80u));
 }
 
-WCHAR ff_uni2oem(DWORD uni, WORD cp)
+WCHAR HOST_IN_RAM_FUNC ff_uni2oem(DWORD uni, WORD cp)
 {
     if (uni < 0x80)
         return (uint16_t)uni;
@@ -115,7 +116,7 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
  * is followed by that many replacement code points; every other command is
  * arithmetic on the code point itself, which is how the simple case mapping
  * fits in a few hundred words. */
-DWORD ff_wtoupper(DWORD uni)
+DWORD HOST_IN_RAM_FUNC ff_wtoupper(DWORD uni)
 {
     if (uni >= 0x10000)
         return uni; /* the tables cover the BMP only */

@@ -27,7 +27,7 @@ extern "C"
 #include "core/str/oem.h"
 #include "core/sys/proc.h"
 #include "core/dap/dbg.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/wdc/cpu.h"
 #include "core/sys/sys.h"
 #include "core/wdc/sram.h"
@@ -57,6 +57,7 @@ extern "C"
 #include <mutex>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 /* ---- a custom launch request carrying the RP6502 config VS Code passes ---- */
 namespace dap
@@ -408,7 +409,7 @@ extern "C" void dap_log(int level, const char *category, const char *fmt, va_lis
  * OutputEvent. */
 void std_tap(int fd, const char *buf, int len)
 {
-    const char *category = fd == 2 ? "stderr" : "stdout";
+    const char *category = fd == STDERR_FILENO ? "stderr" : "stdout";
     for (int i = 0; i < len; i++)
     {
         char enc[3];
@@ -1501,7 +1502,7 @@ extern "C" void dap_start(void)
     dbg_set_line_lookup(line_lookup);
     dbg_set_break_filter(bp_filter);
     dbg_set_watch_cb(dbg_watch_on_access);
-    com_set_std_tap(std_tap);
+    manifold_set_std_tap(std_tap);
 
     g_session = dap::Session::create();
     g_session->onError([](const char *msg) { RP6502_LOG(dap, ERROR, "%s", msg); });

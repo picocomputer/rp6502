@@ -71,7 +71,7 @@ typedef struct tablet_connection
     int slot;
     uint8_t report_id;
     uint16_t button_offsets[5]; // buttons 1 to 5, HID_ABSENT if absent
-    bool x_relative;            // true for a mouse
+    bool x_relative;            // true for a relative mouse
     uint16_t x_offset;
     uint8_t x_size;
     int32_t x_min, x_max;
@@ -84,6 +84,11 @@ typedef struct tablet_connection
     uint8_t pan_size;
     uint16_t tip_offset;     // Digitizer Tip Switch, HID_ABSENT if absent
     uint16_t inrange_offset; // Digitizer In Range, HID_ABSENT if absent
+    /* An absolute device's physical width and height in the descriptor's
+     * units, or 0 where it declares none, for its shape. */
+    int32_t x_phys, y_phys;
+    bool touchscreen; // over the display, as an absolute mouse is too
+    uint8_t flags;    // this pointer's TABLET_FLAG_ buttons and hover
 } tablet_connection_t;
 
 void tablet_init(void);
@@ -127,7 +132,9 @@ uint8_t tablet_control(void);
 void tablet_sst_save(sst_cursor_t *c, unsigned flags);
 bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break, \
-    nul_config, nul_config, SST(TBLT, 3, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
+#define TABLET_DRIVER DRIVER(                                        \
+    INIT(tablet_init)                                                \
+    STOP(tablet_stop)                                                \
+    SST(TBLT, 3, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
 
 #endif /* _CORE_HID_TABLET_H_ */

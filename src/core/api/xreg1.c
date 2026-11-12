@@ -19,8 +19,9 @@
 
 /* The mode program being assembled. Channel 0 stores each register as it
  * arrives and the mode write at index 1 consumes the lot, which works
- * because core/sys/pix.c delivers the registers after MODE before MODE. */
-static uint16_t xregs[16];
+ * because core/sys/pix.c delivers the registers after MODE before MODE.
+ * Like the VGA chip, channel 0 has eight registers and ignores the rest. */
+static uint16_t xregs[8];
 
 void xreg1_clear(void)
 {
@@ -30,15 +31,15 @@ void xreg1_clear(void)
 void xreg_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < 8; i++)
         sst_put_u16(c, xregs[i]);
 }
 
 bool xreg_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    uint16_t in[16];
-    for (int i = 0; i < 16; i++)
+    uint16_t in[8];
+    for (int i = 0; i < 8; i++)
         in[i] = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
@@ -50,7 +51,8 @@ bool xreg1(uint8_t channel, uint8_t index, uint16_t word)
 {
     if (channel == 0)
     {
-        xregs[index & 0x0F] = word;
+        if (index < 8)
+            xregs[index] = word;
         if (index == 0) /* CANVAS */
         {
             bool ok = vga_canvas_select(word);

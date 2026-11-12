@@ -7,6 +7,7 @@
 #ifndef _CORE_VGA_VGA_H_
 #define _CORE_VGA_VGA_H_
 
+#include "machine.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -43,6 +44,13 @@ int16_t vga_canvas_y_scale(void);
 void vga_console_size(int *w, int *h);
 void vga_set_console_size(int w, int h);
 
+/* The shape of the picture the canvas is shown in, which is what a
+ * touchscreen laid over the display covers. Every canvas fills the picture's
+ * width and is centred down it with square pixels. A Pico RIA derives it from
+ * the display type and the canvas. A machine that draws its own console shows
+ * every canvas in the console's shape. */
+void vga_display_size(int *w, int *h);
+
 bool vga_canvas_is_console(void);
 
 void vga_set_code_page(uint16_t cp);
@@ -75,7 +83,7 @@ bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 /* The size of every canvas, and the one list of the canvases there are. The
  * console's size belongs to the machine, so it comes from vga_console_size.
  * False for a code that names no canvas. */
-static inline bool vga_canvas_geometry(uint16_t code, int *w, int *h)
+static inline bool HOST_IN_RAM_FUNC vga_canvas_geometry(uint16_t code, int *w, int *h)
 {
     switch (code)
     {
@@ -92,7 +100,7 @@ static inline bool vga_canvas_geometry(uint16_t code, int *w, int *h)
 
 /* The console has 40 columns in an 8x8 font on a canvas 320 pixels wide, and
  * 80 columns in an 8x16 font on one 640 wide, whatever the canvas's height. */
-static inline int vga_term_columns(int w)
+static inline int HOST_IN_RAM_FUNC vga_term_columns(int w)
 {
     return w == 320 ? 40 : 80;
 }

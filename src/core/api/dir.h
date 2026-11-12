@@ -37,7 +37,9 @@ bool dir_api_getfree(void);
 void dir_sst_save(sst_cursor_t *c, unsigned flags);
 bool dir_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break, \
-    nul_config, nul_config, SST(DIR_, 1, DIR_SST_SIZE, dir_sst_save, dir_sst_load))
+#define DIR_DRIVER DRIVER(                                  \
+    RUN(dir_run)                                            \
+    STOP(dir_stop)                                          \
+    SST(DIR_, 1, DIR_SST_SIZE, dir_sst_save, dir_sst_load))
 
 #endif /* _CORE_API_DIR_H_ */

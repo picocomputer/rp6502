@@ -15,7 +15,7 @@
 #include "core/str/unicode.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/usage.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/hid/keyboard.h"
 #include "machine.h"
 #include <stdio.h>
@@ -32,7 +32,7 @@ void vtkeys_text(const char *utf8)
     /* The decoder returns DEL for a character the code page cannot represent,
      * and the line editor would take that as a backspace. */
     while ((oem = oem_from_utf8_next(&p)))
-        com_keyboard_push_byte(oem == 0x7F ? '?' : oem);
+        manifold_keyboard_push_byte(oem == 0x7F ? '?' : oem);
 }
 
 void vtkeys_char(uint32_t codepoint)
@@ -47,16 +47,17 @@ void vtkeys_char(uint32_t codepoint)
         if (oem == 0x7F)
             oem = '?';
     }
-    com_keyboard_push_byte(oem);
+    manifold_keyboard_push_byte(oem);
 }
 
-/* com_keyboard_push_byte latches SIGINT when it sees the Ctrl-C this makes, so
- * a break is caught even when the ring is full and the byte is dropped. */
+/* manifold_keyboard_push_byte latches SIGINT when it sees the Ctrl-C this
+ * makes, so a break is caught even when the ring is full and the byte is
+ * dropped. */
 void vtkeys_ctrl_letter(char letter)
 {
     int c = keyboard_ctrl_promote(letter, HID_KEY_NONE);
     if (c >= 0)
-        com_keyboard_push_byte((uint8_t)c);
+        manifold_keyboard_push_byte((uint8_t)c);
 }
 
 void vtkeys_alt_char(char ch, bool ctrl)
@@ -69,16 +70,15 @@ void vtkeys_alt_char(char ch, bool ctrl)
         if (c >= 0)
             ch = (char)c;
     }
-    com_keyboard_push_byte(0x1b);
-    com_keyboard_push_byte((uint8_t)ch);
+    manifold_keyboard_push_byte(0x1b);
+    manifold_keyboard_push_byte((uint8_t)ch);
 }
 
 /* The four keys answered by the switch below have characters of their own, and
  * which byte each types is this machine's to say, where the firmware reads
- * them from its layout. Every other key comes from the shared table. False
- * when the usage sends nothing, so that a caller can go on to try it as a
- * chord. */
-bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
+ * them from its layout. Every other key is a chord or comes from the shared
+ * table. */
+vtkeys_result_t vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
     char ch = 0;
     switch (hid_usage)
@@ -108,17 +108,19 @@ bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
         /* Alt prefixes ESC rather than changing the byte the key types, so it
          * composes with whatever the other modifiers already decided. */
         if (alt)
-            com_keyboard_push_byte(0x1b);
-        com_keyboard_push_byte((uint8_t)ch);
-        return true;
+            manifold_keyboard_push_byte(0x1b);
+        manifold_keyboard_push_byte((uint8_t)ch);
+        return VTKEYS_TYPED;
     }
+    if (keyboard_chord(hid_usage, ctrl, alt))
+        return VTKEYS_CHORD;
     char seq[16];
     size_t n = keyboard_vt_seq(seq, sizeof seq, hid_usage,
                       keyboard_vt_mod(shift, alt, ctrl, false));
     if (!n)
-        return false;
-    com_keyboard_push(seq, n);
-    return true;
+        return VTKEYS_NONE;
+    manifold_keyboard_push(seq, n);
+    return VTKEYS_TYPED;
 }
 
 /* Text still being delivered to the keyboard ring, NULL when idle. */
@@ -134,7 +136,7 @@ void vtkeys_paste_cancel(void)
 void vtkeys_clear(void)
 {
     vtkeys_paste_cancel();
-    com_keyboard_clear();
+    manifold_keyboard_clear();
 }
 
 void vtkeys_paste(const char *utf8)
@@ -163,10 +165,10 @@ void vtkeys_task(void)
     /* A quarter of the ring is left free so that live typing still fits
      * during a long paste, and because a full ring drops the bytes it is
      * given, which would leave holes in the paste. */
-    while (vtkeys_paste_pos < vtkeys_paste_len && com_keyboard_free() > COM_RING_SIZE / 4)
+    while (vtkeys_paste_pos < vtkeys_paste_len && manifold_keyboard_free() > MANIFOLD_RING_SIZE / 4)
     {
         char out[16];
-        size_t room = com_keyboard_free() - COM_RING_SIZE / 4;
+        size_t room = manifold_keyboard_free() - MANIFOLD_RING_SIZE / 4;
         if (room > sizeof out)
             room = sizeof out;
         size_t taken = 0;
@@ -175,7 +177,7 @@ void vtkeys_task(void)
                                      true, out, room, &taken);
         if (!taken)
             break;
-        com_keyboard_push(out, n);
+        manifold_keyboard_push(out, n);
         vtkeys_paste_pos += taken;
     }
     if (vtkeys_paste_pos >= vtkeys_paste_len)

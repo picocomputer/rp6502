@@ -32,9 +32,9 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX STR_XSTR(PHI2_MIN_KHZ) "-" STR_XSTR(PHI2_MAX_KHZ)
 
 #define X(name, value) \
-    const char HOST_IN_FLASH(STR_XSTR(name)) name[] = value;
+    const char HOST_IN_FLASH name[] = value;
 #define XR(name, value) \
-    const char HOST_NOT_IN_FLASH(STR_XSTR(name)) name[] = value;
+    const char HOST_IN_RAM name[] = value;
 #include "core/def/str_sys.def"
 #undef X
 #undef XR
@@ -47,7 +47,7 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 // into .rodata.str, which a copy_to_ram build places in RAM.
 #define XBEGIN(code, verbose, cp)
 #define XEND()
-#define X(name, value) const char HOST_IN_FLASH("str_loc") STR_ID(XSUFFIX, name)[] = value;
+#define X(name, value) const char HOST_IN_FLASH STR_ID(XSUFFIX, name)[] = value;
 #include "core/def/str.def"
 #undef XBEGIN
 #undef XEND
@@ -57,7 +57,7 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 // designators place each string by its id, so line order within a locale file
 // does not matter.
 #define XBEGIN(code, verbose, cp) \
-    static const char *const HOST_IN_FLASH("str_tab") STR_CAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
+    static const char *const HOST_IN_FLASH STR_CAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
 #define XEND() \
     }          \
     ;
@@ -72,7 +72,7 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #define XBEGIN(code, verbose, cp) STR_CAT(str_tab_, XSUFFIX),
 #define XEND()
 #define X(name, value)
-static const char *const *const HOST_IN_FLASH("str_tabs") str_tabs[] = {
+static const char *const *const HOST_IN_FLASH str_tabs[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -83,7 +83,7 @@ static const char *const *const HOST_IN_FLASH("str_tabs") str_tabs[] = {
 #define XBEGIN(code, verbose, cp) code,
 #define XEND()
 #define X(name, value)
-static const char *const HOST_IN_FLASH("str_locale_names") str_locale_names[] = {
+static const char *const HOST_IN_FLASH str_locale_names[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -93,7 +93,7 @@ static const char *const HOST_IN_FLASH("str_locale_names") str_locale_names[] = 
 #define XBEGIN(code, verbose, cp) verbose,
 #define XEND()
 #define X(name, value)
-static const char *const HOST_IN_FLASH("str_locale_verbose") str_locale_verbose[] = {
+static const char *const HOST_IN_FLASH str_locale_verbose[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -103,7 +103,7 @@ static const char *const HOST_IN_FLASH("str_locale_verbose") str_locale_verbose[
 #define XBEGIN(code, verbose, cp) cp,
 #define XEND()
 #define X(name, value)
-static const uint16_t HOST_IN_FLASH("str_locale_cp") str_locale_cp[] = {
+static const uint16_t HOST_IN_FLASH str_locale_cp[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -180,12 +180,12 @@ void str_apply_locale(const char *name, bool changed)
     oem_locale_changed(str_locale_cp[index]);
 }
 
-void HOST_IN_FLASH("str_init") str_init(void)
+void HOST_IN_FLASH_FUNC str_init(void)
 {
     str_apply_locale(str_get_locale(), true);
 }
 
-int HOST_IN_FLASH_FUNC("str_locales_response") str_locales_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC str_locales_response(char *buf, size_t buf_size,
                                                                     int state, unsigned width)
 {
     (void)width;
@@ -206,7 +206,7 @@ int HOST_IN_FLASH_FUNC("str_locales_response") str_locales_response(char *buf, s
     return state + 1;
 }
 
-int HOST_IN_FLASH_FUNC("str_locale_response") str_locale_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC str_locale_response(char *buf, size_t buf_size,
                                                                   int state, unsigned width)
 {
     (void)state;
@@ -437,7 +437,7 @@ bool str_parse_end(const char *args)
 }
 
 
-void HOST_IN_FLASH_FUNC("str_size") str_size(uint64_t bytes, char *out, size_t out_size)
+void HOST_IN_FLASH_FUNC str_size(uint64_t bytes, char *out, size_t out_size)
 {
     const char *unit;
     if (bytes < 5000000ULL)

@@ -32,7 +32,8 @@ void sram_tick(uint16_t addr, bool read, uint8_t *data);
 void sram_sst_save(sst_cursor_t *c, unsigned flags);
 bool sram_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define SRAM_DRIVER DRIVER(sram_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(SRAM, 1, SRAM_SST_SIZE, sram_sst_save, sram_sst_load))
+#define SRAM_DRIVER DRIVER(                                    \
+    INIT(sram_init)                                            \
+    SST(SRAM, 1, SRAM_SST_SIZE, sram_sst_save, sram_sst_load))
 
 #endif /* _CORE_WDC_SRAM_H_ */

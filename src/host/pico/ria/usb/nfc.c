@@ -6,17 +6,18 @@
 
 #include "ria/api/proc.h"
 #include "ria/usb/nfc.h"
+#include "ria/usb/ndef.h"
 #include "core/sys/config.h"
 #include "ria/usb/vcp.h"
 #include "core/aud/bel.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/timer.h"
 #include "machine.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
-#include <pico/time.h>
 
 #define NFC_CMD_WRITE 0x01
 #define NFC_CMD_CANCEL 0x02
@@ -65,9 +66,6 @@
 
 #define NDEF_READ_CMD 0x30
 #define NDEF_WRITE_CMD 0xA2
-#define NDEF_TLV_NULL 0x00
-#define NDEF_TLV_NDEF_MESSAGE 0x03
-#define NDEF_TLV_TERMINATOR 0xFE
 
 static const char *const nfc_state_names[] = {
     "OFF",
@@ -76,6 +74,7 @@ static const char *const nfc_state_names[] = {
     "SCAN_GFV_TX",
     "SCAN_PROBE_ACK",
     "SCAN_PROBE_RX",
+    "SCAN_PAIR",
     "SCAN_CLOSE",
     "SAM_TX",
     "SAM_ACK",
@@ -103,6 +102,7 @@ static enum {
     NFC_SCAN_GFV_TX,
     NFC_SCAN_PROBE_ACK,
     NFC_SCAN_PROBE_RX,
+    NFC_SCAN_PAIR,
     NFC_SCAN_CLOSE,
     NFC_SAM_TX,
     NFC_SAM_ACK,
@@ -130,7 +130,7 @@ _Static_assert(sizeof(nfc_state_names) / sizeof(*nfc_state_names) == NFC_TAG_WRI
 
 static int nfc_desc = -1;
 static uint8_t nfc_scan_idx;
-static absolute_time_t nfc_timeout;
+static timer_deadline_t nfc_timeout;
 static bool nfc_card_inserted;
 
 static uint8_t nfc_tx_buf[PN532_WAKEUP_SIZE + PN532_MAX_FRAME_SIZE];
@@ -181,7 +181,7 @@ static void nfc_goto(int new_state, uint32_t ms)
         }
         nfc_state = new_state;
     }
-    nfc_timeout = make_timeout_time_ms(ms);
+    nfc_timeout = timer_in_ms(ms);
 }
 
 static void nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
@@ -222,12 +222,12 @@ static int nfc_send(void)
     if (result == STD_ERROR)
         return -1;
     if (result == STD_PENDING) // the timeout starts once the port is configured
-        nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
+        nfc_timeout = timer_in_ms(NFC_ACK_TIMEOUT_MS);
     nfc_tx_pos += bytes_written;
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }
 
-static uint32_t nfc_recv(void)
+static uint32_t HOST_IN_RAM_FUNC nfc_recv(void)
 {
     if (nfc_rx_pos >= sizeof(nfc_rx_buf))
         return 0;
@@ -239,7 +239,7 @@ static uint32_t nfc_recv(void)
     return bytes_read;
 }
 
-static bool nfc_check_ack(void)
+static bool HOST_IN_RAM_FUNC nfc_check_ack(void)
 {
     static const uint8_t ack[PN532_ACK_FRAME_SIZE] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
     for (size_t i = 0; i + PN532_ACK_FRAME_SIZE <= nfc_rx_pos; i++)
@@ -254,7 +254,7 @@ static bool nfc_check_ack(void)
     return false;
 }
 
-static const uint8_t *nfc_parse_response(uint8_t cmd, size_t *resp_len)
+static const uint8_t *HOST_IN_RAM_FUNC nfc_parse_response(uint8_t cmd, size_t *resp_len)
 {
     if (nfc_rx_pos < nfc_ack_end + 7)
         return NULL;
@@ -356,18 +356,18 @@ static void nfc_scan_close(void)
 static void nfc_tx_step(int ack_state, void (*on_fail)(void))
 {
     int rc = nfc_send();
-    if (rc < 0 || (rc == 0 && time_reached(nfc_timeout)))
+    if (rc < 0 || (rc == 0 && timer_passed(nfc_timeout)))
         on_fail();
     else if (rc == 1)
         nfc_begin_receive(ack_state);
 }
 
-static void nfc_ack_step(int rx_state, void (*on_fail)(void))
+static void HOST_IN_RAM_FUNC nfc_ack_step(int rx_state, void (*on_fail)(void))
 {
     nfc_recv();
     if (nfc_check_ack())
         nfc_goto(rx_state, NFC_RESPONSE_TIMEOUT_MS);
-    else if (time_reached(nfc_timeout))
+    else if (timer_passed(nfc_timeout))
         on_fail();
 }
 
@@ -420,7 +420,7 @@ void nfc_init(void)
         nfc_apply_cfg(NFC_CFG_ON);
 }
 
-int HOST_IN_FLASH_FUNC("nfc_enabled_response") nfc_enabled_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC nfc_enabled_response(char *buf, size_t buf_size,
                                                                     int state, unsigned width)
 {
     (void)state;
@@ -431,114 +431,7 @@ int HOST_IN_FLASH_FUNC("nfc_enabled_response") nfc_enabled_response(char *buf, s
     return -1;
 }
 
-bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size)
-{
-    // Pages 0 to 3 hold the UID, lock and CC bytes, so user data starts at
-    // page 4, 16 bytes in.
-    if (len <= 16)
-        return false;
-    tag_data += 16;
-    len -= 16;
-
-    const uint8_t *msg = NULL;
-    size_t msg_len = 0;
-    size_t pos = 0;
-    while (pos < len)
-    {
-        uint8_t tlv_type = tag_data[pos++];
-        if (tlv_type == NDEF_TLV_TERMINATOR)
-            break;
-        if (tlv_type == NDEF_TLV_NULL)
-            continue;
-        if (pos >= len)
-            break;
-        size_t tlv_len;
-        if (tag_data[pos] == 0xFF) // three-byte length
-        {
-            if (pos + 2 >= len)
-                break;
-            tlv_len = ((size_t)tag_data[pos + 1] << 8) | tag_data[pos + 2];
-            pos += 3;
-        }
-        else
-        {
-            tlv_len = tag_data[pos++];
-        }
-        if (pos + tlv_len > len)
-            break;
-        if (tlv_type == NDEF_TLV_NDEF_MESSAGE)
-        {
-            msg = tag_data + pos;
-            msg_len = tlv_len;
-            break;
-        }
-        pos += tlv_len;
-    }
-    if (!msg)
-        return false;
-
-    size_t rpos = 0;
-    while (rpos < msg_len)
-    {
-        uint8_t hdr = msg[rpos++];
-        uint8_t tnf = hdr & 0x07;
-        bool cf = (bool)((hdr >> 5) & 1);
-        bool sr = (bool)((hdr >> 4) & 1);
-        bool il = (bool)((hdr >> 3) & 1);
-        if (rpos >= msg_len)
-            break;
-        uint8_t type_len = msg[rpos++];
-        uint32_t payload_len;
-        if (sr)
-        {
-            if (rpos >= msg_len)
-                break;
-            payload_len = msg[rpos++];
-        }
-        else
-        {
-            if (rpos + 4 > msg_len)
-                break;
-            payload_len = ((uint32_t)msg[rpos] << 24) | ((uint32_t)msg[rpos + 1] << 16) |
-                          ((uint32_t)msg[rpos + 2] << 8) | msg[rpos + 3];
-            rpos += 4;
-        }
-        uint8_t id_len = 0;
-        if (il)
-        {
-            if (rpos >= msg_len)
-                break;
-            id_len = msg[rpos++];
-        }
-        if (rpos + type_len + id_len > msg_len)
-            break;
-        const uint8_t *type_data = msg + rpos;
-        rpos += type_len + id_len;
-        if (payload_len > msg_len - rpos)
-            break;
-        const uint8_t *payload = msg + rpos;
-        rpos += payload_len;
-        if (tnf == 0x01 && type_len == 1 && type_data[0] == 'T' && payload_len >= 1)
-        {
-            if (cf)
-                return false; // chunked text record not supported
-            uint8_t status = payload[0];
-            uint8_t lang_len = status & 0x3F;
-            if (payload_len <= (uint32_t)(1 + lang_len))
-                continue;
-            const uint8_t *txt = payload + 1 + lang_len;
-            size_t txt_len = payload_len - 1 - lang_len;
-            if (txt_len >= buf_size)
-                txt_len = buf_size - 1;
-            memcpy(buf, txt, txt_len);
-            buf[txt_len] = '\0';
-            return true;
-        }
-    }
-    return false;
-}
-
-void nfc_task(void)
+void HOST_IN_RAM_FUNC nfc_task(void)
 {
     switch (nfc_state)
     {
@@ -547,7 +440,7 @@ void nfc_task(void)
 
     case NFC_WAIT_DEVICE:
     {
-        if (!time_reached(nfc_timeout))
+        if (!timer_passed(nfc_timeout))
             break;
         nfc_desc = vcp_nfc_open();
         if (nfc_desc >= 0)
@@ -594,17 +487,26 @@ void nfc_task(void)
         size_t resp_len;
         const uint8_t *resp = nfc_parse_response(PN532_CMD_GETFIRMWAREVERSION, &resp_len);
         if (resp && resp_len >= 3 && resp[0] == 0x32) // IC = PN532
+            nfc_goto(NFC_SCAN_PAIR, 0);
+        else if (timer_passed(nfc_timeout))
+            nfc_scan_close();
+        break;
+    }
+
+    // The set fails while the device's strings are on the way. A fetch always
+    // ends, so this state needs no timeout, only a check that the port is
+    // still there.
+    case NFC_SCAN_PAIR:
+    {
+        char name[8];
+        nfc_vcp_name(name, sizeof(name));
+        api_errno err;
+        if (vcp_set_nfc_device_hash(name))
         {
-            char name[8];
-            nfc_vcp_name(name, sizeof(name));
-            if (vcp_set_nfc_device_hash(name))
-            {
-                nfc_success();
-                nfc_start_tx(NFC_SAM_TX);
-                break;
-            }
+            nfc_success();
+            nfc_start_tx(NFC_SAM_TX);
         }
-        if (time_reached(nfc_timeout))
+        else if (vcp_std_opening(nfc_desc, &err) == STD_ERROR)
             nfc_scan_close();
         break;
     }
@@ -637,13 +539,13 @@ void nfc_task(void)
         const uint8_t *resp = nfc_parse_response(PN532_CMD_SAMCONFIGURATION, &resp_len);
         if (resp)
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
-        else if (time_reached(nfc_timeout))
+        else if (timer_passed(nfc_timeout))
             nfc_recover();
         break;
     }
 
     case NFC_IDLE:
-        if (time_reached(nfc_timeout))
+        if (timer_passed(nfc_timeout))
             nfc_start_tx(NFC_POLL_TX);
         break;
 
@@ -679,7 +581,7 @@ void nfc_task(void)
             else
                 nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         }
-        else if (time_reached(nfc_timeout))
+        else if (timer_passed(nfc_timeout))
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         break;
     }
@@ -711,30 +613,8 @@ void nfc_task(void)
                 size_t data_len = resp_len - 1;
                 const uint8_t *data = resp + 1;
 
-                bool blank = true;
-                for (size_t i = 0; i < data_len; i++)
-                    if (data[i])
-                    {
-                        blank = false;
-                        break;
-                    }
-                if (blank)
-                {
-                    nfc_read_complete();
-                    break;
-                }
-
-                size_t old_len = nfc_tag_len;
                 for (size_t i = 0; i < data_len && nfc_tag_len < sizeof(nfc_tag_buf); i++)
                     nfc_tag_buf[nfc_tag_len++] = data[i];
-
-                bool found_terminator = false;
-                for (size_t i = old_len; i < nfc_tag_len; i++)
-                    if (nfc_tag_buf[i] == NDEF_TLV_TERMINATOR)
-                    {
-                        found_terminator = true;
-                        break;
-                    }
 
                 // Byte 2 of the CC, at nfc_tag_buf[14], gives the size of the
                 // NDEF data area in 8-byte blocks, so the last page of the
@@ -742,7 +622,10 @@ void nfc_task(void)
                 unsigned last_page = (nfc_tag_len >= 15 && nfc_tag_buf[14] > 0)
                                          ? (unsigned)(4 + nfc_tag_buf[14] * 2 - 1)
                                          : 3;
-                if (found_terminator || nfc_tag_len >= sizeof(nfc_tag_buf) ||
+                /* The read ends at the Terminator TLV, which only the walk
+                 * of the TLVs tells apart from a 0xFE in the UID or in the
+                 * data, or at the end of the area. */
+                if (ndef_complete(nfc_tag_buf, nfc_tag_len) || nfc_tag_len >= sizeof(nfc_tag_buf) ||
                     (unsigned)(nfc_tag_page + 4) > last_page)
                     nfc_read_complete();
                 else
@@ -757,13 +640,13 @@ void nfc_task(void)
                 nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
             }
         }
-        else if (time_reached(nfc_timeout))
+        else if (timer_passed(nfc_timeout))
             nfc_read_fail();
         break;
     }
 
     case NFC_CARD_PRESENT:
-        if (time_reached(nfc_timeout))
+        if (timer_passed(nfc_timeout))
         {
             if (nfc_write_armed && !nfc_write_failed)
             {
@@ -811,7 +694,7 @@ void nfc_task(void)
             else
                 nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         }
-        else if (time_reached(nfc_timeout))
+        else if (timer_passed(nfc_timeout))
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         break;
     }
@@ -863,14 +746,14 @@ void nfc_task(void)
             else
                 nfc_write_fail();
         }
-        else if (time_reached(nfc_timeout))
+        else if (timer_passed(nfc_timeout))
             nfc_write_fail();
         break;
     }
     }
 }
 
-bool nfc_std_handles(const char *name)
+bool HOST_IN_RAM_FUNC nfc_std_handles(const char *name)
 {
     return strcasecmp(name, STR_NFC_COLON) == 0;
 }

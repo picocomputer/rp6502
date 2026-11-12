@@ -5,8 +5,8 @@
  */
 
 /* The keyboard stream on a machine whose OS has already decoded the key.
- * Everything a host types enters through one of the calls below, and nothing
- * else pushes the com keyboard ring; see core/com/com.h.
+ * Everything a host types enters through one of the calls below, into the
+ * manifold's keyboard ring; see core/com/manifold.h.
  *
  * Which keys are down is core/hid/keyboard.h.
  */
@@ -25,8 +25,17 @@ void vtkeys_text(const char *utf8);
  * point rather than UTF-8. */
 void vtkeys_char(uint32_t codepoint);
 
-/* Queue a key that has no character of its own as its xterm sequence. */
-bool vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt);
+/* What vtkeys_key did with a key. */
+typedef enum
+{
+    VTKEYS_NONE,  /* nothing: the key types a character the host composes */
+    VTKEYS_TYPED, /* the key's byte or xterm sequence went to the console */
+    VTKEYS_CHORD, /* Ctrl-Alt-Delete or Alt-F4 acted */
+} vtkeys_result_t;
+
+/* Queue a key that has no character of its own as its xterm sequence, or act
+ * on it as a chord. */
+vtkeys_result_t vtkeys_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt);
 
 /* Queue a Ctrl chord as the byte keyboard_ctrl_promote makes of the
  * character. A character Ctrl has nothing to say about, and 0 for no
@@ -46,12 +55,13 @@ void vtkeys_paste_cancel(void);
 
 /* Clear the keyboard source: the ring and the rest of the paste. */
 void vtkeys_clear(void);
-#define VTKEYS_COM_SOURCE {.read = com_keyboard_read, .clear = vtkeys_clear, .dwell_us = COM_WIRE_DWELL_US}
+#define VTKEYS_COM_SOURCE {.read = manifold_keyboard_read, .peek = manifold_keyboard_peek, \
+    .clear = vtkeys_clear, .dwell_us = COM_DWELL_US, .size = MANIFOLD_RING_SIZE}
 
 bool vtkeys_paste_busy(void);
 
 void vtkeys_task(void);
 
-#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define VTKEYS_DRIVER DRIVER(TASK_PUMPED(vtkeys_task))
 
 #endif /* _CORE_HID_VTKEYS_H_ */

@@ -8,7 +8,7 @@
 #include "core/sys/sys.h"
 #include "mut.h"
 
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
@@ -45,7 +45,7 @@ static void mut_tap_write(const char *buf, int len)
 void mut_console_start(void)
 {
     mut_tap_len = 0;
-    com_set_tx_tap(mut_tap_write);
+    manifold_set_tx_tap(mut_tap_write);
 }
 
 const char *mut_console(size_t *len)

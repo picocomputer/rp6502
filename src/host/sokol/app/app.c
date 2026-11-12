@@ -33,7 +33,8 @@
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
-#include "core/sys/com.h"
+#include "core/api/proc.h"
+#include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
@@ -115,7 +116,7 @@ static void update_title(void)
     }
 }
 
-/* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
+/* Called on the audio device's own thread on WASAPI, PulseAudio, CoreAudio and
  * AAudio, and on the browser's main thread on WebAudio. It makes what it
  * plays on the spot, from what the frames have stamped. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
@@ -137,9 +138,9 @@ void app_init(void)
     if (aud_enabled())
     {
         /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. ALSA and WebAudio write back the rate they actually
-         * got and the machine resamples from its own rate to that; WASAPI and
-         * CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
+         * ratio near one. WebAudio writes back the rate it actually got and
+         * the machine resamples from its own rate to that; WASAPI, PulseAudio
+         * and CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
          * of that rate is 10.7 ms of device latency, where sokol's default of
          * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
          * which stops while the window moves, and its size must be a power of
@@ -312,6 +313,10 @@ void app_frame(void)
      * the display happens on the next GL write rather than in the swap. */
     returned_ns = os_mono_ns();
     gfx_upload(ran_frame);
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+        dbgui_flush();
+#endif
     gfx_begin_pass();
     gfx_blit();
     host_window_menu_draw();
@@ -387,8 +392,7 @@ bool app_boot_rom(const char *path)
         }
         rom_pump_close(&pump);
     }
-    vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
-    bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
      * stopped the machine, whether or not this boot succeeded, unless this
      * drop installed a ROM of the same name, which replaced it. */
@@ -452,16 +456,13 @@ int app_exit_code(void)
 
 void app_cleanup(void)
 {
-    /* sys_stop and sys_commit run before saudio, gfx and sg shut down, so every
+    /* proc_shutdown runs before saudio, gfx and sg shut down, so every
      * driver's stop hook still has the host under it. Reaching here without
      * app_quit_asked means the close button stopped a machine that was still
      * running, which is a break. */
     if (!app_quit_asked)
         app_broke = true;
-    if (app_broke)
-        sys_break_request();
-    sys_stop();
-    sys_commit();
+    proc_shutdown();
     /* app_break_leave does not return, so buffered output is flushed before
      * it. */
     if (app_broke && app_break_leave && app_break_asked && app_break_asked())

@@ -274,6 +274,23 @@ UTEST(apf, ctrl_types_what_xterm_types)
     ASSERT_EQ(memcmp(buf, "\0\0\x1B", 3), 0);
 }
 
+UTEST(apf, a_keymap_peek_at_an_offset_takes_nothing)
+{
+    reset_all();
+    keymap_set_layout_list("US");
+    apf_mount(2, APF_TYPE_KEYBOARD);
+
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x20000000u, 0x0000, false); /* Ctrl+3 */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x2C000000u, 0x0000, false); /* Ctrl+Space */
+    ASSERT_EQ(keymap_in_peek(0), 0x1B);
+    ASSERT_EQ(keymap_in_peek(1), 0);
+    ASSERT_EQ(keymap_in_peek(2), -1);
+    char buf[8];
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)2);
+    ASSERT_EQ(memcmp(buf, "\x1B\0", 2), 0);
+}
+
 /* Lowercase a with tilde is 0xC6 in CP850 and is absent from CP437. */
 UTEST(apf, dead_keys_follow_a_code_page_change)
 {

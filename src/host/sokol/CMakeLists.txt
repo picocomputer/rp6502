@@ -49,11 +49,14 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 if(NOT WIN32 AND NOT APPLE)
     find_package(OpenGL)
     find_package(X11)
-    find_package(ALSA)
-    if(NOT OPENGL_FOUND OR NOT X11_FOUND OR NOT X11_Xi_FOUND OR NOT X11_Xcursor_FOUND OR NOT ALSA_FOUND)
+    find_path(PULSE_INCLUDE_DIR pulse/simple.h)
+    find_library(PULSE_LIBRARY pulse)
+    find_library(PULSE_SIMPLE_LIBRARY pulse-simple)
+    if(NOT OPENGL_FOUND OR NOT X11_FOUND OR NOT X11_Xi_FOUND OR NOT X11_Xcursor_FOUND OR
+       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY OR NOT PULSE_SIMPLE_LIBRARY)
         message(FATAL_ERROR
             "rp6502-emu needs the desktop dev stack. On Debian/Ubuntu:\n"
-            "  sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev")
+            "  sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev")
     endif()
     find_package(Threads REQUIRED)
 endif()
@@ -108,8 +111,10 @@ elseif(APPLE)
 else()
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)
     target_link_libraries(rp6502-emu PRIVATE
-        OpenGL::GL X11::X11 X11::Xi X11::Xcursor ALSA::ALSA
+        OpenGL::GL X11::X11 X11::Xi X11::Xcursor
+        ${PULSE_SIMPLE_LIBRARY} ${PULSE_LIBRARY}
         ${CMAKE_DL_LIBS} Threads::Threads)
+    target_include_directories(rp6502-emu PRIVATE ${PULSE_INCLUDE_DIR})
 endif()
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)

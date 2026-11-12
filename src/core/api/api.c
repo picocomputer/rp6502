@@ -9,6 +9,7 @@
 #include "core/api/api.h"
 #include "core/str/str.h"
 #include "core/sys/sys.h"
+#include "machine.h"
 
 /* Both toolchains define these errno values, except EUNKNOWN at the end of
  * the list, which is this OS's own catch-all number. */
@@ -75,7 +76,7 @@ static uint8_t api_active_op;
 // The op number is copied because the 6502 can write API_OP again while an op
 // is in flight. Ops 0x00 and 0xFF are never latched, because each machine
 // answers those itself where the 6502 writes them.
-void api_task(void)
+void HOST_IN_RAM_FUNC api_task(void)
 {
     if (sys_running() && !api_active_op && API_BUSY)
     {
@@ -114,10 +115,13 @@ void api_stop(void)
 void api_run(void)
 {
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // $FFE3 is skipped because it is the VSYNC frame counter, which is advanced
-    // on every vertical sync.
-    for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
-        if (addr != 0xFFE3)
+    // A typed byte waiting in RX, $FFE2 with its ready bit, is the head of the
+    // type-ahead that an exec carries to the next program. $FFE3 is skipped
+    // because it is the VSYNC frame counter, which is advanced on every
+    // vertical sync.
+    REGS(0xFFE0) &= RIA_UART_RX_READY;
+    for (int addr = 0xFFE1; addr <= 0xFFEF; addr++)
+        if (addr != 0xFFE2 && addr != 0xFFE3)
             REGS(addr) = 0;
     xstack_ptr = XSTACK_SIZE;
     REGS(0xFFE5) = 1; // STEP0
@@ -207,7 +211,7 @@ const char *api_errno_str(api_errno num)
 
 // The sign bit is in xstack[XSTACK_SIZE - 1] because this pop must empty the
 // stack, so that byte is the value's most significant.
-static bool api_pop_end(void *data, size_t size, bool sign)
+static bool HOST_IN_RAM_FUNC api_pop_end(void *data, size_t size, bool sign)
 {
     size_t n = XSTACK_SIZE - xstack_ptr;
     if (n > size)
@@ -224,12 +228,12 @@ bool api_pop_uint8_end(uint8_t *data)
     return api_pop_end(data, sizeof(*data), false);
 }
 
-bool api_pop_uint16_end(uint16_t *data)
+bool HOST_IN_RAM_FUNC api_pop_uint16_end(uint16_t *data)
 {
     return api_pop_end(data, sizeof(*data), false);
 }
 
-bool api_pop_uint32_end(uint32_t *data)
+bool HOST_IN_RAM_FUNC api_pop_uint32_end(uint32_t *data)
 {
     return api_pop_end(data, sizeof(*data), false);
 }
@@ -249,7 +253,7 @@ bool api_pop_int16_end(int16_t *data)
     return api_pop_end(data, sizeof(*data), true);
 }
 
-bool api_pop_int32_end(int32_t *data)
+bool HOST_IN_RAM_FUNC api_pop_int32_end(int32_t *data)
 {
     return api_pop_end(data, sizeof(*data), true);
 }
@@ -269,7 +273,7 @@ const char *api_pop_str(size_t max)
     return str;
 }
 
-const char *api_pop_str_end(size_t max)
+const char *HOST_IN_RAM_FUNC api_pop_str_end(size_t max)
 {
     const char *str = (const char *)&xstack[xstack_ptr];
     size_t len = strlen(str);
@@ -280,7 +284,7 @@ const char *api_pop_str_end(size_t max)
     return str;
 }
 
-const char *api_pop_path_end(api_errno *err)
+const char *HOST_IN_RAM_FUNC api_pop_path_end(api_errno *err)
 {
     const char *path = api_pop_str_end(API_PATH_MAX);
     *err = path ? API_ENOENT : API_EINVAL;
