@@ -194,6 +194,7 @@ module wiring
         endcase
     end
 
+    logic ria_hold;
     cpu cpu (
         .clk(clk_mach),
         .rst_n(resb_eff),
@@ -201,7 +202,7 @@ module wiring
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
         .nmi_i(1'b0),
-        .rdy_i(1'b0),
+        .rdy_i(ria_hold), /* an EXIT waits here for the reset */
         .res_i(1'b0),
         .cpu_addr(cpu_addr),
         .cpu_data(cpu_dout),
@@ -732,7 +733,8 @@ module wiring
         .b_wdata(soc_wdata),
         .regs_b_rdata(regs_b_rdata),
         .regs_api_pending(api_pending),
-        .api_ack(soc_stb && soc_we && soc_sel_ctl && soc_addr[2])
+        .api_ack(soc_stb && soc_we && soc_sel_ctl && soc_addr[2]),
+        .regs_hold(ria_hold)
     );
 
     bus bus (

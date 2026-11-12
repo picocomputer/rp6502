@@ -225,6 +225,13 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 3);
     p.pushl(254);
     opn(0x0B, 3);
+
+    /* DROP ($00) needs no spin, so the pushes right after it land on an
+     * empty xstack and the call sees exactly them. */
+    push(0xAA); push(0xBB); push(0xCC);
+    p.store(TB_API_OP, 0x00);
+    push(0); push(0); push(0); pushw(0x1000);
+    op1();
     p.stp();
 
     rom = tb_rom_image(TB_ORG, p.b);

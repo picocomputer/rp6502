@@ -16,7 +16,10 @@
  * the byte the emulator's read returns.
  *
  * A write to $FFEF arms the BRA -2 block at $FFF1 in the same cycle the
- * op lands, so the 6502 can JSR into the trampoline immediately.
+ * op lands, so the 6502 can JSR into the trampoline immediately. Two ops
+ * are done there and then, as the other machines do them inside the
+ * write: DROP ($00) empties the xstack and releases, so the 6502 can push
+ * at once, and EXIT ($FF) holds the 6502 until the OS has it in reset.
  */
 
 module regs (
@@ -91,7 +94,11 @@ module regs (
     output logic [31:0] regs_b_rdata,
 
     output logic regs_api_pending,
-    input logic api_ack
+    input logic api_ack,
+
+    /* High from an EXIT until the OS releases it, by which time the 6502
+     * is in reset. It stalls the 6502's next opcode fetch. */
+    output logic regs_hold
 );
 
     localparam logic [7:0] TX_READY = 8'h80;
@@ -402,6 +409,8 @@ module regs (
 
     always_comb txf_pop = b_re && b_word == 8'd16 && txf_len != 5'd0;
 
+    always_comb regs_hold = regs[5'h0F] == 8'hFF && regs[5'h12][7];
+
 
     initial begin
         for (int i = 0; i < 32; i++)
@@ -457,11 +466,23 @@ module regs (
                         end
                         5'h0F: begin
                             /* The op lands and the trampoline blocks, one
-                             * indivisible cycle. */
+                             * indivisible cycle. DROP blocks nothing: it
+                             * returns 0 with the stack's guard byte on
+                             * top, as api_return_ax(0) does. */
                             regs[5'h0F] <= data_i;
                             regs[5'h11] <= 8'h80;
-                            regs[5'h12] <= 8'hFE;
-                            regs_api_pending <= 1'b1;
+                            if (data_i == 8'h00) begin
+                                regs[5'h0C] <= xs_guard[7:0];
+                                regs[5'h12] <= 8'h00;
+                                regs[5'h13] <= 8'hA9;
+                                regs[5'h14] <= 8'h00;
+                                regs[5'h15] <= 8'hA2;
+                                regs[5'h16] <= 8'h00;
+                                regs[5'h17] <= 8'h60;
+                            end else begin
+                                regs[5'h12] <= 8'hFE;
+                                regs_api_pending <= 1'b1;
+                            end
                         end
                         5'h10: ;  /* enable/ack handled above the case */
                         default: regs[rs] <= data_i;
@@ -621,6 +642,8 @@ module regs (
                 end
             end
         end
+        if (en && cs && we && rs == 5'h0F && data_i == 8'h00)
+            xsp <= 10'd512; /* DROP */
         /* The xstack bytes land in their own block above; the
          * pointer is the OS's other door. */
         /* A restore re-arms the refill rather than carrying it: $FFEC's
