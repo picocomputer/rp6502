@@ -25,8 +25,8 @@ module mode2 (
 
     /* What the shared row mapper needs from this mode, and its view of
      * the line in return. */
-    output logic [4:0] mode2_win_wf,
-    output logic [4:0] mode2_win_hf,
+    output logic [7:0] mode2_win_wf,
+    output logic [7:0] mode2_win_hf,
     output logic [19:0] mode2_sizeof_row,
     output logic mode2_addr,
     output logic [14:0] mode2_data_row,
@@ -53,7 +53,9 @@ module mode2 (
     input logic [31:0] a_rdata,
 
     output logic [2:0] mode2_bpp,
+    output logic mode2_dbl,
     output logic mode2_seg_imm,
+    output logic mode2_seg_half,
     output logic [22:0] mode2_seg_bits,
     input logic seg_take
 );
@@ -65,7 +67,11 @@ module mode2 (
         cf_tile = cfgw[127:112];
     end
 
-    logic tile16;
+    /* Bit 12 makes bits 4:11 a custom size, 4 to 64 pixels each way in
+     * steps of 4, whose rows are packed and start on a new byte; without
+     * it they trim an 8x8 or 16x16 tile, which keeps the full tile's
+     * layout. Bits 13 and 14 draw every pixel twice across and down. */
+    logic tile16, custom, hdbl, vdbl;
     logic [1:0] bpp_log;
     logic [3:0] x_trim, y_trim;
     always_comb begin
@@ -73,18 +79,38 @@ module mode2 (
         tile16 = attr[3];
         x_trim = attr[7:4];
         y_trim = attr[11:8];
+        custom = attr[12];
+        hdbl = attr[13];
+        vdbl = attr[14];
     end
-    logic [4:0] tile_size, eff_w, tile_h;
+    logic [4:0] tile_size;
+    logic [6:0] tex_w, tex_h;   /* the tile's own pixels */
+    logic [7:0] scr_w, scr_h;   /* the tile on the canvas */
     always_comb begin
         tile_size = tile16 ? 5'd16 : 5'd8;
-        eff_w = tile_size - {1'b0, x_trim};
-        tile_h = tile_size - {1'b0, y_trim};
+        tex_w = custom ? 7'({x_trim, 2'b00} + 6'd4)
+                       : {2'd0, tile_size - {1'b0, x_trim}};
+        tex_h = custom ? 7'({y_trim, 2'b00} + 6'd4)
+                       : {2'd0, tile_size - {1'b0, y_trim}};
+        scr_w = {1'b0, tex_w} << hdbl;
+        scr_h = {1'b0, tex_h} << vdbl;
     end
-    logic [4:0] row_size;    /* bytes per stored tile row */
-    logic [8:0] mem_size;    /* bytes per stored tile */
+    logic [6:0] row_size;    /* bytes per stored tile row */
+    logic [12:0] mem_size;   /* bytes per stored tile */
     always_comb begin
-        row_size = 5'(8'({3'd0, tile_size} << bpp_log) >> 3);
-        mem_size = 9'({4'd0, row_size} << (tile16 ? 4 : 3));
+        if (custom) begin
+            row_size = 7'((10'({3'd0, tex_w} << bpp_log) + 10'd7) >> 3);
+            mem_size = 13'(13'(row_size) * 13'(tex_h));
+        end else begin
+            row_size = 7'(8'({3'd0, tile_size} << bpp_log) >> 3);
+            mem_size = 13'({6'd0, row_size} << (tile16 ? 4 : 3));
+        end
+    end
+    /* Both ways a power of two cut by shifts; anything else divides. */
+    logic shift_y, shift_x;
+    always_comb begin
+        shift_y = !custom && y_trim == 4'd0 && !vdbl;
+        shift_x = !custom && x_trim == 4'd0 && !hdbl;
     end
 
 
@@ -94,25 +120,32 @@ module mode2 (
     state_t state;
 
     logic [14:0] q_row;   /* tile row in the map */
-    logic [3:0] r_row;    /* row within the tile */
+    logic [6:0] r_row;    /* canvas row within the tile */
     logic [14:0] tile;    /* the tile column being served */
-    logic [3:0] tcol;     /* entry column within the first tile */
+    logic [6:0] tcol;     /* entry canvas column within the first tile */
+    logic [5:0] t_row;    /* the tile's own row, through any doubling */
+    logic [5:0] t_col;    /* the tile's own column the entry falls in */
+    always_comb begin
+        t_row = 6'(r_row >> vdbl);
+        t_col = 6'(tcol >> hdbl);
+    end
 
-    /* The restoring divider for trimmed geometry, which the shift path
-     * cannot resolve. The row and column it divides are int16 values
-     * folded toward zero, never above 32767, so fifteen steps do. */
+    /* The restoring divider for trimmed, custom and doubled geometry,
+     * which the shift path cannot resolve. The row and column it divides
+     * are int16 values folded toward zero, never above 32767, so fifteen
+     * steps do. */
     logic [14:0] div_q;
-    logic [5:0] div_rem;
-    logic [4:0] div_den;
+    logic [8:0] div_rem;
+    logic [7:0] div_den;
     logic [3:0] div_i;
-    logic [5:0] div_t;
+    logic [8:0] div_t;
     logic div_ge;
     always_comb begin
-        div_t = {div_rem[4:0], div_q[14]};
+        div_t = {div_rem[7:0], div_q[14]};
         div_ge = div_t >= {1'b0, div_den};
     end
     logic [14:0] div_q_n;
-    logic [5:0] div_rem_n;
+    logic [8:0] div_rem_n;
     always_comb begin
         div_q_n = {div_q[13:0], div_ge};
         div_rem_n = div_ge ? div_t - {1'b0, div_den} : div_t;
@@ -143,48 +176,43 @@ module mode2 (
         mode2_a_addr = map_addr[15:2];
     end
 
-    logic [17:0] tile_row_addr;
-    always_comb tile_row_addr = {2'd0, cf_tile}
-        + 18'(18'({9'd0, mem_size}) * 18'({10'd0, tile_id}))
-        + 18'(18'({13'd0, row_size}) * 18'({14'd0, r_row}));
+    logic [21:0] tile_row_addr;
+    always_comb tile_row_addr = {6'd0, cf_tile}
+        + 22'(22'({9'd0, mem_size}) * 22'({14'd0, tile_id}))
+        + 22'(22'({15'd0, row_size}) * 22'({16'd0, t_row}));
 
     /* Mode 2 does not require a full tile set in XRAM, so a tile id can name
-     * a row that runs off the end of it. That tile is not drawn. row_size
-     * takes one of five values, so the address the row may not pass is one
-     * of five constants and the sum needs no adder. */
-    logic [17:0] tile_limit;
-    always_comb
-        case (row_size)
-            5'd1: tile_limit = 18'h0FFFF;
-            5'd2: tile_limit = 18'h0FFFE;
-            5'd4: tile_limit = 18'h0FFFC;
-            5'd8: tile_limit = 18'h0FFF8;
-            default: tile_limit = 18'h0FFF0;
-        endcase
+     * a row that runs off the end of it. That tile is not drawn. */
+    logic [21:0] tile_limit;
+    always_comb tile_limit = 22'(22'h10000 - 22'(row_size));
     logic tile_oob;
     always_comb tile_oob = tile_row_addr > tile_limit;
 
     /* A segment of the run is this tile's slice. An out of range tile
      * keeps the span as an immediate segment of zeros, so its columns are
      * transparent black. */
-    logic [4:0] tile_px;
-    always_comb tile_px = eff_w - {1'b0, tcol};
+    logic [7:0] tile_px;
+    always_comb tile_px = scr_w - {1'b0, tcol};
     always_comb begin
-        mode2_win_wf = eff_w;
-        mode2_win_hf = tile_h;
+        mode2_win_wf = scr_w;
+        mode2_win_hf = scr_h;
         mode2_sizeof_row = {5'd0, cf_width[14:0]};
         mode2_addr = state == S2_ADDR;
         mode2_data_row = q_row;
         mode2_seg_on = state == S2_SEG;
         mode2_run_ready = mstate == M_HAVE;
-        mode2_run_max = {5'd0, tile_px};
+        mode2_run_max = {2'd0, tile_px};
         mode2_bpp = {1'b0, bpp_log};
+        mode2_dbl = hdbl;
     end
     always_comb begin
         mode2_seg_imm = !rm_run || tile_oob;
         mode2_seg_bits = mode2_seg_imm ? 23'd0
             : {4'd0, tile_row_addr[15:0], 3'b000}
-              + (23'({19'd0, tcol}) << bpp_log);
+              + (23'({17'd0, t_col}) << bpp_log);
+        /* A doubled tile entered on an odd column starts on the right half
+         * of its first pixel. */
+        mode2_seg_half = !mode2_seg_imm && hdbl && tcol[0];
     end
 
     initial begin
@@ -225,12 +253,13 @@ module mode2 (
                     if (rm_settle) begin
                         q_row <= tile16 ? {4'd0, rm_row[14:4]}
                                         : {3'd0, rm_row[14:3]};
-                        r_row <= tile16 ? rm_row[3:0] : {1'b0, rm_row[2:0]};
+                        r_row <= tile16 ? {3'd0, rm_row[3:0]}
+                                        : {4'd0, rm_row[2:0]};
                         div_q <= rm_row[14:0];
                         div_rem <= '0;
                         div_i <= '0;
-                        div_den <= tile_h;
-                        state <= rm_reject || y_trim == 4'd0
+                        div_den <= scr_h;
+                        state <= rm_reject || shift_y
                             ? S2_ADDR : S2_DIVY;
                     end
                 S2_DIVY: begin
@@ -239,7 +268,7 @@ module mode2 (
                     div_i <= div_i + 4'd1;
                     if (div_i == 4'd14) begin
                         q_row <= div_q_n;
-                        r_row <= div_rem_n[3:0];
+                        r_row <= div_rem_n[6:0];
                         state <= S2_ADDR;
                     end
                 end
@@ -249,16 +278,17 @@ module mode2 (
                         tile <= '0;
                         tcol <= '0;
                         state <= S2_SEG;
-                    end else if (x_trim == 4'd0) begin
+                    end else if (shift_x) begin
                         tile <= tile16 ? {4'd0, rm_col[14:4]}
                                        : {3'd0, rm_col[14:3]};
-                        tcol <= tile16 ? rm_col[3:0] : {1'b0, rm_col[2:0]};
+                        tcol <= tile16 ? {3'd0, rm_col[3:0]}
+                                       : {4'd0, rm_col[2:0]};
                         state <= S2_SEG;
                     end else begin
                         div_q <= rm_col[14:0];
                         div_rem <= '0;
                         div_i <= '0;
-                        div_den <= eff_w;
+                        div_den <= scr_w;
                         state <= S2_DIVX;
                     end
                 end
@@ -268,7 +298,7 @@ module mode2 (
                     div_i <= div_i + 4'd1;
                     if (div_i == 4'd14) begin
                         tile <= div_q_n;
-                        tcol <= div_rem_n[3:0];
+                        tcol <= div_rem_n[6:0];
                         state <= S2_SEG;
                     end
                 end
@@ -310,9 +340,9 @@ module mode2 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode2;
-    always_comb unused_mode2 = ^{cfgw, cf_width[15], attr[15:12], attr[2],
-                                     rm_row[16:15], div_rem[5:4],
-                                     map_addr[16], tile_row_addr[17:16]};
+    always_comb unused_mode2 = ^{cfgw, cf_width[15], attr[15], attr[2],
+                                     rm_row[16:15], div_rem[8:7],
+                                     map_addr[16], tile_row_addr[21:16]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
