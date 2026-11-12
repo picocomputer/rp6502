@@ -71,7 +71,7 @@ typedef struct tablet_connection
     int slot;
     uint8_t report_id;
     uint16_t button_offsets[5]; // buttons 1 to 5, HID_ABSENT if absent
-    bool x_relative;            // true for a mouse
+    bool x_relative;            // true for a relative mouse
     uint16_t x_offset;
     uint8_t x_size;
     int32_t x_min, x_max;
@@ -87,7 +87,7 @@ typedef struct tablet_connection
     /* An absolute device's physical width and height in the descriptor's
      * units, or 0 where it declares none, for its shape. */
     int32_t x_phys, y_phys;
-    bool touchscreen; // laid over the display, rather than a pen's tablet
+    bool touchscreen; // over the display, as an absolute mouse is too
     uint8_t flags;    // this pointer's TABLET_FLAG_ buttons and hover
 } tablet_connection_t;
 

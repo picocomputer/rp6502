@@ -519,6 +519,39 @@ UTEST(tablet, a_touchscreen_maps_through_the_display)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
+/* A KVM's mouse reports where the pointer is rather than how far it moved.
+ * It covers the display as a touchscreen does, and with no tip it always
+ * hovers. The same report twice is the same spot. */
+UTEST(tablet, an_absolute_mouse_points_and_hovers)
+{
+    sys_init();
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_connection_t kvm = tablet_absolute_desc(32767, 32767);
+    kvm.button_offsets[0] = 0;
+    kvm.tip_offset = HID_ABSENT;
+    kvm.touchscreen = true;
+    ASSERT_TRUE(tablet_mount(7, &kvm));
+    tablet_absolute(7, 0, 0, false);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 0);
+    ASSERT_EQ(tablet_contact_y(), 0);
+    tablet_absolute(7, 32767, 32767, false);
+    ASSERT_EQ(tablet_contact_x(), 319);
+    ASSERT_EQ(tablet_contact_y(), 239);
+    for (int i = 0; i < 2; i++)
+    {
+        tablet_absolute(7, 16384, 16384, true);
+        ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+        ASSERT_EQ(tablet_contact_x(), 160);
+        ASSERT_EQ(tablet_contact_y(), 120);
+    }
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
 /* Contact 0 is one pointer that every device moves, so a button held on one
  * mouse stays down while another moves, and is let go when its mouse is
  * unplugged. */

@@ -334,9 +334,10 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
         if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
             buttons |= TABLET_FLAG_LEFT;
 
-    /* A mouse always hovers. An absolute pen hovers while it is In Range, and
-     * a touchscreen that reports a tip and no In Range never hovers. */
-    bool hover = conn->x_relative;
+    /* A mouse always hovers, and so does an absolute one, which has no tip. An
+     * absolute pen hovers while it is In Range, and a touchscreen that reports
+     * a tip and no In Range never hovers. */
+    bool hover = conn->x_relative || conn->tip_offset == 0xFFFF;
     if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
         hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
 
