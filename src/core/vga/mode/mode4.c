@@ -235,17 +235,27 @@ static inline void sprite_scanline16(
 static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     const mode4_sprite_t *sprites = (const void *)&xram[config_ptr];
-    for (uint16_t i = 0; i < length; i++)
+    for (const mode4_sprite_t *s = sprites, *end = sprites + length; s < end; s++)
     {
-        /* The descriptor is copied out of XRAM once, checked, and drawn from
-         * the copy, so a write part way through the line cannot slip in
-         * behind the checks. The copy lives in registers. */
-        const mode4_sprite_t sp = sprites[i];
-        /* No square above 7 fits XRAM, and the arithmetic below leaves
+        /* Each field is read out of XRAM once, checked, and drawn from that
+         * copy, so a write part way through the line cannot slip in behind
+         * the checks. Most sprites miss the line, so the two fields that
+         * place it down the canvas are read and tested first.
+         *
+         * No square above 7 fits XRAM, and the arithmetic below leaves
          * what C defines: 32 and up is an undefined shift, and 16..31
          * wraps byte_size to zero, past both guards and off the end. */
-        if (sp.log_size > 7)
+        const unsigned log_size = s->log_size;
+        const int16_t y_pos_px = s->y_pos_px;
+        if (log_size > 7 || ((unsigned)(scanline - y_pos_px) >> log_size))
             continue;
+        const mode4_sprite_t sp = {
+            .x_pos_px = s->x_pos_px,
+            .y_pos_px = y_pos_px,
+            .xram_sprite_ptr = s->xram_sprite_ptr,
+            .log_size = (uint8_t)log_size,
+            .has_opacity_metadata = s->has_opacity_metadata,
+        };
         const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sp.has_opacity_metadata)
@@ -435,17 +445,18 @@ static void mode4_render_asprite(
     uint16_t config_ptr, uint16_t length)
 {
     const mode4_asprite_t *sprites = (const void *)&xram[config_ptr];
-    for (uint16_t i = 0; i < length; i++)
+    for (const mode4_asprite_t *s = sprites, *end = sprites + length; s < end; s++)
     {
-        /* The descriptor is copied out of XRAM once, checked, and drawn from
-         * the copy, so a write part way through the line cannot slip in
-         * behind the checks. The copy lives in registers. */
-        const mode4_asprite_t sp = sprites[i];
-        /* No square above 7 fits XRAM, and the arithmetic below leaves
-         * what C defines: 32 and up is an undefined shift, and 16..31
-         * wraps byte_size to zero, past both guards and off the end. */
-        if (sp.log_size > 7)
+        /* As in mode4_render_sprite, the fields that place the sprite down
+         * the canvas are read once and tested first, and the rest only for a
+         * sprite on the line. */
+        const unsigned log_size = s->log_size;
+        const int16_t y_pos_px = s->y_pos_px;
+        if (log_size > 7 || ((unsigned)(scanline - y_pos_px) >> log_size))
             continue;
+        mode4_asprite_t sp = *s;
+        sp.log_size = (uint8_t)log_size;
+        sp.y_pos_px = y_pos_px;
         const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sp.has_opacity_metadata)

@@ -122,207 +122,152 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static inline __attribute__((always_inline)) uint32_t
-mode2_get_tile_row_addr(mode2_config_t *config, int16_t bpp, int16_t tile_size,
-                        int16_t col, int16_t row, const uint8_t *row_data, uint16_t *index)
+// One pixel of a tile row, for the columns of a tile cut by the edge of the
+// map or the canvas. Leftmost pixel in the most significant bits.
+static inline __attribute__((always_inline)) uint16_t
+mode2_pixel(const uint8_t *src, unsigned x, const uint16_t *pal, int16_t bpp)
 {
-    uint32_t row_size = tile_size * bpp / 8;
-    uint32_t mem_size = row_size * tile_size;
-    uint8_t tile_id = row_data[col / tile_size];
-    uint8_t pixels_per_byte = 8 / bpp;
-    *index = (col / pixels_per_byte) & (tile_size / pixels_per_byte - 1);
-    return (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
+    if (bpp == 8)
+        return pal[src[x]];
+    const unsigned ppb = 8 / bpp;
+    const unsigned shift = 8 - bpp * (x % ppb + 1);
+    return pal[(src[x / ppb] >> shift) & ((1u << bpp) - 1)];
 }
 
-// Mode 2 does not require a full tile set in XRAM.
+// Columns x to x + n - 1 of one tile row. A tile past the end of XRAM draws
+// transparent, as mode 2 does not require a full tile set.
 static inline __attribute__((always_inline)) void
-mode2_skip_tile(uint16_t **rgb, int16_t *col, int16_t fill_cols,
-                int16_t *width, int16_t tile_size)
+mode2_emit_part(uint16_t *rgb, uint8_t id, uint32_t ids, uint32_t base, uint32_t tile_bytes,
+                unsigned x, unsigned n, const uint16_t *pal, int16_t bpp)
 {
-    int16_t skip = tile_size - (*col & (tile_size - 1));
-    if (skip > fill_cols)
-        skip = fill_cols;
-    memset(*rgb, 0, sizeof(uint16_t) * skip);
-    *rgb += skip;
-    *col += skip;
-    *width += fill_cols - skip;
+    if (id >= ids)
+    {
+        memset(rgb, 0, sizeof(uint16_t) * n);
+        return;
+    }
+    const uint8_t *src = (const uint8_t *)&xram[base + id * tile_bytes];
+    for (unsigned i = 0; i < n; i++)
+        rgb[i] = mode2_pixel(src, x + i, pal, bpp);
 }
 
-// On-screen tiles align with the data bytes, so one read of xram yields a whole
-// run of pixels: 8 at 1bpp, 4 at 2bpp, and so on. bpp and tile_size are
-// constants at every call, so each instantiation folds to one bit depth's byte
-// walk.
+// Whole tiles, the hot loop, a word of two pixels to a store. Whether the run
+// starts word aligned makes no measurable difference, so one copy serves. 1bpp
+// expands a nibble at a time through a table of the 16 ways four pixels can
+// land, 2bpp a nibble at a time through the 16 pixel pairs, and 4bpp and 8bpp
+// read the row a word at a time. tiles is the scanline's row of tile 0, and a
+// tile ID of ids or more is past the end of XRAM.
+static inline __attribute__((always_inline)) void
+mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
+                 uint32_t ids, const uint8_t *tiles, uint32_t tile_bytes,
+                 const uint32_t *tbl, const uint16_t *pal,
+                 int16_t tile_size, int16_t bpp)
+{
+    const unsigned row_bytes = (unsigned)tile_size * bpp / 8;
+    const unsigned words = (unsigned)tile_size / 2;
+    if (!count)
+        return;
+    do
+    {
+        const uint32_t id = *map++;
+        if (__builtin_expect(id >= ids, 0))
+        {
+            memset(rgb, 0, sizeof(uint16_t) * tile_size);
+            rgb += tile_size;
+            continue;
+        }
+        const uint8_t *src = tiles + id * tile_bytes;
+        uint32_t w[16];
+        if (bpp == 8)
+            // A word of the row at a time: one load for four pixels.
+            for (unsigned k = 0; k < row_bytes; k += 4)
+            {
+                const uint32_t q = mode_load32(src + k);
+                w[k / 2 + 0] = mode_pack2(pal[q & 0xFF], pal[(q >> 8) & 0xFF]);
+                w[k / 2 + 1] = mode_pack2(pal[(q >> 16) & 0xFF], pal[q >> 24]);
+            }
+        else if (bpp == 4)
+            for (unsigned k = 0; k < row_bytes; k += 4)
+            {
+                const uint32_t q = mode_load32(src + k);
+                w[k + 0] = mode_pack2(pal[(q >> 4) & 0xF], pal[q & 0xF]);
+                w[k + 1] = mode_pack2(pal[(q >> 12) & 0xF], pal[(q >> 8) & 0xF]);
+                w[k + 2] = mode_pack2(pal[(q >> 20) & 0xF], pal[(q >> 16) & 0xF]);
+                w[k + 3] = mode_pack2(pal[q >> 28], pal[(q >> 24) & 0xF]);
+            }
+        else
+            for (unsigned k = 0; k < row_bytes; k++)
+            {
+                const uint32_t b = src[k];
+                if (bpp == 1)
+                {
+                    const uint32_t *hi = &tbl[(b >> 4) * 2];
+                    const uint32_t *lo = &tbl[(b & 0xF) * 2];
+                    w[k * 4 + 0] = hi[0];
+                    w[k * 4 + 1] = hi[1];
+                    w[k * 4 + 2] = lo[0];
+                    w[k * 4 + 3] = lo[1];
+                }
+                else
+                {
+                    w[k * 2 + 0] = tbl[b >> 4];
+                    w[k * 2 + 1] = tbl[b & 0xF];
+                }
+            }
+        for (unsigned k = 0; k < words; k++)
+            ((mode_word_t *)rgb)[k] = w[k];
+        rgb += tile_size;
+    } while (--count);
+}
+
+// On-screen tiles align with the data bytes, so the map is walked a tile at a
+// time and each tile row a byte at a time, with no addressing per pixel. Only
+// the tiles cut by an edge are drawn a pixel at a time. bpp and tile_size are
+// constants at every call, so each instantiation folds to one bit depth.
 static inline __attribute__((always_inline)) void
 mode2_emit_full(mode2_config_t *config, uint16_t *rgb, int16_t width,
                 const uint8_t *row_data, int16_t row,
                 const uint16_t *pal, int16_t tile_size, int16_t bpp)
 {
-    const uint32_t tile_hi = 0x10000 - (uint32_t)tile_size * bpp / 8;
-    int16_t col = -config->x_pos_px;
+    const uint32_t row_bytes = (uint32_t)tile_size * bpp / 8;
+    const uint32_t tile_bytes = row_bytes * tile_size;
+    const uint32_t base = (uint32_t)config->xram_tile_ptr + row_bytes * row;
+    // The tile IDs whose row this scanline lies wholly in XRAM.
+    uint32_t ids = 0;
+    if (base + row_bytes <= 0x10000)
+        ids = (0x10000 - row_bytes - base) / tile_bytes + 1;
+    const uint8_t *tiles = (const uint8_t *)&xram[base & 0xFFFF];
+    MODE_TABLE(tbl, 32);
     if (bpp == 1)
-    {
-        MODE_TABLE(pair, 4);
-        mode_pair_set(pair, pal[0], pal[1]);
-        while (width)
-        {
-            int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
-            uint16_t index;
-            uint32_t tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
-            if (tile_mem > tile_hi)
-                goto skip_1;
-            uint8_t bits = xram[tile_mem + index];
-            int16_t start = col & 7;
-            int16_t part = 8 - start;
-            if (part > fill_cols)
-                part = fill_cols;
-            fill_cols -= part;
-            col += part;
-            mode_emit_head_1bpp(&rgb, bits, pal, start, part);
-            if (++index == tile_size / 8)
-            {
-                tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
-                if (tile_mem > tile_hi)
-                    goto skip_1;
-            }
-            bits = xram[tile_mem + index];
-            while (fill_cols > 7)
-            {
-                mode_render_1bpp(rgb, bits, pair);
-                rgb += 8;
-                fill_cols -= 8;
-                col += 8;
-                if (++index == tile_size / 8)
-                {
-                    tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
-                    if (tile_mem > tile_hi)
-                        goto skip_1;
-                }
-                bits = xram[tile_mem + index];
-            }
-            col += fill_cols;
-            mode_emit_tail_1bpp(&rgb, bits, pal, fill_cols);
-            continue;
-        skip_1:
-            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
-        }
-    }
+        mode_nibble_set(tbl, pal[0], pal[1]);
     else if (bpp == 2)
+        mode_quad_set(tbl, pal);
+    int16_t col = -config->x_pos_px;
+    while (width)
     {
-        MODE_TABLE(quad, 16);
-        mode_quad_set(quad, pal);
-        while (width)
-        {
-            int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
-            uint16_t index;
-            uint32_t tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
-            if (tile_mem > tile_hi)
-                goto skip_2;
-            uint8_t bits = xram[tile_mem + index];
-            int16_t start = col & 3;
-            int16_t part = 4 - start;
-            if (part > fill_cols)
-                part = fill_cols;
-            fill_cols -= part;
-            col += part;
-            mode_emit_head_2bpp(&rgb, bits, pal, start, part);
-            if (++index == tile_size / 4)
-            {
-                tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
-                if (tile_mem > tile_hi)
-                    goto skip_2;
-            }
-            bits = xram[tile_mem + index];
-            while (fill_cols > 3)
-            {
-                mode_render_2bpp(rgb, bits, quad);
-                rgb += 4;
-                fill_cols -= 4;
-                col += 4;
-                if (++index == tile_size / 4)
-                {
-                    tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
-                    if (tile_mem > tile_hi)
-                        goto skip_2;
-                }
-                bits = xram[tile_mem + index];
-            }
-            col += fill_cols;
-            mode_emit_tail_2bpp(&rgb, bits, pal, fill_cols);
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
+        if (fill_cols <= 0)
             continue;
-        skip_2:
-            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
+        const uint8_t *map = row_data + col / tile_size;
+        const unsigned x = col & (tile_size - 1);
+        col += fill_cols;
+        if (x)
+        {
+            unsigned n = tile_size - x;
+            if (n > (unsigned)fill_cols)
+                n = fill_cols;
+            mode2_emit_part(rgb, *map++, ids, base, tile_bytes, x, n, pal, bpp);
+            rgb += n;
+            fill_cols -= n;
         }
-    }
-    else if (bpp == 4)
-    {
-        while (width)
+        const unsigned count = fill_cols / tile_size;
+        mode2_emit_tiles(rgb, map, count, ids, tiles, tile_bytes, tbl, pal, tile_size, bpp);
+        rgb += count * tile_size;
+        map += count;
+        fill_cols &= tile_size - 1;
+        if (fill_cols)
         {
-            int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
-            while (fill_cols > 0)
-            {
-                // One addressing pass per tile row, as at 8bpp. The pair written
-                // per store is the byte's own two nibbles, so an odd column has
-                // to be spent before the run can be walked a byte at a time.
-                uint16_t index;
-                uint32_t tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
-                if (tile_mem > tile_hi)
-                    goto skip_4;
-                const bool odd = (col & 1) != 0;
-                int16_t run = (int16_t)((tile_size / 2 - (int16_t)index) * 2 - (odd ? 1 : 0));
-                if (run > fill_cols)
-                    run = fill_cols;
-                const uint8_t *src = (const uint8_t *)&xram[tile_mem + index];
-                fill_cols -= run;
-                col += run;
-                if (odd)
-                {
-                    *rgb++ = pal[*src++ & 0xF];
-                    run--;
-                }
-                const uint8_t *const end = src + (run >> 1);
-                for (; src < end; rgb += 2, src++)
-                    *(mode_word_t *)rgb = mode_pack2(pal[*src >> 4], pal[*src & 0xF]);
-                if (run & 1)
-                    *rgb++ = pal[*src >> 4];
-            }
-            continue;
-        skip_4:
-            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
-        }
-    }
-    else
-    {
-        while (width)
-        {
-            int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
-            while (fill_cols > 0)
-            {
-                // A tile's row is contiguous, so address it once and take the
-                // whole run rather than retesting the boundary every pixel.
-                uint16_t index;
-                uint32_t tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
-                if (tile_mem > tile_hi)
-                    goto skip_8;
-                int16_t run = tile_size - (int16_t)index;
-                if (run > fill_cols)
-                    run = fill_cols;
-                const uint8_t *src = (const uint8_t *)&xram[tile_mem + index];
-                fill_cols -= run;
-                col += run;
-                if ((uintptr_t)rgb & 2)
-                {
-                    *rgb++ = pal[*src++];
-                    run--;
-                }
-                const uint8_t *const end = src + (run & ~1);
-                for (; src < end; rgb += 2, src += 2)
-                    *(mode_word_t *)rgb = mode_pack2(pal[src[0]], pal[src[1]]);
-                if (run & 1)
-                    *rgb++ = pal[*src];
-            }
-            continue;
-        skip_8:
-            mode2_skip_tile(&rgb, &col, fill_cols, &width, tile_size);
+            mode2_emit_part(rgb, *map, ids, base, tile_bytes, 0, fill_cols, pal, bpp);
+            rgb += fill_cols;
         }
     }
 }
