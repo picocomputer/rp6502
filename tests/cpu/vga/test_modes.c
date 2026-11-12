@@ -165,6 +165,65 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
     run_case(utest_result, "mode2_trimy", 0x70ABB716, MUT_BUDGET_NONE);
 }
 
+/* Custom sizes, packed rows that start on a new byte. 24 pixels at 1bpp and
+ * 12 at 2bpp fill whole bytes; 20 and 4 at 1bpp end part way into one. */
+UTEST(mode2, custom_24_1bpp_320x240)
+{
+    run_case(utest_result, "mode2_c24_1bpp", 0xA17B5847, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_24_4bpp_640x480)
+{
+    run_case(utest_result, "mode2_c24_4bpp", 0x00233A1A, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_20x12_1bpp_320x240)
+{
+    run_case(utest_result, "mode2_c20x12_1bpp", 0x6E7F4548, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_12x28_2bpp_320x240)
+{
+    run_case(utest_result, "mode2_c12x28_2bpp", 0x068FAFA5, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_4_8bpp_wrap_320x180)
+{
+    run_case(utest_result, "mode2_c4_8bpp", 0xC08078B6, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_64_8bpp_320x240)
+{
+    run_case(utest_result, "mode2_c64_8bpp", 0xE5045373, MUT_BUDGET_NONE);
+}
+
+/* Doubling draws a tile's pixel 2 wide, 2 high, or both. The map starts at an
+ * odd column, so the first doubled pixel is cut in half. */
+UTEST(mode2, hdouble_4bpp_8px_320x240)
+{
+    run_case(utest_result, "mode2_hdbl_4bpp8", 0x6A9AC35D, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, vdouble_2bpp_16px_trimmed_320x240)
+{
+    run_case(utest_result, "mode2_vdbl_2bpp16trim", 0x1A9E5203, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, double_custom_24_1bpp_wrap_640x480)
+{
+    run_case(utest_result, "mode2_dbl_c24_1bpp", 0xC655D2EE, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, hdouble_8bpp_xtrim_320x240)
+{
+    run_case(utest_result, "mode2_hdbl_trim8bpp", 0xC5BCF402, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, hdouble_custom_4_1bpp_320x180)
+{
+    run_case(utest_result, "mode2_hdbl_c4_1bpp", 0x959B8BFA, MUT_BUDGET_NONE);
+}
+
 /* The tile pointer is not checked when the mode is programmed, because mode 2
  * does not require a full tile set in XRAM. The last tiles here are addressed
  * past the end, so this pins the tile both the renderer and mode2.sv leave

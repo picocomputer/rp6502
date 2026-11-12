@@ -120,10 +120,24 @@ def mode2_map(wt, ht):
     return bytes((i * 5 + 2) % MODE2_TILES for i in range(wt * ht))
 
 
+MODE2_CUSTOM = 0x1000
+MODE2_HDBL = 0x2000
+MODE2_VDBL = 0x4000
+
+
+def mode2_size(w, h):
+    return MODE2_CUSTOM | (w // 4 - 1) << 4 | (h // 4 - 1) << 8
+
+
 def mode2_tiles(attr):
     bpp = 1 << (attr & 3)
-    tile_size = 16 if attr & 8 else 8
-    mem_size = tile_size * bpp // 8 * tile_size
+    if attr & MODE2_CUSTOM:
+        w = ((attr >> 4 & 15) + 1) * 4
+        h = ((attr >> 8 & 15) + 1) * 4
+        mem_size = (w * bpp + 7) // 8 * h
+    else:
+        tile_size = 16 if attr & 8 else 8
+        mem_size = tile_size * bpp // 8 * tile_size
     return bytes((t // mem_size * 31 + t % mem_size * 7 + 3) & 0xFF
                  for t in range(MODE2_TILES * mem_size))
 
@@ -461,6 +475,31 @@ mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 # A tile pointer high enough that the last tiles are addressed past the end of
 # XRAM. Those tiles are not drawn, in the renderer and in mode2.sv alike, and
 # the renderer never reads past the array.
+# Custom sizes. Rows that fill whole bytes take the byte walk; 20 pixels at
+# 1bpp and 4 at 1bpp end part way into a byte. The doubled ones start at odd
+# columns, so a doubled pixel is cut in half at the left edge.
+mode2("mode2_c24_1bpp", 1, mode2_size(24, 24) | 0, 16, 12, -5, -7,
+      False, False, True)
+mode2("mode2_c24_4bpp", 3, mode2_size(24, 24) | 2, 30, 22, 13, 9,
+      False, False, True)
+mode2("mode2_c20x12_1bpp", 1, mode2_size(20, 12) | 0, 18, 22, -3, 2,
+      False, False, False)
+mode2("mode2_c12x28_2bpp", 1, mode2_size(12, 28) | 1, 30, 10, 7, -11,
+      False, False, True)
+mode2("mode2_c4_8bpp", 2, mode2_size(4, 4) | 3, 7, 5, -2, 3,
+      True, True, True)
+mode2("mode2_c64_8bpp", 1, mode2_size(64, 64) | 3, 6, 5, -37, -21,
+      False, False, True)
+mode2("mode2_hdbl_4bpp8", 1, MODE2_HDBL | 0x002, 20, 12, -3, 4,
+      False, False, True)
+mode2("mode2_vdbl_2bpp16trim", 1, MODE2_VDBL | 0x309, 10, 8, 6, -5,
+      False, False, True)
+mode2("mode2_dbl_c24_1bpp", 3, MODE2_HDBL | MODE2_VDBL | mode2_size(24, 24),
+      7, 5, -27, -13, True, True, True)
+mode2("mode2_hdbl_trim8bpp", 1, MODE2_HDBL | 0x033, 12, 10, 11, 3,
+      False, False, True)
+mode2("mode2_hdbl_c4_1bpp", 2, MODE2_HDBL | mode2_size(4, 8), 30, 15, -1, 0,
+      False, True, False)
 mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
       tile_ptr=0xFF80)
 

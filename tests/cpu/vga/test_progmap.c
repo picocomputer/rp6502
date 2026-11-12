@@ -158,7 +158,7 @@ UTEST(progmap, a_renderer_that_is_not_there_is_refused)
     ASSERT_TRUE(vga_mode_sprite_fn(3, 0) == NULL);
     ASSERT_TRUE(vga_mode_fill_fn(1, 5) == NULL);
     ASSERT_TRUE(vga_mode_fill_fn(3, 11) == NULL);
-    ASSERT_TRUE(vga_mode_fill_fn(2, 0x1000) == NULL);
+    ASSERT_TRUE(vga_mode_fill_fn(2, 0x8000) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(5, 50) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(5, 64) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(4, 2) == NULL);
