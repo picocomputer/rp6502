@@ -239,6 +239,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     if (vga_state == VGA_NOT_FOUND)
     {
         vga_pix_backchannel_disable();
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         return;
     }
 
@@ -247,7 +248,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
-    // Drain bytes the PIO sampled off the pin while it was driven by UART TX
+    // Drain bytes the PIO sampled off the pin before the VGA took it
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         (void)pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
     vga_pix_backchannel_enable();
@@ -399,6 +400,29 @@ void HOST_IN_RAM_FUNC vga_console_size(int *w, int *h)
 {
     *w = 640;
     *h = vga_get_display_type() == 2 ? 512 : 480;
+}
+
+/* The VGA's timing for the display type and canvas: SXGA for every canvas on a
+ * 5:4 display, 720p for a 16:9 canvas on an HD display, and VGA otherwise. */
+void HOST_IN_RAM_FUNC vga_display_size(int *w, int *h)
+{
+    uint8_t type = vga_get_display_type();
+    if (type == 2)
+    {
+        *w = 1280;
+        *h = 1024;
+    }
+    else if (type == 1 && (vga_canvas_current == vga_canvas_320_180 ||
+                           vga_canvas_current == vga_canvas_640_360))
+    {
+        *w = 1280;
+        *h = 720;
+    }
+    else
+    {
+        *w = 640;
+        *h = 480;
+    }
 }
 
 void vga_set_canvas(uint16_t canvas_word)

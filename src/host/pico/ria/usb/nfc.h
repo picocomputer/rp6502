@@ -29,8 +29,6 @@ bool nfc_check_enabled(uint8_t *v);
 void nfc_apply_enabled(uint8_t val, bool changed);
 int nfc_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
 
-bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size);
-
 /* 6502 std driver interface
  */
 

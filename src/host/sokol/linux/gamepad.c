@@ -70,7 +70,8 @@ static uint8_t gamepad_scale(int32_t value, int32_t min, int32_t max)
         value = min;
     if (value > max)
         value = max;
-    return (uint8_t)(((int64_t)(value - min) * 255) / (max - min));
+    /* Rounded, so that the middle of -32768..32767 lands on 128. */
+    return (uint8_t)(((int64_t)(value - min) * 255 + (max - min) / 2) / (max - min));
 }
 
 static void gamepad_apply_axis(gamepad_device_t *dev, int axis, int32_t value)

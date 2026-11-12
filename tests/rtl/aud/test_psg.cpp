@@ -186,7 +186,7 @@ UTEST(psg, lockstep_bit_exact)
     config(base, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);  /* square */
     config(base, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);    /* saw, left */
     config(base, 3, 431, 255, 0x93, 0x71, 0x39, 0x7E);   /* tri, right */
-    config(base, 4, 9999, 180, 0x05, 0x55, 0x44, 0x81);  /* noise */
+    config(base, 4, 9999, 180, 0x05, 0x55, 0x44, 0x83);  /* noise */
     config(base, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);  /* square, muted */
     config(base, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);     /* bad wave 7 */
     config(base, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);   /* saw */
@@ -196,7 +196,7 @@ UTEST(psg, lockstep_bit_exact)
     {
         xram_write((uint16_t)(base + ch * 8 + 6),
                    (uint8_t)(0x01 | (ch == 2 ? 0xE0 : ch == 3 ? 0x7E
-                                     : ch == 4 ? 0x81 : ch == 5 ? 0x80
+                                     : ch == 4 ? 0x83 : ch == 5 ? 0x80
                                                                 : 0x00)));
         run_lockstep(utest_result, 400);
     }
@@ -214,7 +214,7 @@ UTEST(psg, lockstep_bit_exact)
     config(base2, 1, 440, 128, 0x02, 0x30, 0x11, 0x20);
     config(base2, 2, 660, 90, 0x11, 0x50, 0x22, 0xE0);
     config(base2, 3, 220, 255, 0x03, 0x70, 0x33, 0x7E);
-    config(base2, 4, 3300, 180, 0x05, 0x20, 0x44, 0x81);
+    config(base2, 4, 3300, 180, 0x05, 0x20, 0x44, 0x83);
     config(base2, 5, 110, 30, 0x21, 0x10, 0x05, 0x40);
     config(base2, 6, 550, 200, 0x12, 0x40, 0x16, 0x02);
     config(base2, 7, 1100, 64, 0x01, 0x60, 0x27, 0x30);
@@ -324,7 +324,7 @@ UTEST(psg, lockstep_bit_exact)
     config(base3, 1, 2600, 128, 0x02, 0x84, 0x17, 0x20);
     config(base3, 2, 700, 90, 0x11, 0x22, 0x23, 0xE0);
     config(base3, 3, 431, 255, 0x93, 0x71, 0x39, 0x7E);
-    config(base3, 4, 9999, 180, 0x05, 0x55, 0x44, 0x81);
+    config(base3, 4, 9999, 180, 0x05, 0x55, 0x44, 0x83);
     config(base3, 5, 65535, 30, 0xF0, 0x0F, 0x18, 0x80);
     config(base3, 6, 1, 255, 0x00, 0xFF, 0x76, 0x02);
     config(base3, 7, 3000, 64, 0x2A, 0x2B, 0x2C, 0x00);
@@ -335,6 +335,24 @@ UTEST(psg, lockstep_bit_exact)
         xram_write((uint16_t)(base3 + ch * 8 + 6), 0x00);
     run_lockstep(utest_result, 600);
 
+    psg_map(0xFFFF);
+    rtl_xaddr(0xFFFF);
+}
+
+/* Every pan_gate byte on a sounding voice, gate and pan together, decodes the
+ * same in both models, -64 and the gate bit included. */
+UTEST(psg, every_pan_gate_byte_in_lockstep)
+{
+    const uint16_t base = 0x9000;
+    psg_map(base);
+    rtl_xaddr(base);
+    config(base, 0, 1320, 128, 0x00, 0x00, 0x10, 0x01);
+    run_lockstep(utest_result, 200);
+    for (int b = 0; b < 256; b++)
+    {
+        xram_write((uint16_t)(base + 6), (uint8_t)b);
+        run_lockstep(utest_result, 12);
+    }
     psg_map(0xFFFF);
     rtl_xaddr(0xFFFF);
 }

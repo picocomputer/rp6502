@@ -364,9 +364,11 @@ static bool input_tablet(const sapp_event *e)
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
+         * HID AC Pan, is positive to the right. */
+        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         if (mouse_is_mapped())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
         input_set_pointer_on_canvas(false);
@@ -466,7 +468,7 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
         input_paste(sapp_get_clipboard_string());

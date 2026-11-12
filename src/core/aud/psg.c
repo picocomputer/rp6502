@@ -166,10 +166,12 @@ void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right)
                               * (int32_t)(psg_channel_state[i].vol >> 12)
                           + (1 << 11))
                          >> 12;
-        int8_t pan = (int8_t)ch->pan_gate / 2;
-        /* A pan_gate of 0x80 halves to -64, one past the documented
-         * -63 to 63, and drops the channel from the mix. psg.sv reads
-         * zero weights for the same value. */
+        /* Bits 7-1, shifted rather than divided, so the gate in bit 0
+         * leaves a negative pan where it is rather than a step nearer the
+         * centre. -64 is one past the documented -63 to 63 and drops the
+         * channel from the mix, gate or no gate. psg.sv reads zero weights
+         * for the same value. */
+        int8_t pan = (int8_t)ch->pan_gate >> 1;
         if (pan != -64)
         {
             acc_l += sample * psg_pan_table[63 - pan];

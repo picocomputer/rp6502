@@ -6,6 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
+#include "core/ria/regs.h"
 #include "ria/api/proc.h"
 #include "core/aud/bel.h"
 #include "core/com/com.h"
@@ -14,9 +15,12 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "core/com/rln.h"
+#include "core/str/oem.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
+#include "osal/dir.h"
 #include "sys/path.h"
+#include "ria/usb/ndef.h"
 #include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
@@ -39,27 +43,65 @@ bool proc_exec_inflight(void)
     return rom_active();
 }
 
-void proc_nfc(const uint8_t *tag_data, size_t len)
+/* One parse of a card's arguments, before anything is stopped. Every argument
+ * must parse, and with argv[0] all of them must fit the ARGV data, because
+ * they are built only after the stop, over the running program's, so a card
+ * that cannot be built is refused while the program carries on. *running is
+ * set when the card names the running ROM: the same file and the same
+ * arguments. A card for the same ROM with other arguments starts it again.
+ * This shares str_parse_string's buffer with proc_nfc_find's first_arg, which
+ * is done with by now. */
+static bool proc_nfc_args(const char *path, const char *args, bool *running)
 {
-    char text[256];
-    char path[256];
-    RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
+    size_t size = arg_size_append(ARG_SIZE_EMPTY, path);
+    bool same = path_eq(path, proc_running());
+    uint16_t i = 1;
+    const char *arg;
+    while ((arg = str_parse_string(&args)) != NULL)
+    {
+        size = arg_size_append(size, arg);
+        if (size > XSTACK_SIZE)
+            return false;
+        if (same)
+        {
+            const char *run = arg_index(i++);
+            same = run && !strcmp(arg, run);
+        }
+    }
+    *running = same && !arg_index(i);
+    return str_parse_end(args);
+}
 
-    if (mon_busy())
-        goto fail;
-    if (!nfc_parse_text(tag_data, len, text, sizeof(text)))
-        goto fail;
-    RP6502_LOG(proc, DEBUG, "nfc text %s", text);
+/* A file and not a directory. f_stat tells them apart only through a FILINFO,
+ * a few hundred bytes of the stack, where an f_opendir that fails for a file
+ * needs a DIR of about fifty. */
+static bool proc_nfc_is_file(const char *path)
+{
+    if (f_stat(path, NULL) != FR_OK)
+        return false;
+    DIR dir;
+    if (f_opendir(&dir, path) != FR_OK)
+        return true;
+    f_closedir(&dir);
+    return false;
+}
 
-    const char *args = text;
-    const char *first_arg = str_parse_string(&args);
+/* Resolves the ROM a card's text names into path, and leaves *args at the
+ * text after it. A path with no drive is looked for on each drive in turn,
+ * and a directory is no ROM.
+ * The caller puts FatFs on the code page the ROM will run under. */
+static bool proc_nfc_find(const char *text, char *path, size_t path_size,
+                          const char **args)
+{
+    *args = text;
+    const char *first_arg = str_parse_string(args);
     if (!first_arg)
-        goto fail;
+        return false;
 
     if (*first_arg == ':')
     {
         if (!rom_installed(first_arg + 1, path))
-            goto fail;
+            return false;
     }
     else if (strchr(first_arg, ':'))
     {
@@ -68,47 +110,71 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         const char *rest = colon + 1;
         if (path_is_sep(*rest))
             rest++;
-        snprintf(path, sizeof(path), "%.*s/%s",
+        snprintf(path, path_size, "%.*s/%s",
                  (int)(colon + 1 - first_arg), first_arg, rest);
         const char *abs = path_abs(path);
         if (!abs)
-            goto fail;
-        strncpy(path, abs, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
-        if (f_stat(path, NULL) != FR_OK)
-            goto fail;
+            return false;
+        strncpy(path, abs, path_size - 1);
+        path[path_size - 1] = '\0';
+        if (!proc_nfc_is_file(path))
+            return false;
     }
     else
     {
         // Build canonical "MSC0:/path"
         const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
-        snprintf(path, sizeof(path), "MSC0:/%s", p);
+        snprintf(path, path_size, "MSC0:/%s", p);
         const char *abs = path_abs(path);
         if (!abs)
-            goto fail;
-        strncpy(path, abs, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
+            return false;
+        strncpy(path, abs, path_size - 1);
+        path[path_size - 1] = '\0';
         bool found = false;
         for (int drive = 0; drive <= 9; drive++)
         {
             path[3] = (char)('0' + drive);
-            if (f_stat(path, NULL) == FR_OK)
+            if (proc_nfc_is_file(path))
             {
                 found = true;
                 break;
             }
         }
         if (!found)
-            goto fail;
+            return false;
     }
 
-    // rom_exec corrects the basename of argv[0] to the case stored on disk, so
-    // path is corrected too before the comparison with proc_running().
-    if (!path_correct_basename(path, sizeof(path)))
+    return true;
+}
+
+void proc_nfc(const uint8_t *tag_data, size_t len)
+{
+    char text[256];
+    char path[256];
+    const char *args;
+    RP6502_LOG(proc, DEBUG, "nfc %zu bytes", len);
+
+    if (mon_busy())
         goto fail;
+    /* The ROM starts under the configured code page, which the stop below
+     * restores if a running program chose another, so the card's text is
+     * converted to it and the lookup is made under it. */
+    const uint16_t page = oem_get_code_page_restore();
+    if (!ndef_parse_text(tag_data, len, page, text, sizeof(text)))
+        goto fail;
+    RP6502_LOG(proc, DEBUG, "nfc text %s", text);
+    oem_fs_code_page(page);
+    bool found = proc_nfc_find(text, path, sizeof(path), &args);
+    oem_fs_code_page(oem_get_code_page_run());
+    if (!found)
+        goto fail;
+
     RP6502_LOG(proc, DEBUG, "nfc argv[0] %s", path);
 
-    if (strcmp(path, proc_running()) == 0)
+    bool running;
+    if (!proc_nfc_args(path, args, &running))
+        goto fail;
+    if (running)
         goto already_running;
 
     // Full success. The tag's ROM starts as if typed at the monitor, so a

@@ -83,4 +83,58 @@ UTEST(gamepad, a_playstation_classic_pad_reports_by_label)
     ASSERT_TRUE(gamepad_umount(PAD_SLOT));
 }
 
+/* A stick whose 16-bit X and Y follow two button bytes. */
+static void pad_stick(int16_t x, int16_t y)
+{
+    const uint8_t report[6] = {0, 0, (uint8_t)x, (uint8_t)(x >> 8),
+                               (uint8_t)y, (uint8_t)(y >> 8)};
+    gamepad_report(PAD_SLOT, report, sizeof report);
+}
+
+/* An XInput stick counts up as positive, so its Y is declared with a reversed
+ * range. At rest it reads 0, as X does, and full up and full down read -127
+ * and 127, each with only its own stick bit. */
+UTEST(gamepad, a_reversed_axis_rests_at_zero)
+{
+    gamepad_stop();
+    gamepad_xreg(0xFF78);
+    gamepad_connection_t desc = numbered_pad();
+    desc.x_offset = 16, desc.x_size = 16, desc.x_min = -32768, desc.x_max = 32767;
+    desc.y_offset = 32, desc.y_size = 16, desc.y_min = 32767, desc.y_max = -32768;
+    ASSERT_TRUE(gamepad_mount(PAD_SLOT, &desc, 0, 0, GAMEPAD_TYPE_WESTERN));
+    pad_stick(0, 0);
+    ASSERT_EQ((int8_t)pad_record()[4], 0);
+    ASSERT_EQ((int8_t)pad_record()[5], 0);
+    ASSERT_EQ(pad_record()[1], 0);
+    pad_stick(0, 32767);
+    ASSERT_EQ((int8_t)pad_record()[5], -127);
+    ASSERT_EQ(pad_record()[1], 0x01); /* left stick up */
+    pad_stick(0, -32768);
+    ASSERT_EQ((int8_t)pad_record()[5], 127);
+    ASSERT_EQ(pad_record()[1], 0x02); /* left stick down */
+    ASSERT_TRUE(gamepad_umount(PAD_SLOT));
+}
+
+/* A range with an odd count of values, such as -127..127, has its middle on
+ * a whole value, and a stick at rest there reads 0. */
+UTEST(gamepad, an_odd_range_rests_at_zero)
+{
+    gamepad_stop();
+    gamepad_xreg(0xFF78);
+    gamepad_connection_t desc = numbered_pad();
+    desc.x_offset = 16, desc.x_size = 16, desc.x_min = -127, desc.x_max = 127;
+    desc.y_offset = 32, desc.y_size = 16, desc.y_min = -32767, desc.y_max = 32767;
+    ASSERT_TRUE(gamepad_mount(PAD_SLOT, &desc, 0, 0, GAMEPAD_TYPE_WESTERN));
+    pad_stick(0, 0);
+    ASSERT_EQ((int8_t)pad_record()[4], 0);
+    ASSERT_EQ((int8_t)pad_record()[5], 0);
+    pad_stick(127, 32767);
+    ASSERT_EQ((int8_t)pad_record()[4], 127);
+    ASSERT_EQ((int8_t)pad_record()[5], 127);
+    pad_stick(-127, -32767);
+    ASSERT_EQ((int8_t)pad_record()[4], -128);
+    ASSERT_EQ((int8_t)pad_record()[5], -128);
+    ASSERT_TRUE(gamepad_umount(PAD_SLOT));
+}
+
 UTEST_MAIN_EMU()

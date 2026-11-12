@@ -44,6 +44,12 @@ void vga_canvas_size(int *w, int *h)
     *h = 480;
 }
 
+void vga_display_size(int *w, int *h)
+{
+    *w = 640;
+    *h = 480;
+}
+
 void ria_trigger_sigint(void)
 {
 }

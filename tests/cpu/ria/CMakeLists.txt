@@ -127,6 +127,19 @@ else()
         TIMEOUT 60)
 endif()
 
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(exitop FIRMWARE
+            SOURCES test_exitop.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(exitop LIBS emu_core
+        SOURCES test_exitop.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
+
 if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
 endif()

@@ -90,15 +90,28 @@ module rowmap (
     always_comb rowmap_overrun = |data_bytes[34:17]
         || data_bytes[16:0] > 17'(17'h10000 - {1'b0, cf_data});
 
+    /* The oracle rejects a window whose count of cells, tiles or pixels is
+     * under 1, or whose size in pixels does not fit an int16, before it
+     * folds, so w_s and h_s below are always 1 to 32767 when the fold runs.
+     * A count of at most 32767 times a factor of at most 31 fits 20 bits. */
+    logic signed [15:0] cf_hcount;
+    logic [19:0] w_px, h_px;
+    logic oversize;
+    always_comb begin
+        cf_hcount = cfgw[79:64];
+        w_px = 20'(cfgw[62:48]) * 20'(win_wf);
+        h_px = 20'(cf_height) * 20'(win_hf);
+        oversize = w_px > 20'd32767 || h_px > 20'd32767;
+    end
+
     /* Iterative wraparound; sane configs settle in a step or two, and the
-     * beam's deadline bounds the pathological ones. The oracle rejects on
-     * the int16 height, not the count of rows it is made of. */
+     * beam's deadline bounds the pathological ones. */
     logic rejected, y_lo, y_hi, x_lo, x_hi;
     logic signed [16:0] row_up;   /* the fold's step down, whose sign says
                                    * the row is inside */
     always_comb begin
         row_up = row - h_s;
-        rejected = cf_width < 16'sd1 || h_s < 17'sd1;
+        rejected = cf_width < 16'sd1 || cf_hcount < 16'sd1 || oversize;
         y_lo = cf_y_wrap && row < 0;
         y_hi = cf_y_wrap && !row_up[16];
         x_lo = cf_x_wrap && col < 0;

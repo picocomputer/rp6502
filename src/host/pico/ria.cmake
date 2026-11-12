@@ -308,6 +308,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/vga.c
     ${RIA_SRC}/usb/mid.c
     ${RIA_SRC}/usb/msc.c
+    ${RIA_SRC}/usb/ndef.c
     ${RIA_SRC}/usb/nfc.c
     ${RIA_SRC}/usb/usb.c
     ${RIA_SRC}/usb/vcp.c

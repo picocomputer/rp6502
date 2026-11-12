@@ -71,11 +71,11 @@ bool vga_frame_crc(uint32_t *crc);
  * Rows at or past 480 are never booked, because every booking is bounded
  * against the canvas and no canvas the emulator has is taller than that.
  *
- * The 18 leading bytes are 8 beam, 1 vsynced, 1 needs_reset, 2 canvas,
- * 2 console height, 2 highest scanline and 2 mode-0 begin; each row is 3
- * planes of 12 bytes. */
+ * The 16 leading bytes are 8 beam, 1 vsynced, 1 needs_reset, 2 canvas,
+ * 2 console height and 2 highest scanline; each row is 3 planes of 12 bytes.
+ * The terminal's begin is the config of each of its rows. */
 #define VGA_SST_ROWS 480
-#define VGA_SST_SIZE (18 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
+#define VGA_SST_SIZE (16 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
 
 #define VGA_MODE_NONE 0xFF
 vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes);
@@ -91,6 +91,6 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vga_init)                                          \
     TASK_PUMPED(vga_task)                                   \
     STOP(vga_stop)                                          \
-    SST(VGA_, 2, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
+    SST(VGA_, 3, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

@@ -118,15 +118,12 @@ int main(void)
     {
         bool restage = false;
 
+        /* DROP is done in the fabric. EXIT holds the 6502 until
+         * proc_exit has it in reset. */
         if (API_PENDING)
         {
             API_PENDING = 0;
-            if (API_OP == 0x00)
-            {
-                xstack_ptr = XSTACK_SIZE;
-                api_return_ax(0);
-            }
-            else if (API_OP == 0xFF)
+            if (API_OP == 0xFF)
             {
                 proc_exit((int16_t)API_AX);
                 api_return_ax(0);

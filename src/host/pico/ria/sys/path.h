@@ -24,4 +24,10 @@ bool path_lookup_basename(const char *path, char *out, size_t out_size);
  * returns true. */
 bool path_correct_basename(char *path, size_t path_size);
 
+/* Two resolved absolute paths name the same file when their drives are the
+ * same logical drive, as 0: and MSC0: are, and the rest is equal without
+ * regard to case, as FAT compares names. Installed ROMs, :NAME, compare by
+ * name. */
+bool path_eq(const char *a, const char *b);
+
 #endif /* _RIA_SYS_PATH_H_ */

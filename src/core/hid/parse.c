@@ -25,6 +25,9 @@ typedef struct
     uint8_t size;       // field size in bits
     int32_t logical_min;
     int32_t logical_max;
+    /* Both 0 when the descriptor gives no physical extent. */
+    int32_t physical_min;
+    int32_t physical_max;
     uint8_t input_flags; // the Input item's flags: bit 1 variable, bit 2 relative
 } hid_field_t;
 
@@ -38,6 +41,8 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
     uint16_t usage_page = 0;
     int32_t logical_min = 0;
     int32_t logical_max = 0;
+    int32_t physical_min = 0;
+    int32_t physical_max = 0;
     uint32_t report_size = 0;
     uint32_t report_count = 0;
     uint16_t report_id = 0xFFFF;
@@ -90,7 +95,15 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                 logical_min = sval;
                 break;
             case 2:
-                logical_max = sval;
+                /* Unsigned when the minimum is, as Linux reads it, so that a
+                 * maximum of 255 in one byte is 255 and not -1. */
+                logical_max = logical_min < 0 ? sval : (int32_t)val;
+                break;
+            case 3:
+                physical_min = sval;
+                break;
+            case 4:
+                physical_max = sval;
                 break;
             case 7:
                 report_size = val;
@@ -181,6 +194,8 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
                         .size = report_size,
                         .logical_min = logical_min,
                         .logical_max = logical_max,
+                        .physical_min = physical_min,
+                        .physical_max = physical_max,
                         .input_flags = val,
                     };
 
@@ -204,9 +219,10 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 /* Which report each driver reads. A device may put its keyboard on one report
  * and its mouse on another, so each driver takes the first report carrying a
- * field it can use. A digitizer outranks a bare X and Y, so that a pen or
- * touch panel offering a mouse-compatibility collection as well is decoded as
- * the absolute device it is. */
+ * field it can use, and for the mouse that is a relative X. A digitizer
+ * outranks a bare X and Y, so that a pen or touch panel offering a
+ * mouse-compatibility collection as well is decoded as the absolute device it
+ * is. */
 #define HID_NO_REPORT 0xFFFF
 
 typedef struct
@@ -230,7 +246,7 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
         hid_choose(&c->keyboard, f->report_id);
     if (axis || button || (f->usage_page == 0x02 && (f->usage == 0xC4 || f->usage == 0xC5)))
         hid_choose(&c->gamepad, f->report_id);
-    if ((f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04)) || button)
+    if (f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04))
         hid_choose(&c->mouse, f->report_id);
     if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31)) || button ||
         (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32)))
@@ -249,7 +265,7 @@ typedef struct
 {
     hid_parsed_t *out;
     const hid_choice_t *choice;
-    uint32_t keyboard_app, mouse_app, gamepad_app;
+    uint32_t keyboard_app, gamepad_app;
 } hid_fill_t;
 
 static void hid_locate(uint16_t *offset, uint8_t *size, const hid_field_t *f)
@@ -360,10 +376,20 @@ static void hid_fill_tablet(tablet_connection_t *tablet, const hid_field_t *f)
     {
     case 0x30:
         if (!tablet->x_size)
+        {
             tablet->x_relative = (f->input_flags & 0x04) != 0;
+            tablet->touchscreen = f->app_usage == HID_APP_TOUCH ||
+                                  f->app_usage == HID_APP_MOUSE ||
+                                  f->app_usage == HID_APP_POINTER;
+            tablet->x_phys = f->physical_max - f->physical_min;
+        }
         hid_locate_range(&tablet->x_offset, &tablet->x_size, &tablet->x_min, &tablet->x_max, f);
         break;
-    case 0x31: hid_locate_range(&tablet->y_offset, &tablet->y_size, &tablet->y_min, &tablet->y_max, f); break;
+    case 0x31:
+        if (!tablet->y_size)
+            tablet->y_phys = f->physical_max - f->physical_min;
+        hid_locate_range(&tablet->y_offset, &tablet->y_size, &tablet->y_min, &tablet->y_max, f);
+        break;
     case 0x38: hid_locate(&tablet->wheel_offset, &tablet->wheel_size, f); break;
     }
 }
@@ -415,11 +441,7 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
         hid_fill_keyboard(&fill->out->keyboard, f);
     }
     if (f->report_id == c->mouse)
-    {
-        if (fill->mouse_app == HID_APP_NONE)
-            fill->mouse_app = f->app_usage;
         hid_fill_mou(&fill->out->mouse, f);
-    }
     if (f->report_id == c->tablet)
         hid_fill_tablet(&fill->out->tablet, f);
     if (f->report_id == c->gamepad)
@@ -449,7 +471,7 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     if (choice.digitizer != HID_NO_REPORT)
         choice.tablet = choice.digitizer;
 
-    hid_fill_t fill = {out, &choice, HID_APP_NONE, HID_APP_NONE, HID_APP_NONE};
+    hid_fill_t fill = {out, &choice, HID_APP_NONE, HID_APP_NONE};
     hid_descriptor_parse(desc, desc_len, hid_fill_field, &fill);
 
     /* A report id of 0xFFFF means the device declared none, and then the
@@ -459,32 +481,36 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     out->tablet.report_id = choice.tablet == HID_NO_REPORT ? 0 : (uint8_t)choice.tablet;
     out->gamepad.report_id = choice.gamepad == HID_NO_REPORT ? 0 : (uint8_t)choice.gamepad;
 
-    /* What each driver will take. The mouse and the gamepad believe a
-     * descriptor that says what it is; the keyboard and the tablet are judged
-     * by the fields that turned up. */
+    /* What each driver will take. A mouse reports motion, so its X is
+     * relative. Anything absolute is a tablet or a gamepad, and only what the
+     * descriptor says it is tells the two apart, because a stick's X is
+     * absolute too. */
     out->keyboard.valid = out->keyboard.codes_count || out->keyboard.runs[0].count;
 
-    // A mouse either says it is one or reports an X that is relative.
-    out->mouse.valid = out->mouse.x_size > 0 &&
-                     (fill.mouse_app == HID_APP_MOUSE || out->mouse.x_relative);
+    out->mouse.valid = out->mouse.x_size > 0 && out->mouse.x_relative;
 
-    /* A tablet is a relative mouse, or an absolute digitizer or pen. An
-     * absolute Generic Desktop device with no digitizer usage is a gamepad's
-     * sticks rather than a tablet. */
+    /* A tablet is a relative mouse, a digitizer with a tip or In Range, or an
+     * absolute device that says it is a mouse, a pointer or a touch screen. */
     out->tablet.valid = out->tablet.x_size > 0 && out->tablet.y_size > 0 &&
-                     (out->tablet.x_relative || out->tablet.tip_offset != HID_ABSENT ||
+                     (out->tablet.x_relative || out->tablet.touchscreen ||
+                      out->tablet.tip_offset != HID_ABSENT ||
                       out->tablet.inrange_offset != HID_ABSENT);
 
-    /* A mouse has buttons and an X as well, but its X is relative. A gamepad
-     * with neither sticks nor a hat has no axes at all, and what marks one out
-     * then is the first of the discrete dpad buttons at index 16. */
+    /* A gamepad that doesn't say it is one has buttons and an absolute X, and
+     * doesn't say it points: a mouse, a pointer or a digitizer is the
+     * tablet's. A gamepad with neither sticks nor a hat has no axes at all,
+     * and what marks one out then is the first of the discrete dpad buttons
+     * at index 16. */
     bool axes = out->gamepad.x_size || out->gamepad.y_size || out->gamepad.z_size ||
                 out->gamepad.rz_size || out->gamepad.rx_size || out->gamepad.ry_size ||
                 out->gamepad.hat_size;
     if (fill.gamepad_app == HID_APP_GAMEPAD || fill.gamepad_app == HID_APP_JOYSTICK)
         out->gamepad.valid = axes || out->gamepad.button_offsets[0] != HID_ABSENT;
     else
-        out->gamepad.valid = out->gamepad.button_offsets[0] != HID_ABSENT &&
+        out->gamepad.valid = fill.gamepad_app != HID_APP_MOUSE &&
+                         fill.gamepad_app != HID_APP_POINTER &&
+                         fill.gamepad_app >> 16 != 0x0D &&
+                         out->gamepad.button_offsets[0] != HID_ABSENT &&
                          (axes ? out->gamepad.x_absolute
                                : out->gamepad.button_offsets[16] != HID_ABSENT);
 }

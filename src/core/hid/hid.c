@@ -81,19 +81,28 @@ uint8_t HOST_IN_RAM_FUNC hid_scale_analog(uint32_t raw_value, uint8_t bit_size, 
     if (value > max)
         value = max;
 
-    /* A range spanning the whole of int32 has more discrete values than an
-     * int32 can count, and is refused here rather than divided by what is
-     * left of the count. */
-    int32_t discrete_values = max - min + 1;
-    if (!discrete_values)
+    /* The ends of the range land on 0 and 255, rounded to the nearest step,
+     * so that the middle of a range with an odd count, such as -127..127,
+     * lands on 128 rather than one short of it. */
+    int64_t span = (int64_t)max - min;
+    if (!span)
         return 0;
-
-    return ((value - min) * 256 / discrete_values);
+    return (uint8_t)((((int64_t)value - min) * 255 + span / 2) / span);
 }
 
+/* A reversed range, such as an XInput stick that counts up as positive, reads
+ * as the negation of the same axis read forward, so its centre stays at 0. The
+ * negation of the lowest reading has no int8 and stops at 127. A trigger's
+ * reversed range is mirrored in hid_scale_analog instead, which suits an
+ * unsigned value. */
 int8_t HOST_IN_RAM_FUNC hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    return hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
+    if (logical_min > logical_max)
+    {
+        int value = 128 - hid_scale_analog(raw_value, bit_size, logical_max, logical_min);
+        return (int8_t)(value > 127 ? 127 : value);
+    }
+    return (int8_t)(hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128);
 }
 
 static uint8_t hid_claims[HID_MAX_SLOTS];

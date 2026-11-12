@@ -282,19 +282,22 @@ module psg
     logic [31:0] w_inc;
     logic [VOL_W-1:0] w_vol;
 
-    /* Loaded a byte a clock, so cf_r is whole from clock 8. */
-    logic [55:0] cf_r;
+    /* Loaded a byte a clock, so both are whole from clock 8. The
+     * frequency takes its two bytes into a register of its own rather than
+     * down the shift: it feeds the DSP multiplier, and a fit that packs
+     * shift stages into the DSP's input registers, where the clock arrives
+     * late, breaks hold on the shift. */
+    logic [15:0] cf_freq;
+    logic [39:0] cf_r;
     logic clr;
 
-    logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
     always_comb begin
-        cf_freq = cf_r[15:0];
-        cf_duty = cf_r[23:16];
-        cf_va = cf_r[31:24];
-        cf_vd = cf_r[39:32];
-        cf_wr = cf_r[47:40];
-        cf_pan = cf_r[55:48];
+        cf_duty = cf_r[7:0];
+        cf_va = cf_r[15:8];
+        cf_vd = cf_r[23:16];
+        cf_wr = cf_r[31:24];
+        cf_pan = cf_r[39:32];
     end
 
     typedef enum logic [1:0] {
@@ -309,11 +312,9 @@ module psg
      * to under 2^29. */
     localparam logic signed [29:0] MIX_ROUND = 30'sd2048;
     logic signed [29:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. */
+    /* Bits 7-1 of pan_gate, the pan from -64 to 63. */
     logic signed [7:0] pan_c;
-    always_comb pan_c = cf_pan[7]
-        ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
-        : 8'($signed(cf_pan) >>> 1);
+    always_comb pan_c = 8'($signed(cf_pan) >>> 1);
     /* The envelope's product, on clock 8. Thirteen bits of the Q24
      * envelope, not nine: at nine a long release moved the gain in 256
      * visible steps. */
@@ -546,6 +547,7 @@ module psg
         w_noise1 = '0;
         w_noise2 = '0;
         w_vol = '0;
+        cf_freq = '0;
         cf_r = '0;
         ch = '0;
         t = '0;
@@ -605,8 +607,12 @@ module psg
             end
             P_VOICE: begin
                 /* The reads land a clock after their address. */
-                if (t >= 4'd1 && t <= 4'd7)
-                    cf_r <= {cfg_q, cf_r[55:8]};
+                if (t == 4'd1)
+                    cf_freq[7:0] <= cfg_q;
+                if (t == 4'd2)
+                    cf_freq[15:8] <= cfg_q;
+                if (t >= 4'd3 && t <= 4'd7)
+                    cf_r <= {cfg_q, cf_r[39:8]};
                 case (t)
                     4'd1: r_smp <= $signed(vq[15:0]);
                     4'd2: w_vol <= clr && !ch[3] ? '0 : vq[VOL_W-1:0];

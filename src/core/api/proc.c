@@ -167,13 +167,8 @@ bool HOST_IN_FLASH_FUNC proc_api_argv(void)
  * the argv empty, as a layout that does not parse does. */
 bool HOST_IN_FLASH_FUNC proc_api_exec(void)
 {
-    if (!arg_pull_xstack())
+    if (!arg_pull_xstack(API_PATH_MAX))
         return api_return_errno(API_EINVAL);
-    if (strlen(arg_index(0)) > API_PATH_MAX)
-    {
-        arg_clear();
-        return api_return_errno(API_EINVAL);
-    }
     proc_exec_start();
     return api_return_ax(0);
 }

@@ -106,7 +106,9 @@ int HOST_IN_FLASH_FUNC vcp_status_response(char *buf, size_t buf_size,
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                          vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                          product);
-        if (state == vcp_nfc_device_idx && n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
+        // Marked only while NFC is on, as only then is the port reserved.
+        if (state == vcp_nfc_device_idx && nfc_get_enabled() &&
+            n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
             snprintf(buf + n - 1, buf_size - (n - 1), "%s", STR_STATUS_NFC);
     }
     return state + 1;
@@ -243,7 +245,9 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         *err = API_ENODEV;
         return -1;
     }
-    if ((int)idx == vcp_nfc_device_idx || vcp_mounts[idx].opened)
+    /* The paired reader's port is reserved while NFC is on, so that a program
+     * cannot take it while the reader waits to open it. */
+    if (((int)idx == vcp_nfc_device_idx && nfc_get_enabled()) || vcp_mounts[idx].opened)
     {
         *err = API_EBUSY;
         return -1;

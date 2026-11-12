@@ -121,6 +121,12 @@ void vga_canvas_size(int *w, int *h)
     *h = 240;
 }
 
+void vga_display_size(int *w, int *h)
+{
+    *w = 640;
+    *h = 480;
+}
+
 size_t com_read(com_source_t src, char *buf, size_t n)
 {
     size_t got = 0;

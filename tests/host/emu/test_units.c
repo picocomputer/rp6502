@@ -291,6 +291,19 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
         ASSERT_EQ(blob[i], 0);
 }
 
+/* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
+ * nothing rather than register 2. */
+UTEST(vga, channel_0_ignores_registers_it_lacks)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0x12, 1));
+    uint8_t blob[XREG_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false};
+    xreg_sst_save(&c, 0);
+    for (size_t i = 0; i < sizeof blob; i++)
+        ASSERT_EQ(blob[i], 0);
+}
+
 UTEST(gamepad, host_report_encoding)
 {
     gamepad_stop();
@@ -357,6 +370,17 @@ static int tablet_contact_y(void)
            (xram[0xFF00 + TABLET_OFF_CONTACTS + 3] >> 4) << 8;
 }
 
+static int tablet_contact_x(void)
+{
+    return xram[0xFF00 + TABLET_OFF_CONTACTS + 2] |
+           (xram[0xFF00 + TABLET_OFF_CONTACTS + 3] & 0x0F) << 8;
+}
+
+static uint8_t tablet_contact_flags(void)
+{
+    return xram[0xFF00 + TABLET_OFF_CONTACTS];
+}
+
 /* A relative mouse pushed past the bottom of a widescreen canvas stops there,
  * so the first move back up moves the pointer up. */
 UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
@@ -370,9 +394,14 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
         .tip_offset = HID_ABSENT,
         .inrange_offset = HID_ABSENT,
     };
+    /* On an SXGA display, 512 lines tall, whose bottom rows a reference
+     * space of 480 lines once left out of reach. Its 32-row console is the
+     * Pico's alone; this machine's terminal stops at 30 rows. The right edge
+     * is checked on every canvas too. */
     static const uint16_t canvases[] = {vga_canvas_640_360, vga_canvas_320_180,
                                         vga_canvas_640_400, vga_canvas_320_200};
     sys_init();
+    vga_set_console_size(640, 512);
     ASSERT_TRUE(tablet_mount(7, &mouse));
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     for (size_t i = 0; i < sizeof canvases / sizeof canvases[0]; i++)
@@ -390,10 +419,181 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
         const uint8_t up[] = {0, (uint8_t)-4};
         tablet_report(7, up, sizeof up);
         ASSERT_LT(tablet_contact_y(), h - 1);
+        const uint8_t right[] = {126, 0};
+        for (int n = 0; n < 20; n++)
+            tablet_report(7, right, sizeof right);
+        ASSERT_EQ(tablet_contact_x(), w - 1);
+        const uint8_t left[] = {(uint8_t)-4, 0};
+        tablet_report(7, left, sizeof left);
+        ASSERT_LT(tablet_contact_x(), w - 1);
+    }
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* An absolute device: the tip in bit 0, then 16-bit X and Y. */
+static void tablet_absolute(int slot, int x, int y, bool tip)
+{
+    const uint8_t r[] = {tip ? 1 : 0, (uint8_t)x, (uint8_t)(x >> 8),
+                         (uint8_t)y, (uint8_t)(y >> 8)};
+    tablet_report(slot, r, sizeof r);
+}
+
+static tablet_connection_t tablet_absolute_desc(int32_t x_max, int32_t y_max)
+{
+    tablet_connection_t d = {
+        .valid = true,
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_offset = 8, .x_size = 16, .x_min = 0, .x_max = x_max,
+        .y_offset = 24, .y_size = 16, .y_min = 0, .y_max = y_max,
+        .tip_offset = 0,
+        .inrange_offset = HID_ABSENT,
+    };
+    return d;
+}
+
+/* A square traced on a 16:10 pen tablet is a square on a 4:3 canvas. The
+ * tablet's height spans the canvas's, and its sides are a spare strip. */
+UTEST(tablet, a_pen_tablet_keeps_its_shape)
+{
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    /* By its logical extent, then by a physical extent that says the same
+     * shape while the logical extent is square. */
+    tablet_connection_t pens[2] = {tablet_absolute_desc(1599, 999),
+                                   tablet_absolute_desc(1599, 1599)};
+    pens[1].x_phys = 160;
+    pens[1].y_phys = 100;
+    for (int i = 0; i < 2; i++)
+    {
+        const int xs = pens[i].x_max, ys = pens[i].y_max;
+        const int pw = pens[i].x_phys ? pens[i].x_phys : xs;
+        const int ph = pens[i].y_phys ? pens[i].y_phys : ys;
+        ASSERT_TRUE(tablet_mount(7, &pens[i]));
+        const int mx = (xs + 1) / 2, my = (ys + 1) / 2;
+        tablet_absolute(7, mx, my, true);
+        ASSERT_EQ(tablet_contact_x(), 160);
+        ASSERT_EQ(tablet_contact_y(), 120);
+        /* One length across and down, in the tablet's own units. */
+        const int d = pw * 3 / 16;
+        tablet_absolute(7, mx + d * xs / pw, my + d * ys / ph, true);
+        const int dx = tablet_contact_x() - 160, dy = tablet_contact_y() - 120;
+        ASSERT_GT(dx, 60);
+        ASSERT_LE(dx - dy, 1);
+        ASSERT_GE(dx - dy, -1);
+        tablet_absolute(7, 0, ys, true);
+        ASSERT_EQ(tablet_contact_x(), 0);
+        ASSERT_EQ(tablet_contact_y(), 239);
+        tablet_absolute(7, xs, 0, true);
+        ASSERT_EQ(tablet_contact_x(), 319);
+        ASSERT_EQ(tablet_contact_y(), 0);
+        ASSERT_TRUE(tablet_umount(7));
+    }
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A touchscreen covers the display, and a 16:9 canvas on a 4:3 display fills
+ * its middle 360 of 480 lines. A touch on the bands above and below is no
+ * touch, and one on the canvas lands where the canvas is drawn. */
+UTEST(tablet, a_touchscreen_maps_through_the_display)
+{
+    sys_init();
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    tablet_connection_t touch = tablet_absolute_desc(4799, 4799);
+    touch.touchscreen = true;
+    ASSERT_TRUE(tablet_mount(7, &touch));
+    /* Line 240 of 480 is canvas row 180, and line 70 is row 10. */
+    tablet_absolute(7, 2400, 2400, true);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 320);
+    ASSERT_EQ(tablet_contact_y(), 180);
+    tablet_absolute(7, 0, 700, true);
+    ASSERT_EQ(tablet_contact_x(), 0);
+    ASSERT_EQ(tablet_contact_y(), 10);
+    /* Line 30 is above the canvas, and line 450 below it. */
+    tablet_absolute(7, 2400, 300, true);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_EQ(tablet_contact_y(), 10);
+    tablet_absolute(7, 2400, 4500, true);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    /* On a 4:3 canvas the whole screen is the canvas. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_absolute(7, 4799, 4799, true);
+    ASSERT_EQ(tablet_contact_x(), 319);
+    ASSERT_EQ(tablet_contact_y(), 239);
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A KVM's mouse reports where the pointer is rather than how far it moved.
+ * It covers the display as a touchscreen does, and with no tip it always
+ * hovers. The same report twice is the same spot. */
+UTEST(tablet, an_absolute_mouse_points_and_hovers)
+{
+    sys_init();
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_connection_t kvm = tablet_absolute_desc(32767, 32767);
+    kvm.button_offsets[0] = 0;
+    kvm.tip_offset = HID_ABSENT;
+    kvm.touchscreen = true;
+    ASSERT_TRUE(tablet_mount(7, &kvm));
+    tablet_absolute(7, 0, 0, false);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 0);
+    ASSERT_EQ(tablet_contact_y(), 0);
+    tablet_absolute(7, 32767, 32767, false);
+    ASSERT_EQ(tablet_contact_x(), 319);
+    ASSERT_EQ(tablet_contact_y(), 239);
+    for (int i = 0; i < 2; i++)
+    {
+        tablet_absolute(7, 16384, 16384, true);
+        ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+        ASSERT_EQ(tablet_contact_x(), 160);
+        ASSERT_EQ(tablet_contact_y(), 120);
     }
     ASSERT_TRUE(tablet_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* Contact 0 is one pointer that every device moves, so a button held on one
+ * mouse stays down while another moves, and is let go when its mouse is
+ * unplugged. */
+UTEST(tablet, buttons_of_two_mice_merge)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, 1, 2, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(tablet_mount(5, &mouse));
+    ASSERT_TRUE(tablet_mount(6, &mouse));
+    const uint8_t left[] = {TABLET_FLAG_LEFT, 0, 0};
+    const uint8_t move[] = {0, 4, 4};
+    tablet_report(5, left, sizeof left);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    tablet_report(6, move, sizeof move);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(5));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(6));
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
 }
 
 static int keyboard_drain(char *buf, int max)

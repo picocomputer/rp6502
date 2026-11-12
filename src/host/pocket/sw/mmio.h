@@ -138,6 +138,10 @@ static inline int32_t set_tz_minutes(void)
  * sources. A write to the $FFF0 cell in REGS_WIN changes neither, because that
  * cell is a copy of the pending byte and is rewritten every clock. */
 #define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
+/* A write sets SIGINT, bit 6 of the pending sources. A read returns what
+ * REGS_IRQ does and clears SIGINT on the same clock, so RIA_ATTR_SIGINT and
+ * the $FFF0 interrupt share one latch. */
+#define REGS_SIGINT (*(volatile uint32_t *)0x2000006Cu)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 /* Bit 8 is set while the 6502 has a byte from the OS it has not read, in the
  * offer slot or in its receive register, and bits 7:0 are that byte. A read

@@ -269,19 +269,18 @@ static const struct retro_input_descriptor input_descriptors[] = {
     {0, 0, 0, 0, NULL},
 };
 
-/* Declaring the four ports is how a frontend learns they exist. A lightgun is
- * offered beside the gamepads because the machine's tablet is an absolute
- * pointer and so is a gun, and a player who owns one has nowhere else to plug
- * it in. */
+/* Declaring the four ports is how a frontend learns they exist. A gamepad
+ * always reports its sticks, so there is no separate analog type. A lightgun
+ * is offered beside it because the machine's tablet is an absolute pointer
+ * and so is a gun, and a player who owns one has nowhere else to plug it in. */
 static const struct retro_controller_description gamepad_types[] = {
     {"Gamepad", RETRO_DEVICE_JOYPAD},
-    {"Gamepad (Analog)", RETRO_DEVICE_ANALOG},
     {"Lightgun", RETRO_DEVICE_LIGHTGUN},
     {NULL, 0},
 };
 
 static const struct retro_controller_info controller_info[] = {
-    {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {NULL, 0},
+    {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {NULL, 0},
 };
 
 /* The same options a frontend too old for v2 can still read. A frontend is
