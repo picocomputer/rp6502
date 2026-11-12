@@ -7,11 +7,13 @@
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
+#include "core/vga/mode/mode0.h"
 #include "core/vga/mode/mode1.h"
 #include "core/vga/mode/mode2.h"
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
+#include "emu_boot.h"
 #include "utest.h"
 
 #include <string.h>
@@ -162,4 +164,50 @@ UTEST(progmap, a_renderer_that_is_not_there_is_refused)
     ASSERT_TRUE(vga_mode_sprite_fn(4, 2) == NULL);
 }
 
-UTEST_MAIN();
+/* Programs the terminal on plane 0 of a 640x480 canvas. */
+static bool terminal_at(int16_t begin, int16_t end)
+{
+    uint16_t xregs[8] = {0, 0, 0, (uint16_t)begin, (uint16_t)end};
+    return mode0_prog(xregs);
+}
+
+/* Each terminal row carries the scanline the terminal begins at, so a render
+ * on another core has it from the same copy of the row as its renderer, and
+ * the old rows of a move hold their own begin rather than the new one. */
+UTEST(progmap, a_terminal_row_holds_its_begin)
+{
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    const vga_fill_fn_t term = mode0_fill_fn(0);
+    ASSERT_TRUE(terminal_at(400, 480));
+    for (int16_t s = 0; s < 480; s++)
+    {
+        const vga_prog_t *row = vga_prog_row(s);
+        ASSERT_EQ(row->fill_fn[0] == term, s >= 400);
+        if (s >= 400)
+            ASSERT_EQ(row->fill_config[0], 400);
+    }
+    ASSERT_TRUE(terminal_at(0, 0));
+    for (int16_t s = 0; s < 480; s++)
+    {
+        ASSERT_TRUE(vga_prog_row(s)->fill_fn[0] == term);
+        ASSERT_EQ(vga_prog_row(s)->fill_config[0], 0);
+    }
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+/* A row copied part way through a move up pairs a scanline above the
+ * terminal with a begin below it. The renderer draws nothing for it rather
+ * than read a row past the terminal's. */
+UTEST(progmap, a_terminal_row_past_the_terminal_draws_nothing)
+{
+    static uint16_t line[640];
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    ASSERT_TRUE(terminal_at(0, 0));
+    const vga_fill_fn_t term = mode0_fill_fn(0);
+    ASSERT_FALSE(term(0, 100, 640, line, 400));
+    ASSERT_FALSE(term(0, 479, 640, line, 0xFFF0));
+    ASSERT_TRUE(term(0, 479, 640, line, 0));
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+UTEST_MAIN_EMU()

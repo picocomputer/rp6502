@@ -58,7 +58,7 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-void HOST_IN_FLASH("oem_init") oem_init(void)
+void HOST_IN_FLASH_FUNC oem_init(void)
 {
     oem_apply_code_page(oem_get_code_page(), true);
     /* oem_request_code_page calls vga_set_code_page only when the number
@@ -66,7 +66,12 @@ void HOST_IN_FLASH("oem_init") oem_init(void)
     vga_set_code_page(oem_code_page_run);
 }
 
-void oem_stop(void)
+uint16_t oem_get_code_page_restore(void)
+{
+    return unicode_has_page(oem_resolve()) ? oem_resolve() : oem_code_page_run;
+}
+
+void oem_restore_code_page(void)
 {
     if (oem_code_page_run != oem_resolve())
         oem_request_code_page(oem_resolve());
@@ -98,7 +103,7 @@ bool oem_is_auto(void)
     return oem_get_code_page() == 0;
 }
 
-int HOST_IN_FLASH_FUNC("oem_code_page_response") oem_code_page_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC oem_code_page_response(char *buf, size_t buf_size,
                                                                         int state, unsigned width)
 {
     (void)state;
@@ -110,7 +115,7 @@ int HOST_IN_FLASH_FUNC("oem_code_page_response") oem_code_page_response(char *bu
     return -1;
 }
 
-uint16_t oem_get_code_page_run(void)
+uint16_t HOST_IN_RAM_FUNC oem_get_code_page_run(void)
 {
     return oem_code_page_run;
 }

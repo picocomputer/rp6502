@@ -5,6 +5,7 @@
  */
 
 #include "core/str/path.h"
+#include "machine.h"
 #include <string.h>
 
 const char *path_basename(const char *path)
@@ -16,7 +17,7 @@ const char *path_basename(const char *path)
     return base;
 }
 
-bool path_fat_ok(const char *path, bool after_drive, api_errno *err)
+bool HOST_IN_RAM_FUNC path_fat_ok(const char *path, bool after_drive, api_errno *err)
 {
     if (!after_drive && path[strcspn(path, ":/\\")] == ':')
     {

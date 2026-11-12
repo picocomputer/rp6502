@@ -18,7 +18,7 @@
 
 extern uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out);
 
-__in_flash("mid_string") static const char mid_string[] = "MIDI";
+HOST_IN_RAM static const char mid_string[] = "MIDI";
 static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128
@@ -88,12 +88,12 @@ static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
 static uint32_t mid_itf_full_ms[CFG_TUH_MIDI];
 
 
-static inline bool mid_raw(const mid_t *conn)
+static inline bool HOST_IN_RAM_FUNC mid_raw(const mid_t *conn)
 {
     return !conn->ppqn;
 }
 
-static uint8_t mid_msg_data_len(uint8_t status)
+static uint8_t HOST_IN_RAM_FUNC mid_msg_data_len(uint8_t status)
 {
     switch (status & 0xF0)
     {
@@ -121,7 +121,7 @@ static uint8_t mid_msg_data_len(uint8_t status)
     return 0;
 }
 
-static uint8_t mid_msg_cin(uint8_t status)
+static uint8_t HOST_IN_RAM_FUNC mid_msg_cin(uint8_t status)
 {
     if (status >= 0xF8)
         return MIDI_CIN_1BYTE_DATA;
@@ -139,7 +139,7 @@ static uint8_t mid_msg_cin(uint8_t status)
     }
 }
 
-static uint8_t mid_vlq_len(uint32_t v)
+static uint8_t HOST_IN_RAM_FUNC mid_vlq_len(uint32_t v)
 {
     if (v < 0x80)
         return 1;
@@ -150,19 +150,19 @@ static uint8_t mid_vlq_len(uint32_t v)
     return 4;
 }
 
-static inline void mid_rx_push(mid_t *conn, uint8_t b)
+static inline void HOST_IN_RAM_FUNC mid_rx_push(mid_t *conn, uint8_t b)
 {
     RING_PUT(&conn->rx_ring, b);
 }
 
-static void mid_rx_push_vlq(mid_t *conn, uint32_t v)
+static void HOST_IN_RAM_FUNC mid_rx_push_vlq(mid_t *conn, uint32_t v)
 {
     for (int shift = (mid_vlq_len(v) - 1) * 7; shift > 0; shift -= 7)
         mid_rx_push(conn, 0x80 | ((v >> shift) & 0x7F));
     mid_rx_push(conn, v & 0x7F);
 }
 
-static void mid_rx_push_sysex_end(mid_t *conn)
+static void HOST_IN_RAM_FUNC mid_rx_push_sysex_end(mid_t *conn)
 {
     if (!conn->rx_ring_sysex)
         return;
@@ -177,7 +177,7 @@ static void mid_rx_push_sysex_end(mid_t *conn)
 // meta, because mid_tx_apply_meta sets rx_epoch_ns to the echo's time and
 // rx_ticks to 0 even when the echo is dropped, so the next delta counts only
 // from that time.
-static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
+static bool HOST_IN_RAM_FUNC mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
 {
     // A realtime byte inside an open recorded sysex gets no delta, because a
     // delta byte there could not be distinguished from sysex data.
@@ -211,7 +211,7 @@ static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
     return true;
 }
 
-static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
+static void HOST_IN_RAM_FUNC mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
 {
     if (!conn->rx_ring_sysex)
         return;
@@ -219,7 +219,7 @@ static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
         mid_rx_push(conn, b);
 }
 
-static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
+static void HOST_IN_RAM_FUNC mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
     if (b == 0xFF) // System Reset is recorded as the escape FF FF
     {
@@ -306,7 +306,7 @@ static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
     }
 }
 
-static mid_t *mid_find_port(uint8_t itf, uint8_t cable)
+static mid_t *HOST_IN_RAM_FUNC mid_find_port(uint8_t itf, uint8_t cable)
 {
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
         if (mid_mounts[i].mounted && mid_mounts[i].itf == itf &&
@@ -315,7 +315,7 @@ static mid_t *mid_find_port(uint8_t itf, uint8_t cable)
     return NULL;
 }
 
-static bool mid_itf_can_rx(uint8_t itf)
+static bool HOST_IN_RAM_FUNC mid_itf_can_rx(uint8_t itf)
 {
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
     {
@@ -327,7 +327,7 @@ static bool mid_itf_can_rx(uint8_t itf)
     return false;
 }
 
-static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
+static void HOST_IN_RAM_FUNC mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
     if (mid_raw(conn))
     {
@@ -338,7 +338,7 @@ static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
         mid_rx_wire_byte(conn, t_ns, b);
 }
 
-static void mid_rx_pull_itf(uint8_t itf)
+static void HOST_IN_RAM_FUNC mid_rx_pull_itf(uint8_t itf)
 {
     while (mid_itf_can_rx(itf))
     {
@@ -363,7 +363,7 @@ static void mid_rx_pull_itf(uint8_t itf)
 // Callers drop a data byte that would start a message while tx_status is 0,
 // because mid_msg_data_len returns 0 for a status of 0, so tx_msg_need would
 // wrap to 255 and later data bytes would be written past the end of tx_msg.
-static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
+static void HOST_IN_RAM_FUNC mid_tx_msg_byte(mid_t *conn, uint8_t b)
 {
     if (!conn->tx_msg_len)
     {
@@ -390,7 +390,7 @@ static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
         conn->tx_pending = true;
 }
 
-static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
+static bool HOST_IN_RAM_FUNC mid_tx_parse(mid_t *conn, uint64_t now_ns)
 {
     while (!conn->tx_pending && conn->tx_state != MID_TX_SYSEX &&
            RING_LEN(&conn->tx_ring))
@@ -506,7 +506,7 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
 
 // The endpoint FIFO only ever holds whole packets, so a write stores 4 bytes
 // or none.
-static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
+static bool HOST_IN_RAM_FUNC mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
 {
     uint8_t pkt[4] = {(uint8_t)((conn->cable << 4) | cin), 0, 0, 0};
     for (uint8_t i = 0; i < len; i++)
@@ -522,7 +522,7 @@ static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t
     return false;
 }
 
-static void mid_tx_apply_meta(mid_t *conn)
+static void HOST_IN_RAM_FUNC mid_tx_apply_meta(mid_t *conn)
 {
     uint64_t t_ns = conn->tx_due_ns;
     switch (conn->tx_meta_type)
@@ -569,7 +569,7 @@ static void mid_tx_apply_meta(mid_t *conn)
     }
 }
 
-static bool mid_tx_flush_acc(mid_t *conn)
+static bool HOST_IN_RAM_FUNC mid_tx_flush_acc(mid_t *conn)
 {
     uint8_t cin = conn->tx_acc_eox
                       ? MIDI_CIN_SYSEX_END_1BYTE + conn->tx_acc_len - 1
@@ -580,7 +580,7 @@ static bool mid_tx_flush_acc(mid_t *conn)
     return true;
 }
 
-static bool mid_tx_run_raw(mid_t *conn)
+static bool HOST_IN_RAM_FUNC mid_tx_run_raw(mid_t *conn)
 {
     bool wrote = false;
     for (;;)
@@ -659,7 +659,7 @@ static bool mid_tx_run_raw(mid_t *conn)
     }
 }
 
-static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
+static bool HOST_IN_RAM_FUNC mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
     if (mid_raw(conn))
@@ -754,10 +754,16 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
     }
 }
 
-void mid_task(void)
+void HOST_IN_RAM_FUNC mid_task(void)
 {
+    bool open = false;
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        open |= mid_mounts[i].mounted && mid_mounts[i].opened;
+    if (!open)
+        return;
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
-        mid_rx_pull_itf(itf);
+        if (mid_itf_can_rx(itf))
+            mid_rx_pull_itf(itf);
     uint64_t now_ns = time_us_64() * 1000;
     uint16_t flush = 0;
     // Cables that share an interface's TX FIFO take turns going first
@@ -775,7 +781,7 @@ void mid_task(void)
             tuh_midi_write_flush(itf);
 }
 
-int HOST_IN_FLASH_FUNC("mid_status_response") mid_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC mid_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)
@@ -783,13 +789,13 @@ int HOST_IN_FLASH_FUNC("mid_status_response") mid_status_response(char *buf, siz
     mid_t *conn = &mid_mounts[state];
     if (conn->mounted)
     {
+        const void *desc = usb_string_fetch_product(conn->daddr);
+        if (!desc)
+            return state;
         char devname[sizeof(mid_string) + 1];
         snprintf(devname, sizeof(devname), "%s%d", mid_string, state);
         char name[USB_DESC_STRING_MAX_CHAR_LEN + 1];
-        name[0] = '\0';
-        const void *desc = usb_string_fetch_product(conn->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, name, sizeof(name));
+        usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, name, sizeof(name));
         if (!name[0])
         {
             uint16_t vid = 0, pid = 0;
@@ -802,7 +808,7 @@ int HOST_IN_FLASH_FUNC("mid_status_response") mid_status_response(char *buf, siz
     return state + 1;
 }
 
-bool mid_std_handles(const char *name)
+bool HOST_IN_RAM_FUNC mid_std_handles(const char *name)
 {
     if (strncasecmp(name, mid_string, sizeof(mid_string) - 1) != 0)
         return false;
@@ -900,7 +906,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
 // descriptor holds the mount session above the slot index, so a descriptor
 // kept across an unplug does not resolve to the next device mounted in that
 // slot.
-static mid_t *mid_desc_conn(int desc)
+static mid_t *HOST_IN_RAM_FUNC mid_desc_conn(int desc)
 {
     mid_t *conn = &mid_mounts[desc & 0xF];
     if ((desc >> 4) != conn->session || !conn->opened)
@@ -908,7 +914,7 @@ static mid_t *mid_desc_conn(int desc)
     return conn;
 }
 
-static bool mid_tx_draining(mid_t *conn)
+static bool HOST_IN_RAM_FUNC mid_tx_draining(mid_t *conn)
 {
     return RING_LEN(&conn->tx_ring) || conn->tx_pending ||
            conn->tx_acc_eox || conn->tx_acc_len == 3;
@@ -936,13 +942,13 @@ static void mid_close_finalize(mid_t *conn)
 }
 
 // True once the cable's interface has accepted no packet for MID_TX_STALL_MS.
-static bool mid_tx_stalled(const mid_t *conn)
+static bool HOST_IN_RAM_FUNC mid_tx_stalled(const mid_t *conn)
 {
     uint32_t full_ms = mid_itf_full_ms[conn->itf];
     return full_ms && to_ms_since_boot(get_absolute_time()) - full_ms >= MID_TX_STALL_MS;
 }
 
-std_rw_result mid_std_close(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC mid_std_close(int desc, api_errno *err)
 {
     (void)err;
     mid_t *conn = mid_desc_conn(desc);
@@ -955,7 +961,7 @@ std_rw_result mid_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result mid_std_sync(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC mid_std_sync(int desc, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
     if (conn && !mid_tx_draining(conn))
@@ -968,8 +974,8 @@ std_rw_result mid_std_sync(int desc, api_errno *err)
     return STD_PENDING;
 }
 
-std_rw_result mid_std_read(int desc, char *buf, uint32_t count,
-                           uint32_t *bytes_read, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC mid_std_read(int desc, char *buf, uint32_t count,
+                                            uint32_t *bytes_read, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
     if (!conn)
@@ -986,8 +992,8 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t count,
     return STD_OK;
 }
 
-std_rw_result mid_std_write(int desc, const char *buf, uint32_t count,
-                            uint32_t *bytes_written, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC mid_std_write(int desc, const char *buf, uint32_t count,
+                                             uint32_t *bytes_written, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
     if (!conn)

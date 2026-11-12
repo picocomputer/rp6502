@@ -14,7 +14,6 @@
 
 #include "wake.h"
 
-#include "com.h"
 #include "font.h"
 #include "main.h"
 #include "mmio.h"

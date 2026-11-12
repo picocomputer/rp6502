@@ -2,8 +2,8 @@ include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_c()
 rp6502_gen_assets()
 include(${RP6502_SRC}/core/log.cmake)
-if(NOT RP6502_SW_TTY)
-    set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/sw/tty.c)
+if(NOT RP6502_SW_LOG)
+    set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/sw/log.c)
 endif()
 
 find_program(RISCV_GCC riscv64-unknown-elf-gcc)
@@ -25,12 +25,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/wake.c
         ${SW_SRC}/cfg.c
-        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/pick.c ${SW_SRC}/com.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/manifold.c ${RP6502_SRC}/core/com/tio.c ${RP6502_SRC}/core/com/rln.c ${SW_SRC}/ria.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/mem.c ${RP6502_SRC}/core/sys/timer.c
         ${RP6502_SRC}/core/sys/crc32.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${RP6502_SW_TTY} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/sys/pix.c
@@ -60,7 +60,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
-        ${RP6502_SRC}/core/str/rln.c
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/vga/canvas.c

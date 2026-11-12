@@ -97,19 +97,19 @@ def emit_h(path, n, c1, c2, total):
 
 
 def emit_c(path, words):
-    # A RIA's binary is copied to RAM at boot, so HOST_IN_FLASH is used
-    # to keep these five kilobytes in flash on a RIA.
+    # On a RIA these five kilobytes stay in flash, and unicode_word runs
+    # from RAM with the lookups that call it.
     out = [HEADER,
            '\n#include "unicode_oem.h"\n#include "core/str/unicode.h"\n'
            '\n#include "machine.h"\n\n',
-           'static const HOST_IN_FLASH("unicode_oem") uint16_t'
+           'static const HOST_IN_FLASH uint16_t'
            " unicode_oem_data[UNICODE_OEM_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         out.append(f"    {row},\n")
     out.append("};\n")
     out.append("""
-uint16_t unicode_word(uint32_t index)
+uint16_t HOST_IN_RAM_FUNC unicode_word(uint32_t index)
 {
     return index < UNICODE_OEM_WORDS ? unicode_oem_data[index] : 0;
 }

@@ -29,7 +29,7 @@ static uint16_t mouse_xram;
 
 static mouse_connection_t mouse_connections[MOUSE_MAX_MICE];
 
-static mouse_connection_t *mouse_get_connection_by_slot(int slot)
+static mouse_connection_t *HOST_IN_RAM_FUNC mouse_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < MOUSE_MAX_MICE; ++i)
     {
@@ -39,7 +39,7 @@ static mouse_connection_t *mouse_get_connection_by_slot(int slot)
     return NULL;
 }
 
-void HOST_IN_FLASH("mouse_init") mouse_init(void)
+void HOST_IN_FLASH_FUNC mouse_init(void)
 {
     mouse_stop();
 }
@@ -49,13 +49,13 @@ void mouse_stop(void)
     mouse_xram = 0xFFFF;
 }
 
-static void mouse_write_xram(void)
+static void HOST_IN_RAM_FUNC mouse_write_xram(void)
 {
     if (mouse_xram != 0xFFFF)
         memcpy((uint8_t *)&xram[mouse_xram], &mouse_state, sizeof(mouse_state));
 }
 
-bool mouse_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC mouse_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - sizeof(mouse_state);
     mouse_xram = mapped ? word : 0xFFFF;
@@ -97,7 +97,7 @@ bool mouse_umount(int slot)
     return true;
 }
 
-void mouse_report(int slot, uint8_t const *data, size_t size)
+void HOST_IN_RAM_FUNC mouse_report(int slot, uint8_t const *data, size_t size)
 {
     mouse_connection_t *conn = mouse_get_connection_by_slot(slot);
     if (conn == NULL)

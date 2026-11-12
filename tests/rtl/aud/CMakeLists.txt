@@ -31,6 +31,7 @@ rp6502_add_module_test(pcm_rtl
     SOURCES test_pcm_rtl.cpp pcm_shim.c ${RP6502_SRC}/core/aud/rsmp.c
         ${RP6502_SRC}/core/sys/ring.c
     INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RP6502_GEN}
+        ${RP6502_SRC}/host/pocket
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000
     DEPENDS rp6502_gen_assets rp6502_gen_c
     ARGS -GSST_CLK=0
@@ -48,7 +49,7 @@ if(RP6502_HAVE_LLE)
         RTL ${RP6502_ASSETS}/opl_rom_pkg.sv ${RP6502_SRC}/core/aud/opl.sv
         SOURCES test_opl.cpp ${RP6502_SRC}/core/aud/opl.c
             ${_emu}/opl_script.c ${_emu}/opl_lle.c ${_lle}/fmopl2.c
-        INCLUDES ${RP6502_GEN} ${_emu} ${_lle}
+        INCLUDES ${RP6502_GEN} ${_emu} ${_lle} ${RP6502_SRC}/host/pocket
         DEPENDS rp6502_gen_assets rp6502_gen_c
         ARGS -GSST_CLK=0
         TIMEOUT 600)

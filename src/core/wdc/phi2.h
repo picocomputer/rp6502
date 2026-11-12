@@ -42,7 +42,9 @@ void phi2_apply_khz(uint16_t phi2_khz, bool changed);
 void phi2_sst_save(sst_cursor_t *c, unsigned flags);
 bool phi2_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define PHI2_DRIVER DRIVER(phi2_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    PHI2_CONFIG_KHZ, nul_config, SST(PHI2, 1, PHI2_SST_SIZE, phi2_sst_save, phi2_sst_load))
+#define PHI2_DRIVER DRIVER(                                    \
+    INIT(phi2_init)                                            \
+    PHI2_CONFIG_KHZ                                            \
+    SST(PHI2, 1, PHI2_SST_SIZE, phi2_sst_save, phi2_sst_load))
 
 #endif /* _CORE_WDC_PHI2_H_ */

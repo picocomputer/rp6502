@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/sst.h"
 
 void std_init(void);
@@ -118,7 +118,10 @@ const std_driver_t *std_drivers(size_t *count);
 void std_sst_save(sst_cursor_t *c, unsigned flags);
 bool std_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define STD_DRIVER DRIVER(std_init, std_task, nul_task, nul_run, std_stop, nul_break, \
-    nul_config, nul_config, SST(STD_, 2, STD_SST_SIZE, std_sst_save, std_sst_load))
+#define STD_DRIVER DRIVER(                                  \
+    INIT(std_init)                                          \
+    TASK_PUMPED(std_task)                                   \
+    STOP(std_stop)                                          \
+    SST(STD_, 2, STD_SST_SIZE, std_sst_save, std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

@@ -67,7 +67,9 @@ void mouse_report(int slot, uint8_t const *report, size_t size);
 void mouse_sst_save(sst_cursor_t *c, unsigned flags);
 bool mouse_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define MOUSE_DRIVER DRIVER(mouse_init, nul_task, nul_task, nul_run, mouse_stop, nul_break, \
-    nul_config, nul_config, SST(MOUS, 1, MOUSE_SST_SIZE, mouse_sst_save, mouse_sst_load))
+#define MOUSE_DRIVER DRIVER(                                      \
+    INIT(mouse_init)                                              \
+    STOP(mouse_stop)                                              \
+    SST(MOUS, 1, MOUSE_SST_SIZE, mouse_sst_save, mouse_sst_load))
 
 #endif /* _CORE_HID_MOUSE_H_ */

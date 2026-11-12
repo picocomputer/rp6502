@@ -13,6 +13,7 @@
 #include "ria/sys/ria.h"
 #include "ria/sys/rp2350.h"
 #include "ria.pio.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/pio.h>
 #include <hardware/pwm.h>
@@ -59,7 +60,7 @@ static int32_t aud_err[2][2];
 static uint32_t aud_words[2][AUD_PWM_PER_SAMPLE];
 static uint aud_sm[2];
 
-__attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int32_t sl, int32_t sr)
+__attribute__((optimize("O2"))) static void HOST_IN_RAM_FUNC aud_shape(int32_t sl, int32_t sr)
 {
     sl -= (sl + 32) >> 6;
     sr -= (sr + 32) >> 6;
@@ -96,7 +97,7 @@ __attribute__((optimize("O2"))) static void __time_critical_func(aud_shape)(int3
  * because a mapping changes only under aud_engine_lock. The OPL2's writes
  * are gathered and go into its queue in one copy, so a full ring of 40 on
  * the worst sample pays the queue's barriers once. */
-__attribute__((optimize("O3"))) static void __time_critical_func(aud_drain)(void)
+__attribute__((optimize("O3"))) static void HOST_IN_RAM_FUNC aud_drain(void)
 {
     const uint32_t n = RING_LEN(&ria_aud.ring);
     const uint32_t psg_at = ria_aud.psg_at;
@@ -193,7 +194,7 @@ static inline void aud_load_measure(void)
 /* The words shaped by the previous interrupt go out first, while each FIFO
  * still holds two, so they play without a gap however long the sample
  * generators take after them. */
-static void __isr __time_critical_func(aud_irq)(void)
+static void HOST_ISR_FUNC aud_irq(void)
 {
     for (int i = 0; i < AUD_PWM_PER_SAMPLE; i++)
     {
@@ -235,7 +236,7 @@ static void __isr __time_critical_func(aud_irq)(void)
     aud_load_measure();
 }
 
-void __in_flash("aud_init") aud_init(void)
+void HOST_IN_FLASH_FUNC aud_init(void)
 {
     pwm_config config = pwm_get_default_config();
     pwm_config_set_wrap(&config, AUD_PWM_PER_SAMPLE * AUD_PWM_PERIOD - 1);
@@ -276,9 +277,7 @@ void __in_flash("aud_init") aud_init(void)
 
     bel_init();
 
-    /* Below the VGA interrupts, above USB and everything else at the
-     * default. */
-    irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_priority(PWM_IRQ_WRAP_0, RP2350_IRQ_PRIORITY_AUD);
     pwm_clear_irq(AUD_IRQ_SLICE);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, aud_irq);
     pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
@@ -292,12 +291,12 @@ void __in_flash("aud_init") aud_init(void)
     pio_enable_sm_mask_in_sync(AUD_PIO, (1u << aud_sm[0]) | (1u << aud_sm[1]));
 }
 
-void aud_task(void) { bel_task(); }
+void HOST_IN_RAM_FUNC aud_task(void) { bel_task(); }
 
 /* From the main loop, beside aud_irq on core 0. The gate's read and write
  * need no lock, because aud_irq never moves the bell into or out of
  * release. */
-void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
+void HOST_IN_RAM_FUNC aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
 
 /* Core1 queues rather than calling aud_xram_write, so the only thing that ever
  * reaches an engine here is aud_irq, and holding the engines still means
@@ -306,8 +305,13 @@ void aud_bel_put(unsigned i, uint8_t val) { psg_put(PSG_REGS_SIZE + i, val); }
  * the PCM: device, and held for well under a sample: two wraps in one hold
  * raise one interrupt, and a sample is lost. Whatever
  * core1 queued before then is applied first, under the mapping it was
- * written for. */
-static void aud_engine_lock(void)
+ * written for.
+ *
+ * Everything that runs while the lock is held is in RAM, because an XIP miss
+ * there delays the interrupt. The functions that take the lock are noinline,
+ * so no caller in flash takes their bodies in, and what they call under it
+ * is in RAM. */
+static void HOST_IN_RAM_FUNC aud_engine_lock(void)
 {
     irq_set_enabled(PWM_IRQ_WRAP_0, false);
     /* irq_set_enabled posts a write to the NVIC and adds no barrier of its
@@ -322,7 +326,7 @@ static void aud_engine_lock(void)
  * by. The interrupt coming back late costs nothing, so it needs no hardware
  * barrier, only the compiler to have stored everything the lock covered,
  * the engines' plain statics among them. */
-static void aud_engine_unlock(void)
+static void HOST_IN_RAM_FUNC aud_engine_unlock(void)
 {
     const uint16_t psg = psg_xaddr_get();
     const uint16_t opl = opl_xaddr_get();
@@ -334,7 +338,7 @@ static void aud_engine_unlock(void)
 
 /* A program's end takes its sound with it, so the close that std_stop makes
  * next has nothing to wait for. */
-void aud_stop(void)
+void __noinline HOST_IN_RAM_FUNC aud_stop(void)
 {
     aud_engine_lock();
     psg_park();
@@ -347,7 +351,7 @@ void aud_stop(void)
 
 /* The lock drains the ring first, so every write core1 queued before the
  * call is counted. */
-uint32_t aud_opl_overruns(void)
+uint32_t __noinline HOST_IN_RAM_FUNC aud_opl_overruns(void)
 {
     aud_engine_lock();
     const uint32_t drops = opl_take_drops();
@@ -355,7 +359,7 @@ uint32_t aud_opl_overruns(void)
     return drops;
 }
 
-uint32_t aud_pcm_underruns(void)
+uint32_t __noinline HOST_IN_RAM_FUNC aud_pcm_underruns(void)
 {
     aud_engine_lock();
     const uint32_t underruns = aud_pcm.underruns;
@@ -364,7 +368,7 @@ uint32_t aud_pcm_underruns(void)
     return underruns;
 }
 
-void aud_psg_map(uint16_t word)
+void __noinline HOST_IN_RAM_FUNC aud_psg_map(uint16_t word)
 {
     aud_engine_lock();
     psg_map(word);
@@ -374,7 +378,7 @@ void aud_psg_map(uint16_t word)
 /* opl_reset takes longer than a sample, so it runs between two holds of the
  * lock, on a parked engine that aud_irq leaves alone and core1 queues
  * nothing for. */
-void aud_opl_map(uint16_t word)
+void __noinline HOST_IN_RAM_FUNC aud_opl_map(uint16_t word)
 {
     aud_engine_lock();
     opl_park();
@@ -385,7 +389,7 @@ void aud_opl_map(uint16_t word)
     aud_engine_unlock();
 }
 
-bool aud_pcm_open(const pcm_fmt_t *fmt)
+bool __noinline HOST_IN_RAM_FUNC aud_pcm_open(const pcm_fmt_t *fmt)
 {
     if (aud_pcm_on)
         return false;
@@ -396,24 +400,24 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     return true;
 }
 
-void aud_pcm_close(void)
+void __noinline HOST_IN_RAM_FUNC aud_pcm_close(void)
 {
     aud_engine_lock();
     aud_pcm_on = false;
     aud_engine_unlock();
 }
 
-uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
+uint32_t HOST_IN_RAM_FUNC aud_pcm_write(const uint8_t *buf, uint32_t n)
 {
     return pcm_put(&aud_pcm, buf, n);
 }
 
-uint16_t aud_pcm_level(void)
+uint16_t HOST_IN_RAM_FUNC aud_pcm_level(void)
 {
     return pcm_level(&aud_pcm);
 }
 
-void aud_pcm_clear(void)
+void __noinline HOST_IN_RAM_FUNC aud_pcm_clear(void)
 {
     aud_engine_lock();
     pcm_clear(&aud_pcm);

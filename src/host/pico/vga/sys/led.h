@@ -21,6 +21,6 @@
 
 void led_init(void);
 
-#define LED_DRIVER DRIVER(led_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define LED_DRIVER DRIVER(INIT(led_init))
 
 #endif /* _VGA_SYS_LED_H_ */

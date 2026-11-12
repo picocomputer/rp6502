@@ -12,7 +12,7 @@
 #include "core/hid/tablet.h"
 #include "machine.h"
 
-static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
+static inline int32_t HOST_IN_RAM_FUNC hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size >= 32)
         return (int32_t)raw_value;
@@ -31,7 +31,7 @@ static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
     }
 }
 
-uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
+uint32_t HOST_IN_RAM_FUNC hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
     if (!bit_size || bit_size > 32)
         return 0;
@@ -56,12 +56,12 @@ uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t b
     return (uint32_t)value;
 }
 
-int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
+int32_t HOST_IN_RAM_FUNC hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
     return hid_extend_signed(hid_extract_bits(report, report_len, bit_offset, bit_size), bit_size);
 }
 
-uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+uint8_t HOST_IN_RAM_FUNC hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
     bool reversed = logical_min > logical_max;
     int32_t min = reversed ? logical_max : logical_min;
@@ -81,19 +81,28 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
     if (value > max)
         value = max;
 
-    /* A range spanning the whole of int32 has more discrete values than an
-     * int32 can count, and is refused here rather than divided by what is
-     * left of the count. */
-    int32_t discrete_values = max - min + 1;
-    if (!discrete_values)
+    /* The ends of the range land on 0 and 255, rounded to the nearest step,
+     * so that the middle of a range with an odd count, such as -127..127,
+     * lands on 128 rather than one short of it. */
+    int64_t span = (int64_t)max - min;
+    if (!span)
         return 0;
-
-    return ((value - min) * 256 / discrete_values);
+    return (uint8_t)((((int64_t)value - min) * 255 + span / 2) / span);
 }
 
-int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+/* A reversed range, such as an XInput stick that counts up as positive, reads
+ * as the negation of the same axis read forward, so its centre stays at 0. The
+ * negation of the lowest reading has no int8 and stops at 127. A trigger's
+ * reversed range is mirrored in hid_scale_analog instead, which suits an
+ * unsigned value. */
+int8_t HOST_IN_RAM_FUNC hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    return hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
+    if (logical_min > logical_max)
+    {
+        int value = 128 - hid_scale_analog(raw_value, bit_size, logical_max, logical_min);
+        return (int8_t)(value > 127 ? 127 : value);
+    }
+    return (int8_t)(hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128);
 }
 
 static uint8_t hid_claims[HID_MAX_SLOTS];
@@ -134,7 +143,7 @@ int hid_mount(const keyboard_connection_t *keyboard,
     return claims ? slot : -1;
 }
 
-void hid_report(int slot, const uint8_t *data, uint16_t len)
+void HOST_IN_RAM_FUNC hid_report(int slot, const uint8_t *data, uint16_t len)
 {
     if (slot < 0 || slot >= HID_MAX_SLOTS)
         return;

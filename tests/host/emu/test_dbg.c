@@ -230,7 +230,6 @@ UTEST(dbg, a_stop_holds_the_cpu_and_not_the_screen)
     for (int i = 0; i < 200000; i++)
     {
         sys_task();
-        sys_io_task();
         sys_commit();
     }
     ASSERT_TRUE(dbg_is_stopped());

@@ -124,7 +124,9 @@ void term_set_height(uint8_t width, uint8_t height);
 void term_sst_save(sst_cursor_t *c, unsigned flags);
 bool term_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define TERM_DRIVER DRIVER(term_init, nul_task, term_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(TERM, 1, TERM_SST_SIZE, term_sst_save, term_sst_load))
+#define TERM_DRIVER DRIVER(                                    \
+    INIT(term_init)                                            \
+    TASK_FATFS(term_task)                                      \
+    SST(TERM, 1, TERM_SST_SIZE, term_sst_save, term_sst_load))
 
 #endif /* _CORE_TERM_TERM_H_ */

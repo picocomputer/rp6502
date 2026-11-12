@@ -29,8 +29,7 @@
  * It returns once the run is requested, before the machine starts, so a
  * caller inside a driver pass lets that pass commit the request, and a host
  * outside one calls sys_commit itself. */
-#define PROC_REFILL 0x01  /* fill sram and xram first: a fresh machine, not a program change */
-#define PROC_UNCHAIN 0x02 /* break any launcher chain, because a program asked for by name is not a child */
+#define PROC_REFILL 0x01 /* fill sram and xram first: a fresh machine, not a program change */
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
 
 /* The line that the last proc_boot printed on the console, or "" when that
@@ -47,7 +46,7 @@ bool proc_set_argv(const char *rom, int argc, char *const *args);
 bool proc_argv_fits(const char *rom, int argc, char *const *args);
 
 /* Ask for an exec of what argv[0] names. The 6502 stops here, but the load
- * waits for proc_exec_task in the io column, so a program's RAM is never
+ * waits for proc_exec_task, a TASK_FATFS, so a program's RAM is never
  * written over from inside the syscall that asked for it. proc_exec_inflight
  * answers true until the load has happened. */
 void proc_exec_request(void);
@@ -66,7 +65,19 @@ bool proc_exited(void);
 void proc_sst_save(sst_cursor_t *c, unsigned flags);
 bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define PROC_DRIVER DRIVER(proc_exec_init, nul_task, proc_exec_task, proc_run, proc_stop, nul_break, \
-    nul_config, nul_config, SST(PROC, 1, PROC_SST_SIZE, proc_sst_save, proc_sst_load))
+/* A break cancels an exec or relaunch still queued, which ends the chain. */
+void proc_exec_break(void);
+
+/* The host is closing the machine. It ends the session the way a break does,
+ * so no launcher relaunches into a machine that is going away. */
+void proc_shutdown(void);
+
+#define PROC_DRIVER DRIVER(                                    \
+    INIT(proc_exec_init)                                       \
+    TASK_FATFS(proc_exec_task)                                 \
+    RUN(proc_run)                                              \
+    STOP(proc_stop)                                            \
+    BREAK(proc_exec_break)                                     \
+    SST(PROC, 1, PROC_SST_SIZE, proc_sst_save, proc_sst_load))
 
 #endif /* _CORE_SYS_PROC_H_ */

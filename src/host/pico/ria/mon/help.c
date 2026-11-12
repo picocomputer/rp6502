@@ -25,7 +25,7 @@ typedef struct
     mon_response_fn extra_fn;
 } help_entry_t;
 
-__in_flash("help_commands") static const help_entry_t HELP_COMMANDS[] = {
+HOST_IN_FLASH static const help_entry_t HELP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
@@ -70,7 +70,6 @@ static const char *help_find_setting(const char *key, mon_response_fn *fn)
 {
     if (!strcasecmp(key, STR_BOOT))
         return S(STR_HELP_SET_BOOT);
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, attr, resp, help, helpfn) \
     if (!strcasecmp(key, attr))                                                       \
     {                                                                                 \
@@ -82,17 +81,13 @@ static const char *help_find_setting(const char *key, mon_response_fn *fn)
 #define CONFIG_RAW CONFIG_INT
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
     return NULL;
 }
 
-__in_flash("help_disk") static const help_entry_t HELP_DISK[] = {
+HOST_IN_FLASH static const help_entry_t HELP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
 #if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
@@ -139,7 +134,7 @@ const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
 
 // str_parse_string returns static storage that its next call overwrites, so
 // word is copied before the sub-key is parsed.
-static void HOST_IN_FLASH_FUNC("help_split") help_split(const char *args, char *word,
+static void HOST_IN_FLASH_FUNC help_split(const char *args, char *word,
                                                         size_t word_size, const char **sub)
 {
     const char *tok = str_parse_string(&args);
@@ -150,7 +145,7 @@ static void HOST_IN_FLASH_FUNC("help_split") help_split(const char *args, char *
         *sub = str_parse_string(&args);
 }
 
-void HOST_IN_FLASH_FUNC("help_mon_help") help_mon_help(const char *args)
+void HOST_IN_FLASH_FUNC help_mon_help(const char *args)
 {
     if (!*args)
     {
@@ -179,7 +174,7 @@ void HOST_IN_FLASH_FUNC("help_mon_help") help_mon_help(const char *args)
         mon_add_response_fn(fn);
 }
 
-bool HOST_IN_FLASH_FUNC("help_topic_exists") help_topic_exists(const char *buf)
+bool HOST_IN_FLASH_FUNC help_topic_exists(const char *buf)
 {
     char word[16];
     const char *sub;

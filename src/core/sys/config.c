@@ -6,6 +6,7 @@
 
 #include "core/sys/config.h"
 #include "core/str/str.h"
+#include "machine.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -27,7 +28,6 @@ static bool config_dirty;
 
 /* These enumerators cost nothing and make a letter used twice a redeclaration
  * error; the storage below does the same for a name. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     enum { config_letter_##ltr };
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...) \
@@ -35,15 +35,10 @@ static bool config_dirty;
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     static type config_##pfx##_##name = def;
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...) \
@@ -51,31 +46,22 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
 /* A machine with no CONFIG_SAVE row still validates, stores and applies its
  * settings; only the write is missing. */
 static void config_save_now(void)
 {
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(...)
 #define CONFIG_STR(...)
 #define CONFIG_RAW(...)
 #define CONFIG_HIDDEN(...)
 #define CONFIG_SAVE(fn) fn();
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }
 
 static bool config_end(bool ok, bool changed)
@@ -94,9 +80,8 @@ static bool config_end(bool ok, bool changed)
  * apply is given the value as it was asked for rather than the normalized
  * one, so that a value meaning an action reaches the driver intact, and it
  * runs whether or not the stored byte moved. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...)  \
-    type pfx##_get_##name(void) { return config_##pfx##_##name; } \
+    type HOST_IN_RAM_FUNC pfx##_get_##name(void) { return config_##pfx##_##name; } \
     bool pfx##_set_##name(type v)                                 \
     {                                                             \
         type stored = v;                                          \
@@ -109,7 +94,7 @@ static bool config_end(bool ok, bool changed)
         return config_end(true, changed);                         \
     }
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...)         \
-    const char *pfx##_get_##name(void) { return config_##pfx##_##name; } \
+    const char *HOST_IN_RAM_FUNC pfx##_get_##name(void) { return config_##pfx##_##name; } \
     bool pfx##_set_##name(const char *v)                                 \
     {                                                                    \
         char stored[size];                                               \
@@ -127,13 +112,9 @@ static bool config_end(bool ok, bool changed)
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 
 void config_load_line(char letter, const char *value)
 {
@@ -141,7 +122,6 @@ void config_load_line(char letter, const char *value)
  * and "P"[0] is not an integer constant expression, so it cannot be a case
  * label. An unknown letter falls out of the chain and is ignored, which is
  * what lets a file written by one machine load on another. */
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     if (letter == (#ltr)[0])                                     \
     {                                                            \
@@ -170,13 +150,9 @@ void config_load_line(char letter, const char *value)
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
     (void)letter;
     (void)value;
 }
@@ -195,7 +171,6 @@ static void config_emit(config_sink_t sink, void *arg, const char *fmt, ...)
 void config_render(config_sink_t sink, void *arg)
 {
     config_emit(sink, arg, "+V%u\n", CONFIG_VERSION);
-#define DRIVER(i, t, iot, r, s, b, c1, c2, ...) c1 c2
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
     config_emit(sink, arg, "+" #ltr "%u\n",                      \
                 (unsigned)config_##pfx##_##name);
@@ -204,11 +179,7 @@ void config_render(config_sink_t sink, void *arg)
 #define CONFIG_RAW CONFIG_STR
 #define CONFIG_HIDDEN(l, p, n, sz, d, c, a) CONFIG_STR(l, p, n, sz, d, c, a, 0, 0, 0, 0)
 #define CONFIG_SAVE(fn)
+#include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#undef CONFIG_SAVE
-#undef CONFIG_HIDDEN
-#undef CONFIG_RAW
-#undef CONFIG_STR
-#undef CONFIG_INT
-#undef DRIVER
+#include "core/sys/driver_walk_end.h"
 }

@@ -21,7 +21,13 @@ static bool proc_exec_pending;
 
 void proc_restage(void)
 {
-    proc_exec_pending = false;
+    /* A start by name overrides an exec still on its way, and the stop that
+     * exec made did not end the chain, so it ends here. */
+    if (proc_exec_pending)
+    {
+        proc_exec_pending = false;
+        proc_chain_end();
+    }
     proc_cancel_launcher();
     arg_clear();
     proc_run();
@@ -79,12 +85,14 @@ bool proc_exec_take(void)
     proc_exec_pending = false;
     if (!proc_argv0_absolute())
     {
+        proc_exec_failed();
         printf("argv does not fit for ROM '%s'\n", arg_index(0));
         return false;
     }
     const char *path = arg_index(0);
     if (!rom_load(path))
     {
+        proc_exec_failed();
         printf("exec: no %s\n", path);
         return false;
     }

@@ -9,8 +9,11 @@
 #include "core/api/proc.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "core/sys/com.h"
+#include "core/str/oem.h"
+#include "core/com/tio.h"
+#include "core/com/com.h"
 #include "core/sys/sys.h"
+#include "machine.h"
 #include "osal/dir.h"
 
 #include <string.h>
@@ -19,7 +22,7 @@ static char *proc_running_path;
 static char *proc_launcher_path;
 static int16_t proc_exit_code;
 
-static void set_path(char **slot, const char *path)
+static void HOST_IN_RAM_FUNC set_path(char **slot, const char *path)
 {
     if (*slot)
         os_dir_path_drop(*slot);
@@ -57,7 +60,7 @@ void proc_set_launcher(bool is_launcher)
     set_path(&proc_launcher_path, is_launcher ? proc_running_path : NULL);
 }
 
-void proc_cancel_launcher(void)
+void HOST_IN_RAM_FUNC proc_cancel_launcher(void)
 {
     set_path(&proc_launcher_path, NULL);
 }
@@ -73,42 +76,84 @@ int16_t proc_get_exit_code(void)
     return proc_exit_code;
 }
 
-void proc_set_exit_code(int16_t code)
+void HOST_IN_RAM_FUNC proc_set_exit_code(int16_t code)
 {
     proc_exit_code = code;
 }
 
-void proc_exit(int16_t exit_code)
+void HOST_IN_RAM_FUNC proc_exit(int16_t exit_code)
 {
     proc_set_exit_code(exit_code);
     sys_stop();
 }
 
-bool proc_stop(void)
+void HOST_IN_RAM_FUNC proc_break(void)
 {
-    if (proc_exec_inflight())
-    {
-        /* A load the exiting program or the user already asked for is on its
-         * way, so the launcher must not be scheduled over it. */
-        set_path(&proc_running_path, NULL);
-        return true;
-    }
-    bool relaunch = !proc_is_launcher() && proc_has_launcher();
-    set_path(&proc_running_path, NULL);
-    if (!relaunch)
-    {
-        set_path(&proc_launcher_path, NULL);
-        /* No ROM is launching, so the type-ahead goes. */
-        com_rx_clear();
+    proc_cancel_launcher();
+    sys_break_request();
+}
+
+bool proc_break_to_monitor(void)
+{
+    if (!RP6502_HAS_MONITOR)
         return false;
-    }
-    arg_clear();
-    arg_append(proc_launcher_path);
-    proc_exec_relaunch();
+    proc_break();
     return true;
 }
 
-bool proc_api_argv(void)
+bool proc_quit(void)
+{
+    if (!sys_running() || proc_is_launcher() ||
+        (!RP6502_HAS_MONITOR && !proc_has_launcher()))
+        return false;
+    proc_exit(-1);
+    return true;
+}
+
+void proc_stop(void)
+{
+    /* A load the exiting program or the user already asked for is on its
+     * way, so the launcher must not be scheduled over it. */
+    bool inflight = proc_exec_inflight();
+    bool relaunch = !inflight && !proc_is_launcher() && proc_has_launcher();
+    set_path(&proc_running_path, NULL);
+    if (inflight)
+        return;
+    if (relaunch)
+    {
+        arg_clear();
+        arg_append(proc_launcher_path);
+        proc_exec_relaunch();
+        if (proc_exec_inflight())
+            return;
+    }
+    proc_chain_end();
+}
+
+void proc_chain_end(void)
+{
+    proc_cancel_launcher();
+    com_rx_clear();
+    com_end_reset();
+    /* Output reaches the VGA before a code page change clears it. */
+    com_flush();
+    oem_restore_code_page();
+    tio_cursor_default();
+    com_set_bel(true);
+    /* The soft reset and the cursor shape move no cursor. */
+    com_line_set_clean();
+}
+
+void proc_exec_failed(void)
+{
+    proc_set_exit_code(1);
+    proc_cancel_launcher();
+    /* Nothing else ends a chain whose load failed after the stop. */
+    if (!sys_active())
+        proc_chain_end();
+}
+
+bool HOST_IN_FLASH_FUNC proc_api_argv(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -120,15 +165,10 @@ bool proc_api_argv(void)
  * path, because by the time a load can fail, the program that called EXEC has
  * already stopped; the error is printed on the console. A refused argv leaves
  * the argv empty, as a layout that does not parse does. */
-bool proc_api_exec(void)
+bool HOST_IN_FLASH_FUNC proc_api_exec(void)
 {
-    if (!arg_pull_xstack())
+    if (!arg_pull_xstack(API_PATH_MAX))
         return api_return_errno(API_EINVAL);
-    if (strlen(arg_index(0)) > API_PATH_MAX)
-    {
-        arg_clear();
-        return api_return_errno(API_EINVAL);
-    }
     proc_exec_start();
     return api_return_ax(0);
 }

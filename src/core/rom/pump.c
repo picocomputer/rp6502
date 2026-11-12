@@ -11,6 +11,7 @@
 #include "host/host.h"
 #include "core/rom/rom.h"
 #include "core/str/str.h"
+#include "machine.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -222,7 +223,7 @@ bool rom_pump_complete(const rom_pump_t *p)
     return p->vec_lo && p->vec_hi;
 }
 
-void rom_pump_close(rom_pump_t *p)
+void HOST_IN_RAM_FUNC rom_pump_close(rom_pump_t *p)
 {
     if (p->fd >= 0)
     {

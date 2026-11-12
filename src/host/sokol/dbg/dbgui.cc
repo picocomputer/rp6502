@@ -153,6 +153,7 @@ struct dbg_tex
 {
     sg_image img;
     sg_view view;
+    sg_buffer staging; /* each update goes through it into img */
     bool used;
 };
 static dbg_tex g_tex[4];
@@ -165,11 +166,17 @@ static ui_texture_t tex_create(int w, int h, const char *label)
         if (t.used)
             continue;
         sg_image_desc id{};
-        id.usage.stream_update = true;
+        id.usage.copy_dst = true;
         id.width = w;
         id.height = h;
         id.pixel_format = SG_PIXELFORMAT_RGBA8;
         t.img = sg_make_image(&id);
+        sg_buffer_desc bd{};
+        bd.usage.staging_buffer = true;
+        bd.usage.write_transient = true;
+        bd.usage.copy_src = true;
+        bd.size = (size_t)sg_query_surface_pitch(SG_PIXELFORMAT_RGBA8, w, h, 1);
+        t.staging = sg_make_buffer(&bd);
         sg_view_desc vd{};
         vd.texture.image = t.img;
         t.view = sg_make_view(&vd);
@@ -192,10 +199,15 @@ static void tex_update(ui_texture_t h, void *data, int size)
     dbg_tex *t = tex_find(h);
     if (!t)
         return;
-    sg_image_data d{};
-    d.mip_levels[0].ptr = data;
-    d.mip_levels[0].size = (size_t)size;
-    sg_update_image(t->img, &d);
+    sg_write_buffer_desc wd{};
+    wd.src.data.ptr = data;
+    wd.src.data.size = (size_t)size;
+    wd.dst.buffer = t->staging;
+    sg_write_buffer_transient(&wd);
+    sg_copy_buffer_to_image_desc cd{};
+    cd.src.buffer = t->staging;
+    cd.dst.image = t->img;
+    sg_copy_buffer_to_image(&cd);
 }
 
 static void tex_destroy(ui_texture_t h)
@@ -205,6 +217,7 @@ static void tex_destroy(ui_texture_t h)
         return;
     sg_destroy_view(t->view);
     sg_destroy_image(t->img);
+    sg_destroy_buffer(t->staging);
     t->used = false;
 }
 
@@ -779,15 +792,15 @@ void dbgui_init(float display_scale)
      * pixel. */
     ImGui::GetIO().Fonts->AddFontDefaultBitmap();
 
-    /* Static icon for the Credits masthead: pixels at creation, no
-     * stream_update (unlike the ui_dbg heatmap in tex_create). */
+    /* Static icon for the Credits masthead: pixels at creation, unlike the
+     * ui_dbg heatmap in tex_create, which is written again each update. */
     const sapp_image_desc &ico = icon_desc()->images[2]; /* 64x64 */
     sg_image_desc iid{};
     iid.width = ico.width;
     iid.height = ico.height;
     iid.pixel_format = SG_PIXELFORMAT_RGBA8;
-    iid.data.mip_levels[0].ptr = ico.pixels.ptr;
-    iid.data.mip_levels[0].size = ico.pixels.size;
+    iid.data.ptr = ico.pixels.ptr;
+    iid.data.size = ico.pixels.size;
     g_credits_icon_img = sg_make_image(&iid);
     sg_view_desc ivd{};
     ivd.texture.image = g_credits_icon_img;
@@ -1215,7 +1228,8 @@ void dbgui_draw(void)
     ui_audio_draw(&g_audio, g_audio.open ? aud_viz_take(g_audio_samples) : 0);
 }
 
-void dbgui_render(void) { simgui_render(); }
+void dbgui_flush(void) { simgui_flush(); }
+void dbgui_render(void) { simgui_draw(); }
 
 /* Per-cycle view update. This is the chips-native way to keep the disassembly
  * view honest: ui_dbg_tick records

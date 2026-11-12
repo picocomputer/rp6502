@@ -119,7 +119,8 @@ void opl_park(void);
 void opl_sst_save(sst_cursor_t *c, unsigned flags);
 bool opl_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define OPL_DRIVER DRIVER(opl_reset, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(OPL_, 2, OPL_SST_SIZE, opl_sst_save, opl_sst_load))
+#define OPL_DRIVER DRIVER(                                  \
+    INIT(opl_reset)                                         \
+    SST(OPL_, 2, OPL_SST_SIZE, opl_sst_save, opl_sst_load))
 
 #endif /* _CORE_AUD_OPL_H_ */

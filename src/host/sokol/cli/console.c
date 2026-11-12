@@ -20,9 +20,8 @@
 #include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
-#include "core/com/com.h"
-#include "core/sys/com_term.h"
-#include "core/com/tty.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/vga/vga_emu.h"
 #include "osal/console.h"
 #include <stdbool.h>
@@ -46,10 +45,11 @@ static size_t stdin_rx(char *buf, size_t max)
     }
     if (n || !os_console_ended())
         return n;
-    /* End of file is reported only while a read is outstanding and the input
-     * rings are empty, because std_stdin_eof gives that read up and bytes
-     * still queued would never reach it. */
-    if (!stdin_closed && std_stdin_waiting() && com_input_idle())
+    /* End of file is reported only while a read is outstanding and no whole
+     * item is waiting, because std_stdin_eof gives that read up and items
+     * still queued would never reach it. A sequence the input ended inside,
+     * such as a lone ESC, is no item and is left where it is. */
+    if (!stdin_closed && std_stdin_waiting() && tio_idle())
     {
         stdin_closed = true;
         std_stdin_eof();
@@ -64,30 +64,33 @@ static void console_tx(const char *buf, int len)
         os_console_break_ask(); /* the reader has gone */
 }
 
-bool console_open(void)
+bool console_open(bool window)
 {
     bool typed = os_console_stdin_is_terminal();
     bool terminal = os_console_is_terminal();
     if (typed)
         os_console_raw(true);
-    tty_set_wire(terminal ? console_tx : NULL, stdin_rx, !typed);
+    manifold_set_wire(terminal ? console_tx : NULL, stdin_rx, !typed);
+    if (!window)
+        manifold_set_term_in_charge(terminal ? COM_TERM_UART : 0);
     if (!terminal)
         return false;
-    /* Two terminals must not both answer a program's query. The host's is
-     * the one the program can see, so the emulated one stops answering and
-     * goes on drawing. */
-    com_suppress_term_reply(true);
+    /* Two terminals must not both answer a program's query. Without a window
+     * the host's is the one the program can see, so the emulated one stops
+     * answering and goes on drawing. */
+    if (!window)
+        manifold_suppress_reply(true);
     /* The program's stderr already reaches this screen through console_tx,
      * so a second copy on the host's stderr would print everything twice. A
      * redirected stderr is another destination and keeps its copy. */
     if (os_console_stderr_is_terminal())
-        com_set_stderr_sink(NULL);
+        manifold_set_stderr_sink(NULL);
     return true;
 }
 
 void console_idle(void)
 {
-    if (!std_stdin_waiting() || !com_input_idle())
+    if (!std_stdin_waiting() || !tio_idle())
         return;
     fflush(stdout);
     os_console_wait(VGA_FRAME_NS);

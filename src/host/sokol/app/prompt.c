@@ -174,7 +174,7 @@ void prompt_setup(void)
         .width = ico->width,
         .height = ico->height,
         .pixel_format = SG_PIXELFORMAT_RGBA8,
-        .data.mip_levels[0] = {.ptr = ico->pixels.ptr, .size = ico->pixels.size},
+        .data = {.ptr = ico->pixels.ptr, .size = ico->pixels.size},
     });
     prompt_icon.view = sg_make_view(&(sg_view_desc){.texture.image = prompt_icon.img});
     prompt_icon.smp = sg_make_sampler(&(sg_sampler_desc){

@@ -14,6 +14,12 @@
 #include <littlefs/lfs.h>
 #include "core/api/api.h"
 
+/* 256 sectors of 4 KB, a 1 MB volume at the end of flash. Nothing else is
+ * written from LFS_FLASH_OFFS on. */
+#define LFS_DISK_BLOCKS 256
+#define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
+#define LFS_FLASH_OFFS (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE)
+
 extern lfs_t lfs_volume;
 
 /* The result lfs_init got from the mount, kept because the filesystem cannot
@@ -39,6 +45,6 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
 
 char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err);
 
-#define LFS_DRIVER DRIVER(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define LFS_DRIVER DRIVER(INIT(lfs_init))
 
 #endif /* _OSAL_PICO_LFS_H_ */

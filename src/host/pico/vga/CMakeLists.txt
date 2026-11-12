@@ -48,7 +48,7 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/vga/mode/mode5.c
     ${VGA_SRC}/scanvideo/scanvideo.c
     ${RP6502_ROOT}/src/core/sys/version.c
-    ${VGA_SRC}/sys/com.c
+    ${VGA_SRC}/com/manifold.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
     ${RP6502_ROOT}/src/core/sys/ring.c

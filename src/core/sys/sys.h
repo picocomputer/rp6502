@@ -20,12 +20,19 @@
 
 void sys_init(void);
 
-/* One pass of this machine's drivers. The task column must be safe to call
- * during blocking file IO, because it is what a host's blocking loops re-enter
- * while a transfer completes; the io_task column may itself perform file IO and
- * is never re-entered. A machine's loop calls both, then sys_commit. */
+/* One pass of this machine's driver tasks, in list order. A machine's loop
+ * calls it, then sys_commit. */
 void sys_task(void);
-void sys_io_task(void);
+
+/* What a blocking wait calls while its transfer completes: the TASK_PUMPED
+ * and TASK_ALWAYS tasks, without the TASK_FATFS ones, which call FatFs and so
+ * would re-enter it. Once flashing starts, only the TASK_ALWAYS ones. */
+void sys_pump(void);
+
+/* Starts flashing: from here on, sys_pump runs only the TASK_ALWAYS tasks.
+ * Then the FLASHING hooks run, in reverse order, from flash still intact.
+ * There is no way back; the RIA reboots or locks up. */
+void sys_set_flashing(void);
 
 /* False only when the machine is fully stopped. True while a start is armed,
  * while the 6502 runs, and while a stop still owes its drivers their fan-out
@@ -52,18 +59,6 @@ void sys_break_request(void);
  * outgoing program away from inside a walk, because its RAM is about to be
  * written over. */
 void sys_stop_now(void);
-
-/* Break to the monitor. If the 6502 is running, stop events will be called
- * first. False when this platform has nowhere to break to, which is a machine
- * with no monitor; the key that asked is then an ordinary key. */
-bool sys_break(void);
-
-/* Like sys_break, but keeps the launcher/exec chain so the launcher re-runs
- * instead of dropping to the monitor. Triggered by Alt-F4. False when there is
- * nowhere to go: from the launcher itself on any platform, and with none
- * registered on a platform that has no monitor to fall back to. A RIA with
- * none registered breaks to the monitor. */
-bool sys_break_to_launcher(void);
 
 /* A savestate carries the run state, which is sys.c's own static and no
  * driver's. A load applies it before it loads the drivers, and applying it

@@ -62,6 +62,9 @@
 #define LWIP_DEBUG 1
 #define LWIP_STATS 1
 #define LWIP_STATS_DISPLAY 1
+#else
+// LWIP_ASSERT ignores NDEBUG, so a release build turns it off here.
+#define LWIP_NOASSERT
 #endif
 
 #define ETHARP_DEBUG LWIP_DBG_OFF

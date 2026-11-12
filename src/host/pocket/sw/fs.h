@@ -53,6 +53,6 @@ const char *fs_strip_drive(const char *path);
  * resolved. It returns false when the result does not fit in cap. */
 bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
 
-#define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break, nul_config, nul_config, nul_sst)
+#define FS_DRIVER DRIVER(STOP(fs_stop))
 
 #endif /* _HOST_POCKET_SW_FS_H_ */

@@ -205,7 +205,10 @@ static inline bool api_return_errno(api_errno errnum)
 void api_sst_save(sst_cursor_t *c, unsigned flags);
 bool api_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break, \
-    nul_config, nul_config, SST(API_, 1, API_SST_SIZE, api_sst_save, api_sst_load))
+#define API_DRIVER DRIVER(                                  \
+    TASK_FATFS(api_task)                                    \
+    RUN(api_run)                                            \
+    STOP(api_stop)                                          \
+    SST(API_, 1, API_SST_SIZE, api_sst_save, api_sst_load))
 
 #endif /* _CORE_API_API_H_ */

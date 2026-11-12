@@ -7,7 +7,8 @@
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
-#include "core/str/rln.h"
+#include "core/com/tio.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/xram.h"
 #include "ria/sys/mbuf.h"
@@ -35,14 +36,14 @@ static uint32_t ram_intel_hex_base;
 
 // Sixteen bytes with their ASCII take 74 columns, or 75 with a five-digit XRAM
 // address.
-static size_t HOST_IN_FLASH_FUNC("ram_chunk_size") ram_chunk_size(void)
+static size_t HOST_IN_FLASH_FUNC ram_chunk_size(void)
 {
-    return rln_get_term_width() >= 74 ? 16 : 8;
+    return tio_get_term_width() >= 74 ? 16 : 8;
 }
 
 static void ram_read_done(bool ok);
 
-static bool HOST_IN_FLASH_FUNC("ram_start_read_chunk") ram_start_read_chunk(void)
+static bool HOST_IN_FLASH_FUNC ram_start_read_chunk(void)
 {
     size_t chunk = ram_chunk_size();
     mbuf_len = ram_rw_end - ram_rw_addr + 1;
@@ -55,14 +56,14 @@ static bool HOST_IN_FLASH_FUNC("ram_start_read_chunk") ram_start_read_chunk(void
     return true;
 }
 
-static int HOST_IN_FLASH_FUNC("ram_print_response") ram_print_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC ram_print_response(char *buf, size_t buf_size,
                                                                        int state, unsigned)
 {
     (void)buf_size;
     if (state < 0)
         return state;
     size_t chunk = ram_chunk_size();
-    int width = rln_get_term_width();
+    int width = tio_get_term_width();
     bool with_ascii = width >= 40;
     // Eight bytes with their ASCII take 41 columns, or 42 with a five-digit
     // XRAM address, so compact mode drops the space after the address and one
@@ -108,20 +109,20 @@ static int HOST_IN_FLASH_FUNC("ram_print_response") ram_print_response(char *buf
     return 0;
 }
 
-static void HOST_IN_FLASH_FUNC("ram_read_done") ram_read_done(bool ok)
+static void HOST_IN_FLASH_FUNC ram_read_done(bool ok)
 {
     ram_state = RAM_IDLE;
     if (ok)
         mon_add_response_fn(ram_print_response);
 }
 
-static void HOST_IN_FLASH_FUNC("ram_write_done") ram_write_done(bool ok)
+static void HOST_IN_FLASH_FUNC ram_write_done(bool ok)
 {
     (void)ok;
     ram_state = RAM_IDLE;
 }
 
-static void HOST_IN_FLASH_FUNC("ram_begin_write") ram_begin_write(void)
+static void HOST_IN_FLASH_FUNC ram_begin_write(void)
 {
     if (ram_rw_addr > 0xFFFF)
     {
@@ -129,9 +130,7 @@ static void HOST_IN_FLASH_FUNC("ram_begin_write") ram_begin_write(void)
         for (size_t i = 0; i < mbuf_len; i++)
         {
             xram[ram_rw_addr + i] = mbuf[i];
-            while (!pix_ready())
-                tight_loop_contents();
-            PIX_SEND_XRAM(ram_rw_addr + i, mbuf[i]);
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, mbuf[i], (uint16_t)(ram_rw_addr + i));
         }
         return;
     }
@@ -139,7 +138,7 @@ static void HOST_IN_FLASH_FUNC("ram_begin_write") ram_begin_write(void)
     ram_state = RAM_RIA;
 }
 
-static void HOST_IN_FLASH_FUNC("ram_intel_hex") ram_intel_hex(const char *args)
+static void HOST_IN_FLASH_FUNC ram_intel_hex(const char *args)
 {
     args += 1; // eat colon
     size_t len = strlen(args);
@@ -222,7 +221,7 @@ static void HOST_IN_FLASH_FUNC("ram_intel_hex") ram_intel_hex(const char *args)
 }
 
 // Hex-address commands and Intel HEX records. Read or write memory.
-void HOST_IN_FLASH_FUNC("ram_mon_address") ram_mon_address(const char *args)
+void HOST_IN_FLASH_FUNC ram_mon_address(const char *args)
 {
     if (*args == ':')
         return ram_intel_hex(args);
@@ -316,7 +315,7 @@ void HOST_IN_FLASH_FUNC("ram_mon_address") ram_mon_address(const char *args)
     ram_begin_write();
 }
 
-static void HOST_IN_FLASH_FUNC("ram_rx_mbuf") ram_rx_mbuf(bool timeout)
+static void HOST_IN_FLASH_FUNC ram_rx_mbuf(bool timeout)
 {
     ram_state = RAM_IDLE;
     if (timeout)
@@ -342,19 +341,19 @@ static void HOST_IN_FLASH_FUNC("ram_rx_mbuf") ram_rx_mbuf(bool timeout)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("ram_xram") ram_xram(void)
+static void HOST_IN_FLASH_FUNC ram_xram(void)
 {
     while (ram_rw_size)
     {
         if (!pix_ready())
             return;
         uint32_t addr = ram_rw_addr + --ram_rw_size - 0x10000;
-        PIX_SEND_XRAM(addr, xram[addr]);
+        pix_send(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
     }
     ram_state = RAM_IDLE;
 }
 
-void HOST_IN_FLASH_FUNC("ram_mon_binary") ram_mon_binary(const char *args)
+void HOST_IN_FLASH_FUNC ram_mon_binary(const char *args)
 {
     if (str_parse_uint32(&args, &ram_rw_addr) &&
         str_parse_uint32(&args, &ram_rw_size) &&
@@ -373,14 +372,14 @@ void HOST_IN_FLASH_FUNC("ram_mon_binary") ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        mbuf_read(rln_line_source(), RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
 }
 
-void ram_task(void)
+void HOST_IN_RAM_FUNC ram_task(void)
 {
     if (ram_state == RAM_XRAM)
         ram_xram();

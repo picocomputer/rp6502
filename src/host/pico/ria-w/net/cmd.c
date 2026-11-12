@@ -12,7 +12,6 @@
 #include "ria-w/net/wifi.h"
 #include "ria/mon/help.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>

@@ -12,13 +12,12 @@
 #include "core/hid/tablet.h"
 #include "core/hid/gamepad.h"
 #include "host/hcd.h"
-#include "core/sys/sys.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/usb/msc.h"
 #include "ria-w/ble/ble.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
+#include "ria/sys/rp2350.h"
 #include "core/sys/debug_log.h"
 #include "machine.h"
 #include <pico/time.h>
@@ -54,46 +53,69 @@ static inline void usb_enum_kick(void)
 }
 
 // Custom application class drivers registered with the TinyUSB host.
+enum
+{
+    USB_APP_DRIVER_XIN,
+    USB_APP_DRIVER_MSC,
+};
+static const usbh_class_driver_t usb_app_drivers[] = {
+    [USB_APP_DRIVER_XIN] = {
+        .name = "XInput",
+        .init = xin_class_driver_init,
+        .deinit = NULL,
+        .open = xin_class_driver_open,
+        .set_config = xin_class_driver_set_config,
+        .xfer_cb = xin_class_driver_xfer_cb,
+        .close = xin_class_driver_close,
+    },
+    [USB_APP_DRIVER_MSC] = {
+        .name = "MSC",
+        .init = msc_class_driver_init,
+        .deinit = NULL,
+        .open = msc_class_driver_open,
+        .set_config = msc_class_driver_set_config,
+        .xfer_cb = msc_class_driver_xfer_cb,
+        .close = msc_class_driver_close,
+    },
+};
+
 usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
-    static const usbh_class_driver_t drivers[] = {
-        {
-            .name = "XInput",
-            .init = xin_class_driver_init,
-            .deinit = NULL,
-            .open = xin_class_driver_open,
-            .set_config = xin_class_driver_set_config,
-            .xfer_cb = xin_class_driver_xfer_cb,
-            .close = xin_class_driver_close,
-        },
-        {
-            .name = "MSC",
-            .init = msc_class_driver_init,
-            .deinit = NULL,
-            .open = msc_class_driver_open,
-            .set_config = msc_class_driver_set_config,
-            .xfer_cb = msc_class_driver_xfer_cb,
-            .close = msc_class_driver_close,
-        },
-    };
-    *driver_count = TU_ARRAY_SIZE(drivers);
-    return drivers;
+    *driver_count = TU_ARRAY_SIZE(usb_app_drivers);
+    return usb_app_drivers;
 }
 
-void __in_flash("usb_init") usb_init(void)
+extern bool tuh_keep_only_driver(usbh_class_driver_t const *driver);
+
+/* Flashing reads the image from a drive, so USB keeps only the drives. The
+ * rest of TinyUSB's class drivers are in flash, and their devices are torn
+ * down now, while flash is intact. */
+void HOST_IN_FLASH_FUNC usb_flashing(void)
+{
+    tuh_keep_only_driver(&usb_app_drivers[USB_APP_DRIVER_MSC]);
+}
+
+void HOST_IN_FLASH_FUNC usb_init(void)
 {
     for (int i = 0; i < CFG_TUH_HID; i++)
         usb_hid_slot[i] = -1;
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(TUH_OPT_RHPORT, &rh_init);
+    irq_set_priority(USBCTRL_IRQ, RP2350_IRQ_PRIORITY_USB);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
     usb_enum_kick();
     RP6502_LOG(usb, INFO, "init");
 }
 
-void usb_task(void)
+void HOST_IN_RAM_FUNC usb_task(void)
 {
     tuh_task();
+}
+
+/* The keyboard and gamepad LED reports reach the HID and gamepad code, which
+ * is in flash. */
+void HOST_IN_RAM_FUNC usb_report_task(void)
+{
     while (usb_gamepad_led_pending)
     {
         int i = __builtin_ctz(usb_gamepad_led_pending);
@@ -125,7 +147,7 @@ void usb_task(void)
     }
 }
 
-int HOST_IN_FLASH_FUNC("usb_status_response") usb_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC usb_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -164,7 +186,7 @@ void tuh_hid_report_failed_cb(uint8_t dev_addr, uint8_t idx, xfer_result_t resul
         tuh_hid_receive_report(dev_addr, idx);
 }
 
-void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
+void HOST_IN_FLASH_FUNC tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
 
@@ -203,7 +225,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     tuh_hid_receive_report(dev_addr, idx);
 }
 
-void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
+void HOST_IN_FLASH_FUNC tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
     int slot = usb_hid_slot[idx];
@@ -220,7 +242,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     hid_umount(slot);
 }
 
-bool usb_boot_enumerating(void)
+bool HOST_IN_RAM_FUNC usb_boot_enumerating(void)
 {
     if (usb_boot_enum_finished)
         return false;
@@ -233,7 +255,7 @@ bool usb_boot_enumerating(void)
     return true;
 }
 
-uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
+uint16_t HOST_IN_FLASH_FUNC usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
 {
     const tusb_desc_string_t *desc = desc_buf;
     if (desc->bDescriptorType != TUSB_DESC_STRING || desc->bLength < 2)
@@ -249,7 +271,7 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     return ulen;
 }
 
-void HOST_IN_FLASH_FUNC("usb_desc_string_to_oem") usb_desc_string_to_oem(const void *desc_buf,
+void HOST_IN_FLASH_FUNC usb_desc_string_to_oem(const void *desc_buf,
                                                                          size_t desc_buf_size,
                                                                          char *dest,
                                                                          size_t dest_size)
@@ -266,67 +288,77 @@ void HOST_IN_FLASH_FUNC("usb_desc_string_to_oem") usb_desc_string_to_oem(const v
     oem_from_wide_n(w, ulen, dest, dest_size);
 }
 
-// Only one fetch runs at a time. Once a transfer starts, only
-// usb_string_fetch_cb clears usb_string_pending, even after usb_string_fetch
-// stops waiting, so the buffer is not reused while the transfer can still
-// write to it.
-static uint8_t usb_string_buf[USB_DESC_STRING_BUF_SIZE];
-static bool usb_string_pending;
-static xfer_result_t usb_string_result;
+// The strings of one device, each fetched when first asked for. A fetch for
+// another device replaces them once no transfer is in flight, and so does a
+// new device at the same address. Only usb_string_fetch_cb clears
+// usb_string_busy, so a buffer is not reused while a transfer can still write
+// to it.
+enum
+{
+    USB_STRING_MANUFACTURER,
+    USB_STRING_PRODUCT,
+    USB_STRING_SERIAL,
+    USB_STRING_COUNT,
+};
+static uint8_t usb_string_buf[USB_STRING_COUNT][USB_DESC_STRING_BUF_SIZE];
+static uint8_t usb_string_daddr; // 0 for none
+static uint8_t usb_string_done;  // a bit for each buffer that holds its string
+static bool usb_string_busy;
 
 static void usb_string_fetch_cb(tuh_xfer_t *xfer)
 {
-    usb_string_result = xfer->result;
-    usb_string_pending = false;
+    uint8_t s = (uint8_t)xfer->user_data;
+    if (xfer->result != XFER_RESULT_SUCCESS)
+        memset(usb_string_buf[s], 0, USB_DESC_STRING_BUF_SIZE);
+    usb_string_done |= 1u << s;
+    usb_string_busy = false;
 }
 
-static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
+static const void *HOST_IN_FLASH_FUNC usb_string_fetch(uint8_t daddr, uint8_t s)
 {
-    if (usb_string_pending)
+    if (daddr == usb_string_daddr && (usb_string_done & (1u << s)))
+        return usb_string_buf[s];
+    if (usb_string_busy)
         return NULL;
-    memset(usb_string_buf, 0, sizeof(usb_string_buf));
-    if (!index)
-        return usb_string_buf; // device has no such string
-    usb_string_pending = true;
-    if (!tuh_descriptor_get_string(daddr, index, 0x0409, usb_string_buf,
-                                   sizeof(usb_string_buf), usb_string_fetch_cb, 0))
+    if (daddr != usb_string_daddr)
     {
-        usb_string_pending = false;
-        return NULL;
+        usb_string_daddr = daddr;
+        usb_string_done = 0;
     }
-    uint32_t start_ms = tusb_time_millis_api();
-    while (usb_string_pending)
-    {
-        if (tusb_time_millis_api() - start_ms >= 250)
-            return NULL;
-        sys_task();
-    }
-    if (usb_string_result != XFER_RESULT_SUCCESS)
-        memset(usb_string_buf, 0, sizeof(usb_string_buf));
-    return usb_string_buf;
-}
-
-static const void *usb_string_fetch_dev_field(uint8_t daddr, size_t field_off)
-{
+    memset(usb_string_buf[s], 0, USB_DESC_STRING_BUF_SIZE);
     tusb_desc_device_t desc;
-    if (!tuh_descriptor_get_device_local(daddr, &desc))
-        return NULL;
-    return usb_string_fetch(daddr, ((const uint8_t *)&desc)[field_off]);
+    uint8_t index = 0;
+    if (tuh_descriptor_get_device_local(daddr, &desc))
+    {
+        const uint8_t indexes[USB_STRING_COUNT] = {
+            desc.iManufacturer, desc.iProduct, desc.iSerialNumber};
+        index = indexes[s];
+    }
+    if (!index)
+    {
+        usb_string_done |= 1u << s; // no such string, or no such device
+        return usb_string_buf[s];
+    }
+    usb_string_busy = true;
+    if (!tuh_descriptor_get_string(daddr, index, 0x0409, usb_string_buf[s],
+                                   USB_DESC_STRING_BUF_SIZE, usb_string_fetch_cb, s))
+        usb_string_busy = false;
+    return NULL;
 }
 
-const void *usb_string_fetch_manufacturer(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_manufacturer(uint8_t daddr)
 {
-    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iManufacturer));
+    return usb_string_fetch(daddr, USB_STRING_MANUFACTURER);
 }
 
-const void *usb_string_fetch_product(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_product(uint8_t daddr)
 {
-    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iProduct));
+    return usb_string_fetch(daddr, USB_STRING_PRODUCT);
 }
 
-const void *usb_string_fetch_serial(uint8_t daddr)
+const void *HOST_IN_FLASH_FUNC usb_string_fetch_serial(uint8_t daddr)
 {
-    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iSerialNumber));
+    return usb_string_fetch(daddr, USB_STRING_SERIAL);
 }
 
 static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t dest_size)
@@ -342,15 +374,12 @@ static void usb_desc_string_to_ascii(const void *desc_buf, char *dest, size_t de
     dest[pos] = '\0';
 }
 
-typedef const void *(*usb_id_fetch_fn)(uint8_t daddr);
-__in_flash("usb_id_fetchers") static const usb_id_fetch_fn usb_id_fetchers[] = {
-    usb_string_fetch_manufacturer,
-    usb_string_fetch_product,
-    usb_string_fetch_serial,
-};
-
-bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size)
+bool HOST_IN_FLASH_FUNC usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size)
 {
+    const void *desc[USB_STRING_COUNT];
+    for (uint8_t s = 0; s < USB_STRING_COUNT; s++)
+        if (!(desc[s] = usb_string_fetch(daddr, s)))
+            return false;
     uint16_t vid, pid;
     tuh_vid_pid_get(daddr, &vid, &pid);
     tusb_desc_device_t dev_desc;
@@ -360,14 +389,11 @@ bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size)
     int n = snprintf(buf, buf_size, "%04X:%04X:%04X:", vid, pid, bcd);
     if (n < 0 || n >= (int)buf_size)
         return false;
-    for (size_t f = 0; f < TU_ARRAY_SIZE(usb_id_fetchers); f++)
+    for (uint8_t s = 0; s < USB_STRING_COUNT; s++)
     {
-        if (f && n < (int)buf_size - 1)
+        if (s && n < (int)buf_size - 1)
             buf[n++] = ':';
-        const void *desc = usb_id_fetchers[f](daddr);
-        if (!desc)
-            return false;
-        usb_desc_string_to_ascii(desc, buf + n, buf_size - n);
+        usb_desc_string_to_ascii(desc[s], buf + n, buf_size - n);
         n += strlen(buf + n);
     }
     return true;
@@ -391,8 +417,11 @@ void tuh_mount_cb(uint8_t daddr)
 
 void tuh_enum_descriptor_device_cb(uint8_t daddr, const tusb_desc_device_t *desc_device)
 {
-    (void)daddr;
     (void)desc_device;
+    // A new device has the address. The old device's transfers have all
+    // ended, because usbh fails them when it closes a device.
+    if (daddr == usb_string_daddr)
+        usb_string_daddr = 0;
     usb_enum_kick();
     RP6502_LOG(usb, DEBUG, "device descriptor");
 }

@@ -47,7 +47,7 @@ bool rom_installed(const char *name, char *argv0);
 bool rom_load_installed(const char *args);
 
 // Begin loading the ROM from argv[0].
-void rom_exec(void);
+bool rom_exec(void);
 
 // Responder prints all installed ROMs.
 int rom_installed_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -63,7 +63,11 @@ const char *rom_get_boot(void); // uses mbuf
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 
-#define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break, nul_config, nul_config, nul_sst)
+#define ROM_DRIVER DRIVER( \
+    INIT(rom_init)         \
+    TASK_FATFS(rom_task)   \
+    STOP(rom_stop)         \
+    BREAK(rom_break))
 
 
 #endif /* _RIA_MON_ROM_H_ */

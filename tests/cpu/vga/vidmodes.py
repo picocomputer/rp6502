@@ -463,6 +463,37 @@ mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 # the renderer never reads past the array.
 mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
       tile_ptr=0xFF80)
+
+# Layers that do not wrap, placed wholly off the canvas, so each frame is the
+# blank canvas. Off the left means a column past the right of the layer, which
+# once left a negative run: mode 2 at 4 or 8 bpp looped forever, mode 3 at
+# 16 bpp copied 128 KB, and the others cleared as many pixels as the layer was
+# off the left, so -30000 ran far past the line. Off the right at an odd column once wrote two pixels
+# past the line at 4 bpp. The trimmed map is 28 wide, so -29 is off the left
+# only when the trim is counted.
+rom("blank320", 1, [], [])
+mode3("mode3_offleft_1bpp", 1, 0, 1, 32, 16, -30000, 50, False)
+mode3("mode3_offleft_16bpp", 1, 4, 16, 32, 16, -33, 50, False)
+mode3("mode3_offright_4bpp", 1, 2, 4, 32, 16, 321, 50, False)
+mode1("mode1_offleft", 1, 0, 4, 2, -30000, 50, False, False)
+mode2("mode2_offleft_4bpp", 1, 0x002, 4, 2, -40, 50, False, False, True)
+mode2("mode2_offleft_8bpp", 1, 0x003, 4, 2, -40, 50, False, False, True)
+mode2("mode2_offleft_trim", 1, 0x012, 4, 2, -29, 50, False, False, True)
+
+# Sizes that do not fit, each drawn as nothing. A height of 0 or a width that
+# overflows to 0 once divided in the wrap, which faulted on x86 and hung the
+# Pico. A width over 32767 pixels went negative and ran off the line, even
+# for a mode 2 tile set past the end of XRAM. A negative count of rows once
+# wrapped the fit check of mode 1 to 64 bytes and read megabytes past XRAM.
+mode1("mode1_size_zero_h", 1, 0, 4, 0, 0, 0, False, False, y_wrap=True)
+mode1("mode1_size_zero_w", 1, 0, 8192, 1, 0, 0, False, False, x_wrap=True)
+mode1("mode1_size_neg_w", 1, 0, 4096, 2, 0, 0, False, False)
+mode1("mode1_size_neg_h", 1, 4, 21848, -32764, 0, 0, False, False)
+mode2("mode2_size_zero_h", 1, 0x000, 4, 0, 0, 0, False, True, False)
+mode2("mode2_size_zero_w", 1, 0x000, 8192, 1, 0, 0, True, False, False)
+mode2("mode2_size_neg_w", 1, 0x000, 5000, 1, 0, 0, False, False, False,
+      tile_ptr=0xFFF0)
+mode3("mode3_size_zero_h", 1, 3, 8, 32, 0, 0, 0, False, y_wrap=True)
 composite("mode2_composite")
 bands("prog_bands")
 

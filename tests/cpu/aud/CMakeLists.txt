@@ -9,7 +9,7 @@ endif()
 rp6502_add_test(pcm
     SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c ${RP6502_SRC}/core/aud/rsmp.c
         ${RP6502_SRC}/core/sys/ring.c
-    INCLUDES ${RP6502_SRC} ${RP6502_GEN}
+    INCLUDES ${RP6502_SRC} ${RP6502_GEN} ${RP6502_SRC}/host/sokol
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0)
 add_dependencies(test_pcm rp6502_gen_c)
 
@@ -17,7 +17,7 @@ add_dependencies(test_pcm rp6502_gen_c)
 rp6502_add_test(pcm48
     SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c ${RP6502_SRC}/core/aud/rsmp.c
         ${RP6502_SRC}/core/sys/ring.c
-    INCLUDES ${RP6502_SRC} ${RP6502_GEN}
+    INCLUDES ${RP6502_SRC} ${RP6502_GEN} ${RP6502_SRC}/host/sokol
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000)
 add_dependencies(test_pcm48 rp6502_gen_c)
 
@@ -42,3 +42,9 @@ if(TARGET rp6502-emu)
         rp6502_add_script_test(NAME ${test} COMMAND aud.py)
     endforeach()
 endif()
+
+rp6502_add_test(psgpan
+    SOURCES test_psgpan.c ${RP6502_SRC}/core/aud/psg.c
+    INCLUDES ${RP6502_SRC} ${RP6502_GEN} ${RP6502_SRC}/host/sokol
+    DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0)
+add_dependencies(test_psgpan rp6502_gen_c)

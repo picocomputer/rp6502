@@ -26,6 +26,6 @@ bool tim_gmtime(time_t t, struct tm *out);
 // strftime, with the result converted to the active OEM code page.
 size_t tim_strftime(char *dst, size_t max, const char *format, const struct tm *tm);
 
-#define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, tim_stop, nul_break, nul_config, nul_config, nul_sst)
+#define TIM_DRIVER DRIVER(INIT(tim_init) STOP(tim_stop))
 
 #endif /* _CORE_API_TIM_H_ */

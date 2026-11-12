@@ -6,6 +6,7 @@
 
 #include "core/hid/layout.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 
 /* The image's header and record shape, as layout.py lays them out. The
  * header says where each record starts, and the offsets below are fixed
@@ -23,7 +24,7 @@
 static bool layout_checked;
 static int layout_layouts;
 
-bool layout_init(void)
+bool HOST_IN_FLASH_FUNC layout_init(void)
 {
     layout_checked = true;
     if (layout_word(0) != LAYOUT_MAGIC)
@@ -39,14 +40,14 @@ bool layout_init(void)
 /* A platform that links the database in cannot fail to have one, so it leaves
  * LAYOUT_DRIVER out of its roster and the first lookup reads the header
  * instead. */
-static void layout_ready(void)
+static void HOST_IN_RAM_FUNC layout_ready(void)
 {
     if (!layout_checked)
         layout_init();
 }
 
 // Where a layout's record starts, or 0 for a layout that is not there.
-static uint32_t layout_record(int idx)
+static uint32_t HOST_IN_RAM_FUNC layout_record(int idx)
 {
     layout_ready();
     if (idx < 0 || idx >= layout_layouts)
@@ -88,7 +89,7 @@ void layout_description(int idx, char *buf)
     layout_string(rec ? rec + LAYOUT_OFF_DESC : 0, buf, LAYOUT_DESC_MAX);
 }
 
-uint16_t layout_code_point(int idx, uint8_t keycode, unsigned col)
+uint16_t HOST_IN_RAM_FUNC layout_code_point(int idx, uint8_t keycode, unsigned col)
 {
     uint32_t rec = layout_record(idx);
     if (!rec)
@@ -96,7 +97,7 @@ uint16_t layout_code_point(int idx, uint8_t keycode, unsigned col)
     return layout_word(rec + LAYOUT_OFF_KEYS + (uint32_t)keycode * 4 + col);
 }
 
-bool layout_use_caps(int idx, uint8_t keycode)
+bool HOST_IN_RAM_FUNC layout_use_caps(int idx, uint8_t keycode)
 {
     uint32_t rec = layout_record(idx);
     if (!rec)

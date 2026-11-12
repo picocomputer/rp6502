@@ -33,7 +33,7 @@ extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 void cpu_sst_save(sst_cursor_t *c, unsigned flags);
 bool cpu_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define CPU_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(CPU_, 1, CPU_SST_SIZE, cpu_sst_save, cpu_sst_load))
+#define CPU_DRIVER DRIVER(                                  \
+    SST(CPU_, 1, CPU_SST_SIZE, cpu_sst_save, cpu_sst_load))
 
 #endif /* _CORE_WDC_CPU_H_ */

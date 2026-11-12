@@ -13,9 +13,18 @@
 
 void proc_run(void);
 
-/* A program stopped. True when the machine keeps running -- an exec already in
- * flight, or a launcher relaunch -- false when the chain has ended. */
-bool proc_stop(void);
+/* A program stopped. Unless an exec is on its way, the launcher runs again,
+ * or with none, the chain ends. */
+void proc_stop(void);
+
+/* The program is done: the machine returns to its monitor, or with none,
+ * idles. The launcher goes, the code page goes back, the bell comes back on,
+ * the type-ahead is dropped and the console gets its soft reset on a clean
+ * line. */
+void proc_chain_end(void);
+
+/* An exec or a relaunch did not load. The chain ends with exit code 1. */
+void proc_exec_failed(void);
 
 /* argv[0] of the program running now, an empty string between programs. */
 const char *proc_running(void);
@@ -25,7 +34,7 @@ bool proc_api_exec(void);
 
 /* A program that sets the launcher flag registers itself as the one to come
  * back to, so proc_stop re-execs it when a later program stops. The chain ends
- * when the launcher itself stops or when the flag is cleared.
+ * when the launcher itself stops, when the flag is cleared, or at a break.
  */
 void proc_cancel_launcher(void);
 bool proc_has_launcher(void);
@@ -42,6 +51,17 @@ void proc_restore_paths(const char *running, const char *launcher);
 
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);
+
+/* A break: the program and its launcher chain end. */
+void proc_break(void);
+
+/* Ctrl-Alt-Delete. False on a machine with no monitor, where the key types. */
+bool proc_break_to_monitor(void);
+
+/* Alt-F4: the program exits as exit(-1) does. False when nothing runs, from the
+ * launcher itself, and with no launcher on a machine with no monitor, where the
+ * key types. */
+bool proc_quit(void);
 
 /* Each machine answers these three for itself.
  */

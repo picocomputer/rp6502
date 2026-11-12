@@ -7,19 +7,35 @@
 #ifndef _CORE_SYS_DRIVER_H_
 #define _CORE_SYS_DRIVER_H_
 
-#define nul_init()
-#define nul_task()
-#define nul_run()
-#define nul_stop()
-#define nul_break()
+/* A machine's drivers are one list, RP6502_MACH_DRIVERS in its drivers.h. A
+ * row names only the hooks its driver has:
+ *
+ *   #define STD_DRIVER DRIVER(         \
+ *       INIT(std_init)                 \
+ *       TASK_PUMPED(std_task)          \
+ *       STOP(std_stop))
+ *
+ *   INIT(f)         at boot, in list order
+ *   TASK_FATFS(f)   from the main loop only: it calls FatFs, which pumps
+ *   TASK_PUMPED(f)  from the main loop, and from sys_pump while FatFs waits
+ *   TASK_ALWAYS(f)  as TASK_PUMPED, and also while flashing, so it and all
+ *                   it reaches then must be in RAM
+ *   RUN(f)          when a program starts, in list order
+ *   STOP(f)         when a program stops, in reverse order
+ *   BREAK(f)        on a break, in reverse order
+ *   FLASHING(f)     once, when the RIA starts rewriting its own flash, in
+ *                   reverse order
+ *   CONFIG_INT/STR/RAW/HIDDEN/SAVE(...) and SST(...), any number of each
+ *
+ * The tasks of a row run in the order the row lists them. A walk defines the
+ * labels it uses, then opens with core/sys/driver_walk.h, which makes every
+ * other label expand to nothing, and closes with core/sys/driver_walk_end.h.
+ * A row's expansion must have no top-level comma, because the list macros
+ * below split on them. */
 
-#define nul_config
+/* The check and apply of a setting that has none. */
 #define nul_check(...) true
 #define nul_apply(...)
-
-/* Object-like and empty, like nul_config, because the savestate column holds a
- * macro invocation rather than a function name. */
-#define nul_sst
 
 #define DRIVERS_CAT(a, b) DRIVERS_CAT_(a, b)
 #define DRIVERS_CAT_(a, b) a##b

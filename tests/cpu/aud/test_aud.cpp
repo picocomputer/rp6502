@@ -135,6 +135,7 @@ UTEST(aud, a_psg_block_programmed_before_its_pointer)
         ASSERT_EQ(g_peak, 0);
     }
     g_cross = 0;
+    g_side = 0;
     for (int i = 0; i < 5; i++)
         run_frame();
     ASSERT_EQ(g_cross, (long)0);

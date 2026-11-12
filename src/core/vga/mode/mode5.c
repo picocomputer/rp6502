@@ -159,11 +159,15 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
 
     for (uint16_t i = 0; i < length; i++)
     {
-        int16_t tex_y = scanline - sprites[i].y_pos_px;
+        /* The descriptor is copied out of XRAM once, checked, and drawn from
+         * the copy, so a write part way through the line cannot slip in
+         * behind the checks. The copy lives in registers. */
+        const mode5_sprite_t sp = sprites[i];
+        int16_t tex_y = scanline - sp.y_pos_px;
         if (tex_y < 0 || tex_y >= sprite_size)
             continue;
 
-        int16_t x_start = sprites[i].x_pos_px;
+        int16_t x_start = sp.x_pos_px;
         int16_t tex_x = 0;
         int16_t size_x = sprite_size;
 
@@ -178,12 +182,12 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
         if (size_x <= 0)
             continue;
 
-        if (sprites[i].xram_sprite_ptr > 0x10000 - sprite_data_size)
+        if (sp.xram_sprite_ptr > 0x10000 - sprite_data_size)
             continue;
 
-        const uint16_t *palette = mode5_get_palette(sprites[i].palette_ptr, bpp);
+        const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
         const uint8_t *row_data =
-            (const uint8_t *)&xram[sprites[i].xram_sprite_ptr + tex_y * bytes_per_row];
+            (const uint8_t *)&xram[sp.xram_sprite_ptr + tex_y * bytes_per_row];
         mode5_blit(rgb + x_start, row_data, palette, tex_x, size_x,
                    false, false, bpp, false, false);
     }
@@ -214,31 +218,35 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
 
     for (uint16_t i = 0; i < length; i++)
     {
-        const int options = sprites[i].options;
+        /* The descriptor is copied out of XRAM once, checked, and drawn from
+         * the copy, so a write part way through the line cannot slip in
+         * behind the checks. The copy lives in registers. */
+        const mode5_csprite_t sp = sprites[i];
+        const int options = sp.options;
         const int bpp_log = options & 3;
         const int hflip = (options & MODE5_HFLIP) != 0;
         const int vflip = (options & MODE5_VFLIP) != 0;
         const int hdouble = (options & MODE5_HDOUBLE) != 0;
         const int vdouble = (options & MODE5_VDOUBLE) != 0;
-        const int nw = sprites[i].width_height & 15;
+        const int nw = sp.width_height & 15;
         const int w = (nw + 1) * 4;
-        const int h = ((sprites[i].width_height >> 4) + 1) * 4;
+        const int h = ((sp.width_height >> 4) + 1) * 4;
 
-        const int tex_y = scanline - sprites[i].y_pos_px;
+        const int tex_y = scanline - sp.y_pos_px;
         if (tex_y < 0 || tex_y >= (h << vdouble))
             continue;
         int row = tex_y >> vdouble;
         if (vflip)
             row = h - 1 - row;
 
-        const int x = sprites[i].x_pos_px;
+        const int x = sp.x_pos_px;
         const int footprint = w << hdouble;
         if (x + footprint <= 0 || x >= width)
             continue;
 
         const int bytes_per_row = (((nw + 1) << bpp_log) + 1) >> 1;
         const unsigned sprite_data_size = h * bytes_per_row;
-        if (sprites[i].xram_sprite_ptr > 0x10000 - sprite_data_size)
+        if (sp.xram_sprite_ptr > 0x10000 - sprite_data_size)
             continue;
 
         const int lo = x < 0 ? -x : 0;
@@ -252,9 +260,9 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
         const bool lead = hdouble && (a & 1);
         const bool tail = hdouble && (b & 1);
 
-        const uint16_t *palette = mode5_get_palette(sprites[i].palette_ptr, 1 << bpp_log);
+        const uint16_t *palette = mode5_get_palette(sp.palette_ptr, 1 << bpp_log);
         const uint8_t *row_data =
-            (const uint8_t *)&xram[sprites[i].xram_sprite_ptr + row * bytes_per_row];
+            (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
 
         switch (bpp_log | (hflip << 2) | (hdouble << 3))
         {

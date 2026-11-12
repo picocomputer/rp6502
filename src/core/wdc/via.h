@@ -39,7 +39,7 @@ void via_reg_write(uint16_t addr, uint8_t data);
 void via_sst_save(sst_cursor_t *c, unsigned flags);
 bool via_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define VIA_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(VIA_, 1, VIA_SST_SIZE, via_sst_save, via_sst_load))
+#define VIA_DRIVER DRIVER(                                  \
+    SST(VIA_, 1, VIA_SST_SIZE, via_sst_save, via_sst_load))
 
 #endif /* _CORE_WDC_VIA_H_ */

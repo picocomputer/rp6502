@@ -6,6 +6,7 @@
 
 #include "core/aud/pcm.h"
 #include "core/aud/mix.h"
+#include "machine.h"
 #include "core/str/str.h"
 #include "osal/fs.h"
 #include <assert.h>
@@ -19,7 +20,7 @@ static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 
 /* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
  * p reversed, which rsmp.py checks. */
-static const int32_t pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
+static const int32_t HOST_IN_RAM pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
 #include "rsmp_half.h"
 };
 
@@ -57,12 +58,12 @@ bool pcm_parse(const char *args, pcm_fmt_t *fmt)
     return true;
 }
 
-uint64_t pcm_step(uint32_t rate)
+uint64_t HOST_IN_RAM_FUNC pcm_step(uint32_t rate)
 {
     return ((uint64_t)rate << 32) / AUD_NATIVE_RATE;
 }
 
-void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
 {
     s->fmt = *fmt;
     s->frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
@@ -75,12 +76,12 @@ void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
     RING_RESET(&s->buf);
 }
 
-uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
+uint32_t HOST_IN_RAM_FUNC pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
 {
     return RING_IN(&s->buf, src, n);
 }
 
-void pcm_clear(pcm_t *s)
+void HOST_IN_RAM_FUNC pcm_clear(pcm_t *s)
 {
     RING_RESET(&s->buf);
 }
@@ -99,14 +100,14 @@ uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
 #pragma GCC optimize("O3")
 
 /* The sample i bytes after the oldest. */
-static int32_t pcm_decode(pcm_t *s, uint32_t i)
+static int32_t HOST_IN_RAM_FUNC pcm_decode(pcm_t *s, uint32_t i)
 {
     if (s->fmt.bits == 8)
         return ((int32_t)*RING_AT(&s->buf, i) - 128) * 256;
     return (int16_t)(*RING_AT(&s->buf, i) | *RING_AT(&s->buf, i + 1) << 8);
 }
 
-static void pcm_take(pcm_t *s)
+static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
 {
     int32_t l = 0, r = 0;
     const uint32_t level = RING_LEN(&s->buf);
@@ -126,7 +127,7 @@ static void pcm_take(pcm_t *s)
 
 /* rsmp_at's sum for row p, on both channels at once. A row past the middle
  * is a stored row read backwards. */
-static void pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
+static void HOST_IN_RAM_FUNC pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
 {
     int64_t a = 0, b = 0;
     if (p <= RSMP_PHASES / 2)
@@ -152,13 +153,13 @@ static void pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *a
 }
 
 /* rsmp_at's blend and rounding, so the result is rsmp's to the bit. */
-static int32_t pcm_blend(int64_t a, int64_t b, int64_t f)
+static int32_t HOST_IN_RAM_FUNC pcm_blend(int64_t a, int64_t b, int64_t f)
 {
     const int64_t v = a + (((b - a) * f) >> 16);
     return (int32_t)((v + (1 << (RSMP_Q - 1))) >> RSMP_Q);
 }
 
-void pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
+void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
 {
     if (s->phase >= ((uint64_t)1 << 32))
     {
@@ -180,7 +181,7 @@ void pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
 
 #pragma GCC pop_options
 
-bool pcm_std_handles(const char *path)
+bool HOST_IN_RAM_FUNC pcm_std_handles(const char *path)
 {
     return strncasecmp(path, STR_PCM_COLON, STR_PCM_COLON_LEN) == 0;
 }
@@ -211,12 +212,12 @@ int pcm_std_open(const char *path, uint8_t flags, api_errno *err)
 }
 
 /* A last partial frame never plays, so it does not hold up a close. */
-static bool pcm_playing(void)
+static bool HOST_IN_RAM_FUNC pcm_playing(void)
 {
     return aud_pcm_level() >= pcm_fmt.bits / 8 * pcm_fmt.channels;
 }
 
-std_rw_result pcm_std_close(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_close(int desc, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -226,8 +227,8 @@ std_rw_result pcm_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result pcm_std_write(int desc, const char *buf, uint32_t count,
-                            uint32_t *bytes_written, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_write(int desc, const char *buf, uint32_t count,
+                                             uint32_t *bytes_written, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -235,14 +236,14 @@ std_rw_result pcm_std_write(int desc, const char *buf, uint32_t count,
     return STD_OK;
 }
 
-std_rw_result pcm_std_sync(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC pcm_std_sync(int desc, api_errno *err)
 {
     (void)desc;
     (void)err;
     return pcm_playing() ? STD_PENDING : STD_OK;
 }
 
-int pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
+int HOST_IN_RAM_FUNC pcm_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
     (void)desc;
     if (offset)

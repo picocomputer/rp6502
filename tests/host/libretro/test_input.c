@@ -92,6 +92,39 @@ UTEST(input, a_stick_derives_its_digital_reading)
     fe.unload_game();
 }
 
+/* A trigger's bit comes on past the dead zone, 32 of 255, and a slight pull
+ * reads as slight. A frontend without analog triggers reports a press as a
+ * full pull. */
+UTEST(input, a_trigger_sets_its_bit_past_the_dead_zone)
+{
+    static const struct
+    {
+        int16_t analog;
+        bool digital;
+        uint8_t bit, value;
+    } want[] = {
+        {100, false, 0, 0},
+        {0x1000, false, 0, 32},
+        {0x1080, false, 1, 33},
+        {0x4000, false, 1, 128},
+        {0, true, 1, 255},
+    };
+    start_gamepad_program(utest_result);
+    for (size_t i = 0; i < sizeof want / sizeof *want; i++)
+    {
+        fe.analog[0][RETRO_DEVICE_INDEX_ANALOG_BUTTON][RETRO_DEVICE_ID_JOYPAD_L2] = want[i].analog;
+        fe.analog[0][RETRO_DEVICE_INDEX_ANALOG_BUTTON][RETRO_DEVICE_ID_JOYPAD_R2] = want[i].analog;
+        press(0, RETRO_DEVICE_ID_JOYPAD_L2, want[i].digital);
+        press(0, RETRO_DEVICE_ID_JOYPAD_R2, want[i].digital);
+        fe_run(20);
+        const uint8_t *rec = gamepad_record(0);
+        ASSERT_EQ(rec[3] & 0x03, want[i].bit ? 0x03 : 0x00);
+        ASSERT_EQ(rec[8], want[i].value);
+        ASSERT_EQ(rec[9], want[i].value);
+    }
+    fe.unload_game();
+}
+
 UTEST(input, an_empty_port_blanks_the_record)
 {
     start_gamepad_program(utest_result);

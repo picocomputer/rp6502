@@ -10,6 +10,7 @@
 #include "core/sys/sys.h"
 #include "core/str/str.h"
 #include "core/sys/proc.h"
+#include "core/api/proc.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
@@ -365,7 +366,7 @@ int main(int argc, char **argv)
 
     /* A host terminal becomes the machine's console and carries its screen,
      * so it is already showing everything the mirror below would repeat. */
-    bool console_is_terminal = o.console && console_open();
+    bool console_is_terminal = o.console && console_open(!o.headless);
 
     /* The program's stdout on the host's too, except where host stdout is
      * already the emulator's own channel: a script's replies, a CRC. */
@@ -394,10 +395,7 @@ int main(int argc, char **argv)
                 deadline = now;
             deadline += VGA_FRAME_NS;
         }
-        if (os_console_break_asked())
-            sys_break_request();
-        sys_stop();
-        sys_commit();
+        proc_shutdown();
         fflush(stdout);
         if (os_console_break_asked())
             os_console_break_exit(); /* does not return */
@@ -422,8 +420,7 @@ int main(int argc, char **argv)
         }
         if (script_exit_code() || !(o.screenshot || o.crc))
         {
-            sys_stop();
-            sys_commit();
+            proc_shutdown();
             return script_exit_code();
         }
     }
@@ -448,8 +445,7 @@ int main(int argc, char **argv)
             vga_frame_crc(&crc);
             printf("%08X\n", crc);
         }
-        sys_stop();
-        sys_commit();
+        proc_shutdown();
         return 0;
     }
 

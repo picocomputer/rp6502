@@ -58,7 +58,7 @@ void psg_park(void);
 void psg_sst_save(sst_cursor_t *c, unsigned flags);
 bool psg_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define PSG_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(PSG_, 3, PSG_SST_SIZE, psg_sst_save, psg_sst_load))
+#define PSG_DRIVER DRIVER(                                  \
+    SST(PSG_, 3, PSG_SST_SIZE, psg_sst_save, psg_sst_load))
 
 #endif /* _CORE_AUD_PSG_H_ */

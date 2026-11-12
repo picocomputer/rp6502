@@ -234,24 +234,28 @@ static inline void sprite_scanline16(
 
 static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
-    const mode4_sprite_t *sprites = (void *)&xram[config_ptr];
+    const mode4_sprite_t *sprites = (const void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
+        /* The descriptor is copied out of XRAM once, checked, and drawn from
+         * the copy, so a write part way through the line cannot slip in
+         * behind the checks. The copy lives in registers. */
+        const mode4_sprite_t sp = sprites[i];
         /* No square above 7 fits XRAM, and the arithmetic below leaves
          * what C defines: 32 and up is an undefined shift, and 16..31
          * wraps byte_size to zero, past both guards and off the end. */
-        if (sprites[i].log_size > 7)
+        if (sp.log_size > 7)
             continue;
-        const unsigned px_size = 1u << sprites[i].log_size;
+        const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
-        if (sprites[i].has_opacity_metadata)
+        if (sp.has_opacity_metadata)
             byte_size += px_size * sizeof(uint32_t);
         if (byte_size > 0x10000)
             continue;
-        if (sprites[i].xram_sprite_ptr <= 0x10000 - byte_size)
+        if (sp.xram_sprite_ptr <= 0x10000 - byte_size)
         {
-            const void *img = (void *)&xram[sprites[i].xram_sprite_ptr];
-            sprite_scanline16(rgb, &sprites[i], img, scanline, width);
+            const void *img = (void *)&xram[sp.xram_sprite_ptr];
+            sprite_scanline16(rgb, &sp, img, scanline, width);
         }
     }
 }
@@ -430,24 +434,28 @@ static void mode4_render_asprite(
     int16_t scanline, int16_t width, uint16_t *rgb,
     uint16_t config_ptr, uint16_t length)
 {
-    const mode4_asprite_t *sprites = (void *)&xram[config_ptr];
+    const mode4_asprite_t *sprites = (const void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
+        /* The descriptor is copied out of XRAM once, checked, and drawn from
+         * the copy, so a write part way through the line cannot slip in
+         * behind the checks. The copy lives in registers. */
+        const mode4_asprite_t sp = sprites[i];
         /* No square above 7 fits XRAM, and the arithmetic below leaves
          * what C defines: 32 and up is an undefined shift, and 16..31
          * wraps byte_size to zero, past both guards and off the end. */
-        if (sprites[i].log_size > 7)
+        if (sp.log_size > 7)
             continue;
-        const unsigned px_size = 1u << sprites[i].log_size;
+        const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
-        if (sprites[i].has_opacity_metadata)
+        if (sp.has_opacity_metadata)
             byte_size += px_size * sizeof(uint32_t);
         if (byte_size > 0x10000)
             continue;
-        if (sprites[i].xram_sprite_ptr <= 0x10000 - byte_size)
+        if (sp.xram_sprite_ptr <= 0x10000 - byte_size)
         {
-            const void *img = (void *)&xram[sprites[i].xram_sprite_ptr];
-            asprite_scanline16(rgb, &sprites[i], img, scanline, width);
+            const void *img = (void *)&xram[sp.xram_sprite_ptr];
+            asprite_scanline16(rgb, &sp, img, scanline, width);
         }
     }
 }

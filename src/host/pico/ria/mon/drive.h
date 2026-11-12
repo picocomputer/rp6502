@@ -23,6 +23,6 @@ void drive_mon_disk(const char *args);
 
 bool drive_active(void);
 
-#define DRIVE_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, drive_break, nul_config, nul_config, nul_sst)
+#define DRIVE_DRIVER DRIVER(BREAK(drive_break))
 
 #endif /* _RIA_MON_DRIVE_H_ */

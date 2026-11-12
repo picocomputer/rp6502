@@ -12,7 +12,8 @@
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
+#include "core/hid/vtkeys.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -128,24 +129,39 @@ const char *proc_boot_error(void)
     return boot_error;
 }
 
-static bool proc_boot_failed(const char *why)
+/* A failed exec ends its chain before the error prints, so the error comes
+ * out after the soft reset. */
+static bool proc_boot_failed(const char *why, int argc)
 {
     boot_error = why;
+    if (argc < 0)
+        proc_exec_failed();
+    com_clean_line();
     com_printf("%s", why);
     return false;
 }
 
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
+    /* A start by name is not the outgoing program's child, so its chain ends
+     * at the stop, with its type-ahead and its paste. */
+    if (argc >= 0)
+        proc_cancel_launcher();
     sys_stop_now(); /* before the load writes over what it was running on */
     /* Cleared after that stop and not before, because the stop reaches
      * proc_stop, which reads proc_exec_inflight to decide whether the
-     * launcher comes back. Whatever the outgoing program had queued goes with
-     * it, since a start asked for by name is not its child. */
+     * launcher comes back. An exec it leaves queued ends with the chain. */
+    if (argc >= 0 && queued)
+    {
+        queued = false;
+        proc_chain_end();
+    }
     queued = false;
+    if (argc >= 0)
+        vtkeys_paste_cancel();
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
-        return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW));
+        return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW), argc);
     if (argc < 0)
         rom = arg_index(0);
     if (flags & PROC_REFILL)
@@ -154,11 +170,9 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
         xram_init();
     }
     if (!rom_load(rom))
-        return proc_boot_failed(rom_load_error());
+        return proc_boot_failed(rom_load_error(), argc);
     if (argc >= 0)
         proc_set_argv(rom, argc, args);
-    if (flags & PROC_UNCHAIN)
-        proc_set_launcher(false);
     fs_save_start();
     sys_run();
     return true;
@@ -172,6 +186,20 @@ void proc_exec_start(void)
 void proc_exec_relaunch(void)
 {
     proc_exec_request();
+}
+
+void proc_exec_break(void)
+{
+    if (!queued)
+        return;
+    queued = false;
+    proc_chain_end();
+}
+
+void proc_shutdown(void)
+{
+    proc_break();
+    sys_commit();
 }
 
 bool proc_exec_inflight(void)
@@ -191,6 +219,5 @@ void proc_exec_task(void)
     /* argv[0] is still where the request left it, because the only thing that
      * rewrites argv on a stop is proc_stop arming a launcher relaunch, and it
      * does not do that while an exec is in flight. */
-    if (!proc_boot(arg_index(0), -1, NULL, 0))
-        proc_set_exit_code(1);
+    proc_boot(arg_index(0), -1, NULL, 0);
 }

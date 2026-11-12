@@ -23,6 +23,6 @@ void led_task(void);
 // Enable blinking
 void led_blink(bool enable);
 
-#define LED_DRIVER DRIVER(led_init, led_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define LED_DRIVER DRIVER(INIT(led_init) TASK_PUMPED(led_task))
 
 #endif /* _RIA_SYS_LED_H_ */

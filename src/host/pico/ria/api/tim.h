@@ -29,7 +29,6 @@ int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width
 #define TIM_CONFIG_TZ CONFIG_STR(T, tim, time_zone, TIM_TZ_MAX_SIZE, "UTC0", \
     tim_check_time_zone, tim_apply_time_zone, STR_TZ, tim_time_zone_response, \
     STR_HELP_SET_TZ, tim_tzdata_response)
-#define TIM_DRIVER DRIVER(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    TIM_CONFIG_TZ, nul_config, nul_sst)
+#define TIM_DRIVER DRIVER(INIT(tim_init) TIM_CONFIG_TZ)
 
 #endif /* _RIA_API_TIM_H_ */

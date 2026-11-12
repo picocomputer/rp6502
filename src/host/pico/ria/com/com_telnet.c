@@ -5,16 +5,16 @@
  */
 
 #include "core/sys/ria.h"
-#include "ria/sys/com.h"
 #include "core/sys/config.h"
 #include "core/sys/debug_log.h"
-#include "ria/sys/com_telnet.h"
+#include "ria/com/com_telnet.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/vga.h"
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
+#include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/sys/ring.h"
 #include "core/sys/timer.h"
@@ -25,10 +25,12 @@
 
 #ifndef RP6502_RIA_W
 
-bool com_telnet_tx_writable(void) { return true; }
+bool HOST_IN_RAM_FUNC com_telnet_connected(void) { return false; }
+bool HOST_IN_RAM_FUNC com_telnet_in_charge(void) { return false; }
+bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
-void com_telnet_task(void) {}
+void HOST_IN_RAM_FUNC com_telnet_task(void) {}
 
 #else
 
@@ -42,13 +44,15 @@ typedef enum
 } com_telnet_state_t;
 static com_telnet_state_t com_telnet_state = COM_TELNET_STATE_IDLE;
 static uint16_t com_telnet_active_port;
+static bool com_telnet_closed; // the FLASHING hook closed the listener for good
 
 static char com_telnet_auth_buf[COM_TELNET_KEY_SIZE];
 static uint8_t com_telnet_auth_len;
 static uint8_t com_telnet_auth_end; // the CR or LF that ended the passkey
+static bool com_telnet_naws;        // the session sent its window size
 
 static RING(char, 32) com_telnet_tx;
-static RING(uint8_t, 32) com_telnet_rx;
+static RING(uint8_t, COM_TELNET_RX_SIZE) com_telnet_rx;
 static bool com_telnet_rx_held;
 static timer_deadline_t com_telnet_rx_hold;
 
@@ -70,7 +74,17 @@ static void com_telnet_clear_rings(void)
     com_telnet_clear_rx();
 }
 
-bool com_telnet_tx_writable(void)
+bool HOST_IN_RAM_FUNC com_telnet_connected(void)
+{
+    return com_telnet_state == COM_TELNET_STATE_CONNECTED;
+}
+
+bool HOST_IN_RAM_FUNC com_telnet_in_charge(void)
+{
+    return com_telnet_naws;
+}
+
+bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void)
 {
     return RING_AVAIL(&com_telnet_tx) != 0;
 }
@@ -80,17 +94,17 @@ void com_telnet_tx_write(char ch)
     RING_PUT(&com_telnet_tx, ch);
 }
 
-size_t com_telnet_read(char *buf, size_t length)
+size_t HOST_IN_RAM_FUNC com_telnet_read(char *buf, size_t length)
 {
     return RING_OUT(&com_telnet_rx, buf, (uint32_t)length);
 }
 
-int com_telnet_peek(void)
+int HOST_IN_RAM_FUNC com_telnet_peek(size_t offset)
 {
-    return RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, 0) : -1;
+    return offset < RING_LEN(&com_telnet_rx) ? *RING_AT(&com_telnet_rx, offset) : -1;
 }
 
-static void com_telnet_drain_tx(void)
+static void HOST_IN_RAM_FUNC com_telnet_drain_tx(void)
 {
     if (com_telnet_state != COM_TELNET_STATE_CONNECTED)
     {
@@ -129,7 +143,6 @@ static void com_telnet_handle_auth(uint8_t ch)
             telnet_tx(NET_TELNET_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_telnet_state = COM_TELNET_STATE_CONNECTED;
             com_telnet_auth_end = ch;
-            vga_set_tel_console_active(true);
             RP6502_LOG(telnet, INFO, "console authenticated");
         }
         else
@@ -147,9 +160,9 @@ static void com_telnet_handle_auth(uint8_t ch)
     }
 }
 
-static void com_telnet_drain_rx(void)
+static void HOST_IN_RAM_FUNC com_telnet_drain_rx(void)
 {
-    // A full ring loses nothing for COM_WIRE_HOLD_MS, because net_rx calls
+    // A full ring loses nothing for COM_HOLD_MS, because net_rx calls
     // tcp_recved only for the bytes it returns, so TCP flow control holds back
     // the peer while the connection is not read. After that, input is read and
     // dropped but still decoded, so a Ctrl-C or a telnet Interrupt Process
@@ -164,7 +177,7 @@ static void com_telnet_drain_rx(void)
             if (!com_telnet_rx_held)
             {
                 com_telnet_rx_held = true;
-                com_telnet_rx_hold = timer_in_ms(COM_WIRE_HOLD_MS);
+                com_telnet_rx_hold = timer_in_ms(COM_HOLD_MS);
             }
             if (!timer_passed(com_telnet_rx_hold))
                 return;
@@ -204,15 +217,22 @@ static void com_telnet_drain_rx(void)
         }
     }
 
+    /* A window size sent before the passkey is read here once the session
+     * is logged in, and the first one puts the session in charge. */
     if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
     {
         uint16_t nw, nh;
         if (telnet_get_naws(NET_TELNET_DESC, &nw, &nh))
-            rln_set_naws_size(nw, nh);
+        {
+            tio_set_naws_size(nw, nh);
+            if (!com_telnet_naws)
+                vga_suppress_term_reply(true);
+            com_telnet_naws = true;
+        }
     }
 }
 
-static bool com_telnet_should_listen(void)
+static bool HOST_IN_RAM_FUNC com_telnet_should_listen(void)
 {
     return com_telnet_get_port() > 0 && com_telnet_get_key()[0] != 0 && wifi_ready();
 }
@@ -225,11 +245,15 @@ static void com_telnet_teardown(com_telnet_state_t target)
         telnet_close(NET_TELNET_DESC);
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
     {
-        vga_set_tel_console_active(false);
-        rln_set_naws_size(0, 0);
+        if (com_telnet_naws)
+            vga_suppress_term_reply(false);
+        com_telnet_naws = false;
+        tio_set_naws_size(0, 0);
+        tio_forget(COM_SOURCE_TEL);
         rln_forget_source(COM_SOURCE_TEL);
     }
-    if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE)
+    if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE &&
+        !com_telnet_closed)
     {
         telnet_listen_close(com_telnet_active_port);
         com_telnet_active_port = 0;
@@ -246,6 +270,17 @@ static void com_telnet_shutdown(void)
     com_telnet_teardown(COM_TELNET_STATE_IDLE);
 }
 
+/* Once flashing starts nobody new logs in, so the listener closes, and so
+ * does a session still at the passkey prompt. A session logged in stays. */
+void HOST_IN_FLASH_FUNC com_telnet_flashing(void)
+{
+    if (com_telnet_state == COM_TELNET_STATE_CONNECTED)
+        telnet_listen_close(com_telnet_active_port);
+    else
+        com_telnet_shutdown();
+    com_telnet_closed = true;
+}
+
 static void com_telnet_on_disconnect(int desc)
 {
     if (com_telnet_state == COM_TELNET_STATE_AUTH || com_telnet_state == COM_TELNET_STATE_CONNECTED)
@@ -256,7 +291,7 @@ static void com_telnet_on_disconnect(int desc)
     telnet_close(desc);
 }
 
-static bool com_telnet_on_accept(uint16_t port)
+static bool HOST_IN_FLASH_FUNC com_telnet_on_accept(uint16_t port)
 {
     if (com_telnet_state != COM_TELNET_STATE_LISTENING)
         return false;
@@ -276,7 +311,7 @@ static bool com_telnet_on_accept(uint16_t port)
 
 
 
-int HOST_IN_FLASH_FUNC("com_telnet_port_response") com_telnet_port_response(char *buf,
+int HOST_IN_FLASH_FUNC com_telnet_port_response(char *buf,
                                                                             size_t buf_size,
                                                                             int state,
                                                                             unsigned width)
@@ -292,7 +327,7 @@ int HOST_IN_FLASH_FUNC("com_telnet_port_response") com_telnet_port_response(char
     return com_telnet_key_response(buf, buf_size, 0, width);
 }
 
-int HOST_IN_FLASH_FUNC("com_telnet_key_response") com_telnet_key_response(char *buf,
+int HOST_IN_FLASH_FUNC com_telnet_key_response(char *buf,
                                                                           size_t buf_size,
                                                                           int state, unsigned width)
 {
@@ -306,7 +341,7 @@ int HOST_IN_FLASH_FUNC("com_telnet_key_response") com_telnet_key_response(char *
 
 
 
-void com_telnet_task(void)
+void HOST_IN_RAM_FUNC com_telnet_task(void)
 {
     com_telnet_drain_tx();
 
@@ -320,7 +355,8 @@ void com_telnet_task(void)
     switch (com_telnet_state)
     {
     case COM_TELNET_STATE_IDLE:
-        if (com_telnet_should_listen() && telnet_listen(com_telnet_get_port(), com_telnet_on_accept))
+        if (!com_telnet_closed && com_telnet_should_listen() &&
+            telnet_listen(com_telnet_get_port(), com_telnet_on_accept))
         {
             com_telnet_active_port = com_telnet_get_port();
             com_telnet_state = COM_TELNET_STATE_LISTENING;

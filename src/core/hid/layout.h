@@ -56,6 +56,6 @@ uint16_t layout_dead3(int idx, unsigned entry, unsigned field);
 // own.
 uint16_t layout_word(uint32_t index);
 
-#define LAYOUT_DRIVER DRIVER(layout_init, nul_task, nul_task, nul_run, nul_stop, nul_break, nul_config, nul_config, nul_sst)
+#define LAYOUT_DRIVER DRIVER(INIT(layout_init))
 
 #endif /* _CORE_HID_LAYOUT_H_ */

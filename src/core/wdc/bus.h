@@ -27,7 +27,8 @@ void bus_task(void);
 void bus_sst_save(sst_cursor_t *c, unsigned flags);
 bool bus_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define BUS_DRIVER DRIVER(nul_init, bus_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(BUS_, 1, BUS_SST_SIZE, bus_sst_save, bus_sst_load))
+#define BUS_DRIVER DRIVER(                                  \
+    TASK_PUMPED(bus_task)                                   \
+    SST(BUS_, 1, BUS_SST_SIZE, bus_sst_save, bus_sst_load))
 
 #endif /* _CORE_WDC_BUS_H_ */

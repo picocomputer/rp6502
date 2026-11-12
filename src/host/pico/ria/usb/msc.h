@@ -41,6 +41,7 @@ typedef struct
 int msc_drive_vol_from_name(const char *name);
 bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out);
 bool msc_drive_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);
+// False while the serial number is on the way. dst is empty when there is none.
 bool msc_drive_serial(uint8_t vol, char *dst, size_t dst_size);
 bool msc_drive_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);
 bool msc_drive_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count);

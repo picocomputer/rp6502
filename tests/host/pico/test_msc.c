@@ -209,7 +209,7 @@ static void drive_command(const uint8_t cdb[12])
     }
 }
 
-/* The fake USB host. Completions are queued and delivered by sys_task. */
+/* The fake USB host. Completions are queued and delivered by sys_pump. */
 
 typedef struct
 {
@@ -375,7 +375,7 @@ void usbh_driver_set_config_complete(uint8_t daddr, uint8_t itf_num)
     (void)itf_num;
 }
 
-void sys_task(void)
+void sys_pump(void)
 {
     now_us += 1000;
     if (!event_count)
@@ -668,7 +668,7 @@ UTEST(msc, timed_out_read_resets_and_clears_every_pipe)
     ASSERT_EQ((int)disk_read(0, buf, 100, 1), RES_NOTRDY);
     drive.hang_reads = false;
     for (int i = 0; i < 100; i++)
-        sys_task();
+        sys_pump();
     EXPECT_GE(drive.clears[EP_IN & 0x0F], 1u);
     EXPECT_GE(drive.clears[EP_OUT & 0x0F], 1u);
     EXPECT_GE(drive.clears[EP_STATUS & 0x0F], 1u);

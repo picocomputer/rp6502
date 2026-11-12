@@ -10,14 +10,17 @@
 #include "core/term/font.h"
 #include "core/term/term.h"
 
-static int16_t mode0_scanline_begin;
-
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static inline bool
-mode0_render_320(int16_t scanline_id, uint16_t *rgb)
+mode0_render_320(int16_t scanline_id, int16_t begin, uint16_t *rgb)
 {
-    scanline_id -= mode0_scanline_begin;
+    /* A row past the terminal's would read past its rows, so a row copied
+     * part way through a reprogram, with another mode's config, draws
+     * nothing. */
+    scanline_id -= begin;
+    if ((uint16_t)scanline_id >= TERM_MAX_HEIGHT * 8)
+        return false;
     term_view_t tv;
     term_view(&tv);
     const uint8_t scanrow = (uint8_t)(scanline_id & 7);
@@ -112,9 +115,14 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
 }
 
 static inline bool
-mode0_render_640(int16_t scanline_id, uint16_t *rgb)
+mode0_render_640(int16_t scanline_id, int16_t begin, uint16_t *rgb)
 {
-    scanline_id -= mode0_scanline_begin;
+    /* A row past the terminal's would read past its rows, so a row copied
+     * part way through a reprogram, with another mode's config, draws
+     * nothing. */
+    scanline_id -= begin;
+    if ((uint16_t)scanline_id >= TERM_MAX_HEIGHT * 16)
+        return false;
     term_view_t tv;
     term_view(&tv);
     const uint8_t scanrow = (uint8_t)(scanline_id & 15);
@@ -212,15 +220,18 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
     return true;
 }
 
+/* The config of a terminal row is the scanline the terminal begins at, so
+ * each row says where it is in the terminal. A render on the other core
+ * copies the row whole, and a begin kept apart from the rows could pair an
+ * old row with a new begin, or a new row with an old one. */
 static bool
 mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     (void)plane_id;
-    (void)config_ptr;
     if (width == 320)
-        return mode0_render_320(scanline_id, rgb);
+        return mode0_render_320(scanline_id, (int16_t)config_ptr, rgb);
     else
-        return mode0_render_640(scanline_id, rgb);
+        return mode0_render_640(scanline_id, (int16_t)config_ptr, rgb);
 }
 #pragma GCC pop_options
 
@@ -237,16 +248,6 @@ bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
     return true;
 }
 
-int16_t mode0_begin(void)
-{
-    return mode0_scanline_begin;
-}
-
-void mode0_set_begin(int16_t at)
-{
-    mode0_scanline_begin = at;
-}
-
 bool mode0_prog(uint16_t *xregs)
 {
     int16_t plane = xregs[2];
@@ -257,10 +258,10 @@ bool mode0_prog(uint16_t *xregs)
                       &scanline_begin, &scanline_end, &cols, &rows))
         return false;
 
-    if (vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, mode0_render))
+    if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
+                           (uint16_t)scanline_begin, mode0_render))
     {
         term_set_height(cols, rows);
-        mode0_scanline_begin = scanline_begin;
         return true;
     }
     return false;

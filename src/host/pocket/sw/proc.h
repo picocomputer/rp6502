@@ -19,6 +19,6 @@ const char *proc_staged_path(void);
 
 bool proc_exec_take(void);
 
-#define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break, nul_config, nul_config, nul_sst)
+#define PROC_DRIVER DRIVER(RUN(proc_run) STOP(proc_stop))
 
 #endif /* _HOST_POCKET_SW_PROC_H_ */
