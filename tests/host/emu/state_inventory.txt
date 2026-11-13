@@ -265,6 +265,7 @@ core/vga/canvas.c canvas_w: the VGA chunk
 core/vga/canvas.c console_h: the VGA chunk
 core/vga/canvas.c console_w: the VGA chunk
 core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
+core/vga/mode/mode2.c mode2_tiles: a table of functions, fixed at build
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
 core/vga/prog.c vga_highest_scanline: the VGA chunk
 core/vga/prog.c vga_prog: the VGA chunk

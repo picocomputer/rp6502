@@ -273,6 +273,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
         mode_word_t *w = (mode_word_t *)rgb;
         unsigned k = 0;
         if (hdouble)
+#pragma GCC unroll 64
             for (; k < row_bytes; k++)
             {
                 const uint32_t b = src[k];
@@ -308,6 +309,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
             }
         else if (bpp == 8)
         {
+#pragma GCC unroll 16
             for (; k + 4 <= row_bytes; k += 4, w += 2)
             {
                 const uint32_t q = mode_load32(src + k);
@@ -324,6 +326,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
         }
         else if (bpp == 4)
         {
+#pragma GCC unroll 8
             for (; k + 4 <= row_bytes; k += 4, w += 4)
             {
                 const uint32_t q = mode_load32(src + k);
@@ -343,6 +346,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
             }
         }
         else if (bpp == 2)
+#pragma GCC unroll 16
             for (; k < row_bytes; k++, w += 2)
             {
                 const uint32_t b = src[k];
@@ -351,6 +355,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
                 w[1] = c;
             }
         else
+#pragma GCC unroll 8
             for (; k < row_bytes; k++, w += 4)
             {
                 const uint32_t b = src[k];
@@ -365,15 +370,76 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
     }
 }
 
+// The other tile shapes get a copy of the hot loop for every stored row
+// length, so it is unrolled whole. A row of a custom tile 4 to 64 pixels wide,
+// or of a standard tile that is trimmed or doubled, is (w + 1) * 4 pixels for
+// w of 0 to 15. The step on the canvas stays a variable.
+typedef void (*mode2_tiles_fn)(uint16_t *rgb, const uint8_t *map, unsigned count,
+                               uint32_t ids, const uint8_t *tiles, uint32_t tile_bytes,
+                               int16_t step, const uint32_t *tbl, const uint16_t *pal);
+
+#define MODE2_TILES(BPP, HD, W)                                                     \
+    static __attribute__((noinline)) void                                           \
+    mode2_tiles_##BPP##_##HD##_##W(uint16_t *rgb, const uint8_t *map, unsigned count, \
+                                   uint32_t ids, const uint8_t *tiles,               \
+                                   uint32_t tile_bytes, int16_t step,                \
+                                   const uint32_t *tbl, const uint16_t *pal)         \
+    {                                                                               \
+        mode2_emit_tiles(rgb, map, count, ids, tiles, tile_bytes,                   \
+                         ((W + 1) * 4 * BPP + 7) / 8, step, tbl, pal, BPP, HD);     \
+    }
+#define MODE2_TILES_W(BPP, HD)                                                     \
+    MODE2_TILES(BPP, HD, 0)                                                         \
+    MODE2_TILES(BPP, HD, 1)                                                         \
+    MODE2_TILES(BPP, HD, 2)                                                         \
+    MODE2_TILES(BPP, HD, 3)                                                         \
+    MODE2_TILES(BPP, HD, 4)                                                         \
+    MODE2_TILES(BPP, HD, 5)                                                         \
+    MODE2_TILES(BPP, HD, 6)                                                         \
+    MODE2_TILES(BPP, HD, 7)                                                         \
+    MODE2_TILES(BPP, HD, 8)                                                         \
+    MODE2_TILES(BPP, HD, 9)                                                         \
+    MODE2_TILES(BPP, HD, 10)                                                        \
+    MODE2_TILES(BPP, HD, 11)                                                        \
+    MODE2_TILES(BPP, HD, 12)                                                        \
+    MODE2_TILES(BPP, HD, 13)                                                        \
+    MODE2_TILES(BPP, HD, 14)                                                        \
+    MODE2_TILES(BPP, HD, 15)
+#define MODE2_TILES_ROW(BPP, HD)                                                    \
+    {mode2_tiles_##BPP##_##HD##_0, mode2_tiles_##BPP##_##HD##_1,                    \
+     mode2_tiles_##BPP##_##HD##_2, mode2_tiles_##BPP##_##HD##_3,                    \
+     mode2_tiles_##BPP##_##HD##_4, mode2_tiles_##BPP##_##HD##_5,                    \
+     mode2_tiles_##BPP##_##HD##_6, mode2_tiles_##BPP##_##HD##_7,                    \
+     mode2_tiles_##BPP##_##HD##_8, mode2_tiles_##BPP##_##HD##_9,                    \
+     mode2_tiles_##BPP##_##HD##_10, mode2_tiles_##BPP##_##HD##_11,                  \
+     mode2_tiles_##BPP##_##HD##_12, mode2_tiles_##BPP##_##HD##_13,                  \
+     mode2_tiles_##BPP##_##HD##_14, mode2_tiles_##BPP##_##HD##_15}
+MODE2_TILES_W(1, 0)
+MODE2_TILES_W(1, 1)
+MODE2_TILES_W(2, 0)
+MODE2_TILES_W(2, 1)
+MODE2_TILES_W(4, 0)
+MODE2_TILES_W(4, 1)
+MODE2_TILES_W(8, 0)
+MODE2_TILES_W(8, 1)
+
+static const mode2_tiles_fn mode2_tiles[4][2][16] = {
+    {MODE2_TILES_ROW(1, 0), MODE2_TILES_ROW(1, 1)},
+    {MODE2_TILES_ROW(2, 0), MODE2_TILES_ROW(2, 1)},
+    {MODE2_TILES_ROW(4, 0), MODE2_TILES_ROW(4, 1)},
+    {MODE2_TILES_ROW(8, 0), MODE2_TILES_ROW(8, 1)},
+};
+
 // The map is walked a tile at a time. Whole tiles go to mode2_emit_tiles while
 // the whole of their decoded row fits in the line; the tiles cut by an edge,
 // and the last few before the end of the line, go through mode2_emit_part.
 // bpp is a constant at every call, and for the standard 8x8 and 16x16 tiles
 // shown whole, so is the geometry, so those fold to shifts and fixed loops.
+// Every other shape passes its copy of the whole tile loop in tiles_fn.
 static inline __attribute__((always_inline)) void
 mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
            const uint8_t *row_data, int16_t py, const uint16_t *pal,
-           const mode2_geom_t *g, int16_t bpp)
+           const mode2_geom_t *g, mode2_tiles_fn tiles_fn, int16_t bpp)
 {
     const int16_t scr_w = g->scr_w;
     const bool hdouble = g->hdouble;
@@ -421,12 +487,11 @@ mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
         unsigned fast = room >= span ? (room - span) / scr_w + 1 : 0;
         if (fast > count)
             fast = count;
-        if (hdouble)
-            mode2_emit_tiles(rgb, map, fast, ids, tiles, tile_bytes, row_bytes, scr_w,
-                             tbl, pal, bpp, true);
-        else
+        if (!tiles_fn)
             mode2_emit_tiles(rgb, map, fast, ids, tiles, tile_bytes, row_bytes, scr_w,
                              tbl, pal, bpp, false);
+        else if (fast)
+            tiles_fn(rgb, map, fast, ids, tiles, tile_bytes, scr_w, tbl, pal);
         rgb += fast * scr_w;
         map += fast;
         for (count -= fast; count; count--, rgb += scr_w)
@@ -470,18 +535,22 @@ mode2_render_bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t con
             fixed.tex_w = fixed.scr_w = 16;
             fixed.row_bytes = 16 * bpp / 8;
             fixed.tile_bytes = 16 * 16 * bpp / 8;
-            mode2_emit(config, rgb, width, row_data, py, p, &fixed, bpp);
+            mode2_emit(config, rgb, width, row_data, py, p, &fixed, NULL, bpp);
         }
         else
         {
             fixed.tex_w = fixed.scr_w = 8;
             fixed.row_bytes = 8 * bpp / 8;
             fixed.tile_bytes = 8 * 8 * bpp / 8;
-            mode2_emit(config, rgb, width, row_data, py, p, &fixed, bpp);
+            mode2_emit(config, rgb, width, row_data, py, p, &fixed, NULL, bpp);
         }
     }
     else
-        mode2_emit(config, rgb, width, row_data, py, p, &g, bpp);
+    {
+        const int bi = bpp == 1 ? 0 : bpp == 2 ? 1 : bpp == 4 ? 2 : 3;
+        const unsigned w = (opt & MODE2_CUSTOM) ? (opt >> 4) & 0x0F : (opt & 0x08) ? 3 : 1;
+        mode2_emit(config, rgb, width, row_data, py, p, &g, mode2_tiles[bi][g.hdouble][w], bpp);
+    }
     return true;
 }
 
