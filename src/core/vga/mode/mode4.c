@@ -49,13 +49,6 @@ typedef struct
 // sprite's own box samples the texture at u = a00 * x + a01 * y + b0,
 // v = a10 * x + a11 * y + b1.
 typedef int32_t affine_transform_t[6];
-static const int32_t AF_ONE = 1 << 16;
-
-static inline int32_t mul_fp1616(int32_t x, int32_t y)
-{
-    int64_t result = (int64_t)x * y;
-    return result >> 16;
-}
 
 typedef struct
 {
@@ -306,19 +299,17 @@ static inline void setup_interp_affine(
     intersect_t isct,
     const affine_transform_t atrans)
 {
-    int32_t x0 =
-        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
-        mul_fp1616(atrans[1], isct.tex_offs_y * AF_ONE) +
-        atrans[2];
-    int32_t y0 =
-        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
-        mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
-        atrans[5];
+    // Texel coordinates are whole, so a 16.16 product is a plain multiply,
+    // which wraps the same.
+    const uint32_t tx = (uint32_t)(isct.tex_offs_x + isct.size_x - 1);
+    const uint32_t ty = (uint32_t)isct.tex_offs_y;
+    int32_t x0 = (int32_t)((uint32_t)atrans[0] * tx + (uint32_t)atrans[1] * ty + (uint32_t)atrans[2]);
+    int32_t y0 = (int32_t)((uint32_t)atrans[3] * tx + (uint32_t)atrans[4] * ty + (uint32_t)atrans[5]);
 #if PICO_ON_DEVICE
-    interp0->accum[0] = x0;
-    interp0->accum[1] = y0;
-    interp0->base[0] = -atrans[0];
-    interp0->base[1] = -atrans[3];
+    interp0->accum[0] = interp1->accum[0] = x0;
+    interp0->accum[1] = interp1->accum[1] = y0;
+    interp0->base[0] = interp1->base[0] = -atrans[0];
+    interp0->base[1] = interp1->base[1] = -atrans[3];
 #else
     sw_interp.accum[0] = (uint32_t)x0;
     sw_interp.accum[1] = (uint32_t)y0;
@@ -352,6 +343,17 @@ static inline void setup_interp_pix_coordgen(
     interp_set_config(interp0, 1, &c1);
 
     interp_set_base(interp0, 2, (uint32_t)sp_img);
+
+    // interp1 steps in step with interp0, and its POP_FULL is the bits of u
+    // and v past the sprite's edge, so it is nonzero for a texel outside.
+    // The shift of 1 keeps bit 31 in the sum, which can then never wrap to 0.
+    interp_config c2 = interp_default_config();
+    interp_config_set_add_raw(&c2, true);
+    interp_config_set_shift(&c2, 1);
+    interp_config_set_mask(&c2, 15 + sp->log_size, 30);
+    interp_set_config(interp1, 0, &c2);
+    interp_set_config(interp1, 1, &c2);
+    interp_set_base(interp1, 2, 0);
 #else
     sw_interp.shift[0] = 16 - pixel_shift;
     sw_interp.mask[0] = sw_interp_mask(pixel_shift, pixel_shift + sp->log_size - 1);
@@ -364,7 +366,8 @@ static inline void setup_interp_pix_coordgen(
 static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, unsigned mask)
 {
 #if PICO_ON_DEVICE
-    uint32_t overflow = (interp0->accum[0] | interp0->accum[1]) & mask;
+    (void)mask;
+    uint32_t overflow = interp1->pop[2];
     uint16_t *src_addr = (uint16_t *)interp0->pop[2];
 #else
     uint32_t overflow = (sw_interp.accum[0] | sw_interp.accum[1]) & mask;
