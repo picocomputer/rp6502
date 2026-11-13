@@ -272,6 +272,7 @@ core/vga/prog.c vga_prog: the VGA chunk
 core/vga/vga.c beam_n: the VGA chunk
 core/vga/vga.c frame_n: the VGA chunk
 core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
+core/vga/vga.c vga_fill_cache: derived: every line checks it against the palette it was built from and builds it again if they differ
 core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk

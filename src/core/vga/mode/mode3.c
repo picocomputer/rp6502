@@ -111,7 +111,7 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 // each wrapper below folds to one depth's byte walk.
 static inline __attribute__((always_inline)) bool
 mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
-             int16_t bpp, bool reverse)
+             vga_fill_cache_t *cache, int16_t bpp, bool reverse)
 {
     mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
     mode3_config_t *config = &cfg;
@@ -167,7 +167,7 @@ mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_
                 col++;
                 fill_cols--;
             }
-            mode_run_4bpp(rgb, data, fill_cols, palette, reverse);
+            mode_run_4bpp_pairs(rgb, data, fill_cols, mode_4bpp_pairs(cache, palette, reverse));
             rgb += fill_cols;
             col += fill_cols;
         }
@@ -217,10 +217,12 @@ mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_
 
 #define MODE3_RENDER_FN(name, bpp, reverse)                                    \
     static bool name(int16_t plane_id, int16_t scanline_id, int16_t width,     \
-                     uint16_t *rgb, uint16_t config_ptr)                       \
+                     uint16_t *rgb, uint16_t config_ptr,                       \
+                     vga_fill_cache_t *cache)                                  \
     {                                                                          \
         (void)plane_id;                                                        \
-        return mode3_render(scanline_id, width, rgb, config_ptr, bpp, reverse); \
+        return mode3_render(scanline_id, width, rgb, config_ptr, cache,        \
+                            bpp, reverse);                                     \
     }
 MODE3_RENDER_FN(mode3_render_1bpp, 1, false)
 MODE3_RENDER_FN(mode3_render_2bpp, 2, false)

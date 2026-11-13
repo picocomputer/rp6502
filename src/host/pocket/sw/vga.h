@@ -14,8 +14,7 @@
 
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                        uint16_t *, uint16_t));
+                        vga_fill_fn_t fill_fn);
 void vga_restore(void);
 
 #endif /* _HOST_POCKET_SW_VGA_H_ */

@@ -204,16 +204,20 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_1bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_1bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_1bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_1bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
@@ -268,16 +272,20 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_4bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_4bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
@@ -332,16 +340,20 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_4bppr_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bppr_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_4bppr_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bppr_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 16);
 }
 
@@ -396,16 +408,20 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_8bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_8bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_8bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_8bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
@@ -457,16 +473,20 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_16bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_16bpp_8x8(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_16bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_16bpp_8x16(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+                     vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 

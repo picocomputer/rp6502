@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
+#include "core/vga/prog.h"
 
 /* GCC folds the index scaling into the load, ldr rN,[rBase,rIdx,lsl #2], only
  * while the table base is a register it holds. Left an sp-relative local it
@@ -168,6 +170,60 @@ mode_run_8bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal
     dst = (uint16_t *)d;
     for (; n; n--)
         *dst++ = pal[*src++];
+}
+
+/* The 4bpp pairs of a plane's fill cache. Every line compares the palette
+ * and bit order with those the pairs were built from, and builds them again
+ * only when they differ: a build costs about a line's worth of pixels. */
+static inline __attribute__((always_inline)) const uint32_t *
+mode_4bpp_pairs(vga_fill_cache_t *c, const uint16_t *pal, bool reverse)
+{
+    uint16_t now[16];
+    memcpy(now, pal, sizeof(now));
+    if (c->reverse_4bpp == reverse && !memcmp(c->palette_4bpp, now, sizeof(now)))
+        return c->pairs_4bpp;
+    memcpy(c->palette_4bpp, now, sizeof(now));
+    c->reverse_4bpp = reverse;
+    for (int i = 0; i < 16; i++)
+    {
+        const uint32_t h = reverse ? (uint32_t)now[i] << 16 : now[i];
+        uint32_t *t = c->pairs_4bpp + i * 16;
+#pragma GCC unroll 16
+        for (int j = 0; j < 16; j++)
+            t[j] = h | (reverse ? now[j] : (uint32_t)now[j] << 16);
+    }
+    return c->pairs_4bpp;
+}
+
+/* n pixels of 4bpp, as mode_run_4bpp, through mode_4bpp_pairs. */
+static inline __attribute__((always_inline)) void
+mode_run_4bpp_pairs(uint16_t *dst, const uint8_t *src, unsigned n, const uint32_t *pairs)
+{
+    if (n >= 2 && ((uintptr_t)dst & 2))
+    {
+        *(mode_word_t *)dst = pairs[*src++];
+        dst += 2;
+        n -= 2;
+    }
+    if (!((uintptr_t)dst & 2))
+    {
+        uint32_t *d = (uint32_t *)dst;
+        for (; n >= 8; n -= 8, src += 4, d += 4)
+        {
+            const uint32_t s = mode_load32(src);
+            const uint32_t w0 = pairs[s & 0xFF], w1 = pairs[(s >> 8) & 0xFF];
+            const uint32_t w2 = pairs[(s >> 16) & 0xFF], w3 = pairs[s >> 24];
+            d[0] = w0;
+            d[1] = w1;
+            d[2] = w2;
+            d[3] = w3;
+        }
+        dst = (uint16_t *)d;
+    }
+    for (; n >= 2; n -= 2, dst += 2)
+        *(mode_word_t *)dst = pairs[*src++];
+    if (n)
+        *dst = (uint16_t)pairs[*src];
 }
 
 /* n pixels of 4bpp, starting at the high nibble of src[0], or the low one

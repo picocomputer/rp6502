@@ -251,7 +251,8 @@ mode2_emit_part(uint16_t *rgb, uint8_t id, uint32_t ids, const uint8_t *tiles,
 //
 // Undoubled, 1bpp expands a nibble at a time through a table of the 16 ways
 // four pixels can land, 2bpp a nibble at a time through the 16 pixel pairs,
-// and 4bpp and 8bpp read the row a word at a time. Doubled, every pixel is a
+// and 4bpp a byte at a time through the plane's mode_4bpp_pairs; 4bpp and
+// 8bpp read the row a word at a time. Doubled, every pixel is a
 // word, through a table of the doubled colors at 1bpp and 2bpp. tiles is the
 // scanline's row of tile 0, and a tile ID of ids or more is past the end of
 // XRAM.
@@ -330,20 +331,15 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
             for (; k + 4 <= row_bytes; k += 4, w += 4)
             {
                 const uint32_t q = mode_load32(src + k);
-                const uint32_t w0 = mode_pack2(pal[(q >> 4) & 0xF], pal[q & 0xF]);
-                const uint32_t w1 = mode_pack2(pal[(q >> 12) & 0xF], pal[(q >> 8) & 0xF]);
-                const uint32_t w2 = mode_pack2(pal[(q >> 20) & 0xF], pal[(q >> 16) & 0xF]);
-                const uint32_t w3 = mode_pack2(pal[q >> 28], pal[(q >> 24) & 0xF]);
+                const uint32_t w0 = tbl[q & 0xFF], w1 = tbl[(q >> 8) & 0xFF];
+                const uint32_t w2 = tbl[(q >> 16) & 0xFF], w3 = tbl[q >> 24];
                 w[0] = w0;
                 w[1] = w1;
                 w[2] = w2;
                 w[3] = w3;
             }
             for (; k < row_bytes; k++, w++)
-            {
-                const uint32_t b = src[k];
-                *w = mode_pack2(pal[b >> 4], pal[b & 0xF]);
-            }
+                *w = tbl[src[k]];
         }
         else if (bpp == 2)
 #pragma GCC unroll 16
@@ -439,7 +435,7 @@ static const mode2_tiles_fn mode2_tiles[4][2][16] = {
 static inline __attribute__((always_inline)) void
 mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
            const uint8_t *row_data, int16_t py, const uint16_t *pal,
-           const mode2_geom_t *g, mode2_tiles_fn tiles_fn, int16_t bpp)
+           const uint32_t *pairs, const mode2_geom_t *g, mode2_tiles_fn tiles_fn, int16_t bpp)
 {
     const int16_t scr_w = g->scr_w;
     const bool hdouble = g->hdouble;
@@ -454,14 +450,15 @@ mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
         ids = (0x10000 - row_bytes - base) / tile_bytes + 1;
     const uint8_t *tiles = (const uint8_t *)&xram[base & 0xFFFF];
     uint16_t *const line_end = rgb + width;
-    MODE_TABLE(tbl, 32);
+    MODE_TABLE(small, 32);
+    const uint32_t *tbl = bpp == 4 && !hdouble ? pairs : small;
     if (hdouble)
         for (int i = 0; i < (bpp <= 2 ? 1 << bpp : 0); i++)
-            tbl[i] = pal[i] * 0x10001u;
+            small[i] = pal[i] * 0x10001u;
     else if (bpp == 1)
-        mode_nibble_set(tbl, pal[0], pal[1]);
+        mode_nibble_set(small, pal[0], pal[1]);
     else if (bpp == 2)
-        mode_quad_set(tbl, pal);
+        mode_quad_set(small, pal);
     int16_t col = -config->x_pos_px;
     while (width)
     {
@@ -506,7 +503,7 @@ mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
 
 static inline __attribute__((always_inline)) bool
 mode2_render_bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
-                 uint16_t opt, int16_t bpp)
+                 uint16_t opt, vga_fill_cache_t *cache, int16_t bpp)
 {
     mode2_config_t cfg = *(const mode2_config_t *)&xram[config_ptr];
     mode2_config_t *config = &cfg;
@@ -526,6 +523,8 @@ mode2_render_bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t con
         for (int i = 0; i < (1 << bpp); i++)
             pal[i] = palette[i];
     const uint16_t *p = bpp <= 2 ? pal : palette;
+    // 4bpp tiles not doubled across read each byte's two pixels at once.
+    const uint32_t *pairs = bpp == 4 && !g.hdouble ? mode_4bpp_pairs(cache, palette, false) : NULL;
     // The standard tiles, shown whole, get geometry the compiler can see.
     if (!(opt & (MODE2_CUSTOM | MODE2_HDOUBLE | 0x00F0)))
     {
@@ -535,39 +534,40 @@ mode2_render_bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t con
             fixed.tex_w = fixed.scr_w = 16;
             fixed.row_bytes = 16 * bpp / 8;
             fixed.tile_bytes = 16 * 16 * bpp / 8;
-            mode2_emit(config, rgb, width, row_data, py, p, &fixed, NULL, bpp);
+            mode2_emit(config, rgb, width, row_data, py, p, pairs, &fixed, NULL, bpp);
         }
         else
         {
             fixed.tex_w = fixed.scr_w = 8;
             fixed.row_bytes = 8 * bpp / 8;
             fixed.tile_bytes = 8 * 8 * bpp / 8;
-            mode2_emit(config, rgb, width, row_data, py, p, &fixed, NULL, bpp);
+            mode2_emit(config, rgb, width, row_data, py, p, pairs, &fixed, NULL, bpp);
         }
     }
     else
     {
         const int bi = bpp == 1 ? 0 : bpp == 2 ? 1 : bpp == 4 ? 2 : 3;
         const unsigned w = (opt & MODE2_CUSTOM) ? (opt >> 4) & 0x0F : (opt & 0x08) ? 3 : 1;
-        mode2_emit(config, rgb, width, row_data, py, p, &g, mode2_tiles[bi][g.hdouble][w], bpp);
+        mode2_emit(config, rgb, width, row_data, py, p, pairs, &g, mode2_tiles[bi][g.hdouble][w], bpp);
     }
     return true;
 }
 
 static bool
-mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+             vga_fill_cache_t *cache)
 {
     const uint16_t opt = mode2_options[scanline_id][plane_id];
     switch (opt & 0x07)
     {
     case 0:
-        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, 1);
+        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, cache, 1);
     case 1:
-        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, 2);
+        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, cache, 2);
     case 2:
-        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, 4);
+        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, cache, 4);
     case 3:
-        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, 8);
+        return mode2_render_bpp(scanline_id, width, rgb, config_ptr, opt, cache, 8);
     default:
         return false;
     }

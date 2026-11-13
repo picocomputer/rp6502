@@ -225,9 +225,11 @@ mode0_render_640(int16_t scanline_id, int16_t begin, uint16_t *rgb)
  * copies the row whole, and a begin kept apart from the rows could pair an
  * old row with a new begin, or a new row with an old one. */
 static bool
-mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+             vga_fill_cache_t *cache)
 {
     (void)plane_id;
+    (void)cache;
     if (width == 320)
         return mode0_render_320(scanline_id, (int16_t)config_ptr, rgb);
     else

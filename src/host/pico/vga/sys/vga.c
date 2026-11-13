@@ -267,6 +267,12 @@ unsigned long vga_frame_count(void)
     return __atomic_load_n(&vga_frames, __ATOMIC_RELAXED);
 }
 
+/* Both cores render lines at once, so each keeps its own fill caches. They
+ * are in the VIDEO region with the other data the renderers read, which the
+ * boot code does not zero, so vga_init does; see ld/. */
+static vga_fill_cache_t __attribute__((section(".video_data.fill_cache")))
+vga_fill_cache[2][SCANVIDEO_PLANE_COUNT];
+
 static void vga_render_scanline(void)
 {
     if (!mutex_try_enter(&vga_scanline_mutex, 0))
@@ -296,7 +302,8 @@ static void vga_render_scanline(void)
                                         scanline_id,
                                         width,
                                         (uint16_t *)(data[i] + 1),
-                                        prog.fill_config[i]);
+                                        prog.fill_config[i],
+                                        &vga_fill_cache[get_core_num()][i]);
             if (filled[i])
                 foreground = data[i];
         }
@@ -444,6 +451,8 @@ static void vga_render_loop(void)
 
 void vga_init(void)
 {
+    /* The VIDEO region is not zeroed at boot. */
+    memset(vga_fill_cache, 0, sizeof(vga_fill_cache));
     mutex_init(&vga_scanline_mutex);
     vga_set_display(vga_sd);
     vga_scanvideo_switch();
