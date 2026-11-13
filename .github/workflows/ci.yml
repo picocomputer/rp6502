@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
-  PICO_SDK_VERSION: "2.3.0"
-  PICO_TOOLS_TAG: "v2.3.0-0"
+  PICO_SDK_VERSION: "2.3.1"
+  PICO_TOOLS_TAG: "v2.3.1-0"
   ARM_TOOLCHAIN: "15.2.Rel1"
 
 jobs:
