@@ -8,7 +8,6 @@
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
 #include "core/vga/prog.h"
-#include "core/sys/xram.h"
 #include "core/term/term.h"
 #include "vga/scanvideo/scanvideo.h"
 #include <pico/stdlib.h>
@@ -445,9 +444,6 @@ static void vga_render_loop(void)
 
 void vga_init(void)
 {
-    // xram must be 64K-aligned for 6502 address wrap
-    assert(!((uintptr_t)xram & 0xFFFF));
-
     mutex_init(&vga_scanline_mutex);
     vga_set_display(vga_sd);
     vga_scanvideo_switch();

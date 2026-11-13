@@ -104,7 +104,8 @@ typedef struct full_scanline_buffer
 
 static full_scanline_buffer_t scanline_buffers[SCANVIDEO_SCANLINE_BUFFER_COUNT];
 
-static uint32_t scanline_data[SCANVIDEO_PLANE_COUNT][SCANVIDEO_SCANLINE_BUFFER_COUNT][SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
+/* In the VGA's VIDEO region, away from the code; see vga/ld/. */
+static uint32_t __attribute__((section(".video_data.scanline_data"))) scanline_data[SCANVIDEO_PLANE_COUNT][SCANVIDEO_SCANLINE_BUFFER_COUNT][SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 
 // This state is sensitive as it is accessed by either core, and multiple IRQ handlers which may be re-entrant
 static struct

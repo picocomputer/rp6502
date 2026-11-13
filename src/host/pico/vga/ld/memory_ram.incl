@@ -1,0 +1,13 @@
+/* The VGA's version of pico/ld/memory_ram.incl. Main SRAM is two groups of
+ * four word-striped banks, 0x20000000 and 0x20040000. The code stays in the
+ * lower group. The data the renderers and the scanout DMA hit hardest goes in
+ * the upper group, in VIDEO and in XRAM at the top, so the cores' instruction
+ * fetches don't wait on those banks. XRAM sits on the 64 KB boundary the PIX
+ * DMA chain needs. VIDEO is sized to what section_video_data.incl puts there,
+ * with a little room; ld stops with an overflow if that ever outgrows it. */
+MEMORY
+{
+    RAM(rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH - 0x10000 - 0xBD00
+    VIDEO(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000 - 0xBD00, LENGTH = 0xBD00
+    XRAM(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000, LENGTH = 0x10000
+}

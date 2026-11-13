@@ -14,11 +14,11 @@
 // the same in every code page, so a code-page table holds only glyphs 128-255
 // and setting a code page assembles the complete font in RAM.
 
-uint8_t HOST_UNINITIALIZED_RAM(font8)[2048];
-uint8_t HOST_UNINITIALIZED_RAM(font16)[4096];
-uint8_t HOST_UNINITIALIZED_RAM(font_dec_8)[8 * 32];
-uint8_t HOST_UNINITIALIZED_RAM(font_dec_16)[16 * 32];
-uint8_t HOST_UNINITIALIZED_RAM(italic16)[16 * 128];
+uint8_t font8[2048];
+uint8_t font16[4096];
+uint8_t font_dec_8[8 * 32];
+uint8_t font_dec_16[16 * 32];
+uint8_t italic16[16 * 128];
 
 static uint16_t font_code_page;
 

@@ -13,6 +13,7 @@
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
 #include <pico/stdlib.h>
+#include <string.h>
 
 /* The VGA is always a plain Pico 2; sys/led.c says why. */
 #ifdef RASPBERRYPI_PICO2_W
@@ -21,6 +22,11 @@
 
 static void init(void)
 {
+    /* The built-in palettes live in the VIDEO region, which the boot code
+     * does not fill from flash the way it does .data; see ld/. */
+    extern char __video_rodata_start__[], __video_rodata_end__[], __video_rodata_source__[];
+    memcpy(__video_rodata_start__, __video_rodata_source__,
+           (size_t)(__video_rodata_end__ - __video_rodata_start__));
     /* The 3.3 V regulator in PWM mode, which switches steadily, for cleaner
      * power on the GPIOs than power save mode's bursts. */
     gpio_init(PICO_SMPS_MODE_PIN);

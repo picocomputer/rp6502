@@ -6,11 +6,9 @@
 
 #include "core/sys/xram.h"
 #include "core/sys/random.h"
-#include "machine.h"
-#include <stdalign.h>
 #include <string.h>
 
-alignas(XRAM_ALIGN) volatile uint8_t HOST_UNINITIALIZED_RAM(xram)[0x10000];
+volatile uint8_t xram[0x10000];
 
 static bool xram_fill_random = true;
 static uint8_t xram_fill_value;
