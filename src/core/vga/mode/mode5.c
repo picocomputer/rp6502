@@ -299,6 +299,56 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
     }
 }
 
+/* One custom sprite on the line, from the fields already read: its row of
+ * the texture, tex_y, and its size and options bytes. bpp, the flip and the
+ * doubling across are constants, so each combination is its own copy. */
+static inline __attribute__((always_inline)) void
+mode5_custom_sprite(const mode5_csprite_t *s, int tex_y, int width_height, int options,
+                    int16_t width, uint16_t *rgb, int bpp, bool hflip, bool hdouble)
+{
+    const mode5_csprite_t sp = {
+        .x_pos_px = s->x_pos_px,
+        .xram_sprite_ptr = s->xram_sprite_ptr,
+        .palette_ptr = s->palette_ptr,
+    };
+    const int nw = width_height & 15;
+    const int w = (nw + 1) * 4;
+    const int h = ((width_height >> 4) + 1) * 4;
+    const int x = sp.x_pos_px;
+    const int footprint = w << hdouble;
+    if (x + footprint <= 0 || x >= width)
+        return;
+    const int bytes_per_row = (w * bpp + 7) / 8;
+    if (sp.xram_sprite_ptr > 0x10000 - (unsigned)(h * bytes_per_row))
+        return;
+    int row = tex_y >> (options >> 7);
+    if (options & MODE5_VFLIP)
+        row = h - 1 - row;
+    const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
+    const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
+
+    /* Wholly on the line, the usual case, the blit is inlined here. */
+    if (x >= 0 && x <= width - footprint)
+    {
+        mode5_blit_body(rgb + (hflip ? x + footprint - 1 : x), src, palette,
+                        0, w, false, false, hflip, hdouble, bpp);
+        return;
+    }
+
+    const int lo = x < 0 ? -x : 0;
+    const int hi = x + footprint > width ? x + footprint - width : 0;
+    const int a = hflip ? hi : lo;
+    const int b = hflip ? lo : hi;
+    const int s_lo = a >> hdouble;
+    const int s_hi = w - 1 - (b >> hdouble);
+    const int right = x + footprint < width ? x + footprint : width;
+    uint16_t *dst = rgb + (hflip ? right - 1 : x > 0 ? x : 0);
+    const bool lead = hdouble && (a & 1);
+    const bool tail = hdouble && (b & 1);
+    mode5_blit(dst, src, palette, s_lo, s_hi - s_lo + 1, lead, tail,
+               bpp, hflip, hdouble);
+}
+
 static void
 mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
@@ -313,74 +363,21 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
         const int tex_y = scanline - s->y_pos_px;
         const int width_height = s->width_height;
         const int options = s->options;
-        const int vdouble = options >> 7;
         const int h = ((width_height >> 4) + 1) * 4;
-        if ((unsigned)tex_y >= (unsigned)(h << vdouble))
+        if ((unsigned)tex_y >= (unsigned)(h << (options >> 7)))
             continue;
-        const mode5_csprite_t sp = {
-            .x_pos_px = s->x_pos_px,
-            .xram_sprite_ptr = s->xram_sprite_ptr,
-            .palette_ptr = s->palette_ptr,
-        };
-        const int bpp_log = options & 3;
-        const int hflip = (options & MODE5_HFLIP) != 0;
-        const int vflip = (options & MODE5_VFLIP) != 0;
-        const int hdouble = (options & MODE5_HDOUBLE) != 0;
-        const int nw = width_height & 15;
-        const int w = (nw + 1) * 4;
-        int row = tex_y >> vdouble;
-        if (vflip)
-            row = h - 1 - row;
-
-        const int x = sp.x_pos_px;
-        const int footprint = w << hdouble;
-        if (x + footprint <= 0 || x >= width)
-            continue;
-
-        const int bytes_per_row = (((nw + 1) << bpp_log) + 1) >> 1;
-        const unsigned sprite_data_size = h * bytes_per_row;
-        if (sp.xram_sprite_ptr > 0x10000 - sprite_data_size)
-            continue;
-
-        /* A sprite wholly on the line, the usual case, is drawn here with
-         * the blit inlined, a copy for each depth, flip and doubling. */
-        if (x >= 0 && x <= width - footprint)
+        switch (options & (MODE5_HDOUBLE | MODE5_HFLIP | 3))
         {
-            uint16_t *dst = rgb + (hflip ? x + footprint - 1 : x);
-            const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
-            const uint16_t *palette = mode5_get_palette(sp.palette_ptr, 1 << bpp_log);
-            switch (bpp_log << 2 | hflip << 1 | hdouble)
-            {
-#define MODE5_WHOLE(log, hf, hd)                                                \
-    case log << 2 | hf << 1 | hd:                                               \
-        mode5_blit_body(dst, src, palette, 0, w, false, false, hf, hd, 1 << log); \
+#define MODE5_CUSTOM_CASE(log, hf, hd)                                               \
+    case (hd ? MODE5_HDOUBLE : 0) | (hf ? MODE5_HFLIP : 0) | log:                    \
+        mode5_custom_sprite(s, tex_y, width_height, options, width, rgb, 1 << log, hf, hd); \
         break;
-                MODE5_WHOLE(0, 0, 0) MODE5_WHOLE(0, 0, 1) MODE5_WHOLE(0, 1, 0) MODE5_WHOLE(0, 1, 1)
-                MODE5_WHOLE(1, 0, 0) MODE5_WHOLE(1, 0, 1) MODE5_WHOLE(1, 1, 0) MODE5_WHOLE(1, 1, 1)
-                MODE5_WHOLE(2, 0, 0) MODE5_WHOLE(2, 0, 1) MODE5_WHOLE(2, 1, 0) MODE5_WHOLE(2, 1, 1)
-                MODE5_WHOLE(3, 0, 0) MODE5_WHOLE(3, 0, 1) MODE5_WHOLE(3, 1, 0) MODE5_WHOLE(3, 1, 1)
-#undef MODE5_WHOLE
-            }
-            continue;
+            MODE5_CUSTOM_CASE(0, 0, 0) MODE5_CUSTOM_CASE(0, 0, 1) MODE5_CUSTOM_CASE(0, 1, 0) MODE5_CUSTOM_CASE(0, 1, 1)
+            MODE5_CUSTOM_CASE(1, 0, 0) MODE5_CUSTOM_CASE(1, 0, 1) MODE5_CUSTOM_CASE(1, 1, 0) MODE5_CUSTOM_CASE(1, 1, 1)
+            MODE5_CUSTOM_CASE(2, 0, 0) MODE5_CUSTOM_CASE(2, 0, 1) MODE5_CUSTOM_CASE(2, 1, 0) MODE5_CUSTOM_CASE(2, 1, 1)
+            MODE5_CUSTOM_CASE(3, 0, 0) MODE5_CUSTOM_CASE(3, 0, 1) MODE5_CUSTOM_CASE(3, 1, 0) MODE5_CUSTOM_CASE(3, 1, 1)
+#undef MODE5_CUSTOM_CASE
         }
-
-        const int lo = x < 0 ? -x : 0;
-        const int hi = x + footprint > width ? x + footprint - width : 0;
-        const int a = hflip ? hi : lo;
-        const int b = hflip ? lo : hi;
-        const int s_lo = a >> hdouble;
-        const int s_hi = w - 1 - (b >> hdouble);
-        const int right = x + footprint < width ? x + footprint : width;
-        uint16_t *dst = rgb + (hflip ? right - 1 : x > 0 ? x : 0);
-        const bool lead = hdouble && (a & 1);
-        const bool tail = hdouble && (b & 1);
-
-        const uint16_t *palette = mode5_get_palette(sp.palette_ptr, 1 << bpp_log);
-        const uint8_t *row_data =
-            (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
-
-        mode5_blit(dst, row_data, palette, s_lo, s_hi - s_lo + 1, lead, tail,
-                   1 << bpp_log, hflip, hdouble);
     }
 }
 
