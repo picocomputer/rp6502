@@ -64,16 +64,73 @@ mode5_pixel(const uint8_t *src, unsigned j, const uint16_t *palette, int bpp)
     return palette[(src[j / ppb] >> shift) & ((1u << bpp) - 1)];
 }
 
+/* Eight columns from whole bytes at src. Their colors are looked up
+ * together, and when all eight are opaque, which is most of a sprite, they
+ * are stored as whole words without a test per pixel. The flips and doubling
+ * only change where the words land: dst is the first column's pixel, as in
+ * mode5_blit_body. */
+static inline __attribute__((always_inline)) void
+mode5_group(uint16_t *dst, const uint8_t *src, const uint16_t *palette,
+            bool hflip, bool hdouble, int bpp)
+{
+    uint16_t c[8];
+    if (bpp == 8)
+    {
+        /* The eight bytes as two words, unpacked in registers. */
+        const uint32_t a = mode_load32(src), b = mode_load32(src + 4);
+        for (unsigned k = 0; k < 4; k++)
+        {
+            c[k] = palette[(a >> (8 * k)) & 0xFF];
+            c[k + 4] = palette[(b >> (8 * k)) & 0xFF];
+        }
+    }
+    else if (bpp == 4)
+    {
+        /* The four bytes as one word, the high nibble of each first. */
+        const uint32_t a = mode_load32(src);
+        for (unsigned k = 0; k < 4; k++)
+        {
+            c[2 * k] = palette[(a >> (8 * k + 4)) & 0xF];
+            c[2 * k + 1] = palette[(a >> (8 * k)) & 0xF];
+        }
+    }
+    else
+        for (unsigned k = 0; k < 8; k++)
+            c[k] = mode5_pixel(src, k, palette, bpp);
+    const uint32_t opaque = 0x00200020;
+    if (!hdouble)
+    {
+        uint32_t w[4];
+        for (unsigned k = 0; k < 4; k++)
+            w[k] = hflip ? mode_pack2(c[7 - 2 * k], c[6 - 2 * k])
+                         : mode_pack2(c[2 * k], c[2 * k + 1]);
+        mode_word_t *d = (mode_word_t *)(hflip ? dst - 7 : dst);
+        if ((w[0] & w[1] & w[2] & w[3] & opaque) == opaque)
+            for (unsigned k = 0; k < 4; k++)
+                d[k] = w[k];
+        else
+            for (unsigned k = 0; k < 4; k++)
+                d[k] = mode_alpha_merge(w[k], d[k]);
+    }
+    else
+    {
+        mode_word_t *d = (mode_word_t *)(hflip ? dst - 15 : dst);
+        for (unsigned k = 0; k < 8; k++)
+        {
+            const uint16_t color = c[hflip ? 7 - k : k];
+            if (color & (1 << 5))
+                d[k] = color * 0x10001u;
+        }
+    }
+}
+
 /* Paints image columns s_lo through s_lo + count - 1 in that order, so a flip
  * is the direction dst steps. dst is the canvas pixel the first column lands
  * on; doubled, it is the left of that column's pair, or the right when
  * flipped. lead and tail mark a doubled column with one pixel off the canvas
  * at the first and the last column.
  *
- * The middle of the run goes eight columns at a time from whole bytes. Their
- * colors are looked up together, and when all eight are opaque, which is most
- * of a sprite, they are stored as whole words without a test per pixel. The
- * flips and doubling only change where the words land. */
+ * The middle of the run goes eight columns at a time through mode5_group. */
 static inline __attribute__((always_inline)) void
 mode5_blit_body(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
                 unsigned col, unsigned count, bool lead, bool tail,
@@ -115,36 +172,8 @@ mode5_blit_body(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
     const uint8_t *src = row + col / ppb;
     for (; count >= 8; count -= 8, col += 8, src += bpp)
     {
-        uint16_t c[8];
-        for (unsigned k = 0; k < 8; k++)
-            c[k] = mode5_pixel(src, k, palette, bpp);
-        const uint32_t opaque = 0x00200020;
-        if (!hdouble)
-        {
-            uint32_t w[4];
-            for (unsigned k = 0; k < 4; k++)
-                w[k] = hflip ? mode_pack2(c[7 - 2 * k], c[6 - 2 * k])
-                             : mode_pack2(c[2 * k], c[2 * k + 1]);
-            mode_word_t *d = (mode_word_t *)(hflip ? dst - 7 : dst);
-            if ((w[0] & w[1] & w[2] & w[3] & opaque) == opaque)
-                for (unsigned k = 0; k < 4; k++)
-                    d[k] = w[k];
-            else
-                for (unsigned k = 0; k < 4; k++)
-                    d[k] = mode_alpha_merge(w[k], d[k]);
-            dst += 8 * step;
-        }
-        else
-        {
-            mode_word_t *d = (mode_word_t *)(hflip ? dst - 15 : dst);
-            for (unsigned k = 0; k < 8; k++)
-            {
-                const uint16_t color = c[hflip ? 7 - k : k];
-                if (color & (1 << 5))
-                    d[k] = color * 0x10001u;
-            }
-            dst += 16 * step;
-        }
+        mode5_group(dst, src, palette, hflip, hdouble, bpp);
+        dst += (hdouble ? 16 : 8) * step;
     }
     while (count)
         MODE5_ONE();
@@ -206,10 +235,12 @@ mode5_blit(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
         }
 }
 
+/* With unroll, sprite_size is a constant, and a sprite wholly on the line
+ * is drawn by a copy of the blit fixed to that size, unrolled whole. */
 static inline __attribute__((always_inline)) void
 mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
              uint16_t config_ptr, uint16_t length,
-             int sprite_size, int bpp)
+             int sprite_size, int bpp, bool unroll)
 {
     const int16_t bytes_per_row = sprite_size * bpp / 8;
     const uint32_t sprite_data_size = (uint32_t)sprite_size * bytes_per_row;
@@ -228,6 +259,19 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
         if ((unsigned)tex_y >= (unsigned)sprite_size)
             continue;
         const mode5_sprite_t sp = *s;
+
+        if (unroll && sp.x_pos_px >= 0 && sp.x_pos_px <= width - sprite_size)
+        {
+            if (sp.xram_sprite_ptr > 0x10000 - sprite_data_size)
+                continue;
+            uint16_t *dst = rgb + sp.x_pos_px;
+            const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + tex_y * bytes_per_row];
+            const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
+#pragma GCC unroll 8
+            for (int g = 0; g < sprite_size / 8; g++)
+                mode5_group(dst + 8 * g, src + g * bpp, palette, false, false, bpp);
+            continue;
+        }
 
         int16_t x_start = sp.x_pos_px;
         int16_t tex_x = 0;
@@ -298,6 +342,28 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
         if (sp.xram_sprite_ptr > 0x10000 - sprite_data_size)
             continue;
 
+        /* A sprite wholly on the line, the usual case, is drawn here with
+         * the blit inlined, a copy for each depth, flip and doubling. */
+        if (x >= 0 && x <= width - footprint)
+        {
+            uint16_t *dst = rgb + (hflip ? x + footprint - 1 : x);
+            const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
+            const uint16_t *palette = mode5_get_palette(sp.palette_ptr, 1 << bpp_log);
+            switch (bpp_log << 2 | hflip << 1 | hdouble)
+            {
+#define MODE5_WHOLE(log, hf, hd)                                                \
+    case log << 2 | hf << 1 | hd:                                               \
+        mode5_blit_body(dst, src, palette, 0, w, false, false, hf, hd, 1 << log); \
+        break;
+                MODE5_WHOLE(0, 0, 0) MODE5_WHOLE(0, 0, 1) MODE5_WHOLE(0, 1, 0) MODE5_WHOLE(0, 1, 1)
+                MODE5_WHOLE(1, 0, 0) MODE5_WHOLE(1, 0, 1) MODE5_WHOLE(1, 1, 0) MODE5_WHOLE(1, 1, 1)
+                MODE5_WHOLE(2, 0, 0) MODE5_WHOLE(2, 0, 1) MODE5_WHOLE(2, 1, 0) MODE5_WHOLE(2, 1, 1)
+                MODE5_WHOLE(3, 0, 0) MODE5_WHOLE(3, 0, 1) MODE5_WHOLE(3, 1, 0) MODE5_WHOLE(3, 1, 1)
+#undef MODE5_WHOLE
+            }
+            continue;
+        }
+
         const int lo = x < 0 ? -x : 0;
         const int hi = x + footprint > width ? x + footprint - width : 0;
         const int a = hflip ? hi : lo;
@@ -356,14 +422,14 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
 
 #define MODE5_FIXED_NAME(size, bpp) mode5_render_##bpp##bpp_##size##x##size
 
-/* The size only scales the arithmetic, so one renderer per depth takes it as
- * an argument, and each size is a call into it. */
+/* For the larger sizes the size only scales the arithmetic, so one renderer
+ * per depth takes it as an argument. */
 #define MODE5_DEPTH_FN(bpp)                                                     \
     static void __attribute__((noinline))                                       \
     mode5_render_depth_##bpp(int16_t scanline, int16_t width, uint16_t *rgb,     \
                             uint16_t config_ptr, uint16_t length, int size)     \
     {                                                                           \
-        mode5_render(scanline, width, rgb, config_ptr, length, size, bpp);      \
+        mode5_render(scanline, width, rgb, config_ptr, length, size, bpp, false); \
     }
 MODE5_DEPTH_FN(1)
 MODE5_DEPTH_FN(2)
@@ -371,12 +437,17 @@ MODE5_DEPTH_FN(4)
 MODE5_DEPTH_FN(8)
 #undef MODE5_DEPTH_FN
 
+/* Up to 64 wide, each size and depth has its own renderer with the blit
+ * unrolled; the larger sizes share one per depth. */
 #define MODE5_FIXED_FN(attr, size, bpp)                                            \
     static void                                                                    \
     MODE5_FIXED_NAME(size, bpp)(int16_t scanline, int16_t width, uint16_t *rgb,    \
                                 uint16_t config_ptr, uint16_t length)              \
     {                                                                              \
-        mode5_render_depth_##bpp(scanline, width, rgb, config_ptr, length, size);   \
+        if (size <= 64)                                                            \
+            mode5_render(scanline, width, rgb, config_ptr, length, size, bpp, true); \
+        else                                                                       \
+            mode5_render_depth_##bpp(scanline, width, rgb, config_ptr, length, size); \
     }
 #define MODE5_CUSTOM_FN(attr)
 MODE5_SPRITES(MODE5_FIXED_FN, MODE5_CUSTOM_FN)
