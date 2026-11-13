@@ -200,6 +200,19 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsig
     } while (dst > dst_start);
 }
 
+/* A whole row of a plain sprite, n a constant, unrolled whole. */
+static inline __attribute__((always_inline)) void
+sprite_row16_alpha(uint16_t *dst, const uint16_t *src, unsigned n)
+{
+#pragma GCC unroll 64
+    for (unsigned i = 0; i < n; i++)
+    {
+        const uint16_t px = src[i];
+        if (px & (1 << 5))
+            dst[i] = px;
+    }
+}
+
 static inline void sprite_scanline16(
     uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, unsigned raster_y, unsigned raster_w)
 {
@@ -255,11 +268,26 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
             byte_size += px_size * sizeof(uint32_t);
         if (byte_size > 0x10000)
             continue;
-        if (sp.xram_sprite_ptr <= 0x10000 - byte_size)
+        if (sp.xram_sprite_ptr > 0x10000 - byte_size)
+            continue;
+        const void *img = (void *)&xram[sp.xram_sprite_ptr];
+        /* A sprite of 8 to 64 without metadata, wholly on the line, gets a
+         * row unrolled for its size. */
+        if (!sp.has_opacity_metadata && log_size >= 3 && log_size <= 6 &&
+            sp.x_pos_px >= 0 && sp.x_pos_px <= width - (int)px_size)
         {
-            const void *img = (void *)&xram[sp.xram_sprite_ptr];
-            sprite_scanline16(rgb, &sp, img, scanline, width);
+            uint16_t *dst = rgb + sp.x_pos_px;
+            const uint16_t *src = (const uint16_t *)img + (scanline - y_pos_px) * px_size;
+            switch (log_size)
+            {
+            case 3: sprite_row16_alpha(dst, src, 8); break;
+            case 4: sprite_row16_alpha(dst, src, 16); break;
+            case 5: sprite_row16_alpha(dst, src, 32); break;
+            default: sprite_row16_alpha(dst, src, 64); break;
+            }
+            continue;
         }
+        sprite_scanline16(rgb, &sp, img, scanline, width);
     }
 }
 
