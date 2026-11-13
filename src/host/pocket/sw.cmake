@@ -79,7 +79,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -msave-restore
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
-            -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
+            -ffunction-sections -fdata-sections -Wl,--gc-sections -flto=auto
             -Werror=implicit-function-declaration
             -I ${CMAKE_CURRENT_LIST_DIR}
             -I ${RP6502_SRC}

@@ -190,6 +190,12 @@ mode5_blit_body(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
  * and most custom sprites draw with, and one that takes the flips and
  * doubling at run time. Unswitching that one would make a copy for every
  * combination. */
+/* Only GCC takes optimize as a function attribute. */
+#if defined(__GNUC__) && !defined(__clang__)
+#define MODE5_NO_UNSWITCH __attribute__((optimize("no-unswitch-loops")))
+#else
+#define MODE5_NO_UNSWITCH
+#endif
 #define MODE5_BLIT_FN(bpp)                                                       \
     static void __attribute__((noinline))                                        \
     mode5_plain_##bpp(uint16_t *dst, const uint8_t *row,                         \
@@ -198,7 +204,7 @@ mode5_blit_body(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
         mode5_blit_body(dst, row, palette, col, count, false, false,             \
                         false, false, bpp);                                      \
     }                                                                            \
-    static void __attribute__((noinline, optimize("no-unswitch-loops")))       \
+    static void __attribute__((noinline)) MODE5_NO_UNSWITCH                     \
     mode5_blit_##bpp(uint16_t *dst, const uint8_t *row, const uint16_t *palette, \
                      unsigned col, unsigned count, bool lead, bool tail,         \
                      bool hflip, bool hdouble)                                   \
@@ -211,6 +217,7 @@ MODE5_BLIT_FN(2)
 MODE5_BLIT_FN(4)
 MODE5_BLIT_FN(8)
 #undef MODE5_BLIT_FN
+#undef MODE5_NO_UNSWITCH
 
 static inline __attribute__((always_inline)) void
 mode5_blit(uint16_t *dst, const uint8_t *row, const uint16_t *palette,
