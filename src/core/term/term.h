@@ -96,29 +96,24 @@ const term_data_t *term_view_row(uint8_t y);
 // The view reports its geometry: rows of the 40- or 80-column terminal.
 void term_set_height(uint8_t width, uint8_t height);
 
-/* The chunk holds both terminals in full: every scalar, the four saved
- * cursors, the scroll remap, the pending lazy erases and the cells. It also
- * holds the runtime palette, because OSC 4 can change an entry and nothing
- * else records what it changed to.
+/* The chunk holds both terminals in full: every scalar, the parser, both
+ * screens' cursors and saved cursors, the scroll remap, the pending lazy
+ * erases and the cells. It also holds the runtime palette, because OSC 4 can
+ * change an entry and nothing else records what it changed to.
  *
- * The three pointers inside a terminal are rebuilt on load rather than saved.
- * Two point into the terminal itself and the third into its cells, and all
- * three follow from the active screen and the cursor. The cell arrays' own
- * addresses are never written, because they are function-scope statics in
- * term_init, which runs long before any load.
+ * The cell arrays' own addresses are never written, because they are
+ * function-scope statics in term_init, which runs long before any load.
  *
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places.
  *
- * The size is, per terminal, 86 bytes of scalars plus the tab bitmap, four
- * cursor states and two screens of metadata, then both terminals' cells, then
- * the palette. */
-#define TERM_CURSOR_SST_SIZE 25
-#define TERM_SCREEN_SST_SIZE (TERM_CURSOR_SST_SIZE + 4 + 9 * TERM_MAX_HEIGHT)
+ * The size is, per terminal, 121 bytes of scalars plus the tab bitmap and two
+ * screens of metadata, then both terminals' cells, then the palette. */
+#define TERM_CURSOR_SST_SIZE 27
+#define TERM_SCREEN_SST_SIZE (2 * TERM_CURSOR_SST_SIZE + 4 + 6 * TERM_MAX_HEIGHT)
 #define TERM_TAB_SST_SIZE ((80 + 7) / 8)
-#define TERM_ONE_SST_SIZE (86 + TERM_TAB_SST_SIZE + \
-    2 * TERM_CURSOR_SST_SIZE + 2 * TERM_SCREEN_SST_SIZE)
+#define TERM_ONE_SST_SIZE (121 + TERM_TAB_SST_SIZE + 2 * TERM_SCREEN_SST_SIZE)
 #define TERM_CELLS_SST_SIZE (8 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
 #define TERM_SST_SIZE (3 + 2 * TERM_ONE_SST_SIZE + TERM_CELLS_SST_SIZE + 512)
 void term_sst_save(sst_cursor_t *c, unsigned flags);
@@ -127,6 +122,6 @@ bool term_sst_load(sst_cursor_t *c, unsigned flags);
 #define TERM_DRIVER DRIVER(                                    \
     INIT(term_init)                                            \
     TASK_FATFS(term_task)                                      \
-    SST(TERM, 1, TERM_SST_SIZE, term_sst_save, term_sst_load))
+    SST(TERM, 2, TERM_SST_SIZE, term_sst_save, term_sst_load))
 
 #endif /* _CORE_TERM_TERM_H_ */

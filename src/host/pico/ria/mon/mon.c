@@ -22,6 +22,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
@@ -705,17 +706,31 @@ void HOST_IN_RAM_FUNC mon_task(void)
         mon_step();
 }
 
+#ifdef NDEBUG
+/* The hard reset clears the screen's terminal alone, when the banner is
+ * printed, by which time the VGA is connected. The UART's terminal gets the
+ * soft reset and keeps what it shows. */
+static int HOST_IN_FLASH_FUNC mon_hard_reset_response(char *buf, size_t buf_size,
+                                                      int state, unsigned width)
+{
+    (void)width;
+    if (state < 0)
+        return -1;
+    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    snprintf(buf, buf_size, "%s", STR_TERM_SOFT_RESET);
+    return -1;
+}
+#endif
+
 /* In a release build the startup banner begins by clearing the terminal, so
  * it must be queued before any other driver can queue an error that it would
- * erase. */
+ * erase. A debug build keeps the screen, and the console reset at boot resets
+ * the screen's terminal, cursor shape included. */
 void HOST_IN_FLASH_FUNC mon_init(void)
 {
 #ifdef NDEBUG
-    mon_add_response_utf8(STR_TERM_HARD_RESET);
+    mon_add_response_fn(mon_hard_reset_response);
 #else
-    // We can't soft reset cursor when ROMs stop because minicom
-    // will print the q, but one at startup is fine for debug.
-    mon_add_response_utf8("\30\33[0 q");
     mon_add_response_utf8(STR_TERM_SOFT_RESET);
 #endif
     mon_add_response_utf8("\n");

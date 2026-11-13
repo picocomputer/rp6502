@@ -117,6 +117,8 @@ endif()
 
 rp6502_add_test(sys LIBS emu_core)
 
+rp6502_add_test(term LIBS emu_core)
+
 rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # YM3812-LLE, nukeykt's gate-level model of the die, is the oracle for the
