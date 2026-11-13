@@ -7,7 +7,7 @@
  * with a little room; ld stops with an overflow if that ever outgrows it. */
 MEMORY
 {
-    RAM(rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH - 0x10000 - 0xBD00
-    VIDEO(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000 - 0xBD00, LENGTH = 0xBD00
+    RAM(rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH - 0x10000 - 0x1B400
+    VIDEO(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000 - 0x1B400, LENGTH = 0x1B400
     XRAM(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000, LENGTH = 0x10000
 }

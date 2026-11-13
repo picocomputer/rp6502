@@ -22,11 +22,13 @@
 
 static void init(void)
 {
-    /* The built-in palettes live in the VIDEO region, which the boot code
-     * does not fill from flash the way it does .data; see ld/. */
+    /* The built-in palettes and the console live in the VIDEO region, which
+     * the boot code neither fills from flash nor zeroes; see ld/. */
     extern char __video_rodata_start__[], __video_rodata_end__[], __video_rodata_source__[];
+    extern char __video_bss_start__[], __video_bss_end__[];
     memcpy(__video_rodata_start__, __video_rodata_source__,
            (size_t)(__video_rodata_end__ - __video_rodata_start__));
+    memset(__video_bss_start__, 0, (size_t)(__video_bss_end__ - __video_bss_start__));
     /* The 3.3 V regulator in PWM mode, which switches steadily, for cleaner
      * power on the GPIOs than power save mode's bursts. */
     gpio_init(PICO_SMPS_MODE_PIN);
