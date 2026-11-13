@@ -95,8 +95,16 @@ module mode2 (
         scr_w = {1'b0, tex_w} << hdbl;
         scr_h = {1'b0, tex_h} << vdbl;
     end
+    /* The products below depend only on OPTIONS, which holds for the line,
+     * so they are registered off the path from a tile id to its segment. */
     logic [6:0] row_size;    /* bytes per stored tile row */
     logic [12:0] mem_size;   /* bytes per stored tile */
+    logic [6:0] row_size_r;
+    logic [12:0] mem_size_r;
+    always_ff @(posedge clk) begin
+        row_size_r <= row_size;
+        mem_size_r <= mem_size;
+    end
     always_comb begin
         if (custom) begin
             row_size = 7'((10'({3'd0, tex_w} << bpp_log) + 10'd7) >> 3);
@@ -176,15 +184,16 @@ module mode2 (
         mode2_a_addr = map_addr[15:2];
     end
 
+    /* Where this line's row of tile 0 starts, set once the row is known. */
+    logic [17:0] row_off;
     logic [21:0] tile_row_addr;
-    always_comb tile_row_addr = {6'd0, cf_tile}
-        + 22'(22'({9'd0, mem_size}) * 22'({14'd0, tile_id}))
-        + 22'(22'({15'd0, row_size}) * 22'({16'd0, t_row}));
+    always_comb tile_row_addr = {4'd0, row_off}
+        + 22'(22'({9'd0, mem_size_r}) * 22'({14'd0, tile_id}));
 
     /* Mode 2 does not require a full tile set in XRAM, so a tile id can name
      * a row that runs off the end of it. That tile is not drawn. */
     logic [21:0] tile_limit;
-    always_comb tile_limit = 22'(22'h10000 - 22'(row_size));
+    always_comb tile_limit = 22'(22'h10000 - 22'(row_size_r));
     logic tile_oob;
     always_comb tile_oob = tile_row_addr > tile_limit;
 
@@ -223,6 +232,9 @@ module mode2 (
         tile = '0;
         tcol = '0;
         tile_id = '0;
+        row_off = '0;
+        row_size_r = '0;
+        mem_size_r = '0;
         div_q = '0;
         div_rem = '0;
         div_i = '0;
@@ -274,6 +286,8 @@ module mode2 (
                 end
                 S2_ADDR: begin
                     mstate <= M_IDLE;
+                    row_off <= {2'd0, cf_tile}
+                        + 18'(18'({11'd0, row_size_r}) * 18'({12'd0, t_row}));
                     if (rm_blank || rm_overrun || rm_col < 17'sd1) begin
                         tile <= '0;
                         tcol <= '0;
