@@ -189,10 +189,13 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
         chunks.append((img_base + im * dsize,
                        bytes((im * 47 + t * 13 + 5) & 0xFF
                              for t in range(dsize))))
+    # A palette is followed by one more transparent entry, which a sprite
+    # whose palette starts a halfword in reads as its last color. XRAM
+    # holds whatever the last ROM left there, so it is written here.
     for pn in range(n_pals):
         chunks.append((pal_base + pn * 0x400,
                        le16(0, *((0x0020 | ((i * 2657 + pn * 97) & 0xFFFF))
-                                 for i in range(1, 1 << bpp)))))
+                                 for i in range(1, 1 << bpp)), 0)))
     chunks += list(extra_chunks)
     rom(name, canvas,
         list(extra_progs)
