@@ -28,7 +28,6 @@
 
 #define SPINLOCK_ID_VIDEO_SCANLINE_LOCK 2
 #define SPINLOCK_ID_VIDEO_FREE_LIST_LOCK 3
-#define SPINLOCK_ID_VIDEO_IN_USE_LOCK 5
 
 // ======================
 
@@ -118,12 +117,14 @@ static full_scanline_buffer_t scanline_buffers[SCANVIDEO_SCANLINE_BUFFER_COUNT];
 /* In the VGA's VIDEO region, away from the code; see vga/ld/. */
 static uint32_t __attribute__((section(".video_data.scanline_data"))) scanline_data[SCANVIDEO_PLANE_COUNT][SCANVIDEO_SCANLINE_BUFFER_COUNT][SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 
-// This state is shared by both cores and the line interrupt on core 0.
+// This state is shared by both cores and the line interrupt on core 0. The
+// cores take its locks with interrupts off; the line interrupt, which nothing
+// preempts, takes them as they are.
 static struct
 {
+    // The buffers being shown, which only the line interrupt touches.
     struct
     {
-        spin_lock_t *lock;
         full_scanline_buffer_t *in_use_ascending_scanline_id_list;
         full_scanline_buffer_t *in_use_ascending_scanline_id_list_tail;
     } in_use;
@@ -301,9 +302,9 @@ inline static void free_local_free_list_irqs_enabled(full_scanline_buffer_t *loc
 {
     if (local_free_list)
     {
-        uint32_t save = spin_lock_blocking(shared_state.free_list.lock);
+        spin_lock_unsafe_blocking(shared_state.free_list.lock);
         list_prepend_all(&shared_state.free_list.free_list, local_free_list);
-        spin_unlock(shared_state.free_list.lock, save);
+        spin_unlock_unsafe(shared_state.free_list.lock);
         __sev();
     }
 }
@@ -325,10 +326,8 @@ inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs
                     list_remove_head_ascending(
                         &shared_state.scanline.generated_ascending_scanline_id_list,
                         &shared_state.scanline.generated_ascending_scanline_id_list_tail);
-                    spin_lock_unsafe_blocking(shared_state.in_use.lock);
                     list_insert_ascending(&shared_state.in_use.in_use_ascending_scanline_id_list,
                                           &shared_state.in_use.in_use_ascending_scanline_id_list_tail, fsb);
-                    spin_unlock_unsafe(shared_state.in_use.lock);
                     shared_state.scanline.current_scanline_buffer = fsb;
                 }
                 else
@@ -355,17 +354,12 @@ inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs
 static inline void release_scanline_irqs_enabled(int buffers_to_free_count,
                                                  full_scanline_buffer_t **local_free_list)
 {
-    if (buffers_to_free_count)
+    while (buffers_to_free_count--)
     {
-        uint32_t save = spin_lock_blocking(shared_state.in_use.lock);
-        while (buffers_to_free_count--)
-        {
-            full_scanline_buffer_t *fsb = list_remove_head_ascending(
-                &shared_state.in_use.in_use_ascending_scanline_id_list,
-                &shared_state.in_use.in_use_ascending_scanline_id_list_tail);
-            list_prepend(local_free_list, fsb);
-        }
-        spin_unlock(shared_state.in_use.lock, save);
+        full_scanline_buffer_t *fsb = list_remove_head_ascending(
+            &shared_state.in_use.in_use_ascending_scanline_id_list,
+            &shared_state.in_use.in_use_ascending_scanline_id_list_tail);
+        list_prepend(local_free_list, fsb);
     }
 }
 
@@ -451,9 +445,9 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
         recover_pio_sms_and_dma_blank(&buffers_to_free_count);
 
         scanline_dma.in_progress = true;
-        uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
+        spin_lock_unsafe_blocking(shared_state.scanline.lock);
         shared_state.scanline.in_vblank = false;
-        spin_unlock(shared_state.scanline.lock, save);
+        spin_unlock_unsafe(shared_state.scanline.lock);
 
         full_scanline_buffer_t *local_free_list = NULL;
         release_scanline_irqs_enabled(buffers_to_free_count, &local_free_list);
@@ -461,34 +455,20 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
         return;
     }
 
+    // VERY IMPORTANT: THIS CODE CAN ONLY TAKE ABOUT 4.5 us BEFORE LAUNCHING DMA
     full_scanline_buffer_t *local_free_list = NULL;
     int buffers_to_free_count = 0;
-    uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
-    // VERY IMPORTANT: THIS CODE CAN ONLY TAKE ABOUT 4.5 us BEFORE LAUNCHING DMA
+    spin_lock_unsafe_blocking(shared_state.scanline.lock);
     full_scanline_buffer_t *fsb = scanline_locked_try_latch_fsb_if_null_irqs_disabled(&local_free_list);
-
-    spin_unlock(shared_state.scanline.lock, save);
     if (!fsb || fsb->core.scanline_id != shared_state.scanline.next_scanline_id)
         fsb = &_missing_scanline_buffer;
-
-    finish_scanline_dma(&buffers_to_free_count);
-    recover_scanline_sms();
-    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL0, fsb->core.data0, (uint32_t)fsb->core.data0_used);
-    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL1, fsb->core.data1, (uint32_t)fsb->core.data1_used);
-    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL2, fsb->core.data2, (uint32_t)fsb->core.data2_used);
-
-    save = spin_lock_blocking(shared_state.scanline.lock);
     shared_state.scanline.in_vblank = false;
-    bool was_correct_scanline = (fsb != &_missing_scanline_buffer);
+    const bool was_correct_scanline = (fsb != &_missing_scanline_buffer);
     bool free_scanline = false;
     shared_state.scanline.y_repeat_index++;
     if (shared_state.scanline.y_repeat_index >= shared_state.scanline.y_repeat_target)
     {
-        if (was_correct_scanline)
-        {
-            free_scanline = true;
-        }
-
+        free_scanline = was_correct_scanline;
         shared_state.scanline.y_repeat_index -= shared_state.scanline.y_repeat_target;
         set_next_scanline_id(scanline_id_after(shared_state.scanline.next_scanline_id));
         shared_state.scanline.current_scanline_buffer = NULL;
@@ -497,7 +477,13 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
     {
         shared_state.scanline.current_scanline_buffer = NULL;
     }
-    spin_unlock(shared_state.scanline.lock, save);
+    spin_unlock_unsafe(shared_state.scanline.lock);
+
+    finish_scanline_dma(&buffers_to_free_count);
+    recover_scanline_sms();
+    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL0, fsb->core.data0, (uint32_t)fsb->core.data0_used);
+    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL1, fsb->core.data1, (uint32_t)fsb->core.data1_used);
+    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL2, fsb->core.data2, (uint32_t)fsb->core.data2_used);
     scanline_dma.in_progress = true;
     if (free_scanline)
         scanline_dma.buffers_to_release++;
@@ -513,7 +499,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
     int buffers_to_free_count = 0;
     finish_scanline_dma(&buffers_to_free_count);
 
-    uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
+    spin_lock_unsafe_blocking(shared_state.scanline.lock);
     full_scanline_buffer_t *local_free_list = NULL;
 
     if (!shared_state.scanline.in_vblank)
@@ -540,7 +526,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
         scanline_locked_try_latch_fsb_if_null_irqs_disabled(&local_free_list);
     }
 
-    spin_unlock(shared_state.scanline.lock, save);
+    spin_unlock_unsafe(shared_state.scanline.lock);
 
     release_scanline_irqs_enabled(buffers_to_free_count, &local_free_list);
     free_local_free_list_irqs_enabled(local_free_list);
@@ -695,7 +681,6 @@ static void init_shared_state(void)
     memset(&scanline_dma, 0, sizeof(scanline_dma));
     shared_state.scanline.lock = spin_lock_init(SPINLOCK_ID_VIDEO_SCANLINE_LOCK);
     shared_state.free_list.lock = spin_lock_init(SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
-    shared_state.in_use.lock = spin_lock_init(SPINLOCK_ID_VIDEO_IN_USE_LOCK);
     // Must be next_scanline_id - 1 so is_scanline_after() succeeds on first generation
     shared_state.scanline.last_scanline_id = shared_state.scanline.next_scanline_id - 1;
     shared_state.scanline.y_repeat_target = video_mode.y_scale;
