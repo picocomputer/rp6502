@@ -23,7 +23,7 @@
 /* MANIFOLD_UART comes first because manifold_init installs its stdio driver,
  * and any later driver may print. TERM comes before VGA because vga_init
  * programs the console canvas through mode0_prog, which sets the terminal's
- * height. VGA comes before PIX because scanvideo claims DMA channels 0 to 2
+ * height. VGA comes before PIX because scanvideo claims DMA channels 0 to 4
  * with dma_claim_mask, which panics if pix_init has already claimed one of
  * them. */
 #define RP6502_MACH_DRIVERS                                              \
