@@ -161,13 +161,29 @@ mode_run_8bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal
         n--;
     }
     uint32_t *d = (uint32_t *)dst;
-    for (; n >= 4; n -= 4, src += 4, d += 2)
+    for (; n >= 8; n -= 8, src += 8, d += 4)
+    {
+        const uint32_t s = mode_load32(src);
+        const uint32_t t = mode_load32(src + 4);
+        const uint32_t a = mode_pack2(pal[s & 0xFF], pal[(s >> 8) & 0xFF]);
+        const uint32_t b = mode_pack2(pal[(s >> 16) & 0xFF], pal[s >> 24]);
+        const uint32_t c = mode_pack2(pal[t & 0xFF], pal[(t >> 8) & 0xFF]);
+        const uint32_t e = mode_pack2(pal[(t >> 16) & 0xFF], pal[t >> 24]);
+        d[0] = a;
+        d[1] = b;
+        d[2] = c;
+        d[3] = e;
+    }
+    if (n >= 4)
     {
         const uint32_t s = mode_load32(src);
         const uint32_t a = mode_pack2(pal[s & 0xFF], pal[(s >> 8) & 0xFF]);
         const uint32_t b = mode_pack2(pal[(s >> 16) & 0xFF], pal[s >> 24]);
         d[0] = a;
         d[1] = b;
+        n -= 4;
+        src += 4;
+        d += 2;
     }
     dst = (uint16_t *)d;
     for (; n; n--)
