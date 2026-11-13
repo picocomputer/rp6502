@@ -54,16 +54,6 @@ mode_pair_set(uint32_t *pair, uint16_t bg, uint16_t fg)
     pair[3] = mode_pack2(fg, fg);
 }
 
-/* Reversing the bit order within the byte only swaps the mixed entries. */
-static inline __attribute__((always_inline)) void
-mode_pair_set_reverse(uint32_t *pair, uint16_t bg, uint16_t fg)
-{
-    pair[0] = mode_pack2(bg, bg);
-    pair[1] = mode_pack2(fg, bg);
-    pair[2] = mode_pack2(bg, fg);
-    pair[3] = mode_pack2(fg, fg);
-}
-
 static inline __attribute__((always_inline)) void
 mode_render_1bpp(uint16_t *buf, uint8_t bits, const uint32_t *pair)
 {
@@ -72,16 +62,6 @@ mode_render_1bpp(uint16_t *buf, uint8_t bits, const uint32_t *pair)
     w[1] = pair[(bits >> 4) & 3];
     w[2] = pair[(bits >> 2) & 3];
     w[3] = pair[bits & 3];
-}
-
-static inline __attribute__((always_inline)) void
-mode_render_1bpp_reverse(uint16_t *buf, uint8_t bits, const uint32_t *pair)
-{
-    mode_word_t *w = (mode_word_t *)buf;
-    w[0] = pair[bits & 3];
-    w[1] = pair[(bits >> 2) & 3];
-    w[2] = pair[(bits >> 4) & 3];
-    w[3] = pair[bits >> 6];
 }
 
 /* A 2bpp nibble is a whole pixel pair, so one byte is two words. */
@@ -233,10 +213,21 @@ mode_run_4bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal
         *dst = pal[(*src >> l) & 0xF];
 }
 
-/* nbytes bytes of 2bpp through a mode_quad_set table. */
+/* nbytes bytes of 2bpp through a mode_quad_set table, a word of the source
+ * at a time where it can be. */
 static inline __attribute__((always_inline)) void
 mode_run_2bpp(uint16_t *dst, const uint8_t *src, unsigned nbytes, const uint32_t *quad, bool reverse)
 {
+    for (; nbytes >= 4; nbytes -= 4, src += 4, dst += 16)
+    {
+        const uint32_t s = mode_load32(src);
+        if (reverse)
+            for (unsigned k = 0; k < 4; k++)
+                mode_render_2bpp_reverse(dst + 4 * k, (uint8_t)(s >> (8 * k)), quad);
+        else
+            for (unsigned k = 0; k < 4; k++)
+                mode_render_2bpp(dst + 4 * k, (uint8_t)(s >> (8 * k)), quad);
+    }
     for (; nbytes; nbytes--, dst += 4)
         if (reverse)
             mode_render_2bpp_reverse(dst, *src++, quad);
@@ -261,16 +252,48 @@ mode_nibble_set(uint32_t *tbl, uint16_t bg, uint16_t fg)
     }
 }
 
-/* nbytes bytes of 1bpp through a mode_pair_set table, or when reversed a
- * mode_pair_set_reverse table. */
+/* As mode_nibble_set, with the leftmost pixel in the low bit. */
 static inline __attribute__((always_inline)) void
-mode_run_1bpp(uint16_t *dst, const uint8_t *src, unsigned nbytes, const uint32_t *pair, bool reverse)
+mode_nibble_set_reverse(uint32_t *tbl, uint16_t bg, uint16_t fg)
 {
+    const uint32_t p[4] = {mode_pack2(bg, bg), mode_pack2(fg, bg),
+                           mode_pack2(bg, fg), mode_pack2(fg, fg)};
+#pragma GCC unroll 16
+    for (int i = 0; i < 16; i++)
+    {
+        tbl[i * 2 + 0] = p[i & 3];
+        tbl[i * 2 + 1] = p[i >> 2];
+    }
+}
+
+/* One byte of 1bpp, eight pixels, through a nibble table; reversed, the
+ * table is mode_nibble_set_reverse and the low nibble comes first. */
+static inline __attribute__((always_inline)) void
+mode_render_1bpp_nibbles(uint16_t *buf, uint8_t bits, const uint32_t *tbl, bool reverse)
+{
+    mode_word_t *w = (mode_word_t *)buf;
+    const uint32_t *a = &tbl[(reverse ? bits & 0xF : bits >> 4) * 2];
+    const uint32_t *b = &tbl[(reverse ? bits >> 4 : bits & 0xF) * 2];
+    const uint32_t w0 = a[0], w1 = a[1], w2 = b[0], w3 = b[1];
+    w[0] = w0;
+    w[1] = w1;
+    w[2] = w2;
+    w[3] = w3;
+}
+
+/* nbytes bytes of 1bpp through a nibble table, a word of the source at a
+ * time where it can be. */
+static inline __attribute__((always_inline)) void
+mode_run_1bpp(uint16_t *dst, const uint8_t *src, unsigned nbytes, const uint32_t *tbl, bool reverse)
+{
+    for (; nbytes >= 4; nbytes -= 4, src += 4, dst += 32)
+    {
+        const uint32_t s = mode_load32(src);
+        for (unsigned k = 0; k < 4; k++)
+            mode_render_1bpp_nibbles(dst + 8 * k, (uint8_t)(s >> (8 * k)), tbl, reverse);
+    }
     for (; nbytes; nbytes--, dst += 8)
-        if (reverse)
-            mode_render_1bpp_reverse(dst, *src++, pair);
-        else
-            mode_render_1bpp(dst, *src++, pair);
+        mode_render_1bpp_nibbles(dst, *src++, tbl, reverse);
 }
 
 static inline __attribute__((always_inline)) void

@@ -126,9 +126,9 @@ mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_
         pal[0] = palette[0];
         pal[1] = palette[1];
         if (reverse)
-            mode_pair_set_reverse(tbl, pal[0], pal[1]);
+            mode_nibble_set_reverse(tbl, pal[0], pal[1]);
         else
-            mode_pair_set(tbl, pal[0], pal[1]);
+            mode_nibble_set(tbl, pal[0], pal[1]);
     }
     else if (bpp == 2)
     {
