@@ -198,16 +198,6 @@ def find_openocd():
     raise RuntimeError("OpenOCD not found; set $OPENOCD")
 
 
-# The writes of watchdog_reboot(): SCRATCH4 cleared so the boot ROM ignores
-# the scratch vector, PSM_WDSEL set for everything but the oscillators, and
-# the TRIGGER bit of the watchdog's CTRL. The +0x2000 addresses are the
-# atomic set aliases.
-WATCHDOG_SCRATCH4 = 0x400D801C
-PSM_WDSEL_SET = 0x40018008 + 0x2000
-PSM_WDSEL_ALL_BUT_OSC = 0x01FFFFF3
-WATCHDOG_CTRL_SET = 0x400D8000 + 0x2000
-WATCHDOG_CTRL_TRIGGER = 1 << 31
-
 # clk_sys of the RIA, the cycles that the audio interrupt counts in.
 CLK_SYS_HZ = 256_000_000
 # The rate of the audio interrupt, one OPL2 sample of 72 master clocks.
@@ -216,14 +206,16 @@ AUD_RATE = 49716
 
 class Probe:
     """OpenOCD on a debug probe wired to the SWD port of the RIA. `elf` is
-    the firmware on the RIA, for the addresses of its symbols."""
+    the firmware on the RIA, for the addresses of its symbols. `serial` picks
+    the probe by its serial number when there are several."""
 
     TCL_PORT = 6666
     LOAD_FIELDS = ("second", "sum", "peak", "overruns", "peak_max", "pair",
                    "pair_max")
 
-    def __init__(self, elf):
+    def __init__(self, elf, serial=None):
         self.elf = str(elf)
+        self.serial = serial
         self.sym = {}
         for name, value in rp6502.Symbols._elf_symbols(self.elf):
             self.sym.setdefault(name.split(".")[0], value)
@@ -236,24 +228,29 @@ class Probe:
         argv = [self.openocd]
         if scripts.is_dir():
             argv += ["-s", str(scripts)]
-        argv += ["-f", "interface/cmsis-dap.cfg", "-f", target,
-                 "-c", "adapter speed 5000"]
+        argv += ["-f", "interface/cmsis-dap.cfg"]
+        if self.serial:
+            argv += ["-c", f"adapter serial {self.serial}"]
+        argv += ["-f", target, "-c", "adapter speed 5000"]
         for c in commands:
             argv += ["-c", c]
         return argv
 
     def flash(self):
-        """Programs the ELF and restarts the RIA as the monitor's REBOOT
-        does. Stop any ROM first: a restart while a ROM streams from a USB
-        drive can hang the drive until it is replugged."""
+        """Programs the ELF and reboots the chip cold, so it runs on its own
+        with debug disabled. Stop any ROM first: a restart while a ROM
+        streams from a USB drive can hang the drive until it is replugged.
+        Nothing is written unless the chip already runs firmware of the ELF's
+        name; src/host/pico/check.cfg reads it from the chip."""
         r = subprocess.run(self._argv("target/rp2350.cfg", [
-            "program {%s} verify" % Path(self.elf).as_posix(), "poll off",
-            f"mww {WATCHDOG_SCRATCH4:#x} 0",
-            f"mww {PSM_WDSEL_SET:#x} {PSM_WDSEL_ALL_BUT_OSC:#x}",
-            f"mww {WATCHDOG_CTRL_SET:#x} {WATCHDOG_CTRL_TRIGGER:#x}",
-            "shutdown"]), capture_output=True, text=True, timeout=120)
+            "source {%s}" % (ROOT / "src/host/pico/check.cfg").as_posix(),
+            "rp6502_program {%s}" % Path(self.elf).as_posix()]),
+            capture_output=True, text=True, timeout=120)
         out = r.stdout + r.stderr
-        if "Verified OK" not in out:
+        refused = re.search(r"^rp6502_check: .* Nothing was written\.$", out, re.M)
+        if refused:
+            raise RuntimeError(refused.group(0))
+        if r.returncode or "Verified OK" not in out:
             raise RuntimeError("flash failed:\n" + out[-2000:])
 
     def __enter__(self):
@@ -330,3 +327,51 @@ def load_summary(rows):
     return (f"audio load {avg:.1f}% over {len(rows)} s, peak sample "
             f"{peak} cycles ({peak / budget * 100:.0f}%), "
             f"{sum(r['overruns'] for r in rows)} overruns")
+
+
+class LateLines:
+    """Watches the VGA output on a capture device while the block runs and
+    counts the frames with a late scanline: a row drawn in scanvideo's
+    missing-line blue across most of the screen. Every frame is checked, so
+    the capture must keep up at the display's rate. The test's own colors
+    must not include that blue."""
+
+    WIDTH, HEIGHT = 1280, 1024
+
+    def __init__(self, device):
+        self.device = device
+        self.frames = 0
+        self.late = 0
+        self.first = None
+
+    def __enter__(self):
+        import threading
+        self.proc = subprocess.Popen(
+            ["ffmpeg", "-loglevel", "error", "-f", "v4l2", "-input_format", "yuyv422",
+             "-video_size", f"{self.WIDTH}x{self.HEIGHT}", "-framerate", "60",
+             "-i", self.device, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.thread = threading.Thread(target=self._run)
+        self.thread.start()
+        return self
+
+    def _run(self):
+        import numpy as np
+        size = self.WIDTH * self.HEIGHT * 3
+        while True:
+            buf = self.proc.stdout.read(size)
+            if len(buf) < size:
+                return
+            a = np.frombuffer(buf, np.uint8).reshape(self.HEIGHT, self.WIDTH, 3)
+            blue = (a[:, :, 2] > 150) & (a[:, :, 0] < 90) & (a[:, :, 1] < 90)
+            rows = np.count_nonzero(blue.sum(axis=1) > self.WIDTH // 2)
+            self.frames += 1
+            if rows:
+                self.late += 1
+                if self.first is None:
+                    self.first = (self.frames, rows)
+
+    def __exit__(self, *_):
+        self.proc.terminate()
+        self.thread.join()
+        self.proc.wait()

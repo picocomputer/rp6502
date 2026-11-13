@@ -6,6 +6,7 @@
 console and a debug probe. README.md describes the rig and each test."""
 
 import argparse
+import contextlib
 import re
 import socket
 import sys
@@ -28,7 +29,7 @@ class Rig:
     def __init__(self, args):
         self.args = args
         self.board = rig.Board(args.device, args.key)
-        self.probe = rig.Probe(args.elf) if args.elf else None
+        self.probe = rig.Probe(args.elf, args.probe) if args.elf else None
         self.tmp = tempfile.TemporaryDirectory()
 
     def rom(self, name):
@@ -120,6 +121,39 @@ def test_tput(r):
         raise Fail(f"{rows} of {len(roms.TPUT_SIZES)} block sizes")
     if w.rows is not None:
         check_load(w.rows)
+
+
+def test_term(r):
+    """The console's terminal keeps up with the UART: the slowest things it
+    does, each followed at once by a probe whose answer shows a lost byte."""
+    b = r.board
+    rom = r.rom("hil-term")
+    t0, bad, end = time.monotonic(), [], "no output for 20 s"
+    with contextlib.ExitStack() as stack:
+        video = stack.enter_context(rig.LateLines(r.args.video)) if r.args.video else None
+        time.sleep(1 if video else 0)
+        b.run_in_ram(rom)
+        for line in b.lines(20):
+            if line is None:
+                b.stop()
+                break
+            if line.startswith("?op"):
+                bad.append(roms.TERM_OPS[int(line[4:], 16)][:24])
+            if line.endswith("done"):
+                end = None
+                break
+        print(f"{len(roms.TERM_OPS) * roms.TERM_LOOPS} probes in "
+              f"{time.monotonic() - t0:.1f} s", flush=True)
+    b.stop()
+    if video:
+        print(f"{video.late} of {video.frames} frames with late scanlines"
+              + (f", first at frame {video.first[0]}" if video.first else ""), flush=True)
+    if end:
+        raise Fail(end)
+    if bad:
+        raise Fail(f"{len(bad)} probes lost bytes, after {sorted(set(map(repr, bad)))}")
+    if video and (video.late or not video.frames):
+        raise Fail("late scanlines" if video.late else "no video captured")
 
 
 def test_audio(r):
@@ -224,6 +258,8 @@ def main():
     ap.add_argument("-k", "--key", metavar="key", help="the telnet passkey")
     ap.add_argument("--elf", metavar="file",
                     help="the ELF of the firmware on the RIA; enables the probe")
+    ap.add_argument("--probe", metavar="serial",
+                    help="the serial number of the debug probe, when there are several")
     ap.add_argument("--flash", action="store_true",
                     help="program --elf through the probe before the tests")
     ap.add_argument("--dir", default="MSC0:/", metavar="dir",
@@ -234,6 +270,9 @@ def main():
     ap.add_argument("--runs", type=int, default=1, metavar="n",
                     help="how many times to run the tests, default 1")
     ap.add_argument("--emit", metavar="dir", help="write the ROMs of the tests to dir")
+    ap.add_argument("--video", metavar="dev",
+                    help="a capture device on the VGA output, such as /dev/video0;"
+                         " the term test then fails on a late scanline")
     a = ap.parse_args()
     unknown = [t for t in a.tests if t not in TESTS]
     if unknown:
