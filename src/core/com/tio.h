@@ -26,43 +26,63 @@
  * rest of it as it arrives, and drops it. */
 #define TIO_ITEM_MAX 32
 
-/* What one byte does to the item it joins. ESC then '[' opens a CSI, which
- * digits, ';', ':' and '<' '=' '>' '?' keep open and any other byte ends. ESC
- * 'N' and ESC 'O' take one more byte. ESC then any other byte is two bytes.
- * Any other byte on its own is an item. CAN drops the sequence it lands in,
- * and itself. */
+/* What one byte does to the item it joins. Any byte but ESC is an item on its
+ * own. ESC then '[' opens a CSI: parameter bytes 0x30-0x3F, then
+ * intermediates 0x20-0x2F, keep it open, and a final byte 0x40-0x7E ends it.
+ * Three CSIs go on past that: rxvt's shifted keys end at a '$' after digits,
+ * an X10 mouse report takes three bytes after CSI 'M', and a Linux console
+ * function key one after CSI '['. ESC 'O' (SS3) takes digits and ';', then a
+ * final byte. ESC 'N' (SS2) takes one byte. ESC then any other byte below
+ * 0x80 is a two-byte Alt key, Alt-Backspace's ESC DEL among them.
+ *
+ * Inside a sequence, the lone ESC included, CAN and SUB drop it and
+ * themselves. ESC and a byte of 0x80 and up end it with nothing, and so do
+ * any other control and DEL past the lone ESC; the byte is then framed again
+ * as the start of the next item: TIO_AGAIN. The mouse report's three bytes
+ * take DEL and 0x80 and up. Outside a sequence CAN and SUB are keys. */
 typedef enum
 {
     TIO_OPEN,
     TIO_END,
     TIO_DROP,
+    TIO_AGAIN,
 } tio_step_t;
 
 /* Steps the framing state *frame by one byte. The state starts at 0 and is 0
- * again after TIO_END or TIO_DROP. */
+ * again after TIO_END, TIO_DROP or TIO_AGAIN. After TIO_AGAIN the bytes before
+ * this one are dropped and this one is stepped again, from 0. */
 tio_step_t tio_frame(uint8_t *frame, uint8_t ch);
 
+/* A lone ESC is the Escape key once its source has been quiet this long, and
+ * any other unfinished sequence is dropped. */
+#define TIO_ESC_MS 100
+
 /* A CSI item's first two parameters, how many parameters it has, its private
- * marker ('<' '=' '>' '?', or 0), and its final byte. */
+ * marker ('<' '=' '>' '?', or 0), its last intermediate byte (or 0), and its
+ * final byte. Subparameters, after ':', are skipped. */
 typedef struct
 {
     uint16_t param[2];
     uint8_t count;
     uint8_t priv;
+    uint8_t inter;
     uint8_t final;
 } tio_csi_t;
 
-/* Reads a CSI item, ESC '[' then parameters and a final byte. False for any
- * other item. */
+/* Reads a CSI item, ESC '[', a private marker only as the first parameter
+ * byte, parameters, intermediates and a final byte, or one of the three
+ * longer forms tio_frame takes. False for any other item. */
 bool tio_csi_parse(const char *item, size_t len, tio_csi_t *csi);
 
 /* The next whole item, from the first source that has one, keyboard first.
  * Returns its length, 0 when no source has one, and names its source. buf
- * holds TIO_ITEM_MAX bytes. A terminal's answer to a cursor position report
- * (CPR) or to secondary device attributes (DA2) is taken here and never
- * returned, and so is one that comes from the keyboard. While a line end
- * waits for the terminal in charge (tio_line_end), only answers are taken,
- * and every other item stays in its source for the next reader. */
+ * holds TIO_ITEM_MAX bytes. A terminal's answer to secondary device
+ * attributes (DA2) is taken here and never returned, and so is one that comes
+ * from the keyboard. An answer to a cursor position report (CPR) is taken
+ * the same way while its source owes one, a CPR asked by any read and not yet
+ * answered; at any other time it is a key, such as Shift-F3's CSI 1;2R. While
+ * a line end waits for the terminal in charge (tio_line_end), only answers
+ * are taken, and every other item stays in its source for the next reader. */
 size_t tio_read(com_source_t *src, char *buf);
 
 /* True when no whole item is waiting in any source. */
@@ -133,19 +153,18 @@ void tio_set_naws_size(uint16_t w, uint16_t h);
 
 /* The terminal on src went away, and the next one there is a different
  * terminal: what this read heard from it and what is left of an overlong
- * sequence from it are forgotten, and so is whether it ever answered a CPR or
- * DA2 or had a read ready. A read still waiting on it becomes ready, as it
+ * sequence from it are forgotten, and so are the CPRs it owes and whether it
+ * ever answered a CPR or DA2 or had a read ready. A read still waiting on it becomes ready, as it
  * would at its deadline. */
 void tio_forget(com_source_t src);
 
 /* The terminals taken to support cursor shapes:
  * - term.c always.
  * - A telnet session once it has answered DA2, at any time.
- * - The plain UART terminal until a read asks it DA2 and it answers the size
- *   CPR without answering DA2 first, or, with both sizes pinned, has answered
- *   its CPR and not DA2 when geometry is ready. A DA2 answer takes it as
- *   supporting them again. A read of no cells asks no DA2 and changes
- *   nothing. */
+ * - The plain UART terminal once it has answered DA2, at any time, until a
+ *   read asks it DA2 and it answers the size CPR without answering DA2
+ *   first, or, with both sizes pinned, has answered its CPR and not DA2 when
+ *   geometry is ready. A read of no cells asks no DA2 and changes nothing. */
 
 /* The cursor shape for the line being edited, as the one-digit parameter of
  * DECSCUSR (CSI Ps SP q). It goes to each connected terminal taken to support
@@ -169,13 +188,14 @@ void tio_stop(void);
 
 void tio_init(void);
 
-/* Each source's overlong framing state, its CPR count and its DA2 answer (3
- * each); the read's state (1), deadline (8), quiet deadline (8) and terminal
+/* Each source's overlong framing state, its CPR count, its DA2 answer, the
+ * CPRs it owes, and the length and quiet deadline of the sequence in front
+ * of it (13 each); the read's state (1), deadline (8), quiet deadline (8) and terminal
  * in charge (1); whether it asked DA2 (1) and for the size (1); the prompt
  * column, width and height (6); the pinned sizes (4); the NAWS size (4); the
  * cursor shape (1); and the terminals taken to support shapes (1), that have
  * answered a CPR (1) and that have had a read ready while in charge (1). */
-#define TIO_SST_SIZE (3 * COM_SOURCE_COUNT + 38)
+#define TIO_SST_SIZE (13 * COM_SOURCE_COUNT + 38)
 void tio_sst_save(sst_cursor_t *c, unsigned flags);
 bool tio_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -183,6 +203,6 @@ bool tio_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(tio_init)                \
     STOP(tio_stop)                \
     BREAK(tio_stop)               \
-    SST(TIO_, 4, TIO_SST_SIZE, tio_sst_save, tio_sst_load))
+    SST(TIO_, 5, TIO_SST_SIZE, tio_sst_save, tio_sst_load))
 
 #endif /* _CORE_COM_TIO_H_ */

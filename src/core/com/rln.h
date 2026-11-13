@@ -77,11 +77,14 @@ void rln_forget_source(unsigned src);
 
 // Inject a sequence of input bytes into the active readline. CR ends
 // the line normally; any other C0 control byte (0x00-0x1F) except ESC
-// (which begins a CSI sequence) and CAN (0x18, which aborts one) also
-// finishes the line, without adding to history. Controls other than CR
-// echo as caret notation (^@..^_, 0x03 as ^C) when rln_max_length is at
-// least 2, without being inserted. Poked bytes are dispatched in overwrite
-// mode. An escape sequence still open at the end of the string is dropped.
+// (which begins an escape sequence) also finishes the line, without adding
+// to history, unless it is CAN (0x18) or SUB (0x1A) inside a sequence, which
+// cancels the sequence. Controls other than CR echo as caret notation
+// (^@..^_, 0x03 as ^C) when rln_max_length is at least 2, without being
+// inserted. Poked bytes are dispatched in overwrite mode, and only poked
+// bytes run the editing commands DCH (CSI Ps P), ICH (CSI Ps @) and ECH
+// (CSI Ps X). An escape sequence still open at the end of the string is
+// dropped.
 // A control byte poked before the terminal answered takes the items typed
 // before it first, without waiting for the answer.
 void rln_poke(const char *str);

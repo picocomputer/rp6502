@@ -239,7 +239,7 @@ static void next(void)
 /* A first read ends on an Enter typed before its terminal answered. Its
  * replies come during the second read, ahead of that read's own and within
  * the quiet time. The fields are ten characters, so the cursor moves by
- * absolute column. */
+ * column, with CR and CUF. */
 static void ended_early(void)
 {
     fresh();
@@ -260,8 +260,8 @@ UTEST(rln, type_ahead_is_drawn_at_this_reads_prompt)
     wire("\33[6;28R\33[>1;10;0c\33[24;80R");
     settle();
     manifold_set_tx_tap(NULL);
-    ASSERT_TRUE(strstr(shown, "\33[28Ga") != NULL);
-    ASSERT_TRUE(strstr(shown, "\33[4G") == NULL);
+    ASSERT_TRUE(strstr(shown, "\r\33[27Ca") != NULL);
+    ASSERT_TRUE(strstr(shown, "\r\33[3C") == NULL);
 }
 
 UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
@@ -273,8 +273,8 @@ UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
     wire("\33[6;4R\33[>1;10;0c\33[24;80R");
     settle();
     manifold_set_tx_tap(NULL);
-    ASSERT_TRUE(strstr(shown, "\33[4Ga") != NULL);
-    ASSERT_TRUE(strstr(shown, "\33[28G") == NULL);
+    ASSERT_TRUE(strstr(shown, "\r\33[3Ca") != NULL);
+    ASSERT_TRUE(strstr(shown, "\r\33[27C") == NULL);
 }
 
 /* The first read's Enter lands between its DA2 reply and its size reply. */
@@ -562,6 +562,197 @@ UTEST(rln, a_poke_of_an_empty_string_ends_the_line)
     rln_poke("");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "ab");
+}
+
+/* ----- Keys and sequences ----- */
+
+/* Time passes with vga_task, and the tasks run after. */
+static void quiet_ms(uint32_t ms)
+{
+    timer_mach_t d = timer_mach_in_ms(ms);
+    while (!timer_mach_passed(d))
+        vga_task();
+    tasks();
+}
+
+UTEST(rln, an_esc_inside_a_sequence_starts_it_over)
+{
+    editing();
+    wire("ab\33\33[D\33[1\33[Dx\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "xab");
+}
+
+UTEST(rln, a_control_inside_a_sequence_acts)
+{
+    editing();
+    wire("abc\33[1\177\33[\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+}
+
+UTEST(rln, ctrl_x_is_a_key)
+{
+    editing();
+    wire("\30");
+    ASSERT_EQ(lastkey_len(), 1);
+}
+
+UTEST(rln, a_lone_esc_is_the_escape_key)
+{
+    editing();
+    wire("\33");
+    ASSERT_EQ(lastkey_len(), 0);
+    quiet_ms(TIO_ESC_MS);
+    ASSERT_EQ(lastkey_len(), 1);
+}
+
+/* Alt+[ is dropped and takes no key with it. */
+UTEST(rln, an_unfinished_sequence_does_not_take_the_next_key)
+{
+    editing();
+    wire("ab\33[");
+    quiet_ms(TIO_ESC_MS);
+    wire("D\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "abD");
+}
+
+UTEST(rln, a_utf8_character_in_a_sequence_comes_through_whole)
+{
+    editing();
+    wire("a\33[1\303\251\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "a\303\251");
+}
+
+UTEST(rln, a_mode_report_with_an_intermediate_types_nothing)
+{
+    editing();
+    wire("a\33[?2004;1$yb\33[4;2$y");
+    ASSERT_EQ(lastkey_len(), 1);
+    wire("c\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "abc");
+}
+
+/* rxvt's Shift-Home and Shift-End. */
+UTEST(rln, rxvt_shifted_keys_end_on_a_dollar)
+{
+    editing();
+    wire("bc\33[7$a\33[8$d\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "abcd");
+}
+
+UTEST(rln, a_linux_console_function_key_is_one_key)
+{
+    editing();
+    wire("a\33[[A");
+    ASSERT_EQ(lastkey_len(), 4);
+    wire("b\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+}
+
+UTEST(rln, an_x10_mouse_report_types_nothing)
+{
+    editing();
+    wire("a\33[M !!b\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+}
+
+UTEST(rln, ss3_keys_move_type_and_end_the_line)
+{
+    editing();
+    wire("ab\33OD\33ODx\33OC\33OC\33Oq\33Ok\33OX\33O5P\33OM");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "xab1+=");
+}
+
+UTEST(rln, an_ss3_enter_typed_before_the_answer_ends_the_line)
+{
+    fresh();
+    reading();
+    wire("a\33OM");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "a");
+}
+
+/* Shift-F3 is CSI 1;2R, which looks like a cursor position report. */
+UTEST(rln, a_cpr_no_read_asked_for_is_a_key)
+{
+    editing();
+    wire("\33[1;2R");
+    ASSERT_EQ(lastkey_len(), 6);
+}
+
+/* Shift-F1 is CSI 1;2P, which looks like DCH. */
+UTEST(rln, typed_editing_commands_do_nothing)
+{
+    editing();
+    wire("abc\33[D\33[D\33[1;2P\33[@\33[X\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "abc");
+}
+
+UTEST(rln, poked_editing_commands_edit)
+{
+    editing();
+    wire("abc\33[D\33[D");
+    rln_poke("\33[P");
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ac");
+}
+
+UTEST(rln, a_poked_can_cancels_a_sequence_and_ends_the_line_outside_one)
+{
+    editing();
+    rln_poke("a\33[1\30b");
+    ASSERT_EQ(lines, 0);
+    rln_poke("\30");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "ab");
+}
+
+/* The LF of a CR LF pair comes after the next read has asked for its prompt
+ * column, and the edit still waits for the answer. The field is ten
+ * characters, so the cursor moves by column. */
+UTEST(rln, the_lf_of_a_crlf_pair_keeps_the_next_prompt_column)
+{
+    fresh();
+    rln_set_max_length(10);
+    reading();
+    wire("\33[1;5R\33[>1;10;0c\33[24;80R");
+    settle();
+    wire("a\r");
+    ASSERT_EQ(lines, 1);
+    wire("\n");
+    ASSERT_EQ(lines, 1);
+    wire("\33[1;9R\33[>1;10;0c\33[24;80R");
+    settle();
+    wire("b");
+    capture();
+    wire("\33[D");
+    manifold_set_tx_tap(NULL);
+    ASSERT_STREQ(shown, "\r\33[8C");
+}
+
+/* A prompt that ends at the right margin can leave the terminal in a pending
+ * wrap, which a move to the cell clears before the line is drawn. */
+UTEST(rln, a_prompt_at_the_margin_gets_a_move_to_its_cell)
+{
+    fresh();
+    tio_set_term_width(80);
+    tio_set_term_height(24);
+    reading();
+    capture();
+    wire("\33[1;80R");
+    settle();
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\r\33[79C") != NULL);
 }
 
 UTEST_MAIN();

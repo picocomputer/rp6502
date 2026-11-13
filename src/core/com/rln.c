@@ -279,6 +279,16 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
     *col = (uint16_t)(logical % w) + 1;
 }
 
+// Move to column col of the cursor's row: CR, then CUF. VT100 and VT102 have
+// no CHA. CR goes to the real cell from a pending wrap at the margin, and
+// clears it.
+static void rln_emit_col(uint16_t col)
+{
+    com_putchar('\r');
+    if (col > 1)
+        com_printf("\33[%uC", col - 1);
+}
+
 // Emit relative cursor moves from (fr,fc) to (tr,tc). Downward moves use
 // LF, not CUD: CUD doesn't scroll, so at the bottom of the screen it
 // no-ops and renders clobber the same row. These are cursor moves, not
@@ -290,15 +300,12 @@ static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
     {
         for (uint8_t i = 0, n = (uint8_t)(tr - fr); i < n; i++)
             com_putchar('\n');
-        com_printf("\r");
-        if (tc > 1)
-            com_printf("\33[%uC", tc - 1);
+        rln_emit_col(tc);
     }
     else if (tr < fr)
     {
-        com_printf("\33[%uA\r", fr - tr);
-        if (tc > 1)
-            com_printf("\33[%uC", tc - 1);
+        com_printf("\33[%uA", fr - tr);
+        rln_emit_col(tc);
     }
     else if (tc != fc)
     {
@@ -331,15 +338,15 @@ static void rln_sync_cursor_to(uint8_t target)
     }
     else if (rln_input_no_wrap())
     {
-        // Single row: position by absolute column (CHA). A write into the
-        // last column parks the terminal in pending-wrap; a relative move
-        // would mis-measure from there, but CHA resolves to the real cell.
+        // Single row: position by absolute column. A write into the last
+        // column parks the terminal in pending-wrap; a relative move would
+        // mis-measure from there, but CR resolves to the real cell.
         // cursor_max keeps `target` off the rolled-over next row, so the
         // column is exact.
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(target, &r, &c);
-        com_printf("\33[%uG", c);
+        rln_emit_col(c);
     }
     else
     {
@@ -349,10 +356,10 @@ static void rln_sync_cursor_to(uint8_t target)
         rln_buf_to_screen(target, &tr, &tc);
         rln_emit_move(fr, fc, tr, tc);
         // A zero-length relative move emits nothing, so a prior margin write
-        // left in pending-wrap (xenl) would survive; CHA to the same column
-        // clears it, matching the no-wrap branch's unconditional CHA.
+        // left in pending-wrap (xenl) would survive; a move to the same column
+        // clears it, matching the no-wrap branch's unconditional move.
         if (fr == tr && fc == tc && tc == rln_width)
-            com_printf("\33[%uG", tc);
+            rln_emit_col(tc);
     }
     rln_cur_idx = target;
 }
@@ -468,7 +475,7 @@ static void rln_render_from(uint8_t start)
         //   - Full input pinned on the last cell (cursor_max < buflen): keep
         //     the cursor there. Do NOT commit the wrap with a SPACE — that
         //     autowraps to a phantom continuation row (a stray newline/scroll)
-        //     with no next char coming. The closing sync's CHA clears the xenl;
+        //     with no next char coming. The closing sync's CR clears the xenl;
         //     no EL, which at the margin would erase the char just written.
         //   - Otherwise: a margin-filling row is committed with SPACE+BS so it
         //     stays a soft-wrapped continuation a resize can reflow (a hard \n
@@ -906,23 +913,19 @@ static void rln_end_wait(void);
 static void rln_follow(void);
 static void rln_item(com_source_t src, const char *item, size_t len);
 
-static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
+// Enter, a line end the source remembers so the other half of a pair is
+// absorbed (rln_item).
+static void rln_enter(com_source_t src, uint8_t ch)
 {
-    // Both CR and LF end a line, because a terminal sends CR and a file of
-    // host text holds LF, and nothing rewrites either on the way in. A CR and
-    // LF next to each other are one line ending, so the second is discarded.
-    // The memory lasts exactly one dispatched byte, which is why "\r\r" is
-    // two lines and why a blank line in a CRLF file survives.
-    uint8_t was = *line_end;
-    *line_end = 0;
-    if ((ch == '\r' || ch == '\n') && was && ch != was)
-        return;
+    rln_line_ends[src] = ch;
+    rln_action_taken = true;
+    rln_finish_line(true);
+}
+
+static void rln_dispatch_C0(com_source_t src, uint8_t ch)
+{
     if (ch == '\r' || ch == '\n')
-    {
-        *line_end = ch;
-        rln_action_taken = true;
-        rln_finish_line(true);
-    }
+        rln_enter(src, ch);
     else if (ch == '\b' || ch == 127)
         rln_line_backspace();
     else if (ch == 1) // ctrl-a
@@ -952,7 +955,7 @@ static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
 static void rln_dispatch_Fe(uint8_t ch)
 {
     // ESC-b / ESC-f are meta-b / meta-f (alt-b/alt-f on xterm-style
-    // terminals); 0x02 / 0x06 are the ctrl-B / ctrl-F variants some
+    // terminals); ESC 0x02 / ESC 0x06 are the ctrl-B / ctrl-F variants some
     // older meta-prefix terminals send for the same binding.
     if (ch == 'b' || ch == 2)
         rln_line_word(-1);
@@ -964,18 +967,48 @@ static void rln_dispatch_Fe(uint8_t ch)
         rln_line_backward_kill_word();
 }
 
-static void rln_dispatch_SS3(uint8_t ch)
+// SS3 keys, which a terminal sends in application cursor or keypad mode:
+// the arrows, Home and End, and the keypad, Enter typing a line end and the
+// rest their characters. A key with parameters, such as ESC O 5 P, does
+// nothing.
+static void rln_dispatch_SS3(com_source_t src, const char *item, size_t len)
 {
-    if (ch == 'F')
+    if (len != 3)
+        return;
+    uint8_t ch = (uint8_t)item[2];
+    if (ch == 'A')
+        rln_history_step(1);
+    else if (ch == 'B')
+        rln_history_step(-1);
+    else if (ch == 'C')
+        rln_step(1);
+    else if (ch == 'D')
+        rln_step(-1);
+    else if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
+    else if (ch == 'M')
+        rln_enter(src, '\r');
+    else if (ch == 'X')
+        rln_line_insert('=');
+    else if (ch >= 'j' && ch <= 'y')
+        rln_line_insert("*+,-./0123456789"[ch - 'j']);
 }
 
-static void rln_dispatch_CSI(const tio_csi_t *csi)
+// DCH, ICH and ECH are editing commands a program pokes. Typed, they are
+// function keys, Shift-F1 being CSI 1;2P, and do nothing. rxvt's shifted
+// keys end on '$' where others end on '~'.
+static void rln_dispatch_CSI(com_source_t src, const tio_csi_t *csi)
 {
     uint8_t ch = csi->final;
-    if (ch == 'A')
+    if (src == RLN_POKE && ch == 'P')
+        rln_line_delete_n(csi);
+    else if (src == RLN_POKE && ch == '@')
+        rln_line_insert_n(csi);
+    else if (src == RLN_POKE && ch == 'X')
+        rln_line_erase_n(csi);
+    else if (ch == 'A')
         rln_history_step(1);
     else if (ch == 'B')
         rln_history_step(-1);
@@ -987,17 +1020,11 @@ static void rln_dispatch_CSI(const tio_csi_t *csi)
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
-    else if (ch == 'P')
-        rln_line_delete_n(csi);
-    else if (ch == '@')
-        rln_line_insert_n(csi);
-    else if (ch == 'X')
-        rln_line_erase_n(csi);
-    else if (ch == 'b' || ch == 2)
+    else if (ch == 'b')
         rln_line_word(-1);
-    else if (ch == 'f' || ch == 6)
+    else if (ch == 'f')
         rln_line_word(1);
-    else if (ch == '~')
+    else if (ch == '~' || ch == '$')
         // Function-key codes split across terminfo lineages: 1/4 = VT220-era
         // Find/Select repurposed as Home/End; 7/8 = rxvt/Linux console; 2/3
         // = Insert/Delete (universal). Keep both Home/End forms.
@@ -1039,11 +1066,11 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     rln_action_taken = false;
     rln_line_src = src;
     if (len == 1)
-        rln_dispatch_C0(&rln_line_ends[src], (uint8_t)item[0]);
+        rln_dispatch_C0(src, (uint8_t)item[0]);
     else if (item[1] == '[')
-        rln_dispatch_CSI(csi);
+        rln_dispatch_CSI(src, csi);
     else if (item[1] == 'O')
-        rln_dispatch_SS3((uint8_t)item[2]);
+        rln_dispatch_SS3(src, item, len);
     else
         rln_dispatch_Fe((uint8_t)item[1]);
     rln_publish_lastkey(item, len);
@@ -1075,20 +1102,37 @@ static void rln_hold(com_source_t src, const char *item, size_t len)
     rln_held[rln_held_len++] = (uint8_t)len;
     memcpy(&rln_held[rln_held_len], item, len);
     rln_held_len += (uint16_t)len;
-    if (len == 1 && (item[0] == '\r' || item[0] == '\n'))
+    if ((len == 1 && (item[0] == '\r' || item[0] == '\n')) ||
+        (len == 3 && item[1] == 'O' && item[2] == 'M'))
     {
         tio_line_end();
         rln_follow();
     }
 }
 
-// Takes one item from a source, or from the poke stream. Private CSIs and SS2
-// are dropped, and the rest are typed. No dropped item becomes the last key.
+// Takes one item from a source, or from the poke stream. Private CSIs, CSIs
+// with an intermediate, such as a terminal's mode report CSI 4;2$y, CSIs that
+// do not parse, and SS2 are dropped, and the rest are typed. No dropped item
+// becomes the last key.
+//
+// Both CR and LF end a line, because a terminal sends CR and a file of host
+// text holds LF, and nothing rewrites either on the way in. A CR and LF next
+// to each other from one source are one line ending, so the second is
+// absorbed here, before it can be held as a line end that would cut short
+// the next read's wait for its prompt column. The memory lasts exactly one
+// item, which is why "\r\r" is two lines and why a blank line in a CRLF file
+// survives. A held item that is replayed meets a cleared memory.
 static void rln_item(com_source_t src, const char *item, size_t len)
 {
     tio_csi_t csi;
     bool is_csi = tio_csi_parse(item, len, &csi);
-    if ((is_csi && csi.priv) || (len == 3 && item[1] == 'N'))
+    if ((is_csi && (csi.priv || csi.inter)) ||
+        (len > 1 && item[1] == '[' && !is_csi) ||
+        (len == 3 && item[1] == 'N'))
+        return;
+    uint8_t was = rln_line_ends[src];
+    rln_line_ends[src] = 0;
+    if (len == 1 && was && (item[0] == '\r' || item[0] == '\n') && item[0] != was)
         return;
     if (rln_editing)
         rln_dispatch(src, item, len, &csi);
@@ -1355,7 +1399,8 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
 }
 
 // The string is framed into items as a source is. A sequence still open at the
-// end of the string is dropped, and so is an overlong one.
+// end of the string is dropped, and so is an overlong one. CAN and SUB cancel
+// a sequence they land in; any other control ends the line.
 void rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1368,7 +1413,7 @@ void rln_poke(const char *str)
     do
     {
         uint8_t ch = (uint8_t)*p;
-        if (ch < 32 && ch != '\33' && ch != '\30')
+        if (ch < 32 && ch != '\33' && !(frame && (ch == '\30' || ch == '\32')))
         {
             if (!rln_editing)
             {
@@ -1389,6 +1434,11 @@ void rln_poke(const char *str)
             break;
         }
         tio_step_t step = tio_frame(&frame, ch);
+        if (step == TIO_AGAIN)
+        {
+            len = 0;
+            step = tio_frame(&frame, ch);
+        }
         if (len < TIO_ITEM_MAX)
             item[len] = (char)ch;
         len++;

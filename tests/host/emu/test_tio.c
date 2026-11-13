@@ -188,27 +188,193 @@ static const char *csi_of(size_t count, const char *tail)
 UTEST(tio, each_item_ends_by_the_framing_rules)
 {
     sources(256, 256);
-    push(COM_SOURCE_UART, "a\33[1;5C\33OA\33Nx\33b\33\33\33[?25h\33[ q");
+    push(COM_SOURCE_UART, "a\33[1;5C\33OA\33Nx\33b\33\177\33\r\33[?25h\33[ q");
     ASSERT_STREQ(next(), "a");
     ASSERT_EQ(got_src, COM_SOURCE_UART);
     ASSERT_STREQ(next(), "\33[1;5C");
     ASSERT_STREQ(next(), "\33OA");
     ASSERT_STREQ(next(), "\33Nx");
     ASSERT_STREQ(next(), "\33b");
-    ASSERT_STREQ(next(), "\33\33");
+    ASSERT_STREQ(next(), "\33\177");
+    ASSERT_STREQ(next(), "\33\r");
     ASSERT_STREQ(next(), "\33[?25h");
-    ASSERT_STREQ(next(), "\33[ ");
-    ASSERT_STREQ(next(), "q");
+    ASSERT_STREQ(next(), "\33[ q");
     ASSERT_STREQ(next(), "");
 }
 
-UTEST(tio, a_can_drops_the_sequence_it_lands_in)
+UTEST(tio, can_and_sub_drop_the_sequence_they_land_in_and_are_keys_outside_one)
 {
     sources(256, 256);
-    push(COM_SOURCE_UART, "\33[12\30a\30b");
+    push(COM_SOURCE_UART, "\33[12\30a\33O\32b\30\32");
     ASSERT_STREQ(next(), "a");
     ASSERT_STREQ(next(), "b");
+    ASSERT_STREQ(next(), "\30");
+    ASSERT_STREQ(next(), "\32");
     ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, an_esc_inside_a_sequence_starts_it_over)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33\33[A\33[1\33[B\33O\33[C");
+    ASSERT_STREQ(next(), "\33[A");
+    ASSERT_STREQ(next(), "\33[B");
+    ASSERT_STREQ(next(), "\33[C");
+    ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, a_control_inside_a_sequence_ends_it_and_stands_alone)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[\r\33[1\177\33[1;\n\33O\b\33Nx");
+    ASSERT_STREQ(next(), "\r");
+    ASSERT_STREQ(next(), "\177");
+    ASSERT_STREQ(next(), "\n");
+    ASSERT_STREQ(next(), "\b");
+    ASSERT_STREQ(next(), "\33Nx");
+    ASSERT_STREQ(next(), "");
+}
+
+/* A UTF-8 character typed into an unfinished sequence comes through whole. */
+UTEST(tio, a_byte_of_0x80_and_up_ends_a_sequence_and_stands_alone)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[1\303\251\33\303\251");
+    ASSERT_STREQ(next(), "\303");
+    ASSERT_STREQ(next(), "\251");
+    ASSERT_STREQ(next(), "\303");
+    ASSERT_STREQ(next(), "\251");
+    ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, intermediates_keep_a_csi_open_to_its_final_byte)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[?2004;1$yx\33[4;2$yx\33[2$x\33[11$x");
+    ASSERT_STREQ(next(), "\33[?2004;1$y");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[4;2$y");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[2$");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[11$");
+    ASSERT_STREQ(next(), "x");
+}
+
+UTEST(tio, linux_console_function_keys_are_one_item)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[[A\33[[Ex");
+    ASSERT_STREQ(next(), "\33[[A");
+    ASSERT_STREQ(next(), "\33[[E");
+    ASSERT_STREQ(next(), "x");
+}
+
+UTEST(tio, ss3_keys_take_parameters)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33O5P\33O1;5Ax\33OMy");
+    ASSERT_STREQ(next(), "\33O5P");
+    ASSERT_STREQ(next(), "\33O1;5A");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33OM");
+    ASSERT_STREQ(next(), "y");
+}
+
+UTEST(tio, an_x10_mouse_report_takes_its_three_bytes)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[M !\377x\33[2Mx");
+    ASSERT_STREQ(next(), "\33[M !\377");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[2M");
+    ASSERT_STREQ(next(), "x");
+}
+
+static bool parse(const char *item, tio_csi_t *csi)
+{
+    return tio_csi_parse(item, strlen(item), csi);
+}
+
+UTEST(tio, a_csi_parses_only_in_its_own_shape)
+{
+    tio_csi_t csi;
+    ASSERT_TRUE(parse("\33[?25h", &csi));
+    ASSERT_EQ(csi.priv, '?');
+    ASSERT_EQ(csi.param[0], 25);
+    ASSERT_FALSE(parse("\33[1?5h", &csi));
+    ASSERT_FALSE(parse("\33[1$5y", &csi));
+    ASSERT_TRUE(parse("\33[1:3;5R", &csi));
+    ASSERT_EQ(csi.count, 2);
+    ASSERT_EQ(csi.param[0], 1);
+    ASSERT_EQ(csi.param[1], 5);
+    ASSERT_TRUE(parse("\33[?2004;1$y", &csi));
+    ASSERT_EQ(csi.inter, '$');
+    ASSERT_EQ(csi.final, 'y');
+    ASSERT_TRUE(parse("\33[7$", &csi));
+    ASSERT_EQ(csi.inter, 0);
+    ASSERT_EQ(csi.final, '$');
+    ASSERT_EQ(csi.param[0], 7);
+    ASSERT_TRUE(parse("\33[M !!", &csi));
+    ASSERT_EQ(csi.final, 'M');
+    ASSERT_TRUE(parse("\33[[A", &csi));
+    ASSERT_EQ(csi.final, '[');
+    ASSERT_FALSE(parse("\33[1M!!!", &csi));
+    ASSERT_FALSE(parse("\33[AB", &csi));
+}
+
+/* ----- A sequence that does not finish ----- */
+
+UTEST(tio, a_lone_esc_is_the_escape_key_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    ASSERT_STREQ(next(), "");
+    ASSERT_TRUE(tio_idle());
+    later_ms(1);
+    ASSERT_FALSE(tio_idle());
+    ASSERT_STREQ(next(), "\33");
+    ASSERT_STREQ(next(), "");
+}
+
+/* Alt+[ is ESC '[', which would otherwise take the next key as its final. */
+UTEST(tio, an_unfinished_sequence_is_dropped_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS);
+    ASSERT_STREQ(next(), "");
+    push(COM_SOURCE_UART, "A");
+    ASSERT_STREQ(next(), "A");
+}
+
+UTEST(tio, a_sequence_still_growing_is_not_quiet)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    push(COM_SOURCE_UART, "[1");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    push(COM_SOURCE_UART, "A");
+    ASSERT_STREQ(next(), "\33[1A");
+}
+
+UTEST(tio, the_rest_of_an_overlong_sequence_is_given_up_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, csi_of(40, ""));
+    ASSERT_STREQ(next(), "");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS);
+    ASSERT_STREQ(next(), "");
+    push(COM_SOURCE_UART, "Cx");
+    ASSERT_STREQ(next(), "C");
+    ASSERT_STREQ(next(), "x");
 }
 
 UTEST(tio, a_sequence_still_arriving_stays_in_its_source)
@@ -349,10 +515,10 @@ UTEST(tio, a_read_end_leaves_a_sequence_still_arriving)
 
 #define HIDE "\33[?25l"
 #define SHOW "\33[?25h"
-#define WRAP "\33[?7h"
+#define WRAP "\33[?7h\33[4l"
 #define SAVE "\0337"
 #define CPR "\33[6n"
-#define PROBE "\33[>c\0338 \b"
+#define PROBE "\33[>c\0338"
 #define SIZE "\33[999;999H" CPR "\0338"
 
 static void clear_sent(void)
@@ -445,6 +611,7 @@ UTEST(tio, with_no_terminal_in_charge_nothing_is_asked_and_geometry_is_ready)
     ASSERT_EQ(tio_get_term_width(), 80);
     ASSERT_EQ(tio_get_term_height(), 24);
     push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c");
+    ASSERT_STREQ(next(), "\33[5;3R");
     ASSERT_STREQ(next(), "");
     ASSERT_EQ(tio_prompt_col(), 0);
     tio_cursor_shape(5);
@@ -474,9 +641,12 @@ UTEST(tio, geometry_is_ready_once_the_answers_have_been_quiet)
     ASSERT_EQ(tio_get_term_height(), 24);
 }
 
+/* The first read ends on an Enter typed before its answers came. */
 UTEST(tio, an_answer_an_earlier_read_was_owed_does_not_win)
 {
     sources(256, 256);
+    tio_read_start(10);
+    tio_line_end();
     tio_read_start(10);
     push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
     push(COM_SOURCE_UART, "\33[6;28R\33[>1;10;0c\33[24;80R");
@@ -506,7 +676,9 @@ UTEST(tio, only_the_terminal_in_charge_gives_the_geometry)
     fake_connected |= COM_TERM_UART;
     tio_read_start(10);
     push(COM_SOURCE_UART, "\33[>1;10;0c\33[5;3R\33[24;132R");
-    answered();
+    ASSERT_STREQ(next(), "\33[5;3R");
+    ASSERT_STREQ(next(), "\33[24;132R");
+    later_ms(TIO_QUIET_MS);
     ASSERT_FALSE(tio_ready());
     push(COM_SOURCE_TEL, "\33[2;7R\33[>0;95;0c");
     answered();
@@ -535,16 +707,35 @@ UTEST(tio, a_session_ended_by_the_flush_leaves_the_uart_in_charge)
     ASSERT_EQ(tio_get_term_width(), 100);
 }
 
+/* The first read ends on an Enter typed before its answers came, and they
+ * come ahead of the second read's own. */
 UTEST(tio, a_later_answer_moves_the_prompt_column)
+{
+    sources(256, 256);
+    tio_read_start(10);
+    tio_line_end();
+    tio_read_start(10);
+    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
+    answered();
+    ASSERT_TRUE(tio_ready());
+    ASSERT_EQ(tio_prompt_col(), 3);
+    push(COM_SOURCE_UART, "\33[6;9R");
+    ASSERT_STREQ(next(), "");
+    ASSERT_EQ(tio_prompt_col(), 9);
+}
+
+/* Shift-F3 is CSI 1;2R on xterm and PuTTY. */
+UTEST(tio, a_cpr_no_read_is_owed_is_a_key)
 {
     sources(256, 256);
     tio_read_start(10);
     push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
     answered();
     ASSERT_TRUE(tio_ready());
-    push(COM_SOURCE_UART, "\33[6;9R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_EQ(tio_prompt_col(), 9);
+    push(COM_SOURCE_UART, "\33[1;2R");
+    ASSERT_STREQ(next(), "\33[1;2R");
+    ASSERT_EQ(got_src, COM_SOURCE_UART);
+    ASSERT_EQ(tio_prompt_col(), 3);
 }
 
 UTEST(tio, ready_now_has_no_prompt_column_and_later_answers_change_nothing)
@@ -559,11 +750,14 @@ UTEST(tio, ready_now_has_no_prompt_column_and_later_answers_change_nothing)
     ASSERT_EQ(tio_get_term_width(), 80);
 }
 
-UTEST(tio, an_answer_from_the_keyboard_is_dropped)
+/* The keyboard is asked nothing, so a CPR from it is a key, Shift-F3. */
+UTEST(tio, a_da2_answer_from_the_keyboard_is_dropped_and_a_cpr_is_a_key)
 {
     sources(256, 256);
     tio_read_start(10);
-    push(COM_SOURCE_KEYBOARD, "\33[5;3R\33[>1c\33[24;80Rk");
+    push(COM_SOURCE_KEYBOARD, "\33[1;2R\33[>1ck");
+    ASSERT_STREQ(next(), "\33[1;2R");
+    ASSERT_EQ(got_src, COM_SOURCE_KEYBOARD);
     ASSERT_STREQ(next(), "k");
     later_ms(TIO_QUIET_MS);
     ASSERT_FALSE(tio_ready());
@@ -837,7 +1031,7 @@ UTEST(tio, a_telnet_session_replaced_during_a_read_loses_no_key)
     ASSERT_STREQ(next(), "");
     fake[COM_SOURCE_TEL].len = 0;
     tio_forget(COM_SOURCE_TEL);
-    push(COM_SOURCE_TEL, "\33[1;1Rk");
+    push(COM_SOURCE_TEL, "\33[>0;95;0ck");
     ASSERT_STREQ(next(), "k");
     ASSERT_EQ(got_src, COM_SOURCE_TEL);
 }
@@ -865,7 +1059,7 @@ UTEST(tio, the_default_shape_goes_by_role)
     sources(256, 256);
     fake_connected = COM_TERM_UART | COM_TERM_TEL;
     tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[0 q");
+    ASSERT_STREQ(sent[UART], "");
     ASSERT_STREQ(sent[TEL], "");
     clear_sent();
     fake_connected = COM_TERM_SCREEN | COM_TERM_TEL;
@@ -919,9 +1113,33 @@ UTEST(tio, a_da2_answer_takes_a_plain_uart_terminal_as_supporting_shapes_again)
 
 /* The UART in charge gets shapes only after DA2 in this read, so a read of
  * no cells sends none, and the marker it is not asked changes nothing. */
+/* minicom prints the 'q' of a cursor shape. */
+UTEST(tio, a_plain_uart_terminal_gets_no_shape_until_it_answers_da2)
+{
+    sources(256, 256);
+    fake_connected = COM_TERM_UART | COM_TERM_SCREEN;
+    fake_charge = COM_TERM_SCREEN;
+    tio_read_start(10);
+    push(COM_SOURCE_UART, "\33[5;3R");
+    answered();
+    ASSERT_TRUE(tio_ready());
+    clear_sent();
+    tio_cursor_shape(5);
+    tio_cursor_default();
+    ASSERT_STREQ(sent[UART], "");
+    ASSERT_STREQ(sent[SCREEN], "\33[5 q\33[0 q");
+    push(COM_SOURCE_UART, "\33[>1;10;0c");
+    ASSERT_STREQ(next(), "");
+    ASSERT_STREQ(sent[UART], "\33[5 q");
+}
+
 UTEST(tio, a_read_of_no_cells_changes_no_marks)
 {
     sources(256, 256);
+    tio_read_start(10);
+    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
+    answered();
+    ASSERT_TRUE(tio_ready());
     tio_read_start(0);
     clear_sent();
     push(COM_SOURCE_UART, "\33[5;3R\33[24;80R");
@@ -978,6 +1196,18 @@ UTEST(tio, a_plain_uart_terminal_not_in_charge_gets_shapes_by_its_last_mark)
     sources(256, 256);
     telnet_session();
     fake_connected = COM_TERM_UART | COM_TERM_TEL;
+    tio_read_start(10);
+    later_ms(TIO_DEADLINE_MS);
+    ASSERT_TRUE(tio_ready());
+    clear_sent();
+    tio_cursor_shape(5);
+    ASSERT_STREQ(sent[UART], "");
+    fake_charge = COM_TERM_UART;
+    tio_read_start(10);
+    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
+    answered();
+    ASSERT_TRUE(tio_ready());
+    fake_charge = COM_TERM_TEL;
     tio_read_start(10);
     later_ms(TIO_DEADLINE_MS);
     ASSERT_TRUE(tio_ready());
