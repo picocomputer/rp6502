@@ -264,7 +264,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
     for (; count; count--, rgb += step)
     {
         const uint32_t id = *map++;
-        if (__builtin_expect(id >= ids, 0))
+        if (id >= ids)
         {
             memset(rgb, 0, sizeof(uint16_t) * step);
             continue;
