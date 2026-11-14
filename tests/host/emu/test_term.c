@@ -694,4 +694,80 @@ UTEST(term, vt52_mode)
     ASSERT_EQ(ch(15, 5), 'x');
 }
 
+/* ---- line sizes, DECALN, SL/SR and the reverse screen ---- */
+
+UTEST(term, decaln_fills_the_screen_with_e)
+{
+    fresh();
+    feed("\33[5;10r\33[3;3H\33[31mx\33#8");
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    char full[81];
+    memset(full, 'E', 80);
+    full[80] = 0;
+    ASSERT_STREQ(row(0), full);
+    ASSERT_STREQ(row(29), full);
+    ASSERT_EQ(cell(2, 2)->fg_color, color_256[7]);
+    feed("\33[30;1H\n"); /* the margins reset, so this scrolls */
+    ASSERT_STREQ(row(29), "");
+}
+
+UTEST(term, a_double_width_line_has_forty_columns)
+{
+    fresh();
+    for (int i = 0; i < 80; i++)
+        feed(i < 40 ? "a" : "b");
+    feed("\33#6");
+    ASSERT_EQ(term_view_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(ch(39, 0), 'a');
+    ASSERT_EQ(ch(40, 0), ' '); /* the right half is lost */
+    ASSERT_EQ(cx(), 39);
+    feed("\33[1;70Hz");
+    ASSERT_EQ(ch(39, 0), 'z');
+    ASSERT_EQ(cx(), 40); /* a wrap is pending at the row's own edge */
+    feed("y");
+    ASSERT_EQ(ch(0, 1), 'y');
+    feed("\33#5\33[1;1H\33#5");
+    ASSERT_EQ(term_view_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[1;60Hq");
+    ASSERT_EQ(ch(59, 0), 'q');
+}
+
+UTEST(term, line_sizes_move_with_their_lines)
+{
+    fresh();
+    feed("\33#3top\r\n\33#4top\r\n");
+    ASSERT_EQ(term_view_row_size(0), TERM_LINE_TOP);
+    ASSERT_EQ(term_view_row_size(1), TERM_LINE_BOTTOM);
+    feed("\33[H\33M"); /* a line comes in at the top */
+    ASSERT_EQ(term_view_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(term_view_row_size(1), TERM_LINE_TOP);
+    ASSERT_EQ(term_view_row_size(2), TERM_LINE_BOTTOM);
+    feed("\33[2J");
+    ASSERT_EQ(term_view_row_size(1), TERM_LINE_NORMAL);
+}
+
+UTEST(term, scroll_left_and_right)
+{
+    fresh();
+    feed("abcdef\r\n123456\33[2;30r\33[2 @");
+    ASSERT_STREQ(row(0), "abcdef"); /* outside the region */
+    ASSERT_STREQ(row(1), "3456");
+    feed("\33[3 A");
+    ASSERT_STREQ(row(1), "   3456");
+}
+
+UTEST(term, the_reverse_screen_is_a_mode)
+{
+    fresh();
+    term_view_t v;
+    feed("\33[?5h");
+    term_view(&v);
+    ASSERT_TRUE(v.reverse);
+    ASSERT_STREQ(ask("\33[?5$p"), "\33[?5;1$y");
+    feed("\33c");
+    term_view(&v);
+    ASSERT_FALSE(v.reverse);
+}
+
 UTEST_MAIN();

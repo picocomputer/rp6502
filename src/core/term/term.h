@@ -76,6 +76,14 @@ _Static_assert(sizeof(term_data_t) == 8, "term_data_t size lock for cell-memory 
                                TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE |      \
                                TERM_ATTR_DEC | TERM_ATTR_ITALIC)
 
+// A line's size, DEC's line attributes (ESC # 3 to 6). A double-size line
+// holds half the columns, each drawn twice as wide; the double-height halves
+// draw the top or the bottom half of each glyph, twice as tall.
+#define TERM_LINE_NORMAL 0 // ESC # 5
+#define TERM_LINE_WIDE 1   // ESC # 6
+#define TERM_LINE_TOP 2    // ESC # 3
+#define TERM_LINE_BOTTOM 3 // ESC # 4
+
 // The visible terminal's cursor and blink state, one call a scanline or a
 // frame as the view prefers.
 typedef struct
@@ -86,12 +94,16 @@ typedef struct
     bool cursor_enabled, cursor_lit;
     uint16_t cursor_color;
     uint8_t blink_phase;
+    bool reverse; // DECSCNM: every cell's colors swapped
 } term_view_t;
 void term_view(term_view_t *out);
 
 // The visible terminal's logical row y, resolved through the scroll remap, so
 // the caller sees the right row after a region scroll or an alt-screen swap.
 const term_data_t *term_view_row(uint8_t y);
+
+// The size of the visible terminal's logical row y, a TERM_LINE_ value.
+uint8_t term_view_row_size(uint8_t y);
 
 // The view reports its geometry: rows of the 40- or 80-column terminal.
 void term_set_height(uint8_t width, uint8_t height);
@@ -108,12 +120,12 @@ void term_set_height(uint8_t width, uint8_t height);
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places.
  *
- * The size is, per terminal, 121 bytes of scalars plus the tab bitmap and two
+ * The size is, per terminal, 122 bytes of scalars plus the tab bitmap and two
  * screens of metadata, then both terminals' cells, then the palette. */
 #define TERM_CURSOR_SST_SIZE 27
-#define TERM_SCREEN_SST_SIZE (2 * TERM_CURSOR_SST_SIZE + 4 + 6 * TERM_MAX_HEIGHT)
+#define TERM_SCREEN_SST_SIZE (2 * TERM_CURSOR_SST_SIZE + 4 + 8 * TERM_MAX_HEIGHT)
 #define TERM_TAB_SST_SIZE ((80 + 7) / 8)
-#define TERM_ONE_SST_SIZE (121 + TERM_TAB_SST_SIZE + 2 * TERM_SCREEN_SST_SIZE)
+#define TERM_ONE_SST_SIZE (122 + TERM_TAB_SST_SIZE + 2 * TERM_SCREEN_SST_SIZE)
 #define TERM_CELLS_SST_SIZE (8 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
 #define TERM_SST_SIZE (3 + 2 * TERM_ONE_SST_SIZE + TERM_CELLS_SST_SIZE + 512)
 void term_sst_save(sst_cursor_t *c, unsigned flags);
@@ -122,6 +134,6 @@ bool term_sst_load(sst_cursor_t *c, unsigned flags);
 #define TERM_DRIVER DRIVER(                                    \
     INIT(term_init)                                            \
     TASK_FATFS(term_task)                                      \
-    SST(TERM, 2, TERM_SST_SIZE, term_sst_save, term_sst_load))
+    SST(TERM, 3, TERM_SST_SIZE, term_sst_save, term_sst_load))
 
 #endif /* _CORE_TERM_TERM_H_ */

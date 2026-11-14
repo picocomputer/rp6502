@@ -163,6 +163,8 @@ typedef struct
     bool dirty[TERM_MAX_HEIGHT];
     uint16_t erase_fg_color[TERM_MAX_HEIGHT];
     uint16_t erase_bg_color[TERM_MAX_HEIGHT];
+    uint8_t erase_glyph[TERM_MAX_HEIGHT]; // a space, or DECALN's E
+    uint8_t line_size[TERM_MAX_HEIGHT];   // TERM_LINE_*, DEC's line attributes
     uint8_t y_offset;
     /* The rows scrolled off the top that are still in the cell store, the
      * newest first. A taller view shows them again; ED 3 forgets them. */
@@ -189,6 +191,7 @@ typedef struct term_state
     bool disp_ctrl;    // SGR 11 or CRM (CSI 3 h): draw the C0 controls
     bool vt52;         // DECANM reset, ?2 l
     bool ice_colors;   // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
+    bool reverse_screen; // DECSCNM, ?5: the renderers swap every cell's colors
     bool cursor_enabled;
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2=block, 3/4=underline, 5/6=bar (read by the view)
     unsigned long cursor_frame;
@@ -348,17 +351,29 @@ static inline void term_emit_attrs(const term_state_t *term,
 // with no attributes. An erase takes the pen's colors, not reversed, and
 // none of its attributes, as xterm and Linux do. The foreground matters too,
 // because the cursor is drawn from the cell it sits on.
-static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
-                              uint16_t fg, uint16_t bg)
+static inline void fill_glyph(term_data_t *row, unsigned start, unsigned end,
+                              uint8_t glyph, uint16_t fg, uint16_t bg)
 {
     for (unsigned i = start; i < end; i++)
     {
-        row[i].font_code = ' ';
+        row[i].font_code = glyph;
         row[i].attributes = 0;
         row[i].fg_color = fg;
         row[i].bg_color = bg;
         row[i].ul_color = fg;
     }
+}
+
+static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
+                              uint16_t fg, uint16_t bg)
+{
+    fill_glyph(row, start, end, ' ', fg, bg);
+}
+
+// The columns of row y: half the width on a double-size line.
+static inline unsigned term_cols(const term_state_t *term, uint8_t y)
+{
+    return term->screen->line_size[y] ? term->width / 2u : term->width;
 }
 
 // Make sure you call this any time you change rows.
@@ -368,9 +383,8 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     if (!term->screen->dirty[y])
         return;
     term->screen->dirty[y] = false;
-    fill_cells(term_row_ptr(term, y), 0, term->width,
-               term->screen->erase_fg_color[y],
-               term->screen->erase_bg_color[y]);
+    fill_glyph(term_row_ptr(term, y), 0, term->width, term->screen->erase_glyph[y],
+               term->screen->erase_fg_color[y], term->screen->erase_bg_color[y]);
 }
 
 // Force the cursor unlit and arm the input-gap timer. Used by movement
@@ -391,14 +405,16 @@ static void term_restart_blinks(term_state_t *term)
     term->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
 }
 
-// Move the cursor, 0-indexed, clamped to the screen. Every move ends a
-// pending wrap, and the destination row is cleaned so a glyph can land on it.
+// Move the cursor, 0-indexed, clamped to the screen and to the columns of its
+// row. Every move ends a pending wrap, and the destination row is cleaned so a
+// glyph can land on it.
 static void term_goto(term_state_t *term, unsigned x, unsigned y)
 {
-    if (x >= term->width)
-        x = term->width - 1u;
     if (y >= term->height)
         y = term->height - 1u;
+    unsigned cols = term_cols(term, (uint8_t)y);
+    if (x >= cols)
+        x = cols - 1u;
     term->cur->x = (uint8_t)x;
     term->cur->y = (uint8_t)y;
     term->cur->wrap_pending = false;
@@ -421,7 +437,8 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
             buf->dirty[i] = false;
             uint8_t slot = term_buf_slot(buf->y_offset, (uint8_t)i);
             term_data_t *row = buf->mem + (uint32_t)buf->row_idx[slot] * width;
-            fill_cells(row, 0, width, buf->erase_fg_color[i], buf->erase_bg_color[i]);
+            fill_glyph(row, 0, width, buf->erase_glyph[i],
+                       buf->erase_fg_color[i], buf->erase_bg_color[i]);
             return true;
         }
     }
@@ -451,6 +468,8 @@ static void term_shift_meta_up(screen_buf_t *s, uint8_t count)
         s->dirty[i] = s->dirty[i + 1];
         s->erase_fg_color[i] = s->erase_fg_color[i + 1];
         s->erase_bg_color[i] = s->erase_bg_color[i + 1];
+        s->erase_glyph[i] = s->erase_glyph[i + 1];
+        s->line_size[i] = s->line_size[i + 1];
     }
 }
 
@@ -461,19 +480,31 @@ static void term_shift_meta_down(screen_buf_t *s, uint8_t start)
         s->dirty[i] = s->dirty[i - 1];
         s->erase_fg_color[i] = s->erase_fg_color[i - 1];
         s->erase_bg_color[i] = s->erase_bg_color[i - 1];
+        s->erase_glyph[i] = s->erase_glyph[i - 1];
+        s->line_size[i] = s->line_size[i - 1];
     }
 }
 
-static void term_mark_rows(screen_buf_t *s, uint8_t from, uint8_t to,
-                           uint16_t fg, uint16_t bg)
+// Lazy-erase rows [from, to) to `glyph` in the given colors. An erased line is
+// single size again.
+static void term_mark_rows_glyph(screen_buf_t *s, uint8_t from, uint8_t to,
+                                 uint8_t glyph, uint16_t fg, uint16_t bg)
 {
     for (uint8_t i = from; i < to; i++)
     {
         s->dirty[i] = true;
         s->erase_fg_color[i] = fg;
         s->erase_bg_color[i] = bg;
+        s->erase_glyph[i] = glyph;
+        s->line_size[i] = TERM_LINE_NORMAL;
     }
     s->all_clean = false;
+}
+
+static void term_mark_rows(screen_buf_t *s, uint8_t from, uint8_t to,
+                           uint16_t fg, uint16_t bg)
+{
+    term_mark_rows_glyph(s, from, to, ' ', fg, bg);
 }
 
 // Lazy-erase rows [from, to) of the active screen in the pen's colors.
@@ -498,6 +529,7 @@ static void term_mark_buf_erased(screen_buf_t *buf, uint8_t height,
     {
         buf->row_idx[y] = y;
         buf->dirty[y] = false;
+        buf->line_size[y] = TERM_LINE_NORMAL;
     }
     term_mark_rows(buf, 0, height, fg, bg);
 }
@@ -561,6 +593,7 @@ static void term_reset_core(term_state_t *term)
     term->disp_ctrl = false;
     term->vt52 = false;
     term->ice_colors = false;
+    term->reverse_screen = false;
     term->cursor_enabled = true;
     term->cursor_style = 0;
     term_reset_parser(term);
@@ -654,6 +687,7 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
                 {
                     s->hidden--;
                     s->dirty[0] = false;
+                    s->line_size[0] = TERM_LINE_NORMAL;
                 }
                 else
                     term_mark_rows(s, 0, 1, term->default_fg_color, term->default_bg_color);
@@ -748,6 +782,8 @@ static void term_region_scroll_up(term_state_t *term, uint8_t top,
         s->dirty[i] = s->dirty[i + n];
         s->erase_fg_color[i] = s->erase_fg_color[i + n];
         s->erase_bg_color[i] = s->erase_bg_color[i + n];
+        s->erase_glyph[i] = s->erase_glyph[i + n];
+        s->line_size[i] = s->line_size[i + n];
     }
     term_mark_rows_erase(term, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1));
 }
@@ -777,6 +813,8 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
         s->dirty[i] = s->dirty[i - n];
         s->erase_fg_color[i] = s->erase_fg_color[i - n];
         s->erase_bg_color[i] = s->erase_bg_color[i - n];
+        s->erase_glyph[i] = s->erase_glyph[i - n];
+        s->line_size[i] = s->line_size[i - n];
     }
     term_mark_rows_erase(term, top, (uint8_t)(top + n));
 }
@@ -808,6 +846,8 @@ static void term_index(term_state_t *term)
     else
         term_region_scroll_up(term, term->margin_top, term->margin_bot, 1);
     term_clean_line(term, cur->y);
+    if (cur->x >= term_cols(term, cur->y))
+        cur->x = (uint8_t)(term_cols(term, cur->y) - 1);
 }
 
 // Reverse Index (ESC M) — dual of IND. At margin_top it scrolls the region
@@ -836,6 +876,8 @@ static void term_reverse_index(term_state_t *term)
     else
         term_region_scroll_down(term, term->margin_top, term->margin_bot, 1);
     term_clean_line(term, cur->y);
+    if (cur->x >= term_cols(term, cur->y))
+        cur->x = (uint8_t)(term_cols(term, cur->y) - 1);
 }
 
 static void term_out_CR(term_state_t *term)
@@ -902,11 +944,12 @@ static void term_put_glyph(term_state_t *term, uint8_t byte)
     term_data_t cell = term_glyph_cell(term, byte);
     term_wrap(term);
     term_data_t *row = term_row_ptr(term, cur->y);
+    unsigned cols = term_cols(term, cur->y);
     if (term->insert_mode)
         memmove(&row[cur->x + 1], &row[cur->x],
-                (size_t)(term->width - 1 - cur->x) * sizeof(term_data_t));
+                (size_t)(cols - 1 - cur->x) * sizeof(term_data_t));
     row[cur->x] = cell;
-    if (cur->x < term->width - 1)
+    if (cur->x < cols - 1)
         cur->x++;
     else if (term->autowrap)
         cur->wrap_pending = true;
@@ -945,20 +988,21 @@ static void term_out_REP(term_state_t *term)
     while (n)
     {
         term_wrap(term);
-        unsigned run = (unsigned)(term->width - cur->x);
+        unsigned cols = term_cols(term, cur->y);
+        unsigned run = (unsigned)(cols - cur->x);
         if (run > n)
             run = n;
         term_data_t *row = term_row_ptr(term, cur->y) + cur->x;
         for (unsigned i = 0; i < run; i++)
             row[i] = cell;
         n -= run;
-        if (cur->x + run < term->width)
+        if (cur->x + run < cols)
             cur->x = (uint8_t)(cur->x + run);
         else
         {
             // The last column: what is left wraps, or with DECAWM off lands
             // on that column again, which already holds the glyph.
-            cur->x = (uint8_t)(term->width - 1);
+            cur->x = (uint8_t)(cols - 1);
             cur->wrap_pending = term->autowrap;
             if (!term->autowrap)
                 n = 0;
@@ -979,11 +1023,12 @@ static inline bool term_tab_is_set(const term_state_t *term, uint8_t col)
 static void term_tab_forward(term_state_t *term, uint16_t n)
 {
     cursor_state_t *cur = term->cur;
-    while (n-- && cur->x < term->width - 1)
+    unsigned last = term_cols(term, cur->y) - 1;
+    while (n-- && cur->x < last)
     {
         do
             cur->x++;
-        while (cur->x < term->width - 1 && !term_tab_is_set(term, cur->x));
+        while (cur->x < last && !term_tab_is_set(term, cur->x));
     }
 }
 
@@ -1081,7 +1126,7 @@ static void term_erase_line(term_state_t *term, uint16_t mode)
 {
     cursor_state_t *cur = term->cur;
     cur->wrap_pending = false;
-    unsigned from = 0, to = term->width;
+    unsigned from = 0, to = term_cols(term, cur->y);
     if (mode == 0)
         from = cur->x;
     else if (mode == 1)
@@ -1126,13 +1171,14 @@ static void term_out_DCH(term_state_t *term)
 {
     cursor_state_t *cur = term->cur;
     cur->wrap_pending = false;
-    unsigned avail = (unsigned)(term->width - cur->x);
+    unsigned cols = term_cols(term, cur->y);
+    unsigned avail = cols - cur->x;
     unsigned n = term_param(term, 0, 1);
     if (n > avail)
         n = avail;
     term_data_t *row = term_row_ptr(term, cur->y);
     memmove(&row[cur->x], &row[cur->x + n], (avail - n) * sizeof(term_data_t));
-    fill_cells(row, term->width - n, term->width, cur->fg_color, cur->bg_color);
+    fill_cells(row, cols - n, cols, cur->fg_color, cur->bg_color);
 }
 
 // Insert Pn erased characters at the cursor; cells past the right edge are
@@ -1141,7 +1187,7 @@ static void term_out_ICH(term_state_t *term)
 {
     cursor_state_t *cur = term->cur;
     cur->wrap_pending = false;
-    unsigned avail = (unsigned)(term->width - cur->x);
+    unsigned avail = term_cols(term, cur->y) - cur->x;
     unsigned n = term_param(term, 0, 1);
     if (n > avail)
         n = avail;
@@ -1155,7 +1201,7 @@ static void term_out_ECH(term_state_t *term)
 {
     cursor_state_t *cur = term->cur;
     cur->wrap_pending = false;
-    unsigned avail = (unsigned)(term->width - cur->x);
+    unsigned avail = term_cols(term, cur->y) - cur->x;
     unsigned n = term_param(term, 0, 1);
     if (n > avail)
         n = avail;
@@ -1186,6 +1232,33 @@ static void term_out_SU_SD(term_state_t *term, bool up)
     else
         term_region_scroll_down(term, term->margin_top, term->margin_bot, n);
     term_clean_line(term, term->cur->y);
+}
+
+// SL and SR, CSI Pn SP @ and CSI Pn SP A: every line of the scroll region
+// moves Pn columns left or right, erased cells coming in at the other side.
+// The cursor stays. A line waiting on a lazy erase is left to it.
+static void term_out_SL_SR(term_state_t *term, bool left)
+{
+    cursor_state_t *cur = term->cur;
+    uint16_t count = term_param(term, 0, 1);
+    for (uint8_t y = term->margin_top; y <= term->margin_bot; y++)
+    {
+        if (term->screen->dirty[y])
+            continue;
+        unsigned cols = term_cols(term, y);
+        unsigned n = count < cols ? count : cols;
+        term_data_t *row = term_row_ptr(term, y);
+        if (left)
+        {
+            memmove(row, row + n, (cols - n) * sizeof(term_data_t));
+            fill_cells(row, cols - n, cols, cur->fg_color, cur->bg_color);
+        }
+        else
+        {
+            memmove(row + n, row, (cols - n) * sizeof(term_data_t));
+            fill_cells(row, 0, n, cur->fg_color, cur->bg_color);
+        }
+    }
 }
 
 /* ---- saved cursor and screens ------------------------------------------ */
@@ -1620,6 +1693,9 @@ static void term_out_DECRQM(term_state_t *term, bool private)
         case 4: // DECSCLM: no smooth scroll
             pm = 4;
             break;
+        case 5: // DECSCNM
+            pm = term->reverse_screen ? 1 : 2;
+            break;
         case 6: // DECOM
             pm = term->cur->origin_mode ? 1 : 2;
             break;
@@ -1764,6 +1840,9 @@ static void term_out_DECSET(term_state_t *term, bool set)
                 term->cur->g1_charset = TERM_CS_ASCII;
                 term->cur->gl_is_g1 = false;
             }
+            break;
+        case 5: // DECSCNM: the whole screen in reverse video
+            term->reverse_screen = set;
             break;
         case 6: // DECOM
             term->cur->origin_mode = set;
@@ -2151,9 +2230,35 @@ static void term_designate(uint8_t *g, uint8_t final)
     }
 }
 
-// The final byte of ESC I... F, a sequence with intermediates. The character
-// set designations are the only ones that act; ESC # (line sizes and DECALN),
-// ESC % (UTF-8), ESC SP (7/8-bit controls), G2 and G3 are taken and ignored.
+// DECDHL, DECDWL and DECSWL, ESC # 3 to 6: the size of the cursor's line,
+// at once, text already on it included. Going double size, the columns past
+// the middle are lost; DEC blanks them.
+static void term_line_size(term_state_t *term, uint8_t size)
+{
+    cursor_state_t *cur = term->cur;
+    uint8_t *line = &term->screen->line_size[cur->y];
+    if (size != TERM_LINE_NORMAL && *line == TERM_LINE_NORMAL)
+        fill_cells(term_row_ptr(term, cur->y), term->width / 2u, term->width,
+                   cur->fg_color, cur->bg_color);
+    *line = size;
+    term_goto(term, cur->x, cur->y);
+}
+
+// DECALN, ESC # 8: the screen full of E's, for lining up a monitor. The
+// margins reset, every line is single size, and the cursor goes home. The E's
+// come in as a lazy erase does, a row a tick.
+static void term_out_DECALN(term_state_t *term)
+{
+    term->margin_top = 0;
+    term->margin_bot = (uint8_t)(term->height - 1);
+    term_mark_rows_glyph(term->screen, 0, term->height, 'E',
+                         term->default_fg_color, term->default_bg_color);
+    term_goto(term, 0, 0);
+}
+
+// The final byte of ESC I... F, a sequence with intermediates: the character
+// set designations, and ESC # for the line sizes and DECALN. ESC % (UTF-8),
+// ESC SP (7/8-bit controls), G2 and G3 are taken and ignored.
 static void term_esc_int_final(term_state_t *term, uint8_t ch)
 {
     term->ansi_state = ansi_state_ground;
@@ -2162,6 +2267,25 @@ static void term_esc_int_final(term_state_t *term, uint8_t ch)
         term_designate(&term->cur->g0_charset, ch);
     else if (term->csi_intermediate == ')')
         term_designate(&term->cur->g1_charset, ch);
+    else if (term->csi_intermediate == '#')
+        switch (ch)
+        {
+        case '3':
+            term_line_size(term, TERM_LINE_TOP);
+            break;
+        case '4':
+            term_line_size(term, TERM_LINE_BOTTOM);
+            break;
+        case '5':
+            term_line_size(term, TERM_LINE_NORMAL);
+            break;
+        case '6':
+            term_line_size(term, TERM_LINE_WIDE);
+            break;
+        case '8':
+            term_out_DECALN(term);
+            break;
+        }
 }
 
 static void term_esc_int_byte(term_state_t *term, uint8_t ch)
@@ -2392,6 +2516,8 @@ static void term_csi_final(term_state_t *term, uint8_t ch)
             return term_csi_dispatch(term, ch);
         if (inter == ' ' && ch == 'q')
             term_out_DECSCUSR(term);
+        else if (inter == ' ' && (ch == '@' || ch == 'A'))
+            term_out_SL_SR(term, ch == '@');
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(term);
         else if (inter == '$' && ch == 'p')
@@ -2791,6 +2917,8 @@ static void term_put_screen(sst_cursor_t *c, const screen_buf_t *b)
         sst_put_u16(c, b->erase_fg_color[i]);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         sst_put_u16(c, b->erase_bg_color[i]);
+    sst_put(c, b->erase_glyph, TERM_MAX_HEIGHT);
+    sst_put(c, b->line_size, TERM_MAX_HEIGHT);
     sst_put_u8(c, b->y_offset);
     sst_put_u8(c, b->hidden);
     sst_put_bool(c, b->all_clean);
@@ -2809,6 +2937,8 @@ static bool term_get_screen(sst_cursor_t *c, screen_buf_t *b, uint8_t width)
         b->erase_fg_color[i] = sst_get_u16(c);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         b->erase_bg_color[i] = sst_get_u16(c);
+    sst_get(c, b->erase_glyph, TERM_MAX_HEIGHT);
+    sst_get(c, b->line_size, TERM_MAX_HEIGHT);
     b->y_offset = sst_get_u8(c);
     b->hidden = sst_get_u8(c);
     b->all_clean = sst_get_bool(c);
@@ -2835,6 +2965,7 @@ static void term_put_one(sst_cursor_t *c, const term_state_t *t)
     sst_put_bool(c, t->disp_ctrl);
     sst_put_bool(c, t->vt52);
     sst_put_bool(c, t->ice_colors);
+    sst_put_bool(c, t->reverse_screen);
     sst_put_bool(c, t->cursor_enabled);
     sst_put_u8(c, t->cursor_style);
     sst_put_u64(c, t->cursor_frame);
@@ -2881,6 +3012,7 @@ static bool term_get_one(sst_cursor_t *c, term_state_t *t, uint8_t width)
     t->disp_ctrl = sst_get_bool(c);
     t->vt52 = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
+    t->reverse_screen = sst_get_bool(c);
     t->cursor_enabled = sst_get_bool(c);
     t->cursor_style = sst_get_u8(c);
     t->cursor_frame = (unsigned long)sst_get_u64(c);
@@ -2990,11 +3122,17 @@ void term_view(term_view_t *out)
     out->cursor_lit = term->cursor_lit;
     out->cursor_color = term->cursor_color;
     out->blink_phase = term->cell_blink_phase;
+    out->reverse = term->reverse_screen;
 }
 
 const term_data_t *term_view_row(uint8_t y)
 {
     return term_row_ptr(term_visible(), y);
+}
+
+uint8_t term_view_row_size(uint8_t y)
+{
+    return term_visible()->screen->line_size[y];
 }
 
 void term_set_height(uint8_t width, uint8_t height)

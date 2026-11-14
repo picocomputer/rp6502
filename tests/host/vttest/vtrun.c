@@ -21,8 +21,9 @@
  * that a test clears without waiting for a key is recorded too, just before
  * the clear.
  *
- * OUTDIR/screens.txt has a line a screen: its name, a CRC-32 of its cells
- * (glyph, attributes and colors), and the cursor. OUTDIR/index.txt is the
+ * OUTDIR/screens.txt has a line a screen: its name, a CRC-32 of what it
+ * shows (the cells' glyphs, attributes and colors, the line sizes and the
+ * reverse screen), and the cursor. OUTDIR/index.txt is the
  * walk, with the key sent after each screen. With VTGOLDEN naming an
  * approved screens.txt, the run fails when a screen differs, is new, or is
  * gone, and only those screens are saved as text and PNG for a person to look
@@ -184,13 +185,29 @@ static void vt_settle(void)
     }
 }
 
-/* A CRC-32 of the visible cells: glyphs, attributes and colors. */
-static uint32_t vt_digest(void)
+/* A CRC-32 of the cells: glyphs, attributes and colors. */
+static uint32_t vt_cells(void)
 {
     uint32_t crc = 0;
     for (int y = 0; y < vt_rows; y++)
         crc = host_crc32(crc, term_view_row((uint8_t)y), (size_t)vt_cols * sizeof(term_data_t));
     return crc;
+}
+
+/* A CRC-32 of what the screen shows: the cells, each line's size, and the
+ * reverse screen. */
+static uint32_t vt_digest(void)
+{
+    uint32_t crc = vt_cells();
+    for (int y = 0; y < vt_rows; y++)
+    {
+        uint8_t size = term_view_row_size((uint8_t)y);
+        crc = host_crc32(crc, &size, 1);
+    }
+    term_view_t v;
+    term_view(&v);
+    uint8_t reverse = v.reverse;
+    return host_crc32(crc, &reverse, 1);
 }
 
 static bool vt_blank(void)
@@ -321,10 +338,10 @@ static void vt_shot(const char *name)
     vt_settle();
     term_view_t v;
     term_view(&v);
-    vt_last = vt_digest();
+    vt_last = vt_cells();
     vt_fed = 0;
     char line[160];
-    snprintf(line, sizeof line, "%s %08X cursor %d,%d style %d%s", name, vt_last,
+    snprintf(line, sizeof line, "%s %08X cursor %d,%d style %d%s", name, vt_digest(),
              v.cursor_x, v.cursor_y, v.cursor_style, v.cursor_enabled ? "" : " hidden");
     fprintf(vt_screens, "%s\n", line);
     fflush(vt_screens);
@@ -336,6 +353,13 @@ static void vt_shot(const char *name)
 }
 
 static char vt_echo[64]; /* the keys last sent */
+
+/* Whether vttest last asked for 132 columns (DECCOLM, CSI ? 3 h). The
+ * terminal stays at 80, so those passes of a test show its layout cut short;
+ * the index marks their screens for a person reviewing them. */
+static bool vt_132;
+static char vt_tail[5];
+
 
 /* vttest clears the screen with CSI 2 J. A test that ends, or turns a page,
  * without waiting for a key is recorded just before its clear. Not when all
@@ -349,12 +373,12 @@ static void vt_before_clear(void)
     if (vt_fed <= strlen(vt_echo) + 2)
         return;
     vt_settle();
-    if (vt_digest() == vt_last || vt_blank() || vt_screen_has("Enter choice number"))
+    if (vt_cells() == vt_last || vt_blank() || vt_screen_has("Enter choice number"))
         return;
     char name[96];
     snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
     vt_shot(name);
-    vt_log("%s cleared\n", name);
+    vt_log("%s cleared%s\n", name, vt_132 ? " (132 columns)" : "");
 }
 
 static void vt_feed(const char *buf, size_t n)
@@ -364,6 +388,12 @@ static void vt_feed(const char *buf, size_t n)
     vt_fed += n;
     for (size_t i = 0; i < n; i++)
     {
+        memmove(vt_tail, vt_tail + 1, sizeof vt_tail - 1);
+        vt_tail[sizeof vt_tail - 1] = buf[i];
+        if (!memcmp(vt_tail, "\33[?3h", 5))
+            vt_132 = true;
+        else if (!memcmp(vt_tail, "\33[?3l", 5))
+            vt_132 = false;
         if (buf[i] == clear[vt_clear_match])
             vt_clear_match++;
         else
@@ -606,7 +636,7 @@ static bool vt_skipped(int choice)
 
 static void vt_send(const char *name, const char *keys, const char *what)
 {
-    vt_log("%s %s\n", name, what);
+    vt_log("%s %s%s\n", name, what, vt_132 ? " (132 columns)" : "");
     snprintf(vt_echo, sizeof vt_echo, "%s", keys);
     vt_reply(keys, strlen(keys));
 }
@@ -702,7 +732,7 @@ int main(int argc, char **argv)
              * which is the first time and after a test changes a setting it
              * shows. */
             vt_settle();
-            uint32_t now = vt_digest();
+            uint32_t now = vt_cells();
             if (!m->visits || now != m->last)
             {
                 snprintf(name, sizeof name, "%s-menu-%02d", m->id, ++m->visits);

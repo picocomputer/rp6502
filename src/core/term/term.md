@@ -16,44 +16,19 @@ Two facts shape the work:
   keyboard or mouse mode, runs on the VGA, so those modes have to get from the
   VGA to the RIA.
 
-## 1. Next: no new cell bits
+## 1. The Pocket's renderer: double-size lines and the reverse screen
 
-These fit the cell as it is.
+DECALN, SL/SR, the reverse screen (DECSCNM) and double-width and double-height
+lines are done in term.c and the Pico renderer. The Pocket's software already
+passes the two new pieces to the fabric: a row's size (TERM_LINE_) in bits
+16-17 of its VID_ROW word, and DECSCNM in bit 26 of VID_CURSOR. mode0.sv still
+has to draw them, which needs the next Quartus build:
 
-- **DECALN, `ESC # 8`.** Fills the screen with E's; vttest uses it as a
-  backdrop for its alignment and erase tests. It also resets the margins and
-  homes the cursor. term.c only. To keep to one row of cells per operation, the
-  lazy erase learns to fill with a glyph other than a space.
-
-- **Scroll left and right, SL and SR (`CSI n SP @`, `CSI n SP A`).** ECMA-48
-  and xterm; not DEC or Linux. Every row inside the scroll region shifts
-  sideways, with erased cells coming in. term.c only. It moves every row of the
-  region at once, which bends the one-row rule: measure it on the board.
-
-- **Reverse screen, DECSCNM `?5`.** The whole screen in reverse video, DEC's
-  "light background" setting. One flag, read by the renderers, which swap the
-  colors they draw. Settle against xterm's source whether it swaps every cell,
-  as a monochrome VT102 does, or only the default colors. The Pico renderer
-  first; the FPGA's with the next Quartus build.
-
-- **Double-width and double-height lines, `ESC # 3` to `ESC # 6`.** A setting
-  on a whole line, as DEC defines it, not on cells:
-  - `ESC # 6` double width, `ESC # 3` double-height top half, `ESC # 4` bottom
-    half, `ESC # 5` back to normal. Double-height lines are double width too.
-  - It changes the line at once, text already on it included. A double-width
-    line has 40 columns; what was in columns 41-80 is lost. The cursor works in
-    big characters there.
-  - For double height, the program writes the same text on two lines, one
-    `ESC # 3` and one `ESC # 4`. The terminal fills in nothing.
-  - A line scrolled in is normal, and a full-screen erase makes every line
-    normal again.
-
-  term.c keeps a 2-bit size for each row with the per-row data it already
-  scrolls, and a double-width row stores its 40 characters in cells 0-39. The
-  renderers check a row's size once per scanline and call one of four unrolled
-  versions: normal, double width, double-height top and bottom. On the Pocket
-  the size rides in the spare bits of the VID_ROW word, and the RTL draws it
-  with the next Quartus build.
+- **Reverse screen:** swap every cell's foreground and background.
+- **Double width:** draw the row's first half of cells, every pixel twice
+  across.
+- **Double height:** as double width, drawing the top or bottom half of each
+  glyph with every glyph row twice.
 
 ## 2. Needs bigger cells, and the memory for them
 
@@ -77,6 +52,15 @@ renderers and gains 29 bits:
 
 That makes a 12-byte cell, which stays word-aligned for the renderers. Both
 terminals stay, 40 and 80 columns, each with its alternate screen.
+
+**Explore splitting the cell into two tables** before settling on 12-byte
+cells: one with only what the renderers read (the scanout memory, VIDCELLS on
+the Pocket), and one with what only term.c needs (CPU RAM). The new bits above
+are all term.c-only: the color sources and protected are never drawn. Look too
+at what today's 8 bytes hold just because it was simpler to keep it there, and
+whether any of it can move out of the scanout memory, which is the scarce one
+on the Pocket. If the split is clean, the renderers' cells stay small and the
+rest goes to the soft CPU's RAM, which the memory work below frees.
 
 **The Pico VGA** has room: its cells grow from 61 KB to 92 KB, and the video
 region can grow down into free RAM and stay in the upper banks.
