@@ -29,8 +29,10 @@
  * Three CSIs go on past that: rxvt's shifted keys end at a '$' after digits,
  * an X10 mouse report takes three bytes after CSI 'M', and a Linux console
  * function key one after CSI '['. ESC 'O' (SS3) takes digits and ';', then a
- * final byte. ESC 'N' (SS2) takes one byte. ESC then any other byte below
- * 0x80 is a two-byte Alt key, Alt-Backspace's ESC DEL among them.
+ * final byte. ESC 'N' (SS2) takes one byte, and so does ESC '?' while the
+ * console's terminal is in VT52 mode, where it is a keypad key. ESC then any
+ * other byte below 0x80 is a two-byte Alt key, Alt-Backspace's ESC DEL and,
+ * in ANSI mode, Alt-? among them.
  *
  * Inside a sequence, the lone ESC included, CAN and SUB drop it and
  * themselves. ESC and a byte of 0x80 and up end it with nothing, and so do

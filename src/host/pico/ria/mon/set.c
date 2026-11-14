@@ -9,7 +9,7 @@
 #include "ria/api/tim.h"
 #include "ria-w/ble/ble.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/keymap.h"
+#include "core/hid/layout.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
@@ -127,7 +127,7 @@ void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
     mon_add_response_fn(set_boot_response);
     mon_add_response_fn(tim_time_zone_response);
     mon_add_response_fn(str_locale_response);
-    mon_add_response_fn(keymap_layout_list_response);
+    mon_add_response_fn(layout_list_response);
     mon_add_response_fn(oem_code_page_response);
     mon_add_response_fn(vga_display_type_response);
     mon_add_response_fn(nfc_enabled_response);

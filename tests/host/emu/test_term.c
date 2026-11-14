@@ -11,6 +11,7 @@
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
+#include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
@@ -354,6 +355,20 @@ UTEST(term, insert_mode_pushes_the_row_right)
     ASSERT_STREQ(row(0), "XYZbc");
 }
 
+/* A VT52 has no insert mode: the flag waits for ANSI mode, as in xterm. */
+UTEST(term, insert_mode_is_suspended_in_vt52_mode)
+{
+    fresh();
+    feed("abc\r\33[4h\33[?2lX");
+    ASSERT_STREQ(row(0), "Xbc");
+    ASSERT_TRUE(cells_term.insert_mode);
+    feed("\33<X");
+    ASSERT_STREQ(row(0), "XXbc");
+    feed("\33[3b");
+    ASSERT_STREQ(row(0), "XXXXXbc");
+    feed("\33[?2l\33<\33[4l");
+}
+
 UTEST(term, newline_mode_returns_the_carriage)
 {
     fresh();
@@ -442,6 +457,19 @@ UTEST(term, the_reset_strings_leave_vt52_mode)
     ASSERT_STREQ(row(0), "");
 }
 
+UTEST(term, the_soft_reset_string_puts_the_keys_back)
+{
+    fresh();
+    feed("\33[?1h\33=\33[?8l");
+    ASSERT_TRUE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(cells_term.autorepeat);
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_TRUE(cells_term.autorepeat);
+}
+
 UTEST(term, an_aborted_osc_keeps_the_pen_true)
 {
     fresh();
@@ -521,7 +549,103 @@ UTEST(term, decrqm)
     ASSERT_STREQ(ask("\0337\33[?1048$p"), "\33[?1048;1$y");
     ASSERT_STREQ(ask("\33[2$p"), "\33[2;4$y");
     ASSERT_STREQ(ask("\33[12$p"), "\33[12;3$y");
-    ASSERT_STREQ(ask("\33[?1$p"), "\33[?1;0$y");
+    ASSERT_STREQ(ask("\33[?4000$p"), "\33[?4000;0$y");
+}
+
+/* ---- the keyboard's modes: the terminal holds them, the keyboard reads --- */
+
+UTEST(term, the_keyboard_modes_set_reset_and_report)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
+                 "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(cells_term.app_keypad);
+    feed("\33[?1;66h\33[?8l");
+    ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
+                 "\33[?1;1$y\33[?8;2$y\33[?66;1$y");
+    ASSERT_TRUE(cells_term.app_cursor);
+    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(cells_term.app_keypad);
+    feed("\33[?1;66l\33[?8h");
+    ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
+                 "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
+}
+
+UTEST(term, the_keypad_mode_escapes_work_in_both_modes)
+{
+    fresh();
+    feed("\33=");
+    ASSERT_STREQ(ask("\33[?66$p"), "\33[?66;1$y");
+    feed("\33>");
+    ASSERT_STREQ(ask("\33[?66$p"), "\33[?66;2$y");
+    feed("\33[?2l\33=");
+    ASSERT_TRUE(cells_term.app_keypad);
+    feed("\33>");
+    ASSERT_FALSE(cells_term.app_keypad);
+    feed("\33=\33<x");
+    ASSERT_TRUE(cells_term.app_keypad); /* leaving VT52 mode keeps it */
+    ASSERT_STREQ(row(0), "x");
+}
+
+/* DECSTR puts back the cursor keys and the keypad; only a full reset, RIS
+ * or the system's, also turns autorepeat on. */
+UTEST(term, the_resets_and_the_keyboard_modes)
+{
+    fresh();
+    feed("\33[?1;66h\33[?8l\33[!p");
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(cells_term.autorepeat);
+    feed("\33[?1h\33=\33c");
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_TRUE(cells_term.autorepeat);
+    feed("\33[?1h\33=\33[?8l");
+    cells_RIS_no_clear();
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_TRUE(cells_term.autorepeat);
+}
+
+/* A saved cursor and the alternate screen carry none of them. */
+UTEST(term, the_keyboard_modes_belong_to_no_screen)
+{
+    fresh();
+    feed("\0337\33[?1h\33=\33[?8l\0338\33[?1049h");
+    ASSERT_TRUE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(cells_term.autorepeat);
+    feed("\33[?1l\33[?1049l");
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.app_keypad);
+}
+
+UTEST(term, a_savestate_carries_the_keyboard_modes)
+{
+    static uint8_t blob[CELLS_SST_SIZE];
+    fresh();
+    feed("\33[?1h\33=\33[?8l");
+    sst_cursor_t c = {blob, blob + sizeof blob, false};
+    cells_sst_save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    feed("\33c");
+    c = (sst_cursor_t){blob, blob + sizeof blob, false};
+    ASSERT_TRUE(cells_sst_load(&c, 0));
+    ASSERT_TRUE(sst_ok(&c));
+    ASSERT_TRUE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(cells_term.autorepeat);
+    feed("\33[?1l\33[?8h");
+    c = (sst_cursor_t){blob, blob + sizeof blob, false};
+    cells_sst_save(&c, 0);
+    feed("\33[?1h\33[?8l");
+    c = (sst_cursor_t){blob, blob + sizeof blob, false};
+    ASSERT_TRUE(cells_sst_load(&c, 0));
+    ASSERT_FALSE(cells_term.app_cursor);
+    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(cells_term.autorepeat);
 }
 
 UTEST(term, rep_repeats_the_last_glyph)

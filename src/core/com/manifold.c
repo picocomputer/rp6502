@@ -230,28 +230,25 @@ void manifold_reply(const char *s, size_t n)
 }
 
 /* A Ctrl-C is scanned for before the bytes are pushed, so a break is seen
- * even when the ring is full and the byte itself is dropped. */
-static void manifold_push(manifold_ring_t *r, const char *s, size_t n)
+ * even when the ring is full and the bytes are dropped. */
+static void manifold_scan_break(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
         if (s[i] == MANIFOLD_ETX)
             ria_trigger_sigint();
-    RING_IN(r, s, (uint32_t)n);
 }
 
 void manifold_keyboard_push(const char *s, size_t n)
 {
-    manifold_push(&manifold_keyboard_ring, s, n);
-}
-
-void manifold_keyboard_push_byte(uint8_t b)
-{
-    manifold_keyboard_push((const char *)&b, 1);
+    manifold_scan_break(s, n);
+    if (n <= RING_AVAIL(&manifold_keyboard_ring))
+        RING_IN(&manifold_keyboard_ring, s, (uint32_t)n);
 }
 
 void manifold_uart_push(const char *s, size_t n)
 {
-    manifold_push(&manifold_uart_ring, s, n);
+    manifold_scan_break(s, n);
+    RING_IN(&manifold_uart_ring, s, (uint32_t)n);
 }
 
 size_t manifold_keyboard_free(void)

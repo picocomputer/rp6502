@@ -21,7 +21,9 @@
 #include "core/sys/random.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/paste.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
@@ -1048,7 +1050,7 @@ static bool script_cmd_tablet(char *p)
 /* The keys with a name instead of a character, and what each one types on a
  * US keyboard without and with shift. Letters, digits, function keys and the
  * keypad are computed below rather than listed. A key that types nothing, and
- * the four vtkeys_key answers for itself, carry 0. Only the script language
+ * the four hostkey_press answers for itself, carry 0. Only the script language
  * takes a key as text, so the table lives here and not in core. */
 static const struct
 {
@@ -1352,8 +1354,8 @@ static bool script_command(const char *line)
             return script_error("type wants a frame budget");
         if (!script_end(p))
             return false;
-        vtkeys_paste(text);
-        /* Waiting for the text to drain, because vtkeys_paste replaces
+        paste_start(text);
+        /* Waiting for the text to drain, because paste_start replaces
          * whatever is still being delivered and back-to-back type commands
          * would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;
@@ -1387,29 +1389,16 @@ static bool script_command(const char *line)
             return script_error("unknown key '%s'", name);
         if (!script_end(p))
             return false;
-        if (vtkeys_key(hid, ctrl, shift, alt))
-            return true;
-        /* vtkeys_key does nothing with a key that types a character, which
-         * the window hosts deliver as a chord built from the character their
-         * own host resolved. A script has no host, so the character comes
-         * from the table above. */
+        /* A script has no host to resolve the key's character, so it comes
+         * from the table above. NumLock is on, so a keypad digit is a digit. */
         char ch = shift ? shifted : plain;
-        if (!ch)
-            return script_error("'%s' sends nothing", name);
-        if (ctrl && !alt)
-        {
-            /* Not vtkeys_ctrl_letter, which drops a key that has no control
-             * byte. A key that sends nothing is an error instead. */
-            int byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
-            if (byte < 0)
-                return script_error("'%s' has no control byte", name);
-            manifold_keyboard_push_byte((uint8_t)byte);
-        }
-        else if (alt)
-            vtkeys_alt_char(ch, ctrl);
-        else
-            manifold_keyboard_push_byte((uint8_t)ch);
-        return true;
+        uint8_t flags = (uint8_t)(VTKEY_NUMLOCK | (shift ? VTKEY_SHIFT : 0) |
+                                  (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
+        if (hostkey_press(hid, flags, ch) != HOSTKEY_NONE)
+            return true;
+        if (ch && ctrl && !alt && vtkey_ctrl(ch) < 0)
+            return script_error("'%s' has no control byte", name);
+        return script_error("'%s' sends nothing", name);
     }
 
     if (!strcasecmp(cmd, "press") || !strcasecmp(cmd, "release"))
@@ -1434,7 +1423,7 @@ static bool script_command(const char *line)
                     return script_error("unknown key '%s'", name);
                 hid = (uint8_t)usage;
             }
-            keyboard_hid_set(hid, down);
+            keyboard_set_key(hid, down);
             count++;
         }
         if (!count)
@@ -1447,18 +1436,18 @@ static bool script_command(const char *line)
         char *which = script_word(&p);
         if (!which)
             which = "";
-        uint8_t led;
+        uint8_t key;
         if (!strcasecmp(which, "num"))
-            led = KEYBOARD_LED_NUMLOCK;
+            key = HID_KEY_NUM_LOCK;
         else if (!strcasecmp(which, "caps"))
-            led = KEYBOARD_LED_CAPSLOCK;
+            key = HID_KEY_CAPS_LOCK;
         else if (!strcasecmp(which, "scroll"))
-            led = KEYBOARD_LED_SCROLLLOCK;
+            key = HID_KEY_SCROLL_LOCK;
         else
             return script_error("lock wants num, caps or scroll");
         if (!script_end(p))
             return false;
-        keyboard_toggle_lock(led);
+        keyboard_lock_key(key);
         return true;
     }
 
@@ -1833,7 +1822,7 @@ static bool script_settle(void)
                             script_addr, script_addr_want, got);
     }
     case SCRIPT_TYPING:
-        if (!vtkeys_paste_busy())
+        if (!paste_busy())
             break;
         if (script_spend())
             return false;

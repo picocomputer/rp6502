@@ -69,9 +69,10 @@ void rln_set_suppress_nl(uint8_t v);
 uint8_t rln_get_suppress_nl(void);
 
 // Plain lines, for a console no one sees laid out, such as an emulator
-// printing to a pipe: the line is echoed and edited with relative moves, with
-// no prompt column, no row math and no cursor shape. The host sets it once;
-// it outlives every read and stop.
+// printing to a pipe: the line is echoed and edited with backspaces, reprints
+// and spaces, with no prompt column, no row math and no escape sequence. The
+// host sets it once; it outlives every read and stop. A read that starts
+// while the console's terminal is in VT52 mode is plain too.
 void rln_set_plain(bool plain);
 
 /* The console's size: a program's own while it pins one, otherwise the

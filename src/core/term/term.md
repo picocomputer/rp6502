@@ -71,22 +71,37 @@ Still to do: the docs. term.rst, api.rst (0x0A, 0x0B, 0x0D) and vga.rst
 (SUPPRESS_TERM_REPLY is gone), the 0x0D name in the cc65 and llvm-mos headers,
 and msbasic's pager.
 
-### Step 4: keyboard modes
+### Step 4: keyboard modes (done)
 
-The RIA's keyboard reads the terminal: DECCKM `?1`, DECKPAM `ESC =` and
-DECKPNM `ESC >`, LNM's Return-sends-CR-LF, DECARM `?8`, DECLL `CSI q`, and
-VT52 mode's arrows.
+The terminal holds the keyboard's modes: cursor keys `?1`, the keypad
+(`ESC =`, `ESC >`, `?66`), autorepeat `?8`, LNM and VT52. vtkey.c turns a key
+into bytes for every machine and is the only reader of them; keymap.c (RIA,
+Pocket) and hostkey.c (emulators) type through it. The keypad follows xterm:
+NumLock on types digits whatever the program asked for, NumLock off sends
+the application keys when asked. Libretro has no repeat flag, so a press of a
+key already down is its repeat.
 
-- keymap.c (RIA, Pocket) and vtkeys.c (emulators) read the terminal.
-  Rework core/hid as needed.
-- DECLL needs a lamp byte apart from keyboard_hid_leds (KEYB SST change).
-- Libretro has no repeat flag, so no DECARM there. Sokol turns keypad digits
-  into navigation and sends keypad operators as characters.
-- VT52 keypad keys (ESC ? p..y) need framing in tio; rln needs ESC A-D.
-- vttest's harness types through vtkeys so the keyboard tests run.
+tio frames `ESC ? x` as one key in VT52 mode. The line editor's simple mode
+sends no escape sequences and is used for a read that starts in VT52 mode,
+insert mode is suspended in VT52 mode, and `ESC A-D`, `ESC H` and `ESC F` are
+always the arrows, Home and End. The soft reset puts the cursor keys and
+keypad back. vttest's keyboard menu runs, typed through hostkey.
+
+Still to do: the docs. term.rst lists these modes as ignored, and has
+nothing on the simple mode, VT52 reads or insert mode in VT52. The emulator
+script's `key kpN` always types with NumLock on, so it cannot send the
+application keypad.
 
 ## 4. Mouse
 
 After section 3. xterm's `?9` and `?1000` to `?1006`, maybe the DEC locator;
 which ones is decided then. Its modes are more terminal state on the RIA.
 Once `?1001` exists, `CSI 1;x;y;10;20 T` has to be told apart from SD.
+
+## 5. Keyboard LEDs
+
+DECLL (`CSI q`) lights a VT100's L1 to L4, which xterm maps to Num, Caps and
+Scroll Lock (1, 2, 3; 21 to 23 put one out). The lock keys already use those
+lights, so the two have to share them. The emulators (sokol, libretro, web)
+and the Pocket don't drive or report keyboard LEDs yet, so that host work
+comes first. Deferred until then.

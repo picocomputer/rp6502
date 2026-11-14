@@ -7,7 +7,7 @@
 #include "core/api/arg.h"
 #include "core/api/proc.h"
 #include "core/com/manifold.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/ria/ria.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
@@ -243,14 +243,29 @@ UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
     char big[MANIFOLD_RING_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     big[sizeof big - 1] = 0;
-    vtkeys_paste(big);
-    vtkeys_task();
-    ASSERT_TRUE(vtkeys_paste_busy());
+    paste_start(big);
+    paste_task();
+    ASSERT_TRUE(paste_busy());
     sys_break_request();
     sys_commit();
-    ASSERT_FALSE(vtkeys_paste_busy());
-    vtkeys_task();
+    ASSERT_FALSE(paste_busy());
+    paste_task();
     ASSERT_FALSE(queued());
+}
+
+/* A key's sequence that does not fit is dropped whole. */
+UTEST(com, a_full_keyboard_ring_never_cuts_a_push)
+{
+    com_rx_clear();
+    char fill[MANIFOLD_RING_SIZE - 2];
+    memset(fill, 'f', sizeof fill);
+    manifold_keyboard_push(fill, sizeof fill);
+    ASSERT_EQ(manifold_keyboard_free(), (size_t)2);
+    manifold_keyboard_push("\33[A", 3);
+    ASSERT_EQ(manifold_keyboard_free(), (size_t)2);
+    manifold_keyboard_push("ab", 2);
+    ASSERT_EQ(manifold_keyboard_free(), (size_t)0);
+    com_rx_clear();
 }
 
 UTEST(com, a_byte_the_window_staged_comes_back_to_its_own_source)
@@ -320,19 +335,19 @@ UTEST(com, an_exec_keeps_the_type_ahead)
 UTEST(com, a_paste_goes_only_where_the_type_ahead_goes)
 {
     com_rx_clear();
-    vtkeys_paste("for the program");
+    paste_start("for the program");
     arg_clear();
     arg_append("next.rp6502");
     arg_push_xstack();
     proc_api_exec();
     proc_stop();
     ASSERT_TRUE(proc_exec_inflight());
-    ASSERT_TRUE(vtkeys_paste_busy());
+    ASSERT_TRUE(paste_busy());
     proc_exec_init();
     arg_clear();
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
-    ASSERT_FALSE(vtkeys_paste_busy());
+    ASSERT_FALSE(paste_busy());
 }
 
 static const char *wire_data;

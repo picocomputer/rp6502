@@ -173,6 +173,10 @@ def test_sizes(r):
         if line.endswith("done"):
             end = None
             break
+    # The program ends on its own; its reset string is let through so that
+    # the break does not land inside it.
+    for _ in b.lines(1):
+        pass
     b.stop()
     if end:
         raise Fail(end)

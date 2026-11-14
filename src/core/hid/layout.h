@@ -7,8 +7,8 @@
 #ifndef _CORE_HID_LAYOUT_H_
 #define _CORE_HID_LAYOUT_H_
 
-/* The keyboard layout database, generated from src/core/def/keyboard_*.def by
- * src/core/hid/layout.py.
+/* The layouts: the database, generated from src/core/def/keyboard_*.def by
+ * src/core/hid/layout.py, and the user's list of them, the SET KB setting.
  *
  * Every read goes through layout_word, which the platform supplies: a RIA
  * links the tables into flash, and the Pocket stages them in SDRAM and fetches
@@ -21,6 +21,7 @@
  */
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Buffer sizes, NUL included. The generator refuses anything longer.
@@ -56,6 +57,28 @@ uint16_t layout_dead3(int idx, unsigned entry, unsigned field);
 // own.
 uint16_t layout_word(uint32_t index);
 
-#define LAYOUT_DRIVER DRIVER(INIT(layout_init))
+/* The user's list: layout names with spaces between, typed through one at a
+ * time. A machine with no stored list adopts the default layout. */
+#define LAYOUT_LIST_SIZE 40
+void layout_list_init(void);
+
+// Types through the next layout of the list, going around at the end.
+void layout_list_cycle(void);
+
+/* The setting's check, apply and monitor answers. The check writes the list
+ * with single spaces and the database's spelling of each name, and refuses an
+ * unknown or repeated layout, an empty list, and one too long to store. The
+ * help answer lists every layout in the database, a line per call. */
+bool layout_check_list(const char *in, char *out);
+void layout_apply_list(const char *list, bool changed);
+int layout_list_response(char *buf, size_t buf_size, int state, unsigned width);
+int layout_help_response(char *buf, size_t buf_size, int state, unsigned width);
+
+#define LAYOUT_DRIVER DRIVER(                                              \
+    INIT(layout_init)                                                      \
+    INIT(layout_list_init)                                                 \
+    CONFIG_RAW(L, layout, list, LAYOUT_LIST_SIZE, "",                      \
+               layout_check_list, layout_apply_list,                       \
+               STR_KB, layout_list_response, STR_HELP_SET_KB, layout_help_response))
 
 #endif /* _CORE_HID_LAYOUT_H_ */

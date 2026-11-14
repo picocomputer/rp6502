@@ -787,9 +787,10 @@ UTEST(rln, a_stop_puts_the_default_shape_back)
     screen_done();
 }
 
-/* Plain lines lay nothing out: no prompt column, no shape, plain moves, and
- * the editing keys still edit. */
-UTEST(rln, plain_lines_echo_and_edit_with_plain_moves)
+/* Plain lines lay nothing out and send no escape sequence: no prompt column,
+ * no modes, no shape. BS moves left, the characters already there are printed
+ * to move right, spaces erase, and the editing keys still edit. */
+UTEST(rln, plain_lines_edit_with_no_escape_sequences)
 {
     fresh();
     rln_set_plain(true);
@@ -798,14 +799,70 @@ UTEST(rln, plain_lines_echo_and_edit_with_plain_moves)
     com_printf("> ");
     capture();
     reading();
-    wire("abc\b\33[Dx\33[H");
-    ASSERT_TRUE(strstr(screen, " q") == NULL);
-    ASSERT_TRUE(strstr(shown, "\r") == NULL);
-    ASSERT_TRUE(strstr(shown, "\33[2D") != NULL);
+    ASSERT_STREQ(shown, "");
+    wire("abc\b");
+    ASSERT_STREQ(shown, "abc\b \b");
+    capture();
+    wire("\33[Dx");
+    ASSERT_STREQ(shown, "\bxb\b");
+    capture();
+    wire("\33[H");
+    ASSERT_STREQ(shown, "\b\b");
+    capture();
+    wire("\33[F");
+    ASSERT_STREQ(shown, "axb");
+    capture();
+    wire("\25");
+    ASSERT_STREQ(shown, "\b\b\b   \b\b\b");
+    capture();
+    wire("axb\33[D\33[D\33[3~");
+    ASSERT_STREQ(shown, "axb\b\bb \b\b");
+    ASSERT_TRUE(strchr(screen, '\33') == NULL);
     wire("\r");
     ASSERT_EQ(lines, 1);
-    ASSERT_STREQ(last, "axb");
+    ASSERT_STREQ(last, "ab");
     screen_done();
+}
+
+/* A terminal in VT52 mode takes no CSI, so a read that starts there is a
+ * plain line of any length. */
+UTEST(rln, a_read_in_vt52_mode_is_a_plain_line)
+{
+    fresh();
+    com_printf("> \33[?2l");
+    capture();
+    reading();
+    type_n(100, 'a');
+    wire("\33D\33Dxy\33H\33F\b");
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strchr(shown, '\33') == NULL);
+    ASSERT_TRUE(cells_term.vt52);
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_EQ(strlen(last), (size_t)101);
+    ASSERT_STREQ(last + 97, "axya");
+    /* The next read starts in ANSI mode and is laid out again. */
+    com_printf("\33<");
+    capture();
+    reading();
+    manifold_set_tx_tap(NULL);
+    ASSERT_STREQ(shown, "\33[4l");
+}
+
+/* A VT52's arrows, Home and End work in every mode. */
+UTEST(rln, vt52_arrows_home_and_end_edit_the_line)
+{
+    editing();
+    wire("one\r");
+    wire("abc\33D\33Dx\33Hy\33Fz\33H\33C\33C!\r");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "ya!xbcz");
+    wire("\33A\33A\r");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "one");
+    wire("\33A\33A\33B\r");
+    ASSERT_EQ(lines, 4);
+    ASSERT_STREQ(last, "one");
 }
 
 /* The terminal wraps a plain line. */
@@ -817,9 +874,8 @@ UTEST(rln, a_plain_line_has_no_row_breaks)
     reading();
     type_n(100, 'a');
     manifold_set_tx_tap(NULL);
-    ASSERT_EQ(strncmp(shown, "\33[4l", 4), 0);
-    ASSERT_EQ(strspn(shown + 4, "a"), (size_t)100);
-    ASSERT_EQ(shown_len, (size_t)104);
+    ASSERT_EQ(strspn(shown, "a"), (size_t)100);
+    ASSERT_EQ(shown_len, (size_t)100);
 }
 
 static com_source_t line_src;

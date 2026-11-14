@@ -36,7 +36,6 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/str/oem.h"
-#include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"

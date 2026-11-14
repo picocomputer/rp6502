@@ -156,7 +156,7 @@ core/hid/gamepad.c gamepad_reports: the GPAD chunk
 core/hid/gamepad.c gamepad_xram: the GPAD chunk
 core/hid/hid.c hid_claims: not carried: no transport reaches the claim table on a software machine
 core/hid/keyboard.c keyboard_connections: not carried: nothing mounts on a software machine, so it is permanently zero
-core/hid/keyboard.c keyboard_hid_leds: the KEYB chunk
+core/hid/keyboard.c keyboard_locks: the KEYB chunk
 core/hid/keyboard.c keyboard_keys: the KEYB chunk
 core/hid/keyboard.c keyboard_xram: the KEYB chunk
 core/hid/mouse.c mouse_acc_x: the MOUS chunk
@@ -176,9 +176,9 @@ core/hid/tablet.c tablet_sub_y: the TBLT chunk
 core/hid/tablet.c tablet_x: the TBLT chunk
 core/hid/tablet.c tablet_xram: the TBLT chunk
 core/hid/tablet.c tablet_y: the TBLT chunk
-core/hid/vtkeys.c vtkeys_paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
-core/hid/vtkeys.c vtkeys_paste_len: not carried: every load cancels the paste, so there is nothing left to carry
-core/hid/vtkeys.c vtkeys_paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_len: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
 core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk

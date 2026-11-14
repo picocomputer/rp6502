@@ -6,7 +6,8 @@
 
 #include "input.h"
 
-#include "core/hid/vtkeys.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
@@ -34,11 +35,11 @@ static uint8_t retrok_to_hid(unsigned k)
     {
     case RETROK_KP0: return 0x62;
     case RETROK_KP_PERIOD: return 0x63;
-    case RETROK_KP_DIVIDE: return 0x54;
-    case RETROK_KP_MULTIPLY: return 0x55;
-    case RETROK_KP_MINUS: return 0x56;
-    case RETROK_KP_PLUS: return 0x57;
-    case RETROK_KP_EQUALS: return 0x67;
+    case RETROK_KP_DIVIDE: return HID_KEY_KEYPAD_DIVIDE;
+    case RETROK_KP_MULTIPLY: return HID_KEY_KEYPAD_MULTIPLY;
+    case RETROK_KP_MINUS: return HID_KEY_KEYPAD_SUBTRACT;
+    case RETROK_KP_PLUS: return HID_KEY_KEYPAD_ADD;
+    case RETROK_KP_EQUALS: return HID_KEY_KEYPAD_EQUAL;
     case RETROK_KP_ENTER: return 0x58;
     case RETROK_CAPSLOCK: return 0x39;
     case RETROK_SCROLLOCK: return 0x47;
@@ -106,10 +107,7 @@ static char ascii_from_key(unsigned k, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[k - RETROK_0] : (char)('0' + (k - RETROK_0));
     }
-    /* NumLock is the caller's business: with it off the caller swaps a keypad
-     * usage for its navigation usage, which vtkeys_key then consumes. KEYPAD_5
-     * has no navigation key, so it arrives here and types its digit either
-     * way. */
+    /* What the keypad types when hostkey_press leaves it a character. */
     if (k >= RETROK_KP0 && k <= RETROK_KP9)
         return (char)('0' + (k - RETROK_KP0));
     switch (k)
@@ -157,8 +155,11 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
                           uint16_t key_modifiers)
 {
     uint8_t hid = retrok_to_hid(keycode);
+    /* The frontend has no repeat flag. A repeat is a press of a key that is
+     * already down. */
+    bool repeat = hid && keyboard_key_down(hid);
     if (hid)
-        keyboard_hid_set(hid, down);
+        keyboard_set_key(hid, down);
     if (!down)
         return;
 
@@ -181,42 +182,21 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     case RETROK_SCROLLOCK: return;
     default: break;
     }
-
-    /* A numpad key with NumLock off is the navigation key printed under the
-     * digit. */
-    if (!(key_modifiers & RETROKMOD_NUMLOCK))
-    {
-        uint8_t nav = keyboard_keypad_nav(hid);
-        if (nav)
-            hid = nav;
-    }
-    if (vtkeys_key(hid, ctrl, shift, alt))
+    /* The terminal says whether a repeat is typed (DECARM). */
+    if (repeat && !vtkey_repeats())
         return;
-
-    /* Ctrl+<key> is a C0 byte and Alt+<key> is ESC then the byte, so neither
-     * is the character the frontend composed. Both are built from the keycode
-     * instead. */
-    if (ctrl && !alt)
-    {
-        vtkeys_ctrl_letter(ascii_from_key(keycode, shift));
-        return;
-    }
-    if (alt)
-    {
-        vtkeys_alt_char(ascii_from_key(keycode, shift), ctrl);
-        return;
-    }
 
     /* The frontend has already applied the keyboard layout, so its character
-     * is better than anything reconstructed from a keycode. */
-    if (character >= 32 && character != 127)
-        vtkeys_char(character);
-    else
-    {
-        char ch = ascii_from_key(keycode, shift);
-        if (ch)
-            vtkeys_char((uint32_t)(unsigned char)ch);
-    }
+     * is better than anything reconstructed from a keycode. Ctrl+<key> is a C0
+     * byte and Alt+<key> is ESC then the byte, so neither is the character the
+     * frontend composed. Both are built from the keycode instead. */
+    bool composed = !ctrl && !alt && character >= 32 && character != 127;
+    uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
+                              (ctrl ? VTKEY_CTRL : 0) |
+                              ((key_modifiers & RETROKMOD_NUMLOCK) ? VTKEY_NUMLOCK : 0));
+    char ch = composed ? 0 : ascii_from_key(keycode, shift);
+    if (hostkey_press(hid, flags, ch) == HOSTKEY_NONE && composed)
+        hostkey_char(character);
 }
 
 /* Every port starts as a joypad, because a frontend is not required to call

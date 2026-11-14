@@ -10,7 +10,6 @@
 #include "mmio.h"
 
 #include "core/hid/keyboard.h"
-#include "core/hid/keymap.h"
 #include "core/sys/config.h"
 #include "core/hid/layout.h"
 
@@ -26,7 +25,7 @@ static void cfg_apply_layout(int32_t kb)
         return;
     layout_name((int)kb - 1, name);
     if (name[0])
-        keymap_set_layout_list(name);
+        layout_set_list(name);
 }
 
 void cfg_task(void)

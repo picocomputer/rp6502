@@ -48,6 +48,10 @@
 #define HID_KEY_ARROW_DOWN 0x51
 #define HID_KEY_ARROW_UP 0x52
 #define HID_KEY_NUM_LOCK 0x53
+#define HID_KEY_KEYPAD_DIVIDE 0x54
+#define HID_KEY_KEYPAD_MULTIPLY 0x55
+#define HID_KEY_KEYPAD_SUBTRACT 0x56
+#define HID_KEY_KEYPAD_ADD 0x57
 #define HID_KEY_KEYPAD_ENTER 0x58
 #define HID_KEY_KEYPAD_1 0x59
 #define HID_KEY_KEYPAD_2 0x5A
@@ -60,6 +64,7 @@
 #define HID_KEY_KEYPAD_9 0x61
 #define HID_KEY_KEYPAD_0 0x62
 #define HID_KEY_KEYPAD_DECIMAL 0x63
+#define HID_KEY_KEYPAD_EQUAL 0x67
 #define HID_KEY_CONTROL_LEFT 0xE0
 
 /* The modifier byte of a keyboard report, and the lock lamps of its

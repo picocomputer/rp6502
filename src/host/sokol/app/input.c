@@ -11,7 +11,9 @@
 #include "host/sokol/app/entry.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/paste.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -49,7 +51,7 @@ static void input_paste(const char *text)
         keys[n++] = text[i] == '\n' ? '\r' : text[i];
     }
     keys[n] = 0;
-    vtkeys_paste(keys);
+    paste_start(keys);
     free(keys);
 }
 
@@ -69,11 +71,11 @@ static uint8_t sokol_to_hid(int kc)
     {
     case SAPP_KEYCODE_KP_0: return 0x62;
     case SAPP_KEYCODE_KP_DECIMAL: return 0x63;
-    case SAPP_KEYCODE_KP_DIVIDE: return 0x54;
-    case SAPP_KEYCODE_KP_MULTIPLY: return 0x55;
-    case SAPP_KEYCODE_KP_SUBTRACT: return 0x56;
-    case SAPP_KEYCODE_KP_ADD: return 0x57;
-    case SAPP_KEYCODE_KP_EQUAL: return 0x67;
+    case SAPP_KEYCODE_KP_DIVIDE: return HID_KEY_KEYPAD_DIVIDE;
+    case SAPP_KEYCODE_KP_MULTIPLY: return HID_KEY_KEYPAD_MULTIPLY;
+    case SAPP_KEYCODE_KP_SUBTRACT: return HID_KEY_KEYPAD_SUBTRACT;
+    case SAPP_KEYCODE_KP_ADD: return HID_KEY_KEYPAD_ADD;
+    case SAPP_KEYCODE_KP_EQUAL: return HID_KEY_KEYPAD_EQUAL;
     case SAPP_KEYCODE_CAPS_LOCK: return 0x39;
     case SAPP_KEYCODE_SCROLL_LOCK: return 0x47;
     case SAPP_KEYCODE_NUM_LOCK: return 0x53;
@@ -169,11 +171,15 @@ static char ascii_from_key(int kc, bool shift)
 
 static void input_key(const sapp_event *e)
 {
+    /* The host repeats a held key and its character; the terminal says
+     * whether they are typed (DECARM). */
+    if (e->key_repeat && !vtkey_repeats())
+        return;
     if (e->type == SAPP_EVENTTYPE_KEY_DOWN || e->type == SAPP_EVENTTYPE_KEY_UP)
     {
         uint8_t hid = sokol_to_hid(e->key_code);
         if (hid)
-            keyboard_hid_set(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
+            keyboard_set_key(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
     }
     switch (e->type)
     {
@@ -193,7 +199,7 @@ static void input_key(const sapp_event *e)
                   (ALTGR_IS_CTRL_ALT &&
                    (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
-            vtkeys_char(e->char_code);
+            hostkey_char(e->char_code);
         }
         break;
     case SAPP_EVENTTYPE_KEY_DOWN:
@@ -202,41 +208,27 @@ static void input_key(const sapp_event *e)
         bool shift = (e->modifiers & SAPP_MODIFIER_SHIFT) != 0;
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
         uint8_t hid = sokol_to_hid(e->key_code);
-        suppress_char = false;
+        /* Sokol reports no NumLock modifier, so the keypad acts as with
+         * NumLock off and always swallows the digit CHAR a host emits when
+         * NumLock is on. KP5 navigates nowhere and only swallows. */
+        suppress_char = hid >= HID_KEY_KEYPAD_1 && hid <= HID_KEY_KEYPAD_DECIMAL;
         switch (e->key_code)
         {
-        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); break;
-        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); break;
-        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); break;
-        /* Sokol reports no NumLock modifier, so the keypad always navigates and
-         * always swallows the digit CHAR a host emits when NumLock is on. KP5
-         * navigates nowhere and only swallows. */
-        case SAPP_KEYCODE_KP_1:
-        case SAPP_KEYCODE_KP_2:
-        case SAPP_KEYCODE_KP_3:
-        case SAPP_KEYCODE_KP_4:
-        case SAPP_KEYCODE_KP_5:
-        case SAPP_KEYCODE_KP_6:
-        case SAPP_KEYCODE_KP_7:
-        case SAPP_KEYCODE_KP_8:
-        case SAPP_KEYCODE_KP_9:
-        case SAPP_KEYCODE_KP_0:
-        case SAPP_KEYCODE_KP_DECIMAL:
-            suppress_char = true;
-            vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
+        case SAPP_KEYCODE_NUM_LOCK:
+        case SAPP_KEYCODE_CAPS_LOCK:
+        case SAPP_KEYCODE_SCROLL_LOCK:
+            keyboard_lock_key(hid);
             break;
         default:
         {
             if (e->key_repeat && input_chord_held)
                 break;
-            vtkeys_result_t done = vtkeys_key(hid, ctrl, shift, alt);
-            if (done == VTKEYS_CHORD)
-                input_chord_held = true;
-            if (done)
-                break;
+            /* The character of a Ctrl or Alt chord. Any other key's text
+             * arrives through the CHAR case above. */
+            char ch = 0;
             if (ctrl && !alt)
             {
-                char ch = ascii_from_key(e->key_code, shift);
+                ch = ascii_from_key(e->key_code, shift);
 #if defined(__EMSCRIPTEN__)
                 /* The browser, not sokol, decides when a paste fires, and any
                  * Ctrl+V variant can land a JavaScript paste event, so every
@@ -255,13 +247,20 @@ static void input_key(const sapp_event *e)
                     sapp_query_desc().enable_clipboard)
                     ch = 0;
 #endif
-                vtkeys_ctrl_letter(ch);
             }
-            /* Alt and a printable key is the Meta form, ESC then the character.
-             * Ctrl+Alt is excluded only where it means AltGr, whose composed
+            /* Ctrl+Alt is excluded only where it means AltGr, whose composed
              * character arrives through the CHAR case above. */
             else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-                vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
+                ch = ascii_from_key(e->key_code, shift);
+            uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
+                                      (ctrl ? VTKEY_CTRL : 0));
+            hostkey_result_t result = hostkey_press(hid, flags, ch);
+            if (result == HOSTKEY_CHORD)
+                input_chord_held = true;
+            /* A key that typed with no character from here must not type
+             * the host's character too. */
+            else if (result == HOSTKEY_TYPED && !ch)
+                suppress_char = true;
             break;
         }
         }

@@ -57,6 +57,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c

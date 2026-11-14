@@ -97,6 +97,9 @@ static void term_reset_core(term_t *t)
     t->newline_mode = false;
     t->disp_ctrl = false;
     t->vt52 = false;
+    t->app_cursor = false;
+    t->app_keypad = false;
+    t->autorepeat = true;
     t->ice_colors = false;
     t->reverse_screen = false;
     t->cursor_enabled = true;
@@ -126,13 +129,16 @@ void term_RIS_no_clear(term_t *t)
 }
 
 // DECSTR, CSI ! p: the soft reset a program sends. It resets the modes on
-// DEC's list -- IRM, DECOM, DECAWM (to our default, on), DECTCEM, the
-// character sets, SGR, the margins and the saved cursor -- and ends a pending
-// wrap, but leaves the cursor where it is. The cursor style, iCE colors, the
-// palette, the tab stops and the screen are left alone.
+// DEC's list -- IRM, DECOM, DECAWM (to our default, on), DECTCEM, DECCKM,
+// the keypad mode, the character sets, SGR, the margins and the saved cursor
+// -- and ends a pending wrap, but leaves the cursor where it is. The cursor
+// style, iCE colors, autorepeat, the palette, the tab stops and the screen
+// are left alone.
 static void term_out_DECSTR(term_t *t)
 {
     t->insert_mode = false;
+    t->app_cursor = false;
+    t->app_keypad = false;
     t->autowrap = true;
     t->cursor_enabled = true;
     term_default_pen(term_pen(t));
@@ -569,6 +575,9 @@ static void term_out_DECRQM(term_t *t, bool private)
     {
         switch (ps)
         {
+        case 1: // DECCKM
+            pm = t->app_cursor ? 1 : 2;
+            break;
         case 2: // DECANM: ANSI mode, since this reply is ANSI
             pm = 1;
             break;
@@ -585,6 +594,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 7: // DECAWM
             pm = t->autowrap ? 1 : 2;
             break;
+        case 8: // DECARM
+            pm = t->autorepeat ? 1 : 2;
+            break;
         case 12: // cursor blink
             pm = (t->cursor_style == 2 || t->cursor_style == 4 ||
                   t->cursor_style == 6)
@@ -596,6 +608,9 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         case 33: // iCE colors
             pm = t->ice_colors ? 1 : 2;
+            break;
+        case 66: // DECNKM
+            pm = t->app_keypad ? 1 : 2;
             break;
         case 47:
         case 1047:
@@ -695,6 +710,9 @@ static void term_out_DECSET(term_t *t, bool set)
     {
         switch (t->csi_param[i])
         {
+        case 1: // DECCKM: the cursor keys send SS3
+            t->app_cursor = set;
+            break;
         case 2: // DECANM: reset enters VT52 mode; ESC < leaves it
             if (!set)
             {
@@ -714,6 +732,9 @@ static void term_out_DECSET(term_t *t, bool set)
         case 7: // DECAWM (autowrap)
             t->autowrap = set;
             break;
+        case 8: // DECARM: held keys repeat
+            t->autorepeat = set;
+            break;
         case 12: // cursor blink (AT&T 610)
             term_set_cursor_blink(t, set);
             break;
@@ -722,6 +743,9 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 33: /* iCE colors -- SGR 5/6 becomes the IBM-VGA bright-bg hack */
             t->ice_colors = set;
+            break;
+        case 66: // DECNKM: the keypad mode, as ESC = and ESC >
+            t->app_keypad = set;
             break;
         case 47: /* the alternate screen, swap only */
             if (set)
@@ -1187,8 +1211,14 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case 'Z': // DECID: answered as Primary DA
         TERM_REPLY(t, "\33[?6c");
         break;
+    case '=': // DECKPAM: application keypad
+        t->app_keypad = true;
+        break;
+    case '>': // DECKPNM: numeric keypad
+        t->app_keypad = false;
+        break;
         // SS2 and SS3 (N, O) have no G2 or G3 to shift to, so the next byte
-        // prints as itself. The keypad modes (=, >) are not done yet.
+        // prints as itself.
     }
 }
 
@@ -1387,7 +1417,12 @@ static void term_vt52_byte(term_t *t, uint8_t ch)
     case '<': // ANSI mode
         t->vt52 = false;
         break;
-        // The keypad modes (=, >) are not done yet.
+    case '=': // alternate keypad mode
+        t->app_keypad = true;
+        break;
+    case '>': // numeric keypad mode
+        t->app_keypad = false;
+        break;
     }
 }
 
@@ -1530,6 +1565,9 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->newline_mode);
     sst_put_bool(c, t->disp_ctrl);
     sst_put_bool(c, t->vt52);
+    sst_put_bool(c, t->app_cursor);
+    sst_put_bool(c, t->app_keypad);
+    sst_put_bool(c, t->autorepeat);
     sst_put_bool(c, t->ice_colors);
     sst_put_bool(c, t->reverse_screen);
     sst_put_bool(c, t->cursor_enabled);
@@ -1573,6 +1611,9 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->newline_mode = sst_get_bool(c);
     t->disp_ctrl = sst_get_bool(c);
     t->vt52 = sst_get_bool(c);
+    t->app_cursor = sst_get_bool(c);
+    t->app_keypad = sst_get_bool(c);
+    t->autorepeat = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);
     t->cursor_enabled = sst_get_bool(c);

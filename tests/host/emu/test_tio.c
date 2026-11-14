@@ -6,11 +6,12 @@
 
 /* tio over sources this file stands in for, each queue holding the number of
  * bytes a test gives it, and one byte that can be staged ahead of a source as
- * the 6502's receive register holds it. The machine clock is stood in for
- * too. */
+ * the 6502's receive register holds it. The machine clock and the console's
+ * terminal, of which tio reads only the VT52 mode, are stood in for too. */
 
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
+#include "core/term/cells.h"
 #include "utest.h"
 #include <string.h>
 
@@ -39,6 +40,8 @@ static void stage(com_source_t src, char c)
 
 static uint64_t fake_now;
 
+term_t cells_term;
+
 static void sources(size_t keyboard, size_t uart)
 {
     memset(fake, 0, sizeof fake);
@@ -46,6 +49,7 @@ static void sources(size_t keyboard, size_t uart)
     fake[COM_SOURCE_UART].size = uart;
     fake[COM_SOURCE_TEL].size = 32;
     fake_staged_src = COM_SOURCE_ANY;
+    cells_term.vt52 = false;
     tio_init();
 }
 
@@ -274,6 +278,30 @@ UTEST(tio, a_lone_esc_is_the_escape_key_after_a_quiet_time)
     ASSERT_FALSE(tio_idle());
     ASSERT_STREQ(next(), "\33");
     ASSERT_STREQ(next(), "");
+}
+
+/* A VT52's keypad sends ESC '?' and one more byte. In ANSI mode ESC '?' is
+ * Alt-?. */
+UTEST(tio, esc_question_takes_one_more_byte_only_in_vt52_mode)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33?pq");
+    ASSERT_STREQ(next(), "\33?");
+    ASSERT_STREQ(next(), "p");
+    ASSERT_STREQ(next(), "q");
+    cells_term.vt52 = true;
+    push(COM_SOURCE_UART, "\33?pq\33A\33?");
+    ASSERT_STREQ(next(), "\33?p");
+    ASSERT_STREQ(next(), "q");
+    ASSERT_STREQ(next(), "\33A");
+    ASSERT_STREQ(next(), "");
+    push(COM_SOURCE_UART, "M");
+    ASSERT_STREQ(next(), "\33?M");
+    push(COM_SOURCE_UART, "\33?\30a\33?\33?n");
+    ASSERT_STREQ(next(), "a");
+    ASSERT_STREQ(next(), "\33?n");
+    ASSERT_STREQ(next(), "");
+    cells_term.vt52 = false;
 }
 
 /* Alt+[ is ESC '[', which would otherwise take the next key as its final. */

@@ -12,6 +12,7 @@
 #include "core/str/oem.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/usage.h"
 #include "core/sys/sys.h"
 #include "machine.h"
 #include "osal/dir.h"
@@ -93,7 +94,8 @@ void HOST_IN_RAM_FUNC proc_break(void)
     sys_break_request();
 }
 
-bool proc_break_to_monitor(void)
+/* Ctrl-Alt-Delete. False on a machine with no monitor, where the key types. */
+static bool proc_break_to_monitor(void)
 {
     if (!RP6502_HAS_MONITOR)
         return false;
@@ -101,13 +103,25 @@ bool proc_break_to_monitor(void)
     return true;
 }
 
-bool proc_quit(void)
+/* Alt-F4: the program exits as exit(-1) does. False when nothing runs, from the
+ * launcher itself, and with no launcher on a machine with no monitor, where the
+ * key types. */
+static bool proc_quit(void)
 {
     if (!sys_running() || proc_is_launcher() ||
         (!RP6502_HAS_MONITOR && !proc_has_launcher()))
         return false;
     proc_exit(-1);
     return true;
+}
+
+bool HOST_IN_RAM_FUNC proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
+{
+    if (keycode == HID_KEY_F4 && alt)
+        return proc_quit();
+    if ((keycode == HID_KEY_DELETE || keycode == HID_KEY_KEYPAD_DECIMAL) && ctrl && alt)
+        return proc_break_to_monitor();
+    return false;
 }
 
 void proc_stop(void)

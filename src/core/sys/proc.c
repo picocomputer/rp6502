@@ -13,7 +13,7 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/com/com.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -158,7 +158,7 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
     }
     queued = false;
     if (argc >= 0)
-        vtkeys_paste_cancel();
+        paste_cancel();
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
         return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW), argc);

@@ -34,8 +34,10 @@
 **     No absolute Y; no writes past rln_max_length.
 **   - rln owns only rln_max_length cells from the start of input, so no EL
 **     unless the input can take more than its row.
-**   - A plain line (rln_set_plain, or a script read) lays nothing out: it
-**     echoes, moves with CUF and CUB, and the terminal wraps it.
+**   - A plain line (rln_set_plain, a script read, or a read that starts in
+**     VT52 mode) lays nothing out and sends no escape sequence: it echoes,
+**     moves left with BS and right by printing what is there, erases with
+**     spaces, and the terminal wraps it.
 */
 
 #define RLN_BUF_SIZE 256
@@ -51,8 +53,8 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 // Terms < 29 cols may not reach 254/255 chars in 10 rows.
 #define RLN_MAX_ROWS 10
 
-// Insert mode goes off at every read, and stays off, because rln overwrites
-// the line as it draws it again.
+// Insert mode goes off at every read that lays its line out, and stays off,
+// because rln overwrites the line as it draws it again.
 #define RLN_MODES "\33[4l"
 
 // The 6502's poke stream is a source of its own, after the com sources.
@@ -291,15 +293,15 @@ static void rln_emit_col(uint16_t col)
 // corresponding to buffer index `target`.
 static void rln_sync_cursor_to(uint8_t target)
 {
-    // Plain lines have no prompt column, so no row math: plain horizontal
-    // cursor moves, and the terminal wraps.
+    // Plain lines have no prompt column, so no row math: BS goes left,
+    // printing the characters already there goes right, and the terminal
+    // wraps.
     if (rln_prompt_col == 0)
     {
-        int delta = (int)target - (int)rln_cur_idx;
-        if (delta > 0)
-            com_printf("\33[%dC", delta);
-        else if (delta < 0)
-            com_printf("\33[%dD", -delta);
+        for (uint8_t i = rln_cur_idx; i > target; i--)
+            manifold_putchar('\b');
+        for (uint8_t i = rln_cur_idx; i < target; i++)
+            manifold_putchar(rln_buf[i]);
     }
     else
     {
@@ -425,7 +427,8 @@ static void rln_emit_trailing_spaces(uint8_t count)
     for (uint8_t i = 0; i < count; i++)
         manifold_putchar(' ');
     if (!rln_prompt_col)
-        com_printf("\33[%uD", count);
+        for (uint8_t i = 0; i < count; i++)
+            manifold_putchar('\b');
 }
 
 // Walk down `rows` existing rows from the cursor, clearing each, then return up
@@ -916,8 +919,21 @@ static void rln_dispatch_Fe(uint8_t ch)
 {
     // ESC-b / ESC-f are meta-b / meta-f (alt-b/alt-f on xterm-style
     // terminals); ESC 0x02 / ESC 0x06 are the ctrl-B / ctrl-F variants some
-    // older meta-prefix terminals send for the same binding.
-    if (ch == 'b' || ch == 2)
+    // older meta-prefix terminals send for the same binding. ESC A to D, H
+    // and F are a VT52's arrows, Home and End.
+    if (ch == 'A')
+        rln_history_step(1);
+    else if (ch == 'B')
+        rln_history_step(-1);
+    else if (ch == 'C')
+        rln_step(1);
+    else if (ch == 'D')
+        rln_step(-1);
+    else if (ch == 'F')
+        rln_line_end();
+    else if (ch == 'H')
+        rln_line_home();
+    else if (ch == 'b' || ch == 2)
         rln_line_word(-1);
     else if (ch == 'f' || ch == 6)
         rln_line_word(1);
@@ -1075,11 +1091,14 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // out at that row's columns, half the width on a double-size row. Everything
 // already printed reaches the terminals and cells_term first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
-// starts in column 1 of the next row.
+// starts in column 1 of the next row. A terminal in VT52 mode takes no CSI,
+// so its line is plain, and so it gets no modes either.
 static void rln_lay_out(void)
 {
     manifold_flush();
-    manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
+    bool plain = rln_plain || cells_term.vt52;
+    if (!plain)
+        manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
     if (term_pos(term_shown(&cells_term))->wrap_pending)
     {
         manifold_putchar('\r');
@@ -1088,7 +1107,7 @@ static void rln_lay_out(void)
     }
     const term_grid_t *g = term_shown(&cells_term);
     const term_pos_t *p = term_pos(g);
-    rln_prompt_col = rln_plain ? 0 : p->x + 1;
+    rln_prompt_col = plain ? 0 : p->x + 1;
     rln_width = term_cols(g, p->y);
     rln_grid_width = g->width;
     rln_rows = g->height < RLN_MAX_ROWS ? g->height : RLN_MAX_ROWS;

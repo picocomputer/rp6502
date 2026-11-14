@@ -66,9 +66,9 @@ void manifold_set_term_out(void (*out_chars)(const char *buf, int len));
  * console's output. */
 
 /* A Ctrl-C in what is pushed raises the SIGINT, even when the ring is full and
- * the bytes are dropped. */
+ * the bytes are dropped. The keyboard ring takes all of a push or none of it,
+ * so a key's sequence is never cut. The UART ring takes what fits. */
 void manifold_keyboard_push(const char *s, size_t n);
-void manifold_keyboard_push_byte(uint8_t b);
 void manifold_uart_push(const char *s, size_t n);
 
 size_t manifold_keyboard_free(void);

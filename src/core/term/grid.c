@@ -302,6 +302,13 @@ static void grid_wrap(term_t *t, term_grid_t *g)
     }
 }
 
+// True when glyphs insert. A VT52 has no insert mode, so IRM is suspended in
+// VT52 mode and takes effect again in ANSI mode, as in xterm.
+static bool grid_inserting(const term_t *t)
+{
+    return t->insert_mode && !t->vt52;
+}
+
 // Write one glyph at the cursor and move on. Writing the last column leaves
 // the cursor there with a wrap pending (DECAWM on), or just stays there
 // (DECAWM off). In insert mode (IRM) the rest of the row moves right first,
@@ -311,7 +318,7 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
     term_pos_t *pos = term_pos(g);
     grid_wrap(t, g);
     unsigned cols = term_cols(g, pos->y);
-    if (t->insert_mode)
+    if (grid_inserting(t))
         cells_insert(t, g, pos->y, pos->x, 1);
     cells_glyphs(t, g, pos->y, pos->x, byte, 1);
     if (pos->x < cols - 1)
@@ -334,7 +341,7 @@ static void grid_REP(term_t *t, term_grid_t *g)
     unsigned most = run * (g->rows + 1u);
     if (n > most)
         n = most + (n - most) % run;
-    if (t->insert_mode)
+    if (grid_inserting(t))
     {
         while (n--)
             grid_put_glyph(t, g, t->last_glyph);

@@ -181,6 +181,9 @@ typedef struct
     bool newline_mode;    // LNM, CSI 20 h: LF, VT and FF also return the carriage
     bool disp_ctrl;       // SGR 11 or CRM (CSI 3 h): draw the C0 controls
     bool vt52;            // DECANM reset, ?2 l
+    bool app_cursor;      // DECCKM, ?1: the cursor keys send SS3
+    bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
+    bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
     bool cursor_enabled;  // DECTCEM, ?25
@@ -270,7 +273,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 22
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 96)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 99)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (17 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

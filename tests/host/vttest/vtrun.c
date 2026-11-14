@@ -9,7 +9,9 @@
  * the terminal, and the terminal's replies go back to it, the way they would
  * reach a host. Every time vttest waits for a key the screen is recorded, and
  * the walk answers: the next choice on a menu, 0 on a menu with nothing left,
- * q where a test says so, and Return anywhere else.
+ * the keys a test asks for, and Return anywhere else. The walk types on the
+ * machine's keyboard, so vttest gets what the keys send in the modes the
+ * terminal is in.
  *
  * usage: vtrun OUTDIR [vttest arguments]
  *
@@ -24,13 +26,16 @@
  * OUTDIR/screens.txt has a line a screen: its name, a CRC-32 of what it
  * shows (the cells' glyphs, attributes and colors, the line sizes and the
  * reverse screen), and the cursor. OUTDIR/index.txt is the
- * walk, with the key sent after each screen. With VTGOLDEN naming an
+ * walk, with the keys typed after each screen. With VTGOLDEN naming an
  * approved screens.txt, the run fails when a screen differs, is new, or is
  * gone, and only those screens are saved as text and PNG for a person to look
  * at; without it, every screen is. */
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/usage.h"
+#include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
 #include "core/term/cells.h"
 #include "core/vga/vga.h"
@@ -352,7 +357,8 @@ static void vt_shot(const char *name)
         vt_save(name);
 }
 
-static char vt_echo[64]; /* the keys last sent */
+static char vt_echo[256]; /* the bytes of the keys last typed */
+static size_t vt_echo_len;
 
 /* Whether vttest last asked for 132 columns (DECCOLM, CSI ? 3 h). The
  * terminal stays at 80, so those passes of a test show its layout cut short;
@@ -370,7 +376,7 @@ static int vt_clear_match;
 
 static void vt_before_clear(void)
 {
-    if (vt_fed <= strlen(vt_echo) + 2)
+    if (vt_fed <= vt_echo_len + 2)
         return;
     vt_settle();
     if (vt_cells() == vt_last || vt_blank() || vt_screen_has("Enter choice number"))
@@ -432,8 +438,8 @@ static vt_menu_t *vt_left; /* the menu the walk last chose on */
 /* Choices never taken, by the words of their label: they wait for keys a
  * script cannot judge, or change how the rest of the run behaves. */
 static const char *const vt_skip[] = {
-    "Test of keyboard",       /* a person presses keys */
     "Modify test-parameters", /* changes the rest of the run */
+    "Swedish national layout", /* the walk types on a US keyboard, choice 0 */
     "User-Defined Keys",      /* function keys */
     "Tektronix 4014",         /* a graphics terminal xterm can switch to */
     /* Past what the console aims for: the VT102 and the xterm features a
@@ -445,24 +451,80 @@ static const char *const vt_skip[] = {
     "Do not color after switching",
 };
 
-/* What to type where a test asks for more than Return. */
-static const struct
+/* What to type where a test asks for more than Return, found by a prompt on
+ * the screen; the first row that matches wins. A step is the keys typed at
+ * one wait, as vt_type takes them, and flags are the VTKEY_ flags held with
+ * them all. A test that reads one key at a time and gives each a line gets
+ * one key a step. Only the screen before the last step is recorded, which
+ * shows what the steps before it did, and the last step is typed again at
+ * every wait after it. */
+typedef struct
 {
     const char *prompt;
-    const char *keys;
-} vt_answers[] = {
-    {"Press 'q' to quit", "q"},
-    {"Please enter the", "vttest\r"}, /* a window title, a font name */
+    uint8_t flags;
+    const char *const *steps;
+} vt_answer_t;
+
+#define VT_STEPS(...) ((const char *const[]){__VA_ARGS__, NULL})
+
+/* The keys of a PC keyboard that the VT100 keyboard has too: Ctrl-Backspace
+ * for its BS and Ctrl-J for its LINE FEED. */
+static const char *const vt_layout_keys[] = {
+    "esc 1234567890-=` ctrl-backspace !@#$%^&*()_+~ "
+    "tab qwertyuiop[] backspace QWERTYUIOP{} "
+    "asdfghjkl;'\\ ASDFGHJKL:\"| "
+    "zxcvbnm,./ ctrl-j ZXCVBNM<>? space",
+    "return", NULL};
+
+static const char *const vt_cursor_keys[] = {"up", "down", "left", "right", "tab", NULL};
+
+/* A PC keypad has no comma. */
+static const char *const vt_keypad_keys[] = {
+    "f1", "f2", "f3", "f4", "kp7", "kp8", "kp9", "kp-", "kp4", "kp5", "kp6",
+    "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
+
+static const char *const vt_control_keys[] = {
+    "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
+    "ctrl-j ctrl-k ctrl-l ctrl-m ctrl-n ctrl-o ctrl-p ctrl-q ctrl-r ctrl-s "
+    "ctrl-t ctrl-u ctrl-v ctrl-w ctrl-x ctrl-y ctrl-z ctrl-[ ctrl-\\ ctrl-] "
+    "ctrl-6 ctrl-/",
+    "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
+    "ctrl-j ctrl-k ctrl-l ctrl-m ctrl-n ctrl-o ctrl-p ctrl-q ctrl-r ctrl-s "
+    "ctrl-t ctrl-u ctrl-v ctrl-w ctrl-x ctrl-y ctrl-z ctrl-[ ctrl-\\ ctrl-] "
+    "ctrl-6 ctrl-/",
+    "backspace", NULL};
+
+static const vt_answer_t vt_answers[] = {
+    {"Press 'q' to quit", 0, VT_STEPS("q")},
+    {"Please enter the", 0, VT_STEPS("vttest return")}, /* a window title, a font name */
+    /* A key held down: with auto repeat off the repeats are not typed. */
+    {"Auto Repeat ON:", 0, VT_STEPS("a again again return")},
+    {"Auto Repeat OFF:", 0, VT_STEPS("a again again return")},
+    {"Press each key, both shifted and unshifted", 0, vt_layout_keys},
+    {"<ANSI / Cursor key mode RESET>", 0, vt_cursor_keys},
+    {"<ANSI / Cursor key mode SET>", 0, vt_cursor_keys},
+    {"<VT52 Mode>", 0, vt_cursor_keys},
+    /* NumLock is on for the numeric keypad and off for the application
+     * keypad, which a keypad with NumLock on does not send. */
+    {"<ANSI Numeric mode>", VTKEY_NUMLOCK, vt_keypad_keys},
+    {"<ANSI Application mode>", 0, vt_keypad_keys},
+    {"<VT52 Numeric mode>", VTKEY_NUMLOCK, vt_keypad_keys},
+    {"<VT52 Application mode>", 0, vt_keypad_keys},
+    {"Push each CTRL-key TWICE", 0, vt_control_keys},
 };
+
+static const vt_answer_t *vt_answer; /* the row the walk is in */
+static int vt_step;                  /* and the next step of it */
+static bool vt_more;                 /* the step last typed was not its last */
 
 /* Whether buf is only the tty's echo of the keys last sent, which can arrive
  * while vttest sleeps and is not yet its answer. */
 static bool vt_is_echo(const char *buf, size_t n)
 {
     for (size_t i = 0; i < n; i++)
-        if (buf[i] != '\r' && buf[i] != '\n' && !strchr(vt_echo, buf[i]))
+        if (buf[i] != '\r' && buf[i] != '\n' && !memchr(vt_echo, buf[i], vt_echo_len))
             return false;
-    return n <= strlen(vt_echo) + 2;
+    return n <= vt_echo_len + 2;
 }
 
 /* Whether vttest has the tty in raw mode. It does that for its exchanges
@@ -475,7 +537,8 @@ static bool vt_raw(void)
 
 /* Reads until vttest has been quiet for VT_IDLE_MS, or VT_RAW_MS with the
  * tty in raw mode, after waiting up to `first` ms for it to start. False
- * once it is gone. */
+ * once it is gone. A test in the middle of its keys does its pausing before
+ * it answers one and asks the terminal nothing, so it gets VT_IDLE_MS. */
 static bool vt_drain(int first)
 {
     int wait = first;
@@ -485,7 +548,7 @@ static bool vt_drain(int first)
         int k = poll(&p, 1, wait);
         if (k == 0)
         {
-            if (wait == VT_IDLE_MS && vt_raw())
+            if (wait == VT_IDLE_MS && !vt_more && vt_raw())
             {
                 wait = VT_RAW_MS - VT_IDLE_MS;
                 continue;
@@ -634,11 +697,121 @@ static bool vt_skipped(int choice)
     return false;
 }
 
-static void vt_send(const char *name, const char *keys, const char *what)
+/* What the keys of a US keyboard type, plain and shifted, from usage 0x04.
+ * A 1 stands for a key with no character of its own here. */
+static const char vt_us_plain[] = "abcdefghijklmnopqrstuvwxyz1234567890\1\1\1\1 -=[]\\\1;'`,./";
+static const char vt_us_shift[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()\1\1\1\1 _+{}|\1:\"~<>?";
+
+/* The keys with a name. kp0 to kp9 are computed. */
+static const struct
+{
+    const char *name;
+    uint8_t usage;
+    char ch;
+} vt_named[] = {
+    {"return", HID_KEY_ENTER, 0},
+    {"esc", HID_KEY_ESCAPE, 0},
+    {"backspace", HID_KEY_BACKSPACE, 0},
+    {"tab", HID_KEY_TAB, 0},
+    {"space", HID_KEY_SPACE, ' '},
+    {"up", HID_KEY_ARROW_UP, 0},
+    {"down", HID_KEY_ARROW_DOWN, 0},
+    {"left", HID_KEY_ARROW_LEFT, 0},
+    {"right", HID_KEY_ARROW_RIGHT, 0},
+    {"f1", HID_KEY_F1, 0},
+    {"f2", HID_KEY_F2, 0},
+    {"f3", HID_KEY_F3, 0},
+    {"f4", HID_KEY_F4, 0},
+    {"kp-", HID_KEY_KEYPAD_SUBTRACT, '-'},
+    {"kp.", HID_KEY_KEYPAD_DECIMAL, '.'},
+    {"kpenter", HID_KEY_KEYPAD_ENTER, 0},
+};
+
+/* The key last pressed, which is the one that repeats. */
+static uint8_t vt_held_usage, vt_held_flags;
+static char vt_held_ch;
+
+/* Presses a key, and what it sends goes to vttest as it would from the
+ * console. */
+static void vt_press(uint8_t usage, uint8_t flags, char ch)
+{
+    vt_held_usage = usage;
+    vt_held_flags = flags;
+    vt_held_ch = ch;
+    hostkey_press(usage, flags, ch);
+    char buf[64];
+    size_t n;
+    while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
+    {
+        vt_reply(buf, n);
+        if (n > sizeof vt_echo - vt_echo_len)
+            n = sizeof vt_echo - vt_echo_len;
+        memcpy(vt_echo + vt_echo_len, buf, n);
+        vt_echo_len += n;
+    }
+}
+
+/* Types keys, a list of words: a key's name, "again" for the last key
+ * repeating while it is held, or text, a character a key. ctrl- in front of
+ * a name or a character holds Ctrl. flags are held with every key. */
+static void vt_type(const char *keys, uint8_t flags)
+{
+    while (*keys)
+    {
+        size_t len = strcspn(keys, " ");
+        const char *word = keys;
+        keys += len;
+        keys += *keys == ' ';
+        if (len == 5 && !memcmp(word, "again", 5))
+        {
+            if (vtkey_repeats())
+                vt_press(vt_held_usage, vt_held_flags, vt_held_ch);
+            continue;
+        }
+        uint8_t held = flags;
+        if (len > 5 && !memcmp(word, "ctrl-", 5))
+        {
+            held |= VTKEY_CTRL;
+            word += 5;
+            len -= 5;
+        }
+        if (len == 3 && !memcmp(word, "kp", 2) && word[2] >= '0' && word[2] <= '9')
+        {
+            vt_press(word[2] == '0' ? HID_KEY_KEYPAD_0 : (uint8_t)(HID_KEY_KEYPAD_1 + word[2] - '1'),
+                     held, word[2]);
+            continue;
+        }
+        size_t i = 0;
+        while (i < sizeof vt_named / sizeof vt_named[0] &&
+               (strlen(vt_named[i].name) != len || memcmp(word, vt_named[i].name, len)))
+            i++;
+        if (i < sizeof vt_named / sizeof vt_named[0])
+        {
+            vt_press(vt_named[i].usage, held, vt_named[i].ch);
+            continue;
+        }
+        for (i = 0; i < len; i++)
+        {
+            const char *plain = strchr(vt_us_plain, word[i]);
+            if (plain)
+                vt_press((uint8_t)(0x04 + (plain - vt_us_plain)), held, word[i]);
+            else if ((plain = strchr(vt_us_shift, word[i])))
+                vt_press((uint8_t)(0x04 + (plain - vt_us_shift)),
+                         held | VTKEY_SHIFT, word[i]);
+            else
+            {
+                fprintf(stderr, "vtrun: no key types '%c'\n", word[i]);
+                exit(2);
+            }
+        }
+    }
+}
+
+static void vt_send(const char *name, const char *keys, uint8_t flags, const char *what)
 {
     vt_log("%s %s%s\n", name, what, vt_132 ? " (132 columns)" : "");
-    snprintf(vt_echo, sizeof vt_echo, "%s", keys);
-    vt_reply(keys, strlen(keys));
+    vt_echo_len = 0;
+    vt_type(keys, flags);
 }
 
 static FILE *vt_open(const char *name)
@@ -745,13 +918,15 @@ int main(int argc, char **argv)
             while (m->next <= highest && vt_skipped(m->next))
                 m->next++;
             int choice = m->next <= highest ? m->next++ : 0;
-            char keys[16], what[64];
-            snprintf(keys, sizeof keys, "%d\r", choice);
+            char keys[24], what[64];
+            snprintf(keys, sizeof keys, "%d return", choice);
             snprintf(what, sizeof what, "choice %d", choice);
-            vt_send(name, keys, what);
+            vt_send(name, keys, 0, what);
             snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
             vt_seq = 0;
             vt_left = m;
+            vt_answer = NULL;
+            vt_more = false;
             if (!strcmp(m->id, "main") && choice == 0)
                 break;
         }
@@ -763,11 +938,9 @@ int main(int argc, char **argv)
                 status = 1;
                 break;
             }
-            snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
-            vt_shot(name);
             /* "Push <RETURN>" where the cursor waits wins over a prompt left
              * higher on the screen. */
-            const char *keys = "\r";
+            const vt_answer_t *answer = NULL;
             cells_view_t v;
             cells_view(&v);
             char row[1024];
@@ -776,10 +949,34 @@ int main(int argc, char **argv)
                                i < sizeof vt_answers / sizeof vt_answers[0]; i++)
                 if (vt_screen_has(vt_answers[i].prompt))
                 {
-                    keys = vt_answers[i].keys;
+                    answer = &vt_answers[i];
                     break;
                 }
-            vt_send(name, keys, keys[0] == '\r' ? "return" : keys);
+            if (answer != vt_answer)
+            {
+                vt_answer = answer;
+                vt_step = 0;
+            }
+            const char *keys = "return";
+            uint8_t flags = 0;
+            bool last = true;
+            if (answer)
+            {
+                keys = answer->steps[vt_step];
+                flags = answer->flags;
+                last = !answer->steps[vt_step + 1];
+                if (!last)
+                    vt_step++;
+            }
+            vt_more = !last;
+            if (last)
+            {
+                snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
+                vt_shot(name);
+            }
+            else
+                snprintf(name, sizeof name, "%s", vt_path);
+            vt_send(name, keys, flags, keys);
         }
     }
     if (steps > VT_STEP_LIMIT)

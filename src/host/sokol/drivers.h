@@ -25,7 +25,7 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -57,7 +57,7 @@
     API_DRIVER, XREG_DRIVER, CELLS_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
-    OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
+    OEM_DRIVER, VGA_DRIVER, PASTE_DRIVER,            \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
@@ -65,7 +65,7 @@
 #define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
 
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
+    [COM_SOURCE_KEYBOARD] = PASTE_COM_SOURCE,  \
     [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

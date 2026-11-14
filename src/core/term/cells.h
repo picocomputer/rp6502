@@ -94,7 +94,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 1, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 2, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *

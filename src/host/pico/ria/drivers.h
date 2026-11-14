@@ -21,6 +21,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
+#include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/str/oem.h"
@@ -76,7 +77,8 @@
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,             \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
-    KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,     \
+    LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
+    MOUSE_DRIVER, GAMEPAD_DRIVER,                    \
     TABLET_DRIVER,                                   \
     MBUF_DRIVER, TIO_DRIVER, RLN_DRIVER, FIL_DRIVER,  \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \
