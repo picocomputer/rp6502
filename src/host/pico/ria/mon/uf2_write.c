@@ -66,7 +66,9 @@ void uf2_lock_up(void)
 static void __attribute__((noreturn)) uf2_write_failed(void)
 {
     // The message is the format, because a literal "%s" would be in flash.
-    com_clean_line();
+    // The terminal is not fed while flashing, so it cannot tell a clean line.
+    com_putchar('\r');
+    com_putchar('\n');
     printf(STR_UF2_FLASH_FAILED);
     uf2_lock_up();
 }

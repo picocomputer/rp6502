@@ -27,11 +27,10 @@ static uint32_t vid_prog_word;
 bool mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];
-    int16_t scanline_begin = (int16_t)xregs[3];
-    int16_t scanline_end = (int16_t)xregs[4];
+    int16_t scanline_begin, scanline_end;
     uint8_t cols, rows;
-    if (!mode0_layout(vga_canvas_width(), vga_canvas_height(),
-                      &scanline_begin, &scanline_end, &cols, &rows))
+    if (!mode0_place(vga_canvas_width(), vga_canvas_height(), xregs,
+                     &scanline_begin, &scanline_end, &cols, &rows))
         return false;
     if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, NULL))
         return false;

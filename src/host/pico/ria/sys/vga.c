@@ -17,11 +17,16 @@
 #include "ria/sys/rp2350.h"
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
+#include "core/str/oem.h"
+#include "core/term/font.h"
+#include "core/vga/mode/mode0.h"
+#include "ria/term/cells.h"
 #include "ria.pio.h"
 #include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/timer.h>
+#include <string.h>
 #include <strings.h>
 #include <stdio.h>
 
@@ -63,17 +68,69 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-static bool vga_term_reply_suppressed;
+/* The console's terminal follows the VGA's (ria/term/cells.c). Every change
+ * the VGA makes to its terminal is made here at the moment the RIA sends what
+ * causes it. The console's bytes go to the VGA through the same PIX queue,
+ * so the two terminals take them all in the same order. */
 
-void HOST_IN_RAM_FUNC vga_suppress_term_reply(bool suppress)
-{
-    vga_term_reply_suppressed = suppress;
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, suppress);
-}
+/* The code page the VGA's fonts hold, or VGA_CODE_PAGE_UNKNOWN. Choosing a
+ * different one resets its terminal. */
+#define VGA_CODE_PAGE_UNKNOWN 0xFFFF
+static uint16_t vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
+
+/* The display type the VGA was last sent, which sizes its console. */
+static uint8_t vga_display_sent;
+
+/* The canvas and mode registers of channel 0 as the VGA holds them. */
+static uint16_t vga_xregs[8];
 
 void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
+    if (!vga_connected())
+        return;
+    cp = font_code_page_of(cp);
+    if (cp != vga_code_page_sent)
+        cells_RIS();
+    vga_code_page_sent = cp;
+}
+
+/* The VGA's console terminal on a display: 32 rows on SXGA (2), otherwise 30. */
+static uint8_t vga_console_rows(uint8_t display)
+{
+    uint16_t xregs[8] = {0};
+    int16_t begin, end;
+    uint8_t cols, rows = 0;
+    mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows);
+    return rows;
+}
+
+/* DISPLAY: the VGA goes back to the console canvas, which sizes the console
+ * for the old display, sizes it for the new one, and does the system's soft
+ * reset. */
+static void vga_follow_display(uint8_t display)
+{
+    if (vga_canvas_current != vga_canvas_console)
+        cells_set_height(80, vga_console_rows(vga_display_sent));
+    cells_set_height(80, vga_console_rows(display));
+    cells_RIS_no_clear();
+    vga_display_sent = display;
+}
+
+/* Attribute 0x0D's default, which the monitor and each program start with:
+ * with no VGA the terminal on the UART answers the queries, so the console's
+ * terminal does not. */
+static void vga_reply_default(void)
+{
+    manifold_suppress_reply(!vga_connected());
+}
+
+/* With no VGA the console is a terminal on the UART, taken to be 80x24. */
+static void vga_follow_none(void)
+{
+    cells_RIS();
+    cells_set_height(80, 24);
+    vga_reply_default();
 }
 void vga_load_code_page(uint16_t cp)
 {
@@ -240,11 +297,9 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     {
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+        vga_follow_none();
         return;
     }
-
-    // A VGA that booted since the last connect starts with its replies on.
-    vga_suppress_term_reply(vga_term_reply_suppressed);
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
@@ -293,6 +348,20 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     // Enable backchannel IRQ now that version string phase is complete
     vga_backchannel_irq_enable();
     vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
+
+    /* The VGA may have kept its state while the RIA restarted, or started
+     * fresh while the RIA ran. DISPLAY and the code page are sent again, and
+     * a hard reset follows them to both terminals, so the two start alike. */
+    vga_needs_reset = true;
+    vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
+    if (oem_get_code_page_run()) /* at boot oem_init sends it */
+        vga_set_code_page(oem_get_code_page_run());
+    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    vga_reply_default();
+    /* A VGA of the firmware before the RIA answered the queries still has
+     * its own answers on; this turns them off, so an update of either chip
+     * first works. A VGA since then ignores it. */
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, 1);
 }
 
 void HOST_IN_FLASH_FUNC vga_init(void)
@@ -354,6 +423,7 @@ void HOST_IN_RAM_FUNC vga_task(void)
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
         mon_add_response_utf8(S(STR_ERR_VGA_CONNECTION_LOST));
+        vga_follow_none();
     }
 
     if (vga_needs_reset)
@@ -361,8 +431,12 @@ void HOST_IN_RAM_FUNC vga_task(void)
         vga_needs_reset = false;
         // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
         // which resets canvas to vga_canvas_console. Mirror that here.
+        uint8_t display = vga_get_display_type();
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display);
+        if (vga_connected())
+            vga_follow_display(display);
         vga_canvas_current = vga_canvas_console;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_get_display_type());
+        memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }
 
@@ -372,16 +446,19 @@ void vga_run(void)
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_CONNECTION_LOST)
         vga_connect();
+    vga_reply_default();
 }
 
 void vga_stop(void)
 {
     vga_needs_reset = true;
+    vga_reply_default();
 }
 
 void vga_break(void)
 {
     vga_needs_reset = true;
+    vga_reply_default();
 }
 
 vga_canvas_t vga_get_canvas(void)
@@ -425,11 +502,37 @@ void HOST_IN_RAM_FUNC vga_display_size(int *w, int *h)
     }
 }
 
-void vga_set_canvas(uint16_t canvas_word)
+/* Channel 0's CANVAS and MODE as the VGA takes them. A canvas the VGA does
+ * not know it naks and ignores. Going back to the console sizes the
+ * console. Mode 0 sizes the terminal of the canvas's width, when it fits:
+ * the VGA works that out with the same mode0_place. */
+void vga_xreg(uint8_t index, uint16_t word)
 {
-    // VGA side naks unknown canvas values and does nothing
-    if (canvas_word < VGA_CANVAS_COUNT)
-        vga_canvas_current = (vga_canvas_t)canvas_word;
+    if (index < 8)
+        vga_xregs[index] = word;
+    if (index == 0)
+    {
+        if (word < VGA_CANVAS_COUNT)
+        {
+            bool to_console = word == vga_canvas_console &&
+                              vga_canvas_current != vga_canvas_console;
+            vga_canvas_current = (vga_canvas_t)word;
+            if (to_console && vga_connected())
+                cells_set_height(80, vga_console_rows(vga_display_sent));
+        }
+        memset(vga_xregs, 0, sizeof vga_xregs);
+    }
+    else if (index == 1)
+    {
+        int w, h;
+        int16_t begin, end;
+        uint8_t cols, rows;
+        if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
+            vga_canvas_geometry(vga_canvas_current, &w, &h) &&
+            mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
+            cells_set_height(cols, rows);
+        memset(vga_xregs, 0, sizeof vga_xregs);
+    }
 }
 
 bool HOST_IN_RAM_FUNC vga_connected(void)

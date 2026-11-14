@@ -24,7 +24,7 @@ static manifold_ring_t manifold_uart_ring;
 static uint8_t manifold_reply_buf[32];
 static size_t manifold_reply_len;
 static bool manifold_reply_suppressed;
-static uint8_t manifold_charge = COM_TERM_SCREEN;
+static bool manifold_reply_default;
 
 static char manifold_crlf_last;
 
@@ -69,6 +69,7 @@ void manifold_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u8(c, (uint8_t)manifold_reply_len);
     sst_put(c, manifold_reply_buf, sizeof manifold_reply_buf);
     sst_put_u8(c, (uint8_t)manifold_crlf_last);
+    sst_put_bool(c, manifold_reply_suppressed);
 }
 
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
@@ -81,6 +82,7 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t held[sizeof manifold_reply_buf];
     sst_get(c, held, sizeof held);
     uint8_t crlf = sst_get_u8(c);
+    bool suppressed = sst_get_bool(c);
     if (!sst_ok(c) || kb_len > MANIFOLD_RING_SIZE || wire_len > MANIFOLD_RING_SIZE ||
         len > sizeof manifold_reply_buf)
         return false;
@@ -89,6 +91,7 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
     manifold_reply_len = len;
     memcpy(manifold_reply_buf, held, sizeof manifold_reply_buf);
     manifold_crlf_last = (char)crlf;
+    manifold_reply_suppressed = suppressed;
     return true;
 }
 
@@ -182,11 +185,9 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
 
 /* The UART is the only terminal here besides term.c. The UART's sinks are the
  * tx tap, the bell, the host wire and term.c; COM_TERM_SCREEN's is term.c
- * alone. Only a write to every terminal moves the clean-line state. */
+ * alone. */
 static void manifold_tx_write(uint8_t to, const char *buf, int len)
 {
-    if (to == COM_TERM_ALL)
-        com_line_track(buf, (size_t)len);
     if (to & COM_TERM_UART)
     {
         if (manifold_tx_tap)
@@ -248,23 +249,6 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n)
     manifold_tx_write(to, buf, (int)n);
 }
 
-uint8_t manifold_term_in_charge(void)
-{
-    return manifold_charge;
-}
-
-void manifold_set_term_in_charge(uint8_t term)
-{
-    manifold_charge = term;
-}
-
-/* The terminal in charge is the one terminal here: term.c with a window, the
- * host terminal without one, and none for a pipe or a file. */
-uint8_t manifold_terms_connected(void)
-{
-    return manifold_charge;
-}
-
 size_t manifold_write(int fd, const char *buf, size_t n)
 {
     if (manifold_std_tap)
@@ -295,6 +279,23 @@ void manifold_reply(const char *s, size_t n)
 void manifold_suppress_reply(bool suppress)
 {
     manifold_reply_suppressed = suppress;
+}
+
+bool manifold_replies_suppressed(void)
+{
+    return manifold_reply_suppressed;
+}
+
+void manifold_set_reply_default(bool suppress)
+{
+    manifold_reply_default = suppress;
+    manifold_reply_suppressed = suppress;
+}
+
+/* A program starts, and the monitor goes on after it, with the default. */
+void manifold_run(void)
+{
+    manifold_reply_suppressed = manifold_reply_default;
 }
 
 /* A Ctrl-C is scanned for before the bytes are pushed, so a break is seen

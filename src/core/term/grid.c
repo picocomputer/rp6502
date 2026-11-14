@@ -14,8 +14,6 @@
 // scrolling, erasing and the line sizes. Everything here runs once for each
 // grid the terminal is followed at, after term.c has decoded the sequence.
 
-#define GRID_STD_HEIGHT 30
-
 static inline uint16_t grid_param(const term_t *t, uint8_t i, uint16_t dflt)
 {
     uint16_t v = (i < t->csi_param_count) ? t->csi_param[i] : 0;
@@ -90,13 +88,49 @@ void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
     memset(g, 0, sizeof *g);
     g->width = width;
     g->rows = rows;
-    g->height = rows < GRID_STD_HEIGHT ? rows : GRID_STD_HEIGHT;
+    g->height = rows < TERM_STD_HEIGHT ? rows : TERM_STD_HEIGHT;
     g->lines = lines;
     g->cur = &g->pos[0];
     g->ls = lines;
     memset(lines, TERM_LINE_NORMAL, 2u * rows);
     grid_full_margins(g);
     grid_reset_tabs(g);
+}
+
+void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows)
+{
+    *g = *from;
+    g->rows = rows;
+    g->lines = lines;
+    memset(lines, TERM_LINE_NORMAL, 2u * rows);
+    unsigned n = from->rows < rows ? from->rows : rows;
+    memcpy(lines, from->lines, n);
+    memcpy(lines + rows, from->lines + from->rows, n);
+    if (g->height > rows)
+        g->height = rows;
+}
+
+void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
+{
+    (void)t;
+    assert(width >= 1);
+    for (unsigned col = (g->width + 7u) & ~7u; col < width; col += 8)
+        if (col)
+            g->tab_stops[col >> 3] |= (uint8_t)(1u << (col & 7));
+    g->width = width;
+    for (int s = 0; s < 2; s++)
+    {
+        term_pos_t *ps[2] = {&g->pos[s], &g->saved[s]};
+        for (int i = 0; i < 2; i++)
+        {
+            term_pos_t *p = ps[i];
+            unsigned cols = g->lines[s * g->rows + p->y] ? width / 2u : width;
+            if (p->x >= cols)
+                p->x = (uint8_t)(cols ? cols - 1 : 0);
+            p->wrap_pending = false;
+        }
+    }
+    grid_full_margins(g);
 }
 
 /* ---- height ------------------------------------------------------------ */
@@ -288,16 +322,18 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
 
 // REP, CSI Pn b: the last graphic character again, Pn times (xterm,
 // ECMA-48). After a row more than the grid holds, every row the glyphs can
-// reach is full of the glyph, the scrollback included, and each further row
-// of them changes nothing; so a long count runs only that far, plus its
-// remainder of a row. The glyphs go a row at a time, so a long REP costs
-// about what printing the rows does.
+// reach is full of the glyph, the scrollback included, and each further run
+// of whole rows changes nothing; so a long count runs only that far, plus its
+// remainder. A run is a multiple of both a row's length and a double-size
+// row's, which is just the width when the width is even. The glyphs go a
+// row at a time, so a long REP costs about what printing the rows does.
 static void grid_REP(term_t *t, term_grid_t *g)
 {
     unsigned n = grid_param(t, 0, 1);
-    unsigned most = g->width * (g->rows + 1u);
+    unsigned run = (g->width & 1) && g->width > 1 ? g->width * (g->width / 2u) : g->width;
+    unsigned most = run * (g->rows + 1u);
     if (n > most)
-        n = most + (n - most) % g->width;
+        n = most + (n - most) % run;
     if (t->insert_mode)
     {
         while (n--)
@@ -819,15 +855,17 @@ void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
     sst_put(c, g->lines, 2u * g->rows);
 }
 
-/* The grid keeps its width, rows and lines storage; a blob of another shape
- * is refused. Everything else is bounded, because it indexes the cells. */
+/* The grid keeps its rows and lines storage; a blob of another shape is
+ * refused. A grid with cells has its width checked by their owner.
+ * Everything else is bounded, because it indexes the cells. */
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
 {
     uint8_t w = sst_get_u8(c);
     uint8_t h = sst_get_u8(c);
     uint8_t rows = sst_get_u8(c);
-    if (!sst_ok(c) || w != g->width || rows != g->rows || h < 1 || h > rows)
+    if (!sst_ok(c) || w < 1 || rows != g->rows || h < 1 || h > rows)
         return false;
+    g->width = w;
     g->height = h;
     g->margin_top = sst_get_u8(c);
     g->margin_bot = sst_get_u8(c);

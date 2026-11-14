@@ -6,7 +6,7 @@
 
 /* The console, as the rest of the machine sees it: the sources it reads, the
  * byte staged in the 6502's receive register, its output, the bell, and
- * whether the cursor is at the start of a clean line. */
+ * starting a clean line. */
 
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
@@ -131,31 +131,22 @@ void com_flush(void);
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* Every console byte passes here on its way out. */
-void com_line_track(const char *buf, size_t len);
-
-/* True when a CR and an LF have gone out since the last other byte. */
-bool com_line_clean(void);
-
-/* CR LF, unless the line is already clean. */
+/* Flushes, then CR LF unless the console's terminal has its cursor in
+ * column 1. */
 void com_clean_line(void);
 
-/* The caller has left the cursor at the start of a clean line. */
-void com_line_set_clean(void);
-
-/* The end of a session: the soft reset, then CR LF unless the line was clean
- * before it. */
+/* The end of a session: the soft reset, then a clean line. */
 void com_end_reset(void);
 
-/* The picker's held source (1) and its deadline (8), the bell (1), the
- * staged byte's source (1), and the clean-line state (1). */
-#define COM_SST_SIZE 12
+/* The picker's held source (1) and its deadline (8), the bell (1), and the
+ * staged byte's source (1). */
+#define COM_SST_SIZE 11
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define COM_DRIVER DRIVER(       \
     INIT(com_rx_clear)           \
     BREAK(com_rx_clear)          \
-    SST(COM_, 4, COM_SST_SIZE, com_sst_save, com_sst_load))
+    SST(COM_, 5, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

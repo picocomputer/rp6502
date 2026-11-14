@@ -26,7 +26,14 @@
 void cells_init(void);
 void cells_task(void);
 
-// RIS, and the system's soft reset.
+/* The console's terminal. On a machine that runs a program and draws its
+ * screen in one, it is this file's; the RIA has its own, which follows the
+ * VGA's (ria/term/cells.c). */
+extern term_t cells_term;
+
+// RIS, and the system's soft reset, which also sets the 40-column terminal
+// back to TERM_STD_HEIGHT: only a mode 0 on a 320-wide canvas sets its
+// height, so after either chip restarts alone the two could differ.
 void cells_RIS(void);
 void cells_RIS_no_clear(void);
 
@@ -100,7 +107,8 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
  * the pen, resolved here, and an erased cell takes the pen's colors, not
  * reversed. The cells follow t->alt_active for which screen is showing. All
  * but the colors and the replies are for one grid; the cells find their own
- * from it. */
+ * from it. A program's own size (term_add_grid) is a grid with no cells,
+ * which these ignore. */
 
 // An answer to a query.
 void cells_reply(const term_t *t, const char *s, size_t n);

@@ -95,16 +95,20 @@ typedef struct
     volatile uint8_t cell_blink_phase;
 } cells_t;
 
-static term_t cells_term;
+term_t cells_term;
 static cells_t cells_40;
 static cells_t cells_80;
 static uint16_t cells_default_fg;
 static uint16_t cells_default_bg;
 static uint16_t cells_cursor_color; // OSC 12
 
+/* A grid of this file's, or NULL for one with no cells: a program's own size
+ * (term_add_grid), which the screen does not draw. */
 static inline cells_t *cells_of(term_grid_t *g)
 {
-    return (cells_t *)g;
+    if (g == &cells_40.grid || g == &cells_80.grid)
+        return (cells_t *)g;
+    return NULL;
 }
 
 // The screen showing, which the terminal chooses.
@@ -363,6 +367,8 @@ static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height,
 
 void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 {
+    if (!cells_of(g))
+        return;
     (void)term;
     cells_clean_line(cells_of(g), y);
 }
@@ -409,6 +415,8 @@ static term_data_t cells_glyph_cell(term_t *term, uint8_t byte)
 
 void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n)
 {
+    if (!cells_of(g))
+        return;
     term_data_t cell = cells_glyph_cell(term, byte);
     term_data_t *row = cells_row_ptr(cells_of(g), y) + x;
     for (unsigned i = 0; i < n; i++)
@@ -417,11 +425,15 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
 
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to)
 {
+    if (!cells_of(g))
+        return;
     cells_fill_erased(term, cells_row_ptr(cells_of(g), y), from, to);
 }
 
 void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
 {
+    if (!cells_of(g))
+        return;
     unsigned avail = term_cols(term, g, y) - x;
     term_data_t *row = cells_row_ptr(cells_of(g), y);
     memmove(&row[x + n], &row[x], (avail - n) * sizeof(term_data_t));
@@ -430,6 +442,8 @@ void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
 
 void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
 {
+    if (!cells_of(g))
+        return;
     unsigned cols = term_cols(term, g, y);
     unsigned avail = cols - x;
     term_data_t *row = cells_row_ptr(cells_of(g), y);
@@ -440,6 +454,8 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
 // A line waiting on a lazy erase is left to it.
 void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned count, bool left)
 {
+    if (!cells_of(g))
+        return;
     cells_t *cells = cells_of(g);
     for (uint8_t y = top; y <= bot; y++)
     {
@@ -463,11 +479,15 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
 
 void cells_erase_rows(term_t *term, term_grid_t *g, uint8_t from, uint8_t to)
 {
+    if (!cells_of(g))
+        return;
     cells_mark_rows_erase(term, cells_of(g), from, to);
 }
 
 void cells_align(term_t *term, term_grid_t *g)
 {
+    if (!cells_of(g))
+        return;
     (void)term;
     cells_mark_rows_glyph(cells_buf(cells_of(g)), 0, g->height, 'E',
                           cells_default_fg, cells_default_bg);
@@ -477,6 +497,8 @@ void cells_align(term_t *term, term_grid_t *g)
 // the n rows coming in are lazy-erased in the pen's colors.
 void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
+    if (!cells_of(g))
+        return;
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
     uint8_t y_off = s->y_offset;
@@ -520,6 +542,8 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
 // The fast scroll: the viewport rotates through y_offset.
 void cells_index(term_t *term, term_grid_t *g, bool up)
 {
+    if (!cells_of(g))
+        return;
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
     uint8_t last = (uint8_t)(g->height - 1);
@@ -544,12 +568,16 @@ void cells_index(term_t *term, term_grid_t *g, bool up)
 
 void cells_forget(term_t *term, term_grid_t *g)
 {
+    if (!cells_of(g))
+        return;
     (void)term;
     cells_buf(cells_of(g))->hidden = 0;
 }
 
 void cells_clear(term_t *term, term_grid_t *g)
 {
+    if (!cells_of(g))
+        return;
     const term_pen_t *pen = term_pen(term);
     cells_mark_buf_erased(cells_buf(cells_of(g)), g->height,
                           cells_pen_fg(pen), cells_pen_bg(term, pen));
@@ -557,6 +585,8 @@ void cells_clear(term_t *term, term_grid_t *g)
 
 void cells_height(term_t *term, term_grid_t *g, bool grow, bool top)
 {
+    if (!cells_of(g))
+        return;
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
     uint8_t h = g->height;
@@ -617,6 +647,8 @@ void cells_colors_reset(term_t *term)
 
 void cells_reset(term_t *term, term_grid_t *g)
 {
+    if (!cells_of(g))
+        return;
     (void)term;
     cells_t *cells = cells_of(g);
     if (cells->bufs[1].mem)
@@ -769,6 +801,7 @@ void cells_RIS(void)
 
 void cells_RIS_no_clear(void)
 {
+    term_set_height(&cells_term, &cells_40.grid, TERM_STD_HEIGHT);
     term_RIS_no_clear(&cells_term);
 }
 
@@ -831,7 +864,8 @@ static void cells_put_one(sst_cursor_t *c, const cells_t *cells)
 
 static bool cells_get_one(sst_cursor_t *c, cells_t *cells)
 {
-    if (!term_grid_sst_get(c, &cells->grid) ||
+    uint8_t width = cells->grid.width;
+    if (!term_grid_sst_get(c, &cells->grid) || cells->grid.width != width ||
         !cells_get_buf(c, &cells->bufs[0]) || !cells_get_buf(c, &cells->bufs[1]))
         return false;
     cells->cursor_frame = (unsigned long)sst_get_u64(c);

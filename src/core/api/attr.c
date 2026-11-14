@@ -15,6 +15,8 @@
 #include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/term/term.h"
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
 #include "core/sys/random.h"
@@ -34,6 +36,7 @@
 #define ATTR_RLN_WIDTH 0x0A
 #define ATTR_RLN_HEIGHT 0x0B
 #define ATTR_RLN_SUPPRESS_NL 0x0C
+#define ATTR_TERM_QUIET 0x0D
 #define ATTR_PCM_UNDERRUNS 0x0E
 #define ATTR_OPL_OVERRUNS 0x0F
 #define ATTR_CLK_RUN_MS 0x10
@@ -174,9 +177,11 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_caps(uint32_t value)
     return true;
 }
 
+/* A program's own size: 0, the screen's, or 2 to 255 columns (a double-size
+ * row has half) and 1 to 255 rows. */
 static bool HOST_IN_FLASH_FUNC attr_set_rln_width(uint32_t value)
 {
-    if (value > UINT16_MAX)
+    if (value == 1 || value > TERM_MAX_WIDTH)
         return false;
     tio_set_term_width((uint16_t)value);
     return true;
@@ -184,7 +189,7 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_width(uint32_t value)
 
 static bool HOST_IN_FLASH_FUNC attr_set_rln_height(uint32_t value)
 {
-    if (value > UINT16_MAX)
+    if (value > TIO_GRID_ROWS)
         return false;
     tio_set_term_height((uint16_t)value);
     return true;
@@ -195,6 +200,20 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_suppress_nl(uint32_t value)
     if (value > 1)
         return false;
     rln_set_suppress_nl((uint8_t)value);
+    return true;
+}
+
+/* 1 while the console's terminal does not answer queries. */
+static uint32_t HOST_IN_FLASH_FUNC attr_get_term_quiet(void)
+{
+    return manifold_replies_suppressed();
+}
+
+static bool HOST_IN_FLASH_FUNC attr_set_term_quiet(uint32_t value)
+{
+    if (value > 1)
+        return false;
+    manifold_suppress_reply(value);
     return true;
 }
 
@@ -229,6 +248,8 @@ bool HOST_IN_RAM_FUNC attr_api_get(void)
         return api_return_axsreg(attr_get_rln_height());
     case ATTR_RLN_SUPPRESS_NL:
         return api_return_axsreg(attr_get_rln_suppress_nl());
+    case ATTR_TERM_QUIET:
+        return api_return_axsreg(attr_get_term_quiet());
     case ATTR_PCM_UNDERRUNS:
         return api_return_axsreg(attr_get_pcm_underruns());
     case ATTR_OPL_OVERRUNS:
@@ -286,6 +307,9 @@ bool HOST_IN_RAM_FUNC attr_api_set(void)
         break;
     case ATTR_RLN_SUPPRESS_NL:
         ok = attr_set_rln_suppress_nl(value);
+        break;
+    case ATTR_TERM_QUIET:
+        ok = attr_set_term_quiet(value);
         break;
     case ATTR_LRAND:
     case ATTR_EXIT_CODE:

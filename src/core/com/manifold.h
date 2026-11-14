@@ -36,20 +36,8 @@ size_t manifold_write(int fd, const char *buf, size_t n);
 
 /* Bytes as they are, to the terminals in the COM_TERM_ bitmap to. They are
  * queued behind everything written before them and ahead of everything
- * written after, waiting for room as manifold_putchar does. A write to fewer
- * than every terminal does not move the clean-line state. */
+ * written after, waiting for room as manifold_putchar does. */
 void manifold_write_to(uint8_t to, const char *buf, size_t n);
-
-/* The terminal in charge, as its COM_TERM_ bit, or 0 for none: telnet while a
- * session is logged in and has sent its window size (NAWS); otherwise term.c
- * where it is drawn; otherwise the UART when a terminal is on it. */
-uint8_t manifold_term_in_charge(void);
-
-/* The COM_TERM_ bits of the terminals connected: term.c's when it is the
- * console's screen, the UART's when the UART goes to a terminal of its own,
- * and telnet's while a session is logged in. A logging or scripting path that
- * hears the UART, such as the VGA's USB port, is no terminal. */
-uint8_t manifold_terms_connected(void);
 
 /* Returns once every byte queued so far has gone out. */
 void manifold_flush(void);
@@ -71,10 +59,12 @@ void manifold_uart_clear(void);
  * end, which answers the query itself, drops the reply instead. */
 void manifold_reply(const char *s, size_t n);
 
-/* While suppress is set, term.c's replies are dropped. It is set while
- * another terminal is in charge, which answers a query a program prints, so
- * that two answers never arrive. */
+/* While suppress is set, the console's terminal does not answer a query:
+ * attribute 0x0D. Each program starts with the machine's default, which is
+ * on where another terminal is the screen the user sees and answers itself:
+ * the RIA with no VGA, and an emulator printing to a host terminal. */
 void manifold_suppress_reply(bool suppress);
+bool manifold_replies_suppressed(void);
 
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. */
@@ -103,9 +93,8 @@ void manifold_keyboard_clear(void);
 void manifold_set_wire(void (*tx)(const char *buf, int len),
                        size_t (*rx)(char *buf, size_t max), bool stream);
 
-/* The terminal in charge, as manifold_term_in_charge returns it. term.c is in
- * charge until this says otherwise. */
-void manifold_set_term_in_charge(uint8_t term);
+/* The default of manifold_suppress_reply that each program starts with. */
+void manifold_set_reply_default(bool suppress);
 
 /* The tx tap is given every byte the console sends to the UART. The std tap
  * is given a program's output with its fd, before the newlines are expanded.
@@ -115,16 +104,19 @@ void manifold_set_std_tap(void (*tap)(int fd, const char *buf, int len));
 void manifold_set_stderr_sink(void (*sink)(const char *buf, int len));
 
 void manifold_task(void);
+void manifold_run(void);
 
-/* The 34 fixed bytes are the reply length (1), the reply buffer (32), and the
- * CR LF latch (1). Each of the two rings adds a 16-bit count and
- * MANIFOLD_RING_SIZE bytes. */
-#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 34)
+/* The 35 fixed bytes are the reply length (1), the reply buffer (32), the
+ * CR LF latch (1) and the replies' suppression (1). Each of the two rings
+ * adds a 16-bit count and MANIFOLD_RING_SIZE bytes. */
+#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 35)
 void manifold_sst_save(sst_cursor_t *c, unsigned flags);
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
-    SST(MFLD, 1, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
+    RUN(manifold_run)               \
+    STOP(manifold_run)              \
+    SST(MFLD, 2, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
 
 #endif /* _CORE_COM_MANIFOLD_H_ */

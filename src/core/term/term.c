@@ -144,6 +144,32 @@ static void term_out_DECSTR(term_t *t)
     term_grids(t, GRID_DECSTR, 0);
 }
 
+term_grid_t *term_shown(term_t *t)
+{
+    return t->grid_count > TERM_SCREEN_GRIDS ? t->grids[TERM_SCREEN_GRIDS] : cells_shown(t);
+}
+
+void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
+                   uint8_t *lines, uint8_t rows)
+{
+    assert(t->grid_count < TERM_MAX_GRIDS);
+    term_grid_copy(g, from, lines, rows);
+    t->grids[t->grid_count++] = g;
+    term_show(t, t->alt_active);
+}
+
+void term_drop_grid(term_t *t, term_grid_t *g)
+{
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        if (t->grids[i] == g)
+        {
+            for (; i + 1 < t->grid_count; i++)
+                t->grids[i] = t->grids[i + 1];
+            t->grid_count--;
+            return;
+        }
+}
+
 void term_init(term_t *t, term_grid_t *const *grids, uint8_t count)
 {
     assert(count <= TERM_MAX_GRIDS);
@@ -490,7 +516,7 @@ static void term_out_DSR(term_t *t)
         break;
     case 6:
     {
-        const term_grid_t *g = cells_shown(t);
+        const term_grid_t *g = term_shown(t);
         const term_pos_t *pos = &g->pos[t->alt_active];
         unsigned y = pos->y;
         // Region-relative under DECOM, guarded so a cursor above the region
@@ -509,18 +535,19 @@ static void term_out_window(term_t *t)
 {
     if (t->csi_param_count > 1)
         return;
-    const term_grid_t *g = cells_shown(t);
+    const term_grid_t *g = term_shown(t);
+    // The cell is the screen's font, whatever size the program set.
+    unsigned cell = term_cell_height(cells_shown(t));
     switch (t->csi_param[0])
     {
     case 11: // iconified? never
         TERM_REPLY(t, "\33[1t");
         break;
     case 14: // text area in pixels
-        term_replyf(t, "\33[4;%u;%ut", g->height * term_cell_height(g),
-                    g->width * 8u, 0);
+        term_replyf(t, "\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);
         break;
     case 16: // character cell in pixels
-        term_replyf(t, "\33[6;%u;%ut", term_cell_height(g), 8, 0);
+        term_replyf(t, "\33[6;%u;%ut", cell, 8, 0);
         break;
     case 18: // text area in characters
         term_replyf(t, "\33[8;%u;%ut", g->height, g->width, 0);

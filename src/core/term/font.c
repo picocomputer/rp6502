@@ -3826,6 +3826,7 @@ static void font_code_page_to(uint16_t cp, bool ris)
     const uint8_t *font8hi = NULL;
     const uint8_t *font16hi = NULL;
 
+    cp = font_code_page_of(cp);
     switch (cp)
     {
     case 437:

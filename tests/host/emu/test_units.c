@@ -237,9 +237,9 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
     ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
 }
 
-/* With no pinned size, no NAWS and no CPR, the size is that of
- * the terminal the canvas holds. */
-UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
+/* With no pinned size, the size is the screen's showing grid: the canvas's
+ * width picks 40 or 80 columns, and mode 0 sets the rows. */
+UTEST(tio, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
 {
     static const struct
     {
@@ -256,10 +256,11 @@ UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
     sys_init();
     tio_set_term_width(0);
     tio_set_term_height(0);
-    tio_set_naws_size(0, 0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
+        if (want[i].canvas != vga_canvas_console)
+            ASSERT_TRUE(xreg1(0, 1, 0)); /* mode 0, the tallest that fits */
         ASSERT_EQ(tio_get_term_width(), want[i].cols);
         ASSERT_EQ(tio_get_term_height(), want[i].rows);
     }

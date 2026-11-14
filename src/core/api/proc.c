@@ -140,8 +140,6 @@ void proc_chain_end(void)
     oem_restore_code_page();
     tio_cursor_default();
     com_set_bel(true);
-    /* The soft reset and the cursor shape move no cursor. */
-    com_line_set_clean();
 }
 
 void proc_exec_failed(void)

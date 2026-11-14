@@ -70,9 +70,6 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
     case 0x01: // CODE_PAGE
         font_set_code_page(word);
         return true;
-    case 0x02: // SUPPRESS_TERM_REPLY
-        manifold_suppress_reply(word != 0);
-        return false;
     case 0x03: // UART_TX
         putchar_raw(word);
         return false;

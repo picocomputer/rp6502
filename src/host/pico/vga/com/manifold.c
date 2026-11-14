@@ -14,17 +14,7 @@
 
 static RING(char, MANIFOLD_IN_BUF_SIZE) manifold_in;
 
-static char manifold_in_reply_buf[MANIFOLD_IN_BUF_SIZE];
-static size_t manifold_in_reply_len;
-
 static RING(char, MANIFOLD_OUT_BUF_SIZE) manifold_out;
-
-static bool manifold_reply_suppressed;
-
-void manifold_suppress_reply(bool suppress)
-{
-    manifold_reply_suppressed = suppress;
-}
 
 size_t manifold_in_free(void)
 {
@@ -41,14 +31,11 @@ void manifold_in_write(char ch)
     RING_PUT(&manifold_in, ch);
 }
 
+/* The RIA answers the program's queries; its terminal follows this one. */
 void manifold_reply(const char *s, size_t n)
 {
-    if (manifold_reply_suppressed)
-        return;
-    if (n > sizeof(manifold_in_reply_buf) - manifold_in_reply_len)
-        return;
-    for (size_t i = 0; i < n; i++)
-        manifold_in_reply_buf[manifold_in_reply_len++] = s[i];
+    (void)s;
+    (void)n;
 }
 
 bool manifold_out_empty(void)
@@ -131,12 +118,6 @@ void manifold_set_uart_break(bool en)
 
 void manifold_task(void)
 {
-    if (manifold_in_reply_len && !RING_LEN(&manifold_in))
-    {
-        RING_IN(&manifold_in, manifold_in_reply_buf, (uint32_t)manifold_in_reply_len);
-        manifold_in_reply_len = 0;
-    }
-
     // IN is sunk here to UART
     char ch;
     while (uart_is_writable(MANIFOLD_UART_INTERFACE) && RING_GET(&manifold_in, &ch))

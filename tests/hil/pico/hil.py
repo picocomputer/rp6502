@@ -156,6 +156,34 @@ def test_term(r):
         raise Fail("late scanlines" if video.late else "no video captured")
 
 
+def test_sizes(r):
+    """The RIA's copy of the console's terminal follows the VGA's through
+    canvas and mode 0 changes and a program's own width, and answers the
+    queries, or with 0x0D set does not."""
+    b = r.board
+    # The console has 32 rows on an SXGA display and 30 on the others.
+    h = b"32" if "1280x1024" in " ".join(b.command("SET VGA")) else b"30"
+    b.run_in_ram(r.rom("hil-sizes"))
+    got, end = [], "no output for 20 s"
+    for line in b.lines(20):
+        if line is None:
+            break
+        if line.startswith("="):
+            got.append(bytes.fromhex(line[1:]))
+        if line.endswith("done"):
+            end = None
+            break
+    b.stop()
+    if end:
+        raise Fail(end)
+    want = [a.replace(b"{h}", h) for _, _, a in roms.SIZE_STEPS]
+    bad = [f"{i}: {g!r} for {w!r}" for i, (g, w) in enumerate(zip(got, want)) if g != w]
+    if len(got) != len(want):
+        bad.append(f"{len(got)} answers of {len(want)}")
+    if bad:
+        raise Fail("; ".join(bad))
+
+
 def test_audio(r):
     """The audio load of every sound engine at once with the bus busy, read
     through the probe. Needs --elf."""

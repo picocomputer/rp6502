@@ -21,6 +21,7 @@
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/vga/vga_emu.h"
 #include "osal/console.h"
@@ -71,15 +72,16 @@ bool console_open(bool window)
     if (typed)
         os_console_raw(true);
     manifold_set_wire(terminal ? console_tx : NULL, stdin_rx, !typed);
+    /* With no window, a pipe or a file on stdout shows no line layout. */
     if (!window)
-        manifold_set_term_in_charge(terminal ? COM_TERM_UART : 0);
+        rln_set_plain(!terminal);
     if (!terminal)
         return false;
     /* Two terminals must not both answer a program's query. Without a window
      * the host's is the one the program can see, so the emulated one stops
      * answering and goes on drawing. */
     if (!window)
-        manifold_suppress_reply(true);
+        manifold_set_reply_default(true);
     /* The program's stderr already reaches this screen through console_tx,
      * so a second copy on the host's stderr would print everything twice. A
      * redirected stderr is another destination and keeps its copy. */

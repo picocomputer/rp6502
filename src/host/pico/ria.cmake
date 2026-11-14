@@ -258,6 +258,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/str/unicode.c
+    ${RP6502_ROOT}/src/core/term/term.c
+    ${RP6502_ROOT}/src/core/term/grid.c
+    ${RIA_SRC}/term/cells.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c

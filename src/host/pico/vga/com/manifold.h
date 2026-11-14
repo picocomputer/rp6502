@@ -7,8 +7,9 @@
 /* The terminal part of core/com/manifold.h on the VGA. What the RIA sends, on
  * the UART or over PIX as UART_TX, goes through the SDK's stdio to the
  * terminal and the USB console; what it sends over PIX as TERM_TX goes to the
- * terminal alone. What the USB console sends, and the terminal's replies, go
- * to the RIA on the UART. */
+ * terminal alone. What the USB console sends goes to the RIA on the UART.
+ * The terminal does not answer queries: the RIA's terminal follows this one
+ * and answers them. */
 
 #ifndef _VGA_COM_MANIFOLD_H_
 #define _VGA_COM_MANIFOLD_H_

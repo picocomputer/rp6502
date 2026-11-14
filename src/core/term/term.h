@@ -49,7 +49,13 @@
  * the terminal wider than its screen. A grid's height is up to its rows. */
 #define TERM_MAX_WIDTH 255
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
-/* The sizes one terminal can be followed at. */
+/* A grid's height until its machine says otherwise: the 40-column
+ * terminal's tallest, and the 80-column terminal's on every display but
+ * SXGA. */
+#define TERM_STD_HEIGHT 30
+/* The sizes one terminal can be followed at: the screen's 40 and 80
+ * columns, and a program's own size (RIA_ATTR_RLN_WIDTH and HEIGHT). */
+#define TERM_SCREEN_GRIDS 2
 #define TERM_MAX_GRIDS 3
 /* 16 parameters, as Linux's NPAR. More are dropped; the sequence still runs. */
 #define TERM_CSI_PARAM_MAX_LEN 16
@@ -219,6 +225,22 @@ void term_RIS_no_clear(term_t *t);
 // A grid's rows, one at a time, as the view grows or shrinks. A grow or
 // shrink with the cursor on the bottom row moves the screen, not the cursor.
 void term_set_height(term_t *t, term_grid_t *g, uint8_t height);
+
+// A grid's columns, as a program sets them: the cursors stay inside the
+// rows, a pending wrap ends, the tab stops past the old width are the
+// default ones, and the margins reset.
+void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
+
+// Follow the terminal at one more grid, after the screen's: a copy of from,
+// its cursors, margins, tab stops and line sizes, with its own line sizes in
+// lines, rows for each screen. Dropping it leaves the others as they are.
+void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
+                   uint8_t *lines, uint8_t rows);
+void term_drop_grid(term_t *t, term_grid_t *g);
+
+// The grid the queries are answered from: a program's own while it has one,
+// otherwise the screen's showing grid (cells_shown).
+term_grid_t *term_shown(term_t *t);
 
 // The pen, the cursor and the line sizes of the screen showing.
 static inline term_pen_t *term_pen(const term_t *t)

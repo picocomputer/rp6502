@@ -373,7 +373,6 @@ void HOST_IN_FLASH_FUNC rom_load_argv(const char *argv0, const char *args)
         return;
     }
     tio_cursor_default();
-    com_line_set_clean(); /* after the command line, and the shape moves no cursor */
     rom_exec();
 }
 

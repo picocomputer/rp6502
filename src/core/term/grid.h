@@ -39,4 +39,8 @@ typedef enum
 
 void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch);
 
+/* g becomes a copy of from, with its own line sizes in lines, rows a
+ * screen. The caller points its cur and ls at the screen showing. */
+void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows);
+
 #endif /* _CORE_TERM_GRID_H_ */

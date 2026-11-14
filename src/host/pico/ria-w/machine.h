@@ -32,4 +32,7 @@
 /* The size of the UART's input ring. */
 #define MANIFOLD_RING_SIZE 32
 
+/* The console's terminal follows the VGA's, which is this tall. */
+#define TERM_MAX_HEIGHT 32
+
 #endif /* _HOST_MACHINE_H_ */

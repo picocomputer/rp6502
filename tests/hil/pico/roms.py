@@ -689,4 +689,101 @@ def term_build(ops_at):
     return p
 
 
-ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus, "hil-term": term}
+# The console's terminal on the RIA follows the VGA's through its size
+# changes, and a program's own size, and answers the queries. Each step is
+# what the ROM does first, the query, and the answer it should get, which
+# the ROM prints as "=" and its bytes in hex. An empty answer is no answer.
+# The console has 30 rows, or 32 on an SXGA display, which {h} stands for.
+# Each answer the ROM prints moves the cursor down two rows.
+ATTR_RLN_WIDTH, ATTR_TERM_QUIET = 0x0A, 0x0D
+
+
+def sizes_attr(attr, value):
+    def setup(p):
+        p.push(value)
+        p.call_a(OP_ATTR_SET, attr)
+    return setup
+
+
+SIZE_STEPS = (
+    (None, "\33[18t", b"\33[8;{h};80t"),
+    # The 320x240 canvas, with mode 0 over all of it, and then 22 rows.
+    (lambda p: p.xreg(1, 0, 0, 1, 0, 0, 0, 0), "\33[18t", b"\33[8;30;40t"),
+    (lambda p: p.xreg(1, 0, 1, 0, 0, 0, 176), "\33[18t", b"\33[8;22;40t"),
+    (lambda p: p.say("\r\n" * 30 + "ab"), "\33[6n", b"\33[22;3R"),
+    # The console canvas again.
+    (lambda p: p.xreg(1, 0, 0, 0), "\33[18t", b"\33[8;{h};80t"),
+    # A program's own width.
+    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};132t"),
+    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;100R"),
+    (sizes_attr(ATTR_RLN_WIDTH, 0), "\33[6n", b"\33[3;1R"),
+    # Quiet.
+    (sizes_attr(ATTR_TERM_QUIET, 1), "\33[6n", b""),
+    (sizes_attr(ATTR_TERM_QUIET, 0), "\33[6n", b"\33[7;1R"),
+)
+
+
+def sizes():
+    """Each step of SIZE_STEPS: its setup, its query, and a line of "=" and
+    the answer in hex. The last line is "done"."""
+    p = Asm()
+    for setup, query, _ in SIZE_STEPS:
+        if setup:
+            setup(p)
+        p.say(query)
+        p.jsr_abs("answer")
+    p.say("\33c\r\ndone\r\n")
+    exit_with(p, 0)
+    # The answer, up to a final byte, into TBUF; Y counts it. About a second
+    # with nothing ends it.
+    p.symbol("answer")
+    p.ldy_imm(0)
+    p.symbol("ans_rd")
+    p.stz_zp(TWAIT)
+    p.stz_zp(TWAIT + 1)
+    p.ldx_imm(0)
+    p.symbol("ans_wait")
+    p.bit_abs(RIA_READY)
+    with p.branch("bvc"):
+        p.jmp_abs("ans_got")
+    p.dex()
+    p.bne("ans_wait")
+    p.inc_zp(TWAIT)
+    p.bne("ans_wait")
+    p.inc_zp(TWAIT + 1)
+    p.lda_zp(TWAIT + 1)
+    p.cmp_imm(8)
+    p.bne("ans_wait")
+    p.jmp_abs("ans_print")
+    p.symbol("ans_got")
+    p.lda_abs(RIA_RX)
+    p.sta_aby(TBUF)
+    p.iny()
+    p.cpy_imm(3)
+    p.bcc("ans_rd")  # ESC and [ come first
+    p.cmp_imm(0x40)
+    with p.branch("bcc"):
+        p.jmp_abs("ans_print")  # the final byte
+    p.cpy_imm(15)
+    p.bne("ans_rd")
+    p.symbol("ans_print")
+    p.sty_zp(TOP)
+    p.say("\r\n=")
+    p.ldx_imm(0)
+    p.symbol("ans_hex")
+    p.cpx_zp(TOP)
+    with p.branch("bne"):
+        p.jmp_abs("ans_end")
+    p.lda_zpx(TBUF)
+    p.jsr_abs("puthex")
+    p.inx()
+    p.jmp_abs("ans_hex")
+    p.symbol("ans_end")
+    p.say("\r\n")
+    p.rts()
+    p.use(putc, puthex, putnib)
+    return p
+
+
+ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus, "hil-term": term,
+        "hil-sizes": sizes}

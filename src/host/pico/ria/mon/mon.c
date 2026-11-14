@@ -22,7 +22,6 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
-#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
@@ -49,8 +48,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-// tio_get_term_height falls back to 24 rows when no other height is
-// available, and one row is kept for the prompt.
+// The console starts at 24 rows, and one row is kept for the prompt.
 static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
@@ -86,7 +84,6 @@ static void HOST_IN_FLASH_FUNC mon_reset(const char *args)
     arg_clear();
     fs_save_start();
     tio_cursor_default();
-    com_line_set_clean(); /* after the command line, and the shape moves no cursor */
     sys_run();
 }
 
@@ -464,7 +461,6 @@ static void HOST_IN_FLASH_FUNC mon_more(void)
         break;
     case MON_MORE_END:
         com_printf_utf8(S(STR_MON_MORE_ERASE));
-        com_line_set_clean(); /* --More-- starts a line and erases back to it */
         mon_more_rows_left = tio_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
@@ -706,33 +702,11 @@ void HOST_IN_RAM_FUNC mon_task(void)
         mon_step();
 }
 
-#ifdef NDEBUG
-/* The hard reset clears the screen's terminal alone, when the banner is
- * printed, by which time the VGA is connected. The UART's terminal gets the
- * soft reset and keeps what it shows. */
-static int HOST_IN_FLASH_FUNC mon_hard_reset_response(char *buf, size_t buf_size,
-                                                      int state, unsigned width)
-{
-    (void)width;
-    if (state < 0)
-        return -1;
-    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
-    snprintf(buf, buf_size, "%s", STR_TERM_SOFT_RESET);
-    return -1;
-}
-#endif
-
-/* In a release build the startup banner begins by clearing the terminal, so
- * it must be queued before any other driver can queue an error that it would
- * erase. A debug build keeps the screen, and the console reset at boot resets
- * the screen's terminal, cursor shape included. */
+/* The VGA's connect has already sent the screen's terminal a hard reset. The
+ * banner starts with the soft reset, which every terminal gets. */
 void HOST_IN_FLASH_FUNC mon_init(void)
 {
-#ifdef NDEBUG
-    mon_add_response_fn(mon_hard_reset_response);
-#else
     mon_add_response_utf8(STR_TERM_SOFT_RESET);
-#endif
     mon_add_response_utf8("\n");
     status_add_boot_response();
     mon_add_response_utf8("\n");

@@ -15,6 +15,7 @@
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
+#include "core/term/cells.h"
 #include "core/vga/vga_emu.h"
 #include "machine.h"
 #include "utest.h"
@@ -452,18 +453,56 @@ UTEST(com, a_write_to_telnet_never_reaches_the_uart)
     untap();
 }
 
-UTEST(com, a_write_to_one_terminal_leaves_the_line_clean)
+UTEST(com, a_clean_line_breaks_only_off_column_1)
 {
-    com_line_set_clean();
+    com_putchar('a');
+    com_putchar('b');
     tap();
-    manifold_write_to(COM_TERM_UART, "\33[?25l", 6);
-    ASSERT_TRUE(com_line_clean());
-    manifold_write_to(COM_TERM_ALL, "x", 1);
-    ASSERT_FALSE(com_line_clean());
-    ASSERT_EQ(sent_len, (size_t)7);
-    ASSERT_EQ(memcmp(sent, "\33[?25lx", 7), 0);
-    com_line_set_clean();
+    com_clean_line();
+    ASSERT_EQ(sent_len, (size_t)2);
+    ASSERT_EQ(memcmp(sent, "\r\n", 2), 0);
+    com_putchar('a');
+    com_putchar('b');
+    com_putchar('\r');
+    com_putchar('\n');
+    tap();
+    com_clean_line();
+    ASSERT_EQ(sent_len, (size_t)0);
     untap();
+}
+
+UTEST(com, a_clean_line_counts_a_write_to_the_screen_alone)
+{
+    com_clean_line();
+    manifold_write_to(COM_TERM_SCREEN, "x", 1);
+    tap();
+    com_clean_line();
+    ASSERT_EQ(sent_len, (size_t)2);
+    ASSERT_EQ(memcmp(sent, "\r\n", 2), 0);
+    untap();
+}
+
+/* The soft reset leaves the alternate screen, and the cursor comes back with
+ * it, so where the alternate screen left it decides. */
+static bool end_reset_breaks(const char *primary, const char *alternate)
+{
+    com_clean_line();
+    for (const char *p = primary; *p; p++)
+        com_putchar(*p);
+    for (const char *p = "\33[?47h"; *p; p++)
+        com_putchar(*p);
+    for (const char *p = alternate; *p; p++)
+        com_putchar(*p);
+    tap();
+    com_end_reset();
+    untap();
+    return sent_len >= 2 && !memcmp(&sent[sent_len - 2], "\r\n", 2);
+}
+
+UTEST(com, the_end_reset_reads_the_cursor_after_leaving_the_alternate_screen)
+{
+    ASSERT_TRUE(end_reset_breaks("", "xy"));
+    ASSERT_FALSE(end_reset_breaks("xy", "\r"));
 }
 
 UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
@@ -474,7 +513,6 @@ UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
     com_putchar('c');
     ASSERT_EQ(sent_len, (size_t)3);
     ASSERT_EQ(memcmp(sent, "abc", 3), 0);
-    com_line_set_clean();
     untap();
 }
 
@@ -513,7 +551,7 @@ UTEST(com, a_write_to_the_screen_reaches_term_c_alone)
     ASSERT_EQ(sent_len, (size_t)1);
     ASSERT_EQ(wired_len, (size_t)1);
     unwire();
-    manifold_set_term_out(NULL);
+    cells_init();
     untap();
 }
 
@@ -526,30 +564,13 @@ UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
     com_putchar('c');
     ASSERT_EQ(screen_len, (size_t)3);
     ASSERT_EQ(memcmp(screen, "abc", 3), 0);
-    manifold_set_term_out(NULL);
-    com_line_set_clean();
+    cells_init();
 }
 
-UTEST(com, a_write_to_the_screen_leaves_the_line_clean)
+/* The console's terminal, which com_clean_line reads. */
+UTEST_STATE();
+int main(int argc, const char *const argv[])
 {
-    com_line_set_clean();
-    manifold_write_to(COM_TERM_SCREEN, "x", 1);
-    ASSERT_TRUE(com_line_clean());
+    cells_init();
+    return utest_main(argc, argv);
 }
-
-/* The terminal in charge is the one terminal connected: a script on the
- * UART is none. */
-UTEST(com, term_c_is_in_charge_until_the_host_says_otherwise)
-{
-    ASSERT_EQ(manifold_term_in_charge(), (uint8_t)COM_TERM_SCREEN);
-    ASSERT_EQ(manifold_terms_connected(), (uint8_t)COM_TERM_SCREEN);
-    manifold_set_term_in_charge(COM_TERM_UART);
-    ASSERT_EQ(manifold_term_in_charge(), (uint8_t)COM_TERM_UART);
-    ASSERT_EQ(manifold_terms_connected(), (uint8_t)COM_TERM_UART);
-    manifold_set_term_in_charge(0);
-    ASSERT_EQ(manifold_term_in_charge(), (uint8_t)0);
-    ASSERT_EQ(manifold_terms_connected(), (uint8_t)0);
-    manifold_set_term_in_charge(COM_TERM_SCREEN);
-}
-
-UTEST_MAIN();

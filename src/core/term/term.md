@@ -51,59 +51,25 @@ with what it saves:
 
 ## 3. The terminal on the RIA, and the keyboard modes
 
-### Step 2: the RIA follows the terminal and answers queries
+The RIA follows the VGA's terminal and answers the queries (step 2, done):
+ria/term/cells.c is the RIA's terminal, ria/sys/vga.c replays the VGA's size
+changes and resets, 0x0D turns the answers off, and 0x0A and 0x0B give a
+program's own size as a third grid (tio.c). Pinning either axis fixes both:
+the other takes the screen's size at that moment.
 
-- The RIA builds term.c and grid.c, with its own cells.h functions: replies
-  through a reply source and held buffer of its own (like core/com's
-  manifold_reply, not COM_SOURCE_UART), everything else empty. It defines
-  TERM_MAX_HEIGHT 32. The terminal is skipped while the RIA flashes itself.
-- **Feed it where bytes go to the VGA** (manifold_vga_write), not where they
-  are queued, and apply each xreg at its own pix_send. With no VGA, feed it
-  the UART output, including the screen-only bytes.
-- **Sizes:** replay the VGA's term_set_height calls in the same order:
-  MODE 0 (record its BEGIN and END xregs; apply only when the VGA acks),
-  CANVAS to the console when the old canvas wasn't, and DISPLAY (zero to two
-  calls, depending on view switching). Same layout code, mode0_layout.
-- **Code page:** track the VGA's page with font.c's list to know when a
-  change does a RIS. Make the Pocket's font_set_code_page do the same.
-- **VGA connect** (only at a program's start): RIS to the screen, resend
-  DISPLAY and CODE_PAGE, reset the RIA's terminal. Debug builds too.
-- **Attribute 0x0D:** 1 means the RIA doesn't answer queries. Set at each
-  program start: 0 with a VGA, 1 without. A program may set either.
-- **Attributes 0x0A and 0x0B** (RLN_WIDTH, RLN_HEIGHT): 0 means the
-  screen's size (80x24 with no VGA); reading gives the size in use. Non-zero
-  adds a third grid, up to 255x255: copy the showing grid (repointing its
-  cur and ls, setting tab stops past the old width, resetting the margins),
-  then resize. The line editor and the replies use it while set. Dropped
-  when both are 0 again. Needs a way to add and drop a grid on a running
-  terminal.
-- **Window reports:** the pixel cell size comes from the machine, next to
-  cells_shown, not from the width. REP's cap: a multiple of both row lengths
-  for odd widths.
-- **Remove:** the VGA's reply path and SUPPRESS_TERM_REPLY ($1:F:02).
-- Firmware updates must work with either chip updated first.
+### Step 3: the line editor stops probing (done)
 
-### Step 3: the line editor stops probing
+The line editor asks no terminal anything. A read takes the prompt column,
+width and height from the RIA's terminal once everything printed has reached
+it; rln breaks its own rows with CR LF and moves between them with CUU and
+CUD, and a new width starts the line over on a clean row. Cursor shapes go to
+the screen alone, NAWS is refused, and "cursor in column 1" is the clean line.
+Headless with stdout a pipe or file, the line editor types plainly
+(rln_set_plain).
 
-- No CPR, no DA2, no size query. The prompt column, width and height come
-  from the RIA's terminal when a read starts, after everything printed before
-  the read has reached it. The prompt column counts a pending wrap and the
-  row's line size.
-- Break rows with CR LF right after the last column; move between rows with
-  cursor up and down; clear a redrawn row with EL. rln_resize_redraw no
-  longer assumes the terminal reflowed. TIO_MODES keeps insert mode off and
-  drops ?7h.
-- Cursor shapes go only to the screen, over the screen-only channel.
-- Remove: the probes and their wait, tio's per-terminal marks, answers and
-  greetings, the answer-only-while-owed rule, absorbing CR LF before the size
-  wait, the ranking of which terminal is in charge, NAWS as a size, and the
-  manifold's CR/LF clean-line tracking (use "cursor in column 1" instead).
-- Emulator headless: stdout to a pipe or file, the line editor types plainly
-  (echo and editing keys, no width). stdout to a terminal, the terminal
-  doesn't answer queries; the line editor still uses the terminal's size.
-  core keeps manifold_set_term_in_charge and the reply switch for this.
-  console.c and console_roles.py change with it.
-- Docs: term.rst and api.rst (0x0A, 0x0B, 0x0D), and msbasic's pager.
+Still to do: the docs. term.rst, api.rst (0x0A, 0x0B, 0x0D) and vga.rst
+(SUPPRESS_TERM_REPLY is gone), the 0x0D name in the cc65 and llvm-mos headers,
+and msbasic's pager.
 
 ### Step 4: keyboard modes
 

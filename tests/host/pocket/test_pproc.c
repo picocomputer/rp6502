@@ -29,7 +29,6 @@ void com_rx_clear(void) { pproc_chain_ends++; }
 void com_end_reset(void) {}
 void com_flush(void) {}
 void com_set_bel(bool on) { (void)on; }
-void com_line_set_clean(void) {}
 void oem_restore_code_page(void) {}
 void tio_cursor_default(void) {}
 

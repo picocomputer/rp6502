@@ -9,6 +9,7 @@
 #include "core/str/str.h"
 #include "core/sys/ria.h"
 #include "core/sys/timer.h"
+#include "core/term/cells.h"
 #include "core/com/manifold.h"
 #include "machine.h"
 #include "drivers.h"
@@ -29,13 +30,6 @@ static timer_mach_t com_rx_deadline;
 static com_source_t com_rx_staged;
 
 static bool com_bel_enabled = true;
-
-#define COM_LINE_CR 1
-#define COM_LINE_LF 2
-
-/* Which of CR and LF have gone out since the last other byte. A terminal
- * starts at the start of a line. */
-static uint8_t com_line = COM_LINE_CR | COM_LINE_LF;
 
 size_t HOST_IN_RAM_FUNC com_read(com_source_t src, char *buf, size_t n)
 {
@@ -218,37 +212,16 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-void com_line_track(const char *buf, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-        com_line = buf[i] == '\r'   ? com_line | COM_LINE_CR
-                   : buf[i] == '\n' ? com_line | COM_LINE_LF
-                                    : 0;
-}
-
-bool com_line_clean(void)
-{
-    return com_line == (COM_LINE_CR | COM_LINE_LF);
-}
-
-static void com_line_puts(const char *s)
-{
-    while (*s)
-        com_putchar((unsigned char)*s++);
-}
-
-/* Flushed first, so bytes already on their way cannot count after it. */
-void com_line_set_clean(void)
+/* The console's terminal has had every byte sent, so its cursor tells. At
+ * the last column, a pending wrap or not, CR LF is right. */
+static bool com_line_clean(void)
 {
     com_flush();
-    com_line = COM_LINE_CR | COM_LINE_LF;
+    return term_pos(&cells_term, term_shown(&cells_term))->x == 0;
 }
 
-/* Byte by byte, because a string would be data in flash, and this runs while
- * the RIA is flashing. */
 void com_clean_line(void)
 {
-    com_flush();
     if (!com_line_clean())
     {
         com_putchar('\r');
@@ -257,17 +230,14 @@ void com_clean_line(void)
 }
 
 /* The soft reset starts with CAN, which ends any escape sequence left half
- * sent, so the CR LF after it lands as CR LF. */
+ * sent, and leaves the alternate screen, so the cursor read after it is the
+ * one the CR LF lands on. */
 void com_end_reset(void)
 {
     com_flush();
-    bool clean = com_line_clean();
-    com_line_puts(STR_TERM_SOFT_RESET);
-    if (!clean)
-    {
-        com_putchar('\r');
-        com_putchar('\n');
-    }
+    for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
+        com_putchar((unsigned char)*s);
+    com_clean_line();
 }
 
 void com_sst_save(sst_cursor_t *c, unsigned flags)
@@ -277,7 +247,6 @@ void com_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, com_rx_deadline);
     sst_put_bool(c, com_bel_enabled);
     sst_put_u8(c, (uint8_t)com_rx_staged);
-    sst_put_u8(c, com_line);
 }
 
 bool com_sst_load(sst_cursor_t *c, unsigned flags)
@@ -287,14 +256,11 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags)
     uint64_t deadline = sst_get_u64(c);
     bool bel = sst_get_bool(c);
     uint8_t staged = sst_get_u8(c);
-    uint8_t line = sst_get_u8(c);
-    if (!sst_ok(c) || held > COM_SOURCE_ANY || staged >= COM_SOURCE_COUNT ||
-        line > (COM_LINE_CR | COM_LINE_LF))
+    if (!sst_ok(c) || held > COM_SOURCE_ANY || staged >= COM_SOURCE_COUNT)
         return false;
     com_rx_held = (com_source_t)held;
     com_rx_deadline = deadline;
     com_bel_enabled = bel;
     com_rx_staged = (com_source_t)staged;
-    com_line = line;
     return true;
 }

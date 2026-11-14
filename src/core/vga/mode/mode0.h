@@ -41,6 +41,23 @@ static inline bool mode0_layout(int16_t w, int16_t h,
     return true;
 }
 
+/* Whether a mode 0 program of xregs (PLANE, BEGIN and END at 2, 3 and 4)
+ * succeeds on a canvas w by h, its scanlines, and the terminal it gives. The
+ * VGA programs mode 0 with it, and the RIA works out the VGA's terminal with
+ * it as it sends the xreg, without waiting for the ack. */
+static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
+                               int16_t *begin, int16_t *end,
+                               uint8_t *cols, uint8_t *rows)
+{
+    int16_t plane = (int16_t)xregs[2];
+    *begin = (int16_t)xregs[3];
+    *end = (int16_t)xregs[4];
+    if (!mode0_layout(w, h, begin, end, cols, rows))
+        return false;
+    return plane >= 0 && plane < SCANVIDEO_PLANE_COUNT &&
+           *begin >= 0 && *end <= h && *end - *begin >= 1;
+}
+
 vga_fill_fn_t mode0_fill_fn(uint16_t attributes);
 bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes);
 
