@@ -7,6 +7,7 @@
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
+#include "core/sys/xram.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/mode/mode1.h"
 #include "core/vga/mode/mode2.h"
@@ -158,7 +159,7 @@ UTEST(progmap, a_renderer_that_is_not_there_is_refused)
     ASSERT_TRUE(vga_mode_sprite_fn(3, 0) == NULL);
     ASSERT_TRUE(vga_mode_fill_fn(1, 5) == NULL);
     ASSERT_TRUE(vga_mode_fill_fn(3, 11) == NULL);
-    ASSERT_TRUE(vga_mode_fill_fn(2, 0x1000) == NULL);
+    ASSERT_TRUE(vga_mode_fill_fn(2, 0x8000) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(5, 50) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(5, 64) == NULL);
     ASSERT_TRUE(vga_mode_sprite_fn(4, 2) == NULL);
@@ -204,10 +205,46 @@ UTEST(progmap, a_terminal_row_past_the_terminal_draws_nothing)
     ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
     ASSERT_TRUE(terminal_at(0, 0));
     const vga_fill_fn_t term = mode0_fill_fn(0);
-    ASSERT_FALSE(term(0, 100, 640, line, 400));
-    ASSERT_FALSE(term(0, 479, 640, line, 0xFFF0));
-    ASSERT_TRUE(term(0, 479, 640, line, 0));
+    static vga_fill_cache_t cache;
+    ASSERT_FALSE(term(0, 100, 640, line, 400, &cache));
+    ASSERT_FALSE(term(0, 479, 640, line, 0xFFF0, &cache));
+    ASSERT_TRUE(term(0, 479, 640, line, 0, &cache));
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+/* A 4bpp plane keeps its table of every byte's two pixels in the caller's
+ * cache from line to line. A palette written between lines, or a change of
+ * bit order, still shows on the very next line. */
+UTEST(progmap, a_4bpp_palette_change_shows_on_the_next_line)
+{
+    static uint16_t line[640];
+    static vga_fill_cache_t cache;
+    /* 640 by 1 at 4bpp: data at 0x1000, palette at 0x2000. */
+    const uint8_t cfg[14] = {0, 0, 0, 0, 0, 0, 0x80, 0x02, 1, 0, 0x00, 0x10, 0x00, 0x20};
+    for (unsigned i = 0; i < sizeof cfg; i++)
+        xram[0x100 + i] = cfg[i];
+    for (unsigned i = 0; i < 320; i++)
+        xram[0x1000 + i] = 0x12; /* color 1 then color 2 */
+    const uint16_t first[3] = {0, 0x1111 | 0x20, 0x2222 | 0x20};
+    for (unsigned i = 0; i < 3; i++)
+    {
+        xram[0x2000 + 2 * i] = (uint8_t)first[i];
+        xram[0x2001 + 2 * i] = (uint8_t)(first[i] >> 8);
+    }
+    const vga_fill_fn_t fill = vga_mode_fill_fn(3, 2);
+    const vga_fill_fn_t fill_reverse = vga_mode_fill_fn(3, 10);
+    ASSERT_TRUE(fill(0, 0, 640, line, 0x100, &cache));
+    ASSERT_EQ(line[0], first[1]);
+    ASSERT_EQ(line[639], first[2]);
+    const uint16_t second = 0x3333 | 0x20;
+    xram[0x2002] = (uint8_t)second;
+    xram[0x2003] = (uint8_t)(second >> 8);
+    ASSERT_TRUE(fill(0, 0, 640, line, 0x100, &cache));
+    ASSERT_EQ(line[0], second);
+    ASSERT_EQ(line[639], first[2]);
+    ASSERT_TRUE(fill_reverse(0, 0, 640, line, 0x100, &cache));
+    ASSERT_EQ(line[0], first[2]);
+    ASSERT_EQ(line[639], second);
 }
 
 UTEST_MAIN_EMU()

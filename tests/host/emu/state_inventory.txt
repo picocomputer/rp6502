@@ -70,17 +70,17 @@ core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/com/com.c com_bel_enabled: the COM chunk
-core/com/com.c com_line: the COM chunk
+core/com/com.c com_reply_at: the COM chunk
+core/com/com.c com_reply_buf: the COM chunk
+core/com/com.c com_reply_default: not carried: host wiring
+core/com/com.c com_reply_len: the COM chunk
+core/com/com.c com_reply_quiet: the COM chunk
 core/com/com.c com_rx_deadline: the COM chunk
 core/com/com.c com_rx_held: the COM chunk
 core/com/com.c com_rx_staged: the COM chunk
 core/com/com.c com_sources: the COM chunk
-core/com/manifold.c manifold_charge: not carried: host wiring
 core/com/manifold.c manifold_crlf_last: the MFLD chunk
 core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
-core/com/manifold.c manifold_reply_buf: the MFLD chunk
-core/com/manifold.c manifold_reply_len: the MFLD chunk
-core/com/manifold.c manifold_reply_suppressed: not carried: host wiring
 core/com/manifold.c manifold_std_tap: not carried: host wiring; libretro installs no wire at all
 core/com/manifold.c manifold_stderr_sink: not carried: host wiring
 core/com/manifold.c manifold_term_out: not carried: host wiring
@@ -91,7 +91,6 @@ core/com/manifold.c manifold_wire_hold: not carried: host wiring
 core/com/manifold.c manifold_wire_rx: not carried: host wiring
 core/com/manifold.c manifold_wire_stream: not carried: host wiring
 core/com/manifold.c manifold_wire_tx: not carried: host wiring
-core/com/rln.c held: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/com/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/com/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/com/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
@@ -102,9 +101,9 @@ core/com/rln.c rln_bufpos: the RLN chunk
 core/com/rln.c rln_callback: the RLN chunk
 core/com/rln.c rln_caps: the RLN chunk
 core/com/rln.c rln_cur_idx: the RLN chunk
-core/com/rln.c rln_editing: the RLN chunk
-core/com/rln.c rln_held: the RLN chunk
-core/com/rln.c rln_held_len: the RLN chunk
+core/com/rln.c rln_grid: the RLN chunk
+core/com/rln.c rln_grid_lines: the RLN chunk
+core/com/rln.c rln_grid_width: the RLN chunk
 core/com/rln.c rln_history: the RLN chunk
 core/com/rln.c rln_history_count: the RLN chunk
 core/com/rln.c rln_history_pos: the RLN chunk
@@ -118,29 +117,16 @@ core/com/rln.c rln_line_ends: the RLN chunk
 core/com/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
 core/com/rln.c rln_max_length: the RLN chunk
 core/com/rln.c rln_overwrite: the RLN chunk
+core/com/rln.c rln_pinned_height: the RLN chunk
+core/com/rln.c rln_pinned_width: the RLN chunk
+core/com/rln.c rln_plain: not carried: host wiring
 core/com/rln.c rln_prompt_col: the RLN chunk
 core/com/rln.c rln_rendered_max_row: the RLN chunk
+core/com/rln.c rln_rows: the RLN chunk
 core/com/rln.c rln_skip_history: the RLN chunk
 core/com/rln.c rln_suppress_newline: the RLN chunk
 core/com/rln.c rln_width: the RLN chunk
-core/com/tio.c tio_answers: the TIO chunk
-core/com/tio.c tio_charge: the TIO chunk
-core/com/tio.c tio_deadline: the TIO chunk
-core/com/tio.c tio_greeted: the TIO chunk
-core/com/tio.c tio_height: the TIO chunk
-core/com/tio.c tio_marks: the TIO chunk
-core/com/tio.c tio_naws_height: the TIO chunk
-core/com/tio.c tio_naws_width: the TIO chunk
-core/com/tio.c tio_pcol: the TIO chunk
-core/com/tio.c tio_pinned_height: the TIO chunk
-core/com/tio.c tio_pinned_width: the TIO chunk
-core/com/tio.c tio_probe: the TIO chunk
-core/com/tio.c tio_quiet: the TIO chunk
-core/com/tio.c tio_shape: the TIO chunk
-core/com/tio.c tio_sized: the TIO chunk
 core/com/tio.c tio_sources: the TIO chunk
-core/com/tio.c tio_state: the TIO chunk
-core/com/tio.c tio_width: the TIO chunk
 core/dap/dbg.c dbg_watch_armed: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_active: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_bp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
@@ -246,31 +232,37 @@ core/sys/xram.c xram: the XRAM chunk
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting
 core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
 core/sys/xram.c xram_fill_value: not carried: a session's fill setting
-core/term/color.c color_256_term: the TERM chunk
+core/term/color.c color_256_term: the CELL chunk
 core/term/font.c font16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_code_page: derived: the OEM chunk's load installs it through font_load_code_page
 core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/term.c term40_alt_mem: the TERM chunk
-core/term/term.c term40_pri_mem: the TERM chunk
-core/term/term.c term80_alt_mem: the TERM chunk
-core/term/term.c term80_pri_mem: the TERM chunk
-core/term/term.c term_40: the TERM chunk
-core/term/term.c term_80: the TERM chunk
+core/term/cells.c term40_alt_mem: the CELL chunk
+core/term/cells.c term40_pri_mem: the CELL chunk
+core/term/cells.c term80_alt_mem: the CELL chunk
+core/term/cells.c term80_pri_mem: the CELL chunk
+core/term/cells.c cells_40: the CELL chunk
+core/term/cells.c cells_80: the CELL chunk
+core/term/cells.c cells_cursor_color: the CELL chunk
+core/term/cells.c cells_default_bg: the CELL chunk
+core/term/cells.c cells_default_fg: the CELL chunk
+core/term/cells.c cells_term: the CELL chunk
 core/vga/canvas.c canvas_code: the VGA chunk
 core/vga/canvas.c canvas_h: the VGA chunk
 core/vga/canvas.c canvas_w: the VGA chunk
 core/vga/canvas.c console_h: the VGA chunk
 core/vga/canvas.c console_w: the VGA chunk
 core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
+core/vga/mode/mode2.c mode2_tiles: a table of functions, fixed at build
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
 core/vga/prog.c vga_highest_scanline: the VGA chunk
 core/vga/prog.c vga_prog: the VGA chunk
 core/vga/vga.c beam_n: the VGA chunk
 core/vga/vga.c frame_n: the VGA chunk
 core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
+core/vga/vga.c vga_fill_cache: derived: every line checks it against the palette it was built from and builds it again if they differ
 core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk

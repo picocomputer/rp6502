@@ -164,6 +164,10 @@ class Asm:
         self._sym[name] = self.org + len(self._b)
         return name
 
+    def address(self, name):
+        """The address of a symbol defined so far."""
+        return self._sym[name]
+
     def local(self, hint="L"):
         self._n += 1
         return f"{hint}.{self._n}"

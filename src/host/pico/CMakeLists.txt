@@ -18,6 +18,18 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,__wrap_vsnprintf
 )
 
+# Every Pico board keeps XRAM in the last 64 KB of main RAM, and the RIA keeps
+# its registers through a reboot; see ld/. xram.c is built outside LTO with
+# -fdata-sections, which keeps xram in a .bss.xram of its own for ld/ to place.
+# The flag stays off the rest of the link, where it would cost the section
+# anchors that the renderers' hot loops lean on.
+function(rp6502_pico_memory TARGET)
+    pico_add_linker_script_override_path(${TARGET} ${RP6502_ROOT}/src/host/pico/ld GLOB_FILES)
+    set_source_files_properties(${RP6502_ROOT}/src/core/sys/xram.c
+        TARGET_DIRECTORY ${TARGET}
+        PROPERTIES COMPILE_OPTIONS "-fno-lto;-fdata-sections")
+endfunction()
+
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/littlefs SENTINEL lfs.c
     WANTS "the firmware's flash filesystem")

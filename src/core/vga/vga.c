@@ -18,7 +18,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/term/font.h"
 #include "core/wdc/bus.h"
 #include "core/dap/dbg.h"
@@ -359,6 +359,9 @@ bool vga_frame_crc(uint32_t *crc)
  * The VGA firmware diverges here: it paints a plane's sprites into the buffer
  * of the most recently filled plane at or below it, not into the plane's
  * own. */
+/* The emulators render one line at a time, so one set of caches serves. */
+static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
+
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = vga_canvas_width();
@@ -368,7 +371,8 @@ static void render_scanline(int y, uint32_t *fb)
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         if (p->fill_fn[i])
-            filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i]);
+            filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i],
+                                      &vga_fill_cache[i]);
         if (p->sprite_fn[i])
         {
             if (!filled[i])

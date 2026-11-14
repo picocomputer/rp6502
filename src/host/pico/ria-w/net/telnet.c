@@ -31,7 +31,6 @@
 #define TEL_OPT_ECHO 1
 #define TEL_OPT_SGA 3
 #define TEL_OPT_TTYPE 24
-#define TEL_OPT_NAWS 31
 
 // Subnegotiation commands
 #define TEL_TTYPE_IS 0
@@ -43,11 +42,10 @@ enum
     TEL_IDX_ECHO,
     TEL_IDX_SGA,
     TEL_IDX_TTYPE,
-    TEL_IDX_NAWS,
     TEL_OPT_COUNT,
 };
 static const uint8_t tel_opt_codes[TEL_OPT_COUNT] = {
-    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE, TEL_OPT_NAWS};
+    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE};
 
 typedef enum
 {
@@ -89,9 +87,6 @@ typedef struct
     bool tx_escape_pending;
     uint8_t tx_escape_byte;
     const char *ttype;
-    uint16_t naws_w;
-    uint16_t naws_h;
-    bool naws_dirty;
 } tel_conn_t;
 
 static tel_conn_t tel_conns[NET_MAX_CONNECTIONS];
@@ -111,10 +106,8 @@ static bool tel_accept_us(const tel_conn_t *tc, int idx)
     return idx == TEL_IDX_BINARY || idx == TEL_IDX_SGA || idx == TEL_IDX_TTYPE;
 }
 
-static bool tel_accept_him(const tel_conn_t *tc, int idx)
+static bool tel_accept_him(int idx)
 {
-    if (idx == TEL_IDX_NAWS)
-        return tc->is_server;
     return idx == TEL_IDX_BINARY || idx == TEL_IDX_ECHO || idx == TEL_IDX_SGA;
 }
 
@@ -175,7 +168,7 @@ static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
     switch (tc->him[idx])
     {
     case tel_q_no:
-        if (tel_accept_him(tc, idx))
+        if (tel_accept_him(idx))
         {
             tc->him[idx] = tel_q_yes;
             tel_q_send(desc, tc, TEL_DO, idx);
@@ -288,13 +281,6 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
 {
     if (tc->sb_len < 1)
         return;
-    if (tc->sb_buf[0] == TEL_OPT_NAWS && tc->sb_len >= 5)
-    {
-        tc->naws_w = (uint16_t)((tc->sb_buf[1] << 8) | tc->sb_buf[2]);
-        tc->naws_h = (uint16_t)((tc->sb_buf[3] << 8) | tc->sb_buf[4]);
-        tc->naws_dirty = true;
-        return;
-    }
     if (tc->ttype &&
         tc->sb_buf[0] == TEL_OPT_TTYPE &&
         tc->sb_len >= 2 && tc->sb_buf[1] == TEL_TTYPE_SEND)
@@ -489,17 +475,6 @@ uint16_t telnet_rx(int desc, char *buf, uint16_t len)
     return tel_decode(desc, buf, len);
 }
 
-bool telnet_get_naws(int desc, uint16_t *w, uint16_t *h)
-{
-    tel_conn_t *tc = &tel_conns[desc];
-    if (!tc->naws_dirty)
-        return false;
-    tc->naws_dirty = false;
-    *w = tc->naws_w;
-    *h = tc->naws_h;
-    return true;
-}
-
 static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
 {
     if (byte == (uint8_t)TEL_IAC)
@@ -663,7 +638,6 @@ static void tel_negotiate_server(int desc)
     tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);
     tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);
     tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_NAWS);
     RP6502_LOG(telnet, DEBUG, "server negotiation sent");
 }
 

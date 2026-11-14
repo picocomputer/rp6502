@@ -176,6 +176,7 @@ file(WRITE ${_ria_ld}/default_rodata_excludes.incl
     "${_ria_flash_rodata}EXCLUDE_FILE(${_ria_ram_strings}) *(.rodata.str?.* .rodata.*.str?.*)\n*(EXCLUDE_FILE(${_ria_ram_files}) .rodata*)\n")
 pico_add_linker_script_override_path(${RIA_TARGET} ${_ria_ld}
     FILES default_text_excludes.incl default_rodata_excludes.incl)
+rp6502_pico_memory(${RIA_TARGET})
 
 set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
@@ -257,6 +258,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/str/unicode.c
+    ${RP6502_ROOT}/src/core/term/term.c
+    ${RP6502_ROOT}/src/core/term/grid.c
+    ${RIA_SRC}/term/cells.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c

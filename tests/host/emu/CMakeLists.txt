@@ -17,13 +17,15 @@ rp6502_add_script_test(NAME codepage COMMAND codepage.txt ${STDIO_ROM})
 
 rp6502_add_script_test(NAME console COMMAND console.txt ${STDIO_ROM})
 
+rp6502_add_script_test(NAME console_wrap COMMAND console_wrap.txt ${STDIO_ROM})
+
 rp6502_add_script_test(NAME eof COMMAND eof.txt ${STDIO_ROM})
 
 rp6502_add_script_test(NAME headless_eof COMMAND headless_eof.py ${STDIO_ROM})
 
 # A pty stands in for the host's terminal.
 if(NOT WIN32)
-    foreach(_name console_headless_terminal console_window)
+    foreach(_name console_headless_terminal console_headless_pipe console_window)
         rp6502_add_script_test(NAME ${_name} COMMAND console_roles.py ${STDIO_ROM})
     endforeach()
 endif()
@@ -116,6 +118,8 @@ if(WIN32)
 endif()
 
 rp6502_add_test(sys LIBS emu_core)
+
+rp6502_add_test(term LIBS emu_core)
 
 rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 

@@ -12,7 +12,6 @@
 #define HOST_IN_RAM
 #define HOST_IN_RAM_FUNC
 #define HOST_ISR_FUNC
-#define HOST_UNINITIALIZED_RAM(name) name
 #define HOST_REGISTER_RAM(name) name
 
 /* APF has four controller slots, and apf.c mounts at most one HID slot

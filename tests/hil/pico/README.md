@@ -15,6 +15,9 @@ on, so a developer runs them on a workstation with the rig attached.
 - `--elf` names the ELF of the firmware on the RIA. With it, the tests read
   the audio load through the probe, and `--flash` programs that ELF before
   the tests.
+  With two probes, `--probe` picks one by its serial number. `--flash`
+  writes nothing unless the chip already runs firmware of the ELF's name
+  (src/host/pico/check.cfg), so a RIA build never lands on the VGA.
 - `--runs 2` runs the tests twice. Compare two builds with two runs of each
   on the same drive.
 - `--emit dir` writes the ROMs. The tests assemble them from `roms.py` with
@@ -103,6 +106,23 @@ Give it a RIA UF2: a VGA UF2 flashes the VGA, and the VGA console is the way
 back when the RIA fails.
 
 Reference, same firmware: the upload takes 31 s over telnet, the flash 13 s.
+
+## term
+
+The test to run after any change to the console's terminal, term.c on the
+VGA. It sends the slowest things the terminal does at the full 115200 baud of
+the console: a long REP, insert mode, ICH and DCH, erases, IL and DL, a
+scroll storm, palette changes, RIS, the alternate screen, a long SGR, and
+drawn controls. A probe follows each one at once: the cursor homed to row 2,
+200 x's, and a cursor position request. The UART keeps sending while the
+terminal works, so a byte that the VGA's UART dropped puts the cursor
+somewhere else, and the test fails.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --video /dev/video0 term
+
+With `--video`, a capture device on the VGA output is watched during the run,
+every frame, and a late scanline fails the test. A late scanline is a row of
+scanvideo's missing-line blue, so the test draws no blue of its own.
 
 ## Cautions
 

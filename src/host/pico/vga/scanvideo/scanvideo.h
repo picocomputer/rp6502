@@ -64,15 +64,10 @@ typedef struct scanvideo_scanline_buffer
     uint32_t scanline_id;
     uint32_t *data0;
     uint16_t data0_used;
-    uint16_t data0_max;
     uint32_t *data1;
     uint16_t data1_used;
-    uint16_t data1_max;
     uint32_t *data2;
     uint16_t data2_used;
-    uint16_t data2_max;
-    void *user_data;
-    uint8_t status;
 } scanvideo_scanline_buffer_t;
 
 // == API ===============

@@ -20,6 +20,7 @@ FONT_C = "src/core/term/font.c"
 
 DEC_MAP_BLANK = 0xFFFF
 DEC_MAP_ASCII = 0x10000
+DEC_MAP_DRAWN = 0x20000
 
 OFF_FONT16 = 0x0000
 OFF_FONT8 = 0x1000
@@ -58,6 +59,8 @@ def parse_dec_map(text):
                 v |= DEC_MAP_BLANK
             elif tok == "DEC_MAP_ASCII":
                 v |= DEC_MAP_ASCII
+            elif tok == "DEC_MAP_DRAWN":
+                v |= DEC_MAP_DRAWN
             else:
                 v |= int(tok.rstrip("u"), 0)
         entries.append(v)
@@ -91,6 +94,8 @@ def build_tables(text):
         if len(arr) != want:
             sys.exit(f"font.py: {name} has {len(arr)} bytes, want {want}")
     dec_map = parse_dec_map(text)
+    drawn16 = parse_array(text, "FONT16_DEC_DRAWN")
+    drawn8 = parse_array(text, "FONT8_DEC_DRAWN")
 
     # font16 and font8 have a 256-byte stride and blank high halves, which
     # matches the tables font_init in core/term/font.c has built just before
@@ -112,7 +117,9 @@ def build_tables(text):
             m = dec_map[idx]
             if m == DEC_MAP_BLANK:
                 continue
-            if m & DEC_MAP_ASCII:
+            if m & DEC_MAP_DRAWN:
+                dec16[row * 32 + idx] = drawn16[(m & 0xFF) * 16 + row]
+            elif m & DEC_MAP_ASCII:
                 dec16[row * 32 + idx] = ascii16[row * 128 + (m & 0xFF)]
             else:
                 dec16[row * 32 + idx] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
@@ -123,7 +130,9 @@ def build_tables(text):
             m = dec_map[idx]
             if m == DEC_MAP_BLANK:
                 continue
-            if m & DEC_MAP_ASCII:
+            if m & DEC_MAP_DRAWN:
+                dec8[row * 32 + idx] = drawn8[(m & 0xFF) * 8 + row]
+            elif m & DEC_MAP_ASCII:
                 dec8[row * 32 + idx] = ascii8[row * 128 + (m & 0xFF)]
             else:
                 dec8[row * 32 + idx] = cp437_8[row * 128 + ((m & 0xFF) - 0x80)]

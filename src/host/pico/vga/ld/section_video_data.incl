@@ -1,0 +1,32 @@
+/* The VGA's version of pico/ld/section_video_data.incl, read inside the
+ * SECTIONS of section_uninitialized_data.incl, so it claims these ahead of the
+ * catch-alls for .bss and .rodata. Moving each of them into the upper group
+ * of banks measured faster: the scanline buffers the most, the built-in
+ * palettes 5-7% at 4 and 8 bits per pixel, the fonts about 1%. The
+ * console's screens go there too, to leave the lower group to the code. */
+
+/* The scanline buffers, and the RAM copies of the fonts that font_init fills,
+ * hold nothing until the code writes them. */
+.video_data (NOLOAD) : {
+    *(.video_data.*)
+    *font.c.o(.bss*)
+} > VIDEO
+
+/* The built-in palettes are constant tables. The boot code fills only .text,
+ * .data and the scratch banks from flash, so init() in main.c copies these. */
+.video_rodata : {
+    __video_rodata_start__ = .;
+    *color.c.o(.rodata*)
+    . = ALIGN(4);
+    __video_rodata_end__ = .;
+} > VIDEO AT> RAM_STORE
+__video_rodata_source__ = LOADADDR(.video_rodata);
+
+/* The console's screens and state, which C expects zeroed. The boot code
+ * zeroes only .bss, so init() in main.c zeroes these. */
+.video_bss (NOLOAD) : {
+    __video_bss_start__ = .;
+    *cells.c.o(.bss*)
+    . = ALIGN(4);
+    __video_bss_end__ = .;
+} > VIDEO

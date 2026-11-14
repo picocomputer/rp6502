@@ -6,8 +6,9 @@
 from rp6502_asm import (API_A, API_ERRNO, API_X, OP_ATTR_GET, OP_ATTR_SET,
                         OP_CLOSE, OP_EXIT, OP_OPEN, OP_READ_XRAM, OP_REMOVE,
                         OP_WRITE_XRAM, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
-                        RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP, RW1_ADDR,
-                        RW1_DATA, RW1_STEP, XSTACK, Asm, putc)
+                        RIA_READY, RIA_RX, RIA_TX, RW0_ADDR, RW0_DATA,
+                        RW0_STEP, RW1_ADDR, RW1_DATA, RW1_STEP, XSTACK, Asm,
+                        puthex, putnib, putc)
 
 API_SREG = 0xFFF8
 ATTR_ERRNO_OPT = 0x00
@@ -542,4 +543,247 @@ def bus():
     return p
 
 
-ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus}
+# The slowest things the console's terminal does, each followed at once by a
+# probe: the cursor homed to row 2, 200 x's, and a cursor position request.
+# The UART keeps sending while the terminal works on the op, so the probe's
+# bytes arrive then, and a byte the VGA's UART lost puts the cursor somewhere
+# else than row 4, column 41.
+TERM_OPS = (
+    b"x\33[65535b",
+    b"\33[4h" + b"y" * 80 + b"\33[4l",
+    b"\33[H" + b"\33[80@" * 10 + b"\33[80P" * 10,
+    b"\33[1;31;42m\33[2J\33[0m\33[3J",
+    b"\33[H" + b"\33[30L" * 5 + b"\33[30M" * 5 + b"\33[30S\33[30T",
+    b"\r\n" * 60,
+    b"\33]4;1;#ff0000\7" * 10 + b"\33]104\7\33]10;#123456;#000000\7\33]110\7",
+    b"\33c",
+    b"\33[?1049h\33[?1049l" * 10,
+    b"\33[5;25r" + b"\n" * 40 + b"\33[r",
+    b"\33[" + b"1;" * 300 + b"m",
+    b"\33[38;2;1;2;3;48;5;100;1;4;5m" * 20 + b"\33[0m",
+    b"\33[11m\1\2\3\4\5\6\33[10m\33(0lqqk\33(B" * 10,
+    b"\33#8",
+    b"\33[H\33#6" + b"w" * 40 + b"\r\n\33#3" + b"t" * 40 + b"\r\n\33#4" + b"t" * 40
+    + b"\33[2J",
+    b"\33[40 @\33[40 A" * 10,
+    b"\33[?5h\33[?5l" * 5,
+)
+TERM_PROBE = b"\33[2;1H" + b"x" * 200 + b"\33[6n"
+TERM_ANSWER = b"\33[4;41R"
+TERM_LOOPS = 4
+
+# Zero page of the terminal ROM.
+TPTR, TOP, TLOOP, TWAIT, TBUF = 0x50, 0x52, 0x53, 0x54, 0x60
+
+
+def term():
+    """Each op of TERM_OPS and its probe, TERM_LOOPS times. A probe that
+    gets another answer, or none in about a second, prints "?op" and the op's
+    index in hex. The last line is "done"."""
+    # Built twice: the first time finds where the ops land.
+    ops_at = term_build(0).address("ops")
+    return term_build(ops_at)
+
+
+def term_build(ops_at):
+    p = Asm()
+    p.store(TLOOP, TERM_LOOPS)
+    p.symbol("outer")
+    p.store(TPTR, ops_at & 0xFF)
+    p.store(TPTR + 1, ops_at >> 8)
+    p.stz_zp(TOP)
+    p.symbol("op")
+    p.lda_izp(TPTR)
+    with p.branch("bne"):
+        p.jmp_abs("next_loop")
+    p.symbol("send")
+    p.lda_izp(TPTR)
+    with p.branch("bne"):
+        p.jmp_abs("sent")
+    p.jsr_abs("putc")
+    p.inc_zp(TPTR)
+    with p.branch("bne"):
+        p.inc_zp(TPTR + 1)
+    p.jmp_abs("send")
+    p.symbol("sent")
+    p.inc_zp(TPTR)
+    with p.branch("bne"):
+        p.inc_zp(TPTR + 1)
+    # The probe.
+    p.ldx_imm(0)
+    p.symbol("probe")
+    p.lda_abx("probe_text")
+    with p.branch("bne"):
+        p.jmp_abs("probe_sent")
+    p.jsr_abs("putc")
+    p.inx()
+    p.jmp_abs("probe")
+    p.symbol("probe_sent")
+    # The answer, up to its R, into TBUF; Y counts it.
+    p.ldy_imm(0)
+    p.symbol("rd")
+    p.stz_zp(TWAIT)
+    p.stz_zp(TWAIT + 1)
+    p.ldx_imm(0)
+    p.symbol("wait")
+    p.bit_abs(RIA_READY)
+    with p.branch("bvc"):
+        p.jmp_abs("got")
+    p.dex()
+    p.bne("wait")
+    p.inc_zp(TWAIT)
+    p.bne("wait")
+    p.inc_zp(TWAIT + 1)
+    p.lda_zp(TWAIT + 1)
+    p.cmp_imm(8)
+    p.bne("wait")
+    p.jmp_abs("bad")
+    p.symbol("got")
+    p.lda_abs(RIA_RX)
+    p.sta_aby(TBUF)
+    p.iny()
+    p.cmp_imm(ord("R"))
+    with p.branch("bne"):
+        p.jmp_abs("check")
+    p.cpy_imm(15)
+    p.bne("rd")
+    p.jmp_abs("bad")
+    p.symbol("check")
+    p.cpy_imm(len(TERM_ANSWER))
+    p.bne("bad_near")
+    p.ldx_imm(0)
+    p.symbol("cmp")
+    p.lda_zpx(TBUF)
+    p.cmp_abx("answer")
+    p.bne("bad_near")
+    p.inx()
+    p.cpx_imm(len(TERM_ANSWER))
+    p.bne("cmp")
+    p.jmp_abs("good")
+    p.symbol("bad_near")
+    p.symbol("bad")
+    p.say("\r\n?op ")
+    p.lda_zp(TOP)
+    p.jsr_abs("puthex")
+    p.say("\r\n")
+    p.symbol("good")
+    p.inc_zp(TOP)
+    p.jmp_abs("op")
+    p.symbol("next_loop")
+    p.dec_zp(TLOOP)
+    with p.branch("bne"):
+        p.jmp_abs("finish")
+    p.jmp_abs("outer")
+    p.symbol("finish")
+    p.say("\33c\r\ndone\r\n")
+    exit_with(p, 0)
+    p.use(putc, puthex, putnib)
+    p.symbol("probe_text")
+    p.data(TERM_PROBE + b"\0")
+    p.symbol("answer")
+    p.data(TERM_ANSWER)
+    p.symbol("ops")
+    for o in TERM_OPS:
+        p.data(o + b"\0")
+    p.data(b"\0")
+    return p
+
+
+# The console's terminal on the RIA follows the VGA's through its size
+# changes, and a program's own size, and answers the queries. Each step is
+# what the ROM does first, the query, and the answer it should get, which
+# the ROM prints as "=" and its bytes in hex. An empty answer is no answer.
+# The console has 30 rows, or 32 on an SXGA display, which {h} stands for.
+# Each answer the ROM prints moves the cursor down two rows.
+ATTR_RLN_WIDTH, ATTR_TERM_QUIET = 0x0A, 0x0D
+
+
+def sizes_attr(attr, value):
+    def setup(p):
+        p.push(value)
+        p.call_a(OP_ATTR_SET, attr)
+    return setup
+
+
+SIZE_STEPS = (
+    (None, "\33[18t", b"\33[8;{h};80t"),
+    # The 320x240 canvas, with mode 0 over all of it, and then 22 rows.
+    (lambda p: p.xreg(1, 0, 0, 1, 0, 0, 0, 0), "\33[18t", b"\33[8;30;40t"),
+    (lambda p: p.xreg(1, 0, 1, 0, 0, 0, 176), "\33[18t", b"\33[8;22;40t"),
+    (lambda p: p.say("\r\n" * 30 + "ab"), "\33[6n", b"\33[22;3R"),
+    # The console canvas again.
+    (lambda p: p.xreg(1, 0, 0, 0), "\33[18t", b"\33[8;{h};80t"),
+    # A program's own width.
+    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};132t"),
+    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;100R"),
+    (sizes_attr(ATTR_RLN_WIDTH, 0), "\33[6n", b"\33[3;1R"),
+    # Quiet.
+    (sizes_attr(ATTR_TERM_QUIET, 1), "\33[6n", b""),
+    (sizes_attr(ATTR_TERM_QUIET, 0), "\33[6n", b"\33[7;1R"),
+)
+
+
+def sizes():
+    """Each step of SIZE_STEPS: its setup, its query, and a line of "=" and
+    the answer in hex. The last line is "done"."""
+    p = Asm()
+    for setup, query, _ in SIZE_STEPS:
+        if setup:
+            setup(p)
+        p.say(query)
+        p.jsr_abs("answer")
+    p.say("\33c\r\ndone\r\n")
+    exit_with(p, 0)
+    # The answer, up to a final byte, into TBUF; Y counts it. About a second
+    # with nothing ends it.
+    p.symbol("answer")
+    p.ldy_imm(0)
+    p.symbol("ans_rd")
+    p.stz_zp(TWAIT)
+    p.stz_zp(TWAIT + 1)
+    p.ldx_imm(0)
+    p.symbol("ans_wait")
+    p.bit_abs(RIA_READY)
+    with p.branch("bvc"):
+        p.jmp_abs("ans_got")
+    p.dex()
+    p.bne("ans_wait")
+    p.inc_zp(TWAIT)
+    p.bne("ans_wait")
+    p.inc_zp(TWAIT + 1)
+    p.lda_zp(TWAIT + 1)
+    p.cmp_imm(8)
+    p.bne("ans_wait")
+    p.jmp_abs("ans_print")
+    p.symbol("ans_got")
+    p.lda_abs(RIA_RX)
+    p.sta_aby(TBUF)
+    p.iny()
+    p.cpy_imm(3)
+    p.bcc("ans_rd")  # ESC and [ come first
+    p.cmp_imm(0x40)
+    with p.branch("bcc"):
+        p.jmp_abs("ans_print")  # the final byte
+    p.cpy_imm(15)
+    p.bne("ans_rd")
+    p.symbol("ans_print")
+    p.sty_zp(TOP)
+    p.say("\r\n=")
+    p.ldx_imm(0)
+    p.symbol("ans_hex")
+    p.cpx_zp(TOP)
+    with p.branch("bne"):
+        p.jmp_abs("ans_end")
+    p.lda_zpx(TBUF)
+    p.jsr_abs("puthex")
+    p.inx()
+    p.jmp_abs("ans_hex")
+    p.symbol("ans_end")
+    p.say("\r\n")
+    p.rts()
+    p.use(putc, puthex, putnib)
+    return p
+
+
+ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus, "hil-term": term,
+        "hil-sizes": sizes}

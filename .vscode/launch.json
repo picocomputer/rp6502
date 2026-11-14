@@ -274,9 +274,10 @@
             "device": "${command:raspberry-pi-pico.getChipUppercase}",
             "configFiles": [
                 "interface/cmsis-dap.cfg",
-                "target/${command:raspberry-pi-pico.getTarget}.cfg"
+                "target/${command:raspberry-pi-pico.getTarget}.cfg",
+                "${workspaceFolder}/src/host/pico/check.cfg"
             ],
-            "svdFile": "${userHome}/.pico-sdk/sdk/2.3.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
+            "svdFile": "${userHome}/.pico-sdk/sdk/2.3.1/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
             "overrideLaunchCommands": [
                 "monitor reset init",
@@ -287,10 +288,13 @@
             "openOCDPreConfigLaunchCommands": [
                 "set FLASHSIZE 0x400000"
             ],
+            // check.cfg: OpenOCD stops before gdb loads anything unless the
+            // chip already runs firmware of the ELF's name, and stopping the
+            // debugger leaves the chip running on its own.
             "openOCDLaunchCommands": [
                 "adapter speed 5000",
-                // On stop, resume both cores and clear DHCSR.C_DEBUGEN.
-                "rp2350.cm0 configure -event gdb-detach { resume; poll off; rp2350.cm0 write_memory 0xE000EDF0 32 0xA05F0000; rp2350.cm1 write_memory 0xE000EDF0 32 0xA05F0000; shutdown }"
+                "rp6502_check {${command:cmake.launchTargetPath}}",
+                "rp6502_release"
             ]
         },
         {
@@ -303,7 +307,7 @@
             "gdbTarget": "localhost:3333",
             "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
             "device": "${command:raspberry-pi-pico.getChipUppercase}",
-            "svdFile": "${userHome}/.pico-sdk/sdk/2.3.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
+            "svdFile": "${userHome}/.pico-sdk/sdk/2.3.1/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
             "overrideLaunchCommands": [
                 "monitor reset init",
@@ -321,7 +325,7 @@
             "miDebuggerServerAddress": "localhost:3333",
             "debugServerPath": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
             // Same flash size and stop handling as Pico Debug (Cortex-Debug).
-            "debugServerArgs": "-c \"set FLASHSIZE 0x400000\" -f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -c \"adapter speed 5000\" -c \"rp2350.cm0 configure -event gdb-detach { resume; poll off; rp2350.cm0 write_memory 0xE000EDF0 32 0xA05F0000; rp2350.cm1 write_memory 0xE000EDF0 32 0xA05F0000; shutdown }\"",
+            "debugServerArgs": "-c \"set FLASHSIZE 0x400000\" -f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -f ${workspaceFolder}/src/host/pico/check.cfg -c \"adapter speed 5000\" -c rp6502_release",
             "serverStarted": "Listening on port .* for gdb connections",
             "filterStderr": true,
             "hardwareBreakpoints": {
@@ -329,7 +333,7 @@
                 "limit": 4
             },
             "preLaunchTask": "Flash",
-            "svdPath": "${userHome}/.pico-sdk/sdk/2.3.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd"
+            "svdPath": "${userHome}/.pico-sdk/sdk/2.3.1/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd"
         }
     ]
 }

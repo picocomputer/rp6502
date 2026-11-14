@@ -17,3 +17,12 @@ Prefer improving the architecture over a wrapper or other hack.
 
 Do not commit or push unless specifically asked to. Do not look for answers
 in git history unless asked to.
+
+Hardware on the bench is reached through CMSIS-DAP debug probes, one or two,
+each on the SWD port of the RIA or the VGA. Flash only through OpenOCD with
+src/host/pico/check.cfg: it reads the program name of the firmware on the chip
+(RP6502-VGA, RP6502-RIA, RP6502-RIA-W) and writes nothing unless it matches the
+ELF. With two probes, pick one with `adapter serial`. The VGA's own USB port is
+a separate serial device. Some benches also have video and audio capture
+devices. Under WSL, devices come through usbipd; if one is missing, check
+`usbipd.exe list` and attach it.

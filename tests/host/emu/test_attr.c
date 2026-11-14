@@ -9,12 +9,14 @@
 #include "core/api/xreg.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
+#include "core/com/com.h"
 #include "core/ria/regs.h"
 #include "utest.h"
 #include <string.h>
 
 #define ATTR_PHI2_KHZ 0x01
 #define ATTR_CODE_PAGE 0x02
+#define ATTR_TERM_QUIET 0x0D
 #define ATTR_PCM_UNDERRUNS 0x0E
 #define ATTR_OPL_OVERRUNS 0x0F
 
@@ -91,6 +93,23 @@ UTEST(attr, pcm_underruns_is_read_only)
     ASSERT_EQ(attr_get(ATTR_PCM_UNDERRUNS), 0);
     ASSERT_EQ(attr_set(ATTR_PCM_UNDERRUNS, 0), -1);
     ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
+}
+
+/* 0x0D turns the console's terminal's answers off and on, and each program
+ * starts with the machine's default: on, here, where the screen is the
+ * emulator's own. */
+UTEST(attr, term_quiet_turns_the_replies_off)
+{
+    api_set_errno_opt(2);
+    com_run();
+    ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 0);
+    ASSERT_EQ(attr_set(ATTR_TERM_QUIET, 1), 0);
+    ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 1);
+    ASSERT_TRUE(com_get_reply_quiet());
+    ASSERT_EQ(attr_set(ATTR_TERM_QUIET, 2), -1);
+    ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
+    com_run();
+    ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 0);
 }
 
 UTEST_MAIN();

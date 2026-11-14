@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
+#include "core/vga/prog.h"
 
 /* GCC folds the index scaling into the load, ldr rN,[rBase,rIdx,lsl #2], only
  * while the table base is a register it holds. Left an sp-relative local it
@@ -54,16 +56,6 @@ mode_pair_set(uint32_t *pair, uint16_t bg, uint16_t fg)
     pair[3] = mode_pack2(fg, fg);
 }
 
-/* Reversing the bit order within the byte only swaps the mixed entries. */
-static inline __attribute__((always_inline)) void
-mode_pair_set_reverse(uint32_t *pair, uint16_t bg, uint16_t fg)
-{
-    pair[0] = mode_pack2(bg, bg);
-    pair[1] = mode_pack2(fg, bg);
-    pair[2] = mode_pack2(bg, fg);
-    pair[3] = mode_pack2(fg, fg);
-}
-
 static inline __attribute__((always_inline)) void
 mode_render_1bpp(uint16_t *buf, uint8_t bits, const uint32_t *pair)
 {
@@ -74,29 +66,23 @@ mode_render_1bpp(uint16_t *buf, uint8_t bits, const uint32_t *pair)
     w[3] = pair[bits & 3];
 }
 
-static inline __attribute__((always_inline)) void
-mode_render_1bpp_reverse(uint16_t *buf, uint8_t bits, const uint32_t *pair)
-{
-    mode_word_t *w = (mode_word_t *)buf;
-    w[0] = pair[bits & 3];
-    w[1] = pair[(bits >> 2) & 3];
-    w[2] = pair[(bits >> 4) & 3];
-    w[3] = pair[bits >> 6];
-}
-
 /* A 2bpp nibble is a whole pixel pair, so one byte is two words. */
 static inline __attribute__((always_inline)) void
 mode_quad_set(uint32_t *quad, const uint16_t *pal)
 {
+    const uint32_t c[4] = {pal[0], pal[1], pal[2], pal[3]};
+#pragma GCC unroll 16
     for (int i = 0; i < 16; i++)
-        quad[i] = mode_pack2(pal[i >> 2], pal[i & 3]);
+        quad[i] = c[i >> 2] | (c[i & 3] << 16);
 }
 
 static inline __attribute__((always_inline)) void
 mode_quad_set_reverse(uint32_t *quad, const uint16_t *pal)
 {
+    const uint32_t c[4] = {pal[0], pal[1], pal[2], pal[3]};
+#pragma GCC unroll 16
     for (int i = 0; i < 16; i++)
-        quad[i] = mode_pack2(pal[i & 3], pal[i >> 2]);
+        quad[i] = c[i & 3] | (c[i >> 2] << 16);
 }
 
 static inline __attribute__((always_inline)) void
@@ -113,6 +99,257 @@ mode_render_2bpp_reverse(uint16_t *buf, uint8_t bits, const uint32_t *quad)
     mode_word_t *w = (mode_word_t *)buf;
     w[0] = quad[bits & 0x0F];
     w[1] = quad[bits >> 4];
+}
+
+/* Runs of packed pixels for the bitmap modes. The source is read a word at a
+ * time where it can be, so the loads that feed the palette are few and
+ * independent. Stores are a word of two pixels each. The leftmost pixel is in
+ * the most significant bits of a byte unless reversed. */
+
+static inline __attribute__((always_inline)) uint32_t
+mode_load32(const uint8_t *src)
+{
+    return *(const mode_word_t *)src;
+}
+
+/* Two pixels of src2 over two of dst2: each half of src2 whose alpha bit is
+ * set replaces that half of dst2. With the DSP extension, the alpha bits
+ * shifted to the tops of the halves set the GE flags through UADD16, and SEL
+ * picks the halves. */
+#if defined(__ARM_FEATURE_SIMD32) && __ARM_FEATURE_SIMD32
+#include <arm_acle.h>
+#endif
+static inline __attribute__((always_inline)) uint32_t
+mode_alpha_merge(uint32_t src2, uint32_t dst2)
+{
+#if defined(__ARM_FEATURE_SIMD32) && __ARM_FEATURE_SIMD32
+    const uint32_t t = src2 << 10;
+    (void)__uadd16(t, t);
+    return __sel(src2, dst2);
+#else
+    const uint32_t m = ((src2 >> 5) & 0x00010001u) * 0xFFFFu;
+    return (dst2 & ~m) | (src2 & m);
+#endif
+}
+
+/* n pixels of 8bpp. dst is set word aligned first, so the stores can pair
+ * up, which here is worth 5%. */
+static inline __attribute__((always_inline)) void
+mode_run_8bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal)
+{
+    if (n && ((uintptr_t)dst & 2))
+    {
+        *dst++ = pal[*src++];
+        n--;
+    }
+    uint32_t *d = (uint32_t *)dst;
+    for (; n >= 8; n -= 8, src += 8, d += 4)
+    {
+        const uint32_t s = mode_load32(src);
+        const uint32_t t = mode_load32(src + 4);
+        const uint32_t a = mode_pack2(pal[s & 0xFF], pal[(s >> 8) & 0xFF]);
+        const uint32_t b = mode_pack2(pal[(s >> 16) & 0xFF], pal[s >> 24]);
+        const uint32_t c = mode_pack2(pal[t & 0xFF], pal[(t >> 8) & 0xFF]);
+        const uint32_t e = mode_pack2(pal[(t >> 16) & 0xFF], pal[t >> 24]);
+        d[0] = a;
+        d[1] = b;
+        d[2] = c;
+        d[3] = e;
+    }
+    if (n >= 4)
+    {
+        const uint32_t s = mode_load32(src);
+        const uint32_t a = mode_pack2(pal[s & 0xFF], pal[(s >> 8) & 0xFF]);
+        const uint32_t b = mode_pack2(pal[(s >> 16) & 0xFF], pal[s >> 24]);
+        d[0] = a;
+        d[1] = b;
+        n -= 4;
+        src += 4;
+        d += 2;
+    }
+    dst = (uint16_t *)d;
+    for (; n; n--)
+        *dst++ = pal[*src++];
+}
+
+/* The 4bpp pairs of a plane's fill cache. Every line compares the palette
+ * and bit order with those the pairs were built from, and builds them again
+ * only when they differ: a build costs about a line's worth of pixels. */
+static inline __attribute__((always_inline)) const uint32_t *
+mode_4bpp_pairs(vga_fill_cache_t *c, const uint16_t *pal, bool reverse)
+{
+    uint16_t now[16];
+    memcpy(now, pal, sizeof(now));
+    if (c->reverse_4bpp == reverse && !memcmp(c->palette_4bpp, now, sizeof(now)))
+        return c->pairs_4bpp;
+    memcpy(c->palette_4bpp, now, sizeof(now));
+    c->reverse_4bpp = reverse;
+    for (int i = 0; i < 16; i++)
+    {
+        const uint32_t h = reverse ? (uint32_t)now[i] << 16 : now[i];
+        uint32_t *t = c->pairs_4bpp + i * 16;
+#pragma GCC unroll 16
+        for (int j = 0; j < 16; j++)
+            t[j] = h | (reverse ? now[j] : (uint32_t)now[j] << 16);
+    }
+    return c->pairs_4bpp;
+}
+
+/* n pixels of 4bpp, as mode_run_4bpp, through mode_4bpp_pairs. */
+static inline __attribute__((always_inline)) void
+mode_run_4bpp_pairs(uint16_t *dst, const uint8_t *src, unsigned n, const uint32_t *pairs)
+{
+    if (n >= 2 && ((uintptr_t)dst & 2))
+    {
+        *(mode_word_t *)dst = pairs[*src++];
+        dst += 2;
+        n -= 2;
+    }
+    if (!((uintptr_t)dst & 2))
+    {
+        uint32_t *d = (uint32_t *)dst;
+        for (; n >= 8; n -= 8, src += 4, d += 4)
+        {
+            const uint32_t s = mode_load32(src);
+            const uint32_t w0 = pairs[s & 0xFF], w1 = pairs[(s >> 8) & 0xFF];
+            const uint32_t w2 = pairs[(s >> 16) & 0xFF], w3 = pairs[s >> 24];
+            d[0] = w0;
+            d[1] = w1;
+            d[2] = w2;
+            d[3] = w3;
+        }
+        dst = (uint16_t *)d;
+    }
+    for (; n >= 2; n -= 2, dst += 2)
+        *(mode_word_t *)dst = pairs[*src++];
+    if (n)
+        *dst = (uint16_t)pairs[*src];
+}
+
+/* n pixels of 4bpp, starting at the high nibble of src[0], or the low one
+ * when reversed. dst is set word aligned first, as at 8bpp. */
+static inline __attribute__((always_inline)) void
+mode_run_4bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal, bool reverse)
+{
+    const unsigned l = reverse ? 0 : 4, r = reverse ? 4 : 0;
+    if (n >= 2 && ((uintptr_t)dst & 2))
+    {
+        /* One pixel would set dst on a word but leave the source part way
+         * through a byte, so this spends the whole byte, and a run that
+         * starts off a word stays off it. */
+        const uint8_t b = *src++;
+        dst[0] = pal[(b >> l) & 0xF];
+        dst[1] = pal[(b >> r) & 0xF];
+        dst += 2;
+        n -= 2;
+    }
+    if (!((uintptr_t)dst & 2))
+    {
+        uint32_t *d = (uint32_t *)dst;
+        for (; n >= 8; n -= 8, src += 4, d += 4)
+        {
+            const uint32_t s = mode_load32(src);
+            const uint32_t w0 = mode_pack2(pal[(s >> l) & 0xF], pal[(s >> r) & 0xF]);
+            const uint32_t w1 = mode_pack2(pal[(s >> (8 + l)) & 0xF], pal[(s >> (8 + r)) & 0xF]);
+            const uint32_t w2 = mode_pack2(pal[(s >> (16 + l)) & 0xF], pal[(s >> (16 + r)) & 0xF]);
+            const uint32_t w3 = mode_pack2(pal[(s >> (24 + l)) & 0xF], pal[(s >> (24 + r)) & 0xF]);
+            d[0] = w0;
+            d[1] = w1;
+            d[2] = w2;
+            d[3] = w3;
+        }
+        dst = (uint16_t *)d;
+    }
+    for (; n >= 2; n -= 2, dst += 2)
+    {
+        const uint8_t b = *src++;
+        *(mode_word_t *)dst = mode_pack2(pal[(b >> l) & 0xF], pal[(b >> r) & 0xF]);
+    }
+    if (n)
+        *dst = pal[(*src >> l) & 0xF];
+}
+
+/* nbytes bytes of 2bpp through a mode_quad_set table, a word of the source
+ * at a time where it can be. */
+static inline __attribute__((always_inline)) void
+mode_run_2bpp(uint16_t *dst, const uint8_t *src, unsigned nbytes, const uint32_t *quad, bool reverse)
+{
+    for (; nbytes >= 4; nbytes -= 4, src += 4, dst += 16)
+    {
+        const uint32_t s = mode_load32(src);
+        if (reverse)
+            for (unsigned k = 0; k < 4; k++)
+                mode_render_2bpp_reverse(dst + 4 * k, (uint8_t)(s >> (8 * k)), quad);
+        else
+            for (unsigned k = 0; k < 4; k++)
+                mode_render_2bpp(dst + 4 * k, (uint8_t)(s >> (8 * k)), quad);
+    }
+    for (; nbytes; nbytes--, dst += 4)
+        if (reverse)
+            mode_render_2bpp_reverse(dst, *src++, quad);
+        else
+            mode_render_2bpp(dst, *src++, quad);
+}
+
+/* Indexed by a nibble of 1bpp pixels, leftmost in its high bit: the four
+ * pixels as two words. Built from the four pixel pairs held in registers,
+ * fully unrolled, because a loop that indexes the colors costs ten times as
+ * much. */
+static inline __attribute__((always_inline)) void
+mode_nibble_set(uint32_t *tbl, uint16_t bg, uint16_t fg)
+{
+    const uint32_t p[4] = {mode_pack2(bg, bg), mode_pack2(bg, fg),
+                           mode_pack2(fg, bg), mode_pack2(fg, fg)};
+#pragma GCC unroll 16
+    for (int i = 0; i < 16; i++)
+    {
+        tbl[i * 2 + 0] = p[i >> 2];
+        tbl[i * 2 + 1] = p[i & 3];
+    }
+}
+
+/* As mode_nibble_set, with the leftmost pixel in the low bit. */
+static inline __attribute__((always_inline)) void
+mode_nibble_set_reverse(uint32_t *tbl, uint16_t bg, uint16_t fg)
+{
+    const uint32_t p[4] = {mode_pack2(bg, bg), mode_pack2(fg, bg),
+                           mode_pack2(bg, fg), mode_pack2(fg, fg)};
+#pragma GCC unroll 16
+    for (int i = 0; i < 16; i++)
+    {
+        tbl[i * 2 + 0] = p[i & 3];
+        tbl[i * 2 + 1] = p[i >> 2];
+    }
+}
+
+/* One byte of 1bpp, eight pixels, through a nibble table; reversed, the
+ * table is mode_nibble_set_reverse and the low nibble comes first. */
+static inline __attribute__((always_inline)) void
+mode_render_1bpp_nibbles(uint16_t *buf, uint8_t bits, const uint32_t *tbl, bool reverse)
+{
+    mode_word_t *w = (mode_word_t *)buf;
+    const uint32_t *a = &tbl[(reverse ? bits & 0xF : bits >> 4) * 2];
+    const uint32_t *b = &tbl[(reverse ? bits >> 4 : bits & 0xF) * 2];
+    const uint32_t w0 = a[0], w1 = a[1], w2 = b[0], w3 = b[1];
+    w[0] = w0;
+    w[1] = w1;
+    w[2] = w2;
+    w[3] = w3;
+}
+
+/* nbytes bytes of 1bpp through a nibble table, a word of the source at a
+ * time where it can be. */
+static inline __attribute__((always_inline)) void
+mode_run_1bpp(uint16_t *dst, const uint8_t *src, unsigned nbytes, const uint32_t *tbl, bool reverse)
+{
+    for (; nbytes >= 4; nbytes -= 4, src += 4, dst += 32)
+    {
+        const uint32_t s = mode_load32(src);
+        for (unsigned k = 0; k < 4; k++)
+            mode_render_1bpp_nibbles(dst + 8 * k, (uint8_t)(s >> (8 * k)), tbl, reverse);
+    }
+    for (; nbytes; nbytes--, dst += 8)
+        mode_render_1bpp_nibbles(dst, *src++, tbl, reverse);
 }
 
 static inline __attribute__((always_inline)) void

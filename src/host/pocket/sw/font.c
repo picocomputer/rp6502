@@ -5,6 +5,7 @@
  */
 
 #include "font.h"
+#include "core/term/cells.h"
 #include "mmio.h"
 
 #include "font_rom.h"
@@ -69,7 +70,7 @@ bool font_has_code_page(uint16_t cp)
     return font_find_page(cp) >= 0;
 }
 
-void font_set_code_page(uint16_t cp)
+static void font_code_page_to(uint16_t cp, bool ris)
 {
     int page = font_find_page(cp);
     if (page < 0)
@@ -77,7 +78,16 @@ void font_set_code_page(uint16_t cp)
     if (font_code_page == cp)
         return;
     font_code_page = cp;
+    if (ris)
+        cells_RIS();
     font_load_page(page);
+}
+
+/* Choosing a code page resets the terminal, as on the VGA, because a screen
+ * of glyphs from one page cannot be read against another. */
+void font_set_code_page(uint16_t cp)
+{
+    font_code_page_to(cp, true);
 }
 
 uint16_t font_get_code_page(void)
@@ -92,7 +102,7 @@ void font_restore(void)
 {
     uint16_t cp = font_code_page;
     font_init();
-    font_set_code_page(cp);
+    font_code_page_to(cp, false);
 }
 
 void font_init(void)
@@ -103,5 +113,5 @@ void font_init(void)
     font_copy(VID_FONT_DEC16, FONT_ROM_OFF_DEC16, 512);
     font_copy(VID_FONT_DEC8, FONT_ROM_OFF_DEC8, 256);
     font_code_page = 0;
-    font_set_code_page(437);
+    font_code_page_to(437, false);
 }

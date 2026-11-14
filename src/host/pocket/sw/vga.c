@@ -9,7 +9,7 @@
 #include "vga.h"
 #include "vid.h"
 
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 static int16_t vga_highest_scanline;
 static uint8_t vga_pub_mode;
@@ -64,8 +64,7 @@ static int16_t vga_mode0_plane;
 
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                        uint16_t *, uint16_t))
+                        vga_fill_fn_t fill_fn)
 {
     (void)fill_fn;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
@@ -88,8 +87,7 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                   uint16_t *, uint16_t))
+                   vga_fill_fn_t fill_fn)
 {
     (void)fill_fn;
     if (vga_canvas_is_console())

@@ -17,8 +17,8 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/com/tio.h"
-#include "core/term/term.h"
+#include "core/com/rln.h"
+#include "core/term/cells.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
 #include "core/sys/sys.h"
@@ -185,8 +185,8 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     vga_canvas_size(&w, &h);
     ASSERT_EQ(w, 640);
     ASSERT_EQ(h, 400);
-    term_view_t tv;
-    term_view(&tv);
+    cells_view_t tv;
+    cells_view(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 25);
 
@@ -194,7 +194,7 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
     vga_canvas_size(&w, &h);
     ASSERT_EQ(h, 480);
-    term_view(&tv);
+    cells_view(&tv);
     ASSERT_EQ(tv.height, 30);
 }
 
@@ -237,9 +237,9 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
     ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
 }
 
-/* With no pinned size, no NAWS and no CPR, the size is that of
- * the terminal the canvas holds. */
-UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
+/* With no pinned size, the size is the screen's showing grid: the canvas's
+ * width picks 40 or 80 columns, and mode 0 sets the rows. */
+UTEST(rln, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
 {
     static const struct
     {
@@ -254,14 +254,15 @@ UTEST(tio, falls_back_to_the_terminal_the_canvas_holds)
         {vga_canvas_640_400, 80, 25},
     };
     sys_init();
-    tio_set_term_width(0);
-    tio_set_term_height(0);
-    tio_set_naws_size(0, 0);
+    rln_set_term_width(0);
+    rln_set_term_height(0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
-        ASSERT_EQ(tio_get_term_width(), want[i].cols);
-        ASSERT_EQ(tio_get_term_height(), want[i].rows);
+        if (want[i].canvas != vga_canvas_console)
+            ASSERT_TRUE(xreg1(0, 1, 0)); /* mode 0, the tallest that fits */
+        ASSERT_EQ(rln_get_term_width(), want[i].cols);
+        ASSERT_EQ(rln_get_term_height(), want[i].rows);
     }
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
@@ -280,8 +281,8 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
     ASSERT_TRUE(vga_canvas_is_console());
     ASSERT_EQ(vga_canvas_width(), 640);
     ASSERT_EQ(vga_canvas_height(), 480);
-    term_view_t tv;
-    term_view(&tv);
+    cells_view_t tv;
+    cells_view(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 30);
     uint8_t blob[XREG_SST_SIZE];

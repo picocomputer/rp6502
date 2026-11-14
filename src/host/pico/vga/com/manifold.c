@@ -9,21 +9,12 @@
 #include "vga/usb/cdc.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
+#include <hardware/clocks.h>
 #include <pico/stdio/driver.h>
 
 static RING(char, MANIFOLD_IN_BUF_SIZE) manifold_in;
 
-static char manifold_in_reply_buf[MANIFOLD_IN_BUF_SIZE];
-static size_t manifold_in_reply_len;
-
 static RING(char, MANIFOLD_OUT_BUF_SIZE) manifold_out;
-
-static bool manifold_reply_suppressed;
-
-void manifold_suppress_reply(bool suppress)
-{
-    manifold_reply_suppressed = suppress;
-}
 
 size_t manifold_in_free(void)
 {
@@ -40,14 +31,11 @@ void manifold_in_write(char ch)
     RING_PUT(&manifold_in, ch);
 }
 
+/* The RIA answers the program's queries; its terminal follows this one. */
 void manifold_reply(const char *s, size_t n)
 {
-    if (manifold_reply_suppressed)
-        return;
-    if (n > sizeof(manifold_in_reply_buf) - manifold_in_reply_len)
-        return;
-    for (size_t i = 0; i < n; i++)
-        manifold_in_reply_buf[manifold_in_reply_len++] = s[i];
+    (void)s;
+    (void)n;
 }
 
 bool manifold_out_empty(void)
@@ -88,6 +76,15 @@ static void manifold_out_chars(const char *buf, int length)
 
 void manifold_init(void)
 {
+    /* The UART runs from the USB PLL, so changing the system clock for a new
+     * display never touches it. Resetting it after a reclock instead, with
+     * the RIA part way through a burst of text, left the receiver out of step
+     * with the bytes until the line next went idle. set_sys_clock_khz puts
+     * clk_peri here too, unless PICO_CLOCK_ADJUST_PERI_CLOCK_WITH_SYS_CLOCK
+     * is set. */
+    clock_configure_undivided(clk_peri, 0,
+                              CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                              USB_CLK_HZ);
     gpio_pull_up(MANIFOLD_UART_TX_PIN);
     gpio_pull_up(MANIFOLD_UART_RX_PIN);
     gpio_set_function(MANIFOLD_UART_TX_PIN, GPIO_FUNC_UART);
@@ -114,27 +111,6 @@ void manifold_term_putc(char ch)
     manifold_term_driver.out_chars(&ch, 1);
 }
 
-/* uart_init in manifold_post_reclock resets the UART, which empties both FIFOs
- * and clears a break in progress. */
-static bool manifold_reclock_break;
-
-void manifold_pre_reclock(void)
-{
-    while (uart_is_readable(MANIFOLD_UART_INTERFACE))
-        putchar_raw(uart_getc(MANIFOLD_UART_INTERFACE));
-    manifold_reclock_break = uart_get_hw(MANIFOLD_UART_INTERFACE)->lcr_h & UART_UARTLCR_H_BRK_BITS;
-    if (manifold_reclock_break)
-        return;
-    uart_tx_wait_blocking(MANIFOLD_UART_INTERFACE);
-}
-
-void manifold_post_reclock(void)
-{
-    uart_init(MANIFOLD_UART_INTERFACE, MANIFOLD_UART_BAUDRATE);
-    if (manifold_reclock_break)
-        uart_set_break(MANIFOLD_UART_INTERFACE, true);
-}
-
 void manifold_set_uart_break(bool en)
 {
     uart_set_break(MANIFOLD_UART_INTERFACE, en);
@@ -142,12 +118,6 @@ void manifold_set_uart_break(bool en)
 
 void manifold_task(void)
 {
-    if (manifold_in_reply_len && !RING_LEN(&manifold_in))
-    {
-        RING_IN(&manifold_in, manifold_in_reply_buf, (uint32_t)manifold_in_reply_len);
-        manifold_in_reply_len = 0;
-    }
-
     // IN is sunk here to UART
     char ch;
     while (uart_is_writable(MANIFOLD_UART_INTERFACE) && RING_GET(&manifold_in, &ch))

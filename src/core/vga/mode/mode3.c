@@ -107,280 +107,132 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static bool
-mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+// One renderer for every depth. bpp and reverse are constants at each call, so
+// each wrapper below folds to one depth's byte walk.
+static inline __attribute__((always_inline)) bool
+mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+             vga_fill_cache_t *cache, int16_t bpp, bool reverse)
 {
-    (void)plane_id;
     mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
     mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 1);
+    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, bpp);
     if (!row_data)
         return false;
-    const uint16_t *palette = mode3_get_palette(config, 1);
-    uint16_t pal[2] = {palette[0], palette[1]};
-    MODE_TABLE(pair, 4);
-    mode_pair_set(pair, pal[0], pal[1]);
+    const uint16_t *palette = bpp == 16 ? NULL : mode3_get_palette(config, bpp);
+    MODE_TABLE(tbl, 32);
+    uint16_t pal[4];
+    if (bpp == 1)
+    {
+        pal[0] = palette[0];
+        pal[1] = palette[1];
+        if (reverse)
+            mode_nibble_set_reverse(tbl, pal[0], pal[1]);
+        else
+            mode_nibble_set(tbl, pal[0], pal[1]);
+    }
+    else if (bpp == 2)
+    {
+        for (int i = 0; i < 4; i++)
+            pal[i] = palette[i];
+        if (reverse)
+            mode_quad_set_reverse(tbl, pal);
+        else
+            mode_quad_set(tbl, pal);
+    }
     int16_t col = -config->x_pos_px;
-    int16_t width_px = config->width_px;
+    const int16_t width_px = config->width_px;
     while (width)
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 8];
-        int16_t start = col & 7;
-        int16_t part = 8 - start;
-        if (part > width_px - col)
-            part = width_px - col;
-        if (part > fill_cols)
-            part = fill_cols;
-        fill_cols -= part;
-        col += part;
-        mode_emit_head_1bpp(&rgb, *data++, pal, start, part);
-        col += fill_cols;
-        while (fill_cols > 7)
+        if (fill_cols <= 0)
+            continue;
+        if (bpp == 16)
         {
-            mode_render_1bpp(rgb, *data++, pair);
-            rgb += 8;
-            fill_cols -= 8;
+            memcpy(rgb, (const uint16_t *)row_data + col, sizeof(uint16_t) * fill_cols);
+            rgb += fill_cols;
+            col += fill_cols;
         }
-        mode_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
+        else if (bpp == 8)
+        {
+            mode_run_8bpp(rgb, &row_data[col], fill_cols, palette);
+            rgb += fill_cols;
+            col += fill_cols;
+        }
+        else if (bpp == 4)
+        {
+            const uint8_t *data = &row_data[col / 2];
+            if (col & 1)
+            {
+                *rgb++ = palette[reverse ? *data++ >> 4 : *data++ & 0xF];
+                col++;
+                fill_cols--;
+            }
+            mode_run_4bpp_pairs(rgb, data, fill_cols, mode_4bpp_pairs(cache, palette, reverse));
+            rgb += fill_cols;
+            col += fill_cols;
+        }
+        else
+        {
+            // The first byte may start part way in, and the last byte of the
+            // row may hold fewer pixels than it has room for.
+            const int ppb = 8 / bpp;
+            const uint8_t *data = &row_data[col / ppb];
+            int16_t start = col & (ppb - 1);
+            int16_t part = ppb - start;
+            if (part > width_px - col)
+                part = width_px - col;
+            if (part > fill_cols)
+                part = fill_cols;
+            fill_cols -= part;
+            col += part;
+            if (bpp == 1 && reverse)
+                mode_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
+            else if (bpp == 1)
+                mode_emit_head_1bpp(&rgb, *data++, pal, start, part);
+            else if (reverse)
+                mode_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
+            else
+                mode_emit_head_2bpp(&rgb, *data++, pal, start, part);
+            col += fill_cols;
+            const unsigned bytes = (unsigned)fill_cols / ppb;
+            if (bpp == 1)
+                mode_run_1bpp(rgb, data, bytes, tbl, reverse);
+            else
+                mode_run_2bpp(rgb, data, bytes, tbl, reverse);
+            rgb += bytes * ppb;
+            data += bytes;
+            fill_cols -= bytes * ppb;
+            if (bpp == 1 && reverse)
+                mode_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
+            else if (bpp == 1)
+                mode_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
+            else if (reverse)
+                mode_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
+            else
+                mode_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
+        }
     }
     return true;
 }
 
-static bool
-mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 1);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 1);
-    uint16_t pal[2] = {palette[0], palette[1]};
-    MODE_TABLE(pair, 4);
-    mode_pair_set_reverse(pair, pal[0], pal[1]);
-    int16_t col = -config->x_pos_px;
-    int16_t width_px = config->width_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 8];
-        int16_t start = col & 7;
-        int16_t part = 8 - start;
-        if (part > width_px - col)
-            part = width_px - col;
-        if (part > fill_cols)
-            part = fill_cols;
-        fill_cols -= part;
-        col += part;
-        mode_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
-        col += fill_cols;
-        while (fill_cols > 7)
-        {
-            mode_render_1bpp_reverse(rgb, *data++, pair);
-            rgb += 8;
-            fill_cols -= 8;
-        }
-        mode_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
+#define MODE3_RENDER_FN(name, bpp, reverse)                                    \
+    static bool name(int16_t plane_id, int16_t scanline_id, int16_t width,     \
+                     uint16_t *rgb, uint16_t config_ptr,                       \
+                     vga_fill_cache_t *cache)                                  \
+    {                                                                          \
+        (void)plane_id;                                                        \
+        return mode3_render(scanline_id, width, rgb, config_ptr, cache,        \
+                            bpp, reverse);                                     \
     }
-    return true;
-}
-
-static bool
-mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 2);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 2);
-    uint16_t pal[4] = {palette[0], palette[1], palette[2], palette[3]};
-    MODE_TABLE(quad, 16);
-    mode_quad_set(quad, pal);
-    int16_t col = -config->x_pos_px;
-    int16_t width_px = config->width_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 4];
-        int16_t start = col & 3;
-        int16_t part = 4 - start;
-        if (part > width_px - col)
-            part = width_px - col;
-        if (part > fill_cols)
-            part = fill_cols;
-        fill_cols -= part;
-        col += part;
-        mode_emit_head_2bpp(&rgb, *data++, pal, start, part);
-        col += fill_cols;
-        while (fill_cols > 3)
-        {
-            mode_render_2bpp(rgb, *data++, quad);
-            rgb += 4;
-            fill_cols -= 4;
-        }
-        mode_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
-    }
-    return true;
-}
-
-static bool
-mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 2);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 2);
-    uint16_t pal[4] = {palette[0], palette[1], palette[2], palette[3]};
-    MODE_TABLE(quad, 16);
-    mode_quad_set_reverse(quad, pal);
-    int16_t col = -config->x_pos_px;
-    int16_t width_px = config->width_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 4];
-        int16_t start = col & 3;
-        int16_t part = 4 - start;
-        if (part > width_px - col)
-            part = width_px - col;
-        if (part > fill_cols)
-            part = fill_cols;
-        fill_cols -= part;
-        col += part;
-        mode_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
-        col += fill_cols;
-        while (fill_cols > 3)
-        {
-            mode_render_2bpp_reverse(rgb, *data++, quad);
-            rgb += 4;
-            fill_cols -= 4;
-        }
-        mode_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
-    }
-    return true;
-}
-
-static bool
-mode3_render_4bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 4);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 4);
-    int16_t col = -config->x_pos_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 2];
-        if (col & 1)
-        {
-            *rgb++ = palette[*data++ & 0xF];
-            col++;
-            fill_cols--;
-        }
-        col += fill_cols;
-        const uint8_t *const end = data + (fill_cols >> 1);
-        for (; data < end; rgb += 2, data++)
-            *(mode_word_t *)rgb = mode_pack2(palette[*data >> 4], palette[*data & 0xF]);
-        if (fill_cols & 1)
-            *rgb++ = palette[*data >> 4];
-    }
-    return true;
-}
-
-static bool
-mode3_render_4bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 4);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 4);
-    int16_t col = -config->x_pos_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col / 2];
-        if (col & 1)
-        {
-            *rgb++ = palette[*data++ >> 4];
-            col++;
-            fill_cols--;
-        }
-        col += fill_cols;
-        const uint8_t *const end = data + (fill_cols >> 1);
-        for (; data < end; rgb += 2, data++)
-            *(mode_word_t *)rgb = mode_pack2(palette[*data & 0xF], palette[*data >> 4]);
-        if (fill_cols & 1)
-            *rgb++ = palette[*data & 0xF];
-    }
-    return true;
-}
-
-static bool
-mode3_render_8bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint8_t *row_data = mode3_scanline_to_data(scanline_id, width, config, 8);
-    if (!row_data)
-        return false;
-    const uint16_t *palette = mode3_get_palette(config, 8);
-    int16_t col = -config->x_pos_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint8_t *data = &row_data[col];
-        col += fill_cols;
-        if (fill_cols && ((uintptr_t)rgb & 2))
-        {
-            *rgb++ = palette[*data++];
-            fill_cols--;
-        }
-        // Counting the run out on the pointer keeps the loop off fill_cols,
-        // whose int16_t arithmetic costs a uxth and an sxth every pass.
-        const uint8_t *const end = data + (fill_cols & ~1);
-        for (; data < end; rgb += 2, data += 2)
-            *(mode_word_t *)rgb = mode_pack2(palette[data[0]], palette[data[1]]);
-        if (fill_cols & 1)
-            *rgb++ = palette[*data];
-    }
-    return true;
-}
-
-static bool
-mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
-{
-    (void)plane_id;
-    mode3_config_t cfg = *(const mode3_config_t *)&xram[config_ptr];
-    mode3_config_t *config = &cfg;
-    const uint16_t *row_data = (const uint16_t *)mode3_scanline_to_data(scanline_id, width, config, 16);
-    if (!row_data)
-        return false;
-    int16_t col = -config->x_pos_px;
-    while (width)
-    {
-        int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
-        const uint16_t *data = &row_data[col];
-        col += fill_cols;
-        for (; fill_cols; fill_cols--)
-            *rgb++ = *data++;
-    }
-    return true;
-}
+MODE3_RENDER_FN(mode3_render_1bpp, 1, false)
+MODE3_RENDER_FN(mode3_render_2bpp, 2, false)
+MODE3_RENDER_FN(mode3_render_4bpp, 4, false)
+MODE3_RENDER_FN(mode3_render_8bpp, 8, false)
+MODE3_RENDER_FN(mode3_render_16bpp, 16, false)
+MODE3_RENDER_FN(mode3_render_1bpp_reverse, 1, true)
+MODE3_RENDER_FN(mode3_render_2bpp_reverse, 2, true)
+MODE3_RENDER_FN(mode3_render_4bpp_reverse, 4, true)
+#undef MODE3_RENDER_FN
 
 /* Every attribute this mode defines and the renderer it names is written here
  * once. mode3_fill_fn and mode3_fill_valid both expand this list, so

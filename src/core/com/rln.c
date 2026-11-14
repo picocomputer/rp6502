@@ -10,31 +10,32 @@
 #include "core/api/std.h"
 #include "core/com/rln.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
+#include "core/term/cells.h"
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
 
 /* Console manifold compatibility rules.
 **
-** rln drives a "manifold" of terminals: primary UART + optional telnet
-** shadow + optional VGA. Design goals: (1) secondary terminals wider
-** than the primary still render correctly; (2) callers can place rln
-** inside a wider form by setting rln_max_length to reserve only the
-** cells rln is allowed to own.
+** rln drives a "manifold" of terminals: the UART, telnet and the screen. It
+** lays the line out from the console's terminal, which has seen everything
+** sent to all of them, so the line looks right on every terminal at least as
+** wide as the screen. Callers can place rln inside a wider form by setting
+** rln_max_length to reserve only the cells rln is allowed to own.
 **
 ** Runtime invariants:
-**   - No absolute Y cursor movement; no writes past rln_max_length.
-**   - The wrapping input is one logical line: rln writes it continuously
-**     and lets the terminal autowrap (the standard readline/linenoise
-**     model), so the terminal does the wrapping and the resize reflow.
-**     rln keeps its own row model and relies on pending-wrap (xenl) at
-**     the margin.
-**   - rln owns only rln_max_length cells from the start of input, so
-**     no ICH/DCH unless rln owns the entire visible input region.
-**   - Dynamic resize (NAWS / CPR refinement) trusts the terminal to rewrap
-**     on a width change; non-reflowing terminals aren't supported for it.
+**   - rln breaks its own rows: CR LF right after the last column. It never
+**     relies on autowrap, and no terminal is trusted to reflow: a new width
+**     starts the line over on a clean row.
+**   - Moves are relative: CUU and CUD between rows, CR and CUF along one.
+**     No absolute Y; no writes past rln_max_length.
+**   - rln owns only rln_max_length cells from the start of input, so no EL
+**     unless the input can take more than its row.
+**   - A plain line (rln_set_plain, or a script read) lays nothing out: it
+**     echoes, moves with CUF and CUB, and the terminal wraps it.
 */
 
 #define RLN_BUF_SIZE 256
@@ -50,10 +51,13 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 // Terms < 29 cols may not reach 254/255 chars in 10 rows.
 #define RLN_MAX_ROWS 10
 
+// Insert mode goes off at every read, and stays off, because rln overwrites
+// the line as it draws it again.
+#define RLN_MODES "\33[4l"
+
 // The 6502's poke stream is a source of its own, after the com sources.
 #define RLN_POKE COM_SOURCE_ANY
 #define RLN_SOURCE_COUNT (RLN_POKE + 1)
-
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
 // scratch slot used to stash the user's unsubmitted line while they
@@ -84,45 +88,44 @@ static uint8_t rln_caps;
 // across reads; reset on stop() (via rln_init).
 static bool rln_suppress_newline;
 
-// Display state. The line is laid out at the prompt column and the width tio
-// had when it was last drawn.
-static bool rln_editing;               // geometry is ready and the line is drawn
+// Display state. The line is laid out at the prompt column and the width
+// the console's terminal had when the read started or last changed size.
+static bool rln_plain;                 // lay no line out: rln_set_plain
 static uint16_t rln_prompt_col;        // 1-based, 0 = no prompt column, no wrapping
-static uint16_t rln_width;
+static uint16_t rln_width;             // the columns of the prompt's row
+static uint8_t rln_grid_width;         // the shown grid's width, watched for a change
+static uint8_t rln_rows;               // the most rows the line may take
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
 static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop)
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of the last render
+
+// A program's own size for the console's terminal, while either is pinned:
+// a third grid, which the line editor and the terminal's answers use.
+static uint16_t rln_pinned_width;
+static uint16_t rln_pinned_height;
+static term_grid_t rln_grid;
+static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
+_Static_assert(RLN_SST_SIZE == 2379 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
+               "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
 // ending a second line.
 static uint8_t rln_line_ends[RLN_SOURCE_COUNT];
 
-// The typed items that arrive before the edit starts, in the order they came,
-// each as its source, its length, and its bytes.
-static uint8_t rln_held[RLN_BUF_SIZE];
-static uint16_t rln_held_len;
-
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
-// Typed and poked dispatches both populate these; the terminals' answers,
-// which tio takes, never reach them.
+// Typed and poked dispatches both populate these; an item rln_item drops
+// never reaches them.
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-/* Every held record names a source and fits, whole, inside the length. */
-static bool rln_held_valid(const uint8_t *held, uint16_t len)
+static bool rln_has_grid(void)
 {
-    if (len > RLN_BUF_SIZE)
-        return false;
-    for (uint16_t at = 0; at < len; at += 2 + held[at + 1])
-        if (len - at < 2 || held[at] >= RLN_SOURCE_COUNT || !held[at + 1] ||
-            held[at + 1] > TIO_ITEM_MAX || len - at - 2 < held[at + 1])
-            return false;
-    return true;
+    return cells_term.grid_count > TERM_SCREEN_GRIDS;
 }
 
 void rln_sst_save(sst_cursor_t *c, unsigned flags)
@@ -151,9 +154,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u32(c, rln_idle_timeout_ms);
     sst_put_u8(c, rln_caps);
     sst_put_bool(c, rln_suppress_newline);
-    sst_put_bool(c, rln_editing);
     sst_put_u16(c, rln_prompt_col);
     sst_put_u16(c, rln_width);
+    sst_put_u8(c, rln_grid_width);
+    sst_put_u8(c, rln_rows);
     sst_put_u8(c, rln_cur_idx);
     sst_put_bool(c, rln_overwrite);
     sst_put_u8(c, rln_rendered_max_row);
@@ -163,8 +167,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_bool(c, rln_action_taken);
     sst_put_bool(c, rln_lastkey_action);
     sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
-    sst_put(c, rln_held, RLN_BUF_SIZE);
-    sst_put_u16(c, rln_held_len);
+    sst_put_u16(c, rln_pinned_width);
+    sst_put_u16(c, rln_pinned_height);
+    sst_put_bool(c, rln_has_grid());
+    term_grid_sst_put(c, &rln_grid);
 }
 
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
@@ -184,8 +190,8 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     uint32_t idle_ms = sst_get_u32(c);
     uint8_t caps = sst_get_u8(c);
     bool suppress = sst_get_bool(c);
-    bool editing = sst_get_bool(c);
     uint16_t pcol = sst_get_u16(c), width = sst_get_u16(c);
+    uint8_t grid_width = sst_get_u8(c), rows = sst_get_u8(c);
     uint8_t cur = sst_get_u8(c);
     bool over = sst_get_bool(c);
     uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
@@ -195,9 +201,8 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
     uint8_t line_end[RLN_SOURCE_COUNT];
     sst_get(c, line_end, sizeof line_end);
-    static uint8_t held[RLN_BUF_SIZE];
-    sst_get(c, held, sizeof held);
-    uint16_t held_len = sst_get_u16(c);
+    uint16_t pin_w = sst_get_u16(c), pin_h = sst_get_u16(c);
+    bool grid = sst_get_bool(c);
     /* The lengths need no range check because a uint8_t cannot reach past a
      * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
      * changes. The indexes are checked because they can exceed the lengths
@@ -205,8 +210,14 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
         cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
-        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE ||
-        !rln_held_valid(held, held_len))
+        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        return false;
+    if (grid && !rln_has_grid())
+        term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
+                      rln_grid_lines, RLN_GRID_ROWS);
+    else if (!grid && rln_has_grid())
+        term_drop_grid(&cells_term, &rln_grid);
+    if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
         return false;
 
     memcpy(rln_history, history, sizeof rln_history);
@@ -222,9 +233,10 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_idle_timeout_ms = idle_ms;
     rln_caps = caps;
     rln_suppress_newline = suppress;
-    rln_editing = editing;
     rln_prompt_col = pcol;
     rln_width = width;
+    rln_grid_width = grid_width;
+    rln_rows = rows;
     rln_cur_idx = cur;
     rln_overwrite = over;
     rln_rendered_max_row = maxrow;
@@ -234,35 +246,21 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_action_taken = acted;
     rln_lastkey_action = key_acted;
     memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
-    memcpy(rln_held, held, sizeof rln_held);
-    rln_held_len = held_len;
+    rln_pinned_width = pin_w;
+    rln_pinned_height = pin_h;
     return true;
-}
-
-/* The line is done at Enter: nothing is read after it, so whatever follows
- * is the next reader's. SUPPRESS_NL drops the newline so last-line field
- * input keeps the cursor on its row. */
-static void rln_complete(bool timed_out)
-{
-    rln_read_callback_t cc = rln_callback;
-    rln_idle_timeout_ms = 0;
-    rln_callback = NULL;
-    tio_read_end();
-    if (!rln_suppress_newline)
-        com_putchar('\n');
-    cc(timed_out, rln_buf);
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
 
-// True when rln must not emit EL, ICH, or DCH. Two cases:
-//   1. Geometry untrusted (prompt_col == 0). No row math possible, and
+// True when rln must not emit EL or break rows. Two cases:
+//   1. Plain lines (prompt_col == 0). No row math possible, and
 //      callers may be inside a form whose adjacent data we mustn't clobber.
 //   2. Geometry known and the configured max_length fits on the prompt
 //      row, so the input cannot wrap. Same form-data concern applies.
 // Wrap mode (returns false) is only when prompt_col is known AND the
-// input genuinely can wrap to a second row — the multi-row regime where
-// per-row EL and ICH/DCH are appropriate and necessary.
+// input genuinely can take a second row — the multi-row regime where
+// row breaks and per-row EL are appropriate and necessary.
 static bool rln_input_no_wrap(void)
 {
     if (!rln_prompt_col)
@@ -279,48 +277,22 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
     *col = (uint16_t)(logical % w) + 1;
 }
 
-// Emit relative cursor moves from (fr,fc) to (tr,tc). Downward moves use
-// LF, not CUD: CUD doesn't scroll, so at the bottom of the screen it
-// no-ops and renders clobber the same row. These are cursor moves, not
-// content; an explicit move cancels any pending wrap, so \r and \n are
-// unambiguous.
-static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
+// Move to column col of the cursor's row: CR, then CUF. VT100 and VT102 have
+// no CHA. CR goes to the real cell from a pending wrap at the margin, and
+// clears it.
+static void rln_emit_col(uint16_t col)
 {
-    if (tr > fr)
-    {
-        for (uint8_t i = 0, n = (uint8_t)(tr - fr); i < n; i++)
-            com_putchar('\n');
-        com_printf("\r");
-        if (tc > 1)
-            com_printf("\33[%uC", tc - 1);
-    }
-    else if (tr < fr)
-    {
-        com_printf("\33[%uA\r", fr - tr);
-        if (tc > 1)
-            com_printf("\33[%uC", tc - 1);
-    }
-    else if (tc != fc)
-    {
-        if (tc > fc)
-            com_printf("\33[%uC", tc - fc);
-        else
-            com_printf("\33[%uD", fc - tc);
-    }
+    manifold_putchar('\r');
+    if (col > 1)
+        com_printf("\33[%uC", col - 1);
 }
 
 // Move the visible cursor so that it sits at the screen position
-// corresponding to buffer index `target`. While the line is not being
-// edited, it only records target as the cursor's index.
+// corresponding to buffer index `target`.
 static void rln_sync_cursor_to(uint8_t target)
 {
-    if (!rln_editing)
-    {
-        rln_cur_idx = target;
-        return;
-    }
-    // No prompt column (the terminal did not answer) → can't do row math.
-    // Fall back to plain horizontal cursor moves and let the terminal wrap.
+    // Plain lines have no prompt column, so no row math: plain horizontal
+    // cursor moves, and the terminal wraps.
     if (rln_prompt_col == 0)
     {
         int delta = (int)target - (int)rln_cur_idx;
@@ -329,53 +301,62 @@ static void rln_sync_cursor_to(uint8_t target)
         else if (delta < 0)
             com_printf("\33[%dD", -delta);
     }
-    else if (rln_input_no_wrap())
-    {
-        // Single row: position by absolute column (CHA). A write into the
-        // last column parks the terminal in pending-wrap; a relative move
-        // would mis-measure from there, but CHA resolves to the real cell.
-        // cursor_max keeps `target` off the rolled-over next row, so the
-        // column is exact.
-        uint8_t r;
-        uint16_t c;
-        rln_buf_to_screen(target, &r, &c);
-        com_printf("\33[%uG", c);
-    }
     else
     {
+        // Rows by CUU and CUD, which never scroll: rln drew every row the
+        // line has. The column by CR and CUF. A move that goes nowhere sends
+        // nothing, except on a form's row, which is placed every time: its
+        // erase spaces leave the cursor past the cell rln counts it at, and
+        // a write to its last column parks there.
         uint8_t fr, tr;
         uint16_t fc, tc;
         rln_buf_to_screen(rln_cur_idx, &fr, &fc);
         rln_buf_to_screen(target, &tr, &tc);
-        rln_emit_move(fr, fc, tr, tc);
-        // A zero-length relative move emits nothing, so a prior margin write
-        // left in pending-wrap (xenl) would survive; CHA to the same column
-        // clears it, matching the no-wrap branch's unconditional CHA.
-        if (fr == tr && fc == tc && tc == rln_width)
-            com_printf("\33[%uG", tc);
+        if (tr > fr)
+            com_printf("\33[%uB", tr - fr);
+        else if (tr < fr)
+            com_printf("\33[%uA", fr - tr);
+        if (tr != fr || tc != fc || rln_input_no_wrap())
+            rln_emit_col(tc);
     }
     rln_cur_idx = target;
 }
 
+// Write ch at buffer index i. A write to the last column leaves the cursor
+// parked on it. In a line that can take more rows, CR LF then breaks the row
+// when the cursor is to reach index i + 1 at or before end; otherwise CR and
+// CUF end the park, so the next write cannot wrap.
+static void rln_put(uint8_t i, char ch, uint8_t end)
+{
+    manifold_putchar(ch);
+    rln_cur_idx = (uint8_t)(i + 1);
+    if (!rln_prompt_col)
+        return;
+    uint8_t r;
+    uint16_t c;
+    rln_buf_to_screen(i, &r, &c);
+    if (c != rln_width)
+        return;
+    if (rln_input_no_wrap())
+        rln_cur_idx = i;
+    else if (i + 1 <= end)
+        com_printf("\r\n");
+    else
+    {
+        rln_cur_idx = i;
+        rln_emit_col(c);
+    }
+}
+
 // Effective max chars we can hold, given current screen geometry. In
-// multi-line mode we cap at RLN_MAX_ROWS visible rows.
+// multi-line mode we cap at rln_rows visible rows.
 static uint8_t rln_effective_max(void)
 {
     uint8_t cap = rln_max_length;
     if (rln_prompt_col)
     {
-        uint16_t w = rln_width;
-        // Compute the row*width product in 32 bits so a large pinned width
-        // (tio_set_term_width accepts up to 65535) can't truncate; clamp
-        // back into uint16_t before the row math.
-        uint32_t cells = (uint32_t)RLN_MAX_ROWS * w;
-        uint16_t avail = cells > UINT16_MAX ? UINT16_MAX : (uint16_t)cells;
-        if (avail > (uint16_t)(rln_prompt_col - 1))
-            avail -= (uint16_t)(rln_prompt_col - 1);
-        else
-            avail = 0;
-        if (avail > 255)
-            avail = 255;
+        // The prompt column is on the prompt's row, so this is at least 1.
+        unsigned avail = rln_rows * rln_width - (rln_prompt_col - 1u);
         if (cap > avail)
             cap = (uint8_t)avail;
     }
@@ -384,9 +365,9 @@ static uint8_t rln_effective_max(void)
 
 // Highest reachable cursor index. Normally buflen; one less when the
 // input is full and fills exactly to the last column, so the cursor
-// rests on the pending-wrap cell instead of a phantom next row (which
-// would drift relative moves up). The "full" guard keeps multi-line
-// appending working — merely filling a row must still let you move on.
+// rests on the last cell instead of breaking to a row the line can never
+// use. The "full" guard keeps multi-line appending working — merely
+// filling a row must still let you move on.
 static uint8_t rln_cursor_max(void)
 {
     if (rln_buflen && rln_prompt_col &&
@@ -403,26 +384,52 @@ static void rln_clamp_cursor(void)
         rln_bufpos = m;
 }
 
-// Write `count` erase spaces starting at the current screen position (the
-// cell just past rln_buflen), then back the cursor up to where it started.
-// A trailing space written into the last column lands in pending-wrap and
-// does not advance, so back up one fewer in that case.
-static void rln_emit_trailing_spaces(uint8_t count)
+// Cut the line to what the layout can hold, so buflen <= effective_max
+// always holds (overwrite edits in place without a cap check).
+static void rln_fit(void)
 {
+    uint8_t cap = rln_effective_max();
+    if (rln_buflen > cap)
+    {
+        rln_buflen = cap;
+        rln_buf[rln_buflen] = 0;
+    }
+}
+
+// Move the cursor to the end of the line, or past a caret drawn beyond it.
+static void rln_sync_past_line(void)
+{
+    uint8_t end = rln_cursor_max();
+    if (rln_cur_idx > end)
+        end = rln_cur_idx;
+    rln_sync_cursor_to(end);
+}
+
+// True when the cursor is in column 1 of the row below the line, where
+// rln_put broke the row after the line's last column.
+static bool rln_below_line(void)
+{
+    if (!rln_prompt_col || !rln_cur_idx)
+        return false;
     uint8_t r;
     uint16_t c;
-    rln_buf_to_screen(rln_buflen, &r, &c);
-    uint16_t back = count;
-    if (c + count - 1 >= rln_width)
-        back = (uint16_t)(count - 1);
+    rln_buf_to_screen(rln_cur_idx, &r, &c);
+    return c == 1;
+}
+
+// Write `count` erase spaces from the cell just past rln_buflen. A form's
+// row is placed by column after, but a plain line moves relatively, so it
+// backs up to where the spaces started.
+static void rln_emit_trailing_spaces(uint8_t count)
+{
     for (uint8_t i = 0; i < count; i++)
-        com_putchar(' ');
-    if (back)
-        com_printf("\33[%uD", back);
+        manifold_putchar(' ');
+    if (!rln_prompt_col)
+        com_printf("\33[%uD", count);
 }
 
 // Walk down `rows` existing rows from the cursor, clearing each, then return up
-// to the start row at column `col`. CUD (not LF) so rows above stay put.
+// to the start row at column `col`.
 static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
@@ -436,24 +443,21 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 }
 
 // Redraw the buffer, then place the cursor at rln_bufpos. Two paths:
-//   - No-wrap: plain writes from `start` with space-fill erase. No EL, no
-//     ICH, no DCH — these would clobber adjacent form data on the same row.
-//   - Wrap: the input is one logical line — write it from the start and let
-//     the terminal autowrap (the standard readline/linenoise model), then
-//     clear the tail and any rows a previous longer render owned. Never
-//     \33[J, which would erase rows below that rln does not own.
+//   - No-wrap: plain writes from `start` with space-fill erase. No EL — it
+//     would clobber adjacent form data on the same row.
+//   - Wrap: write from `start`, breaking the rows, then clear the tail and
+//     any rows a previous longer render owned. Never \33[J, which would
+//     erase rows below that rln does not own.
 // Both erase an old tail only when the line got shorter, so typing at the end
 // of the line echoes just the typed char.
 static void rln_render_from(uint8_t start)
 {
-    if (!rln_editing)
-        return;
     rln_clamp_cursor();
     rln_sync_cursor_to(start);
     if (rln_input_no_wrap())
     {
         for (uint8_t i = start; i < rln_buflen; i++)
-            com_putchar(rln_buf[i]);
+            manifold_putchar(rln_buf[i]);
         rln_cur_idx = rln_cursor_max();
         if (rln_last_render_buflen > rln_buflen)
             rln_emit_trailing_spaces((uint8_t)(rln_last_render_buflen - rln_buflen));
@@ -461,38 +465,16 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
+        uint8_t end = rln_cursor_max();
         for (uint8_t i = start; i < rln_buflen; i++)
-            com_putchar(rln_buf[i]);
-        // The render leaves the cursor just past the last char. When that char
-        // filled the final column the terminal is in pending-wrap. Two cases:
-        //   - Full input pinned on the last cell (cursor_max < buflen): keep
-        //     the cursor there. Do NOT commit the wrap with a SPACE — that
-        //     autowraps to a phantom continuation row (a stray newline/scroll)
-        //     with no next char coming. The closing sync's CHA clears the xenl;
-        //     no EL, which at the margin would erase the char just written.
-        //   - Otherwise: a margin-filling row is committed with SPACE+BS so it
-        //     stays a soft-wrapped continuation a resize can reflow (a hard \n
-        //     would split the logical line); EL then drops the space and any
-        //     stale tail. A non-margin end needs EL only when the line got
-        //     shorter, to drop the stale tail.
-        uint8_t cmax = rln_cursor_max();
+            rln_put(i, rln_buf[i], end);
+        // The cursor is past the line, or on its last cell when a full line
+        // ends on the last column, where EL would erase that cell.
+        if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
+            com_printf("\33[K");
         uint8_t er;
         uint16_t ec;
-        if (cmax < rln_buflen)
-        {
-            rln_buf_to_screen(cmax, &er, &ec);
-            rln_cur_idx = cmax;
-        }
-        else
-        {
-            rln_buf_to_screen(rln_buflen, &er, &ec);
-            bool filled_margin = rln_buflen > start && ec == 1;
-            if (filled_margin)
-                com_printf(" \b\33[K");
-            else if (rln_last_render_buflen > rln_buflen)
-                com_printf("\33[K");
-            rln_cur_idx = rln_buflen;
-        }
+        rln_buf_to_screen(rln_cur_idx, &er, &ec);
         // Clear rows a previous (longer) render owned below the new end,
         // then return to the new end so cur_idx tracks the screen.
         if (rln_rendered_max_row > er)
@@ -503,36 +485,15 @@ static void rln_render_from(uint8_t start)
     rln_sync_cursor_to(rln_bufpos);
 }
 
-// Redraw the wrapping input after the terminal width changed under us
-// (NAWS, or a CPR geometry refinement). The terminal reflowed our one
-// logical line keeping the cursor on the same char, so home the cursor
-// relative to the NEW width, clear the rows the old render owned, and
-// full-redraw.
-static void rln_resize_redraw(void)
-{
-    if (!rln_editing || rln_prompt_col == 0)
-        return;
-    rln_sync_cursor_to(0);
-    uint8_t maxr = rln_rendered_max_row;
-    com_printf("\33[K");
-    rln_clear_rows_below(maxr, rln_prompt_col);
-    rln_cur_idx = 0;
-    rln_rendered_max_row = 0;
-    rln_last_render_buflen = 0;
-    rln_render_from(0);
-}
-
 /* ----- Tail-rewrite emit helper ----- */
 
 // Emit the screen update for an in-place buffer change at position `at`.
 // The buffer must already reflect the new state; leaves cursor at
 // rln_bufpos. `pad` = trailing spaces to erase old positions past the new
 // tail (0 for insert/in-place replace, N for delete-N). Wrap mode falls
-// back to rln_render_from instead of per-row ICH/DCH.
+// back to rln_render_from.
 static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 {
-    if (!rln_editing)
-        return;
     rln_clamp_cursor();
     if (!rln_input_no_wrap())
     {
@@ -541,7 +502,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     }
     rln_sync_cursor_to(at);
     for (uint8_t i = at; i < rln_buflen; i++)
-        com_putchar(rln_buf[i]);
+        manifold_putchar(rln_buf[i]);
     if (pad)
         rln_emit_trailing_spaces(pad);
     rln_cur_idx = rln_cursor_max();
@@ -554,14 +515,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 static void rln_replace_buf_from_history(void)
 {
     rln_buflen = (uint8_t)strnlen(rln_buf, RLN_BUF_SIZE - 1);
-    // Keep recalled entries within the live cap so buflen <= effective_max
-    // holds unconditionally (overwrite edits in place without a cap check).
-    uint8_t cap = rln_effective_max();
-    if (rln_buflen > cap)
-    {
-        rln_buflen = cap;
-        rln_buf[rln_buflen] = 0;
-    }
+    rln_fit();
     rln_bufpos = rln_buflen;
     rln_render_from(0);
 }
@@ -599,12 +553,48 @@ static void rln_history_add(void)
         rln_history_count++;
 }
 
+// The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
+// insert, 0 the default. A terminal on the UART or telnet may print it, as
+// minicom prints its 'q', so it goes to the screen alone and the mode shows
+// nowhere else. Plain lines get none.
+static void rln_cursor_shape(uint8_t ps)
+{
+    if (!rln_prompt_col)
+        return;
+    char seq[] = "\33[0 q";
+    seq[2] = (char)('0' + ps);
+    manifold_write_to(COM_TERM_SCREEN, seq, sizeof seq - 1);
+}
+
+// The read is over, or given up: nothing more is read for it, the callback
+// never fires, and the cursor has its default shape again.
+void rln_read_cancel(void)
+{
+    rln_callback = NULL;
+    rln_idle_timeout_ms = 0;
+    tio_read_end();
+    rln_cursor_shape(0);
+}
+
+/* The line is done at Enter: nothing is read after it, so whatever follows
+ * is the next reader's. The newline takes the cursor to column 1 of the row
+ * below the line, unless the line's own row break already did. SUPPRESS_NL
+ * drops it so last-line field input keeps the cursor on its row. */
+static void rln_complete(bool timed_out)
+{
+    rln_read_callback_t cc = rln_callback;
+    rln_read_cancel();
+    if (!rln_suppress_newline && !rln_below_line())
+        manifold_putchar('\n');
+    cc(timed_out, rln_buf);
+}
+
 // Park the cursor past the input, nul-terminate the buffer, optionally
 // push to history, and complete. The terminating newline is emitted in
 // rln_complete (suppressed by the SUPPRESS_NL attribute).
 static void rln_finish_line(bool add_to_history)
 {
-    rln_sync_cursor_to(rln_cursor_max());
+    rln_sync_past_line();
     rln_buf[rln_buflen] = 0;
     if (add_to_history)
         rln_history_add();
@@ -839,30 +829,14 @@ static void rln_line_insert(char ch)
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
         // Overwrite replaces one char in place; nothing past the cursor
-        // moves. Write it and let the terminal autowrap at the margin; the
-        // follow-up sync issues an explicit move that cancels pending-wrap.
+        // moves.
         rln_buf[rln_bufpos] = ch;
         rln_action_taken = true;
-        if (rln_editing)
-        {
-            rln_sync_cursor_to(rln_bufpos);
-            uint8_t r;
-            uint16_t c;
-            rln_buf_to_screen(rln_bufpos, &r, &c);
-            bool at_margin = (c == rln_width);
-            com_putchar(ch);
-            // The write advances the cursor past the cell, except at the
-            // margin where pending-wrap leaves it parked on the cell.
-            rln_cur_idx = at_margin ? rln_bufpos : (uint8_t)(rln_bufpos + 1);
-            rln_bufpos++;
-            rln_clamp_cursor();
-            rln_sync_cursor_to(rln_bufpos);
-        }
-        else
-        {
-            rln_bufpos++;
-            rln_clamp_cursor();
-        }
+        rln_sync_cursor_to(rln_bufpos);
+        rln_put(rln_bufpos, ch, rln_cursor_max());
+        rln_bufpos++;
+        rln_clamp_cursor();
+        rln_sync_cursor_to(rln_bufpos);
         return;
     }
     if (rln_buflen >= rln_effective_max())
@@ -878,51 +852,40 @@ static void rln_line_insert(char ch)
 
 /* ----- Mode toggling ----- */
 
-// The cursor shape for the mode, a block for overwrite and a bar for insert.
-// tio sends it only to the terminals taken to support shapes, so on the
-// others the mode has no visual indicator.
+// The mode's shape, while a read is on. A poked Enter can end the read before
+// the poke's mode is put back.
 static void rln_emit_mode_cursor(void)
 {
-    tio_cursor_shape(rln_overwrite ? 1 : 5);
+    if (rln_callback)
+        rln_cursor_shape(rln_overwrite ? 1 : 5);
 }
 
 static void rln_toggle_overwrite(void)
 {
     rln_overwrite = !rln_overwrite;
     rln_action_taken = true;
-    if (rln_editing)
-        rln_emit_mode_cursor();
+    rln_emit_mode_cursor();
 }
 
 /* ----- Items -----
  *
  * tio hands over one item at a time: a character, or a whole escape
- * sequence, the terminals' answers already taken out. A typed item is
- * dispatched while the line is being edited, and held until then before. */
+ * sequence. What is typed before a read stays in its source until the read
+ * takes it. */
 
-// Forward decls: ending the wait, or following tio once it is ready, starts
-// the edit, which replays the held items through rln_item.
-static void rln_end_wait(void);
-static void rln_follow(void);
-static void rln_item(com_source_t src, const char *item, size_t len);
-
-static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
+// Enter, a line end the source remembers so the other half of a pair is
+// absorbed (rln_item).
+static void rln_enter(com_source_t src, uint8_t ch)
 {
-    // Both CR and LF end a line, because a terminal sends CR and a file of
-    // host text holds LF, and nothing rewrites either on the way in. A CR and
-    // LF next to each other are one line ending, so the second is discarded.
-    // The memory lasts exactly one dispatched byte, which is why "\r\r" is
-    // two lines and why a blank line in a CRLF file survives.
-    uint8_t was = *line_end;
-    *line_end = 0;
-    if ((ch == '\r' || ch == '\n') && was && ch != was)
-        return;
+    rln_line_ends[src] = ch;
+    rln_action_taken = true;
+    rln_finish_line(true);
+}
+
+static void rln_dispatch_C0(com_source_t src, uint8_t ch)
+{
     if (ch == '\r' || ch == '\n')
-    {
-        *line_end = ch;
-        rln_action_taken = true;
-        rln_finish_line(true);
-    }
+        rln_enter(src, ch);
     else if (ch == '\b' || ch == 127)
         rln_line_backspace();
     else if (ch == 1) // ctrl-a
@@ -952,7 +915,7 @@ static void rln_dispatch_C0(uint8_t *line_end, uint8_t ch)
 static void rln_dispatch_Fe(uint8_t ch)
 {
     // ESC-b / ESC-f are meta-b / meta-f (alt-b/alt-f on xterm-style
-    // terminals); 0x02 / 0x06 are the ctrl-B / ctrl-F variants some
+    // terminals); ESC 0x02 / ESC 0x06 are the ctrl-B / ctrl-F variants some
     // older meta-prefix terminals send for the same binding.
     if (ch == 'b' || ch == 2)
         rln_line_word(-1);
@@ -964,18 +927,48 @@ static void rln_dispatch_Fe(uint8_t ch)
         rln_line_backward_kill_word();
 }
 
-static void rln_dispatch_SS3(uint8_t ch)
+// SS3 keys, which a terminal sends in application cursor or keypad mode:
+// the arrows, Home and End, and the keypad, Enter typing a line end and the
+// rest their characters. A key with parameters, such as ESC O 5 P, does
+// nothing.
+static void rln_dispatch_SS3(com_source_t src, const char *item, size_t len)
 {
-    if (ch == 'F')
+    if (len != 3)
+        return;
+    uint8_t ch = (uint8_t)item[2];
+    if (ch == 'A')
+        rln_history_step(1);
+    else if (ch == 'B')
+        rln_history_step(-1);
+    else if (ch == 'C')
+        rln_step(1);
+    else if (ch == 'D')
+        rln_step(-1);
+    else if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
+    else if (ch == 'M')
+        rln_enter(src, '\r');
+    else if (ch == 'X')
+        rln_line_insert('=');
+    else if (ch >= 'j' && ch <= 'y')
+        rln_line_insert("*+,-./0123456789"[ch - 'j']);
 }
 
-static void rln_dispatch_CSI(const tio_csi_t *csi)
+// DCH, ICH and ECH are editing commands a program pokes. Typed, they are
+// function keys, Shift-F1 being CSI 1;2P, and do nothing. rxvt's shifted
+// keys end on '$' where others end on '~'.
+static void rln_dispatch_CSI(com_source_t src, const tio_csi_t *csi)
 {
     uint8_t ch = csi->final;
-    if (ch == 'A')
+    if (src == RLN_POKE && ch == 'P')
+        rln_line_delete_n(csi);
+    else if (src == RLN_POKE && ch == '@')
+        rln_line_insert_n(csi);
+    else if (src == RLN_POKE && ch == 'X')
+        rln_line_erase_n(csi);
+    else if (ch == 'A')
         rln_history_step(1);
     else if (ch == 'B')
         rln_history_step(-1);
@@ -987,17 +980,11 @@ static void rln_dispatch_CSI(const tio_csi_t *csi)
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
-    else if (ch == 'P')
-        rln_line_delete_n(csi);
-    else if (ch == '@')
-        rln_line_insert_n(csi);
-    else if (ch == 'X')
-        rln_line_erase_n(csi);
-    else if (ch == 'b' || ch == 2)
+    else if (ch == 'b')
         rln_line_word(-1);
-    else if (ch == 'f' || ch == 6)
+    else if (ch == 'f')
         rln_line_word(1);
-    else if (ch == '~')
+    else if (ch == '~' || ch == '$')
         // Function-key codes split across terminfo lineages: 1/4 = VT220-era
         // Find/Select repurposed as Home/End; 7/8 = rxvt/Linux console; 2/3
         // = Insert/Delete (universal). Keep both Home/End forms.
@@ -1039,11 +1026,11 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     rln_action_taken = false;
     rln_line_src = src;
     if (len == 1)
-        rln_dispatch_C0(&rln_line_ends[src], (uint8_t)item[0]);
+        rln_dispatch_C0(src, (uint8_t)item[0]);
     else if (item[1] == '[')
-        rln_dispatch_CSI(csi);
+        rln_dispatch_CSI(src, csi);
     else if (item[1] == 'O')
-        rln_dispatch_SS3((uint8_t)item[2]);
+        rln_dispatch_SS3(src, item, len);
     else
         rln_dispatch_Fe((uint8_t)item[1]);
     rln_publish_lastkey(item, len);
@@ -1056,105 +1043,75 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     }
 }
 
-// Holds a typed item that arrives before the edit starts. A line end starts
-// the edit as soon as tio_line_end lets geometry be ready, which is at once
-// for a peer that feeds bytes without answering the CPRs; until then tio
-// takes only answers, so nothing typed after the line end is held. An item
-// that does not fit starts the edit at once with no prompt column, and is
-// then taken after the held ones.
-static void rln_hold(com_source_t src, const char *item, size_t len)
-{
-    if (rln_held_len + 2 + len > sizeof rln_held)
-    {
-        rln_end_wait();
-        if (rln_callback)
-            rln_item(src, item, len);
-        return;
-    }
-    rln_held[rln_held_len++] = (uint8_t)src;
-    rln_held[rln_held_len++] = (uint8_t)len;
-    memcpy(&rln_held[rln_held_len], item, len);
-    rln_held_len += (uint16_t)len;
-    if (len == 1 && (item[0] == '\r' || item[0] == '\n'))
-    {
-        tio_line_end();
-        rln_follow();
-    }
-}
-
-// Takes one item from a source, or from the poke stream. Private CSIs and SS2
-// are dropped, and the rest are typed. No dropped item becomes the last key.
+// Takes one item from a source, or from the poke stream. Private CSIs, CSIs
+// with an intermediate, such as a terminal's mode report CSI 4;2$y, CSIs that
+// do not parse, and SS2 are dropped, and the rest are typed. No dropped item
+// becomes the last key.
+//
+// Both CR and LF end a line, because a terminal sends CR and a file of host
+// text holds LF, and nothing rewrites either on the way in. A CR and LF next
+// to each other from one source are one line ending, so the second is
+// absorbed here, even when it is the next read's first item. The memory
+// lasts exactly one item, which is why "\r\r" is two lines and why a blank
+// line in a CRLF file survives.
 static void rln_item(com_source_t src, const char *item, size_t len)
 {
     tio_csi_t csi;
     bool is_csi = tio_csi_parse(item, len, &csi);
-    if ((is_csi && csi.priv) || (len == 3 && item[1] == 'N'))
+    if ((is_csi && (csi.priv || csi.inter)) ||
+        (len > 1 && item[1] == '[' && !is_csi) ||
+        (len == 3 && item[1] == 'N'))
         return;
-    if (rln_editing)
-        rln_dispatch(src, item, len, &csi);
-    else
-        rln_hold(src, item, len);
+    uint8_t was = rln_line_ends[src];
+    rln_line_ends[src] = 0;
+    if (len == 1 && was && (item[0] == '\r' || item[0] == '\n') && item[0] != was)
+        return;
+    rln_dispatch(src, item, len, &csi);
 }
 
-/* ----- Starting and following the edit ----- */
+/* ----- Following the terminal ----- */
 
-// The line is still being edited: no held line end finished it.
-static bool rln_still_reading(void)
+// The line starts where the console's terminal has its cursor, and is laid
+// out at that row's columns, half the width on a double-size row. Everything
+// already printed reaches the terminals and cells_term first, then the modes
+// go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
+// starts in column 1 of the next row.
+static void rln_lay_out(void)
 {
-    return rln_callback && rln_editing;
-}
-
-static void rln_enter_edit(void)
-{
-    rln_editing = true;
+    manifold_flush();
+    manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
+    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+        manifold_flush();
+    }
+    const term_grid_t *g = term_shown(&cells_term);
+    const term_pos_t *p = term_pos(g);
+    rln_prompt_col = rln_plain ? 0 : p->x + 1;
+    rln_width = term_cols(g, p->y);
+    rln_grid_width = g->width;
+    rln_rows = g->height < RLN_MAX_ROWS ? g->height : RLN_MAX_ROWS;
     rln_emit_mode_cursor();
-    rln_cur_idx = 0;
-    if (rln_buflen)
-        rln_render_from(0);
-    else
-        rln_sync_cursor_to(rln_bufpos);
-    // Replay the held items in the order they came. A line end among them
-    // finishes the line, and the replay stops there.
-    uint16_t held = rln_held_len;
-    rln_held_len = 0;
-    for (uint16_t at = 0;
-         at < held && rln_still_reading();
-         at += 2 + rln_held[at + 1])
-        rln_item((com_source_t)rln_held[at], (const char *)&rln_held[at + 2],
-                 rln_held[at + 1]);
 }
 
-// Follows tio's geometry. The edit starts once it is ready, and the line is
-// drawn again when the prompt column or the width changes under it. A line
-// laid out without a prompt column is never drawn again.
+// The line is drawn again when the shown grid's width changes under it: a new
+// canvas, a VGA reset or a program's own width. No terminal is trusted to have
+// reflowed it, so it starts over on a clean row below the old line, at the
+// new width, without the prompt, cut to what the new layout holds. A plain
+// line is never drawn again.
 static void rln_follow(void)
 {
-    if (!rln_editing)
-    {
-        if (!tio_ready())
-            return;
-        rln_prompt_col = tio_prompt_col();
-        rln_width = tio_get_term_width();
-        rln_enter_edit();
+    if (!rln_prompt_col || rln_get_term_width() == rln_grid_width)
         return;
-    }
-    uint16_t pcol = tio_prompt_col();
-    uint16_t width = tio_get_term_width();
-    if (pcol == rln_prompt_col && width == rln_width)
-        return;
-    rln_width = width;
-    if (!rln_prompt_col)
-        return;
-    rln_prompt_col = pcol;
-    rln_resize_redraw();
-}
-
-// Geometry is ready now, with no prompt column, and the held items are
-// replayed. A line end among them finishes the line.
-static void rln_end_wait(void)
-{
-    tio_ready_now();
-    rln_follow();
+    rln_sync_past_line();
+    com_clean_line();
+    rln_lay_out();
+    rln_fit();
+    rln_cur_idx = 0;
+    rln_rendered_max_row = 0;
+    rln_last_render_buflen = 0;
+    rln_render_from(0);
 }
 
 /* ----- Top-level task / driver hooks ----- */
@@ -1172,26 +1129,23 @@ static void rln_start(rln_read_callback_t callback)
     rln_action_taken = false;
     rln_lastkey_action = false;
 
-    rln_editing = false;
     rln_prompt_col = 0;
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
     rln_last_render_buflen = 0;
-    rln_held_len = 0;
     rln_line_src = COM_SOURCE_ANY;
 }
 
 void rln_read_line(rln_read_callback_t callback)
 {
     rln_start(callback);
-    tio_read_start(rln_max_length);
+    rln_lay_out();
 }
 
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
     rln_start(callback);
-    tio_read_start_unasked();
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
 }
@@ -1207,24 +1161,9 @@ com_source_t rln_line_source(void)
     return rln_line_src;
 }
 
-void rln_read_cancel(void)
-{
-    rln_callback = NULL;
-    rln_idle_timeout_ms = 0;
-    tio_read_end();
-}
-
 bool rln_read_flush(void)
 {
-    if (!rln_callback)
-        return false;
-    if (!rln_editing)
-    {
-        rln_end_wait();
-        if (!rln_still_reading())
-            return true;
-    }
-    if (!rln_buflen)
+    if (!rln_callback || !rln_buflen)
         return false;
     rln_line_src = COM_SOURCE_ANY;
     rln_finish_line(false);
@@ -1260,9 +1199,10 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = RLN_CAPS_OFF;
     rln_suppress_newline = false;
-    rln_editing = false;
     rln_overwrite = false;
-    rln_held_len = 0;
+    rln_pinned_width = 0;
+    rln_pinned_height = 0;
+    term_grid_init(&rln_grid, 80, rln_grid_lines, RLN_GRID_ROWS);
 }
 
 void rln_run(void)
@@ -1271,21 +1211,73 @@ void rln_run(void)
 }
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
- * past everything typed. */
+ * past everything typed, with its default shape. A program's own size goes
+ * back to the screen's. */
 void rln_stop(void)
 {
     if (rln_callback)
     {
-        rln_sync_cursor_to(rln_cursor_max());
-        com_printf("\r\n");
+        rln_sync_past_line();
+        if (!rln_below_line())
+            com_printf("\r\n");
+        rln_read_cancel();
     }
+    if (rln_has_grid())
+        term_drop_grid(&cells_term, &rln_grid);
     rln_init();
 }
 
-void HOST_IN_RAM_FUNC rln_forget_source(unsigned src)
+void rln_set_plain(bool plain)
 {
-    if (src < COM_SOURCE_COUNT)
-        rln_line_ends[src] = 0;
+    rln_plain = plain;
+}
+
+uint16_t rln_get_term_width(void)
+{
+    return term_shown(&cells_term)->width;
+}
+
+uint16_t rln_get_term_height(void)
+{
+    return term_shown(&cells_term)->height;
+}
+
+/* The third grid starts as a copy of the showing one and takes the pinned
+ * size. An axis not pinned takes the showing grid's when the other is
+ * pinned, and keeps it: the program's terminal is a fixed size until both
+ * are 0 again, when it is dropped. The screen's grids are never touched. */
+static void rln_size_grid(void)
+{
+    term_t *t = &cells_term;
+    if (!rln_pinned_width && !rln_pinned_height)
+    {
+        if (rln_has_grid())
+            term_drop_grid(t, &rln_grid);
+        return;
+    }
+    const term_grid_t *shown = cells_shown(t);
+    if (!rln_has_grid())
+        term_add_grid(t, &rln_grid, shown, rln_grid_lines, RLN_GRID_ROWS);
+    term_set_width(t, &rln_grid, (uint8_t)(rln_pinned_width ? rln_pinned_width : shown->width));
+    term_set_height(t, &rln_grid, (uint8_t)(rln_pinned_height ? rln_pinned_height : shown->height));
+}
+
+void rln_set_term_width(uint16_t v)
+{
+    rln_pinned_width = v;
+    rln_size_grid();
+}
+
+void rln_set_term_height(uint16_t v)
+{
+    rln_pinned_height = v;
+    rln_size_grid();
+}
+
+void HOST_IN_RAM_FUNC rln_forget_source(com_source_t src)
+{
+    rln_line_ends[src] = 0;
+    tio_forget(src);
 }
 
 /* 6502 applications may configure the max length */
@@ -1337,25 +1329,18 @@ bool HOST_IN_FLASH_FUNC rln_api_peek(void)
 }
 
 // Emit a "^X" caret-notation marker for the C0 byte `ch` at buffer
-// position `target`, then advance rln_cur_idx past it. Caller must have
-// already called rln_sync_cursor_to(target). The two cells autowrap like
-// any other write; track where the cursor parks (on the cell at the margin).
+// position `target`. Caller must have already called
+// rln_sync_cursor_to(target). A '^' on the last column breaks the row, so
+// the marker stays whole.
 static void rln_poke_emit_caret(uint8_t target, char ch)
 {
-    com_putchar('^');
-    com_putchar((char)('@' + ch));
-    rln_cur_idx = (uint8_t)(target + 2);
-    if (rln_prompt_col)
-    {
-        uint16_t w = rln_width;
-        uint16_t last_col = (uint16_t)((rln_prompt_col - 1 + target + 1) % w) + 1;
-        if (last_col == w)
-            rln_cur_idx = (uint8_t)(target + 1); // margin: caret parks on the cell
-    }
+    rln_put(target, '^', (uint8_t)(target + 1));
+    rln_put((uint8_t)(target + 1), (char)('@' + ch), (uint8_t)(target + 1));
 }
 
 // The string is framed into items as a source is. A sequence still open at the
-// end of the string is dropped, and so is an overlong one.
+// end of the string is dropped, and so is an overlong one. CAN and SUB cancel
+// a sequence they land in; any other control ends the line.
 void rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1368,14 +1353,8 @@ void rln_poke(const char *str)
     do
     {
         uint8_t ch = (uint8_t)*p;
-        if (ch < 32 && ch != '\33' && ch != '\30')
+        if (ch < 32 && ch != '\33' && !(frame && (ch == '\30' || ch == '\32')))
         {
-            if (!rln_editing)
-            {
-                rln_end_wait();
-                if (!rln_still_reading())
-                    break;
-            }
             if (ch != '\r' && rln_max_length >= 2)
             {
                 uint8_t target = rln_bufpos;
@@ -1389,6 +1368,11 @@ void rln_poke(const char *str)
             break;
         }
         tio_step_t step = tio_frame(&frame, ch);
+        if (step == TIO_AGAIN)
+        {
+            len = 0;
+            step = tio_frame(&frame, ch);
+        }
         if (len < TIO_ITEM_MAX)
             item[len] = (char)ch;
         len++;

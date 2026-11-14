@@ -6,13 +6,11 @@
 
 /* tio over sources this file stands in for, each queue holding the number of
  * bytes a test gives it, and one byte that can be staged ahead of a source as
- * the 6502's receive register holds it. The terminals, the console's output,
- * the machine clock and the canvas are stood in for too. */
+ * the 6502's receive register holds it. The machine clock is stood in for
+ * too. */
 
-#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/vga/vga.h"
 #include "utest.h"
 #include <string.h>
 
@@ -39,18 +37,6 @@ static void stage(com_source_t src, char c)
     fake_staged = c;
 }
 
-/* What was written to each terminal, by its COM_TERM_ bit's index, SCREEN
- * being term.c's; whether the console was flushed before the first write to
- * one; and whether the next flush ends the telnet session. */
-#define UART COM_SOURCE_UART
-#define TEL COM_SOURCE_TEL
-#define SCREEN COM_SOURCE_COUNT
-static char sent[SCREEN + 1][256];
-static bool flushed;
-static bool wrote_unflushed;
-static bool flush_ends_telnet;
-static uint8_t fake_charge;
-static uint8_t fake_connected;
 static uint64_t fake_now;
 
 static void sources(size_t keyboard, size_t uart)
@@ -60,12 +46,6 @@ static void sources(size_t keyboard, size_t uart)
     fake[COM_SOURCE_UART].size = uart;
     fake[COM_SOURCE_TEL].size = 32;
     fake_staged_src = COM_SOURCE_ANY;
-    memset(sent, 0, sizeof sent);
-    flushed = false;
-    wrote_unflushed = false;
-    flush_ends_telnet = false;
-    fake_charge = COM_TERM_UART;
-    fake_connected = COM_TERM_UART;
     tio_init();
 }
 
@@ -82,49 +62,6 @@ timer_mach_t timer_mach_in_ms(uint64_t ms)
 bool timer_mach_passed(timer_mach_t d)
 {
     return (int64_t)(fake_now - d) >= 0;
-}
-
-void com_flush(void)
-{
-    flushed = true;
-    if (flush_ends_telnet)
-    {
-        flush_ends_telnet = false;
-        fake_charge = COM_TERM_UART;
-        fake_connected = COM_TERM_UART;
-        tio_forget(COM_SOURCE_TEL);
-    }
-}
-
-void manifold_write_to(uint8_t to, const char *buf, size_t n)
-{
-    wrote_unflushed |= !flushed;
-    for (unsigned i = UART; i <= SCREEN; i++)
-        if (to & COM_TERM(i))
-            strncat(sent[i], buf, n);
-}
-
-uint8_t manifold_term_in_charge(void)
-{
-    return fake_charge;
-}
-
-uint8_t manifold_terms_connected(void)
-{
-    return fake_connected;
-}
-
-/* 40 columns and 30 rows. */
-void vga_canvas_size(int *w, int *h)
-{
-    *w = 320;
-    *h = 240;
-}
-
-void vga_display_size(int *w, int *h)
-{
-    *w = 640;
-    *h = 480;
 }
 
 size_t com_read(com_source_t src, char *buf, size_t n)
@@ -188,27 +125,193 @@ static const char *csi_of(size_t count, const char *tail)
 UTEST(tio, each_item_ends_by_the_framing_rules)
 {
     sources(256, 256);
-    push(COM_SOURCE_UART, "a\33[1;5C\33OA\33Nx\33b\33\33\33[?25h\33[ q");
+    push(COM_SOURCE_UART, "a\33[1;5C\33OA\33Nx\33b\33\177\33\r\33[?25h\33[ q");
     ASSERT_STREQ(next(), "a");
     ASSERT_EQ(got_src, COM_SOURCE_UART);
     ASSERT_STREQ(next(), "\33[1;5C");
     ASSERT_STREQ(next(), "\33OA");
     ASSERT_STREQ(next(), "\33Nx");
     ASSERT_STREQ(next(), "\33b");
-    ASSERT_STREQ(next(), "\33\33");
+    ASSERT_STREQ(next(), "\33\177");
+    ASSERT_STREQ(next(), "\33\r");
     ASSERT_STREQ(next(), "\33[?25h");
-    ASSERT_STREQ(next(), "\33[ ");
-    ASSERT_STREQ(next(), "q");
+    ASSERT_STREQ(next(), "\33[ q");
     ASSERT_STREQ(next(), "");
 }
 
-UTEST(tio, a_can_drops_the_sequence_it_lands_in)
+UTEST(tio, can_and_sub_drop_the_sequence_they_land_in_and_are_keys_outside_one)
 {
     sources(256, 256);
-    push(COM_SOURCE_UART, "\33[12\30a\30b");
+    push(COM_SOURCE_UART, "\33[12\30a\33O\32b\30\32");
     ASSERT_STREQ(next(), "a");
     ASSERT_STREQ(next(), "b");
+    ASSERT_STREQ(next(), "\30");
+    ASSERT_STREQ(next(), "\32");
     ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, an_esc_inside_a_sequence_starts_it_over)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33\33[A\33[1\33[B\33O\33[C");
+    ASSERT_STREQ(next(), "\33[A");
+    ASSERT_STREQ(next(), "\33[B");
+    ASSERT_STREQ(next(), "\33[C");
+    ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, a_control_inside_a_sequence_ends_it_and_stands_alone)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[\r\33[1\177\33[1;\n\33O\b\33Nx");
+    ASSERT_STREQ(next(), "\r");
+    ASSERT_STREQ(next(), "\177");
+    ASSERT_STREQ(next(), "\n");
+    ASSERT_STREQ(next(), "\b");
+    ASSERT_STREQ(next(), "\33Nx");
+    ASSERT_STREQ(next(), "");
+}
+
+/* A UTF-8 character typed into an unfinished sequence comes through whole. */
+UTEST(tio, a_byte_of_0x80_and_up_ends_a_sequence_and_stands_alone)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[1\303\251\33\303\251");
+    ASSERT_STREQ(next(), "\303");
+    ASSERT_STREQ(next(), "\251");
+    ASSERT_STREQ(next(), "\303");
+    ASSERT_STREQ(next(), "\251");
+    ASSERT_STREQ(next(), "");
+}
+
+UTEST(tio, intermediates_keep_a_csi_open_to_its_final_byte)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[?2004;1$yx\33[4;2$yx\33[2$x\33[11$x");
+    ASSERT_STREQ(next(), "\33[?2004;1$y");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[4;2$y");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[2$");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[11$");
+    ASSERT_STREQ(next(), "x");
+}
+
+UTEST(tio, linux_console_function_keys_are_one_item)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[[A\33[[Ex");
+    ASSERT_STREQ(next(), "\33[[A");
+    ASSERT_STREQ(next(), "\33[[E");
+    ASSERT_STREQ(next(), "x");
+}
+
+UTEST(tio, ss3_keys_take_parameters)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33O5P\33O1;5Ax\33OMy");
+    ASSERT_STREQ(next(), "\33O5P");
+    ASSERT_STREQ(next(), "\33O1;5A");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33OM");
+    ASSERT_STREQ(next(), "y");
+}
+
+UTEST(tio, an_x10_mouse_report_takes_its_three_bytes)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[M !\377x\33[2Mx");
+    ASSERT_STREQ(next(), "\33[M !\377");
+    ASSERT_STREQ(next(), "x");
+    ASSERT_STREQ(next(), "\33[2M");
+    ASSERT_STREQ(next(), "x");
+}
+
+static bool parse(const char *item, tio_csi_t *csi)
+{
+    return tio_csi_parse(item, strlen(item), csi);
+}
+
+UTEST(tio, a_csi_parses_only_in_its_own_shape)
+{
+    tio_csi_t csi;
+    ASSERT_TRUE(parse("\33[?25h", &csi));
+    ASSERT_EQ(csi.priv, '?');
+    ASSERT_EQ(csi.param[0], 25);
+    ASSERT_FALSE(parse("\33[1?5h", &csi));
+    ASSERT_FALSE(parse("\33[1$5y", &csi));
+    ASSERT_TRUE(parse("\33[1:3;5R", &csi));
+    ASSERT_EQ(csi.count, 2);
+    ASSERT_EQ(csi.param[0], 1);
+    ASSERT_EQ(csi.param[1], 5);
+    ASSERT_TRUE(parse("\33[?2004;1$y", &csi));
+    ASSERT_EQ(csi.inter, '$');
+    ASSERT_EQ(csi.final, 'y');
+    ASSERT_TRUE(parse("\33[7$", &csi));
+    ASSERT_EQ(csi.inter, 0);
+    ASSERT_EQ(csi.final, '$');
+    ASSERT_EQ(csi.param[0], 7);
+    ASSERT_TRUE(parse("\33[M !!", &csi));
+    ASSERT_EQ(csi.final, 'M');
+    ASSERT_TRUE(parse("\33[[A", &csi));
+    ASSERT_EQ(csi.final, '[');
+    ASSERT_FALSE(parse("\33[1M!!!", &csi));
+    ASSERT_FALSE(parse("\33[AB", &csi));
+}
+
+/* ----- A sequence that does not finish ----- */
+
+UTEST(tio, a_lone_esc_is_the_escape_key_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    ASSERT_STREQ(next(), "");
+    ASSERT_TRUE(tio_idle());
+    later_ms(1);
+    ASSERT_FALSE(tio_idle());
+    ASSERT_STREQ(next(), "\33");
+    ASSERT_STREQ(next(), "");
+}
+
+/* Alt+[ is ESC '[', which would otherwise take the next key as its final. */
+UTEST(tio, an_unfinished_sequence_is_dropped_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33[");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS);
+    ASSERT_STREQ(next(), "");
+    push(COM_SOURCE_UART, "A");
+    ASSERT_STREQ(next(), "A");
+}
+
+UTEST(tio, a_sequence_still_growing_is_not_quiet)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, "\33");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    push(COM_SOURCE_UART, "[1");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS - 1);
+    push(COM_SOURCE_UART, "A");
+    ASSERT_STREQ(next(), "\33[1A");
+}
+
+UTEST(tio, the_rest_of_an_overlong_sequence_is_given_up_after_a_quiet_time)
+{
+    sources(256, 256);
+    push(COM_SOURCE_UART, csi_of(40, ""));
+    ASSERT_STREQ(next(), "");
+    ASSERT_STREQ(next(), "");
+    later_ms(TIO_ESC_MS);
+    ASSERT_STREQ(next(), "");
+    push(COM_SOURCE_UART, "Cx");
+    ASSERT_STREQ(next(), "C");
+    ASSERT_STREQ(next(), "x");
 }
 
 UTEST(tio, a_sequence_still_arriving_stays_in_its_source)
@@ -347,657 +450,35 @@ UTEST(tio, a_read_end_leaves_a_sequence_still_arriving)
     ASSERT_STREQ(next(), "\33[6;3C");
 }
 
-#define HIDE "\33[?25l"
-#define SHOW "\33[?25h"
-#define WRAP "\33[?7h"
-#define SAVE "\0337"
-#define CPR "\33[6n"
-#define PROBE "\33[>c\0338 \b"
-#define SIZE "\33[999;999H" CPR "\0338"
-
-static void clear_sent(void)
-{
-    memset(sent, 0, sizeof sent);
-}
-
-/* The answers are taken and the quiet dwell passes. */
-static void answered(void)
-{
-    next();
-    later_ms(TIO_QUIET_MS);
-}
-
-/* A telnet session that sent NAWS is in charge, with the VGA connected. */
-static void telnet_session(void)
-{
-    fake_connected = COM_TERM_SCREEN | COM_TERM_TEL;
-    fake_charge = COM_TERM_TEL;
-    tio_set_naws_size(100, 30);
-}
-
-/* term.c is in charge, and a telnet session without NAWS is logged in. */
-static void screen_in_charge(void)
-{
-    fake_connected = COM_TERM_SCREEN | COM_TERM_TEL;
-    fake_charge = COM_TERM_SCREEN;
-}
-
-UTEST(tio, a_plain_uart_terminal_in_charge_is_asked_the_burst_after_a_flush)
+/* Shift-F3 is CSI 1;2R on xterm and PuTTY, and nothing is asked, so an
+ * answer-shaped sequence is an item from any source. */
+UTEST(tio, a_cpr_or_da2_shaped_sequence_is_an_item)
 {
     sources(256, 256);
-    tio_read_start(10);
-    ASSERT_FALSE(wrote_unflushed);
-    ASSERT_STREQ(sent[UART], HIDE WRAP SAVE CPR PROBE SIZE SHOW);
-    ASSERT_STREQ(sent[TEL], "");
-    ASSERT_STREQ(sent[SCREEN], "");
-}
-
-UTEST(tio, a_read_of_no_cells_asks_no_da2_and_pinned_sizes_ask_no_size)
-{
-    sources(256, 256);
-    tio_set_term_width(80);
-    tio_set_term_height(24);
-    tio_read_start(0);
-    ASSERT_STREQ(sent[UART], HIDE WRAP SAVE CPR SHOW);
-}
-
-UTEST(tio, a_telnet_session_in_charge_is_asked_alone_and_not_for_the_size)
-{
-    sources(256, 256);
-    telnet_session();
-    fake_connected |= COM_TERM_UART;
-    tio_read_start(10);
-    ASSERT_FALSE(wrote_unflushed);
-    ASSERT_STREQ(sent[TEL], HIDE WRAP SAVE CPR PROBE SHOW);
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[SCREEN], "");
-}
-
-UTEST(tio, term_c_in_charge_is_asked_the_prompt_cpr_alone)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    ASSERT_STREQ(sent[SCREEN], HIDE WRAP SAVE CPR SHOW);
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[TEL], "");
-}
-
-/* A telnet session that sent no NAWS, such as rp6502.py, is never in
- * charge. */
-UTEST(tio, a_telnet_session_not_in_charge_is_never_asked)
-{
-    sources(256, 256);
-    fake_connected = COM_TERM_UART | COM_TERM_TEL;
-    tio_read_start(10);
-    tio_read_start(0);
-    ASSERT_STREQ(sent[TEL], "");
-}
-
-UTEST(tio, with_no_terminal_in_charge_nothing_is_asked_and_geometry_is_ready)
-{
-    sources(256, 256);
-    fake_charge = 0;
-    fake_connected = 0;
-    tio_read_start(10);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
     push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c");
+    push(COM_SOURCE_KEYBOARD, "\33[1;2R");
+    ASSERT_STREQ(next(), "\33[1;2R");
+    ASSERT_EQ(got_src, COM_SOURCE_KEYBOARD);
+    ASSERT_STREQ(next(), "\33[5;3R");
+    ASSERT_EQ(got_src, COM_SOURCE_UART);
+    ASSERT_STREQ(next(), "\33[>1;10;0c");
     ASSERT_STREQ(next(), "");
-    ASSERT_EQ(tio_prompt_col(), 0);
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[TEL], "");
-    ASSERT_STREQ(sent[SCREEN], "");
 }
 
-UTEST(tio, geometry_is_ready_once_the_answers_have_been_quiet)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_FALSE(tio_ready());
-    later_ms(TIO_QUIET_MS - 1);
-    push(COM_SOURCE_KEYBOARD, "x");
-    ASSERT_STREQ(next(), "x");
-    later_ms(TIO_QUIET_MS - 1);
-    ASSERT_FALSE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-    later_ms(1);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 3);
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
-}
-
-UTEST(tio, an_answer_an_earlier_read_was_owed_does_not_win)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
-    push(COM_SOURCE_UART, "\33[6;28R\33[>1;10;0c\33[24;80R");
-    ASSERT_STREQ(next(), "");
-    later_ms(TIO_QUIET_MS);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 28);
-}
-
-UTEST(tio, with_no_answer_the_deadline_brings_no_prompt_column)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS - 1);
-    ASSERT_FALSE(tio_ready());
-    later_ms(1);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
-}
-
-UTEST(tio, only_the_terminal_in_charge_gives_the_geometry)
-{
-    sources(256, 256);
-    telnet_session();
-    fake_connected |= COM_TERM_UART;
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[>1;10;0c\33[5;3R\33[24;132R");
-    answered();
-    ASSERT_FALSE(tio_ready());
-    push(COM_SOURCE_TEL, "\33[2;7R\33[>0;95;0c");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 7);
-    ASSERT_EQ(tio_get_term_width(), 100);
-    ASSERT_EQ(tio_get_term_height(), 30);
-}
-
-UTEST(tio, a_session_ended_by_the_flush_leaves_the_uart_in_charge)
-{
-    sources(256, 256);
-    fake_connected = COM_TERM_UART | COM_TERM_TEL;
-    fake_charge = COM_TERM_TEL;
-    tio_read_start(10);
-    tio_read_end();
-    clear_sent();
-    flush_ends_telnet = true;
-    tio_read_start(10);
-    ASSERT_STREQ(sent[UART], HIDE WRAP SAVE CPR PROBE SIZE SHOW);
-    ASSERT_STREQ(sent[TEL], "");
-    push(COM_SOURCE_UART, "\33[2;7R\33[>1;10;0c\33[30;100R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 7);
-    ASSERT_EQ(tio_get_term_width(), 100);
-}
-
-UTEST(tio, a_later_answer_moves_the_prompt_column)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    push(COM_SOURCE_UART, "\33[6;9R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_EQ(tio_prompt_col(), 9);
-}
-
-UTEST(tio, ready_now_has_no_prompt_column_and_later_answers_change_nothing)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    tio_ready_now();
-    ASSERT_TRUE(tio_ready());
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;132R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_EQ(tio_prompt_col(), 0);
-    ASSERT_EQ(tio_get_term_width(), 80);
-}
-
-UTEST(tio, an_answer_from_the_keyboard_is_dropped)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_KEYBOARD, "\33[5;3R\33[>1c\33[24;80Rk");
-    ASSERT_STREQ(next(), "k");
-    later_ms(TIO_QUIET_MS);
-    ASSERT_FALSE(tio_ready());
-}
-
-UTEST(tio, the_size_goes_pinned_then_naws_then_the_canvas_then_the_uart_terminal)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;132R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_get_term_width(), 132);
-    ASSERT_EQ(tio_get_term_height(), 24);
-    fake_charge = COM_TERM_SCREEN;
-    ASSERT_EQ(tio_get_term_width(), 40);
-    ASSERT_EQ(tio_get_term_height(), 30);
-    tio_set_naws_size(100, 40);
-    ASSERT_EQ(tio_get_term_width(), 100);
-    ASSERT_EQ(tio_get_term_height(), 40);
-    tio_set_term_width(50);
-    ASSERT_EQ(tio_get_term_width(), 50);
-    ASSERT_EQ(tio_get_term_height(), 40);
-}
-
-UTEST(tio, a_stop_unpins_the_sizes)
-{
-    sources(256, 256);
-    tio_set_term_width(50);
-    tio_set_term_height(20);
-    tio_stop();
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
-}
-
-/* ----- A line end typed before geometry is ready ----- */
-
-UTEST(tio, an_enter_ends_the_wait_for_a_plain_uart_terminal)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-}
-
-UTEST(tio, an_enter_waits_for_the_answer_of_term_c)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_FALSE(tio_ready());
-    push(COM_SOURCE_UART, "\33[4;5R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 5);
-}
-
-UTEST(tio, an_enter_waits_for_term_c_until_the_deadline)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    tio_line_end();
-    later_ms(TIO_DEADLINE_MS - 1);
-    ASSERT_FALSE(tio_ready());
-    later_ms(1);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-}
-
-/* What is typed after the line end is the next reader's, so it stays where
- * it is while the answer is taken. */
-UTEST(tio, an_enter_that_waits_takes_only_answers)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    tio_line_end();
-    push(COM_SOURCE_KEYBOARD, "k");
-    push(COM_SOURCE_TEL, "t");
-    push(COM_SOURCE_UART, "\33[4;5R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_EQ(fake[COM_SOURCE_KEYBOARD].len, (size_t)1);
-    ASSERT_EQ(fake[COM_SOURCE_TEL].len, (size_t)1);
-    ASSERT_FALSE(tio_ready());
-    later_ms(TIO_QUIET_MS);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 5);
-    ASSERT_STREQ(next(), "k");
-    ASSERT_STREQ(next(), "t");
-}
-
-/* An answer still to come would arrive behind what was typed after the line
- * end, so the wait ends, and the read gives nothing more until the line is
- * taken. */
-UTEST(tio, an_item_in_front_of_the_answer_ends_the_wait)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    tio_line_end();
-    push(COM_SOURCE_UART, "u");
-    push(COM_SOURCE_TEL, "t");
-    ASSERT_STREQ(next(), "");
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-    ASSERT_STREQ(next(), "u");
-    ASSERT_STREQ(next(), "t");
-}
-
-UTEST(tio, an_answer_ahead_of_an_item_typed_after_the_line_end_is_kept)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    tio_line_end();
-    push(COM_SOURCE_TEL, "\33[2;7R\n");
-    ASSERT_STREQ(next(), "");
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 7);
-    ASSERT_STREQ(next(), "\n");
-}
-
-UTEST(tio, the_first_read_of_a_telnet_session_waits_after_a_fast_enter)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    tio_line_end();
-    later_ms(TIO_DEADLINE_MS - 1);
-    ASSERT_FALSE(tio_ready());
-    later_ms(1);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-}
-
-UTEST(tio, the_first_read_of_a_telnet_session_takes_its_answer_after_a_fast_enter)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_FALSE(tio_ready());
-    push(COM_SOURCE_TEL, "\33[2;7R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 7);
-}
-
-UTEST(tio, an_enter_does_not_wait_for_a_telnet_session_that_never_answered)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS);
-    ASSERT_TRUE(tio_ready());
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-}
-
-/* The answer comes after its read was ready, and the session is waited for
- * from then on. */
-UTEST(tio, a_late_cpr_marks_a_telnet_session_as_one_that_answers)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS);
-    ASSERT_TRUE(tio_ready());
-    push(COM_SOURCE_TEL, "\33[2;7R");
-    ASSERT_STREQ(next(), "");
-    ASSERT_EQ(tio_prompt_col(), 0);
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_FALSE(tio_ready());
-    push(COM_SOURCE_TEL, "\33[3;9R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 9);
-}
-
-/* ----- Cursor shapes ----- */
-
-UTEST(tio, a_telnet_session_is_asked_da2_until_its_first_answer)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS);
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_read_start(10);
-    ASSERT_STREQ(sent[TEL], HIDE WRAP SAVE CPR PROBE SHOW);
-    push(COM_SOURCE_TEL, "\33[2;7R\33[>0;95;0c");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_read_start(10);
-    ASSERT_STREQ(sent[TEL], HIDE WRAP SAVE CPR SHOW);
-}
-
-/* term.c takes shapes as a known yes, beside the telnet session in charge. */
-UTEST(tio, a_late_da2_answer_marks_a_telnet_session_as_taking_shapes)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    push(COM_SOURCE_TEL, "\33[2;7R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_shape(5);
-    ASSERT_STREQ(sent[TEL], "");
-    ASSERT_STREQ(sent[SCREEN], "\33[5 q");
-    push(COM_SOURCE_TEL, "\33[>0;95;0c");
-    ASSERT_STREQ(next(), "");
-    ASSERT_STREQ(sent[TEL], "\33[5 q");
-    clear_sent();
-    tio_cursor_default();
-    ASSERT_STREQ(sent[TEL], "\33[0 q");
-    ASSERT_STREQ(sent[SCREEN], "\33[0 q");
-    ASSERT_STREQ(sent[UART], "");
-}
-
-UTEST(tio, a_telnet_session_torn_down_takes_what_tio_knew_of_it)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    push(COM_SOURCE_TEL, "\33[2;7R\33[>0;95;0c");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    tio_forget(COM_SOURCE_TEL);
-    clear_sent();
-    tio_cursor_default();
-    ASSERT_STREQ(sent[TEL], "");
-    tio_read_start(10);
-    ASSERT_STREQ(sent[TEL], HIDE WRAP SAVE CPR PROBE SHOW);
-    tio_line_end();
-    ASSERT_FALSE(tio_ready());
-}
-
-/* The session goes away while a read waits on it, and the first prompt of
- * the next session still waits for its answers. */
-UTEST(tio, a_telnet_session_torn_down_during_a_read_leaves_the_next_one_unasked)
-{
-    sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
-    tio_forget(COM_SOURCE_TEL);
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_prompt_col(), 0);
-    later_ms(TIO_DEADLINE_MS);
-    tio_read_start(10);
-    tio_line_end();
-    ASSERT_FALSE(tio_ready());
-}
+/* ----- A telnet session that goes away ----- */
 
 /* The session on telnet is torn down with a sequence half taken, and the
  * next session types. */
 UTEST(tio, a_telnet_session_replaced_during_a_read_loses_no_key)
 {
     sources(256, 256);
-    telnet_session();
-    tio_read_start(10);
     push(COM_SOURCE_TEL, csi_of(40, ""));
     ASSERT_STREQ(next(), "");
     fake[COM_SOURCE_TEL].len = 0;
     tio_forget(COM_SOURCE_TEL);
-    push(COM_SOURCE_TEL, "\33[1;1Rk");
+    push(COM_SOURCE_TEL, "k");
     ASSERT_STREQ(next(), "k");
     ASSERT_EQ(got_src, COM_SOURCE_TEL);
-}
-
-UTEST(tio, term_c_in_charge_gives_the_canvas_size_and_gets_shapes_alone)
-{
-    sources(256, 256);
-    screen_in_charge();
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[4;5R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    ASSERT_EQ(tio_get_term_width(), 40);
-    ASSERT_EQ(tio_get_term_height(), 30);
-    clear_sent();
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[SCREEN], "\33[5 q\33[0 q");
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[TEL], "");
-}
-
-UTEST(tio, the_default_shape_goes_by_role)
-{
-    sources(256, 256);
-    fake_connected = COM_TERM_UART | COM_TERM_TEL;
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[0 q");
-    ASSERT_STREQ(sent[TEL], "");
-    clear_sent();
-    fake_connected = COM_TERM_SCREEN | COM_TERM_TEL;
-    tio_cursor_default();
-    ASSERT_STREQ(sent[SCREEN], "\33[0 q");
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[TEL], "");
-}
-
-UTEST(tio, a_plain_uart_terminal_that_answers_da2_gets_shapes)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    clear_sent();
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[5 q\33[0 q");
-}
-
-UTEST(tio, a_plain_uart_terminal_that_answers_its_marker_and_not_da2_gets_no_shape)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    clear_sent();
-    push(COM_SOURCE_UART, "\33[5;3R\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "");
-}
-
-UTEST(tio, a_da2_answer_takes_a_plain_uart_terminal_as_supporting_shapes_again)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[0 q");
-}
-
-/* The UART in charge gets shapes only after DA2 in this read, so a read of
- * no cells sends none, and the marker it is not asked changes nothing. */
-UTEST(tio, a_read_of_no_cells_changes_no_marks)
-{
-    sources(256, 256);
-    tio_read_start(0);
-    clear_sent();
-    push(COM_SOURCE_UART, "\33[5;3R\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    tio_cursor_shape(5);
-    ASSERT_STREQ(sent[UART], "");
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[0 q");
-}
-
-UTEST(tio, with_both_sizes_pinned_a_cpr_and_no_da2_by_ready_marks_no_shapes)
-{
-    sources(256, 256);
-    tio_set_term_width(80);
-    tio_set_term_height(24);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "");
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "\33[0 q");
-}
-
-UTEST(tio, a_da2_answer_after_the_edit_started_gets_the_current_shape)
-{
-    sources(256, 256);
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R");
-    ASSERT_STREQ(next(), "");
-    tio_ready_now();
-    clear_sent();
-    tio_cursor_shape(5);
-    ASSERT_STREQ(sent[UART], "");
-    push(COM_SOURCE_UART, "\33[>1;10;0c");
-    ASSERT_STREQ(next(), "");
-    ASSERT_STREQ(sent[UART], "\33[5 q");
-    tio_cursor_shape(1);
-    ASSERT_STREQ(sent[UART], "\33[5 q\33[1 q");
-}
-
-/* No VGA: a telnet session that sent NAWS is in charge, and the UART goes to
- * a terminal of its own, which is asked nothing. */
-UTEST(tio, a_plain_uart_terminal_not_in_charge_gets_shapes_by_its_last_mark)
-{
-    sources(256, 256);
-    telnet_session();
-    fake_connected = COM_TERM_UART | COM_TERM_TEL;
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS);
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_shape(5);
-    ASSERT_STREQ(sent[UART], "\33[5 q");
-    ASSERT_STREQ(sent[TEL], "");
-    fake_charge = COM_TERM_UART;
-    tio_read_start(10);
-    push(COM_SOURCE_UART, "\33[5;3R\33[24;80R");
-    answered();
-    ASSERT_TRUE(tio_ready());
-    fake_charge = COM_TERM_TEL;
-    tio_read_start(10);
-    later_ms(TIO_DEADLINE_MS);
-    ASSERT_TRUE(tio_ready());
-    clear_sent();
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[UART], "");
 }
 
 UTEST_MAIN();

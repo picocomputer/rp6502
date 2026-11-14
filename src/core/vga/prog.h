@@ -12,8 +12,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef bool (*vga_fill_fn_t)(int16_t plane_id, int16_t scanline, int16_t width,
-                              uint16_t *rgb, uint16_t config_ptr);
 typedef void (*vga_sprite_fn_t)(int16_t scanline, int16_t width, uint16_t *rgb,
                                 uint16_t config_ptr, uint16_t length);
 

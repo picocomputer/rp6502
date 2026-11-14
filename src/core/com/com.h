@@ -5,8 +5,8 @@
  */
 
 /* The console, as the rest of the machine sees it: the sources it reads, the
- * byte staged in the 6502's receive register, its output, the bell, and
- * whether the cursor is at the start of a clean line. */
+ * byte staged in the 6502's receive register, its terminal's answers, its
+ * output, the bell, and starting a clean line. */
 
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
@@ -101,61 +101,53 @@ bool com_rx_stage(void);
 size_t com_rx_reclaim(char *buf, size_t length, com_source_t src);
 int com_rx_peek(com_source_t src);
 
-/* Clear to send: there is room for one character, a newline's CR LF
- * included, so the com_putchar or com_putchar_raw after it does not block. */
-bool com_cts(void);
+/* A terminal query's answer (DSR/CPR/DA) enters the UART's source as though
+ * it had been typed, so whatever reads the console finds it in order with the
+ * bytes around it. It waits behind the bytes the UART has queued, and once
+ * its first byte is read the rest comes ahead of any that arrive after, so
+ * it never lands inside a sequence; an answer stored then joins it. One that
+ * does not fit is dropped. */
+void com_reply(const char *s, size_t n);
 
-/* Console TX, a bare '\n' expanded to CRLF. The '\r' that suppresses the
- * expansion may have come from an earlier call, because the last byte written
- * is remembered across them; a buffer is not expanded independently of the one
- * before it. */
-int com_putchar(int c);
-
-/* Bypasses newline expansion and does not check for room. */
-void com_putchar_raw(char c);
-
-/* A program's stdout or stderr, fd STDOUT_FILENO or STDERR_FILENO, with its
- * newlines expanded as com_putchar expands them. Writes what fits and returns
- * the count. */
-size_t com_write(int fd, const char *buf, size_t n);
+/* While quiet, the console's terminal does not answer a query: attribute
+ * 0x0D. A program starts, and the monitor goes on after it, with the
+ * machine's default, which is quiet where another terminal is the screen the
+ * user sees and answers itself: the RIA with no VGA, and an emulator printing
+ * to a host terminal. com_set_reply_default sets the quiet flag too. */
+bool com_get_reply_quiet(void);
+void com_set_reply_quiet(bool quiet);
+void com_set_reply_default(bool quiet);
+void com_run(void);
 
 __printflike(1, 2) int com_printf(const char *fmt, ...);
 
 /* com_printf for a UTF-8 format, its output converted to the code page. */
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
 
-/* Returns once every console byte queued so far has gone out. */
-void com_flush(void);
-
 /* Whether a BEL the console sends rings the bell. */
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* Every console byte passes here on its way out. */
-void com_line_track(const char *buf, size_t len);
-
-/* True when a CR and an LF have gone out since the last other byte. */
-bool com_line_clean(void);
-
-/* CR LF, unless the line is already clean. */
+/* Flushes, then CR LF unless the console's terminal has its cursor in
+ * column 1. */
 void com_clean_line(void);
 
-/* The caller has left the cursor at the start of a clean line. */
-void com_line_set_clean(void);
-
-/* The end of a session: the soft reset, then CR LF unless the line was clean
- * before it. */
+/* The end of a session: the soft reset and the default cursor shape, then a
+ * clean line. */
 void com_end_reset(void);
 
 /* The picker's held source (1) and its deadline (8), the bell (1), the
- * staged byte's source (1), and the clean-line state (1). */
-#define COM_SST_SIZE 12
+ * staged byte's source (1), and the held answer's length (1), how much of it
+ * has been read (1), its buffer (32) and the quiet flag (1). */
+#define COM_SST_SIZE 46
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define COM_DRIVER DRIVER(       \
     INIT(com_rx_clear)           \
+    RUN(com_run)                 \
+    STOP(com_run)                \
     BREAK(com_rx_clear)          \
-    SST(COM_, 4, COM_SST_SIZE, com_sst_save, com_sst_load))
+    SST(COM_, 6, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

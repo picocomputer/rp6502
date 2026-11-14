@@ -82,6 +82,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/color.c
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
+    ${RP6502_SRC}/core/term/grid.c
+    ${RP6502_SRC}/core/term/cells.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

@@ -14,9 +14,15 @@
 X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)
 X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 
-// ANSI reset commands
-X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
-X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h")
+// Terminal resets. The soft reset goes to every terminal, so it holds only
+// what any VT100-class terminal takes: CAN, ESC < to leave VT52 mode (ignored
+// in ANSI mode), the primary screen, SGR 0, ASCII in G0 and G0 shifted in,
+// insert mode off, autowrap on and the cursor shown.
+// The screen's terminal gets the rest of a reset out of band, with the console
+// reset. The hard reset, RIS, goes to the screen alone: a terminal on the UART
+// keeps what it shows.
+X(STR_TERM_HARD_RESET, "\30\33<\33c")
+X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[0m\33(B\17\33[4l\33[?7h\33[?25h")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

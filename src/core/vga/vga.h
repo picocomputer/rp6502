@@ -127,28 +127,33 @@ static inline int16_t vga_vsync_line(void)
     return highest * vga_canvas_y_scale();
 }
 
+/* What a plane's fill renderer keeps from one line to the next: every byte
+ * of 4bpp as its two pixels, and the palette and bit order they were built
+ * from. The caller keeps one per plane, and a set for each thread that
+ * renders lines at the same time as another. It starts zeroed, which is a
+ * correct table for a palette of all zeros. */
+typedef struct
+{
+    uint32_t pairs_4bpp[256];
+    uint16_t palette_4bpp[16];
+    bool reverse_4bpp;
+} vga_fill_cache_t;
+
+typedef bool (*vga_fill_fn_t)(int16_t plane_id, int16_t scanline, int16_t width,
+                              uint16_t *rgb, uint16_t config_ptr,
+                              vga_fill_cache_t *cache);
 /* Book scanlines for a mode. fill_fn is the renderer itself where the machine
  * rasterizes in software; where it rasterizes in the FPGA, fill_fn is ignored
  * and the mode announced by vga_mode_begin is written to the scanline table
  * instead. */
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                   uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t plane_id,
-                                   int16_t scanline,
-                                   int16_t width,
-                                   uint16_t *rgb,
-                                   uint16_t config_ptr));
+                   uint16_t config_ptr, vga_fill_fn_t fill_fn);
 
 /* Books like vga_prog_fill, but is allowed on the console canvas, and first
  * clears the rows its last booking covered, so a renderer that re-programs
  * itself over a different range leaves nothing behind. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                        uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t plane_id,
-                                        int16_t scanline,
-                                        int16_t width,
-                                        uint16_t *rgb,
-                                        uint16_t config_ptr));
+                        uint16_t config_ptr, vga_fill_fn_t fill_fn);
 
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                      uint16_t config_ptr, uint16_t length,

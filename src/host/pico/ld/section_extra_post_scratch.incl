@@ -1,0 +1,10 @@
+/* Overrides the SDK's empty section_extra_post_scratch.incl for every Pico
+ * board. HOST_REGISTER_RAM puts the RIA registers here, in scratch X but
+ * outside .scratch_x, which the boot code fills from flash. NOLOAD keeps the
+ * registers through a reboot; at power on they hold whatever the SRAM does. */
+SECTIONS
+{
+    .scratch_x_noload (NOLOAD) : {
+        *(.scratch_x_noload.*)
+    } > SCRATCH_X
+}
