@@ -152,12 +152,11 @@ program, so there the model is term.c's own state and nothing is duplicated.
 What it gives:
 
 - **Replies come from the RIA**, in the stream's order and with no round trip.
-  If telnet is in charge it answers; otherwise the model does. The VGA's reply
+  The VGA's reply
   path and the SUPPRESS_TERM_REPLY register go away. The screen-only channel
   stays for the resets, which differ between the screen and the serial port.
-- **The line editor reads the model** for the screen terminal's cursor column,
-  size and abilities instead of sending CPR and DA2 and waiting. It still
-  probes a real terminal on the UART or telnet.
+- **The line editor reads the model** for the screen terminal's cursor column
+  and size instead of sending CPR and DA2 and waiting.
 - **The keyboard modes are model state the RIA's keyboard reads:**
   - cursor-key mode, DECCKM `?1`: the arrows send `ESC O A` for `ESC [ A`;
   - keypad modes, DECKPAM `ESC =` and DECKPNM `ESC >`;
@@ -169,22 +168,116 @@ What it gives:
   A terminal on the UART or telnet handles its own keys from the same stream,
   which is already right.
 
+The line editor and the console, decided 2026-11-13:
+
+- **The screen's terminal is always the one in charge.** The line editor never
+  sends CPR or DA2 and never asks for a size. The prompt column, the width and
+  the height come from the model when a read starts. The line editor waits
+  until everything printed before the read has reached the model (see "Where
+  the model is fed" below). A RIA with no VGA plugged in still has the model.
+- **The line editor breaks its rows itself**, with CR LF at the screen's width,
+  instead of relying on the terminal's autowrap. Moves between its own rows are
+  cursor up and down, and a row it redraws is cleared with EL. On term.c a CR
+  LF from a pending wrap lands where the wrap would have, so the screen looks
+  the same; a wider telnet or UART terminal sees a clean 80-column editor. A
+  narrower one garbles, which is accepted: those terminals echo the screen.
+- **Cursor shapes go to term.c only**, over the screen-only channel, never to
+  the UART or telnet.
+- **Gone:** the CPR and DA2 probes and the wait for them; tio's per-terminal
+  marks, answers and greetings; the rule that an R-final CSI is an answer only
+  while one is owed; absorbing CR LF before the size wait; the ranking of which
+  terminal is in charge; NAWS as a size (dropped for now; it can come back);
+  the manifold's CR/LF clean-line tracking, replaced by asking the
+  model whether the screen's cursor is in column 1. A program that exits with
+  text left of the cursor gets it overwritten by the prompt, which clears its
+  row; that is accepted.
+- **RIA_ATTR_RLN_WIDTH (0x0A) and RIA_ATTR_RLN_HEIGHT (0x0B) stay.** A
+  program starts with both at 0, meaning the model's own size: the VGA's
+  console, or 80x24 with no VGA. Reading one gives the size in use, never 0.
+  Setting one to a non-zero value sets the model's width or height, so the
+  line editor and the replies use it from then on. The screen's term.c keeps
+  its real size, so a program that sets 132 columns gets a 132-column line
+  editor and a garbled screen; that is the program's choice. Setting 0 goes
+  back to the real size. The RIA's model has to allow widths up to 255.
+- **The model answers a program's queries unless attribute 0x0D is 1.** When
+  a program starts, the RIA sets it to 0 if a VGA is connected and to 1 if
+  not, so it also tells a program whether it has a VGA. A program sets it to
+  1 to talk to a terminal of its own on the UART or telnet, or to 0 to have
+  the model answer with no VGA. It matters only while a program runs. If
+  another terminal answers too, the program gets both; that is the user's
+  setup to manage. This replaces SUPPRESS_TERM_REPLY.
+- **The emulator's headless modes**, decided in its console code alone:
+  - stdout on a pipe or a file: the line editor types plainly. It still echoes
+    and acts on editing keys and their cursor moves, but formats nothing for a
+    width. For scripts and logs.
+  - stdout on a terminal: that terminal is the screen the user sees, and it
+    answers queries, so term.c's model does not. The line editor still lays
+    out for the model's size, not the host terminal's.
+
 Keeping the two copies in step:
 
-- **Size changes.** A canvas change reaches the VGA over PIX, apart from the
-  UART bytes, and changing the height can move the cursor. The RIA applies the
-  same height change when it sends the canvas, worked out by the same layout
-  code (mode0_layout), so the two cannot diverge. A CPR answered while a
-  program is reprogramming the video may be a row off for a moment; that is
-  accepted.
+- **Where the model is fed.** Bytes at the point they go to the VGA
+  (manifold_vga_write in ria/com/manifold.c), not when they are queued, and
+  each xreg at its own pix_send. MODE, CANVAS, DISPLAY and CODE_PAGE go out
+  over PIX and can overtake bytes still in the console rings, so this is the
+  only point where both chips see the same order. With no VGA the tap is the
+  UART output, and it also takes the screen-only bytes dropped today.
+- **Size changes.** term_set_height runs on MODE 0 (its BEGIN and END come
+  from xregs the RIA must now record), on CANVAS to the console when the old
+  canvas wasn't the console, and on DISPLAY, which reprograms the console zero
+  to two times depending on the VGA's view switching. Each step moves the
+  cursor differently and resets the margins, so the RIA replays the same
+  calls in the same order through the same layout code (mode0_layout), not
+  just the final height.
 - **The VGA restarting on its own** (a power cycle while the RIA runs): its
-  terminal comes back fresh and the RIA's model doesn't. On reconnect the RIA
-  sends a full reset (RIS) to the screen and resets its model, so both start
-  from the same state.
+  terminal comes back fresh and the RIA's model doesn't. A VGA only connects
+  when a program starts. On connect the RIA sends a full reset (RIS) to the
+  screen, resends DISPLAY and CODE_PAGE, and resets its model, so both start
+  from the same state. RIS doesn't touch the height, so the resend has to.
+  Debug builds need this too; today the boot reset is NDEBUG only.
 - Code page changes and the end-of-program reset come from the RIA, which
   applies them to its model itself.
 - Lost UART bytes would also break the step; the HIL term test shows none at
   115200.
+
+Notes from the plan review, 2026-11-13:
+
+- **The pen.** The model keeps the unresolved pen (palette entry, default or
+  RGB, and the attributes) in its cursors, so DECSC/DECRC, ?1048, ?1049, the
+  alternate screen, DECSTR and RIS copy it with the cursor as today. The cell
+  writer resolves colors when it writes.
+- **The prompt column** accounts for a pending wrap (a prompt ending on the
+  last column puts the first character on the next row) and for the row's
+  line size (a double-width row has half the columns).
+- **Row breaks.** rln sends CR LF right after the last column, so a wider
+  terminal never sees the cursor parked in a pending wrap; its relative moves
+  then land right everywhere. rln_resize_redraw no longer assumes the
+  terminal reflowed the line.
+- **TIO_MODES** still turns insert mode off, since rln writes over its own
+  text, and stops sending ?7h.
+- **Replies on the RIA** need a source of their own and a held buffer, like
+  core/com/manifold.c's in-process manifold_reply, not COM_SOURCE_UART.
+- **Self-flashing.** The console keeps running from RAM while the RIA
+  rewrites its flash. The model is skipped while flashing; a reboot follows.
+  The RIA defines TERM_MAX_HEIGHT 32.
+- **Headless.** core keeps manifold_set_term_in_charge and the reply switch,
+  which console.c uses for its two modes. console.c and console_roles.py
+  expect probing today and change with it.
+- **Keyboard.** keymap.c (RIA, Pocket) and vtkeys.c (emulators) read the
+  model. DECLL needs a lamp byte of its own, apart from the lock state in
+  keyboard_hid_leds (a KEYB SST change). Libretro has no repeat flag, so
+  DECARM can't apply there. Sokol turns keypad digits into navigation and
+  sends keypad operators as characters. VT52 keypad keys (ESC ? p..y) need
+  framing in tio, and rln needs the VT52 arrows ESC A-D.
+- **Code page.** The RIA tracks the VGA's page with font.c's list to know when
+  a change does a RIS. The Pocket's font_set_code_page doesn't RIS; make the
+  two agree.
+- **Build.** The VGA linker puts term.c's .bss in VIDEO and builds it without
+  LTO; the Pocket places cells by array name. Splitting the file moves these.
+  The TERM, TIO_ and MFLD SST chunks and state_inventory.txt change. The
+  split's code growth on the Pocket counts against section 2's cut.
+- **Mixed firmware** isn't supported; the boot screen shows both versions.
+  Upgrading one chip and then the other has to work in either order.
 
 The keyboard code (core/hid: keyboard, keymap, vtkeys, and the host and OSAL
 parts) gets whatever architectural change this needs.
