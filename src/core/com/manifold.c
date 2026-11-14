@@ -12,7 +12,6 @@
 #include "core/sys/timer.h"
 #include "machine.h"
 
-#include <string.h>
 #include <unistd.h>
 
 #define MANIFOLD_ETX 0x03
@@ -21,10 +20,6 @@ typedef RING(uint8_t, MANIFOLD_RING_SIZE) manifold_ring_t;
 
 static manifold_ring_t manifold_keyboard_ring;
 static manifold_ring_t manifold_uart_ring;
-static uint8_t manifold_reply_buf[32];
-static size_t manifold_reply_len;
-static bool manifold_reply_suppressed;
-static bool manifold_reply_default;
 
 static char manifold_crlf_last;
 
@@ -66,10 +61,7 @@ void manifold_sst_save(sst_cursor_t *c, unsigned flags)
     (void)flags;
     manifold_ring_save(c, &manifold_keyboard_ring);
     manifold_ring_save(c, &manifold_uart_ring);
-    sst_put_u8(c, (uint8_t)manifold_reply_len);
-    sst_put(c, manifold_reply_buf, sizeof manifold_reply_buf);
     sst_put_u8(c, (uint8_t)manifold_crlf_last);
-    sst_put_bool(c, manifold_reply_suppressed);
 }
 
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
@@ -78,32 +70,13 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t kb[MANIFOLD_RING_SIZE], wire[MANIFOLD_RING_SIZE];
     const uint16_t kb_len = manifold_ring_get(c, kb);
     const uint16_t wire_len = manifold_ring_get(c, wire);
-    uint8_t len = sst_get_u8(c);
-    uint8_t held[sizeof manifold_reply_buf];
-    sst_get(c, held, sizeof held);
     uint8_t crlf = sst_get_u8(c);
-    bool suppressed = sst_get_bool(c);
-    if (!sst_ok(c) || kb_len > MANIFOLD_RING_SIZE || wire_len > MANIFOLD_RING_SIZE ||
-        len > sizeof manifold_reply_buf)
+    if (!sst_ok(c) || kb_len > MANIFOLD_RING_SIZE || wire_len > MANIFOLD_RING_SIZE)
         return false;
     manifold_ring_set(&manifold_keyboard_ring, kb, kb_len);
     manifold_ring_set(&manifold_uart_ring, wire, wire_len);
-    manifold_reply_len = len;
-    memcpy(manifold_reply_buf, held, sizeof manifold_reply_buf);
     manifold_crlf_last = (char)crlf;
-    manifold_reply_suppressed = suppressed;
     return true;
-}
-
-/* A reply is held back while the ring still has bytes in it, because those
- * bytes can be the start of a sequence whose rest has not arrived yet, and
- * the reply would then be delivered in the middle of that sequence. */
-static void manifold_reply_promote(void)
-{
-    if (!manifold_reply_len || RING_LEN(&manifold_uart_ring))
-        return;
-    RING_IN(&manifold_uart_ring, manifold_reply_buf, (uint32_t)manifold_reply_len);
-    manifold_reply_len = 0;
 }
 
 size_t manifold_keyboard_read(char *buf, size_t length)
@@ -125,33 +98,19 @@ void manifold_keyboard_clear(void)
 
 size_t manifold_uart_read(char *buf, size_t length)
 {
-    size_t n = 0;
-    while (n < length)
-    {
-        manifold_reply_promote();
-        const uint32_t got = RING_OUT(&manifold_uart_ring, buf + n, (uint32_t)(length - n));
-        if (!got)
-            break;
-        n += got;
-    }
-    return n;
+    return RING_OUT(&manifold_uart_ring, buf, (uint32_t)length);
 }
 
-/* A held reply comes after the ring, as manifold_uart_read delivers it. */
 int manifold_uart_peek(size_t offset)
 {
-    manifold_reply_promote();
-    const uint32_t len = RING_LEN(&manifold_uart_ring);
-    if (offset < len)
-        return *RING_AT(&manifold_uart_ring, offset);
-    offset -= len;
-    return offset < manifold_reply_len ? manifold_reply_buf[offset] : -1;
+    return offset < RING_LEN(&manifold_uart_ring)
+               ? *RING_AT(&manifold_uart_ring, offset)
+               : -1;
 }
 
 void manifold_uart_clear(void)
 {
     RING_SKIP(&manifold_uart_ring, RING_LEN(&manifold_uart_ring));
-    manifold_reply_len = 0;
 }
 
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
@@ -264,38 +223,10 @@ void manifold_flush(void)
 {
 }
 
-/* A reply that does not fit is dropped whole rather than truncated, because
- * half of an escape sequence is a sequence the reader parses as something
- * else. */
+/* The emulated terminal is the console's own, so com takes its answers. */
 void manifold_reply(const char *s, size_t n)
 {
-    if (manifold_reply_suppressed || n > sizeof manifold_reply_buf ||
-        manifold_reply_len > sizeof manifold_reply_buf - n)
-        return;
-    memcpy(manifold_reply_buf + manifold_reply_len, s, n);
-    manifold_reply_len += n;
-}
-
-void manifold_suppress_reply(bool suppress)
-{
-    manifold_reply_suppressed = suppress;
-}
-
-bool manifold_replies_suppressed(void)
-{
-    return manifold_reply_suppressed;
-}
-
-void manifold_set_reply_default(bool suppress)
-{
-    manifold_reply_default = suppress;
-    manifold_reply_suppressed = suppress;
-}
-
-/* A program starts, and the monitor goes on after it, with the default. */
-void manifold_run(void)
-{
-    manifold_reply_suppressed = manifold_reply_default;
+    com_reply(s, n);
 }
 
 /* A Ctrl-C is scanned for before the bytes are pushed, so a break is seen

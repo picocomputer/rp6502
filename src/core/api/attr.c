@@ -13,9 +13,7 @@
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/com/rln.h"
-#include "core/com/tio.h"
 #include "core/com/com.h"
-#include "core/com/manifold.h"
 #include "core/term/term.h"
 #include "core/wdc/phi2.h"
 #include "core/sys/driver.h"
@@ -99,12 +97,12 @@ static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_caps(void)
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_width(void)
 {
-    return tio_get_term_width();
+    return rln_get_term_width();
 }
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_height(void)
 {
-    return tio_get_term_height();
+    return rln_get_term_height();
 }
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_rln_suppress_nl(void)
@@ -183,15 +181,15 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_width(uint32_t value)
 {
     if (value == 1 || value > TERM_MAX_WIDTH)
         return false;
-    tio_set_term_width((uint16_t)value);
+    rln_set_term_width((uint16_t)value);
     return true;
 }
 
 static bool HOST_IN_FLASH_FUNC attr_set_rln_height(uint32_t value)
 {
-    if (value > TIO_GRID_ROWS)
+    if (value > RLN_GRID_ROWS)
         return false;
-    tio_set_term_height((uint16_t)value);
+    rln_set_term_height((uint16_t)value);
     return true;
 }
 
@@ -206,14 +204,14 @@ static bool HOST_IN_FLASH_FUNC attr_set_rln_suppress_nl(uint32_t value)
 /* 1 while the console's terminal does not answer queries. */
 static uint32_t HOST_IN_FLASH_FUNC attr_get_term_quiet(void)
 {
-    return manifold_replies_suppressed();
+    return com_get_reply_quiet();
 }
 
 static bool HOST_IN_FLASH_FUNC attr_set_term_quiet(uint32_t value)
 {
     if (value > 1)
         return false;
-    manifold_suppress_reply(value);
+    com_set_reply_quiet(value);
     return true;
 }
 

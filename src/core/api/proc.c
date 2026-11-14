@@ -10,8 +10,8 @@
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/str/oem.h"
-#include "core/com/tio.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/sys/sys.h"
 #include "machine.h"
 #include "osal/dir.h"
@@ -136,9 +136,8 @@ void proc_chain_end(void)
     com_rx_clear();
     com_end_reset();
     /* Output reaches the VGA before a code page change clears it. */
-    com_flush();
+    manifold_flush();
     oem_restore_code_page();
-    tio_cursor_default();
     com_set_bel(true);
 }
 

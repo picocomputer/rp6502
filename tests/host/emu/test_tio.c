@@ -6,13 +6,11 @@
 
 /* tio over sources this file stands in for, each queue holding the number of
  * bytes a test gives it, and one byte that can be staged ahead of a source as
- * the 6502's receive register holds it. The terminals, the console's output,
- * the machine clock and the screen's showing grid are stood in for too. */
+ * the 6502's receive register holds it. The machine clock is stood in for
+ * too. */
 
-#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
 #include "utest.h"
 #include <string.h>
 
@@ -39,23 +37,7 @@ static void stage(com_source_t src, char c)
     fake_staged = c;
 }
 
-/* What was written to each terminal, by its COM_TERM_ bit's index, SCREEN
- * being term.c's; how many times the console was flushed; and whether it was
- * flushed before the first write to one. */
-#define UART COM_SOURCE_UART
-#define TEL COM_SOURCE_TEL
-#define SCREEN COM_SOURCE_COUNT
-static char sent[SCREEN + 1][256];
-static int flushes;
-static bool wrote_unflushed;
 static uint64_t fake_now;
-
-/* The console's terminal, which a pinned size gives a third grid. The
- * screen shows a grid of 80 by 24 unless a case says otherwise, with its
- * cursor at the top left. */
-term_t cells_term = {.grid_count = TERM_SCREEN_GRIDS};
-static term_grid_t fake_shown;
-static uint8_t fake_lines[24];
 
 static void sources(size_t keyboard, size_t uart)
 {
@@ -64,16 +46,6 @@ static void sources(size_t keyboard, size_t uart)
     fake[COM_SOURCE_UART].size = uart;
     fake[COM_SOURCE_TEL].size = 32;
     fake_staged_src = COM_SOURCE_ANY;
-    memset(sent, 0, sizeof sent);
-    flushes = 0;
-    wrote_unflushed = false;
-    cells_term.grid_count = TERM_SCREEN_GRIDS;
-    memset(&fake_shown, 0, sizeof fake_shown);
-    memset(fake_lines, 0, sizeof fake_lines);
-    fake_shown.width = 80;
-    fake_shown.height = 24;
-    fake_shown.cur = &fake_shown.pos[0];
-    fake_shown.ls = fake_lines;
     tio_init();
 }
 
@@ -90,88 +62,6 @@ timer_mach_t timer_mach_in_ms(uint64_t ms)
 bool timer_mach_passed(timer_mach_t d)
 {
     return (int64_t)(fake_now - d) >= 0;
-}
-
-void com_flush(void)
-{
-    flushes++;
-}
-
-void manifold_write_to(uint8_t to, const char *buf, size_t n)
-{
-    wrote_unflushed |= !flushes;
-    for (unsigned i = UART; i <= SCREEN; i++)
-        if (to & COM_TERM(i))
-            strncat(sent[i], buf, n);
-}
-
-/* The console's output reaches every terminal, and CR and LF move the
- * terminal's cursor as they would on the screen. */
-int com_putchar(int c)
-{
-    char ch = (char)c;
-    manifold_write_to(COM_TERM_ALL, &ch, 1);
-    term_pos_t *p = fake_shown.cur;
-    p->wrap_pending = false;
-    if (c == '\r')
-        p->x = 0;
-    else if (c == '\n')
-        p->y++;
-    return c;
-}
-
-term_grid_t *cells_shown(const term_t *t)
-{
-    (void)t;
-    return &fake_shown;
-}
-
-term_grid_t *term_shown(term_t *t)
-{
-    return t->grid_count > TERM_SCREEN_GRIDS ? t->grids[TERM_SCREEN_GRIDS] : cells_shown(t);
-}
-
-void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
-                   uint8_t *lines, uint8_t rows)
-{
-    (void)from, (void)lines, (void)rows;
-    t->grids[t->grid_count++] = g;
-}
-
-void term_drop_grid(term_t *t, term_grid_t *g)
-{
-    (void)g;
-    t->grid_count--;
-}
-
-void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
-{
-    (void)t;
-    g->width = width;
-}
-
-void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
-{
-    (void)t;
-    g->height = height;
-}
-
-void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
-{
-    g->width = width;
-    g->lines = lines;
-    g->rows = rows;
-}
-
-void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
-{
-    (void)c, (void)g;
-}
-
-bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
-{
-    (void)c, (void)g;
-    return true;
 }
 
 size_t com_read(com_source_t src, char *buf, size_t n)
@@ -560,88 +450,11 @@ UTEST(tio, a_read_end_leaves_a_sequence_still_arriving)
     ASSERT_STREQ(next(), "\33[6;3C");
 }
 
-#define MODES "\33[4l"
-
-/* ----- A read start ----- */
-
-UTEST(tio, a_read_start_sends_the_modes_after_a_flush_and_asks_nothing)
-{
-    sources(256, 256);
-    tio_line_t l;
-    tio_read_start(&l);
-    ASSERT_FALSE(wrote_unflushed);
-    ASSERT_EQ(flushes, 1);
-    ASSERT_STREQ(sent[UART], MODES);
-    ASSERT_STREQ(sent[TEL], MODES);
-    ASSERT_STREQ(sent[SCREEN], "");
-}
-
-UTEST(tio, a_read_starts_at_the_terminals_cursor)
-{
-    sources(256, 256);
-    fake_shown.cur->x = 4;
-    fake_shown.cur->y = 7;
-    tio_line_t l;
-    tio_read_start(&l);
-    ASSERT_EQ(l.col, 5);
-    ASSERT_EQ(l.cols, 80);
-    ASSERT_EQ(l.width, 80);
-    ASSERT_EQ(l.height, 24);
-}
-
-UTEST(tio, a_double_size_row_has_half_the_columns)
-{
-    sources(256, 256);
-    fake_shown.cur->x = 2;
-    fake_shown.cur->y = 3;
-    fake_lines[3] = 1;
-    tio_line_t l;
-    tio_read_start(&l);
-    ASSERT_EQ(l.col, 3);
-    ASSERT_EQ(l.cols, 40);
-    ASSERT_EQ(l.width, 80);
-}
-
-/* The CR LF goes out after the modes, and the terminal is read again once it
- * has gone. */
-UTEST(tio, a_pending_wrap_gets_a_cr_lf_and_the_read_starts_in_column_1)
-{
-    sources(256, 256);
-    fake_shown.cur->x = 79;
-    fake_shown.cur->y = 5;
-    fake_shown.cur->wrap_pending = true;
-    tio_line_t l;
-    tio_read_start(&l);
-    ASSERT_STREQ(sent[UART], MODES "\r\n");
-    ASSERT_EQ(flushes, 2);
-    ASSERT_EQ(l.col, 1);
-    ASSERT_EQ(fake_shown.cur->y, 6);
-}
-
-UTEST(tio, a_read_starts_on_a_pinned_grid)
-{
-    sources(256, 256);
-    tio_set_term_width(50);
-    tio_set_term_height(20);
-    term_grid_t *g = term_shown(&cells_term);
-    g->cur = &g->pos[0];
-    g->ls = fake_lines;
-    g->cur->x = 9;
-    tio_line_t l;
-    tio_read_start(&l);
-    ASSERT_EQ(l.col, 10);
-    ASSERT_EQ(l.cols, 50);
-    ASSERT_EQ(l.width, 50);
-    ASSERT_EQ(l.height, 20);
-}
-
 /* Shift-F3 is CSI 1;2R on xterm and PuTTY, and nothing is asked, so an
  * answer-shaped sequence is an item from any source. */
 UTEST(tio, a_cpr_or_da2_shaped_sequence_is_an_item)
 {
     sources(256, 256);
-    tio_line_t l;
-    tio_read_start(&l);
     push(COM_SOURCE_UART, "\33[5;3R\33[>1;10;0c");
     push(COM_SOURCE_KEYBOARD, "\33[1;2R");
     ASSERT_STREQ(next(), "\33[1;2R");
@@ -650,38 +463,6 @@ UTEST(tio, a_cpr_or_da2_shaped_sequence_is_an_item)
     ASSERT_EQ(got_src, COM_SOURCE_UART);
     ASSERT_STREQ(next(), "\33[>1;10;0c");
     ASSERT_STREQ(next(), "");
-}
-
-UTEST(tio, the_size_is_the_pinned_grid_else_the_shown_grid)
-{
-    sources(256, 256);
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
-    fake_shown.width = 40;
-    fake_shown.height = 30;
-    ASSERT_EQ(tio_get_term_width(), 40);
-    ASSERT_EQ(tio_get_term_height(), 30);
-    /* Pinning one axis fixes the other at the showing grid's. */
-    tio_set_term_width(50);
-    fake_shown.height = 22;
-    ASSERT_EQ(tio_get_term_width(), 50);
-    ASSERT_EQ(tio_get_term_height(), 30);
-    tio_set_term_height(20);
-    ASSERT_EQ(tio_get_term_height(), 20);
-    tio_set_term_width(0);
-    tio_set_term_height(0);
-    ASSERT_EQ(tio_get_term_width(), 40);
-    ASSERT_EQ(tio_get_term_height(), 22);
-}
-
-UTEST(tio, a_stop_unpins_the_sizes_back_to_the_shown_grid)
-{
-    sources(256, 256);
-    tio_set_term_width(50);
-    tio_set_term_height(20);
-    tio_stop();
-    ASSERT_EQ(tio_get_term_width(), 80);
-    ASSERT_EQ(tio_get_term_height(), 24);
 }
 
 /* ----- A telnet session that goes away ----- */
@@ -698,20 +479,6 @@ UTEST(tio, a_telnet_session_replaced_during_a_read_loses_no_key)
     push(COM_SOURCE_TEL, "k");
     ASSERT_STREQ(next(), "k");
     ASSERT_EQ(got_src, COM_SOURCE_TEL);
-}
-
-/* ----- Cursor shapes ----- */
-
-/* A terminal on the UART or telnet may print a shape, as minicom prints its
- * 'q', so only term.c gets one. */
-UTEST(tio, shapes_go_to_the_screen_alone)
-{
-    sources(256, 256);
-    tio_cursor_shape(5);
-    tio_cursor_default();
-    ASSERT_STREQ(sent[SCREEN], "\33[5 q\33[0 q");
-    ASSERT_STREQ(sent[UART], "");
-    ASSERT_STREQ(sent[TEL], "");
 }
 
 UTEST_MAIN();

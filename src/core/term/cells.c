@@ -434,7 +434,7 @@ void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
 {
     if (!cells_of(g))
         return;
-    unsigned avail = term_cols(term, g, y) - x;
+    unsigned avail = term_cols(g, y) - x;
     term_data_t *row = cells_row_ptr(cells_of(g), y);
     memmove(&row[x + n], &row[x], (avail - n) * sizeof(term_data_t));
     cells_fill_erased(term, row, x, x + n);
@@ -444,7 +444,7 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
 {
     if (!cells_of(g))
         return;
-    unsigned cols = term_cols(term, g, y);
+    unsigned cols = term_cols(g, y);
     unsigned avail = cols - x;
     term_data_t *row = cells_row_ptr(cells_of(g), y);
     memmove(&row[x], &row[x + n], (avail - n) * sizeof(term_data_t));
@@ -461,7 +461,7 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
     {
         if (cells_buf(cells)->dirty[y])
             continue;
-        unsigned cols = term_cols(term, g, y);
+        unsigned cols = term_cols(g, y);
         unsigned n = count < cols ? count : cols;
         term_data_t *row = cells_row_ptr(cells, y);
         if (left)
@@ -583,7 +583,7 @@ void cells_clear(term_t *term, term_grid_t *g)
                           cells_pen_fg(pen), cells_pen_bg(term, pen));
 }
 
-void cells_height(term_t *term, term_grid_t *g, bool grow, bool top)
+void cells_height(term_grid_t *g, bool grow, bool top)
 {
     if (!cells_of(g))
         return;
@@ -608,7 +608,7 @@ void cells_height(term_t *term, term_grid_t *g, bool grow, bool top)
             cells_mark_rows(s, 0, 1, cells_default_fg, cells_default_bg);
         // shift_meta_down may have copied a dirty flag into the cursor's new
         // row; uphold the "the cursor's row is never dirty" invariant.
-        cells_clean_line(cells, term_pos(term, g)->y);
+        cells_clean_line(cells, term_pos(g)->y);
     }
     else if (grow)
         // Expose one fresh row at the bottom. The cleaner task drains it in
@@ -622,7 +622,7 @@ void cells_height(term_t *term, term_grid_t *g, bool grow, bool top)
             s->y_offset -= TERM_MAX_HEIGHT;
         cells_shift_meta_up(s, h);
         s->hidden++;
-        cells_clean_line(cells, term_pos(term, g)->y);
+        cells_clean_line(cells, term_pos(g)->y);
     }
     // Otherwise the bottom row is no longer visible; the cleaner only drains
     // visible rows. Leave it -- a later grow that re-exposes the row will
@@ -709,14 +709,14 @@ static void cells_out_chars(const char *buf, int length)
     {
         term_pos_t was[2];
         for (int n = 0; n < 2; n++)
-            was[n] = *term_pos(term, &all[n]->grid);
+            was[n] = *term_pos(&all[n]->grid);
         uint8_t ps = term->cursor_style;
         bool pe = term->cursor_enabled;
         term_write(term, (uint8_t)buf[i]);
         bool look = term->cursor_style != ps || (term->cursor_enabled && !pe);
         for (int n = 0; n < 2; n++)
         {
-            const term_pos_t *now = term_pos(term, &all[n]->grid);
+            const term_pos_t *now = term_pos(&all[n]->grid);
             if (look || now->x != was[n].x || now->y != was[n].y ||
                 now->wrap_pending != was[n].wrap_pending)
                 cells_cursor_restart_blink(all[n]);
@@ -762,7 +762,7 @@ static void cells_blink_cursor(cells_t *cells)
     if ((long)(vga_frame_count() - cells->cursor_frame) < 0)
         return;
     cells->cursor_lit = !cells->cursor_lit;
-    cells->cursor_frame = vga_frame_count() + (term_pos(&cells_term, &cells->grid)->wrap_pending
+    cells->cursor_frame = vga_frame_count() + (term_pos(&cells->grid)->wrap_pending
                                                    ? CELLS_CURSOR_BLINK_FAST_FRAMES
                                                    : CELLS_CURSOR_BLINK_FRAMES);
 }
@@ -927,7 +927,7 @@ void cells_view(cells_view_t *out)
 {
     cells_t *cells = cells_visible();
     const term_grid_t *g = &cells->grid;
-    const term_pos_t *pos = term_pos(&cells_term, &cells->grid);
+    const term_pos_t *pos = term_pos(&cells->grid);
     out->width = g->width;
     out->height = g->height;
     // A pending wrap is shown as the column past the last, which is how the
@@ -950,7 +950,7 @@ const term_data_t *cells_view_row(uint8_t y)
 uint8_t cells_view_row_size(uint8_t y)
 {
     cells_t *cells = cells_visible();
-    return term_lines(&cells_term, &cells->grid)[y];
+    return term_lines(&cells->grid)[y];
 }
 
 void cells_set_height(uint8_t width, uint8_t height)

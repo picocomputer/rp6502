@@ -12,7 +12,6 @@
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
 #include "core/com/rln.h"
-#include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/sys/ring.h"
 #include "core/sys/timer.h"
@@ -215,10 +214,7 @@ static void com_telnet_teardown(com_telnet_state_t target)
     if (was_session && target == COM_TELNET_STATE_IDLE)
         telnet_close(NET_TELNET_DESC);
     if (was_connected && target != COM_TELNET_STATE_CONNECTED)
-    {
-        tio_forget(COM_SOURCE_TEL);
         rln_forget_source(COM_SOURCE_TEL);
-    }
     if (target == COM_TELNET_STATE_IDLE && com_telnet_state != COM_TELNET_STATE_IDLE &&
         !com_telnet_closed)
     {

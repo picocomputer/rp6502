@@ -247,21 +247,19 @@ static inline term_pen_t *term_pen(const term_t *t)
 {
     return t->cur;
 }
-static inline term_pos_t *term_pos(const term_t *t, const term_grid_t *g)
+static inline term_pos_t *term_pos(const term_grid_t *g)
 {
-    (void)t;
     return g->cur;
 }
-static inline uint8_t *term_lines(const term_t *t, const term_grid_t *g)
+static inline uint8_t *term_lines(const term_grid_t *g)
 {
-    (void)t;
     return g->ls;
 }
 
 // The columns of row y: half the width on a double-size line.
-static inline unsigned term_cols(const term_t *t, const term_grid_t *g, uint8_t y)
+static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
 {
-    return term_lines(t, g)[y] ? g->width / 2u : g->width;
+    return term_lines(g)[y] ? g->width / 2u : g->width;
 }
 
 // The pixel height of one character cell: 8x8 on the 320-wide canvases, where

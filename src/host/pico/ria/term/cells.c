@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "ria/sys/vga.h"
 #include "ria/term/cells.h"
@@ -55,7 +56,7 @@ void cells_set_height(uint8_t width, uint8_t height)
 void cells_reply(const term_t *t, const char *s, size_t n)
 {
     (void)t;
-    manifold_reply(s, n);
+    com_reply(s, n);
 }
 
 /* The 40 on a 320-wide canvas of a connected VGA; otherwise the 80, which is
@@ -130,9 +131,9 @@ void cells_clear(term_t *t, term_grid_t *g)
     (void)t, (void)g;
 }
 
-void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
+void cells_height(term_grid_t *g, bool grow, bool top)
 {
-    (void)t, (void)g, (void)grow, (void)top;
+    (void)g, (void)grow, (void)top;
 }
 
 void cells_reset(term_t *t, term_grid_t *g)

@@ -9,9 +9,9 @@
 
 /* The console's screen on a machine that draws it: the terminal (term.h)
  * followed at 40 and 80 columns, fed every byte of the console, and the
- * cells, blinks and save state of both sizes. A renderer draws the one showing, read through
- * cells_view and cells_view_row. mode0.c is the scanvideo renderer; hosts
- * with their own scanout hardware bring their own.
+ * cells, blinks and save state of both sizes. A renderer draws the one
+ * showing, read through cells_view and cells_view_row. mode0.c is the
+ * scanvideo renderer; hosts with their own scanout hardware bring their own.
  *
  * The cell store takes more memory than anything else here, and two things
  * size it: TERM_ALT_SCREEN, and the machine's TERM_MAX_HEIGHT — 32 rows only
@@ -116,7 +116,6 @@ void cells_reply(const term_t *t, const char *s, size_t n);
 // The grid the cursor reports come from: the one showing.
 term_grid_t *cells_shown(const term_t *t);
 
-
 // Row y is about to be written or have the cursor on it: a lazy erase still
 // owed to it is done now.
 void cells_touch(term_t *t, term_grid_t *g, uint8_t y);
@@ -160,7 +159,7 @@ void cells_clear(term_t *t, term_grid_t *g);
 // The height went one row up or down. With top, the cursor was on the bottom
 // row and the screen moved instead of the cursor: a grow brings a row back
 // from the scrollback at the top, a shrink sends the top row to it.
-void cells_height(term_t *t, term_grid_t *g, bool grow, bool top);
+void cells_height(term_grid_t *g, bool grow, bool top);
 
 // RIS and the system's soft reset: the blinks start again and the alternate
 // screen is erased.

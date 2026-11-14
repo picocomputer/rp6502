@@ -1258,7 +1258,7 @@ static void term_csi_final(term_t *t, uint8_t ch)
         if (inter == ' ' && ch == 'q')
             term_out_DECSCUSR(t);
         else if (inter == ' ' && (ch == '@' || ch == 'A'))
-            term_grids(t, ch == '@' ? GRID_SL : GRID_SR, 0);
+            term_grids(t, GRID_SHIFT, ch);
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
         else if (inter == '$' && ch == 'p')

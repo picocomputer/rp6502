@@ -17,7 +17,7 @@
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/com/tio.h"
+#include "core/com/rln.h"
 #include "core/term/cells.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -239,7 +239,7 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
 
 /* With no pinned size, the size is the screen's showing grid: the canvas's
  * width picks 40 or 80 columns, and mode 0 sets the rows. */
-UTEST(tio, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
+UTEST(rln, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
 {
     static const struct
     {
@@ -254,15 +254,15 @@ UTEST(tio, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
         {vga_canvas_640_400, 80, 25},
     };
     sys_init();
-    tio_set_term_width(0);
-    tio_set_term_height(0);
+    rln_set_term_width(0);
+    rln_set_term_height(0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
         if (want[i].canvas != vga_canvas_console)
             ASSERT_TRUE(xreg1(0, 1, 0)); /* mode 0, the tallest that fits */
-        ASSERT_EQ(tio_get_term_width(), want[i].cols);
-        ASSERT_EQ(tio_get_term_height(), want[i].rows);
+        ASSERT_EQ(rln_get_term_width(), want[i].cols);
+        ASSERT_EQ(rln_get_term_height(), want[i].rows);
     }
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }

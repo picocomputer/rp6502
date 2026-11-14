@@ -10,6 +10,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
@@ -313,7 +314,7 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_write(STDOUT_FILENO, buf, count);
+    *bytes_written = (uint32_t)manifold_write(STDOUT_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -321,7 +322,7 @@ static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_write(STDERR_FILENO, buf, count);
+    *bytes_written = (uint32_t)manifold_write(STDERR_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -351,8 +352,8 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && com_cts(); i++)
-        com_putchar_raw(buf[i]);
+    for (; i < count && manifold_cts(); i++)
+        manifold_putchar_raw(buf[i]);
     *bytes_written = i;
     return STD_OK;
 }

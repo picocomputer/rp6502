@@ -14,7 +14,7 @@
 #include "host/pocket/sw/rom.h"
 #include "core/api/arg.h"
 #include "core/com/com.h"
-#include "core/com/tio.h"
+#include "core/com/manifold.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 
@@ -27,10 +27,9 @@ static int pproc_chain_ends;
 
 void com_rx_clear(void) { pproc_chain_ends++; }
 void com_end_reset(void) {}
-void com_flush(void) {}
+void manifold_flush(void) {}
 void com_set_bel(bool on) { (void)on; }
 void oem_restore_code_page(void) {}
-void tio_cursor_default(void) {}
 
 void sys_stop(void) {}
 void sys_break_request(void) {}

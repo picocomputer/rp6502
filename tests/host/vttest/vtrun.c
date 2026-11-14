@@ -128,7 +128,7 @@ static void vt_term_write(const char *buf, size_t n)
     manifold_write_to(COM_TERM_SCREEN, buf, n);
     char reply[256];
     size_t r;
-    while ((r = manifold_uart_read(reply, sizeof reply)) > 0)
+    while ((r = com_read(COM_SOURCE_UART, reply, sizeof reply)) > 0)
         vt_reply(reply, r);
 }
 

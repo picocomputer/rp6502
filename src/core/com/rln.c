@@ -10,8 +10,10 @@
 #include "core/api/std.h"
 #include "core/com/rln.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
+#include "core/term/cells.h"
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
@@ -49,10 +51,13 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 // Terms < 29 cols may not reach 254/255 chars in 10 rows.
 #define RLN_MAX_ROWS 10
 
+// Insert mode goes off at every read, and stays off, because rln overwrites
+// the line as it draws it again.
+#define RLN_MODES "\33[4l"
+
 // The 6502's poke stream is a source of its own, after the com sources.
 #define RLN_POKE COM_SOURCE_ANY
 #define RLN_SOURCE_COUNT (RLN_POKE + 1)
-
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
 // scratch slot used to stash the user's unsubmitted line while they
@@ -95,6 +100,15 @@ static bool rln_overwrite;             // preserved across rln_read_line calls; 
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of the last render
 
+// A program's own size for the console's terminal, while either is pinned:
+// a third grid, which the line editor and the terminal's answers use.
+static uint16_t rln_pinned_width;
+static uint16_t rln_pinned_height;
+static term_grid_t rln_grid;
+static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
+_Static_assert(RLN_SST_SIZE == 2379 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
+               "the pinned size's grid is part of the chunk");
+
 // The CR or LF each source, the poke stream included, last ended a line
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
 // ending a second line.
@@ -108,6 +122,11 @@ static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
+
+static bool rln_has_grid(void)
+{
+    return cells_term.grid_count > TERM_SCREEN_GRIDS;
+}
 
 void rln_sst_save(sst_cursor_t *c, unsigned flags)
 {
@@ -148,6 +167,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_bool(c, rln_action_taken);
     sst_put_bool(c, rln_lastkey_action);
     sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
+    sst_put_u16(c, rln_pinned_width);
+    sst_put_u16(c, rln_pinned_height);
+    sst_put_bool(c, rln_has_grid());
+    term_grid_sst_put(c, &rln_grid);
 }
 
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
@@ -178,6 +201,8 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
     uint8_t line_end[RLN_SOURCE_COUNT];
     sst_get(c, line_end, sizeof line_end);
+    uint16_t pin_w = sst_get_u16(c), pin_h = sst_get_u16(c);
+    bool grid = sst_get_bool(c);
     /* The lengths need no range check because a uint8_t cannot reach past a
      * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
      * changes. The indexes are checked because they can exceed the lengths
@@ -186,6 +211,13 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
         cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
         hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        return false;
+    if (grid && !rln_has_grid())
+        term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
+                      rln_grid_lines, RLN_GRID_ROWS);
+    else if (!grid && rln_has_grid())
+        term_drop_grid(&cells_term, &rln_grid);
+    if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
         return false;
 
     memcpy(rln_history, history, sizeof rln_history);
@@ -214,6 +246,8 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_action_taken = acted;
     rln_lastkey_action = key_acted;
     memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
+    rln_pinned_width = pin_w;
+    rln_pinned_height = pin_h;
     return true;
 }
 
@@ -248,7 +282,7 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 // clears it.
 static void rln_emit_col(uint16_t col)
 {
-    com_putchar('\r');
+    manifold_putchar('\r');
     if (col > 1)
         com_printf("\33[%uC", col - 1);
 }
@@ -294,7 +328,7 @@ static void rln_sync_cursor_to(uint8_t target)
 // CUF end the park, so the next write cannot wrap.
 static void rln_put(uint8_t i, char ch, uint8_t end)
 {
-    com_putchar(ch);
+    manifold_putchar(ch);
     rln_cur_idx = (uint8_t)(i + 1);
     if (!rln_prompt_col)
         return;
@@ -389,7 +423,7 @@ static bool rln_below_line(void)
 static void rln_emit_trailing_spaces(uint8_t count)
 {
     for (uint8_t i = 0; i < count; i++)
-        com_putchar(' ');
+        manifold_putchar(' ');
     if (!rln_prompt_col)
         com_printf("\33[%uD", count);
 }
@@ -423,7 +457,7 @@ static void rln_render_from(uint8_t start)
     if (rln_input_no_wrap())
     {
         for (uint8_t i = start; i < rln_buflen; i++)
-            com_putchar(rln_buf[i]);
+            manifold_putchar(rln_buf[i]);
         rln_cur_idx = rln_cursor_max();
         if (rln_last_render_buflen > rln_buflen)
             rln_emit_trailing_spaces((uint8_t)(rln_last_render_buflen - rln_buflen));
@@ -468,7 +502,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     }
     rln_sync_cursor_to(at);
     for (uint8_t i = at; i < rln_buflen; i++)
-        com_putchar(rln_buf[i]);
+        manifold_putchar(rln_buf[i]);
     if (pad)
         rln_emit_trailing_spaces(pad);
     rln_cur_idx = rln_cursor_max();
@@ -519,6 +553,29 @@ static void rln_history_add(void)
         rln_history_count++;
 }
 
+// The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
+// insert, 0 the default. A terminal on the UART or telnet may print it, as
+// minicom prints its 'q', so it goes to the screen alone and the mode shows
+// nowhere else. Plain lines get none.
+static void rln_cursor_shape(uint8_t ps)
+{
+    if (!rln_prompt_col)
+        return;
+    char seq[] = "\33[0 q";
+    seq[2] = (char)('0' + ps);
+    manifold_write_to(COM_TERM_SCREEN, seq, sizeof seq - 1);
+}
+
+// The read is over, or given up: nothing more is read for it, the callback
+// never fires, and the cursor has its default shape again.
+void rln_read_cancel(void)
+{
+    rln_callback = NULL;
+    rln_idle_timeout_ms = 0;
+    tio_read_end();
+    rln_cursor_shape(0);
+}
+
 /* The line is done at Enter: nothing is read after it, so whatever follows
  * is the next reader's. The newline takes the cursor to column 1 of the row
  * below the line, unless the line's own row break already did. SUPPRESS_NL
@@ -526,11 +583,9 @@ static void rln_history_add(void)
 static void rln_complete(bool timed_out)
 {
     rln_read_callback_t cc = rln_callback;
-    rln_idle_timeout_ms = 0;
-    rln_callback = NULL;
-    tio_read_end();
+    rln_read_cancel();
     if (!rln_suppress_newline && !rln_below_line())
-        com_putchar('\n');
+        manifold_putchar('\n');
     cc(timed_out, rln_buf);
 }
 
@@ -797,13 +852,12 @@ static void rln_line_insert(char ch)
 
 /* ----- Mode toggling ----- */
 
-// The cursor shape for the mode, a block for overwrite and a bar for insert.
-// tio sends it only to the screen, so on the other terminals the mode has no
-// visual indicator. Plain lines get none.
+// The mode's shape, while a read is on. A poked Enter can end the read before
+// the poke's mode is put back.
 static void rln_emit_mode_cursor(void)
 {
-    if (rln_prompt_col)
-        tio_cursor_shape(rln_overwrite ? 1 : 5);
+    if (rln_callback)
+        rln_cursor_shape(rln_overwrite ? 1 : 5);
 }
 
 static void rln_toggle_overwrite(void)
@@ -1018,15 +1072,26 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 /* ----- Following the terminal ----- */
 
 // The line starts where the console's terminal has its cursor, and is laid
-// out at that row's columns.
+// out at that row's columns, half the width on a double-size row. Everything
+// already printed reaches the terminals and cells_term first, then the modes
+// go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
+// starts in column 1 of the next row.
 static void rln_lay_out(void)
 {
-    tio_line_t l;
-    tio_read_start(&l);
-    rln_prompt_col = rln_plain ? 0 : l.col;
-    rln_width = l.cols;
-    rln_grid_width = l.width;
-    rln_rows = l.height < RLN_MAX_ROWS ? l.height : RLN_MAX_ROWS;
+    manifold_flush();
+    manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
+    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+        manifold_flush();
+    }
+    const term_grid_t *g = term_shown(&cells_term);
+    const term_pos_t *p = term_pos(g);
+    rln_prompt_col = rln_plain ? 0 : p->x + 1;
+    rln_width = term_cols(g, p->y);
+    rln_grid_width = g->width;
+    rln_rows = g->height < RLN_MAX_ROWS ? g->height : RLN_MAX_ROWS;
     rln_emit_mode_cursor();
 }
 
@@ -1037,7 +1102,7 @@ static void rln_lay_out(void)
 // line is never drawn again.
 static void rln_follow(void)
 {
-    if (!rln_prompt_col || tio_get_term_width() == rln_grid_width)
+    if (!rln_prompt_col || rln_get_term_width() == rln_grid_width)
         return;
     rln_sync_past_line();
     com_clean_line();
@@ -1096,13 +1161,6 @@ com_source_t rln_line_source(void)
     return rln_line_src;
 }
 
-void rln_read_cancel(void)
-{
-    rln_callback = NULL;
-    rln_idle_timeout_ms = 0;
-    tio_read_end();
-}
-
 bool rln_read_flush(void)
 {
     if (!rln_callback || !rln_buflen)
@@ -1142,6 +1200,9 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_caps = RLN_CAPS_OFF;
     rln_suppress_newline = false;
     rln_overwrite = false;
+    rln_pinned_width = 0;
+    rln_pinned_height = 0;
+    term_grid_init(&rln_grid, 80, rln_grid_lines, RLN_GRID_ROWS);
 }
 
 void rln_run(void)
@@ -1150,7 +1211,8 @@ void rln_run(void)
 }
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
- * past everything typed. */
+ * past everything typed, with its default shape. A program's own size goes
+ * back to the screen's. */
 void rln_stop(void)
 {
     if (rln_callback)
@@ -1158,7 +1220,10 @@ void rln_stop(void)
         rln_sync_past_line();
         if (!rln_below_line())
             com_printf("\r\n");
+        rln_read_cancel();
     }
+    if (rln_has_grid())
+        term_drop_grid(&cells_term, &rln_grid);
     rln_init();
 }
 
@@ -1167,10 +1232,52 @@ void rln_set_plain(bool plain)
     rln_plain = plain;
 }
 
-void HOST_IN_RAM_FUNC rln_forget_source(unsigned src)
+uint16_t rln_get_term_width(void)
 {
-    if (src < COM_SOURCE_COUNT)
-        rln_line_ends[src] = 0;
+    return term_shown(&cells_term)->width;
+}
+
+uint16_t rln_get_term_height(void)
+{
+    return term_shown(&cells_term)->height;
+}
+
+/* The third grid starts as a copy of the showing one and takes the pinned
+ * size. An axis not pinned takes the showing grid's when the other is
+ * pinned, and keeps it: the program's terminal is a fixed size until both
+ * are 0 again, when it is dropped. The screen's grids are never touched. */
+static void rln_size_grid(void)
+{
+    term_t *t = &cells_term;
+    if (!rln_pinned_width && !rln_pinned_height)
+    {
+        if (rln_has_grid())
+            term_drop_grid(t, &rln_grid);
+        return;
+    }
+    const term_grid_t *shown = cells_shown(t);
+    if (!rln_has_grid())
+        term_add_grid(t, &rln_grid, shown, rln_grid_lines, RLN_GRID_ROWS);
+    term_set_width(t, &rln_grid, (uint8_t)(rln_pinned_width ? rln_pinned_width : shown->width));
+    term_set_height(t, &rln_grid, (uint8_t)(rln_pinned_height ? rln_pinned_height : shown->height));
+}
+
+void rln_set_term_width(uint16_t v)
+{
+    rln_pinned_width = v;
+    rln_size_grid();
+}
+
+void rln_set_term_height(uint16_t v)
+{
+    rln_pinned_height = v;
+    rln_size_grid();
+}
+
+void HOST_IN_RAM_FUNC rln_forget_source(com_source_t src)
+{
+    rln_line_ends[src] = 0;
+    tio_forget(src);
 }
 
 /* 6502 applications may configure the max length */

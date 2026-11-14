@@ -7,7 +7,6 @@
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
-#include "core/com/tio.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/xram.h"
@@ -38,7 +37,7 @@ static uint32_t ram_intel_hex_base;
 // address.
 static size_t HOST_IN_FLASH_FUNC ram_chunk_size(void)
 {
-    return tio_get_term_width() >= 74 ? 16 : 8;
+    return rln_get_term_width() >= 74 ? 16 : 8;
 }
 
 static void ram_read_done(bool ok);
@@ -63,7 +62,7 @@ static int HOST_IN_FLASH_FUNC ram_print_response(char *buf, size_t buf_size,
     if (state < 0)
         return state;
     size_t chunk = ram_chunk_size();
-    int width = tio_get_term_width();
+    int width = rln_get_term_width();
     bool with_ascii = width >= 40;
     // Eight bytes with their ASCII take 41 columns, or 42 with a five-digit
     // XRAM address, so compact mode drops the space after the address and one

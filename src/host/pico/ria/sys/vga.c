@@ -117,20 +117,14 @@ static void vga_follow_display(uint8_t display)
     vga_display_sent = display;
 }
 
-/* Attribute 0x0D's default, which the monitor and each program start with:
- * with no VGA the terminal on the UART answers the queries, so the console's
- * terminal does not. */
-static void vga_reply_default(void)
-{
-    manifold_suppress_reply(!vga_connected());
-}
-
-/* With no VGA the console is a terminal on the UART, taken to be 80x24. */
+/* With no VGA the console is a terminal on the UART, taken to be 80x24,
+ * and that terminal answers the queries, so the console's terminal is quiet
+ * by default. */
 static void vga_follow_none(void)
 {
     cells_RIS();
     cells_set_height(80, 24);
-    vga_reply_default();
+    com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
 {
@@ -357,7 +351,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
     manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
-    vga_reply_default();
+    com_set_reply_default(false);
     /* A VGA of the firmware before the RIA answered the queries still has
      * its own answers on; this turns them off, so an update of either chip
      * first works. A VGA since then ignores it. */
@@ -429,6 +423,10 @@ void HOST_IN_RAM_FUNC vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
+        // DISPLAY resets the terminal, so everything printed before the stop
+        // goes out first: an escape sequence cut in half by the reset would
+        // print the rest of itself as text.
+        manifold_flush();
         // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
         // which resets canvas to vga_canvas_console. Mirror that here.
         uint8_t display = vga_get_display_type();
@@ -446,19 +444,16 @@ void vga_run(void)
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_CONNECTION_LOST)
         vga_connect();
-    vga_reply_default();
 }
 
 void vga_stop(void)
 {
     vga_needs_reset = true;
-    vga_reply_default();
 }
 
 void vga_break(void)
 {
     vga_needs_reset = true;
-    vga_reply_default();
 }
 
 vga_canvas_t vga_get_canvas(void)

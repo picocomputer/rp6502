@@ -14,7 +14,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
-#include "core/com/tio.h"
+#include "core/com/rln.h"
 #include "core/term/cells.h"
 #include "host/host.h"
 
@@ -59,7 +59,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)225811);
+    ASSERT_EQ(sst_size(), (size_t)225812);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 29u);
 }
 
@@ -185,24 +185,24 @@ UTEST(sst, what_a_row_carries_comes_back)
         ASSERT_EQ(xram[i], (uint8_t)(i * 13 + 5));
 }
 
-/* A program's own size is a third grid of the terminal, carried by the TIO
+/* A program's own size is a third grid of the terminal, carried by the RLN
  * chunk; it comes back attached, with its cursor, and is dropped again by a
  * blob made without one. */
 UTEST(sst, a_programs_own_size_comes_back)
 {
-    tio_set_term_width(132);
+    rln_set_term_width(132);
     term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
     g->pos[0].x = 100;
     ASSERT_EQ(take(), (const char *)NULL);
-    tio_set_term_width(0);
+    rln_set_term_width(0);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS + 1);
     ASSERT_EQ(term_shown(&cells_term)->width, 132);
-    ASSERT_EQ(term_pos(&cells_term, term_shown(&cells_term))->x, 100);
-    tio_set_term_width(0);
+    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 100);
+    rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
-    tio_set_term_width(60);
+    rln_set_term_width(60);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
 }

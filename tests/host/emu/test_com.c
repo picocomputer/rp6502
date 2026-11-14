@@ -92,7 +92,7 @@ UTEST(com, a_terminal_answer_never_jumps_ahead_of_the_wire)
 {
     com_rx_clear();
     manifold_uart_push("hello", 5);
-    manifold_reply("\33[1;1R", 6);
+    com_reply("\33[1;1R", 6);
     char buf[32];
     size_t n = com_stdin_read(buf, sizeof buf);
     ASSERT_EQ(n, (size_t)11);
@@ -103,7 +103,7 @@ UTEST(com, a_terminal_answer_never_jumps_ahead_of_the_wire)
 UTEST(com, a_held_answer_is_read_by_the_source_that_owes_it)
 {
     com_rx_clear();
-    manifold_reply("\33[0n", 4);
+    com_reply("\33[0n", 4);
     ASSERT_EQ(com_peek(COM_SOURCE_UART, 0), 0x1b);
     com_source_t src = COM_SOURCE_UART;
     ASSERT_EQ(com_getchar(&src), 0x1b);
@@ -137,7 +137,7 @@ UTEST(com, a_uart_peek_sees_a_held_answer_after_the_ring)
 {
     com_rx_clear();
     manifold_uart_push("hi", 2);
-    manifold_reply("\33[0n", 4);
+    com_reply("\33[0n", 4);
     ASSERT_EQ(com_peek(COM_SOURCE_UART, 1), 'i');
     ASSERT_EQ(com_peek(COM_SOURCE_UART, 2), 0x1b);
     ASSERT_EQ(com_peek(COM_SOURCE_UART, 5), 'n');
@@ -177,12 +177,47 @@ UTEST(com, a_named_read_leaves_the_other_sources_queued)
     drain();
 }
 
+/* Once an answer's first byte is read, UART bytes that arrive after wait
+ * behind the rest of it, the byte staged in the window included. */
+UTEST(com, an_answer_started_is_never_split_by_the_wire)
+{
+    com_rx_clear();
+    com_reply("\33[0n", 4);
+    char buf[8];
+    ASSERT_EQ(com_read(COM_SOURCE_UART, buf, 2), (size_t)2);
+    ASSERT_EQ(memcmp(buf, "\33[", 2), 0);
+    manifold_uart_push("xy", 2);
+    ASSERT_EQ(com_peek(COM_SOURCE_UART, 0), '0');
+    ASSERT_EQ(com_peek(COM_SOURCE_UART, 2), 'x');
+    com_source_t src = COM_SOURCE_UART;
+    ASSERT_EQ(com_getchar(&src), '0');
+    ASSERT_TRUE(com_rx_stage());
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_UART), 'n');
+    ASSERT_EQ(com_read(COM_SOURCE_UART, buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(memcmp(buf, "nxy", 3), 0);
+    drain();
+}
+
+/* An answer waits behind the UART bytes that came before it. */
+UTEST(com, an_answer_not_started_waits_behind_the_wire)
+{
+    com_rx_clear();
+    manifold_uart_push("ab", 2);
+    com_reply("\33[0n", 4);
+    char buf[8];
+    ASSERT_EQ(com_read(COM_SOURCE_UART, buf, 1), (size_t)1);
+    manifold_uart_push("c", 1);
+    ASSERT_EQ(com_read(COM_SOURCE_UART, buf, sizeof buf), (size_t)6);
+    ASSERT_EQ(memcmp(buf, "bc\33[0n", 6), 0);
+    drain();
+}
+
 UTEST(com, an_answer_too_big_to_hold_is_dropped_whole)
 {
     com_rx_clear();
     char big[64];
     memset(big, 'x', sizeof big);
-    manifold_reply(big, sizeof big);
+    com_reply(big, sizeof big);
     char buf[MANIFOLD_RING_SIZE];
     ASSERT_EQ(com_stdin_read(buf, sizeof buf), (size_t)0);
     drain();
@@ -196,7 +231,7 @@ UTEST(com, tio_is_idle_with_a_lone_esc_until_an_answer_is_held_behind_it)
     ASSERT_TRUE(tio_idle());
     manifold_uart_push("\33", 1);
     ASSERT_TRUE(tio_idle());
-    manifold_reply("\33[0n", 4);
+    com_reply("\33[0n", 4);
     ASSERT_FALSE(tio_idle());
     com_rx_clear();
     ASSERT_TRUE(tio_idle());
@@ -455,16 +490,16 @@ UTEST(com, a_write_to_telnet_never_reaches_the_uart)
 
 UTEST(com, a_clean_line_breaks_only_off_column_1)
 {
-    com_putchar('a');
-    com_putchar('b');
+    manifold_putchar('a');
+    manifold_putchar('b');
     tap();
     com_clean_line();
     ASSERT_EQ(sent_len, (size_t)2);
     ASSERT_EQ(memcmp(sent, "\r\n", 2), 0);
-    com_putchar('a');
-    com_putchar('b');
-    com_putchar('\r');
-    com_putchar('\n');
+    manifold_putchar('a');
+    manifold_putchar('b');
+    manifold_putchar('\r');
+    manifold_putchar('\n');
     tap();
     com_clean_line();
     ASSERT_EQ(sent_len, (size_t)0);
@@ -488,11 +523,11 @@ static bool end_reset_breaks(const char *primary, const char *alternate)
 {
     com_clean_line();
     for (const char *p = primary; *p; p++)
-        com_putchar(*p);
+        manifold_putchar(*p);
     for (const char *p = "\33[?47h"; *p; p++)
-        com_putchar(*p);
+        manifold_putchar(*p);
     for (const char *p = alternate; *p; p++)
-        com_putchar(*p);
+        manifold_putchar(*p);
     tap();
     com_end_reset();
     untap();
@@ -508,9 +543,9 @@ UTEST(com, the_end_reset_reads_the_cursor_after_leaving_the_alternate_screen)
 UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
 {
     tap();
-    com_putchar('a');
+    manifold_putchar('a');
     manifold_write_to(COM_TERM_UART, "b", 1);
-    com_putchar('c');
+    manifold_putchar('c');
     ASSERT_EQ(sent_len, (size_t)3);
     ASSERT_EQ(memcmp(sent, "abc", 3), 0);
     untap();
@@ -555,13 +590,28 @@ UTEST(com, a_write_to_the_screen_reaches_term_c_alone)
     untap();
 }
 
+/* A terminal on the UART may print a shape, so the default shape reaches
+ * term.c alone. */
+UTEST(com, the_end_reset_puts_the_default_shape_on_the_screen_alone)
+{
+    com_clean_line();
+    tap();
+    screen_len = 0;
+    manifold_set_term_out(screen_out);
+    com_end_reset();
+    ASSERT_EQ(screen_len, sent_len + 5);
+    ASSERT_EQ(memcmp(&screen[screen_len - 5], "\33[0 q", 5), 0);
+    cells_init();
+    untap();
+}
+
 UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
 {
     screen_len = 0;
     manifold_set_term_out(screen_out);
-    com_putchar('a');
+    manifold_putchar('a');
     manifold_write_to(COM_TERM_SCREEN, "b", 1);
-    com_putchar('c');
+    manifold_putchar('c');
     ASSERT_EQ(screen_len, (size_t)3);
     ASSERT_EQ(memcmp(screen, "abc", 3), 0);
     cells_init();

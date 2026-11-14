@@ -7,6 +7,7 @@
 
 #include "core/api/proc.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/wdc/cpu.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -264,7 +265,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* TX */
-        com_putchar_raw((char)data);
+        manifold_putchar_raw((char)data);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */

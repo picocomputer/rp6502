@@ -18,7 +18,6 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
-#include <string.h>
 
 /* One byte of core 0's output and the COM_TERM_ bits of the terminals it is
  * for. */
@@ -63,43 +62,9 @@ size_t manifold_write(int fd, const char *buf, size_t n)
 static RING(uint8_t, 32) manifold_uart_tx;
 static RING(uint8_t, MANIFOLD_RING_SIZE) manifold_uart_rx;
 
-/* The console's terminal's answers to queries, held whole until the UART's
- * ring is empty, so one never lands inside a sequence still arriving there.
- * The terminal is fed every byte the VGA's terminal gets, as it is sent. */
-static uint8_t manifold_reply_buf[32];
-static size_t manifold_reply_len;
-static bool manifold_reply_suppressed;
+/* The console's terminal is fed every byte the VGA's terminal gets, as it is
+ * sent. */
 static void (*manifold_term_out)(const char *buf, int len);
-
-static void HOST_IN_RAM_FUNC manifold_reply_promote(void)
-{
-    if (!manifold_reply_len || RING_LEN(&manifold_uart_rx))
-        return;
-    RING_IN(&manifold_uart_rx, manifold_reply_buf, (uint32_t)manifold_reply_len);
-    manifold_reply_len = 0;
-}
-
-/* A reply that does not fit is dropped whole rather than truncated, because
- * half of an escape sequence is a sequence the reader parses as something
- * else. */
-void manifold_reply(const char *s, size_t n)
-{
-    if (manifold_reply_suppressed || n > sizeof manifold_reply_buf ||
-        manifold_reply_len > sizeof manifold_reply_buf - n)
-        return;
-    memcpy(manifold_reply_buf + manifold_reply_len, s, n);
-    manifold_reply_len += n;
-}
-
-void manifold_suppress_reply(bool suppress)
-{
-    manifold_reply_suppressed = suppress;
-}
-
-bool manifold_replies_suppressed(void)
-{
-    return manifold_reply_suppressed;
-}
 
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
 {
@@ -128,26 +93,18 @@ void HOST_IN_RAM_FUNC manifold_uart_drain_rx(void)
 /* manifold_task drains the UART's hardware FIFO into the ring once per pass. */
 size_t HOST_IN_RAM_FUNC manifold_uart_read(char *buf, size_t length)
 {
-    manifold_reply_promote();
     return RING_OUT(&manifold_uart_rx, buf, (uint32_t)length);
 }
 
-/* A held reply comes after the ring, as manifold_uart_read delivers it. */
 int HOST_IN_RAM_FUNC manifold_uart_peek(size_t offset)
 {
-    manifold_reply_promote();
-    size_t len = RING_LEN(&manifold_uart_rx);
-    if (offset < len)
-        return *RING_AT(&manifold_uart_rx, offset);
-    offset -= len;
-    return offset < manifold_reply_len ? manifold_reply_buf[offset] : -1;
+    return offset < RING_LEN(&manifold_uart_rx) ? *RING_AT(&manifold_uart_rx, offset) : -1;
 }
 
 void HOST_IN_FLASH_FUNC manifold_uart_clear(void)
 {
     manifold_uart_drain_rx();
     RING_SKIP(&manifold_uart_rx, RING_LEN(&manifold_uart_rx));
-    manifold_reply_len = 0;
 }
 
 static bool HOST_IN_RAM_FUNC manifold_uart_tx_writable(void)

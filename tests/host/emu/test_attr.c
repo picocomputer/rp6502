@@ -9,7 +9,7 @@
 #include "core/api/xreg.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
-#include "core/com/manifold.h"
+#include "core/com/com.h"
 #include "core/ria/regs.h"
 #include "utest.h"
 #include <string.h>
@@ -101,14 +101,14 @@ UTEST(attr, pcm_underruns_is_read_only)
 UTEST(attr, term_quiet_turns_the_replies_off)
 {
     api_set_errno_opt(2);
-    manifold_run();
+    com_run();
     ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 0);
     ASSERT_EQ(attr_set(ATTR_TERM_QUIET, 1), 0);
     ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 1);
-    ASSERT_TRUE(manifold_replies_suppressed());
+    ASSERT_TRUE(com_get_reply_quiet());
     ASSERT_EQ(attr_set(ATTR_TERM_QUIET, 2), -1);
     ASSERT_EQ(API_ERRNO, api_platform_errno(API_EINVAL));
-    manifold_run();
+    com_run();
     ASSERT_EQ(attr_get(ATTR_TERM_QUIET), 0);
 }
 

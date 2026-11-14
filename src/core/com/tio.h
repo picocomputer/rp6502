@@ -4,17 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The terminals between com and the line editor. tio reads each source as
+/* The key reader between com and the line editor. tio reads each source as
  * items, an item being one character or one whole escape sequence, so a
  * sequence still arriving stays in its source and no reader takes half of
- * one. A line read takes its geometry from the console's terminal, cells_term,
- * and cursor shapes go to the screen. No terminal is asked anything. */
+ * one. */
 
 #ifndef _CORE_COM_TIO_H_
 #define _CORE_COM_TIO_H_
 
 #include "core/com/com.h"
-#include "core/term/term.h"
 #include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -81,68 +79,24 @@ size_t tio_read(com_source_t *src, char *buf);
 /* True when no whole item is waiting in any source. */
 bool tio_idle(void);
 
-/* Where a line read starts, from the console's terminal. */
-typedef struct
-{
-    uint8_t col;    // 1-based column of the cursor on its row
-    uint8_t cols;   // that row's columns, half the width on a double-size row
-    uint8_t width;  // the shown grid's width
-    uint8_t height; // the shown grid's rows
-} tio_line_t;
-
-/* A line read starts, or starts over at a new width. Everything already
- * printed reaches the terminals and cells_term first, then insert mode goes
- * off on every terminal, because the line editor overwrites the line as it
- * draws it again. A cursor in a pending wrap gets a CR LF, so the line
- * starts in column 1 of the next row. Then line is read from cells_term's
- * shown grid. */
-void tio_read_start(tio_line_t *line);
-
-/* The console's size: a program's own while it pins one, otherwise the
- * screen's showing grid. */
-uint16_t tio_get_term_width(void);
-uint16_t tio_get_term_height(void);
-
-/* A non-zero value pins the size; 0 goes back to the screen's. Both return
- * to 0 when a program stops. */
-void tio_set_term_width(uint16_t v);
-void tio_set_term_height(uint16_t v);
-
 /* The terminal on src went away, and the next one there is a different
  * terminal: what is left of an overlong sequence from it is forgotten. */
 void tio_forget(com_source_t src);
-
-/* The cursor shape for the line being edited, as the one-digit parameter of
- * DECSCUSR (CSI Ps SP q). It goes to term.c alone, through COM_TERM_SCREEN,
- * because a terminal on the UART or telnet may print it. */
-void tio_cursor_shape(uint8_t ps);
-
-/* The default cursor shape, to term.c, so a shape a program set is put
- * back. */
-void tio_cursor_default(void);
 
 /* A line read is over. What has arrived of an overlong sequence is dropped,
  * and whatever comes after is read as new items. */
 void tio_read_end(void);
 
-/* A program stopped, or a break: the read is over and the pinned sizes go
- * back to 0. */
-void tio_stop(void);
-
 void tio_init(void);
 
 /* Each source's overlong framing state, and the length and quiet deadline of
- * the sequence in front of it (10 each); the pinned sizes (4); whether a
- * program's own size has a grid (1), and that grid. */
-#define TIO_GRID_ROWS 255
-#define TIO_SST_SIZE (10 * COM_SOURCE_COUNT + 5 + TERM_GRID_SST_SIZE(TIO_GRID_ROWS))
+ * the sequence in front of it (10 each). */
+#define TIO_SST_SIZE (10 * COM_SOURCE_COUNT)
 void tio_sst_save(sst_cursor_t *c, unsigned flags);
 bool tio_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define TIO_DRIVER DRIVER(        \
     INIT(tio_init)                \
-    STOP(tio_stop)                \
-    BREAK(tio_stop)               \
-    SST(TIO_, 9, TIO_SST_SIZE, tio_sst_save, tio_sst_load))
+    SST(TIO_, 10, TIO_SST_SIZE, tio_sst_save, tio_sst_load))
 
 #endif /* _CORE_COM_TIO_H_ */

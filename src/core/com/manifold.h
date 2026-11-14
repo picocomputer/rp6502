@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The contract a machine fulfils for the console: where com's output goes,
- * the UART source com reads, the terminal emulator's link, and the software
+/* The contract a machine fulfils for the console: where its output goes, the
+ * UART source com reads, the terminal emulator's link, and the software
  * console of a machine with no serial port. A machine implements the parts it
  * uses, in a file called manifold.c. */
 
@@ -18,16 +18,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Console: com's output calls these, and the UART source is a row of
- * RP6502_COM_SOURCES. */
+/* Console: its output, and the UART source, a row of RP6502_COM_SOURCES. */
 
-/* Room for one character, a newline's CR LF included. */
+/* Clear to send: room for one character, a newline's CR LF included, so the
+ * manifold_putchar or manifold_putchar_raw after it does not block. */
 bool manifold_cts(void);
 
-/* One character, a newline going out as CR LF. */
+/* One character, a bare '\n' going out as CR LF. The last byte written is
+ * remembered across calls, so a '\r' sent in an earlier call still keeps the
+ * '\n' after it from being expanded. */
 int manifold_putchar(int c);
 
-/* One byte as it is. */
+/* One byte as it is, without checking for room. */
 void manifold_putchar_raw(char c);
 
 /* A program's stdout or stderr, fd STDOUT_FILENO or STDERR_FILENO, its
@@ -51,20 +53,9 @@ void manifold_uart_clear(void);
 
 /* Terminal: the terminal emulator's link to the console. */
 
-/* A terminal query's answer (DSR/CPR/DA) enters the console's input as though
- * it had been typed, so whatever reads the console finds it in order with the
- * bytes around it. It is held whole until that input is empty and dropped
- * rather than truncated when it does not fit, so it can never land inside a
- * sequence still being delivered. A machine with a real terminal on the far
- * end, which answers the query itself, drops the reply instead. */
+/* The answer of the terminal in core/term/cells.c to a query: com_reply where
+ * that terminal is the console's, dropped where another chip answers. */
 void manifold_reply(const char *s, size_t n);
-
-/* While suppress is set, the console's terminal does not answer a query:
- * attribute 0x0D. Each program starts with the machine's default, which is
- * on where another terminal is the screen the user sees and answers itself:
- * the RIA with no VGA, and an emulator printing to a host terminal. */
-void manifold_suppress_reply(bool suppress);
-bool manifold_replies_suppressed(void);
 
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. */
@@ -93,9 +84,6 @@ void manifold_keyboard_clear(void);
 void manifold_set_wire(void (*tx)(const char *buf, int len),
                        size_t (*rx)(char *buf, size_t max), bool stream);
 
-/* The default of manifold_suppress_reply that each program starts with. */
-void manifold_set_reply_default(bool suppress);
-
 /* The tx tap is given every byte the console sends to the UART. The std tap
  * is given a program's output with its fd, before the newlines are expanded.
  * The stderr sink is given a program's stderr. */
@@ -104,19 +92,15 @@ void manifold_set_std_tap(void (*tap)(int fd, const char *buf, int len));
 void manifold_set_stderr_sink(void (*sink)(const char *buf, int len));
 
 void manifold_task(void);
-void manifold_run(void);
 
-/* The 35 fixed bytes are the reply length (1), the reply buffer (32), the
- * CR LF latch (1) and the replies' suppression (1). Each of the two rings
- * adds a 16-bit count and MANIFOLD_RING_SIZE bytes. */
-#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 35)
+/* The two rings, a 16-bit count and MANIFOLD_RING_SIZE bytes each, and the
+ * CR LF latch (1). */
+#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 1)
 void manifold_sst_save(sst_cursor_t *c, unsigned flags);
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
-    RUN(manifold_run)               \
-    STOP(manifold_run)              \
-    SST(MFLD, 2, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
+    SST(MFLD, 3, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
 
 #endif /* _CORE_COM_MANIFOLD_H_ */

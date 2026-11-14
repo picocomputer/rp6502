@@ -26,7 +26,7 @@
 #include "osal/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -48,7 +48,7 @@
 static int main_stdio_putc(char c, FILE *f)
 {
     (void)f;
-    return com_putchar((unsigned char)c);
+    return manifold_putchar((unsigned char)c);
 }
 
 static FILE main_stdio = FDEV_SETUP_STREAM(main_stdio_putc, NULL, NULL,

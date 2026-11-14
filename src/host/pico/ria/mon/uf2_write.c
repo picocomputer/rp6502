@@ -7,7 +7,7 @@
 #include "ria/mon/uf2_write.h"
 #include "core/str/str.h"
 #include "core/sys/debug_log.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "ria/sys/mbuf.h"
@@ -67,8 +67,8 @@ static void __attribute__((noreturn)) uf2_write_failed(void)
 {
     // The message is the format, because a literal "%s" would be in flash.
     // The terminal is not fed while flashing, so it cannot tell a clean line.
-    com_putchar('\r');
-    com_putchar('\n');
+    manifold_putchar('\r');
+    manifold_putchar('\n');
     printf(STR_UF2_FLASH_FAILED);
     uf2_lock_up();
 }

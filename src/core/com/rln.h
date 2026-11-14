@@ -74,10 +74,23 @@ uint8_t rln_get_suppress_nl(void);
 // it outlives every read and stop.
 void rln_set_plain(bool plain);
 
-// Forget the line end a source last sent, which normally survives a read,
-// because the next client on that source is a different terminal. Takes a
-// com_source_t.
-void rln_forget_source(unsigned src);
+/* The console's size: a program's own while it pins one, otherwise the
+ * screen's showing grid. The line editor lays its lines out at it. */
+uint16_t rln_get_term_width(void);
+uint16_t rln_get_term_height(void);
+
+/* A non-zero value pins the size, and 0 goes back to the screen's. A pinned
+ * size is a third grid of the console's terminal, up to RLN_GRID_ROWS rows,
+ * which the line editor and the terminal's answers use. Both return to 0
+ * when a program stops. */
+#define RLN_GRID_ROWS 255
+void rln_set_term_width(uint16_t v);
+void rln_set_term_height(uint16_t v);
+
+// The terminal on src went away, and the next one there is a different
+// terminal: the line end it last sent, which normally survives a read, and
+// what tio holds of an overlong sequence from it are forgotten.
+void rln_forget_source(com_source_t src);
 
 // Inject a sequence of input bytes into the active readline. CR ends
 // the line normally; any other C0 control byte (0x00-0x1F) except ESC
@@ -108,8 +121,11 @@ const char *rln_line(void);
  *
  * The idle deadline is machine time, so it is carried whole rather than
  * re-armed. It means the same thing in the machine that loads the blob as in
- * the one that made it. */
-#define RLN_SST_SIZE 2374
+ * the one that made it.
+ *
+ * A pinned size comes last: the pins (4), whether the third grid is attached
+ * (1), and that grid. */
+#define RLN_SST_SIZE 2938
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -119,6 +135,6 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(RLN_, 5, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+    SST(RLN_, 6, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_COM_RLN_H_ */

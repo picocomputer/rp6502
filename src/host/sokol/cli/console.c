@@ -20,6 +20,7 @@
 #include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
 #include "core/api/std.h"
+#include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
 #include "core/com/tio.h"
@@ -81,7 +82,7 @@ bool console_open(bool window)
      * the host's is the one the program can see, so the emulated one stops
      * answering and goes on drawing. */
     if (!window)
-        manifold_set_reply_default(true);
+        com_set_reply_default(true);
     /* The program's stderr already reaches this screen through console_tx,
      * so a second copy on the host's stderr would print everything twice. A
      * redirected stderr is another destination and keeps its copy. */

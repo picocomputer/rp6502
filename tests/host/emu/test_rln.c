@@ -41,15 +41,15 @@ static void wire(const char *s)
     tasks();
 }
 
-/* rln_init keeps each source's line_end, so every source is also cleared
- * with rln_forget_source, or a case would start with what the previous case
+/* rln_init keeps every source's line end, so they are cleared with
+ * rln_forget_source too, or a case would start with what the previous case
  * left. tio starts over too. The console's terminal starts over with its
  * cursor at the top left, and the line editor reads its prompt column and
  * size from it. */
 static void fresh(void)
 {
     cells_init();
-    manifold_set_reply_default(true);
+    com_set_reply_default(true);
     rln_set_plain(false);
     com_rx_clear();
     rln_init();
@@ -207,7 +207,7 @@ static void capture(void)
 /* The console's terminal's cursor. */
 static const term_pos_t *pos(void)
 {
-    return term_pos(&cells_term, term_shown(&cells_term));
+    return term_pos(term_shown(&cells_term));
 }
 
 /* The monitor and std.c start the next read after the callback returns. */
@@ -291,12 +291,12 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
 {
     fresh();
     for (int i = 0; i < 80; i++)
-        com_putchar('p');
+        manifold_putchar('p');
     capture();
     reading();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\33[4l\r\n");
-    const term_pos_t *p = term_pos(&cells_term, term_shown(&cells_term));
+    const term_pos_t *p = term_pos(term_shown(&cells_term));
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);
     ASSERT_FALSE(p->wrap_pending);
@@ -478,14 +478,14 @@ UTEST(rln, a_line_that_ends_on_the_last_column_leaves_no_blank_row)
     ASSERT_EQ(pos()->y, 1);
     wire("\r");
     ASSERT_EQ(lines, 1);
-    com_flush();
+    manifold_flush();
     ASSERT_EQ(pos()->x, 0);
     ASSERT_EQ(pos()->y, 1);
     com_printf("]");
     reading();
     type_n(79, 'b');
     rln_stop();
-    com_flush();
+    manifold_flush();
     ASSERT_EQ(pos()->x, 0);
     ASSERT_EQ(pos()->y, 2);
 }
@@ -501,7 +501,7 @@ UTEST(rln, a_caret_across_a_row_break_stays_whole)
     rln_poke("\3");
     ASSERT_EQ(lines, 1);
     com_printf("]");
-    com_flush();
+    manifold_flush();
     ASSERT_EQ(cells_view_row(0)[79].font_code, '^');
     ASSERT_EQ(cells_view_row(1)[0].font_code, 'C');
     ASSERT_EQ(cells_view_row(2)[0].font_code, ']');
@@ -594,7 +594,7 @@ UTEST(rln, a_new_width_draws_the_line_below_the_old_one)
     reading();
     type_n(200, 'a');
     wire("\33[H");
-    tio_set_term_width(40);
+    rln_set_term_width(40);
     tasks();
     wire("\r");
     manifold_set_tx_tap(NULL);
@@ -608,7 +608,7 @@ UTEST(rln, a_new_width_draws_the_line_below_the_old_one)
     ASSERT_TRUE(vt_row_is(8, 0, ' '));
     ASSERT_EQ(vt_x, 0);
     ASSERT_EQ(vt_y, 8);
-    tio_stop();
+    rln_stop();
 }
 
 /* A pinned width of 20 holds 10 rows of 20, so a 230-character line is cut
@@ -619,7 +619,7 @@ UTEST(rln, a_new_width_cuts_the_line_to_what_it_holds)
     vt_start();
     reading();
     type_n(230, 'a');
-    tio_set_term_width(20);
+    rln_set_term_width(20);
     tasks();
     wire("\33[H");
     ASSERT_EQ(vt_x, 0);
@@ -633,7 +633,7 @@ UTEST(rln, a_new_width_cuts_the_line_to_what_it_holds)
     ASSERT_TRUE(vt_row_is(13, 0, ' '));
     ASSERT_EQ(vt_x, 0);
     ASSERT_EQ(vt_y, 13);
-    tio_stop();
+    rln_stop();
 }
 
 /* A double-width prompt row has 40 columns. */
@@ -655,7 +655,7 @@ UTEST(rln, a_double_width_prompt_row_breaks_at_40)
 UTEST(rln, a_pinned_width_of_40_breaks_at_40)
 {
     fresh();
-    tio_set_term_width(40);
+    rln_set_term_width(40);
     capture();
     reading();
     type_n(40, 'a');
@@ -666,7 +666,23 @@ UTEST(rln, a_pinned_width_of_40_breaks_at_40)
     ASSERT_EQ(cells_view_row(1)[0].font_code, 'b');
     ASSERT_EQ(pos()->x, 1);
     ASSERT_EQ(pos()->y, 1);
-    tio_stop();
+    rln_stop();
+}
+
+/* Pinning one axis fixes the other at the screen's, and a stop goes back to
+ * the screen's size. */
+UTEST(rln, the_size_is_the_pinned_one_until_a_stop)
+{
+    fresh();
+    uint16_t w = rln_get_term_width(), h = rln_get_term_height();
+    rln_set_term_width(50);
+    ASSERT_EQ(rln_get_term_width(), 50);
+    ASSERT_EQ(rln_get_term_height(), h);
+    rln_set_term_height(20);
+    ASSERT_EQ(rln_get_term_height(), 20);
+    rln_stop();
+    ASSERT_EQ(rln_get_term_width(), w);
+    ASSERT_EQ(rln_get_term_height(), h);
 }
 
 /* The line can be longer than the row, so it is drawn on the wrap path. */
@@ -746,14 +762,28 @@ UTEST(rln, a_key_typed_after_an_enter_goes_to_the_next_read)
     screen_done();
 }
 
-/* A terminal on the UART may print a shape, so the shapes reach term.c alone. */
+/* A terminal on the UART may print a shape, so the shapes reach term.c alone.
+ * The default comes back when the read ends. */
 UTEST(rln, shapes_reach_the_screen_alone)
 {
     screen_reading();
     ASSERT_TRUE(strstr(screen, "\33[5 q") != NULL);
     wire("\33[2~");
     ASSERT_TRUE(strstr(screen, "\33[1 q") != NULL);
+    ASSERT_TRUE(strstr(screen, "\33[0 q") == NULL);
+    wire("\r");
+    ASSERT_TRUE(strstr(screen, "\33[1 q\33[0 q") != NULL);
     ASSERT_TRUE(strstr(shown, " q") == NULL);
+    screen_done();
+}
+
+/* A program starting from a read cut short gets the default shape. */
+UTEST(rln, a_stop_puts_the_default_shape_back)
+{
+    screen_reading();
+    ASSERT_TRUE(strstr(screen, "\33[0 q") == NULL);
+    rln_stop();
+    ASSERT_TRUE(strstr(screen, "\33[0 q") != NULL);
     screen_done();
 }
 

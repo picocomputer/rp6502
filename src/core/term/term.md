@@ -54,7 +54,7 @@ with what it saves:
 The RIA follows the VGA's terminal and answers the queries (step 2, done):
 ria/term/cells.c is the RIA's terminal, ria/sys/vga.c replays the VGA's size
 changes and resets, 0x0D turns the answers off, and 0x0A and 0x0B give a
-program's own size as a third grid (tio.c). Pinning either axis fixes both:
+program's own size as a third grid (rln.c). Pinning either axis fixes both:
 the other takes the screen's size at that moment.
 
 ### Step 3: the line editor stops probing (done)

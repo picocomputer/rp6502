@@ -9,7 +9,7 @@
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
-#include "core/com/tio.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/sys.h"
 #include "core/term/color.h"
@@ -36,7 +36,7 @@ static void feedn(const char *s, size_t n)
 static const char *answer(void)
 {
     size_t n = 0, r;
-    while ((r = manifold_uart_read(reply + n, sizeof reply - 1 - n)) > 0)
+    while ((r = com_read(COM_SOURCE_UART, reply + n, sizeof reply - 1 - n)) > 0)
         n += r;
     reply[n] = 0;
     return reply;
@@ -761,9 +761,9 @@ UTEST(term, a_scroll_keeps_the_cursor_on_its_line)
 UTEST(term, a_quiet_terminal_answers_nothing)
 {
     fresh();
-    manifold_suppress_reply(true);
+    com_set_reply_quiet(true);
     ASSERT_STREQ(ask("\33[6n"), "");
-    manifold_suppress_reply(false);
+    com_set_reply_quiet(false);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;1R");
 }
 
@@ -783,13 +783,13 @@ UTEST(term, the_soft_reset_sets_the_40_back_to_30)
 UTEST(term, a_pinned_width_answers_from_its_own_grid)
 {
     fresh();
-    tio_set_term_width(132);
+    rln_set_term_width(132);
     ASSERT_EQ(cells_term.grid_count, 3);
     ASSERT_STREQ(ask("\33[18t"), "\33[8;30;132t");
     feed("\33[1;100H");
     ASSERT_STREQ(ask("\33[6n"), "\33[1;100R");
     ASSERT_EQ(cx(), 79); /* the screen's terminal stops at its edge */
-    tio_set_term_width(0);
+    rln_set_term_width(0);
     ASSERT_EQ(cells_term.grid_count, 2);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
 }
@@ -799,12 +799,12 @@ UTEST(term, a_pinned_width_answers_from_its_own_grid)
 UTEST(term, a_pinned_height_fixes_the_width_and_stops_with_the_program)
 {
     fresh();
-    tio_set_term_height(20);
+    rln_set_term_height(20);
     ASSERT_STREQ(ask("\33[18t"), "\33[8;20;80t");
-    tio_set_term_width(132);
+    rln_set_term_width(132);
     feed("\33[1;81H\t");
     ASSERT_STREQ(ask("\33[6n"), "\33[1;89R");
-    tio_stop();
+    rln_stop();
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
 }
 
