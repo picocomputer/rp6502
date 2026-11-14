@@ -34,12 +34,14 @@
 #include <pty.h>
 #endif
 #include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define VT_FIRST_MS 7000 /* the longest vttest takes to start on a key: RIS sleeps 5 s */
@@ -47,6 +49,7 @@
                           * waits up to 300 ms for a reply */
 #define VT_STEP_LIMIT 4000 /* screens before giving up on a walk gone wrong */
 #define VT_TEST_LIMIT 60   /* screens one test may take before it is left */
+#define VT_TIME_LIMIT 480  /* seconds for the whole walk, under ctest's 600 */
 
 static int vt_master = -1;
 
@@ -274,6 +277,21 @@ static void vt_be_png(const char *path)
 
 static int vt_rows, vt_cols;
 static FILE *vt_index;
+
+/* A line of the index, and the same on stdout, so a run that fails in CI
+ * shows how far it got. */
+static void vt_log(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(vt_index, fmt, ap);
+    va_end(ap);
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    fflush(vt_index);
+    fflush(stdout);
+}
 static const char *vt_outdir;
 static char vt_path[64] = "start"; /* the choice that led here */
 static unsigned vt_seq;              /* screens since that choice */
@@ -430,7 +448,7 @@ static vt_menu_t *vt_menu(const char *key, const char *number)
     }
     vt_menu_count++;
     m->next = 1;
-    fprintf(vt_index, "%s is the menu of \"%s\"\n", m->id, key);
+    vt_log("%s is the menu of \"%s\"\n", m->id, key);
     return m;
 }
 
@@ -530,7 +548,7 @@ static void vt_shot(const char *name)
 
 static void vt_send(const char *name, const char *keys, const char *what)
 {
-    fprintf(vt_index, "%s %s\n", name, what);
+    vt_log("%s %s\n", name, what);
     fflush(vt_index);
     snprintf(vt_echo, sizeof vt_echo, "%s", keys);
     vt_reply(keys, strlen(keys));
@@ -581,8 +599,15 @@ int main(int argc, char **argv)
 
     int steps = 0;
     int status = 0;
+    time_t start = time(NULL);
     while (steps++ < VT_STEP_LIMIT && vt_drain())
     {
+        if (time(NULL) - start > VT_TIME_LIMIT)
+        {
+            vt_log("time limit, at %s\n", vt_path);
+            status = 1;
+            break;
+        }
         char name[96], key[160], number[24];
         int highest = 0;
         if (vt_menu_on_screen(key, sizeof key, number, sizeof number, &highest))
@@ -590,7 +615,7 @@ int main(int argc, char **argv)
             vt_menu_t *m = vt_menu(key, number);
             if (!m)
             {
-                fprintf(vt_index, "too many menus\n");
+                vt_log("too many menus\n");
                 status = 1;
                 break;
             }
@@ -613,7 +638,7 @@ int main(int argc, char **argv)
         {
             if (vt_seq == VT_TEST_LIMIT)
             {
-                fprintf(vt_index, "%s never came back to its menu\n", vt_path);
+                vt_log("%s never came back to its menu\n", vt_path);
                 status = 1;
                 break;
             }
@@ -639,7 +664,7 @@ int main(int argc, char **argv)
     }
     if (steps > VT_STEP_LIMIT)
     {
-        fprintf(vt_index, "step limit\n");
+        vt_log("step limit\n");
         status = 1;
     }
     kill(pid, SIGKILL);
