@@ -52,12 +52,15 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
 #define VT_FIRST_MS 7000 /* the longest vttest takes to start on a key: RIS sleeps 5 s */
-#define VT_IDLE_MS 350   /* then quiet this long and it is waiting for one; vttest
-                          * waits up to 300 ms for a reply */
+#define VT_IDLE_MS 350   /* then quiet this long and it is waiting for one */
+#define VT_RAW_MS 1000   /* the same in raw mode, where vttest asks the terminal
+                          * for reports and pauses 100 to 300 ms around them,
+                          * longer on a busy machine */
 #define VT_STEP_LIMIT 4000 /* screens before giving up on a walk gone wrong */
 #define VT_TEST_LIMIT 60   /* screens one test may take before it is left */
 #define VT_TIME_LIMIT 480  /* seconds for the whole walk, under ctest's 600 */
@@ -432,8 +435,17 @@ static bool vt_is_echo(const char *buf, size_t n)
     return n <= strlen(vt_echo) + 2;
 }
 
-/* Reads until vttest has been quiet for VT_IDLE_MS, after waiting up to
- * `first` ms for it to start. False once it is gone. */
+/* Whether vttest has the tty in raw mode. It does that for its exchanges
+ * with the terminal, though some of its tests also wait for a key that way. */
+static bool vt_raw(void)
+{
+    struct termios t;
+    return !tcgetattr(vt_master, &t) && !(t.c_lflag & ICANON);
+}
+
+/* Reads until vttest has been quiet for VT_IDLE_MS, or VT_RAW_MS with the
+ * tty in raw mode, after waiting up to `first` ms for it to start. False
+ * once it is gone. */
 static bool vt_drain(int first)
 {
     int wait = first;
@@ -442,7 +454,14 @@ static bool vt_drain(int first)
         struct pollfd p = {.fd = vt_master, .events = POLLIN};
         int k = poll(&p, 1, wait);
         if (k == 0)
+        {
+            if (wait == VT_IDLE_MS && vt_raw())
+            {
+                wait = VT_RAW_MS - VT_IDLE_MS;
+                continue;
+            }
             return true;
+        }
         if (k < 0 && errno == EINTR)
             continue;
         char buf[4096];
@@ -641,6 +660,15 @@ int main(int argc, char **argv)
             args[n++] = argv[i];
         args[n++] = geometry;
         args[n] = NULL;
+        /* A new pty runs at 38400 baud on Linux and 9600 on macOS, and
+         * vttest's main menu shows the speed when it is not 9600. */
+        struct termios t;
+        if (!tcgetattr(0, &t))
+        {
+            cfsetispeed(&t, B38400);
+            cfsetospeed(&t, B38400);
+            tcsetattr(0, TCSANOW, &t);
+        }
         setenv("TERM", "vt102", 1);
         const char *vttest = getenv("VTTEST");
         args[0] = (char *)(vttest ? vttest : "vttest");
@@ -729,7 +757,10 @@ int main(int argc, char **argv)
         vt_log("step limit\n");
         status = 1;
     }
+    /* macOS keeps an exiting process until the output it left on its tty
+     * has been read, so the pty is closed before waiting for vttest. */
     kill(pid, SIGKILL);
+    close(vt_master);
     waitpid(pid, NULL, 0);
     fclose(vt_index);
     fclose(vt_screens);

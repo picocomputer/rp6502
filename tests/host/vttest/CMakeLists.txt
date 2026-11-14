@@ -14,12 +14,6 @@ endif()
 
 # vttest is a submodule, pinned so the screens it draws stay the same, and
 # built with its own configure and make.
-# The walk runs on Linux only for now: on the macOS runners it got stuck
-# until ctest's timeout, which still has to be looked into on a Mac. vtrun
-# itself builds everywhere with a pty.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    return()
-endif()
 rp6502_submodule(vendor/vttest SENTINEL main.c
     WANTS "the vttest run" OPTIONAL RESULT RP6502_HAVE_VTTEST)
 if(NOT RP6502_HAVE_VTTEST)
@@ -37,11 +31,11 @@ ExternalProject_Add(vttest_build
     BUILD_BYPRODUCTS ${_vttest_bin}/vttest)
 add_dependencies(vtrun vttest_build)
 
-# The walk takes about three and a half minutes, most of it vttest's own
-# pauses; vtrun gives up after eight. golden.txt holds the approved screens:
-# a CRC of the cells of each and its cursor. A screen that differs, is new or
-# is gone fails the test and is saved in screens/ as text and PNG. To approve
-# a changed walk, look at those, then copy screens/screens.txt to golden.txt.
+# The walk takes about four minutes, most of it vttest's own pauses; vtrun
+# gives up after eight. golden.txt holds the approved screens: a CRC of the
+# cells of each and its cursor. A screen that differs, is new or is gone fails
+# the test and is saved in screens/ as text and PNG. To approve a changed
+# walk, look at those, then copy screens/screens.txt to golden.txt.
 set(_golden ${CMAKE_CURRENT_LIST_DIR}/golden.txt)
 set(_screens ${CMAKE_CURRENT_BINARY_DIR}/screens)
 set(_env VTTEST=${_vttest_bin}/vttest)

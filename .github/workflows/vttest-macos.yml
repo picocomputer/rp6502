@@ -1,0 +1,24 @@
+name: vttest-macos
+on:
+  push:
+    branches: [vttest-macos]
+jobs:
+  vttest:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure & build vtrun
+        run: |
+          set -euxo pipefail
+          cmake -S src/host/sokol -B build -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --target vtrun
+      - name: Run the vttest walk under ctest
+        run: ctest --test-dir build -R '^vttest' -V
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screens
+          path: build/tests/host/vttest/screens
