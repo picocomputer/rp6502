@@ -38,18 +38,20 @@ ExternalProject_Add(vttest_build
 add_dependencies(vtrun vttest_build)
 
 # The walk takes about three and a half minutes, most of it vttest's own
-# pauses; vtrun gives up after eight. With the
-# approved screens in golden/, every screen is compared with its golden copy.
-set(_golden ${CMAKE_CURRENT_LIST_DIR}/golden)
+# pauses; vtrun gives up after eight. golden.txt holds the approved screens:
+# a CRC of the cells of each and its cursor. A screen that differs, is new or
+# is gone fails the test and is saved in screens/ as text and PNG. To approve
+# a changed walk, look at those, then copy screens/screens.txt to golden.txt.
+set(_golden ${CMAKE_CURRENT_LIST_DIR}/golden.txt)
+set(_screens ${CMAKE_CURRENT_BINARY_DIR}/screens)
 set(_env VTTEST=${_vttest_bin}/vttest)
 if(EXISTS ${_golden})
     list(APPEND _env VTGOLDEN=${_golden})
 endif()
 add_test(NAME vttest
-    COMMAND ${CMAKE_COMMAND} -E env ${_env}
-        $<TARGET_FILE:vtrun> ${CMAKE_CURRENT_BINARY_DIR}/screens)
+    COMMAND ${CMAKE_COMMAND} -E env ${_env} $<TARGET_FILE:vtrun> ${_screens})
 set_tests_properties(vttest PROPERTIES TIMEOUT 600 LABELS "slow;host.vttest"
     FIXTURES_REQUIRED vttest_screens)
-add_test(NAME vttest_screens_dir
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/screens)
-set_tests_properties(vttest_screens_dir PROPERTIES FIXTURES_SETUP vttest_screens)
+# The last run's screens go first, so what is there after a run is its own.
+add_test(NAME vttest_screens_clean COMMAND ${CMAKE_COMMAND} -E rm -rf ${_screens})
+set_tests_properties(vttest_screens_clean PROPERTIES FIXTURES_SETUP vttest_screens)

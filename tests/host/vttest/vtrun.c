@@ -4,28 +4,38 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Runs Thomas Dickey's vttest against a terminal, with nobody at the
- * keyboard. vttest runs in a pty. Everything it writes goes to the terminal,
- * and the terminal's replies go back to it, the way they would reach a host.
- * Every time vttest waits for a key, the screen is saved as text, and the
- * walk answers: the next choice on a menu, 0 on a menu with nothing left, q
- * where a test says so, and Return anywhere else.
- *
- * Built twice. vtrun drives the console terminal, term.c, inside the
- * emulator's core, and also saves each screen as a PNG. vtref drives
- * libvterm, a terminal that follows xterm closely, so the two runs can be
- * compared screen by screen.
+/* Runs Thomas Dickey's vttest against the console's terminal, term.c, with
+ * nobody at the keyboard. vttest runs in a pty. Everything it writes goes to
+ * the terminal, and the terminal's replies go back to it, the way they would
+ * reach a host. Every time vttest waits for a key the screen is recorded, and
+ * the walk answers: the next choice on a menu, 0 on a menu with nothing left,
+ * q where a test says so, and Return anywhere else.
  *
  * usage: vtrun OUTDIR [vttest arguments]
  *
  * A menu goes by the number in its title, as 11.1 for "Menu 11.1: ...", or
  * main, or m03 for the fourth menu met where it has no title. A screen is
  * named after the menu choice that led to it and its place after that
- * choice: 11.1_3-04.txt is the fourth screen of choice 3 of menu 11.1, and
- * 11.1-menu-02.txt is that menu the second time the walk is on it. Runs line up that way even where
- * one terminal takes a different number of screens. index.txt names each
- * menu and lists the screens in order with the key sent after each. */
+ * choice: 11.1_3-04 is the fourth screen of choice 3 of menu 11.1, and
+ * 11.1-menu-02 is that menu the second time it looked different. A screen
+ * that a test clears without waiting for a key is recorded too, just before
+ * the clear.
+ *
+ * OUTDIR/screens.txt has a line a screen: its name, a CRC-32 of its cells
+ * (glyph, attributes and colors), and the cursor. OUTDIR/index.txt is the
+ * walk, with the key sent after each screen. With VTGOLDEN naming an
+ * approved screens.txt, the run fails when a screen differs, is new, or is
+ * gone, and only those screens are saved as text and PNG for a person to look
+ * at; without it, every screen is. */
 
+#include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/sys/sys.h"
+#include "core/term/term.h"
+#include "core/vga/vga.h"
+#include "core/vga/vga_emu.h"
+#include "host/host.h"
+#include "host/sokol/cli/png.h"
 #include <errno.h>
 #include <poll.h>
 #ifdef __APPLE__
@@ -40,6 +50,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -85,93 +96,13 @@ static size_t vt_utf8(uint32_t cp, char *out)
     return 3;
 }
 
-#ifdef VT_REF
-
 /* ------------------------------------------------------------------------
- * libvterm */
-
-#include "vterm.h"
-
-static VTerm *vt_term;
-static VTermScreen *vt_screen;
-static int vt_ref_rows = 30, vt_ref_cols = 80;
-
-static void vt_output(const char *s, size_t len, void *user)
-{
-    (void)user;
-    vt_reply(s, len);
-}
-
-static void vt_be_init(int *rows, int *cols)
-{
-    vt_term = vterm_new(vt_ref_rows, vt_ref_cols);
-    vterm_set_utf8(vt_term, 0);
-    vterm_output_set_callback(vt_term, vt_output, NULL);
-    vt_screen = vterm_obtain_screen(vt_term);
-    vterm_screen_reset(vt_screen, 1);
-    *rows = vt_ref_rows;
-    *cols = vt_ref_cols;
-}
-
-static void vt_be_feed(const char *buf, size_t n)
-{
-    vterm_input_write(vt_term, buf, n);
-}
-
-static void vt_be_row(int y, char *out, size_t size)
-{
-    size_t o = 0, last = 0;
-    for (int x = 0; x < vt_ref_cols && o + 8 < size; x++)
-    {
-        VTermScreenCell cell;
-        vterm_screen_get_cell(vt_screen, (VTermPos){.row = y, .col = x}, &cell);
-        uint32_t cp = cell.chars[0];
-        if (!cp)
-            cp = ' ';
-        if (cp >= 0x80 && cp < 0x2000 && cp != 0xB0 && cp != 0xB1 && cp != 0xA3 &&
-            cp != 0xB7 && cp != 0x3C0)
-            cp = '?';
-        o += vt_utf8(cp, out + o);
-        if (cp != ' ')
-            last = o;
-    }
-    out[last] = 0;
-}
-
-static void vt_be_cursor(int *x, int *y, bool *visible)
-{
-    VTermPos pos;
-    vterm_state_get_cursorpos(vterm_obtain_state(vt_term), &pos);
-    *x = pos.col;
-    *y = pos.row;
-    *visible = true;
-}
-
-static void vt_be_settle(void)
-{
-}
-
-static void vt_be_png(const char *path)
-{
-    (void)path;
-}
-
-#else
-
-/* ------------------------------------------------------------------------
- * term.c in the emulator's core */
-
-#include "core/com/com.h"
-#include "core/com/manifold.h"
-#include "core/sys/sys.h"
-#include "core/term/term.h"
-#include "core/vga/vga.h"
-#include "core/vga/vga_emu.h"
-#include "host/sokol/cli/png.h"
+ * The terminal */
 
 static uint32_t vt_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+static int vt_rows, vt_cols;
 
-/* The DEC special graphics, 0x5F to 0x7E, as libvterm gives them. */
+/* The DEC special graphics, 0x5F to 0x7E, as Unicode. */
 static const uint32_t vt_dec[32] = {
     ' ', 0x25C6, 0x2592, 0x2409, 0x240C, 0x240D, 0x240A, 0x00B0,
     0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C,
@@ -188,7 +119,7 @@ static const uint32_t vt_cp437_low[32] = {
     0x2191, 0x2193, 0x2192, 0x2190, 0x221F, 0x2194, 0x25B2, 0x25BC,
 };
 
-static void vt_be_feed(const char *buf, size_t n)
+static void vt_term_write(const char *buf, size_t n)
 {
     manifold_write_to(COM_TERM_SCREEN, buf, n);
     char reply[256];
@@ -197,34 +128,30 @@ static void vt_be_feed(const char *buf, size_t n)
         vt_reply(reply, r);
 }
 
-static void vt_be_init(int *rows, int *cols)
+static void vt_term_init(void)
 {
     sys_init();
     vga_set_framebuffer(vt_fb);
     for (int i = 0; i < 120; i++)
         vga_run_frame();
     /* The monitor's banner goes, and the run starts on a blank screen. */
-    vt_be_feed("\30\33c", 3);
+    vt_term_write("\30\33c", 3);
     term_view_t v;
     term_view(&v);
-    *rows = v.height;
-    *cols = v.width;
+    vt_rows = v.height;
+    vt_cols = v.width;
 }
 
-static void vt_be_row(int y, char *out, size_t size)
+static void vt_row(int y, char *out, size_t size)
 {
-    term_view_t v;
-    term_view(&v);
     const term_data_t *row = term_view_row((uint8_t)y);
     size_t o = 0, last = 0;
-    for (int x = 0; x < v.width && o + 8 < size; x++)
+    for (int x = 0; x < vt_cols && o + 8 < size; x++)
     {
         const term_data_t *c = &row[x];
         uint32_t cp = c->font_code;
         if ((c->attributes & TERM_ATTR_DEC) && cp >= 0x5F && cp <= 0x7E)
             cp = vt_dec[cp - 0x5F];
-        else if (!cp)
-            cp = ' ';
         else if (cp < 0x20)
             cp = vt_cp437_low[cp]; /* a control drawn as its glyph */
         else if (cp == 0x7F)
@@ -238,17 +165,8 @@ static void vt_be_row(int y, char *out, size_t size)
     out[last] = 0;
 }
 
-static void vt_be_cursor(int *x, int *y, bool *visible)
-{
-    term_view_t v;
-    term_view(&v);
-    *x = v.cursor_x; /* the width itself while a wrap is pending */
-    *y = v.cursor_y;
-    *visible = v.cursor_enabled;
-}
-
 /* Finishes the lazy erases, and shows blinking text in its lit phase. */
-static void vt_be_settle(void)
+static void vt_settle(void)
 {
     for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
         term_task();
@@ -263,20 +181,61 @@ static void vt_be_settle(void)
     }
 }
 
-static void vt_be_png(const char *path)
+/* A CRC-32 of the visible cells: glyphs, attributes and colors. */
+static uint32_t vt_digest(void)
 {
-    int w, h;
-    vga_canvas_size(&w, &h);
-    png_write(path, w, h, vt_fb);
+    uint32_t crc = 0;
+    for (int y = 0; y < vt_rows; y++)
+        crc = host_crc32(crc, term_view_row((uint8_t)y), (size_t)vt_cols * sizeof(term_data_t));
+    return crc;
 }
 
-#endif
+static bool vt_blank(void)
+{
+    char line[1024];
+    for (int y = 0; y < vt_rows; y++)
+    {
+        vt_row(y, line, sizeof line);
+        if (line[0])
+            return false;
+    }
+    return true;
+}
+
+static bool vt_screen_has(const char *needle)
+{
+    char line[1024];
+    for (int y = 0; y < vt_rows; y++)
+    {
+        vt_row(y, line, sizeof line);
+        if (strstr(line, needle))
+            return true;
+    }
+    return false;
+}
 
 /* ------------------------------------------------------------------------
- * The walk */
+ * The record */
 
-static int vt_rows, vt_cols;
+static const char *vt_outdir;
 static FILE *vt_index;
+static FILE *vt_screens;
+static char vt_path[64] = "start"; /* the choice that led here */
+static unsigned vt_seq;              /* screens since that choice */
+static uint32_t vt_last;             /* the cells of the last screen recorded */
+static size_t vt_fed;                /* bytes from vttest since then */
+
+/* The approved screens, from VTGOLDEN. */
+typedef struct
+{
+    char line[160];
+    bool seen;
+} vt_golden_t;
+#define VT_GOLDEN_MAX 1024
+static vt_golden_t vt_golden[VT_GOLDEN_MAX];
+static int vt_golden_count;
+static bool vt_have_golden;
+static int vt_differ;
 
 /* A line of the index, and the same on stdout, so a run that fails in CI
  * shows how far it got. */
@@ -292,9 +251,136 @@ static void vt_log(const char *fmt, ...)
     fflush(vt_index);
     fflush(stdout);
 }
-static const char *vt_outdir;
-static char vt_path[64] = "start"; /* the choice that led here */
-static unsigned vt_seq;              /* screens since that choice */
+
+static void vt_load_golden(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+    {
+        fprintf(stderr, "vtrun: cannot read %s\n", path);
+        exit(2);
+    }
+    char line[160];
+    while (fgets(line, sizeof line, f) && vt_golden_count < VT_GOLDEN_MAX)
+    {
+        line[strcspn(line, "\n")] = 0;
+        if (line[0])
+            snprintf(vt_golden[vt_golden_count++].line, sizeof vt_golden[0].line, "%s", line);
+    }
+    fclose(f);
+    vt_have_golden = true;
+}
+
+/* Whether the screen's line matches the golden line of the same name. */
+static bool vt_approved(const char *name, const char *line)
+{
+    size_t n = strlen(name);
+    for (int i = 0; i < vt_golden_count; i++)
+    {
+        vt_golden_t *g = &vt_golden[i];
+        if (!strncmp(g->line, name, n) && g->line[n] == ' ')
+        {
+            g->seen = true;
+            if (!strcmp(g->line, line))
+                return true;
+            fprintf(stderr, "vtrun: %s\n  want %s\n", line, g->line);
+            return false;
+        }
+    }
+    fprintf(stderr, "vtrun: %s is new\n", line);
+    return false;
+}
+
+static void vt_save(const char *name)
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/%s.txt", vt_outdir, name);
+    FILE *f = fopen(path, "w");
+    if (f)
+    {
+        char line[1024];
+        for (int y = 0; y < vt_rows; y++)
+        {
+            vt_row(y, line, sizeof line);
+            fprintf(f, "%s\n", line);
+        }
+        fclose(f);
+    }
+    int w, h;
+    vga_canvas_size(&w, &h);
+    snprintf(path, sizeof path, "%s/%s.png", vt_outdir, name);
+    png_write(path, w, h, vt_fb);
+}
+
+/* Records the screen as it is. */
+static void vt_shot(const char *name)
+{
+    vt_settle();
+    term_view_t v;
+    term_view(&v);
+    vt_last = vt_digest();
+    vt_fed = 0;
+    char line[160];
+    snprintf(line, sizeof line, "%s %08X cursor %d,%d style %d%s", name, vt_last,
+             v.cursor_x, v.cursor_y, v.cursor_style, v.cursor_enabled ? "" : " hidden");
+    fprintf(vt_screens, "%s\n", line);
+    fflush(vt_screens);
+    bool ok = !vt_have_golden || vt_approved(name, line);
+    if (!ok)
+        vt_differ++;
+    if (!vt_have_golden || !ok)
+        vt_save(name);
+}
+
+static char vt_echo[64]; /* the keys last sent */
+
+/* vttest clears the screen with CSI 2 J. A test that ends, or turns a page,
+ * without waiting for a key is recorded just before its clear. Not when all
+ * that came since the last recording is the tty's echo of the key the walk
+ * pressed, which only moves the screen; nor when the screen is blank, is as it
+ * was last recorded, or is the menu the walk is leaving. */
+static int vt_clear_match;
+
+static void vt_before_clear(void)
+{
+    if (vt_fed <= strlen(vt_echo) + 2)
+        return;
+    vt_settle();
+    if (vt_digest() == vt_last || vt_blank() || vt_screen_has("Enter choice number"))
+        return;
+    char name[96];
+    snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
+    vt_shot(name);
+    vt_log("%s cleared\n", name);
+}
+
+static void vt_feed(const char *buf, size_t n)
+{
+    static const char clear[] = "\33[2J";
+    size_t from = 0;
+    vt_fed += n;
+    for (size_t i = 0; i < n; i++)
+    {
+        if (buf[i] == clear[vt_clear_match])
+            vt_clear_match++;
+        else
+            vt_clear_match = buf[i] == clear[0];
+        if (vt_clear_match == 4)
+        {
+            /* Everything up to the J goes in first; the clear happens on it. */
+            vt_term_write(buf + from, i - from);
+            vt_fed -= n - i + 3; /* the clear and what follows it are not before it */
+            vt_before_clear();
+            vt_fed += n - i + 3;
+            from = i;
+            vt_clear_match = 0;
+        }
+    }
+    vt_term_write(buf + from, n - from);
+}
+
+/* ------------------------------------------------------------------------
+ * The walk */
 
 typedef struct
 {
@@ -302,11 +388,13 @@ typedef struct
     char id[24]; /* the title's number, "main", or m03 for the fourth menu met */
     int next;    /* the next choice to take, from 1 */
     int visits;
+    uint32_t last; /* the cells of its last recording */
 } vt_menu_t;
 
 #define VT_MENUS 256
 static vt_menu_t vt_menus[VT_MENUS];
 static int vt_menu_count;
+static vt_menu_t *vt_left; /* the menu the walk last chose on */
 
 /* Choices never taken, by the words of their label: they wait for keys a
  * script cannot judge, or change how the rest of the run behaves. */
@@ -320,6 +408,8 @@ static const char *const vt_skip[] = {
     "VT320 features",
     "VT420 features",
     "VT520 features",
+    /* Keeps the alternate-screen tests of 11.8.7 in color. */
+    "Do not color after switching",
 };
 
 /* What to type where a test asks for more than Return. */
@@ -332,11 +422,6 @@ static const struct
     {"Please enter the", "vttest\r"}, /* a window title, a font name */
 };
 
-/* Reads until vttest has been quiet for VT_IDLE_MS, after waiting up to
- * VT_FIRST_MS for it to start answering the last key. False once it is
- * gone. */
-static char vt_echo[64]; /* the keys last sent */
-
 /* Whether buf is only the tty's echo of the keys last sent, which can arrive
  * while vttest sleeps and is not yet its answer. */
 static bool vt_is_echo(const char *buf, size_t n)
@@ -347,9 +432,11 @@ static bool vt_is_echo(const char *buf, size_t n)
     return n <= strlen(vt_echo) + 2;
 }
 
-static bool vt_drain(void)
+/* Reads until vttest has been quiet for VT_IDLE_MS, after waiting up to
+ * `first` ms for it to start. False once it is gone. */
+static bool vt_drain(int first)
 {
-    int wait = VT_FIRST_MS;
+    int wait = first;
     for (;;)
     {
         struct pollfd p = {.fd = vt_master, .events = POLLIN};
@@ -362,23 +449,29 @@ static bool vt_drain(void)
         ssize_t n = read(vt_master, buf, sizeof buf);
         if (n <= 0)
             return false;
-        vt_be_feed(buf, (size_t)n);
-        if (wait == VT_FIRST_MS && vt_is_echo(buf, (size_t)n))
+        vt_feed(buf, (size_t)n);
+        if (wait == first && vt_is_echo(buf, (size_t)n))
             continue;
         wait = VT_IDLE_MS;
     }
 }
 
-static bool vt_screen_has(const char *needle)
+/* Waits for vttest to want a key, with the lazy erases finished so the cells
+ * are what the screen shows. A blank screen is vttest in a pause, such as the
+ * five seconds it sleeps after a reset, so it is given that long to draw
+ * something before the walk presses a key into its pause. */
+static bool vt_wait(void)
 {
-    char line[1024];
-    for (int y = 0; y < vt_rows; y++)
+    if (!vt_drain(VT_FIRST_MS))
+        return false;
+    vt_settle();
+    if (vt_blank())
     {
-        vt_be_row(y, line, sizeof line);
-        if (strstr(line, needle))
-            return true;
+        if (!vt_drain(VT_FIRST_MS))
+            return false;
+        vt_settle();
     }
-    return false;
+    return true;
 }
 
 /* The menu on the screen, if there is one: its key, its "Menu 11.1" title if
@@ -390,16 +483,15 @@ static bool vt_menu_on_screen(char *key, size_t size, char *number, size_t nsize
     char line[1024], first[256] = "";
     bool menu = false;
     number[0] = 0;
-    int cx, cy;
-    bool visible;
-    vt_be_cursor(&cx, &cy, &visible);
+    term_view_t v;
+    term_view(&v);
     for (int y = 0; y < vt_rows; y++)
     {
-        vt_be_row(y, line, sizeof line);
+        vt_row(y, line, sizeof line);
         /* Only the prompt the cursor waits on: a test can leave an old
          * menu's prompt on the screen. */
         const char *p = strstr(line, "Enter choice number (0 - ");
-        if (p && y == cy)
+        if (p && y == v.cursor_y)
         {
             *highest = atoi(p + strlen("Enter choice number (0 - "));
             menu = true;
@@ -430,6 +522,15 @@ static vt_menu_t *vt_menu(const char *key, const char *number)
     for (int i = 0; i < vt_menu_count; i++)
         if (!strcmp(vt_menus[i].key, key))
             return &vt_menus[i];
+    /* A choice that only flips a setting, such as "Enable ERM", brings the
+     * same menu straight back with that choice relabelled. It is the menu
+     * the walk left, and the walk goes on from where it was there. */
+    if (vt_left && !vt_seq && number[0] && !strncmp(vt_left->key, number, strlen(number)) &&
+        vt_left->key[strlen(number)] == '|')
+    {
+        snprintf(vt_left->key, sizeof vt_left->key, "%s", key);
+        return vt_left;
+    }
     if (vt_menu_count == VT_MENUS)
         return NULL;
     vt_menu_t *m = &vt_menus[vt_menu_count];
@@ -460,7 +561,7 @@ static bool vt_choice_label(int n, char *out, size_t size)
     size_t t = strlen(tag);
     for (int y = 0; y < vt_rows; y++)
     {
-        vt_be_row(y, line, sizeof line);
+        vt_row(y, line, sizeof line);
         const char *c = line;
         while (*c == ' ')
             c++;
@@ -484,74 +585,24 @@ static bool vt_skipped(int choice)
     return false;
 }
 
-/* With VTGOLDEN set to a directory of approved screens, every text dump is
- * compared with the one of the same name there, and a difference fails the
- * run. */
-static const char *vt_golden;
-static int vt_differ;
-
-static bool vt_same_file(const char *a, const char *b)
-{
-    FILE *fa = fopen(a, "rb"), *fb = fopen(b, "rb");
-    bool same = fa && fb;
-    while (same)
-    {
-        int ca = fgetc(fa), cb = fgetc(fb);
-        same = ca == cb;
-        if (ca == EOF)
-            break;
-    }
-    if (fa)
-        fclose(fa);
-    if (fb)
-        fclose(fb);
-    return same;
-}
-
-static void vt_compare(const char *path, const char *name)
-{
-    if (!vt_golden)
-        return;
-    char want[512];
-    snprintf(want, sizeof want, "%s/%s.txt", vt_golden, name);
-    if (!vt_same_file(path, want))
-    {
-        vt_differ++;
-        fprintf(stderr, "vtrun: %s differs from %s\n", path, want);
-    }
-}
-
-static void vt_shot(const char *name)
-{
-    vt_be_settle();
-    char path[512];
-    snprintf(path, sizeof path, "%s/%s.txt", vt_outdir, name);
-    FILE *f = fopen(path, "w");
-    if (f)
-    {
-        char line[1024];
-        for (int y = 0; y < vt_rows; y++)
-        {
-            vt_be_row(y, line, sizeof line);
-            fprintf(f, "%s\n", line);
-        }
-        int x, y;
-        bool visible;
-        vt_be_cursor(&x, &y, &visible);
-        fprintf(f, "-- cursor %d,%d%s\n", x, y, visible ? "" : " hidden");
-        fclose(f);
-        vt_compare(path, name);
-    }
-    snprintf(path, sizeof path, "%s/%s.png", vt_outdir, name);
-    vt_be_png(path);
-}
-
 static void vt_send(const char *name, const char *keys, const char *what)
 {
     vt_log("%s %s\n", name, what);
-    fflush(vt_index);
     snprintf(vt_echo, sizeof vt_echo, "%s", keys);
     vt_reply(keys, strlen(keys));
+}
+
+static FILE *vt_open(const char *name)
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/%s", vt_outdir, name);
+    FILE *f = fopen(path, "w");
+    if (!f)
+    {
+        fprintf(stderr, "vtrun: cannot write %s\n", path);
+        exit(2);
+    }
+    return f;
 }
 
 int main(int argc, char **argv)
@@ -562,17 +613,17 @@ int main(int argc, char **argv)
         return 2;
     }
     vt_outdir = argv[1];
-    vt_golden = getenv("VTGOLDEN");
-    char path[512];
-    snprintf(path, sizeof path, "%s/index.txt", vt_outdir);
-    vt_index = fopen(path, "w");
-    if (!vt_index)
+    if (mkdir(vt_outdir, 0777) && errno != EEXIST)
     {
-        fprintf(stderr, "vtrun: cannot write %s\n", path);
+        fprintf(stderr, "vtrun: cannot make %s\n", vt_outdir);
         return 2;
     }
+    if (getenv("VTGOLDEN"))
+        vt_load_golden(getenv("VTGOLDEN"));
+    vt_index = vt_open("index.txt");
+    vt_screens = vt_open("screens.txt");
 
-    vt_be_init(&vt_rows, &vt_cols);
+    vt_term_init();
     struct winsize ws = {.ws_row = (unsigned short)vt_rows, .ws_col = (unsigned short)vt_cols};
     pid_t pid = forkpty(&vt_master, NULL, NULL, &ws);
     if (pid < 0)
@@ -600,7 +651,7 @@ int main(int argc, char **argv)
     int steps = 0;
     int status = 0;
     time_t start = time(NULL);
-    while (steps++ < VT_STEP_LIMIT && vt_drain())
+    while (steps++ < VT_STEP_LIMIT && vt_wait())
     {
         if (time(NULL) - start > VT_TIME_LIMIT)
         {
@@ -619,9 +670,20 @@ int main(int argc, char **argv)
                 status = 1;
                 break;
             }
-            const char *id = m->id;
-            snprintf(name, sizeof name, "%s-menu-%02d", id, ++m->visits);
-            vt_shot(name);
+            /* A menu is recorded when it looks different from the last time,
+             * which is the first time and after a test changes a setting it
+             * shows. */
+            vt_settle();
+            uint32_t now = vt_digest();
+            if (!m->visits || now != m->last)
+            {
+                snprintf(name, sizeof name, "%s-menu-%02d", m->id, ++m->visits);
+                vt_shot(name);
+                m->last = now;
+            }
+            else
+                snprintf(name, sizeof name, "%s-menu", m->id);
+            vt_last = now;
             while (m->next <= highest && vt_skipped(m->next))
                 m->next++;
             int choice = m->next <= highest ? m->next++ : 0;
@@ -629,14 +691,15 @@ int main(int argc, char **argv)
             snprintf(keys, sizeof keys, "%d\r", choice);
             snprintf(what, sizeof what, "choice %d", choice);
             vt_send(name, keys, what);
-            snprintf(vt_path, sizeof vt_path, "%s_%d", id, choice);
+            snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
             vt_seq = 0;
-            if (!strcmp(id, "main") && choice == 0)
+            vt_left = m;
+            if (!strcmp(m->id, "main") && choice == 0)
                 break;
         }
         else
         {
-            if (vt_seq == VT_TEST_LIMIT)
+            if (vt_seq >= VT_TEST_LIMIT)
             {
                 vt_log("%s never came back to its menu\n", vt_path);
                 status = 1;
@@ -647,11 +710,10 @@ int main(int argc, char **argv)
             /* "Push <RETURN>" where the cursor waits wins over a prompt left
              * higher on the screen. */
             const char *keys = "\r";
-            int cx, cy;
-            bool visible;
+            term_view_t v;
+            term_view(&v);
             char row[1024];
-            vt_be_cursor(&cx, &cy, &visible);
-            vt_be_row(cy, row, sizeof row);
+            vt_row(v.cursor_y, row, sizeof row);
             for (size_t i = 0; !strstr(row, "Push <RETURN>") &&
                                i < sizeof vt_answers / sizeof vt_answers[0]; i++)
                 if (vt_screen_has(vt_answers[i].prompt))
@@ -670,9 +732,17 @@ int main(int argc, char **argv)
     kill(pid, SIGKILL);
     waitpid(pid, NULL, 0);
     fclose(vt_index);
+    fclose(vt_screens);
+    for (int i = 0; i < vt_golden_count; i++)
+        if (!vt_golden[i].seen)
+        {
+            fprintf(stderr, "vtrun: %s is gone\n", vt_golden[i].line);
+            vt_differ++;
+        }
     if (vt_differ)
     {
-        fprintf(stderr, "vtrun: %d screens differ from %s\n", vt_differ, vt_golden);
+        fprintf(stderr, "vtrun: %d screens differ from %s; they are saved in %s\n",
+                vt_differ, getenv("VTGOLDEN"), vt_outdir);
         status = 1;
     }
     return status;
