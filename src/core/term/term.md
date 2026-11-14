@@ -11,10 +11,9 @@ Two facts shape the work:
   Pocket's FPGA both read cells straight from memory, so a change to the cell
   is a change to both renderers, and the FPGA's is an RTL change built with
   Quartus.
-- **Keys are made on the RIA; modes live on the VGA.** The keyboard is read
-  and turned into bytes on the RIA. term.c, which hears a program switch a
-  keyboard or mouse mode, runs on the VGA, so those modes have to get from the
-  VGA to the RIA.
+- **Keys are made on the RIA; the screen is drawn on the VGA.** The keyboard
+  is read and turned into bytes on the RIA, while term.c draws on the VGA.
+  Section 3 gives the RIA its own copy of the terminal's state.
 
 ## 1. The Pocket's renderer: double-size lines and the reverse screen
 
@@ -53,14 +52,35 @@ renderers and gains 29 bits:
 That makes a 12-byte cell, which stays word-aligned for the renderers. Both
 terminals stay, 40 and 80 columns, each with its alternate screen.
 
-**Explore splitting the cell into two tables** before settling on 12-byte
-cells: one with only what the renderers read (the scanout memory, VIDCELLS on
-the Pocket), and one with what only term.c needs (CPU RAM). The new bits above
-are all term.c-only: the color sources and protected are never drawn. Look too
-at what today's 8 bytes hold just because it was simpler to keep it there, and
-whether any of it can move out of the scanout memory, which is the scarce one
-on the Pocket. If the split is clean, the renderers' cells stay small and the
-rest goes to the soft CPU's RAM, which the memory work below frees.
+**Splitting the cell into two tables (explored 2026-11-13).** term.c only
+writes cells; it never reads one back except to move it (DCH, ICH, insert
+mode, SL/SR). The renderers read all 8 bytes: the glyph, every attribute bit,
+both colors, and the underline color on underline rows. So nothing in today's
+cell can leave the scanout memory. Everything new is term.c-only, which gives a
+clean split:
+
+- **Renderer table:** today's 8-byte cell, unchanged. It stays in the scanout
+  memory (VIDEO on the Pico, VIDCELLS on the Pocket), and the FPGA needs no
+  change.
+- **term.c table, 3 bytes a cell, in CPU RAM:** the foreground's source and
+  the background's (a palette entry 0-255, default, or RGB: 9 bits each),
+  faint, protected, and whether the underline color follows the foreground
+  (so a recolor rewrites it too; an explicit SGR 58;5;N stays). 21 bits.
+  A 4th byte would let SGR 58;5;N recolor as well.
+
+Both tables share the scroll remap, since they are indexed by the same
+physical row. Every glyph write, erase and move writes both.
+
+| | Renderer table | term.c table (3 bytes) |
+|---|---|---|
+| Pico VGA, 7,680 cells | 61.4 KB in VIDEO, as now | 23 KB in lower RAM, which has 86 KB free |
+| Pocket, 7,200 cells | 57.6 KB in VIDCELLS, as now | 21.6 KB in the soft CPU's 96 KB |
+
+With the split the Pocket needs no RTL change and no more VIDCELLS for recolor
+and protected areas; it needs about 14 KB more free in the soft CPU's RAM than
+the ~7.8 KB it has today, which the memory work below can provide. 12-byte
+cells instead need 25 KB more VIDCELLS, which means freeing 32 KB of the soft
+CPU's M10K blocks and an RTL change. The split looks like the better plan.
 
 **The Pico VGA** has room: its cells grow from 61 KB to 92 KB, and the video
 region can grow down into free RAM and stay in the upper banks.
@@ -112,35 +132,76 @@ The `O3` pragmas in the mode and audio files cost only about 250 bytes there,
 since their renderers are not built for the Pocket. A function that does need
 speed can be tagged on its own.
 
-## 3. Keyboard modes: a tighter keyboard interface
+## 3. Next: one terminal model on both chips, and the keyboard modes
 
-- **Cursor-key mode, DECCKM `?1`.** The arrow keys send `ESC O A` instead of
-  `ESC [ A`. Full-screen programs such as vim and less turn it on.
-- **Keypad modes, DECKPAM `ESC =` and DECKPNM `ESC >`.** The numeric keypad
-  sends application sequences instead of digits.
-- **LNM's keyboard half.** With LNM set, Return sends CR LF. The screen half is
-  done.
-- **Autorepeat, DECARM `?8`.** Off stops held keys repeating.
-- **Keyboard LEDs, DECLL `CSI q`.** Lights the keyboard's LEDs.
+Decided 2026-11-13. term.c splits in two:
 
-All of these need the modes to get from term.c on the VGA to the keyboard on
-the RIA: a message over the PIX bus or the backchannel, or the RIA picking
-these few sequences out of the output stream itself. That design comes first.
-The line editor already reads the keys these modes produce.
+- **The model:** the parser, the cursor, every mode, the margins, the tab
+  stops, the saved cursors, the alternate screen, and each row's line size and
+  scrolling (a double-width row changes how far the cursor goes). No cells and
+  no colors. It also answers the terminal's reports: CPR, DSR, DA, DA2, DA3,
+  DECRQM and the window reports.
+- **The cell writer:** glyphs, colors, erases and moves, driven by the model.
 
-Testing: vttest's keyboard tests need their keys to go through the same path
-that turns a real keyboard's keys into bytes (core/hid/vtkeys.c), so the modes
-can change them. The vttest harness (tests/host/vttest/vtrun.c) writes keys
-straight to vttest today, and would type through vtkeys instead.
+The VGA builds both and never replies. The RIA builds the model alone, for
+both terminals (40 and 80 columns), and feeds it the console's output stream,
+the same bytes the VGA gets. The two stay in step because they are the same
+code fed the same bytes. The emulators and the Pocket run term.c in one
+program, so there the model is term.c's own state and nothing is duplicated.
+
+What it gives:
+
+- **Replies come from the RIA**, in the stream's order and with no round trip.
+  If telnet is in charge it answers; otherwise the model does. The VGA's reply
+  path and the SUPPRESS_TERM_REPLY register go away. The screen-only channel
+  stays for the resets, which differ between the screen and the serial port.
+- **The line editor reads the model** for the screen terminal's cursor column,
+  size and abilities instead of sending CPR and DA2 and waiting. It still
+  probes a real terminal on the UART or telnet.
+- **The keyboard modes are model state the RIA's keyboard reads:**
+  - cursor-key mode, DECCKM `?1`: the arrows send `ESC O A` for `ESC [ A`;
+  - keypad modes, DECKPAM `ESC =` and DECKPNM `ESC >`;
+  - LNM's keyboard half, `CSI 20 h`: Return sends CR LF;
+  - autorepeat, DECARM `?8`;
+  - the keyboard LEDs, DECLL `CSI q`;
+  - VT52 mode, where the arrows send `ESC A` instead of `ESC [ A`.
+
+  A terminal on the UART or telnet handles its own keys from the same stream,
+  which is already right.
+
+Keeping the two copies in step:
+
+- **Size changes.** A canvas change reaches the VGA over PIX, apart from the
+  UART bytes, and changing the height can move the cursor. The RIA applies the
+  same height change when it sends the canvas, worked out by the same layout
+  code (mode0_layout), so the two cannot diverge. A CPR answered while a
+  program is reprogramming the video may be a row off for a moment; that is
+  accepted.
+- **The VGA restarting on its own** (a power cycle while the RIA runs): its
+  terminal comes back fresh and the RIA's model doesn't. On reconnect the RIA
+  sends a full reset (RIS) to the screen and resets its model, so both start
+  from the same state.
+- Code page changes and the end-of-program reset come from the RIA, which
+  applies them to its model itself.
+- Lost UART bytes would also break the step; the HIL term test shows none at
+  115200.
+
+The keyboard code (core/hid: keyboard, keymap, vtkeys, and the host and OSAL
+parts) gets whatever architectural change this needs.
+
+Testing: vttest's keyboard tests need their keys to go through vtkeys so the
+modes can change them. The vttest harness (tests/host/vttest/vtrun.c) writes
+keys straight to vttest today, and would type through vtkeys instead.
 
 ## 4. Mouse
+
+Deferred until after section 3.
 
 - **Mouse reporting,** the xterm modes `?9` and `?1000` to `?1006`, and maybe
   the DEC locator from the VT330/340. A program asks for clicks, drags or
   motion, and the terminal sends them as escape sequences. Which protocols to
-  support is decided when this starts. The mode is set on the VGA and the mouse
-  is on the RIA, so the design for the keyboard modes should carry the mouse
-  modes too.
+  support is decided when this starts. The mouse is on the RIA, so its modes
+  become more state in the shared model, like the keyboard modes.
 - Once `?1001` exists, `CSI 1;x;y;10;20 T` has to be told apart from SD.
 - Selecting text on the screen locally is a separate feature, which we don't
   have.
