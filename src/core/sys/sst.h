@@ -16,7 +16,7 @@
  * The sst_put_uN helpers below write big-endian a field at a time, so a row
  * built from them carries no padding, no ABI and no pointer. A row that hands
  * sst_put a struct instead writes host byte order and that struct's layout,
- * which core/term/term.c does with its term_data_t cells and its uint16_t
+ * which core/term/cells.c does with its term_data_t cells and its uint16_t
  * palette, so those bytes only read back under a build that lays them out the
  * same way.
  */

@@ -7,7 +7,7 @@
 #include "core/vga/vga.h"
 #include "core/vga/mode/mode0.h"
 #include "core/api/xreg.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 /* canvas_w and canvas_h cache the selected canvas's size, so that the getters
  * below, which run on every scanline, do not each look it up again. */
@@ -76,7 +76,7 @@ bool vga_canvas_select(uint16_t canvas)
 void vga_console_reset(void)
 {
     vga_canvas_select(vga_canvas_console);
-    term_RIS_no_clear();
+    cells_RIS_no_clear();
     xreg1_clear();
 }
 

@@ -8,7 +8,7 @@
 #include "core/vga/mode/mode.h"
 #include "core/vga/vga.h"
 #include "core/term/font.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -86,11 +86,11 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     scanline_id -= begin;
     if ((uint16_t)scanline_id >= TERM_MAX_HEIGHT * ch)
         return false;
-    term_view_t tv;
-    term_view(&tv);
+    cells_view_t tv;
+    cells_view(&tv);
     const uint8_t logical_row = (uint8_t)(scanline_id / ch);
     const uint8_t scanrow = (uint8_t)(scanline_id % ch);
-    const uint8_t size = term_view_row_size(logical_row);
+    const uint8_t size = cells_view_row_size(logical_row);
     /* The glyph row this scanline shows: a double-height half draws each
      * glyph row of its half twice. */
     uint8_t glyph_row = scanrow;
@@ -109,7 +109,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                   (glyph_row == ch / 2 ? TERM_ATTR_STRIKE : 0) |
                   (glyph_row == 0 ? TERM_ATTR_OVERLINE : 0));
     const bool ul_row = (line_mask & (TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL)) != 0;
-    const term_data_t *cell = term_view_row(logical_row);
+    const term_data_t *cell = cells_view_row(logical_row);
     const bool wide = size != TERM_LINE_NORMAL;
     const int cols = wide ? width / 2 : width;
     if (wide)
@@ -128,7 +128,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         mode0_cells(rgb, cell, width, font_line, font_line_dec, italic_line,
                     blink_mask, line_mask, ul_row, false, false);
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
-    // not cursor_lit is set: term.c toggles cursor_lit on a timer and leaves the
+    // not cursor_lit is set: cells.c toggles cursor_lit on a timer and leaves the
     // style to the renderer.
     if (logical_row == tv.cursor_y &&
         tv.cursor_enabled &&
@@ -233,7 +233,7 @@ bool mode0_prog(uint16_t *xregs)
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
                            (uint16_t)scanline_begin, mode0_render))
     {
-        term_set_height(cols, rows);
+        cells_set_height(cols, rows);
         return true;
     }
     return false;

@@ -20,8 +20,8 @@ uint32_t vid_prog_word_get(void);
 bool mode0_prog(uint16_t *xregs);
 
 
-/* VID_DRIVER follows TERM_DRIVER in the driver list because vid_init
- * selects the console canvas, which calls term_set_height. */
+/* VID_DRIVER follows CELLS_DRIVER in the driver list because vid_init
+ * selects the console canvas, which calls cells_set_height. */
 #define VID_DRIVER DRIVER(INIT(vid_init) TASK_FATFS(vid_task) STOP(vid_stop))
 
 #endif /* _HOST_POCKET_SW_VID_H_ */

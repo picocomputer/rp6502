@@ -5,7 +5,7 @@
  */
 
 #include "core/term/font.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "machine.h"
 #include <stdio.h>
 #include <string.h>
@@ -3905,7 +3905,7 @@ static void font_code_page_to(uint16_t cp, bool ris)
         return;
     font_code_page = cp;
     if (ris)
-        term_RIS();
+        cells_RIS();
 
     if (!cp)
         for (int row = 0; row < 16; row++)

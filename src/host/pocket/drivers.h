@@ -27,7 +27,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/str/unicode.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/aud/mix.h"
 #include "sw/apf.h"
 #include "core/wdc/resb.h"
@@ -45,9 +45,9 @@
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
  *
- * VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
+ * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls term_set_height on the terminal state that term_init sets up.
+ * which calls cells_set_height on the terminals that cells_init sets up.
  *
  * FS_DRIVER follows STD_DRIVER because stop hooks run in reverse, and fs_stop
  * has to collect a command that a stopped program left in flight before
@@ -61,7 +61,7 @@
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
     STD_DRIVER, FS_DRIVER,                              \
     AUD_DRIVER,                                         \
-    TIO_DRIVER, RLN_DRIVER, TERM_DRIVER,                \
+    TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,                \
     UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \

@@ -18,7 +18,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/term/font.h"
 #include "core/wdc/bus.h"
 #include "core/dap/dbg.h"

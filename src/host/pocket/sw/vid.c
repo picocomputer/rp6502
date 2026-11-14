@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * vid_task copies term.c's view into the mode 0 register shadows at most once
+ * vid_task copies cells.c's view into the mode 0 register shadows at most once
  * per frame. mode0.sv latches the shadows one line before each frame starts,
  * so the row table, cursor and blink phase that the scanout uses change only
  * between frames.
@@ -15,7 +15,7 @@
 #include "vga.h"
 #include "vid.h"
 
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/vga/mode/mode0.h"
 
 #include <stdint.h>
@@ -35,7 +35,7 @@ bool mode0_prog(uint16_t *xregs)
         return false;
     if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, NULL))
         return false;
-    term_set_height(cols, rows);
+    cells_set_height(cols, rows);
     vid_prog_word = 0x80000000u | ((uint32_t)(uint16_t)scanline_end << 16)
                     | (uint16_t)scanline_begin;
     VID_PROG = vid_prog_word;
@@ -50,13 +50,13 @@ void vid_init(void)
 
 static void vid_publish(void)
 {
-    term_view_t tv;
-    term_view(&tv);
+    cells_view_t tv;
+    cells_view(&tv);
     /* Bits 16-17 of a row word are its line size and bit 26 of the cursor
      * word is DECSCNM, for the fabric to draw once mode0.sv learns them. */
     for (uint32_t y = 0; y < tv.height; y++)
-        VID_ROW(y) = ((uint32_t)term_view_row(y) & 0xFFFF) |
-                     ((uint32_t)term_view_row_size((uint8_t)y) << 16);
+        VID_ROW(y) = ((uint32_t)cells_view_row(y) & 0xFFFF) |
+                     ((uint32_t)cells_view_row_size((uint8_t)y) << 16);
     VID_CURSOR = ((uint32_t)tv.reverse << 26)
                  | ((uint32_t)tv.cursor_enabled << 25)
                  | ((uint32_t)tv.cursor_lit << 24)

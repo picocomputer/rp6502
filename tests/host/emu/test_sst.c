@@ -14,7 +14,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "host/host.h"
 
 #include "emu_boot.h"
@@ -58,7 +58,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)225711);
+    ASSERT_EQ(sst_size(), (size_t)225551);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 29u);
 }
 
@@ -564,8 +564,8 @@ static bool on_console(int w, int h, int rows)
     int cw, ch, vw, vh;
     vga_console_size(&cw, &ch);
     vga_canvas_size(&vw, &vh);
-    term_view_t tv;
-    term_view(&tv);
+    cells_view_t tv;
+    cells_view(&tv);
     return vga_canvas_is_console() && cw == w && ch == h &&
            vw == w && vh == h && tv.height == rows;
 }

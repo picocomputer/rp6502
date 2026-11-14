@@ -246,19 +246,23 @@ core/sys/xram.c xram: the XRAM chunk
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting
 core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
 core/sys/xram.c xram_fill_value: not carried: a session's fill setting
-core/term/color.c color_256_term: the TERM chunk
+core/term/color.c color_256_term: the CELL chunk
 core/term/font.c font16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_code_page: derived: the OEM chunk's load installs it through font_load_code_page
 core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/term.c term40_alt_mem: the TERM chunk
-core/term/term.c term40_pri_mem: the TERM chunk
-core/term/term.c term80_alt_mem: the TERM chunk
-core/term/term.c term80_pri_mem: the TERM chunk
-core/term/term.c term_40: the TERM chunk
-core/term/term.c term_80: the TERM chunk
+core/term/cells.c term40_alt_mem: the CELL chunk
+core/term/cells.c term40_pri_mem: the CELL chunk
+core/term/cells.c term80_alt_mem: the CELL chunk
+core/term/cells.c term80_pri_mem: the CELL chunk
+core/term/cells.c cells_40: the CELL chunk
+core/term/cells.c cells_80: the CELL chunk
+core/term/cells.c cells_cursor_color: the CELL chunk
+core/term/cells.c cells_default_bg: the CELL chunk
+core/term/cells.c cells_default_fg: the CELL chunk
+core/term/cells.c cells_term: the CELL chunk
 core/vga/canvas.c canvas_code: the VGA chunk
 core/vga/canvas.c canvas_h: the VGA chunk
 core/vga/canvas.c canvas_w: the VGA chunk

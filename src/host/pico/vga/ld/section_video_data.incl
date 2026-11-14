@@ -26,7 +26,7 @@ __video_rodata_source__ = LOADADDR(.video_rodata);
  * zeroes only .bss, so init() in main.c zeroes these. */
 .video_bss (NOLOAD) : {
     __video_bss_start__ = .;
-    *term.c.o(.bss*)
+    *cells.c.o(.bss*)
     . = ALIGN(4);
     __video_bss_end__ = .;
 } > VIDEO

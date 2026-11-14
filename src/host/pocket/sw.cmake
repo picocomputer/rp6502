@@ -70,7 +70,9 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode/mode4.c
         ${RP6502_SRC}/core/vga/mode/mode5.c
         ${RP6502_SRC}/core/term/color.c
-        ${RP6502_SRC}/core/term/term.c)
+        ${RP6502_SRC}/core/term/term.c
+        ${RP6502_SRC}/core/term/grid.c
+        ${RP6502_SRC}/core/term/cells.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
     # divides by.

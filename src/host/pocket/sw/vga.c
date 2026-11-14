@@ -9,7 +9,7 @@
 #include "vga.h"
 #include "vid.h"
 
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 static int16_t vga_highest_scanline;
 static uint8_t vga_pub_mode;

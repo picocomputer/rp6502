@@ -38,7 +38,7 @@
 #include "core/sys/debug_log.h"
 #include "core/com/rln.h"
 #include "core/sys/pix.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 
 #include <stdint.h>

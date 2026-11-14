@@ -32,7 +32,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/sys/sys.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "host/host.h"
@@ -140,15 +140,15 @@ static void vt_term_init(void)
         vga_run_frame();
     /* The monitor's banner goes, and the run starts on a blank screen. */
     vt_term_write("\30\33c", 3);
-    term_view_t v;
-    term_view(&v);
+    cells_view_t v;
+    cells_view(&v);
     vt_rows = v.height;
     vt_cols = v.width;
 }
 
 static void vt_row(int y, char *out, size_t size)
 {
-    const term_data_t *row = term_view_row((uint8_t)y);
+    const term_data_t *row = cells_view_row((uint8_t)y);
     size_t o = 0, last = 0;
     for (int x = 0; x < vt_cols && o + 8 < size; x++)
     {
@@ -173,12 +173,12 @@ static void vt_row(int y, char *out, size_t size)
 static void vt_settle(void)
 {
     for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
-        term_task();
+        cells_task();
     vga_run_frame();
-    term_view_t v;
+    cells_view_t v;
     for (int i = 0; i < 120; i++)
     {
-        term_view(&v);
+        cells_view(&v);
         if (!v.blink_phase)
             break;
         vga_run_frame();
@@ -190,7 +190,7 @@ static uint32_t vt_cells(void)
 {
     uint32_t crc = 0;
     for (int y = 0; y < vt_rows; y++)
-        crc = host_crc32(crc, term_view_row((uint8_t)y), (size_t)vt_cols * sizeof(term_data_t));
+        crc = host_crc32(crc, cells_view_row((uint8_t)y), (size_t)vt_cols * sizeof(term_data_t));
     return crc;
 }
 
@@ -201,11 +201,11 @@ static uint32_t vt_digest(void)
     uint32_t crc = vt_cells();
     for (int y = 0; y < vt_rows; y++)
     {
-        uint8_t size = term_view_row_size((uint8_t)y);
+        uint8_t size = cells_view_row_size((uint8_t)y);
         crc = host_crc32(crc, &size, 1);
     }
-    term_view_t v;
-    term_view(&v);
+    cells_view_t v;
+    cells_view(&v);
     uint8_t reverse = v.reverse;
     return host_crc32(crc, &reverse, 1);
 }
@@ -336,8 +336,8 @@ static void vt_save(const char *name)
 static void vt_shot(const char *name)
 {
     vt_settle();
-    term_view_t v;
-    term_view(&v);
+    cells_view_t v;
+    cells_view(&v);
     vt_last = vt_cells();
     vt_fed = 0;
     char line[160];
@@ -532,8 +532,8 @@ static bool vt_menu_on_screen(char *key, size_t size, char *number, size_t nsize
     char line[1024], first[256] = "";
     bool menu = false;
     number[0] = 0;
-    term_view_t v;
-    term_view(&v);
+    cells_view_t v;
+    cells_view(&v);
     for (int y = 0; y < vt_rows; y++)
     {
         vt_row(y, line, sizeof line);
@@ -768,8 +768,8 @@ int main(int argc, char **argv)
             /* "Push <RETURN>" where the cursor waits wins over a prompt left
              * higher on the screen. */
             const char *keys = "\r";
-            term_view_t v;
-            term_view(&v);
+            cells_view_t v;
+            cells_view(&v);
             char row[1024];
             vt_row(v.cursor_y, row, sizeof row);
             for (size_t i = 0; !strstr(row, "Push <RETURN>") &&
