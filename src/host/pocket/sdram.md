@@ -133,6 +133,12 @@ is measured.
 4. The look-ahead, and the firmware reading words through it.
 5. Fit, then the Pocket: boot, a program, a sleep and a wake, a wake after
    the card's firmware changed.
+6. The font tables twice. With the fonts in the firmware, the Pocket builds
+   core's font tables in its RAM as the VGA does, 9 KB, and then copies them
+   into the video device's font memories, which are what it draws from. The
+   RAM copy is a duplicate that every savestate carries, and it adds 11 ms
+   to a boot. The font builder should write to where a machine keeps its
+   fonts. The shape is to be talked through first.
 
 ## Tuning, after that runs on a Pocket
 
