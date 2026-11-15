@@ -49,7 +49,7 @@
 #define STAMP_WORD 1u
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 9u
+#define SST_VER 10u
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -142,7 +142,7 @@ static const std::vector<uint32_t> COUNTER = {
     0x00128293, 0x00532023, 0x00430313, 0xFF5FF06F,
 };
 
-static void power_on(void)
+static void power_on_with(const std::vector<uint32_t> &prog, int load)
 {
     if (dut)
     {
@@ -162,16 +162,21 @@ static void power_on(void)
     dut->sst_dbg_instr = 0;
     dut->sst_dbg_instr_vld = 0;
     dut->sst_dbg_data0 = 0;
-    dut->sst_load = 0;
+    dut->sst_load = load;
     dut->stage_stall = 0;
     dut->stage_word = 0;
     dut->eval();
     tb_ram_clear();
-    for (uint32_t i = 0; i < COUNTER.size(); i++)
-        tb_ram_put(i, COUNTER[i]);
+    for (uint32_t i = 0; i < prog.size(); i++)
+        tb_ram_put(i, prog[i]);
     clk();
     clk();
     dut->rst_n = 1;
+}
+
+static void power_on(void)
+{
+    power_on_with(COUNTER, 0);
 }
 
 /* The loop bound is large because the engine sums every word of the blob
@@ -952,4 +957,198 @@ UTEST(sst, the_console_queue_survives)
     ASSERT_EQ(0xDBCAB9A8u, w);
     ASSERT_TRUE(blob_word(B_REGS + 24, &w));
     ASSERT_EQ(0xDFCEBDACu, w);
+}
+
+/* A program that takes a trap for every count, as the firmware does for
+ * every misaligned access. It counts its starts in MARK_WORD, sets mtvec
+ * and mstatus.MIE, and then loops: an ecall, a check that MIE came back
+ * from the trap, and the count in x31 stored as the next record. The
+ * handler at 0x60 waits 200 turns, checks mcause, steps mepc over the
+ * ecall and returns. */
+#define T_LOOP 0x24u
+#define T_TRAP 0x60u
+#define T_WAIT 0x64u
+#define T_WAIT_END 0x68u
+static uint32_t rv_i(uint32_t imm, uint32_t rs1, uint32_t f3, uint32_t rd,
+                     uint32_t op)
+{
+    return (imm << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | op;
+}
+static uint32_t rv_s(uint32_t imm, uint32_t rs2, uint32_t rs1, uint32_t f3)
+{
+    return ((imm >> 5 & 0x7Fu) << 25) | (rs2 << 20) | (rs1 << 15)
+           | (f3 << 12) | ((imm & 31u) << 7) | 0x23u;
+}
+static uint32_t rv_b(int32_t off, uint32_t rs2, uint32_t rs1, uint32_t f3)
+{
+    uint32_t o = (uint32_t)off;
+    return ((o >> 12 & 1u) << 31) | ((o >> 5 & 0x3Fu) << 25) | (rs2 << 20)
+           | (rs1 << 15) | (f3 << 12) | ((o >> 1 & 15u) << 8)
+           | ((o >> 11 & 1u) << 7) | 0x63u;
+}
+static std::vector<uint32_t> trapper(void)
+{
+    const uint32_t MSTATUS = 0x300, MTVEC = 0x305, MEPC = 0x341,
+                   MCAUSE = 0x342;
+    std::vector<uint32_t> p(0x88 / 4, 0x00000013u);
+    p[0x00 / 4] = 0x00041337;                       /* lui x6, 0x41 */
+    p[0x04 / 4] = rv_i(0x5A5, 0, 0, 7, 0x13);       /* the stamp word */
+    p[0x08 / 4] = rv_i(0xFFC, 6, 2, 5, 0x03);       /* lw x5, -4(x6) */
+    p[0x0C / 4] = rv_i(1, 5, 0, 5, 0x13);           /* addi x5, x5, 1 */
+    p[0x10 / 4] = rv_s(0xFFC, 5, 6, 2);             /* sw x5, -4(x6) */
+    p[0x14 / 4] = rv_i(T_TRAP, 0, 0, 5, 0x13);      /* addi x5, x0, 0x60 */
+    p[0x18 / 4] = rv_i(MTVEC, 5, 1, 0, 0x73);       /* csrw mtvec, x5 */
+    p[0x1C / 4] = rv_i(MSTATUS, 8, 6, 0, 0x73);     /* csrsi mstatus, 8 */
+    p[0x20 / 4] = rv_i(0, 0, 0, 31, 0x13);          /* addi x31, x0, 0 */
+    p[0x24 / 4] = 0x00000073;                       /* ecall */
+    p[0x28 / 4] = rv_i(MSTATUS, 0, 2, 5, 0x73);     /* csrr x5, mstatus */
+    p[0x2C / 4] = rv_i(8, 5, 7, 5, 0x13);           /* andi x5, x5, 8 */
+    p[0x30 / 4] = rv_b(0, 0, 5, 0);                 /* beq x5, x0, . */
+    p[0x34 / 4] = rv_i(1, 31, 0, 31, 0x13);         /* addi x31, x31, 1 */
+    p[0x38 / 4] = rv_s(0, 31, 6, 2);                /* sw x31, 0(x6) */
+    p[0x3C / 4] = rv_i(4, 6, 0, 6, 0x13);           /* addi x6, x6, 4 */
+    p[0x40 / 4] = 0xFE5FF06F;                       /* j 0x24 */
+    p[0x60 / 4] = rv_i(200, 0, 0, 28, 0x13);        /* addi x28, x0, 200 */
+    p[0x64 / 4] = rv_i(0xFFF, 28, 0, 28, 0x13);     /* addi x28, x28, -1 */
+    p[0x68 / 4] = rv_b(-4, 0, 28, 1);               /* bne x28, x0, 0x64 */
+    p[0x6C / 4] = rv_i(MCAUSE, 0, 2, 30, 0x73);     /* csrr x30, mcause */
+    p[0x70 / 4] = rv_i(11, 0, 0, 29, 0x13);         /* addi x29, x0, 11 */
+    p[0x74 / 4] = rv_b(0, 29, 30, 1);               /* bne x30, x29, . */
+    p[0x78 / 4] = rv_i(MEPC, 0, 2, 29, 0x73);       /* csrr x29, mepc */
+    p[0x7C / 4] = rv_i(4, 29, 0, 29, 0x13);         /* addi x29, x29, 4 */
+    p[0x80 / 4] = rv_i(MEPC, 29, 1, 0, 0x73);       /* csrw mepc, x29 */
+    p[0x84 / 4] = 0x30200073;                       /* mret */
+    return p;
+}
+
+#define RV_PC() \
+    ((uint32_t)dut->rootp \
+         ->wiring__DOT__soc__DOT__cpu__DOT__core__DOT__decode_u__DOT__pc)
+
+static uint32_t records(void)
+{
+    uint32_t n = 0;
+    while (n < W_RAM - 1024 && tb_ram_word(REC_BASE + n))
+        n++;
+    return n;
+}
+
+/* Runs the trap program until it is in the handler's wait with a few
+ * counts made, and saves there. */
+static bool save_in_the_handler(void)
+{
+    power_on_with(trapper(), 0);
+    for (int i = 0; i < 20000; i++)
+        clk();
+    long guard = 0;
+    while ((RV_PC() < T_WAIT || RV_PC() > T_WAIT_END) && guard++ < 100000)
+        clk();
+    return guard < 100000 && begin_save();
+}
+
+UTEST(sst, the_trap_csrs_are_in_there)
+{
+    ASSERT_TRUE(save_in_the_handler());
+    uint32_t dpc = 0, mepc = 0, mcause = 0, mstatus = 0, mtvec = 0, w = 0;
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 0, &dpc));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 32, &mepc));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 33, &mcause));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 34, &mstatus));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 35, &mtvec));
+    ASSERT_TRUE(dpc >= T_WAIT && dpc <= T_WAIT_END + 4);
+    ASSERT_EQ(T_LOOP, mepc);
+    ASSERT_EQ(11u, mcause);
+    /* In the handler MIE is 0 and MPIE holds the 1 the program set. */
+    ASSERT_EQ(0x80u, mstatus & 0x88u);
+    ASSERT_EQ(T_TRAP, mtvec);
+    /* The rest of the state region is spare and reads zero. */
+    for (uint32_t i = ST_RV + 36; i < W_STATE; i++)
+    {
+        ASSERT_TRUE(blob_word(B_STATE + i, &w));
+        ASSERT_EQ(0u, w);
+    }
+}
+
+/* The save reads the CSRs out through x31, which holds the count. */
+UTEST(sst, a_save_inside_the_trap_handler_lets_it_run_on)
+{
+    ASSERT_TRUE(save_in_the_handler());
+    uint32_t before = records();
+    ASSERT_GT(before, 2u);
+    dut->sst_save = 0;
+    dut->eval();
+    for (int i = 0; i < 40000; i++)
+        clk();
+    flush();
+    uint32_t after = records();
+    ASSERT_GT(after, before + 2);
+    for (uint32_t i = 0; i < after; i++)
+        ASSERT_EQ(i + 1, tb_ram_word(REC_BASE + i));
+    ASSERT_EQ(1u, tb_ram_word(MARK_WORD));
+}
+
+/* The new core has the load asked for before it leaves reset, as a wake
+ * can, so it is halted before it has set its own mtvec. It returns from
+ * the handler the blob was saved in: to the blob's mepc, with the blob's
+ * mcause and MPIE, and takes its next trap at the blob's mtvec. A core
+ * that lost any of them starts over, which MARK_WORD counts, or stops
+ * counting. */
+UTEST(sst, a_save_inside_the_trap_handler_resumes_in_a_new_core)
+{
+    ASSERT_TRUE(save_in_the_handler());
+    uint32_t before = records();
+    ASSERT_GT(before, 2u);
+    std::vector<uint32_t> blob(W_TOTAL);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        ASSERT_TRUE(blob_word(i, &blob[i]));
+
+    power_on_with(trapper(), 1);
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, blob[i]);
+    load_and_wait();
+    ASSERT_TRUE((int)dut->wiring_sst_load_done);
+    ASSERT_FALSE((int)dut->wiring_sst_load_err);
+    dut->sst_load = 0;
+    dut->eval();
+    for (int i = 0; i < 40000; i++)
+        clk();
+    flush();
+    uint32_t after = records();
+    ASSERT_GT(after, before + 2);
+    for (uint32_t i = 0; i < after; i++)
+        ASSERT_EQ(i + 1, tb_ram_word(REC_BASE + i));
+    ASSERT_EQ(1u, tb_ram_word(MARK_WORD));
+}
+
+/* The engine says which check refused a blob. */
+UTEST(sst, a_refusal_names_its_check)
+{
+    struct { int what; uint32_t why; } cases[] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}};
+    for (auto &c : cases)
+    {
+        power_on();
+        for (int i = 0; i < 3000; i++)
+            clk();
+        g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+        for (uint32_t i = 0; i < W_TOTAL; i++)
+            stage_word(i, 0);
+        stage_word(B_XRAM + 3, 0xC0DE0003u);
+        uint32_t stamp = tb_ram_word(STAMP_WORD);
+        stage_seal_as(c.what == 3 ? stamp + 1 : stamp,
+                      c.what == 1 ? SST_VER - 1 : SST_VER);
+        if (c.what == 0)
+            stage_word(B_HDR + 0, SST_MAGIC + 1);
+        else if (c.what == 2)
+            stage_word(B_HDR + 2, W_TOTAL * 4 + 4);
+        else if (c.what == 4)
+            stage_word(B_XRAM + 3, 0xC0DE0002u);
+        else if (c.what == 5)
+            stage_word(B_END + 2, SST_END_MAGIC + 1);
+        load_and_wait();
+        ASSERT_TRUE((int)dut->wiring_sst_load_done);
+        ASSERT_TRUE((int)dut->wiring_sst_load_err);
+        ASSERT_EQ(c.why, (uint32_t)dut->wiring_sst_load_why);
+    }
 }

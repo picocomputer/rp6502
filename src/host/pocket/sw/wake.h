@@ -9,6 +9,9 @@
 
 #include <stdbool.h>
 
+/* A wake is in progress: a blob or a load command has come, a restore
+ * has not been ended yet, or the console still shows why a wake did not
+ * resume. */
 bool wake_pending(void);
 
 void wake_task(void);

@@ -13,7 +13,11 @@ module tb_pocket (
     input logic clk_a2,
     input logic clk_ph,
     input logic clk_vid,
+    /* The PLL's lock on clk_sys. The chip model takes it as its
+     * asynchronous reset. */
+    /* verilator lint_off SYNCASYNCNET */
     input logic rst_n,
+    /* verilator lint_on SYNCASYNCNET */
     input logic arst_n,
 
     input logic bridge_wr,

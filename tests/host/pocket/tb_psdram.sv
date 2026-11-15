@@ -40,6 +40,7 @@ module tb_psdram (
 
     pocket_sdram ctrl (
         .clk(clk),
+        .pll_locked(1'b1),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
         .pocket_sdram_rword(tb_psdram_rword),

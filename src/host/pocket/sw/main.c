@@ -56,29 +56,19 @@ FILE *const stderr = &main_stdio;
 
 static uint8_t main_upd_seen;
 
-static void main_stage(void);
-
-static bool main_wake_pending;
-
-static bool main_boot_declined;
-
-bool main_boot_wake;
-uint32_t main_boot_slot;
-uint8_t main_boot_upd;
+/* A start of the staged ROM asked for and not yet made. The boot asks for
+ * the first one. */
+static bool main_restaging;
 
 void main_restored(void)
 {
-    main_wake_pending = false;
     main_upd_seen = (uint8_t)MMIO_UPD_N;
     MMIO_SLOT = 0;
 }
 
-void main_wake_failed(void)
+void main_restage(void)
 {
-    if (!main_boot_declined)
-        return;
-    main_boot_declined = false;
-    main_stage();
+    main_restaging = true;
 }
 
 static void main_stage(void)
@@ -103,19 +93,11 @@ int main(void)
 {
     sys_init();
 
-    main_wake_pending = wake_pending();
-    main_boot_wake = main_wake_pending;
-    main_boot_declined = main_wake_pending;
-    main_boot_slot = MMIO_SLOT;
-    main_boot_upd = (uint8_t)MMIO_UPD_N;
-    if (!main_wake_pending)
-        main_stage();
     main_upd_seen = (uint8_t)MMIO_UPD_N;
+    main_restaging = true;
 
     for (;;)
     {
-        bool restage = false;
-
         /* DROP is done in the fabric. EXIT holds the 6502 until
          * proc_exit has it in reset. */
         if (API_PENDING)
@@ -128,39 +110,43 @@ int main(void)
             }
         }
         sys_task();
-        /* The program is stopped as soon as a blob starts to arrive,
-         * because the restore replaces the machine's memory but not a
-         * file the program creates or truncates before the load. */
-        bool wake = wake_pending();
-        if (wake && !main_wake_pending)
-            sys_stop();
-        main_wake_pending = wake;
 
+        /* The host asks for a start by loading a ROM, which changes
+         * MMIO_UPD_N and MMIO_SLOT. A wake's host sets both as well, and
+         * wake_task marks them handled before it ends a restore, so neither
+         * is acted on while a wake is in progress. They are read before the
+         * wake is, because a save can halt the firmware anywhere: what was
+         * read before the save is then from the session that was saved, and
+         * a restore that came between the reads shows as a wake. */
         uint8_t upd = (uint8_t)MMIO_UPD_N;
-        if (upd != main_upd_seen && !main_wake_pending)
+        bool slot = MMIO_SLOT != 0;
+        bool wake = wake_pending();
+        if (!wake && (slot || upd != main_upd_seen))
         {
             main_upd_seen = upd;
-            restage = true;
-            proc_cancel_launcher();
-            sys_stop();
+            main_restaging = true;
         }
-        if (MMIO_SLOT && !main_wake_pending)
+        if (main_restaging && !wake)
         {
-            restage = true;
             proc_cancel_launcher();
             sys_stop();
         }
         sys_commit();
-        /* The restage starts after sys_commit rather than from a stop hook,
+        /* The start comes after sys_commit rather than from a stop hook,
          * because the stop hooks run only when a running machine is
-         * stopped, so a restage requested while the machine is already
-         * stopped would never start. Nothing starts while a blob arrives, for
-         * the reason the program was stopped, so an exec or a launcher's
-         * return waits for the load to fail or to replace it. */
-        if (!sys_active() && !main_wake_pending)
+         * stopped, so a start asked for while the machine is already
+         * stopped would never be made. Nothing starts while a wake is in
+         * progress, because the restore replaces the machine's memory but
+         * not a file the program creates or truncates before the load, so
+         * a start, an exec or a launcher's return waits for the wake to
+         * end. */
+        if (!sys_active() && !wake)
         {
-            if (restage)
+            if (main_restaging)
+            {
+                main_restaging = false;
                 main_stage();
+            }
             else if (proc_exec_take())
                 sys_run();
         }

@@ -20,6 +20,10 @@ module sst_engine #(
     input logic sst_load,
     output logic sst_engine_load_done,
     output logic sst_engine_load_err,
+    /* Which check refused the blob, valid with sst_engine_load_err: 1 no
+     * header in the window, 2 another version, 3 another size, 4 another
+     * build stamp, 5 the sum, 6 the trailer. */
+    output logic [2:0] sst_engine_load_why,
 
     output logic sst_engine_busy,
     output logic sst_engine_freeze,
@@ -180,7 +184,7 @@ module sst_engine #(
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd9;
+    localparam logic [31:0] SST_VERSION = 32'd10;
     /* The firmware's build stamp is this word of the ROM block, which
      * crt0.S places. A blob carries it in the header's fourth word, and a
      * load takes only a blob made by the firmware that is loaded. */
@@ -202,13 +206,21 @@ module sst_engine #(
     localparam logic [1:0] SEL_VIA = 2'd2;
 
     /* rvreg[0] holds dpc, the program counter the core resumes from,
-     * and rvreg[1] to rvreg[31] hold x1 to x31. */
-    localparam int RV_WORDS = 32;
-    /* One write port and one read port, so rvreg is one LUT RAM. */
+     * rvreg[1] to rvreg[31] hold x1 to x31, and rvreg[32] to rvreg[35]
+     * hold mepc, mcause, mstatus and mtvec. The firmware emulates every
+     * misaligned access in its trap handler, so a save can halt it there,
+     * and the handler returns through mepc. mtvec is the firmware's too,
+     * because a load can halt a new firmware before it has written its
+     * own. The firmware enables no interrupt, so mie stays as reset
+     * leaves it. */
+    localparam int RV_WORDS = 36;
+    localparam int CSR_N = 5;
+    /* One write port and one read port, so rvreg is one LUT RAM, 64
+     * deep to hold RV_WORDS. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] rvreg[RV_WORDS];
+    logic [31:0] rvreg[64];
     logic rv_we;
-    logic [4:0] rv_wa, rv_ra;
+    logic [5:0] rv_wa, rv_ra;
     logic [31:0] rv_wd, rv_q;
     logic [31:0] flopreg[ST_RV];
     /* regs.sv's flops are its words 0 to 7, 17, 18, 19, 20 and 200. The
@@ -220,7 +232,25 @@ module sst_engine #(
     logic [4:0] rv_n;
 
     localparam logic [11:0] CSR_DMDATA0 = 12'hBFF;
-    localparam logic [11:0] CSR_DPC = 12'h7B1;
+    /* The CSRs in the order they are spilled and written back, and
+     * where each is in rvreg. */
+    function automatic logic [11:0] csr_addr(input logic [2:0] n);
+        case (n)
+            3'd0: return 12'h7B1;     // dpc
+            3'd1: return 12'h341;     // mepc
+            3'd2: return 12'h342;     // mcause
+            3'd3: return 12'h300;     // mstatus
+            default: return 12'h305;  // mtvec
+        endcase
+    endfunction
+    function automatic logic [5:0] csr_slot(input logic [2:0] n);
+        return n == 3'd0 ? 6'd0 : 6'd31 + 6'(n);
+    endfunction
+    localparam logic [2:0] CSR_LAST = 3'(CSR_N - 1);
+    localparam logic [2:0] WHY_MAGIC = 3'd1;
+    localparam logic [2:0] WHY_STAMP = 3'd4;
+    localparam logic [2:0] WHY_SUM = 3'd5;
+    localparam logic [2:0] WHY_TAIL = 3'd6;
     localparam logic [31:0] I_EBREAK = 32'h00100073;
 
     /* This encodes csrw dmdata0, xN, which is csrrw with x0 as the
@@ -290,9 +320,11 @@ module sst_engine #(
      * gone by the time the ebreak is reported. */
     logic [31:0] data0_q;
 
-    /* The spill reads x1 to x31 before dpc, because dpc is read out
-     * through x31, which must already have been saved. */
-    logic spill_dpc;
+    /* The spill reads x1 to x31 before the CSRs, because each CSR is
+     * read out through x31, which must already have been saved. The
+     * machine runs on after a save, so spill_fix then writes x31 back. */
+    logic spill_csr, spill_fix;
+    logic [2:0] csr_n;
     logic [1:0] spill_step;
     logic [31:0] spill_instr;
 
@@ -321,6 +353,7 @@ module sst_engine #(
             && state != S_LD_JAM && state != S_LD_JAM2;
         sst_engine_load_done = done_q;
         sst_engine_load_err = ld_bad;
+        sst_engine_load_why = ld_why;
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
@@ -457,7 +490,9 @@ module sst_engine #(
             sst_engine_jam_via[i] = flopreg[ST_VIA + i];
         sst_engine_jam_xr = ria_xr;
         state_word = st_rdata;
-        if (hold_idx >= 18'(B_STATE + ST_RV))
+        if (hold_idx >= 18'(B_STATE + ST_RV + RV_WORDS))
+            state_word = 32'd0;
+        else if (hold_idx >= 18'(B_STATE + ST_RV))
             state_word = rv_q;
     end
 
@@ -496,11 +531,11 @@ module sst_engine #(
     logic summing /*verilator public_flat_rd*/;
     logic [17:0] sum_idx /*verilator public_flat_rd*/;
 
-    /* The injection writes dpc before x1 to x31, because dpc is loaded
-     * through x31, and x31 then has to be written again with its saved
-     * value. */
+    /* The injection writes the CSRs before x1 to x31, because each is
+     * loaded through x31, and x31 then has to be written again with its
+     * saved value. */
     logic [31:0] inj_val;
-    logic inj_dpc;
+    logic inj_csr;
     logic [1:0] inj_step;
     logic [17:0] ld_idx /*verilator public_flat_rd*/;
     logic [31:0] ld_word;
@@ -527,6 +562,10 @@ module sst_engine #(
     logic ld_scan;
     logic [31:0] vsum /*verilator public_flat_rd*/;
     logic [17:0] bad_idx /*verilator public_flat_rd*/;
+    /* scan_far is the furthest header word any offset of the scan
+     * reached, so a blob of another version is told from no blob. */
+    logic [1:0] scan_far;
+    logic [2:0] ld_why;
     logic [31:0] bad_word /*verilator public_flat_rd*/;
 
     /* The first stages of these synchronizers are named _s1 so that
@@ -567,7 +606,9 @@ module sst_engine #(
             byte_n <= '0;
             acc <= '0;
             rv_n <= 5'd1;
-            spill_dpc <= 1'b0;
+            spill_csr <= 1'b0;
+            spill_fix <= 1'b0;
+            csr_n <= '0;
             spill_step <= '0;
             spill_instr <= I_EBREAK;
             data0_q <= '0;
@@ -602,8 +643,10 @@ module sst_engine #(
             vsum <= '0;
             bad_idx <= '0;
             bad_word <= '0;
+            scan_far <= '0;
+            ld_why <= '0;
             inj_val <= '0;
-            inj_dpc <= 1'b0;
+            inj_csr <= 1'b0;
             inj_step <= '0;
             idx_t1 <= 1'b0;
             idx_t2 <= 1'b0;
@@ -657,7 +700,9 @@ module sst_engine #(
                     sum_idx <= '0;
                     summing <= 1'b0;
                     rv_n <= 5'd1;
-                    spill_dpc <= 1'b0;
+                    spill_csr <= 1'b0;
+                    spill_fix <= 1'b0;
+                    csr_n <= '0;
                     spill_step <= '0;
                     if (save_req) state <= S_FREEZE;
                     else if (load_req) state <= S_LD_FREEZE;
@@ -690,18 +735,29 @@ module sst_engine #(
                 S_SPILL_BRK: if (!dbg_instr_rdy) state <= S_SPILL_WAIT;
                 S_SPILL_WAIT:
                 if (dbg_ebreak) begin
-                    if (spill_step == 2'd0 && spill_dpc) begin
+                    if (spill_fix) begin
+                        flush <= 1'b1;
+                        state <= S_CACHE;
+                    end else if (spill_step == 2'd0 && spill_csr) begin
                         spill_step <= 2'd1;
                         spill_instr <= i_reg_out(5'd31);
                         state <= S_SPILL_ARM;
-                    end else if (spill_dpc) begin
-                        flush <= 1'b1;
-                        state <= S_CACHE;
+                    end else if (spill_csr && csr_n == CSR_LAST) begin
+                        spill_fix <= 1'b1;
+                        inj_val <= rv_q;
+                        spill_instr <= i_reg_in(5'd31);
+                        state <= S_SPILL_ARM;
+                    end else if (spill_csr) begin
+                        csr_n <= csr_n + 3'd1;
+                        spill_step <= 2'd0;
+                        spill_instr <= i_csr_read(csr_addr(csr_n + 3'd1),
+                                                  5'd31);
+                        state <= S_SPILL_ARM;
                     end else begin
                         if (rv_n == 5'd31) begin
-                            spill_dpc <= 1'b1;
+                            spill_csr <= 1'b1;
                             spill_step <= 2'd0;
-                            spill_instr <= i_csr_read(CSR_DPC, 5'd31);
+                            spill_instr <= i_csr_read(csr_addr(3'd0), 5'd31);
                             state <= S_SPILL_ARM;
                         end else begin
                             rv_n <= rv_n + 5'd1;
@@ -722,6 +778,7 @@ module sst_engine #(
                     vsum <= '0;
                     ld_bad <= 1'b0;
                     ld_verify <= 1'b0;
+                    scan_far <= '0;
                     state <= S_LD_FETCH;
                 end else if (dbg_halted) want_stop <= 1'b1;
 
@@ -748,8 +805,12 @@ module sst_engine #(
                     || (ld_idx == 18'd1 && ld_word != SST_VERSION)
                     || (ld_idx == 18'd2
                         && ld_word != (32'(W_TOTAL) << 2))) begin
-                    if (ld_off == SCAN_CAP) state <= S_LD_BAD;
-                    else begin
+                    if (ld_idx[1:0] > scan_far) scan_far <= ld_idx[1:0];
+                    if (ld_off == SCAN_CAP) begin
+                        ld_why <= WHY_MAGIC + {1'b0, ld_idx[1:0] > scan_far
+                            ? ld_idx[1:0] : scan_far};
+                        state <= S_LD_BAD;
+                    end else begin
                         ld_off <= ld_off + 10'd1;
                         ld_idx <= '0;
                         state <= S_LD_FETCH;
@@ -777,9 +838,13 @@ module sst_engine #(
                         || (ld_idx == 18'(B_END + 1)
                             && ld_word != 32'(W_TOTAL))
                         || (ld_idx == 18'(B_END + 2)
-                            && ld_word != SST_END_MAGIC))
+                            && ld_word != SST_END_MAGIC)) begin
+                        ld_why <= ld_idx < 18'(B_HDR + 3)
+                                ? WHY_MAGIC + 3'(ld_idx)
+                            : ld_idx == 18'(B_HDR + 3) ? WHY_STAMP
+                            : ld_idx == 18'(B_END) ? WHY_SUM : WHY_TAIL;
                         state <= S_LD_BAD;
-                    else if (ld_idx == 18'(B_END + 2)) begin
+                    end else if (ld_idx == 18'(B_END + 2)) begin
                         ld_idx <= 18'(B_STATE);
                         ld_verify <= 1'b0;
                         ld_writing <= 1'b1;
@@ -841,7 +906,8 @@ module sst_engine #(
                         ld_writing <= 1'b0;
                         aud_mask <= 1'b0;
                         ld_bad <= 1'b0;
-                        inj_dpc <= 1'b1;
+                        inj_csr <= 1'b1;
+                        csr_n <= '0;
                         inj_step <= 2'd0;
                         inj_val <= rv_q;
                         rv_n <= 5'd31;
@@ -923,9 +989,9 @@ module sst_engine #(
                 S_INJ_ARM: if (dbg_instr_rdy) state <= S_INJ_ISSUE;
                 S_INJ_ISSUE: if (!dbg_instr_rdy) state <= S_INJ_TAKE;
                 S_INJ_TAKE: begin
-                    if (inj_dpc && inj_step == 2'd0) begin
+                    if (inj_csr && inj_step == 2'd0) begin
                         inj_step <= 2'd1;
-                        spill_instr <= i_csr_write(CSR_DPC, 5'd31);
+                        spill_instr <= i_csr_write(csr_addr(csr_n), 5'd31);
                         state <= S_INJ_ARM;
                     end else begin
                         spill_instr <= I_EBREAK;
@@ -936,8 +1002,14 @@ module sst_engine #(
                 S_INJ_BRK: if (!dbg_instr_rdy) state <= S_INJ_WAIT;
                 S_INJ_WAIT:
                 if (dbg_ebreak) begin
-                    if (inj_dpc) begin
-                        inj_dpc <= 1'b0;
+                    if (inj_csr && csr_n != CSR_LAST) begin
+                        csr_n <= csr_n + 3'd1;
+                        inj_step <= 2'd0;
+                        inj_val <= rv_q;
+                        spill_instr <= i_reg_in(5'd31);
+                        state <= S_INJ_ARM;
+                    end else if (inj_csr) begin
+                        inj_csr <= 1'b0;
                         rv_n <= 5'd1;
                         inj_val <= rv_q;
                         spill_instr <= i_reg_in(5'd1);
@@ -1099,19 +1171,23 @@ module sst_engine #(
     end
 
     always_comb begin
-        rv_we = (state == S_SPILL_WAIT && dbg_ebreak
-                 && (spill_dpc ? spill_step != 2'd0 : 1'b1))
+        rv_we = (state == S_SPILL_WAIT && dbg_ebreak && !spill_fix
+                 && (spill_csr ? spill_step != 2'd0 : 1'b1))
             || (state == S_LD_PUT && ld_idx >= 18'(B_STATE + ST_RV)
                 && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS));
-        rv_wa = state == S_LD_PUT ? 5'(ld_idx - 18'(B_STATE + ST_RV))
-            : (spill_dpc ? 5'd0 : rv_n);
+        rv_wa = state == S_LD_PUT ? 6'(ld_idx - 18'(B_STATE + ST_RV))
+            : (spill_csr ? csr_slot(csr_n) : {1'b0, rv_n});
         rv_wd = state == S_LD_PUT ? ld_word : data0_q;
-        /* dpc for the injection's first load, the next register for each
-         * load after it, and the save's word otherwise. B_STATE + ST_RV
-         * is 32, so hold_idx[4:0] is its register. */
-        rv_ra = state == S_LD_PUT_WAIT ? 5'd0
-            : state == S_INJ_WAIT ? (inj_dpc ? 5'd1 : rv_n + 5'd1)
-            : hold_idx[4:0];
+        /* dpc for the injection's first load, the next CSR or register
+         * for each load after it, x31 for the spill to write back, and
+         * the save's word otherwise. B_STATE + ST_RV is 32, so the word's
+         * place in rvreg is its index less 32. */
+        rv_ra = state == S_LD_PUT_WAIT ? 6'd0
+            : state == S_INJ_WAIT
+                ? (!inj_csr ? {1'b0, rv_n + 5'd1}
+                   : csr_n == CSR_LAST ? 6'd1 : csr_slot(csr_n + 3'd1))
+            : state == S_SPILL_WAIT ? 6'd31
+            : {hold_idx[6], hold_idx[4:0]};
         rv_q = rvreg[rv_ra];
     end
     always_ff @(posedge clk_sys)

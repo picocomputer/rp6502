@@ -7,21 +7,20 @@
 #ifndef _HOST_POCKET_SW_MAIN_H_
 #define _HOST_POCKET_SW_MAIN_H_
 
-/* main_upd_seen is restored from the blob with the rest of the RAM, but
- * no blob contains MMIO_UPD_N or MMIO_SLOT, so the values those registers
- * hold after a restore are marked as handled rather than read as a new
- * program. */
-void main_restored(void);
-void main_wake_failed(void);
-
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "core/sys/driver.h"
 
-extern bool main_boot_wake;
-extern uint32_t main_boot_slot;
-extern uint8_t main_boot_upd;
+/* main_upd_seen is restored from the blob with the rest of the RAM, but
+ * no blob contains MMIO_UPD_N or MMIO_SLOT, so the values those registers
+ * hold after a restore are marked as handled rather than read as a new
+ * program. */
+void main_restored(void);
+
+/* Asks the main loop to stage the ROM in slot 0 and start it, as a boot
+ * does. The start is made once no wake is in progress. */
+void main_restage(void);
 
 void tim_set_tz_minutes(int32_t min);
 

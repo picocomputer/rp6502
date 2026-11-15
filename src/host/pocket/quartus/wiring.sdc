@@ -93,12 +93,13 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
     # takes to reach its pad. The PLL's shift is 9920 ps where half a
     # period is 9920.6, so on paper a falling edge of clk_sys comes
     # 1 ps after the launch and the analyzer would time the capture
-    # against that one. The multicycle of two names the edge a period
-    # later, and the hold check stays on the 1 ps edge.
+    # against that one. The setup multicycle of two names the edge a
+    # period later. No hold multicycle goes with it: the hold check is
+    # then the edge before the capture, which is the 1 ps edge, so the
+    # word must not change until 1 ps after its own launch. The chip
+    # holds it 2.5 ns, the minimum input delay.
     set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
         -to [get_registers {*pocket_sdram*dq_cap*}] 2
-    set_multicycle_path -hold  -from [get_ports {dram_dq[*]}] \
-        -to [get_registers {*pocket_sdram*dq_cap*}] 1
 }
 
 # pocket_sram loads pocket_sram_a and pocket_sram_dq_out for the soft

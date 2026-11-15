@@ -3,13 +3,21 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * When a savestate load succeeds, the engine (sst_engine.sv) resumes the
- * soft CPU at the instruction where it was halted when the blob was made,
- * so the firmware that runs afterwards is the one in the blob.
- * SST_RESTORED then reads set, and the 6502 stays in reset until
- * SST_RESTORED is written to SST_CTL, which clears the bit, so wake_task
- * makes that write only after the state the blob does not contain has
- * been put back.
+ * A wake is the host's blob and its load command, in either order, and
+ * the first of them shows in SST_CTL. The program is stopped from then on,
+ * because the restore replaces the machine's memory but not a file the
+ * program creates or truncates before the load.
+ *
+ * When the load succeeds, the engine (sst_engine.sv) resumes the soft CPU
+ * at the instruction where it was halted when the blob was made, so the
+ * firmware that runs afterwards is the one in the blob. SST_RESTORED then
+ * reads set, and the 6502 stays in reset until SST_RESTORED is written to
+ * SST_CTL, which clears the bit, so wake_task makes that write only after
+ * the state the blob does not contain has been put back.
+ *
+ * A wake that does not resume is one whose blob the engine refuses or one
+ * whose load never comes. The console then says which, and the ROM is
+ * staged and started as a boot does.
  */
 
 #include "wake.h"
@@ -28,26 +36,80 @@
 #include "core/sys/debug_log.h"
 #include "host/host.h"
 
+#include "core/sys/sys.h"
+
+#include <stdio.h>
 #include <string.h>
+
+/* The host writes a blob at 3.4 MB/s or faster and core_bridge_cmd gives
+ * any of its commands 0.9 s, so a blob with no word written for 2 s and no
+ * load asked for has been left. A load that comes later still finds it,
+ * because dropping the blob clears only SST_BLOB_SEEN. */
+#define WAKE_LOAD_US 2000000u
+
+/* How long the console's line about a wake stays up before the ROM
+ * starts. */
+#define WAKE_SHOW_US 2000000u
+
+static uint64_t wake_wrote;
+static uint64_t wake_shown;
 
 bool wake_pending(void)
 {
-    return (SST_CTL & SST_BLOB_SEEN) != 0;
+    if (SST_CTL & (SST_BLOB_SEEN | SST_RESTORED))
+        return true;
+    if (wake_shown && (int64_t)(host_clock_us() - wake_shown) >= 0)
+        wake_shown = 0;
+    return wake_shown != 0;
+}
+
+static void wake_failed(const char *why, const char *when)
+{
+    RP6502_LOG(sst, ERROR, "%s%s", why, when);
+    printf("\nwake: %s%s\n", why, when);
+    wake_shown = host_clock_us() + WAKE_SHOW_US;
+    sys_stop();
+    main_restage();
 }
 
 void wake_task(void)
 {
     uint32_t ctl = SST_CTL;
     if (!(ctl & SST_RESTORED))
+    {
+        if (!(ctl & SST_BLOB_SEEN))
+            return;
+        sys_stop();
+        if (!(ctl & SST_BLOB_UNASKED))
+            return;
+        if (ctl & SST_BLOB_WRITING)
+        {
+            SST_CTL = SST_BLOB_WRITING;
+            wake_wrote = host_clock_us();
+        }
+        else if (host_clock_us() - wake_wrote >= WAKE_LOAD_US)
+        {
+            SST_CTL = SST_BLOB_SEEN;
+            wake_failed("no load came", "");
+        }
         return;
+    }
 
     /* The engine checks the whole blob before it writes any of it, so a
      * failed load has written nothing and there is nothing to put back. */
     if (ctl & SST_RESTORE_ERR)
     {
-        RP6502_LOG(sst, ERROR, "refused, staging the rom instead");
+        static const char *const why[8] = {
+            [SST_WHY_NO_BLOB] = "no header",
+            [SST_WHY_VERSION] = "version differs",
+            [SST_WHY_SIZE] = "length differs",
+            [SST_WHY_BUILD] = "build differs",
+            [SST_WHY_SUM] = "checksum differs",
+            [SST_WHY_TRAILER] = "no trailer",
+        };
         SST_CTL = SST_RESTORED;
-        main_wake_failed();
+        wake_failed(why[SST_WHY(ctl)],
+                    ctl & SST_LOAD_EARLY ? " (asked in reset)" : "");
         return;
     }
 

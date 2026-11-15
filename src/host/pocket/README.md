@@ -105,13 +105,14 @@ register during initialization with PASR selecting all four banks.
 Sleeping on openFPGA means producing a savestate, because wake
 reconfigures the FPGA and the core starts again from its bitstream. At
 sleep the host sends command 0x00A0 to create a savestate, powers down,
-and writes the savestate back into the core on wake. The boot
-documentation fixes the order in both directions: a create signals
-completion before the data is copied out, and a load has the blob
-written into the core as ordinary bridge writes before 0x00A4 arrives.
+and writes the savestate back into the core on wake. A create signals
+completion before the data is copied out. A load has the blob written
+into the core as ordinary bridge writes and is asked for with 0x00A4.
+Analogue documents no order for a wake's blob, its 0x00A4 and Reset
+Exit, so the core takes them in any order.
 
-The blob is 293 KB, and the savestate engine, `sst_engine.sv`, makes it
-in logic rather than in firmware. It holds the soft CPU's RAM block and
+The blob is 293 KB, format version 10, and the savestate engine,
+`sst_engine.sv`, makes it in logic rather than in firmware. It holds the soft CPU's RAM block and
 none of its ROM block, which a wake loads from `firmware.bin` again.
 The Pocket saves it with a header in front and a thumbnail behind,
 about 53 KB more, and the window it is written back into is 512 KB.
@@ -123,6 +124,48 @@ blob's header, and a load reads it again and refuses a blob that names
 another build, as it refuses another blob version. That catches a card
 whose `firmware.bin` changed while the Pocket slept: the state's stack
 and data would not fit the new code.
+
+### The host's commands
+
+`pocket_sst.sv` answers 0x00A0 and 0x00A4, because the engine halts the
+soft CPU for both. `core_bridge_cmd` holds a request until it is
+acknowledged and gives the host the status lines of that clock as the
+result, so the acknowledge comes one clock after the request, when the
+lines already describe it. No request returns the result of the one
+before.
+
+| Request | Result |
+|---|---|
+| A save | busy until the blob is ready, then ok. err once a word was not served in time |
+| A load, the machine running | busy until the engine has finished, then ok, or err for a refused blob |
+| A load, the core in reset | ok at once, and ok from then on |
+
+**A wake's load can arrive while the Pocket holds the core in reset.**
+Other cores report it from hardware, and that the Pocket can wait for
+the answer before it sends Reset Exit. The engine cannot run in reset,
+so a load that waited for it would never be answered. Such a load is
+answered ok at once and kept, and the engine performs it when the reset
+is released. The firmware's first read of `SST_CTL` shows a wake on its
+way, so it stages no program first. If the engine then refuses the blob
+the answer stays ok: the host has had it, and what it gets is a machine
+that starts its program over. `SST_CTL` tells the firmware how the wake
+went: that the load came in reset, and for a refusal which check it
+was.
+
+A request that comes while a load is with the engine, or with the
+firmware finishing the wake, starts no second load and is answered
+with the first one's status. A save asked for again while its blob is
+held reads the same blob from the start.
+
+A write into the blob window is the first the firmware sees of a wake,
+in `SST_BLOB_SEEN`. `SST_BLOB_UNASKED` beside it says no load has been
+asked for, and `SST_BLOB_WRITING` that a word has been written since
+the firmware last cleared it, so the firmware can tell a blob that is
+still arriving from one the host has left. It drops a blob that has had
+no word written for two seconds and no load asked for. The host writes a
+blob at 3.4 MB/s or faster and the bridge gives any command 0.9 s, so
+two seconds of silence is a blob left behind. Dropping clears only
+`SST_BLOB_SEEN`: a load that comes later still finds the blob.
 
 ### The architecture: one clock gate
 
@@ -183,7 +226,12 @@ idle. Nothing on that path runs on clk_mach.
 
 A save runs in this order. The engine halts the soft CPU, spills its
 registers, has the cache write its newer lines out to the SDRAM, and
-stops the machine clock. It then checksums the whole blob
+stops the machine clock. The registers are x1 to x31, dpc, and mepc,
+mcause, mstatus and mtvec: the firmware emulates every misaligned
+access in its trap handler, so a save can halt it there, and a wake can
+halt a new firmware before it has set its own mtvec. The CSRs are read
+out through x31, which the spill then writes back, since the machine
+runs on after a save. It then checksums the whole blob
 in one pass before it signals completion, because the host may read
 words in any order and more than once. It serves each word as the host
 reads it, and a word that is not ready by the host's next read sets the
@@ -196,9 +244,35 @@ stays halted when its halt request drops.
 ### Restoring
 
 The engine checks the whole staged blob before it writes any of it,
-its version, its build stamp and its sum, because a blob found bad
-partway through writing would leave the machine half overwritten. A
-refused blob changes nothing and the machine runs on. Then, with the
+because a blob found bad partway through writing would leave the
+machine half overwritten. It checks the header, the version, the
+length, the build stamp, the sum and the trailer. A refused blob writes
+nothing, and the engine names the check that refused it in `SST_CTL`.
+
+**A wake that does not resume starts the program over.** The firmware
+stops the program when the first of a wake shows, the blob or the load
+command, and starts nothing until the wake is over, because the restore
+replaces the machine's memory but not a file the program creates or
+truncates before the load. A firmware that boots into a wake stages no
+program for the same reason. When the engine refuses the blob, or the
+firmware drops a blob no load came for, the console says why in one
+line, the line stays up for two seconds, and the ROM in slot 0 is
+staged and started as at boot.
+
+| The console's line | The wake |
+|---|---|
+| `wake: no header` | the file holds no blob |
+| `wake: version differs` | a blob of another format version |
+| `wake: length differs` | a blob of another length |
+| `wake: build differs` | a blob made by another `firmware.bin` |
+| `wake: checksum differs` | a word of the blob changed |
+| `wake: no trailer` | the blob's end is missing |
+| `wake: no load came` | a blob and, for two seconds, no load command |
+
+A refusal's line ends in `(asked in reset)` when the load command came
+while the Pocket held the core in reset.
+
+When the blob is good, with the
 machine still stopped, every array is written back through the engine's
 ports, the audio's among them, the soft CPU's RAM block is written into
 the SDRAM and its cache emptied, and the flop state (6502, VIA, the RW engine's pending write,
@@ -234,7 +308,7 @@ Waking the machine takes these steps in order:
    blob contains, so without it each deadline would be off by the
    difference between the counter's value at the save and its value at
    the restore.
-5. The soft CPU's registers are written back through the debug port,
+5. The soft CPU's registers and CSRs are written back through the debug port,
    and the core resumes at the instruction where the save halted it,
    running the blob's firmware on the blob's stack. The firmware reads
    `SST_RESTORED` set and puts back the state the blob does not
@@ -242,11 +316,15 @@ Waking the machine takes these steps in order:
    tables, rewrites the canvas, the vsync line and the terminal's window
    from its own copies, marks every open file to be checked and, if
    needed, reopened by its saved name, derives the wall clock again
-   from the host's RTC, resynchronizes the restage triggers so the slot
-   updates of the wake do not start a new program, and moves the
+   from the host's RTC, marks the wake's slot updates as handled so
+   they do not start a new program, and moves the
    bell's deadlines and the program's `clock()` by how long the machine
    has been parked, counted from the saved mtime it resumed at, which
-   it reads from `SST_SAVED_US`.
+   it reads from `SST_SAVED_US`. The main loop acts on no slot update
+   from the first sign of a wake until this step is done, and it reads
+   the updates before it reads the wake's state, so a save that halted
+   it between the two reads resumes into a wake and not into a new
+   program.
 6. The firmware clears `SST_RESTORED`, and two jam cycles follow, in
    which the engine writes the rest of the held flop state into the
    flops. The first drops `hold_res` and loads a PHI2 enable of 0, so
@@ -515,6 +593,18 @@ the result of a command that another descriptor left in flight, and it
 does not wait for `fs_restore`, because a Flush sent to a stale slot
 changes no data.
 
+**A file call that a sleep interrupts ends after the wake as it would
+have.** A save can halt the firmware anywhere in a call, so a command
+can be issued, or its status read, on the host that woke, where the
+slot is bound to nothing. Such a status says nothing about the file.
+Read, write and sync ask whether a restore is open before they act on
+a status, and return pending so the call is made again once the wake
+task has marked the descriptors stale. An open, a seek that extends a
+file, a ROM load, Get File and the data table lookup block through
+their commands, so they note whether a restore opened while they ran
+and run their commands again in the session that woke. See "A command
+belongs to one session" below for the command a restore lands inside.
+
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26
 cycles of clk_74a, about 0.9 s, and `pocket_file` after 2^27, about
@@ -573,6 +663,20 @@ was not filled for it. `fs.c` records the worker whose command is in
 flight and keeps a finished command's status for that worker rather than
 dropping it, so a blocking command can wait for another worker's command
 to finish instead of deadlocking against it.
+
+### A command belongs to one session
+
+`pocket_file`'s registers and its window are not in the savestate. A
+save can halt the firmware between a command's registers and the
+command, and after the wake the command would run with the registers
+of the configuration that woke: slot 0, the ROM, at offset 0, or what
+the fresh firmware last wrote there. So a command is armed by its
+write to `FILE_ID`, which `fs.c` makes first, and a savestate load
+disarms it. A command written unarmed is not run and reads back as
+timed out, and `fs.c` runs the call again. A write also looks for a
+restore between `FILE_ID` and its data, because a write that starts
+after the restore still has its slot and position from the session
+that slept.
 
 ## Reading the console
 

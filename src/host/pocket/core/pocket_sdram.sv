@@ -41,6 +41,10 @@ module pocket_sdram #(
     parameter bit CLOSE_IDLE_ROWS = 1'b1
 ) (
     input logic clk,
+    /* The PLL's lock, synchronised to clk. The clock is not to be
+     * trusted before it, so the controller is held in S_BOOT and the
+     * chip's 200 us of power-up wait is counted from the lock. */
+    input logic pll_locked,
 
     input logic rd_pend,
     input logic [23:0] rd_addr,
@@ -445,6 +449,12 @@ module pocket_sdram #(
             end
             default: state <= S_IDLE;
         endcase
+
+        if (!pll_locked) begin
+            state <= S_BOOT;
+            wait_cnt <= 15'(INIT_WAIT);
+            pocket_sdram_ready <= 1'b0;
+        end
     end
 
 endmodule

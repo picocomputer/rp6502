@@ -49,9 +49,11 @@ rp6502_add_module_test(fifo
     TIMEOUT 120)
 
 rp6502_add_module_test(psst
-    TOP pocket_sst
-    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
-        ${RP6502_POCKET_CORE}/pocket_sst.sv
+    TOP tb_psst
+    RTL ${RP6502_POCKET_CORE}/pocket_sst.sv
+        ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v
+        ${POCKET_TB}/tb_psst.sv
+    ARGS ${RP6502_BENCH}/apf.vlt
     TIMEOUT 120)
 
 rp6502_add_module_test(pdbglog

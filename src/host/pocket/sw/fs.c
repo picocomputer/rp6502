@@ -56,7 +56,14 @@ static uint8_t fs_owner;
 static bool fs_mail[FS_W_MAX];
 static uint32_t fs_mail_st[FS_W_MAX];
 
-/* Starting a command is separate from polling for its status because
+/* pocket_file's registers and FILE_WIN are not in the blob. A command
+ * begins with its write to FILE_ID, which arms it, and a restore disarms
+ * it, so a command that a restore lands in is not run and its status reads
+ * FILE_ST_TIMEOUT. A write looks for a restore after FILE_ID and before
+ * its data, so a write that begins in the session that woke, with a
+ * position and a slot from the one that slept, is not issued either.
+ *
+ * Starting a command is separate from polling for its status because
  * core_bridge_cmd.v waits about 0.9 s for a host that does not reply before
  * it times the command out. fs_std_read, fs_std_write, fs_std_sync and
  * fs_std_close poll once per pass of the main loop so that the wait does not
@@ -128,12 +135,36 @@ void fs_log(void)
  * fs_restore has marked the descriptors stale, while a slot may still be
  * bound to a file opened by the session that the restore replaced.
  * Returning STD_PENDING leaves pos where it was, so a syscall handler
- * repeats the whole operation on a later pass. */
+ * repeats the whole operation on a later pass.
+ *
+ * A save can halt the firmware anywhere in a call, so a command can be
+ * issued or its status collected after the restore, where the slot is bound
+ * to nothing or to another file. Its status then says nothing about the
+ * file, so each call asks here before it acts on one. */
+static bool fs_restoring(void)
+{
+    return (SST_CTL & SST_RESTORED) != 0;
+}
+
 static bool fs_adrift(void)
 {
-    if (!(SST_CTL & SST_RESTORED))
+    if (!fs_restoring())
         return false;
     fs_n_defer++;
+    return true;
+}
+
+/* A call that blocks through several commands has no later pass. It notes
+ * whether a restore was open when it began and, when one opened since, runs
+ * its commands again: the second run is all in the session that woke, and
+ * no other restore can come before wake_task has ended this one. fs_restore
+ * comes first, as it does in wake_task, so the second run's commands start
+ * on an idle pocket_file. */
+static bool fs_landed(bool began)
+{
+    if (began || !fs_adrift())
+        return false;
+    fs_restore();
     return true;
 }
 
@@ -203,7 +234,7 @@ static uint32_t fs_dt(uint32_t word)
     return FILE_RESULT;
 }
 
-bool fs_slot_len(uint32_t slot, uint32_t *len)
+static bool fs_dt_find(uint32_t slot, uint32_t *len)
 {
     for (uint32_t i = 0; i < FS_DT_PAIRS; i++)
         if (fs_dt(i * 2) == slot)
@@ -212,6 +243,17 @@ bool fs_slot_len(uint32_t slot, uint32_t *len)
             return true;
         }
     return false;
+}
+
+bool fs_slot_len(uint32_t slot, uint32_t *len)
+{
+    bool began, found;
+    do
+    {
+        began = fs_restoring();
+        found = fs_dt_find(slot, len);
+    } while (fs_landed(began));
+    return found;
 }
 
 /* Copies out of the staging store. A word read there costs what a byte
@@ -239,18 +281,23 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
 {
     if (cap)
         out[0] = 0;
-    FILE_ID = slot;
-    FILE_BRIDGE = GETFILE_BRIDGE;
-    uint32_t st = fs_command(FS_W_SYS, FILE_OP_GETFILE);
-    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
-        return false;
-
     /* Hardware measurements show that the host writes the whole 256-byte
      * response struct on every Get File and leaves a NUL at offset 0 when
      * the slot is bound to nothing, so an empty name means an unbound
      * slot. */
     char utf8[FS_NAME_MAX];
-    fs_stage_copy(utf8, GETFILE_WIN, FS_NAME_MAX - 1);
+    uint32_t st;
+    bool began;
+    do
+    {
+        began = fs_restoring();
+        FILE_ID = slot;
+        FILE_BRIDGE = GETFILE_BRIDGE;
+        st = fs_command(FS_W_SYS, FILE_OP_GETFILE);
+        fs_stage_copy(utf8, GETFILE_WIN, FS_NAME_MAX - 1);
+    } while (fs_landed(began));
+    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        return false;
     utf8[FS_NAME_MAX - 1] = 0;
 
     uint16_t page = font_get_code_page();
@@ -293,10 +340,10 @@ static uint32_t fs_try_open_start(uint32_t who, uint32_t slot,
         n += (size_t)k;
     }
     memset(pad + n, 0, FS_NAME_MAX - n);
+    FILE_ID = slot;
     fs_win_put(0, pad, FS_NAME_MAX);
     fs_win_u32(FS_PARAM_FLAGS, flags);
     fs_win_u32(FS_PARAM_SIZE, size);
-    FILE_ID = slot;
     fs_start(who, FILE_OP_OPEN);
     return FS_RC_STARTED;
 }
@@ -395,8 +442,12 @@ static bool fs_still_bound(int d)
            && !strcmp(have, fs_pool[d].name);
 }
 
+/* fs_owner is the blob's, and the session the restore replaced can have
+ * left a command of its own in flight. A command started over it would be
+ * lost, so it is taken as this driver's and fs_stop collects it. */
 void fs_restore(void)
 {
+    fs_owner = FS_W_SYS;
     fs_stop();
     for (int d = 0; d < FS_OPEN_MAX; d++)
     {
@@ -467,6 +518,11 @@ static std_rw_result fs_flush(int desc, api_errno *err)
     }
     if (!fs_poll(FS_W(desc), &st))
         return STD_PENDING;
+    /* A close cannot wait for the restore to end, and a Flush changes no
+     * data, so a Flush that met a restore counts as done. fs_std_sync asks
+     * again. */
+    if (fs_adrift())
+        return STD_OK;
     if (fs_unanswered(st))
     {
         fs_flush_state = FS_FLUSH_NEVER;
@@ -516,6 +572,22 @@ static bool fs_rom_pull(uint32_t len)
     return true;
 }
 
+static bool fs_rom_fetch(const char *card, uint32_t *len, api_errno *err)
+{
+    if (fs_try_open(FS_W_SYS, FS_SLOT_ROM, card, 0, 0) > 1)
+    {
+        *err = API_ENOENT;
+        return false;
+    }
+    if (!fs_slot_len(FS_SLOT_ROM, len) || !*len || *len > ROM_MAX
+        || !fs_rom_pull(*len))
+    {
+        *err = API_EIO;
+        return false;
+    }
+    return true;
+}
+
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (flags != FS_RD)
@@ -539,22 +611,15 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     assert(!fs_rom.used);
-    if (fs_try_open(FS_W_SYS, FS_SLOT_ROM, card, 0, 0) > 1)
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
     uint32_t len;
-    if (!fs_slot_len(FS_SLOT_ROM, &len) || !len || len > ROM_MAX)
+    bool began, ok;
+    do
     {
-        *err = API_EIO;
+        began = fs_restoring();
+        ok = fs_rom_fetch(card, &len, err);
+    } while (fs_landed(began));
+    if (!ok)
         return -1;
-    }
-    if (!fs_rom_pull(len))
-    {
-        *err = API_EIO;
-        return -1;
-    }
     fs_rom.used = true;
     fs_rom.len = len;
     fs_rom.pos = 0;
@@ -589,6 +654,66 @@ bool fs_std_handles(const char *path)
     return true;
 }
 
+/* made is set once the file has been created, so a second run of the
+ * commands does not take the file the first run made for one that was there
+ * before the call. */
+static int fs_open_slot_as(int d, uint8_t flags, bool *made, api_errno *err)
+{
+    const char *card = fs_pool[d].name;
+    uint32_t slot = FS_SLOT_FIRST + (uint32_t)d;
+
+    /* The host creates a file only when Open File has both FS_DS_CREATE and
+     * FS_DS_RESIZE set, and both bits on an existing file resize it to the
+     * size given, which is zero here, so the first open sets neither bit to
+     * find out whether the file exists. */
+    bool exists = fs_open_slot(slot, card, 0, 0);
+    bool old = exists && !*made;
+    if (old && (flags & (FS_CREAT | FS_EXCL)) == (FS_CREAT | FS_EXCL))
+    {
+        *err = API_EEXIST;
+        return -1;
+    }
+    if (!exists && !(flags & FS_CREAT))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    bool empty = !old || ((flags & FS_TRUNC) && (flags & FS_WR));
+    if (empty && old && !fs_open_slot(slot, card, FS_DS_RESIZE, 0))
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    /* Open File reports success for a create into a missing folder and
+     * creates nothing, so a plain open after the create checks that the
+     * file exists. */
+    if (!exists)
+    {
+        *made = true;
+        if (!(fs_open_slot(slot, card, FS_DS_CREATE | FS_DS_RESIZE, 0)
+              && fs_open_slot(slot, card, 0, 0)))
+        {
+            *err = API_ENOENT;
+            return -1;
+        }
+    }
+
+    uint32_t len = 0;
+    if (!fs_slot_len(slot, &len))
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    fs_pool[d].used = true;
+    fs_pool[d].flags = flags;
+    fs_pool[d].stale = false;
+    fs_pool[d].cache_at = 0;
+    fs_pool[d].cache_len = 0;
+    fs_pool[d].len = empty ? 0 : len;
+    fs_pool[d].pos = (flags & FS_APPEND) ? fs_pool[d].len : 0;
+    return d;
+}
+
 static int fs_open_card(const char *path, const char *root, uint8_t flags,
                         api_errno *err)
 {
@@ -615,55 +740,14 @@ static int fs_open_card(const char *path, const char *root, uint8_t flags,
         *err = API_EACCES;
         return -1;
     }
-    uint32_t slot = FS_SLOT_FIRST + (uint32_t)d;
-
-    /* The host creates a file only when Open File has both FS_DS_CREATE and
-     * FS_DS_RESIZE set, and both bits on an existing file resize it to the
-     * size given, which is zero here, so the first open sets neither bit to
-     * find out whether the file exists. */
-    bool exists = fs_open_slot(slot, card, 0, 0);
-    if (exists && (flags & (FS_CREAT | FS_EXCL))
-                      == (FS_CREAT | FS_EXCL))
+    bool began, made = false;
+    int got;
+    do
     {
-        *err = API_EEXIST;
-        return -1;
-    }
-    if (!exists && !(flags & FS_CREAT))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
-    bool empty = !exists || ((flags & FS_TRUNC) && (flags & FS_WR));
-    if (empty && exists && !fs_open_slot(slot, card, FS_DS_RESIZE, 0))
-    {
-        *err = API_EIO;
-        return -1;
-    }
-    /* Open File reports success for a create into a missing folder and
-     * creates nothing, so a plain open after the create checks that the
-     * file exists. */
-    if (!exists
-        && !(fs_open_slot(slot, card, FS_DS_CREATE | FS_DS_RESIZE, 0)
-             && fs_open_slot(slot, card, 0, 0)))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
-
-    uint32_t len = 0;
-    if (!fs_slot_len(slot, &len))
-    {
-        *err = API_EIO;
-        return -1;
-    }
-    fs_pool[d].used = true;
-    fs_pool[d].flags = flags;
-    fs_pool[d].stale = false;
-    fs_pool[d].cache_at = 0;
-    fs_pool[d].cache_len = 0;
-    fs_pool[d].len = empty ? 0 : len;
-    fs_pool[d].pos = (flags & FS_APPEND) ? fs_pool[d].len : 0;
-    return d;
+        began = fs_restoring();
+        got = fs_open_slot_as(d, flags, &made, err);
+    } while (fs_landed(began));
+    return got;
 }
 
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
@@ -798,6 +882,8 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         }
         if (!fs_poll(FS_W(desc), &st))
             return STD_PENDING;
+        if (fs_adrift())
+            return STD_PENDING;
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
             if (fs_note(st))
@@ -866,6 +952,8 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         if (!fs_try_open_poll(FS_W(desc), &rc))
             return STD_PENDING;
         fs_grow = false;
+        if (fs_adrift())
+            return STD_PENDING;
         if (rc > 1)
         {
             *err = API_EIO;
@@ -878,14 +966,18 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         return STD_PENDING;
     if (fs_owner == FS_W_NONE)
     {
-        fs_win_put(0, (const uint8_t *)buf, want);
         FILE_ID = slot;
+        if (fs_adrift())
+            return STD_PENDING;
+        fs_win_put(0, (const uint8_t *)buf, want);
         FILE_OFFSET = pos;
         FILE_BRIDGE = FILE_WIN_BASE;
         FILE_LENGTH = want;
         fs_start(FS_W(desc), FILE_OP_WRITE);
     }
     if (!fs_poll(FS_W(desc), &st))
+        return STD_PENDING;
+    if (fs_adrift())
         return STD_PENDING;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
@@ -895,8 +987,6 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         *err = API_EIO;
         return STD_ERROR;
     }
-    if (fs_adrift())
-        return STD_PENDING;
     fs_pool[desc].pos = pos + want;
     *wrote = want;
     return want < count ? STD_PENDING : STD_OK;
@@ -914,15 +1004,17 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
     if (fs_adrift())
         return STD_PENDING;
     fs_rebind(desc);
-    return fs_flush(desc, err);
+    std_rw_result res = fs_flush(desc, err);
+    return res == STD_OK && fs_adrift() ? STD_PENDING : res;
 }
 
 /* What a resize puts in the bytes it adds is unrecorded, so the gap that a
  * seek past the end opens is written with zeros. When a write fails, the file
  * is resized back so that the failed seek changes nothing. The writes stop at
- * a restore without the resize back, because after one the slot may be bound
- * to another file. */
-static bool fs_extend(int d, uint32_t to)
+ * a restore that opens during the call without the resize back, because
+ * after one the slot may be bound to another file, and fs_std_lseek runs
+ * the call again. */
+static bool fs_extend(int d, uint32_t to, bool began)
 {
     uint32_t slot = FS_SLOT_FIRST + (uint32_t)d;
     uint32_t rc = fs_try_open(FS_W(d), slot, fs_pool[d].name,
@@ -933,14 +1025,16 @@ static bool fs_extend(int d, uint32_t to)
         FILE_WIN[i] = 0;
     for (uint32_t at = fs_pool[d].len; at < to; at += FILE_WIN_SIZE)
     {
-        if (fs_adrift())
-            return false;
         FILE_ID = slot;
+        if (fs_landed(began))
+            return false;
         FILE_OFFSET = at;
         FILE_BRIDGE = FILE_WIN_BASE;
         FILE_LENGTH = to - at < FILE_WIN_SIZE ? to - at : FILE_WIN_SIZE;
         if (fs_command(FS_W(d), FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
+            if (fs_landed(began))
+                return false;
             fs_try_open(FS_W(d), slot, fs_pool[d].name, FS_DS_RESIZE,
                         fs_pool[d].len);
             return false;
@@ -998,10 +1092,19 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     {
         if (!(fs_pool[desc].flags & FS_WR))
             target = (int64_t)fs_pool[desc].len;
-        else if (!fs_extend(desc, (uint32_t)target))
+        else
         {
-            *err = API_EIO;
-            return -1;
+            bool began, ok;
+            do
+            {
+                began = fs_restoring();
+                ok = fs_extend(desc, (uint32_t)target, began);
+            } while (fs_landed(began));
+            if (!ok)
+            {
+                *err = API_EIO;
+                return -1;
+            }
         }
     }
     fs_pool[desc].pos = (uint32_t)target;

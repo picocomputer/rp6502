@@ -157,3 +157,6 @@ memories, and core's font builder writes whole 32-bit words.
 - **The SDRAM's reset.** The controller is held in its power-up state
   by the PLL's lock, synchronised to clk_sys: one more fan-out of
   core_top's reset synchroniser.
+- **pocket_file's arming.** One flop on clk_sys, set by a write to
+  the slot register and cleared by a command or a savestate load. It
+  gates the command's start.

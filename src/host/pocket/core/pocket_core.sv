@@ -198,6 +198,7 @@ input logic clk_vid,
 
     pocket_sdram sdram (
         .clk(clk_sys),
+        .pll_locked(rst_n),
         .rd_pend(stage_pend),
         .rd_addr(stage_addr[25:2]),
         .pocket_sdram_rword(stage_word),
@@ -315,6 +316,7 @@ input logic clk_vid,
 
     logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
     logic sst_load, sst_load_done, sst_load_err;
+    logic [2:0] sst_load_why;
     logic [17:0] sst_rd_idx;
     logic [31:0] sst_word, sst_rd_data;
 
@@ -347,6 +349,7 @@ input logic clk_vid,
         .sst_load(sst_load),
         .wiring_sst_load_done(sst_load_done),
         .wiring_sst_load_err(sst_load_err),
+        .wiring_sst_load_why(sst_load_why),
         .wiring_sst_ready(sst_ready),
         .sst_rd_idx(sst_rd_idx),
         .sst_rd_t(sst_rd_t),
@@ -417,6 +420,7 @@ input logic clk_vid,
         .wdata(host_wdata),
         .pocket_file_rdata(file_rdata),
         .w_pending(w_queued),
+        .loading(sst_load && !sst_load_done),
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
@@ -454,12 +458,14 @@ input logic clk_vid,
         .bridge_wr(bridge_wr),
         .bridge_rd(bridge_rd),
         .bridge_addr(bridge_addr),
+        .reset_n(reset_n),
         .pocket_sst_rd_data(sst_rd_data),
         .pocket_sst_rd_sel(sst_rd_sel),
         .pocket_sst_save(sst_save),
         .pocket_sst_load(sst_load),
         .sst_load_done(sst_load_done),
         .sst_load_err(sst_load_err),
+        .sst_load_why(sst_load_why),
         .sst_ready(sst_ready),
         .pocket_sst_rd_idx(sst_rd_idx),
         .pocket_sst_rd_t(sst_rd_t),

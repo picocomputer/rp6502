@@ -60,7 +60,11 @@
  * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN
  * back, and the write port has no byte enables, so each write stores a
  * whole word. FILE_WIN_BASE is the bridge address of the same RAM and
- * must match WINDOW_BASE in pocket_file.sv. */
+ * must match WINDOW_BASE in pocket_file.sv.
+ *
+ * A write to FILE_ID arms the command that the next write to FILE_CTL
+ * starts, and a savestate load disarms it. A write to FILE_CTL with no
+ * command armed starts nothing and sets FILE_ST_TIMEOUT. */
 #define FILE_ID (*(volatile uint32_t *)0x80000000u)
 #define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
 #define FILE_LENGTH (*(volatile uint32_t *)0x80000008u)
@@ -71,16 +75,37 @@
 
 /* SST_RESTORED is set when a savestate load finishes, whether or not the
  * load succeeded, and SST_RESTORE_ERR is set beside it when the load
- * failed. After a successful load the 6502 stays in reset until the
- * firmware writes SST_RESTORED to SST_CTL, so the state that the blob does
- * not contain is put back before that write. SST_BLOB_SEEN is set by a
- * bridge write into the blob window and clears when the load finishes. */
+ * failed, with the check that refused the blob in SST_WHY. After a
+ * successful load the 6502 stays in reset until the firmware writes
+ * SST_RESTORED to SST_CTL, so the state that the blob does not contain is
+ * put back before that write.
+ *
+ * SST_BLOB_SEEN is set by a bridge write into the blob window or by the
+ * host's load command, and clears when the load finishes. While it is
+ * set a wake is on its way. SST_BLOB_UNASKED is set beside it until the
+ * load command comes. SST_BLOB_WRITING is set by every write into the
+ * window and cleared by writing it to SST_CTL, so it tells a blob still
+ * arriving from one the host has left. Writing SST_BLOB_SEEN to SST_CTL
+ * drops a blob that no load was asked for.
+ *
+ * SST_LOAD_EARLY is set when the last load command came while the host
+ * held the core in reset. */
 #define SST_CTL (*(volatile uint32_t *)0x80020000u)
 
 #define SST_RESTORED 0x01u
 #define SST_BLOB_SEEN 0x02u
 #define SST_UNDERRUN 0x04u
 #define SST_RESTORE_ERR 0x08u
+#define SST_LOAD_EARLY 0x10u
+#define SST_BLOB_UNASKED 0x20u
+#define SST_BLOB_WRITING 0x40u
+#define SST_WHY(ctl) (((ctl) >> 8) & 7u)
+#define SST_WHY_NO_BLOB 1u
+#define SST_WHY_VERSION 2u
+#define SST_WHY_SIZE 3u
+#define SST_WHY_BUILD 4u
+#define SST_WHY_SUM 5u
+#define SST_WHY_TRAILER 6u
 /* The UTC offset comes from three interact menu entries because a menu
  * list holds at most sixteen options and the offset spans twenty-seven
  * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero
