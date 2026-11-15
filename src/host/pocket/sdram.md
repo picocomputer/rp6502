@@ -60,9 +60,20 @@ microsecond.
 
 Timing after the last fit: setup 0.78 ns to spare, hold 0.115 ns.
 
-## Next: ROM, RAM and one file
+## ROM, RAM and one file
 
-Decided, not built.
+Built and passing in simulation. Not yet run on a Pocket.
+
+What it measured, in simulation with the real firmware:
+
+- `firmware.bin` is 145 KB and the only card file.
+- The blob is 293 KB. It was 485 KB with the whole memory in it, and 325 KB
+  before this work.
+- The firmware's working data is 25 KB of the 64 KB RAM block, the stack
+  4 KB, and the heap the 36 KB between.
+- The look-ahead makes one trip to the SDRAM for four word reads where two
+  byte reads took one. A ROM load in the file test is 86,000 CPU clocks
+  shorter.
 
 ### The SDRAM's map
 
