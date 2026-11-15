@@ -90,8 +90,15 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
     # clk_sys is the rising edge of dram_clk, so a word that one
     # dram_clk_pin edge launches is latched on the next, a full period
     # later: 19.84 ns, less the 6.0 ns input delay and the time dram_clk
-    # takes to reach its pad. That is the relation the analyzer uses
-    # without a multicycle rule, and none is given.
+    # takes to reach its pad. The PLL's shift is 9920 ps where half a
+    # period is 9920.6, so on paper a falling edge of clk_sys comes
+    # 1 ps after the launch and the analyzer would time the capture
+    # against that one. The multicycle of two names the edge a period
+    # later, and the hold check stays on the 1 ps edge.
+    set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
+        -to [get_registers {*pocket_sdram*dq_cap*}] 2
+    set_multicycle_path -hold  -from [get_ports {dram_dq[*]}] \
+        -to [get_registers {*pocket_sdram*dq_cap*}] 1
 }
 
 # pocket_sram loads pocket_sram_a and pocket_sram_dq_out for the soft

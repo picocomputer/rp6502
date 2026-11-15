@@ -1,6 +1,6 @@
 # The soft CPU's memory in SDRAM
 
-A plan. Nothing here is built.
+Built and passing in simulation. Not yet run on a Pocket.
 
 The soft CPU's 96 KB is block memory: 96 of the FPGA's 308 M10K blocks, and
 the design uses 305. Its memory moves to the SDRAM, grows to 256 KB, and a
@@ -121,6 +121,15 @@ Every step ends with the simulation passing.
 8. **Fit.** Timing, and the block memory count.
 9. **Hardware**, by the owner: does it boot, does a program run, does a
    sleep wake.
+
+## Tuning, once it runs on a Pocket
+
+- **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
+  against the 8 KB 4-way it starts with.
+- **128 KB instead of 256 KB**, so a savestate carries less.
+- **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the fitter
+  could not close timing into the CPU's registers, and it was close. With
+  86 blocks free the fitter has room, so it is worth another try.
 
 ## The debug pin
 
