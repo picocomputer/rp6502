@@ -58,8 +58,8 @@ For review. Nothing here is built.
 `CSI Ps q` (DECLL) is a VT100 command for four spare lamps on its keyboard,
 L1 to L4, that a program could light for any reason. 0 puts them all out and
 1 to 4 light one; several numbers in one command are done left to right.
-XX
-to put one out. Linux numbers them differently and lights one at a time.
+xterm uses it for a PC's lamps: 1, 2 and 3 light Num, Caps and Scroll, and
+21, 22 and 23 put them out. Linux numbers them differently and lights one at a time.
 
 It only ever lights a lamp. It never changes a lock, so what the keys type
 stays the same and a lamp can disagree with its lock. Most terminals today
