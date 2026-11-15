@@ -60,35 +60,89 @@ microsecond.
 
 Timing after the last fit: setup 0.78 ns to spare, hold 0.115 ns.
 
-## The SDRAM's map
+## Next: ROM, RAM and one file
+
+Decided, not built.
+
+### The SDRAM's map
 
 The ROM slot is 62 MB and stays 62 MB: a whole ROM has to load into it, so
-its size is a limit of the system. The top 2 MB is ours, for the CPU's
-memory, the savestate window, the file windows and the card files. Nothing
-may take from the ROM slot again, and the map's gate checks it.
+its size is a limit of the system. The top 2 MB is ours, and the map's gate
+holds the line. In the 2 MB:
 
-Today the ROM slot is 62.75 MB and the CPU's memory sits in what was its
-top 256 KB, because the last megabyte had only 48 KB free. Step 2 below
-moves it.
+| Use | Size |
+|---|---|
+| The firmware's ROM block | 256 KB |
+| The firmware's RAM block | 64 KB or more |
+| The savestate window | the blob and the Pocket's 53 KB around it |
+| 8 file windows | 256 KB |
+| Get File scratch | 4 KB |
 
-## Next
+About a megabyte is left over.
 
-1. **An underscore in front of the four card files**, so they sort apart
-   from the ROMs in `Assets/rp6502/common`: `_firmware.bin`, `_fonts.bin`,
-   `_oemcp.bin`, `_keyboard.bin`.
-2. **The map.** The ROM slot ends at 62 MB, the CPU's memory moves into the
-   top 2 MB, and the gate holds the ROM slot at 62 MB.
-3. **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
-   against the 8 KB 4-way it has.
-4. **A smaller savestate.** Either 128 KB of memory instead of 256 KB, or
-   keep 256 KB and leave the code out of the blob: code never changes and
-   a wake loads `firmware.bin` again, so only data, heap and stack need
-   saving. The second needs the blob to carry the firmware's build, and a
-   wake to refuse a blob from another build.
-5. **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
-   fitter could not close timing into the CPU's registers, and it was
-   close. With 86 blocks free the fitter has room. The cache's hit path is
-   longer than the block memory's was, which works against it.
+### A ROM block and a RAM block
+
+The soft CPU's memory becomes two blocks, as on a microcontroller.
+
+- **The ROM block** is code and constants. The Pocket loads it from
+  `firmware.bin`, and nothing writes it afterwards.
+- **The RAM block** is data, heap and stack. It is no data slot, since
+  nothing loads it. The startup code copies the data segment's first values
+  from the ROM block and clears the rest.
+
+The linker script has the two regions. The savestate saves the RAM block,
+whole, and never the ROM block: a wake loads `firmware.bin` again.
+
+### One file
+
+Fonts, code pages and keyboard layouts are constant arrays in core that
+every other machine links, tagged `HOST_IN_FLASH`. The Pocket links them
+too, and they land in the ROM block. Its own font, code page and layout
+readers go, with their three data slots, three card files, three build
+steps and three "table missing" failures. `firmware.bin` grows from 71 KB
+to about 145 KB and is the only card file, so it needs no underscore.
+
+### The build check
+
+The firmware carries its compile time at a fixed place, and the blob carries
+it too. A wake whose blob names another build is refused, as an old blob
+version is. It catches a card whose firmware changed while the Pocket slept.
+
+### Two caches
+
+- **The main cache** is for the ROM and RAM blocks alone. Data never passes
+  through it, so a burst of file data cannot push the firmware's code out.
+- **A look-ahead** for everything else: the ROM image, the file windows,
+  the Get File scratch. It holds one 16-byte line, read-only. One trip to
+  the SDRAM fetches the line and the reads that follow are answered from
+  it, a word at a time, where every byte is its own access today. Any write
+  by the Pocket throws the line away, in hardware, so the firmware has no
+  rule to remember. About 150 flops and no block memory.
+
+Fetching the next line ahead of the CPU is left until the one-line version
+is measured.
+
+### Order
+
+1. The map: the ROM slot to 62 MB, the blocks and windows placed in the
+   2 MB, the gate.
+2. ROM and RAM blocks: the linker script, the startup copy, the cache's
+   address map, the savestate saving the RAM block alone, the build check.
+3. One file: the tables in the ROM block, the Pocket's readers and slots
+   gone.
+4. The look-ahead, and the firmware reading words through it.
+5. Fit, then the Pocket: boot, a program, a sleep and a wake, a wake after
+   the card's firmware changed.
+
+## Tuning, after that runs on a Pocket
+
+- **The main cache's shape.** 4, 8 and 16 KB; 2 and 4 ways; and replacing
+  the least recently used line where it replaces lines in turn today.
+- **The RAM block's size**, which the savestate carries.
+- **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
+  fitter could not close timing into the CPU's registers, and it was
+  close. With 86 blocks free the fitter has room. The cache's hit path is
+  longer than the block memory's was, which works against it.
 
 ## To clean up
 
