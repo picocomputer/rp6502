@@ -172,3 +172,31 @@ memories, and core's font builder writes whole 32-bit words.
   back, all through registers named _s1.
 - **The version registers.** Two constants on the soft CPU's host bus,
   one more leg of pocket_core's read mux.
+
+## Left open when the wake work stopped
+
+Committed and passing in simulation, 337 tests. No fit has been run on it
+and it has not been on a Pocket.
+
+- **A load gets round the match check.** The firmware checks the two
+  numbers at boot only. A savestate load restores a running firmware
+  without passing it. The engine should refuse a load while the ROM
+  block's two numbers (offsets 8 and 12) differ from the bitstream's.
+- **A core stopped at the cursor never ends a load**, so the engine waits
+  in S_LD_ACK and the next save reads busy for ever. A stopped core must
+  answer a save and a load and come back to the cursor.
+- **The cursor comes from the firmware.** The stopped firmware writes five
+  video registers to show it (sw/ver.c). The bitstream should show the
+  blinking cursor from power-up, and the stopped firmware touch nothing.
+- **fs_std_opening** tests `fs_adrift()` before it reads `SST_REFUSING`.
+  Read the level first, then test.
+- **A blob arriving while a program runs** stops the program, and with no
+  load restarts it 2 s later. The engine halts the CPU for a load by
+  itself, so the stop may not be needed at all. Find out before patching.
+- **Tests.** Two psleep cases cannot tell a resume from a restart
+  (`a_sleep_inside_a_file_operation_still_finishes_it`,
+  `a_running_program_survives_the_reconfigure`). The guess that a load in
+  reset reads ok is outside the `ANSWER_` constants in two places. The
+  trap case's second save lands before the emulated access.
+- **Core changed.** `std_sst_refused` and `resumes_writes` are in every
+  build. The emulator tests and a Pico build have not been run on it.
