@@ -16,7 +16,54 @@ and DECSCNM in bit 26 of VID_CURSOR. mode0.sv has to draw them (Quartus):
 - **Double height:** as double width, drawing the top or bottom half of each
   glyph with every glyph row twice.
 
-## 2. Recolor and protected areas, and the Pocket memory for them
+## 2. Harvest memory
+
+Memory that comes back on every machine. The Pocket is the one that needs
+it: its soft CPU has 96 KB and about 7 KB free, and section 4 needs about
+14 KB more. Sizes are measured in the Pocket's image.
+
+- **Options in the scanline table.** Mode 2 keeps the options word of its
+  XREG call in an array of its own, for every scanline and plane: 3 KB that
+  the Pocket never reads, since its FPGA table already holds the options. A
+  row of the scanline table gets an options word for each plane, beside the
+  renderer and the config pointer. Mode 2 reads it from the row and
+  `mode2_options` goes. A savestate reads it from the row too, so the
+  functions in modes 0, 1 and 3 that work the options out from the renderer
+  go. 3 KB on the Pocket, about 1 KB on the Pico. Check mode 2's speed on
+  the board.
+- **64-bit divides.** The four library routines are 3.5 KB together, and
+  one goes when nothing calls it. The callers: the PCM file open, the HID
+  analog scaling, the time of day, the clock attribute, the APF slot task
+  and the system walk. libc's `gmtime_r` calls the two signed ones, so
+  those 1.8 KB wait for section 3.
+- **The line editor's history** is 2 KB, 8 lines of 256 bytes, and serves
+  only the monitor, which the Pocket doesn't have. A flag turns it off as
+  the program runs, so the linker keeps it. The monitor brings the history,
+  and a machine without a monitor doesn't link it.
+
+Staying: the 1 KB scratch buffer, and the file pool's 2.2 KB, whose names
+reopen the files after a savestate.
+
+- **One scratch buffer, in core.** Every machine has one 1 KB buffer that
+  the ROM reader fills a record at a time, but each brings its own: the RIA
+  passes the monitor's `mbuf`, and the emulators and the Pocket each have a
+  `static buf` with no name inside their loader. Core gets the one buffer,
+  `buf1k`, in core/sys/buf1k.c, and every machine links it. The ROM reader
+  reads into it and its functions lose their buffer argument, the two
+  unnamed buffers go, and the RIA's `mbuf` becomes `buf1k`. What the RIA's
+  monitor keeps beside it stays in the RIA: how many bytes it holds, and
+  reading it from the console. No memory changes.
+
+## 3. Our own time library
+
+On every platform, with only what we use: no `strftime`, `tzset` (and the
+`sscanf` it pulls in), `mktime`, `localtime`, `gmtime` or `setenv`; 32-bit
+day arithmetic. About 6 KB on the Pocket, not measured again, and the last
+1.8 KB of the 64-bit divides.
+
+## 4. Recolor and protected areas
+
+After sections 2 and 3 free the memory.
 
 - **Recolor text already on screen** when OSC 4, 104, 10, 11 or the Linux
   palette sequences change a color, as xterm and Linux do.
@@ -34,22 +81,7 @@ follows the foreground. The renderers and the FPGA don't change.
 | Pico VGA, 7,680 cells | 61.4 KB in VIDEO, as now | 23 KB in lower RAM (86 KB free) |
 | Pocket, 7,200 cells | 57.6 KB in VIDCELLS, as now | 21.6 KB of the soft CPU's 96 KB |
 
-The Pocket needs about 14 KB more free than the ~7 KB it has. Ideas, each
-with what it saves:
-
-- **Our own time library** on every platform, with only what we use: no
-  `strftime`, `tzset` (and the `sscanf` it pulls in), `mktime`, `localtime`,
-  `gmtime` or `setenv`; 32-bit day arithmetic. About 6 KB.
-- **`mode2_options`** once per program instead of per scanline and plane.
-  About 3 KB.
-- **`api_return_errno`** as one function instead of eight inline copies.
-  About 2.2 KB.
-- **The line editor's history** serves only the monitor, which the Pocket
-  doesn't have. 2 KB.
-- **64-bit divides** in the APF, HID and clock code. About 1.7 KB.
-- **Buffers:** com.c's 1 KB buffer and the file system's pool. 1-2 KB.
-
-## 3. The lock keys, to try on real machines
+## 5. The lock keys, to try on real machines
 
 The emulators follow the system's NumLock, Caps Lock and Scroll Lock. The
 Windows and macOS code has been compiled by CI and never run, and the web
