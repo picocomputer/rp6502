@@ -68,7 +68,7 @@
  * before CFG_DRIVER because cfg_init reads the config file from littlefs.
  * USB_DRIVER comes near the end because every init after usb_init runs before
  * usb_task can enumerate a device, so each one uses up part of the boot
- * enumeration window that usb_init starts and keyboard_mount checks.
+ * enumeration window that usb_init starts and keymap.c checks.
  *
  * sys_task runs the tasks in this same order. ROM_DRIVER comes before
  * NFC_DRIVER and API_DRIVER because nfc_task and api_task can call

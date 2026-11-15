@@ -835,14 +835,16 @@ class Console:
     def send_break(self):
         """Stop the 6502 and return to monitor."""
         # Try twice in case RIA is writing
+        # What arrives first can be the tail of an escape sequence the
+        # program was sending, so it is not the start of a line.
         try:
             self.serial.flush_read_bufs()
             self.serial.send_break()
-            self.wait_for_prompt("]")
+            self.wait_for_prompt("]", at_line_start=False)
         except TimeoutError:
             self.serial.flush_read_bufs()
             self.serial.send_break()
-            self.wait_for_prompt("]")
+            self.wait_for_prompt("]", at_line_start=False)
 
     def command(self, cmd: str, timeout: float = RESPONSE_TIMEOUT):
         """Send one command and wait for next monitor prompt."""
@@ -895,11 +897,11 @@ class Console:
             addr += len(data)
             addr, data = rom.next_rom_data(addr)
 
-    def wait_for_prompt(self, prompt: str, timeout: float = RESPONSE_TIMEOUT):
+    def wait_for_prompt(self, prompt: str, timeout: float = RESPONSE_TIMEOUT,
+                        at_line_start: bool = True):
         """Wait for a specific prompt from the device."""
         prompt_bytes = bytes(prompt, "ascii")
         start = time.monotonic()
-        at_line_start = True
         while True:
             if len(prompt) == 1:
                 data = self.serial.read(1)

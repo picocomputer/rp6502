@@ -60,7 +60,7 @@
  * before VGA because vga_init sends a PIX message, and LFS comes before CFG
  * because cfg_init reads its file from the volume that lfs_init mounts. USB
  * comes near the end because usb_init starts the boot enumeration window that
- * keyboard_mount checks, and every init after usb_init runs before usb_task
+ * keymap.c checks, and every init after usb_init runs before usb_task
  * can mount a keyboard, so a slow init can use up the window first. PHI2
  * comes after RIA and PIX because phi2_init sets the clock dividers of state
  * machines that ria_init and pix_init configure.

@@ -122,47 +122,6 @@ static uint8_t sokol_to_hid(int kc)
     }
 }
 
-/* The US-ASCII character of a printable sokol keycode, honoring shift, else 0.
- * The CHAR case below drops Ctrl and Alt chords, except where Ctrl+Alt means
- * AltGr, so the character such a chord carries is reconstructed from the
- * keycode here. It is a US-layout approximation and not a match for the code
- * page in force. */
-static char ascii_from_key(int kc, bool shift)
-{
-    if (kc >= SAPP_KEYCODE_A && kc <= SAPP_KEYCODE_Z)
-        return (char)(shift ? 'A' + (kc - SAPP_KEYCODE_A) : 'a' + (kc - SAPP_KEYCODE_A));
-    if (kc >= SAPP_KEYCODE_0 && kc <= SAPP_KEYCODE_9)
-    {
-        static const char shifted[] = ")!@#$%^&*(";
-        return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
-    }
-    /* What the keypad types when hostkey_press leaves it a character. */
-    if (kc >= SAPP_KEYCODE_KP_0 && kc <= SAPP_KEYCODE_KP_9)
-        return (char)('0' + (kc - SAPP_KEYCODE_KP_0));
-    switch (kc)
-    {
-    case SAPP_KEYCODE_KP_DECIMAL: return '.';
-    case SAPP_KEYCODE_KP_DIVIDE: return '/';
-    case SAPP_KEYCODE_KP_MULTIPLY: return '*';
-    case SAPP_KEYCODE_KP_SUBTRACT: return '-';
-    case SAPP_KEYCODE_KP_ADD: return '+';
-    case SAPP_KEYCODE_KP_EQUAL: return '=';
-    case SAPP_KEYCODE_SPACE: return ' ';
-    case SAPP_KEYCODE_MINUS: return shift ? '_' : '-';
-    case SAPP_KEYCODE_EQUAL: return shift ? '+' : '=';
-    case SAPP_KEYCODE_LEFT_BRACKET: return shift ? '{' : '[';
-    case SAPP_KEYCODE_RIGHT_BRACKET: return shift ? '}' : ']';
-    case SAPP_KEYCODE_BACKSLASH: return shift ? '|' : '\\';
-    case SAPP_KEYCODE_SEMICOLON: return shift ? ':' : ';';
-    case SAPP_KEYCODE_APOSTROPHE: return shift ? '"' : '\'';
-    case SAPP_KEYCODE_GRAVE_ACCENT: return shift ? '~' : '`';
-    case SAPP_KEYCODE_COMMA: return shift ? '<' : ',';
-    case SAPP_KEYCODE_PERIOD: return shift ? '>' : '.';
-    case SAPP_KEYCODE_SLASH: return shift ? '?' : '/';
-    default: return 0;
-    }
-}
-
 /* AltGr arrives as Ctrl+Alt only where the host reports it that way, which is
  * Windows and a browser on a Windows host. On X11 AltGr is Mod5 and on macOS it
  * is Option, so there Ctrl+Alt can only be a held chord and never a composed
@@ -220,19 +179,20 @@ static void input_key(const sapp_event *e)
         suppress_char = false;
         if (e->key_repeat && input_chord_held)
             break;
-        /* The character of a Ctrl or Alt chord. Any other key's text
-         * arrives through the CHAR case above. */
-        char ch = 0;
+        /* The system gives no text for a Ctrl or Alt chord, so its
+         * character is guessed. Any other key's text arrives through the
+         * CHAR case above. */
+        bool guess = false;
         if (ctrl && !alt)
         {
-            ch = ascii_from_key(e->key_code, shift);
+            guess = true;
 #if defined(__EMSCRIPTEN__)
             /* The browser, not sokol, decides when a paste fires, and any
              * Ctrl+V variant can land a JavaScript paste event, so every
              * Ctrl+V chord types the pasted text instead of 0x16. */
             if (e->key_code == SAPP_KEYCODE_V &&
                 sapp_query_desc().enable_clipboard)
-                ch = 0;
+                guess = false;
 #elif !defined(__APPLE__)
             /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
              * Ctrl and the key is V, so that one chord types the pasted text
@@ -242,24 +202,21 @@ static void input_key(const sapp_event *e)
             if (e->key_code == SAPP_KEYCODE_V &&
                 e->modifiers == SAPP_MODIFIER_CTRL &&
                 sapp_query_desc().enable_clipboard)
-                ch = 0;
+                guess = false;
 #endif
         }
         /* Ctrl+Alt is excluded only where it means AltGr, whose composed
          * character arrives through the CHAR case above. */
         else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-            ch = ascii_from_key(e->key_code, shift);
-        /* With NumLock on a keypad key is left to the host's character, and
-         * with it off the key navigates and the host sends no character. */
+            guess = true;
         uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                                  (ctrl ? VTKEY_CTRL : 0) |
-                                  ((keyboard_get_locks() & KEYBOARD_LED_NUMLOCK) ? VTKEY_NUMLOCK : 0));
-        hostkey_result_t result = hostkey_press(hid, flags, ch);
+                                  (ctrl ? VTKEY_CTRL : 0));
+        hostkey_result_t result = hostkey_press(hid, flags, guess);
         if (result == HOSTKEY_CHORD)
             input_chord_held = true;
         /* A key that typed with no character from here must not type
-         * the host's character too. */
-        else if (result == HOSTKEY_TYPED && !ch)
+         * the system's character too. */
+        else if (result == HOSTKEY_TYPED && !guess)
             suppress_char = true;
         break;
     }

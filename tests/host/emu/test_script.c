@@ -56,7 +56,8 @@ UTEST(script, checks_are_free)
     ASSERT_EQ(frames_for("seed 5\ndiscard\n"), 0ul);
 }
 
-/* emu_restart leaves NumLock on, as a machine with a keyboard starts. */
+/* A script has no keyboard, so its locks start off and only it changes
+ * them. */
 UTEST(script, locks_start_off)
 {
     ASSERT_EQ(frames_for("expect lock num off\n"), 0ul);

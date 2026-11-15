@@ -5,6 +5,7 @@
  */
 
 #include "core/hid/vtkey.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/term/cells.h"
 #include "machine.h"
@@ -105,7 +106,7 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
     {
         /* Shift is spent on undoing NumLock, so it is not a modifier of
          * what the key then sends. */
-        bool numlock = flags & VTKEY_NUMLOCK;
+        bool numlock = keyboard_get_locks() & KEYBOARD_LED_NUMLOCK;
         if (numlock && (flags & VTKEY_SHIFT))
         {
             numlock = false;

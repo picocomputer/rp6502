@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Keys to characters: the layout lookup, dead keys, Alt codes and auto-repeat.
- * Kept apart from keyboard.c because a machine whose host has already done
- * this work links neither this file nor the layout database. */
+/* The keyboard driver of a machine with no system under it. Keys to
+ * characters: the layout lookup, dead keys, Alt codes and auto-repeat. And
+ * the locks, which are this file's: their keys, their LEDs and how they
+ * start. Kept apart from keyboard.c because a machine whose host has already
+ * done this work links neither this file nor the layout database. */
 
 #include "core/sys/timer.h"
 #include "machine.h"
@@ -72,6 +74,61 @@ void keymap_use_layout(int index)
 }
 
 static void keymap_rebuild_code_page_cache(void);
+
+/* This machine is the keyboard driver, so the locks are its own: they go to
+ * the keyboard's LEDs as they change. */
+static void HOST_IN_RAM_FUNC keymap_set_locks(uint8_t locks)
+{
+    keyboard_set_locks(locks);
+    hid_set_leds(locks);
+}
+
+/* A press of NumLock, CapsLock or ScrollLock flips its lock. False for any
+ * other key. */
+static bool HOST_IN_RAM_FUNC keymap_lock_key(uint8_t keycode)
+{
+    uint8_t bit;
+    if (keycode == HID_KEY_NUM_LOCK)
+        bit = KEYBOARD_LED_NUMLOCK;
+    else if (keycode == HID_KEY_CAPS_LOCK)
+        bit = KEYBOARD_LED_CAPSLOCK;
+    else if (keycode == HID_KEY_SCROLL_LOCK)
+        bit = KEYBOARD_LED_SCROLLLOCK;
+    else
+        return false;
+    keymap_set_locks(keyboard_get_locks() ^ bit);
+    return true;
+}
+
+/* An RP6502 boots with NumLock on, the way an IBM AT and Windows do. */
+void HOST_IN_FLASH_FUNC keymap_init(void)
+{
+    keymap_set_locks(KEYBOARD_LED_NUMLOCK);
+}
+
+/* The Raspberry Pi Keyboard has no keypad and uses NumLock to lay one over
+ * its letter keys, because it was designed for Linux, which boots NumLock
+ * off. */
+static const struct
+{
+    uint16_t vid;
+    uint16_t pid;
+} keymap_numlock_off_at_boot[] = {
+    {0x04D9, 0x0006}, // Raspberry Pi Keyboard
+};
+
+void HOST_IN_FLASH_FUNC keyboard_on_mount(uint16_t vendor_id, uint16_t product_id)
+{
+    if (!hid_boot_enumerating())
+        return;
+    for (size_t k = 0; k < sizeof(keymap_numlock_off_at_boot) / sizeof(keymap_numlock_off_at_boot[0]); k++)
+        if (keymap_numlock_off_at_boot[k].vid == vendor_id &&
+            keymap_numlock_off_at_boot[k].pid == product_id)
+        {
+            keymap_set_locks(keyboard_get_locks() & (uint8_t)~KEYBOARD_LED_NUMLOCK);
+            break;
+        }
+}
 
 /* The cache holds OEM bytes, so it is only good for the page it was built
  * from. The page is checked here, on the way into a keystroke, rather than
@@ -274,7 +331,7 @@ static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
         return true;
     }
     return proc_key_chord(k->keycode, k->ctrl, k->alt) ||
-           keyboard_lock_key(k->keycode);
+           keymap_lock_key(k->keycode);
 }
 
 /* What the encoder made of a key. One byte goes through the composer, so DEL
@@ -312,7 +369,7 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
         return;
     }
     uint8_t flags = (uint8_t)((k.shift ? VTKEY_SHIFT : 0) | (k.alt ? VTKEY_ALT : 0) |
-                              (k.ctrl ? VTKEY_CTRL : 0) | (k.numlock ? VTKEY_NUMLOCK : 0));
+                              (k.ctrl ? VTKEY_CTRL : 0));
     char seq[VTKEY_MAX];
     int n = vtkey_encode(seq, k.keycode, flags);
     if (n == VTKEY_CHAR)

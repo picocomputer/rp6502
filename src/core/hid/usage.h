@@ -18,11 +18,14 @@
 #define _CORE_HID_USAGE_H_
 
 #define HID_KEY_NONE 0x00
+#define HID_KEY_A 0x04
+#define HID_KEY_Z 0x1D
 #define HID_KEY_ENTER 0x28
 #define HID_KEY_ESCAPE 0x29
 #define HID_KEY_BACKSPACE 0x2A
 #define HID_KEY_TAB 0x2B
 #define HID_KEY_SPACE 0x2C
+#define HID_KEY_SLASH 0x38
 #define HID_KEY_CAPS_LOCK 0x39
 #define HID_KEY_F1 0x3A
 #define HID_KEY_F2 0x3B

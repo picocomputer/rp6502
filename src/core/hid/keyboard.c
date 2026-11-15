@@ -11,17 +11,6 @@
 #include "core/hid/usage.h"
 #include <string.h>
 
-/* An RP6502 boots with NumLock on, the way an IBM AT and Windows do. The
- * Raspberry Pi Keyboard has no keypad and uses NumLock to lay one over its
- * letter keys, because it was designed for Linux, which boots NumLock off. */
-static const struct
-{
-    uint16_t vid;
-    uint16_t pid;
-} keyboard_numlock_off_at_boot[] = {
-    {0x04D9, 0x0006}, // Raspberry Pi Keyboard
-};
-
 static uint16_t keyboard_xram;
 static uint8_t keyboard_locks;
 static uint32_t keyboard_keys[8];
@@ -58,7 +47,7 @@ static void HOST_IN_RAM_FUNC keyboard_merge_keys(void)
 }
 
 /* Word 0's low four bits are not keys. Bit 0 says nothing is pressed and bits
- * 1 to 3 are the lock lamps, so both are restated every time the block is
+ * 1 to 3 are the locks, so both are restated every time the block is
  * published. */
 static void HOST_IN_RAM_FUNC keyboard_publish(void)
 {
@@ -103,8 +92,7 @@ bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
 void HOST_IN_FLASH_FUNC keyboard_init(void)
 {
     keyboard_stop();
-    keyboard_locks = KEYBOARD_LED_NUMLOCK;
-    hid_set_leds(keyboard_locks);
+    keyboard_locks = 0;
 }
 
 void keyboard_stop(void)
@@ -123,16 +111,7 @@ bool keyboard_mount(int slot, const keyboard_connection_t *desc,
             continue;
         keyboard_connections[i] = *desc;
         keyboard_connections[i].slot = slot;
-
-        if (hid_boot_enumerating())
-            for (size_t k = 0; k < sizeof(keyboard_numlock_off_at_boot) / sizeof(keyboard_numlock_off_at_boot[0]); k++)
-                if (keyboard_numlock_off_at_boot[k].vid == vendor_id &&
-                    keyboard_numlock_off_at_boot[k].pid == product_id)
-                {
-                    keyboard_locks &= ~KEYBOARD_LED_NUMLOCK;
-                    hid_set_leds(keyboard_locks);
-                    break;
-                }
+        keyboard_on_mount(vendor_id, product_id);
         return true;
     }
     return false;
@@ -243,30 +222,12 @@ uint8_t HOST_IN_RAM_FUNC keyboard_get_locks(void)
     return keyboard_locks;
 }
 
-bool HOST_IN_RAM_FUNC keyboard_lock_key(uint8_t keycode)
+void HOST_IN_RAM_FUNC keyboard_set_locks(uint8_t locks)
 {
-    uint8_t bit;
-    if (keycode == HID_KEY_NUM_LOCK)
-        bit = KEYBOARD_LED_NUMLOCK;
-    else if (keycode == HID_KEY_CAPS_LOCK)
-        bit = KEYBOARD_LED_CAPSLOCK;
-    else if (keycode == HID_KEY_SCROLL_LOCK)
-        bit = KEYBOARD_LED_SCROLLLOCK;
-    else
-        return false;
-    keyboard_locks ^= bit;
-    hid_set_leds(keyboard_locks);
-    keyboard_publish();
-    return true;
-}
-
-void keyboard_set_locks(uint8_t leds)
-{
-    leds &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
-    if (leds == keyboard_locks)
+    locks &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
+    if (locks == keyboard_locks)
         return;
-    keyboard_locks = leds;
-    hid_set_leds(keyboard_locks);
+    keyboard_locks = locks;
     keyboard_publish();
 }
 

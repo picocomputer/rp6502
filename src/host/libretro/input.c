@@ -94,67 +94,16 @@ static uint8_t retrok_to_hid(unsigned k)
     }
 }
 
-/* US-ASCII of a printable RETROK honoring shift, else 0. Several frontends
- * send no composed character at all, and this is what still gets those a
- * character and a chord. It approximates a US layout rather than matching the
- * machine's OEM code page. */
-static char ascii_from_key(unsigned k, bool shift)
-{
-    if (k >= RETROK_a && k <= RETROK_z)
-        return (char)(shift ? 'A' + (k - RETROK_a) : 'a' + (k - RETROK_a));
-    if (k >= RETROK_0 && k <= RETROK_9)
-    {
-        static const char shifted[] = ")!@#$%^&*(";
-        return shift ? shifted[k - RETROK_0] : (char)('0' + (k - RETROK_0));
-    }
-    /* What the keypad types when hostkey_press leaves it a character. */
-    if (k >= RETROK_KP0 && k <= RETROK_KP9)
-        return (char)('0' + (k - RETROK_KP0));
-    switch (k)
-    {
-    case RETROK_KP_PERIOD: return '.';
-    case RETROK_KP_DIVIDE: return '/';
-    case RETROK_KP_MULTIPLY: return '*';
-    case RETROK_KP_MINUS: return '-';
-    case RETROK_KP_PLUS: return '+';
-    case RETROK_KP_EQUALS: return '=';
-    case RETROK_SPACE: return ' ';
-    case RETROK_MINUS: return shift ? '_' : '-';
-    case RETROK_EQUALS: return shift ? '+' : '=';
-    case RETROK_LEFTBRACKET: return shift ? '{' : '[';
-    case RETROK_RIGHTBRACKET: return shift ? '}' : ']';
-    case RETROK_BACKSLASH: return shift ? '|' : '\\';
-    case RETROK_SEMICOLON: return shift ? ':' : ';';
-    case RETROK_QUOTE: return shift ? '"' : '\'';
-    case RETROK_BACKQUOTE: return shift ? '~' : '`';
-    case RETROK_COMMA: return shift ? '<' : ',';
-    case RETROK_PERIOD: return shift ? '>' : '.';
-    case RETROK_SLASH: return shift ? '?' : '/';
-    /* Some frontends report the symbol rather than the key that made it. */
-    case RETROK_EXCLAIM: return '!';
-    case RETROK_QUOTEDBL: return '"';
-    case RETROK_HASH: return '#';
-    case RETROK_DOLLAR: return '$';
-    case RETROK_AMPERSAND: return '&';
-    case RETROK_LEFTPAREN: return '(';
-    case RETROK_RIGHTPAREN: return ')';
-    case RETROK_ASTERISK: return '*';
-    case RETROK_PLUS: return '+';
-    case RETROK_COLON: return ':';
-    case RETROK_LESS: return '<';
-    case RETROK_GREATER: return '>';
-    case RETROK_QUESTION: return '?';
-    case RETROK_AT: return '@';
-    case RETROK_CARET: return '^';
-    case RETROK_UNDERSCORE: return '_';
-    default: return 0;
-    }
-}
-
 void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
                           uint16_t key_modifiers)
 {
+    /* Some frontends report the symbol rather than the key that made it. A
+     * RETROK of a symbol is its ASCII code, and the key is the one a US
+     * keyboard has it on. */
+    bool symbol_shift = false;
     uint8_t hid = retrok_to_hid(keycode);
+    if (!hid && keycode < 0x7F)
+        hid = hostkey_us_key((char)keycode, &symbol_shift);
     /* The frontend has no repeat flag. A repeat is a press of a key that is
      * already down. */
     bool repeat = hid && keyboard_key_down(hid);
@@ -164,7 +113,7 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
         return;
 
     bool ctrl = (key_modifiers & RETROKMOD_CTRL) != 0;
-    bool shift = (key_modifiers & RETROKMOD_SHIFT) != 0;
+    bool shift = symbol_shift || (key_modifiers & RETROKMOD_SHIFT) != 0;
     bool alt = (key_modifiers & RETROKMOD_ALT) != 0;
 
     /* The locks are the ones the frontend sends with a key rather than
@@ -187,15 +136,13 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
         return;
 
     /* The frontend has already applied the keyboard layout, so its character
-     * is better than anything reconstructed from a keycode. Ctrl+<key> is a C0
-     * byte and Alt+<key> is ESC then the byte, so neither is the character the
-     * frontend composed. Both are built from the keycode instead. */
+     * is better than a guess. Ctrl+<key> is a C0 byte and Alt+<key> is ESC
+     * then the byte, so neither is the character the frontend composed, and
+     * several frontends send no character at all. Those are guessed. */
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
     uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                              (ctrl ? VTKEY_CTRL : 0) |
-                              ((key_modifiers & RETROKMOD_NUMLOCK) ? VTKEY_NUMLOCK : 0));
-    char ch = composed ? 0 : ascii_from_key(keycode, shift);
-    if (hostkey_press(hid, flags, ch) == HOSTKEY_NONE && composed)
+                              (ctrl ? VTKEY_CTRL : 0));
+    if (hostkey_press(hid, flags, !composed) == HOSTKEY_NONE && composed)
         hostkey_char(character);
 }
 

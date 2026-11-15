@@ -47,11 +47,13 @@ bool keyboard_umount(int slot);
 
 void keyboard_report(int slot, uint8_t const *data, size_t size);
 
-/* The machine's hooks. keyboard_report calls the first on every new key
- * press, with the modifier byte all keyboards hold between them, and the
- * second after every report. A machine with a layout answers them in
+/* The machine's hooks. keyboard_mount calls the first for a keyboard it
+ * takes. keyboard_report calls the second on every new key press, with the
+ * modifier byte all keyboards hold between them, and the third after every
+ * report. A machine that is its own keyboard driver answers them in
  * core/hid/keymap.c; one whose host already decoded the key answers with
  * nothing. */
+void keyboard_on_mount(uint16_t vendor_id, uint16_t product_id);
 void keyboard_on_press(uint8_t modifier, uint8_t keycode);
 void keyboard_on_modifiers(uint8_t modifier);
 
@@ -64,16 +66,13 @@ bool keyboard_is_mapped(void);
 uint8_t keyboard_get_modifier(void);
 bool keyboard_key_down(uint8_t keycode);
 
-/* The locks, in KEYBOARD_LED_ bits. */
+/* NumLock, CapsLock and ScrollLock, in KEYBOARD_LED_ bits. This file only
+ * keeps them, for the program's bitmap and for what the keys type. Their
+ * owner sets them: core/hid/keymap.c on a machine that is its own keyboard
+ * driver, where a lock key flips its lock and its light, and otherwise the
+ * host, from the system that drives its keyboard. They start off. */
 uint8_t keyboard_get_locks(void);
-
-/* A press of NumLock, CapsLock or ScrollLock toggles its lock. False for any
- * other key. */
-bool keyboard_lock_key(uint8_t keycode);
-
-/* A host that receives the lock state from its platform passes it here, in
- * KEYBOARD_LED_ bits. */
-void keyboard_set_locks(uint8_t leds);
+void keyboard_set_locks(uint8_t locks);
 
 void keyboard_set_key(uint8_t keycode, bool down);
 

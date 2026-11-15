@@ -1047,65 +1047,62 @@ static bool script_cmd_tablet(char *p)
     return script_error("tablet wants at, touch, wheel or clear");
 }
 
-/* The keys with a name instead of a character, and what each one types on a
- * US keyboard without and with shift. Letters, digits, function keys and the
- * keypad are computed below rather than listed. A key that types nothing, and
- * the four hostkey_press answers for itself, carry 0. Only the script language
- * takes a key as text, so the table lives here and not in core. */
+/* The keys with a name instead of a character. Letters, digits, function
+ * keys and the keypad's digits are computed below rather than listed. Only
+ * the script language takes a key as text, so the table lives here and not in
+ * core. */
 static const struct
 {
     const char *name;
     uint8_t hid;
-    char plain;
-    char shifted;
 } script_named[] = {
-    {"enter", 0x28, 0, 0},
-    {"escape", 0x29, 0, 0},
-    {"backspace", 0x2A, 0, 0},
-    {"tab", 0x2B, 0, 0},
-    {"up", 0x52, 0, 0},
-    {"down", 0x51, 0, 0},
-    {"left", 0x50, 0, 0},
-    {"right", 0x4F, 0, 0},
-    {"home", 0x4A, 0, 0},
-    {"end", 0x4D, 0, 0},
-    {"insert", 0x49, 0, 0},
-    {"delete", 0x4C, 0, 0},
-    {"pageup", 0x4B, 0, 0},
-    {"pagedown", 0x4E, 0, 0},
-    {"kpenter", 0x58, 0, 0},
-    {"space", 0x2C, ' ', ' '},
-    {"minus", 0x2D, '-', '_'},
-    {"equal", 0x2E, '=', '+'},
-    {"leftbracket", 0x2F, '[', '{'},
-    {"rightbracket", 0x30, ']', '}'},
-    {"backslash", 0x31, '\\', '|'},
-    {"semicolon", 0x33, ';', ':'},
-    {"apostrophe", 0x34, '\'', '"'},
-    {"grave", 0x35, '`', '~'},
-    {"comma", 0x36, ',', '<'},
-    {"period", 0x37, '.', '>'},
-    {"slash", 0x38, '/', '?'},
-    {"capslock", 0x39, 0, 0},
-    {"printscreen", 0x46, 0, 0},
-    {"scrolllock", 0x47, 0, 0},
-    {"pause", 0x48, 0, 0},
-    {"numlock", 0x53, 0, 0},
-    {"menu", 0x65, 0, 0},
-    {"kpdivide", 0x54, '/', '/'},
-    {"kpmultiply", 0x55, '*', '*'},
-    {"kpsubtract", 0x56, '-', '-'},
-    {"kpadd", 0x57, '+', '+'},
-    {"kpdecimal", 0x63, '.', '.'},
-    {"kpequal", 0x67, '=', '='},
-    {"lctrl", 0xE0, 0, 0},
-    {"lshift", 0xE1, 0, 0},
-    {"lalt", 0xE2, 0, 0},
-    {"lsuper", 0xE3, 0, 0},
-    {"rctrl", 0xE4, 0, 0},
-    {"rshift", 0xE5, 0, 0},
-    {"ralt", 0xE6, 0, 0},
-    {"rsuper", 0xE7, 0, 0},
+    {"enter", 0x28},
+    {"escape", 0x29},
+    {"backspace", 0x2A},
+    {"tab", 0x2B},
+    {"up", 0x52},
+    {"down", 0x51},
+    {"left", 0x50},
+    {"right", 0x4F},
+    {"home", 0x4A},
+    {"end", 0x4D},
+    {"insert", 0x49},
+    {"delete", 0x4C},
+    {"pageup", 0x4B},
+    {"pagedown", 0x4E},
+    {"kpenter", 0x58},
+    {"space", 0x2C},
+    {"minus", 0x2D},
+    {"equal", 0x2E},
+    {"leftbracket", 0x2F},
+    {"rightbracket", 0x30},
+    {"backslash", 0x31},
+    {"semicolon", 0x33},
+    {"apostrophe", 0x34},
+    {"grave", 0x35},
+    {"comma", 0x36},
+    {"period", 0x37},
+    {"slash", 0x38},
+    {"capslock", 0x39},
+    {"printscreen", 0x46},
+    {"scrolllock", 0x47},
+    {"pause", 0x48},
+    {"numlock", 0x53},
+    {"menu", 0x65},
+    {"kpdivide", 0x54},
+    {"kpmultiply", 0x55},
+    {"kpsubtract", 0x56},
+    {"kpadd", 0x57},
+    {"kpdecimal", 0x63},
+    {"kpequal", 0x67},
+    {"lctrl", 0xE0},
+    {"lshift", 0xE1},
+    {"lalt", 0xE2},
+    {"lsuper", 0xE3},
+    {"rctrl", 0xE4},
+    {"rshift", 0xE5},
+    {"ralt", 0xE6},
+    {"rsuper", 0xE7},
 };
 
 static int script_fkey_num(const char *name)
@@ -1125,15 +1122,9 @@ static int script_fkey_num(const char *name)
     return (n >= 1 && n <= 12) ? n : 0;
 }
 
-/* The usage a name means, and the characters that key types. plain and
- * shifted may be NULL, and are 0 for a key that types nothing. */
-static uint8_t script_key_from_name(const char *name, char *plain, char *shifted)
+/* The usage a name means, or 0. */
+static uint8_t script_key_from_name(const char *name)
 {
-    static const char digit_shifted[] = ")!@#$%^&*(";
-    if (plain)
-        *plain = 0;
-    if (shifted)
-        *shifted = 0;
     if (!name || !name[0])
         return 0;
     if (!name[1])
@@ -1142,45 +1133,20 @@ static uint8_t script_key_from_name(const char *name, char *plain, char *shifted
         if (c >= 'A' && c <= 'Z')
             c = (char)(c + 32);
         if (c >= 'a' && c <= 'z')
-        {
-            if (plain)
-                *plain = c;
-            if (shifted)
-                *shifted = (char)(c - 32);
             return (uint8_t)(0x04 + c - 'a');
-        }
         if (c >= '0' && c <= '9')
-        {
-            if (plain)
-                *plain = c;
-            if (shifted)
-                *shifted = digit_shifted[c - '0'];
             return c == '0' ? 0x27 : (uint8_t)(0x1E + c - '1');
-        }
         return 0;
     }
     if ((name[0] == 'k' || name[0] == 'K') && (name[1] == 'p' || name[1] == 'P') &&
         name[2] >= '0' && name[2] <= '9' && !name[3])
-    {
-        /* The digit is what the key types with NumLock on. */
-        if (plain)
-            *plain = name[2];
-        if (shifted)
-            *shifted = name[2];
         return name[2] == '0' ? 0x62 : (uint8_t)(0x59 + name[2] - '1');
-    }
     int f = script_fkey_num(name);
     if (f)
         return (uint8_t)(0x3A + f - 1);
     for (size_t i = 0; i < sizeof script_named / sizeof script_named[0]; i++)
         if (!strcasecmp(name, script_named[i].name))
-        {
-            if (plain)
-                *plain = script_named[i].plain;
-            if (shifted)
-                *shifted = script_named[i].shifted;
             return script_named[i].hid;
-        }
     return 0;
 }
 
@@ -1417,23 +1383,16 @@ static bool script_command(const char *line)
             else
                 return script_error("unknown modifier '%s'", plus + 1);
         }
-        char plain, shifted;
-        uint8_t hid = script_key_from_name(name, &plain, &shifted);
+        uint8_t hid = script_key_from_name(name);
         if (!hid)
             return script_error("unknown key '%s'", name);
         if (!script_end(p))
             return false;
-        /* A script has no host to resolve the key's character, so it comes
-         * from the table above. Caps Lock swaps the case of a letter, and
-         * Shift swaps it back. */
-        uint8_t locks = keyboard_get_locks();
-        bool letter = hid >= 0x04 && hid <= 0x1D;
-        bool upper = shift != (letter && (locks & KEYBOARD_LED_CAPSLOCK));
-        char ch = upper ? shifted : plain;
-        uint8_t flags = (uint8_t)((locks & KEYBOARD_LED_NUMLOCK ? VTKEY_NUMLOCK : 0) |
-                                  (shift ? VTKEY_SHIFT : 0) |
+        /* A script has no system to give the key's character, so every key
+         * is a US keyboard's. */
+        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) |
                                   (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
-        if (hostkey_press(hid, flags, ch) != HOSTKEY_NONE)
+        if (hostkey_press(hid, flags, true) != HOSTKEY_NONE)
             return true;
         return script_error("'%s' sends nothing", name);
     }
@@ -1445,7 +1404,7 @@ static bool script_command(const char *line)
         int count = 0;
         while ((name = script_word(&p)) != NULL)
         {
-            uint8_t hid = script_key_from_name(name, NULL, NULL);
+            uint8_t hid = script_key_from_name(name);
             if (!hid)
             {
                 /* A word that is neither a key nor a known name is an
@@ -2024,9 +1983,6 @@ bool script_load(const char *path, const char *rom)
     }
     manifold_set_std_tap(script_std_tap);
     manifold_set_tx_tap(script_console_tap);
-    /* A script has no keyboard, so its locks start off and only it changes
-     * them. */
-    keyboard_set_locks(0);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;

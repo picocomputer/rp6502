@@ -34,6 +34,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/hostkey.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
@@ -453,15 +454,15 @@ static const char *const vt_skip[] = {
 
 /* What to type where a test asks for more than Return, found by a prompt on
  * the screen; the first row that matches wins. A step is the keys typed at
- * one wait, as vt_type takes them, and flags are the VTKEY_ flags held with
- * them all. A test that reads one key at a time and gives each a line gets
+ * one wait, as vt_type takes them, and locks are the keyboard's locks while
+ * they are typed. A test that reads one key at a time and gives each a line gets
  * one key a step. Only the screen before the last step is recorded, which
  * shows what the steps before it did, and the last step is typed again at
  * every wait after it. */
 typedef struct
 {
     const char *prompt;
-    uint8_t flags;
+    uint8_t locks;
     const char *const *steps;
 } vt_answer_t;
 
@@ -507,9 +508,9 @@ static const vt_answer_t vt_answers[] = {
     {"<VT52 Mode>", 0, vt_cursor_keys},
     /* NumLock is on for the numeric keypad and off for the application
      * keypad, which a keypad with NumLock on does not send. */
-    {"<ANSI Numeric mode>", VTKEY_NUMLOCK, vt_keypad_keys},
+    {"<ANSI Numeric mode>", KEYBOARD_LED_NUMLOCK, vt_keypad_keys},
     {"<ANSI Application mode>", 0, vt_keypad_keys},
-    {"<VT52 Numeric mode>", VTKEY_NUMLOCK, vt_keypad_keys},
+    {"<VT52 Numeric mode>", KEYBOARD_LED_NUMLOCK, vt_keypad_keys},
     {"<VT52 Application mode>", 0, vt_keypad_keys},
     {"Push each CTRL-key TWICE", 0, vt_control_keys},
 };
@@ -698,49 +699,41 @@ static bool vt_skipped(int choice)
     return false;
 }
 
-/* What the keys of a US keyboard type, plain and shifted, from usage 0x04.
- * A 1 stands for a key with no character of its own here. */
-static const char vt_us_plain[] = "abcdefghijklmnopqrstuvwxyz1234567890\1\1\1\1 -=[]\\\1;'`,./";
-static const char vt_us_shift[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()\1\1\1\1 _+{}|\1:\"~<>?";
-
 /* The keys with a name. kp0 to kp9 are computed. */
 static const struct
 {
     const char *name;
     uint8_t usage;
-    char ch;
 } vt_named[] = {
-    {"return", HID_KEY_ENTER, 0},
-    {"esc", HID_KEY_ESCAPE, 0},
-    {"backspace", HID_KEY_BACKSPACE, 0},
-    {"tab", HID_KEY_TAB, 0},
-    {"space", HID_KEY_SPACE, ' '},
-    {"up", HID_KEY_ARROW_UP, 0},
-    {"down", HID_KEY_ARROW_DOWN, 0},
-    {"left", HID_KEY_ARROW_LEFT, 0},
-    {"right", HID_KEY_ARROW_RIGHT, 0},
-    {"f1", HID_KEY_F1, 0},
-    {"f2", HID_KEY_F2, 0},
-    {"f3", HID_KEY_F3, 0},
-    {"f4", HID_KEY_F4, 0},
-    {"kp-", HID_KEY_KEYPAD_SUBTRACT, '-'},
-    {"kp,", HID_KEY_KEYPAD_COMMA, ','},
-    {"kp.", HID_KEY_KEYPAD_DECIMAL, '.'},
-    {"kpenter", HID_KEY_KEYPAD_ENTER, 0},
+    {"return", HID_KEY_ENTER},
+    {"esc", HID_KEY_ESCAPE},
+    {"backspace", HID_KEY_BACKSPACE},
+    {"tab", HID_KEY_TAB},
+    {"space", HID_KEY_SPACE},
+    {"up", HID_KEY_ARROW_UP},
+    {"down", HID_KEY_ARROW_DOWN},
+    {"left", HID_KEY_ARROW_LEFT},
+    {"right", HID_KEY_ARROW_RIGHT},
+    {"f1", HID_KEY_F1},
+    {"f2", HID_KEY_F2},
+    {"f3", HID_KEY_F3},
+    {"f4", HID_KEY_F4},
+    {"kp-", HID_KEY_KEYPAD_SUBTRACT},
+    {"kp,", HID_KEY_KEYPAD_COMMA},
+    {"kp.", HID_KEY_KEYPAD_DECIMAL},
+    {"kpenter", HID_KEY_KEYPAD_ENTER},
 };
 
 /* The key last pressed, which is the one that repeats. */
 static uint8_t vt_held_usage, vt_held_flags;
-static char vt_held_ch;
 
-/* Presses a key, and what it sends goes to vttest as it would from the
- * console. */
-static void vt_press(uint8_t usage, uint8_t flags, char ch)
+/* Presses a key of a US keyboard, and what it sends goes to vttest as it
+ * would from the console. */
+static void vt_press(uint8_t usage, uint8_t flags)
 {
     vt_held_usage = usage;
     vt_held_flags = flags;
-    vt_held_ch = ch;
-    hostkey_press(usage, flags, ch);
+    hostkey_press(usage, flags, true);
     char buf[64];
     size_t n;
     while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
@@ -755,9 +748,10 @@ static void vt_press(uint8_t usage, uint8_t flags, char ch)
 
 /* Types keys, a list of words: a key's name, "again" for the last key
  * repeating while it is held, or text, a character a key. ctrl- in front of
- * a name or a character holds Ctrl. flags are held with every key. */
-static void vt_type(const char *keys, uint8_t flags)
+ * a name or a character holds Ctrl. locks are the keyboard's locks. */
+static void vt_type(const char *keys, uint8_t locks)
 {
+    keyboard_set_locks(locks);
     while (*keys)
     {
         size_t len = strcspn(keys, " ");
@@ -767,10 +761,10 @@ static void vt_type(const char *keys, uint8_t flags)
         if (len == 5 && !memcmp(word, "again", 5))
         {
             if (vtkey_repeats())
-                vt_press(vt_held_usage, vt_held_flags, vt_held_ch);
+                vt_press(vt_held_usage, vt_held_flags);
             continue;
         }
-        uint8_t held = flags;
+        uint8_t held = 0;
         if (len > 5 && !memcmp(word, "ctrl-", 5))
         {
             held |= VTKEY_CTRL;
@@ -780,7 +774,7 @@ static void vt_type(const char *keys, uint8_t flags)
         if (len == 3 && !memcmp(word, "kp", 2) && word[2] >= '0' && word[2] <= '9')
         {
             vt_press(word[2] == '0' ? HID_KEY_KEYPAD_0 : (uint8_t)(HID_KEY_KEYPAD_1 + word[2] - '1'),
-                     held, word[2]);
+                     held);
             continue;
         }
         size_t i = 0;
@@ -789,31 +783,28 @@ static void vt_type(const char *keys, uint8_t flags)
             i++;
         if (i < sizeof vt_named / sizeof vt_named[0])
         {
-            vt_press(vt_named[i].usage, held, vt_named[i].ch);
+            vt_press(vt_named[i].usage, held);
             continue;
         }
         for (i = 0; i < len; i++)
         {
-            const char *plain = strchr(vt_us_plain, word[i]);
-            if (plain)
-                vt_press((uint8_t)(0x04 + (plain - vt_us_plain)), held, word[i]);
-            else if ((plain = strchr(vt_us_shift, word[i])))
-                vt_press((uint8_t)(0x04 + (plain - vt_us_shift)),
-                         held | VTKEY_SHIFT, word[i]);
-            else
+            bool shift;
+            uint8_t usage = hostkey_us_key(word[i], &shift);
+            if (!usage)
             {
                 fprintf(stderr, "vtrun: no key types '%c'\n", word[i]);
                 exit(2);
             }
+            vt_press(usage, shift ? held | VTKEY_SHIFT : held);
         }
     }
 }
 
-static void vt_send(const char *name, const char *keys, uint8_t flags, const char *what)
+static void vt_send(const char *name, const char *keys, uint8_t locks, const char *what)
 {
     vt_log("%s %s%s\n", name, what, vt_132 ? " (132 columns)" : "");
     vt_echo_len = 0;
-    vt_type(keys, flags);
+    vt_type(keys, locks);
 }
 
 static FILE *vt_open(const char *name)
@@ -960,12 +951,12 @@ int main(int argc, char **argv)
                 vt_step = 0;
             }
             const char *keys = "return";
-            uint8_t flags = 0;
+            uint8_t locks = 0;
             bool last = true;
             if (answer)
             {
                 keys = answer->steps[vt_step];
-                flags = answer->flags;
+                locks = answer->locks;
                 last = !answer->steps[vt_step + 1];
                 if (!last)
                     vt_step++;
@@ -978,7 +969,7 @@ int main(int argc, char **argv)
             }
             else
                 snprintf(name, sizeof name, "%s", vt_path);
-            vt_send(name, keys, flags, keys);
+            vt_send(name, keys, locks, keys);
         }
     }
     if (steps > VT_STEP_LIMIT)

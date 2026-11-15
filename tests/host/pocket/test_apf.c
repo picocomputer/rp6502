@@ -64,6 +64,7 @@ static void reset_all(void)
         apf_umount(slot);
     apf_refresh();
     keyboard_init();
+    keymap_init();
     mouse_init();
     gamepad_init();
     tablet_init();

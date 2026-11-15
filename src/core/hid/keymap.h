@@ -11,6 +11,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* The keyboard driver of a machine that has no system under it: it types
+ * through a layout and owns the locks, which start with NumLock on. */
+void keymap_init(void);
+
 // Auto-repeat. The held key is read back from keyboard.c, so a release ends
 // it, and so does the terminal turning repeat off (DECARM).
 void keymap_task(void);
@@ -33,6 +37,9 @@ void keymap_abandon(void);
 /* Type through this layout of the database from the next key on. */
 void keymap_use_layout(int index);
 
-#define KEYMAP_DRIVER DRIVER(TASK_PUMPED(keymap_task))
+/* After KEYBOARD_DRIVER, whose start clears the locks. */
+#define KEYMAP_DRIVER DRIVER(     \
+    INIT(keymap_init)             \
+    TASK_PUMPED(keymap_task))
 
 #endif /* _CORE_HID_KEYMAP_H_ */

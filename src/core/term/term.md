@@ -86,12 +86,16 @@ bitmap, so a program can use the key.
 
 ### What is built
 
+- **The owner of the locks sets them.** keyboard.c only keeps the locks, for
+  the program's bitmap and for what the keys type, and they start off.
+  keymap.c is the keyboard driver of the Pico and the Pocket: it starts with
+  NumLock on, a lock key flips its lock, and it lights the LEDs. An emulator
+  has none of that; its host passes in the system's locks.
+- **The key encoder reads NumLock** from keyboard.c. No caller passes it.
 - **The window follows the system and never changes it.** `host_locks()`
-  in each of windows, linux, macos and web `entry.c` gives the three locks.
-  `input_locks()` in `sokol/app/input.c` reads it at start, once a frame and
-  as a key goes down, and hands it to `keyboard_set_locks`. A lock key only
-  shows in the bitmap. The keypad is typed by NumLock as on the Pico: on,
-  the system's character is typed; off, or with Shift, the key navigates.
+  in each of windows, linux, macos and web `entry.c` gives the three locks,
+  and `sokol/app/input.c` reads it at start, once a frame and as a key goes
+  down. A lock key only shows in the bitmap.
   - Windows: `GetKeyState`.
   - Linux: `XkbGetState`, Caps from the Lock modifier and Num from the
     modifier the keymap gives the Num_Lock key.
@@ -101,11 +105,12 @@ bitmap, so a program can use the key.
     Num is always on and Scroll always off, in any browser.
 - **libretro** takes the locks the frontend sends with a key. A frontend
   that sends none leaves all three off.
-- **The script has its own locks**, all off when a script starts, never
-  read from or written to a real keyboard. A headless or script run has no
-  window, so nothing reads the system there.
-
-The Pico and the Pocket did not change.
+- **A script** has no system under it, so its locks stay off until `lock`
+  sets them.
+- **One US keyboard** in hostkey.c types a key the system gives no text
+  for: a Ctrl or Alt chord in the window or libretro, and every key of a
+  script. The window, libretro, the script and the vttest walk had a table
+  of their own before.
 
 ### To try on real machines
 

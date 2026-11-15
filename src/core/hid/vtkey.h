@@ -21,9 +21,6 @@
 #define VTKEY_CTRL 4
 #define VTKEY_MODIFIERS 7
 
-/* NumLock is on. */
-#define VTKEY_NUMLOCK 16
-
 /* The longest sequence, ESC [ 2 4 ; 8 ~. */
 #define VTKEY_MAX 8
 
@@ -32,7 +29,8 @@
 #define VTKEY_CHAR (-1)
 
 /* What a key sends, written with no NUL, in the modes the console's terminal
- * is in. Returns the length, 0 for a key that sends nothing, or VTKEY_CHAR.
+ * is in and by the keyboard's NumLock. Returns the length, 0 for a key that
+ * sends nothing, or VTKEY_CHAR.
  *
  * Enter is CR, or CR LF in new line mode (LNM). Tab is HT, or ESC [ Z with
  * Shift. Escape is ESC and Backspace is DEL, or BS with Ctrl. Alt puts ESC

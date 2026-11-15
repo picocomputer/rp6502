@@ -31,6 +31,23 @@
 #include <stdio.h>
 #include <string.h>
 
+/* NumLock is the keyboard's, so a test asks for it with a bit beside a key's
+ * modifiers. A ch says the host has no text for the press, and is what a US
+ * keyboard then types. */
+#define NUM 16
+
+static int t_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
+{
+    keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
+    return vtkey_encode(out, usage, flags & VTKEY_MODIFIERS);
+}
+
+static hostkey_result_t t_press(uint8_t usage, uint8_t flags, char ch)
+{
+    keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
+    return hostkey_press(usage, flags & VTKEY_MODIFIERS, ch != 0);
+}
+
 UTEST(crc32, known_vectors)
 {
     /* 0xCBF43926 is the CRC-32/ISO-HDLC (zlib) check value for "123456789". */
@@ -615,60 +632,60 @@ UTEST(keyboard, ansi_sequences)
     char b[32];
 
     com_rx_clear();
-    hostkey_press(HID_KEY_ARROW_UP, 0, 0);
+    t_press(HID_KEY_ARROW_UP, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_F1, 0, 0);
+    t_press(HID_KEY_F1, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_F5, 0, 0);
+    t_press(HID_KEY_F5, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_F12, 0, 0);
+    t_press(HID_KEY_F12, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_INSERT, 0, 0);
+    t_press(HID_KEY_INSERT, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_HOME, 0, 0);
+    t_press(HID_KEY_HOME, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* The xterm modifier parameter is 1 + shift + alt*2 + ctrl*4. */
     com_rx_clear();
-    hostkey_press(HID_KEY_ARROW_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
+    t_press(HID_KEY_ARROW_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_F1, VTKEY_SHIFT, 0); /* shift -> 2 */
+    t_press(HID_KEY_F1, VTKEY_SHIFT, 0); /* shift -> 2 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_END, VTKEY_SHIFT | VTKEY_ALT, 0); /* shift+alt -> 4 */
+    t_press(HID_KEY_END, VTKEY_SHIFT | VTKEY_ALT, 0); /* shift+alt -> 4 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_PAGE_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
+    t_press(HID_KEY_PAGE_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_ENTER, 0, 0);
-    hostkey_press(HID_KEY_BACKSPACE, 0, 0);
-    hostkey_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
+    t_press(HID_KEY_ENTER, 0, 0);
+    t_press(HID_KEY_BACKSPACE, 0, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
@@ -678,22 +695,22 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     char b[16];
 
     com_rx_clear();
-    hostkey_press(HID_KEY_ENTER, VTKEY_CTRL, 0);
-    hostkey_press(HID_KEY_TAB, VTKEY_CTRL, 0);
-    hostkey_press(HID_KEY_ESCAPE, VTKEY_CTRL, 0);
+    t_press(HID_KEY_ENTER, VTKEY_CTRL, 0);
+    t_press(HID_KEY_TAB, VTKEY_CTRL, 0);
+    t_press(HID_KEY_ESCAPE, VTKEY_CTRL, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_ENTER, VTKEY_ALT, 0);
-    hostkey_press(HID_KEY_TAB, VTKEY_ALT, 0);
-    hostkey_press(HID_KEY_ESCAPE, VTKEY_ALT, 0);
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    t_press(HID_KEY_TAB, VTKEY_ALT, 0);
+    t_press(HID_KEY_ESCAPE, VTKEY_ALT, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
     com_rx_clear();
-    hostkey_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
-    hostkey_press(HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
@@ -703,28 +720,28 @@ UTEST(keyboard, ctrl_and_alt_on_characters)
     char b[16];
 
     com_rx_clear();
-    ASSERT_EQ(hostkey_press(0x06, 0, 'c'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x04, VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x04, VTKEY_ALT | VTKEY_SHIFT, 'A'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x04, VTKEY_ALT | VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x06, 0, 'c'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_ALT | VTKEY_SHIFT, 'A'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_ALT | VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "c\x01\x1b" "A\x1b\x01", 6));
 
     /* Ctrl has no byte for '1', so it is typed as it is. Ctrl-? is DEL. No
      * character sends nothing. */
-    ASSERT_EQ(hostkey_press(0x1E, VTKEY_CTRL, '1'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x04, 0, 0), HOSTKEY_NONE);
-    ASSERT_EQ(hostkey_press(0x1E, VTKEY_ALT | VTKEY_CTRL, '1'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x38, VTKEY_CTRL | VTKEY_SHIFT, '?'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x25, VTKEY_CTRL, '8'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(0x1F, VTKEY_CTRL, '2'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x1E, VTKEY_CTRL, '1'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, 0, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(0x1E, VTKEY_ALT | VTKEY_CTRL, '1'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x38, VTKEY_CTRL | VTKEY_SHIFT, '?'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x25, VTKEY_CTRL, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x1F, VTKEY_CTRL, '2'), HOSTKEY_TYPED);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "1\x1b" "1\x7f\x7f\0", 6));
 
     /* A keypad key's character is typed whatever Ctrl and Alt say. */
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_DIVIDE, VTKEY_CTRL, '/'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_8, VTKEY_NUMLOCK | VTKEY_ALT, '8'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ENTER, VTKEY_ALT, 0), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_DIVIDE, VTKEY_CTRL, '/'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM | VTKEY_ALT, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ENTER, VTKEY_ALT, 0), HOSTKEY_TYPED);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "/8\r", 3));
 }
@@ -743,7 +760,6 @@ static void key_modes(unsigned modes)
     cells_term.vt52 = modes & M_VT52;
 }
 
-#define NUM VTKEY_NUMLOCK
 #define SH VTKEY_SHIFT
 #define CHR NULL /* VTKEY_CHAR */
 
@@ -847,7 +863,7 @@ UTEST(keyboard, every_key_class_in_every_mode)
             char out[VTKEY_MAX];
             const char *want = key_table[i].want[m];
             key_modes(modes[m]);
-            int n = vtkey_encode(out, key_table[i].usage, key_table[i].flags);
+            int n = t_encode(out, key_table[i].usage, key_table[i].flags);
             key_modes(0);
             int want_n = want ? (int)strlen(want) : VTKEY_CHAR;
             if (n != want_n || (n > 0 && memcmp(out, want, (size_t)n)))
@@ -887,9 +903,9 @@ UTEST(keyboard, the_modes_do_not_cross)
                     own |= M_CKM;
                 out[VTKEY_MAX] = alone[VTKEY_MAX] = 0x55;
                 key_modes(modes);
-                int n = vtkey_encode(out, (uint8_t)usage, (uint8_t)flags);
+                int n = t_encode(out, (uint8_t)usage, (uint8_t)flags);
                 key_modes(modes & own);
-                int n_alone = vtkey_encode(alone, (uint8_t)usage, (uint8_t)flags);
+                int n_alone = t_encode(alone, (uint8_t)usage, (uint8_t)flags);
                 key_modes(0);
                 ASSERT_GE(n, VTKEY_CHAR);
                 ASSERT_LE(n, VTKEY_MAX);
@@ -908,42 +924,42 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
      * navigation key with it off or with Shift. KP5 with NumLock off is
      * Begin, even when the host has a character for it. */
     com_rx_clear();
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_8, NUM, '8'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_8, 0, '8'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_8, NUM | SH, '8'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_5, 0, '5'), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_8, NUM, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, 0, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM | SH, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_5, 0, '5'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM, 0), HOSTKEY_NONE);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 10);
     ASSERT_EQ(0, memcmp(b, "8\33[A\33[A\33[E", 10));
 
     /* An operator is the host's character until the application keypad
      * takes it, where plus is a VT100's comma. */
     key_modes(M_KPAM);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_TYPED);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, NUM, 0), HOSTKEY_NONE);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, NUM, '+'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, NUM, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, NUM, '+'), HOSTKEY_TYPED);
     key_modes(0);
-    ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_NONE);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33Ol+", 4));
 
     /* The modes reach a host's keys. */
     key_modes(M_CKM | M_LNM);
-    hostkey_press(HID_KEY_ARROW_LEFT, 0, 0);
-    hostkey_press(HID_KEY_ENTER, 0, 0);
+    t_press(HID_KEY_ARROW_LEFT, 0, 0);
+    t_press(HID_KEY_ENTER, 0, 0);
     key_modes(M_VT52);
-    hostkey_press(HID_KEY_ARROW_LEFT, VTKEY_CTRL, 0);
-    ASSERT_EQ(hostkey_press(HID_KEY_F5, VTKEY_CTRL, 0), HOSTKEY_TYPED);
+    t_press(HID_KEY_ARROW_LEFT, VTKEY_CTRL, 0);
+    ASSERT_EQ(t_press(HID_KEY_F5, VTKEY_CTRL, 0), HOSTKEY_TYPED);
     key_modes(0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 12);
     ASSERT_EQ(0, memcmp(b, "\33OD\r\n\33D\33[15~", 12));
 
     /* Alt puts ESC in front of a character or Enter, in VT52 mode too. */
-    hostkey_press(0x38, VTKEY_ALT | SH, '?');
-    hostkey_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    t_press(0x38, VTKEY_ALT | SH, '?');
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
     key_modes(M_VT52);
-    hostkey_press(0x38, VTKEY_ALT | SH, '?');
-    hostkey_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    t_press(0x38, VTKEY_ALT | SH, '?');
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
     key_modes(0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 8);
     ASSERT_EQ(0, memcmp(b, "\33?\33\r\33?\33\r", 8));

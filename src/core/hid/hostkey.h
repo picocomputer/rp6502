@@ -14,6 +14,7 @@
 #ifndef _CORE_HID_HOSTKEY_H_
 #define _CORE_HID_HOSTKEY_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* What hostkey_press did with a key. */
@@ -27,11 +28,16 @@ typedef enum
 /* Type a key press as vtkey_encode has it. flags are the VTKEY_ flags of
  * core/hid/vtkey.h.
  *
- * ch is the US character the host guessed for the key, or 0 when the key has
- * none or the host delivers its text through hostkey_char. Ctrl turns ch into
- * its control byte and Alt puts ESC in front, the xterm Meta form. A ch that
- * Ctrl can make nothing of sends nothing. */
-hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, char ch);
+ * A key with a character types it here only when guess is set, which a host
+ * sets for a press its system gives no text for, such as a Ctrl or Alt
+ * chord. The character is then a US keyboard's, by Shift and Caps Lock.
+ * Otherwise the host delivers the text through hostkey_char. */
+hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess);
+
+/* The character a key has on a US keyboard, or 0, and the key and Shift that
+ * type a character there, or 0. */
+char hostkey_us(uint8_t usage, bool shift);
+uint8_t hostkey_us_key(char ch, bool *shift);
 
 /* Type one Unicode code point as its byte in the active code page. */
 void hostkey_char(uint32_t codepoint);

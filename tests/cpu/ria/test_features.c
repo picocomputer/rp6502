@@ -16,7 +16,7 @@ UTEST(features, ria_tick_holds_irq_through_ack)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ria_reg_write(0xFFF0, 0x40);
-    hostkey_press(0x06, VTKEY_CTRL, 'c');
+    hostkey_press(0x06, VTKEY_CTRL, true);
     ASSERT_TRUE(ria_irq_asserted());
 
     uint8_t data = 0;
