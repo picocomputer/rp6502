@@ -94,24 +94,6 @@ rp6502_add_test(layout
     DEFS ${LAYOUT_TEST_DEFS})
 add_dependencies(test_layout rp6502_gen_c)
 
-if(TARGET rp6502_gen_assets)
-    rp6502_add_test(unicode_bin
-        SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c unicode_bin.c
-            ${RP6502_VENDOR}/fatfs/ffunicode.c
-        INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_GEN}
-        DEFS UNICODE_OEM_BIN_PATH="${RP6502_ASSETS}/unicode_oem.bin")
-    add_dependencies(test_unicode_bin rp6502_gen_c rp6502_gen_assets)
-    set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
-        TARGET_DIRECTORY test_unicode_bin PROPERTIES COMPILE_DEFINITIONS
-        "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
-
-    rp6502_add_test(layout_bin
-        SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c layout_bin.c
-        INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_GEN}
-        DEFS ${LAYOUT_TEST_DEFS} LAYOUT_DB_BIN_PATH="${RP6502_ASSETS}/layout_db.bin")
-    add_dependencies(test_layout_bin rp6502_gen_c rp6502_gen_assets)
-endif()
-
 if(COMMAND rp6502_add_machine_test)
     rp6502_add_machine_test(hello TIMEOUT 120)
 endif()

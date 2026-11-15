@@ -97,11 +97,8 @@ function(rp6502_add_machine_test name)
     endif()
     set(_deps ${M_DEPENDS})
     if(M_FIRMWARE)
-        list(APPEND _args DEFS SW_BIN="${SW_BIN}"
-            FONTS_BIN="${RP6502_ASSETS}/font_rom.bin"
-            OEMCP_BIN="${RP6502_ASSETS}/unicode_oem.bin"
-            KBDLAY_BIN="${RP6502_ASSETS}/layout_db.bin" ${M_DEFS})
-        list(APPEND _deps sw_bin rp6502_gen_assets)
+        list(APPEND _args DEFS SW_BIN="${SW_BIN}" ${M_DEFS})
+        list(APPEND _deps sw_bin)
     elseif(M_DEFS)
         list(APPEND _args DEFS ${M_DEFS})
     endif()

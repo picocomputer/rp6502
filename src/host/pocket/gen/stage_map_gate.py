@@ -15,8 +15,6 @@ STAGE_BASE = 0x60000000
 FILE_SLOT_FIRST = 1
 FILE_SLOT_COUNT = 8
 
-ASSET_SLOTS = {9: "FONTS", 10: "OEMCP", 11: "KBDLAY"}
-
 FIRMWARE_FILE = "firmware.bin"
 
 # The Pocket's SDRAM is 64 MB.
@@ -96,9 +94,12 @@ def main() -> int:
         want(f"file slot {FILE_SLOT_FIRST + d} address",
              addr(FILE_SLOT_FIRST + d), base)
 
-    for slot_id, name in ASSET_SLOTS.items():
-        want(f"slot {slot_id} ({ds[slot_id]['name']}) address",
-             addr(slot_id), mm[name] - STAGE_BASE)
+    # The ROM, the file slots and the firmware are every slot there is.
+    known = {0, *range(FILE_SLOT_FIRST, FILE_SLOT_FIRST + FILE_SLOT_COUNT),
+             *fw}
+    for slot_id in sorted(set(ds) - known):
+        bad.append(f"slot {slot_id} ({ds[slot_id]['name']}) is not the ROM, "
+                   "a file slot or the firmware")
 
     want("Get File scratch window",
          mm["GETFILE_WIN"], STAGE_BASE + mm["GETFILE_BRIDGE"])
@@ -142,16 +143,6 @@ def main() -> int:
              tb["TB_STAGE_WIN_BASE"], addr(FILE_SLOT_FIRST))
         want("bench window size",
              tb["TB_STAGE_WIN_SIZE"], mm["SLOT_WIN_SIZE"])
-        for slot_id, name in ASSET_SLOTS.items():
-            tag = {"FONTS": "FONT", "OEMCP": "OEMCP",
-                   "KBDLAY": "KBDLAY"}[name]
-            want(f"bench {tag.lower()} base",
-                 tb[f"TB_STAGE_{tag}_BASE"], addr(slot_id))
-            exact = int(ds[slot_id]["size_exact"], 0)
-            if tb[f"TB_STAGE_{tag}_SIZE"] < exact:
-                bad.append(f"bench {tag.lower()} window "
-                           f"{tb[f'TB_STAGE_{tag}_SIZE']:#x} is under "
-                           f"slot {slot_id}'s {exact:#x}")
 
     def sv_hex(path, pattern, what):
         m = re.search(pattern + r" = 32'h([0-9A-Fa-f_]+)",

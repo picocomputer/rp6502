@@ -25,12 +25,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/wake.c
         ${SW_SRC}/cfg.c
-        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/manifold.c ${RP6502_SRC}/core/com/tio.c ${RP6502_SRC}/core/com/rln.c ${SW_SRC}/ria.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/manifold.c ${RP6502_SRC}/core/com/tio.c ${RP6502_SRC}/core/com/rln.c ${SW_SRC}/ria.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/hid.c
         ${SW_SRC}/mem.c ${RP6502_SRC}/core/sys/timer.c
         ${RP6502_SRC}/core/sys/crc32.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/sys/pix.c
@@ -53,9 +53,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/ops.c
         ${RP6502_SRC}/core/str/path.c
         ${RP6502_SRC}/core/str/unicode.c
+        ${RP6502_GEN}/unicode_oem.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
+        ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/mouse.c
@@ -71,6 +73,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode/mode4.c
         ${RP6502_SRC}/core/vga/mode/mode5.c
         ${RP6502_SRC}/core/term/color.c
+        ${RP6502_SRC}/core/term/font.c
         ${RP6502_SRC}/core/term/term.c
         ${RP6502_SRC}/core/term/grid.c
         ${RP6502_SRC}/core/term/cells.c)
@@ -99,7 +102,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
-            ${RP6502_GEN}/font_rom.h ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/rsmp_half.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)
     add_custom_target(sw_bin DEPENDS ${SW_BIN})

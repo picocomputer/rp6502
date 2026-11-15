@@ -124,7 +124,7 @@ UTEST(fontstore, attribute_get_reports_the_boot_default)
     ASSERT_EQ(reported(out, 0), (uint16_t)437);
 }
 
-/* The font asset has no code page 1252, so the second set fails and 850
+/* The fonts have no code page 1252, so the second set fails and 850
  * stays. */
 UTEST(fontstore, attribute_set_of_an_unknown_page_keeps_the_one_in_force)
 {

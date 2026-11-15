@@ -117,8 +117,7 @@ endif()
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
     COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/hid/layout.py
-        --check-interact ${POCKET_CORE_JSON}/interact.json
-        --check-data ${POCKET_CORE_JSON}/data.json)
+        --check-interact ${POCKET_CORE_JSON}/interact.json)
 set_tests_properties(layout_json PROPERTIES LABELS "gate;host.pocket")
 add_test(NAME stage_map
     COMMAND ${CMAKE_COMMAND} -E env python3

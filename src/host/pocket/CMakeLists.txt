@@ -182,20 +182,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
-        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/font_rom.bin
-            ${PKG_DIR}/Assets/rp6502/common/fonts.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/unicode_oem.bin
-            ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/layout_db.bin
-            ${PKG_DIR}/Assets/rp6502/common/keyboard.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${SW_BIN}
             ${PKG_DIR}/Assets/rp6502/common/firmware.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
-        DEPENDS ${POCKET_DIR}/core.bin ${RP6502_ASSETS}/font_rom.bin
-            ${RP6502_ASSETS}/unicode_oem.bin ${RP6502_ASSETS}/layout_db.bin
-            ${SW_BIN} ${PKG_DIST_FILES}
+        DEPENDS ${POCKET_DIR}/core.bin ${SW_BIN} ${PKG_DIST_FILES}
             ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake ${RP6502_STAMP_SCRIPT}
         COMMENT "Assembling the Pocket core package"
         VERBATIM)

@@ -14,10 +14,8 @@
 #include <string>
 #include <vector>
 
-/* The slot ids are declared in data.json. */
+/* The slot id is declared in data.json. */
 #define TB_HOST_SLOT_ROM 0u
-#define TB_HOST_SLOT_FONTS 9u
-#define TB_HOST_SLOT_OEMCP 10u
 
 #define TB_HOST_GETFILE_STRUCT 256u
 
@@ -55,13 +53,7 @@ private:
 
     uint32_t slot_size(uint32_t slot) const
     {
-        if (slot == TB_HOST_SLOT_ROM)
-            return (uint32_t)size_;
-        if (slot == TB_HOST_SLOT_FONTS)
-            return (uint32_t)tb_stage_fonts().size();
-        if (slot == TB_HOST_SLOT_OEMCP)
-            return (uint32_t)tb_stage_oemcp().size();
-        return 0;
+        return slot == TB_HOST_SLOT_ROM ? (uint32_t)size_ : 0;
     }
 
     const uint8_t *slot_data(uint32_t slot, uint32_t *size) const
@@ -70,16 +62,6 @@ private:
         {
             *size = (uint32_t)size_;
             return data_;
-        }
-        if (slot == TB_HOST_SLOT_FONTS)
-        {
-            *size = (uint32_t)tb_stage_fonts().size();
-            return tb_stage_fonts().data();
-        }
-        if (slot == TB_HOST_SLOT_OEMCP)
-        {
-            *size = (uint32_t)tb_stage_oemcp().size();
-            return tb_stage_oemcp().data();
         }
         *size = 0;
         return nullptr;

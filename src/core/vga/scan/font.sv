@@ -5,8 +5,7 @@
  *
  * The font store, four faces read a byte at a time. Nothing is built
  * into the bitstream: the store comes up blank and the firmware fills it
- * from the font asset, which is how the seventeen code pages in
- * core/term/font.c fit without seventeen code pages of program memory.
+ * from the tables core/term/font.c builds.
  *
  * Faces are row-major with the same stride the C uses, so the hardware
  * image is the C image. The read address carries the face in its top two

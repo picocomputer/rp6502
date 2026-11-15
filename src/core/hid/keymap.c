@@ -20,7 +20,6 @@
 #include "core/hid/vtkey.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
-#include "core/sys/debug_log.h"
 #include "core/sys/ring.h"
 #include "core/hid/usage.h"
 
@@ -407,6 +406,7 @@ void HOST_IN_RAM_FUNC keymap_task(void)
     }
 }
 
+/* layout.py refuses a layout whose dead keys do not fit the cache. */
 static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
@@ -417,39 +417,16 @@ static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
     unsigned count3 = layout_dead3_count(keymap_layout_index);
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[cache_index];
     for (unsigned i = 0; i < count2; i++)
-    {
         for (unsigned j = 0; j < 3; j++)
-        {
-            keymap_deadkey_cache[cache_index] = ff_uni2oem(
+            keymap_deadkey_cache[cache_index++] = ff_uni2oem(
                 layout_dead2(keymap_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(keymap_deadkey_cache))
-                goto overflow_error;
-        }
-    }
-    keymap_deadkey_cache[cache_index] = 0;
-    if (++cache_index >= sizeof(keymap_deadkey_cache))
-        goto overflow_error;
+    keymap_deadkey_cache[cache_index++] = 0;
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[cache_index];
     for (unsigned i = 0; i < count3; i++)
-    {
         for (unsigned j = 0; j < 4; j++)
-        {
-            keymap_deadkey_cache[cache_index] = ff_uni2oem(
+            keymap_deadkey_cache[cache_index++] = ff_uni2oem(
                 layout_dead3(keymap_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(keymap_deadkey_cache))
-                goto overflow_error;
-        }
-    }
     keymap_deadkey_cache[cache_index] = 0;
-    return;
-overflow_error:
-    /* A database that layout.py built never gets here, because it refuses a
-     * layout whose dead keys do not fit. A machine staging a database it did
-     * not build loses the composing rather than the keyboard. */
-    keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
-    keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
-    keymap_deadkey_cache[0] = 0;
-    RP6502_LOG(keyboard, ERROR, "dead key cache overflow");
 }
 
 size_t HOST_IN_RAM_FUNC keymap_in_chars(char *buf, size_t length)

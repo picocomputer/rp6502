@@ -323,10 +323,10 @@ static void run_and_check(int *utest_result, const char *name,
     }
 }
 
-/* The firmware, the fonts and the code pages are written straight into
- * the SDRAM model unless the case streams the firmware itself, because
- * streaming them over the bridge costs about ten clk_74a cycles a byte
- * and the ROM already goes over the bridge in every case. */
+/* The firmware is written straight into the SDRAM model unless the case
+ * streams it itself, because streaming it over the bridge costs about ten
+ * clk_74a cycles a byte and the ROM already goes over the bridge in every
+ * case. */
 static void power_on(int *utest_result, bool firmware = true)
 {
     a_next = 224;
@@ -363,8 +363,6 @@ static void power_on(int *utest_result, bool firmware = true)
     auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
     if (firmware)
         ASSERT_TRUE(tb_stage_poke_firmware(chip, SW_BIN));
-    tb_stage_poke(chip, TB_STAGE_FONT_BASE, tb_stage_fonts());
-    tb_stage_poke(chip, TB_STAGE_OEMCP_BASE, tb_stage_oemcp());
 }
 
 static void run_case(int *utest_result, const char *name, uint32_t expect)

@@ -26,7 +26,6 @@
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
-#include "core/str/unicode.h"
 #include "core/term/cells.h"
 #include "core/aud/mix.h"
 #include "sw/apf.h"
@@ -62,7 +61,7 @@
     STD_DRIVER, FS_DRIVER,                              \
     AUD_DRIVER,                                         \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,                \
-    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
+    LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \

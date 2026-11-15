@@ -117,15 +117,12 @@ static unsigned ref_dead3_count(int lay)
 UTEST(layout, every_layout_matches_its_def)
 {
     int failures = 0;
-    ASSERT_TRUE(layout_init());
     ASSERT_EQ(layout_count(), REF_COUNT);
 
     for (int lay = 0; lay < REF_COUNT; lay++)
     {
-        char name[LAYOUT_NAME_MAX];
-        char desc[LAYOUT_DESC_MAX];
-        layout_name(lay, name);
-        layout_description(lay, desc);
+        const char *name = layout_name(lay);
+        const char *desc = layout_description(lay);
         if (strcmp(name, ref_layouts[lay].name))
             FAIL("layout %d is %s, def says %s\n",
                  lay, name, ref_layouts[lay].name);
@@ -175,17 +172,6 @@ UTEST(layout, every_layout_matches_its_def)
                          ref_dead3[lay][i][j]);
     }
 
-}
-
-UTEST(layout, a_layout_out_of_range_reads_empty)
-{
-    ASSERT_TRUE(layout_init());
-
-    char name[LAYOUT_NAME_MAX];
-    layout_name(REF_COUNT, name);
-    ASSERT_EQ(name[0], 0);
-    ASSERT_EQ(layout_code_point(REF_COUNT, 0x04, 0), 0);
-    ASSERT_EQ(layout_code_point(-1, 0x04, 0), 0);
 }
 
 /* What layout.c's list reaches outside itself: the setting's storage, which

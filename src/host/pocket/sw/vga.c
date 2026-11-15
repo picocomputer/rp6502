@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "font.h"
 #include "mmio.h"
 #include "vga.h"
 #include "vid.h"
 
 #include "core/term/cells.h"
+#include "core/term/font.h"
 
 static int16_t vga_highest_scanline;
 static uint8_t vga_pub_mode;
@@ -155,12 +155,21 @@ void vga_restore(void)
     vga_publish_vsync();
 }
 
+/* The font memories are filled again only when the page changed, because
+ * the fill reads every table and a stop asks for the page it already has. */
 void vga_set_code_page(uint16_t cp)
 {
+    uint16_t was = font_get_code_page();
     font_set_code_page(cp);
+    if (font_get_code_page() != was)
+        vid_fonts();
 }
+
 void vga_load_code_page(uint16_t cp)
 {
-    vga_set_code_page(cp);
+    uint16_t was = font_get_code_page();
+    font_load_code_page(cp);
+    if (font_get_code_page() != was)
+        vid_fonts();
 }
 

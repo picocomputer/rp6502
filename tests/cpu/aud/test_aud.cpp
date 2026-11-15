@@ -323,11 +323,15 @@ UTEST(aud, a_program_exit_goes_quiet)
 }
 
 /* aud.py's pcm ROM: 1050 Hz at 22050 Hz, 16-bit mono, peaking at 16000,
- * fed once a frame. Two frames start it, and the next ten, 8000 samples,
- * hold 175 cycles, 350 swings through the gate, the same on both sides. */
+ * fed once a frame. Two frames after the program starts the tone is
+ * steady, and the next ten, 8000 samples, hold 175 cycles, 350 swings
+ * through the gate, the same on both sides. */
 UTEST(aud, pcm_plays_the_tone_it_is_given)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM));
+    for (long n = 0; n < 4000000L && !dut->rootp->wiring__DOT__resb; n++)
+        aud_clock();
+    ASSERT_NE((int)dut->rootp->wiring__DOT__resb, 0);
     run_frame();
     run_frame();
     g_valids = 0;

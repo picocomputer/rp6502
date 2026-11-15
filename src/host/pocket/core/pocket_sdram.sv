@@ -258,20 +258,12 @@ module pocket_sdram #(
                     op_is_line <= 1'b0;
                     op_addr <= rd_addr;
                     state <= S_OPEN;
-                end else if (line_pend && !pocket_sdram_line_done) begin
-                    idle_cnt <= '0;
-                    op_is_read <= !line_we;
-                    op_is_line <= 1'b1;
-                    op_addr <= {line_addr, 3'b000};
-                    /* A line to write waits in the register that a
-                     * line read fills, and leaves it a word a clock. */
-                    if (line_we) begin
-                        pocket_sdram_line_rdata <= line_wdata;
-                        if (held_addr[24:3] == line_addr)
-                            held_valid <= 1'b0;
-                    end
-                    state <= S_OPEN;
                 end else if (w_avail) begin
+                    /* A write goes before a line. The host sends writes
+                     * at a rate it sets and their queue is short, and
+                     * the soft CPU asks for lines back to back when it
+                     * runs cold code, so lines taken first would
+                     * overflow the queue. */
                     idle_cnt <= '0;
                     op_is_read <= 1'b0;
                     op_is_line <= 1'b0;
@@ -284,6 +276,19 @@ module pocket_sdram #(
                      * new data instead of returning the old. */
                     if (held_valid && held_addr == w_addr)
                         held_valid <= 1'b0;
+                    state <= S_OPEN;
+                end else if (line_pend && !pocket_sdram_line_done) begin
+                    idle_cnt <= '0;
+                    op_is_read <= !line_we;
+                    op_is_line <= 1'b1;
+                    op_addr <= {line_addr, 3'b000};
+                    /* A line to write waits in the register that a
+                     * line read fills, and leaves it a word a clock. */
+                    if (line_we) begin
+                        pocket_sdram_line_rdata <= line_wdata;
+                        if (held_addr[24:3] == line_addr)
+                            held_valid <= 1'b0;
+                    end
                     state <= S_OPEN;
                 end else begin
                     if (!rd_pend && !w_avail && !line_pend)

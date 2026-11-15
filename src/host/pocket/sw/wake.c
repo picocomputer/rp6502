@@ -14,7 +14,6 @@
 
 #include "wake.h"
 
-#include "font.h"
 #include "main.h"
 #include "mmio.h"
 #include "fs.h"
@@ -51,8 +50,6 @@ void wake_task(void)
         main_wake_failed();
         return;
     }
-
-    font_restore();
 
     vga_restore();
     vid_restore();

@@ -20,14 +20,6 @@
 #define TB_STAGE_RAM_SIZE 0x00040000u
 #define TB_STAGE_WIN_BASE 0x03FA0000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
-#define TB_STAGE_FONT_BASE 0x03FE0000u
-#define TB_STAGE_FONT_SIZE 0x0000F000u
-#define TB_STAGE_OEMCP_BASE 0x03FEF000u
-#define TB_STAGE_OEMCP_SIZE 0x00002000u
-/* The Get File scratch window at 0x03FF1000, which is not a data slot,
- * lies between the code pages and this base. */
-#define TB_STAGE_KBDLAY_BASE 0x03FF2000u
-#define TB_STAGE_KBDLAY_SIZE 0x00004000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
                                                  std::vector<uint8_t> &v)
@@ -43,24 +35,6 @@ static const std::vector<uint8_t> &tb_stage_load(const char *path,
         v.insert(v.end(), buf, buf + n);
     fclose(f);
     return v;
-}
-
-static const std::vector<uint8_t> &tb_stage_fonts()
-{
-    static std::vector<uint8_t> v;
-    return tb_stage_load(FONTS_BIN, v);
-}
-
-static const std::vector<uint8_t> &tb_stage_oemcp()
-{
-    static std::vector<uint8_t> v;
-    return tb_stage_load(OEMCP_BIN, v);
-}
-
-static const std::vector<uint8_t> &tb_stage_kbdlay()
-{
-    static std::vector<uint8_t> v;
-    return tb_stage_load(KBDLAY_BIN, v);
 }
 
 /* Puts bytes straight into an SDRAM model's memory, which holds two bytes
@@ -129,27 +103,6 @@ static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
     std::map<uint32_t, uint8_t>::const_iterator it = m.find(addr);
     if (it != m.end())
         return it->second;
-    if (addr >= TB_STAGE_FONT_BASE
-        && addr < TB_STAGE_FONT_BASE + TB_STAGE_FONT_SIZE)
-    {
-        const std::vector<uint8_t> &fonts = tb_stage_fonts();
-        uint32_t i = addr - TB_STAGE_FONT_BASE;
-        return i < fonts.size() ? fonts[i] : 0;
-    }
-    if (addr >= TB_STAGE_OEMCP_BASE
-        && addr < TB_STAGE_OEMCP_BASE + TB_STAGE_OEMCP_SIZE)
-    {
-        const std::vector<uint8_t> &t = tb_stage_oemcp();
-        uint32_t i = addr - TB_STAGE_OEMCP_BASE;
-        return i < t.size() ? t[i] : 0;
-    }
-    if (addr >= TB_STAGE_KBDLAY_BASE
-        && addr < TB_STAGE_KBDLAY_BASE + TB_STAGE_KBDLAY_SIZE)
-    {
-        const std::vector<uint8_t> &t = tb_stage_kbdlay();
-        uint32_t i = addr - TB_STAGE_KBDLAY_BASE;
-        return i < t.size() ? t[i] : 0;
-    }
     if (addr >= TB_STAGE_ROM_BASE
         && addr - TB_STAGE_ROM_BASE < rom.size())
         return rom[addr - TB_STAGE_ROM_BASE];

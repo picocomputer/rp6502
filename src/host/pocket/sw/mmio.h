@@ -28,8 +28,8 @@
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.
- * stage_map_gate.py checks the ROM, RAM, savestate blob, asset and Get
- * File addresses against it. ROM_MAX is the ROM slot's size_maximum.
+ * stage_map_gate.py checks the ROM, RAM, savestate blob and Get File
+ * addresses against it. ROM_MAX is the ROM slot's size_maximum.
  * RAM_BRIDGE and RAM_MAX are the memory this firmware runs in, which the
  * host loads as firmware.bin and the soft CPU sees at address 0. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
@@ -45,11 +45,8 @@
     ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE))
 #define SLOT_WIN_BRIDGE(d) (0x03FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define FONTS ((volatile const uint8_t *)0x63FE0000u)
-#define OEMCP ((volatile const uint8_t *)0x63FEF000u)
 #define GETFILE_WIN ((volatile const uint8_t *)0x63FF1000u)
 #define GETFILE_BRIDGE 0x03FF1000u
-#define KBDLAY ((volatile const uint8_t *)0x63FF2000u)
 
 /* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
  * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN

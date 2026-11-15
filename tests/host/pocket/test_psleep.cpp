@@ -465,10 +465,6 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
     for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
         tick();
 
-    std::vector<uint8_t> fonts = read_file(FONTS_BIN);
-    host_put_bytes(TB_STAGE_FONT_BASE, fonts.data(), fonts.size());
-    std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
-    host_put_bytes(TB_STAGE_OEMCP_BASE, oemcp.data(), oemcp.size());
     host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
     dt_set(0, (uint32_t)rom.size());
     dut->rtc_epoch = 1000000000u;

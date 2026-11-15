@@ -201,11 +201,6 @@ core/str/str.c str_tab_EN: the linked table image and a parse buffer dead at eve
 core/str/str.c str_tab_FR: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tab_PL: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tabs: the linked table image and a parse buffer dead at every frame boundary
-core/str/unicode.c unicode_cp_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_cvt1_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_cvt2_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_page_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_pages: derived: a pure function of the linked table image, found lazily on first use
 core/sys/config.c config_depth: not carried: host settings, not machine state
 core/sys/config.c config_dirty: not carried: host settings, not machine state
 core/sys/config.c config_oem_code_page: not carried: host settings, not machine state

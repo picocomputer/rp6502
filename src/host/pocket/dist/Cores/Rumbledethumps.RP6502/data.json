@@ -78,35 +78,8 @@
         "address": "0x03FD8000"
       },
       {
-        "name": "Fonts",
-        "id": 9,
-        "required": true,
-        "parameters": "0x0",
-        "filename": "fonts.bin",
-        "size_exact": "61440",
-        "address": "0x03FE0000"
-      },
-      {
-        "name": "Code pages",
-        "id": 10,
-        "required": true,
-        "parameters": "0x0",
-        "filename": "oemcp.bin",
-        "size_exact": "5080",
-        "address": "0x03FEF000"
-      },
-      {
-        "name": "Keyboard layouts",
-        "id": 11,
-        "required": true,
-        "parameters": "0x0",
-        "filename": "keyboard.bin",
-        "size_exact": "8056",
-        "address": "0x03FF2000"
-      },
-      {
         "name": "Firmware",
-        "id": 12,
+        "id": 9,
         "required": true,
         "parameters": "0x0",
         "filename": "firmware.bin",

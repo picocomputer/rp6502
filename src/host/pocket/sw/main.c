@@ -9,7 +9,6 @@
 
 #include "apf.h"
 #include "cfg.h"
-#include "font.h"
 #include "main.h"
 #include "mmio.h"
 #include "fs.h"
@@ -27,7 +26,6 @@
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/com/manifold.h"
-#include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/layout.h"
